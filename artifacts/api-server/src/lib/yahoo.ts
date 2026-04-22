@@ -13,6 +13,7 @@ export interface YahooMeta {
   fiftyTwoWeekLow?: number;
   shortName?: string;
   longName?: string;
+  exchangeName?: string;
 }
 
 export interface YahooChart {
@@ -38,11 +39,14 @@ const RANGE_DAYS: Record<string, number> = {
   "2y": 740,
 };
 
-async function chartCall(ticker: string, range: string, interval: "1d" | "1wk" | "1mo"): Promise<YahooChart | null> {
+type Interval = "1m" | "5m" | "15m" | "30m" | "60m" | "1d" | "1wk" | "1mo";
+
+async function chartCall(ticker: string, range: string, interval: Interval): Promise<YahooChart | null> {
   const days = RANGE_DAYS[range] ?? 190;
   const period1 = new Date(Date.now() - days * 24 * 3600 * 1000);
   try {
-    const res = await yf.chart(ticker, { period1, interval });
+    // The library accepts "1m"/"5m" but typing of `chart` is permissive.
+    const res = await yf.chart(ticker, { period1, interval: interval as never });
     if (!res?.meta || !res.quotes?.length) return null;
     const open: number[] = [];
     const high: number[] = [];
@@ -71,10 +75,11 @@ async function chartCall(ticker: string, range: string, interval: "1d" | "1wk" |
       fiftyTwoWeekLow: res.meta.fiftyTwoWeekLow,
       shortName: res.meta.shortName,
       longName: res.meta.longName,
+      exchangeName: res.meta.exchangeName,
     };
     return { symbol: ticker, meta, timestamps, open, high, low, close, volume };
   } catch (err) {
-    logger.warn({ err: (err as Error).message, ticker, range }, "Yahoo chart failed");
+    logger.warn({ err: (err as Error).message, ticker, range, interval }, "Yahoo chart failed");
     return null;
   }
 }
@@ -83,8 +88,9 @@ export async function fetchChart(
   symbol: string,
   range: "1d" | "5d" | "1mo" | "3mo" | "6mo" | "1y" | "2y" = "6mo",
   interval: "1d" | "1wk" | "1mo" = "1d",
+  exchange: "NS" | "BO" = "NS",
 ): Promise<YahooChart | null> {
-  const ticker = `${symbol}.NS`;
+  const ticker = `${symbol}.${exchange}`;
   const r = await chartCall(ticker, range, interval);
   if (r) return { ...r, symbol };
   return null;
@@ -92,4 +98,13 @@ export async function fetchChart(
 
 export async function fetchIndexChart(yahooSymbol: string): Promise<YahooChart | null> {
   return chartCall(yahooSymbol, "5d", "1d");
+}
+
+/** Fetch intraday bars (most recent session) for an index or stock symbol. */
+export async function fetchIntraday(
+  yahooSymbol: string,
+  interval: "5m" | "15m" | "30m" | "60m" = "15m",
+  range: "1d" | "5d" = "5d",
+): Promise<YahooChart | null> {
+  return chartCall(yahooSymbol, range, interval);
 }

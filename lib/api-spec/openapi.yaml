@@ -13,6 +13,7 @@ tags:
   - name: sectors
   - name: stocks
   - name: scan
+  - name: options
   - name: news
 paths:
   /healthz:
@@ -31,13 +32,37 @@ paths:
     get:
       operationId: getMarketSummary
       tags: [market]
-      summary: Market indices snapshot (NIFTY 50, BANK NIFTY, etc.)
+      summary: Indian market indices snapshot
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MarketSummary" }
+
+  /market/global:
+    get:
+      operationId: getGlobalIndices
+      tags: [market]
+      summary: Global indices including GIFT NIFTY for pre-market read
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalMarket" }
+
+  /market/trend:
+    get:
+      operationId: getMarketTrend
+      tags: [market]
+      summary: Overall market trend (breadth + index alignment)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketTrend" }
 
   /sectors:
     get:
@@ -148,6 +173,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TopScans" }
 
+  /options/signals:
+    get:
+      operationId: getOptionSignals
+      tags: [options]
+      summary: Index option (CALL/PUT) buy/sell setups with entry/SL/target
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionSignalSet" }
+
   /news:
     get:
       operationId: getNews
@@ -184,6 +221,7 @@ components:
       properties:
         symbol: { type: string }
         name: { type: string }
+        exchange: { type: string }
         price: { type: number }
         change: { type: number }
         changePercent: { type: number }
@@ -196,21 +234,35 @@ components:
         marketCap: { type: number }
         dayRange: { type: string }
         yearRange: { type: string }
+        fiftyTwoWeekHigh: { type: number }
+        fiftyTwoWeekLow: { type: number }
         updatedAt: { type: string, format: date-time }
 
     Indicators:
       type: object
       required: [ema20, ema50, rsi14]
       properties:
+        ema9: { type: number }
+        ema21: { type: number }
         ema20: { type: number }
         ema50: { type: number }
+        ema100: { type: number }
+        ema200: { type: number }
+        vwap: { type: number, description: "Daily intraday VWAP if available, else rolling proxy" }
         rsi14: { type: number }
+        macd: { type: number }
+        macdSignal: { type: number }
+        macdHist: { type: number }
         atr14: { type: number }
+        adx14: { type: number }
         volumeRatio: { type: number, description: "current volume / 20-day average" }
         deliveryPct: { type: number, description: "estimated delivery percentage" }
         trendStrength: { type: number, description: "0-100" }
         supportLevel: { type: number }
         resistanceLevel: { type: number }
+        pivot: { type: number }
+        r1: { type: number }
+        s1: { type: number }
         valueAreaHigh: { type: number }
         valueAreaLow: { type: number }
         pointOfControl: { type: number }
@@ -231,8 +283,10 @@ components:
         signal: { $ref: "#/components/schemas/Signal" }
         score: { type: number, description: "-100 to 100" }
         confidence: { type: number, description: "0 to 100" }
+        timeframe: { type: string, description: "e.g. swing, intraday, positional" }
         target: { type: number }
         stopLoss: { type: number }
+        riskRewardRatio: { type: number }
         reasons:
           type: array
           items: { $ref: "#/components/schemas/SignalReason" }
@@ -375,9 +429,15 @@ components:
       properties:
         symbol: { type: string }
         name: { type: string }
+        region: { type: string }
         price: { type: number }
         change: { type: number }
         changePercent: { type: number }
+        trend: { type: string, enum: [bullish, bearish, neutral] }
+        vwap: { type: number }
+        ema9: { type: number }
+        ema21: { type: number }
+        rsi14: { type: number }
 
     MarketSummary:
       type: object
@@ -393,6 +453,88 @@ components:
           type: string
           enum: [open, closed, pre_open]
         lastUpdated: { type: string, format: date-time }
+
+    GlobalMarket:
+      type: object
+      required: [indices, lastUpdated]
+      properties:
+        indices:
+          type: array
+          items: { $ref: "#/components/schemas/IndexQuote" }
+        lastUpdated: { type: string, format: date-time }
+
+    MarketTrend:
+      type: object
+      required: [bias, score, breadth, headline, drivers, lastUpdated]
+      properties:
+        bias: { type: string, enum: [STRONG_BULLISH, BULLISH, NEUTRAL, BEARISH, STRONG_BEARISH] }
+        score: { type: number, description: "-100 to 100" }
+        headline: { type: string }
+        breadth:
+          type: object
+          required: [advancers, decliners]
+          properties:
+            advancers: { type: integer }
+            decliners: { type: integer }
+            unchanged: { type: integer }
+            advanceDeclineRatio: { type: number }
+        drivers:
+          type: array
+          items: { $ref: "#/components/schemas/SignalReason" }
+        sectorLeaders:
+          type: array
+          items: { $ref: "#/components/schemas/SectorSummary" }
+        sectorLaggards:
+          type: array
+          items: { $ref: "#/components/schemas/SectorSummary" }
+        lastUpdated: { type: string, format: date-time }
+
+    OptionLeg:
+      type: object
+      required: [type, strike, action, entry, stopLoss, target1]
+      properties:
+        type: { type: string, enum: [CALL, PUT] }
+        strike: { type: number }
+        action: { type: string, enum: [BUY, SELL] }
+        expiry: { type: string }
+        entry: { type: number, description: "Suggested premium / spot trigger" }
+        stopLoss: { type: number }
+        target1: { type: number }
+        target2: { type: number }
+        riskRewardRatio: { type: number }
+
+    OptionSignal:
+      type: object
+      required: [index, indexName, spot, bias, confidence, leg, drivers, generatedAt]
+      properties:
+        index: { type: string }
+        indexName: { type: string }
+        spot: { type: number }
+        spotChangePercent: { type: number }
+        bias: { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
+        confidence: { type: number }
+        timeframe: { type: string, description: "e.g. intraday-15m" }
+        vwap: { type: number }
+        ema9: { type: number }
+        ema21: { type: number }
+        valueAreaHigh: { type: number }
+        valueAreaLow: { type: number }
+        pointOfControl: { type: number }
+        leg: { $ref: "#/components/schemas/OptionLeg" }
+        drivers:
+          type: array
+          items: { $ref: "#/components/schemas/SignalReason" }
+        invalidation: { type: string }
+        generatedAt: { type: string, format: date-time }
+
+    OptionSignalSet:
+      type: object
+      required: [signals, generatedAt]
+      properties:
+        signals:
+          type: array
+          items: { $ref: "#/components/schemas/OptionSignal" }
+        generatedAt: { type: string, format: date-time }
 
     TopScans:
       type: object

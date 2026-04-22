@@ -15,22 +15,284 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
- * @summary Market indices snapshot (NIFTY 50, BANK NIFTY, etc.)
+ * @summary Indian market indices snapshot
  */
 export const GetMarketSummaryResponse = zod.object({
   indices: zod.array(
     zod.object({
       symbol: zod.string(),
       name: zod.string(),
+      region: zod.string().optional(),
       price: zod.number(),
       change: zod.number(),
       changePercent: zod.number(),
+      trend: zod.enum(["bullish", "bearish", "neutral"]).optional(),
+      vwap: zod.number().optional(),
+      ema9: zod.number().optional(),
+      ema21: zod.number().optional(),
+      rsi14: zod.number().optional(),
     }),
   ),
   advancers: zod.number(),
   decliners: zod.number(),
   unchanged: zod.number(),
   marketStatus: zod.enum(["open", "closed", "pre_open"]).optional(),
+  lastUpdated: zod.coerce.date(),
+});
+
+/**
+ * @summary Global indices including GIFT NIFTY for pre-market read
+ */
+export const GetGlobalIndicesResponse = zod.object({
+  indices: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      name: zod.string(),
+      region: zod.string().optional(),
+      price: zod.number(),
+      change: zod.number(),
+      changePercent: zod.number(),
+      trend: zod.enum(["bullish", "bearish", "neutral"]).optional(),
+      vwap: zod.number().optional(),
+      ema9: zod.number().optional(),
+      ema21: zod.number().optional(),
+      rsi14: zod.number().optional(),
+    }),
+  ),
+  lastUpdated: zod.coerce.date(),
+});
+
+/**
+ * @summary Overall market trend (breadth + index alignment)
+ */
+export const GetMarketTrendResponse = zod.object({
+  bias: zod.enum([
+    "STRONG_BULLISH",
+    "BULLISH",
+    "NEUTRAL",
+    "BEARISH",
+    "STRONG_BEARISH",
+  ]),
+  score: zod.number().describe("-100 to 100"),
+  headline: zod.string(),
+  breadth: zod.object({
+    advancers: zod.number(),
+    decliners: zod.number(),
+    unchanged: zod.number().optional(),
+    advanceDeclineRatio: zod.number().optional(),
+  }),
+  drivers: zod.array(
+    zod.object({
+      label: zod.string(),
+      detail: zod.string().optional(),
+      weight: zod.number(),
+      bullish: zod.boolean(),
+    }),
+  ),
+  sectorLeaders: zod
+    .array(
+      zod.object({
+        sector: zod.string(),
+        stockCount: zod.number(),
+        avgScore: zod.number(),
+        avgChangePercent: zod.number().optional(),
+        gainers: zod.number(),
+        losers: zod.number(),
+        topPick: zod.object({
+          symbol: zod.string(),
+          name: zod.string(),
+          sector: zod.string(),
+          quote: zod.object({
+            symbol: zod.string(),
+            name: zod.string().optional(),
+            exchange: zod.string().optional(),
+            price: zod.number(),
+            change: zod.number(),
+            changePercent: zod.number(),
+            open: zod.number(),
+            high: zod.number(),
+            low: zod.number(),
+            previousClose: zod.number(),
+            volume: zod.number(),
+            avgVolume: zod.number().optional(),
+            marketCap: zod.number().optional(),
+            dayRange: zod.string().optional(),
+            yearRange: zod.string().optional(),
+            fiftyTwoWeekHigh: zod.number().optional(),
+            fiftyTwoWeekLow: zod.number().optional(),
+            updatedAt: zod.coerce.date(),
+          }),
+          indicators: zod
+            .object({
+              ema9: zod.number().optional(),
+              ema21: zod.number().optional(),
+              ema20: zod.number(),
+              ema50: zod.number(),
+              ema100: zod.number().optional(),
+              ema200: zod.number().optional(),
+              vwap: zod
+                .number()
+                .optional()
+                .describe(
+                  "Daily intraday VWAP if available, else rolling proxy",
+                ),
+              rsi14: zod.number(),
+              macd: zod.number().optional(),
+              macdSignal: zod.number().optional(),
+              macdHist: zod.number().optional(),
+              atr14: zod.number().optional(),
+              adx14: zod.number().optional(),
+              volumeRatio: zod
+                .number()
+                .optional()
+                .describe("current volume \/ 20-day average"),
+              deliveryPct: zod
+                .number()
+                .optional()
+                .describe("estimated delivery percentage"),
+              trendStrength: zod.number().optional().describe("0-100"),
+              supportLevel: zod.number().optional(),
+              resistanceLevel: zod.number().optional(),
+              pivot: zod.number().optional(),
+              r1: zod.number().optional(),
+              s1: zod.number().optional(),
+              valueAreaHigh: zod.number().optional(),
+              valueAreaLow: zod.number().optional(),
+              pointOfControl: zod.number().optional(),
+            })
+            .optional(),
+          recommendation: zod.object({
+            signal: zod.enum([
+              "STRONG_BUY",
+              "BUY",
+              "NEUTRAL",
+              "SELL",
+              "STRONG_SELL",
+            ]),
+            score: zod.number().describe("-100 to 100"),
+            confidence: zod.number().describe("0 to 100"),
+            timeframe: zod
+              .string()
+              .optional()
+              .describe("e.g. swing, intraday, positional"),
+            target: zod.number().optional(),
+            stopLoss: zod.number().optional(),
+            riskRewardRatio: zod.number().optional(),
+            reasons: zod.array(
+              zod.object({
+                label: zod.string(),
+                detail: zod.string().optional(),
+                weight: zod.number(),
+                bullish: zod.boolean(),
+              }),
+            ),
+          }),
+        }),
+      }),
+    )
+    .optional(),
+  sectorLaggards: zod
+    .array(
+      zod.object({
+        sector: zod.string(),
+        stockCount: zod.number(),
+        avgScore: zod.number(),
+        avgChangePercent: zod.number().optional(),
+        gainers: zod.number(),
+        losers: zod.number(),
+        topPick: zod.object({
+          symbol: zod.string(),
+          name: zod.string(),
+          sector: zod.string(),
+          quote: zod.object({
+            symbol: zod.string(),
+            name: zod.string().optional(),
+            exchange: zod.string().optional(),
+            price: zod.number(),
+            change: zod.number(),
+            changePercent: zod.number(),
+            open: zod.number(),
+            high: zod.number(),
+            low: zod.number(),
+            previousClose: zod.number(),
+            volume: zod.number(),
+            avgVolume: zod.number().optional(),
+            marketCap: zod.number().optional(),
+            dayRange: zod.string().optional(),
+            yearRange: zod.string().optional(),
+            fiftyTwoWeekHigh: zod.number().optional(),
+            fiftyTwoWeekLow: zod.number().optional(),
+            updatedAt: zod.coerce.date(),
+          }),
+          indicators: zod
+            .object({
+              ema9: zod.number().optional(),
+              ema21: zod.number().optional(),
+              ema20: zod.number(),
+              ema50: zod.number(),
+              ema100: zod.number().optional(),
+              ema200: zod.number().optional(),
+              vwap: zod
+                .number()
+                .optional()
+                .describe(
+                  "Daily intraday VWAP if available, else rolling proxy",
+                ),
+              rsi14: zod.number(),
+              macd: zod.number().optional(),
+              macdSignal: zod.number().optional(),
+              macdHist: zod.number().optional(),
+              atr14: zod.number().optional(),
+              adx14: zod.number().optional(),
+              volumeRatio: zod
+                .number()
+                .optional()
+                .describe("current volume \/ 20-day average"),
+              deliveryPct: zod
+                .number()
+                .optional()
+                .describe("estimated delivery percentage"),
+              trendStrength: zod.number().optional().describe("0-100"),
+              supportLevel: zod.number().optional(),
+              resistanceLevel: zod.number().optional(),
+              pivot: zod.number().optional(),
+              r1: zod.number().optional(),
+              s1: zod.number().optional(),
+              valueAreaHigh: zod.number().optional(),
+              valueAreaLow: zod.number().optional(),
+              pointOfControl: zod.number().optional(),
+            })
+            .optional(),
+          recommendation: zod.object({
+            signal: zod.enum([
+              "STRONG_BUY",
+              "BUY",
+              "NEUTRAL",
+              "SELL",
+              "STRONG_SELL",
+            ]),
+            score: zod.number().describe("-100 to 100"),
+            confidence: zod.number().describe("0 to 100"),
+            timeframe: zod
+              .string()
+              .optional()
+              .describe("e.g. swing, intraday, positional"),
+            target: zod.number().optional(),
+            stopLoss: zod.number().optional(),
+            riskRewardRatio: zod.number().optional(),
+            reasons: zod.array(
+              zod.object({
+                label: zod.string(),
+                detail: zod.string().optional(),
+                weight: zod.number(),
+                bullish: zod.boolean(),
+              }),
+            ),
+          }),
+        }),
+      }),
+    )
+    .optional(),
   lastUpdated: zod.coerce.date(),
 });
 
@@ -51,6 +313,7 @@ export const ListSectorsResponseItem = zod.object({
     quote: zod.object({
       symbol: zod.string(),
       name: zod.string().optional(),
+      exchange: zod.string().optional(),
       price: zod.number(),
       change: zod.number(),
       changePercent: zod.number(),
@@ -63,14 +326,28 @@ export const ListSectorsResponseItem = zod.object({
       marketCap: zod.number().optional(),
       dayRange: zod.string().optional(),
       yearRange: zod.string().optional(),
+      fiftyTwoWeekHigh: zod.number().optional(),
+      fiftyTwoWeekLow: zod.number().optional(),
       updatedAt: zod.coerce.date(),
     }),
     indicators: zod
       .object({
+        ema9: zod.number().optional(),
+        ema21: zod.number().optional(),
         ema20: zod.number(),
         ema50: zod.number(),
+        ema100: zod.number().optional(),
+        ema200: zod.number().optional(),
+        vwap: zod
+          .number()
+          .optional()
+          .describe("Daily intraday VWAP if available, else rolling proxy"),
         rsi14: zod.number(),
+        macd: zod.number().optional(),
+        macdSignal: zod.number().optional(),
+        macdHist: zod.number().optional(),
         atr14: zod.number().optional(),
+        adx14: zod.number().optional(),
         volumeRatio: zod
           .number()
           .optional()
@@ -82,6 +359,9 @@ export const ListSectorsResponseItem = zod.object({
         trendStrength: zod.number().optional().describe("0-100"),
         supportLevel: zod.number().optional(),
         resistanceLevel: zod.number().optional(),
+        pivot: zod.number().optional(),
+        r1: zod.number().optional(),
+        s1: zod.number().optional(),
         valueAreaHigh: zod.number().optional(),
         valueAreaLow: zod.number().optional(),
         pointOfControl: zod.number().optional(),
@@ -91,8 +371,13 @@ export const ListSectorsResponseItem = zod.object({
       signal: zod.enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"]),
       score: zod.number().describe("-100 to 100"),
       confidence: zod.number().describe("0 to 100"),
+      timeframe: zod
+        .string()
+        .optional()
+        .describe("e.g. swing, intraday, positional"),
       target: zod.number().optional(),
       stopLoss: zod.number().optional(),
+      riskRewardRatio: zod.number().optional(),
       reasons: zod.array(
         zod.object({
           label: zod.string(),
@@ -129,6 +414,7 @@ export const GetSectorResponse = zod.object({
       quote: zod.object({
         symbol: zod.string(),
         name: zod.string().optional(),
+        exchange: zod.string().optional(),
         price: zod.number(),
         change: zod.number(),
         changePercent: zod.number(),
@@ -141,14 +427,28 @@ export const GetSectorResponse = zod.object({
         marketCap: zod.number().optional(),
         dayRange: zod.string().optional(),
         yearRange: zod.string().optional(),
+        fiftyTwoWeekHigh: zod.number().optional(),
+        fiftyTwoWeekLow: zod.number().optional(),
         updatedAt: zod.coerce.date(),
       }),
       indicators: zod
         .object({
+          ema9: zod.number().optional(),
+          ema21: zod.number().optional(),
           ema20: zod.number(),
           ema50: zod.number(),
+          ema100: zod.number().optional(),
+          ema200: zod.number().optional(),
+          vwap: zod
+            .number()
+            .optional()
+            .describe("Daily intraday VWAP if available, else rolling proxy"),
           rsi14: zod.number(),
+          macd: zod.number().optional(),
+          macdSignal: zod.number().optional(),
+          macdHist: zod.number().optional(),
           atr14: zod.number().optional(),
+          adx14: zod.number().optional(),
           volumeRatio: zod
             .number()
             .optional()
@@ -160,6 +460,9 @@ export const GetSectorResponse = zod.object({
           trendStrength: zod.number().optional().describe("0-100"),
           supportLevel: zod.number().optional(),
           resistanceLevel: zod.number().optional(),
+          pivot: zod.number().optional(),
+          r1: zod.number().optional(),
+          s1: zod.number().optional(),
           valueAreaHigh: zod.number().optional(),
           valueAreaLow: zod.number().optional(),
           pointOfControl: zod.number().optional(),
@@ -175,8 +478,13 @@ export const GetSectorResponse = zod.object({
         ]),
         score: zod.number().describe("-100 to 100"),
         confidence: zod.number().describe("0 to 100"),
+        timeframe: zod
+          .string()
+          .optional()
+          .describe("e.g. swing, intraday, positional"),
         target: zod.number().optional(),
         stopLoss: zod.number().optional(),
+        riskRewardRatio: zod.number().optional(),
         reasons: zod.array(
           zod.object({
             label: zod.string(),
@@ -196,6 +504,7 @@ export const GetSectorResponse = zod.object({
       quote: zod.object({
         symbol: zod.string(),
         name: zod.string().optional(),
+        exchange: zod.string().optional(),
         price: zod.number(),
         change: zod.number(),
         changePercent: zod.number(),
@@ -208,14 +517,28 @@ export const GetSectorResponse = zod.object({
         marketCap: zod.number().optional(),
         dayRange: zod.string().optional(),
         yearRange: zod.string().optional(),
+        fiftyTwoWeekHigh: zod.number().optional(),
+        fiftyTwoWeekLow: zod.number().optional(),
         updatedAt: zod.coerce.date(),
       }),
       indicators: zod
         .object({
+          ema9: zod.number().optional(),
+          ema21: zod.number().optional(),
           ema20: zod.number(),
           ema50: zod.number(),
+          ema100: zod.number().optional(),
+          ema200: zod.number().optional(),
+          vwap: zod
+            .number()
+            .optional()
+            .describe("Daily intraday VWAP if available, else rolling proxy"),
           rsi14: zod.number(),
+          macd: zod.number().optional(),
+          macdSignal: zod.number().optional(),
+          macdHist: zod.number().optional(),
           atr14: zod.number().optional(),
+          adx14: zod.number().optional(),
           volumeRatio: zod
             .number()
             .optional()
@@ -227,6 +550,9 @@ export const GetSectorResponse = zod.object({
           trendStrength: zod.number().optional().describe("0-100"),
           supportLevel: zod.number().optional(),
           resistanceLevel: zod.number().optional(),
+          pivot: zod.number().optional(),
+          r1: zod.number().optional(),
+          s1: zod.number().optional(),
           valueAreaHigh: zod.number().optional(),
           valueAreaLow: zod.number().optional(),
           pointOfControl: zod.number().optional(),
@@ -242,8 +568,13 @@ export const GetSectorResponse = zod.object({
         ]),
         score: zod.number().describe("-100 to 100"),
         confidence: zod.number().describe("0 to 100"),
+        timeframe: zod
+          .string()
+          .optional()
+          .describe("e.g. swing, intraday, positional"),
         target: zod.number().optional(),
         stopLoss: zod.number().optional(),
+        riskRewardRatio: zod.number().optional(),
         reasons: zod.array(
           zod.object({
             label: zod.string(),
@@ -275,6 +606,7 @@ export const ListStocksResponseItem = zod.object({
   quote: zod.object({
     symbol: zod.string(),
     name: zod.string().optional(),
+    exchange: zod.string().optional(),
     price: zod.number(),
     change: zod.number(),
     changePercent: zod.number(),
@@ -287,14 +619,28 @@ export const ListStocksResponseItem = zod.object({
     marketCap: zod.number().optional(),
     dayRange: zod.string().optional(),
     yearRange: zod.string().optional(),
+    fiftyTwoWeekHigh: zod.number().optional(),
+    fiftyTwoWeekLow: zod.number().optional(),
     updatedAt: zod.coerce.date(),
   }),
   indicators: zod
     .object({
+      ema9: zod.number().optional(),
+      ema21: zod.number().optional(),
       ema20: zod.number(),
       ema50: zod.number(),
+      ema100: zod.number().optional(),
+      ema200: zod.number().optional(),
+      vwap: zod
+        .number()
+        .optional()
+        .describe("Daily intraday VWAP if available, else rolling proxy"),
       rsi14: zod.number(),
+      macd: zod.number().optional(),
+      macdSignal: zod.number().optional(),
+      macdHist: zod.number().optional(),
       atr14: zod.number().optional(),
+      adx14: zod.number().optional(),
       volumeRatio: zod
         .number()
         .optional()
@@ -306,6 +652,9 @@ export const ListStocksResponseItem = zod.object({
       trendStrength: zod.number().optional().describe("0-100"),
       supportLevel: zod.number().optional(),
       resistanceLevel: zod.number().optional(),
+      pivot: zod.number().optional(),
+      r1: zod.number().optional(),
+      s1: zod.number().optional(),
       valueAreaHigh: zod.number().optional(),
       valueAreaLow: zod.number().optional(),
       pointOfControl: zod.number().optional(),
@@ -315,8 +664,13 @@ export const ListStocksResponseItem = zod.object({
     signal: zod.enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"]),
     score: zod.number().describe("-100 to 100"),
     confidence: zod.number().describe("0 to 100"),
+    timeframe: zod
+      .string()
+      .optional()
+      .describe("e.g. swing, intraday, positional"),
     target: zod.number().optional(),
     stopLoss: zod.number().optional(),
+    riskRewardRatio: zod.number().optional(),
     reasons: zod.array(
       zod.object({
         label: zod.string(),
@@ -350,6 +704,7 @@ export const GetStockDetailResponse = zod.object({
   quote: zod.object({
     symbol: zod.string(),
     name: zod.string().optional(),
+    exchange: zod.string().optional(),
     price: zod.number(),
     change: zod.number(),
     changePercent: zod.number(),
@@ -362,13 +717,27 @@ export const GetStockDetailResponse = zod.object({
     marketCap: zod.number().optional(),
     dayRange: zod.string().optional(),
     yearRange: zod.string().optional(),
+    fiftyTwoWeekHigh: zod.number().optional(),
+    fiftyTwoWeekLow: zod.number().optional(),
     updatedAt: zod.coerce.date(),
   }),
   indicators: zod.object({
+    ema9: zod.number().optional(),
+    ema21: zod.number().optional(),
     ema20: zod.number(),
     ema50: zod.number(),
+    ema100: zod.number().optional(),
+    ema200: zod.number().optional(),
+    vwap: zod
+      .number()
+      .optional()
+      .describe("Daily intraday VWAP if available, else rolling proxy"),
     rsi14: zod.number(),
+    macd: zod.number().optional(),
+    macdSignal: zod.number().optional(),
+    macdHist: zod.number().optional(),
     atr14: zod.number().optional(),
+    adx14: zod.number().optional(),
     volumeRatio: zod
       .number()
       .optional()
@@ -380,6 +749,9 @@ export const GetStockDetailResponse = zod.object({
     trendStrength: zod.number().optional().describe("0-100"),
     supportLevel: zod.number().optional(),
     resistanceLevel: zod.number().optional(),
+    pivot: zod.number().optional(),
+    r1: zod.number().optional(),
+    s1: zod.number().optional(),
     valueAreaHigh: zod.number().optional(),
     valueAreaLow: zod.number().optional(),
     pointOfControl: zod.number().optional(),
@@ -388,8 +760,13 @@ export const GetStockDetailResponse = zod.object({
     signal: zod.enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"]),
     score: zod.number().describe("-100 to 100"),
     confidence: zod.number().describe("0 to 100"),
+    timeframe: zod
+      .string()
+      .optional()
+      .describe("e.g. swing, intraday, positional"),
     target: zod.number().optional(),
     stopLoss: zod.number().optional(),
+    riskRewardRatio: zod.number().optional(),
     reasons: zod.array(
       zod.object({
         label: zod.string(),
@@ -477,6 +854,7 @@ export const GetTopScansResponse = zod.object({
       quote: zod.object({
         symbol: zod.string(),
         name: zod.string().optional(),
+        exchange: zod.string().optional(),
         price: zod.number(),
         change: zod.number(),
         changePercent: zod.number(),
@@ -489,14 +867,28 @@ export const GetTopScansResponse = zod.object({
         marketCap: zod.number().optional(),
         dayRange: zod.string().optional(),
         yearRange: zod.string().optional(),
+        fiftyTwoWeekHigh: zod.number().optional(),
+        fiftyTwoWeekLow: zod.number().optional(),
         updatedAt: zod.coerce.date(),
       }),
       indicators: zod
         .object({
+          ema9: zod.number().optional(),
+          ema21: zod.number().optional(),
           ema20: zod.number(),
           ema50: zod.number(),
+          ema100: zod.number().optional(),
+          ema200: zod.number().optional(),
+          vwap: zod
+            .number()
+            .optional()
+            .describe("Daily intraday VWAP if available, else rolling proxy"),
           rsi14: zod.number(),
+          macd: zod.number().optional(),
+          macdSignal: zod.number().optional(),
+          macdHist: zod.number().optional(),
           atr14: zod.number().optional(),
+          adx14: zod.number().optional(),
           volumeRatio: zod
             .number()
             .optional()
@@ -508,6 +900,9 @@ export const GetTopScansResponse = zod.object({
           trendStrength: zod.number().optional().describe("0-100"),
           supportLevel: zod.number().optional(),
           resistanceLevel: zod.number().optional(),
+          pivot: zod.number().optional(),
+          r1: zod.number().optional(),
+          s1: zod.number().optional(),
           valueAreaHigh: zod.number().optional(),
           valueAreaLow: zod.number().optional(),
           pointOfControl: zod.number().optional(),
@@ -523,8 +918,13 @@ export const GetTopScansResponse = zod.object({
         ]),
         score: zod.number().describe("-100 to 100"),
         confidence: zod.number().describe("0 to 100"),
+        timeframe: zod
+          .string()
+          .optional()
+          .describe("e.g. swing, intraday, positional"),
         target: zod.number().optional(),
         stopLoss: zod.number().optional(),
+        riskRewardRatio: zod.number().optional(),
         reasons: zod.array(
           zod.object({
             label: zod.string(),
@@ -544,6 +944,7 @@ export const GetTopScansResponse = zod.object({
       quote: zod.object({
         symbol: zod.string(),
         name: zod.string().optional(),
+        exchange: zod.string().optional(),
         price: zod.number(),
         change: zod.number(),
         changePercent: zod.number(),
@@ -556,14 +957,28 @@ export const GetTopScansResponse = zod.object({
         marketCap: zod.number().optional(),
         dayRange: zod.string().optional(),
         yearRange: zod.string().optional(),
+        fiftyTwoWeekHigh: zod.number().optional(),
+        fiftyTwoWeekLow: zod.number().optional(),
         updatedAt: zod.coerce.date(),
       }),
       indicators: zod
         .object({
+          ema9: zod.number().optional(),
+          ema21: zod.number().optional(),
           ema20: zod.number(),
           ema50: zod.number(),
+          ema100: zod.number().optional(),
+          ema200: zod.number().optional(),
+          vwap: zod
+            .number()
+            .optional()
+            .describe("Daily intraday VWAP if available, else rolling proxy"),
           rsi14: zod.number(),
+          macd: zod.number().optional(),
+          macdSignal: zod.number().optional(),
+          macdHist: zod.number().optional(),
           atr14: zod.number().optional(),
+          adx14: zod.number().optional(),
           volumeRatio: zod
             .number()
             .optional()
@@ -575,6 +990,9 @@ export const GetTopScansResponse = zod.object({
           trendStrength: zod.number().optional().describe("0-100"),
           supportLevel: zod.number().optional(),
           resistanceLevel: zod.number().optional(),
+          pivot: zod.number().optional(),
+          r1: zod.number().optional(),
+          s1: zod.number().optional(),
           valueAreaHigh: zod.number().optional(),
           valueAreaLow: zod.number().optional(),
           pointOfControl: zod.number().optional(),
@@ -590,8 +1008,13 @@ export const GetTopScansResponse = zod.object({
         ]),
         score: zod.number().describe("-100 to 100"),
         confidence: zod.number().describe("0 to 100"),
+        timeframe: zod
+          .string()
+          .optional()
+          .describe("e.g. swing, intraday, positional"),
         target: zod.number().optional(),
         stopLoss: zod.number().optional(),
+        riskRewardRatio: zod.number().optional(),
         reasons: zod.array(
           zod.object({
             label: zod.string(),
@@ -601,6 +1024,51 @@ export const GetTopScansResponse = zod.object({
           }),
         ),
       }),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Index option (CALL/PUT) buy/sell setups with entry/SL/target
+ */
+export const GetOptionSignalsResponse = zod.object({
+  signals: zod.array(
+    zod.object({
+      index: zod.string(),
+      indexName: zod.string(),
+      spot: zod.number(),
+      spotChangePercent: zod.number().optional(),
+      bias: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]),
+      confidence: zod.number(),
+      timeframe: zod.string().optional().describe("e.g. intraday-15m"),
+      vwap: zod.number().optional(),
+      ema9: zod.number().optional(),
+      ema21: zod.number().optional(),
+      valueAreaHigh: zod.number().optional(),
+      valueAreaLow: zod.number().optional(),
+      pointOfControl: zod.number().optional(),
+      leg: zod.object({
+        type: zod.enum(["CALL", "PUT"]),
+        strike: zod.number(),
+        action: zod.enum(["BUY", "SELL"]),
+        expiry: zod.string().optional(),
+        entry: zod.number().describe("Suggested premium \/ spot trigger"),
+        stopLoss: zod.number(),
+        target1: zod.number(),
+        target2: zod.number().optional(),
+        riskRewardRatio: zod.number().optional(),
+      }),
+      drivers: zod.array(
+        zod.object({
+          label: zod.string(),
+          detail: zod.string().optional(),
+          weight: zod.number(),
+          bullish: zod.boolean(),
+        }),
+      ),
+      invalidation: zod.string().optional(),
+      generatedAt: zod.coerce.date(),
     }),
   ),
   generatedAt: zod.coerce.date(),

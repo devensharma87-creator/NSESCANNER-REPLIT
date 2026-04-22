@@ -9,6 +9,7 @@
 export interface Quote {
   symbol: string;
   name?: string;
+  exchange?: string;
   price: number;
   change: number;
   changePercent: number;
@@ -21,5 +22,7 @@ export interface Quote {
   marketCap?: number;
   dayRange?: string;
   yearRange?: string;
+  fiftyTwoWeekHigh?: number;
+  fiftyTwoWeekLow?: number;
   updatedAt: Date;
 }

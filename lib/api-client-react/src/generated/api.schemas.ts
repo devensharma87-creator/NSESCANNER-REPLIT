@@ -22,6 +22,7 @@ export const Signal = {
 export interface Quote {
   symbol: string;
   name?: string;
+  exchange?: string;
   price: number;
   change: number;
   changePercent: number;
@@ -34,14 +35,26 @@ export interface Quote {
   marketCap?: number;
   dayRange?: string;
   yearRange?: string;
+  fiftyTwoWeekHigh?: number;
+  fiftyTwoWeekLow?: number;
   updatedAt: string;
 }
 
 export interface Indicators {
+  ema9?: number;
+  ema21?: number;
   ema20: number;
   ema50: number;
+  ema100?: number;
+  ema200?: number;
+  /** Daily intraday VWAP if available, else rolling proxy */
+  vwap?: number;
   rsi14: number;
+  macd?: number;
+  macdSignal?: number;
+  macdHist?: number;
   atr14?: number;
+  adx14?: number;
   /** current volume / 20-day average */
   volumeRatio?: number;
   /** estimated delivery percentage */
@@ -50,6 +63,9 @@ export interface Indicators {
   trendStrength?: number;
   supportLevel?: number;
   resistanceLevel?: number;
+  pivot?: number;
+  r1?: number;
+  s1?: number;
   valueAreaHigh?: number;
   valueAreaLow?: number;
   pointOfControl?: number;
@@ -68,8 +84,11 @@ export interface Recommendation {
   score: number;
   /** 0 to 100 */
   confidence: number;
+  /** e.g. swing, intraday, positional */
+  timeframe?: string;
   target?: number;
   stopLoss?: number;
+  riskRewardRatio?: number;
   reasons: SignalReason[];
 }
 
@@ -174,12 +193,27 @@ export interface SectorDetail {
   stocks: StockRow[];
 }
 
+export type IndexQuoteTrend =
+  (typeof IndexQuoteTrend)[keyof typeof IndexQuoteTrend];
+
+export const IndexQuoteTrend = {
+  bullish: "bullish",
+  bearish: "bearish",
+  neutral: "neutral",
+} as const;
+
 export interface IndexQuote {
   symbol: string;
   name: string;
+  region?: string;
   price: number;
   change: number;
   changePercent: number;
+  trend?: IndexQuoteTrend;
+  vwap?: number;
+  ema9?: number;
+  ema21?: number;
+  rsi14?: number;
 }
 
 export type MarketSummaryMarketStatus =
@@ -198,6 +232,104 @@ export interface MarketSummary {
   unchanged: number;
   marketStatus?: MarketSummaryMarketStatus;
   lastUpdated: string;
+}
+
+export interface GlobalMarket {
+  indices: IndexQuote[];
+  lastUpdated: string;
+}
+
+export type MarketTrendBias =
+  (typeof MarketTrendBias)[keyof typeof MarketTrendBias];
+
+export const MarketTrendBias = {
+  STRONG_BULLISH: "STRONG_BULLISH",
+  BULLISH: "BULLISH",
+  NEUTRAL: "NEUTRAL",
+  BEARISH: "BEARISH",
+  STRONG_BEARISH: "STRONG_BEARISH",
+} as const;
+
+export type MarketTrendBreadth = {
+  advancers: number;
+  decliners: number;
+  unchanged?: number;
+  advanceDeclineRatio?: number;
+};
+
+export interface MarketTrend {
+  bias: MarketTrendBias;
+  /** -100 to 100 */
+  score: number;
+  headline: string;
+  breadth: MarketTrendBreadth;
+  drivers: SignalReason[];
+  sectorLeaders?: SectorSummary[];
+  sectorLaggards?: SectorSummary[];
+  lastUpdated: string;
+}
+
+export type OptionLegType = (typeof OptionLegType)[keyof typeof OptionLegType];
+
+export const OptionLegType = {
+  CALL: "CALL",
+  PUT: "PUT",
+} as const;
+
+export type OptionLegAction =
+  (typeof OptionLegAction)[keyof typeof OptionLegAction];
+
+export const OptionLegAction = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export interface OptionLeg {
+  type: OptionLegType;
+  strike: number;
+  action: OptionLegAction;
+  expiry?: string;
+  /** Suggested premium / spot trigger */
+  entry: number;
+  stopLoss: number;
+  target1: number;
+  target2?: number;
+  riskRewardRatio?: number;
+}
+
+export type OptionSignalBias =
+  (typeof OptionSignalBias)[keyof typeof OptionSignalBias];
+
+export const OptionSignalBias = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+export interface OptionSignal {
+  index: string;
+  indexName: string;
+  spot: number;
+  spotChangePercent?: number;
+  bias: OptionSignalBias;
+  confidence: number;
+  /** e.g. intraday-15m */
+  timeframe?: string;
+  vwap?: number;
+  ema9?: number;
+  ema21?: number;
+  valueAreaHigh?: number;
+  valueAreaLow?: number;
+  pointOfControl?: number;
+  leg: OptionLeg;
+  drivers: SignalReason[];
+  invalidation?: string;
+  generatedAt: string;
+}
+
+export interface OptionSignalSet {
+  signals: OptionSignal[];
+  generatedAt: string;
 }
 
 export interface TopScans {

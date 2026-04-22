@@ -284,9 +284,9 @@ export default function StockDetail() {
                     {financials.slice().reverse().map((f, i) => (
                       <TableRow key={i} className="border-border/50">
                         <TableCell className="font-mono text-sm">{f.period}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{f.revenue.toLocaleString("en-IN")}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{f.netProfit.toLocaleString("en-IN")}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{f.eps.toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono text-sm tabular-nums">{f.revenue?.toLocaleString("en-IN") ?? "—"}</TableCell>
+                        <TableCell className="text-right font-mono text-sm tabular-nums">{f.netProfit?.toLocaleString("en-IN") ?? "—"}</TableCell>
+                        <TableCell className="text-right font-mono text-sm tabular-nums">{f.eps?.toFixed(2) ?? "—"}</TableCell>
                         <TableCell className="text-right font-mono text-sm">{f.operatingMargin?.toFixed(1) ?? "—"}</TableCell>
                         <TableCell className="text-right font-mono text-sm">{f.netMargin?.toFixed(1) ?? "—"}</TableCell>
                       </TableRow>
@@ -317,10 +317,10 @@ export default function StockDetail() {
                     {holdings.slice().reverse().map((h, i) => (
                       <TableRow key={i} className="border-border/50">
                         <TableCell className="font-mono text-sm">{h.period}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{h.promoter.toFixed(1)}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{h.fii.toFixed(1)}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{h.dii.toFixed(1)}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{h.public.toFixed(1)}</TableCell>
+                        <TableCell className="text-right font-mono text-sm tabular-nums">{h.promoter?.toFixed(1) ?? "—"}</TableCell>
+                        <TableCell className="text-right font-mono text-sm tabular-nums">{h.fii?.toFixed(1) ?? "—"}</TableCell>
+                        <TableCell className="text-right font-mono text-sm tabular-nums">{h.dii?.toFixed(1) ?? "—"}</TableCell>
+                        <TableCell className="text-right font-mono text-sm tabular-nums">{h.public?.toFixed(1) ?? "—"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

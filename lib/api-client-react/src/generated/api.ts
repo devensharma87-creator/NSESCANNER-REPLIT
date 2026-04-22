@@ -16,10 +16,13 @@ import type {
 import type {
   GetNewsParams,
   GetStockHistoryParams,
+  GlobalMarket,
   HealthStatus,
   ListStocksParams,
   MarketSummary,
+  MarketTrend,
   NewsItem,
+  OptionSignalSet,
   SectorDetail,
   SectorSummary,
   StockDetail,
@@ -113,7 +116,7 @@ export function useHealthCheck<
 }
 
 /**
- * @summary Market indices snapshot (NIFTY 50, BANK NIFTY, etc.)
+ * @summary Indian market indices snapshot
  */
 export const getGetMarketSummaryUrl = () => {
   return `/api/market/summary`;
@@ -164,7 +167,7 @@ export type GetMarketSummaryQueryResult = NonNullable<
 export type GetMarketSummaryQueryError = ErrorType<unknown>;
 
 /**
- * @summary Market indices snapshot (NIFTY 50, BANK NIFTY, etc.)
+ * @summary Indian market indices snapshot
  */
 
 export function useGetMarketSummary<
@@ -179,6 +182,156 @@ export function useGetMarketSummary<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetMarketSummaryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Global indices including GIFT NIFTY for pre-market read
+ */
+export const getGetGlobalIndicesUrl = () => {
+  return `/api/market/global`;
+};
+
+export const getGlobalIndices = async (
+  options?: RequestInit,
+): Promise<GlobalMarket> => {
+  return customFetch<GlobalMarket>(getGetGlobalIndicesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetGlobalIndicesQueryKey = () => {
+  return [`/api/market/global`] as const;
+};
+
+export const getGetGlobalIndicesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGlobalIndices>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalIndices>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGlobalIndicesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGlobalIndices>>
+  > = ({ signal }) => getGlobalIndices({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalIndices>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGlobalIndicesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGlobalIndices>>
+>;
+export type GetGlobalIndicesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Global indices including GIFT NIFTY for pre-market read
+ */
+
+export function useGetGlobalIndices<
+  TData = Awaited<ReturnType<typeof getGlobalIndices>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalIndices>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGlobalIndicesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Overall market trend (breadth + index alignment)
+ */
+export const getGetMarketTrendUrl = () => {
+  return `/api/market/trend`;
+};
+
+export const getMarketTrend = async (
+  options?: RequestInit,
+): Promise<MarketTrend> => {
+  return customFetch<MarketTrend>(getGetMarketTrendUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMarketTrendQueryKey = () => {
+  return [`/api/market/trend`] as const;
+};
+
+export const getGetMarketTrendQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMarketTrend>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketTrend>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMarketTrendQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMarketTrend>>> = ({
+    signal,
+  }) => getMarketTrend({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketTrend>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMarketTrendQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMarketTrend>>
+>;
+export type GetMarketTrendQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Overall market trend (breadth + index alignment)
+ */
+
+export function useGetMarketTrend<
+  TData = Awaited<ReturnType<typeof getMarketTrend>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketTrend>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMarketTrendQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -705,6 +858,81 @@ export function useGetTopScans<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetTopScansQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Index option (CALL/PUT) buy/sell setups with entry/SL/target
+ */
+export const getGetOptionSignalsUrl = () => {
+  return `/api/options/signals`;
+};
+
+export const getOptionSignals = async (
+  options?: RequestInit,
+): Promise<OptionSignalSet> => {
+  return customFetch<OptionSignalSet>(getGetOptionSignalsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOptionSignalsQueryKey = () => {
+  return [`/api/options/signals`] as const;
+};
+
+export const getGetOptionSignalsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOptionSignals>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignals>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOptionSignalsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOptionSignals>>
+  > = ({ signal }) => getOptionSignals({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignals>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOptionSignalsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOptionSignals>>
+>;
+export type GetOptionSignalsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Index option (CALL/PUT) buy/sell setups with entry/SL/target
+ */
+
+export function useGetOptionSignals<
+  TData = Awaited<ReturnType<typeof getOptionSignals>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignals>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOptionSignalsQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

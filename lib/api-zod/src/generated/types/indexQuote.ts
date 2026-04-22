@@ -5,11 +5,18 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { IndexQuoteTrend } from "./indexQuoteTrend";
 
 export interface IndexQuote {
   symbol: string;
   name: string;
+  region?: string;
   price: number;
   change: number;
   changePercent: number;
+  trend?: IndexQuoteTrend;
+  vwap?: number;
+  ema9?: number;
+  ema21?: number;
+  rsi14?: number;
 }

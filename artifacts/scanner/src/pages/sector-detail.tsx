@@ -93,8 +93,8 @@ export default function SectorDetail() {
                         {s.quote.changePercent >= 0 ? <TrendingUp className="inline w-3 h-3 mr-0.5" /> : <TrendingDown className="inline w-3 h-3 mr-0.5" />}
                         {fmtPct(s.quote.changePercent)}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm">{s.indicators.rsi14.toFixed(1)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{s.indicators.volumeRatio?.toFixed(2) ?? "—"}×</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{s.indicators?.rsi14?.toFixed(1) ?? "—"}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{s.indicators?.volumeRatio?.toFixed(2) ?? "—"}×</TableCell>
                       <TableCell><ScoreBar score={s.recommendation.score} /></TableCell>
                       <TableCell className="text-right"><SignalBadge signal={s.recommendation.signal} /></TableCell>
                     </TableRow>

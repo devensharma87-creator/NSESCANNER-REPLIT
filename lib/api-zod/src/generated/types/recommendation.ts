@@ -14,7 +14,10 @@ export interface Recommendation {
   score: number;
   /** 0 to 100 */
   confidence: number;
+  /** e.g. swing, intraday, positional */
+  timeframe?: string;
   target?: number;
   stopLoss?: number;
+  riskRewardRatio?: number;
   reasons: SignalReason[];
 }

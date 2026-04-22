@@ -1,7 +1,8 @@
 import { Link, useLocation } from "wouter";
-import { Search, Activity, BookOpen, Layers } from "lucide-react";
+import { Search, Activity } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
+import GlobalStrip from "@/components/global-strip";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
@@ -32,6 +33,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link href="/" className={`transition-colors hover:text-foreground/80 ${location === "/" ? "text-foreground" : "text-foreground/60"}`}>
                 Dashboard
               </Link>
+              <Link href="/options" className={`transition-colors hover:text-foreground/80 ${location.startsWith("/options") ? "text-foreground" : "text-foreground/60"}`}>
+                Options
+              </Link>
               <Link href="/sectors" className={`transition-colors hover:text-foreground/80 ${location.startsWith("/sectors") ? "text-foreground" : "text-foreground/60"}`}>
                 Sectors
               </Link>
@@ -55,6 +59,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+      <GlobalStrip />
 
       <main className="flex-1">
         {children}

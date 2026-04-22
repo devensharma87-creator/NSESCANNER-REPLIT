@@ -1,7 +1,10 @@
 import { Router, type IRouter } from "express";
 import {
+  GetGlobalIndicesResponse,
   GetMarketSummaryResponse,
+  GetMarketTrendResponse,
   GetNewsResponse,
+  GetOptionSignalsResponse,
   GetSectorResponse,
   GetStockDetailResponse,
   GetStockHistoryResponse,
@@ -13,6 +16,9 @@ import { SECTORS, UNIVERSE, getEntry } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll } from "../lib/scanner";
 import { fetchIndexChart } from "../lib/yahoo";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
+import { getOptionSignals } from "../lib/optionSignals";
+import { getGlobalIndices } from "../lib/globalIndices";
+import { getMarketTrend } from "../lib/marketTrend";
 
 const router: IRouter = Router();
 
@@ -23,6 +29,7 @@ const INDEX_SYMBOLS: Array<{ yahoo: string; name: string; display: string }> = [
   { yahoo: "^CNXAUTO", name: "NIFTY AUTO", display: "NIFTY AUTO" },
   { yahoo: "^CNXPHARMA", name: "NIFTY PHARMA", display: "NIFTY PHARMA" },
   { yahoo: "^CNXFMCG", name: "NIFTY FMCG", display: "NIFTY FMCG" },
+  { yahoo: "^BSESN", name: "SENSEX", display: "SENSEX" },
 ];
 
 router.get("/market/summary", async (_req, res, next) => {
@@ -39,9 +46,11 @@ router.get("/market/summary", async (_req, res, next) => {
       return {
         symbol: i.yahoo,
         name: i.display,
+        region: "India",
         price: round2(price),
         change: round2(change),
         changePercent: round2(pct),
+        trend: change > 0 ? "bullish" as const : change < 0 ? "bearish" as const : "neutral" as const,
       };
     }));
     let advancers = 0, decliners = 0, unchanged = 0;
@@ -71,7 +80,37 @@ router.get("/market/summary", async (_req, res, next) => {
       decliners,
       unchanged,
       marketStatus,
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: new Date(),
+    });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/market/global", async (_req, res, next) => {
+  try {
+    const indices = await getGlobalIndices();
+    const data = GetGlobalIndicesResponse.parse({
+      indices,
+      lastUpdated: new Date(),
+    });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/market/trend", async (_req, res, next) => {
+  try {
+    const trend = await getMarketTrend();
+    const data = GetMarketTrendResponse.parse(trend);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/options/signals", async (_req, res, next) => {
+  try {
+    const signals = await getOptionSignals();
+    const data = GetOptionSignalsResponse.parse({
+      signals,
+      generatedAt: new Date(),
     });
     res.json(data);
   } catch (err) { next(err); }
@@ -211,7 +250,7 @@ router.get("/scan/top", async (_req, res, next) => {
     const data = GetTopScansResponse.parse({
       topBuys,
       topSells,
-      generatedAt: new Date().toISOString(),
+      generatedAt: new Date(),
     });
     res.json(data);
   } catch (err) { next(err); }
@@ -226,16 +265,11 @@ router.get("/news", (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
+function round2(n: number): number { return Math.round(n * 100) / 100; }
 
-// Warm cache on boot so first request is snappy.
 void scanAll().catch(() => undefined);
-// Refresh cache periodically.
 setInterval(() => { void scanAll().catch(() => undefined); }, 60 * 1000);
 
 export default router;
 
-// Also tell UNIVERSE imports they're used somewhere (safety).
 void UNIVERSE;

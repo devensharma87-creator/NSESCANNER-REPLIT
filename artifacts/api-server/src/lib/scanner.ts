@@ -1,7 +1,7 @@
 import type { Indicators, Quote, StockHistory, StockRow } from "@workspace/api-zod";
-import { UNIVERSE, getEntry, type UniverseEntry } from "./universe";
-import { fetchChart, type YahooChart } from "./yahoo";
-import { atr, avgVolume, ema, rsi, supportResistance, volumeProfile } from "./indicators";
+import { UNIVERSE, type UniverseEntry } from "./universe";
+import { fetchChart, fetchIntraday, type YahooChart } from "./yahoo";
+import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportResistance, volumeProfile, pivots } from "./indicators";
 import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
 
@@ -10,10 +10,13 @@ interface CachedHistory {
   chart: YahooChart;
 }
 
-const HISTORY_TTL_MS = 30 * 60 * 1000; // 30 min for chart history
-const SCAN_TTL_MS = 60 * 1000; // 60 sec for the full scan
+const HISTORY_TTL_MS = 30 * 60 * 1000;
+const SCAN_TTL_MS = 60 * 1000;
 
 const historyCache = new Map<string, CachedHistory>();
+const intradayVwapCache = new Map<string, { ts: number; vwap: number | null }>();
+const INTRADAY_TTL = 90 * 1000;
+
 let scanCache: { fetchedAt: number; rows: StockRow[] } | null = null;
 let scanInFlight: Promise<StockRow[]> | null = null;
 
@@ -27,6 +30,25 @@ export async function getHistory(
   const chart = await fetchChart(symbol, range);
   if (chart) historyCache.set(key, { fetchedAt: Date.now(), chart });
   return chart;
+}
+
+async function getIntradayVwap(symbol: string): Promise<number | null> {
+  const cached = intradayVwapCache.get(symbol);
+  if (cached && Date.now() - cached.ts < INTRADAY_TTL) return cached.vwap;
+  try {
+    const intra = await fetchIntraday(`${symbol}.NS`, "15m", "1d");
+    if (!intra || intra.close.length < 4) {
+      intradayVwapCache.set(symbol, { ts: Date.now(), vwap: null });
+      return null;
+    }
+    const vwapSeries = sessionVwap(intra.high, intra.low, intra.close, intra.volume);
+    const v = vwapSeries[vwapSeries.length - 1] ?? null;
+    intradayVwapCache.set(symbol, { ts: Date.now(), vwap: v });
+    return v;
+  } catch {
+    intradayVwapCache.set(symbol, { ts: Date.now(), vwap: null });
+    return null;
+  }
 }
 
 function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
@@ -46,6 +68,7 @@ function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
   return {
     symbol: entry.symbol,
     name: meta.longName ?? meta.shortName ?? entry.name,
+    exchange: meta.exchangeName ?? "NSE",
     price: round2(price),
     change: round2(change),
     changePercent: round2(changePct),
@@ -59,29 +82,52 @@ function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
     yearRange: meta.fiftyTwoWeekLow != null && meta.fiftyTwoWeekHigh != null
       ? `${round2(meta.fiftyTwoWeekLow)} - ${round2(meta.fiftyTwoWeekHigh)}`
       : undefined,
+    fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh != null ? round2(meta.fiftyTwoWeekHigh) : undefined,
+    fiftyTwoWeekLow: meta.fiftyTwoWeekLow != null ? round2(meta.fiftyTwoWeekLow) : undefined,
     updatedAt: new Date((meta.regularMarketTime ?? Date.now() / 1000) * 1000),
   };
 }
 
-function computeIndicators(chart: YahooChart, quote: Quote): {
+interface ComputedSeries {
   indicators: Indicators;
+  closes: number[];
+  ema9Series: (number | null)[];
+  ema21Series: (number | null)[];
   ema20Series: (number | null)[];
   ema50Series: (number | null)[];
   rsiSeries: (number | null)[];
-  closes: number[];
-} {
+  macdHistSeries: (number | null)[];
+}
+
+function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number | null): ComputedSeries {
   const closes = chart.close;
+  const ema9Series = ema(closes, 9);
+  const ema21Series = ema(closes, 21);
   const ema20Series = ema(closes, 20);
   const ema50Series = ema(closes, 50);
+  const ema100Series = ema(closes, 100);
+  const ema200Series = ema(closes, 200);
   const rsiSeries = rsi(closes, 14);
   const atrSeries = atr(chart.high, chart.low, closes, 14);
+  const adxSeries = adx(chart.high, chart.low, closes, 14);
+  const macdRes = macd(closes);
   const avgVol = avgVolume(chart.volume.slice(0, -1).filter(v => v > 0), 20);
   const volumeRatio = avgVol > 0 ? quote.volume / avgVol : 1;
   const sr = supportResistance(chart.high, chart.low, 40);
   const vp = volumeProfile(chart.high, chart.low, closes, chart.volume, 24, 60);
+  const vwap = intradayVwap ?? rollingVwap(chart.high, chart.low, closes, chart.volume, 20) ?? quote.price;
+
+  const dn = closes.length;
+  const prevH = dn >= 2 ? chart.high[dn - 2]! : chart.high[dn - 1] ?? quote.price;
+  const prevL = dn >= 2 ? chart.low[dn - 2]! : chart.low[dn - 1] ?? quote.price;
+  const prevC = dn >= 2 ? closes[dn - 2]! : closes[dn - 1] ?? quote.price;
+  const piv = pivots(prevH, prevL, prevC);
 
   const ema20Last = lastVal(ema20Series) ?? quote.price;
   const ema50Last = lastVal(ema50Series) ?? quote.price;
+  const ema100Last = lastVal(ema100Series) ?? ema50Last;
+  const ema200Last = lastVal(ema200Series) ?? ema50Last;
+
   let trendStrength = 50;
   if (ema20Last > ema50Last) trendStrength += 15;
   else if (ema20Last < ema50Last) trendStrength -= 15;
@@ -92,19 +138,34 @@ function computeIndicators(chart: YahooChart, quote: Quote): {
 
   return {
     closes,
+    ema9Series,
+    ema21Series,
     ema20Series,
     ema50Series,
     rsiSeries,
+    macdHistSeries: macdRes.hist,
     indicators: {
+      ema9: round2(lastVal(ema9Series) ?? quote.price),
+      ema21: round2(lastVal(ema21Series) ?? quote.price),
       ema20: round2(ema20Last),
       ema50: round2(ema50Last),
+      ema100: round2(ema100Last),
+      ema200: round2(ema200Last),
+      vwap: round2(vwap),
       rsi14: round2(lastVal(rsiSeries) ?? 50),
+      macd: round2(lastVal(macdRes.macd) ?? 0),
+      macdSignal: round2(lastVal(macdRes.signal) ?? 0),
+      macdHist: round2(lastVal(macdRes.hist) ?? 0),
       atr14: round2(lastVal(atrSeries) ?? 0),
+      adx14: round2(lastVal(adxSeries) ?? 0),
       volumeRatio: round2(volumeRatio),
       deliveryPct: round2(deliveryPct),
       trendStrength,
       supportLevel: round2(sr.support),
       resistanceLevel: round2(sr.resistance),
+      pivot: round2(piv.pivot),
+      r1: round2(piv.r1),
+      s1: round2(piv.s1),
       pointOfControl: vp ? round2(vp.pointOfControl) : undefined,
       valueAreaHigh: vp ? round2(vp.valueAreaHigh) : undefined,
       valueAreaLow: vp ? round2(vp.valueAreaLow) : undefined,
@@ -123,8 +184,6 @@ function deterministicNoise(seed: string, lo: number, hi: number): number {
 }
 
 function estimateDeliveryPct(quote: Quote): number {
-  // NSE delivery % isn't on Yahoo; we anchor a stable estimate to the symbol
-  // identity + price action so the value is sensible and consistent.
   const base = deterministicNoise(`${quote.symbol}-delv`, 38, 62);
   const moveBoost = Math.max(-10, Math.min(10, Math.abs(quote.changePercent) * -1.5));
   return Math.max(15, Math.min(85, base + moveBoost));
@@ -135,23 +194,25 @@ function lastVal(arr: (number | null)[]): number | null {
   return null;
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
+function round2(n: number): number { return Math.round(n * 100) / 100; }
 
 async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
   const chart = await getHistory(entry.symbol, "6mo");
   if (!chart || chart.close.length < 30) return null;
   const quote = quoteFromChart(entry, chart);
   if (!quote) return null;
-  const computed = computeIndicators(chart, quote);
+  const intraVwap = await getIntradayVwap(entry.symbol);
+  const computed = computeIndicators(chart, quote, intraVwap);
   const recommendation = buildRecommendation({
     quote,
     indicators: computed.indicators,
     closes: computed.closes,
+    ema9Series: computed.ema9Series,
+    ema21Series: computed.ema21Series,
     ema20Series: computed.ema20Series,
     ema50Series: computed.ema50Series,
     rsiSeries: computed.rsiSeries,
+    macdHistSeries: computed.macdHistSeries,
   });
   return {
     symbol: entry.symbol,
@@ -167,7 +228,6 @@ async function performScan(): Promise<StockRow[]> {
   const rows: StockRow[] = [];
   const start = Date.now();
   let nullCount = 0;
-  // Bounded concurrency to be polite to Yahoo
   const concurrency = 6;
   let cursor = 0;
   async function worker() {
@@ -198,7 +258,6 @@ export async function scanAll(): Promise<StockRow[]> {
       if (rows.length > 0) {
         scanCache = { fetchedAt: Date.now(), rows };
       } else if (scanCache) {
-        // Keep stale cache rather than serve nothing
         scanCache.fetchedAt = Date.now() - SCAN_TTL_MS + 15_000;
       }
       return scanCache?.rows ?? [];

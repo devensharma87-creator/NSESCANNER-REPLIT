@@ -10,6 +10,7 @@ import Sectors from "@/pages/sectors";
 import SectorDetail from "@/pages/sector-detail";
 import StockDetail from "@/pages/stock-detail";
 import News from "@/pages/news";
+import Options from "@/pages/options";
 
 const queryClient = new QueryClient();
 
@@ -17,6 +18,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/options" component={Options} />
       <Route path="/sectors" component={Sectors} />
       <Route path="/sectors/:sector" component={SectorDetail} />
       <Route path="/stock/:symbol" component={StockDetail} />
