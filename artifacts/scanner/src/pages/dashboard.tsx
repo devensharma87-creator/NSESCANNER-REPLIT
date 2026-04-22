@@ -61,13 +61,14 @@ export default function Dashboard() {
     query: { refetchInterval: 30000, queryKey: getListStocksQueryKey() },
   });
 
-  const { topGainers, topLosers } = useMemo(() => {
+  const { topGainers, topLosers, universeCount } = useMemo(() => {
     const list = (allStocks ?? []).filter(s => Number.isFinite(s.quote.changePercent));
     const sortedDesc = list.slice().sort((a, b) => b.quote.changePercent - a.quote.changePercent);
     const sortedAsc = list.slice().sort((a, b) => a.quote.changePercent - b.quote.changePercent);
     return {
       topGainers: sortedDesc.slice(0, 10),
       topLosers: sortedAsc.slice(0, 10),
+      universeCount: list.length,
     };
   }, [allStocks]);
 
@@ -86,7 +87,9 @@ export default function Dashboard() {
             <CardTitle className="text-base font-mono flex items-center gap-2">
               <Flame className="w-5 h-5 text-signal-strong-buy" /> TOP GAINERS — TODAY
             </CardTitle>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">by % change</span>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+              by % · full Nifty universe ({universeCount})
+            </span>
           </CardHeader>
           <CardContent>
             {stocksLoading ? <Skeleton className="h-72 w-full" /> : topGainers.length === 0 ? (
@@ -104,7 +107,9 @@ export default function Dashboard() {
             <CardTitle className="text-base font-mono flex items-center gap-2">
               <Snowflake className="w-5 h-5 text-signal-strong-sell" /> TOP LOSERS — TODAY
             </CardTitle>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">by % change</span>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+              by % · full Nifty universe ({universeCount})
+            </span>
           </CardHeader>
           <CardContent>
             {stocksLoading ? <Skeleton className="h-72 w-full" /> : topLosers.length === 0 ? (
