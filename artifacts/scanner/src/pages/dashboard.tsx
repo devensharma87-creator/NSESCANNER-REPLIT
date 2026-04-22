@@ -12,6 +12,8 @@ import { formatDistanceToNow } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import TrendCard from "@/components/trend-card";
 import MarketMoodGauge from "@/components/mmi-gauge";
+import MarketsTabs from "@/components/markets-tabs";
+import MarketsNewsCard from "@/components/markets-news-card";
 import type { StockRow } from "@workspace/api-client-react";
 
 function fmtIN(n: number) {
@@ -117,6 +119,12 @@ export default function Dashboard() {
         <div className="lg:col-span-2"><TrendCard /></div>
         <MarketMoodGauge />
       </div>
+
+      {/* Global Markets — tabbed by region (Google-Finance-style) */}
+      <MarketsTabs />
+
+      {/* Markets news — collapsible */}
+      <MarketsNewsCard />
 
       {/* Top Ideas */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
