@@ -1345,6 +1345,8 @@ export const GetFiiDiiResponse = zod.object({
           diiSell: zod.number(),
           diiNet: zod.number(),
           source: zod.string(),
+          niftyClose: zod.number().nullish(),
+          niftyChangePct: zod.number().nullish(),
         }),
       ),
     }),

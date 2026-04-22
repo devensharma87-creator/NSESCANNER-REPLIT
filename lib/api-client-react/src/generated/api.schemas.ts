@@ -546,6 +546,8 @@ export interface FiiDiiDay {
   diiSell: number;
   diiNet: number;
   source: string;
+  niftyClose?: number | null;
+  niftyChangePct?: number | null;
 }
 
 export interface FiiDiiMonth {

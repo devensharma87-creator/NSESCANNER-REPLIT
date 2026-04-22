@@ -812,6 +812,8 @@ components:
         diiSell: { type: number }
         diiNet:  { type: number }
         source:  { type: string }
+        niftyClose:     { type: number, nullable: true }
+        niftyChangePct: { type: number, nullable: true }
 
     FiiDiiMonth:
       type: object

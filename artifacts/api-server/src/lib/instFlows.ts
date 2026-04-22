@@ -345,6 +345,8 @@ export interface FiiDiiDayDto {
   diiSell: number;
   diiNet: number;
   source: string;
+  niftyClose?: number | null;
+  niftyChangePct?: number | null;
 }
 
 export interface FiiDiiMonthDto {
@@ -360,18 +362,47 @@ export interface FiiDiiMonthDto {
   days: FiiDiiDayDto[];
 }
 
+/* ── Nifty 50 daily close cache (for FII/DII chart overlay) ── */
+let _niftyCache: { ts: number; map: Map<string, { close: number; pct: number }> } | null = null;
+async function getNiftyCloseMap(): Promise<Map<string, { close: number; pct: number }>> {
+  const now = Date.now();
+  if (_niftyCache && now - _niftyCache.ts < 30 * 60 * 1000) return _niftyCache.map;
+  const map = new Map<string, { close: number; pct: number }>();
+  try {
+    const url = "https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?range=2y&interval=1d";
+    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (r.ok) {
+      const j: any = await r.json();
+      const result = j?.chart?.result?.[0];
+      const ts: number[] = result?.timestamp ?? [];
+      const closes: Array<number | null> = result?.indicators?.quote?.[0]?.close ?? [];
+      let prev: number | null = null;
+      for (let i = 0; i < ts.length; i++) {
+        const c = closes[i];
+        if (c == null) continue;
+        const d = new Date(ts[i] * 1000).toISOString().slice(0, 10);
+        const pct = prev != null && prev > 0 ? ((c - prev) / prev) * 100 : 0;
+        map.set(d, { close: Number(c.toFixed(2)), pct: Number(pct.toFixed(2)) });
+        prev = c;
+      }
+    }
+  } catch { /* swallow */ }
+  _niftyCache = { ts: now, map };
+  return map;
+}
+
 export async function getFiiDiiMonthly(monthsBack = 12): Promise<FiiDiiMonthDto[]> {
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - monthsBack);
   cutoff.setDate(1);
-  const rows = await db
-    .select()
-    .from(fiiDiiDailyTable)
-    .where(gte(fiiDiiDailyTable.date, isoDate(cutoff)))
-    .orderBy(asc(fiiDiiDailyTable.date));
+  const [rows, niftyMap] = await Promise.all([
+    db.select().from(fiiDiiDailyTable).where(gte(fiiDiiDailyTable.date, isoDate(cutoff))).orderBy(asc(fiiDiiDailyTable.date)),
+    getNiftyCloseMap().catch(() => new Map<string, { close: number; pct: number }>()),
+  ]);
   const byMonth = new Map<string, FiiDiiDayDto[]>();
   for (const r of rows) {
     const key = r.date.slice(0, 7); // YYYY-MM
+    const nifty = niftyMap.get(r.date);
     const day: FiiDiiDayDto = {
       date: r.date,
       fiiBuy: Number(r.fiiBuy),
@@ -381,6 +412,8 @@ export async function getFiiDiiMonthly(monthsBack = 12): Promise<FiiDiiMonthDto[
       diiSell: Number(r.diiSell),
       diiNet: Number(r.diiNet),
       source: r.source,
+      niftyClose: nifty?.close ?? null,
+      niftyChangePct: nifty?.pct ?? null,
     };
     const arr = byMonth.get(key) ?? [];
     arr.push(day);
