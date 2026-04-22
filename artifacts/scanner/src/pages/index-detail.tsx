@@ -6,6 +6,25 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ArrowLeft, TrendingUp, TrendingDown } from "lucide-react";
 import type { StockRow } from "@workspace/api-client-react";
+import { TradingViewChart } from "@/components/tradingview-chart";
+
+/** Map our internal index slug → TradingView symbol. Verified against
+ * TradingView's public symbol search. */
+function tradingViewSymbol(slug: string): string {
+  switch (slug.toUpperCase()) {
+    case "NIFTY50":      return "NSE:NIFTY";
+    case "BANKNIFTY":    return "NSE:BANKNIFTY";
+    case "NIFTYIT":      return "NSE:CNXIT";
+    case "NIFTYAUTO":    return "NSE:CNXAUTO";
+    case "NIFTYPHARMA":  return "NSE:CNXPHARMA";
+    case "NIFTYFMCG":    return "NSE:CNXFMCG";
+    case "FINNIFTY":     return "NSE:CNXFINANCE";
+    case "MIDCPNIFTY":   return "NSE:NIFTY_MID_SELECT";
+    case "SENSEX":       return "BSE:SENSEX";
+    case "BANKEX":       return "BSE:BANKEX";
+    default:             return `NSE:${slug.toUpperCase()}`;
+  }
+}
 
 interface IndexDetail {
   slug: string;
@@ -114,6 +133,18 @@ export default function IndexDetail() {
             <span className="text-muted-foreground">— Unch {data.breadth.unchanged} ({uncPct.toFixed(0)}%)</span>
             <span className="text-signal-strong-sell">▼ Dec {data.breadth.decliners} ({decPct.toFixed(0)}%)</span>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            TradingView · Live Chart
+            <span className="text-[10px] text-muted-foreground/70 normal-case tracking-normal">(EMA 9/21 · RSI · VWAP preloaded)</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <TradingViewChart symbol={tradingViewSymbol(slug)} interval="15" height={560} />
         </CardContent>
       </Card>
 

@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
 import { ArrowLeft, TrendingUp, TrendingDown, Target, ShieldAlert, ExternalLink } from "lucide-react";
+import { TradingViewChart } from "@/components/tradingview-chart";
 import { formatDistanceToNow } from "date-fns";
 import {
   ResponsiveContainer,
@@ -267,8 +268,20 @@ export default function StockDetail() {
 
         <TabsContent value="chart" className="space-y-4">
           <Card>
+            <CardHeader className="border-b border-border pb-3">
+              <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                TradingView · Live Chart
+                <span className="text-[10px] text-muted-foreground/70 normal-case tracking-normal">(EMA 9/21 · RSI · VWAP preloaded · sign in to TV for your own templates)</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <TradingViewChart symbol={`NSE:${profile.symbol}`} interval="15" height={560} />
+            </CardContent>
+          </Card>
+
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between border-b border-border pb-3">
-              <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Price · EMA 20 · EMA 50</CardTitle>
+              <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Daily Price · EMA 20 · EMA 50 (in-app)</CardTitle>
               <div className="flex gap-1">
                 {RANGES.map(r => (
                   <Button key={r} size="sm" variant={r === range ? "default" : "outline"} onClick={() => setRange(r)} className="h-7 px-2 text-xs font-mono uppercase">
