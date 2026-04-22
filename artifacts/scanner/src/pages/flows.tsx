@@ -101,13 +101,13 @@ function FiiDiiCashMarketView({
                     <TableHead className="font-mono text-[10px] uppercase">Date</TableHead>
                     <TableHead className="font-mono text-[10px] uppercase text-right">FII Net Cr.</TableHead>
                     <TableHead className="font-mono text-[10px] uppercase text-right">DII Net Cr.</TableHead>
-                    <TableHead className="font-mono text-[10px] uppercase text-right">Net (FII−DII)</TableHead>
+                    <TableHead className="font-mono text-[10px] uppercase text-right">Net (FII+DII)</TableHead>
                     <TableHead className="font-mono text-[10px] uppercase text-right">Nifty</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {days.map(d => {
-                    const net = d.fiiNet - d.diiNet;
+                    const net = d.fiiNet + d.diiNet;
                     return (
                     <TableRow key={d.date} className="border-border/20 hover:bg-muted/20">
                       <TableCell className="font-mono text-[11px] py-1.5 whitespace-nowrap">
