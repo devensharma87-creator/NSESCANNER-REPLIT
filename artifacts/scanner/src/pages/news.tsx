@@ -203,18 +203,12 @@ export default function MarketInfo() {
       </p>
 
       <Tabs defaultValue="news" className="w-full">
-        <TabsList className="grid grid-cols-4 w-full max-w-2xl">
+        <TabsList className="grid grid-cols-2 w-full max-w-md">
           <TabsTrigger value="news" className="font-mono text-xs uppercase gap-1.5">
-            <Newspaper className="w-3.5 h-3.5" /> News
+            <Newspaper className="w-3.5 h-3.5" /> News Feed
           </TabsTrigger>
-          <TabsTrigger value="earnings" className="font-mono text-xs uppercase gap-1.5">
-            <Briefcase className="w-3.5 h-3.5" /> Earnings
-          </TabsTrigger>
-          <TabsTrigger value="holidays" className="font-mono text-xs uppercase gap-1.5">
-            <CalendarDays className="w-3.5 h-3.5" /> Holidays
-          </TabsTrigger>
-          <TabsTrigger value="events" className="font-mono text-xs uppercase gap-1.5">
-            <CalendarClock className="w-3.5 h-3.5" /> Events
+          <TabsTrigger value="calendar" className="font-mono text-xs uppercase gap-1.5">
+            <CalendarClock className="w-3.5 h-3.5" /> Calendar
           </TabsTrigger>
         </TabsList>
 
@@ -222,25 +216,41 @@ export default function MarketInfo() {
           <NewsList />
         </TabsContent>
 
-        <TabsContent value="earnings" className="mt-5 space-y-4">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Flag className="w-3 h-3 text-signal-strong-buy" /> Indian + global mega-cap reports · next 30 days
-          </div>
-          <EarningsList />
-        </TabsContent>
+        <TabsContent value="calendar" className="mt-5">
+          <Tabs defaultValue="earnings" className="w-full">
+            <TabsList className="grid grid-cols-3 w-full max-w-xl">
+              <TabsTrigger value="earnings" className="font-mono text-xs uppercase gap-1.5">
+                <Briefcase className="w-3.5 h-3.5" /> Earnings
+              </TabsTrigger>
+              <TabsTrigger value="holidays" className="font-mono text-xs uppercase gap-1.5">
+                <CalendarDays className="w-3.5 h-3.5" /> Holidays
+              </TabsTrigger>
+              <TabsTrigger value="events" className="font-mono text-xs uppercase gap-1.5">
+                <Landmark className="w-3.5 h-3.5" /> Events
+              </TabsTrigger>
+            </TabsList>
 
-        <TabsContent value="holidays" className="mt-5 space-y-4">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Globe className="w-3 h-3" /> NSE/BSE + global exchanges · next 90 days
-          </div>
-          <HolidaysList />
-        </TabsContent>
+            <TabsContent value="earnings" className="mt-5 space-y-4">
+              <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <Flag className="w-3 h-3 text-signal-strong-buy" /> Indian + global mega-cap reports · next 30 days
+              </div>
+              <EarningsList />
+            </TabsContent>
 
-        <TabsContent value="events" className="mt-5 space-y-4">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Landmark className="w-3 h-3" /> RBI, Fed, ECB, BoE, BoJ + macro releases · next 90 days
-          </div>
-          <EventsList />
+            <TabsContent value="holidays" className="mt-5 space-y-4">
+              <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <Globe className="w-3 h-3" /> NSE/BSE + global exchanges · next 90 days
+              </div>
+              <HolidaysList />
+            </TabsContent>
+
+            <TabsContent value="events" className="mt-5 space-y-4">
+              <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <Landmark className="w-3 h-3" /> RBI, Fed, ECB, BoE, BoJ + macro releases · next 90 days
+              </div>
+              <EventsList />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
       </Tabs>
     </div>
