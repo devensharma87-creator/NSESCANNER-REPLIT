@@ -13,6 +13,7 @@ import StockDetail from "@/pages/stock-detail";
 import IndexDetail from "@/pages/index-detail";
 import News from "@/pages/news";
 import Options from "@/pages/options";
+import Flows from "@/pages/flows";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/stock/:symbol" component={StockDetail} />
       <Route path="/index/:slug" component={IndexDetail} />
       <Route path="/news" component={News} />
+      <Route path="/flows" component={Flows} />
       <Route component={NotFound} />
     </Switch>
   );

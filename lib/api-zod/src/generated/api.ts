@@ -1198,6 +1198,89 @@ export const GetOptionSignalsResponse = zod.object({
 });
 
 /**
+ * @summary FII / DII cash market monthly aggregates with daily breakdown
+ */
+export const getFiiDiiQueryMonthsDefault = 12;
+export const getFiiDiiQueryMonthsMax = 36;
+
+export const GetFiiDiiQueryParams = zod.object({
+  months: zod.coerce
+    .number()
+    .min(1)
+    .max(getFiiDiiQueryMonthsMax)
+    .default(getFiiDiiQueryMonthsDefault),
+});
+
+export const GetFiiDiiResponse = zod.object({
+  months: zod.array(
+    zod.object({
+      month: zod.string().describe("YYYY-MM"),
+      label: zod.string(),
+      fiiBuy: zod.number(),
+      fiiSell: zod.number(),
+      fiiNet: zod.number(),
+      diiBuy: zod.number(),
+      diiSell: zod.number(),
+      diiNet: zod.number(),
+      daysCount: zod.number(),
+      days: zod.array(
+        zod.object({
+          date: zod.string().describe("YYYY-MM-DD"),
+          fiiBuy: zod.number(),
+          fiiSell: zod.number(),
+          fiiNet: zod.number(),
+          diiBuy: zod.number(),
+          diiSell: zod.number(),
+          diiNet: zod.number(),
+          source: zod.string(),
+        }),
+      ),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Participant-wise OI (Client / FII / DII / Pro / TOTAL) for a single trading day
+ */
+export const GetParticipantOiQueryParams = zod.object({
+  date: zod.coerce.string().optional(),
+});
+
+export const GetParticipantOiResponse = zod.object({
+  date: zod.string().nullable(),
+  rows: zod.array(
+    zod.object({
+      clientType: zod.string(),
+      futureIndexLong: zod.number(),
+      futureIndexShort: zod.number(),
+      futureIndexNet: zod.number(),
+      futureStockLong: zod.number(),
+      futureStockShort: zod.number(),
+      futureStockNet: zod.number(),
+      optionIndexCallLong: zod.number(),
+      optionIndexCallShort: zod.number(),
+      optionIndexPutLong: zod.number(),
+      optionIndexPutShort: zod.number(),
+      optionStockCallLong: zod.number(),
+      optionStockCallShort: zod.number(),
+      optionStockPutLong: zod.number(),
+      optionStockPutShort: zod.number(),
+      totalLongContracts: zod.number(),
+      totalShortContracts: zod.number(),
+      netContracts: zod.number(),
+    }),
+  ),
+  availableDates: zod.array(zod.string()),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Force-refresh FII/DII and participant OI from upstream sources
+ */
+export const RefreshInstFlowsResponse = zod.record(zod.string(), zod.unknown());
+
+/**
  * @summary Market news (optionally filtered by symbol)
  */
 export const GetNewsQueryParams = zod.object({

@@ -5,16 +5,22 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
 import type {
+  FiiDiiResponse,
+  GetFiiDiiParams,
   GetNewsParams,
+  GetParticipantOiParams,
   GetStockHistoryParams,
   GlobalMarket,
   HealthStatus,
@@ -23,6 +29,8 @@ import type {
   MarketTrend,
   NewsItem,
   OptionSignalSet,
+  ParticipantOiResponse,
+  RefreshInstFlows200,
   SectorDetail,
   SectorSummary,
   StockDetail,
@@ -940,6 +948,278 @@ export function useGetOptionSignals<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary FII / DII cash market monthly aggregates with daily breakdown
+ */
+export const getGetFiiDiiUrl = (params?: GetFiiDiiParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/inst/fii-dii?${stringifiedParams}`
+    : `/api/inst/fii-dii`;
+};
+
+export const getFiiDii = async (
+  params?: GetFiiDiiParams,
+  options?: RequestInit,
+): Promise<FiiDiiResponse> => {
+  return customFetch<FiiDiiResponse>(getGetFiiDiiUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetFiiDiiQueryKey = (params?: GetFiiDiiParams) => {
+  return [`/api/inst/fii-dii`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetFiiDiiQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFiiDii>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetFiiDiiParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFiiDii>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetFiiDiiQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getFiiDii>>> = ({
+    signal,
+  }) => getFiiDii(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFiiDii>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFiiDiiQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFiiDii>>
+>;
+export type GetFiiDiiQueryError = ErrorType<unknown>;
+
+/**
+ * @summary FII / DII cash market monthly aggregates with daily breakdown
+ */
+
+export function useGetFiiDii<
+  TData = Awaited<ReturnType<typeof getFiiDii>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetFiiDiiParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFiiDii>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFiiDiiQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Participant-wise OI (Client / FII / DII / Pro / TOTAL) for a single trading day
+ */
+export const getGetParticipantOiUrl = (params?: GetParticipantOiParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/inst/participant-oi?${stringifiedParams}`
+    : `/api/inst/participant-oi`;
+};
+
+export const getParticipantOi = async (
+  params?: GetParticipantOiParams,
+  options?: RequestInit,
+): Promise<ParticipantOiResponse> => {
+  return customFetch<ParticipantOiResponse>(getGetParticipantOiUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetParticipantOiQueryKey = (
+  params?: GetParticipantOiParams,
+) => {
+  return [`/api/inst/participant-oi`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetParticipantOiQueryOptions = <
+  TData = Awaited<ReturnType<typeof getParticipantOi>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetParticipantOiParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getParticipantOi>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetParticipantOiQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getParticipantOi>>
+  > = ({ signal }) => getParticipantOi(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getParticipantOi>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetParticipantOiQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getParticipantOi>>
+>;
+export type GetParticipantOiQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Participant-wise OI (Client / FII / DII / Pro / TOTAL) for a single trading day
+ */
+
+export function useGetParticipantOi<
+  TData = Awaited<ReturnType<typeof getParticipantOi>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetParticipantOiParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getParticipantOi>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetParticipantOiQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Force-refresh FII/DII and participant OI from upstream sources
+ */
+export const getRefreshInstFlowsUrl = () => {
+  return `/api/inst/refresh`;
+};
+
+export const refreshInstFlows = async (
+  options?: RequestInit,
+): Promise<RefreshInstFlows200> => {
+  return customFetch<RefreshInstFlows200>(getRefreshInstFlowsUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRefreshInstFlowsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshInstFlows>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshInstFlows>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["refreshInstFlows"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshInstFlows>>,
+    void
+  > = () => {
+    return refreshInstFlows(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshInstFlowsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshInstFlows>>
+>;
+
+export type RefreshInstFlowsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Force-refresh FII/DII and participant OI from upstream sources
+ */
+export const useRefreshInstFlows = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshInstFlows>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshInstFlows>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshInstFlowsMutationOptions(options));
+};
 
 /**
  * @summary Market news (optionally filtered by symbol)

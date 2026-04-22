@@ -78,6 +78,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link href="/sectors" className={`transition-colors hover:text-foreground ${location.startsWith("/sectors") ? "text-foreground" : "text-foreground/60"}`}>
                 Sectors
               </Link>
+              <Link href="/flows" className={`transition-colors hover:text-foreground ${location.startsWith("/flows") ? "text-foreground" : "text-foreground/60"}`}>
+                FII / DII
+              </Link>
               <Link href="/news" className={`transition-colors hover:text-foreground ${location === "/news" ? "text-foreground" : "text-foreground/60"}`}>
                 News
               </Link>

@@ -185,6 +185,52 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/OptionSignalSet" }
 
+  /inst/fii-dii:
+    get:
+      operationId: getFiiDii
+      tags: [institutional]
+      summary: FII / DII cash market monthly aggregates with daily breakdown
+      parameters:
+        - in: query
+          name: months
+          schema: { type: integer, minimum: 1, maximum: 36, default: 12 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FiiDiiResponse" }
+
+  /inst/participant-oi:
+    get:
+      operationId: getParticipantOi
+      tags: [institutional]
+      summary: Participant-wise OI (Client / FII / DII / Pro / TOTAL) for a single trading day
+      parameters:
+        - in: query
+          name: date
+          schema: { type: string, description: "YYYY-MM-DD; latest if omitted" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParticipantOiResponse" }
+
+  /inst/refresh:
+    post:
+      operationId: refreshInstFlows
+      tags: [institutional]
+      summary: Force-refresh FII/DII and participant OI from upstream sources
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
   /news:
     get:
       operationId: getNews
@@ -612,3 +658,96 @@ components:
           type: array
           items: { $ref: "#/components/schemas/StockRow" }
         generatedAt: { type: string, format: date-time }
+
+    FiiDiiDay:
+      type: object
+      required: [date, fiiBuy, fiiSell, fiiNet, diiBuy, diiSell, diiNet, source]
+      properties:
+        date:    { type: string, description: "YYYY-MM-DD" }
+        fiiBuy:  { type: number }
+        fiiSell: { type: number }
+        fiiNet:  { type: number }
+        diiBuy:  { type: number }
+        diiSell: { type: number }
+        diiNet:  { type: number }
+        source:  { type: string }
+
+    FiiDiiMonth:
+      type: object
+      required: [month, label, fiiBuy, fiiSell, fiiNet, diiBuy, diiSell, diiNet, daysCount, days]
+      properties:
+        month:     { type: string, description: "YYYY-MM" }
+        label:     { type: string }
+        fiiBuy:    { type: number }
+        fiiSell:   { type: number }
+        fiiNet:    { type: number }
+        diiBuy:    { type: number }
+        diiSell:   { type: number }
+        diiNet:    { type: number }
+        daysCount: { type: integer }
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/FiiDiiDay" }
+
+    FiiDiiResponse:
+      type: object
+      required: [months, generatedAt]
+      properties:
+        months:
+          type: array
+          items: { $ref: "#/components/schemas/FiiDiiMonth" }
+        generatedAt: { type: string, format: date-time }
+
+    ParticipantOiRow:
+      type: object
+      required:
+        - clientType
+        - futureIndexLong
+        - futureIndexShort
+        - futureIndexNet
+        - futureStockLong
+        - futureStockShort
+        - futureStockNet
+        - optionIndexCallLong
+        - optionIndexCallShort
+        - optionIndexPutLong
+        - optionIndexPutShort
+        - optionStockCallLong
+        - optionStockCallShort
+        - optionStockPutLong
+        - optionStockPutShort
+        - totalLongContracts
+        - totalShortContracts
+        - netContracts
+      properties:
+        clientType:             { type: string }
+        futureIndexLong:        { type: integer }
+        futureIndexShort:       { type: integer }
+        futureIndexNet:         { type: integer }
+        futureStockLong:        { type: integer }
+        futureStockShort:       { type: integer }
+        futureStockNet:         { type: integer }
+        optionIndexCallLong:    { type: integer }
+        optionIndexCallShort:   { type: integer }
+        optionIndexPutLong:     { type: integer }
+        optionIndexPutShort:    { type: integer }
+        optionStockCallLong:    { type: integer }
+        optionStockCallShort:   { type: integer }
+        optionStockPutLong:     { type: integer }
+        optionStockPutShort:    { type: integer }
+        totalLongContracts:     { type: integer }
+        totalShortContracts:    { type: integer }
+        netContracts:           { type: integer }
+
+    ParticipantOiResponse:
+      type: object
+      required: [date, rows, availableDates, generatedAt]
+      properties:
+        date:           { type: string, nullable: true }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/ParticipantOiRow" }
+        availableDates:
+          type: array
+          items: { type: string }
+        generatedAt:    { type: string, format: date-time }

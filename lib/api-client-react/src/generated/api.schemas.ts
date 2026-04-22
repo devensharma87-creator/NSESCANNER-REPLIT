@@ -438,6 +438,65 @@ export interface TopScans {
   generatedAt: string;
 }
 
+export interface FiiDiiDay {
+  /** YYYY-MM-DD */
+  date: string;
+  fiiBuy: number;
+  fiiSell: number;
+  fiiNet: number;
+  diiBuy: number;
+  diiSell: number;
+  diiNet: number;
+  source: string;
+}
+
+export interface FiiDiiMonth {
+  /** YYYY-MM */
+  month: string;
+  label: string;
+  fiiBuy: number;
+  fiiSell: number;
+  fiiNet: number;
+  diiBuy: number;
+  diiSell: number;
+  diiNet: number;
+  daysCount: number;
+  days: FiiDiiDay[];
+}
+
+export interface FiiDiiResponse {
+  months: FiiDiiMonth[];
+  generatedAt: string;
+}
+
+export interface ParticipantOiRow {
+  clientType: string;
+  futureIndexLong: number;
+  futureIndexShort: number;
+  futureIndexNet: number;
+  futureStockLong: number;
+  futureStockShort: number;
+  futureStockNet: number;
+  optionIndexCallLong: number;
+  optionIndexCallShort: number;
+  optionIndexPutLong: number;
+  optionIndexPutShort: number;
+  optionStockCallLong: number;
+  optionStockCallShort: number;
+  optionStockPutLong: number;
+  optionStockPutShort: number;
+  totalLongContracts: number;
+  totalShortContracts: number;
+  netContracts: number;
+}
+
+export interface ParticipantOiResponse {
+  date: string | null;
+  rows: ParticipantOiRow[];
+  availableDates: string[];
+  generatedAt: string;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;
@@ -469,6 +528,23 @@ export const GetStockHistoryRange = {
   "1y": "1y",
   "2y": "2y",
 } as const;
+
+export type GetFiiDiiParams = {
+  /**
+   * @minimum 1
+   * @maximum 36
+   */
+  months?: number;
+};
+
+export type GetParticipantOiParams = {
+  /**
+   * YYYY-MM-DD; latest if omitted
+   */
+  date?: string;
+};
+
+export type RefreshInstFlows200 = { [key: string]: unknown };
 
 export type GetNewsParams = {
   symbol?: string;
