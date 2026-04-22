@@ -473,6 +473,14 @@ components:
         high: { type: number }
         low: { type: number }
         previousClose: { type: number }
+        fiftyTwoWeekHigh: { type: number }
+        fiftyTwoWeekLow: { type: number }
+        volume: { type: number }
+        asOf: { type: integer, description: "Last update unix seconds" }
+        sparkline:
+          type: array
+          description: "Recent close prices for sparkline (oldest → newest)"
+          items: { type: number }
         trend: { type: string, enum: [bullish, bearish, neutral] }
         vwap: { type: number }
         ema9: { type: number }

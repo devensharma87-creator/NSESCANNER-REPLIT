@@ -263,6 +263,13 @@ export interface IndexQuote {
   high?: number;
   low?: number;
   previousClose?: number;
+  fiftyTwoWeekHigh?: number;
+  fiftyTwoWeekLow?: number;
+  volume?: number;
+  /** Last update unix seconds */
+  asOf?: number;
+  /** Recent close prices for sparkline (oldest → newest) */
+  sparkline?: number[];
   trend?: IndexQuoteTrend;
   vwap?: number;
   ema9?: number;

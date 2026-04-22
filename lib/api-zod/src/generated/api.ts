@@ -30,6 +30,14 @@ export const GetMarketSummaryResponse = zod.object({
       high: zod.number().optional(),
       low: zod.number().optional(),
       previousClose: zod.number().optional(),
+      fiftyTwoWeekHigh: zod.number().optional(),
+      fiftyTwoWeekLow: zod.number().optional(),
+      volume: zod.number().optional(),
+      asOf: zod.number().optional().describe("Last update unix seconds"),
+      sparkline: zod
+        .array(zod.number())
+        .optional()
+        .describe("Recent close prices for sparkline (oldest → newest)"),
       trend: zod.enum(["bullish", "bearish", "neutral"]).optional(),
       vwap: zod.number().optional(),
       ema9: zod.number().optional(),
@@ -77,6 +85,14 @@ export const GetGlobalIndicesResponse = zod.object({
       high: zod.number().optional(),
       low: zod.number().optional(),
       previousClose: zod.number().optional(),
+      fiftyTwoWeekHigh: zod.number().optional(),
+      fiftyTwoWeekLow: zod.number().optional(),
+      volume: zod.number().optional(),
+      asOf: zod.number().optional().describe("Last update unix seconds"),
+      sparkline: zod
+        .array(zod.number())
+        .optional()
+        .describe("Recent close prices for sparkline (oldest → newest)"),
       trend: zod.enum(["bullish", "bearish", "neutral"]).optional(),
       vwap: zod.number().optional(),
       ema9: zod.number().optional(),

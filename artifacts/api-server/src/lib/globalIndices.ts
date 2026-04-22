@@ -69,6 +69,15 @@ export async function getGlobalIndices(): Promise<IndexQuote[]> {
         let trend: "bullish" | "bearish" | "neutral" = "neutral";
         if (change > 0 && (vwap == null || price > vwap)) trend = "bullish";
         else if (change < 0 && (vwap == null || price < vwap)) trend = "bearish";
+        // Build a compact sparkline from the most recent ~48 daily closes (or intraday closes if daily missing)
+        const sparkSrc = (daily?.close.length ?? 0) >= 10 ? daily!.close : (intra?.close ?? []);
+        const sparkline = sparkSrc
+          .slice(-48)
+          .filter((v): v is number => v != null)
+          .map(v => round(v, 4));
+        const dayHigh = daily?.meta.regularMarketDayHigh ?? intra?.meta.regularMarketDayHigh;
+        const dayLow = daily?.meta.regularMarketDayLow ?? intra?.meta.regularMarketDayLow;
+        const opn = dn >= 1 ? daily!.open[dn - 1] : undefined;
         results.push({
           symbol: cfg.yahoo,
           name: cfg.name,
@@ -76,6 +85,15 @@ export async function getGlobalIndices(): Promise<IndexQuote[]> {
           price: round(price, 4),
           change: round(change, 4),
           changePercent: round(pct, 3),
+          open: opn != null ? round(opn, 4) : undefined,
+          high: dayHigh != null ? round(dayHigh, 4) : undefined,
+          low: dayLow != null ? round(dayLow, 4) : undefined,
+          previousClose: round(prev, 4),
+          fiftyTwoWeekHigh: daily?.meta.fiftyTwoWeekHigh != null ? round(daily.meta.fiftyTwoWeekHigh, 4) : undefined,
+          fiftyTwoWeekLow: daily?.meta.fiftyTwoWeekLow != null ? round(daily.meta.fiftyTwoWeekLow, 4) : undefined,
+          volume: daily?.meta.regularMarketVolume,
+          asOf: daily?.meta.regularMarketTime ?? intra?.meta.regularMarketTime,
+          sparkline,
           trend,
           vwap,
           ema9: ema9v,
