@@ -487,8 +487,17 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
 
   const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
   const stop = dir === "BULLISH" ? Math.min(c.vwap, c.ema21) - c.atr15 * 0.5 : Math.max(c.vwap, c.ema21) + c.atr15 * 0.5;
-  const t1 = dir === "BULLISH" ? c.piv.r1 : c.piv.s1;
-  const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
+  // Ensure RR >= 1.5 by construction; expand pivot target if it's too tight.
+  const risk = Math.abs(trigger - stop);
+  const minReward = risk * 1.5;
+  const pivT1 = dir === "BULLISH" ? c.piv.r1 : c.piv.s1;
+  const pivT2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
+  const t1 = dir === "BULLISH"
+    ? Math.max(pivT1, trigger + minReward)
+    : Math.min(pivT1, trigger - minReward);
+  const t2 = dir === "BULLISH"
+    ? Math.max(pivT2, t1 + risk * 0.8)
+    : Math.min(pivT2, t1 - risk * 0.8);
 
   return {
     setupKey: "TREND_CONTINUATION",
@@ -515,8 +524,10 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
 // ---------- builder ----------
 function toSignal(c: Ctx, d: Detected): OptionSignal {
   const strike = nearestStrike(c.spot, c.cfg.strikeStep);
-  const risk = Math.abs(c.spot - d.stopLevel);
-  const reward = Math.abs(d.targetLevel - c.spot);
+  // RR is measured from the actual entry trigger to T1/SL (not from spot), so the
+  // displayed ratio matches what the trader will get at the documented entry.
+  const risk = Math.abs(d.entryLevel - d.stopLevel);
+  const reward = Math.abs(d.targetLevel - d.entryLevel);
   const rr = risk > 0 ? round2(reward / risk) : undefined;
   return {
     index: c.cfg.symbol,
@@ -588,7 +599,12 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
 
   // sort by confidence and keep top 3
   setups.sort((a, b) => b.confidence - a.confidence);
-  return setups.slice(0, 3).map(d => toSignal(ctx, d));
+  // Enforce minimum 1:1 risk-reward — drop any setup whose target1 is closer
+  // to the entry than the stop is. No exceptions, including baseline outlook.
+  return setups
+    .slice(0, 3)
+    .map(d => toSignal(ctx, d))
+    .filter(s => (s.leg.riskRewardRatio ?? 0) >= 1);
 }
 
 interface CachedSignals { ts: number; data: OptionSignal[]; }
