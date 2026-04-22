@@ -25,6 +25,7 @@ import type {
   GlobalMarket,
   HealthStatus,
   ListStocksParams,
+  MarketEventsResponse,
   MarketSummary,
   MarketTrend,
   NewsItem,
@@ -1299,6 +1300,81 @@ export function useGetNews<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetNewsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Market events — exchange holidays, earnings calendar, central bank & macro events (90-day horizon)
+ */
+export const getGetMarketEventsUrl = () => {
+  return `/api/market/events`;
+};
+
+export const getMarketEvents = async (
+  options?: RequestInit,
+): Promise<MarketEventsResponse> => {
+  return customFetch<MarketEventsResponse>(getGetMarketEventsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMarketEventsQueryKey = () => {
+  return [`/api/market/events`] as const;
+};
+
+export const getGetMarketEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMarketEvents>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketEvents>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMarketEventsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMarketEvents>>> = ({
+    signal,
+  }) => getMarketEvents({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketEvents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMarketEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMarketEvents>>
+>;
+export type GetMarketEventsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Market events — exchange holidays, earnings calendar, central bank & macro events (90-day horizon)
+ */
+
+export function useGetMarketEvents<
+  TData = Awaited<ReturnType<typeof getMarketEvents>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketEvents>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMarketEventsQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

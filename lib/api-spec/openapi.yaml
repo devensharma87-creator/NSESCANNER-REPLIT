@@ -249,6 +249,18 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/NewsItem" }
 
+  /market/events:
+    get:
+      operationId: getMarketEvents
+      tags: [news]
+      summary: Market events — exchange holidays, earnings calendar, central bank & macro events (90-day horizon)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketEventsResponse" }
+
 components:
   schemas:
     HealthStatus:
@@ -751,3 +763,53 @@ components:
           type: array
           items: { type: string }
         generatedAt:    { type: string, format: date-time }
+
+    MarketHoliday:
+      type: object
+      required: [date, name, exchange, region]
+      properties:
+        date:     { type: string, description: "YYYY-MM-DD" }
+        name:     { type: string }
+        exchange: { type: string }
+        region:   { type: string, enum: [IN, US, UK, EU, JP, HK, CN] }
+
+    EarningResult:
+      type: object
+      required: [date, symbol, name, source]
+      properties:
+        date:        { type: string }
+        symbol:      { type: string }
+        name:        { type: string }
+        estimateEPS: { type: number }
+        source:      { type: string }
+
+    EconomicEvent:
+      type: object
+      required: [date, name, region, category, impact]
+      properties:
+        date:        { type: string }
+        name:        { type: string }
+        region:      { type: string, enum: [IN, US, UK, EU, JP, GLOBAL] }
+        category:    { type: string, enum: [rate, data, policy, event] }
+        impact:      { type: string, enum: [high, medium, low] }
+        description: { type: string }
+
+    MarketEventsResponse:
+      type: object
+      required: [generatedAt, holidays, earnings, events]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        holidays:
+          type: object
+          required: [upcoming, total]
+          properties:
+            upcoming:
+              type: array
+              items: { $ref: "#/components/schemas/MarketHoliday" }
+            total: { type: integer }
+        earnings:
+          type: array
+          items: { $ref: "#/components/schemas/EarningResult" }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/EconomicEvent" }

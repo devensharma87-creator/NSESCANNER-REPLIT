@@ -16,6 +16,7 @@ import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe
 import { getStockHistoryWithSeries, scanAll } from "../lib/scanner";
 import { fetchIndexChart, fetchFundamentals } from "../lib/yahoo";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
+import { getMarketEvents } from "../lib/marketEvents";
 import { getMarketNewsLive } from "../lib/newsRss";
 import { getOptionSignals } from "../lib/optionSignals";
 import { getGlobalIndices } from "../lib/globalIndices";
@@ -351,6 +352,13 @@ router.get("/news", async (req, res, next) => {
       items = live.length > 0 ? live : getMarketNews(15);
     }
     const data = GetNewsResponse.parse(items);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/market/events", async (_req, res, next) => {
+  try {
+    const data = await getMarketEvents();
     res.json(data);
   } catch (err) { next(err); }
 });

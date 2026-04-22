@@ -497,6 +497,87 @@ export interface ParticipantOiResponse {
   generatedAt: string;
 }
 
+export type MarketHolidayRegion =
+  (typeof MarketHolidayRegion)[keyof typeof MarketHolidayRegion];
+
+export const MarketHolidayRegion = {
+  IN: "IN",
+  US: "US",
+  UK: "UK",
+  EU: "EU",
+  JP: "JP",
+  HK: "HK",
+  CN: "CN",
+} as const;
+
+export interface MarketHoliday {
+  /** YYYY-MM-DD */
+  date: string;
+  name: string;
+  exchange: string;
+  region: MarketHolidayRegion;
+}
+
+export interface EarningResult {
+  date: string;
+  symbol: string;
+  name: string;
+  estimateEPS?: number;
+  source: string;
+}
+
+export type EconomicEventRegion =
+  (typeof EconomicEventRegion)[keyof typeof EconomicEventRegion];
+
+export const EconomicEventRegion = {
+  IN: "IN",
+  US: "US",
+  UK: "UK",
+  EU: "EU",
+  JP: "JP",
+  GLOBAL: "GLOBAL",
+} as const;
+
+export type EconomicEventCategory =
+  (typeof EconomicEventCategory)[keyof typeof EconomicEventCategory];
+
+export const EconomicEventCategory = {
+  rate: "rate",
+  data: "data",
+  policy: "policy",
+  event: "event",
+} as const;
+
+export type EconomicEventImpact =
+  (typeof EconomicEventImpact)[keyof typeof EconomicEventImpact];
+
+export const EconomicEventImpact = {
+  high: "high",
+  medium: "medium",
+  low: "low",
+} as const;
+
+export interface EconomicEvent {
+  date: string;
+  name: string;
+  region: EconomicEventRegion;
+  category: EconomicEventCategory;
+  impact: EconomicEventImpact;
+  description?: string;
+}
+
+export type MarketEventsResponseHolidays = {
+  upcoming: MarketHoliday[];
+  total: number;
+};
+
+export interface MarketEventsResponse {
+  generatedAt: string;
+  holidays: MarketEventsResponseHolidays;
+  earnings: EarningResult[];
+  events: EconomicEvent[];
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;

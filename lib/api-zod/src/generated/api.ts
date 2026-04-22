@@ -1298,3 +1298,40 @@ export const GetNewsResponseItem = zod.object({
   sentiment: zod.enum(["positive", "neutral", "negative"]).optional(),
 });
 export const GetNewsResponse = zod.array(GetNewsResponseItem);
+
+/**
+ * @summary Market events — exchange holidays, earnings calendar, central bank & macro events (90-day horizon)
+ */
+export const GetMarketEventsResponse = zod.object({
+  generatedAt: zod.coerce.date(),
+  holidays: zod.object({
+    upcoming: zod.array(
+      zod.object({
+        date: zod.string().describe("YYYY-MM-DD"),
+        name: zod.string(),
+        exchange: zod.string(),
+        region: zod.enum(["IN", "US", "UK", "EU", "JP", "HK", "CN"]),
+      }),
+    ),
+    total: zod.number(),
+  }),
+  earnings: zod.array(
+    zod.object({
+      date: zod.string(),
+      symbol: zod.string(),
+      name: zod.string(),
+      estimateEPS: zod.number().optional(),
+      source: zod.string(),
+    }),
+  ),
+  events: zod.array(
+    zod.object({
+      date: zod.string(),
+      name: zod.string(),
+      region: zod.enum(["IN", "US", "UK", "EU", "JP", "GLOBAL"]),
+      category: zod.enum(["rate", "data", "policy", "event"]),
+      impact: zod.enum(["high", "medium", "low"]),
+      description: zod.string().optional(),
+    }),
+  ),
+});

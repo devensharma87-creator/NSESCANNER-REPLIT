@@ -84,7 +84,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 FII / DII
               </Link>
               <Link href="/news" className={`transition-colors hover:text-foreground ${location === "/news" ? "text-foreground" : "text-foreground/60"}`}>
-                News
+                Market Info
               </Link>
             </nav>
           </div>
