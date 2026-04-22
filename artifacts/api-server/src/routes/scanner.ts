@@ -33,6 +33,7 @@ const INDEX_SYMBOLS: Array<{ yahoo: string; name: string; display: string; slug?
   { yahoo: "^CNXPHARMA", name: "NIFTY PHARMA", display: "NIFTY PHARMA", slug: "NIFTYPHARMA" },
   { yahoo: "^CNXFMCG", name: "NIFTY FMCG", display: "NIFTY FMCG", slug: "NIFTYFMCG" },
   { yahoo: "^BSESN", name: "SENSEX", display: "SENSEX" },
+  { yahoo: "NIFTY_FIN_SERVICE.NS", name: "FINNIFTY", display: "FINNIFTY" },
 ];
 
 router.get("/market/summary", async (_req, res, next) => {
