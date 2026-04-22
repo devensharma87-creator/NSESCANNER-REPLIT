@@ -3,7 +3,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { TradingViewAlerts } from "@/components/tradingview-alerts";
-import { TradingViewChart } from "@/components/tradingview-chart";
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Crosshair, Zap, Activity, Layers, Repeat, RotateCcw,
 } from "lucide-react";
@@ -145,19 +144,6 @@ function SetupCard({ sig }: { sig: OptionSignal }) {
   );
 }
 
-/** Map our F&O engine's index code → TradingView symbol. */
-function tradingViewIndexSymbol(code: string): string {
-  switch (code.toUpperCase()) {
-    case "NIFTY":      return "NSE:NIFTY";
-    case "BANKNIFTY":  return "NSE:BANKNIFTY";
-    case "FINNIFTY":   return "NSE:CNXFINANCE";
-    case "MIDCPNIFTY": return "NSE:NIFTY_MID_SELECT";
-    case "SENSEX":     return "BSE:SENSEX";
-    case "BANKEX":     return "BSE:BANKEX";
-    default:           return `NSE:${code.toUpperCase()}`;
-  }
-}
-
 function Cell({ label, value, icon, bold }: { label: string; value?: string; icon?: React.ReactNode; bold?: boolean }) {
   return (
     <div className="rounded bg-background/60 border border-border/30 p-1.5">
@@ -266,19 +252,6 @@ export default function OptionsPage() {
                   {/* Setups grid */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                     {grp.signals.map((s, i) => <SetupCard key={`${s.index}-${s.setupKey}-${i}`} sig={s} />)}
-                  </div>
-
-                  {/* Live TradingView chart for this index */}
-                  <div className="pt-2">
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1.5">
-                      TradingView · 15m chart with EMA 9/21 · RSI · VWAP
-                    </div>
-                    <TradingViewChart
-                      symbol={tradingViewIndexSymbol(grp.index)}
-                      interval="15"
-                      height={420}
-                      fullFeatured
-                    />
                   </div>
                 </CardContent>
               </Card>
