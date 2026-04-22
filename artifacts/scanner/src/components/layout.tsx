@@ -29,7 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     if (matches.length > 0) {
       go(matches[0]!.symbol);
     } else if (search.trim()) {
-      setLocation(`/?search=${encodeURIComponent(search.trim())}`);
+      setLocation(`/scanner?search=${encodeURIComponent(search.trim())}`);
       setOpen(false);
     }
   };
@@ -65,17 +65,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Activity className="h-5 w-5 text-signal-strong-buy" />
               <span className="font-bold tracking-tight uppercase tracking-wider font-mono">NSE Scanner</span>
             </Link>
-            <nav className="flex items-center space-x-6 text-sm font-medium">
-              <Link href="/" className={`transition-colors hover:text-foreground/80 ${location === "/" ? "text-foreground" : "text-foreground/60"}`}>
+            <nav className="flex items-center space-x-5 text-[15px] font-semibold">
+              <Link href="/" className={`transition-colors hover:text-foreground ${location === "/" ? "text-foreground" : "text-foreground/60"}`}>
                 Dashboard
               </Link>
-              <Link href="/options" className={`transition-colors hover:text-foreground/80 ${location.startsWith("/options") ? "text-foreground" : "text-foreground/60"}`}>
+              <Link href="/scanner" className={`transition-colors hover:text-foreground ${location.startsWith("/scanner") ? "text-foreground" : "text-foreground/60"}`}>
+                Scanner
+              </Link>
+              <Link href="/options" className={`transition-colors hover:text-foreground ${location.startsWith("/options") ? "text-foreground" : "text-foreground/60"}`}>
                 Options
               </Link>
-              <Link href="/sectors" className={`transition-colors hover:text-foreground/80 ${location.startsWith("/sectors") ? "text-foreground" : "text-foreground/60"}`}>
+              <Link href="/sectors" className={`transition-colors hover:text-foreground ${location.startsWith("/sectors") ? "text-foreground" : "text-foreground/60"}`}>
                 Sectors
               </Link>
-              <Link href="/news" className={`transition-colors hover:text-foreground/80 ${location === "/news" ? "text-foreground" : "text-foreground/60"}`}>
+              <Link href="/news" className={`transition-colors hover:text-foreground ${location === "/news" ? "text-foreground" : "text-foreground/60"}`}>
                 News
               </Link>
             </nav>
@@ -140,10 +143,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <footer className="border-t border-border bg-card py-6 md:py-0">
         <div className="w-full px-4 flex flex-col items-center justify-between gap-4 md:h-16 md:flex-row">
           <p className="text-center text-sm leading-loose text-muted-foreground md:text-left">
-            Built for active traders. Yahoo Finance feed (~15-min delayed for many symbols).
+            Built for active traders · Yahoo Finance fallback (~15 min delayed). Set <code className="font-mono text-foreground">KITE_API_KEY</code> + <code className="font-mono text-foreground">KITE_API_SECRET</code> + <code className="font-mono text-foreground">KITE_ACCESS_TOKEN</code> to upgrade to live ticks.
           </p>
           <p className="text-center text-xs text-muted-foreground md:text-left">
-            Data via Yahoo Finance · Indicators computed server-side · Educational only — not financial advice
+            Indicators computed server-side · Educational only — not financial advice
           </p>
         </div>
       </footer>

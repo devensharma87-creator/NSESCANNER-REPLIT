@@ -382,6 +382,42 @@ components:
         catalysts:
           type: array
           items: { type: string }
+        keyStats:
+          $ref: "#/components/schemas/KeyStats"
+        peers:
+          type: array
+          items:
+            type: object
+            required: [symbol, name]
+            properties:
+              symbol: { type: string }
+              name: { type: string }
+              changePercent: { type: number }
+              price: { type: number }
+
+    KeyStats:
+      type: object
+      properties:
+        marketCapCr: { type: number, description: "Market cap in ₹ crore" }
+        peRatio: { type: number }
+        pbRatio: { type: number }
+        eps: { type: number }
+        bookValue: { type: number }
+        dividendYield: { type: number, description: "%" }
+        beta: { type: number }
+        roe: { type: number, description: "%" }
+        roce: { type: number, description: "%" }
+        debtToEquity: { type: number }
+        profitMargin: { type: number, description: "%" }
+        operatingMargin: { type: number, description: "%" }
+        sharesOutstandingCr: { type: number, description: "Shares outstanding in crore" }
+        fiftyDayAverage: { type: number }
+        twoHundredDayAverage: { type: number }
+        revenueGrowthYoy: { type: number, description: "%" }
+        earningsGrowthYoy: { type: number, description: "%" }
+        forwardPe: { type: number }
+        priceToSales: { type: number }
+        promoterHolding: { type: number, description: "%" }
 
     StockDetail:
       type: object
@@ -442,6 +478,14 @@ components:
         ema9: { type: number }
         ema21: { type: number }
         rsi14: { type: number }
+        breadth:
+          type: object
+          properties:
+            advancers: { type: integer }
+            decliners: { type: integer }
+            unchanged: { type: integer }
+            adRatio: { type: number, nullable: true, description: "advancers/decliners; null when decliners=0 and advancers>0 (interpreted as ∞)" }
+        constituentSlug: { type: string, description: "URL slug for index detail page" }
 
     MarketSummary:
       type: object

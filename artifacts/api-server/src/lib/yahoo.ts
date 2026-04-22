@@ -108,3 +108,70 @@ export async function fetchIntraday(
 ): Promise<YahooChart | null> {
   return chartCall(yahooSymbol, range, interval);
 }
+
+/** Fundamental key stats from Yahoo Finance quoteSummary. Returned as ₹-friendly numbers
+ * (market cap converted from raw INR to crore). Cached per symbol for 1 hour. */
+export interface YahooFundamentals {
+  marketCapCr?: number;
+  peRatio?: number;
+  forwardPe?: number;
+  pbRatio?: number;
+  eps?: number;
+  bookValue?: number;
+  dividendYield?: number;
+  beta?: number;
+  roe?: number;
+  debtToEquity?: number;
+  profitMargin?: number;
+  operatingMargin?: number;
+  sharesOutstandingCr?: number;
+  fiftyDayAverage?: number;
+  twoHundredDayAverage?: number;
+  revenueGrowthYoy?: number;
+  earningsGrowthYoy?: number;
+  priceToSales?: number;
+}
+
+const FUND_TTL = 60 * 60 * 1000;
+const fundCache = new Map<string, { ts: number; data: YahooFundamentals | null }>();
+
+export async function fetchFundamentals(symbol: string, exchange: "NS" | "BO" = "NS"): Promise<YahooFundamentals | null> {
+  const ticker = `${symbol}.${exchange}`;
+  const c = fundCache.get(ticker);
+  if (c && Date.now() - c.ts < FUND_TTL) return c.data;
+  try {
+    const r = await yf.quoteSummary(ticker, {
+      modules: ["price", "summaryDetail", "defaultKeyStatistics", "financialData"] as never,
+    });
+    const price = (r as { price?: { marketCap?: number; sharesOutstanding?: number } }).price ?? {};
+    const sd = (r as { summaryDetail?: Record<string, number | undefined> }).summaryDetail ?? {};
+    const ks = (r as { defaultKeyStatistics?: Record<string, number | undefined> }).defaultKeyStatistics ?? {};
+    const fd = (r as { financialData?: Record<string, number | undefined> }).financialData ?? {};
+    const data: YahooFundamentals = {
+      marketCapCr: price.marketCap != null ? +(price.marketCap / 1e7).toFixed(2) : undefined,
+      peRatio: sd["trailingPE"] != null ? +sd["trailingPE"].toFixed(2) : undefined,
+      forwardPe: sd["forwardPE"] != null ? +sd["forwardPE"].toFixed(2) : undefined,
+      pbRatio: ks["priceToBook"] != null ? +ks["priceToBook"].toFixed(2) : undefined,
+      eps: ks["trailingEps"] != null ? +ks["trailingEps"].toFixed(2) : undefined,
+      bookValue: ks["bookValue"] != null ? +ks["bookValue"].toFixed(2) : undefined,
+      dividendYield: sd["dividendYield"] != null ? +(sd["dividendYield"] * 100).toFixed(2) : undefined,
+      beta: ks["beta"] != null ? +ks["beta"].toFixed(2) : undefined,
+      roe: fd["returnOnEquity"] != null ? +(fd["returnOnEquity"] * 100).toFixed(2) : undefined,
+      debtToEquity: fd["debtToEquity"] != null ? +fd["debtToEquity"].toFixed(2) : undefined,
+      profitMargin: fd["profitMargins"] != null ? +(fd["profitMargins"] * 100).toFixed(2) : undefined,
+      operatingMargin: fd["operatingMargins"] != null ? +(fd["operatingMargins"] * 100).toFixed(2) : undefined,
+      sharesOutstandingCr: price.sharesOutstanding != null ? +(price.sharesOutstanding / 1e7).toFixed(2) : undefined,
+      fiftyDayAverage: sd["fiftyDayAverage"] != null ? +sd["fiftyDayAverage"].toFixed(2) : undefined,
+      twoHundredDayAverage: sd["twoHundredDayAverage"] != null ? +sd["twoHundredDayAverage"].toFixed(2) : undefined,
+      revenueGrowthYoy: fd["revenueGrowth"] != null ? +(fd["revenueGrowth"] * 100).toFixed(2) : undefined,
+      earningsGrowthYoy: fd["earningsGrowth"] != null ? +(fd["earningsGrowth"] * 100).toFixed(2) : undefined,
+      priceToSales: sd["priceToSalesTrailing12Months"] != null ? +sd["priceToSalesTrailing12Months"].toFixed(2) : undefined,
+    };
+    fundCache.set(ticker, { ts: Date.now(), data });
+    return data;
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, ticker }, "Yahoo fundamentals failed");
+    fundCache.set(ticker, { ts: Date.now(), data: null });
+    return null;
+  }
+}

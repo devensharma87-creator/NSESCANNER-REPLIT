@@ -187,10 +187,67 @@ export default function StockDetail() {
             </CardContent>
           </Card>
 
+          {/* Key Stats / Fundamentals */}
+          {profile.keyStats && Object.keys(profile.keyStats).length > 0 && (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Key statistics</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-px bg-border rounded overflow-hidden border border-border">
+                  {profile.keyStats.marketCapCr != null && <Stat label="Market Cap" value={`₹${formatCr(profile.keyStats.marketCapCr)} Cr`} />}
+                  {profile.keyStats.peRatio != null && <Stat label="P/E (TTM)" value={profile.keyStats.peRatio.toFixed(2)} />}
+                  {profile.keyStats.forwardPe != null && <Stat label="Fwd P/E" value={profile.keyStats.forwardPe.toFixed(2)} />}
+                  {profile.keyStats.pbRatio != null && <Stat label="P/B" value={profile.keyStats.pbRatio.toFixed(2)} />}
+                  {profile.keyStats.priceToSales != null && <Stat label="P/S" value={profile.keyStats.priceToSales.toFixed(2)} />}
+                  {profile.keyStats.dividendYield != null && <Stat label="Div Yield" value={`${profile.keyStats.dividendYield.toFixed(2)}%`} tone={profile.keyStats.dividendYield > 2 ? "buy" : undefined} />}
+                  {profile.keyStats.eps != null && <Stat label="EPS" value={`₹${profile.keyStats.eps.toFixed(2)}`} />}
+                  {profile.keyStats.bookValue != null && <Stat label="Book Value" value={`₹${profile.keyStats.bookValue.toFixed(2)}`} />}
+                  {profile.keyStats.roe != null && <Stat label="ROE" value={`${profile.keyStats.roe.toFixed(1)}%`} tone={profile.keyStats.roe > 15 ? "buy" : profile.keyStats.roe < 5 ? "sell" : undefined} />}
+                  {profile.keyStats.debtToEquity != null && <Stat label="Debt/Equity" value={profile.keyStats.debtToEquity.toFixed(2)} tone={profile.keyStats.debtToEquity > 100 ? "sell" : profile.keyStats.debtToEquity < 50 ? "buy" : undefined} />}
+                  {profile.keyStats.profitMargin != null && <Stat label="Profit Margin" value={`${profile.keyStats.profitMargin.toFixed(1)}%`} />}
+                  {profile.keyStats.operatingMargin != null && <Stat label="Op Margin" value={`${profile.keyStats.operatingMargin.toFixed(1)}%`} />}
+                  {profile.keyStats.revenueGrowthYoy != null && <Stat label="Rev Growth" value={`${profile.keyStats.revenueGrowthYoy.toFixed(1)}%`} tone={profile.keyStats.revenueGrowthYoy > 0 ? "buy" : "sell"} />}
+                  {profile.keyStats.earningsGrowthYoy != null && <Stat label="EPS Growth" value={`${profile.keyStats.earningsGrowthYoy.toFixed(1)}%`} tone={profile.keyStats.earningsGrowthYoy > 0 ? "buy" : "sell"} />}
+                  {profile.keyStats.beta != null && <Stat label="Beta" value={profile.keyStats.beta.toFixed(2)} />}
+                  {profile.keyStats.fiftyDayAverage != null && <Stat label="50D Avg" value={`₹${profile.keyStats.fiftyDayAverage.toFixed(2)}`} tone={quote.price > profile.keyStats.fiftyDayAverage ? "buy" : "sell"} />}
+                  {profile.keyStats.twoHundredDayAverage != null && <Stat label="200D Avg" value={`₹${profile.keyStats.twoHundredDayAverage.toFixed(2)}`} tone={quote.price > profile.keyStats.twoHundredDayAverage ? "buy" : "sell"} />}
+                  {profile.keyStats.sharesOutstandingCr != null && <Stat label="Shares" value={`${profile.keyStats.sharesOutstandingCr.toFixed(2)} Cr`} />}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Peers */}
+          {profile.peers && profile.peers.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Sector peers</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                  {profile.peers.map(p => {
+                    const up = (p.changePercent ?? 0) >= 0;
+                    return (
+                      <Link key={p.symbol} href={`/stock/${p.symbol}`} className="border border-border rounded p-2 hover:border-foreground/40 transition-colors">
+                        <div className="font-mono font-bold text-sm">{p.symbol}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">{p.name}</div>
+                        <div className="flex justify-between mt-1 text-xs font-mono">
+                          {p.price != null && <span className="tabular-nums">₹{p.price.toFixed(2)}</span>}
+                          {p.changePercent != null && (
+                            <span className={`tabular-nums font-semibold ${up ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
+                              {up ? "+" : ""}{p.changePercent.toFixed(2)}%
+                            </span>
+                          )}
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Profile & catalysts</CardTitle></CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <p className="text-muted-foreground">{profile.description}</p>
+              <p className="text-muted-foreground leading-relaxed">{profile.description}</p>
               {profile.catalysts && profile.catalysts.length > 0 && (
                 <div>
                   <div className="text-[11px] font-mono uppercase text-muted-foreground mb-1">Key catalysts</div>
@@ -356,4 +413,11 @@ function Stat({ label, value, tone }: { label: string; value: React.ReactNode; t
       <div className={`mt-1 font-mono text-sm font-semibold tabular-nums ${cls}`}>{value}</div>
     </div>
   );
+}
+
+function formatCr(n: number): string {
+  // n is in crore. Above 1 lakh crore → show in lakh-crore.
+  if (n >= 100000) return `${(n / 100000).toFixed(2)} L`;
+  if (n >= 1000) return `${(n / 1000).toFixed(2)}k`;
+  return n.toFixed(0);
 }

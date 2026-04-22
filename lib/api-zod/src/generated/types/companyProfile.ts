@@ -5,6 +5,8 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { CompanyProfilePeersItem } from "./companyProfilePeersItem";
+import type { KeyStats } from "./keyStats";
 
 export interface CompanyProfile {
   symbol: string;
@@ -15,4 +17,6 @@ export interface CompanyProfile {
   website?: string;
   seasonality?: string;
   catalysts?: string[];
+  keyStats?: KeyStats;
+  peers?: CompanyProfilePeersItem[];
 }

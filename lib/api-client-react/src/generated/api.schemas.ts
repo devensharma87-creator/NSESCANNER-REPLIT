@@ -156,6 +156,46 @@ export interface NewsItem {
   sentiment?: NewsItemSentiment;
 }
 
+export type CompanyProfilePeersItem = {
+  symbol: string;
+  name: string;
+  changePercent?: number;
+  price?: number;
+};
+
+export interface KeyStats {
+  /** Market cap in ₹ crore */
+  marketCapCr?: number;
+  peRatio?: number;
+  pbRatio?: number;
+  eps?: number;
+  bookValue?: number;
+  /** % */
+  dividendYield?: number;
+  beta?: number;
+  /** % */
+  roe?: number;
+  /** % */
+  roce?: number;
+  debtToEquity?: number;
+  /** % */
+  profitMargin?: number;
+  /** % */
+  operatingMargin?: number;
+  /** Shares outstanding in crore */
+  sharesOutstandingCr?: number;
+  fiftyDayAverage?: number;
+  twoHundredDayAverage?: number;
+  /** % */
+  revenueGrowthYoy?: number;
+  /** % */
+  earningsGrowthYoy?: number;
+  forwardPe?: number;
+  priceToSales?: number;
+  /** % */
+  promoterHolding?: number;
+}
+
 export interface CompanyProfile {
   symbol: string;
   name: string;
@@ -165,6 +205,8 @@ export interface CompanyProfile {
   website?: string;
   seasonality?: string;
   catalysts?: string[];
+  keyStats?: KeyStats;
+  peers?: CompanyProfilePeersItem[];
 }
 
 export interface StockDetail {
@@ -202,6 +244,14 @@ export const IndexQuoteTrend = {
   neutral: "neutral",
 } as const;
 
+export type IndexQuoteBreadth = {
+  advancers?: number;
+  decliners?: number;
+  unchanged?: number;
+  /** advancers/decliners; null when decliners=0 and advancers>0 (interpreted as ∞) */
+  adRatio?: number | null;
+};
+
 export interface IndexQuote {
   symbol: string;
   name: string;
@@ -218,6 +268,9 @@ export interface IndexQuote {
   ema9?: number;
   ema21?: number;
   rsi14?: number;
+  breadth?: IndexQuoteBreadth;
+  /** URL slug for index detail page */
+  constituentSlug?: string;
 }
 
 export type MarketSummaryMarketStatus =

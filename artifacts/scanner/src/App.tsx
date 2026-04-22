@@ -6,9 +6,11 @@ import NotFound from "@/pages/not-found";
 
 import Layout from "@/components/layout";
 import Dashboard from "@/pages/dashboard";
+import Scanner from "@/pages/scanner";
 import Sectors from "@/pages/sectors";
 import SectorDetail from "@/pages/sector-detail";
 import StockDetail from "@/pages/stock-detail";
+import IndexDetail from "@/pages/index-detail";
 import News from "@/pages/news";
 import Options from "@/pages/options";
 
@@ -18,10 +20,12 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/scanner" component={Scanner} />
       <Route path="/options" component={Options} />
       <Route path="/sectors" component={Sectors} />
       <Route path="/sectors/:sector" component={SectorDetail} />
       <Route path="/stock/:symbol" component={StockDetail} />
+      <Route path="/index/:slug" component={IndexDetail} />
       <Route path="/news" component={News} />
       <Route component={NotFound} />
     </Switch>

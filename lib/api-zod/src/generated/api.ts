@@ -35,6 +35,23 @@ export const GetMarketSummaryResponse = zod.object({
       ema9: zod.number().optional(),
       ema21: zod.number().optional(),
       rsi14: zod.number().optional(),
+      breadth: zod
+        .object({
+          advancers: zod.number().optional(),
+          decliners: zod.number().optional(),
+          unchanged: zod.number().optional(),
+          adRatio: zod
+            .number()
+            .nullish()
+            .describe(
+              "advancers\/decliners; null when decliners=0 and advancers>0 (interpreted as ∞)",
+            ),
+        })
+        .optional(),
+      constituentSlug: zod
+        .string()
+        .optional()
+        .describe("URL slug for index detail page"),
     }),
   ),
   advancers: zod.number(),
@@ -65,6 +82,23 @@ export const GetGlobalIndicesResponse = zod.object({
       ema9: zod.number().optional(),
       ema21: zod.number().optional(),
       rsi14: zod.number().optional(),
+      breadth: zod
+        .object({
+          advancers: zod.number().optional(),
+          decliners: zod.number().optional(),
+          unchanged: zod.number().optional(),
+          adRatio: zod
+            .number()
+            .nullish()
+            .describe(
+              "advancers\/decliners; null when decliners=0 and advancers>0 (interpreted as ∞)",
+            ),
+        })
+        .optional(),
+      constituentSlug: zod
+        .string()
+        .optional()
+        .describe("URL slug for index detail page"),
     }),
   ),
   lastUpdated: zod.coerce.date(),
@@ -708,6 +742,43 @@ export const GetStockDetailResponse = zod.object({
     website: zod.string().optional(),
     seasonality: zod.string().optional(),
     catalysts: zod.array(zod.string()).optional(),
+    keyStats: zod
+      .object({
+        marketCapCr: zod.number().optional().describe("Market cap in ₹ crore"),
+        peRatio: zod.number().optional(),
+        pbRatio: zod.number().optional(),
+        eps: zod.number().optional(),
+        bookValue: zod.number().optional(),
+        dividendYield: zod.number().optional().describe("%"),
+        beta: zod.number().optional(),
+        roe: zod.number().optional().describe("%"),
+        roce: zod.number().optional().describe("%"),
+        debtToEquity: zod.number().optional(),
+        profitMargin: zod.number().optional().describe("%"),
+        operatingMargin: zod.number().optional().describe("%"),
+        sharesOutstandingCr: zod
+          .number()
+          .optional()
+          .describe("Shares outstanding in crore"),
+        fiftyDayAverage: zod.number().optional(),
+        twoHundredDayAverage: zod.number().optional(),
+        revenueGrowthYoy: zod.number().optional().describe("%"),
+        earningsGrowthYoy: zod.number().optional().describe("%"),
+        forwardPe: zod.number().optional(),
+        priceToSales: zod.number().optional(),
+        promoterHolding: zod.number().optional().describe("%"),
+      })
+      .optional(),
+    peers: zod
+      .array(
+        zod.object({
+          symbol: zod.string(),
+          name: zod.string(),
+          changePercent: zod.number().optional(),
+          price: zod.number().optional(),
+        }),
+      )
+      .optional(),
   }),
   quote: zod.object({
     symbol: zod.string(),

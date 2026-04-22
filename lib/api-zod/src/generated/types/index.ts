@@ -8,6 +8,7 @@
 
 export * from "./candle";
 export * from "./companyProfile";
+export * from "./companyProfilePeersItem";
 export * from "./getNewsParams";
 export * from "./getStockHistoryParams";
 export * from "./getStockHistoryRange";
@@ -15,8 +16,10 @@ export * from "./globalMarket";
 export * from "./healthStatus";
 export * from "./holding";
 export * from "./indexQuote";
+export * from "./indexQuoteBreadth";
 export * from "./indexQuoteTrend";
 export * from "./indicators";
+export * from "./keyStats";
 export * from "./listStocksParams";
 export * from "./listStocksSignal";
 export * from "./marketSummary";

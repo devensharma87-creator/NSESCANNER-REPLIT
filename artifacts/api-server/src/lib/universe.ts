@@ -232,7 +232,174 @@ const UNIVERSE_RAW: UniverseEntry[] = [
   { symbol: "ADANIPORTS", name: "Adani Ports & SEZ", sector: "Logistics", industry: "Port Operator", description: "India's largest private port operator.", catalysts: ["Volume growth", "Container mix"] },
   { symbol: "ADANIENT", name: "Adani Enterprises", sector: "Energy", industry: "Conglomerate / New Energy", description: "Adani group flagship; airports, mining, new energy.", catalysts: ["New energy capex", "Airports"] },
   { symbol: "ADANIPOWER", name: "Adani Power", sector: "Energy", industry: "Power Generation", description: "Largest private thermal power producer.", catalysts: ["PLF", "Tariff recoveries"] },
+
+  // === Expansion: more liquid F&O / index names ===
+  // IT additions
+  { symbol: "PERSISTENT", name: "Persistent Systems", sector: "Information Technology", industry: "IT Services", description: "Mid-cap IT services with strong digital engineering franchise.", catalysts: ["Deal wins", "Hi-tech vertical"] },
+  { symbol: "COFORGE", name: "Coforge", sector: "Information Technology", industry: "IT Services", description: "Mid-cap IT firm strong in BFSI and travel verticals.", catalysts: ["BFSI deal momentum", "Margin"] },
+  { symbol: "MPHASIS", name: "Mphasis", sector: "Information Technology", industry: "IT Services", description: "Mid-cap IT, strong in BFSI (Blackstone-owned).", catalysts: ["BFSI ramp", "Direct vs DXC mix"] },
+  { symbol: "OFSS", name: "Oracle Financial Services", sector: "Information Technology", industry: "Banking Software", description: "Oracle banking products subsidiary.", catalysts: ["License revenue", "Special dividend"] },
+  { symbol: "KPITTECH", name: "KPIT Technologies", sector: "Information Technology", industry: "Auto ER&D", description: "Pure-play automotive engineering services for EV/CASE.", catalysts: ["EV programs", "Order book"] },
+  { symbol: "TATAELXSI", name: "Tata Elxsi", sector: "Information Technology", industry: "ER&D", description: "Design & embedded engineering services for auto, media, healthcare.", catalysts: ["Auto ER&D", "Media tech"] },
+  { symbol: "LTIM", name: "LTIMindtree", sector: "Information Technology", industry: "IT Services", description: "Merged L&T Infotech + Mindtree IT services major.", catalysts: ["Synergy realisation", "Deal pipeline"] },
+  { symbol: "LTTS", name: "L&T Technology Services", sector: "Information Technology", industry: "ER&D", description: "Pure-play engineering R&D services arm of L&T.", catalysts: ["Telecom 5G", "Sustainability deals"] },
+
+  // Banking additions
+  { symbol: "BANDHANBNK", name: "Bandhan Bank", sector: "Banking", industry: "Private Bank", description: "Microfinance-focused private bank.", catalysts: ["Asset quality", "Diversification"] },
+  { symbol: "CUB", name: "City Union Bank", sector: "Banking", industry: "Private Bank", description: "South India MSME-focused private bank.", catalysts: ["Slippages", "NIM"] },
+  { symbol: "KARURVYSYA", name: "Karur Vysya Bank", sector: "Banking", industry: "Private Bank", description: "Mid-sized south-based private bank.", catalysts: ["RoA improvement"] },
+  { symbol: "SBICARD", name: "SBI Cards", sector: "Financials", industry: "Credit Cards", description: "India's only listed pure-play credit card issuer.", catalysts: ["Card spends", "Credit cost"] },
+  { symbol: "POLICYBZR", name: "PB Fintech (Policybazaar)", sector: "Financials", industry: "Insurtech", description: "Online insurance & credit marketplace.", catalysts: ["Take-rate", "Credit business scale"] },
+  { symbol: "PAYTM", name: "Paytm (One97)", sector: "Financials", industry: "Fintech", description: "Payments and financial services platform.", catalysts: ["Payments licence", "Lending volumes"] },
+
+  // Auto additions
+  { symbol: "ASHOKLEY", name: "Ashok Leyland", sector: "Automobile", industry: "CV Maker", description: "Hinduja flagship commercial vehicle maker.", catalysts: ["CV cycle", "Defence orders"] },
+  { symbol: "TVSMOTOR", name: "TVS Motor Company", sector: "Automobile", industry: "2W Maker", description: "South-based 2W & 3W maker; iQube EV.", catalysts: ["Premium 2W mix", "EV ramp"] },
+  { symbol: "BALKRISIND", name: "Balkrishna Industries", sector: "Automobile", industry: "Off-highway Tyres", description: "Leading global OHT tyre maker (agri/industrial).", catalysts: ["EU/US replacement demand"] },
+  { symbol: "MRF", name: "MRF", sector: "Automobile", industry: "Tyres", description: "India's largest tyre maker; iconic high-priced share.", catalysts: ["Rubber prices", "Replacement mix"] },
+  { symbol: "APOLLOTYRE", name: "Apollo Tyres", sector: "Automobile", industry: "Tyres", description: "Top-3 tyre maker with European Vredestein brand.", catalysts: ["EU recovery", "Margins"] },
+  { symbol: "EXIDEIND", name: "Exide Industries", sector: "Automobile", industry: "Auto Batteries", description: "Largest auto battery maker; Li-ion JV with SVOLT.", catalysts: ["Li-ion ramp", "Replacement demand"] },
+  { symbol: "MOTHERSON", name: "Samvardhana Motherson", sector: "Automobile", industry: "Auto Components", description: "Global auto component supplier.", catalysts: ["EV content", "M&A integration"] },
+
+  // Pharma / Healthcare
+  { symbol: "ZYDUSLIFE", name: "Zydus Lifesciences", sector: "Healthcare", industry: "Pharmaceuticals", description: "Diversified Indian pharma with US generics franchise.", catalysts: ["US launches (gRevlimid)", "Vaccines"] },
+  { symbol: "AUROPHARMA", name: "Aurobindo Pharma", sector: "Healthcare", industry: "Pharmaceuticals", description: "Top US-focused Indian generics maker.", catalysts: ["Injectables", "USFDA"] },
+  { symbol: "TORNTPHARM", name: "Torrent Pharma", sector: "Healthcare", industry: "Pharmaceuticals", description: "Strong India branded generics franchise.", catalysts: ["Cipla M&A buzz", "Brand building"] },
+  { symbol: "ALKEM", name: "Alkem Laboratories", sector: "Healthcare", industry: "Pharmaceuticals", description: "Top acute therapy player in India.", catalysts: ["Chronic mix", "US filings"] },
+  { symbol: "MANKIND", name: "Mankind Pharma", sector: "Healthcare", industry: "Pharmaceuticals", description: "OTC + chronic pharma major (Manforce, Prega News).", catalysts: ["BSV acquisition", "Chronic ramp"] },
+  { symbol: "GLAND", name: "Gland Pharma", sector: "Healthcare", industry: "Injectables CMO", description: "Injectables-focused pharma company (Fosun owned).", catalysts: ["US injectables", "Cenexi turnaround"] },
+  { symbol: "FORTIS", name: "Fortis Healthcare", sector: "Healthcare", industry: "Hospitals", description: "Top Indian hospital chain (IHH-owned).", catalysts: ["ARPOB growth", "Bed expansion"] },
+  { symbol: "MAXHEALTH", name: "Max Healthcare", sector: "Healthcare", industry: "Hospitals", description: "Premium hospital chain in NCR/north India.", catalysts: ["Capacity additions", "ARPOB"] },
+  { symbol: "MEDANTA", name: "Global Health (Medanta)", sector: "Healthcare", industry: "Hospitals", description: "Premium multi-specialty hospital chain.", catalysts: ["Bed additions", "Brand premium"] },
+  { symbol: "LAURUSLABS", name: "Laurus Labs", sector: "Healthcare", industry: "API & CDMO", description: "API + ARV + CDMO pharma player.", catalysts: ["CDMO ramp", "ARV pricing"] },
+
+  // FMCG / Consumer
+  { symbol: "TATACONSUM", name: "Tata Consumer Products", sector: "FMCG", industry: "Food & Beverages", description: "Tata-group F&B major (tea, salt, water, food).", catalysts: ["Distribution", "Premiumisation"] },
+  { symbol: "VBL", name: "Varun Beverages", sector: "FMCG", industry: "Beverages", description: "PepsiCo's largest bottler outside the US.", catalysts: ["Africa expansion", "Energy drinks"] },
+  { symbol: "COLPAL", name: "Colgate-Palmolive India", sector: "FMCG", industry: "Personal Care", description: "Oral care market leader.", catalysts: ["Premium toothpaste mix"] },
+  { symbol: "EMAMILTD", name: "Emami", sector: "FMCG", industry: "Personal Care", description: "Healthcare & personal care FMCG (BoroPlus, Navratna).", catalysts: ["Winter season", "Innovation"] },
+  { symbol: "JUBLFOOD", name: "Jubilant FoodWorks", sector: "FMCG", industry: "QSR", description: "Domino's Pizza master franchisee in India.", catalysts: ["SSSG", "App tech"] },
+  { symbol: "DEVYANI", name: "Devyani International", sector: "FMCG", industry: "QSR", description: "KFC, Pizza Hut, Costa Coffee franchise.", catalysts: ["Store additions", "SSSG"] },
+  { symbol: "WESTLIFE", name: "Westlife Foodworld", sector: "FMCG", industry: "QSR", description: "McDonald's master franchisee in west & south India.", catalysts: ["McCafé expansion", "SSSG"] },
+
+  // Capital Goods / Defence / Engineering
+  { symbol: "BHEL", name: "BHEL", sector: "Capital Goods", industry: "Power Equipment", description: "PSU power & industrial equipment major.", catalysts: ["Thermal ordering revival"] },
+  { symbol: "SIEMENS", name: "Siemens India", sector: "Capital Goods", industry: "Industrial Automation", description: "Industrial automation & energy major.", catalysts: ["HVDC orders", "Demerger"] },
+  { symbol: "ABB", name: "ABB India", sector: "Capital Goods", industry: "Industrial Automation", description: "Electrification, motion & automation MNC.", catalysts: ["Capex cycle", "Data centre"] },
+  { symbol: "CUMMINSIND", name: "Cummins India", sector: "Capital Goods", industry: "Engines & Generators", description: "Engines, gensets, distribution business.", catalysts: ["CPCB-IV+", "Data centre demand"] },
+  { symbol: "BEL", name: "Bharat Electronics", sector: "Capital Goods", industry: "Defence Electronics", description: "Defence PSU — radars, electronics, missiles systems.", catalysts: ["Defence orders"] },
+  { symbol: "HAL", name: "Hindustan Aeronautics", sector: "Capital Goods", industry: "Defence Aerospace", description: "Defence PSU — aircraft & helicopter manufacturer.", catalysts: ["LCA Tejas orders", "Engines JV"] },
+  { symbol: "BEML", name: "BEML", sector: "Capital Goods", industry: "Heavy Equipment", description: "Defence + mining + railway equipment PSU.", catalysts: ["Vande Bharat orders"] },
+  { symbol: "MAZDOCK", name: "Mazagon Dock Shipbuilders", sector: "Capital Goods", industry: "Defence Shipbuilding", description: "Defence shipbuilder PSU.", catalysts: ["Submarine P-75I", "Order book"] },
+  { symbol: "COCHINSHIP", name: "Cochin Shipyard", sector: "Capital Goods", industry: "Defence Shipbuilding", description: "Largest shipbuilding & repair PSU in India.", catalysts: ["Defence orders", "ISL ramp"] },
+  { symbol: "GRINDWELL", name: "Grindwell Norton", sector: "Capital Goods", industry: "Industrial Abrasives", description: "Abrasives & ceramics MNC.", catalysts: ["Industrial demand"] },
+
+  // Metals & Materials
+  { symbol: "JINDALSTEL", name: "Jindal Steel & Power", sector: "Metals", industry: "Integrated Steel", description: "Integrated steel + power producer.", catalysts: ["Capacity expansion", "Steel prices"] },
+  { symbol: "SAIL", name: "Steel Authority of India", sector: "Metals", industry: "Integrated Steel", description: "PSU steel maker.", catalysts: ["Steel cycle", "Coking coal"] },
+  { symbol: "NATIONALUM", name: "NALCO", sector: "Metals", industry: "Aluminium", description: "PSU aluminium producer.", catalysts: ["LME aluminium", "Bauxite linkage"] },
+  { symbol: "HINDCOPPER", name: "Hindustan Copper", sector: "Metals", industry: "Copper Mining", description: "PSU copper miner.", catalysts: ["Copper prices", "Mine expansion"] },
+  { symbol: "NMDC", name: "NMDC", sector: "Metals", industry: "Iron Ore Mining", description: "PSU iron ore miner.", catalysts: ["Iron ore prices", "NMDC Steel demerger"] },
+  { symbol: "APLAPOLLO", name: "APL Apollo Tubes", sector: "Metals", industry: "Steel Tubes", description: "Largest structural steel tubes maker.", catalysts: ["Construction demand", "VAP mix"] },
+  { symbol: "RATNAMANI", name: "Ratnamani Metals & Tubes", sector: "Metals", industry: "Specialty Tubes", description: "Specialty stainless / carbon steel pipes maker.", catalysts: ["Oil & gas capex"] },
+
+  // Cement
+  { symbol: "AMBUJACEM", name: "Ambuja Cements", sector: "Cement", industry: "Cement", description: "Adani-owned major cement company.", catalysts: ["Capacity expansion", "Pricing"] },
+  { symbol: "ACC", name: "ACC", sector: "Cement", industry: "Cement", description: "Adani-owned legacy cement company.", catalysts: ["Pricing", "Synergies"] },
+  { symbol: "DALBHARAT", name: "Dalmia Bharat", sector: "Cement", industry: "Cement", description: "Top-4 cement producer (east + south).", catalysts: ["Capacity expansion", "Pricing"] },
+  { symbol: "RAMCOCEM", name: "Ramco Cements", sector: "Cement", industry: "Cement", description: "South-based cement major.", catalysts: ["South pricing"] },
+  { symbol: "JKCEMENT", name: "JK Cement", sector: "Cement", industry: "Cement", description: "Diversified cement & paint (white cement leader).", catalysts: ["Paints scale-up"] },
+
+  // Chemicals
+  { symbol: "PIDILITIND", name: "Pidilite Industries", sector: "Chemicals", industry: "Adhesives", description: "Fevicol-maker; adhesives & specialty chemicals.", catalysts: ["B2B vs B2C mix", "Realty demand"] },
+  { symbol: "SRF", name: "SRF", sector: "Chemicals", industry: "Specialty Chemicals", description: "Refrigerants, fluorochemicals & technical textiles.", catalysts: ["Specialty chem orderbook"] },
+  { symbol: "PIIND", name: "PI Industries", sector: "Chemicals", industry: "Agro CSM", description: "Agro custom synthesis (CSM) major.", catalysts: ["Pyroxasulfone", "Pharma CDMO foray"] },
+  { symbol: "DEEPAKNTR", name: "Deepak Nitrite", sector: "Chemicals", industry: "Specialty Chemicals", description: "Phenolics + specialty chemicals.", catalysts: ["Phenol-acetone spreads"] },
+  { symbol: "AARTIIND", name: "Aarti Industries", sector: "Chemicals", industry: "Specialty Chemicals", description: "Benzene-derivatives specialty chemicals.", catalysts: ["China+1", "MMA contract"] },
+  { symbol: "NAVINFLUOR", name: "Navin Fluorine", sector: "Chemicals", industry: "Specialty Fluorochemicals", description: "Fluorochemicals + CDMO + HPP.", catalysts: ["HFO pipeline", "CDMO scale"] },
+  { symbol: "BAYERCROP", name: "Bayer CropScience", sector: "Chemicals", industry: "Agrochemicals", description: "MNC agrochemicals major.", catalysts: ["Monsoon", "New launches"] },
+
+  // Power & Renewables
+  { symbol: "TATAPOWER", name: "Tata Power", sector: "Energy", industry: "Power Utility", description: "Diversified power company; renewables + Mundra.", catalysts: ["Renewables capex", "EV charging"] },
+  { symbol: "JSWENERGY", name: "JSW Energy", sector: "Energy", industry: "Power Generation", description: "JSW group power utility expanding into renewables.", catalysts: ["RE capacity adds", "Storage"] },
+  { symbol: "TORNTPOWER", name: "Torrent Power", sector: "Energy", industry: "Power Utility", description: "Integrated power utility (Gujarat focus).", catalysts: ["Distribution wins"] },
+  { symbol: "SUZLON", name: "Suzlon Energy", sector: "Energy", industry: "Wind Turbines", description: "Wind turbine maker (turnaround story).", catalysts: ["Order book", "Debt reduction"] },
+  { symbol: "INOXWIND", name: "Inox Wind", sector: "Energy", industry: "Wind Turbines", description: "Inox group wind turbine maker.", catalysts: ["Order execution", "Debt"] },
+  { symbol: "IEX", name: "Indian Energy Exchange", sector: "Energy", industry: "Power Exchange", description: "India's largest power exchange.", catalysts: ["Volumes", "Market coupling"] },
+  { symbol: "ADANIGREEN", name: "Adani Green Energy", sector: "Energy", industry: "Renewables", description: "India's largest renewable energy company.", catalysts: ["Capacity adds", "Tariff"] },
+  { symbol: "NHPC", name: "NHPC", sector: "Energy", industry: "Hydro Power", description: "PSU hydro power major.", catalysts: ["Capacity adds", "Renewable mix"] },
+  { symbol: "SJVN", name: "SJVN", sector: "Energy", industry: "Hydro Power", description: "PSU hydro + RE power producer.", catalysts: ["Solar pipeline"] },
+
+  // Realty
+  { symbol: "DLF", name: "DLF", sector: "Realty", industry: "Real Estate Developer", description: "India's largest real estate developer.", catalysts: ["Luxury launches", "Rental income"] },
+  { symbol: "GODREJPROP", name: "Godrej Properties", sector: "Realty", industry: "Real Estate Developer", description: "Premium real estate developer.", catalysts: ["Bookings", "Land additions"] },
+  { symbol: "OBEROIRLTY", name: "Oberoi Realty", sector: "Realty", industry: "Real Estate Developer", description: "Mumbai-focused premium developer.", catalysts: ["Project launches", "Annuity income"] },
+  { symbol: "PRESTIGE", name: "Prestige Estates", sector: "Realty", industry: "Real Estate Developer", description: "South-based developer expanding pan-India.", catalysts: ["NCR launches", "Annuity book"] },
+  { symbol: "PHOENIXLTD", name: "Phoenix Mills", sector: "Realty", industry: "Mall Operator", description: "Premium mall operator.", catalysts: ["Consumption growth", "New malls"] },
+  { symbol: "BRIGADE", name: "Brigade Enterprises", sector: "Realty", industry: "Real Estate Developer", description: "Bengaluru-based diversified real estate developer.", catalysts: ["Bookings", "Hospitality"] },
+  { symbol: "LODHA", name: "Macrotech Developers (Lodha)", sector: "Realty", industry: "Real Estate Developer", description: "MMR-focused premium developer.", catalysts: ["Bookings", "Land bank"] },
+
+  // Telecom / Media / Internet
+  { symbol: "IDEA", name: "Vodafone Idea", sector: "Telecom", industry: "Wireless", description: "Third largest telco in India.", catalysts: ["Tariff hikes", "Fundraise"] },
+  { symbol: "INDUSTOWER", name: "Indus Towers", sector: "Telecom", industry: "Tower Infra", description: "Largest telecom tower company.", catalysts: ["Vi receivables", "Tower additions"] },
+  { symbol: "ZEEL", name: "Zee Entertainment", sector: "Media", industry: "Broadcasting", description: "Major Hindi GEC broadcaster.", catalysts: ["Sony merger updates", "Ad cycle"] },
+  { symbol: "SUNTV", name: "Sun TV Network", sector: "Media", industry: "Broadcasting", description: "South-India focused broadcaster (also IPL).", catalysts: ["Ad cycle", "Digital"] },
+  { symbol: "PVRINOX", name: "PVR INOX", sector: "Media", industry: "Cinema Exhibition", description: "Largest multiplex chain in India.", catalysts: ["Box office", "Screen additions"] },
+  { symbol: "NYKAA", name: "FSN E-Commerce (Nykaa)", sector: "Consumer Internet", industry: "Beauty E-commerce", description: "Beauty + fashion e-commerce platform.", catalysts: ["Fashion losses", "BPC growth"] },
+  { symbol: "ZOMATO", name: "Zomato", sector: "Consumer Internet", industry: "Food Delivery", description: "Food delivery + Blinkit quick commerce.", catalysts: ["Blinkit GOV", "Profitability"] },
+  { symbol: "SWIGGY", name: "Swiggy", sector: "Consumer Internet", industry: "Food Delivery", description: "Food delivery + Instamart quick commerce.", catalysts: ["Instamart GOV", "EBITDA"] },
+  { symbol: "DELHIVERY", name: "Delhivery", sector: "Logistics", industry: "Logistics Tech", description: "Largest 3PL & express logistics player.", catalysts: ["E-commerce growth", "EBITDA margin"] },
+
+  // Misc
+  { symbol: "LICI", name: "LIC of India", sector: "Insurance", industry: "Life Insurance", description: "India's largest life insurer.", catalysts: ["VNB margin", "Non-par mix"] },
+  { symbol: "SBILIFE", name: "SBI Life Insurance", sector: "Insurance", industry: "Life Insurance", description: "Top private life insurer.", catalysts: ["VNB growth"] },
+  { symbol: "HDFCLIFE", name: "HDFC Life Insurance", sector: "Insurance", industry: "Life Insurance", description: "Top private life insurer.", catalysts: ["Non-par mix", "VNB growth"] },
+  { symbol: "ICICIPRULI", name: "ICICI Prudential Life", sector: "Insurance", industry: "Life Insurance", description: "Top private life insurer.", catalysts: ["Protection mix", "VNB"] },
+  { symbol: "ICICIGI", name: "ICICI Lombard General Insurance", sector: "Insurance", industry: "General Insurance", description: "Top private general insurer.", catalysts: ["Combined ratio", "Health growth"] },
+  { symbol: "STARHEALTH", name: "Star Health Insurance", sector: "Insurance", industry: "Health Insurance", description: "Largest standalone health insurer.", catalysts: ["Loss ratio", "Premium growth"] },
+  { symbol: "NIACL", name: "New India Assurance", sector: "Insurance", industry: "General Insurance", description: "PSU general insurance major.", catalysts: ["Combined ratio"] },
+  { symbol: "POONAWALLA", name: "Poonawalla Fincorp", sector: "Financials", industry: "NBFC", description: "Diversified NBFC (Cyrus Poonawalla group).", catalysts: ["Disbursement growth", "Credit cost"] },
+  { symbol: "CHOLAFIN", name: "Cholamandalam Investment", sector: "Financials", industry: "Vehicle Finance NBFC", description: "Murugappa group vehicle finance NBFC.", catalysts: ["AUM growth", "Asset quality"] },
+  { symbol: "MFSL", name: "Max Financial Services", sector: "Financials", industry: "Insurance Holding", description: "Holdco for Max Life Insurance.", catalysts: ["Axis Max Life merger"] },
 ];
+
+// Index → constituent symbol map (best-effort, used for per-index breadth & detail pages).
+export const INDEX_CONSTITUENTS: Record<string, string[]> = {
+  NIFTY50: [
+    "RELIANCE","TCS","HDFCBANK","ICICIBANK","INFY","HINDUNILVR","ITC","SBIN","BHARTIARTL","KOTAKBANK",
+    "LT","HCLTECH","ASIANPAINT","AXISBANK","MARUTI","SUNPHARMA","TITAN","BAJFINANCE","NTPC","ULTRACEMCO",
+    "WIPRO","NESTLEIND","M&M","POWERGRID","TATASTEEL","TECHM","JSWSTEEL","INDUSINDBK","BAJAJFINSV","HDFCLIFE",
+    "DRREDDY","CIPLA","COALINDIA","BPCL","HEROMOTOCO","TATAMOTORS","DIVISLAB","BRITANNIA","UPL","SBILIFE",
+    "EICHERMOT","ONGC","GRASIM","BAJAJ-AUTO","ADANIPORTS","ADANIENT","HINDALCO","APOLLOHOSP","TATACONSUM","LTIM",
+  ],
+  BANKNIFTY: [
+    "HDFCBANK","ICICIBANK","SBIN","KOTAKBANK","AXISBANK","INDUSINDBK","BANKBARODA","FEDERALBNK","IDFCFIRSTB","PNB","AUBANK","BANDHANBNK",
+  ],
+  FINNIFTY: [
+    "HDFCBANK","ICICIBANK","SBIN","KOTAKBANK","AXISBANK","BAJFINANCE","BAJAJFINSV","HDFCLIFE","SBILIFE","ICICIPRULI","HDFCAMC","SBICARD","CHOLAFIN","MUTHOOTFIN",
+  ],
+  NIFTYIT: [
+    "TCS","INFY","HCLTECH","WIPRO","TECHM","LTIM","PERSISTENT","COFORGE","MPHASIS","LTTS",
+  ],
+  NIFTYAUTO: [
+    "MARUTI","M&M","TATAMOTORS","BAJAJ-AUTO","HEROMOTOCO","EICHERMOT","TVSMOTOR","ASHOKLEY","BOSCHLTD","BALKRISIND","MOTHERSON","EXIDEIND",
+  ],
+  NIFTYPHARMA: [
+    "SUNPHARMA","DRREDDY","CIPLA","DIVISLAB","ZYDUSLIFE","AUROPHARMA","TORNTPHARM","ALKEM","LUPIN","BIOCON","MANKIND","LAURUSLABS",
+  ],
+  NIFTYFMCG: [
+    "HINDUNILVR","ITC","NESTLEIND","BRITANNIA","TATACONSUM","COLPAL","DABUR","GODREJCP","MARICO","VBL","JUBLFOOD","EMAMILTD",
+  ],
+  NIFTYMETAL: [
+    "TATASTEEL","JSWSTEEL","HINDALCO","JINDALSTEL","SAIL","NMDC","NATIONALUM","HINDCOPPER","APLAPOLLO","RATNAMANI","VEDL",
+  ],
+  NIFTYREALTY: [
+    "DLF","GODREJPROP","OBEROIRLTY","PRESTIGE","PHOENIXLTD","BRIGADE","LODHA",
+  ],
+  NIFTYENERGY: [
+    "RELIANCE","ONGC","NTPC","POWERGRID","COALINDIA","BPCL","IOC","GAIL","TATAPOWER","ADANIGREEN","ADANIPOWER","ADANIENT",
+  ],
+};
 
 // Dedupe by symbol (first occurrence wins)
 export const UNIVERSE: UniverseEntry[] = (() => {

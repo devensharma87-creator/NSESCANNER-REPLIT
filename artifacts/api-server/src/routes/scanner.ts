@@ -12,28 +12,46 @@ import {
   ListSectorsResponse,
   ListStocksResponse,
 } from "@workspace/api-zod";
-import { SECTORS, UNIVERSE, getEntry } from "../lib/universe";
+import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll } from "../lib/scanner";
-import { fetchIndexChart } from "../lib/yahoo";
+import { fetchIndexChart, fetchFundamentals } from "../lib/yahoo";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
 import { getOptionSignals } from "../lib/optionSignals";
 import { getGlobalIndices } from "../lib/globalIndices";
 import { getMarketTrend } from "../lib/marketTrend";
+import { providerStatus } from "../lib/dataProvider";
 
 const router: IRouter = Router();
 
-const INDEX_SYMBOLS: Array<{ yahoo: string; name: string; display: string }> = [
-  { yahoo: "^NSEI", name: "NIFTY 50", display: "NIFTY 50" },
-  { yahoo: "^NSEBANK", name: "NIFTY BANK", display: "BANK NIFTY" },
-  { yahoo: "^CNXIT", name: "NIFTY IT", display: "NIFTY IT" },
-  { yahoo: "^CNXAUTO", name: "NIFTY AUTO", display: "NIFTY AUTO" },
-  { yahoo: "^CNXPHARMA", name: "NIFTY PHARMA", display: "NIFTY PHARMA" },
-  { yahoo: "^CNXFMCG", name: "NIFTY FMCG", display: "NIFTY FMCG" },
+const INDEX_SYMBOLS: Array<{ yahoo: string; name: string; display: string; slug?: string }> = [
+  { yahoo: "^NSEI", name: "NIFTY 50", display: "NIFTY 50", slug: "NIFTY50" },
+  { yahoo: "^NSEBANK", name: "NIFTY BANK", display: "BANK NIFTY", slug: "BANKNIFTY" },
+  { yahoo: "^CNXIT", name: "NIFTY IT", display: "NIFTY IT", slug: "NIFTYIT" },
+  { yahoo: "^CNXAUTO", name: "NIFTY AUTO", display: "NIFTY AUTO", slug: "NIFTYAUTO" },
+  { yahoo: "^CNXPHARMA", name: "NIFTY PHARMA", display: "NIFTY PHARMA", slug: "NIFTYPHARMA" },
+  { yahoo: "^CNXFMCG", name: "NIFTY FMCG", display: "NIFTY FMCG", slug: "NIFTYFMCG" },
   { yahoo: "^BSESN", name: "SENSEX", display: "SENSEX" },
 ];
 
 router.get("/market/summary", async (_req, res, next) => {
   try {
+    // Pre-compute per-index breadth from full universe scan once.
+    const allRows = await scanAll().catch(() => []);
+    const bySymbol = new Map(allRows.map(r => [r.symbol.toUpperCase(), r]));
+    const breadthFor = (symbols?: string[]) => {
+      if (!symbols || symbols.length === 0) return undefined;
+      let a = 0, d = 0, u = 0;
+      for (const s of symbols) {
+        const r = bySymbol.get(s.toUpperCase());
+        if (!r) continue;
+        if (r.quote.changePercent > 0.1) a++;
+        else if (r.quote.changePercent < -0.1) d++;
+        else u++;
+      }
+      if (a + d + u === 0) return undefined;
+      return { advancers: a, decliners: d, unchanged: u, adRatio: d === 0 ? (a > 0 ? null : 0) : +(a / d).toFixed(2) };
+    };
+
     const indices = await Promise.all(INDEX_SYMBOLS.map(async i => {
       const c = await fetchIndexChart(i.yahoo);
       const price = c?.meta.regularMarketPrice ?? 0;
@@ -50,6 +68,8 @@ router.get("/market/summary", async (_req, res, next) => {
       const open = lastIdx >= 0 ? opens[lastIdx] : undefined;
       const high = c?.meta.regularMarketDayHigh ?? (lastIdx >= 0 ? highs[lastIdx] : undefined);
       const low = c?.meta.regularMarketDayLow ?? (lastIdx >= 0 ? lows[lastIdx] : undefined);
+      const slug = i.slug;
+      const breadth = slug ? breadthFor(INDEX_CONSTITUENTS[slug]) : undefined;
       return {
         symbol: i.yahoo,
         name: i.display,
@@ -62,17 +82,16 @@ router.get("/market/summary", async (_req, res, next) => {
         low: low != null ? round2(low) : undefined,
         previousClose: round2(prev),
         trend: change > 0 ? "bullish" as const : change < 0 ? "bearish" as const : "neutral" as const,
+        breadth,
+        constituentSlug: slug,
       };
     }));
     let advancers = 0, decliners = 0, unchanged = 0;
-    try {
-      const rows = await scanAll();
-      for (const r of rows) {
-        if (r.quote.changePercent > 0.1) advancers++;
-        else if (r.quote.changePercent < -0.1) decliners++;
-        else unchanged++;
-      }
-    } catch { /* ignore */ }
+    for (const r of allRows) {
+      if (r.quote.changePercent > 0.1) advancers++;
+      else if (r.quote.changePercent < -0.1) decliners++;
+      else unchanged++;
+    }
 
     const now = new Date();
     const istHour = (now.getUTCHours() + 5) % 24;
@@ -218,6 +237,18 @@ router.get("/stocks/:symbol", async (req, res, next) => {
     const rows = await scanAll();
     const row = rows.find(r => r.symbol === symbol);
     if (!row) { res.status(404).json({ error: "No data available for symbol" }); return; }
+
+    // Fundamentals (cached per symbol for 1h)
+    const keyStats = await fetchFundamentals(symbol).catch(() => null);
+
+    // Peers — same sector, top 6 by score, excluding self
+    const peerCandidates = rows
+      .filter(r => r.sector === entry.sector && r.symbol !== entry.symbol)
+      .slice()
+      .sort((a, b) => b.recommendation.score - a.recommendation.score)
+      .slice(0, 6)
+      .map(p => ({ symbol: p.symbol, name: p.name, changePercent: p.quote.changePercent, price: p.quote.price }));
+
     const data = GetStockDetailResponse.parse({
       profile: {
         symbol: entry.symbol,
@@ -227,6 +258,8 @@ router.get("/stocks/:symbol", async (req, res, next) => {
         description: entry.description,
         seasonality: entry.seasonality,
         catalysts: entry.catalysts ?? [],
+        keyStats: keyStats ?? undefined,
+        peers: peerCandidates,
       },
       quote: row.quote,
       indicators: row.indicators,
@@ -237,6 +270,45 @@ router.get("/stocks/:symbol", async (req, res, next) => {
     });
     res.json(data);
   } catch (err) { next(err); }
+});
+
+// New: index detail endpoint (constituents + aggregated breadth + top movers)
+router.get("/index/:slug", async (req, res, next) => {
+  try {
+    const slug = String(req.params["slug"] ?? "").toUpperCase();
+    const cfg = INDEX_SYMBOLS.find(i => i.slug === slug);
+    const symbols = INDEX_CONSTITUENTS[slug];
+    if (!cfg || !symbols) { res.status(404).json({ error: "Index not found" }); return; }
+    const rows = await scanAll();
+    const set = new Set(symbols.map(s => s.toUpperCase()));
+    const constituents = rows.filter(r => set.has(r.symbol.toUpperCase()));
+    const a = constituents.filter(r => r.quote.changePercent > 0.1).length;
+    const d = constituents.filter(r => r.quote.changePercent < -0.1).length;
+    const u = constituents.length - a - d;
+    const c = await fetchIndexChart(cfg.yahoo);
+    const price = c?.meta.regularMarketPrice ?? 0;
+    const prev = c?.meta.chartPreviousClose ?? price;
+    const change = price - prev;
+    const pct = prev > 0 ? (change / prev) * 100 : 0;
+    res.json({
+      slug,
+      name: cfg.display,
+      yahoo: cfg.yahoo,
+      price: round2(price),
+      change: round2(change),
+      changePercent: round2(pct),
+      open: c?.open?.[c.open.length - 1] != null ? round2(c.open[c.open.length - 1]!) : undefined,
+      high: c?.meta.regularMarketDayHigh != null ? round2(c.meta.regularMarketDayHigh) : undefined,
+      low: c?.meta.regularMarketDayLow != null ? round2(c.meta.regularMarketDayLow) : undefined,
+      previousClose: round2(prev),
+      breadth: { advancers: a, decliners: d, unchanged: u, adRatio: d === 0 ? (a > 0 ? null : 0) : +(a / d).toFixed(2) },
+      constituents: constituents.slice().sort((x, y) => y.quote.changePercent - x.quote.changePercent),
+    });
+  } catch (err) { next(err); }
+});
+
+router.get("/provider/status", (_req, res) => {
+  res.json(providerStatus());
 });
 
 router.get("/stocks/:symbol/history", async (req, res, next) => {

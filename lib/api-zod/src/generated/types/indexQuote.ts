@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { IndexQuoteBreadth } from "./indexQuoteBreadth";
 import type { IndexQuoteTrend } from "./indexQuoteTrend";
 
 export interface IndexQuote {
@@ -23,4 +24,7 @@ export interface IndexQuote {
   ema9?: number;
   ema21?: number;
   rsi14?: number;
+  breadth?: IndexQuoteBreadth;
+  /** URL slug for index detail page */
+  constituentSlug?: string;
 }
