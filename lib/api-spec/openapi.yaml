@@ -3,34 +3,405 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: NSE Stock Scanner API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: market
+  - name: sectors
+  - name: stocks
+  - name: scan
+  - name: news
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
           content:
             application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+
+  /market/summary:
+    get:
+      operationId: getMarketSummary
+      tags: [market]
+      summary: Market indices snapshot (NIFTY 50, BANK NIFTY, etc.)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketSummary" }
+
+  /sectors:
+    get:
+      operationId: listSectors
+      tags: [sectors]
+      summary: All sectors with aggregate stats
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
               schema:
-                $ref: "#/components/schemas/HealthStatus"
+                type: array
+                items: { $ref: "#/components/schemas/SectorSummary" }
+
+  /sectors/{sector}:
+    get:
+      operationId: getSector
+      tags: [sectors]
+      summary: Sector detail with all stocks
+      parameters:
+        - in: path
+          name: sector
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SectorDetail" }
+
+  /stocks:
+    get:
+      operationId: listStocks
+      tags: [stocks]
+      summary: List all scanned stocks (with live quote + signal)
+      parameters:
+        - in: query
+          name: sector
+          schema: { type: string }
+        - in: query
+          name: signal
+          schema:
+            type: string
+            enum: [STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockRow" }
+
+  /stocks/{symbol}:
+    get:
+      operationId: getStockDetail
+      tags: [stocks]
+      summary: Detailed view of a single stock
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockDetail" }
+
+  /stocks/{symbol}/history:
+    get:
+      operationId: getStockHistory
+      tags: [stocks]
+      summary: Historical OHLC + indicators
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+        - in: query
+          name: range
+          schema:
+            type: string
+            enum: ["1mo", "3mo", "6mo", "1y", "2y"]
+            default: "6mo"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockHistory" }
+
+  /scan/top:
+    get:
+      operationId: getTopScans
+      tags: [scan]
+      summary: Top buy and sell ideas right now
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TopScans" }
+
+  /news:
+    get:
+      operationId: getNews
+      tags: [news]
+      summary: Market news (optionally filtered by symbol)
+      parameters:
+        - in: query
+          name: symbol
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NewsItem" }
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
-        status:
-          type: string
-      required:
-        - status
+        status: { type: string }
 
+    Signal:
+      type: string
+      enum: [STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL]
+
+    Quote:
+      type: object
+      required: [symbol, price, change, changePercent, open, high, low, previousClose, volume, updatedAt]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        price: { type: number }
+        change: { type: number }
+        changePercent: { type: number }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        previousClose: { type: number }
+        volume: { type: number }
+        avgVolume: { type: number }
+        marketCap: { type: number }
+        dayRange: { type: string }
+        yearRange: { type: string }
+        updatedAt: { type: string, format: date-time }
+
+    Indicators:
+      type: object
+      required: [ema20, ema50, rsi14]
+      properties:
+        ema20: { type: number }
+        ema50: { type: number }
+        rsi14: { type: number }
+        atr14: { type: number }
+        volumeRatio: { type: number, description: "current volume / 20-day average" }
+        deliveryPct: { type: number, description: "estimated delivery percentage" }
+        trendStrength: { type: number, description: "0-100" }
+        supportLevel: { type: number }
+        resistanceLevel: { type: number }
+        valueAreaHigh: { type: number }
+        valueAreaLow: { type: number }
+        pointOfControl: { type: number }
+
+    SignalReason:
+      type: object
+      required: [label, weight, bullish]
+      properties:
+        label: { type: string }
+        detail: { type: string }
+        weight: { type: number }
+        bullish: { type: boolean }
+
+    Recommendation:
+      type: object
+      required: [signal, score, confidence, reasons]
+      properties:
+        signal: { $ref: "#/components/schemas/Signal" }
+        score: { type: number, description: "-100 to 100" }
+        confidence: { type: number, description: "0 to 100" }
+        target: { type: number }
+        stopLoss: { type: number }
+        reasons:
+          type: array
+          items: { $ref: "#/components/schemas/SignalReason" }
+
+    StockRow:
+      type: object
+      required: [symbol, name, sector, quote, recommendation]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        sector: { type: string }
+        quote: { $ref: "#/components/schemas/Quote" }
+        indicators: { $ref: "#/components/schemas/Indicators" }
+        recommendation: { $ref: "#/components/schemas/Recommendation" }
+
+    Candle:
+      type: object
+      required: [t, o, h, l, c, v]
+      properties:
+        t: { type: string, format: date-time }
+        o: { type: number }
+        h: { type: number }
+        l: { type: number }
+        c: { type: number }
+        v: { type: number }
+
+    StockHistory:
+      type: object
+      required: [symbol, range, candles]
+      properties:
+        symbol: { type: string }
+        range: { type: string }
+        candles:
+          type: array
+          items: { $ref: "#/components/schemas/Candle" }
+        ema20Series:
+          type: array
+          items: { type: number, nullable: true }
+        ema50Series:
+          type: array
+          items: { type: number, nullable: true }
+        rsiSeries:
+          type: array
+          items: { type: number, nullable: true }
+
+    QuarterlyFinancial:
+      type: object
+      required: [period]
+      properties:
+        period: { type: string }
+        revenue: { type: number }
+        netProfit: { type: number }
+        eps: { type: number }
+        operatingMargin: { type: number }
+        netMargin: { type: number }
+
+    Holding:
+      type: object
+      required: [period]
+      properties:
+        period: { type: string }
+        promoter: { type: number }
+        fii: { type: number }
+        dii: { type: number }
+        public: { type: number }
+
+    NewsItem:
+      type: object
+      required: [id, title, source, publishedAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        source: { type: string }
+        url: { type: string }
+        publishedAt: { type: string, format: date-time }
+        summary: { type: string }
+        symbol: { type: string }
+        sentiment:
+          type: string
+          enum: [positive, neutral, negative]
+
+    CompanyProfile:
+      type: object
+      required: [symbol, name, sector]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        sector: { type: string }
+        industry: { type: string }
+        description: { type: string }
+        website: { type: string }
+        seasonality: { type: string }
+        catalysts:
+          type: array
+          items: { type: string }
+
+    StockDetail:
+      type: object
+      required: [profile, quote, indicators, recommendation, financials, holdings, news]
+      properties:
+        profile: { $ref: "#/components/schemas/CompanyProfile" }
+        quote: { $ref: "#/components/schemas/Quote" }
+        indicators: { $ref: "#/components/schemas/Indicators" }
+        recommendation: { $ref: "#/components/schemas/Recommendation" }
+        financials:
+          type: array
+          items: { $ref: "#/components/schemas/QuarterlyFinancial" }
+        holdings:
+          type: array
+          items: { $ref: "#/components/schemas/Holding" }
+        news:
+          type: array
+          items: { $ref: "#/components/schemas/NewsItem" }
+
+    SectorSummary:
+      type: object
+      required: [sector, stockCount, avgScore, gainers, losers, topPick]
+      properties:
+        sector: { type: string }
+        stockCount: { type: integer }
+        avgScore: { type: number }
+        avgChangePercent: { type: number }
+        gainers: { type: integer }
+        losers: { type: integer }
+        topPick: { $ref: "#/components/schemas/StockRow" }
+
+    SectorDetail:
+      type: object
+      required: [sector, stocks, summary]
+      properties:
+        sector: { type: string }
+        summary: { $ref: "#/components/schemas/SectorSummary" }
+        stocks:
+          type: array
+          items: { $ref: "#/components/schemas/StockRow" }
+
+    IndexQuote:
+      type: object
+      required: [symbol, name, price, change, changePercent]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        price: { type: number }
+        change: { type: number }
+        changePercent: { type: number }
+
+    MarketSummary:
+      type: object
+      required: [indices, advancers, decliners, unchanged, lastUpdated]
+      properties:
+        indices:
+          type: array
+          items: { $ref: "#/components/schemas/IndexQuote" }
+        advancers: { type: integer }
+        decliners: { type: integer }
+        unchanged: { type: integer }
+        marketStatus:
+          type: string
+          enum: [open, closed, pre_open]
+        lastUpdated: { type: string, format: date-time }
+
+    TopScans:
+      type: object
+      required: [topBuys, topSells, generatedAt]
+      properties:
+        topBuys:
+          type: array
+          items: { $ref: "#/components/schemas/StockRow" }
+        topSells:
+          type: array
+          items: { $ref: "#/components/schemas/StockRow" }
+        generatedAt: { type: string, format: date-time }

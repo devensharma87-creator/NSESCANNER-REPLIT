@@ -1,0 +1,253 @@
+Make a full proof stock scaneer which gives the idea for buy and sell make sure that uses all NSE stock to scan. the scanner should be based on 20 EMA and 50 EMA, Volume profile, RSI and price action. i need buy and sell signle based on the above criteria make sure you use the delivery % to analyse the same. need python code for the same which has html page as a frontend and give the buy sell recomandation and the reasone for the same. include the market news also for the respective stocks. Use big shark portfolio or block deals also. Make sure you use all the criteria to analyse the stock. 
+
+I also need the detailed information about what is the nature of company and what market news or seasone impacts the particular stock. FII, Promoters holding to be included. Consider past 10-15 quarter financials. Need the seprate tab for all the individual stock and also need the sector tab under which all the stock should be shown and the data should be live tracker and should show Open, High, Close, Low and dunring the day live price.
+
+Make it workd do it analyse and implement. GIve me full python code or html page which get updated automatically as per live market.
+
+GIve your suggestion and use them too.
+
+Assistant:
+
+You’re asking for a full-stack NSE stock scanner + live dashboard with:
+
+• All NSE stocks
+• Buy/Sell signals
+• Based on 20 EMA, 50 EMA, RSI, price action, volume, delivery %, volume profile
+• News + block deals + “big shark”/institutional activity
+• Company nature / business summary
+• FII / promoter holding
+• Past 10–15 quarters financials
+• Sector-wise tab + individual stock tab
+• Live OHLC + intraday price
+• Auto-updating frontend
+• Reasons behind recommendations
+
+Two important realities first:
+
+There is no “foolproof” stock scanner. Any tool can improve decision quality, but it cannot guarantee profitable buy/sell calls.
+A truly live, all-NSE, production-grade scanner depends heavily on licensed or reliable market data sources. NSE data, delivery %, block deals, shareholding, live quotes, and structured news are not all cleanly available from one free source.
+
+So the best practical way is to build this in two layers:
+
+• Layer 1: Core scanner engine using technical + financial + ownership + news scoring
+• Layer 2: Live web app using Flask + HTML + JS auto-refresh
+
+I’ll give you a working implementation blueprint and codebase that you can run and extend. I’ll also tell you where external APIs are needed.
+
+My recommendation on architecture
+
+Use this stack:
+
+• Backend: Python + Flask
+• Frontend: HTML + Bootstrap + JS
+• Storage: SQLite initially, later PostgreSQL
+• Scheduler: APScheduler / cron
+• Live updates: polling every 30–60 seconds initially, later WebSocket
+• Market data: start with yfinance for prototyping, then migrate to a proper NSE/live data vendor
+• News: RSS/News API integration
+• Financials / holdings: scraping/API layer
+• Scanner engine: pandas-based factor scoring
+
+Existing tools worth learning from
+
+If you want a reference before building, PKScreener is one of the more feature-rich open-source NSE-focused scanners. Its repo describes 40+ scanners, Telegram alerts, backtesting, technical scans, and support for Nifty universes and even NASDAQ. It’s MIT-licensed, Python-based, and appears actively updated, with a latest release dated 2026-03-18. github.com togithub.com
+
+Other open-source NSE scanners exist, but they’re generally narrower or older. For example, NSE-Stock-Scanner includes live-data ideas, backtesting, swing/intraday logic, and broker integration concepts, but its README also mentions bugs in live data refresh. github.com
+
+A lightweight experimental project, NSEStockScanner, supports configurable indicators like EMA, RSI, MACD, BB, StochRSI, and rule-based signal definitions, but it’s much smaller and not close to the full platform you described. github.com
+
+So my suggestion is:
+
+• Do not reinvent everything from zero if speed matters.
+• Build your dashboard/scoring layer around a clean architecture.
+• Borrow ideas from PKScreener’s breadth, but create your own scoring and frontend.
+
+What I suggest changing in your requirements
+
+A few upgrades will make the system more realistic and stronger:
+
+Replace “single signal” with score + confidence + reasons
+Instead of only BUY / SELL:
+• Strong Buy
+• Buy
+• Neutral
+• Sell
+• Strong Sell
+
+This is more robust than binary calls.
+
+Use a weighted scoring model
+Suggested weights:
+
+| Factor | Weight |
+|---|---:|
+| EMA trend | 20 |
+| RSI state | 10 |
+| Price action | 15 |
+| Volume spike | 10 |
+| Delivery % | 10 |
+| Volume profile / price acceptance | 10 |
+| Financial trend | 10 |
+| FII/promoter/institutional holding | 5 |
+| News sentiment | 5 |
+| Block deals / bulk deals / smart money | 5 |
+
+Split system into technical scanner and investment intelligence
+Because:
+• intraday/live signal logic
+• quarter financials
+• promoter/FII holding
+• seasonal/news narrative
+
+These should be shown separately but combined into final score.
+
+Use a data freshness badge
+Example:
+• Live price: 15 sec ago
+• Delivery %: previous trading day
+• Shareholding: latest available quarter
+• Financials: latest reported quarter
+• News: last 24 hours
+
+That avoids misleading “live” claims.
+
+Functional modules
+
+You need these modules:
+
+Universe loader
+   - All NSE symbols
+   - Sector mapping
+
+Market data engine
+   - Historical OHLCV
+   - Intraday OHLCV
+   - Delivery %
+
+Technical engine
+   - EMA 20 / EMA 50
+   - RSI
+   - Price action
+   - Volume breakout
+   - Approximate volume profile zones
+
+Fundamental engine
+   - Past 10–15 quarter sales, profit, EPS, margins, debt
+   - Promoter holding, FII, DII
+
+News engine
+   - Stock-specific news
+   - Sector news
+   - Sentiment scoring
+
+Smart-money engine
+   - Block deals / bulk deals
+   - Institutional ownership changes
+
+Recommendation engine
+   - Buy/Sell score
+   - Reason generation
+
+Frontend
+   - Dashboard tab
+   - Sector tab
+   - Individual stock tab
+   - Live tracker tab
+   - News tab
+
+Practical data-source reality
+
+For a prototype:
+
+• NSE symbol list: maintain CSV / scrape
+• OHLCV: yfinance works as a prototype, but not ideal for NSE production/live
+• Delivery %: likely from NSE bhavcopy / delivery files or broker/vendor feeds
+• Block/bulk deals: NSE/BSE public disclosures
+• Promoter/FII/DII holdings: screener-style public data, exchange filings, company shareholding patterns
+• Financials: company filings / financial APIs / scraping
+• News: NewsAPI, Google News RSS, or a news vendor
+
+For production/live, you’ll probably need:
+• broker API or market data vendor
+• structured fundamentals vendor
+• structured news feed
+
+Project structure
+
+Use this:
+
+``text
+nsescanner/
+│
+├── app.py
+├── config.py
+├── requirements.txt
+├── scanner.py
+├── scoring.py
+├── datafetcher.py
+├── newsfetcher.py
+├── fundamentals.py
+├── smartmoney.py
+├── sectormapper.py
+├── db.py
+├── scheduler.py
+│
+├── templates/
+│   ├── index.html
+│   ├── stock.html
+│   ├── sector.html
+│
+├── static/
+│   ├── style.css
+│   └── app.js
+│
+├── data/
+│   ├── nsesymbols.csv
+│   └── sectormap.csv
+│
+└── cache/
+`
+
+requirements.txt
+
+`txt
+flask
+pandas
+numpy
+yfinance
+requests
+beautifulsoup4
+lxml
+ta
+APScheduler
+feedparser
+textblob
+sqlalchemy
+`
+
+Core design of recommendation logic
+Buy signal example
+A stock is Buy when most of these align:
+
+• Price > EMA20 > EMA50
+• EMA20 crossed above EMA50 recently or spread widening
+• RSI between 55 and 70
+• Bullish candle structure / breakout above swing high
+• Volume > 1.5x average volume
+• Delivery % above recent mean
+• Price above high-volume acceptance zone
+• Positive or neutral recent news
+• No major deterioration in 10–15 quarter trend
+• Stable/improving promoter / FII pattern
+• Positive block deal / institutional accumulation signals
+
+Sell signal example
+• Price < EMA20 < EMA50
+• EMA20 below EMA50
+• RSI below 45 or bearish divergence
+• Breakdown below swing low / support
+• High volume on down move
+• Delivery % elevated on down move
+• Negative news
+• Weakening financial trend
+• Falling institutional confidence

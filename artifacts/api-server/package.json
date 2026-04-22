@@ -17,7 +17,8 @@
     "drizzle-orm": "catalog:",
     "express": "^5",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "yahoo-finance2": "^3.14.0"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
