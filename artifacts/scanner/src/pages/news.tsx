@@ -1,10 +1,9 @@
 import { useGetNews, getGetNewsQueryKey, useGetMarketEvents, getGetMarketEventsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Newspaper, ExternalLink, CalendarDays, CalendarClock, Briefcase, Landmark, Flag, Globe } from "lucide-react";
+import { Newspaper, ExternalLink, CalendarDays, Briefcase, Landmark, Flag, Globe } from "lucide-react";
 import { formatDistanceToNow, format, parseISO, isToday, isTomorrow, differenceInCalendarDays } from "date-fns";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 const sentimentBadge: Record<string, string> = {
   positive: "text-signal-strong-buy border-signal-strong-buy/40 bg-signal-strong-buy/10",
@@ -191,58 +190,98 @@ function EventsList() {
   );
 }
 
+function SectionHeader({ icon: Icon, title, subtitle, accent }: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  subtitle: string;
+  accent: string;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 mb-3">
+      <div className="flex items-center gap-2">
+        <Icon className={`w-4 h-4 ${accent}`} />
+        <h2 className="text-sm font-bold font-mono tracking-wider uppercase">{title}</h2>
+      </div>
+      <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground truncate">{subtitle}</span>
+    </div>
+  );
+}
+
 export default function MarketInfo() {
   return (
-    <div className="container max-w-4xl py-6 space-y-6">
-      <div className="flex items-center gap-2">
-        <Newspaper className="w-5 h-5 text-signal-strong-buy" />
-        <h1 className="text-2xl font-bold font-mono tracking-tight">MARKET INFO</h1>
+    <div className="w-full max-w-none px-4 py-6 space-y-6">
+      <div>
+        <div className="flex items-center gap-2">
+          <Newspaper className="w-5 h-5 text-signal-strong-buy" />
+          <h1 className="text-2xl font-bold font-mono tracking-tight">MARKET INFO</h1>
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          Headlines, exchange holidays, earnings calendar, and central-bank &amp; macro events — domestic and global.
+        </p>
       </div>
-      <p className="text-sm text-muted-foreground -mt-2">
-        Headlines, exchange holidays, earnings calendar, and central-bank &amp; macro events — domestic and global.
-      </p>
 
-      <Tabs defaultValue="news" className="w-full">
-        <TabsList className="grid grid-cols-4 w-full max-w-2xl">
-          <TabsTrigger value="news" className="font-mono text-xs uppercase gap-1.5">
-            <Newspaper className="w-3.5 h-3.5" /> News Feeds
-          </TabsTrigger>
-          <TabsTrigger value="earnings" className="font-mono text-xs uppercase gap-1.5">
-            <Briefcase className="w-3.5 h-3.5" /> Earnings
-          </TabsTrigger>
-          <TabsTrigger value="holidays" className="font-mono text-xs uppercase gap-1.5">
-            <CalendarDays className="w-3.5 h-3.5" /> Holiday
-          </TabsTrigger>
-          <TabsTrigger value="events" className="font-mono text-xs uppercase gap-1.5">
-            <Landmark className="w-3.5 h-3.5" /> Events
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="news" className="mt-5">
-          <NewsList />
-        </TabsContent>
-
-        <TabsContent value="earnings" className="mt-5 space-y-4">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Flag className="w-3 h-3 text-signal-strong-buy" /> Indian + global mega-cap reports · next 30 days
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* News Feed — left column, taller */}
+        <section className="lg:col-span-7">
+          <SectionHeader
+            icon={Newspaper}
+            title="News Feeds"
+            subtitle="Moneycontrol · Mint · ET Markets · Economic Times"
+            accent="text-signal-strong-buy"
+          />
+          <div className="max-h-[80vh] overflow-y-auto pr-2 scrollbar-thin">
+            <NewsList />
           </div>
-          <EarningsList />
-        </TabsContent>
+        </section>
 
-        <TabsContent value="holidays" className="mt-5 space-y-4">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Globe className="w-3 h-3" /> NSE/BSE + global exchanges · next 90 days
-          </div>
-          <HolidaysList />
-        </TabsContent>
+        {/* Earnings · Holiday · Events — right column, stacked */}
+        <div className="lg:col-span-5 space-y-6">
+          <section>
+            <SectionHeader
+              icon={Briefcase}
+              title="Earnings"
+              subtitle="Indian + global · next 30 days"
+              accent="text-signal-strong-buy"
+            />
+            <div className="max-h-[28vh] overflow-y-auto pr-2 scrollbar-thin">
+              <EarningsList />
+            </div>
+          </section>
 
-        <TabsContent value="events" className="mt-5 space-y-4">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Landmark className="w-3 h-3" /> RBI, Fed, ECB, BoE, BoJ + macro releases · next 90 days
-          </div>
-          <EventsList />
-        </TabsContent>
-      </Tabs>
+          <section>
+            <SectionHeader
+              icon={CalendarDays}
+              title="Holiday"
+              subtitle="NSE/BSE + global · next 90 days"
+              accent="text-amber-400"
+            />
+            <div className="max-h-[28vh] overflow-y-auto pr-2 scrollbar-thin">
+              <HolidaysList />
+            </div>
+          </section>
+
+          <section>
+            <SectionHeader
+              icon={Landmark}
+              title="Events"
+              subtitle="RBI · Fed · ECB · BoE · BoJ · macro"
+              accent="text-blue-400"
+            />
+            <div className="max-h-[28vh] overflow-y-auto pr-2 scrollbar-thin">
+              <EventsList />
+            </div>
+          </section>
+        </div>
+      </div>
+
+      {/* Subtle hint badges row */}
+      <div className="flex flex-wrap gap-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 pt-2">
+        <span className="inline-flex items-center gap-1"><Flag className="w-3 h-3 text-signal-strong-buy" /> Domestic</span>
+        <span>·</span>
+        <span className="inline-flex items-center gap-1"><Globe className="w-3 h-3" /> Global</span>
+        <span>·</span>
+        <span>Auto-refreshes every minute</span>
+      </div>
     </div>
   );
 }
