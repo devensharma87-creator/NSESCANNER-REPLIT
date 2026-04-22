@@ -161,28 +161,12 @@ export default function MarketsTabs() {
           <h3 className="text-sm font-mono font-semibold uppercase tracking-widest text-muted-foreground">Markets</h3>
           <span className="text-[10px] font-mono text-muted-foreground/60">auto-refresh 30s · source: Yahoo</span>
         </div>
-        <Tabs defaultValue="india">
+        <Tabs defaultValue={REGION_TABS[0]?.key ?? "asia"}>
           <TabsList className="bg-secondary/40">
-            <TabsTrigger value="india" className="font-mono text-xs">India</TabsTrigger>
             {REGION_TABS.map(t => (
               <TabsTrigger key={t.key} value={t.key} className="font-mono text-xs">{t.label}</TabsTrigger>
             ))}
           </TabsList>
-
-          {/* India tab — clickable, breadth-rich Indian indices */}
-          <TabsContent value="india" className="mt-3">
-            {sLoading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                {Array.from({ length: 7 }).map((_, i) => <Skeleton key={i} className="h-[140px] w-full" />)}
-              </div>
-            ) : indianIndices.length === 0 ? (
-              <div className="text-xs text-muted-foreground font-mono py-6 text-center">No Indian indices.</div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                {indianIndices.map(idx => <IndiaCard key={idx.symbol} idx={idx} />)}
-              </div>
-            )}
-          </TabsContent>
 
           {/* Global region tabs */}
           {REGION_TABS.map(t => {

@@ -3,6 +3,7 @@ import { Search, Activity } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import GlobalStrip from "@/components/global-strip";
+import IndianStrip from "@/components/indian-strip";
 import { useListStocks, getListStocksQueryKey } from "@workspace/api-client-react";
 import { SignalBadge } from "@/components/ui/signal-badge";
 
@@ -58,7 +59,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary">
-      <header className="sticky top-0 z-50 w-full border-b border-border bg-card/80 backdrop-blur supports-[backdrop-filter]:bg-card/60">
+      <div className="sticky top-0 z-50 w-full bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/65 border-b border-border">
+      <header className="w-full border-b border-border">
         <div className="w-full px-4 flex h-14 items-center">
           <div className="mr-4 flex">
             <Link href="/" className="mr-6 flex items-center space-x-2">
@@ -137,7 +139,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+      <IndianStrip />
       <GlobalStrip />
+      </div>
 
       <main className="flex-1">
         {children}
