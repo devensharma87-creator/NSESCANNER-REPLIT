@@ -16,46 +16,33 @@ function zoneFor(v: number): Zone {
   return ZONES.find(z => v >= z.from && v <= z.to) ?? ZONES[2]!;
 }
 
-/** Simple half-donut gauge: thin colored arcs, slim needle, value + label below. */
-function GaugeSvg({ value }: { value: number }) {
-  const W = 320, H = 180;
-  const cx = W / 2, cy = H - 14;
-  const rOuter = 130, rInner = 110;
-
-  const polar = (angDeg: number, r: number) => {
-    const a = (Math.PI * (180 - angDeg)) / 180;
-    return { x: cx + r * Math.cos(a), y: cy - r * Math.sin(a) };
-  };
-
-  const arcPath = (fromVal: number, toVal: number) => {
-    const a1 = 180 - (fromVal / 100) * 180;
-    const a2 = 180 - (toVal / 100) * 180;
-    const p1 = polar(a1, rOuter);
-    const p2 = polar(a2, rOuter);
-    const p3 = polar(a2, rInner);
-    const p4 = polar(a1, rInner);
-    return [
-      `M ${p1.x} ${p1.y}`,
-      `A ${rOuter} ${rOuter} 0 0 1 ${p2.x} ${p2.y}`,
-      `L ${p3.x} ${p3.y}`,
-      `A ${rInner} ${rInner} 0 0 0 ${p4.x} ${p4.y}`,
-      "Z",
-    ].join(" ");
-  };
-
-  const ang = 180 - (value / 100) * 180;
-  const needleEnd = polar(ang, rOuter - 4);
+/** Minimal horizontal gauge: 5 thin segments with a single marker showing the current value. */
+function GaugeBar({ value }: { value: number }) {
   const z = zoneFor(value);
-
+  const pct = Math.max(0, Math.min(100, value));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Market mood gauge">
-      {ZONES.map(zn => (
-        <path key={zn.label} d={arcPath(zn.from, zn.to)} fill={zn.color} opacity={zn === z ? 0.95 : 0.35} />
-      ))}
-      {/* Needle */}
-      <line x1={cx} y1={cy} x2={needleEnd.x} y2={needleEnd.y} stroke="hsl(var(--foreground))" strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx={cx} cy={cy} r="5" fill="hsl(var(--foreground))" />
-    </svg>
+    <div className="space-y-2">
+      <div className="relative h-2 rounded-full overflow-hidden flex">
+        {ZONES.map(zn => (
+          <div
+            key={zn.label}
+            className="h-full"
+            style={{
+              width: `${zn.to - zn.from}%`,
+              backgroundColor: zn.color,
+              opacity: zn === z ? 0.95 : 0.25,
+            }}
+          />
+        ))}
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-background shadow"
+          style={{ left: `calc(${pct}% - 6px)`, backgroundColor: z.color }}
+        />
+      </div>
+      <div className="flex justify-between text-[9px] font-mono uppercase tracking-wider text-muted-foreground/60">
+        <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100</span>
+      </div>
+    </div>
   );
 }
 
@@ -64,6 +51,9 @@ export default function MarketMoodGauge() {
   const { data: globals } = useGetGlobalIndices({ query: { refetchInterval: 30000, queryKey: getGetGlobalIndicesQueryKey() } });
 
   const vix = globals?.indices?.find(i => i.symbol === "^VIX");
+  const dxy = globals?.indices?.find(i => i.symbol === "DX-Y.NYB");
+  const crude = globals?.indices?.find(i => i.symbol === "CL=F");
+  const indiavix = globals?.indices?.find(i => i.symbol === "^INDIAVIX");
 
   // Composite mood (-100..+100) → 0..100
   const trendScore = trend?.score ?? 0;
@@ -76,26 +66,57 @@ export default function MarketMoodGauge() {
 
   return (
     <Card className="border-border bg-gradient-to-br from-card to-card/40">
-      <CardContent className="p-5 flex flex-col items-center text-center">
-        <div className="w-full flex items-center justify-between text-xs font-mono uppercase tracking-widest text-muted-foreground mb-2">
-          <span className="flex items-center gap-1.5">
-            <Gauge className="w-4 h-4" /> Market Mood
-          </span>
-          <span className="text-[10px]">0 – 100</span>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+            <Gauge className="w-4 h-4" /> MARKET MOOD INDEX
+          </div>
+          <div className="text-[10px] font-mono text-muted-foreground">Composite of trend · breadth · vol</div>
         </div>
 
-        <GaugeSvg value={mmi} />
+        <div className="flex items-baseline gap-3">
+          <span className="font-mono font-bold text-4xl tabular-nums leading-none" style={{ color: z.color }}>{mmi}</span>
+          <span className="font-mono uppercase tracking-widest text-xs font-semibold" style={{ color: z.color }}>{z.label}</span>
+        </div>
 
-        <div className="mt-1 font-mono font-bold text-5xl tabular-nums leading-none" style={{ color: z.color }}>
-          {mmi}
+        <GaugeBar value={mmi} />
+
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/40">
+          <Sub label="Trend" v={trendScore} />
+          <Sub label="Breadth" v={Math.round(breadthScore)} />
+          <Sub label="A/D Ratio" v={breadthRatio} fmt={n => n.toFixed(2)} />
+          <Sub label="Vol (VIX)" v={Math.round(vixScore)} />
         </div>
-        <div className="mt-2 text-sm font-mono uppercase tracking-widest font-semibold" style={{ color: z.color }}>
-          {z.label}
-        </div>
-        <div className="mt-2 text-[11px] text-muted-foreground font-mono">
-          Composite of trend, breadth and volatility
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-mono text-muted-foreground pt-2 border-t border-border/40">
+          <Mini label="India VIX" v={indiavix?.price} pct={indiavix?.changePercent} invert />
+          <Mini label="VIX" v={vix?.price} pct={vix?.changePercent} invert />
+          <Mini label="DXY" v={dxy?.price} pct={dxy?.changePercent} invert />
+          <Mini label="Crude" v={crude?.price} pct={crude?.changePercent} />
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function Sub({ label, v, fmt }: { label: string; v: number; fmt?: (n: number) => string }) {
+  return (
+    <div className="flex items-center justify-between text-[11px] font-mono">
+      <span className="uppercase text-muted-foreground tracking-wider">{label}</span>
+      <span className="font-bold tabular-nums">{fmt ? fmt(v) : (v > 0 ? `+${v}` : v)}</span>
+    </div>
+  );
+}
+
+function Mini({ label, v, pct, invert }: { label: string; v?: number; pct?: number; invert?: boolean }) {
+  if (v == null) return <div>{label} —</div>;
+  const dir = (pct ?? 0) >= 0;
+  const cls = invert
+    ? (dir ? "text-signal-strong-sell" : "text-signal-strong-buy")
+    : (dir ? "text-signal-strong-buy" : "text-signal-strong-sell");
+  return (
+    <div>
+      {label} <span className={`${cls} tabular-nums`}>{v.toFixed(2)}{pct != null ? ` (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)` : ""}</span>
+    </div>
   );
 }
