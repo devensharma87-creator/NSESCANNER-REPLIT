@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import TrendCard from "@/components/trend-card";
 import MarketMoodGauge from "@/components/mmi-gauge";
 import MarketsTabs from "@/components/markets-tabs";
+import EventsMarquee from "@/components/events-marquee";
 import { useMemo } from "react";
 import type { StockRow } from "@workspace/api-client-react";
 
@@ -74,6 +75,9 @@ export default function Dashboard() {
 
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-6">
+      {/* Notification tickers — Earnings, Holiday, Events */}
+      <EventsMarquee />
+
       {/* Trend + Mood */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2"><TrendCard /></div>
