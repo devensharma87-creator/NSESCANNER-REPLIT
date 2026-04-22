@@ -55,7 +55,7 @@ export default function StockDetail() {
 
   if (isLoading || !detail) {
     return (
-      <div className="container max-w-screen-2xl py-6 space-y-4">
+      <div className="w-full max-w-none px-4 py-6 space-y-4">
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-32 w-full" />
         <Skeleton className="h-96 w-full" />
@@ -76,7 +76,7 @@ export default function StockDetail() {
   })) ?? [];
 
   return (
-    <div className="container max-w-screen-2xl py-6 space-y-6">
+    <div className="w-full max-w-none px-4 py-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="space-y-1">
           <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors">

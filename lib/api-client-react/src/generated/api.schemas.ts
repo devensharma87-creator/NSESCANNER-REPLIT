@@ -209,6 +209,10 @@ export interface IndexQuote {
   price: number;
   change: number;
   changePercent: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  previousClose?: number;
   trend?: IndexQuoteTrend;
   vwap?: number;
   ema9?: number;

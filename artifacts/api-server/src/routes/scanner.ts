@@ -38,11 +38,18 @@ router.get("/market/summary", async (_req, res, next) => {
       const c = await fetchIndexChart(i.yahoo);
       const price = c?.meta.regularMarketPrice ?? 0;
       const closes = c?.close ?? [];
+      const opens = c?.open ?? [];
+      const highs = c?.high ?? [];
+      const lows = c?.low ?? [];
+      const lastIdx = closes.length - 1;
       const prev = closes.length >= 2
         ? closes[closes.length - 2]!
         : (c?.meta.chartPreviousClose ?? price);
       const change = price - prev;
       const pct = prev > 0 ? (change / prev) * 100 : 0;
+      const open = lastIdx >= 0 ? opens[lastIdx] : undefined;
+      const high = c?.meta.regularMarketDayHigh ?? (lastIdx >= 0 ? highs[lastIdx] : undefined);
+      const low = c?.meta.regularMarketDayLow ?? (lastIdx >= 0 ? lows[lastIdx] : undefined);
       return {
         symbol: i.yahoo,
         name: i.display,
@@ -50,6 +57,10 @@ router.get("/market/summary", async (_req, res, next) => {
         price: round2(price),
         change: round2(change),
         changePercent: round2(pct),
+        open: open != null ? round2(open) : undefined,
+        high: high != null ? round2(high) : undefined,
+        low: low != null ? round2(low) : undefined,
+        previousClose: round2(prev),
         trend: change > 0 ? "bullish" as const : change < 0 ? "bearish" as const : "neutral" as const,
       };
     }));

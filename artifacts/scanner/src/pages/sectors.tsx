@@ -14,7 +14,7 @@ export default function Sectors() {
   const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
 
   return (
-    <div className="container max-w-screen-2xl py-6 space-y-8">
+    <div className="w-full max-w-none px-4 py-6 space-y-8">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold font-mono tracking-tight flex items-center gap-2">
           <Layers className="w-6 h-6 text-primary" />

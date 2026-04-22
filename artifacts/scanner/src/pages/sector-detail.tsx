@@ -17,7 +17,7 @@ export default function SectorDetail() {
   const fmtPct = (p: number) => `${p > 0 ? "+" : ""}${p.toFixed(2)}%`;
 
   return (
-    <div className="container max-w-screen-2xl py-6 space-y-6">
+    <div className="w-full max-w-none px-4 py-6 space-y-6">
       <div>
         <Link href="/sectors" className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="w-3.5 h-3.5" /> ALL SECTORS

@@ -433,6 +433,10 @@ components:
         price: { type: number }
         change: { type: number }
         changePercent: { type: number }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        previousClose: { type: number }
         trend: { type: string, enum: [bullish, bearish, neutral] }
         vwap: { type: number }
         ema9: { type: number }
