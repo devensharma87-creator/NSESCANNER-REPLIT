@@ -22,10 +22,10 @@ export default function IndianStrip() {
     const slug = (idx as unknown as { constituentSlug?: string }).constituentSlug;
     const breadth = (idx as unknown as { breadth?: { advancers: number; decliners: number } }).breadth;
     const inner = (
-      <span className="inline-flex items-baseline gap-1.5 px-2.5 py-1 rounded border border-border/50 bg-background/40 hover:bg-background/80 hover:border-border transition-colors text-sm font-mono shrink-0">
-        <span className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wide">{idx.name}</span>
-        <span className="font-bold tabular-nums text-[13px]">{fmtIN(idx.price)}</span>
-        <span className={`tabular-nums text-[11px] font-semibold ${tone}`}>
+      <span className="inline-flex items-baseline gap-1.5 px-3 py-1.5 rounded border border-border/50 bg-background/40 hover:bg-background/80 hover:border-border transition-colors text-sm font-mono shrink-0">
+        <span className="text-muted-foreground text-[12px] font-semibold uppercase tracking-wide">{idx.name}</span>
+        <span className="font-bold tabular-nums text-[14px]">{fmtIN(idx.price)}</span>
+        <span className={`tabular-nums text-[12px] font-semibold ${tone}`}>
           {up ? <TrendingUp className="inline w-3 h-3" /> : <TrendingDown className="inline w-3 h-3" />}
           <span className="ml-0.5">{idx.changePercent > 0 ? "+" : ""}{idx.changePercent.toFixed(2)}%</span>
         </span>
@@ -64,13 +64,13 @@ export default function IndianStrip() {
           display: inline-flex;
           align-items: center;
           gap: 0.5rem;
-          animation: india-strip-marquee 45s linear infinite;
+          animation: india-strip-marquee 90s linear infinite;
           will-change: transform;
         }
         .india-strip-track[data-paused="true"] { animation-play-state: paused; }
         .india-strip-viewport:hover .india-strip-track { animation-play-state: paused; }
       `}</style>
-      <div className="w-full px-4 py-2 flex items-center gap-3">
+      <div className="w-full px-4 py-3 flex items-center gap-3">
         <span className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 shrink-0 font-semibold">
           <Flag className="w-3.5 h-3.5 text-signal-strong-buy" /> INDIA
         </span>

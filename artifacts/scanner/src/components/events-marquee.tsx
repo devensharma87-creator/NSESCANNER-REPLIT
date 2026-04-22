@@ -59,7 +59,7 @@ function MarqueeBar({
         .${animName}-track[data-paused="true"] { animation-play-state: paused; }
         .${animName}-viewport:hover .${animName}-track { animation-play-state: paused; }
       `}</style>
-      <div className="w-full px-4 py-1.5 flex items-center gap-3">
+      <div className="w-full px-4 py-3 flex items-center gap-3">
         <Link
           href={hrefAll}
           className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1.5 shrink-0 font-semibold"
@@ -105,7 +105,7 @@ export default function EventsMarquee() {
   const earningsItems = useMemo(() => {
     const arr = (data?.earnings ?? []).slice(0, 24);
     return arr.map((e, i) => (
-      <span key={`er-${e.symbol}-${i}`} className="inline-flex items-baseline gap-1.5 px-2.5 py-0.5 rounded border border-border/50 bg-background/40 text-sm font-mono shrink-0">
+      <span key={`er-${e.symbol}-${i}`} className="inline-flex items-baseline gap-1.5 px-3 py-1.5 rounded border border-border/50 bg-background/40 text-sm font-mono shrink-0">
         <span className="text-[10px] font-mono uppercase tracking-wider text-signal-strong-buy font-semibold">{relLabel(e.date)}</span>
         <span className="font-bold tabular-nums text-[12px]">{e.symbol}</span>
         <span className="text-muted-foreground text-[11px] truncate max-w-[160px]">{e.name}</span>
@@ -121,7 +121,7 @@ export default function EventsMarquee() {
   const holidayItems = useMemo(() => {
     const arr = (data?.holidays.upcoming ?? []).slice(0, 24);
     return arr.map((h, i) => (
-      <span key={`hd-${h.exchange}-${i}`} className="inline-flex items-baseline gap-1.5 px-2.5 py-0.5 rounded border border-border/50 bg-background/40 text-sm font-mono shrink-0">
+      <span key={`hd-${h.exchange}-${i}`} className="inline-flex items-baseline gap-1.5 px-3 py-1.5 rounded border border-border/50 bg-background/40 text-sm font-mono shrink-0">
         <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 font-semibold">{relLabel(h.date)}</span>
         <span className="text-base leading-none translate-y-[1px]">{regionEmoji[h.region] ?? "🏳️"}</span>
         <span className="font-bold text-[11px] uppercase tracking-wider text-muted-foreground">{h.exchange}</span>
@@ -133,7 +133,7 @@ export default function EventsMarquee() {
   const eventItems = useMemo(() => {
     const arr = (data?.events ?? []).slice(0, 24);
     return arr.map((e, i) => (
-      <span key={`ev-${e.date}-${i}`} className="inline-flex items-baseline gap-1.5 px-2.5 py-0.5 rounded border border-border/50 bg-background/40 text-sm font-mono shrink-0">
+      <span key={`ev-${e.date}-${i}`} className="inline-flex items-baseline gap-1.5 px-3 py-1.5 rounded border border-border/50 bg-background/40 text-sm font-mono shrink-0">
         <span className="text-[10px] font-mono uppercase tracking-wider text-blue-400 font-semibold">{relLabel(e.date)}</span>
         <span className="text-base leading-none translate-y-[1px]">{regionEmoji[e.region] ?? "🌐"}</span>
         <span className="font-bold text-[12px] truncate max-w-[260px]">{e.name}</span>
@@ -152,7 +152,7 @@ export default function EventsMarquee() {
         accent="text-signal-strong-buy"
         items={earningsItems}
         isLoading={isLoading}
-        durationSec={55}
+        durationSec={120}
         hrefAll="/news"
       />
       <MarqueeBar
@@ -161,7 +161,7 @@ export default function EventsMarquee() {
         accent="text-amber-400"
         items={holidayItems}
         isLoading={isLoading}
-        durationSec={50}
+        durationSec={110}
         hrefAll="/news"
       />
       <MarqueeBar
@@ -170,7 +170,7 @@ export default function EventsMarquee() {
         accent="text-blue-400"
         items={eventItems}
         isLoading={isLoading}
-        durationSec={60}
+        durationSec={130}
         hrefAll="/news"
       />
     </div>

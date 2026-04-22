@@ -220,13 +220,13 @@ export default function GlobalStrip() {
           display: inline-flex;
           align-items: center;
           gap: 0.75rem;
-          animation: global-strip-marquee 60s linear infinite;
+          animation: global-strip-marquee 120s linear infinite;
           will-change: transform;
         }
         .global-strip-track[data-paused="true"] { animation-play-state: paused; }
         .global-strip-viewport:hover .global-strip-track { animation-play-state: paused; }
       `}</style>
-      <div className="w-full px-4 py-2.5 flex items-center gap-3">
+      <div className="w-full px-4 py-3 flex items-center gap-3">
         <span className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 shrink-0 font-semibold">
           <Globe className="w-3.5 h-3.5" /> GLOBAL
         </span>
