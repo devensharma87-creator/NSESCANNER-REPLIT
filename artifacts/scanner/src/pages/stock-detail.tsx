@@ -18,6 +18,7 @@ import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
 import { ArrowLeft, TrendingUp, TrendingDown, Target, ShieldAlert, ExternalLink } from "lucide-react";
 import { TradingViewChart } from "@/components/tradingview-chart";
+import StockStatements from "@/components/stock-statements";
 import { formatDistanceToNow } from "date-fns";
 import {
   ResponsiveContainer,
@@ -334,38 +335,8 @@ export default function StockDetail() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="financials">
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Quarterly results (₹ crore)</CardTitle></CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent border-border">
-                      <TableHead className="font-mono text-xs">PERIOD</TableHead>
-                      <TableHead className="font-mono text-xs text-right">REVENUE</TableHead>
-                      <TableHead className="font-mono text-xs text-right">NET PROFIT</TableHead>
-                      <TableHead className="font-mono text-xs text-right">EPS</TableHead>
-                      <TableHead className="font-mono text-xs text-right">OPM %</TableHead>
-                      <TableHead className="font-mono text-xs text-right">NPM %</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {financials.slice().reverse().map((f, i) => (
-                      <TableRow key={i} className="border-border/50">
-                        <TableCell className="font-mono text-sm">{f.period}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{f.revenue?.toLocaleString("en-IN") ?? "—"}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{f.netProfit?.toLocaleString("en-IN") ?? "—"}</TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">{f.eps?.toFixed(2) ?? "—"}</TableCell>
-                        <TableCell className="text-right font-mono text-sm">{f.operatingMargin?.toFixed(1) ?? "—"}</TableCell>
-                        <TableCell className="text-right font-mono text-sm">{f.netMargin?.toFixed(1) ?? "—"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="financials" className="space-y-4">
+          <StockStatements symbol={symbol} />
         </TabsContent>
 
         <TabsContent value="holdings">

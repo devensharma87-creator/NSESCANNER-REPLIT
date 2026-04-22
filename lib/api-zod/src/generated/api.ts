@@ -905,6 +905,118 @@ export const GetStockDetailResponse = zod.object({
 });
 
 /**
+ * @summary Full financial statements (P&L, Balance Sheet, Cash Flow, Ratios, Shareholding)
+ */
+export const GetStockStatementsParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const GetStockStatementsResponse = zod.object({
+  annualPL: zod.array(
+    zod.object({
+      period: zod.string(),
+      endDate: zod.coerce.date(),
+      revenue: zod.number().optional().describe("₹ crore"),
+      costOfRevenue: zod.number().optional(),
+      grossProfit: zod.number().optional(),
+      ebitda: zod.number().optional(),
+      ebit: zod.number().optional(),
+      interestExpense: zod.number().optional(),
+      netProfit: zod.number().optional(),
+      eps: zod.number().optional(),
+      taxProvision: zod.number().optional(),
+      operatingMargin: zod.number().optional().describe("%"),
+      netMargin: zod.number().optional().describe("%"),
+    }),
+  ),
+  quarterlyPL: zod.array(
+    zod.object({
+      period: zod.string(),
+      endDate: zod.coerce.date(),
+      revenue: zod.number().optional().describe("₹ crore"),
+      costOfRevenue: zod.number().optional(),
+      grossProfit: zod.number().optional(),
+      ebitda: zod.number().optional(),
+      ebit: zod.number().optional(),
+      interestExpense: zod.number().optional(),
+      netProfit: zod.number().optional(),
+      eps: zod.number().optional(),
+      taxProvision: zod.number().optional(),
+      operatingMargin: zod.number().optional().describe("%"),
+      netMargin: zod.number().optional().describe("%"),
+    }),
+  ),
+  balanceSheet: zod.array(
+    zod.object({
+      period: zod.string(),
+      endDate: zod.coerce.date(),
+      totalAssets: zod.number().optional().describe("₹ crore"),
+      totalLiabilities: zod.number().optional(),
+      totalEquity: zod.number().optional(),
+      totalDebt: zod.number().optional(),
+      cashAndEquivalents: zod.number().optional(),
+      inventory: zod.number().optional(),
+      receivables: zod.number().optional(),
+      fixedAssets: zod.number().optional(),
+      currentAssets: zod.number().optional(),
+      currentLiabilities: zod.number().optional(),
+      workingCapital: zod.number().optional(),
+      bookValuePerShare: zod.number().optional(),
+    }),
+  ),
+  cashFlow: zod.array(
+    zod.object({
+      period: zod.string(),
+      endDate: zod.coerce.date(),
+      operatingCashFlow: zod.number().optional().describe("₹ crore"),
+      investingCashFlow: zod.number().optional(),
+      financingCashFlow: zod.number().optional(),
+      capex: zod.number().optional(),
+      freeCashFlow: zod.number().optional(),
+      netChangeInCash: zod.number().optional(),
+      dividendsPaid: zod.number().optional(),
+    }),
+  ),
+  ratios: zod.array(
+    zod.object({
+      period: zod.string(),
+      endDate: zod.coerce.date(),
+      currentRatio: zod.number().optional(),
+      quickRatio: zod.number().optional(),
+      debtToEquity: zod.number().optional(),
+      roe: zod.number().optional().describe("%"),
+      roa: zod.number().optional().describe("%"),
+      roce: zod.number().optional().describe("%"),
+      assetTurnover: zod.number().optional(),
+      interestCoverage: zod.number().optional(),
+      netMargin: zod.number().optional().describe("%"),
+      operatingMargin: zod.number().optional().describe("%"),
+    }),
+  ),
+  shareholding: zod.object({
+    insidersPct: zod.number().optional().describe("%"),
+    institutionsPct: zod.number().optional().describe("%"),
+    publicPct: zod.number().optional().describe("%"),
+    topInstitutions: zod.array(
+      zod.object({
+        name: zod.string(),
+        percentHeld: zod.number().describe("%"),
+        valueCr: zod.number().optional(),
+        reportDate: zod.coerce.date().optional(),
+      }),
+    ),
+    topInsiders: zod.array(
+      zod.object({
+        name: zod.string(),
+        percentHeld: zod.number().describe("%"),
+        valueCr: zod.number().optional(),
+        reportDate: zod.coerce.date().optional(),
+      }),
+    ),
+  }),
+});
+
+/**
  * @summary Historical OHLC + indicators
  */
 export const GetStockHistoryParams = zod.object({

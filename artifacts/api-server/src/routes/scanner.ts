@@ -14,7 +14,7 @@ import {
 } from "@workspace/api-zod";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll } from "../lib/scanner";
-import { fetchIndexChart, fetchFundamentals } from "../lib/yahoo";
+import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
 import { getMarketEvents } from "../lib/marketEvents";
 import { getMarketNewsLive } from "../lib/newsRss";
@@ -311,6 +311,17 @@ router.get("/index/:slug", async (req, res, next) => {
 
 router.get("/provider/status", (_req, res) => {
   res.json(providerStatus());
+});
+
+router.get("/stocks/:symbol/statements", async (req, res, next) => {
+  try {
+    const symbol = String(req.params["symbol"] ?? "").toUpperCase();
+    const stmts = await fetchStatements(symbol).catch(() => null);
+    res.json(stmts ?? {
+      annualPL: [], quarterlyPL: [], balanceSheet: [], cashFlow: [], ratios: [],
+      shareholding: { topInstitutions: [], topInsiders: [] },
+    });
+  } catch (err) { next(err); }
 });
 
 router.get("/stocks/:symbol/history", async (req, res, next) => {

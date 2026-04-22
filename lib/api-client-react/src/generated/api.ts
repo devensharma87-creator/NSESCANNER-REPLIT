@@ -37,6 +37,7 @@ import type {
   StockDetail,
   StockHistory,
   StockRow,
+  StockStatements,
   TopScans,
 } from "./api.schemas";
 
@@ -682,6 +683,94 @@ export function useGetStockDetail<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetStockDetailQueryOptions(symbol, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Full financial statements (P&L, Balance Sheet, Cash Flow, Ratios, Shareholding)
+ */
+export const getGetStockStatementsUrl = (symbol: string) => {
+  return `/api/stocks/${symbol}/statements`;
+};
+
+export const getStockStatements = async (
+  symbol: string,
+  options?: RequestInit,
+): Promise<StockStatements> => {
+  return customFetch<StockStatements>(getGetStockStatementsUrl(symbol), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetStockStatementsQueryKey = (symbol: string) => {
+  return [`/api/stocks/${symbol}/statements`] as const;
+};
+
+export const getGetStockStatementsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getStockStatements>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getStockStatements>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetStockStatementsQueryKey(symbol);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getStockStatements>>
+  > = ({ signal }) => getStockStatements(symbol, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!symbol,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getStockStatements>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetStockStatementsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getStockStatements>>
+>;
+export type GetStockStatementsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Full financial statements (P&L, Balance Sheet, Cash Flow, Ratios, Shareholding)
+ */
+
+export function useGetStockStatements<
+  TData = Awaited<ReturnType<typeof getStockStatements>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getStockStatements>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetStockStatementsQueryOptions(symbol, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

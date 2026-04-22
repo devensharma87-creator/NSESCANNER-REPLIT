@@ -138,6 +138,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/StockDetail" }
 
+  /stocks/{symbol}/statements:
+    get:
+      operationId: getStockStatements
+      tags: [stocks]
+      summary: Full financial statements (P&L, Balance Sheet, Cash Flow, Ratios, Shareholding)
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockStatements" }
+
   /stocks/{symbol}/history:
     get:
       operationId: getStockHistory
@@ -494,6 +511,118 @@ components:
         news:
           type: array
           items: { $ref: "#/components/schemas/NewsItem" }
+
+    AnnualPLRow:
+      type: object
+      required: [period, endDate]
+      properties:
+        period: { type: string }
+        endDate: { type: string, format: date }
+        revenue: { type: number, description: "₹ crore" }
+        costOfRevenue: { type: number }
+        grossProfit: { type: number }
+        ebitda: { type: number }
+        ebit: { type: number }
+        interestExpense: { type: number }
+        netProfit: { type: number }
+        eps: { type: number }
+        taxProvision: { type: number }
+        operatingMargin: { type: number, description: "%" }
+        netMargin: { type: number, description: "%" }
+
+    BalanceSheetRow:
+      type: object
+      required: [period, endDate]
+      properties:
+        period: { type: string }
+        endDate: { type: string, format: date }
+        totalAssets: { type: number, description: "₹ crore" }
+        totalLiabilities: { type: number }
+        totalEquity: { type: number }
+        totalDebt: { type: number }
+        cashAndEquivalents: { type: number }
+        inventory: { type: number }
+        receivables: { type: number }
+        fixedAssets: { type: number }
+        currentAssets: { type: number }
+        currentLiabilities: { type: number }
+        workingCapital: { type: number }
+        bookValuePerShare: { type: number }
+
+    CashFlowRow:
+      type: object
+      required: [period, endDate]
+      properties:
+        period: { type: string }
+        endDate: { type: string, format: date }
+        operatingCashFlow: { type: number, description: "₹ crore" }
+        investingCashFlow: { type: number }
+        financingCashFlow: { type: number }
+        capex: { type: number }
+        freeCashFlow: { type: number }
+        netChangeInCash: { type: number }
+        dividendsPaid: { type: number }
+
+    KeyRatio:
+      type: object
+      required: [period, endDate]
+      properties:
+        period: { type: string }
+        endDate: { type: string, format: date }
+        currentRatio: { type: number }
+        quickRatio: { type: number }
+        debtToEquity: { type: number }
+        roe: { type: number, description: "%" }
+        roa: { type: number, description: "%" }
+        roce: { type: number, description: "%" }
+        assetTurnover: { type: number }
+        interestCoverage: { type: number }
+        netMargin: { type: number, description: "%" }
+        operatingMargin: { type: number, description: "%" }
+
+    InstitutionalHolder:
+      type: object
+      required: [name, percentHeld]
+      properties:
+        name: { type: string }
+        percentHeld: { type: number, description: "%" }
+        valueCr: { type: number }
+        reportDate: { type: string, format: date }
+
+    ShareholdingBreakdown:
+      type: object
+      required: [topInstitutions, topInsiders]
+      properties:
+        insidersPct: { type: number, description: "%" }
+        institutionsPct: { type: number, description: "%" }
+        publicPct: { type: number, description: "%" }
+        topInstitutions:
+          type: array
+          items: { $ref: "#/components/schemas/InstitutionalHolder" }
+        topInsiders:
+          type: array
+          items: { $ref: "#/components/schemas/InstitutionalHolder" }
+
+    StockStatements:
+      type: object
+      required: [annualPL, quarterlyPL, balanceSheet, cashFlow, ratios, shareholding]
+      properties:
+        annualPL:
+          type: array
+          items: { $ref: "#/components/schemas/AnnualPLRow" }
+        quarterlyPL:
+          type: array
+          items: { $ref: "#/components/schemas/AnnualPLRow" }
+        balanceSheet:
+          type: array
+          items: { $ref: "#/components/schemas/BalanceSheetRow" }
+        cashFlow:
+          type: array
+          items: { $ref: "#/components/schemas/CashFlowRow" }
+        ratios:
+          type: array
+          items: { $ref: "#/components/schemas/KeyRatio" }
+        shareholding: { $ref: "#/components/schemas/ShareholdingBreakdown" }
 
     SectorSummary:
       type: object

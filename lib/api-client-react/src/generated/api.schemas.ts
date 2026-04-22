@@ -219,6 +219,104 @@ export interface StockDetail {
   news: NewsItem[];
 }
 
+export interface AnnualPLRow {
+  period: string;
+  endDate: string;
+  /** ₹ crore */
+  revenue?: number;
+  costOfRevenue?: number;
+  grossProfit?: number;
+  ebitda?: number;
+  ebit?: number;
+  interestExpense?: number;
+  netProfit?: number;
+  eps?: number;
+  taxProvision?: number;
+  /** % */
+  operatingMargin?: number;
+  /** % */
+  netMargin?: number;
+}
+
+export interface BalanceSheetRow {
+  period: string;
+  endDate: string;
+  /** ₹ crore */
+  totalAssets?: number;
+  totalLiabilities?: number;
+  totalEquity?: number;
+  totalDebt?: number;
+  cashAndEquivalents?: number;
+  inventory?: number;
+  receivables?: number;
+  fixedAssets?: number;
+  currentAssets?: number;
+  currentLiabilities?: number;
+  workingCapital?: number;
+  bookValuePerShare?: number;
+}
+
+export interface CashFlowRow {
+  period: string;
+  endDate: string;
+  /** ₹ crore */
+  operatingCashFlow?: number;
+  investingCashFlow?: number;
+  financingCashFlow?: number;
+  capex?: number;
+  freeCashFlow?: number;
+  netChangeInCash?: number;
+  dividendsPaid?: number;
+}
+
+export interface KeyRatio {
+  period: string;
+  endDate: string;
+  currentRatio?: number;
+  quickRatio?: number;
+  debtToEquity?: number;
+  /** % */
+  roe?: number;
+  /** % */
+  roa?: number;
+  /** % */
+  roce?: number;
+  assetTurnover?: number;
+  interestCoverage?: number;
+  /** % */
+  netMargin?: number;
+  /** % */
+  operatingMargin?: number;
+}
+
+export interface InstitutionalHolder {
+  name: string;
+  /** % */
+  percentHeld: number;
+  valueCr?: number;
+  reportDate?: string;
+}
+
+export interface ShareholdingBreakdown {
+  /** % */
+  insidersPct?: number;
+  /** % */
+  institutionsPct?: number;
+  /** % */
+  publicPct?: number;
+  topInstitutions: InstitutionalHolder[];
+  topInsiders: InstitutionalHolder[];
+}
+
+export interface StockStatements {
+  annualPL: AnnualPLRow[];
+  quarterlyPL: AnnualPLRow[];
+  balanceSheet: BalanceSheetRow[];
+  cashFlow: CashFlowRow[];
+  ratios: KeyRatio[];
+  shareholding: ShareholdingBreakdown;
+}
+
 export interface SectorSummary {
   sector: string;
   stockCount: number;
