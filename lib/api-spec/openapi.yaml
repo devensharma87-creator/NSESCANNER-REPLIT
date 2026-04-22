@@ -553,7 +553,8 @@ components:
         strike: { type: number }
         action: { type: string, enum: [BUY, SELL] }
         expiry: { type: string }
-        entry: { type: number, description: "Suggested premium / spot trigger" }
+        entry: { type: number, description: "Underlying spot trigger price" }
+        instrument: { type: string, enum: [UNDERLYING_LEVEL, OPTION_PREMIUM], description: "Whether entry/SL/target are spot levels or premium values" }
         stopLoss: { type: number }
         target1: { type: number }
         target2: { type: number }
@@ -573,9 +574,17 @@ components:
         vwap: { type: number }
         ema9: { type: number }
         ema21: { type: number }
+        rsi: { type: number }
         valueAreaHigh: { type: number }
         valueAreaLow: { type: number }
         pointOfControl: { type: number }
+        setupKey:
+          type: string
+          enum: [TREND_CONTINUATION, VWAP_RECLAIM, VOLUME_BREAKOUT, EMA_PULLBACK, MEAN_REVERSION]
+          description: "Type of intraday setup"
+        setupName: { type: string, description: "Human-readable setup label" }
+        setupSummary: { type: string, description: "One-line trade idea explanation" }
+        entryTrigger: { type: string, description: "Precise condition to enter (e.g. 15-min close above level X)" }
         leg: { $ref: "#/components/schemas/OptionLeg" }
         drivers:
           type: array

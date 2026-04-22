@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OptionLegAction } from "./optionLegAction";
+import type { OptionLegInstrument } from "./optionLegInstrument";
 import type { OptionLegType } from "./optionLegType";
 
 export interface OptionLeg {
@@ -13,8 +14,10 @@ export interface OptionLeg {
   strike: number;
   action: OptionLegAction;
   expiry?: string;
-  /** Suggested premium / spot trigger */
+  /** Underlying spot trigger price */
   entry: number;
+  /** Whether entry/SL/target are spot levels or premium values */
+  instrument?: OptionLegInstrument;
   stopLoss: number;
   target1: number;
   target2?: number;

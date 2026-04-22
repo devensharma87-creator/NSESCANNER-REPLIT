@@ -1140,15 +1140,43 @@ export const GetOptionSignalsResponse = zod.object({
       vwap: zod.number().optional(),
       ema9: zod.number().optional(),
       ema21: zod.number().optional(),
+      rsi: zod.number().optional(),
       valueAreaHigh: zod.number().optional(),
       valueAreaLow: zod.number().optional(),
       pointOfControl: zod.number().optional(),
+      setupKey: zod
+        .enum([
+          "TREND_CONTINUATION",
+          "VWAP_RECLAIM",
+          "VOLUME_BREAKOUT",
+          "EMA_PULLBACK",
+          "MEAN_REVERSION",
+        ])
+        .optional()
+        .describe("Type of intraday setup"),
+      setupName: zod.string().optional().describe("Human-readable setup label"),
+      setupSummary: zod
+        .string()
+        .optional()
+        .describe("One-line trade idea explanation"),
+      entryTrigger: zod
+        .string()
+        .optional()
+        .describe(
+          "Precise condition to enter (e.g. 15-min close above level X)",
+        ),
       leg: zod.object({
         type: zod.enum(["CALL", "PUT"]),
         strike: zod.number(),
         action: zod.enum(["BUY", "SELL"]),
         expiry: zod.string().optional(),
-        entry: zod.number().describe("Suggested premium \/ spot trigger"),
+        entry: zod.number().describe("Underlying spot trigger price"),
+        instrument: zod
+          .enum(["UNDERLYING_LEVEL", "OPTION_PREMIUM"])
+          .optional()
+          .describe(
+            "Whether entry\/SL\/target are spot levels or premium values",
+          ),
         stopLoss: zod.number(),
         target1: zod.number(),
         target2: zod.number().optional(),

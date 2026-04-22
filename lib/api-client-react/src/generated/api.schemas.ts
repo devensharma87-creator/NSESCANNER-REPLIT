@@ -348,13 +348,26 @@ export const OptionLegAction = {
   SELL: "SELL",
 } as const;
 
+/**
+ * Whether entry/SL/target are spot levels or premium values
+ */
+export type OptionLegInstrument =
+  (typeof OptionLegInstrument)[keyof typeof OptionLegInstrument];
+
+export const OptionLegInstrument = {
+  UNDERLYING_LEVEL: "UNDERLYING_LEVEL",
+  OPTION_PREMIUM: "OPTION_PREMIUM",
+} as const;
+
 export interface OptionLeg {
   type: OptionLegType;
   strike: number;
   action: OptionLegAction;
   expiry?: string;
-  /** Suggested premium / spot trigger */
+  /** Underlying spot trigger price */
   entry: number;
+  /** Whether entry/SL/target are spot levels or premium values */
+  instrument?: OptionLegInstrument;
   stopLoss: number;
   target1: number;
   target2?: number;
@@ -370,6 +383,20 @@ export const OptionSignalBias = {
   NEUTRAL: "NEUTRAL",
 } as const;
 
+/**
+ * Type of intraday setup
+ */
+export type OptionSignalSetupKey =
+  (typeof OptionSignalSetupKey)[keyof typeof OptionSignalSetupKey];
+
+export const OptionSignalSetupKey = {
+  TREND_CONTINUATION: "TREND_CONTINUATION",
+  VWAP_RECLAIM: "VWAP_RECLAIM",
+  VOLUME_BREAKOUT: "VOLUME_BREAKOUT",
+  EMA_PULLBACK: "EMA_PULLBACK",
+  MEAN_REVERSION: "MEAN_REVERSION",
+} as const;
+
 export interface OptionSignal {
   index: string;
   indexName: string;
@@ -382,9 +409,18 @@ export interface OptionSignal {
   vwap?: number;
   ema9?: number;
   ema21?: number;
+  rsi?: number;
   valueAreaHigh?: number;
   valueAreaLow?: number;
   pointOfControl?: number;
+  /** Type of intraday setup */
+  setupKey?: OptionSignalSetupKey;
+  /** Human-readable setup label */
+  setupName?: string;
+  /** One-line trade idea explanation */
+  setupSummary?: string;
+  /** Precise condition to enter (e.g. 15-min close above level X) */
+  entryTrigger?: string;
   leg: OptionLeg;
   drivers: SignalReason[];
   invalidation?: string;

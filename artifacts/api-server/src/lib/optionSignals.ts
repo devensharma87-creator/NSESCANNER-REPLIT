@@ -1,14 +1,13 @@
 import type { OptionSignal, SignalReason } from "@workspace/api-zod";
 import { fetchIntraday, type YahooChart } from "./yahoo";
-import { ema, rsi, sessionVwap, volumeProfile, pivots } from "./indicators";
+import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
 import { logger } from "./logger";
 
 export interface IndexCfg {
-  symbol: string; // e.g. NIFTY
-  yahoo: string; // e.g. ^NSEI
+  symbol: string;
+  yahoo: string;
   display: string;
   strikeStep: number;
-  weeklyExpiry?: string;
 }
 
 export const OPTION_INDICES: IndexCfg[] = [
@@ -19,17 +18,22 @@ export const OPTION_INDICES: IndexCfg[] = [
   { symbol: "SENSEX", yahoo: "^BSESN", display: "SENSEX", strikeStep: 100 },
 ];
 
+// ---------- helpers ----------
 function lastVal(arr: (number | null)[]): number | null {
   for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i] as number;
   return null;
 }
-
-function nearestStrike(spot: number, step: number): number {
-  return Math.round(spot / step) * step;
+function round2(n: number): number { return Math.round(n * 100) / 100; }
+function nearestStrike(spot: number, step: number): number { return Math.round(spot / step) * step; }
+function fmtExpiry(d: Date): string { return d.toISOString().slice(0, 10); }
+function nextWeeklyExpiry(): string {
+  const d = new Date();
+  const day = d.getUTCDay();
+  const diff = (4 - day + 7) % 7 || 7;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return fmtExpiry(d);
 }
-
 function todayBarsOnly(chart: YahooChart): YahooChart {
-  // Intraday range=5d returns multiple sessions. Slice to last calendar day in IST.
   const lastTs = chart.timestamps[chart.timestamps.length - 1];
   if (lastTs == null) return chart;
   const lastIstDay = new Date((lastTs + 19800) * 1000).toISOString().slice(0, 10);
@@ -41,213 +45,496 @@ function todayBarsOnly(chart: YahooChart): YahooChart {
   if (idxs.length === 0) return chart;
   const pick = <T,>(a: T[]) => idxs.map(i => a[i]!);
   return {
-    symbol: chart.symbol,
-    meta: chart.meta,
+    symbol: chart.symbol, meta: chart.meta,
     timestamps: pick(chart.timestamps),
-    open: pick(chart.open),
-    high: pick(chart.high),
-    low: pick(chart.low),
-    close: pick(chart.close),
-    volume: pick(chart.volume),
+    open: pick(chart.open), high: pick(chart.high), low: pick(chart.low),
+    close: pick(chart.close), volume: pick(chart.volume),
   };
 }
 
-function fmtExpiry(d: Date): string {
-  return d.toISOString().slice(0, 10);
+// ---------- shared market context ----------
+interface Ctx {
+  cfg: IndexCfg;
+  spot: number;
+  open0: number;
+  sessionChangePct: number;
+  vwap: number;
+  vwapSeries: (number | null)[];
+  ema9: number;
+  ema21: number;
+  ema9Series: (number | null)[];
+  ema21Series: (number | null)[];
+  rsi14: number;
+  rsiSeries: (number | null)[];
+  vp: { pointOfControl: number; valueAreaHigh: number; valueAreaLow: number } | null;
+  piv: { pivot: number; r1: number; s1: number; r2: number; s2: number };
+  atr15: number;
+  avgVol20: number;
+  lastVol: number;
+  prevSwingHigh: number;
+  prevSwingLow: number;
+  bars: { o: number[]; h: number[]; l: number[]; c: number[]; v: number[] };
 }
 
-function nextWeeklyExpiry(): string {
-  const d = new Date();
-  // Indian weekly expiry: Thursday for NIFTY, but we keep generic next Thursday
-  const day = d.getUTCDay();
-  const diff = (4 - day + 7) % 7 || 7;
-  d.setUTCDate(d.getUTCDate() + diff);
-  return fmtExpiry(d);
-}
-
-function buildSignalForIndex(cfg: IndexCfg, chart: YahooChart, daily: YahooChart): OptionSignal | null {
-  const today = todayBarsOnly(chart);
-  if (today.close.length < 6) return null;
-
-  const closes = today.close;
-  const highs = today.high;
-  const lows = today.low;
-  const vols = today.volume;
-  const spot = closes[closes.length - 1]!;
-  const open0 = today.open[0]!;
-  const sessionChangePct = ((spot - open0) / open0) * 100;
-
+function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx | null {
+  const today = todayBarsOnly(intra);
+  if (today.close.length < 8) return null;
+  const closes = today.close, highs = today.high, lows = today.low, vols = today.volume;
+  const spot = closes.at(-1)!, open0 = today.open[0]!;
   const vwapSeries = sessionVwap(highs, lows, closes, vols);
-  const vwap = lastVal(vwapSeries) ?? spot;
   const ema9Series = ema(closes, 9);
   const ema21Series = ema(closes, 21);
-  const ema9 = lastVal(ema9Series) ?? spot;
-  const ema21 = lastVal(ema21Series) ?? spot;
   const rsiSeries = rsi(closes, 14);
-  const rsi14 = lastVal(rsiSeries) ?? 50;
-  const vp = volumeProfile(daily.high, daily.low, daily.close, daily.volume, 30, 60);
-
-  // Daily pivots from yesterday
+  const atrSeries = atr(highs, lows, closes, 14);
   const dn = daily.close.length;
-  const prevClose = dn >= 2 ? daily.close[dn - 2]! : daily.close[dn - 1]!;
-  const prevHigh = dn >= 2 ? daily.high[dn - 2]! : daily.high[dn - 1]!;
-  const prevLow = dn >= 2 ? daily.low[dn - 2]! : daily.low[dn - 1]!;
-  const piv = pivots(prevHigh, prevLow, prevClose);
+  const piv = pivots(
+    dn >= 2 ? daily.high[dn - 2]! : daily.high[dn - 1]!,
+    dn >= 2 ? daily.low[dn - 2]! : daily.low[dn - 1]!,
+    dn >= 2 ? daily.close[dn - 2]! : daily.close[dn - 1]!,
+  );
+  const vp = volumeProfile(daily.high, daily.low, daily.close, daily.volume, 30, 60);
+  const last10Vol = vols.slice(-20);
+  const avgVol20 = last10Vol.length > 0 ? last10Vol.reduce((a, b) => a + b, 0) / last10Vol.length : 0;
+  const lookback = closes.slice(0, -1);
+  const lookbackH = highs.slice(0, -1);
+  const lookbackL = lows.slice(0, -1);
+  const swingWin = Math.min(20, lookback.length);
+  const prevSwingHigh = swingWin > 0 ? Math.max(...lookbackH.slice(-swingWin)) : spot;
+  const prevSwingLow = swingWin > 0 ? Math.min(...lookbackL.slice(-swingWin)) : spot;
+  return {
+    cfg, spot, open0,
+    sessionChangePct: ((spot - open0) / open0) * 100,
+    vwap: lastVal(vwapSeries) ?? spot,
+    vwapSeries,
+    ema9: lastVal(ema9Series) ?? spot,
+    ema21: lastVal(ema21Series) ?? spot,
+    ema9Series, ema21Series,
+    rsi14: lastVal(rsiSeries) ?? 50,
+    rsiSeries,
+    vp, piv,
+    atr15: lastVal(atrSeries) ?? Math.max(spot * 0.0015, 1),
+    avgVol20,
+    lastVol: vols.at(-1) ?? 0,
+    prevSwingHigh, prevSwingLow,
+    bars: { o: today.open, h: highs, l: lows, c: closes, v: vols },
+  };
+}
 
-  // Price-action features
-  const last = today.close.length - 1;
-  const lastBar = { o: today.open[last]!, h: today.high[last]!, l: today.low[last]!, c: closes[last]! };
-  const bullCandle = lastBar.c > lastBar.o && (lastBar.c - lastBar.o) > Math.abs(lastBar.h - lastBar.l) * 0.45;
-  const bearCandle = lastBar.c < lastBar.o && (lastBar.o - lastBar.c) > Math.abs(lastBar.h - lastBar.l) * 0.45;
+// ---------- setup detectors ----------
+type Direction = "BULLISH" | "BEARISH";
+interface Detected {
+  setupKey: OptionSignal["setupKey"];
+  setupName: string;
+  setupSummary: string;
+  direction: Direction;
+  confidence: number;
+  drivers: SignalReason[];
+  entryTrigger: string;
+  entryLevel: number;
+  stopLevel: number;
+  targetLevel: number;
+  target2Level: number;
+  invalidation: string;
+}
 
+/** 1. Trend Continuation — strong VWAP+EMA alignment, fresh momentum, RSI in trend zone */
+function detectTrendContinuation(c: Ctx): Detected | null {
+  const aboveVwap = c.spot > c.vwap;
+  const stackBull = c.ema9 > c.ema21 && c.spot > c.ema9;
+  const stackBear = c.ema9 < c.ema21 && c.spot < c.ema9;
+  if (!(aboveVwap && stackBull) && !(!aboveVwap && stackBear)) return null;
+
+  const dir: Direction = aboveVwap && stackBull ? "BULLISH" : "BEARISH";
   const drivers: SignalReason[] = [];
-  let score = 0;
+  let conf = 0;
 
-  // 1. VWAP positioning (weight 25)
-  if (spot > vwap) {
-    score += 25;
-    drivers.push({ label: "Above VWAP", detail: `Spot ${spot.toFixed(2)} > VWAP ${vwap.toFixed(2)} — intraday buyers in control.`, weight: 25, bullish: true });
+  if (dir === "BULLISH") {
+    drivers.push({ label: "Spot above VWAP", detail: `${c.spot.toFixed(2)} > VWAP ${c.vwap.toFixed(2)}`, weight: 25, bullish: true });
+    drivers.push({ label: "EMA 9 > EMA 21 stack", detail: `EMA9 ${c.ema9.toFixed(2)} > EMA21 ${c.ema21.toFixed(2)} — fast above slow.`, weight: 20, bullish: true });
+    conf += 45;
+    if (c.rsi14 >= 52 && c.rsi14 <= 68) { drivers.push({ label: "RSI healthy bullish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (52–68).`, weight: 15, bullish: true }); conf += 15; }
+    else if (c.rsi14 > 68) { drivers.push({ label: "RSI overbought caution", detail: `RSI ${c.rsi14.toFixed(1)} — extended; size smaller.`, weight: 5, bullish: false }); conf -= 5; }
+    if (c.vp && c.spot > c.vp.pointOfControl) { drivers.push({ label: "Above POC", detail: `Spot above POC ${c.vp.pointOfControl.toFixed(2)} — value supports buyers.`, weight: 8, bullish: true }); conf += 8; }
+    if (c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: true }); conf += 8; }
   } else {
-    score -= 25;
-    drivers.push({ label: "Below VWAP", detail: `Spot ${spot.toFixed(2)} < VWAP ${vwap.toFixed(2)} — intraday sellers in control.`, weight: 25, bullish: false });
+    drivers.push({ label: "Spot below VWAP", detail: `${c.spot.toFixed(2)} < VWAP ${c.vwap.toFixed(2)}`, weight: 25, bullish: false });
+    drivers.push({ label: "EMA 9 < EMA 21 stack", detail: `EMA9 ${c.ema9.toFixed(2)} < EMA21 ${c.ema21.toFixed(2)} — fast below slow.`, weight: 20, bullish: false });
+    conf += 45;
+    if (c.rsi14 <= 48 && c.rsi14 >= 32) { drivers.push({ label: "RSI healthy bearish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (32–48).`, weight: 15, bullish: false }); conf += 15; }
+    else if (c.rsi14 < 32) { drivers.push({ label: "RSI oversold caution", detail: `RSI ${c.rsi14.toFixed(1)} — bounce risk; size smaller.`, weight: 5, bullish: true }); conf -= 5; }
+    if (c.vp && c.spot < c.vp.pointOfControl) { drivers.push({ label: "Below POC", detail: `Spot below POC ${c.vp.pointOfControl.toFixed(2)} — value supports sellers.`, weight: 8, bullish: false }); conf += 8; }
+    if (c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: false }); conf += 8; }
   }
+  conf = Math.max(0, Math.min(100, conf));
+  if (conf < 60) return null;
 
-  // 2. EMA 9/21 alignment (weight 20)
-  if (ema9 > ema21 && spot > ema9) {
-    score += 20;
-    drivers.push({ label: "EMA 9 > 21 stack", detail: `Fast EMA above slow EMA — bullish momentum.`, weight: 20, bullish: true });
-  } else if (ema9 < ema21 && spot < ema9) {
-    score -= 20;
-    drivers.push({ label: "EMA 9 < 21 stack", detail: `Fast EMA below slow EMA — bearish momentum.`, weight: 20, bullish: false });
-  } else {
-    score += spot > ema21 ? 4 : -4;
-    drivers.push({ label: "EMA structure mixed", detail: `Trend not confirmed — wait for resolution.`, weight: 4, bullish: spot > ema21 });
-  }
-
-  // EMA 9/21 crossover in last 4 bars
-  const e9p = ema9Series[ema9Series.length - 4] ?? null;
-  const e21p = ema21Series[ema21Series.length - 4] ?? null;
-  if (e9p != null && e21p != null) {
-    if (e9p < e21p && ema9 > ema21) { score += 10; drivers.push({ label: "Fresh bullish EMA cross", detail: "EMA9 crossed above EMA21 in recent bars.", weight: 10, bullish: true }); }
-    else if (e9p > e21p && ema9 < ema21) { score -= 10; drivers.push({ label: "Fresh bearish EMA cross", detail: "EMA9 crossed below EMA21 in recent bars.", weight: 10, bullish: false }); }
-  }
-
-  // 3. Volume Profile vs spot (weight 15)
-  if (vp) {
-    if (spot > vp.valueAreaHigh) { score += 15; drivers.push({ label: "Breakout above value area", detail: `Spot above VAH ${vp.valueAreaHigh.toFixed(2)} — acceptance higher.`, weight: 15, bullish: true }); }
-    else if (spot < vp.valueAreaLow) { score -= 15; drivers.push({ label: "Breakdown below value area", detail: `Spot below VAL ${vp.valueAreaLow.toFixed(2)} — acceptance lower.`, weight: 15, bullish: false }); }
-    else if (Math.abs(spot - vp.pointOfControl) / vp.pointOfControl < 0.001) {
-      drivers.push({ label: "Coiling at POC", detail: `Spot pinning POC ${vp.pointOfControl.toFixed(2)} — directional move likely.`, weight: 4, bullish: spot > vwap });
-    }
-  }
-
-  // 4. RSI (weight 10)
-  if (rsi14 >= 55 && rsi14 <= 70) { score += 10; drivers.push({ label: "RSI bullish zone", detail: `RSI ${rsi14.toFixed(1)}.`, weight: 10, bullish: true }); }
-  else if (rsi14 < 30) { score += 6; drivers.push({ label: "RSI oversold", detail: `RSI ${rsi14.toFixed(1)} — mean-reversion bias.`, weight: 6, bullish: true }); }
-  else if (rsi14 > 70) { score -= 8; drivers.push({ label: "RSI overbought", detail: `RSI ${rsi14.toFixed(1)} — pullback risk.`, weight: 8, bullish: false }); }
-  else if (rsi14 <= 45) { score -= 8; drivers.push({ label: "RSI weak", detail: `RSI ${rsi14.toFixed(1)}.`, weight: 8, bullish: false }); }
-
-  // 5. Price action confirmation (weight 8)
-  if (bullCandle) { score += 8; drivers.push({ label: "Bullish marubozu", detail: "Strong bullish body on the latest bar.", weight: 8, bullish: true }); }
-  else if (bearCandle) { score -= 8; drivers.push({ label: "Bearish marubozu", detail: "Strong bearish body on the latest bar.", weight: 8, bullish: false }); }
-
-  // 6. Pivot proximity (weight 6)
-  if (spot > piv.r1) { score += 6; drivers.push({ label: "Above R1 pivot", detail: `Spot above R1 ${piv.r1.toFixed(2)} — trend day potential.`, weight: 6, bullish: true }); }
-  else if (spot < piv.s1) { score -= 6; drivers.push({ label: "Below S1 pivot", detail: `Spot below S1 ${piv.s1.toFixed(2)}.`, weight: 6, bullish: false }); }
-
-  score = Math.max(-100, Math.min(100, score));
-  let bias: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
-  if (score >= 25) bias = "BULLISH";
-  else if (score <= -25) bias = "BEARISH";
-
-  // Confidence
-  const direction = score >= 0;
-  const aligned = drivers.filter(d => d.bullish === direction).reduce((a, b) => a + b.weight, 0);
-  const total = drivers.reduce((a, b) => a + b.weight, 0);
-  const confidence = total === 0 ? 0 : Math.round((aligned / total) * 100);
-
-  // Strike & risk math
-  const atmStrike = nearestStrike(spot, cfg.strikeStep);
-  const recentRange = Math.max(...today.high.slice(-12)) - Math.min(...today.low.slice(-12));
-  const atrEst = Math.max(recentRange / 12, spot * 0.0015);
-
-  let leg: OptionSignal["leg"];
-  let invalidation = "";
-  if (bias === "BULLISH") {
-    const strike = atmStrike;
-    // For BUY CE we use spot-based stop / target framework: SL below VWAP or pivot S1, T at R1/value-area edge
-    const slSpot = Math.max(Math.min(vwap, ema21) - atrEst * 0.3, piv.s1 - atrEst * 0.2);
-    const t1Spot = Math.max(piv.r1, vp?.valueAreaHigh ?? piv.r1) + atrEst * 0.4;
-    const t2Spot = piv.r2 ?? t1Spot + atrEst * 1.5;
-    const risk = spot - slSpot;
-    const reward = t1Spot - spot;
-    leg = {
-      type: "CALL",
-      strike,
-      action: "BUY",
-      expiry: nextWeeklyExpiry(),
-      entry: round2(spot),
-      stopLoss: round2(slSpot),
-      target1: round2(t1Spot),
-      target2: round2(t2Spot),
-      riskRewardRatio: risk > 0 ? round2(reward / risk) : undefined,
-    };
-    invalidation = `Sustained close below VWAP ${vwap.toFixed(2)} or below S1 ${piv.s1.toFixed(2)} invalidates the long.`;
-  } else if (bias === "BEARISH") {
-    const strike = atmStrike;
-    const slSpot = Math.min(Math.max(vwap, ema21) + atrEst * 0.3, piv.r1 + atrEst * 0.2);
-    const t1Spot = Math.min(piv.s1, vp?.valueAreaLow ?? piv.s1) - atrEst * 0.4;
-    const t2Spot = piv.s2 ?? t1Spot - atrEst * 1.5;
-    const risk = slSpot - spot;
-    const reward = spot - t1Spot;
-    leg = {
-      type: "PUT",
-      strike,
-      action: "BUY",
-      expiry: nextWeeklyExpiry(),
-      entry: round2(spot),
-      stopLoss: round2(slSpot),
-      target1: round2(t1Spot),
-      target2: round2(t2Spot),
-      riskRewardRatio: risk > 0 ? round2(reward / risk) : undefined,
-    };
-    invalidation = `Sustained close above VWAP ${vwap.toFixed(2)} or above R1 ${piv.r1.toFixed(2)} invalidates the short.`;
-  } else {
-    // NEUTRAL — suggest range-bound iron-style cue but encode as wait
-    leg = {
-      type: spot >= vwap ? "CALL" : "PUT",
-      strike: atmStrike,
-      action: "BUY",
-      expiry: nextWeeklyExpiry(),
-      entry: round2(spot),
-      stopLoss: round2(spot - atrEst),
-      target1: round2(spot + atrEst),
-    };
-    invalidation = "Mixed signals — best to wait for a directional close above/below VWAP.";
-  }
+  const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
+  const stop = dir === "BULLISH" ? Math.min(c.vwap, c.ema21) - c.atr15 * 0.4 : Math.max(c.vwap, c.ema21) + c.atr15 * 0.4;
+  const t1 = dir === "BULLISH"
+    ? Math.max(c.piv.r1, c.vp?.valueAreaHigh ?? c.piv.r1) + c.atr15 * 0.3
+    : Math.min(c.piv.s1, c.vp?.valueAreaLow ?? c.piv.s1) - c.atr15 * 0.3;
+  const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
+  const dist = Math.abs(c.spot - trigger);
+  const triggerDesc = dir === "BULLISH"
+    ? `15-min close > ${trigger.toFixed(2)} (intraday swing high)`
+    : `15-min close < ${trigger.toFixed(2)} (intraday swing low)`;
 
   return {
-    index: cfg.symbol,
-    indexName: cfg.display,
-    spot: round2(spot),
-    spotChangePercent: round2(sessionChangePct),
-    bias,
-    confidence,
-    timeframe: "intraday-15m",
-    vwap: round2(vwap),
-    ema9: round2(ema9),
-    ema21: round2(ema21),
-    valueAreaHigh: vp ? round2(vp.valueAreaHigh) : undefined,
-    valueAreaLow: vp ? round2(vp.valueAreaLow) : undefined,
-    pointOfControl: vp ? round2(vp.pointOfControl) : undefined,
-    leg,
+    setupKey: "TREND_CONTINUATION",
+    setupName: dir === "BULLISH" ? "Trend Continuation — Long" : "Trend Continuation — Short",
+    setupSummary: dir === "BULLISH"
+      ? "Buy CE on momentum continuation. VWAP + EMA stack + RSI all aligned bullish; enter on next break of intraday swing high."
+      : "Buy PE on momentum continuation. VWAP + EMA stack + RSI all aligned bearish; enter on next break of intraday swing low.",
+    direction: dir,
+    confidence: conf,
     drivers,
-    invalidation,
+    entryTrigger: triggerDesc + (dist > c.atr15 * 1.5 ? " — currently extended; wait for pullback close to VWAP first." : ""),
+    entryLevel: trigger,
+    stopLevel: stop,
+    targetLevel: t1,
+    target2Level: t2,
+    invalidation: dir === "BULLISH"
+      ? `Sustained 15-min close below VWAP ${c.vwap.toFixed(2)} or below S1 ${c.piv.s1.toFixed(2)}.`
+      : `Sustained 15-min close above VWAP ${c.vwap.toFixed(2)} or above R1 ${c.piv.r1.toFixed(2)}.`,
+  };
+}
+
+/** 2. VWAP Reclaim/Reject — fresh cross of VWAP with momentum */
+function detectVwapReclaim(c: Ctx): Detected | null {
+  const series = c.vwapSeries;
+  const closes = c.bars.c;
+  const n = closes.length;
+  if (n < 4) return null;
+  const wasBelow = (closes[n - 3]! < (series[n - 3] ?? 0)) || (closes[n - 4]! < (series[n - 4] ?? 0));
+  const wasAbove = (closes[n - 3]! > (series[n - 3] ?? 0)) || (closes[n - 4]! > (series[n - 4] ?? 0));
+  const nowAbove = c.spot > c.vwap;
+  const nowBelow = c.spot < c.vwap;
+
+  let dir: Direction | null = null;
+  if (wasBelow && nowAbove && c.ema9 > c.ema21) dir = "BULLISH";
+  else if (wasAbove && nowBelow && c.ema9 < c.ema21) dir = "BEARISH";
+  if (!dir) return null;
+
+  // RSI must be moving in the direction
+  const rsiPrev = c.rsiSeries[n - 4] ?? 50;
+  if (dir === "BULLISH" && (c.rsi14 < 50 || c.rsi14 < rsiPrev)) return null;
+  if (dir === "BEARISH" && (c.rsi14 > 50 || c.rsi14 > rsiPrev)) return null;
+
+  const drivers: SignalReason[] = [];
+  let conf = 60;
+  drivers.push({
+    label: dir === "BULLISH" ? "VWAP reclaim from below" : "VWAP rejection from above",
+    detail: `Price crossed back ${dir === "BULLISH" ? "above" : "below"} VWAP ${c.vwap.toFixed(2)} in last 2–3 bars.`,
+    weight: 30, bullish: dir === "BULLISH",
+  });
+  drivers.push({
+    label: dir === "BULLISH" ? "RSI rising through 50" : "RSI falling through 50",
+    detail: `RSI ${rsiPrev.toFixed(1)} → ${c.rsi14.toFixed(1)}`,
+    weight: 15, bullish: dir === "BULLISH",
+  });
+
+  if (dir === "BULLISH" && c.ema9 > c.ema21) { drivers.push({ label: "EMA 9 > 21 supports reclaim", detail: "Fast EMA still above slow — pullback was healthy.", weight: 12, bullish: true }); conf += 12; }
+  if (dir === "BEARISH" && c.ema9 < c.ema21) { drivers.push({ label: "EMA 9 < 21 supports rejection", detail: "Fast EMA still below slow — bounce was a relief rally.", weight: 12, bullish: false }); conf += 12; }
+
+  if (c.lastVol > c.avgVol20) { drivers.push({ label: "Volume on cross", detail: `Last bar vol > 20-bar avg.`, weight: 8, bullish: dir === "BULLISH" }); conf += 8; }
+
+  conf = Math.max(0, Math.min(100, conf));
+  if (conf < 65) return null;
+
+  const trigger = dir === "BULLISH" ? c.vwap + c.atr15 * 0.15 : c.vwap - c.atr15 * 0.15;
+  const stop = dir === "BULLISH" ? c.vwap - c.atr15 * 0.5 : c.vwap + c.atr15 * 0.5;
+  const t1 = dir === "BULLISH"
+    ? Math.max(c.prevSwingHigh, c.piv.r1)
+    : Math.min(c.prevSwingLow, c.piv.s1);
+  const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
+
+  return {
+    setupKey: "VWAP_RECLAIM",
+    setupName: dir === "BULLISH" ? "VWAP Reclaim — Long" : "VWAP Rejection — Short",
+    setupSummary: dir === "BULLISH"
+      ? "Buy CE on VWAP reclaim. Price flipped back above VWAP with rising RSI — fade the dip, ride the resumption."
+      : "Buy PE on VWAP rejection. Price failed to hold above VWAP with falling RSI — short the failed bounce.",
+    direction: dir,
+    confidence: conf,
+    drivers,
+    entryTrigger: dir === "BULLISH"
+      ? `15-min close > ${trigger.toFixed(2)} with VWAP holding`
+      : `15-min close < ${trigger.toFixed(2)} with VWAP rejecting`,
+    entryLevel: trigger,
+    stopLevel: stop,
+    targetLevel: t1,
+    target2Level: t2,
+    invalidation: dir === "BULLISH"
+      ? `Close back below VWAP ${c.vwap.toFixed(2)} on next bar — failed reclaim.`
+      : `Close back above VWAP ${c.vwap.toFixed(2)} on next bar — failed rejection.`,
+  };
+}
+
+/** 3. Volume-Profile Breakout — break above VAH or below VAL with volume */
+function detectVolumeBreakout(c: Ctx): Detected | null {
+  if (!c.vp) return null;
+  const aboveVAH = c.spot > c.vp.valueAreaHigh;
+  const belowVAL = c.spot < c.vp.valueAreaLow;
+  if (!aboveVAH && !belowVAL) return null;
+  const dir: Direction = aboveVAH ? "BULLISH" : "BEARISH";
+
+  // require volume + momentum
+  const volOk = c.lastVol > c.avgVol20 * 1.3;
+  const momentumOk = dir === "BULLISH" ? c.spot > c.ema9 && c.spot > c.vwap : c.spot < c.ema9 && c.spot < c.vwap;
+  if (!volOk || !momentumOk) return null;
+
+  const drivers: SignalReason[] = [];
+  let conf = 65;
+  drivers.push({
+    label: dir === "BULLISH" ? "Breakout above Value Area High" : "Breakdown below Value Area Low",
+    detail: `Spot ${c.spot.toFixed(2)} ${dir === "BULLISH" ? ">" : "<"} ${dir === "BULLISH" ? `VAH ${c.vp.valueAreaHigh.toFixed(2)}` : `VAL ${c.vp.valueAreaLow.toFixed(2)}`} — acceptance ${dir === "BULLISH" ? "higher" : "lower"}.`,
+    weight: 30, bullish: dir === "BULLISH",
+  });
+  drivers.push({
+    label: "Volume expansion",
+    detail: `Last bar volume ${(c.lastVol / 1e6).toFixed(2)}M is ${(c.lastVol / Math.max(1, c.avgVol20)).toFixed(1)}× the 20-bar avg.`,
+    weight: 18, bullish: dir === "BULLISH",
+  });
+  drivers.push({
+    label: dir === "BULLISH" ? "VWAP + EMA9 below price" : "VWAP + EMA9 above price",
+    detail: "Momentum aligned with the breakout.",
+    weight: 15, bullish: dir === "BULLISH",
+  });
+  if (dir === "BULLISH" && c.rsi14 > 55) { conf += 5; drivers.push({ label: "RSI > 55", detail: `RSI ${c.rsi14.toFixed(1)}`, weight: 5, bullish: true }); }
+  if (dir === "BEARISH" && c.rsi14 < 45) { conf += 5; drivers.push({ label: "RSI < 45", detail: `RSI ${c.rsi14.toFixed(1)}`, weight: 5, bullish: false }); }
+
+  conf = Math.max(0, Math.min(100, conf));
+  if (conf < 70) return null;
+
+  const trigger = dir === "BULLISH" ? c.vp.valueAreaHigh : c.vp.valueAreaLow;
+  const stop = dir === "BULLISH" ? c.vp.pointOfControl - c.atr15 * 0.3 : c.vp.pointOfControl + c.atr15 * 0.3;
+  const t1 = dir === "BULLISH" ? c.piv.r1 + c.atr15 * 0.5 : c.piv.s1 - c.atr15 * 0.5;
+  const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
+
+  return {
+    setupKey: "VOLUME_BREAKOUT",
+    setupName: dir === "BULLISH" ? "VAH Breakout — Long" : "VAL Breakdown — Short",
+    setupSummary: dir === "BULLISH"
+      ? "Buy CE on value-area breakout. Price broke above VAH on heavy volume with momentum — buyers accepting higher prices."
+      : "Buy PE on value-area breakdown. Price broke below VAL on heavy volume with momentum — sellers accepting lower prices.",
+    direction: dir,
+    confidence: conf,
+    drivers,
+    entryTrigger: dir === "BULLISH"
+      ? `15-min close > ${trigger.toFixed(2)} (VAH) with volume > 20-bar avg`
+      : `15-min close < ${trigger.toFixed(2)} (VAL) with volume > 20-bar avg`,
+    entryLevel: trigger,
+    stopLevel: stop,
+    targetLevel: t1,
+    target2Level: t2,
+    invalidation: dir === "BULLISH"
+      ? `Re-entry into value area below VAH ${c.vp.valueAreaHigh.toFixed(2)} = failed breakout.`
+      : `Re-entry into value area above VAL ${c.vp.valueAreaLow.toFixed(2)} = failed breakdown.`,
+  };
+}
+
+/** 4. EMA Pullback — pullback to EMA9/21 in established trend */
+function detectEmaPullback(c: Ctx): Detected | null {
+  const stackBull = c.ema9 > c.ema21 && c.spot > c.ema21;
+  const stackBear = c.ema9 < c.ema21 && c.spot < c.ema21;
+  if (!stackBull && !stackBear) return null;
+  const dir: Direction = stackBull ? "BULLISH" : "BEARISH";
+
+  // distance of low/high to EMA9 (proximity test)
+  const lastBarLow = c.bars.l.at(-1)!;
+  const lastBarHigh = c.bars.h.at(-1)!;
+  const proxyLong = Math.abs(lastBarLow - c.ema9) / c.atr15 < 0.5 || Math.abs(lastBarLow - c.ema21) / c.atr15 < 0.5;
+  const proxyShort = Math.abs(lastBarHigh - c.ema9) / c.atr15 < 0.5 || Math.abs(lastBarHigh - c.ema21) / c.atr15 < 0.5;
+  const close = c.bars.c.at(-1)!;
+  const open = c.bars.o.at(-1)!;
+  const body = close - open;
+
+  if (dir === "BULLISH" && (!proxyLong || body <= 0)) return null;
+  if (dir === "BEARISH" && (!proxyShort || body >= 0)) return null;
+
+  // RSI in mid-range (not exhausted)
+  if (dir === "BULLISH" && (c.rsi14 < 45 || c.rsi14 > 65)) return null;
+  if (dir === "BEARISH" && (c.rsi14 > 55 || c.rsi14 < 35)) return null;
+
+  const drivers: SignalReason[] = [];
+  let conf = 65;
+  drivers.push({
+    label: dir === "BULLISH" ? "Pullback to EMA9/21 in uptrend" : "Pullback to EMA9/21 in downtrend",
+    detail: `${dir === "BULLISH" ? "Low" : "High"} ${(dir === "BULLISH" ? lastBarLow : lastBarHigh).toFixed(2)} touched EMA9 ${c.ema9.toFixed(2)} / EMA21 ${c.ema21.toFixed(2)}.`,
+    weight: 25, bullish: dir === "BULLISH",
+  });
+  drivers.push({
+    label: dir === "BULLISH" ? "EMA stack still bullish" : "EMA stack still bearish",
+    detail: "Trend is intact — pullback is opportunity, not reversal.",
+    weight: 18, bullish: dir === "BULLISH",
+  });
+  drivers.push({
+    label: dir === "BULLISH" ? "Bullish reaction candle" : "Bearish reaction candle",
+    detail: `Latest bar body ${body >= 0 ? "+" : ""}${body.toFixed(2)}.`,
+    weight: 12, bullish: dir === "BULLISH",
+  });
+  drivers.push({
+    label: "RSI not extended",
+    detail: `RSI ${c.rsi14.toFixed(1)} in mid-range — room to run.`,
+    weight: 8, bullish: dir === "BULLISH",
+  });
+  conf = Math.max(0, Math.min(100, conf));
+
+  const trigger = dir === "BULLISH" ? lastBarHigh : lastBarLow;
+  const stop = dir === "BULLISH" ? Math.min(c.ema21, lastBarLow) - c.atr15 * 0.3 : Math.max(c.ema21, lastBarHigh) + c.atr15 * 0.3;
+  const t1 = dir === "BULLISH" ? Math.max(c.prevSwingHigh, c.piv.r1) : Math.min(c.prevSwingLow, c.piv.s1);
+  const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
+
+  return {
+    setupKey: "EMA_PULLBACK",
+    setupName: dir === "BULLISH" ? "EMA Pullback — Long" : "EMA Pullback — Short",
+    setupSummary: dir === "BULLISH"
+      ? "Buy CE on EMA pullback. Trend intact + healthy retest of EMA9/21 + bullish reaction candle. Lower-risk entry vs chasing."
+      : "Buy PE on EMA pullback. Downtrend intact + retest of EMA9/21 from below + bearish reaction candle.",
+    direction: dir,
+    confidence: conf,
+    drivers,
+    entryTrigger: dir === "BULLISH"
+      ? `15-min close > ${trigger.toFixed(2)} (last bar high)`
+      : `15-min close < ${trigger.toFixed(2)} (last bar low)`,
+    entryLevel: trigger,
+    stopLevel: stop,
+    targetLevel: t1,
+    target2Level: t2,
+    invalidation: dir === "BULLISH"
+      ? `Close below EMA21 ${c.ema21.toFixed(2)} flips trend; abandon.`
+      : `Close above EMA21 ${c.ema21.toFixed(2)} flips trend; abandon.`,
+  };
+}
+
+/** 5. Mean Reversion — extreme RSI + at session high/low extension */
+function detectMeanReversion(c: Ctx): Detected | null {
+  const dist = c.spot - c.vwap;
+  const extendedUp = dist > c.atr15 * 2 && c.rsi14 > 75;
+  const extendedDn = dist < -c.atr15 * 2 && c.rsi14 < 25;
+  if (!extendedUp && !extendedDn) return null;
+  const dir: Direction = extendedUp ? "BEARISH" : "BULLISH";
+
+  const drivers: SignalReason[] = [];
+  let conf = 60;
+  drivers.push({
+    label: dir === "BEARISH" ? "Overbought + extended above VWAP" : "Oversold + extended below VWAP",
+    detail: `RSI ${c.rsi14.toFixed(1)}, ${Math.abs(dist).toFixed(2)} pts (${(Math.abs(dist) / c.atr15).toFixed(1)}× ATR) from VWAP ${c.vwap.toFixed(2)}.`,
+    weight: 25, bullish: dir === "BULLISH",
+  });
+  drivers.push({
+    label: "Mean-reversion bias",
+    detail: "Statistically likely to revert toward VWAP/EMA21.",
+    weight: 15, bullish: dir === "BULLISH",
+  });
+  if (c.vp) {
+    const target = dir === "BULLISH" ? c.vp.valueAreaLow : c.vp.valueAreaHigh;
+    const distVA = dir === "BULLISH" ? c.spot - target : target - c.spot;
+    if (distVA > c.atr15 * 0.5) {
+      conf += 5;
+      drivers.push({ label: "Inside-value pull", detail: `Magnet toward ${dir === "BULLISH" ? "VAL" : "VAH"} ${target.toFixed(2)}.`, weight: 5, bullish: dir === "BULLISH" });
+    }
+  }
+  conf = Math.max(0, Math.min(100, conf));
+  if (conf < 65) return null;
+
+  const trigger = dir === "BULLISH"
+    ? c.bars.h.at(-1)! // close above last bar high
+    : c.bars.l.at(-1)!; // close below last bar low
+  const stop = dir === "BULLISH" ? c.spot - c.atr15 * 0.6 : c.spot + c.atr15 * 0.6;
+  const t1 = dir === "BULLISH" ? c.vwap : c.vwap;
+  const t2 = dir === "BULLISH" ? c.ema21 : c.ema21;
+
+  return {
+    setupKey: "MEAN_REVERSION",
+    setupName: dir === "BULLISH" ? "Oversold Bounce — Long" : "Overbought Fade — Short",
+    setupSummary: dir === "BULLISH"
+      ? "Buy CE counter-trend. Sharp drop has stretched RSI; small-size trade for snap-back to VWAP."
+      : "Buy PE counter-trend. Sharp rip has stretched RSI; small-size trade for fade back to VWAP.",
+    direction: dir,
+    confidence: conf,
+    drivers,
+    entryTrigger: dir === "BULLISH"
+      ? `15-min close > ${trigger.toFixed(2)} (reversal confirmation)`
+      : `15-min close < ${trigger.toFixed(2)} (reversal confirmation)`,
+    entryLevel: trigger,
+    stopLevel: stop,
+    targetLevel: t1,
+    target2Level: t2,
+    invalidation: dir === "BULLISH"
+      ? `New session low without bounce — exit.`
+      : `New session high without rejection — exit.`,
+  };
+}
+
+// ---------- builder ----------
+function toSignal(c: Ctx, d: Detected): OptionSignal {
+  const strike = nearestStrike(c.spot, c.cfg.strikeStep);
+  const risk = Math.abs(c.spot - d.stopLevel);
+  const reward = Math.abs(d.targetLevel - c.spot);
+  const rr = risk > 0 ? round2(reward / risk) : undefined;
+  return {
+    index: c.cfg.symbol,
+    indexName: c.cfg.display,
+    spot: round2(c.spot),
+    spotChangePercent: round2(c.sessionChangePct),
+    bias: d.direction,
+    confidence: d.confidence,
+    timeframe: "intraday-15m",
+    vwap: round2(c.vwap),
+    ema9: round2(c.ema9),
+    ema21: round2(c.ema21),
+    rsi: round2(c.rsi14),
+    valueAreaHigh: c.vp ? round2(c.vp.valueAreaHigh) : undefined,
+    valueAreaLow: c.vp ? round2(c.vp.valueAreaLow) : undefined,
+    pointOfControl: c.vp ? round2(c.vp.pointOfControl) : undefined,
+    setupKey: d.setupKey,
+    setupName: d.setupName,
+    setupSummary: d.setupSummary,
+    entryTrigger: d.entryTrigger,
+    leg: {
+      type: d.direction === "BULLISH" ? "CALL" : "PUT",
+      strike,
+      action: "BUY",
+      expiry: nextWeeklyExpiry(),
+      entry: round2(d.entryLevel),
+      instrument: "UNDERLYING_LEVEL",
+      stopLoss: round2(d.stopLevel),
+      target1: round2(d.targetLevel),
+      target2: round2(d.target2Level),
+      riskRewardRatio: rr,
+    },
+    drivers: d.drivers,
+    invalidation: d.invalidation,
     generatedAt: new Date(),
   };
 }
 
-function round2(n: number): number { return Math.round(n * 100) / 100; }
+function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): OptionSignal[] {
+  const ctx = buildContext(cfg, intra, daily);
+  if (!ctx) return [];
+
+  const detectors = [
+    detectTrendContinuation,
+    detectVwapReclaim,
+    detectVolumeBreakout,
+    detectEmaPullback,
+    detectMeanReversion,
+  ];
+  const setups: Detected[] = [];
+  for (const det of detectors) {
+    try {
+      const r = det(ctx);
+      if (r) setups.push(r);
+    } catch (err) {
+      logger.warn({ err: (err as Error).message, idx: cfg.symbol, det: det.name }, "Setup detector failed");
+    }
+  }
+
+  // sort by confidence and keep top 3
+  setups.sort((a, b) => b.confidence - a.confidence);
+  return setups.slice(0, 3).map(d => toSignal(ctx, d));
+}
 
 interface CachedSignals { ts: number; data: OptionSignal[]; }
 let cache: CachedSignals | null = null;
@@ -261,8 +548,7 @@ export async function getOptionSignals(): Promise<OptionSignal[]> {
       const intra = await fetchIntraday(cfg.yahoo, "15m", "5d");
       const daily = await fetchIntraday(cfg.yahoo, "1d" as never, "3mo" as never);
       if (!intra || !daily) continue;
-      const sig = buildSignalForIndex(cfg, intra, daily);
-      if (sig) out.push(sig);
+      out.push(...buildSignalsForIndex(cfg, intra, daily));
     } catch (err) {
       logger.warn({ err: (err as Error).message, idx: cfg.symbol }, "Option signal failed");
     }

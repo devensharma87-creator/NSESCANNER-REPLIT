@@ -7,6 +7,7 @@
  */
 import type { OptionLeg } from "./optionLeg";
 import type { OptionSignalBias } from "./optionSignalBias";
+import type { OptionSignalSetupKey } from "./optionSignalSetupKey";
 import type { SignalReason } from "./signalReason";
 
 export interface OptionSignal {
@@ -21,9 +22,18 @@ export interface OptionSignal {
   vwap?: number;
   ema9?: number;
   ema21?: number;
+  rsi?: number;
   valueAreaHigh?: number;
   valueAreaLow?: number;
   pointOfControl?: number;
+  /** Type of intraday setup */
+  setupKey?: OptionSignalSetupKey;
+  /** Human-readable setup label */
+  setupName?: string;
+  /** One-line trade idea explanation */
+  setupSummary?: string;
+  /** Precise condition to enter (e.g. 15-min close above level X) */
+  entryTrigger?: string;
   leg: OptionLeg;
   drivers: SignalReason[];
   invalidation?: string;

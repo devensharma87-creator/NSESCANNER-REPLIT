@@ -73,7 +73,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 Scanner
               </Link>
               <Link href="/options" className={`transition-colors hover:text-foreground ${location.startsWith("/options") ? "text-foreground" : "text-foreground/60"}`}>
-                Options
+                F&amp;O Intraday
               </Link>
               <Link href="/sectors" className={`transition-colors hover:text-foreground ${location.startsWith("/sectors") ? "text-foreground" : "text-foreground/60"}`}>
                 Sectors
