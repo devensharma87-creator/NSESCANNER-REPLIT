@@ -14,8 +14,9 @@ export const OPTION_INDICES: IndexCfg[] = [
   { symbol: "NIFTY", yahoo: "^NSEI", display: "NIFTY 50", strikeStep: 50 },
   { symbol: "BANKNIFTY", yahoo: "^NSEBANK", display: "BANK NIFTY", strikeStep: 100 },
   { symbol: "FINNIFTY", yahoo: "^CNXFIN", display: "FIN NIFTY", strikeStep: 50 },
-  { symbol: "MIDCPNIFTY", yahoo: "NIFTY_MID_SELECT.NS", display: "NIFTY MIDCAP", strikeStep: 25 },
+  { symbol: "MIDCPNIFTY", yahoo: "NIFTY_MID_SELECT.NS", display: "MIDCAP NIFTY", strikeStep: 25 },
   { symbol: "SENSEX", yahoo: "^BSESN", display: "SENSEX", strikeStep: 100 },
+  { symbol: "BANKEX", yahoo: "BSE-BANK.BO", display: "BSE BANKEX", strikeStep: 100 },
 ];
 
 // ---------- helpers ----------
@@ -166,7 +167,7 @@ function detectTrendContinuation(c: Ctx): Detected | null {
     if (c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: false }); conf += 8; }
   }
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 60) return null;
+  if (conf < 50) return null;
 
   const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
   const stop = dir === "BULLISH" ? Math.min(c.vwap, c.ema21) - c.atr15 * 0.4 : Math.max(c.vwap, c.ema21) + c.atr15 * 0.4;
@@ -239,7 +240,7 @@ function detectVwapReclaim(c: Ctx): Detected | null {
   if (c.lastVol > c.avgVol20) { drivers.push({ label: "Volume on cross", detail: `Last bar vol > 20-bar avg.`, weight: 8, bullish: dir === "BULLISH" }); conf += 8; }
 
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 65) return null;
+  if (conf < 55) return null;
 
   const trigger = dir === "BULLISH" ? c.vwap + c.atr15 * 0.15 : c.vwap - c.atr15 * 0.15;
   const stop = dir === "BULLISH" ? c.vwap - c.atr15 * 0.5 : c.vwap + c.atr15 * 0.5;
@@ -304,7 +305,7 @@ function detectVolumeBreakout(c: Ctx): Detected | null {
   if (dir === "BEARISH" && c.rsi14 < 45) { conf += 5; drivers.push({ label: "RSI < 45", detail: `RSI ${c.rsi14.toFixed(1)}`, weight: 5, bullish: false }); }
 
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 70) return null;
+  if (conf < 60) return null;
 
   const trigger = dir === "BULLISH" ? c.vp.valueAreaHigh : c.vp.valueAreaLow;
   const stop = dir === "BULLISH" ? c.vp.pointOfControl - c.atr15 * 0.3 : c.vp.pointOfControl + c.atr15 * 0.3;
@@ -436,7 +437,7 @@ function detectMeanReversion(c: Ctx): Detected | null {
     }
   }
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 65) return null;
+  if (conf < 55) return null;
 
   const trigger = dir === "BULLISH"
     ? c.bars.h.at(-1)! // close above last bar high
@@ -464,6 +465,50 @@ function detectMeanReversion(c: Ctx): Detected | null {
     invalidation: dir === "BULLISH"
       ? `New session low without bounce — exit.`
       : `New session high without rejection — exit.`,
+  };
+}
+
+/** 6. Baseline directional outlook (always-on fallback) — uses dominant VWAP + EMA21 bias.
+ * Lower confidence; only used when no higher-conviction setup fires for an index. */
+function detectBaselineOutlook(c: Ctx): Detected | null {
+  const bullVotes = (c.spot > c.vwap ? 1 : 0) + (c.spot > c.ema21 ? 1 : 0) + (c.ema9 > c.ema21 ? 1 : 0) + (c.rsi14 > 50 ? 1 : 0);
+  const bearVotes = 4 - bullVotes;
+  const dir: Direction = bullVotes >= bearVotes ? "BULLISH" : "BEARISH";
+  const align = Math.max(bullVotes, bearVotes);
+  if (align < 2) return null; // truly mixed — skip
+
+  const conf = 35 + align * 5; // 45–55%
+  const drivers: SignalReason[] = [
+    { label: dir === "BULLISH" ? "Spot vs VWAP bullish" : "Spot vs VWAP bearish", detail: `Spot ${c.spot.toFixed(2)} ${c.spot > c.vwap ? ">" : "<"} VWAP ${c.vwap.toFixed(2)}.`, weight: 12, bullish: c.spot > c.vwap },
+    { label: dir === "BULLISH" ? "Spot vs EMA21 bullish" : "Spot vs EMA21 bearish", detail: `Spot ${c.spot > c.ema21 ? "above" : "below"} EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: c.spot > c.ema21 },
+    { label: c.ema9 > c.ema21 ? "EMA 9 > 21" : "EMA 9 < 21", detail: `EMA9 ${c.ema9.toFixed(2)} vs EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: c.ema9 > c.ema21 },
+    { label: `RSI ${c.rsi14.toFixed(1)}`, detail: `RSI ${c.rsi14 > 50 ? "above" : "below"} 50 — ${c.rsi14 > 50 ? "bullish" : "bearish"} bias.`, weight: 8, bullish: c.rsi14 > 50 },
+  ];
+
+  const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
+  const stop = dir === "BULLISH" ? Math.min(c.vwap, c.ema21) - c.atr15 * 0.5 : Math.max(c.vwap, c.ema21) + c.atr15 * 0.5;
+  const t1 = dir === "BULLISH" ? c.piv.r1 : c.piv.s1;
+  const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
+
+  return {
+    setupKey: "TREND_CONTINUATION",
+    setupName: dir === "BULLISH" ? "Baseline Outlook — Long Bias" : "Baseline Outlook — Short Bias",
+    setupSummary: dir === "BULLISH"
+      ? "Lower-conviction long. Most context indicators lean bullish; wait for clean trigger or upgrade to a higher-conviction setup before sizing up."
+      : "Lower-conviction short. Most context indicators lean bearish; wait for clean trigger or upgrade to a higher-conviction setup before sizing up.",
+    direction: dir,
+    confidence: conf,
+    drivers,
+    entryTrigger: dir === "BULLISH"
+      ? `15-min close > ${trigger.toFixed(2)} (intraday swing high) — wait for confirmation`
+      : `15-min close < ${trigger.toFixed(2)} (intraday swing low) — wait for confirmation`,
+    entryLevel: trigger,
+    stopLevel: stop,
+    targetLevel: t1,
+    target2Level: t2,
+    invalidation: dir === "BULLISH"
+      ? `Sustained close below VWAP ${c.vwap.toFixed(2)} flips bias.`
+      : `Sustained close above VWAP ${c.vwap.toFixed(2)} flips bias.`,
   };
 }
 
@@ -528,6 +573,16 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
       if (r) setups.push(r);
     } catch (err) {
       logger.warn({ err: (err as Error).message, idx: cfg.symbol, det: det.name }, "Setup detector failed");
+    }
+  }
+
+  // Always-on baseline outlook ensures every index gets at least one directional read.
+  if (setups.length === 0) {
+    try {
+      const baseline = detectBaselineOutlook(ctx);
+      if (baseline) setups.push(baseline);
+    } catch (err) {
+      logger.warn({ err: (err as Error).message, idx: cfg.symbol }, "Baseline outlook failed");
     }
   }
 
