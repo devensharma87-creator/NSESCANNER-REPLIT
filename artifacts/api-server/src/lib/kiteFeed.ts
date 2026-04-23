@@ -13,7 +13,6 @@
 import { logger } from "./logger";
 import { getActiveSession, getRestClient, type ActiveSession } from "./kiteAuth";
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
-// @ts-expect-error: kiteconnect CJS default export
 import { KiteTicker } from "kiteconnect";
 
 export interface LiveTick {

@@ -16,7 +16,6 @@
 import { db, kiteSessionTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
-// @ts-expect-error: kiteconnect publishes CJS with side-effect default
 import { KiteConnect } from "kiteconnect";
 
 const ACTIVE_ID = "active";

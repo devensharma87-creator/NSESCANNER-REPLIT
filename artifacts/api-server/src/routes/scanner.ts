@@ -16,7 +16,7 @@ import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe
 import { getStockHistoryWithSeries, scanAll } from "../lib/scanner";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
-import { getMarketEvents } from "../lib/marketEvents";
+import { getMarketEvents, computeMarketStatus } from "../lib/marketEvents";
 import { getPreMarketReport } from "../lib/preMarket";
 import { getWatchlist } from "../lib/watchlist";
 import { getMarketNewsLive } from "../lib/newsRss";
@@ -98,23 +98,15 @@ router.get("/market/summary", async (_req, res, next) => {
         constituentSlug: slug,
       };
     }));
+    const FLAT = 0.05;
     let advancers = 0, decliners = 0, unchanged = 0;
     for (const r of allRows) {
-      if (r.quote.changePercent > 0.1) advancers++;
-      else if (r.quote.changePercent < -0.1) decliners++;
+      if (r.quote.changePercent > FLAT) advancers++;
+      else if (r.quote.changePercent < -FLAT) decliners++;
       else unchanged++;
     }
 
-    const now = new Date();
-    const istHour = (now.getUTCHours() + 5) % 24;
-    const istMin = now.getUTCMinutes() + 30;
-    const totalMin = istHour * 60 + istMin;
-    const day = (now.getUTCDay() + (istHour < 18 ? 0 : 1)) % 7;
-    let marketStatus: "open" | "closed" | "pre_open" = "closed";
-    if (day >= 1 && day <= 5) {
-      if (totalMin >= 9 * 60 + 15 && totalMin <= 15 * 60 + 30) marketStatus = "open";
-      else if (totalMin >= 9 * 60 && totalMin < 9 * 60 + 15) marketStatus = "pre_open";
-    }
+    const marketStatus = computeMarketStatus(new Date());
 
     const data = GetMarketSummaryResponse.parse({
       indices,

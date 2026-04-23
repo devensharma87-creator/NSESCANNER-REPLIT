@@ -1310,6 +1310,234 @@ export const GetOptionSignalsResponse = zod.object({
 });
 
 /**
+ * @summary Live NSE option chain (indices + F&O equities)
+ */
+export const GetOptionChainParams = zod.object({
+  underlying: zod.coerce.string(),
+});
+
+export const GetOptionChainQueryParams = zod.object({
+  expiry: zod.coerce.string().optional(),
+});
+
+export const GetOptionChainResponse = zod.object({
+  underlying: zod.string(),
+  underlyingName: zod.string().optional(),
+  kind: zod.enum(["INDEX", "EQUITY"]).optional(),
+  spot: zod.number(),
+  prevClose: zod.number().optional(),
+  changePercent: zod.number().optional(),
+  expiry: zod.string().describe("Active expiry YYYY-MM-DD"),
+  expiries: zod.array(zod.string()),
+  atmStrike: zod.number(),
+  strikeStep: zod.number(),
+  lotSize: zod.number().optional(),
+  rows: zod.array(
+    zod.object({
+      strike: zod.number(),
+      ce: zod
+        .object({
+          oi: zod.number().optional().describe("Open Interest in contracts"),
+          chgOi: zod.number().optional().describe("OI change since prev close"),
+          volume: zod.number().optional(),
+          iv: zod
+            .number()
+            .optional()
+            .describe("Implied Volatility (% annualised)"),
+          ltp: zod.number().optional().describe("Last traded premium"),
+          bid: zod.number().optional(),
+          ask: zod.number().optional(),
+          bidQty: zod.number().optional(),
+          askQty: zod.number().optional(),
+          delta: zod.number().optional(),
+          theta: zod.number().optional(),
+          gamma: zod.number().optional(),
+          vega: zod.number().optional(),
+          intrinsic: zod.number().optional(),
+          timeValue: zod.number().optional(),
+          moneyness: zod.enum(["ITM", "ATM", "OTM"]).optional(),
+          oiBuildup: zod
+            .enum([
+              "LONG_BUILDUP",
+              "SHORT_BUILDUP",
+              "LONG_UNWINDING",
+              "SHORT_COVERING",
+              "NEUTRAL",
+            ])
+            .optional(),
+        })
+        .optional(),
+      pe: zod
+        .object({
+          oi: zod.number().optional().describe("Open Interest in contracts"),
+          chgOi: zod.number().optional().describe("OI change since prev close"),
+          volume: zod.number().optional(),
+          iv: zod
+            .number()
+            .optional()
+            .describe("Implied Volatility (% annualised)"),
+          ltp: zod.number().optional().describe("Last traded premium"),
+          bid: zod.number().optional(),
+          ask: zod.number().optional(),
+          bidQty: zod.number().optional(),
+          askQty: zod.number().optional(),
+          delta: zod.number().optional(),
+          theta: zod.number().optional(),
+          gamma: zod.number().optional(),
+          vega: zod.number().optional(),
+          intrinsic: zod.number().optional(),
+          timeValue: zod.number().optional(),
+          moneyness: zod.enum(["ITM", "ATM", "OTM"]).optional(),
+          oiBuildup: zod
+            .enum([
+              "LONG_BUILDUP",
+              "SHORT_BUILDUP",
+              "LONG_UNWINDING",
+              "SHORT_COVERING",
+              "NEUTRAL",
+            ])
+            .optional(),
+        })
+        .optional(),
+    }),
+  ),
+  source: zod
+    .string()
+    .describe("Origin tag — 'NSE' for live fetch, 'MOCK' for synthetic"),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary PCR, Max Pain, ATM IV, OI buildup interpretation
+ */
+export const GetOptionAnalyticsParams = zod.object({
+  underlying: zod.coerce.string(),
+});
+
+export const GetOptionAnalyticsQueryParams = zod.object({
+  expiry: zod.coerce.string().optional(),
+});
+
+export const GetOptionAnalyticsResponse = zod.object({
+  underlying: zod.string(),
+  spot: zod.number(),
+  expiry: zod.string(),
+  pcrOi: zod.number().describe("Put\/Call ratio by Open Interest"),
+  pcrVolume: zod.number().describe("Put\/Call ratio by Volume"),
+  maxPain: zod
+    .number()
+    .describe("Max-pain strike — where most options expire worthless"),
+  atmIv: zod.number().nullish().describe("ATM straddle IV (avg of CE+PE)"),
+  ivPercentile: zod
+    .number()
+    .nullish()
+    .describe("30-day IV percentile (null until history is built)"),
+  totalCallOi: zod.number(),
+  totalPutOi: zod.number(),
+  callOiAdded: zod.number().optional(),
+  putOiAdded: zod.number().optional(),
+  topResistance: zod
+    .array(
+      zod.object({
+        strike: zod.number(),
+        oi: zod.number(),
+      }),
+    )
+    .optional(),
+  topSupport: zod
+    .array(
+      zod.object({
+        strike: zod.number(),
+        oi: zod.number(),
+      }),
+    )
+    .optional(),
+  interpretation: zod
+    .string()
+    .optional()
+    .describe("Plain-English read on bias from PCR + OI flow + Max Pain"),
+  bias: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]).optional(),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Pre-built multi-leg strategies with payoff diagrams + Greeks
+ */
+export const GetOptionStrategiesParams = zod.object({
+  underlying: zod.coerce.string(),
+});
+
+export const GetOptionStrategiesQueryParams = zod.object({
+  expiry: zod.coerce.string().optional(),
+});
+
+export const GetOptionStrategiesResponse = zod.object({
+  underlying: zod.string(),
+  spot: zod.number(),
+  expiry: zod.string(),
+  lotSize: zod.number(),
+  atmIv: zod.number().nullish(),
+  bias: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]).optional(),
+  strategies: zod.array(
+    zod.object({
+      key: zod.string().describe("Stable identifier e.g. LONG_STRADDLE"),
+      name: zod.string(),
+      category: zod.enum([
+        "DIRECTIONAL_BULL",
+        "DIRECTIONAL_BEAR",
+        "NEUTRAL_VOL",
+        "INCOME",
+        "HEDGE",
+      ]),
+      outlook: zod.string().describe("Market view this strategy expresses"),
+      whenToUse: zod.string().optional(),
+      legs: zod.array(
+        zod.object({
+          type: zod.enum(["CALL", "PUT"]),
+          action: zod.enum(["BUY", "SELL"]),
+          strike: zod.number(),
+          premium: zod.number().describe("Per-share premium (LTP)"),
+          qty: zod.number().describe("Number of lots × lot size (positive)"),
+          delta: zod.number().optional(),
+          theta: zod.number().optional(),
+          gamma: zod.number().optional(),
+          vega: zod.number().optional(),
+        }),
+      ),
+      payoff: zod.array(
+        zod.object({
+          spot: zod.number(),
+          pnl: zod.number().describe("P\/L at expiry, INR (per 1 lot)"),
+        }),
+      ),
+      breakEvens: zod.array(zod.number()),
+      maxProfit: zod
+        .number()
+        .nullable()
+        .describe("INR per lot; null = unlimited"),
+      maxLoss: zod
+        .number()
+        .nullable()
+        .describe("INR per lot; null = unlimited"),
+      netDebit: zod
+        .number()
+        .describe("Cost per lot (positive = debit, negative = credit)"),
+      netDelta: zod.number().optional(),
+      netTheta: zod.number().optional(),
+      netGamma: zod.number().optional(),
+      netVega: zod.number().optional(),
+      rrRatio: zod.number().nullish(),
+      recommendation: zod
+        .string()
+        .optional()
+        .describe("Why this strategy fits the current view (1-line)"),
+      generatedAt: zod.coerce.date(),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
  * @summary FII / DII cash market monthly aggregates with daily breakdown
  */
 export const getFiiDiiQueryMonthsDefault = 12;

@@ -77,8 +77,10 @@ export default function Watchlist() {
     });
   }, [rows, filter, trendFilter]);
 
-  const advancers = rows.filter(r => r.changePercent > 0).length;
-  const decliners = rows.filter(r => r.changePercent < 0).length;
+  // Use the same ±0.05% "flat" threshold as the rest of the app
+  // so summary counts are consistent everywhere.
+  const advancers = rows.filter(r => r.changePercent > 0.05).length;
+  const decliners = rows.filter(r => r.changePercent < -0.05).length;
   const unchanged = rows.length - advancers - decliners;
   const bullCount = rows.filter(r => r.mcTrend.includes("Bullish")).length;
   const bearCount = rows.filter(r => r.mcTrend.includes("Bearish")).length;

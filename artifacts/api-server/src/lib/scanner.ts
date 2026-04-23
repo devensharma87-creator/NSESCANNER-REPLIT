@@ -1,5 +1,5 @@
 import type { Indicators, Quote, StockHistory, StockRow } from "@workspace/api-zod";
-import { UNIVERSE, type UniverseEntry } from "./universe";
+import { UNIVERSE, INACTIVE_SYMBOLS, type UniverseEntry } from "./universe";
 import { fetchChart, fetchIntraday, type YahooChart } from "./yahoo";
 import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportResistance, volumeProfile, pivots } from "./indicators";
 import { buildRecommendation } from "./scoring";
@@ -125,7 +125,10 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
   const volumeRatio = avgVol > 0 ? quote.volume / avgVol : 1;
   const sr = supportResistance(chart.high, chart.low, 40);
   const vp = volumeProfile(chart.high, chart.low, closes, chart.volume, 24, 60);
-  const vwap = intradayVwap ?? rollingVwap(chart.high, chart.low, closes, chart.volume, 20) ?? quote.price;
+  // VWAP fallback chain: live intraday session VWAP → 20-bar rolling VWAP → undefined
+  // (NEVER fall back to spot price — that produces meaningless "spot vs VWAP" comparisons).
+  const vwapNum = intradayVwap ?? rollingVwap(chart.high, chart.low, closes, chart.volume, 20);
+  const vwap = vwapNum;
 
   const dn = closes.length;
   const prevH = dn >= 2 ? chart.high[dn - 2]! : chart.high[dn - 1] ?? quote.price;
@@ -163,7 +166,7 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
       ema50: round2(ema50Last),
       ema100: round2(ema100Last),
       ema200: round2(ema200Last),
-      vwap: round2(vwap),
+      vwap: vwap != null ? round2(vwap) : undefined,
       rsi14: round2(lastVal(rsiSeries) ?? 50),
       macd: round2(lastVal(macdRes.macd) ?? 0),
       macdSignal: round2(lastVal(macdRes.signal) ?? 0),
@@ -249,12 +252,14 @@ async function performScan(): Promise<StockRow[]> {
   const rows: StockRow[] = [];
   const start = Date.now();
   let nullCount = 0;
+  // Skip explicitly inactive symbols (delisted, no live feed) so we don't spam logs.
+  const universe = UNIVERSE.filter(u => !u.inactive && !INACTIVE_SYMBOLS.has(u.symbol.toUpperCase()));
   const concurrency = 6;
   let cursor = 0;
   async function worker() {
-    while (cursor < UNIVERSE.length) {
+    while (cursor < universe.length) {
       const idx = cursor++;
-      const entry = UNIVERSE[idx]!;
+      const entry = universe[idx]!;
       try {
         const r = await buildRow(entry);
         if (r) rows.push(r);

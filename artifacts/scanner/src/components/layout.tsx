@@ -74,8 +74,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link href="/scanner" className={`transition-colors hover:text-foreground ${location.startsWith("/scanner") ? "text-foreground" : "text-foreground/60"}`}>
                 Scanner
               </Link>
-              <Link href="/options" className={`transition-colors hover:text-foreground ${location.startsWith("/options") ? "text-foreground" : "text-foreground/60"}`}>
+              <Link href="/options" className={`transition-colors hover:text-foreground ${location === "/options" ? "text-foreground" : "text-foreground/60"}`}>
                 F&amp;O Intraday
+              </Link>
+              <Link href="/option-chain" className={`transition-colors hover:text-foreground ${location.startsWith("/option-chain") ? "text-foreground" : "text-foreground/60"}`}>
+                Option Chain
               </Link>
               <Link href="/premarket" className={`transition-colors hover:text-foreground ${location.startsWith("/premarket") ? "text-foreground" : "text-foreground/60"}`}>
                 Pre / Post

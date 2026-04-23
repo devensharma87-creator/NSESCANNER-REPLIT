@@ -4,6 +4,7 @@ import scannerRouter from "./scanner";
 import tradingViewRouter from "./tradingview";
 import instFlowsRouter from "./instFlows";
 import kiteRouter from "./kite";
+import optionChainRouter from "./optionChain";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
 
@@ -14,6 +15,7 @@ router.use(scannerRouter);
 router.use(tradingViewRouter);
 router.use(instFlowsRouter);
 router.use(kiteRouter);
+router.use(optionChainRouter);
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 startInstFlowsRefresher();

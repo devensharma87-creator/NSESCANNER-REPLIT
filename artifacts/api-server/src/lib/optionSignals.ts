@@ -8,15 +8,22 @@ export interface IndexCfg {
   yahoo: string;
   display: string;
   strikeStep: number;
+  /** Cadence at which the *near* expiry rolls. NSE made BANKNIFTY/FINNIFTY/MIDCPNIFTY
+   *  monthly-only in Nov 2024; only NIFTY (Tue) and SENSEX (Tue) still have weeklies. */
+  expiryCadence: "weekly" | "monthly";
+  /** ISO weekday for the expiry. 0=Sun … 4=Thu. NSE convention as of FY26:
+   *  NIFTY weekly: Tuesday. SENSEX (BSE) weekly: Tuesday. Monthly indices use
+   *  *last* occurrence of the same weekday in the calendar month. */
+  expiryWeekday: number;
 }
 
 export const OPTION_INDICES: IndexCfg[] = [
-  { symbol: "NIFTY", yahoo: "^NSEI", display: "NIFTY 50", strikeStep: 50 },
-  { symbol: "BANKNIFTY", yahoo: "^NSEBANK", display: "BANK NIFTY", strikeStep: 100 },
-  { symbol: "FINNIFTY", yahoo: "^CNXFIN", display: "FIN NIFTY", strikeStep: 50 },
-  { symbol: "MIDCPNIFTY", yahoo: "NIFTY_MID_SELECT.NS", display: "MIDCAP NIFTY", strikeStep: 25 },
-  { symbol: "SENSEX", yahoo: "^BSESN", display: "SENSEX", strikeStep: 100 },
-  { symbol: "BANKEX", yahoo: "BSE-BANK.BO", display: "BSE BANKEX", strikeStep: 100 },
+  { symbol: "NIFTY",     yahoo: "^NSEI",              display: "NIFTY 50",      strikeStep:  50, expiryCadence: "weekly",  expiryWeekday: 2 /* Tue */ },
+  { symbol: "BANKNIFTY", yahoo: "^NSEBANK",           display: "BANK NIFTY",    strikeStep: 100, expiryCadence: "monthly", expiryWeekday: 4 /* last Thu */ },
+  { symbol: "FINNIFTY",  yahoo: "^CNXFIN",            display: "FIN NIFTY",     strikeStep:  50, expiryCadence: "monthly", expiryWeekday: 2 /* last Tue */ },
+  { symbol: "MIDCPNIFTY",yahoo: "NIFTY_MID_SELECT.NS",display: "MIDCAP NIFTY",  strikeStep:  25, expiryCadence: "monthly", expiryWeekday: 1 /* last Mon */ },
+  { symbol: "SENSEX",    yahoo: "^BSESN",             display: "SENSEX",        strikeStep: 100, expiryCadence: "weekly",  expiryWeekday: 2 /* Tue */ },
+  { symbol: "BANKEX",    yahoo: "BSE-BANK.BO",        display: "BSE BANKEX",    strikeStep: 100, expiryCadence: "monthly", expiryWeekday: 2 /* last Tue */ },
 ];
 
 // ---------- helpers ----------
@@ -27,12 +34,41 @@ function lastVal(arr: (number | null)[]): number | null {
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 function nearestStrike(spot: number, step: number): number { return Math.round(spot / step) * step; }
 function fmtExpiry(d: Date): string { return d.toISOString().slice(0, 10); }
-function nextWeeklyExpiry(): string {
-  const d = new Date();
-  const day = d.getUTCDay();
-  const diff = (4 - day + 7) % 7 || 7;
+
+/** Next weekly expiry for an index, on the configured weekday in IST. */
+function nextWeeklyExpiry(weekday: number): string {
+  // Use IST so 23:50 UTC Monday isn't treated as Tuesday already
+  const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const day = now.getUTCDay();
+  let diff = (weekday - day + 7) % 7;
+  if (diff === 0) diff = 7;            // today is the expiry day → roll to next week
+  const d = new Date(now);
   d.setUTCDate(d.getUTCDate() + diff);
   return fmtExpiry(d);
+}
+
+/** Next *monthly* expiry: the LAST occurrence of `weekday` in the current month
+ *  (or next month if today already past it). NSE convention for monthly indices. */
+function nextMonthlyExpiry(weekday: number): string {
+  const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const yr = now.getUTCFullYear(), mo = now.getUTCMonth();
+  const lastInMonth = (year: number, month: number): Date => {
+    // start at last day of month, walk backward to weekday
+    const d = new Date(Date.UTC(year, month + 1, 0));
+    while (d.getUTCDay() !== weekday) d.setUTCDate(d.getUTCDate() - 1);
+    return d;
+  };
+  let candidate = lastInMonth(yr, mo);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate = lastInMonth(mo === 11 ? yr + 1 : yr, (mo + 1) % 12);
+  }
+  return fmtExpiry(candidate);
+}
+
+function expiryFor(cfg: IndexCfg): string {
+  return cfg.expiryCadence === "weekly"
+    ? nextWeeklyExpiry(cfg.expiryWeekday)
+    : nextMonthlyExpiry(cfg.expiryWeekday);
 }
 function todayBarsOnly(chart: YahooChart): YahooChart {
   const lastTs = chart.timestamps[chart.timestamps.length - 1];
@@ -574,7 +610,7 @@ function toSignal(c: Ctx, d: Detected): OptionSignal {
       type: d.direction === "BULLISH" ? "CALL" : "PUT",
       strike,
       action: "BUY",
-      expiry: nextWeeklyExpiry(),
+      expiry: expiryFor(c.cfg),
       entry: round2(d.entryLevel),
       instrument: "UNDERLYING_LEVEL",
       stopLoss: round2(d.stopLevel),

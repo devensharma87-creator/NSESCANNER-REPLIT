@@ -20,6 +20,9 @@ import type {
   FiiDiiResponse,
   GetFiiDiiParams,
   GetNewsParams,
+  GetOptionAnalyticsParams,
+  GetOptionChainParams,
+  GetOptionStrategiesParams,
   GetParticipantOiParams,
   GetStockHistoryParams,
   GlobalMarket,
@@ -29,7 +32,10 @@ import type {
   MarketSummary,
   MarketTrend,
   NewsItem,
+  OptionAnalyticsResponse,
+  OptionChainResponse,
   OptionSignalSet,
+  OptionStrategiesResponse,
   ParticipantOiResponse,
   PreMarketReport,
   RefreshInstFlows200,
@@ -1033,6 +1039,366 @@ export function useGetOptionSignals<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetOptionSignalsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Live NSE option chain (indices + F&O equities)
+ */
+export const getGetOptionChainUrl = (
+  underlying: string,
+  params?: GetOptionChainParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/options/chain/${underlying}?${stringifiedParams}`
+    : `/api/options/chain/${underlying}`;
+};
+
+export const getOptionChain = async (
+  underlying: string,
+  params?: GetOptionChainParams,
+  options?: RequestInit,
+): Promise<OptionChainResponse> => {
+  return customFetch<OptionChainResponse>(
+    getGetOptionChainUrl(underlying, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOptionChainQueryKey = (
+  underlying: string,
+  params?: GetOptionChainParams,
+) => {
+  return [
+    `/api/options/chain/${underlying}`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetOptionChainQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOptionChain>>,
+  TError = ErrorType<unknown>,
+>(
+  underlying: string,
+  params?: GetOptionChainParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOptionChain>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOptionChainQueryKey(underlying, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getOptionChain>>> = ({
+    signal,
+  }) => getOptionChain(underlying, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!underlying,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionChain>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOptionChainQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOptionChain>>
+>;
+export type GetOptionChainQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Live NSE option chain (indices + F&O equities)
+ */
+
+export function useGetOptionChain<
+  TData = Awaited<ReturnType<typeof getOptionChain>>,
+  TError = ErrorType<unknown>,
+>(
+  underlying: string,
+  params?: GetOptionChainParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOptionChain>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOptionChainQueryOptions(
+    underlying,
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary PCR, Max Pain, ATM IV, OI buildup interpretation
+ */
+export const getGetOptionAnalyticsUrl = (
+  underlying: string,
+  params?: GetOptionAnalyticsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/options/analytics/${underlying}?${stringifiedParams}`
+    : `/api/options/analytics/${underlying}`;
+};
+
+export const getOptionAnalytics = async (
+  underlying: string,
+  params?: GetOptionAnalyticsParams,
+  options?: RequestInit,
+): Promise<OptionAnalyticsResponse> => {
+  return customFetch<OptionAnalyticsResponse>(
+    getGetOptionAnalyticsUrl(underlying, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOptionAnalyticsQueryKey = (
+  underlying: string,
+  params?: GetOptionAnalyticsParams,
+) => {
+  return [
+    `/api/options/analytics/${underlying}`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetOptionAnalyticsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOptionAnalytics>>,
+  TError = ErrorType<unknown>,
+>(
+  underlying: string,
+  params?: GetOptionAnalyticsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOptionAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOptionAnalyticsQueryKey(underlying, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOptionAnalytics>>
+  > = ({ signal }) =>
+    getOptionAnalytics(underlying, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!underlying,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionAnalytics>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOptionAnalyticsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOptionAnalytics>>
+>;
+export type GetOptionAnalyticsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary PCR, Max Pain, ATM IV, OI buildup interpretation
+ */
+
+export function useGetOptionAnalytics<
+  TData = Awaited<ReturnType<typeof getOptionAnalytics>>,
+  TError = ErrorType<unknown>,
+>(
+  underlying: string,
+  params?: GetOptionAnalyticsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOptionAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOptionAnalyticsQueryOptions(
+    underlying,
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Pre-built multi-leg strategies with payoff diagrams + Greeks
+ */
+export const getGetOptionStrategiesUrl = (
+  underlying: string,
+  params?: GetOptionStrategiesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/options/strategies/${underlying}?${stringifiedParams}`
+    : `/api/options/strategies/${underlying}`;
+};
+
+export const getOptionStrategies = async (
+  underlying: string,
+  params?: GetOptionStrategiesParams,
+  options?: RequestInit,
+): Promise<OptionStrategiesResponse> => {
+  return customFetch<OptionStrategiesResponse>(
+    getGetOptionStrategiesUrl(underlying, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOptionStrategiesQueryKey = (
+  underlying: string,
+  params?: GetOptionStrategiesParams,
+) => {
+  return [
+    `/api/options/strategies/${underlying}`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetOptionStrategiesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOptionStrategies>>,
+  TError = ErrorType<unknown>,
+>(
+  underlying: string,
+  params?: GetOptionStrategiesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOptionStrategies>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetOptionStrategiesQueryKey(underlying, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOptionStrategies>>
+  > = ({ signal }) =>
+    getOptionStrategies(underlying, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!underlying,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionStrategies>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOptionStrategiesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOptionStrategies>>
+>;
+export type GetOptionStrategiesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Pre-built multi-leg strategies with payoff diagrams + Greeks
+ */
+
+export function useGetOptionStrategies<
+  TData = Awaited<ReturnType<typeof getOptionStrategies>>,
+  TError = ErrorType<unknown>,
+>(
+  underlying: string,
+  params?: GetOptionStrategiesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOptionStrategies>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOptionStrategiesQueryOptions(
+    underlying,
+    params,
+    options,
+  );
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

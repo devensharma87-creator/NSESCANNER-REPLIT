@@ -13,6 +13,7 @@ import StockDetail from "@/pages/stock-detail";
 import IndexDetail from "@/pages/index-detail";
 import News from "@/pages/news";
 import Options from "@/pages/options";
+import OptionChain from "@/pages/option-chain";
 import Flows from "@/pages/flows";
 import PreMarket from "@/pages/premarket";
 import Watchlist from "@/pages/watchlist";
@@ -26,6 +27,8 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/scanner" component={Scanner} />
       <Route path="/options" component={Options} />
+      <Route path="/option-chain" component={OptionChain} />
+      <Route path="/option-chain/:underlying" component={OptionChain} />
       <Route path="/premarket" component={PreMarket} />
       <Route path="/watchlist" component={Watchlist} />
       <Route path="/sectors" component={Sectors} />

@@ -1,14 +1,34 @@
 // Curated NSE universe across major sectors.
 // Symbol is the NSE ticker (no .NS suffix); Yahoo Finance accessed as `${symbol}.NS`.
 export interface UniverseEntry {
-  symbol: string;
+  symbol: string;        // canonical NSE ticker used everywhere in the app
   name: string;
   sector: string;
   industry: string;
   description: string;
   seasonality?: string;
   catalysts?: string[];
+  /** Override the Yahoo Finance ticker used for chart/quote fetches. Defaults to `${symbol}.NS`.
+   *  Used for stocks that have been renamed on Yahoo (e.g. ZOMATO → ETERNAL). */
+  yahooSymbol?: string;
+  /** Mark a symbol as no longer scannable (delisted, no live feed). The scanner skips these. */
+  inactive?: boolean;
 }
+
+/** Yahoo Finance ticker overrides for symbols that have been renamed.
+ *  Key is canonical NSE symbol; value is the *Yahoo base* symbol (without .NS suffix).
+ *  Used by yahoo.ts to translate before the network call. */
+export const YAHOO_TICKER_OVERRIDES: Record<string, string> = {
+  ZOMATO: "ETERNAL",
+  "MCDOWELL-N": "UNITDSPR",
+  NIPPONLIFE: "NAM-INDIA",
+  GMRINFRA: "GMRAIRPORT",
+};
+
+/** Symbols intentionally skipped from scans (delisted, suspended, no Yahoo feed). */
+export const INACTIVE_SYMBOLS: Set<string> = new Set([
+  "PEL", // Piramal Enterprises — listed on NSE but Yahoo no longer returns a feed
+]);
 
 const UNIVERSE_RAW: UniverseEntry[] = [
   // Banking & Financials

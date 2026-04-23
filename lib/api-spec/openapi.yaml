@@ -202,6 +202,69 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/OptionSignalSet" }
 
+  /options/chain/{underlying}:
+    get:
+      operationId: getOptionChain
+      tags: [options]
+      summary: "Live NSE option chain (indices + F&O equities)"
+      parameters:
+        - in: path
+          name: underlying
+          required: true
+          schema: { type: string, description: "NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY or NSE equity symbol" }
+        - in: query
+          name: expiry
+          required: false
+          schema: { type: string, description: "Active expiry YYYY-MM-DD; defaults to nearest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionChainResponse" }
+
+  /options/analytics/{underlying}:
+    get:
+      operationId: getOptionAnalytics
+      tags: [options]
+      summary: "PCR, Max Pain, ATM IV, OI buildup interpretation"
+      parameters:
+        - in: path
+          name: underlying
+          required: true
+          schema: { type: string }
+        - in: query
+          name: expiry
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionAnalyticsResponse" }
+
+  /options/strategies/{underlying}:
+    get:
+      operationId: getOptionStrategies
+      tags: [options]
+      summary: "Pre-built multi-leg strategies with payoff diagrams + Greeks"
+      parameters:
+        - in: path
+          name: underlying
+          required: true
+          schema: { type: string }
+        - in: query
+          name: expiry
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionStrategiesResponse" }
+
   /inst/fii-dii:
     get:
       operationId: getFiiDii
@@ -1124,3 +1187,153 @@ components:
         rows:
           type: array
           items: { $ref: "#/components/schemas/WatchlistRow" }
+
+    OptionChainSide:
+      type: object
+      properties:
+        oi:        { type: integer, description: "Open Interest in contracts" }
+        chgOi:     { type: integer, description: "OI change since prev close" }
+        volume:    { type: integer }
+        iv:        { type: number, description: "Implied Volatility (% annualised)" }
+        ltp:       { type: number, description: "Last traded premium" }
+        bid:       { type: number }
+        ask:       { type: number }
+        bidQty:    { type: integer }
+        askQty:    { type: integer }
+        delta:     { type: number }
+        theta:     { type: number }
+        gamma:     { type: number }
+        vega:      { type: number }
+        intrinsic: { type: number }
+        timeValue: { type: number }
+        moneyness: { type: string, enum: [ITM, ATM, OTM] }
+        oiBuildup: { type: string, enum: [LONG_BUILDUP, SHORT_BUILDUP, LONG_UNWINDING, SHORT_COVERING, NEUTRAL] }
+
+    OptionChainStrikeRow:
+      type: object
+      required: [strike]
+      properties:
+        strike: { type: number }
+        ce:     { $ref: "#/components/schemas/OptionChainSide" }
+        pe:     { $ref: "#/components/schemas/OptionChainSide" }
+
+    OptionChainResponse:
+      type: object
+      required: [underlying, spot, expiry, expiries, atmStrike, strikeStep, rows, source, generatedAt]
+      properties:
+        underlying:      { type: string }
+        underlyingName:  { type: string }
+        kind:            { type: string, enum: [INDEX, EQUITY] }
+        spot:            { type: number }
+        prevClose:       { type: number }
+        changePercent:   { type: number }
+        expiry:          { type: string, description: "Active expiry YYYY-MM-DD" }
+        expiries:
+          type: array
+          items: { type: string }
+        atmStrike:       { type: number }
+        strikeStep:      { type: number }
+        lotSize:         { type: integer }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/OptionChainStrikeRow" }
+        source:          { type: string, description: "Origin tag — 'NSE' for live fetch, 'MOCK' for synthetic" }
+        generatedAt:     { type: string, format: date-time }
+
+    OiClusterStrike:
+      type: object
+      required: [strike, oi]
+      properties:
+        strike: { type: number }
+        oi:     { type: integer }
+
+    OptionAnalyticsResponse:
+      type: object
+      required: [underlying, spot, expiry, pcrOi, pcrVolume, maxPain, totalCallOi, totalPutOi, generatedAt]
+      properties:
+        underlying:    { type: string }
+        spot:          { type: number }
+        expiry:        { type: string }
+        pcrOi:         { type: number, description: "Put/Call ratio by Open Interest" }
+        pcrVolume:     { type: number, description: "Put/Call ratio by Volume" }
+        maxPain:       { type: number, description: "Max-pain strike — where most options expire worthless" }
+        atmIv:         { type: number, nullable: true, description: "ATM straddle IV (avg of CE+PE)" }
+        ivPercentile:  { type: number, nullable: true, description: "30-day IV percentile (null until history is built)" }
+        totalCallOi:   { type: integer }
+        totalPutOi:    { type: integer }
+        callOiAdded:   { type: integer }
+        putOiAdded:    { type: integer }
+        topResistance:
+          type: array
+          items: { $ref: "#/components/schemas/OiClusterStrike" }
+        topSupport:
+          type: array
+          items: { $ref: "#/components/schemas/OiClusterStrike" }
+        interpretation: { type: string, description: "Plain-English read on bias from PCR + OI flow + Max Pain" }
+        bias:           { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
+        generatedAt:    { type: string, format: date-time }
+
+    OptionStrategyLeg:
+      type: object
+      required: [type, action, strike, premium, qty]
+      properties:
+        type:    { type: string, enum: [CALL, PUT] }
+        action:  { type: string, enum: [BUY, SELL] }
+        strike:  { type: number }
+        premium: { type: number, description: "Per-share premium (LTP)" }
+        qty:     { type: integer, description: "Number of lots × lot size (positive)" }
+        delta:   { type: number }
+        theta:   { type: number }
+        gamma:   { type: number }
+        vega:    { type: number }
+
+    PayoffPoint:
+      type: object
+      required: [spot, pnl]
+      properties:
+        spot: { type: number }
+        pnl:  { type: number, description: "P/L at expiry, INR (per 1 lot)" }
+
+    OptionStrategy:
+      type: object
+      required: [key, name, category, outlook, legs, payoff, breakEvens, maxProfit, maxLoss, netDebit, generatedAt]
+      properties:
+        key:        { type: string, description: "Stable identifier e.g. LONG_STRADDLE" }
+        name:       { type: string }
+        category:   { type: string, enum: [DIRECTIONAL_BULL, DIRECTIONAL_BEAR, NEUTRAL_VOL, INCOME, HEDGE] }
+        outlook:    { type: string, description: "Market view this strategy expresses" }
+        whenToUse:  { type: string }
+        legs:
+          type: array
+          items: { $ref: "#/components/schemas/OptionStrategyLeg" }
+        payoff:
+          type: array
+          items: { $ref: "#/components/schemas/PayoffPoint" }
+        breakEvens:
+          type: array
+          items: { type: number }
+        maxProfit:    { type: number, description: "INR per lot; null = unlimited" , nullable: true }
+        maxLoss:      { type: number, description: "INR per lot; null = unlimited" , nullable: true }
+        netDebit:     { type: number, description: "Cost per lot (positive = debit, negative = credit)" }
+        netDelta:     { type: number }
+        netTheta:     { type: number }
+        netGamma:     { type: number }
+        netVega:      { type: number }
+        rrRatio:      { type: number, nullable: true }
+        recommendation: { type: string, description: "Why this strategy fits the current view (1-line)" }
+        generatedAt:  { type: string, format: date-time }
+
+    OptionStrategiesResponse:
+      type: object
+      required: [underlying, spot, expiry, lotSize, strategies, generatedAt]
+      properties:
+        underlying:  { type: string }
+        spot:        { type: number }
+        expiry:      { type: string }
+        lotSize:     { type: integer }
+        atmIv:       { type: number, nullable: true }
+        bias:        { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
+        strategies:
+          type: array
+          items: { $ref: "#/components/schemas/OptionStrategy" }
+        generatedAt: { type: string, format: date-time }

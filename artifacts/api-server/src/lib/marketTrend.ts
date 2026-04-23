@@ -16,10 +16,13 @@ export async function getMarketTrend(): Promise<MarketTrend> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
 
   const rows = await scanAll();
+  // Threshold of ±0.05% so trivial intraday flicker is counted as unchanged
+  // (matches the watchlist UI). Using exactly 0 over-counts noise.
+  const FLAT = 0.05;
   let advancers = 0, decliners = 0, unchanged = 0;
   for (const r of rows) {
-    if (r.quote.changePercent > 0.1) advancers++;
-    else if (r.quote.changePercent < -0.1) decliners++;
+    if (r.quote.changePercent > FLAT) advancers++;
+    else if (r.quote.changePercent < -FLAT) decliners++;
     else unchanged++;
   }
   const adRatio = decliners === 0 ? advancers : advancers / Math.max(1, decliners);

@@ -188,6 +188,32 @@ const NSE_HOLIDAYS_BY_YEAR: Record<number, MarketHoliday[]> = {
   2026: NSE_HOLIDAYS_2026,
   2027: NSE_HOLIDAYS_2027,
 };
+
+/** Set of YYYY-MM-DD dates on which NSE/BSE equity segment is closed (full-day). */
+const NSE_HOLIDAY_SET: Set<string> = new Set(
+  Object.values(NSE_HOLIDAYS_BY_YEAR).flat()
+    .filter(h => !/Muhurat/i.test(h.name))   // Diwali Muhurat is a half/special session, not a closure
+    .map(h => h.date)
+);
+
+export function isNseHoliday(istDate: Date): boolean {
+  const ymd = istDate.toISOString().slice(0, 10);
+  return NSE_HOLIDAY_SET.has(ymd);
+}
+
+/** Compute the equity-market session state for a given clock instant.
+ *  IST sessions: pre-open 09:00–09:15, regular 09:15–15:30. Closed on weekends and NSE holidays. */
+export function computeMarketStatus(now: Date): "open" | "closed" | "pre_open" {
+  // Convert to IST wall-clock
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const dow = ist.getUTCDay();          // 0=Sun .. 6=Sat
+  if (dow === 0 || dow === 6) return "closed";
+  if (isNseHoliday(ist)) return "closed";
+  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  if (mins >= 9 * 60 && mins < 9 * 60 + 15) return "pre_open";
+  if (mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30) return "open";
+  return "closed";
+}
 const ECONOMIC_EVENTS_BY_YEAR: Record<number, EconomicEvent[]> = {
   2026: ECONOMIC_EVENTS_2026,
   2027: ECONOMIC_EVENTS_2027,

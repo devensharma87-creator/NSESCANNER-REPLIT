@@ -1,5 +1,16 @@
 import { logger } from "./logger";
 import YahooFinance from "yahoo-finance2";
+import { YAHOO_TICKER_OVERRIDES } from "./universe";
+
+/** Translate canonical NSE/BSE symbol to the Yahoo Finance ticker actually used in
+ *  network calls. Applies the renamed-ticker map (e.g. ZOMATO → ETERNAL.NS) and
+ *  appends the appropriate exchange suffix when missing. */
+export function yahooTickerFor(symbol: string, exchange: "NS" | "BO" = "NS"): string {
+  // Already includes a suffix (passed by index/global lookups) — return as-is.
+  if (/\.(NS|BO|BSE)$/i.test(symbol) || symbol.startsWith("^")) return symbol;
+  const base = YAHOO_TICKER_OVERRIDES[symbol.toUpperCase()] ?? symbol;
+  return `${base}.${exchange}`;
+}
 
 export interface YahooMeta {
   symbol: string;
@@ -90,7 +101,7 @@ export async function fetchChart(
   interval: "1d" | "1wk" | "1mo" = "1d",
   exchange: "NS" | "BO" = "NS",
 ): Promise<YahooChart | null> {
-  const ticker = `${symbol}.${exchange}`;
+  const ticker = yahooTickerFor(symbol, exchange);
   const r = await chartCall(ticker, range, interval);
   if (r) return { ...r, symbol };
   return null;
@@ -249,7 +260,7 @@ const num = (r: YfStmtRow, k: string): number | undefined => {
 };
 
 export async function fetchStatements(symbol: string, exchange: "NS" | "BO" = "NS"): Promise<StockStatements | null> {
-  const ticker = `${symbol}.${exchange}`;
+  const ticker = yahooTickerFor(symbol, exchange);
   const c = stmtCache.get(ticker);
   if (c && Date.now() - c.ts < STMT_TTL) return c.data;
   try {
@@ -407,7 +418,7 @@ export async function fetchStatements(symbol: string, exchange: "NS" | "BO" = "N
 }
 
 export async function fetchFundamentals(symbol: string, exchange: "NS" | "BO" = "NS"): Promise<YahooFundamentals | null> {
-  const ticker = `${symbol}.${exchange}`;
+  const ticker = yahooTickerFor(symbol, exchange);
   const c = fundCache.get(ticker);
   if (c && Date.now() - c.ts < FUND_TTL) return c.data;
   try {

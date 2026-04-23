@@ -888,6 +888,217 @@ export interface WatchlistResponse {
   rows: WatchlistRow[];
 }
 
+export type OptionChainSideMoneyness =
+  (typeof OptionChainSideMoneyness)[keyof typeof OptionChainSideMoneyness];
+
+export const OptionChainSideMoneyness = {
+  ITM: "ITM",
+  ATM: "ATM",
+  OTM: "OTM",
+} as const;
+
+export type OptionChainSideOiBuildup =
+  (typeof OptionChainSideOiBuildup)[keyof typeof OptionChainSideOiBuildup];
+
+export const OptionChainSideOiBuildup = {
+  LONG_BUILDUP: "LONG_BUILDUP",
+  SHORT_BUILDUP: "SHORT_BUILDUP",
+  LONG_UNWINDING: "LONG_UNWINDING",
+  SHORT_COVERING: "SHORT_COVERING",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+export interface OptionChainSide {
+  /** Open Interest in contracts */
+  oi?: number;
+  /** OI change since prev close */
+  chgOi?: number;
+  volume?: number;
+  /** Implied Volatility (% annualised) */
+  iv?: number;
+  /** Last traded premium */
+  ltp?: number;
+  bid?: number;
+  ask?: number;
+  bidQty?: number;
+  askQty?: number;
+  delta?: number;
+  theta?: number;
+  gamma?: number;
+  vega?: number;
+  intrinsic?: number;
+  timeValue?: number;
+  moneyness?: OptionChainSideMoneyness;
+  oiBuildup?: OptionChainSideOiBuildup;
+}
+
+export interface OptionChainStrikeRow {
+  strike: number;
+  ce?: OptionChainSide;
+  pe?: OptionChainSide;
+}
+
+export type OptionChainResponseKind =
+  (typeof OptionChainResponseKind)[keyof typeof OptionChainResponseKind];
+
+export const OptionChainResponseKind = {
+  INDEX: "INDEX",
+  EQUITY: "EQUITY",
+} as const;
+
+export interface OptionChainResponse {
+  underlying: string;
+  underlyingName?: string;
+  kind?: OptionChainResponseKind;
+  spot: number;
+  prevClose?: number;
+  changePercent?: number;
+  /** Active expiry YYYY-MM-DD */
+  expiry: string;
+  expiries: string[];
+  atmStrike: number;
+  strikeStep: number;
+  lotSize?: number;
+  rows: OptionChainStrikeRow[];
+  /** Origin tag — 'NSE' for live fetch, 'MOCK' for synthetic */
+  source: string;
+  generatedAt: string;
+}
+
+export interface OiClusterStrike {
+  strike: number;
+  oi: number;
+}
+
+export type OptionAnalyticsResponseBias =
+  (typeof OptionAnalyticsResponseBias)[keyof typeof OptionAnalyticsResponseBias];
+
+export const OptionAnalyticsResponseBias = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+export interface OptionAnalyticsResponse {
+  underlying: string;
+  spot: number;
+  expiry: string;
+  /** Put/Call ratio by Open Interest */
+  pcrOi: number;
+  /** Put/Call ratio by Volume */
+  pcrVolume: number;
+  /** Max-pain strike — where most options expire worthless */
+  maxPain: number;
+  /** ATM straddle IV (avg of CE+PE) */
+  atmIv?: number | null;
+  /** 30-day IV percentile (null until history is built) */
+  ivPercentile?: number | null;
+  totalCallOi: number;
+  totalPutOi: number;
+  callOiAdded?: number;
+  putOiAdded?: number;
+  topResistance?: OiClusterStrike[];
+  topSupport?: OiClusterStrike[];
+  /** Plain-English read on bias from PCR + OI flow + Max Pain */
+  interpretation?: string;
+  bias?: OptionAnalyticsResponseBias;
+  generatedAt: string;
+}
+
+export type OptionStrategyLegType =
+  (typeof OptionStrategyLegType)[keyof typeof OptionStrategyLegType];
+
+export const OptionStrategyLegType = {
+  CALL: "CALL",
+  PUT: "PUT",
+} as const;
+
+export type OptionStrategyLegAction =
+  (typeof OptionStrategyLegAction)[keyof typeof OptionStrategyLegAction];
+
+export const OptionStrategyLegAction = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export interface OptionStrategyLeg {
+  type: OptionStrategyLegType;
+  action: OptionStrategyLegAction;
+  strike: number;
+  /** Per-share premium (LTP) */
+  premium: number;
+  /** Number of lots × lot size (positive) */
+  qty: number;
+  delta?: number;
+  theta?: number;
+  gamma?: number;
+  vega?: number;
+}
+
+export interface PayoffPoint {
+  spot: number;
+  /** P/L at expiry, INR (per 1 lot) */
+  pnl: number;
+}
+
+export type OptionStrategyCategory =
+  (typeof OptionStrategyCategory)[keyof typeof OptionStrategyCategory];
+
+export const OptionStrategyCategory = {
+  DIRECTIONAL_BULL: "DIRECTIONAL_BULL",
+  DIRECTIONAL_BEAR: "DIRECTIONAL_BEAR",
+  NEUTRAL_VOL: "NEUTRAL_VOL",
+  INCOME: "INCOME",
+  HEDGE: "HEDGE",
+} as const;
+
+export interface OptionStrategy {
+  /** Stable identifier e.g. LONG_STRADDLE */
+  key: string;
+  name: string;
+  category: OptionStrategyCategory;
+  /** Market view this strategy expresses */
+  outlook: string;
+  whenToUse?: string;
+  legs: OptionStrategyLeg[];
+  payoff: PayoffPoint[];
+  breakEvens: number[];
+  /** INR per lot; null = unlimited */
+  maxProfit: number | null;
+  /** INR per lot; null = unlimited */
+  maxLoss: number | null;
+  /** Cost per lot (positive = debit, negative = credit) */
+  netDebit: number;
+  netDelta?: number;
+  netTheta?: number;
+  netGamma?: number;
+  netVega?: number;
+  rrRatio?: number | null;
+  /** Why this strategy fits the current view (1-line) */
+  recommendation?: string;
+  generatedAt: string;
+}
+
+export type OptionStrategiesResponseBias =
+  (typeof OptionStrategiesResponseBias)[keyof typeof OptionStrategiesResponseBias];
+
+export const OptionStrategiesResponseBias = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+export interface OptionStrategiesResponse {
+  underlying: string;
+  spot: number;
+  expiry: string;
+  lotSize: number;
+  atmIv?: number | null;
+  bias?: OptionStrategiesResponseBias;
+  strategies: OptionStrategy[];
+  generatedAt: string;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;
@@ -919,6 +1130,21 @@ export const GetStockHistoryRange = {
   "1y": "1y",
   "2y": "2y",
 } as const;
+
+export type GetOptionChainParams = {
+  /**
+   * Active expiry YYYY-MM-DD; defaults to nearest
+   */
+  expiry?: string;
+};
+
+export type GetOptionAnalyticsParams = {
+  expiry?: string;
+};
+
+export type GetOptionStrategiesParams = {
+  expiry?: string;
+};
 
 export type GetFiiDiiParams = {
   /**
