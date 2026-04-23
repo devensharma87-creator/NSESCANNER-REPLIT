@@ -201,7 +201,7 @@ export default function Watchlist() {
                     <TableHead className="font-mono text-[11px] text-right">Today's Low</TableHead>
                     <TableHead className="font-mono text-[11px] text-right">Prev Close</TableHead>
                     <TableHead className="font-mono text-[11px] text-right">RSI</TableHead>
-                    <TableHead className="font-mono text-[11px] text-center">MC Trend Short Term</TableHead>
+                    <TableHead className="font-mono text-[11px] text-center">Trend</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

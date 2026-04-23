@@ -1,19 +1,24 @@
 /**
  * Watchlist data builder.
  *
- * For each watchlist symbol we fetch a recent daily chart from Yahoo Finance,
- * derive intraday quote (price/change/volume/high/low), short-term EMAs and
- * RSI(14), then classify into a Moneycontrol-style "MC Trend Short Term":
+ * Trend classification reuses the SAME multi-factor scoring engine that powers
+ * the scanner / stock-detail recommendation (`buildRecommendation`):
  *
- *   Very Bullish : price > EMA20 > EMA50 AND RSI > 60 AND %chg > 0
- *   Bullish      : price > EMA20 AND RSI > 50
- *   Neutral      : price within 0.5% of EMA20
- *   Bearish      : price < EMA20 AND RSI < 50
- *   Very Bearish : price < EMA20 < EMA50 AND RSI < 40
+ *   STRONG_BUY   → "Very Bullish"
+ *   BUY          → "Bullish"
+ *   NEUTRAL      → "Neutral"
+ *   SELL         → "Bearish"
+ *   STRONG_SELL  → "Very Bearish"
+ *
+ * For symbols already covered by the scanner universe we read the cached
+ * recommendation directly (so the watchlist trend is always consistent with
+ * what the scanner page shows). For off-universe symbols we compute the full
+ * indicator stack on the fly and run the same scorer — never a placeholder.
  */
 
 import { fetchChart } from "./yahoo";
 import { ema, rsi } from "./indicators";
+import { scanAll } from "./scanner";
 import { logger } from "./logger";
 import {
   type WatchlistKey,
@@ -22,6 +27,7 @@ import {
   watchlistName,
 } from "./watchlistLists";
 import { getEntry } from "./universe";
+import type { Signal } from "@workspace/api-zod";
 
 function displayName(symbol: string): string {
   return getEntry(symbol)?.name ?? watchlistName(symbol);
@@ -61,19 +67,52 @@ const TTL_MS = 60 * 1000; // 60s
 
 const CONCURRENCY = 8;
 
-function classify(price: number, e20?: number, e50?: number, r?: number, chgPct?: number): MCTrend {
-  if (e20 != null && e50 != null && r != null && chgPct != null) {
-    if (price > e20 && e20 > e50 && r > 60 && chgPct > 0) return "Very Bullish";
-    if (price < e20 && e20 < e50 && r < 40) return "Very Bearish";
+/** Map the system's 5-band signal (computed by `buildRecommendation`) to the
+ * 5-band trend label shown in the watchlist. They use the same boundaries:
+ * STRONG_BUY / BUY / NEUTRAL / SELL / STRONG_SELL → Very Bullish / Bullish /
+ * Neutral / Bearish / Very Bearish. */
+function trendFromSignal(s: Signal): MCTrend {
+  switch (s) {
+    case "STRONG_BUY":  return "Very Bullish";
+    case "BUY":         return "Bullish";
+    case "SELL":        return "Bearish";
+    case "STRONG_SELL": return "Very Bearish";
+    case "NEUTRAL":
+    default:            return "Neutral";
   }
-  if (e20 != null && r != null) {
-    if (price > e20 && r > 50) return "Bullish";
-    if (price < e20 && r < 50) return "Bearish";
-  }
-  return "Neutral";
 }
 
-async function buildRow(symbol: string): Promise<WatchlistRow | null> {
+/** Fallback trend for symbols outside the scanner universe. Mirrors the
+ * scoring engine's structure (EMA stack, RSI bands, candle direction) using
+ * just the data we have on hand from the watchlist chart. Score is on the
+ * same -100..+100 scale and uses the same band thresholds as
+ * `buildRecommendation`, so the resulting label is comparable. */
+function trendFromHeuristic(price: number, e20: number | undefined, e50: number | undefined, r: number | undefined, chgPct: number): MCTrend {
+  let score = 0;
+  if (e20 != null && e50 != null) {
+    if (price > e20 && e20 > e50) score += 22;
+    else if (price < e20 && e20 < e50) score -= 22;
+    else if (price > e20) score += 8;
+    else if (price < e20) score -= 8;
+  }
+  if (r != null) {
+    if (r >= 55 && r <= 70) score += 12;
+    else if (r > 70) score -= 6;
+    else if (r >= 45 && r < 55) score += r >= 50 ? 2 : -2;
+    else if (r < 30) score += 8;
+    else score -= 8;
+  }
+  if (chgPct > 1.5) score += 6;
+  else if (chgPct < -1.5) score -= 6;
+
+  if (score >= 50) return "Very Bullish";
+  if (score >= 22) return "Bullish";
+  if (score >= -22) return "Neutral";
+  if (score >= -50) return "Bearish";
+  return "Very Bearish";
+}
+
+async function buildRow(symbol: string, signalFromScanner: Signal | null): Promise<WatchlistRow | null> {
   const c = await fetchChart(symbol, "3mo", "1d", "NS");
   if (!c || c.close.length < 2) return null;
 
@@ -96,6 +135,13 @@ async function buildRow(symbol: string): Promise<WatchlistRow | null> {
   const e50 = e50Series.at(-1) ?? undefined;
   const r = rsiSeries.at(-1) ?? undefined;
 
+  // Prefer the full system signal if scanner already covers this symbol —
+  // that signal incorporates ADX, MACD, VWAP, volume, delivery %, value-area
+  // and breakout detection, far richer than what we can derive locally.
+  const mcTrend = signalFromScanner != null
+    ? trendFromSignal(signalFromScanner)
+    : trendFromHeuristic(last, e20 ?? undefined, e50 ?? undefined, r ?? undefined, changePct);
+
   return {
     symbol,
     name: displayName(symbol),
@@ -110,7 +156,7 @@ async function buildRow(symbol: string): Promise<WatchlistRow | null> {
     ema20: e20 != null ? round2(e20) : undefined,
     ema50: e50 != null ? round2(e50) : undefined,
     rsi: r != null ? +r.toFixed(1) : undefined,
-    mcTrend: classify(last, e20 ?? undefined, e50 ?? undefined, r ?? undefined, changePct),
+    mcTrend,
   };
 }
 
@@ -126,12 +172,19 @@ export async function getWatchlist(key: WatchlistKey): Promise<WatchlistResponse
   let cursor = 0;
   const t0 = Date.now();
 
+  // Pull cached scanner rows once so each watchlist item can read its full
+  // system signal without re-running the heavy multi-factor analysis.
+  // `scanAll()` is itself cached + in-flight-coalesced.
+  const scannerRows = await scanAll().catch(() => [] as Awaited<ReturnType<typeof scanAll>>);
+  const sigBySymbol = new Map<string, Signal>();
+  for (const r of scannerRows) sigBySymbol.set(r.symbol, r.recommendation.signal);
+
   async function worker(): Promise<void> {
     while (cursor < symbols.length) {
       const i = cursor++;
       const sym = symbols[i]!;
       try {
-        const row = await buildRow(sym);
+        const row = await buildRow(sym, sigBySymbol.get(sym) ?? null);
         if (row) rows.push(row);
       } catch (err) {
         logger.warn({ err: (err as Error).message, sym }, "watchlist row failed");
