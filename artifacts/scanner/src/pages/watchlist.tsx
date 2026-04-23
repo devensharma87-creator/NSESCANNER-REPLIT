@@ -26,6 +26,13 @@ const TABS: Array<{ key: WatchlistKey; label: string; sub: string }> = [
   { key: "NIFTY500",         label: "Nifty 500",         sub: "Broad market — ~96% of mcap" },
 ];
 
+/** Nominal constituent counts per index. Used to flag when our live fetch
+ * returned fewer rows than the index actually contains (Yahoo throttling, etc.). */
+const NOMINAL: Record<WatchlistKey, number> = {
+  SENSEX: 30, BANKNIFTY: 12, NIFTY50: 50, NIFTY100: 100,
+  NIFTYMIDCAP100: 100, NIFTYSMALLCAP100: 100, NIFTY500: 500,
+};
+
 function trendBadge(t: string) {
   const map: Record<string, string> = {
     "Very Bullish": "text-signal-strong-buy bg-signal-strong-buy/10 border-signal-strong-buy/30",
@@ -161,11 +168,18 @@ export default function Watchlist() {
                 Showing {filtered.length} of {rows.length}
               </span>
             </div>
-            {data?.asOf && (
-              <div className="text-[10px] font-mono text-muted-foreground">
-                Updated {new Date(data.asOf).toLocaleTimeString()} · auto-refresh 60s
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {!isLoading && rows.length > 0 && rows.length < NOMINAL[tab] && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold border border-amber-500/40 text-amber-500 bg-amber-500/10">
+                  Stale: {NOMINAL[tab] - rows.length} / {NOMINAL[tab]} missing
+                </span>
+              )}
+              {data?.asOf && (
+                <div className="text-[10px] font-mono text-muted-foreground">
+                  Updated {new Date(data.asOf).toLocaleTimeString()} · auto-refresh 60s
+                </div>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">

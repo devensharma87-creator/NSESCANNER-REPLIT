@@ -8,7 +8,11 @@ import { SignalBadge } from "@/components/ui/signal-badge";
 
 export default function Sectors() {
   const { data: sectors, isLoading } = useListSectors({
-    query: { queryKey: getListSectorsQueryKey() }
+    query: {
+      queryKey: getListSectorsQueryKey(),
+      refetchInterval: 60_000,
+      staleTime: 30_000,
+    },
   });
 
   const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;

@@ -261,6 +261,12 @@ router.get("/stocks/:symbol", async (req, res, next) => {
       .slice(0, 6)
       .map(p => ({ symbol: p.symbol, name: p.name, changePercent: p.quote.changePercent, price: p.quote.price }));
 
+    const [financials, holdings, news] = await Promise.all([
+      getFinancials(symbol),
+      getHoldings(symbol),
+      getNewsForSymbol(symbol, 6),
+    ]);
+
     const data = GetStockDetailResponse.parse({
       profile: {
         symbol: entry.symbol,
@@ -276,9 +282,9 @@ router.get("/stocks/:symbol", async (req, res, next) => {
       quote: row.quote,
       indicators: row.indicators,
       recommendation: row.recommendation,
-      financials: getFinancials(symbol),
-      holdings: getHoldings(symbol),
-      news: getNewsForSymbol(symbol, 6),
+      financials,
+      holdings,
+      news,
     });
     res.json(data);
   } catch (err) { next(err); }
@@ -367,10 +373,13 @@ router.get("/news", async (req, res, next) => {
     const symbol = req.query["symbol"] ? String(req.query["symbol"]).toUpperCase() : null;
     let items;
     if (symbol) {
-      items = getNewsForSymbol(symbol, 8);
+      // Per-symbol: filter the live RSS aggregate by symbol/name keyword. If
+      // nothing matches we deliberately return [] (no fabricated headlines).
+      items = await getNewsForSymbol(symbol, 8);
     } else {
-      const live = await getMarketNewsLive(40);
-      items = live.length > 0 ? live : getMarketNews(15);
+      // Market: live RSS aggregate. Returns [] if all upstreams fail rather
+      // than substituting templated headlines.
+      items = await getMarketNewsLive(40);
     }
     const data = GetNewsResponse.parse(items);
     res.json(data);

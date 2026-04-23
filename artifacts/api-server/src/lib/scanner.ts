@@ -4,6 +4,7 @@ import { fetchChart, fetchIntraday, type YahooChart } from "./yahoo";
 import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportResistance, volumeProfile, pivots } from "./indicators";
 import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
+import { getDeliveryPct } from "./nseBhavcopy";
 
 interface CachedHistory {
   fetchedAt: number;
@@ -134,7 +135,9 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
   trendStrength += Math.max(-25, Math.min(25, ((quote.price - ema50Last) / ema50Last) * 200));
   trendStrength = Math.max(0, Math.min(100, Math.round(trendStrength)));
 
-  const deliveryPct = estimateDeliveryPct(quote);
+  // Placeholder — overridden in buildRow with the real NSE bhavcopy value
+  // when available. Heuristic is the fallback only.
+  const deliveryPct = estimateDeliveryPctHeuristic(quote);
 
   return {
     closes,
@@ -183,7 +186,9 @@ function deterministicNoise(seed: string, lo: number, hi: number): number {
   return lo + v * (hi - lo);
 }
 
-function estimateDeliveryPct(quote: Quote): number {
+/** Heuristic fallback only — used when the real NSE bhavcopy is unavailable
+ * (network down, NSE returns 403, weekend before first cache fill, etc). */
+function estimateDeliveryPctHeuristic(quote: Quote): number {
   const base = deterministicNoise(`${quote.symbol}-delv`, 38, 62);
   const moveBoost = Math.max(-10, Math.min(10, Math.abs(quote.changePercent) * -1.5));
   return Math.max(15, Math.min(85, base + moveBoost));
@@ -203,6 +208,13 @@ async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
   if (!quote) return null;
   const intraVwap = await getIntradayVwap(entry.symbol);
   const computed = computeIndicators(chart, quote, intraVwap);
+
+  // Real NSE delivery % override (when bhavcopy is reachable). Falls back
+  // silently to the heuristic placeholder set in computeIndicators.
+  const realDelv = await getDeliveryPct(entry.symbol).catch(() => null);
+  if (realDelv) {
+    computed.indicators.deliveryPct = round2(realDelv.pct);
+  }
   const recommendation = buildRecommendation({
     quote,
     indicators: computed.indicators,

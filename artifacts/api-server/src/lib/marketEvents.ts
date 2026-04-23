@@ -28,6 +28,16 @@ export interface EconomicEvent {
   description?: string;
 }
 
+/* ───────────────────────────────────────────────────────────────────────
+ * Holiday / economic calendars are curated per calendar year. To keep the
+ * app working past 2026-12-31 we expose them as a year → list map and
+ * automatically include the current year + next year so a user querying
+ * in late December still sees January events for the following year.
+ *
+ * When NSE publishes the official next-year holiday list, replace the
+ * placeholder entries below with the actual gazetted dates.
+ * ─────────────────────────────────────────────────────────────────────── */
+
 // --- Curated 2026 NSE/BSE holidays (published by NSE annually) ---
 // Source: NSE 2026 trading holiday list (Equity segment).
 const NSE_HOLIDAYS_2026: MarketHoliday[] = [
@@ -47,6 +57,20 @@ const NSE_HOLIDAYS_2026: MarketHoliday[] = [
   { date: "2026-10-22", name: "Diwali Balipratipada", exchange: "NSE/BSE", region: "IN" },
   { date: "2026-11-25", name: "Guru Nanak Jayanti",   exchange: "NSE/BSE", region: "IN" },
   { date: "2026-12-25", name: "Christmas",            exchange: "NSE/BSE", region: "IN" },
+];
+
+// --- Provisional 2027 NSE/BSE holidays (best-effort projection from prior years' patterns).
+//     Replace with the official NSE 2027 list when published. ---
+const NSE_HOLIDAYS_2027: MarketHoliday[] = [
+  { date: "2027-01-26", name: "Republic Day",         exchange: "NSE/BSE", region: "IN" },
+  { date: "2027-03-09", name: "Holi (provisional)",   exchange: "NSE/BSE", region: "IN" },
+  { date: "2027-03-26", name: "Good Friday (provisional)", exchange: "NSE/BSE", region: "IN" },
+  { date: "2027-04-14", name: "Dr. B.R. Ambedkar Jayanti", exchange: "NSE/BSE", region: "IN" },
+  { date: "2027-05-01", name: "Maharashtra Day",      exchange: "NSE/BSE", region: "IN" },
+  { date: "2027-08-13", name: "Independence Day (obs.)", exchange: "NSE/BSE", region: "IN" },
+  { date: "2027-10-02", name: "Mahatma Gandhi Jayanti", exchange: "NSE/BSE", region: "IN" },
+  { date: "2027-11-09", name: "Diwali — Laxmi Pujan (provisional)", exchange: "NSE/BSE", region: "IN" },
+  { date: "2027-12-24", name: "Christmas Eve (obs.)", exchange: "NSE/BSE", region: "IN" },
 ];
 
 // --- Curated 2026 global market holidays (key half/full closures) ---
@@ -138,6 +162,64 @@ const ECONOMIC_EVENTS_2026: EconomicEvent[] = [
   { date: "2026-06-04", name: "OPEC+ Ministerial Meeting",    region: "GLOBAL", category: "event", impact: "medium" },
   { date: "2026-12-03", name: "OPEC+ Ministerial Meeting",    region: "GLOBAL", category: "event", impact: "medium" },
 ];
+
+// --- Provisional 2027 economic & central-bank calendar (key meetings only;
+//     specific dates marked "tentative" until publishers confirm). ---
+const ECONOMIC_EVENTS_2027: EconomicEvent[] = [
+  // RBI MPC 2027 (bi-monthly, tentative)
+  { date: "2027-02-04", name: "RBI MPC — Repo rate decision (tentative)", region: "IN", category: "rate", impact: "high" },
+  { date: "2027-04-08", name: "RBI MPC — Repo rate decision (tentative)", region: "IN", category: "rate", impact: "high" },
+  { date: "2027-06-10", name: "RBI MPC — Repo rate decision (tentative)", region: "IN", category: "rate", impact: "high" },
+  { date: "2027-08-05", name: "RBI MPC — Repo rate decision (tentative)", region: "IN", category: "rate", impact: "high" },
+  { date: "2027-10-07", name: "RBI MPC — Repo rate decision (tentative)", region: "IN", category: "rate", impact: "high" },
+  { date: "2027-12-02", name: "RBI MPC — Repo rate decision (tentative)", region: "IN", category: "rate", impact: "high" },
+  // US Fed FOMC 2027 (tentative)
+  { date: "2027-01-27", name: "US Fed FOMC — Rate decision (tentative)",  region: "US", category: "rate", impact: "high" },
+  { date: "2027-03-17", name: "US Fed FOMC — Rate decision (tentative)",  region: "US", category: "rate", impact: "high" },
+  { date: "2027-04-28", name: "US Fed FOMC — Rate decision (tentative)",  region: "US", category: "rate", impact: "high" },
+  { date: "2027-06-16", name: "US Fed FOMC — Rate decision (tentative)",  region: "US", category: "rate", impact: "high" },
+  { date: "2027-07-28", name: "US Fed FOMC — Rate decision (tentative)",  region: "US", category: "rate", impact: "high" },
+  { date: "2027-09-22", name: "US Fed FOMC — Rate decision (tentative)",  region: "US", category: "rate", impact: "high" },
+  { date: "2027-11-03", name: "US Fed FOMC — Rate decision (tentative)",  region: "US", category: "rate", impact: "high" },
+  { date: "2027-12-15", name: "US Fed FOMC — Rate decision (tentative)",  region: "US", category: "rate", impact: "high" },
+];
+
+const NSE_HOLIDAYS_BY_YEAR: Record<number, MarketHoliday[]> = {
+  2026: NSE_HOLIDAYS_2026,
+  2027: NSE_HOLIDAYS_2027,
+};
+const ECONOMIC_EVENTS_BY_YEAR: Record<number, EconomicEvent[]> = {
+  2026: ECONOMIC_EVENTS_2026,
+  2027: ECONOMIC_EVENTS_2027,
+};
+
+/** Pick all curated events that could fall inside a [from, to] window —
+ * walks each year that intersects the range and collects matching lists.
+ * Returns [] for any year we don't have data for (so the calendar simply
+ * shows fewer items rather than throwing). */
+function holidaysInRange(fromMs: number, toMs: number): MarketHoliday[] {
+  const fromY = new Date(fromMs).getUTCFullYear();
+  const toY = new Date(toMs).getUTCFullYear();
+  const out: MarketHoliday[] = [];
+  for (let y = fromY; y <= toY; y++) {
+    const list = NSE_HOLIDAYS_BY_YEAR[y];
+    if (list) out.push(...list);
+    // Global holidays are only curated for 2026; mirror the same pattern
+    // for future years if/when that list grows.
+    if (y === 2026) out.push(...GLOBAL_HOLIDAYS_2026);
+  }
+  return out;
+}
+function eventsInRange(fromMs: number, toMs: number): EconomicEvent[] {
+  const fromY = new Date(fromMs).getUTCFullYear();
+  const toY = new Date(toMs).getUTCFullYear();
+  const out: EconomicEvent[] = [];
+  for (let y = fromY; y <= toY; y++) {
+    const list = ECONOMIC_EVENTS_BY_YEAR[y];
+    if (list) out.push(...list);
+  }
+  return out;
+}
 
 // --- Earnings calendar via Yahoo (Indian universe + global mega-caps) ---
 const GLOBAL_TICKERS_FOR_EARNINGS = [
@@ -239,17 +321,20 @@ export async function getMarketEvents(): Promise<MarketEventsResponse> {
   const todayMs = now.getTime();
   const horizonMs = 90 * 24 * 60 * 60 * 1000;
 
-  const allHolidays = [...NSE_HOLIDAYS_2026, ...GLOBAL_HOLIDAYS_2026]
+  const winFrom = todayMs - 24 * 60 * 60 * 1000;
+  const winTo = todayMs + horizonMs;
+
+  const allHolidays = holidaysInRange(winFrom, winTo)
     .filter(h => {
       const t = new Date(`${h.date}T00:00:00+05:30`).getTime();
-      return t >= todayMs - 24 * 60 * 60 * 1000 && t <= todayMs + horizonMs;
+      return t >= winFrom && t <= winTo;
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const events = ECONOMIC_EVENTS_2026
+  const events = eventsInRange(winFrom, winTo)
     .filter(e => {
       const t = new Date(`${e.date}T00:00:00Z`).getTime();
-      return t >= todayMs - 24 * 60 * 60 * 1000 && t <= todayMs + horizonMs;
+      return t >= winFrom && t <= winTo;
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 

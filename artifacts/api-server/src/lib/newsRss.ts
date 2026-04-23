@@ -72,10 +72,10 @@ function parseRss(xml: string): ParsedItem[] {
     // Strip CDATA wrappers + entities before parsing date (Mint wraps pubDate in CDATA).
     const dateClean = decodeEntities(dateRaw).replace(/<[^>]+>/g, "").trim();
     let ts = Date.parse(dateClean);
-    const now = Date.now();
-    // If unparseable OR clearly stale (more than 14 days old, e.g. Moneycontrol's stale 2016 dates),
-    // treat as "just now" so the item still ranks reasonably in the merged feed.
-    if (!Number.isFinite(ts) || now - ts > 14 * 24 * 60 * 60 * 1000) ts = now;
+    // If unparseable, fall back to now so the item still surfaces. We do NOT
+    // backdate items that are merely older than 14 days — they should rank
+    // honestly by their real pubDate, not be promoted as "fresh".
+    if (!Number.isFinite(ts)) ts = Date.now();
     out.push({ title, link, description, pubDate: ts });
   }
   return out;
