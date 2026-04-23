@@ -7,12 +7,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, Minus, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
-type WatchlistKey = "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100";
+type WatchlistKey =
+  | "SENSEX"
+  | "BANKNIFTY"
+  | "NIFTY50"
+  | "NIFTY100"
+  | "NIFTYMIDCAP100"
+  | "NIFTYSMALLCAP100"
+  | "NIFTY500";
 
 const TABS: Array<{ key: WatchlistKey; label: string; sub: string }> = [
-  { key: "NIFTY100", label: "Nifty 100", sub: "Nifty 50 + Next 50 — large-caps" },
-  { key: "NIFTYMIDCAP100", label: "Nifty Midcap 100", sub: "101–250 by full market cap" },
-  { key: "NIFTYSMALLCAP100", label: "Nifty Smallcap 100", sub: "251–500 by full market cap" },
+  { key: "SENSEX",           label: "Sensex 30",         sub: "BSE 30 — bellwether large-caps" },
+  { key: "BANKNIFTY",        label: "Bank Nifty",        sub: "12 most liquid Indian banks" },
+  { key: "NIFTY50",          label: "Nifty 50",          sub: "Top 50 by free-float mcap" },
+  { key: "NIFTY100",         label: "Nifty 100",         sub: "Nifty 50 + Next 50 — large-caps" },
+  { key: "NIFTYMIDCAP100",   label: "Nifty Midcap 100",  sub: "101–250 by full market cap" },
+  { key: "NIFTYSMALLCAP100", label: "Nifty Smallcap 100",sub: "251–500 by full market cap" },
+  { key: "NIFTY500",         label: "Nifty 500",         sub: "Broad market — ~96% of mcap" },
 ];
 
 function trendBadge(t: string) {
@@ -40,7 +51,7 @@ function formatVolume(v: number): string {
 }
 
 export default function Watchlist() {
-  const [tab, setTab] = useState<WatchlistKey>("NIFTY100");
+  const [tab, setTab] = useState<WatchlistKey>("SENSEX");
   const [filter, setFilter] = useState("");
   const [trendFilter, setTrendFilter] = useState<"ALL" | "BULL" | "BEAR">("ALL");
 

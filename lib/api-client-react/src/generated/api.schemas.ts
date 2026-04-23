@@ -870,9 +870,13 @@ export type WatchlistResponseKey =
   (typeof WatchlistResponseKey)[keyof typeof WatchlistResponseKey];
 
 export const WatchlistResponseKey = {
+  SENSEX: "SENSEX",
+  BANKNIFTY: "BANKNIFTY",
+  NIFTY50: "NIFTY50",
   NIFTY100: "NIFTY100",
   NIFTYMIDCAP100: "NIFTYMIDCAP100",
   NIFTYSMALLCAP100: "NIFTYSMALLCAP100",
+  NIFTY500: "NIFTY500",
 } as const;
 
 export interface WatchlistResponse {

@@ -394,11 +394,12 @@ router.get("/market/premarket", async (_req, res, next) => {
 router.get("/watchlist/:key", async (req, res, next) => {
   try {
     const key = String(req.params.key).toUpperCase();
-    if (key !== "NIFTY100" && key !== "NIFTYMIDCAP100" && key !== "NIFTYSMALLCAP100") {
-      res.status(400).json({ error: "Unknown watchlist key. Allowed: NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100" });
+    const allowed = ["SENSEX","BANKNIFTY","NIFTY50","NIFTY100","NIFTYMIDCAP100","NIFTYSMALLCAP100","NIFTY500"] as const;
+    if (!(allowed as readonly string[]).includes(key)) {
+      res.status(400).json({ error: `Unknown watchlist key. Allowed: ${allowed.join(", ")}` });
       return;
     }
-    const data = await getWatchlist(key);
+    const data = await getWatchlist(key as typeof allowed[number]);
     res.json(data);
   } catch (err) { next(err); }
 });

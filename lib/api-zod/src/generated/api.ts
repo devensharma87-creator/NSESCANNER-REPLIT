@@ -1626,11 +1626,27 @@ export const GetPreMarketResponse = zod.object({
  * @summary Pre-defined watchlist (Nifty 100 / Midcap 100 / Smallcap 100) with live quotes and MC trend
  */
 export const GetWatchlistParams = zod.object({
-  key: zod.enum(["NIFTY100", "NIFTYMIDCAP100", "NIFTYSMALLCAP100"]),
+  key: zod.enum([
+    "SENSEX",
+    "BANKNIFTY",
+    "NIFTY50",
+    "NIFTY100",
+    "NIFTYMIDCAP100",
+    "NIFTYSMALLCAP100",
+    "NIFTY500",
+  ]),
 });
 
 export const GetWatchlistResponse = zod.object({
-  key: zod.enum(["NIFTY100", "NIFTYMIDCAP100", "NIFTYSMALLCAP100"]),
+  key: zod.enum([
+    "SENSEX",
+    "BANKNIFTY",
+    "NIFTY50",
+    "NIFTY100",
+    "NIFTYMIDCAP100",
+    "NIFTYSMALLCAP100",
+    "NIFTY500",
+  ]),
   label: zod.string(),
   description: zod.string(),
   asOf: zod.coerce.date(),

@@ -300,7 +300,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100]
+            enum: [SENSEX, BANKNIFTY, NIFTY50, NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100, NIFTY500]
       responses:
         "200":
           description: OK
@@ -1116,7 +1116,7 @@ components:
       type: object
       required: [key, label, description, asOf, count, rows]
       properties:
-        key: { type: string, enum: [NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100] }
+        key: { type: string, enum: [SENSEX, BANKNIFTY, NIFTY50, NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100, NIFTY500] }
         label: { type: string }
         description: { type: string }
         asOf: { type: string, format: date-time }

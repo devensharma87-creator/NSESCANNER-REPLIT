@@ -1553,13 +1553,27 @@ export function useGetPreMarket<
  * @summary Pre-defined watchlist (Nifty 100 / Midcap 100 / Smallcap 100) with live quotes and MC trend
  */
 export const getGetWatchlistUrl = (
-  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+  key:
+    | "SENSEX"
+    | "BANKNIFTY"
+    | "NIFTY50"
+    | "NIFTY100"
+    | "NIFTYMIDCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500",
 ) => {
   return `/api/watchlist/${key}`;
 };
 
 export const getWatchlist = async (
-  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+  key:
+    | "SENSEX"
+    | "BANKNIFTY"
+    | "NIFTY50"
+    | "NIFTY100"
+    | "NIFTYMIDCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500",
   options?: RequestInit,
 ): Promise<WatchlistResponse> => {
   return customFetch<WatchlistResponse>(getGetWatchlistUrl(key), {
@@ -1569,7 +1583,14 @@ export const getWatchlist = async (
 };
 
 export const getGetWatchlistQueryKey = (
-  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+  key:
+    | "SENSEX"
+    | "BANKNIFTY"
+    | "NIFTY50"
+    | "NIFTY100"
+    | "NIFTYMIDCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500",
 ) => {
   return [`/api/watchlist/${key}`] as const;
 };
@@ -1578,7 +1599,14 @@ export const getGetWatchlistQueryOptions = <
   TData = Awaited<ReturnType<typeof getWatchlist>>,
   TError = ErrorType<unknown>,
 >(
-  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+  key:
+    | "SENSEX"
+    | "BANKNIFTY"
+    | "NIFTY50"
+    | "NIFTY100"
+    | "NIFTYMIDCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500",
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof getWatchlist>>,
@@ -1621,7 +1649,14 @@ export function useGetWatchlist<
   TData = Awaited<ReturnType<typeof getWatchlist>>,
   TError = ErrorType<unknown>,
 >(
-  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+  key:
+    | "SENSEX"
+    | "BANKNIFTY"
+    | "NIFTY50"
+    | "NIFTY100"
+    | "NIFTYMIDCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500",
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof getWatchlist>>,
