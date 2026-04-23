@@ -69,8 +69,15 @@ router.get("/market/summary", async (_req, res, next) => {
       const change = price - prev;
       const pct = prev > 0 ? (change / prev) * 100 : 0;
       const open = lastIdx >= 0 ? opens[lastIdx] : undefined;
-      const high = c?.meta.regularMarketDayHigh ?? (lastIdx >= 0 ? highs[lastIdx] : undefined);
-      const low = c?.meta.regularMarketDayLow ?? (lastIdx >= 0 ? lows[lastIdx] : undefined);
+      // Prefer last daily bar OHLC over meta — Yahoo's meta.regularMarketDayHigh/Low is
+      // unreliable for some indices (e.g. ^BSESN often returns price for both).
+      const barHigh = lastIdx >= 0 ? highs[lastIdx] : undefined;
+      const barLow = lastIdx >= 0 ? lows[lastIdx] : undefined;
+      const metaHigh = c?.meta.regularMarketDayHigh;
+      const metaLow = c?.meta.regularMarketDayLow;
+      const metaLooksBroken = metaHigh != null && metaLow != null && metaHigh === metaLow;
+      const high = (!metaLooksBroken && metaHigh != null) ? metaHigh : (barHigh ?? metaHigh);
+      const low = (!metaLooksBroken && metaLow != null) ? metaLow : (barLow ?? metaLow);
       const slug = i.slug;
       const breadth = slug ? breadthFor(INDEX_CONSTITUENTS[slug]) : undefined;
       return {
