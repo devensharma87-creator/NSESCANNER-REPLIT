@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import {
   useGetOptionChain,
@@ -10,19 +10,15 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Activity, Target } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Target, Search, ChevronDown, ChevronUp } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-
-const PRESETS = [
-  { sym: "NIFTY", label: "NIFTY 50" },
-  { sym: "BANKNIFTY", label: "BANK NIFTY" },
-  { sym: "FINNIFTY", label: "FIN NIFTY" },
-  { sym: "MIDCPNIFTY", label: "MIDCP NIFTY" },
-  { sym: "RELIANCE", label: "RELIANCE" },
-  { sym: "HDFCBANK", label: "HDFC BANK" },
-  { sym: "TCS", label: "TCS" },
-  { sym: "ICICIBANK", label: "ICICI BANK" },
-];
+import {
+  FNO_ALL,
+  QUICK_PRESETS,
+  groupBySector,
+  findFno,
+  type FnoEntry,
+} from "@/data/fnoUniverse";
 
 function fmt(n: number | null | undefined, dp = 2): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -98,31 +94,143 @@ export default function OptionChainPage() {
       : chainQ.isError || chainQ.isFetched ? "error"
       : "loading";
 
+  // ── Picker state ────────────────────────────────────────────────
+  const currentEntry = findFno(underlying);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // Close picker when clicking outside or pressing Esc
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { setPickerOpen(false); setSearchQ(""); }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [pickerOpen]);
+
+  const filteredEntries = useMemo<FnoEntry[]>(() => {
+    const q = searchQ.trim().toUpperCase();
+    if (!q) return FNO_ALL;
+    return FNO_ALL.filter(
+      e => e.sym.includes(q) || e.label.toUpperCase().includes(q) || e.sector.toUpperCase().includes(q),
+    );
+  }, [searchQ]);
+
+  const groupedEntries = useMemo(() => groupBySector(filteredEntries), [filteredEntries]);
+
+  function go(sym: string) {
+    setLocation(`/option-chain/${sym}`);
+    setPickerOpen(false);
+    setSearchQ("");
+  }
+
   return (
     <div className="w-full px-4 py-4 space-y-4">
       {/* Header */}
-      <div className="flex flex-wrap items-center gap-3 justify-between">
+      <div className="flex flex-wrap items-end gap-3 justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight font-mono">Option Chain</h1>
-          <p className="text-xs text-muted-foreground">
-            Live NSE OI · auto-refreshes every 30s · CE on left, PE on right · ATM strike highlighted.
+          <h1 className="text-2xl font-bold tracking-tight font-mono">
+            Option Chain
+            <span className="ml-3 px-2 py-0.5 text-[11px] rounded border border-primary/40 bg-primary/10 text-primary uppercase tracking-wider">
+              {currentEntry?.kind ?? "—"}
+            </span>
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1">
+            Live NSE OI for <b className="text-foreground/90 font-mono">{currentEntry?.label ?? underlying}</b>
+            {currentEntry?.sector ? <> · <span className="text-foreground/70">{currentEntry.sector}</span></> : null}
+            {" · "}auto-refresh 30s · OI per strike (CE left, PE right) · ATM highlighted
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {PRESETS.map(p => (
-            <button
-              key={p.sym}
-              onClick={() => setLocation(`/option-chain/${p.sym}`)}
-              className={`px-3 py-1.5 text-xs font-mono font-bold rounded border transition-colors ${
-                underlying === p.sym
-                  ? "border-primary bg-primary/15 text-primary"
-                  : "border-border bg-card hover:bg-white/5 text-foreground/70"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+
+        {/* Search picker trigger */}
+        <div className="relative w-full sm:w-[340px]">
+          <button
+            onClick={() => { setPickerOpen(o => !o); setTimeout(() => searchRef.current?.focus(), 30); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono rounded border border-border bg-card hover:bg-white/5 text-left"
+          >
+            <Search className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="flex-1 text-foreground/80 truncate">
+              Search any of <b className="text-primary">{FNO_ALL.length}</b> F&amp;O underlyings…
+            </span>
+            {pickerOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+
+          {pickerOpen && (
+            <div className="absolute z-50 right-0 mt-1.5 w-[min(640px,95vw)] max-h-[70vh] overflow-y-auto rounded-md border border-border bg-popover shadow-2xl">
+              <div className="sticky top-0 bg-popover border-b border-border p-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
+                  <input
+                    ref={searchRef}
+                    value={searchQ}
+                    onChange={e => setSearchQ(e.target.value)}
+                    placeholder="Type symbol, name or sector (e.g. RELIANCE / banking / pharma)…"
+                    className="w-full pl-7 pr-2 py-1.5 text-xs font-mono bg-background border border-border rounded focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="text-[10px] text-muted-foreground font-mono mt-1.5 uppercase">
+                  {filteredEntries.length} results · ESC to close
+                </div>
+              </div>
+
+              <div className="p-2 space-y-3">
+                {groupedEntries.map(([sector, entries]) => (
+                  <div key={sector}>
+                    <div className="text-[10px] uppercase font-mono text-muted-foreground/80 px-1 mb-1 sticky top-[46px]">
+                      {sector} <span className="text-muted-foreground/50">· {entries.length}</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
+                      {entries.map(e => (
+                        <button
+                          key={e.sym}
+                          onClick={() => go(e.sym)}
+                          className={`text-left px-2 py-1.5 rounded text-[11px] font-mono border transition-colors ${
+                            underlying === e.sym
+                              ? "border-primary bg-primary/15 text-primary"
+                              : "border-transparent hover:border-border hover:bg-white/5 text-foreground/85"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-bold truncate">{e.sym}</span>
+                            <span className={`text-[9px] px-1 rounded ${e.kind === "INDEX" ? "bg-primary/15 text-primary" : "bg-secondary/40 text-muted-foreground"}`}>
+                              {e.kind === "INDEX" ? "IDX" : "EQ"}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground truncate">{e.label}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {filteredEntries.length === 0 && (
+                  <div className="text-xs text-muted-foreground font-mono text-center py-6">
+                    No F&amp;O underlying matches "{searchQ}".
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* Quick presets row */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] uppercase font-mono text-muted-foreground mr-1">Quick:</span>
+        {QUICK_PRESETS.map(p => (
+          <button
+            key={p.sym}
+            onClick={() => go(p.sym)}
+            className={`px-2.5 py-1 text-[11px] font-mono rounded border transition-colors ${
+              underlying === p.sym
+                ? "border-primary bg-primary/15 text-primary font-bold"
+                : "border-border bg-card hover:bg-white/5 text-foreground/70"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
 
       {/* Spot + Analytics summary */}
