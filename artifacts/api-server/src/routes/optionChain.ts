@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics } from "../lib/optionAnalytics";
+import { getActiveSession } from "../lib/kiteAuth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -13,10 +14,14 @@ router.get("/options/chain/:underlying", async (req, res): Promise<void> => {
   try {
     const chain = await fetchOptionChain(underlying, expiry);
     if (!chain) {
+      const kiteSession = await getActiveSession().catch(() => null);
+      const detail = kiteSession
+        ? `Both data sources returned no chain for ${underlying}. Either the symbol is not in NSE's F&O list, or your Kite session has expired (Kite tokens expire daily at ~07:30 IST). Try re-authenticating from the Live Feed page.`
+        : `Live data is currently unavailable from this server. NSE's option-chain API silently rejects non-Indian cloud IPs, and no Kite Connect session is active. To unblock: complete the daily Kite Connect login from the Live Feed page (recommended, works from any IP), or deploy this app to an Indian-region host.`;
       res.status(503).json({
         error: "Option chain unavailable",
-        detail:
-          "NSE returned no data for this underlying. Either (a) the symbol is not in the NSE F&O list, or (b) this server is being geo-blocked by NSE — NSE's option-chain API silently rejects non-Indian IPs. To get live data either deploy to an Indian-region host or complete the Zerodha Kite Connect daily login from the Live Feed page.",
+        detail,
+        kiteAuthenticated: !!kiteSession,
         underlying,
       });
       return;

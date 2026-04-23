@@ -11,6 +11,7 @@
 
 import { logger } from "./logger";
 import { fetchChart } from "./yahoo";
+import { fetchKiteOptionChain } from "./kiteOptionChain";
 
 const NSE_BASE = "https://www.nseindia.com";
 const UA =
@@ -243,6 +244,19 @@ export async function fetchOptionChain(underlying: string, expiryFilter?: string
   if (cached && Date.now() - cached.ts < CHAIN_TTL) return cached.data;
 
   const isIndex = INDEX_SET.has(sym);
+
+  // ── Source 1: Kite Connect (works from any IP if user has authenticated) ──
+  try {
+    const kiteResult = await fetchKiteOptionChain(sym, expiryFilter);
+    if (kiteResult) {
+      chainCache.set(cacheKey, { data: kiteResult, ts: Date.now() });
+      return kiteResult;
+    }
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, sym }, "Kite option-chain attempt failed; falling back to NSE");
+  }
+
+  // ── Source 2: NSE direct (works from Indian IPs) ──
   const path = isIndex
     ? `/api/option-chain-indices?symbol=${encodeURIComponent(sym)}`
     : `/api/option-chain-equities?symbol=${encodeURIComponent(sym)}`;

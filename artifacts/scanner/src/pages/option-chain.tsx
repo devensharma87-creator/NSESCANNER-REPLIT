@@ -370,28 +370,34 @@ export default function OptionChainPage() {
       )}
 
       {/* Status messages */}
-      {status === "error" && (
-        <Card className="bg-card border-signal-strong-sell/30">
-          <CardContent className="p-4 space-y-2">
-            <div className="text-sm font-mono text-signal-strong-sell">
-              Option chain unavailable for <b>{underlying}</b>.
-            </div>
-            <div className="text-xs text-foreground/80">
-              NSE&apos;s public option-chain API is geo-restricted and silently rejects requests from non-Indian
-              cloud IPs. To enable live data:
-            </div>
-            <ul className="text-xs text-muted-foreground list-disc list-inside space-y-0.5">
-              <li>Deploy this app to an Indian-region host (Mumbai, Bengaluru), <b>or</b></li>
-              <li>Complete the daily Zerodha Kite Connect login from the <b>Live Feed</b> tab — Kite gives full
-                option-chain access from any IP.</li>
-              <li>If <b>{underlying}</b> is an equity, also confirm it is in NSE&apos;s F&amp;O list.</li>
-            </ul>
-            <div className="text-[11px] text-muted-foreground font-mono pt-1">
-              Page auto-refreshes every 30s · presets above try other underlyings.
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {status === "error" && (() => {
+        const errAny = chainQ.error as { response?: { data?: { detail?: string; kiteAuthenticated?: boolean } } } | undefined;
+        const detail = errAny?.response?.data?.detail;
+        const kiteOn = errAny?.response?.data?.kiteAuthenticated;
+        return (
+          <Card className="bg-card border-signal-strong-sell/30">
+            <CardContent className="p-4 space-y-2">
+              <div className="flex items-center gap-2 text-sm font-mono text-signal-strong-sell">
+                Option chain unavailable for <b>{underlying}</b>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase ${kiteOn ? "bg-signal-strong-buy/20 text-signal-strong-buy" : "bg-signal-strong-sell/20 text-signal-strong-sell"}`}>
+                  Kite: {kiteOn ? "connected" : "not connected"}
+                </span>
+              </div>
+              {detail && <div className="text-xs text-foreground/80">{detail}</div>}
+              {!kiteOn && (
+                <ul className="text-xs text-muted-foreground list-disc list-inside space-y-0.5">
+                  <li>Open the <b>Live Feed</b> tab and click <b>Connect Kite</b> (daily login, ~30 seconds).</li>
+                  <li>If you see "Not a valid https redirect URL" in Kite, publish this app first so the redirect URL becomes a real subdomain (replace <code className="px-1 bg-secondary/40 rounded">&lt;your-app&gt;</code> with your actual Replit subdomain in your Kite app settings).</li>
+                  <li>Alternative: deploy to an Indian-region host (Mumbai/Bengaluru) — NSE will then respond directly.</li>
+                </ul>
+              )}
+              <div className="text-[11px] text-muted-foreground font-mono pt-1">
+                Page auto-refreshes every 30s · use the search above to try a different underlying.
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Chain table */}
       {status === "loading" && (
