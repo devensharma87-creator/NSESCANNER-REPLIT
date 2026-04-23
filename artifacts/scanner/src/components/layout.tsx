@@ -92,6 +92,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link href="/news" className={`transition-colors hover:text-foreground ${location === "/news" ? "text-foreground" : "text-foreground/60"}`}>
                 Market Info
               </Link>
+              <Link href="/kite" className={`transition-colors hover:text-foreground ${location.startsWith("/kite") ? "text-foreground" : "text-foreground/60"}`}>
+                Live Feed
+              </Link>
             </nav>
           </div>
           <div className="flex flex-1 items-center justify-end space-x-2">

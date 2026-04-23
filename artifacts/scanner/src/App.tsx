@@ -16,6 +16,7 @@ import Options from "@/pages/options";
 import Flows from "@/pages/flows";
 import PreMarket from "@/pages/premarket";
 import Watchlist from "@/pages/watchlist";
+import KitePage from "@/pages/kite";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/index/:slug" component={IndexDetail} />
       <Route path="/news" component={News} />
       <Route path="/flows" component={Flows} />
+      <Route path="/kite" component={KitePage} />
       <Route component={NotFound} />
     </Switch>
   );

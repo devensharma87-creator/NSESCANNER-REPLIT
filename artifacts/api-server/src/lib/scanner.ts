@@ -5,6 +5,7 @@ import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportR
 import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
 import { getDeliveryPct } from "./nseBhavcopy";
+import { getLiveQuote } from "./kiteFeed";
 
 interface CachedHistory {
   fetchedAt: number;
@@ -55,17 +56,25 @@ async function getIntradayVwap(symbol: string): Promise<number | null> {
 function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
   const meta = chart.meta;
   if (meta.regularMarketPrice == null) return null;
-  const price = meta.regularMarketPrice;
+  // Prefer the live Kite tick for *price + intraday H/L/V* if available; fall
+  // back to Yahoo (~15-min delayed) otherwise. We always keep the historical
+  // chart-derived prevClose & 52-week levels from Yahoo since Kite ticks
+  // don't carry those.
+  const live = getLiveQuote(entry.symbol);
   const closes = chart.close;
   const lastIdx = closes.length - 1;
-  const todayOpen = chart.open[lastIdx] ?? price;
-  const prevClose = lastIdx >= 1 ? (closes[lastIdx - 1] ?? meta.chartPreviousClose ?? price) : (meta.chartPreviousClose ?? price);
+  const todayOpenY = chart.open[lastIdx] ?? meta.regularMarketPrice;
+  const prevClose = lastIdx >= 1 ? (closes[lastIdx - 1] ?? meta.chartPreviousClose ?? meta.regularMarketPrice) : (meta.chartPreviousClose ?? meta.regularMarketPrice);
+
+  const price = live?.ltp ?? meta.regularMarketPrice;
+  const todayOpen = live?.open ?? todayOpenY;
+  const high = live?.high ?? meta.regularMarketDayHigh ?? Math.max(price, todayOpen);
+  const low = live?.low ?? meta.regularMarketDayLow ?? Math.min(price, todayOpen);
+  const volume = live?.volume ?? meta.regularMarketVolume ?? chart.volume[lastIdx] ?? 0;
   const change = price - prevClose;
   const changePct = prevClose > 0 ? (change / prevClose) * 100 : 0;
-  const high = meta.regularMarketDayHigh ?? Math.max(price, todayOpen);
-  const low = meta.regularMarketDayLow ?? Math.min(price, todayOpen);
-  const volume = meta.regularMarketVolume ?? chart.volume[lastIdx] ?? 0;
   const avgV = avgVolume(chart.volume.slice(0, -1).filter(v => v > 0), 20);
+  const updatedAt = live ? new Date(live.ts) : new Date((meta.regularMarketTime ?? Date.now() / 1000) * 1000);
   return {
     symbol: entry.symbol,
     name: meta.longName ?? meta.shortName ?? entry.name,
@@ -85,7 +94,7 @@ function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
       : undefined,
     fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh != null ? round2(meta.fiftyTwoWeekHigh) : undefined,
     fiftyTwoWeekLow: meta.fiftyTwoWeekLow != null ? round2(meta.fiftyTwoWeekLow) : undefined,
-    updatedAt: new Date((meta.regularMarketTime ?? Date.now() / 1000) * 1000),
+    updatedAt,
   };
 }
 

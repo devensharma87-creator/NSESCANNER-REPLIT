@@ -1,21 +1,19 @@
 /**
- * Data provider abstraction. Selects between Zerodha Kite (live) and Yahoo (delayed)
- * at request time based on which credentials are present in env. The intent is that
- * once KITE_API_KEY + KITE_API_SECRET + KITE_ACCESS_TOKEN are set, all quote / OHLC
- * reads transparently switch from delayed Yahoo to live Kite ticks — without any
- * caller-side changes.
+ * Data provider abstraction. Reports whether the live Zerodha Kite tick feed
+ * is active (DB session present + WebSocket connected) or whether we're on the
+ * Yahoo Finance delayed-quote fallback.
  *
- * This is a thin scaffold. Full Kite adapter is wired in once credentials are
- * provided and the kiteconnect package is installed.
+ * The actual quote-overlay logic lives in `kiteFeed.getLiveQuote()` and is
+ * applied wherever we build a `Quote` object from a Yahoo chart.
  */
+import { feedStatus } from "./kiteFeed";
+import { getKiteCreds } from "./kiteAuth";
 
 export type ProviderName = "kite" | "yahoo";
 
 export function activeProvider(): ProviderName {
-  const k = process.env["KITE_API_KEY"];
-  const s = process.env["KITE_API_SECRET"];
-  const t = process.env["KITE_ACCESS_TOKEN"];
-  if (k && s && t) return "kite";
+  const f = feedStatus();
+  if (f.running && f.connected && f.liveQuotes > 0) return "kite";
   return "yahoo";
 }
 
@@ -23,19 +21,30 @@ export function providerStatus(): {
   active: ProviderName;
   liveAvailable: boolean;
   reason: string;
+  feed: ReturnType<typeof feedStatus>;
 } {
+  const feed = feedStatus();
   const active = activeProvider();
+  const credsOK = !!getKiteCreds();
+
   if (active === "kite") {
     return {
       active,
       liveAvailable: true,
-      reason: "Live ticks via Zerodha Kite Connect.",
+      reason: `Live ticks via Zerodha Kite (${feed.liveQuotes} symbols streaming).`,
+      feed,
     };
   }
-  return {
-    active,
-    liveAvailable: false,
-    reason:
-      "Yahoo Finance fallback (~15 min delayed). Set KITE_API_KEY, KITE_API_SECRET and KITE_ACCESS_TOKEN to upgrade to live ticks.",
-  };
+
+  let reason: string;
+  if (!credsOK) {
+    reason = "Yahoo Finance fallback (~15 min delayed). Set KITE_API_KEY and KITE_API_SECRET to enable Kite.";
+  } else if (!feed.running) {
+    reason = "Yahoo Finance fallback (~15 min delayed). Complete Kite daily login at /kite to enable live feed.";
+  } else if (!feed.connected) {
+    reason = `Yahoo Finance fallback. Kite WebSocket disconnected${feed.lastError ? ` (${feed.lastError})` : ""}.`;
+  } else {
+    reason = "Yahoo Finance fallback. Kite connected but no ticks received yet.";
+  }
+  return { active, liveAvailable: false, reason, feed };
 }
