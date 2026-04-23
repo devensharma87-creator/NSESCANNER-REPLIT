@@ -1621,3 +1621,42 @@ export const GetPreMarketResponse = zod.object({
     .optional(),
   generatedAt: zod.coerce.date(),
 });
+
+/**
+ * @summary Pre-defined watchlist (Nifty 100 / Midcap 100 / Smallcap 100) with live quotes and MC trend
+ */
+export const GetWatchlistParams = zod.object({
+  key: zod.enum(["NIFTY100", "NIFTYMIDCAP100", "NIFTYSMALLCAP100"]),
+});
+
+export const GetWatchlistResponse = zod.object({
+  key: zod.enum(["NIFTY100", "NIFTYMIDCAP100", "NIFTYSMALLCAP100"]),
+  label: zod.string(),
+  description: zod.string(),
+  asOf: zod.coerce.date(),
+  count: zod.number(),
+  rows: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      name: zod.string(),
+      livePrice: zod.number(),
+      previousClose: zod.number(),
+      change: zod.number(),
+      changePercent: zod.number(),
+      open: zod.number(),
+      todayHigh: zod.number(),
+      todayLow: zod.number(),
+      volume: zod.number(),
+      ema20: zod.number().optional(),
+      ema50: zod.number().optional(),
+      rsi: zod.number().optional(),
+      mcTrend: zod.enum([
+        "Very Bullish",
+        "Bullish",
+        "Neutral",
+        "Bearish",
+        "Very Bearish",
+      ]),
+    }),
+  ),
+});

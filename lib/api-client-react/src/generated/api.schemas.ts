@@ -838,6 +838,52 @@ export interface PreMarketReport {
   generatedAt: string;
 }
 
+export type WatchlistTrend =
+  (typeof WatchlistTrend)[keyof typeof WatchlistTrend];
+
+export const WatchlistTrend = {
+  Very_Bullish: "Very Bullish",
+  Bullish: "Bullish",
+  Neutral: "Neutral",
+  Bearish: "Bearish",
+  Very_Bearish: "Very Bearish",
+} as const;
+
+export interface WatchlistRow {
+  symbol: string;
+  name: string;
+  livePrice: number;
+  previousClose: number;
+  change: number;
+  changePercent: number;
+  open: number;
+  todayHigh: number;
+  todayLow: number;
+  volume: number;
+  ema20?: number;
+  ema50?: number;
+  rsi?: number;
+  mcTrend: WatchlistTrend;
+}
+
+export type WatchlistResponseKey =
+  (typeof WatchlistResponseKey)[keyof typeof WatchlistResponseKey];
+
+export const WatchlistResponseKey = {
+  NIFTY100: "NIFTY100",
+  NIFTYMIDCAP100: "NIFTYMIDCAP100",
+  NIFTYSMALLCAP100: "NIFTYSMALLCAP100",
+} as const;
+
+export interface WatchlistResponse {
+  key: WatchlistResponseKey;
+  label: string;
+  description: string;
+  asOf: string;
+  count: number;
+  rows: WatchlistRow[];
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;

@@ -40,6 +40,7 @@ import type {
   StockRow,
   StockStatements,
   TopScans,
+  WatchlistResponse,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -1540,6 +1541,97 @@ export function useGetPreMarket<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetPreMarketQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Pre-defined watchlist (Nifty 100 / Midcap 100 / Smallcap 100) with live quotes and MC trend
+ */
+export const getGetWatchlistUrl = (
+  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+) => {
+  return `/api/watchlist/${key}`;
+};
+
+export const getWatchlist = async (
+  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+  options?: RequestInit,
+): Promise<WatchlistResponse> => {
+  return customFetch<WatchlistResponse>(getGetWatchlistUrl(key), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetWatchlistQueryKey = (
+  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+) => {
+  return [`/api/watchlist/${key}`] as const;
+};
+
+export const getGetWatchlistQueryOptions = <
+  TData = Awaited<ReturnType<typeof getWatchlist>>,
+  TError = ErrorType<unknown>,
+>(
+  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWatchlist>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetWatchlistQueryKey(key);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getWatchlist>>> = ({
+    signal,
+  }) => getWatchlist(key, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!key,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getWatchlist>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetWatchlistQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getWatchlist>>
+>;
+export type GetWatchlistQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Pre-defined watchlist (Nifty 100 / Midcap 100 / Smallcap 100) with live quotes and MC trend
+ */
+
+export function useGetWatchlist<
+  TData = Awaited<ReturnType<typeof getWatchlist>>,
+  TError = ErrorType<unknown>,
+>(
+  key: "NIFTY100" | "NIFTYMIDCAP100" | "NIFTYSMALLCAP100",
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWatchlist>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetWatchlistQueryOptions(key, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

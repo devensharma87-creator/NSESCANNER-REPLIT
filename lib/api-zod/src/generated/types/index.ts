@@ -85,3 +85,7 @@ export * from "./stockHistory";
 export * from "./stockRow";
 export * from "./stockStatements";
 export * from "./topScans";
+export * from "./watchlistResponse";
+export * from "./watchlistResponseKey";
+export * from "./watchlistRow";
+export * from "./watchlistTrend";

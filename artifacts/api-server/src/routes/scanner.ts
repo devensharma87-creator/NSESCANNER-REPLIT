@@ -18,6 +18,7 @@ import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yaho
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
 import { getMarketEvents } from "../lib/marketEvents";
 import { getPreMarketReport } from "../lib/preMarket";
+import { getWatchlist } from "../lib/watchlist";
 import { getMarketNewsLive } from "../lib/newsRss";
 import { getOptionSignals } from "../lib/optionSignals";
 import { getGlobalIndices } from "../lib/globalIndices";
@@ -386,6 +387,18 @@ router.get("/market/events", async (_req, res, next) => {
 router.get("/market/premarket", async (_req, res, next) => {
   try {
     const data = await getPreMarketReport();
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/watchlist/:key", async (req, res, next) => {
+  try {
+    const key = String(req.params.key).toUpperCase();
+    if (key !== "NIFTY100" && key !== "NIFTYMIDCAP100" && key !== "NIFTYSMALLCAP100") {
+      res.status(400).json({ error: "Unknown watchlist key. Allowed: NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100" });
+      return;
+    }
+    const data = await getWatchlist(key);
     res.json(data);
   } catch (err) { next(err); }
 });

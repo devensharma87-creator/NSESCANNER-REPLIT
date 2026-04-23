@@ -289,6 +289,24 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PreMarketReport" }
+  /watchlist/{key}:
+    get:
+      operationId: getWatchlist
+      tags: [market]
+      summary: Pre-defined watchlist (Nifty 100 / Midcap 100 / Smallcap 100) with live quotes and MC trend
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+            enum: [NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WatchlistResponse" }
 
 components:
   schemas:
@@ -1072,3 +1090,37 @@ components:
               date: { type: string, format: date }
         postMarketDigest: { $ref: "#/components/schemas/PostMarketDigest" }
         generatedAt: { type: string, format: date-time }
+
+    WatchlistTrend:
+      type: string
+      enum: ["Very Bullish", "Bullish", "Neutral", "Bearish", "Very Bearish"]
+    WatchlistRow:
+      type: object
+      required: [symbol, name, livePrice, previousClose, change, changePercent, open, todayHigh, todayLow, volume, mcTrend]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        livePrice: { type: number }
+        previousClose: { type: number }
+        change: { type: number }
+        changePercent: { type: number }
+        open: { type: number }
+        todayHigh: { type: number }
+        todayLow: { type: number }
+        volume: { type: number }
+        ema20: { type: number }
+        ema50: { type: number }
+        rsi: { type: number }
+        mcTrend: { $ref: "#/components/schemas/WatchlistTrend" }
+    WatchlistResponse:
+      type: object
+      required: [key, label, description, asOf, count, rows]
+      properties:
+        key: { type: string, enum: [NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100] }
+        label: { type: string }
+        description: { type: string }
+        asOf: { type: string, format: date-time }
+        count: { type: integer }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/WatchlistRow" }
