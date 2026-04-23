@@ -48,7 +48,10 @@ router.get("/webhooks/tradingview", (req, res) => {
 });
 
 router.delete("/webhooks/tradingview", (req, res) => {
-  if (!checkSecret(req)) return res.status(401).json({ error: "invalid secret" });
+  if (!checkSecret(req)) {
+    res.status(401).json({ error: "invalid secret" });
+    return;
+  }
   const cleared = clearAlerts();
   res.json({ ok: true, cleared });
 });

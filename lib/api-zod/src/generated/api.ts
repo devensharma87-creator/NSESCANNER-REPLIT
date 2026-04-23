@@ -1449,3 +1449,175 @@ export const GetMarketEventsResponse = zod.object({
     }),
   ),
 });
+
+/**
+ * @summary Pre/Post-market deep analysis — overnight cues, GIFT NIFTY, gainers/losers, gappers, market internals
+ */
+export const GetPreMarketResponse = zod.object({
+  mode: zod
+    .enum(["PRE_MARKET", "POST_MARKET", "LIVE"])
+    .describe("Auto-detected based on IST time"),
+  sentiment: zod.enum([
+    "STRONG_BULLISH",
+    "BULLISH",
+    "NEUTRAL",
+    "BEARISH",
+    "STRONG_BEARISH",
+  ]),
+  sentimentScore: zod
+    .number()
+    .describe("-100..+100 composite of all overnight cues"),
+  narrative: zod.string().describe("Human-readable trading-desk style summary"),
+  keyTakeaways: zod
+    .array(zod.string())
+    .optional()
+    .describe("Bullet points distilled from the cues"),
+  overnightCues: zod.array(
+    zod.object({
+      label: zod.string().describe("Human label e.g. 'GIFT NIFTY (proxy)'"),
+      symbol: zod.string().optional(),
+      category: zod
+        .enum(["proxy", "asia", "us", "europe", "commodity", "currency", "vix"])
+        .optional(),
+      value: zod.number(),
+      changePercent: zod.number(),
+      change: zod.number().optional(),
+      sentiment: zod.enum(["bullish", "bearish", "neutral"]),
+      note: zod.string().optional().describe("Optional context note"),
+      asOf: zod.coerce.date().optional(),
+      inverted: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True if cue inversely correlates with Indian equities (e.g. DXY, VIX)",
+        ),
+    }),
+  ),
+  indexPreviews: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      name: zod.string(),
+      previousClose: zod.number(),
+      indicativePrice: zod
+        .number()
+        .optional()
+        .describe("Best estimate of opening price (GIFT proxy or last close)"),
+      indicativeChange: zod.number().optional(),
+      indicativeChangePercent: zod.number(),
+      source: zod
+        .string()
+        .optional()
+        .describe(
+          "e.g. 'GIFT NIFTY proxy', 'previous close (no pre-open data)'",
+        ),
+    }),
+  ),
+  topGainers: zod
+    .array(
+      zod.object({
+        symbol: zod.string(),
+        name: zod.string(),
+        sector: zod.string().optional(),
+        price: zod.number(),
+        previousClose: zod.number().optional(),
+        change: zod.number(),
+        changePercent: zod.number(),
+        volume: zod.number().optional(),
+      }),
+    )
+    .optional(),
+  topLosers: zod
+    .array(
+      zod.object({
+        symbol: zod.string(),
+        name: zod.string(),
+        sector: zod.string().optional(),
+        price: zod.number(),
+        previousClose: zod.number().optional(),
+        change: zod.number(),
+        changePercent: zod.number(),
+        volume: zod.number().optional(),
+      }),
+    )
+    .optional(),
+  gapUps: zod
+    .array(
+      zod.object({
+        symbol: zod.string(),
+        name: zod.string(),
+        sector: zod.string().optional(),
+        previousClose: zod.number().optional(),
+        currentPrice: zod.number().optional(),
+        gapPercent: zod.number().describe("(current - prev) \/ prev \* 100"),
+        gapDirection: zod.enum(["UP", "DOWN"]),
+        atrPct: zod.number().describe("ATR(14) as % of price"),
+        gapVsAtr: zod
+          .number()
+          .optional()
+          .describe(
+            "gapPercent \/ atrPct — >1 means gap exceeds normal daily range",
+          ),
+        signal: zod
+          .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"])
+          .optional(),
+      }),
+    )
+    .optional(),
+  gapDowns: zod
+    .array(
+      zod.object({
+        symbol: zod.string(),
+        name: zod.string(),
+        sector: zod.string().optional(),
+        previousClose: zod.number().optional(),
+        currentPrice: zod.number().optional(),
+        gapPercent: zod.number().describe("(current - prev) \/ prev \* 100"),
+        gapDirection: zod.enum(["UP", "DOWN"]),
+        atrPct: zod.number().describe("ATR(14) as % of price"),
+        gapVsAtr: zod
+          .number()
+          .optional()
+          .describe(
+            "gapPercent \/ atrPct — >1 means gap exceeds normal daily range",
+          ),
+        signal: zod
+          .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"])
+          .optional(),
+      }),
+    )
+    .optional(),
+  eventsToday: zod
+    .array(
+      zod.object({
+        date: zod.string(),
+        name: zod.string(),
+        region: zod.enum(["IN", "US", "UK", "EU", "JP", "GLOBAL"]),
+        category: zod.enum(["rate", "data", "policy", "event"]),
+        impact: zod.enum(["high", "medium", "low"]),
+        description: zod.string().optional(),
+      }),
+    )
+    .optional(),
+  earningsToday: zod
+    .array(
+      zod.object({
+        symbol: zod.string().optional(),
+        name: zod.string().optional(),
+        date: zod.coerce.date().optional(),
+      }),
+    )
+    .optional(),
+  postMarketDigest: zod
+    .object({
+      advancers: zod.number(),
+      decliners: zod.number(),
+      unchanged: zod.number(),
+      adRatio: zod.number().nullish(),
+      totalVolume: zod.number(),
+      avgChangePercent: zod.number().optional(),
+      marketBreadthScore: zod.number().describe("-100 to 100"),
+      narrative: zod.string().describe("One-line market summary"),
+    })
+    .optional(),
+  generatedAt: zod.coerce.date(),
+});

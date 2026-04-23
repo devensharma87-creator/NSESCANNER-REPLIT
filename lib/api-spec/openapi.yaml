@@ -278,6 +278,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MarketEventsResponse" }
 
+  /market/premarket:
+    get:
+      operationId: getPreMarket
+      tags: [market]
+      summary: Pre/Post-market deep analysis — overnight cues, GIFT NIFTY, gainers/losers, gappers, market internals
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PreMarketReport" }
+
 components:
   schemas:
     HealthStatus:
@@ -944,3 +956,119 @@ components:
         events:
           type: array
           items: { $ref: "#/components/schemas/EconomicEvent" }
+
+    PreMarketSentiment:
+      type: string
+      enum: [STRONG_BULLISH, BULLISH, NEUTRAL, BEARISH, STRONG_BEARISH]
+
+    OvernightCue:
+      type: object
+      required: [label, value, changePercent, sentiment]
+      properties:
+        label:         { type: string, description: "Human label e.g. 'GIFT NIFTY (proxy)'" }
+        symbol:        { type: string }
+        category:      { type: string, enum: [proxy, asia, us, europe, commodity, currency, vix] }
+        value:         { type: number }
+        changePercent: { type: number }
+        change:        { type: number }
+        sentiment:     { type: string, enum: [bullish, bearish, neutral] }
+        note:          { type: string, description: "Optional context note" }
+        asOf:          { type: string, format: date-time }
+        inverted:      { type: boolean, description: "True if cue inversely correlates with Indian equities (e.g. DXY, VIX)" }
+
+    PreMarketMover:
+      type: object
+      required: [symbol, name, price, changePercent, change]
+      properties:
+        symbol:        { type: string }
+        name:          { type: string }
+        sector:        { type: string }
+        price:         { type: number }
+        previousClose: { type: number }
+        change:        { type: number }
+        changePercent: { type: number }
+        volume:        { type: number }
+
+    GapStock:
+      type: object
+      required: [symbol, name, gapPercent, gapDirection, atrPct]
+      properties:
+        symbol:       { type: string }
+        name:         { type: string }
+        sector:       { type: string }
+        previousClose: { type: number }
+        currentPrice: { type: number }
+        gapPercent:   { type: number, description: "(current - prev) / prev * 100" }
+        gapDirection: { type: string, enum: [UP, DOWN] }
+        atrPct:       { type: number, description: "ATR(14) as % of price" }
+        gapVsAtr:     { type: number, description: "gapPercent / atrPct — >1 means gap exceeds normal daily range" }
+        signal:       { type: string, enum: [STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL] }
+
+    PreMarketIndexPreview:
+      type: object
+      required: [symbol, name, previousClose, indicativeChangePercent]
+      properties:
+        symbol: { type: string }
+        name:   { type: string }
+        previousClose: { type: number }
+        indicativePrice: { type: number, description: "Best estimate of opening price (GIFT proxy or last close)" }
+        indicativeChange: { type: number }
+        indicativeChangePercent: { type: number }
+        source: { type: string, description: "e.g. 'GIFT NIFTY proxy', 'previous close (no pre-open data)'" }
+
+    PostMarketDigest:
+      type: object
+      required: [advancers, decliners, unchanged, totalVolume, marketBreadthScore, narrative]
+      properties:
+        advancers: { type: integer }
+        decliners: { type: integer }
+        unchanged: { type: integer }
+        adRatio:   { type: number, nullable: true }
+        totalVolume: { type: number }
+        avgChangePercent: { type: number }
+        marketBreadthScore: { type: number, description: "-100 to 100" }
+        narrative: { type: string, description: "One-line market summary" }
+
+    PreMarketReport:
+      type: object
+      required: [mode, sentiment, sentimentScore, narrative, overnightCues, indexPreviews, generatedAt]
+      properties:
+        mode: { type: string, enum: [PRE_MARKET, POST_MARKET, LIVE], description: "Auto-detected based on IST time" }
+        sentiment: { $ref: "#/components/schemas/PreMarketSentiment" }
+        sentimentScore: { type: number, description: "-100..+100 composite of all overnight cues" }
+        narrative: { type: string, description: "Human-readable trading-desk style summary" }
+        keyTakeaways:
+          type: array
+          items: { type: string }
+          description: "Bullet points distilled from the cues"
+        overnightCues:
+          type: array
+          items: { $ref: "#/components/schemas/OvernightCue" }
+        indexPreviews:
+          type: array
+          items: { $ref: "#/components/schemas/PreMarketIndexPreview" }
+        topGainers:
+          type: array
+          items: { $ref: "#/components/schemas/PreMarketMover" }
+        topLosers:
+          type: array
+          items: { $ref: "#/components/schemas/PreMarketMover" }
+        gapUps:
+          type: array
+          items: { $ref: "#/components/schemas/GapStock" }
+        gapDowns:
+          type: array
+          items: { $ref: "#/components/schemas/GapStock" }
+        eventsToday:
+          type: array
+          items: { $ref: "#/components/schemas/EconomicEvent" }
+        earningsToday:
+          type: array
+          items:
+            type: object
+            properties:
+              symbol: { type: string }
+              name: { type: string }
+              date: { type: string, format: date }
+        postMarketDigest: { $ref: "#/components/schemas/PostMarketDigest" }
+        generatedAt: { type: string, format: date-time }

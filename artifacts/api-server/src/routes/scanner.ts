@@ -17,6 +17,7 @@ import { getStockHistoryWithSeries, scanAll } from "../lib/scanner";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
 import { getMarketEvents } from "../lib/marketEvents";
+import { getPreMarketReport } from "../lib/preMarket";
 import { getMarketNewsLive } from "../lib/newsRss";
 import { getOptionSignals } from "../lib/optionSignals";
 import { getGlobalIndices } from "../lib/globalIndices";
@@ -378,6 +379,13 @@ router.get("/news", async (req, res, next) => {
 router.get("/market/events", async (_req, res, next) => {
   try {
     const data = await getMarketEvents();
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/market/premarket", async (_req, res, next) => {
+  try {
+    const data = await getPreMarketReport();
     res.json(data);
   } catch (err) { next(err); }
 });

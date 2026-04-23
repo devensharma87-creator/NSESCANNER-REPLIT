@@ -77,6 +77,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link href="/options" className={`transition-colors hover:text-foreground ${location.startsWith("/options") ? "text-foreground" : "text-foreground/60"}`}>
                 F&amp;O Intraday
               </Link>
+              <Link href="/premarket" className={`transition-colors hover:text-foreground ${location.startsWith("/premarket") ? "text-foreground" : "text-foreground/60"}`}>
+                Pre / Post
+              </Link>
               <Link href="/sectors" className={`transition-colors hover:text-foreground ${location.startsWith("/sectors") ? "text-foreground" : "text-foreground/60"}`}>
                 Sectors
               </Link>

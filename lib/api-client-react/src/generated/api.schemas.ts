@@ -678,6 +678,166 @@ export interface MarketEventsResponse {
   events: EconomicEvent[];
 }
 
+export type PreMarketSentiment =
+  (typeof PreMarketSentiment)[keyof typeof PreMarketSentiment];
+
+export const PreMarketSentiment = {
+  STRONG_BULLISH: "STRONG_BULLISH",
+  BULLISH: "BULLISH",
+  NEUTRAL: "NEUTRAL",
+  BEARISH: "BEARISH",
+  STRONG_BEARISH: "STRONG_BEARISH",
+} as const;
+
+export type OvernightCueCategory =
+  (typeof OvernightCueCategory)[keyof typeof OvernightCueCategory];
+
+export const OvernightCueCategory = {
+  proxy: "proxy",
+  asia: "asia",
+  us: "us",
+  europe: "europe",
+  commodity: "commodity",
+  currency: "currency",
+  vix: "vix",
+} as const;
+
+export type OvernightCueSentiment =
+  (typeof OvernightCueSentiment)[keyof typeof OvernightCueSentiment];
+
+export const OvernightCueSentiment = {
+  bullish: "bullish",
+  bearish: "bearish",
+  neutral: "neutral",
+} as const;
+
+export interface OvernightCue {
+  /** Human label e.g. 'GIFT NIFTY (proxy)' */
+  label: string;
+  symbol?: string;
+  category?: OvernightCueCategory;
+  value: number;
+  changePercent: number;
+  change?: number;
+  sentiment: OvernightCueSentiment;
+  /** Optional context note */
+  note?: string;
+  asOf?: string;
+  /** True if cue inversely correlates with Indian equities (e.g. DXY, VIX) */
+  inverted?: boolean;
+}
+
+export interface PreMarketMover {
+  symbol: string;
+  name: string;
+  sector?: string;
+  price: number;
+  previousClose?: number;
+  change: number;
+  changePercent: number;
+  volume?: number;
+}
+
+export type GapStockGapDirection =
+  (typeof GapStockGapDirection)[keyof typeof GapStockGapDirection];
+
+export const GapStockGapDirection = {
+  UP: "UP",
+  DOWN: "DOWN",
+} as const;
+
+export type GapStockSignal =
+  (typeof GapStockSignal)[keyof typeof GapStockSignal];
+
+export const GapStockSignal = {
+  STRONG_BUY: "STRONG_BUY",
+  BUY: "BUY",
+  NEUTRAL: "NEUTRAL",
+  SELL: "SELL",
+  STRONG_SELL: "STRONG_SELL",
+} as const;
+
+export interface GapStock {
+  symbol: string;
+  name: string;
+  sector?: string;
+  previousClose?: number;
+  currentPrice?: number;
+  /** (current - prev) / prev * 100 */
+  gapPercent: number;
+  gapDirection: GapStockGapDirection;
+  /** ATR(14) as % of price */
+  atrPct: number;
+  /** gapPercent / atrPct — >1 means gap exceeds normal daily range */
+  gapVsAtr?: number;
+  signal?: GapStockSignal;
+}
+
+export interface PreMarketIndexPreview {
+  symbol: string;
+  name: string;
+  previousClose: number;
+  /** Best estimate of opening price (GIFT proxy or last close) */
+  indicativePrice?: number;
+  indicativeChange?: number;
+  indicativeChangePercent: number;
+  /** e.g. 'GIFT NIFTY proxy', 'previous close (no pre-open data)' */
+  source?: string;
+}
+
+export interface PostMarketDigest {
+  advancers: number;
+  decliners: number;
+  unchanged: number;
+  adRatio?: number | null;
+  totalVolume: number;
+  avgChangePercent?: number;
+  /** -100 to 100 */
+  marketBreadthScore: number;
+  /** One-line market summary */
+  narrative: string;
+}
+
+/**
+ * Auto-detected based on IST time
+ */
+export type PreMarketReportMode =
+  (typeof PreMarketReportMode)[keyof typeof PreMarketReportMode];
+
+export const PreMarketReportMode = {
+  PRE_MARKET: "PRE_MARKET",
+  POST_MARKET: "POST_MARKET",
+  LIVE: "LIVE",
+} as const;
+
+export type PreMarketReportEarningsTodayItem = {
+  symbol?: string;
+  name?: string;
+  date?: string;
+};
+
+export interface PreMarketReport {
+  /** Auto-detected based on IST time */
+  mode: PreMarketReportMode;
+  sentiment: PreMarketSentiment;
+  /** -100..+100 composite of all overnight cues */
+  sentimentScore: number;
+  /** Human-readable trading-desk style summary */
+  narrative: string;
+  /** Bullet points distilled from the cues */
+  keyTakeaways?: string[];
+  overnightCues: OvernightCue[];
+  indexPreviews: PreMarketIndexPreview[];
+  topGainers?: PreMarketMover[];
+  topLosers?: PreMarketMover[];
+  gapUps?: GapStock[];
+  gapDowns?: GapStock[];
+  eventsToday?: EconomicEvent[];
+  earningsToday?: PreMarketReportEarningsTodayItem[];
+  postMarketDigest?: PostMarketDigest;
+  generatedAt: string;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;

@@ -20,14 +20,14 @@ import { logger } from "./logger";
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
-const NSE_HEADERS: HeadersInit = {
+const NSE_HEADERS: Record<string, string> = {
   "User-Agent": UA,
   Accept: "application/json, text/plain, */*",
   "Accept-Language": "en-US,en;q=0.9",
   Referer: "https://www.nseindia.com/reports/fii-dii",
 };
 
-const ARCHIVE_HEADERS: HeadersInit = {
+const ARCHIVE_HEADERS: Record<string, string> = {
   "User-Agent": UA,
   Referer: "https://www.nseindia.com/",
 };

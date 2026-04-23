@@ -31,6 +31,7 @@ import type {
   NewsItem,
   OptionSignalSet,
   ParticipantOiResponse,
+  PreMarketReport,
   RefreshInstFlows200,
   SectorDetail,
   SectorSummary,
@@ -1464,6 +1465,81 @@ export function useGetMarketEvents<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetMarketEventsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Pre/Post-market deep analysis — overnight cues, GIFT NIFTY, gainers/losers, gappers, market internals
+ */
+export const getGetPreMarketUrl = () => {
+  return `/api/market/premarket`;
+};
+
+export const getPreMarket = async (
+  options?: RequestInit,
+): Promise<PreMarketReport> => {
+  return customFetch<PreMarketReport>(getGetPreMarketUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPreMarketQueryKey = () => {
+  return [`/api/market/premarket`] as const;
+};
+
+export const getGetPreMarketQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPreMarket>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPreMarket>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPreMarketQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPreMarket>>> = ({
+    signal,
+  }) => getPreMarket({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPreMarket>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPreMarketQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPreMarket>>
+>;
+export type GetPreMarketQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Pre/Post-market deep analysis — overnight cues, GIFT NIFTY, gainers/losers, gappers, market internals
+ */
+
+export function useGetPreMarket<
+  TData = Awaited<ReturnType<typeof getPreMarket>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPreMarket>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPreMarketQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

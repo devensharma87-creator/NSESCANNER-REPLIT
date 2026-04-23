@@ -70,6 +70,9 @@ interface Ctx {
   vp: { pointOfControl: number; valueAreaHigh: number; valueAreaLow: number } | null;
   piv: { pivot: number; r1: number; s1: number; r2: number; s2: number };
   atr15: number;
+  atrDaily: number;        // ATR(14) on daily bars — used for stop placement
+  dailyEma50: number;      // higher-timeframe trend filter
+  htfBias: "BULLISH" | "BEARISH" | "NEUTRAL";
   avgVol20: number;
   lastVol: number;
   prevSwingHigh: number;
@@ -102,6 +105,16 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const swingWin = Math.min(20, lookback.length);
   const prevSwingHigh = swingWin > 0 ? Math.max(...lookbackH.slice(-swingWin)) : spot;
   const prevSwingLow = swingWin > 0 ? Math.min(...lookbackL.slice(-swingWin)) : spot;
+  // Higher-timeframe filter: daily EMA50 + daily ATR for stop placement
+  const dailyEma50Series = ema(daily.close, 50);
+  const dailyEma50 = lastVal(dailyEma50Series) ?? spot;
+  const dailyAtrSeries = atr(daily.high, daily.low, daily.close, 14);
+  const atrDaily = lastVal(dailyAtrSeries) ?? Math.max(spot * 0.01, 1);
+  const htfBias: "BULLISH" | "BEARISH" | "NEUTRAL" =
+    spot > dailyEma50 * 1.001 ? "BULLISH"
+    : spot < dailyEma50 * 0.999 ? "BEARISH"
+    : "NEUTRAL";
+
   return {
     cfg, spot, open0,
     sessionChangePct: ((spot - open0) / open0) * 100,
@@ -114,6 +127,9 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     rsiSeries,
     vp, piv,
     atr15: lastVal(atrSeries) ?? Math.max(spot * 0.0015, 1),
+    atrDaily,
+    dailyEma50,
+    htfBias,
     avgVol20,
     lastVol: vols.at(-1) ?? 0,
     prevSwingHigh, prevSwingLow,
@@ -167,10 +183,16 @@ function detectTrendContinuation(c: Ctx): Detected | null {
     if (c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: false }); conf += 8; }
   }
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 50) return null;
+  if (conf < 65) return null;
+  // HTF filter: drop counter-trend signals.
+  if (dir === "BULLISH" && c.htfBias === "BEARISH") return null;
+  if (dir === "BEARISH" && c.htfBias === "BULLISH") return null;
 
+  // Stops snapped to structural levels (pivot S1/R1) — does NOT shift bar-by-bar.
   const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
-  const stop = dir === "BULLISH" ? Math.min(c.vwap, c.ema21) - c.atr15 * 0.4 : Math.max(c.vwap, c.ema21) + c.atr15 * 0.4;
+  const stop = dir === "BULLISH"
+    ? Math.min(c.piv.s1, c.vwap - c.atrDaily * 0.3)
+    : Math.max(c.piv.r1, c.vwap + c.atrDaily * 0.3);
   const t1 = dir === "BULLISH"
     ? Math.max(c.piv.r1, c.vp?.valueAreaHigh ?? c.piv.r1) + c.atr15 * 0.3
     : Math.min(c.piv.s1, c.vp?.valueAreaLow ?? c.piv.s1) - c.atr15 * 0.3;
@@ -240,7 +262,7 @@ function detectVwapReclaim(c: Ctx): Detected | null {
   if (c.lastVol > c.avgVol20) { drivers.push({ label: "Volume on cross", detail: `Last bar vol > 20-bar avg.`, weight: 8, bullish: dir === "BULLISH" }); conf += 8; }
 
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 55) return null;
+  if (conf < 65) return null;
 
   const trigger = dir === "BULLISH" ? c.vwap + c.atr15 * 0.15 : c.vwap - c.atr15 * 0.15;
   const stop = dir === "BULLISH" ? c.vwap - c.atr15 * 0.5 : c.vwap + c.atr15 * 0.5;
@@ -305,7 +327,7 @@ function detectVolumeBreakout(c: Ctx): Detected | null {
   if (dir === "BEARISH" && c.rsi14 < 45) { conf += 5; drivers.push({ label: "RSI < 45", detail: `RSI ${c.rsi14.toFixed(1)}`, weight: 5, bullish: false }); }
 
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 60) return null;
+  if (conf < 65) return null;
 
   const trigger = dir === "BULLISH" ? c.vp.valueAreaHigh : c.vp.valueAreaLow;
   const stop = dir === "BULLISH" ? c.vp.pointOfControl - c.atr15 * 0.3 : c.vp.pointOfControl + c.atr15 * 0.3;
@@ -437,7 +459,7 @@ function detectMeanReversion(c: Ctx): Detected | null {
     }
   }
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 55) return null;
+  if (conf < 65) return null;
 
   const trigger = dir === "BULLISH"
     ? c.bars.h.at(-1)! // close above last bar high
@@ -604,12 +626,82 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
   return setups
     .slice(0, 3)
     .map(d => toSignal(ctx, d))
-    .filter(s => (s.leg.riskRewardRatio ?? 0) >= 1);
+    .map(s => applyLock(s))
+    .filter(s => (s.leg.riskRewardRatio ?? 0) >= 1)
+    .filter(s => s.confidence >= 65);
 }
 
 interface CachedSignals { ts: number; data: OptionSignal[]; }
 let cache: CachedSignals | null = null;
 const TTL = 30 * 1000;
+
+/**
+ * Session-level signal lock: once a setup of a given (date, index, setupKey, direction) is
+ * emitted, its entry/SL/T1/T2 levels are FROZEN for the rest of the IST trading session.
+ * This is what prevents the "stop-loss keeps shifting through the day" problem — the user's
+ * trade plan no longer mutates as new bars arrive. Spot, RR, drivers, and confidence still
+ * update live; only the actionable price levels are locked.
+ *
+ * The lock auto-resets at 00:00 IST (because the date key changes) so each new trading day
+ * gets fresh levels.
+ */
+interface LockedLevels {
+  entryLevel: number;
+  stopLevel: number;
+  targetLevel: number;
+  target2Level: number;
+  entryTrigger: string;
+  invalidation: string;
+  lockedAt: Date;
+}
+const lockStore: Map<string, LockedLevels> = new Map();
+function istDateKey(): string {
+  const d = new Date();
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().slice(0, 10);
+}
+function lockKey(symbol: string, setupKey: string, direction: string): string {
+  return `${istDateKey()}|${symbol}|${setupKey}|${direction}`;
+}
+function applyLock(s: OptionSignal): OptionSignal {
+  const k = lockKey(s.index, s.setupKey ?? "default", s.bias ?? "NEUTRAL");
+  const existing = lockStore.get(k);
+  if (existing) {
+    const risk = Math.abs(existing.entryLevel - existing.stopLevel);
+    const reward = Math.abs(existing.targetLevel - existing.entryLevel);
+    const rr = risk > 0 ? Math.round((reward / risk) * 100) / 100 : undefined;
+    return {
+      ...s,
+      entryTrigger: existing.entryTrigger,
+      invalidation: existing.invalidation,
+      leg: {
+        ...s.leg,
+        entry: round2(existing.entryLevel),
+        stopLoss: round2(existing.stopLevel),
+        target1: round2(existing.targetLevel),
+        target2: round2(existing.target2Level),
+        riskRewardRatio: rr,
+      },
+    };
+  }
+  lockStore.set(k, {
+    entryLevel: s.leg.entry,
+    stopLevel: s.leg.stopLoss,
+    targetLevel: s.leg.target1,
+    target2Level: s.leg.target2 ?? s.leg.target1,
+    entryTrigger: s.entryTrigger ?? "",
+    invalidation: s.invalidation ?? "",
+    lockedAt: new Date(),
+  });
+  return s;
+}
+// Sweep stale locks (older than 36h) once an hour to keep memory tidy.
+setInterval(() => {
+  const cutoff = Date.now() - 36 * 3600 * 1000;
+  for (const [k, v] of lockStore.entries()) {
+    if (v.lockedAt.getTime() < cutoff) lockStore.delete(k);
+  }
+}, 60 * 60 * 1000).unref?.();
 
 export async function getOptionSignals(): Promise<OptionSignal[]> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;

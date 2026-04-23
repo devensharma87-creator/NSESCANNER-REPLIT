@@ -14,6 +14,7 @@ import IndexDetail from "@/pages/index-detail";
 import News from "@/pages/news";
 import Options from "@/pages/options";
 import Flows from "@/pages/flows";
+import PreMarket from "@/pages/premarket";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/scanner" component={Scanner} />
       <Route path="/options" component={Options} />
+      <Route path="/premarket" component={PreMarket} />
       <Route path="/sectors" component={Sectors} />
       <Route path="/sectors/:sector" component={SectorDetail} />
       <Route path="/stock/:symbol" component={StockDetail} />
