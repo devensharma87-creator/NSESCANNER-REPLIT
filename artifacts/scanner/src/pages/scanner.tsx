@@ -215,9 +215,9 @@ export default function ScannerPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[calc(100vh-220px)]">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-20 bg-card shadow-[0_1px_0_0_hsl(var(--border))]">
                 <TableRow className="hover:bg-transparent border-border">
                   <TableHead className="font-mono text-[11px] sticky left-0 bg-card z-10"><SortHead k="symbol" label="SYMBOL" sort={sort} setSort={setSort} align="left" /></TableHead>
                   <TableHead className="text-right"><SortHead k="price" label="CMP" sort={sort} setSort={setSort} /></TableHead>
