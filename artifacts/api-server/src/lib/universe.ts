@@ -48,7 +48,7 @@ const UNIVERSE_RAW: UniverseEntry[] = [
 
   // Auto
   { symbol: "MARUTI", name: "Maruti Suzuki", sector: "Auto", industry: "Passenger Vehicles", description: "India's largest passenger car maker with dominant share in entry and mid segments.", seasonality: "Festive Q3 boost; weak monsoon = rural slowdown.", catalysts: ["SUV mix improvement", "Hybrid/EV roadmap", "Rural demand"] },
-  { symbol: "TATAMOTORS", name: "Tata Motors", sector: "Auto", industry: "Auto OEM", description: "Diversified automaker with PV/EV leadership in India and JLR luxury business globally.", catalysts: ["JLR margins", "EV market share", "CV cycle"] },
+  { symbol: "TMPV", name: "Tata Motors Passenger Vehicles", sector: "Auto", industry: "Passenger Vehicles", description: "Passenger-vehicle and EV business demerged from Tata Motors (Oct 2025). Houses the domestic PV portfolio and JLR.", catalysts: ["JLR margins", "EV market share", "PV demand cycle"] },
   { symbol: "M&M", name: "Mahindra & Mahindra", sector: "Auto", industry: "Auto OEM", description: "Leading SUV and tractor maker with tech-led EV and farm equipment franchise.", catalysts: ["SUV booking pipeline", "Tractor cycle"] },
   { symbol: "BAJAJ-AUTO", name: "Bajaj Auto", sector: "Auto", industry: "2W & 3W", description: "Major two-wheeler and three-wheeler maker with strong export franchise.", catalysts: ["Export recovery", "EV launches", "Premium 2W mix"] },
   { symbol: "HEROMOTOCO", name: "Hero MotoCorp", sector: "Auto", industry: "2W", description: "World's largest two-wheeler maker by volume with mass market dominance.", catalysts: ["Rural demand", "Premiumization", "EV transition"] },
@@ -369,7 +369,7 @@ export const INDEX_CONSTITUENTS: Record<string, string[]> = {
     "RELIANCE","TCS","HDFCBANK","ICICIBANK","INFY","HINDUNILVR","ITC","SBIN","BHARTIARTL","KOTAKBANK",
     "LT","HCLTECH","ASIANPAINT","AXISBANK","MARUTI","SUNPHARMA","TITAN","BAJFINANCE","NTPC","ULTRACEMCO",
     "WIPRO","NESTLEIND","M&M","POWERGRID","TATASTEEL","TECHM","JSWSTEEL","INDUSINDBK","BAJAJFINSV","HDFCLIFE",
-    "DRREDDY","CIPLA","COALINDIA","BPCL","HEROMOTOCO","TATAMOTORS","DIVISLAB","BRITANNIA","UPL","SBILIFE",
+    "DRREDDY","CIPLA","COALINDIA","BPCL","HEROMOTOCO","TMPV","DIVISLAB","BRITANNIA","UPL","SBILIFE",
     "EICHERMOT","ONGC","GRASIM","BAJAJ-AUTO","ADANIPORTS","ADANIENT","HINDALCO","APOLLOHOSP","TATACONSUM","LTIM",
   ],
   BANKNIFTY: [
@@ -382,7 +382,7 @@ export const INDEX_CONSTITUENTS: Record<string, string[]> = {
     "TCS","INFY","HCLTECH","WIPRO","TECHM","LTIM","PERSISTENT","COFORGE","MPHASIS","LTTS",
   ],
   NIFTYAUTO: [
-    "MARUTI","M&M","TATAMOTORS","BAJAJ-AUTO","HEROMOTOCO","EICHERMOT","TVSMOTOR","ASHOKLEY","BOSCHLTD","BALKRISIND","MOTHERSON","EXIDEIND",
+    "MARUTI","M&M","TMPV","BAJAJ-AUTO","HEROMOTOCO","EICHERMOT","TVSMOTOR","ASHOKLEY","BOSCHLTD","BALKRISIND","MOTHERSON","EXIDEIND",
   ],
   NIFTYPHARMA: [
     "SUNPHARMA","DRREDDY","CIPLA","DIVISLAB","ZYDUSLIFE","AUROPHARMA","TORNTPHARM","ALKEM","LUPIN","BIOCON","MANKIND","LAURUSLABS",
