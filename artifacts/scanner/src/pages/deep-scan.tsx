@@ -57,11 +57,11 @@ interface DeepSnapshot {
   constituentCount?: number;
 }
 
-const RANGES = ["1mo", "3mo", "6mo", "1y", "3y", "5y"] as const;
+const RANGES = ["1d", "1wk", "1mo", "3mo", "6mo", "1y", "3y", "5y"] as const;
 type Range = typeof RANGES[number];
 
 const RANGE_LABEL: Record<Range, string> = {
-  "1mo": "1M", "3mo": "3M", "6mo": "6M", "1y": "1Y", "3y": "3Y", "5y": "5Y",
+  "1d": "1D", "1wk": "1W", "1mo": "1M", "3mo": "3M", "6mo": "6M", "1y": "1Y", "3y": "3Y", "5y": "5Y",
 };
 
 // Colors must match the Recharts <Line>/<Area> stroke colors below so the
@@ -144,20 +144,29 @@ export default function DeepScan() {
     setOpen(false);
   };
 
-  // Chart data
+  // Chart data — intraday ranges (1D/1W) get a HH:MM label, daily ranges get day-month.
   const chartData = useMemo(() => {
     if (!snapQ.data) return [];
     const { candles, series } = snapQ.data;
-    return candles.map((c, i) => ({
-      label: new Date(c.t).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: range === "5y" || range === "3y" ? "2-digit" : undefined }),
-      close: c.c,
-      vol: c.v,
-      ema20:  series.ema20[i]  ?? null,
-      ema50:  series.ema50[i]  ?? null,
-      ema100: series.ema100[i] ?? null,
-      ema200: series.ema200[i] ?? null,
-      vwap:   series.vwap20[i] ?? null,
-    }));
+    const isIntraday = range === "1d" || range === "1wk";
+    return candles.map((c, i) => {
+      const d = new Date(c.t);
+      const label = isIntraday
+        ? (range === "1d"
+            ? d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false })
+            : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false }))
+        : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: range === "5y" || range === "3y" ? "2-digit" : undefined });
+      return {
+        label,
+        close: c.c,
+        vol: c.v,
+        ema20:  series.ema20[i]  ?? null,
+        ema50:  series.ema50[i]  ?? null,
+        ema100: series.ema100[i] ?? null,
+        ema200: series.ema200[i] ?? null,
+        vwap:   series.vwap20[i] ?? null,
+      };
+    });
   }, [snapQ.data, range]);
 
   const snap = snapQ.data;

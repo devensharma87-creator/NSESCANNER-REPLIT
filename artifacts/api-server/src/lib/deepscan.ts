@@ -11,7 +11,7 @@
  */
 
 import { UNIVERSE, getEntry, INDEX_CONSTITUENTS, type UniverseEntry } from "./universe";
-import { fetchChart, fetchFundamentals, yahooTickerFor, type YahooFundamentals } from "./yahoo";
+import { fetchChart, fetchIntraday, fetchFundamentals, yahooTickerFor, type YahooFundamentals } from "./yahoo";
 import { ema } from "./indicators";
 
 /** Series version of rolling-VWAP (the indicator helper returns only the latest value). */
@@ -106,8 +106,8 @@ export function searchUniverse(q: string, limit = 15): LookupItem[] {
 
 // ── Snapshot ──────────────────────────────────────────────────────────────────
 
-export type Range = "5d" | "1mo" | "3mo" | "6mo" | "1y" | "3y" | "5y";
-const ALL_RANGES: Range[] = ["5d", "1mo", "3mo", "6mo", "1y", "3y", "5y"];
+export type Range = "1d" | "1wk" | "1mo" | "3mo" | "6mo" | "1y" | "3y" | "5y";
+const ALL_RANGES: Range[] = ["1d", "1wk", "1mo", "3mo", "6mo", "1y", "3y", "5y"];
 
 export interface Candle { t: number; o: number; h: number; l: number; c: number; v: number; }
 
@@ -232,37 +232,99 @@ export async function getDeepSnapshot(
     "5y":  pctChange(long.close, RETURN_LOOKBACK["5y"]),
   };
 
-  // Choose how many bars to display for the requested range.
-  const RANGE_BARS: Record<Range, number> = { "5d": 5, "1mo": 22, "3mo": 66, "6mo": 130, "1y": 252, "3y": 756, "5y": 1260 };
-  const bars = Math.min(long.close.length, RANGE_BARS[range]);
-  const start = long.close.length - bars;
+  // For intraday ranges (1D, 1W) we fetch a separate, finer-grained series
+  // and compute period-N EMAs / VWAP on the *intraday* bars themselves so that
+  // indicators are meaningful at that timeframe (a 20-period EMA on 5-minute
+  // bars ≠ a 20-day EMA). For daily ranges (1M+) we keep the full daily-bar
+  // logic so that EMA200 stays correct even on a 1-month view.
+  const isIntraday = range === "1d" || range === "1wk";
+  let displaySeries: { timestamps: number[]; open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] };
+
+  if (isIntraday) {
+    const intradayInterval = range === "1d" ? "5m" : "30m";
+    const intradayRange = range === "1d" ? "1d" : "5d";
+    const intra = await fetchIntraday(yahooTicker, intradayInterval, intradayRange);
+    if (!intra || intra.close.length < 5) {
+      logger.warn({ sym, yahooTicker, range }, "Deep snapshot: intraday data unavailable, falling back to daily");
+      // Graceful fallback: use the last 5 daily bars instead of erroring out.
+      const fb = Math.min(long.close.length, 5);
+      const fbStart = long.close.length - fb;
+      displaySeries = {
+        timestamps: long.timestamps.slice(fbStart),
+        open: long.open.slice(fbStart),
+        high: long.high.slice(fbStart),
+        low: long.low.slice(fbStart),
+        close: long.close.slice(fbStart),
+        volume: long.volume.slice(fbStart),
+      };
+    } else {
+      displaySeries = {
+        timestamps: intra.timestamps,
+        open: intra.open,
+        high: intra.high,
+        low: intra.low,
+        close: intra.close,
+        volume: intra.volume,
+      };
+    }
+  } else {
+    const RANGE_BARS: Record<Range, number> = {
+      "1d": 1, "1wk": 5, "1mo": 22, "3mo": 66, "6mo": 130, "1y": 252, "3y": 756, "5y": 1260,
+    };
+    const bars = Math.min(long.close.length, RANGE_BARS[range]);
+    const dStart = long.close.length - bars;
+    displaySeries = {
+      timestamps: long.timestamps.slice(dStart),
+      open: long.open.slice(dStart),
+      high: long.high.slice(dStart),
+      low: long.low.slice(dStart),
+      close: long.close.slice(dStart),
+      volume: long.volume.slice(dStart),
+    };
+  }
 
   const candles: Candle[] = [];
-  for (let i = start; i < long.close.length; i++) {
+  for (let i = 0; i < displaySeries.close.length; i++) {
     candles.push({
-      t: (long.timestamps[i] ?? 0) * 1000,
-      o: round2(long.open[i] ?? 0),
-      h: round2(long.high[i] ?? 0),
-      l: round2(long.low[i] ?? 0),
-      c: round2(long.close[i] ?? 0),
-      v: long.volume[i] ?? 0,
+      t: (displaySeries.timestamps[i] ?? 0) * 1000,
+      o: round2(displaySeries.open[i] ?? 0),
+      h: round2(displaySeries.high[i] ?? 0),
+      l: round2(displaySeries.low[i] ?? 0),
+      c: round2(displaySeries.close[i] ?? 0),
+      v: displaySeries.volume[i] ?? 0,
     });
   }
 
-  // Compute indicator series on the FULL long history then slice to display window
-  // — that way EMA200 is correct even if the user picks a 1-month chart.
-  const ema20Full  = ema(long.close, 20);
-  const ema50Full  = ema(long.close, 50);
-  const ema100Full = ema(long.close, 100);
-  const ema200Full = ema(long.close, 200);
+  // Compute indicator series:
+  //  • Daily ranges → EMAs on the FULL 5y daily series, then slice (so EMA200
+  //    is meaningful even on a 1-month chart).
+  //  • Intraday ranges → EMAs on the intraday closes themselves (period-N is
+  //    in *bars* of the chosen interval, which is the standard convention).
+  const indicatorSrc = isIntraday ? displaySeries.close : long.close;
+  const ema20Full  = ema(indicatorSrc, 20);
+  const ema50Full  = ema(indicatorSrc, 50);
+  const ema100Full = ema(indicatorSrc, 100);
+  const ema200Full = ema(indicatorSrc, 200);
+
   // VWAP is volume-weighted; for indices Yahoo reports 0 volume, which would
   // collapse the indicator into the price line and mislead traders. Suppress it
   // on indices and on stocks where every bar has zero volume.
-  const hasVolume = kind === "stock" && long.volume.some(v => v > 0);
+  const vwapSrcVol = isIntraday ? displaySeries.volume : long.volume;
+  const hasVolume = kind === "stock" && vwapSrcVol.some(v => v > 0);
   const vwap20Full: (number | null)[] = hasVolume
-    ? rollingVwapSeries(long.high, long.low, long.close, long.volume, 20)
-    : new Array(long.close.length).fill(null);
+    ? rollingVwapSeries(
+        isIntraday ? displaySeries.high  : long.high,
+        isIntraday ? displaySeries.low   : long.low,
+        isIntraday ? displaySeries.close : long.close,
+        vwapSrcVol,
+        20,
+      )
+    : new Array(indicatorSrc.length).fill(null);
+
   const r2 = (v: number | null | undefined) => v == null ? null : round2(v);
+  // For intraday, indicators are already aligned 1:1 with displaySeries.
+  // For daily, indicators are aligned with `long.*`, so slice from the same offset.
+  const start = isIntraday ? 0 : long.close.length - displaySeries.close.length;
   const sliceR = (arr: (number | null)[]) => arr.slice(start).map(r2);
 
   const last = long.close.length - 1;
