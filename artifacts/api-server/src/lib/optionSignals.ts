@@ -219,10 +219,18 @@ function detectTrendContinuation(c: Ctx): Detected | null {
     if (c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: false }); conf += 8; }
   }
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 65) return null;
-  // HTF filter: drop counter-trend signals.
-  if (dir === "BULLISH" && c.htfBias === "BEARISH") return null;
-  if (dir === "BEARISH" && c.htfBias === "BULLISH") return null;
+  // Soft HTF filter: counter-HTF signals get a confidence haircut and a tag,
+  // not a silent drop. A trader who explicitly wants to fade the daily trend
+  // still gets the actionable plan.
+  if ((dir === "BULLISH" && c.htfBias === "BEARISH") || (dir === "BEARISH" && c.htfBias === "BULLISH")) {
+    conf = Math.max(0, conf - 12);
+    drivers.push({
+      label: "HTF conflict — daily trend opposes",
+      detail: `Daily EMA50 ${c.dailyEma50.toFixed(2)} vs spot ${c.spot.toFixed(2)} suggests counter-trend; size smaller.`,
+      weight: 12, bullish: dir === "BULLISH",
+    });
+  }
+  if (conf < 50) return null;
 
   // Stops snapped to structural levels (pivot S1/R1) — does NOT shift bar-by-bar.
   const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
@@ -298,7 +306,7 @@ function detectVwapReclaim(c: Ctx): Detected | null {
   if (c.lastVol > c.avgVol20) { drivers.push({ label: "Volume on cross", detail: `Last bar vol > 20-bar avg.`, weight: 8, bullish: dir === "BULLISH" }); conf += 8; }
 
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 65) return null;
+  if (conf < 50) return null;
 
   const trigger = dir === "BULLISH" ? c.vwap + c.atr15 * 0.15 : c.vwap - c.atr15 * 0.15;
   const stop = dir === "BULLISH" ? c.vwap - c.atr15 * 0.5 : c.vwap + c.atr15 * 0.5;
@@ -363,7 +371,7 @@ function detectVolumeBreakout(c: Ctx): Detected | null {
   if (dir === "BEARISH" && c.rsi14 < 45) { conf += 5; drivers.push({ label: "RSI < 45", detail: `RSI ${c.rsi14.toFixed(1)}`, weight: 5, bullish: false }); }
 
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 65) return null;
+  if (conf < 50) return null;
 
   const trigger = dir === "BULLISH" ? c.vp.valueAreaHigh : c.vp.valueAreaLow;
   const stop = dir === "BULLISH" ? c.vp.pointOfControl - c.atr15 * 0.3 : c.vp.pointOfControl + c.atr15 * 0.3;
@@ -495,7 +503,7 @@ function detectMeanReversion(c: Ctx): Detected | null {
     }
   }
   conf = Math.max(0, Math.min(100, conf));
-  if (conf < 65) return null;
+  if (conf < 50) return null;
 
   const trigger = dir === "BULLISH"
     ? c.bars.h.at(-1)! // close above last bar high
@@ -526,16 +534,21 @@ function detectMeanReversion(c: Ctx): Detected | null {
   };
 }
 
-/** 6. Baseline directional outlook (always-on fallback) — uses dominant VWAP + EMA21 bias.
- * Lower confidence; only used when no higher-conviction setup fires for an index. */
+/** 6. Baseline directional outlook (always-on) — uses dominant VWAP + EMA21 + RSI bias.
+ * Lower confidence; emitted for EVERY index so the user always has a directional read.
+ * Higher-conviction setups (when they fire) are listed first; baseline is the fallback floor. */
 function detectBaselineOutlook(c: Ctx): Detected | null {
   const bullVotes = (c.spot > c.vwap ? 1 : 0) + (c.spot > c.ema21 ? 1 : 0) + (c.ema9 > c.ema21 ? 1 : 0) + (c.rsi14 > 50 ? 1 : 0);
   const bearVotes = 4 - bullVotes;
-  const dir: Direction = bullVotes >= bearVotes ? "BULLISH" : "BEARISH";
+  // Tie → resolve toward the intraday session move so a -1.3% day can't show "bullish".
+  const dir: Direction = bullVotes > bearVotes
+    ? "BULLISH"
+    : bullVotes < bearVotes
+      ? "BEARISH"
+      : (c.sessionChangePct >= 0 ? "BULLISH" : "BEARISH");
   const align = Math.max(bullVotes, bearVotes);
-  if (align < 2) return null; // truly mixed — skip
 
-  const conf = 35 + align * 5; // 45–55%
+  const conf = 35 + align * 5; // 35–55%
   const drivers: SignalReason[] = [
     { label: dir === "BULLISH" ? "Spot vs VWAP bullish" : "Spot vs VWAP bearish", detail: `Spot ${c.spot.toFixed(2)} ${c.spot > c.vwap ? ">" : "<"} VWAP ${c.vwap.toFixed(2)}.`, weight: 12, bullish: c.spot > c.vwap },
     { label: dir === "BULLISH" ? "Spot vs EMA21 bullish" : "Spot vs EMA21 bearish", detail: `Spot ${c.spot > c.ema21 ? "above" : "below"} EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: c.spot > c.ema21 },
@@ -558,7 +571,10 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
     : Math.min(pivT2, t1 - risk * 0.8);
 
   return {
-    setupKey: "TREND_CONTINUATION",
+    // BASELINE keeps its own setup key so the level-lock store doesn't
+    // confuse it with a high-conviction TREND_CONTINUATION signal in the
+    // same direction (which would freeze the wrong levels for the day).
+    setupKey: "BASELINE",
     setupName: dir === "BULLISH" ? "Baseline Outlook — Long Bias" : "Baseline Outlook — Short Bias",
     setupSummary: dir === "BULLISH"
       ? "Lower-conviction long. Most context indicators lean bullish; wait for clean trigger or upgrade to a higher-conviction setup before sizing up."
@@ -580,13 +596,22 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
 }
 
 // ---------- builder ----------
-function toSignal(c: Ctx, d: Detected): OptionSignal {
+function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): OptionSignal {
   const strike = nearestStrike(c.spot, c.cfg.strikeStep);
   // RR is measured from the actual entry trigger to T1/SL (not from spot), so the
   // displayed ratio matches what the trader will get at the documented entry.
   const risk = Math.abs(d.entryLevel - d.stopLevel);
   const reward = Math.abs(d.targetLevel - d.entryLevel);
   const rr = risk > 0 ? round2(reward / risk) : undefined;
+  const htfConflict =
+    (d.direction === "BULLISH" && c.htfBias === "BEARISH") ||
+    (d.direction === "BEARISH" && c.htfBias === "BULLISH");
+  const tags: string[] = [];
+  if (tier === "BASELINE") tags.push("BASELINE");
+  if (htfConflict) tags.push("HTF_CONFLICT");
+  if ((rr ?? 0) < 1) tags.push("RR_LOW");
+  // Mean-reversion setups are by construction "fade extremes"; tag for clarity.
+  if (d.setupKey === "MEAN_REVERSION") tags.push("COUNTER_TREND");
   return {
     index: c.cfg.symbol,
     indexName: c.cfg.display,
@@ -594,6 +619,7 @@ function toSignal(c: Ctx, d: Detected): OptionSignal {
     spotChangePercent: round2(c.sessionChangePct),
     bias: d.direction,
     confidence: d.confidence,
+    tier,
     timeframe: "intraday-15m",
     vwap: round2(c.vwap),
     ema9: round2(c.ema9),
@@ -602,6 +628,10 @@ function toSignal(c: Ctx, d: Detected): OptionSignal {
     valueAreaHigh: c.vp ? round2(c.vp.valueAreaHigh) : undefined,
     valueAreaLow: c.vp ? round2(c.vp.valueAreaLow) : undefined,
     pointOfControl: c.vp ? round2(c.vp.pointOfControl) : undefined,
+    dailyEma50: round2(c.dailyEma50),
+    htfBias: c.htfBias,
+    htfConflict,
+    tags,
     setupKey: d.setupKey,
     setupName: d.setupName,
     setupSummary: d.setupSummary,
@@ -624,50 +654,72 @@ function toSignal(c: Ctx, d: Detected): OptionSignal {
   };
 }
 
-function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): OptionSignal[] {
-  const ctx = buildContext(cfg, intra, daily);
-  if (!ctx) return [];
-
-  const detectors = [
-    detectTrendContinuation,
-    detectVwapReclaim,
-    detectVolumeBreakout,
-    detectEmaPullback,
-    detectMeanReversion,
-  ];
-  const setups: Detected[] = [];
-  for (const det of detectors) {
-    try {
-      const r = det(ctx);
-      if (r) setups.push(r);
-    } catch (err) {
-      logger.warn({ err: (err as Error).message, idx: cfg.symbol, det: det.name }, "Setup detector failed");
-    }
-  }
-
-  // Always-on baseline outlook ensures every index gets at least one directional read.
-  if (setups.length === 0) {
-    try {
-      const baseline = detectBaselineOutlook(ctx);
-      if (baseline) setups.push(baseline);
-    } catch (err) {
-      logger.warn({ err: (err as Error).message, idx: cfg.symbol }, "Baseline outlook failed");
-    }
-  }
-
-  // sort by confidence and keep top 3
-  setups.sort((a, b) => b.confidence - a.confidence);
-  // Enforce minimum 1:1 risk-reward — drop any setup whose target1 is closer
-  // to the entry than the stop is. No exceptions, including baseline outlook.
-  return setups
-    .slice(0, 3)
-    .map(d => toSignal(ctx, d))
-    .map(s => applyLock(s))
-    .filter(s => (s.leg.riskRewardRatio ?? 0) >= 1)
-    .filter(s => s.confidence >= 65);
+export interface IndexBuildResult {
+  signals: OptionSignal[];
+  /** Reasons no high-conviction setup fired. Used by the diagnostics block. */
+  suppressed: string[];
+  /** Did this index produce ≥1 bar of intraday data? */
+  hasBars: boolean;
 }
 
-interface CachedSignals { ts: number; data: OptionSignal[]; }
+function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): IndexBuildResult {
+  const ctx = buildContext(cfg, intra, daily);
+  if (!ctx) return { signals: [], suppressed: ["NO_BARS_OR_INSUFFICIENT_DATA"], hasBars: false };
+
+  const detectors = [
+    { name: "trend_continuation", fn: detectTrendContinuation },
+    { name: "vwap_reclaim",       fn: detectVwapReclaim },
+    { name: "volume_breakout",    fn: detectVolumeBreakout },
+    { name: "ema_pullback",       fn: detectEmaPullback },
+    { name: "mean_reversion",     fn: detectMeanReversion },
+  ];
+  const highConviction: Detected[] = [];
+  const suppressed: string[] = [];
+  for (const det of detectors) {
+    try {
+      const r = det.fn(ctx);
+      if (r) highConviction.push(r);
+      else suppressed.push(`${det.name}: conditions not met`);
+    } catch (err) {
+      const msg = (err as Error).message;
+      logger.warn({ err: msg, idx: cfg.symbol, det: det.name }, "Setup detector failed");
+      suppressed.push(`${det.name}: error`);
+    }
+  }
+
+  // Always-on baseline outlook for EVERY index — never gated, never dropped.
+  let baseline: Detected | null = null;
+  try {
+    baseline = detectBaselineOutlook(ctx);
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, idx: cfg.symbol }, "Baseline outlook failed");
+  }
+
+  // Sort high-conviction by confidence; keep top 3. Then append the baseline.
+  highConviction.sort((a, b) => b.confidence - a.confidence);
+  const out: OptionSignal[] = [];
+  for (const d of highConviction.slice(0, 3)) {
+    const s = applyLock(toSignal(ctx, d, "HIGH_CONVICTION"));
+    out.push(s);
+  }
+  if (baseline) {
+    const s = applyLock(toSignal(ctx, baseline, "BASELINE"));
+    out.push(s);
+  }
+  return { signals: out, suppressed, hasBars: true };
+}
+
+export interface OptionSignalsResult {
+  signals: OptionSignal[];
+  diagnostics: {
+    indicesConfigured: number;
+    indicesWithBars: number;
+    highConvictionCount: number;
+    baselineCount: number;
+    suppressed: { index: string; reasons: string[] }[];
+  };
+}
+interface CachedSignals { ts: number; data: OptionSignalsResult; }
 let cache: CachedSignals | null = null;
 const TTL = 30 * 1000;
 
@@ -739,19 +791,48 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000).unref?.();
 
-export async function getOptionSignals(): Promise<OptionSignal[]> {
+export async function getOptionSignals(): Promise<OptionSignalsResult> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
   const out: OptionSignal[] = [];
+  const suppressed: { index: string; reasons: string[] }[] = [];
+  let indicesWithBars = 0;
+  let highConvictionCount = 0;
+  let baselineCount = 0;
   for (const cfg of OPTION_INDICES) {
     try {
       const intra = await fetchIntraday(cfg.yahoo, "15m", "5d");
       const daily = await fetchIntraday(cfg.yahoo, "1d" as never, "3mo" as never);
-      if (!intra || !daily) continue;
-      out.push(...buildSignalsForIndex(cfg, intra, daily));
+      if (!intra || !daily) {
+        suppressed.push({ index: cfg.symbol, reasons: ["yahoo_data_unavailable"] });
+        continue;
+      }
+      const r = buildSignalsForIndex(cfg, intra, daily);
+      if (r.hasBars) indicesWithBars++;
+      out.push(...r.signals);
+      for (const s of r.signals) {
+        if (s.tier === "BASELINE") baselineCount++;
+        else highConvictionCount++;
+      }
+      // Only record suppression detail when no high-conviction setup fired —
+      // otherwise the dashboard noise outweighs the value.
+      const hcForIdx = r.signals.filter(s => s.tier === "HIGH_CONVICTION").length;
+      if (hcForIdx === 0) suppressed.push({ index: cfg.symbol, reasons: r.suppressed });
     } catch (err) {
-      logger.warn({ err: (err as Error).message, idx: cfg.symbol }, "Option signal failed");
+      const msg = (err as Error).message;
+      logger.warn({ err: msg, idx: cfg.symbol }, "Option signal failed");
+      suppressed.push({ index: cfg.symbol, reasons: [`exception: ${msg}`] });
     }
   }
-  cache = { ts: Date.now(), data: out };
-  return out;
+  const result: OptionSignalsResult = {
+    signals: out,
+    diagnostics: {
+      indicesConfigured: OPTION_INDICES.length,
+      indicesWithBars,
+      highConvictionCount,
+      baselineCount,
+      suppressed,
+    },
+  };
+  cache = { ts: Date.now(), data: result };
+  return result;
 }

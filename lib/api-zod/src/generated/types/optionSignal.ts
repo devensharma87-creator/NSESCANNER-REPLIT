@@ -7,7 +7,9 @@
  */
 import type { OptionLeg } from "./optionLeg";
 import type { OptionSignalBias } from "./optionSignalBias";
+import type { OptionSignalHtfBias } from "./optionSignalHtfBias";
 import type { OptionSignalSetupKey } from "./optionSignalSetupKey";
+import type { OptionSignalTier } from "./optionSignalTier";
 import type { SignalReason } from "./signalReason";
 
 export interface OptionSignal {
@@ -17,6 +19,8 @@ export interface OptionSignal {
   spotChangePercent?: number;
   bias: OptionSignalBias;
   confidence: number;
+  /** HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read. */
+  tier?: OptionSignalTier;
   /** e.g. intraday-15m */
   timeframe?: string;
   vwap?: number;
@@ -26,6 +30,14 @@ export interface OptionSignal {
   valueAreaHigh?: number;
   valueAreaLow?: number;
   pointOfControl?: number;
+  /** Higher-timeframe EMA50 used for HTF bias. */
+  dailyEma50?: number;
+  /** Daily-timeframe bias derived from spot vs daily EMA50. */
+  htfBias?: OptionSignalHtfBias;
+  /** True if intraday signal direction opposes the daily HTF bias. */
+  htfConflict?: boolean;
+  /** Status tags e.g. HTF_CONFLICT, RR_LOW, EXTENDED, BASELINE. */
+  tags?: string[];
   /** Type of intraday setup */
   setupKey?: OptionSignalSetupKey;
   /** Human-readable setup label */

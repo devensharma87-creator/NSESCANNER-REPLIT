@@ -141,10 +141,14 @@ router.get("/market/trend", async (_req, res, next) => {
 
 router.get("/options/signals", async (_req, res, next) => {
   try {
-    const signals = await getOptionSignals();
+    const { signals, diagnostics } = await getOptionSignals();
+    const now = new Date();
     const data = GetOptionSignalsResponse.parse({
       signals,
-      generatedAt: new Date(),
+      generatedAt: now,
+      lastUpdated: now,
+      marketState: computeMarketStatus(now),
+      diagnostics,
     });
     res.json(data);
   } catch (err) { next(err); }

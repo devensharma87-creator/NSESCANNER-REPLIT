@@ -1248,6 +1248,12 @@ export const GetOptionSignalsResponse = zod.object({
       spotChangePercent: zod.number().optional(),
       bias: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]),
       confidence: zod.number(),
+      tier: zod
+        .enum(["HIGH_CONVICTION", "BASELINE"])
+        .optional()
+        .describe(
+          "HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read.",
+        ),
       timeframe: zod.string().optional().describe("e.g. intraday-15m"),
       vwap: zod.number().optional(),
       ema9: zod.number().optional(),
@@ -1256,6 +1262,24 @@ export const GetOptionSignalsResponse = zod.object({
       valueAreaHigh: zod.number().optional(),
       valueAreaLow: zod.number().optional(),
       pointOfControl: zod.number().optional(),
+      dailyEma50: zod
+        .number()
+        .optional()
+        .describe("Higher-timeframe EMA50 used for HTF bias."),
+      htfBias: zod
+        .enum(["BULLISH", "BEARISH", "NEUTRAL"])
+        .optional()
+        .describe("Daily-timeframe bias derived from spot vs daily EMA50."),
+      htfConflict: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True if intraday signal direction opposes the daily HTF bias.",
+        ),
+      tags: zod
+        .array(zod.string())
+        .optional()
+        .describe("Status tags e.g. HTF_CONFLICT, RR_LOW, EXTENDED, BASELINE."),
       setupKey: zod
         .enum([
           "TREND_CONTINUATION",
@@ -1263,6 +1287,7 @@ export const GetOptionSignalsResponse = zod.object({
           "VOLUME_BREAKOUT",
           "EMA_PULLBACK",
           "MEAN_REVERSION",
+          "BASELINE",
         ])
         .optional()
         .describe("Type of intraday setup"),
@@ -1307,6 +1332,30 @@ export const GetOptionSignalsResponse = zod.object({
     }),
   ),
   generatedAt: zod.coerce.date(),
+  lastUpdated: zod.coerce
+    .date()
+    .optional()
+    .describe("Alias for generatedAt for UI consistency."),
+  marketState: zod
+    .enum(["open", "closed", "pre_open"])
+    .optional()
+    .describe("NSE equity-market session state at generation time."),
+  diagnostics: zod
+    .object({
+      indicesConfigured: zod.number(),
+      indicesWithBars: zod.number(),
+      highConvictionCount: zod.number(),
+      baselineCount: zod.number(),
+      suppressed: zod
+        .array(
+          zod.object({
+            index: zod.string(),
+            reasons: zod.array(zod.string()),
+          }),
+        )
+        .describe("Per-index report of why no high-conviction setup fired."),
+    })
+    .optional(),
 });
 
 /**

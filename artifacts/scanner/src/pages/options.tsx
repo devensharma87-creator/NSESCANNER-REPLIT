@@ -193,7 +193,7 @@ export default function OptionsPage() {
         </h1>
         <p className="text-muted-foreground text-sm max-w-3xl mt-1">
           Up to 3 high-conviction CALL/PUT setups per index — built from <span className="text-foreground">Price Action · RSI · Fixed Volume Profile · VWAP · EMA 9/21</span>.
-          Only setups with multi-indicator confluence (≥60% confidence) are emitted; noise is filtered out. Entry / Stop / Targets are <span className="text-foreground">underlying spot</span> levels — pick any liquid ATM strike.
+          Higher-conviction setups (≥50% with multi-indicator confluence) appear first; an always-on baseline directional read is also shown for every index. Entry / Stop / Targets are <span className="text-foreground">underlying spot</span> levels — pick any liquid ATM strike.
         </p>
         <div className="text-[11px] font-mono text-muted-foreground mt-2 flex items-center gap-3">
           <span>{totalSignals} live setups across {grouped.length} indices</span>

@@ -850,6 +850,10 @@ components:
         spotChangePercent: { type: number }
         bias: { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
         confidence: { type: number }
+        tier:
+          type: string
+          enum: [HIGH_CONVICTION, BASELINE]
+          description: "HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read."
         timeframe: { type: string, description: "e.g. intraday-15m" }
         vwap: { type: number }
         ema9: { type: number }
@@ -858,9 +862,21 @@ components:
         valueAreaHigh: { type: number }
         valueAreaLow: { type: number }
         pointOfControl: { type: number }
+        dailyEma50: { type: number, description: "Higher-timeframe EMA50 used for HTF bias." }
+        htfBias:
+          type: string
+          enum: [BULLISH, BEARISH, NEUTRAL]
+          description: "Daily-timeframe bias derived from spot vs daily EMA50."
+        htfConflict:
+          type: boolean
+          description: "True if intraday signal direction opposes the daily HTF bias."
+        tags:
+          type: array
+          items: { type: string }
+          description: "Status tags e.g. HTF_CONFLICT, RR_LOW, EXTENDED, BASELINE."
         setupKey:
           type: string
-          enum: [TREND_CONTINUATION, VWAP_RECLAIM, VOLUME_BREAKOUT, EMA_PULLBACK, MEAN_REVERSION]
+          enum: [TREND_CONTINUATION, VWAP_RECLAIM, VOLUME_BREAKOUT, EMA_PULLBACK, MEAN_REVERSION, BASELINE]
           description: "Type of intraday setup"
         setupName: { type: string, description: "Human-readable setup label" }
         setupSummary: { type: string, description: "One-line trade idea explanation" }
@@ -872,6 +888,26 @@ components:
         invalidation: { type: string }
         generatedAt: { type: string, format: date-time }
 
+    OptionSignalDiagnostics:
+      type: object
+      required: [indicesConfigured, indicesWithBars, highConvictionCount, baselineCount, suppressed]
+      properties:
+        indicesConfigured: { type: integer }
+        indicesWithBars: { type: integer }
+        highConvictionCount: { type: integer }
+        baselineCount: { type: integer }
+        suppressed:
+          type: array
+          description: "Per-index report of why no high-conviction setup fired."
+          items:
+            type: object
+            required: [index, reasons]
+            properties:
+              index: { type: string }
+              reasons:
+                type: array
+                items: { type: string }
+
     OptionSignalSet:
       type: object
       required: [signals, generatedAt]
@@ -880,6 +916,12 @@ components:
           type: array
           items: { $ref: "#/components/schemas/OptionSignal" }
         generatedAt: { type: string, format: date-time }
+        lastUpdated: { type: string, format: date-time, description: "Alias for generatedAt for UI consistency." }
+        marketState:
+          type: string
+          enum: [open, closed, pre_open]
+          description: "NSE equity-market session state at generation time."
+        diagnostics: { $ref: "#/components/schemas/OptionSignalDiagnostics" }
 
     TopScans:
       type: object

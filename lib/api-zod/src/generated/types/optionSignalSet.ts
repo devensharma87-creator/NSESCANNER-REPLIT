@@ -6,8 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OptionSignal } from "./optionSignal";
+import type { OptionSignalDiagnostics } from "./optionSignalDiagnostics";
+import type { OptionSignalSetMarketState } from "./optionSignalSetMarketState";
 
 export interface OptionSignalSet {
   signals: OptionSignal[];
   generatedAt: Date;
+  /** Alias for generatedAt for UI consistency. */
+  lastUpdated?: Date;
+  /** NSE equity-market session state at generation time. */
+  marketState?: OptionSignalSetMarketState;
+  diagnostics?: OptionSignalDiagnostics;
 }

@@ -482,6 +482,29 @@ export const OptionSignalBias = {
 } as const;
 
 /**
+ * HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read.
+ */
+export type OptionSignalTier =
+  (typeof OptionSignalTier)[keyof typeof OptionSignalTier];
+
+export const OptionSignalTier = {
+  HIGH_CONVICTION: "HIGH_CONVICTION",
+  BASELINE: "BASELINE",
+} as const;
+
+/**
+ * Daily-timeframe bias derived from spot vs daily EMA50.
+ */
+export type OptionSignalHtfBias =
+  (typeof OptionSignalHtfBias)[keyof typeof OptionSignalHtfBias];
+
+export const OptionSignalHtfBias = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+/**
  * Type of intraday setup
  */
 export type OptionSignalSetupKey =
@@ -493,6 +516,7 @@ export const OptionSignalSetupKey = {
   VOLUME_BREAKOUT: "VOLUME_BREAKOUT",
   EMA_PULLBACK: "EMA_PULLBACK",
   MEAN_REVERSION: "MEAN_REVERSION",
+  BASELINE: "BASELINE",
 } as const;
 
 export interface OptionSignal {
@@ -502,6 +526,8 @@ export interface OptionSignal {
   spotChangePercent?: number;
   bias: OptionSignalBias;
   confidence: number;
+  /** HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read. */
+  tier?: OptionSignalTier;
   /** e.g. intraday-15m */
   timeframe?: string;
   vwap?: number;
@@ -511,6 +537,14 @@ export interface OptionSignal {
   valueAreaHigh?: number;
   valueAreaLow?: number;
   pointOfControl?: number;
+  /** Higher-timeframe EMA50 used for HTF bias. */
+  dailyEma50?: number;
+  /** Daily-timeframe bias derived from spot vs daily EMA50. */
+  htfBias?: OptionSignalHtfBias;
+  /** True if intraday signal direction opposes the daily HTF bias. */
+  htfConflict?: boolean;
+  /** Status tags e.g. HTF_CONFLICT, RR_LOW, EXTENDED, BASELINE. */
+  tags?: string[];
   /** Type of intraday setup */
   setupKey?: OptionSignalSetupKey;
   /** Human-readable setup label */
@@ -525,9 +559,40 @@ export interface OptionSignal {
   generatedAt: string;
 }
 
+export type OptionSignalDiagnosticsSuppressedItem = {
+  index: string;
+  reasons: string[];
+};
+
+export interface OptionSignalDiagnostics {
+  indicesConfigured: number;
+  indicesWithBars: number;
+  highConvictionCount: number;
+  baselineCount: number;
+  /** Per-index report of why no high-conviction setup fired. */
+  suppressed: OptionSignalDiagnosticsSuppressedItem[];
+}
+
+/**
+ * NSE equity-market session state at generation time.
+ */
+export type OptionSignalSetMarketState =
+  (typeof OptionSignalSetMarketState)[keyof typeof OptionSignalSetMarketState];
+
+export const OptionSignalSetMarketState = {
+  open: "open",
+  closed: "closed",
+  pre_open: "pre_open",
+} as const;
+
 export interface OptionSignalSet {
   signals: OptionSignal[];
   generatedAt: string;
+  /** Alias for generatedAt for UI consistency. */
+  lastUpdated?: string;
+  /** NSE equity-market session state at generation time. */
+  marketState?: OptionSignalSetMarketState;
+  diagnostics?: OptionSignalDiagnostics;
 }
 
 export interface TopScans {
