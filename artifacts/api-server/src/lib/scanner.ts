@@ -138,8 +138,11 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
 
   const ema20Last = lastVal(ema20Series) ?? quote.price;
   const ema50Last = lastVal(ema50Series) ?? quote.price;
-  const ema100Last = lastVal(ema100Series) ?? ema50Last;
-  const ema200Last = lastVal(ema200Series) ?? ema50Last;
+  // ema100/ema200 are OPTIONAL in the schema — leave them undefined when the
+  // series is too short rather than silently substituting ema50 (which would
+  // make the UI display the same number twice and mislead the user).
+  const ema100Last = lastVal(ema100Series);
+  const ema200Last = lastVal(ema200Series);
 
   let trendStrength = 50;
   if (ema20Last > ema50Last) trendStrength += 15;
@@ -164,8 +167,8 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
       ema21: round2(lastVal(ema21Series) ?? quote.price),
       ema20: round2(ema20Last),
       ema50: round2(ema50Last),
-      ema100: round2(ema100Last),
-      ema200: round2(ema200Last),
+      ema100: ema100Last != null ? round2(ema100Last) : undefined,
+      ema200: ema200Last != null ? round2(ema200Last) : undefined,
       vwap: vwap != null ? round2(vwap) : undefined,
       rsi14: round2(lastVal(rsiSeries) ?? 50),
       macd: round2(lastVal(macdRes.macd) ?? 0),

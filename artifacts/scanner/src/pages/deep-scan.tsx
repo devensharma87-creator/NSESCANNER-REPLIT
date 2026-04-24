@@ -6,6 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SignalBadge } from "@/components/ui/signal-badge";
+import { ScoreBar } from "@/components/ui/score-bar";
+import {
+  useGetStockDetail,
+  getGetStockDetailQueryKey,
+} from "@workspace/api-client-react";
 import {
   ResponsiveContainer, ComposedChart, Line, Area, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, Legend,
@@ -105,9 +111,21 @@ export default function DeepScan() {
   const [range, setRange] = useState<Range>("6mo");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Default symbol on first load
+  // Default symbol on first load — honor `?sym=...&kind=...` if present so peer
+  // cards / external links can deep-link straight into a stock.
   useEffect(() => {
-    if (!active) {
+    if (active) return;
+    const params = new URLSearchParams(window.location.search);
+    const sym = params.get("sym");
+    const rawKind = params.get("kind");
+    // Validate `kind` against LookupKind union — an unchecked cast would let
+    // garbage values slip through and silently disable the stock-detail query
+    // (which is gated on `kind === "stock"`).
+    const kindParam: LookupKind | null =
+      rawKind === "stock" || rawKind === "index" ? rawKind : null;
+    if (sym) {
+      setActive({ kind: kindParam ?? "stock", symbol: sym.toUpperCase(), name: sym.toUpperCase() });
+    } else {
       setActive({ kind: "index", symbol: "NIFTY", name: "NIFTY 50", category: "Broad" });
     }
   }, [active]);
@@ -136,6 +154,19 @@ export default function DeepScan() {
       ),
     enabled: !!active,
     refetchInterval: 30_000,
+  });
+
+  // Pull the same Scanner-grade row (recommendation signal+score+reasons,
+  // VWAP/EMA9/EMA21/RSI/MACD/ATR/ADX, support/resistance, pivots, value area,
+  // peers, news) for stocks. Indices are skipped because the endpoint is
+  // equity-only.
+  const stockSym = active?.kind === "stock" ? active.symbol : "";
+  const detailQ = useGetStockDetail(stockSym, {
+    query: {
+      enabled: !!stockSym,
+      refetchInterval: 30_000,
+      queryKey: getGetStockDetailQueryKey(stockSym),
+    },
   });
 
   const select = (item: LookupItem) => {
@@ -366,6 +397,12 @@ export default function DeepScan() {
             </CardContent>
           </Card>
 
+          {/* Live Scanner snapshot — same data the /scanner table shows for this stock:
+              recommendation, technicals, support/resistance, value area, peers. Stocks only. */}
+          {snap.kind === "stock" && detailQ.data && (
+            <ScannerSnapshot detail={detailQ.data} />
+          )}
+
           {/* Fundamentals (stocks only) */}
           {snap.kind === "stock" && snap.fundamentals && Object.keys(snap.fundamentals).length > 0 && (
             <Card>
@@ -473,6 +510,198 @@ function LevelsLadder({
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * Renders the same Scanner-grade payload (recommendation + technicals +
+ * support/resistance + value-area + reasons + peers) that the /scanner table
+ * shows for a single stock — but as a richer, vertically-stacked view that
+ * fits inside Deep Scan. We only render this when the active symbol is a
+ * stock (the stock-detail endpoint is equity-only).
+ */
+function ScannerSnapshot({
+  detail,
+}: {
+  detail: {
+    quote: { price: number; volume?: number | null; avgVolume?: number | null };
+    indicators?: {
+      ema9?: number | null; ema21?: number | null;
+      ema20?: number | null; ema50?: number | null; ema100?: number | null; ema200?: number | null;
+      vwap?: number | null;
+      rsi14?: number | null;
+      macd?: number | null; macdSignal?: number | null; macdHist?: number | null;
+      atr14?: number | null; adx14?: number | null;
+      volumeRatio?: number | null; deliveryPct?: number | null; trendStrength?: number | null;
+      supportLevel?: number | null; resistanceLevel?: number | null;
+      pivot?: number | null; r1?: number | null; s1?: number | null;
+      valueAreaHigh?: number | null; valueAreaLow?: number | null; pointOfControl?: number | null;
+    };
+    recommendation: {
+      signal: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL";
+      score: number;
+      confidence?: number;
+      timeframe?: string;
+      target?: number; stopLoss?: number; riskRewardRatio?: number;
+      reasons?: Array<{ label: string; detail?: string; weight: number; bullish: boolean }>;
+    };
+    profile?: {
+      peers?: Array<{ symbol: string; name: string; price?: number; changePercent?: number }>;
+    };
+  };
+}) {
+  const ind = detail.indicators ?? {};
+  const rec = detail.recommendation;
+  const peers = detail.profile?.peers ?? [];
+  const reasons = (rec.reasons ?? []).slice().sort((a, b) => b.weight - a.weight);
+  const fmtRs = (n: number | null | undefined) => n == null ? "—" : `₹${n.toFixed(2)}`;
+  const fmtN  = (n: number | null | undefined, dp = 2) => n == null ? "—" : n.toFixed(dp);
+
+  return (
+    <>
+      {/* Recommendation header — signal badge, score bar, target/SL/RR */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+            Live Scanner Signal
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <SignalBadge signal={rec.signal} />
+            <div className="flex-1 min-w-[180px] max-w-[360px]">
+              <ScoreBar score={rec.score} />
+            </div>
+            {rec.confidence != null && (
+              <div className="font-mono text-[11px] text-muted-foreground">
+                Confidence <span className="text-foreground font-bold">{rec.confidence}</span>
+              </div>
+            )}
+            {rec.timeframe && (
+              <Badge variant="outline" className="font-mono text-[10px] uppercase">{rec.timeframe}</Badge>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-px bg-border rounded overflow-hidden border border-border">
+            <Stat label="Target"  value={fmtRs(rec.target)}   tone="buy"  />
+            <Stat label="Stoploss" value={fmtRs(rec.stopLoss)} tone="sell" />
+            <Stat label="R : R"   value={rec.riskRewardRatio != null ? `${rec.riskRewardRatio.toFixed(2)} : 1` : "—"} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Technical indicators — same fields the /scanner table sorts by */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+            Technicals
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-px bg-border rounded overflow-hidden border border-border">
+            <Stat label="VWAP"   value={fmtRs(ind.vwap)}   tone={ind.vwap   != null ? (detail.quote.price >= ind.vwap   ? "buy" : "sell") : undefined} />
+            <Stat label="EMA 9"  value={fmtRs(ind.ema9)}   tone={ind.ema9   != null ? (detail.quote.price >= ind.ema9   ? "buy" : "sell") : undefined} />
+            <Stat label="EMA 21" value={fmtRs(ind.ema21)}  tone={ind.ema21  != null ? (detail.quote.price >= ind.ema21  ? "buy" : "sell") : undefined} />
+            <Stat label="EMA 20" value={fmtRs(ind.ema20)}  tone={ind.ema20  != null ? (detail.quote.price >= ind.ema20  ? "buy" : "sell") : undefined} />
+            <Stat label="EMA 50" value={fmtRs(ind.ema50)}  tone={ind.ema50  != null ? (detail.quote.price >= ind.ema50  ? "buy" : "sell") : undefined} />
+            <Stat label="EMA 100" value={fmtRs(ind.ema100)} tone={ind.ema100 != null ? (detail.quote.price >= ind.ema100 ? "buy" : "sell") : undefined} />
+            <Stat label="EMA 200" value={fmtRs(ind.ema200)} tone={ind.ema200 != null ? (detail.quote.price >= ind.ema200 ? "buy" : "sell") : undefined} />
+            <Stat label="RSI(14)" value={fmtN(ind.rsi14, 1)} tone={ind.rsi14 != null && ind.rsi14 > 70 ? "sell" : ind.rsi14 != null && ind.rsi14 < 30 ? "buy" : undefined} />
+            <Stat label="MACD"      value={fmtN(ind.macd)} />
+            <Stat label="MACD Sig"  value={fmtN(ind.macdSignal)} />
+            <Stat label="MACD Hist" value={fmtN(ind.macdHist)} tone={ind.macdHist != null ? (ind.macdHist >= 0 ? "buy" : "sell") : undefined} />
+            <Stat label="ATR(14)"   value={fmtN(ind.atr14)} />
+            <Stat label="ADX(14)"   value={fmtN(ind.adx14, 1)} tone={ind.adx14 != null && ind.adx14 > 25 ? "buy" : undefined} />
+            <Stat label="Vol ×"     value={ind.volumeRatio != null ? `${ind.volumeRatio.toFixed(2)}×` : "—"} tone={ind.volumeRatio != null && ind.volumeRatio > 2 ? "buy" : undefined} />
+            <Stat label="Delivery"  value={ind.deliveryPct != null ? `${ind.deliveryPct.toFixed(1)}%` : "—"} tone={ind.deliveryPct != null && ind.deliveryPct > 60 ? "buy" : undefined} />
+            <Stat label="Trend Str" value={ind.trendStrength != null ? `${ind.trendStrength}` : "—"} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Levels — support/resistance, classical pivots, value area / POC */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+            Levels &amp; Value Area
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-px bg-border rounded overflow-hidden border border-border">
+            <Stat label="Support"      value={fmtRs(ind.supportLevel)}    tone="buy"  />
+            <Stat label="Resistance"   value={fmtRs(ind.resistanceLevel)} tone="sell" />
+            <Stat label="Pivot"        value={fmtRs(ind.pivot)} />
+            <Stat label="R1"           value={fmtRs(ind.r1)} tone="sell" />
+            <Stat label="S1"           value={fmtRs(ind.s1)} tone="buy"  />
+            <Stat label="VAH"          value={fmtRs(ind.valueAreaHigh)} />
+            <Stat label="VAL"          value={fmtRs(ind.valueAreaLow)} />
+            <Stat label="POC"          value={fmtRs(ind.pointOfControl)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Why this signal — same reasons surfaced in the Scanner row tooltip */}
+      {reasons.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+              Why this signal
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1.5">
+              {reasons.map((r, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm">
+                  <span className={`font-mono font-bold w-5 shrink-0 ${r.bullish ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
+                    {r.bullish ? "+" : "−"}
+                  </span>
+                  <span className="font-mono text-xs uppercase tracking-wider w-44 shrink-0 text-foreground/90">
+                    {r.label}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground w-12 shrink-0 text-right">
+                    w{r.weight}
+                  </span>
+                  <span className="text-xs text-muted-foreground flex-1">{r.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sector peers — clickable, top 6 by score */}
+      {peers.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+              Sector peers
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+              {peers.map((p) => {
+                const up = (p.changePercent ?? 0) >= 0;
+                return (
+                  <a
+                    key={p.symbol}
+                    href={`${import.meta.env.BASE_URL}deep-scan?sym=${encodeURIComponent(p.symbol)}`}
+                    className="block rounded border border-border bg-card/60 hover:border-foreground/40 hover:bg-white/5 p-2 transition-colors"
+                  >
+                    <div className="font-mono font-bold text-sm">{p.symbol}</div>
+                    <div className="text-[10px] text-muted-foreground truncate">{p.name}</div>
+                    <div className="flex items-baseline justify-between gap-1 mt-1">
+                      <span className="font-mono text-xs tabular-nums">{p.price != null ? `₹${p.price.toFixed(2)}` : "—"}</span>
+                      <span className={`font-mono text-[11px] font-semibold ${up ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
+                        {p.changePercent != null ? `${up ? "+" : ""}${p.changePercent.toFixed(2)}%` : "—"}
+                      </span>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </>
   );
 }
 

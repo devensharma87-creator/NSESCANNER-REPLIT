@@ -32,8 +32,11 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   const price = quote.price;
   const ema20 = indicators.ema20;
   const ema50 = indicators.ema50;
-  const ema100 = indicators.ema100 ?? ema50;
-  const ema200 = indicators.ema200 ?? ema50;
+  // Long EMAs are OPTIONAL — only used when we genuinely have ≥100 / ≥200 bars
+  // of history. Substituting ema50 here would produce false "long-term trend"
+  // reasons that label ema50 as the 200 EMA in the UI.
+  const ema100 = indicators.ema100;
+  const ema200 = indicators.ema200;
   const vwap = indicators.vwap ?? price;
   const rsi = indicators.rsi14;
   const adx = indicators.adx14 ?? 20;
@@ -47,18 +50,22 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   const macdHist = lastNonNull(macdHistSeries);
   const macdHistPrev = valueAtOffset(macdHistSeries, 2);
 
-  // 1. Long-term EMA 50/100/200 trend (weight 18)
-  if (price > ema50 && ema50 > ema100 && ema100 > ema200) {
-    score += 18;
-    reasons.push({ label: "Long-term uptrend (50>100>200)", detail: `Stacked EMAs confirm a primary uptrend.`, weight: 18, bullish: true });
-  } else if (price < ema50 && ema50 < ema100 && ema100 < ema200) {
-    score -= 18;
-    reasons.push({ label: "Long-term downtrend (50<100<200)", detail: `Stacked EMAs confirm a primary downtrend.`, weight: 18, bullish: false });
-  } else {
-    const bullish = price > ema200;
-    const w = 5;
-    score += bullish ? w : -w;
-    reasons.push({ label: bullish ? "Above 200 EMA" : "Below 200 EMA", detail: `Price ${bullish ? "above" : "below"} 200 EMA ₹${ema200.toFixed(2)}.`, weight: w, bullish });
+  // 1. Long-term EMA 50/100/200 trend (weight 18) — only when we actually have
+  // 100 + 200 bars of history. For newly-listed symbols (or 6mo-only history)
+  // we skip this rule rather than silently substitute ema50.
+  if (ema100 != null && ema200 != null) {
+    if (price > ema50 && ema50 > ema100 && ema100 > ema200) {
+      score += 18;
+      reasons.push({ label: "Long-term uptrend (50>100>200)", detail: `Stacked EMAs confirm a primary uptrend.`, weight: 18, bullish: true });
+    } else if (price < ema50 && ema50 < ema100 && ema100 < ema200) {
+      score -= 18;
+      reasons.push({ label: "Long-term downtrend (50<100<200)", detail: `Stacked EMAs confirm a primary downtrend.`, weight: 18, bullish: false });
+    } else {
+      const bullish = price > ema200;
+      const w = 5;
+      score += bullish ? w : -w;
+      reasons.push({ label: bullish ? "Above 200 EMA" : "Below 200 EMA", detail: `Price ${bullish ? "above" : "below"} 200 EMA ₹${ema200.toFixed(2)}.`, weight: w, bullish });
+    }
   }
 
   // 2. Short-term EMA 20/50 stack (weight 12)
@@ -198,7 +205,7 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   // Timeframe heuristic
   let timeframe: "intraday" | "swing" | "positional" = "swing";
   if (adx >= 25 && Math.abs(quote.changePercent) > 1) timeframe = "intraday";
-  else if (price > ema100 && ema50 > ema100) timeframe = "positional";
+  else if (ema100 != null && price > ema100 && ema50 > ema100) timeframe = "positional";
 
   return {
     signal,
