@@ -9,8 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Legend, ReferenceLine,
+  BarChart, Bar, Cell, PieChart, Pie,
 } from "recharts";
-import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers } from "lucide-react";
+import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, Target } from "lucide-react";
 
 const base = (import.meta as { env: { BASE_URL: string } }).env.BASE_URL;
 
@@ -128,13 +129,15 @@ export default function OiLab() {
         </p>
       </div>
 
-      <Tabs defaultValue="snapshot" className="space-y-4">
+      <Tabs defaultValue="insights" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="insights"><Sparkles className="w-4 h-4 mr-2" />OI Insights</TabsTrigger>
           <TabsTrigger value="snapshot"><Download className="w-4 h-4 mr-2" />Bulk Snapshot</TabsTrigger>
           <TabsTrigger value="heatmap"><Layers className="w-4 h-4 mr-2" />OI Heatmap</TabsTrigger>
           <TabsTrigger value="tracker"><Activity className="w-4 h-4 mr-2" />Delta Tracker</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="insights"><InsightsTab /></TabsContent>
         <TabsContent value="snapshot"><SnapshotTab /></TabsContent>
         <TabsContent value="heatmap"><HeatmapTab /></TabsContent>
         <TabsContent value="tracker"><TrackerTab /></TabsContent>
@@ -712,6 +715,646 @@ function TrackerTab() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ─── OI Insights tab ─────────────────────────────────────────────────────────
+
+interface InsightStrike {
+  strike: number;
+  isAtm: boolean;
+  ceOi: number; ceOiChg: number; ceVolume: number; ceLtp: number; ceIv: number | null; ceBuildup: string;
+  peOi: number; peOiChg: number; peVolume: number; peLtp: number; peIv: number | null; peBuildup: string;
+  pcr: number;
+  painValue: number;
+}
+type SentimentBand = "STRONGLY_BEARISH" | "MILDLY_BEARISH" | "NEUTRAL" | "MILDLY_BULLISH" | "STRONGLY_BULLISH";
+interface InsightResp {
+  underlying: string;
+  kind: "INDEX" | "EQUITY";
+  spot: number;
+  prevClose: number;
+  changePercent: number;
+  expiry: string;
+  expiries: string[];
+  atmStrike: number;
+  strikeStep: number;
+  lotSize: number | null;
+  source: string;
+  generatedAt: string;
+  pcrOi: number;
+  intradayFlow: number;       // [-1, +1], + = bullish put-write flow
+  intradayOiTrue: false;      // marker: OI Δ comes from a session-range proxy, not tick data
+  pcrVolume: number;
+  maxPain: number;
+  maxPainDeviation: number;
+  atmIv: number | null;
+  totalCallOi: number;
+  totalPutOi: number;
+  callOiAdded: number;
+  putOiAdded: number;
+  topResistance: { strike: number; oi: number }[];
+  topSupport: { strike: number; oi: number }[];
+  sentiment: SentimentBand;
+  sentimentScore: number;
+  sentimentLabel: string;
+  marketInsight: string;
+  analysis: string;
+  strikes: InsightStrike[];
+}
+
+const SENTIMENT_TONE: Record<SentimentBand, { color: string; bg: string; border: string }> = {
+  STRONGLY_BEARISH: { color: "#dc2626", bg: "bg-red-500/15",   border: "border-red-500/40"   },
+  MILDLY_BEARISH:   { color: "#f97316", bg: "bg-orange-500/15", border: "border-orange-500/40" },
+  NEUTRAL:          { color: "#a3a3a3", bg: "bg-zinc-500/15",  border: "border-zinc-500/40"  },
+  MILDLY_BULLISH:   { color: "#84cc16", bg: "bg-lime-500/15",  border: "border-lime-500/40"  },
+  STRONGLY_BULLISH: { color: "#16a34a", bg: "bg-green-500/15", border: "border-green-500/40" },
+};
+
+function InsightsTab() {
+  const [universe, setUniverse] = useState<{ indices: string[]; stocks: string[]; source?: string; count?: number; note?: string }>({ indices: [], stocks: [] });
+  const [underlying, setUnderlying] = useState("NIFTY");
+  const [strikesAround, setStrikesAround] = useState<"atm" | "5" | "10" | "20" | "all">("10");
+  const [expiry, setExpiry] = useState<string | undefined>(undefined);
+  const [data, setData] = useState<InsightResp | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQ, setSearchQ] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [chartView, setChartView] = useState<"oi" | "oichg" | "pcr" | "pain">("oi");
+
+  // Load universe once
+  useEffect(() => {
+    fetch(`${base}api/options/oi-lab/universe`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+      .then(setUniverse)
+      .catch(() => {});
+  }, []);
+
+  // Load insights — re-fetches on underlying / expiry / strikes change + every 30s
+  const load = async () => {
+    setError(null);
+    try {
+      const qs = new URLSearchParams();
+      qs.set("strikes", strikesAround);
+      if (expiry) qs.set("expiry", expiry);
+      const r = await fetch(`${base}api/options/oi-lab/insights/${encodeURIComponent(underlying)}?${qs}`, { credentials: "include" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail || j.error || r.statusText);
+      setData(j);
+    } catch (e) {
+      setError((e as Error).message);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    setLoading(true);
+    void load();
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [underlying, expiry, strikesAround]);
+
+  // Reset expiry when underlying changes (re-pick nearest)
+  useEffect(() => { setExpiry(undefined); }, [underlying]);
+
+  const allUnderlyings = useMemo(
+    () => [...universe.indices, ...universe.stocks],
+    [universe.indices, universe.stocks],
+  );
+  const filteredUnderlyings = useMemo(() => {
+    const q = searchQ.trim().toUpperCase();
+    if (!q) return allUnderlyings.slice(0, 200);
+    return allUnderlyings.filter(s => s.includes(q)).slice(0, 200);
+  }, [allUnderlyings, searchQ]);
+
+  // ── Chart data ─────────────────────────────────────────────────────────────
+  const oiBars = useMemo(() => {
+    if (!data) return [];
+    return data.strikes.map(s => ({
+      strike: s.strike,
+      ceOi: s.ceOi,
+      peOi: s.peOi,
+      ceOiChg: s.ceOiChg,
+      peOiChg: s.peOiChg,
+      pcr: s.pcr,
+      pain: s.painValue,
+      isAtm: s.isAtm,
+    }));
+  }, [data]);
+  const pcrPie = useMemo(() => {
+    if (!data) return [];
+    const total = data.totalCallOi + data.totalPutOi;
+    if (total === 0) return [];
+    return [
+      { name: "Put OI",  value: data.totalPutOi,  pct: (data.totalPutOi  / total) * 100 },
+      { name: "Call OI", value: data.totalCallOi, pct: (data.totalCallOi / total) * 100 },
+    ];
+  }, [data]);
+
+  const sentTone = data ? SENTIMENT_TONE[data.sentiment] : SENTIMENT_TONE.NEUTRAL;
+
+  return (
+    <div className="space-y-4">
+      {/* Top bar — underlying + spot + meta */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Underlying picker */}
+            <div className="relative">
+              <button
+                onClick={() => { setPickerOpen(o => !o); setSearchQ(""); }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-background hover:bg-white/5 text-sm font-mono min-w-[180px]"
+              >
+                <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="font-bold">{underlying}</span>
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {universe.source === "kite" ? `${universe.count}` : "live ↗"}
+                </span>
+              </button>
+              {pickerOpen && (
+                <div className="absolute z-50 left-0 mt-1.5 w-[320px] max-h-[60vh] overflow-y-auto rounded-md border border-border bg-popover shadow-2xl">
+                  <div className="sticky top-0 bg-popover border-b border-border p-2">
+                    <Input
+                      autoFocus
+                      value={searchQ}
+                      onChange={e => setSearchQ(e.target.value)}
+                      placeholder="Search F&O underlying…"
+                      className="h-8 text-xs"
+                    />
+                    {universe.note && (
+                      <div className="text-[10px] text-amber-400 mt-1.5">{universe.note}</div>
+                    )}
+                  </div>
+                  <div className="p-1">
+                    {filteredUnderlyings.map(s => (
+                      <button
+                        key={s}
+                        onClick={() => { setUnderlying(s); setPickerOpen(false); }}
+                        className={`w-full text-left px-2 py-1 text-xs rounded hover:bg-white/5 font-mono ${
+                          underlying === s ? "bg-primary/15 text-primary" : ""
+                        } ${universe.indices.includes(s) ? "font-bold" : ""}`}
+                      >
+                        {s}
+                        {universe.indices.includes(s) && (
+                          <span className="ml-2 px-1 rounded text-[9px] bg-primary/20 text-primary">IDX</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Spot */}
+            {data && (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <div className="text-2xl font-bold tabular-nums">{data.spot.toFixed(2)}</div>
+                  <Badge variant={data.changePercent >= 0 ? "default" : "destructive"} className="text-[11px]">
+                    {fmtPct(data.changePercent)}
+                  </Badge>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  ATM <b className="text-foreground">{data.atmStrike}</b> · step {data.strikeStep}
+                  {data.lotSize ? <> · lot {data.lotSize}</> : null}
+                </div>
+              </>
+            )}
+
+            <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/30">LIVE</span>
+              {data && <span>{new Date(data.generatedAt).toLocaleTimeString()}</span>}
+              <Button variant="ghost" size="sm" onClick={() => { setLoading(true); void load(); }} disabled={loading}>
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+              </Button>
+            </div>
+          </div>
+
+          {/* Expiry + strikes-around chips */}
+          {data && (
+            <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-border">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] uppercase text-muted-foreground font-mono">Expiry:</span>
+                {data.expiries.slice(0, 6).map(e => (
+                  <button
+                    key={e}
+                    onClick={() => setExpiry(e)}
+                    className={`px-2 py-0.5 text-[11px] font-mono rounded border transition ${
+                      e === data.expiry
+                        ? "border-primary bg-primary/15 text-primary font-bold"
+                        : "border-border bg-card hover:bg-white/5 text-foreground/70"
+                    }`}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+                <span className="text-[10px] uppercase text-muted-foreground font-mono">Strikes ATM ±:</span>
+                {(["atm", "5", "10", "20", "all"] as const).map(s => (
+                  <button
+                    key={s}
+                    onClick={() => setStrikesAround(s)}
+                    className={`px-2 py-0.5 text-[11px] font-mono rounded border uppercase transition ${
+                      s === strikesAround
+                        ? "border-primary bg-primary/15 text-primary font-bold"
+                        : "border-border bg-card hover:bg-white/5 text-foreground/70"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {error && (
+        <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3">
+          <AlertTriangle className="w-4 h-4" /> {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
+        {/* ── LEFT: Sentiment + Insight ─────────────────────────────────────── */}
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs uppercase font-mono tracking-wider flex items-center gap-2">
+                <Activity className="w-3.5 h-3.5" /> Market Sentiment
+                <span className="text-[9px] text-muted-foreground normal-case font-normal">(based on OI)</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {!data ? (
+                <Skeleton className="h-44 w-full" />
+              ) : (
+                <SentimentGauge band={data.sentiment} score={data.sentimentScore} label={data.sentimentLabel} />
+              )}
+              {data && (
+                <div className="mt-3 pt-3 border-t border-border space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">PCR (OI)</span>
+                    <span className="font-mono font-bold">{data.pcrOi.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span
+                      className="text-muted-foreground cursor-help underline decoration-dotted underline-offset-2"
+                      title="Intraday flow polarity (-1..+1). Positive = puts being accumulated heavier than calls (bullish). Derived from Kite REST session-range OI proxy — for tick-level Δ OI, use the Delta Tracker tab."
+                    >
+                      Intraday Flow
+                    </span>
+                    <span className={`font-mono ${data.intradayFlow >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {data.intradayFlow >= 0 ? "+" : ""}{data.intradayFlow.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">PCR (Volume)</span>
+                    <span className="font-mono">{data.pcrVolume.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Max Pain</span>
+                    <span className="font-mono font-bold">{data.maxPain}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Pain Δ vs Spot</span>
+                    <span className={`font-mono ${data.maxPainDeviation >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {data.maxPainDeviation >= 0 ? "+" : ""}{data.maxPainDeviation.toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">ATM IV</span>
+                    <span className="font-mono">{data.atmIv != null ? `${data.atmIv.toFixed(1)}%` : "—"}</span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {data && (
+            <Card className={`${sentTone.bg} ${sentTone.border}`}>
+              <CardContent className="p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs uppercase font-mono tracking-wider" style={{ color: sentTone.color }}>
+                  <Sparkles className="w-3.5 h-3.5" /> Market Insight
+                </div>
+                <p className="text-xs text-foreground/90 leading-relaxed">{data.marketInsight}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {data && (
+            <Card>
+              <CardContent className="p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs uppercase font-mono tracking-wider text-muted-foreground">
+                  <Target className="w-3.5 h-3.5" /> Analysis
+                </div>
+                <p className="text-xs text-foreground/85 leading-relaxed">{data.analysis}</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* ── RIGHT: Charts ────────────────────────────────────────────────── */}
+        <div className="space-y-4">
+          {/* Big chart card with view switcher */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Layers className="w-4 h-4" />
+                  {chartView === "oi" && "Open Interest by Strike"}
+                  {chartView === "oichg" && "OI Change by Strike (intraday Δ)"}
+                  {chartView === "pcr" && "Put/Call Ratio by Strike"}
+                  {chartView === "pain" && "Max Pain Curve"}
+                </CardTitle>
+                <div className="flex items-center gap-1">
+                  {([
+                    { v: "oi",    l: "OI Total" },
+                    { v: "oichg", l: "OI Change" },
+                    { v: "pcr",   l: "PCR" },
+                    { v: "pain",  l: "Max Pain" },
+                  ] as const).map(b => (
+                    <button
+                      key={b.v}
+                      onClick={() => setChartView(b.v)}
+                      className={`px-2.5 py-1 text-[11px] font-mono rounded border transition ${
+                        chartView === b.v
+                          ? "border-primary bg-primary/15 text-primary font-bold"
+                          : "border-border bg-card hover:bg-white/5 text-foreground/70"
+                      }`}
+                    >
+                      {b.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!data ? (
+                <Skeleton className="h-80 w-full" />
+              ) : oiBars.length === 0 ? (
+                <div className="h-80 flex items-center justify-center text-sm text-muted-foreground">No strikes in range.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={360}>
+                  <BarChart data={oiBars} barCategoryGap={2}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis dataKey="strike" tick={{ fontSize: 10 }} interval={oiBars.length > 25 ? 1 : 0} />
+                    <YAxis
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={chartView === "pcr" ? (v) => v.toFixed(2) : (v) => fmtNum(v)}
+                    />
+                    <RTooltip
+                      contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                      formatter={(v: number, name: string) =>
+                        chartView === "pcr" ? [v.toFixed(2), name] : [fmtNum(v), name]
+                      }
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    {/* Spot reference line */}
+                    <ReferenceLine
+                      x={oiBars.reduce((closest, r) =>
+                        Math.abs(r.strike - data.spot) < Math.abs(closest - data.spot) ? r.strike : closest,
+                        oiBars[0]!.strike,
+                      )}
+                      stroke="#22c55e"
+                      strokeDasharray="2 2"
+                      label={{ value: `Spot ${data.spot.toFixed(0)}`, position: "top", fill: "#22c55e", fontSize: 10 }}
+                    />
+                    {/* Max-pain reference line */}
+                    <ReferenceLine
+                      x={data.maxPain}
+                      stroke="#f97316"
+                      strokeDasharray="4 2"
+                      label={{ value: `Max Pain ${data.maxPain}`, position: "insideTopRight", fill: "#f97316", fontSize: 10 }}
+                    />
+                    {chartView === "oi" && (
+                      <>
+                        <Bar dataKey="ceOi" fill="#dc2626" name="Call OI" />
+                        <Bar dataKey="peOi" fill="#16a34a" name="Put OI" />
+                      </>
+                    )}
+                    {chartView === "oichg" && (
+                      <>
+                        <Bar dataKey="ceOiChg" name="Δ Call OI">
+                          {oiBars.map((d, i) => (
+                            <Cell key={i} fill={d.ceOiChg >= 0 ? "#dc2626" : "#fca5a5"} />
+                          ))}
+                        </Bar>
+                        <Bar dataKey="peOiChg" name="Δ Put OI">
+                          {oiBars.map((d, i) => (
+                            <Cell key={i} fill={d.peOiChg >= 0 ? "#16a34a" : "#86efac"} />
+                          ))}
+                        </Bar>
+                      </>
+                    )}
+                    {chartView === "pcr" && (
+                      <Bar dataKey="pcr" name="PCR">
+                        {oiBars.map((d, i) => (
+                          <Cell key={i} fill={d.pcr >= 1.3 ? "#16a34a" : d.pcr <= 0.7 ? "#dc2626" : "#a3a3a3"} />
+                        ))}
+                      </Bar>
+                    )}
+                    {chartView === "pain" && (
+                      <Bar dataKey="pain" name="Pain">
+                        {oiBars.map((d, i) => (
+                          <Cell key={i} fill={d.strike === data.maxPain ? "#f97316" : "#525252"} />
+                        ))}
+                      </Bar>
+                    )}
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Bottom strip: 3 small cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* OI Change */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs uppercase font-mono flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5" /> Open Interest Change
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!data ? <Skeleton className="h-32" /> : (
+                  <ResponsiveContainer width="100%" height={140}>
+                    <BarChart data={[
+                      { name: "CALL", value: data.callOiAdded },
+                      { name: "PUT",  value: data.putOiAdded },
+                    ]}>
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                      <YAxis hide />
+                      <RTooltip contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }} formatter={(v: number) => fmtNum(v)} />
+                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                        <Cell fill={data.callOiAdded >= 0 ? "#dc2626" : "#fca5a5"} />
+                        <Cell fill={data.putOiAdded >= 0 ? "#16a34a" : "#86efac"} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                {data && (
+                  <div className="flex justify-between text-[10px] font-mono mt-1">
+                    <span className={data.callOiAdded >= 0 ? "text-red-400" : "text-red-300"}>{fmtNum(data.callOiAdded)}</span>
+                    <span className={data.putOiAdded  >= 0 ? "text-green-400" : "text-green-300"}>{fmtNum(data.putOiAdded)}</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Total OI */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs uppercase font-mono flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5" /> Total Open Interest
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!data ? <Skeleton className="h-32" /> : (
+                  <ResponsiveContainer width="100%" height={140}>
+                    <BarChart data={[
+                      { name: "CALL", value: data.totalCallOi },
+                      { name: "PUT",  value: data.totalPutOi  },
+                    ]}>
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                      <YAxis hide />
+                      <RTooltip contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }} formatter={(v: number) => fmtNum(v)} />
+                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                        <Cell fill="#dc2626" />
+                        <Cell fill="#16a34a" />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                {data && (
+                  <div className="flex justify-between text-[10px] font-mono mt-1">
+                    <span className="text-red-400">{fmtNum(data.totalCallOi)}</span>
+                    <span className="text-green-400">{fmtNum(data.totalPutOi)}</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* PCR donut */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs uppercase font-mono flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5" /> Put/Call Ratio
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!data || pcrPie.length === 0 ? <Skeleton className="h-32" /> : (
+                  <div className="relative h-[140px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={pcrPie}
+                          dataKey="value"
+                          innerRadius={38}
+                          outerRadius={60}
+                          startAngle={90}
+                          endAngle={-270}
+                          stroke="none"
+                        >
+                          <Cell fill="#fca5a5" />
+                          <Cell fill="#86efac" />
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <div className="text-[10px] uppercase text-muted-foreground font-mono">PCR</div>
+                      <div className="text-2xl font-bold tabular-nums">{data.pcrOi.toFixed(2)}</div>
+                    </div>
+                  </div>
+                )}
+                {data && pcrPie.length > 0 && (
+                  <div className="flex justify-between text-[10px] font-mono mt-1">
+                    <span className="text-red-400">{pcrPie[1]!.pct.toFixed(0)}% Call OI</span>
+                    <span className="text-green-400">{pcrPie[0]!.pct.toFixed(0)}% Put OI</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Top R / S strip */}
+          {data && (
+            <Card>
+              <CardContent className="p-3 grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-[10px] uppercase font-mono text-muted-foreground mb-1.5">Top Resistance (Call OI)</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {data.topResistance.map(r => (
+                      <span key={r.strike} className="px-2 py-0.5 text-[11px] font-mono rounded bg-red-500/15 text-red-300 border border-red-500/30">
+                        {r.strike} <span className="text-[9px] text-muted-foreground">{fmtNum(r.oi)}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-mono text-muted-foreground mb-1.5">Top Support (Put OI)</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {data.topSupport.map(r => (
+                      <span key={r.strike} className="px-2 py-0.5 text-[11px] font-mono rounded bg-green-500/15 text-green-300 border border-green-500/30">
+                        {r.strike} <span className="text-[9px] text-muted-foreground">{fmtNum(r.oi)}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Half-donut sentiment gauge — pure SVG, no extra deps.
+function SentimentGauge({ band, score, label }: { band: SentimentBand; score: number; label: string }) {
+  const tone = SENTIMENT_TONE[band];
+  // Map score (-100..+100) to angle (180..0)
+  const angle = 180 - ((score + 100) / 200) * 180;
+  const cx = 90, cy = 90, r = 70;
+  const rad = (angle * Math.PI) / 180;
+  const needleX = cx + r * Math.cos(rad);
+  const needleY = cy - r * Math.sin(rad);
+  // Arc segments — 5 bands
+  const bands: Array<{ from: number; to: number; color: string }> = [
+    { from: 180, to: 144, color: "#dc2626" },
+    { from: 144, to: 108, color: "#f97316" },
+    { from: 108, to: 72,  color: "#a3a3a3" },
+    { from:  72, to: 36,  color: "#84cc16" },
+    { from:  36, to:  0,  color: "#16a34a" },
+  ];
+  function arcPath(fromDeg: number, toDeg: number): string {
+    const f = (fromDeg * Math.PI) / 180;
+    const t = (toDeg * Math.PI) / 180;
+    const x1 = cx + r * Math.cos(f), y1 = cy - r * Math.sin(f);
+    const x2 = cx + r * Math.cos(t), y2 = cy - r * Math.sin(t);
+    const large = Math.abs(fromDeg - toDeg) > 180 ? 1 : 0;
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+  }
+  return (
+    <div className="flex flex-col items-center">
+      <svg viewBox="0 0 180 110" className="w-full max-w-[220px]">
+        {bands.map((b, i) => (
+          <path key={i} d={arcPath(b.from, b.to)} stroke={b.color} strokeWidth="14" fill="none" strokeLinecap="butt" opacity={band === ["STRONGLY_BEARISH", "MILDLY_BEARISH", "NEUTRAL", "MILDLY_BULLISH", "STRONGLY_BULLISH"][i] ? 1 : 0.35} />
+        ))}
+        <line x1={cx} y1={cy} x2={needleX} y2={needleY} stroke={tone.color} strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx={cx} cy={cy} r="4" fill={tone.color} />
+      </svg>
+      <div className="text-center -mt-2">
+        <div className="text-base font-bold" style={{ color: tone.color }}>{label}</div>
+        <div className="text-[10px] text-muted-foreground font-mono">
+          score {score >= 0 ? "+" : ""}{score} / ±100
+        </div>
+      </div>
     </div>
   );
 }

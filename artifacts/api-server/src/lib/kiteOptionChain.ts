@@ -79,7 +79,15 @@ function classifyMoneyness(strike: number, spot: number, type: "CE" | "PE", step
   return strike > spot ? "ITM" : "OTM";
 }
 
+/** Classify a leg's OI buildup using both price-change and OI-change signs.
+ *  Returns NEUTRAL when either signal sits inside its dead-band — no fresh
+ *  positions = no buildup, regardless of the other dimension's drift. The
+ *  Heatmap and OI Insights surfaces both rely on this returning all 5
+ *  buckets (incl. NEUTRAL) so callers can trust the tag without re-deriving. */
 function classifyOiBuildup(priceChg: number, oiChg: number): OcSide["oiBuildup"] {
+  const PRICE_DEAD = 0.0001; // ₹0.0001 — any FP wobble below this is noise
+  const OI_DEAD    = 1;      // 1 contract — anything below is rounding
+  if (Math.abs(priceChg) < PRICE_DEAD || Math.abs(oiChg) < OI_DEAD) return "NEUTRAL";
   const pUp = priceChg > 0, oUp = oiChg > 0;
   if (pUp && oUp) return "LONG_BUILDUP";
   if (!pUp && oUp) return "SHORT_BUILDUP";

@@ -3,49 +3,92 @@ import {
   bulkSnapshot, snapshotToCsv,
   fetchOiHeatmap,
   startTracker, stopTracker, getTrackerStatus, getTrackerSeries,
+  fetchOiInsights,
+  getDynamicFnoUniverse,
   FNO_INDICES,
 } from "../lib/oiLab";
-import { isFnoUnderlying } from "../lib/optionChain";
 import { getActiveSession } from "../lib/kiteAuth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-// Universe — all F&O symbols the picker can choose from. We expose the
-// curated list from optionChain.ts (~190 stocks + 5 indices).
-router.get("/options/oi-lab/universe", (_req, res) => {
-  // Probe the curated set by trying every alpha symbol against isFnoUnderlying
-  // is wasteful; instead, hardcode a sourced reference list. The authoritative
-  // F&O list lives in optionChain.ts so we re-export the same names here by
-  // walking that module's exported predicate.
-  const stocks = [
-    "RELIANCE","TCS","HDFCBANK","ICICIBANK","INFY","SBIN","BHARTIARTL","ITC","HINDUNILVR","KOTAKBANK",
-    "LT","AXISBANK","MARUTI","SUNPHARMA","TITAN","BAJFINANCE","NTPC","ULTRACEMCO","HCLTECH","ASIANPAINT",
-    "WIPRO","NESTLEIND","M&M","POWERGRID","TATASTEEL","TECHM","JSWSTEEL","INDUSINDBK","BAJAJFINSV","HDFCLIFE",
-    "DRREDDY","CIPLA","COALINDIA","BPCL","HEROMOTOCO","BRITANNIA","SHRIRAMFIN","SBILIFE","EICHERMOT","ONGC",
-    "GRASIM","BAJAJ-AUTO","ADANIPORTS","ADANIENT","HINDALCO","APOLLOHOSP","TATACONSUM","TRENT","JIOFIN","TATAMOTORS",
-    "DIVISLAB","DLF","ADANIGREEN","ADANIPOWER","TATAPOWER","HAVELLS","SIEMENS","CHOLAFIN","DMART","GODREJCP",
-    "DABUR","COLPAL","MARICO","PIDILITIND","ICICIPRULI","ICICIGI","LICI","BEL","HAL","AMBUJACEM",
-    "ACC","DALBHARAT","MUTHOOTFIN","HDFCAMC","BERGEPAINT","BIOCON","LUPIN","TORNTPHARM","ZYDUSLIFE","AUROPHARMA",
-    "ALKEM","GLENMARK","SRF","UPL","PIIND","COROMANDEL","DEEPAKNTR","FLUOROCHEM","INDIGO","IRCTC",
-    "NAUKRI","ZOMATO","NYKAA","PAYTM","POLICYBZR","DIXON","KPITTECH","MPHASIS","COFORGE","PERSISTENT",
-    "LTIM","TIINDIA","BHEL","CUMMINSIND","BHARATFORG","CONCOR","ABB","BOSCHLTD","TVSMOTOR","ASHOKLEY",
-    "MOTHERSON","BALKRISIND","ESCORTS","EXIDEIND","MRF","APOLLOTYRE","IDFCFIRSTB","FEDERALBNK","BANKBARODA","PNB",
-    "CANBK","AUBANK","BANDHANBNK","RBLBANK","IDEA","INDUSTOWER","RECLTD","PFC","IRFC","SBICARD",
-    "CHAMBLFERT","GNFC","MCX","ANGELONE","CDSL","BSOFT","NAVINFLUOR","ASTRAL","POLYCAB","VBL",
-    "TATACOMM","UNITDSPR","JUBLFOOD","PAGEIND","HINDPETRO","IOC","GAIL","PETRONET","IGL","GUJGASLTD",
-    "MGL","NMDC","JINDALSTEL","SAIL","NATIONALUM","HINDCOPPER","VEDL","MAZDOCK","OFSS","MFSL",
-    "RAMCOCEM","VOLTAS","BLUESTARCO","BATAINDIA","TRIDENT","ABFRL","ABCAPITAL","OBEROIRLTY","PRESTIGE","PHOENIXLTD",
-    "GODREJPROP","TATAELXSI","CYIENT","INDHOTEL","JUBLPHARMA","LAURUSLABS","SYNGENE","POONAWALLA","M&MFIN","BAJAJHLDNG",
-    "ADANIENSOL","JSWENERGY","NHPC","CGPOWER","MAXHEALTH","FORTIS","SHREECEM","JKCEMENT","SUNDRMFAST","SONACOMS",
-    "KEI","SUPREMEIND","HONAUT",
-  ];
-  // Filter through the predicate so we never serve a name that the chain
-  // backend would reject.
+// Static fallback universe (used only when Kite isn't connected). Keeping this
+// here as a safety-net so the picker has SOMETHING to show on a fresh load
+// before Kite login. The dynamic Kite-derived list is preferred and replaces
+// this once available.
+const STATIC_FALLBACK_STOCKS = [
+  "RELIANCE","TCS","HDFCBANK","ICICIBANK","INFY","SBIN","BHARTIARTL","ITC","HINDUNILVR","KOTAKBANK",
+  "LT","AXISBANK","MARUTI","SUNPHARMA","TITAN","BAJFINANCE","NTPC","ULTRACEMCO","HCLTECH","ASIANPAINT",
+  "WIPRO","NESTLEIND","M&M","POWERGRID","TATASTEEL","TECHM","JSWSTEEL","INDUSINDBK","BAJAJFINSV","HDFCLIFE",
+  "DRREDDY","CIPLA","COALINDIA","BPCL","HEROMOTOCO","BRITANNIA","SHRIRAMFIN","SBILIFE","EICHERMOT","ONGC",
+];
+
+// Universe — Kite-derived live F&O list. Falls back to a static list when
+// Kite isn't connected so the picker always renders something.
+router.get("/options/oi-lab/universe", async (_req, res) => {
+  const dynamic = await getDynamicFnoUniverse();
+  if (dynamic && dynamic.length > 0) {
+    res.json({
+      indices: [...FNO_INDICES],
+      stocks: dynamic,
+      source: "kite",
+      count: dynamic.length,
+    });
+    return;
+  }
   res.json({
-    indices: FNO_INDICES.filter(s => isFnoUnderlying(s)),
-    stocks: stocks.filter(s => isFnoUnderlying(s)).sort((a, b) => a.localeCompare(b)),
+    indices: [...FNO_INDICES],
+    stocks: STATIC_FALLBACK_STOCKS,
+    source: "fallback",
+    count: STATIC_FALLBACK_STOCKS.length,
+    note: "Connect Kite (Live Feed → Connect) to load the full live F&O universe (~210+ stocks).",
   });
+});
+
+// OI Insights — rich per-strike payload for ONE underlying (single network
+// call powers the OI Insights tab: sentiment gauge + multi-strike OI chart +
+// max-pain + PCR donut + plain-English analysis).
+router.get("/options/oi-lab/insights/:underlying", async (req, res) => {
+  const sym = String(req.params.underlying ?? "").toUpperCase().trim();
+  if (!sym) {
+    res.status(400).json({ error: "underlying required" });
+    return;
+  }
+  const expiry = typeof req.query.expiry === "string" ? req.query.expiry : undefined;
+  const strikesParam = String(req.query.strikes ?? "20");
+  const strikesAround =
+    strikesParam === "all" ? 999
+    : strikesParam === "atm" ? 0
+    : Math.max(0, Math.min(Number(strikesParam) || 20, 50));
+
+  const session = await getActiveSession().catch(() => null);
+  if (!session) {
+    res.status(503).json({
+      error: "kite_login_required",
+      detail: "OI Insights needs an active Kite session. Open the Live Feed page and complete the daily login first.",
+      kiteAuthenticated: false,
+    });
+    return;
+  }
+  try {
+    const insights = await fetchOiInsights(sym, expiry, strikesAround);
+    if (!insights) {
+      res.status(404).json({
+        error: "no_chain_data",
+        detail: `No option-chain data for ${sym} (instrument unavailable or expiry mismatch).`,
+        kiteAuthenticated: true,
+      });
+      return;
+    }
+    res.json(insights);
+  } catch (err) {
+    logger.error({ err: (err as Error).message, sym }, "fetchOiInsights failed");
+    res.status(500).json({
+      error: "insights_failed",
+      detail: (err as Error).message,
+      kiteAuthenticated: true,
+    });
+  }
 });
 
 // Bulk snapshot — returns aggregated chain analytics for a list of underlyings.

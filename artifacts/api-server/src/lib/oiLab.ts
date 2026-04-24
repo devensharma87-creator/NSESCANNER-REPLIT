@@ -23,7 +23,7 @@
 
 import { logger } from "./logger";
 import { isFnoUnderlying } from "./optionChain";
-import type { OcResponse } from "./optionChain";
+import type { OcResponse, OcSide } from "./optionChain";
 import { fetchKiteOptionChain } from "./kiteOptionChain";
 import { computeAnalytics, type OptionAnalytics } from "./optionAnalytics";
 import { getRestClient, getActiveSession } from "./kiteAuth";
@@ -45,6 +45,55 @@ export const FNO_INDICES = [
   "MIDCPNIFTY",
   "NIFTYNXT50",
 ] as const;
+
+/** Cache for dynamic F&O universe pulled from Kite NFO instruments dump.
+ *  The dump is updated by Kite once per day (~07:30 IST), so a 6-hour TTL is
+ *  generous. Resets on Kite session loss via clearOiBaseline(). */
+let dynamicUniverseCache: { stocks: string[]; ts: number } | null = null;
+const UNIVERSE_TTL = 6 * 60 * 60 * 1000;
+
+/**
+ * Returns the LIVE F&O equity universe straight from Kite's NFO instruments
+ * dump — every name that has at least one futures contract listed for the
+ * current/next expiry. This is the authoritative source (changes whenever NSE
+ * adds/removes F&O names) and replaces our hand-curated ~199-name list.
+ *
+ * Falls back to `null` if Kite isn't connected — caller should use the static
+ * list as a safety net.
+ */
+export async function getDynamicFnoUniverse(): Promise<string[] | null> {
+  if (dynamicUniverseCache && Date.now() - dynamicUniverseCache.ts < UNIVERSE_TTL) {
+    return dynamicUniverseCache.stocks;
+  }
+  const client = await getRestClient();
+  if (!client) return null;
+  try {
+    const all = (await client.kc.getInstruments("NFO")) as KiteInstrumentLite[];
+    const todayIso = new Date().toISOString().slice(0, 10);
+    // Pull names that have at least one non-expired FUT contract — that's the
+    // canonical NSE definition of "F&O underlying".
+    const names = new Set<string>();
+    for (const i of all) {
+      if (i.instrument_type !== "FUT") continue;
+      const expIso = (typeof i.expiry === "string" ? i.expiry : i.expiry.toISOString()).slice(0, 10);
+      if (expIso < todayIso) continue;
+      // Skip indices — they live in FNO_INDICES already.
+      if ((FNO_INDICES as readonly string[]).includes(i.name)) continue;
+      names.add(i.name);
+    }
+    const stocks = Array.from(names).sort((a, b) => a.localeCompare(b));
+    dynamicUniverseCache = { stocks, ts: Date.now() };
+    logger.info({ count: stocks.length }, "OI Lab: dynamic F&O universe refreshed from Kite");
+    return stocks;
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "OI Lab: dynamic universe fetch failed");
+    return null;
+  }
+}
+
+export function clearDynamicUniverseCache(): void {
+  dynamicUniverseCache = null;
+}
 
 // ─── Bulk snapshot ───────────────────────────────────────────────────────────
 
@@ -109,9 +158,23 @@ export async function bulkSnapshot(
   const concurrency = Math.max(1, Math.min(opts.concurrency ?? 6, 12));
   const cleaned = Array.from(new Set(underlyings.map(s => s.toUpperCase().trim()))).filter(Boolean);
 
+  // Pre-compute the dynamic Kite F&O list ONCE per snapshot (it's cached for
+  // 6h anyway). Falls back to the static `isFnoUnderlying` predicate when
+  // Kite isn't connected so the existing static-only flow still rejects
+  // junk symbols. This keeps the picker (which serves dynamic Kite names)
+  // and the snapshot validator in sync — earlier the picker offered ~210
+  // names but the snapshot rejected anything outside the static ~199 list.
+  const dynamic = await getDynamicFnoUniverse();
+  const isAcceptedFno = (sym: string): boolean => {
+    if (dynamic && dynamic.length > 0) {
+      return dynamic.includes(sym) || (FNO_INDICES as readonly string[]).includes(sym);
+    }
+    return isFnoUnderlying(sym);
+  };
+
   const chains: Record<string, OcResponse> = {};
   const items: BulkSnapshotItem[] = await mapBoundedParallel(cleaned, concurrency, async (sym) => {
-    if (!isFnoUnderlying(sym)) {
+    if (!isAcceptedFno(sym)) {
       return { underlying: sym, ok: false, error: "Not in F&O list" };
     }
     try {
@@ -174,11 +237,366 @@ export function snapshotToCsv(snap: BulkSnapshotResult): string {
     const row = cols.map(c => {
       if (c === "topResistance") return escape(it.topResistance?.map(r => `${r.strike}:${r.oi}`).join("|"));
       if (c === "topSupport")    return escape(it.topSupport?.map(r => `${r.strike}:${r.oi}`).join("|"));
-      return escape((it as Record<string, unknown>)[c]);
+      return escape((it as unknown as Record<string, unknown>)[c]);
     });
     lines.push(row.join(","));
   }
   return lines.join("\n");
+}
+
+// ─── OI Insights (single underlying, rich per-strike payload) ───────────────
+
+export type SentimentBand =
+  | "STRONGLY_BEARISH"
+  | "MILDLY_BEARISH"
+  | "NEUTRAL"
+  | "MILDLY_BULLISH"
+  | "STRONGLY_BULLISH";
+
+export interface OiStrikeRow {
+  strike: number;
+  isAtm: boolean;
+  // Calls
+  ceOi: number;
+  ceOiChg: number;          // intraday Δ OI
+  ceVolume: number;
+  ceLtp: number;
+  ceIv: number | null;
+  ceBuildup: "LONG_BUILDUP" | "SHORT_BUILDUP" | "SHORT_COVERING" | "LONG_UNWINDING" | "NEUTRAL";
+  // Puts
+  peOi: number;
+  peOiChg: number;
+  peVolume: number;
+  peLtp: number;
+  peIv: number | null;
+  peBuildup: "LONG_BUILDUP" | "SHORT_BUILDUP" | "SHORT_COVERING" | "LONG_UNWINDING" | "NEUTRAL";
+  // Per-strike PCR (OI)
+  pcr: number;
+  // Max-pain payout if expiry pinned at this strike (lower = more pain to writers AT this strike)
+  painValue: number;
+}
+
+export interface OiInsightsResponse {
+  underlying: string;
+  kind: "INDEX" | "EQUITY";
+  spot: number;
+  prevClose: number;
+  changePercent: number;
+  expiry: string;
+  expiries: string[];
+  atmStrike: number;
+  strikeStep: number;
+  lotSize: number | null;
+  source: string;
+  generatedAt: string;
+  // Aggregates
+  pcrOi: number;
+  /** Intraday flow polarity in [-1, +1]. +1 = puts being accumulated heavily
+   *  vs calls (bullish writers); -1 = calls accumulated heavily (bearish). */
+  intradayFlow: number;
+  pcrVolume: number;
+  /** When `false`, intraday OI delta fields (`ceOiChg`, `peOiChg`,
+   *  `callOiAdded`, `putOiAdded`, `intradayFlow`) are derived from a Kite REST
+   *  session-range proxy (`oi_day_high - oi_day_low`, signed by today's price
+   *  change) — Kite REST does not expose tick-level OI deltas. The Intraday
+   *  Tracker tab provides true tick-by-tick deltas when running. */
+  intradayOiTrue: false;
+  maxPain: number;
+  maxPainDeviation: number;  // (spot - maxPain) / maxPain * 100
+  atmIv: number | null;
+  totalCallOi: number;
+  totalPutOi: number;
+  callOiAdded: number;
+  putOiAdded: number;
+  // Top OI clusters
+  topResistance: { strike: number; oi: number }[];
+  topSupport: { strike: number; oi: number }[];
+  // Sentiment
+  sentiment: SentimentBand;
+  sentimentScore: number;    // -100 (extreme bear) … +100 (extreme bull)
+  sentimentLabel: string;    // "Strongly Bearish", etc.
+  marketInsight: string;     // 1-line summary
+  analysis: string;          // 1-2 sentence detail
+  // Per-strike rows (sorted asc by strike, trimmed to ATM ± strikesAround)
+  strikes: OiStrikeRow[];
+}
+
+/** Normalize the chain's per-leg `oiBuildup` (which is `undefined` for missing
+ *  legs or when no price/OI movement was observed) into a non-optional tag.
+ *  We deliberately reuse the chain's classification — it's computed from real
+ *  per-leg `priceChg` AND `oiChg`, not from a single boolean re-derivation. */
+function legBuildupTag(b: OcSide["oiBuildup"] | undefined): OiStrikeRow["ceBuildup"] {
+  return b ?? "NEUTRAL";
+}
+
+function bandFromScore(score: number): { band: SentimentBand; label: string } {
+  if (score <= -60) return { band: "STRONGLY_BEARISH",  label: "Strongly Bearish" };
+  if (score <= -20) return { band: "MILDLY_BEARISH",    label: "Mildly Bearish" };
+  if (score <   20) return { band: "NEUTRAL",           label: "Neutral" };
+  if (score <   60) return { band: "MILDLY_BULLISH",    label: "Mildly Bullish" };
+  return                   { band: "STRONGLY_BULLISH",  label: "Strongly Bullish" };
+}
+
+/**
+ * Score sentiment on a -100 .. +100 scale combining four signals.
+ * Each signal is scored -25..+25 then summed.
+ *
+ *   1. Static PCR(OI)          — positioning weight (puts vs calls written)
+ *   2. Spot vs Max-pain        — where option writers want price to land
+ *   3. Intraday flow polarity  — direction of fresh OI accumulation today
+ *   4. Top-cluster confirmation — does flow agree with where the heavy
+ *                                 OI walls are (resistance vs support)?
+ *
+ * Note: signals 3 & 4 use the chain's session-range OI proxy (Kite REST
+ * does not expose tick-level Δ OI). This is the same proxy the Heatmap tab
+ * relies on for buildup classification — directionally correct in aggregate.
+ */
+function scoreSentiment(args: {
+  pcrOi: number;
+  spot: number;
+  maxPain: number;
+  intradayFlow: number; // already normalised in [-1, +1]
+  topResistanceOi: number;
+  topSupportOi: number;
+}): number {
+  // 1. Static PCR — pivot at 1.0, cap at 0.4..1.6.
+  const pcrClamped = Math.max(0.4, Math.min(1.6, args.pcrOi));
+  const pcrScore = ((pcrClamped - 1) / 0.6) * 25;
+
+  // 2. Spot vs Max-pain — spot above max-pain = market biased upward.
+  const mpDev = args.maxPain > 0 ? ((args.spot - args.maxPain) / args.maxPain) * 100 : 0;
+  const mpClamped = Math.max(-2, Math.min(2, mpDev));
+  const mpScore = (mpClamped / 2) * 25;
+
+  // 3. Flow polarity — already in [-1, +1].
+  const flowScore = args.intradayFlow * 25;
+
+  // 4. Cluster confirmation — heavier put cluster (support) vs call cluster
+  //    (resistance) means writers are anchoring price ABOVE the put strike,
+  //    i.e. bullish. Bounded the same way as flow.
+  const clusterMag = args.topSupportOi + args.topResistanceOi;
+  const clusterRatio = clusterMag > 0
+    ? (args.topSupportOi - args.topResistanceOi) / clusterMag
+    : 0;
+  const clusterScore = clusterRatio * 25;
+
+  return Math.round(pcrScore + mpScore + flowScore + clusterScore);
+}
+
+function buildMarketInsight(
+  band: SentimentBand,
+  args: {
+    pcrOi: number;
+    spot: number;
+    maxPain: number;
+    callOiAdded: number;
+    putOiAdded: number;
+    topResistance: { strike: number; oi: number }[];
+    topSupport: { strike: number; oi: number }[];
+  },
+): { insight: string; analysis: string } {
+  const mpDev = args.maxPain > 0 ? ((args.spot - args.maxPain) / args.maxPain) * 100 : 0;
+  const mpDir = mpDev > 0.2 ? "above" : mpDev < -0.2 ? "below" : "near";
+  const r1 = args.topResistance[0]?.strike;
+  const s1 = args.topSupport[0]?.strike;
+
+  let insight: string;
+  switch (band) {
+    case "STRONGLY_BEARISH":
+      insight = "Heavy call writing + put unwinding — strong bearish positioning";
+      break;
+    case "MILDLY_BEARISH":
+      insight = "Call writers in control; cap on upside near key resistance";
+      break;
+    case "STRONGLY_BULLISH":
+      insight = "Heavy put writing + call covering — strong bullish positioning";
+      break;
+    case "MILDLY_BULLISH":
+      insight = "Put writers stepping in; supports building beneath spot";
+      break;
+    default:
+      insight = "Balanced positioning — no clear directional bias";
+  }
+
+  const callDom = args.callOiAdded > Math.abs(args.putOiAdded) * 1.3;
+  const putDom  = args.putOiAdded  > Math.abs(args.callOiAdded) * 1.3;
+  const flowText = callDom
+    ? `Heavy call accumulation (+${(args.callOiAdded / 1e7).toFixed(2)} Cr) vs puts (${(args.putOiAdded / 1e7).toFixed(2)} Cr) shows bearish positioning.`
+    : putDom
+    ? `Heavy put accumulation (+${(args.putOiAdded / 1e7).toFixed(2)} Cr) vs calls (${(args.callOiAdded / 1e7).toFixed(2)} Cr) shows bullish positioning.`
+    : `OI flow is balanced between calls and puts.`;
+
+  const analysis =
+    `${band.replaceAll("_", " ").toLowerCase()} sentiment with PCR at ${args.pcrOi.toFixed(2)}. ` +
+    `Spot ${mpDir} max-pain ${args.maxPain.toFixed(0)}` +
+    (Number.isFinite(mpDev) && mpDev !== 0 ? ` (${mpDev > 0 ? "+" : ""}${mpDev.toFixed(2)}%). ` : `. `) +
+    flowText +
+    (r1 ? ` Key resistance ${r1}.` : "") +
+    (s1 ? ` Key support ${s1}.` : "");
+
+  return { insight, analysis };
+}
+
+/**
+ * Build a rich, decision-ready payload for a single underlying — drives the
+ * "OI Insights" surface in the UI (multi-strike OI bar chart + sentiment gauge
+ * + max-pain + PCR donut, all from one call).
+ *
+ * @param strikesAround  Number of strikes ABOVE and BELOW ATM to include.
+ *                       e.g. 10 returns ATM ± 10 = 21 rows. Pass 999 for "all".
+ */
+export function computeOiInsights(chain: OcResponse, strikesAround = 20): OiInsightsResponse {
+  const rows = chain.rows;
+
+  // Aggregates
+  let totalCallOi = 0, totalPutOi = 0;
+  let totalCallVol = 0, totalPutVol = 0;
+  let callOiAdded = 0, putOiAdded = 0;
+  for (const r of rows) {
+    if (r.ce) {
+      totalCallOi  += r.ce.oi ?? 0;
+      totalCallVol += r.ce.volume ?? 0;
+      callOiAdded  += r.ce.chgOi ?? 0;
+    }
+    if (r.pe) {
+      totalPutOi   += r.pe.oi ?? 0;
+      totalPutVol  += r.pe.volume ?? 0;
+      putOiAdded   += r.pe.chgOi ?? 0;
+    }
+  }
+  const pcrOi     = totalCallOi > 0 ? +(totalPutOi / totalCallOi).toFixed(3) : 0;
+  const pcrVolume = totalCallVol > 0 ? +(totalPutVol / totalCallVol).toFixed(3) : 0;
+  // Intraday flow polarity, bounded to [-1, +1] regardless of unwinding/build
+  // direction. Positive = puts being written more than calls (bullish).
+  // Negative = calls being written more than puts (bearish).
+  // Using normalized signed difference avoids the divide-by-negative blowup
+  // of a naive (put / |call|) - 1 ratio when call OI is being unwound.
+  const flowMagAll = Math.abs(putOiAdded) + Math.abs(callOiAdded);
+  const flowNet    = flowMagAll > 0 ? (putOiAdded - callOiAdded) / flowMagAll : 0;
+
+  // Per-strike pain (premium writers pay if expiry pinned at this strike)
+  const painByStrike: Map<number, number> = new Map();
+  for (const target of rows) {
+    let pain = 0;
+    for (const r of rows) {
+      if (r.strike < target.strike) pain += (target.strike - r.strike) * (r.ce?.oi ?? 0);
+      else if (r.strike > target.strike) pain += (r.strike - target.strike) * (r.pe?.oi ?? 0);
+    }
+    painByStrike.set(target.strike, pain);
+  }
+  let maxPain = chain.atmStrike;
+  let minPainVal = Infinity;
+  for (const [strike, pain] of painByStrike) {
+    if (pain < minPainVal) { minPainVal = pain; maxPain = strike; }
+  }
+
+  // ATM IV
+  const atmRow = rows.find(r => r.strike === chain.atmStrike)
+    ?? rows.slice().sort((a, b) => Math.abs(a.strike - chain.spot) - Math.abs(b.strike - chain.spot))[0];
+  let atmIv: number | null = null;
+  if (atmRow) {
+    const ce = atmRow.ce?.iv;
+    const pe = atmRow.pe?.iv;
+    if (ce && pe) atmIv = +((ce + pe) / 2).toFixed(2);
+    else if (ce) atmIv = +ce.toFixed(2);
+    else if (pe) atmIv = +pe.toFixed(2);
+  }
+
+  // Top OI clusters (calls = resistance, puts = support)
+  const callByStrike = rows.map(r => ({ strike: r.strike, oi: r.ce?.oi ?? 0 }));
+  const putByStrike  = rows.map(r => ({ strike: r.strike, oi: r.pe?.oi ?? 0 }));
+  const topResistance = [...callByStrike].sort((a, b) => b.oi - a.oi).slice(0, 5);
+  const topSupport    = [...putByStrike].sort((a, b) => b.oi - a.oi).slice(0, 5);
+
+  // Sentiment
+  const topResistanceOi = topResistance.reduce((s, r) => s + r.oi, 0);
+  const topSupportOi    = topSupport.reduce((s, r) => s + r.oi, 0);
+  const score = scoreSentiment({
+    pcrOi, spot: chain.spot, maxPain,
+    intradayFlow: flowNet,
+    topResistanceOi, topSupportOi,
+  });
+  const { band, label } = bandFromScore(score);
+  const { insight, analysis } = buildMarketInsight(band, {
+    pcrOi, spot: chain.spot, maxPain,
+    callOiAdded, putOiAdded, topResistance, topSupport,
+  });
+
+  // Per-strike rows — reuse chain's per-leg `oiBuildup` (computed from real
+  // priceChg + oiChg in optionChain.ts), don't re-derive from a single sign.
+  const allStrikeRows: OiStrikeRow[] = rows.map(r => {
+    const ceOi = r.ce?.oi ?? 0, peOi = r.pe?.oi ?? 0;
+    return {
+      strike: r.strike,
+      isAtm: r.strike === chain.atmStrike,
+      ceOi,
+      ceOiChg: r.ce?.chgOi ?? 0,
+      ceVolume: r.ce?.volume ?? 0,
+      ceLtp: r.ce?.ltp ?? 0,
+      ceIv: r.ce?.iv != null ? +r.ce.iv.toFixed(2) : null,
+      ceBuildup: legBuildupTag(r.ce?.oiBuildup),
+      peOi,
+      peOiChg: r.pe?.chgOi ?? 0,
+      peVolume: r.pe?.volume ?? 0,
+      peLtp: r.pe?.ltp ?? 0,
+      peIv: r.pe?.iv != null ? +r.pe.iv.toFixed(2) : null,
+      peBuildup: legBuildupTag(r.pe?.oiBuildup),
+      pcr: ceOi > 0 ? +(peOi / ceOi).toFixed(2) : 0,
+      painValue: painByStrike.get(r.strike) ?? 0,
+    };
+  });
+
+  // Trim to ATM ± strikesAround
+  const atmIdx = allStrikeRows.findIndex(r => r.isAtm);
+  const startIdx = Math.max(0, atmIdx - strikesAround);
+  const endIdx = Math.min(allStrikeRows.length, atmIdx + strikesAround + 1);
+  const strikes = atmIdx >= 0 ? allStrikeRows.slice(startIdx, endIdx) : allStrikeRows;
+
+  return {
+    underlying: chain.underlying,
+    kind: chain.kind,
+    spot: chain.spot,
+    prevClose: chain.prevClose,
+    changePercent: chain.changePercent,
+    expiry: chain.expiry,
+    expiries: chain.expiries,
+    atmStrike: chain.atmStrike,
+    strikeStep: chain.strikeStep,
+    lotSize: chain.lotSize ?? null,
+    source: chain.source,
+    generatedAt: chain.generatedAt,
+    pcrOi,
+    intradayFlow: +flowNet.toFixed(3),
+    intradayOiTrue: false,
+    pcrVolume,
+    maxPain,
+    maxPainDeviation: maxPain > 0 ? +(((chain.spot - maxPain) / maxPain) * 100).toFixed(2) : 0,
+    atmIv,
+    totalCallOi, totalPutOi,
+    callOiAdded, putOiAdded,
+    topResistance, topSupport,
+    sentiment: band,
+    sentimentScore: score,
+    sentimentLabel: label,
+    marketInsight: insight,
+    analysis,
+    strikes,
+  };
+}
+
+/** Convenience wrapper used by the route handler — fetches Kite-only chain
+ *  then computes insights, surfacing a clean error when Kite isn't connected. */
+export async function fetchOiInsights(
+  underlying: string,
+  expiry?: string,
+  strikesAround = 20,
+): Promise<OiInsightsResponse | null> {
+  const sym = underlying.toUpperCase();
+  const chain = expiry
+    ? await fetchKiteOptionChain(sym, expiry)
+    : await fetchKiteOnlyChain(sym);
+  if (!chain) return null;
+  return computeOiInsights(chain, strikesAround);
 }
 
 // ─── OI Heatmap (Futures) ────────────────────────────────────────────────────
@@ -514,8 +932,16 @@ export async function startTracker(args: { underlyings: string[]; intervalMs?: n
   const session = await getActiveSession().catch(() => null);
   if (!session) throw new Error("Kite session not active — login required first");
 
+  // Use the dynamic Kite F&O list when available so the tracker accepts every
+  // symbol the picker offers; fall back to the static predicate when Kite
+  // hasn't returned a universe yet.
+  const dynamicSet = new Set(await getDynamicFnoUniverse() ?? []);
   const cleaned = Array.from(new Set(args.underlyings.map(s => s.toUpperCase().trim())))
-    .filter(s => s && isFnoUnderlying(s));
+    .filter(s => s && (
+      dynamicSet.size > 0
+        ? (dynamicSet.has(s) || (FNO_INDICES as readonly string[]).includes(s))
+        : isFnoUnderlying(s)
+    ));
   if (cleaned.length === 0) throw new Error("No valid F&O underlyings supplied");
   if (cleaned.length > MAX_TRACKER_UNDERLYINGS) {
     throw new Error(`Too many underlyings (${cleaned.length}); max is ${MAX_TRACKER_UNDERLYINGS} to respect Kite rate limits`);
