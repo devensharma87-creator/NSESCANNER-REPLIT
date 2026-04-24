@@ -1,0 +1,326 @@
+/**
+ * Deep Scan — universal lookup + snapshot for any NSE stock or Indian index.
+ *
+ *  - `searchUniverse(q)`   — fuzzy match across UNIVERSE + Indian index list
+ *  - `getDeepSnapshot()`    — chart + EMAs (20/50/100/200) + VWAP series + volume
+ *                             + 52W high/low + multi-period returns + (for stocks)
+ *                             attached fundamentals & profile
+ *
+ * Designed to be source-of-truth-agnostic: the chart/quote come from Yahoo
+ * (works from any IP, ~15min delayed); fundamentals reuse fetchFundamentals().
+ */
+
+import { UNIVERSE, getEntry, INDEX_CONSTITUENTS, type UniverseEntry } from "./universe";
+import { fetchChart, fetchFundamentals, yahooTickerFor, type YahooFundamentals } from "./yahoo";
+import { ema } from "./indicators";
+
+/** Series version of rolling-VWAP (the indicator helper returns only the latest value). */
+function rollingVwapSeries(
+  high: number[], low: number[], close: number[], volume: number[], lookback = 20,
+): (number | null)[] {
+  const n = close.length;
+  const out: (number | null)[] = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    const start = Math.max(0, i - lookback + 1);
+    let pv = 0, v = 0;
+    for (let j = start; j <= i; j++) {
+      const typ = ((high[j] ?? 0) + (low[j] ?? 0) + (close[j] ?? 0)) / 3;
+      const vol = volume[j] ?? 0;
+      pv += typ * vol;
+      v += vol;
+    }
+    out[i] = v > 0 ? pv / v : (close[i] ?? null);
+  }
+  return out;
+}
+import { logger } from "./logger";
+
+// Indian indices that the user can deep-scan. yahoo: ticker for chart fetch.
+export interface IndexDef {
+  symbol: string;     // canonical (NIFTY, BANKNIFTY, …)
+  name: string;       // display
+  yahoo: string;      // Yahoo Finance ticker (^NSEI, ^NSEBANK, …)
+  category: "Broad" | "Sector" | "Strategy";
+}
+
+export const INDEX_LIST: IndexDef[] = [
+  { symbol: "NIFTY",        name: "NIFTY 50",            yahoo: "^NSEI",                 category: "Broad" },
+  { symbol: "BANKNIFTY",    name: "BANK NIFTY",          yahoo: "^NSEBANK",              category: "Broad" },
+  { symbol: "FINNIFTY",     name: "NIFTY FINANCIAL",     yahoo: "NIFTY_FIN_SERVICE.NS",  category: "Broad" },
+  { symbol: "MIDCPNIFTY",   name: "NIFTY MIDCAP SELECT", yahoo: "^NSEMDCP50",            category: "Broad" },
+  { symbol: "NIFTYNXT50",   name: "NIFTY NEXT 50",       yahoo: "^NSMIDCP",              category: "Broad" },
+  { symbol: "NIFTY100",     name: "NIFTY 100",           yahoo: "^CNX100",               category: "Broad" },
+  { symbol: "NIFTY200",     name: "NIFTY 200",           yahoo: "^CNX200",               category: "Broad" },
+  { symbol: "NIFTY500",     name: "NIFTY 500",           yahoo: "^CRSLDX",               category: "Broad" },
+  { symbol: "NIFTYMIDCAP",  name: "NIFTY MIDCAP 100",    yahoo: "NIFTY_MIDCAP_100.NS",   category: "Broad" },
+  { symbol: "NIFTYSMLCAP",  name: "NIFTY SMALLCAP 100",  yahoo: "^CRSMID",               category: "Broad" },
+  { symbol: "SENSEX",       name: "BSE SENSEX",          yahoo: "^BSESN",                category: "Broad" },
+  { symbol: "INDIAVIX",     name: "INDIA VIX",           yahoo: "^INDIAVIX",             category: "Strategy" },
+  // Sector indices
+  { symbol: "NIFTYIT",      name: "NIFTY IT",            yahoo: "^CNXIT",                category: "Sector" },
+  { symbol: "NIFTYAUTO",    name: "NIFTY AUTO",          yahoo: "^CNXAUTO",              category: "Sector" },
+  { symbol: "NIFTYPHARMA",  name: "NIFTY PHARMA",        yahoo: "^CNXPHARMA",            category: "Sector" },
+  { symbol: "NIFTYFMCG",    name: "NIFTY FMCG",          yahoo: "^CNXFMCG",              category: "Sector" },
+  { symbol: "NIFTYMETAL",   name: "NIFTY METAL",         yahoo: "^CNXMETAL",             category: "Sector" },
+  { symbol: "NIFTYREALTY",  name: "NIFTY REALTY",        yahoo: "^CNXREALTY",            category: "Sector" },
+  { symbol: "NIFTYENERGY",  name: "NIFTY ENERGY",        yahoo: "^CNXENERGY",            category: "Sector" },
+  { symbol: "NIFTYINFRA",   name: "NIFTY INFRA",         yahoo: "^CNXINFRA",             category: "Sector" },
+  { symbol: "NIFTYMEDIA",   name: "NIFTY MEDIA",         yahoo: "^CNXMEDIA",             category: "Sector" },
+  { symbol: "NIFTYPSUBANK", name: "NIFTY PSU BANK",      yahoo: "^CNXPSUBANK",           category: "Sector" },
+  { symbol: "NIFTYPVTBANK", name: "NIFTY PVT BANK",      yahoo: "NIFTY_PVT_BANK.NS",     category: "Sector" },
+];
+
+const INDEX_BY_SYMBOL = new Map(INDEX_LIST.map(i => [i.symbol.toUpperCase(), i]));
+
+export type LookupKind = "stock" | "index";
+
+export interface LookupItem {
+  kind: LookupKind;
+  symbol: string;
+  name: string;
+  sector?: string;
+  category?: string;
+}
+
+/** Fuzzy search (substring, case-insensitive) across stocks + indices. Caps result. */
+export function searchUniverse(q: string, limit = 15): LookupItem[] {
+  const term = q.trim().toUpperCase();
+  if (!term) return [];
+
+  const out: LookupItem[] = [];
+  // Indices first (usually intent when typing NIFTY/BANK/…)
+  for (const idx of INDEX_LIST) {
+    if (idx.symbol.toUpperCase().includes(term) || idx.name.toUpperCase().includes(term)) {
+      out.push({ kind: "index", symbol: idx.symbol, name: idx.name, category: idx.category });
+    }
+  }
+  // Then stocks
+  for (const s of UNIVERSE) {
+    if (s.symbol.toUpperCase().includes(term) || s.name.toUpperCase().includes(term)) {
+      out.push({ kind: "stock", symbol: s.symbol, name: s.name, sector: s.sector });
+      if (out.length >= limit) break;
+    }
+  }
+  return out.slice(0, limit);
+}
+
+// ── Snapshot ──────────────────────────────────────────────────────────────────
+
+export type Range = "5d" | "1mo" | "3mo" | "6mo" | "1y" | "3y" | "5y";
+const ALL_RANGES: Range[] = ["5d", "1mo", "3mo", "6mo", "1y", "3y", "5y"];
+
+export interface Candle { t: number; o: number; h: number; l: number; c: number; v: number; }
+
+export interface DeepSnapshot {
+  kind: LookupKind;
+  symbol: string;
+  name: string;
+  sector?: string;
+  industry?: string;
+  description?: string;
+  range: Range;
+  ticker: string;                // Yahoo ticker actually used
+  quote: {
+    price: number;
+    change: number;
+    changePercent: number;
+    open: number | null;
+    high: number | null;
+    low: number | null;
+    previousClose: number | null;
+    fiftyTwoWeekHigh: number | null;
+    fiftyTwoWeekLow: number | null;
+    volume: number | null;
+    updatedAt: string;           // ISO
+  };
+  candles: Candle[];
+  series: {
+    ema20: (number | null)[];
+    ema50: (number | null)[];
+    ema100: (number | null)[];
+    ema200: (number | null)[];
+    vwap20: (number | null)[];
+  };
+  /** Period returns expressed as percent change vs price N trading days ago. null when not enough history. */
+  returns: Record<"1mo" | "3mo" | "6mo" | "1y" | "3y" | "5y", number | null>;
+  fundamentals?: YahooFundamentals;
+  profile?: {
+    seasonality?: string;
+    catalysts?: string[];
+  };
+  /** Optional (index only): number of constituents in the in-app universe for that index. */
+  constituentCount?: number;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Compute % change over the last N trading days, given full close series. */
+function pctChange(closes: number[], days: number): number | null {
+  if (closes.length < days + 1) return null;
+  const past = closes[closes.length - 1 - days];
+  const last = closes[closes.length - 1];
+  if (past == null || last == null || past <= 0) return null;
+  return round2(((last - past) / past) * 100);
+}
+
+/** Trading-day approximation: ~252 days per year, ~21 per month, ~5 per week. */
+const RETURN_LOOKBACK: Record<keyof DeepSnapshot["returns"], number> = {
+  "1mo": 21, "3mo": 63, "6mo": 126, "1y": 252, "3y": 756, "5y": 1260,
+};
+
+/**
+ * Build a Deep Snapshot for either a stock symbol or an index symbol.
+ * Pulls a *long* (5y) history once for accurate multi-period returns, then
+ * trims candles + series to the requested chart range.
+ */
+export async function getDeepSnapshot(
+  rawSym: string,
+  range: Range,
+  hintKind?: LookupKind,
+): Promise<DeepSnapshot | null> {
+  const sym = rawSym.toUpperCase();
+  const idx = INDEX_BY_SYMBOL.get(sym);
+  const stockEntry: UniverseEntry | undefined = !idx ? getEntry(sym) : undefined;
+
+  let kind: LookupKind;
+  let displayName: string;
+  let yahooTicker: string;
+  let sector: string | undefined;
+  let industry: string | undefined;
+  let description: string | undefined;
+  let seasonality: string | undefined;
+  let catalysts: string[] | undefined;
+
+  if (idx && hintKind !== "stock") {
+    kind = "index";
+    displayName = idx.name;
+    yahooTicker = idx.yahoo;
+  } else if (stockEntry) {
+    kind = "stock";
+    displayName = stockEntry.name;
+    // Use the canonical resolver so renamed NSE symbols (ZOMATO→ETERNAL,
+    // MCDOWELL-N→UNITDSPR, NIPPONLIFE→NAM-INDIA, GMRINFRA→GMRAIRPORT, etc.)
+    // share the same ticker mapping as the rest of the system.
+    yahooTicker = stockEntry.yahooSymbol ?? yahooTickerFor(sym);
+    sector = stockEntry.sector;
+    industry = stockEntry.industry;
+    description = stockEntry.description;
+    seasonality = stockEntry.seasonality;
+    catalysts = stockEntry.catalysts;
+  } else {
+    // Unknown symbol — assume it's a raw NSE ticker the user typed.
+    kind = "stock";
+    displayName = sym;
+    yahooTicker = yahooTickerFor(sym);
+  }
+
+  // Fetch a long history once (5y) so we can compute long-period returns accurately,
+  // then trim to the requested chart `range` for display.
+  const long = await fetchChart(yahooTicker, "5y", "1d");
+  if (!long || long.close.length < 5) {
+    logger.warn({ sym, yahooTicker }, "Deep snapshot: no chart data");
+    return null;
+  }
+
+  // Compute returns from the long series.
+  const returns: DeepSnapshot["returns"] = {
+    "1mo": pctChange(long.close, RETURN_LOOKBACK["1mo"]),
+    "3mo": pctChange(long.close, RETURN_LOOKBACK["3mo"]),
+    "6mo": pctChange(long.close, RETURN_LOOKBACK["6mo"]),
+    "1y":  pctChange(long.close, RETURN_LOOKBACK["1y"]),
+    "3y":  pctChange(long.close, RETURN_LOOKBACK["3y"]),
+    "5y":  pctChange(long.close, RETURN_LOOKBACK["5y"]),
+  };
+
+  // Choose how many bars to display for the requested range.
+  const RANGE_BARS: Record<Range, number> = { "5d": 5, "1mo": 22, "3mo": 66, "6mo": 130, "1y": 252, "3y": 756, "5y": 1260 };
+  const bars = Math.min(long.close.length, RANGE_BARS[range]);
+  const start = long.close.length - bars;
+
+  const candles: Candle[] = [];
+  for (let i = start; i < long.close.length; i++) {
+    candles.push({
+      t: (long.timestamps[i] ?? 0) * 1000,
+      o: round2(long.open[i] ?? 0),
+      h: round2(long.high[i] ?? 0),
+      l: round2(long.low[i] ?? 0),
+      c: round2(long.close[i] ?? 0),
+      v: long.volume[i] ?? 0,
+    });
+  }
+
+  // Compute indicator series on the FULL long history then slice to display window
+  // — that way EMA200 is correct even if the user picks a 1-month chart.
+  const ema20Full  = ema(long.close, 20);
+  const ema50Full  = ema(long.close, 50);
+  const ema100Full = ema(long.close, 100);
+  const ema200Full = ema(long.close, 200);
+  // VWAP is volume-weighted; for indices Yahoo reports 0 volume, which would
+  // collapse the indicator into the price line and mislead traders. Suppress it
+  // on indices and on stocks where every bar has zero volume.
+  const hasVolume = kind === "stock" && long.volume.some(v => v > 0);
+  const vwap20Full: (number | null)[] = hasVolume
+    ? rollingVwapSeries(long.high, long.low, long.close, long.volume, 20)
+    : new Array(long.close.length).fill(null);
+  const r2 = (v: number | null | undefined) => v == null ? null : round2(v);
+  const sliceR = (arr: (number | null)[]) => arr.slice(start).map(r2);
+
+  const last = long.close.length - 1;
+  const lastClose = long.close[last] ?? 0;
+  // Use the previous trading day's close for day change. `chartPreviousClose` from
+  // Yahoo represents the close *before the entire chart started*, which is wrong
+  // when we requested a 5y range (it would give us the price 5 years ago).
+  const prevClose = long.close[last - 1] ?? long.meta.chartPreviousClose ?? lastClose;
+  const change = lastClose - prevClose;
+  const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+
+  let fundamentals: YahooFundamentals | undefined;
+  if (kind === "stock") {
+    const f = await fetchFundamentals(sym).catch(() => null);
+    if (f) fundamentals = f;
+  }
+
+  let constituentCount: number | undefined;
+  if (kind === "index") {
+    constituentCount = INDEX_CONSTITUENTS[sym]?.length;
+  }
+
+  return {
+    kind,
+    symbol: sym,
+    name: displayName,
+    sector,
+    industry,
+    description,
+    range,
+    ticker: yahooTicker,
+    quote: {
+      price: round2(lastClose),
+      change: round2(change),
+      changePercent: round2(changePercent),
+      open: long.open[last] != null ? round2(long.open[last]!) : null,
+      high: long.meta.regularMarketDayHigh != null ? round2(long.meta.regularMarketDayHigh) : (long.high[last] != null ? round2(long.high[last]!) : null),
+      low: long.meta.regularMarketDayLow != null ? round2(long.meta.regularMarketDayLow) : (long.low[last] != null ? round2(long.low[last]!) : null),
+      previousClose: round2(prevClose),
+      fiftyTwoWeekHigh: long.meta.fiftyTwoWeekHigh != null ? round2(long.meta.fiftyTwoWeekHigh) : null,
+      fiftyTwoWeekLow: long.meta.fiftyTwoWeekLow != null ? round2(long.meta.fiftyTwoWeekLow) : null,
+      // Indices report 0 volume (Yahoo doesn't track it); surface as null so UI shows "—".
+      volume: kind === "index" ? null : (long.volume[last] || null),
+      updatedAt: new Date((long.meta.regularMarketTime ?? long.timestamps[last] ?? Date.now() / 1000) * 1000).toISOString(),
+    },
+    candles,
+    series: {
+      ema20:  sliceR(ema20Full),
+      ema50:  sliceR(ema50Full),
+      ema100: sliceR(ema100Full),
+      ema200: sliceR(ema200Full),
+      vwap20: sliceR(vwap20Full),
+    },
+    returns,
+    ...(fundamentals ? { fundamentals } : {}),
+    ...(seasonality || (catalysts && catalysts.length) ? { profile: { seasonality, catalysts } } : {}),
+    ...(constituentCount != null ? { constituentCount } : {}),
+  };
+}
+
+export const RANGES_FOR_DEEPSCAN = ALL_RANGES;

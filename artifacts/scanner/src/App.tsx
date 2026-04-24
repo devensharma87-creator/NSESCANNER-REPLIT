@@ -7,6 +7,8 @@ import NotFound from "@/pages/not-found";
 import Layout from "@/components/layout";
 import Dashboard from "@/pages/dashboard";
 import Scanner from "@/pages/scanner";
+import DeepScan from "@/pages/deep-scan";
+import Strategies from "@/pages/strategies";
 import Sectors from "@/pages/sectors";
 import SectorDetail from "@/pages/sector-detail";
 import StockDetail from "@/pages/stock-detail";
@@ -26,9 +28,11 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/scanner" component={Scanner} />
+      <Route path="/deep-scan" component={DeepScan} />
       <Route path="/options" component={Options} />
       <Route path="/option-chain" component={OptionChain} />
       <Route path="/option-chain/:underlying" component={OptionChain} />
+      <Route path="/strategies" component={Strategies} />
       <Route path="/premarket" component={PreMarket} />
       <Route path="/watchlist" component={Watchlist} />
       <Route path="/sectors" component={Sectors} />

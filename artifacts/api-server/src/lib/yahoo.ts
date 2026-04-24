@@ -48,6 +48,8 @@ const RANGE_DAYS: Record<string, number> = {
   "6mo": 190,
   "1y": 370,
   "2y": 740,
+  "3y": 1200,
+  "5y": 2200,
 };
 
 type Interval = "1m" | "5m" | "15m" | "30m" | "60m" | "1d" | "1wk" | "1mo";
@@ -97,7 +99,7 @@ async function chartCall(ticker: string, range: string, interval: Interval): Pro
 
 export async function fetchChart(
   symbol: string,
-  range: "1d" | "5d" | "1mo" | "3mo" | "6mo" | "1y" | "2y" = "6mo",
+  range: "1d" | "5d" | "1mo" | "3mo" | "6mo" | "1y" | "2y" | "3y" | "5y" = "6mo",
   interval: "1d" | "1wk" | "1mo" = "1d",
   exchange: "NS" | "BO" = "NS",
 ): Promise<YahooChart | null> {
