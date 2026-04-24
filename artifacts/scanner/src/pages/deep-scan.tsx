@@ -57,11 +57,22 @@ interface DeepSnapshot {
   constituentCount?: number;
 }
 
-const RANGES = ["5d", "1mo", "3mo", "6mo", "1y", "3y", "5y"] as const;
+const RANGES = ["1mo", "3mo", "6mo", "1y", "3y", "5y"] as const;
 type Range = typeof RANGES[number];
 
 const RANGE_LABEL: Record<Range, string> = {
-  "5d": "5D", "1mo": "1M", "3mo": "3M", "6mo": "6M", "1y": "1Y", "3y": "3Y", "5y": "5Y",
+  "1mo": "1M", "3mo": "3M", "6mo": "6M", "1y": "1Y", "3y": "3Y", "5y": "5Y",
+};
+
+// Colors must match the Recharts <Line>/<Area> stroke colors below so the
+// sidebar dots line up visually with the curves on the chart.
+const SERIES_COLOR: Record<string, string> = {
+  Price:      "hsl(var(--signal-strong-buy))",
+  "VWAP(20)": "hsl(195 90% 60%)",
+  "EMA 20":   "hsl(45 95% 60%)",
+  "EMA 50":   "hsl(280 80% 65%)",
+  "EMA 100":  "hsl(20 90% 60%)",
+  "EMA 200":  "hsl(0 80% 65%)",
 };
 
 const API_BASE = `${import.meta.env.BASE_URL}api`.replace(/\/+$/, "").replace(/\/api$/, "/api");
@@ -272,7 +283,7 @@ export default function DeepScan() {
             <Stat label="Day Change" value={fmtPct(snap.quote.changePercent)} tone={up ? "buy" : "sell"} />
           </div>
 
-          {/* Chart: Price + EMAs + VWAP */}
+          {/* Chart: Price + EMAs + VWAP — with right-side ladder of latest values */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
@@ -280,25 +291,28 @@ export default function DeepScan() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-2 pt-1">
-              <div className="h-[420px]">
-                <ResponsiveContainer>
-                  <ComposedChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                    <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="2 4" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} minTickGap={50} />
-                    <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} width={64} />
-                    <Tooltip
-                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
-                      formatter={(value: number | string, name: string) => [typeof value === "number" ? value.toFixed(2) : value, name]}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 11, fontFamily: "monospace" }} />
-                    <Area type="monotone" dataKey="close" stroke="hsl(var(--signal-strong-buy))" strokeWidth={1.8} fill="hsl(var(--signal-strong-buy))" fillOpacity={0.05} dot={false} name="Price" />
-                    <Line type="monotone" dataKey="vwap"   stroke="hsl(195 90% 60%)" strokeWidth={1.2} dot={false} name="VWAP(20)" strokeDasharray="3 3" />
-                    <Line type="monotone" dataKey="ema20"  stroke="hsl(45 95% 60%)"  strokeWidth={1.1} dot={false} name="EMA 20" />
-                    <Line type="monotone" dataKey="ema50"  stroke="hsl(280 80% 65%)" strokeWidth={1.1} dot={false} name="EMA 50" />
-                    <Line type="monotone" dataKey="ema100" stroke="hsl(20 90% 60%)"  strokeWidth={1.1} dot={false} name="EMA 100" />
-                    <Line type="monotone" dataKey="ema200" stroke="hsl(0 80% 65%)"   strokeWidth={1.3} dot={false} name="EMA 200" />
-                  </ComposedChart>
-                </ResponsiveContainer>
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-3 items-start">
+                <div className="h-[420px]">
+                  <ResponsiveContainer>
+                    <ComposedChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="2 4" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} minTickGap={50} />
+                      <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} width={64} />
+                      <Tooltip
+                        contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                        formatter={(value: number | string, name: string) => [typeof value === "number" ? value.toFixed(2) : value, name]}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11, fontFamily: "monospace" }} />
+                      <Area type="monotone" dataKey="close" stroke={SERIES_COLOR.Price}      strokeWidth={1.8} fill={SERIES_COLOR.Price} fillOpacity={0.05} dot={false} name="Price" />
+                      <Line type="monotone" dataKey="vwap"  stroke={SERIES_COLOR["VWAP(20)"]} strokeWidth={1.2} dot={false} name="VWAP(20)" strokeDasharray="3 3" />
+                      <Line type="monotone" dataKey="ema20"  stroke={SERIES_COLOR["EMA 20"]}  strokeWidth={1.1} dot={false} name="EMA 20" />
+                      <Line type="monotone" dataKey="ema50"  stroke={SERIES_COLOR["EMA 50"]}  strokeWidth={1.1} dot={false} name="EMA 50" />
+                      <Line type="monotone" dataKey="ema100" stroke={SERIES_COLOR["EMA 100"]} strokeWidth={1.1} dot={false} name="EMA 100" />
+                      <Line type="monotone" dataKey="ema200" stroke={SERIES_COLOR["EMA 200"]} strokeWidth={1.3} dot={false} name="EMA 200" />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+                <LevelsLadder data={chartData} kind={snap.kind} />
               </div>
             </CardContent>
           </Card>
@@ -403,6 +417,52 @@ export default function DeepScan() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Right-side ladder showing the most-recent values of Price + VWAP + each EMA,
+ * sorted high → low so the user can see relative ordering at a glance. The
+ * coloured dot before each label matches the corresponding line on the chart.
+ */
+function LevelsLadder({
+  data, kind,
+}: {
+  data: Array<{ label: string; close: number; vwap: number | null; ema20: number | null; ema50: number | null; ema100: number | null; ema200: number | null }>;
+  kind: LookupKind;
+}) {
+  if (!data.length) return null;
+  const last = data[data.length - 1];
+  const rows: { name: keyof typeof SERIES_COLOR; value: number }[] = [];
+  if (Number.isFinite(last.close))   rows.push({ name: "Price",     value: last.close });
+  if (last.vwap   != null && kind === "stock") rows.push({ name: "VWAP(20)",  value: last.vwap   });
+  if (last.ema20  != null) rows.push({ name: "EMA 20",   value: last.ema20  });
+  if (last.ema50  != null) rows.push({ name: "EMA 50",   value: last.ema50  });
+  if (last.ema100 != null) rows.push({ name: "EMA 100",  value: last.ema100 });
+  if (last.ema200 != null) rows.push({ name: "EMA 200",  value: last.ema200 });
+  rows.sort((a, b) => b.value - a.value);
+
+  const prefix = kind === "stock" ? "₹" : "";
+
+  return (
+    <div className="rounded-md border border-border bg-card/60 p-3 lg:sticky lg:top-2">
+      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-2">
+        {last.label}
+      </div>
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.name} className="flex items-center justify-between gap-3 font-mono">
+            <span className="inline-flex items-center gap-2 text-[12px]" style={{ color: SERIES_COLOR[r.name] }}>
+              <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: SERIES_COLOR[r.name] }} />
+              {r.name}
+            </span>
+            <span className="text-[12px] font-bold tabular-nums" style={{ color: SERIES_COLOR[r.name] }}>
+              {prefix}{fmt(r.value)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
