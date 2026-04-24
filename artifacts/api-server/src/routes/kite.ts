@@ -35,7 +35,9 @@ router.get("/kite/login-url", (_req, res) => {
 router.get("/kite/callback", async (req, res) => {
   const requestToken = String(req.query["request_token"] ?? "").trim();
   const status = String(req.query["status"] ?? "");
-  const baseRedirect = "/scanner/kite";
+  // Scanner is mounted at the domain root (artifact.toml: previewPath=/),
+  // so its `/kite` route lives at the top level — not under `/scanner/`.
+  const baseRedirect = "/kite";
   if (status && status !== "success") {
     res.redirect(`${baseRedirect}?login=failed&reason=${encodeURIComponent(status)}`);
     return;
