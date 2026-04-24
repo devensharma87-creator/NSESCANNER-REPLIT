@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 
+import { LoginGate } from "@/components/login-gate";
 import Layout from "@/components/layout";
 import Dashboard from "@/pages/dashboard";
 import Scanner from "@/pages/scanner";
@@ -51,11 +52,13 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Layout>
-            <Router />
-          </Layout>
-        </WouterRouter>
+        <LoginGate>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Layout>
+              <Router />
+            </Layout>
+          </WouterRouter>
+        </LoginGate>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

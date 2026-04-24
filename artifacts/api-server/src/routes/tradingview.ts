@@ -4,26 +4,40 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-/** Optional shared secret. If set in env, every webhook POST must include it
- * either as `?secret=...`, `X-Webhook-Secret` header, or a `secret` field in
- * the JSON body. If unset, the endpoint is open (so testing works without
- * extra setup). */
+/** Shared secret required for the public webhook endpoints.
+ *  - In PRODUCTION the secret is mandatory; if unset, every POST/DELETE is
+ *    rejected with 503 (no silent open mode).
+ *  - In DEVELOPMENT the secret is optional so local Curl testing works without
+ *    extra setup.
+ *  Accepted in `?secret=...`, `X-Webhook-Secret` header, or `secret` field in
+ *  the JSON body. */
 const SECRET = process.env["TRADINGVIEW_WEBHOOK_SECRET"];
+const IS_PROD = process.env["NODE_ENV"] === "production";
 
-function checkSecret(req: Request): boolean {
-  if (!SECRET) return true;
+type SecretCheck = { ok: true } | { ok: false; status: number; error: string };
+
+function checkSecret(req: Request): SecretCheck {
+  if (!SECRET) {
+    if (IS_PROD) {
+      return { ok: false, status: 503, error: "TRADINGVIEW_WEBHOOK_SECRET not configured on server" };
+    }
+    return { ok: true };
+  }
   const fromHeader = req.header("x-webhook-secret");
   const fromQuery = typeof req.query["secret"] === "string" ? (req.query["secret"] as string) : undefined;
   const body = req.body as Record<string, unknown> | undefined;
   const fromBody = body && typeof body["secret"] === "string" ? (body["secret"] as string) : undefined;
-  return fromHeader === SECRET || fromQuery === SECRET || fromBody === SECRET;
+  const supplied = fromHeader || fromQuery || fromBody;
+  if (supplied && supplied === SECRET) return { ok: true };
+  return { ok: false, status: 401, error: "invalid secret" };
 }
 
 router.post("/webhooks/tradingview", async (req, res, next) => {
   try {
-    if (!checkSecret(req)) {
-      logger.warn({ ip: req.ip }, "TradingView webhook rejected: bad secret");
-      return res.status(401).json({ error: "invalid secret" });
+    const check = checkSecret(req);
+    if (!check.ok) {
+      logger.warn({ ip: req.ip, status: check.status }, "TradingView webhook rejected");
+      return res.status(check.status).json({ error: check.error });
     }
     // Accept JSON body, or fall back to raw text in `message`.
     const body =
@@ -53,8 +67,9 @@ router.get("/webhooks/tradingview", async (req, res, next) => {
 
 router.delete("/webhooks/tradingview", async (req, res, next) => {
   try {
-    if (!checkSecret(req)) {
-      res.status(401).json({ error: "invalid secret" });
+    const check = checkSecret(req);
+    if (!check.ok) {
+      res.status(check.status).json({ error: check.error });
       return;
     }
     const cleared = await clearAlerts();
