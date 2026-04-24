@@ -86,6 +86,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link href="/option-chain" className={`transition-colors hover:text-foreground ${location.startsWith("/option-chain") ? "text-foreground" : "text-foreground/60"}`}>
                 Option Chain
               </Link>
+              <Link href="/oi-lab" className={`transition-colors hover:text-foreground ${location.startsWith("/oi-lab") ? "text-foreground" : "text-foreground/60"}`}>
+                OI Lab
+              </Link>
               <Link href="/premarket" className={`transition-colors hover:text-foreground ${location.startsWith("/premarket") ? "text-foreground" : "text-foreground/60"}`}>
                 Pre / Post
               </Link>
