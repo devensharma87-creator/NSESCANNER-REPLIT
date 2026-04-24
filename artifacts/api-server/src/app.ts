@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
+import rateLimit from "express-rate-limit";
 import router from "./routes";
 import authRouter from "./routes/auth";
 import { logger } from "./lib/logger";
@@ -62,6 +63,39 @@ app.use(
 app.use(cookieParser(SESSION_SECRET));
 app.use(express.json({ limit: "256kb" }));
 app.use(express.urlencoded({ extended: true, limit: "256kb" }));
+
+// ---- Rate limiting ----
+// Strict bucket for the login endpoint so password guessing is impractical.
+// Successful logins do NOT count against the budget so legitimate
+// re-authentication (new device, cleared cookies) isn't penalised.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: "too_many_login_attempts" },
+});
+// Webhook bucket — TradingView can fire frequently but each IP shouldn't burst.
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "rate_limited" },
+});
+// Default per-IP cap on /api/* so a runaway client can't DoS the upstream feeds.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "rate_limited" },
+});
+
+app.use("/api/auth/login", loginLimiter);
+app.use("/api/webhooks/", webhookLimiter);
+app.use("/api/", apiLimiter);
 
 // Auth routes are mounted BEFORE the gate so login/logout/status are reachable
 // while logged out. The gate then guards everything else under /api.

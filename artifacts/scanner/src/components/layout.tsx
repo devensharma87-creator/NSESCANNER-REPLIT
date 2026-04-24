@@ -101,6 +101,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link href="/news" className={`transition-colors hover:text-foreground ${location === "/news" ? "text-foreground" : "text-foreground/60"}`}>
                 Market Info
               </Link>
+              <Link href="/status" className={`transition-colors hover:text-foreground ${location.startsWith("/status") ? "text-foreground" : "text-foreground/60"}`}>
+                Status
+              </Link>
+              <Link href="/audit" className={`transition-colors hover:text-foreground ${location.startsWith("/audit") ? "text-foreground" : "text-foreground/60"}`}>
+                Audit
+              </Link>
               <Link href="/kite" className={`transition-colors hover:text-foreground ${location.startsWith("/kite") ? "text-foreground" : "text-foreground/60"}`}>
                 Live Feed
               </Link>

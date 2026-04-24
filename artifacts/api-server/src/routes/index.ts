@@ -7,6 +7,7 @@ import kiteRouter from "./kite";
 import optionChainRouter from "./optionChain";
 import optionStrategiesRouter from "./optionStrategies";
 import deepScanRouter from "./deepscan";
+import systemRouter from "./system";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
 
@@ -20,6 +21,7 @@ router.use(kiteRouter);
 router.use(optionChainRouter);
 router.use(optionStrategiesRouter);
 router.use(deepScanRouter);
+router.use(systemRouter);
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 startInstFlowsRefresher();

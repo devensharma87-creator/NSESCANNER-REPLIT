@@ -48,26 +48,33 @@ export function isPasswordConfigured(): boolean {
   return getPassword() !== undefined;
 }
 
-/** Public paths that bypass the cookie gate. Each entry is matched against
- *  `req.originalUrl` (without querystring). The remaining `/api/*` surface
- *  requires a valid signed session cookie. */
-const PUBLIC_PREFIXES = [
-  "/api/healthz",
-  "/api/auth/",
-  "/api/kite/callback",        // Zerodha redirect (auth = request_token + KITE_API_SECRET)
-  "/api/webhooks/tradingview", // TradingView server-to-server (auth = TRADINGVIEW_WEBHOOK_SECRET)
+/** Public routes that bypass the cookie gate.
+ *  - `path` is matched as a prefix against `req.originalUrl` (sans querystring).
+ *  - `methods`, if present, restricts the bypass to those HTTP verbs (others fall
+ *    back to requiring a session cookie). Defaults to all methods. */
+interface PublicRoute {
+  path: string;
+  methods?: string[];
+}
+const PUBLIC_ROUTES: PublicRoute[] = [
+  { path: "/api/healthz" },
+  { path: "/api/auth/" },
+  { path: "/api/kite/callback" },                       // Zerodha redirect (auth = request_token + KITE_API_SECRET)
+  { path: "/api/webhooks/tradingview", methods: ["POST"] }, // ONLY POST is public — TradingView S2S with TRADINGVIEW_WEBHOOK_SECRET
 ];
 
-function isPublicPath(url: string): boolean {
+function isPublicRoute(url: string, method: string): boolean {
   const path = url.split("?")[0] ?? "";
-  for (const p of PUBLIC_PREFIXES) {
-    if (path === p || path.startsWith(p)) return true;
+  for (const r of PUBLIC_ROUTES) {
+    const matches = path === r.path || path.startsWith(r.path);
+    if (!matches) continue;
+    if (!r.methods || r.methods.includes(method.toUpperCase())) return true;
   }
   return false;
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  if (isPublicPath(req.originalUrl)) return next();
+  if (isPublicRoute(req.originalUrl, req.method)) return next();
   if (isAuthenticated(req)) return next();
   res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
 }
