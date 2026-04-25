@@ -15,6 +15,7 @@ import SectorDetail from "@/pages/sector-detail";
 import StockDetail from "@/pages/stock-detail";
 import IndexDetail from "@/pages/index-detail";
 import News from "@/pages/news";
+import StocksToWatch from "@/pages/stocks-to-watch";
 import Options from "@/pages/options";
 import OptionChain from "@/pages/option-chain";
 import OiLab from "@/pages/oi-lab";
@@ -45,6 +46,7 @@ function Router() {
       <Route path="/stock/:symbol" component={StockDetail} />
       <Route path="/index/:slug" component={IndexDetail} />
       <Route path="/news" component={News} />
+      <Route path="/stocks-to-watch" component={StocksToWatch} />
       <Route path="/flows" component={Flows} />
       <Route path="/kite" component={KitePage} />
       <Route path="/status" component={StatusPage} />

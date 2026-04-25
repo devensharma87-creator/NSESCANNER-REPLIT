@@ -9,6 +9,7 @@ import oiLabRouter from "./oiLab";
 import optionStrategiesRouter from "./optionStrategies";
 import deepScanRouter from "./deepscan";
 import systemRouter from "./system";
+import stocksToWatchRouter from "./stocksToWatch";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
 
@@ -24,6 +25,7 @@ router.use(oiLabRouter);
 router.use(optionStrategiesRouter);
 router.use(deepScanRouter);
 router.use(systemRouter);
+router.use(stocksToWatchRouter);
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 startInstFlowsRefresher();

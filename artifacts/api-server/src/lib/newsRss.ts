@@ -19,6 +19,15 @@ const FEEDS: FeedSource[] = [
   { source: "ET Markets", url: "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms" },
   { source: "ET Markets", url: "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms" },
   { source: "Economic Times", url: "https://economictimes.indiatimes.com/rssfeedstopstories.cms" },
+  { source: "ET Earnings", url: "https://economictimes.indiatimes.com/markets/stocks/earnings/rssfeeds/13357270.cms" },
+  { source: "ET Policy", url: "https://economictimes.indiatimes.com/markets/stocks/policy/rssfeeds/13357270.cms" },
+  { source: "CNBC TV18", url: "https://www.cnbctv18.com/commonfeeds/v1/cne/rss/market.xml" },
+  { source: "CNBC TV18", url: "https://www.cnbctv18.com/commonfeeds/v1/cne/rss/business.xml" },
+  { source: "Business Standard", url: "https://www.business-standard.com/rss/markets-106.rss" },
+  { source: "Business Standard", url: "https://www.business-standard.com/rss/companies-101.rss" },
+  { source: "Investing.com", url: "https://www.investing.com/rss/news_25.rss" },
+  { source: "Investing.com", url: "https://www.investing.com/rss/news_301.rss" },
+  { source: "Yahoo Finance", url: "https://finance.yahoo.com/news/rssindex" },
 ];
 
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -162,6 +171,14 @@ async function refresh(): Promise<NewsItem[]> {
   }
   CACHE = { items: interleaved, ts: Date.now() };
   return interleaved;
+}
+
+/** All cached items (no count slice). Used by stocksToWatch classifier. */
+export async function getAllMarketNewsLive(): Promise<NewsItem[]> {
+  const now = Date.now();
+  if (CACHE && now - CACHE.ts < TTL_MS && CACHE.items.length > 0) return CACHE.items;
+  if (!inflight) inflight = refresh().finally(() => { inflight = null; });
+  try { return await inflight; } catch { return CACHE?.items ?? []; }
 }
 
 export async function getMarketNewsLive(count = 30): Promise<NewsItem[]> {
