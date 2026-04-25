@@ -30,7 +30,7 @@
 import type { Quote, StockRow, Recommendation } from "@workspace/api-zod";
 import { fetchIntraday, yahooTickerFor } from "./yahoo";
 import { ema, rsi, atr, sessionVwap } from "./indicators";
-import { getAllSymbols, getDeliveryPct } from "./nseBhavcopy";
+import { getAllSymbols, getDeliveryPct, getDeliveryMap } from "./nseBhavcopy";
 import { UNIVERSE, INACTIVE_SYMBOLS } from "./universe";
 import { logger } from "./logger";
 import { loadBlob, saveBlob } from "./diskCache";
@@ -44,13 +44,17 @@ const REST_AFTER_FAILS = 3;           // consecutive nulls → rest the symbol
 const REST_DURATION_MS = 60 * 60_000; // 1h before retrying a rested symbol
 const MIN_BARS = 5;                   // need at least this many 15m bars to compute anything
 const DISK_CACHE_NAME = "full-nse-scan";
-const DISK_CACHE_VERSION = 2;
+// v3: never persist degraded (curated-fallback) cache blobs. Bumping the
+// version invalidates any v2 blob that may already be on disk in production
+// from before the fix landed, so the next cold boot starts clean instead of
+// serving up a stale 199-row universe forever.
+const DISK_CACHE_VERSION = 3;
 const DISK_CACHE_MAX_AGE_MS = 60 * 60_000; // 1h — older than this, do a fresh scan but still serve stale immediately
 
 interface SymbolState { fails: number; restedUntil: number }
 const symbolState = new Map<string, SymbolState>();
 
-interface Cache { rows: StockRow[]; lastUpdated: number; sourceDate: string; total: number; scanMs: number; failures: number; rested: number }
+interface Cache { rows: StockRow[]; lastUpdated: number; sourceDate: string; total: number; scanMs: number; failures: number; rested: number; degraded?: boolean }
 
 // Progress signal — exposed via getFullNseStatus() so the UI can show
 // "1850 of 2486 scanned" while the cold scan is running.
@@ -322,22 +326,49 @@ async function performFullScan(): Promise<Cache> {
     scanMs: Date.now() - start,
     failures,
     rested: restedCount,
+    degraded,
   };
   logger.info({ rows: rows.length, total: symbolList.length, failures, rested: restedCount, ms: result.scanMs, degraded }, "Full NSE scan complete");
   return result;
 }
 
 export async function scanFullNse(): Promise<Cache> {
-  if (cache && Date.now() - cache.lastUpdated < REFRESH_MS) return cache;
+  // If the in-memory cache is degraded (curated 199-name fallback because
+  // bhavcopy was unavailable when it ran), treat it as expired so the next
+  // call retries — we don't want to hold onto a tiny universe for 5 min
+  // when the real bhavcopy may now be reachable.
+  const cacheUsable = cache && !cache.degraded && Date.now() - cache.lastUpdated < REFRESH_MS;
+  if (cacheUsable) return cache!;
   if (scanInFlight) return scanInFlight;
   scanInFlight = (async () => {
     try {
       const next = await performFullScan();
       if (next.rows.length > 0) {
-        cache = next;
-        // Persist after every successful scan so the next cold boot hands the
-        // UI a warm 2,400-row dataset within milliseconds, not 5 minutes.
-        try { saveBlob(DISK_CACHE_NAME, DISK_CACHE_VERSION, next); } catch { /* logged inside */ }
+        // Always serve the latest scan from memory — even a degraded one is
+        // better than nothing for the UI. But ONLY persist non-degraded
+        // results to disk: the warm-start path must never serve a stale
+        // 199-name fallback from a previous boot.
+        const prev = cache;
+        const upgrading = prev?.degraded && !next.degraded;
+        const downgrading = !prev?.degraded && next.degraded && (prev?.rows.length ?? 0) > next.rows.length;
+        // Don't overwrite a healthy in-memory cache with a degraded scan
+        // result (e.g. the bhavcopy cache TTL elapsed and a transient
+        // failure is now returning 199 again — keep the last good rows).
+        if (!downgrading) cache = next;
+        if (upgrading) {
+          logger.info({ rows: next.rows.length, total: next.total }, "Full NSE scan upgraded from degraded to full bhavcopy");
+        }
+        if (!next.degraded) {
+          try { saveBlob(DISK_CACHE_NAME, DISK_CACHE_VERSION, next); } catch { /* logged inside */ }
+        }
+      }
+      // After a degraded scan, schedule an aggressive retry in 60s rather
+      // than waiting the full 5-min refresh interval — the bhavcopy may
+      // become reachable as cookies warm up / NSE quotas reset.
+      if (next.degraded) {
+        setTimeout(() => {
+          void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Degraded-recovery full NSE scan failed"));
+        }, 60_000).unref?.();
       }
       return cache ?? next;
     } finally {
@@ -366,10 +397,22 @@ export function startFullNseScannerBackground(): void {
     logger.info({ rows: cache.rows.length, total: cache.total, ageMin }, "Full NSE: warm-started from disk cache");
   }
 
-  // Kick the first scan ASAP (was 30s — that was a holdover from when the
-  // bhavcopy fetch was slow and we wanted boot to settle first; bhavcopy is
-  // now disk-cached too, so we can start almost immediately).
-  setTimeout(() => { void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Initial full NSE scan failed")); }, 1500);
+  // Pre-warm the bhavcopy in the background, THEN kick the first scan.
+  // Without this, on a cold boot the scan beats the bhavcopy fetch and
+  // runs in degraded mode (199 curated names) while users wait. Giving
+  // the bhavcopy a head-start of up to 8s buys a clean first scan with
+  // the full ~2,486-symbol universe in the common case where NSE is
+  // reachable. If it doesn't load in 8s the scan still kicks off so we
+  // never block boot indefinitely.
+  setTimeout(() => {
+    const warm = getDeliveryMap()
+      .then(m => { logger.info({ ok: !!m, count: m?.map.size ?? 0 }, "Bhavcopy pre-warm before initial full NSE scan"); })
+      .catch(err => logger.warn({ err: (err as Error).message }, "Bhavcopy pre-warm threw"));
+    const timeout = new Promise<void>(res => setTimeout(res, 8000));
+    Promise.race([warm, timeout])
+      .then(() => scanFullNse())
+      .catch(err => logger.warn({ err: (err as Error).message }, "Initial full NSE scan failed"));
+  }, 500);
   timer = setInterval(() => {
     void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Background full NSE scan failed"));
   }, REFRESH_MS);

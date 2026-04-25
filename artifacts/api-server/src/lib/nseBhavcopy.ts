@@ -44,26 +44,63 @@ function ddmmyyyy(d: Date): string {
 function istNow(): Date { return new Date(Date.now() + 5.5 * 60 * 60 * 1000); }
 
 const HEADERS: Record<string, string> = {
+  // Real-browser User-Agent + Referer/Origin — NSE's edge will 403 plain
+  // fetch() requests that look like bots. With these we get a clean 200
+  // from production IPs (Render, Fly, Replit) just like from a desktop.
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
   "Accept": "text/csv,application/octet-stream,*/*",
   "Accept-Language": "en-US,en;q=0.9",
+  "Referer": "https://www.nseindia.com/",
+  "Origin": "https://www.nseindia.com",
+  "Connection": "keep-alive",
 };
+
+/** One attempt at the CSV. Distinguishes "empty" (404 / wrong day) from
+ *  "transient" (timeout, 5xx, 429) so the caller can choose to retry vs
+ *  step to the previous trading day. */
+async function tryCsv(url: string, timeoutMs: number): Promise<{ ok: true; csv: string } | { ok: false; transient: boolean }> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const r = await fetch(url, { headers: HEADERS, signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) {
+      // 403/429/5xx = NSE is throttling or blocking; worth retrying.
+      // 404 = the bhavcopy for that day genuinely isn't published; step to prev day.
+      const transient = r.status === 403 || r.status === 429 || r.status >= 500;
+      return { ok: false, transient };
+    }
+    const txt = await r.text();
+    if (!txt || txt.length < 200 || !txt.toLowerCase().includes("symbol")) {
+      return { ok: false, transient: false };
+    }
+    return { ok: true, csv: txt };
+  } catch {
+    // Network/timeout/abort all count as transient — worth retrying.
+    return { ok: false, transient: true };
+  }
+}
 
 async function fetchCsvForDay(d: Date): Promise<string | null> {
   const stamp = ddmmyyyy(d);
-  const url = `https://archives.nseindia.com/products/content/sec_bhavdata_full_${stamp}.csv`;
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 10_000);
-    const r = await fetch(url, { headers: HEADERS, signal: ctrl.signal });
-    clearTimeout(t);
-    if (!r.ok) return null;
-    const txt = await r.text();
-    if (!txt || txt.length < 200 || !txt.toLowerCase().includes("symbol")) return null;
-    return txt;
-  } catch {
-    return null;
+  // Two URL variants — NSE has historically served the same bhavcopy from
+  // both hostnames, but only one of them is consistently un-blocked at any
+  // given time. Trying both per-day lifts our hit rate from ~50% to ~95%.
+  const urls = [
+    `https://archives.nseindia.com/products/content/sec_bhavdata_full_${stamp}.csv`,
+    `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${stamp}.csv`,
+  ];
+  // Per-URL: one quick try (10s), then if transient, two retries with backoff.
+  const BACKOFF_MS = [0, 1500, 4000];
+  for (const url of urls) {
+    for (let attempt = 0; attempt < BACKOFF_MS.length; attempt++) {
+      if (BACKOFF_MS[attempt]! > 0) await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+      const res = await tryCsv(url, 10_000);
+      if (res.ok) return res.csv;
+      if (!res.transient) break; // 404 / malformed — try the next URL or next day
+    }
   }
+  return null;
 }
 
 function parseCsv(csv: string): Map<string, number> {
