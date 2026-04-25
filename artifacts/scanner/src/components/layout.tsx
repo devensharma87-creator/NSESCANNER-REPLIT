@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, Activity } from "lucide-react";
+import { Search } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import GlobalStrip from "@/components/global-strip";
@@ -7,6 +7,7 @@ import IndianStrip from "@/components/indian-strip";
 import { useListStocks, getListStocksQueryKey } from "@workspace/api-client-react";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ThemeSwitcher, applyTheme, loadInitialTheme } from "@/components/theme-switcher";
+import logoUrl from "@assets/logo_transparent.png";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
@@ -97,9 +98,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <div className="sticky top-0 z-50 w-full bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/65 border-b border-border">
       <header className="w-full border-b border-border">
         <div className="w-full px-4 flex h-14 items-center gap-3 min-w-0">
-          <Link href="/" className="flex items-center space-x-2 shrink-0">
-            <Activity className="h-5 w-5 text-signal-strong-buy" />
-            <span className="font-bold tracking-tight uppercase tracking-wider font-mono">NSE Scanner</span>
+          <Link href="/" className="flex items-center shrink-0" aria-label="Hrishi Associates Market Scanner — Home">
+            <img
+              src={logoUrl}
+              alt="Hrishi Associates"
+              className="h-10 w-10 object-contain"
+              draggable={false}
+            />
           </Link>
           <div className="relative flex-1 min-w-0">
             <div className="overflow-x-auto no-scrollbar">
