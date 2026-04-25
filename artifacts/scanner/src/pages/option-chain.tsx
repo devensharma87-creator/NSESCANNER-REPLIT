@@ -72,12 +72,26 @@ export default function OptionChainPage() {
   const chainQ = useGetOptionChain(
     underlying,
     chainParams,
-    { query: { refetchInterval: 30_000, retry: 0, queryKey: getGetOptionChainQueryKey(underlying, chainParams) } },
+    { query: {
+        // 60s (was 30s) — Greeks computation + IV solve adds CPU load on every
+        // tick, and the human eye can't read changes faster than this anyway.
+        refetchInterval: 60_000,
+        // Pause polling while the user has switched to another browser tab so
+        // we're not burning Kite quota and CPU on a hidden chart.
+        refetchIntervalInBackground: false,
+        retry: 0,
+        queryKey: getGetOptionChainQueryKey(underlying, chainParams),
+      } },
   );
   const analyticsQ = useGetOptionAnalytics(
     underlying,
     chainParams,
-    { query: { refetchInterval: 30_000, retry: 0, queryKey: getGetOptionAnalyticsQueryKey(underlying, chainParams) } },
+    { query: {
+        refetchInterval: 60_000,
+        refetchIntervalInBackground: false,
+        retry: 0,
+        queryKey: getGetOptionAnalyticsQueryKey(underlying, chainParams),
+      } },
   );
 
   const chain = chainQ.data;
@@ -431,6 +445,24 @@ export default function OptionChainPage() {
               <span className="text-muted-foreground">
                 Black-Scholes · r=6.75% · IV solved from market price
               </span>
+              {/* Download — credentialed by cookie. Includes the active expiry
+                  so the file matches what's currently on screen. */}
+              <a
+                href={`/api/options/chain/${underlying}/export?format=csv${chain.expiry ? `&expiry=${encodeURIComponent(chain.expiry)}` : ""}`}
+                className="px-2.5 py-1 rounded border border-border bg-card hover:border-primary/60 hover:text-primary transition-colors"
+                download
+                title="Download the current chain (with Greeks) as CSV"
+              >
+                ↓ CSV
+              </a>
+              <a
+                href={`/api/options/chain/${underlying}/export?format=json${chain.expiry ? `&expiry=${encodeURIComponent(chain.expiry)}` : ""}`}
+                className="px-2.5 py-1 rounded border border-border bg-card hover:border-primary/60 hover:text-primary transition-colors"
+                download
+                title="Download the current chain as JSON"
+              >
+                ↓ JSON
+              </a>
             </div>
             {chain && (() => {
               const atmRow = chain.rows.find(r => r.strike === chain.atmStrike);

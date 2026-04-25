@@ -27,6 +27,7 @@ import type { OcResponse, OcSide } from "./optionChain";
 import { fetchKiteOptionChain } from "./kiteOptionChain";
 import { computeAnalytics, type OptionAnalytics } from "./optionAnalytics";
 import { getRestClient, getActiveSession } from "./kiteAuth";
+import { loadBlob, saveBlob, istTradingDay } from "./diskCache";
 
 /**
  * OI Lab is strictly Kite-only — we do NOT use the NSE fallback that
@@ -632,6 +633,11 @@ interface KiteInstrumentLite {
 interface KiteQuoteLite {
   last_price: number;
   oi?: number;
+  // Kite returns the day's OI extremes alongside the live OI. We use these
+  // to compute a session-range proxy baseline on cold start, so the very
+  // first heatmap call doesn't show every contract as Neutral / 0% change.
+  oi_day_high?: number;
+  oi_day_low?: number;
   volume?: number;
   net_change?: number;
   ohlc?: { open: number; high: number; low: number; close: number };
@@ -665,9 +671,46 @@ export interface OiHeatmapResponse {
 }
 
 /** First-seen OI per instrument per session — establishes "baseline" for ∆%.
- *  Cleared when Kite session is cleared/expired. */
+ *  Cleared when Kite session is cleared/expired or when the IST trading day
+ *  rolls over. Persisted to disk so a server restart mid-session doesn't
+ *  reset every contract back to "Neutral / 0%". */
 const oiBaselineMap = new Map<number, { oi: number; ts: number; symbol: string }>();
 let baselineEstablishedAt: string | null = null;
+const BASELINE_BLOB_NAME = "oi-heatmap-baseline";
+const BASELINE_BLOB_VERSION = 1;
+let baselineHydrated = false;
+
+interface BaselineDiskShape {
+  tradingDay: string; // YYYY-MM-DD in IST
+  establishedAt: string;
+  entries: Array<[number, { oi: number; ts: number; symbol: string }]>;
+}
+
+function hydrateBaselineFromDisk(): void {
+  if (baselineHydrated) return;
+  baselineHydrated = true;
+  const blob = loadBlob<BaselineDiskShape>(BASELINE_BLOB_NAME, BASELINE_BLOB_VERSION);
+  if (!blob) return;
+  const today = istTradingDay();
+  if (blob.payload.tradingDay !== today) {
+    logger.info({ stored: blob.payload.tradingDay, today }, "OI baseline: discarding stale (different trading day)");
+    return;
+  }
+  for (const [k, v] of blob.payload.entries) oiBaselineMap.set(k, v);
+  baselineEstablishedAt = blob.payload.establishedAt;
+  logger.info({ entries: oiBaselineMap.size, establishedAt: baselineEstablishedAt }, "OI baseline: warm-started from disk");
+}
+
+function persistBaselineToDisk(): void {
+  try {
+    const payload: BaselineDiskShape = {
+      tradingDay: istTradingDay(),
+      establishedAt: baselineEstablishedAt ?? new Date().toISOString(),
+      entries: Array.from(oiBaselineMap.entries()),
+    };
+    saveBlob(BASELINE_BLOB_NAME, BASELINE_BLOB_VERSION, payload);
+  } catch { /* logged inside */ }
+}
 
 function classifyBuildup(priceChgPct: number, oiChgPct: number): OiBuildupBucket {
   // Buildup classification REQUIRES a meaningful OI move on either side.
@@ -710,6 +753,11 @@ export async function fetchOiHeatmap(): Promise<OiHeatmapResponse | null> {
 }
 
 async function fetchOiHeatmapInner(): Promise<OiHeatmapResponse | null> {
+  // Lazy hydrate from disk on first call (after server restart). Same-day
+  // baselines survive across restarts so the very first heatmap render
+  // already shows real OI deltas instead of all-zeros / all-Neutral.
+  hydrateBaselineFromDisk();
+
   const client = await getRestClient();
   if (!client) return null;
   const { kc } = client;
@@ -752,10 +800,28 @@ async function fetchOiHeatmapInner(): Promise<OiHeatmapResponse | null> {
     const q = quoteMap.get(`NFO:${f.tradingsymbol}`);
     if (!q || !q.last_price || q.oi == null) continue;
 
-    // Establish/refresh OI baseline (first-of-session per instrument)
+    // Establish/refresh OI baseline (first-of-session per instrument).
+    // First-touch problem: the most natural baseline is "OI at session open",
+    // but Kite doesn't expose that field. Without a workaround, the very
+    // first heatmap call after a cold boot stamps baseline=current_oi → all
+    // contracts show 0% change → everything bucketed as Neutral, which is
+    // exactly what the user reported ("Heatmap shows all 0/Neutral 218").
+    //
+    // Mitigation: when establishing a fresh baseline, prefer a session-range
+    // proxy derived from oi_day_high/oi_day_low. The midpoint is a defensible
+    // session-mean estimate; a single tick later, the true ∆ between current
+    // OI and the session-mean is already informative (longs/shorts have
+    // moved into or out of the contract relative to today's mean position).
     let baseline = oiBaselineMap.get(f.instrument_token);
     if (!baseline) {
-      baseline = { oi: q.oi, ts: now, symbol: f.name };
+      const dayHigh = q.oi_day_high;
+      const dayLow  = q.oi_day_low;
+      let baselineOi = q.oi;
+      if (typeof dayHigh === "number" && typeof dayLow === "number" && dayHigh > 0 && dayLow > 0 && dayHigh >= dayLow) {
+        // Midpoint of the session OI range — a stable proxy for "morning OI".
+        baselineOi = Math.round((dayHigh + dayLow) / 2);
+      }
+      baseline = { oi: baselineOi, ts: now, symbol: f.name };
       oiBaselineMap.set(f.instrument_token, baseline);
       if (!baselineEstablishedAt) baselineEstablishedAt = new Date(now).toISOString();
     }
@@ -806,7 +872,17 @@ async function fetchOiHeatmapInner(): Promise<OiHeatmapResponse | null> {
     totalNotional,
   };
   heatmapCache = { data: out, ts: now };
+  // Persist after every successful scan — small JSON file (~30KB), so the
+  // I/O cost is negligible compared to the 30s minimum gap between scans.
+  persistBaselineToDisk();
   return out;
+}
+
+/** Lifetime helper for the export endpoint — returns the latest cached
+ *  heatmap payload (forcing a fresh fetch if nothing is cached yet). */
+export async function getOiHeatmapForExport(): Promise<OiHeatmapResponse | null> {
+  if (heatmapCache && Date.now() - heatmapCache.ts < HEATMAP_CACHE_TTL) return heatmapCache.data;
+  return fetchOiHeatmap();
 }
 
 // ─── Intraday Tracker ────────────────────────────────────────────────────────
@@ -875,6 +951,44 @@ const trackerState: TrackerStateExt = {
   tickInFlight: false,
 };
 
+// ── Tracker snapshot persistence ──────────────────────────────────────────
+// The tracker writes a snapshot every N minutes; on a server restart all of
+// that history would otherwise vanish (the screenshot showing "2 snapshots"
+// after a long run is exactly this). We persist the ring buffer to disk per
+// IST trading day and re-hydrate at process start.
+const TRACKER_BLOB_NAME = "oi-tracker-snapshots";
+const TRACKER_BLOB_VERSION = 1;
+let trackerHydrated = false;
+
+interface TrackerDiskShape {
+  tradingDay: string;
+  snapshots: TrackerSnapshot[];
+}
+
+function hydrateTrackerFromDisk(): void {
+  if (trackerHydrated) return;
+  trackerHydrated = true;
+  const blob = loadBlob<TrackerDiskShape>(TRACKER_BLOB_NAME, TRACKER_BLOB_VERSION);
+  if (!blob) return;
+  const today = istTradingDay();
+  if (blob.payload.tradingDay !== today) {
+    logger.info({ stored: blob.payload.tradingDay, today }, "Tracker snapshots: discarding stale (different trading day)");
+    return;
+  }
+  trackerState.snapshots = blob.payload.snapshots.slice(-MAX_SNAPSHOTS);
+  logger.info({ count: trackerState.snapshots.length }, "Tracker snapshots: warm-started from disk");
+}
+
+function persistTrackerToDisk(): void {
+  try {
+    const payload: TrackerDiskShape = {
+      tradingDay: istTradingDay(),
+      snapshots: trackerState.snapshots.slice(-MAX_SNAPSHOTS),
+    };
+    saveBlob(TRACKER_BLOB_NAME, TRACKER_BLOB_VERSION, payload);
+  } catch { /* logged inside */ }
+}
+
 async function trackerTick(token: number): Promise<void> {
   // Skip if a previous tick is still in flight or this tick belongs to a stopped run.
   if (trackerState.tickInFlight) {
@@ -939,6 +1053,8 @@ async function trackerTick(token: number): Promise<void> {
     });
     if (token === trackerState.runToken && trackerState.running) {
       trackerState.lastTickAt = ts;
+      // Persist after every tick so a restart mid-day keeps the chart history.
+      persistTrackerToDisk();
     }
   } finally {
     trackerState.tickInFlight = false;
@@ -946,6 +1062,10 @@ async function trackerTick(token: number): Promise<void> {
 }
 
 export async function startTracker(args: { underlyings: string[]; intervalMs?: number }): Promise<TrackerStatus> {
+  // Pull any same-day snapshots back into memory so the user's first chart
+  // view after a restart isn't empty.
+  hydrateTrackerFromDisk();
+
   const session = await getActiveSession().catch(() => null);
   if (!session) throw new Error("Kite session not active — login required first");
 
@@ -996,6 +1116,7 @@ export function stopTracker(clearData = false): TrackerStatus {
 }
 
 export function getTrackerStatus(): TrackerStatus {
+  hydrateTrackerFromDisk();
   return {
     running: trackerState.running,
     startedAt: trackerState.startedAt,
@@ -1011,6 +1132,7 @@ export function getTrackerStatus(): TrackerStatus {
 }
 
 export function getTrackerSeries(underlying?: string): TrackerSnapshot[] {
+  hydrateTrackerFromDisk();
   if (!underlying) return [...trackerState.snapshots];
   const sym = underlying.toUpperCase();
   return trackerState.snapshots.filter(s => s.underlying === sym);

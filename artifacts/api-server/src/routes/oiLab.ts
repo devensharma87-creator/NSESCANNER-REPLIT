@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import {
   bulkSnapshot, snapshotToCsv,
-  fetchOiHeatmap,
+  fetchOiHeatmap, getOiHeatmapForExport,
   startTracker, stopTracker, getTrackerStatus, getTrackerSeries,
   fetchOiInsights,
   getDynamicFnoUniverse,
@@ -9,6 +9,7 @@ import {
 } from "../lib/oiLab";
 import { getActiveSession } from "../lib/kiteAuth";
 import { logger } from "../lib/logger";
+import { sendExport } from "../lib/csvExport";
 
 const router: IRouter = Router();
 
@@ -185,6 +186,69 @@ router.get("/options/oi-lab/tracker/series", (req, res) => {
     status: getTrackerStatus(),
     series: getTrackerSeries(u),
   });
+});
+
+// ── Exports (CSV/JSON download) ───────────────────────────────────────────
+
+/** GET /api/options/oi-lab/heatmap/export?format=csv|json
+ *  Streams every futures row from the latest heatmap snapshot. */
+router.get("/options/oi-lab/heatmap/export", async (req, res) => {
+  try {
+    const data = await getOiHeatmapForExport();
+    if (!data) { res.status(503).json({ error: "heatmap_unavailable" }); return; }
+    const format = String(req.query.format ?? "csv").toLowerCase();
+    sendExport(res, "oi-heatmap", format, data.rows.map(r => ({
+      symbol: r.symbol,
+      future: r.fut,
+      expiry: r.expiry,
+      ltp: r.ltp,
+      prevClose: r.prevClose,
+      priceChgPct: r.priceChgPct,
+      oi: r.oi,
+      baselineOi: r.baselineOi,
+      oiChgAbs: r.oiChgAbs,
+      oiChgPct: r.oiChgPct,
+      bucket: r.bucket,
+      notional: r.notional,
+      lotSize: r.lotSize,
+      volume: r.volume,
+      generatedAt: data.generatedAt,
+      baselineEstablishedAt: data.baselineEstablishedAt,
+    })));
+  } catch (err) {
+    logger.error({ err: (err as Error).message }, "OI heatmap export failed");
+    res.status(500).json({ error: "heatmap_export_failed" });
+  }
+});
+
+/** GET /api/options/oi-lab/tracker/export?format=csv|json[&underlying=NIFTY]
+ *  Streams every recorded tracker snapshot (optionally one underlying). */
+router.get("/options/oi-lab/tracker/export", (req, res) => {
+  try {
+    const u = typeof req.query.underlying === "string" ? req.query.underlying : undefined;
+    const series = getTrackerSeries(u);
+    const format = String(req.query.format ?? "csv").toLowerCase();
+    const base = u ? `oi-tracker-${u.toUpperCase()}` : "oi-tracker";
+    sendExport(res, base, format, series.map(s => ({
+      ts: s.ts,
+      underlying: s.underlying,
+      spot: s.spot,
+      changePercent: s.changePercent,
+      atmStrike: s.atmStrike,
+      pcrOi: s.pcrOi,
+      pcrVolume: s.pcrVolume,
+      maxPain: s.maxPain,
+      atmIv: s.atmIv ?? "",
+      totalCallOi: s.totalCallOi,
+      totalPutOi: s.totalPutOi,
+      callOiAdded: s.callOiAdded,
+      putOiAdded: s.putOiAdded,
+      bias: s.bias,
+    })));
+  } catch (err) {
+    logger.error({ err: (err as Error).message }, "OI tracker export failed");
+    res.status(500).json({ error: "tracker_export_failed" });
+  }
 });
 
 export default router;

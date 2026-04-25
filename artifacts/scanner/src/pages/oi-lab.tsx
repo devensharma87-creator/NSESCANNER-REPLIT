@@ -390,9 +390,27 @@ function HeatmapTab() {
                 : loading ? "Loading…" : "—"}
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+            <a
+              href={`${base}api/options/oi-lab/heatmap/export?format=csv`}
+              className="inline-flex items-center gap-1 px-3 h-9 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary text-xs font-mono"
+              download
+              title="Download every futures row in this heatmap as CSV"
+            >
+              <Download className="w-3.5 h-3.5" /> CSV
+            </a>
+            <a
+              href={`${base}api/options/oi-lab/heatmap/export?format=json`}
+              className="inline-flex items-center gap-1 px-3 h-9 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary text-xs font-mono"
+              download
+              title="Download every futures row in this heatmap as JSON"
+            >
+              <Download className="w-3.5 h-3.5" /> JSON
+            </a>
+          </div>
         </CardHeader>
         <CardContent>
           {error && (
@@ -657,14 +675,38 @@ function TrackerTab() {
                 : `${series.length} total snapshots across ${trackedSymbols.length} symbols.`}
             </p>
           </div>
-          {trackedSymbols.length > 0 && (
-            <Select value={chartUnderlying} onValueChange={setChartUnderlying}>
-              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {trackedSymbols.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          )}
+          <div className="flex items-center gap-2">
+            {trackedSymbols.length > 0 && (
+              <Select value={chartUnderlying} onValueChange={setChartUnderlying}>
+                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {trackedSymbols.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            {series.length > 0 && (
+              <>
+                {/* Download — exports either the selected underlying (when a chip is
+                    chosen) or every recorded snapshot. Cookie-credentialed. */}
+                <a
+                  href={`${base}api/options/oi-lab/tracker/export?format=csv${chartUnderlying ? `&underlying=${encodeURIComponent(chartUnderlying)}` : ""}`}
+                  className="inline-flex items-center gap-1 px-2.5 h-9 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary text-xs font-mono"
+                  download
+                  title={`Download ${chartUnderlying || "all"} tracker snapshots as CSV`}
+                >
+                  <Download className="w-3.5 h-3.5" /> CSV
+                </a>
+                <a
+                  href={`${base}api/options/oi-lab/tracker/export?format=json${chartUnderlying ? `&underlying=${encodeURIComponent(chartUnderlying)}` : ""}`}
+                  className="inline-flex items-center gap-1 px-2.5 h-9 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary text-xs font-mono"
+                  download
+                  title={`Download ${chartUnderlying || "all"} tracker snapshots as JSON`}
+                >
+                  <Download className="w-3.5 h-3.5" /> JSON
+                </a>
+              </>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {chartData.length === 0 ? (

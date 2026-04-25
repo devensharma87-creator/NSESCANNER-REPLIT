@@ -3,6 +3,7 @@ import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics } from "../lib/optionAnalytics";
 import { getActiveSession } from "../lib/kiteAuth";
 import { logger } from "../lib/logger";
+import { sendExport } from "../lib/csvExport";
 
 const router: IRouter = Router();
 
@@ -48,6 +49,60 @@ router.get("/options/analytics/:underlying", async (req, res): Promise<void> => 
   } catch (err) {
     logger.error({ err: (err as Error).message, underlying }, "Option analytics handler crashed");
     res.status(500).json({ error: "Internal error computing analytics" });
+  }
+});
+
+/**
+ * GET /api/options/chain/:underlying/export?format=csv|json[&expiry=YYYY-MM-DD]
+ *
+ * Streams the full strike-by-strike chain as a downloadable file. CE and PE
+ * legs are flattened to a single row per strike (ce_* / pe_* prefix) so the
+ * CSV opens cleanly in Excel/Sheets without per-cell JSON parsing.
+ */
+router.get("/options/chain/:underlying/export", async (req, res): Promise<void> => {
+  const underlying = String(req.params.underlying ?? "").trim().toUpperCase();
+  const expiry = typeof req.query.expiry === "string" ? req.query.expiry : undefined;
+  const format = String(req.query.format ?? "csv").toLowerCase();
+  if (!underlying) { res.status(400).json({ error: "underlying required" }); return; }
+
+  try {
+    const chain = await fetchOptionChain(underlying, expiry);
+    if (!chain) { res.status(503).json({ error: "Option chain unavailable", underlying }); return; }
+    const flat = chain.rows.map(r => ({
+      strike: r.strike,
+      atm: r.atm ? "Y" : "",
+      ce_ltp: r.ce?.ltp ?? "",
+      ce_change: r.ce?.change ?? "",
+      ce_iv: r.ce?.iv ?? "",
+      ce_delta: r.ce?.delta ?? "",
+      ce_gamma: r.ce?.gamma ?? "",
+      ce_theta: r.ce?.theta ?? "",
+      ce_vega: r.ce?.vega ?? "",
+      ce_oi: r.ce?.oi ?? "",
+      ce_oiChange: r.ce?.oiChange ?? "",
+      ce_volume: r.ce?.volume ?? "",
+      ce_buildup: r.ce?.buildup ?? "",
+      pe_ltp: r.pe?.ltp ?? "",
+      pe_change: r.pe?.change ?? "",
+      pe_iv: r.pe?.iv ?? "",
+      pe_delta: r.pe?.delta ?? "",
+      pe_gamma: r.pe?.gamma ?? "",
+      pe_theta: r.pe?.theta ?? "",
+      pe_vega: r.pe?.vega ?? "",
+      pe_oi: r.pe?.oi ?? "",
+      pe_oiChange: r.pe?.oiChange ?? "",
+      pe_volume: r.pe?.volume ?? "",
+      pe_buildup: r.pe?.buildup ?? "",
+      underlying: chain.underlying,
+      spot: chain.spot,
+      atmStrike: chain.atmStrike,
+      expiry: chain.expiry,
+      asOf: chain.lastUpdated,
+    }));
+    sendExport(res, `option-chain-${underlying}`, format, flat);
+  } catch (err) {
+    logger.error({ err: (err as Error).message, underlying }, "Option chain export crashed");
+    res.status(500).json({ error: "Internal error exporting chain" });
   }
 });
 

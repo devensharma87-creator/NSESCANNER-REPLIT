@@ -5,6 +5,9 @@ dist
 tmp
 out-tsc
 *.tsbuildinfo
+
+# warm-start disk caches (regenerated at runtime — not source)
+.cache/*.json
 .expo
 .expo-shared
 

@@ -8,9 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
-import { ArrowUp, ArrowDown, ArrowUpDown, RefreshCw } from "lucide-react";
+import { ArrowUp, ArrowDown, ArrowUpDown, RefreshCw, Download } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useDeferredValue } from "react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StockRow } from "@workspace/api-client-react";
@@ -25,6 +25,13 @@ interface FullNseResponse {
   rested: number;
 }
 
+interface FullNseStatus {
+  hasCache: boolean;
+  rows: number;
+  total: number;
+  progress: { running: boolean; scanned: number; total: number; startedAt: number | null };
+}
+
 /**
  * Hook for the Full NSE EQ universe (~2486 symbols, lighter scanner).
  * Mirrors the shape returned by useListStocks (StockRow[]) so the rest of
@@ -34,6 +41,7 @@ interface FullNseResponse {
 function useFullNseStocks() {
   const [data, setData] = useState<StockRow[] | undefined>(undefined);
   const [meta, setMeta] = useState<{ universeSize: number; sourceDate: string; scanMs: number; failures: number; rested: number } | null>(null);
+  const [progress, setProgress] = useState<FullNseStatus["progress"] | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Pull the entire dataset once and apply filters client-side. The endpoint
@@ -43,7 +51,7 @@ function useFullNseStocks() {
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    const load = (showLoading: boolean) => {
+    const loadRows = (showLoading: boolean) => {
       if (showLoading) setIsLoading(true);
       return fetch(`/api/scan/full-nse?${qs}`, { credentials: "include" })
         .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
@@ -55,12 +63,43 @@ function useFullNseStocks() {
         .catch(() => { if (!cancelled && showLoading) setData(prev => prev ?? []); })
         .finally(() => { if (!cancelled && showLoading) setIsLoading(false); });
     };
-    load(true);
-    const t = setInterval(() => load(false), 30_000);
-    return () => { cancelled = true; clearInterval(t); };
+    // Live progress poll — runs faster than the row poll while a cold scan
+    // is in progress so the user sees "X of 2486" tick up in near-real-time.
+    const loadStatus = () => {
+      return fetch(`/api/scan/full-nse/status`, { credentials: "include" })
+        .then(r => r.ok ? r.json() as Promise<FullNseStatus> : null)
+        .then(j => { if (!cancelled && j) setProgress(j.progress); })
+        .catch(() => undefined);
+    };
+    loadRows(true);
+    loadStatus();
+    // Background polling — guarded by document.visibilityState so a tab
+    // sitting in the background doesn't keep hammering the API for data
+    // the user can't see. Errors swallowed so a single failure doesn't
+    // sever the recurring interval handler.
+    const tickRows = () => {
+      if (document.hidden) return;
+      try { void loadRows(false); } catch { /* keep polling */ }
+    };
+    const tickStatus = () => {
+      if (document.hidden) return;
+      try { void loadStatus(); } catch { /* keep polling */ }
+    };
+    // 60s row refetch (was 30s); 5s progress poll (was 3s). The progress
+    // endpoint is cheap (no Kite calls) so a slightly faster cadence is OK.
+    const tRows = setInterval(tickRows, 60_000);
+    const tStatus = setInterval(tickStatus, 5_000);
+    // Catch up immediately when the user comes back to the tab.
+    const onVis = () => { if (!document.hidden) { loadRows(false); loadStatus(); } };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(tRows); clearInterval(tStatus);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, []);
 
-  return { data, isLoading, meta };
+  return { data, isLoading, meta, progress };
 }
 
 type SortKey = "symbol" | "price" | "change" | "changePct" | "open" | "high" | "low" | "prev" | "vwap" | "ema20" | "ema50" | "ema100" | "ema200" | "rsi" | "yrHi" | "yrLo" | "vol" | "score";
@@ -168,7 +207,13 @@ export default function ScannerPage() {
       queryKey: getListStocksQueryKey(undefined),
     },
   });
-  const { data: fullStocks, isLoading: fullLoading, meta: fullMeta } = useFullNseStocks();
+  const { data: fullStocks, isLoading: fullLoading, meta: fullMeta, progress: fullProgress } = useFullNseStocks();
+
+  // useDeferredValue lets React keep the input responsive even when the
+  // expensive 2,500-row filter+sort recomputes. Typing updates `searchFilter`
+  // immediately (so the input renders instantly), and the table catches up
+  // on the next idle frame.
+  const deferredSearch = useDeferredValue(searchFilter);
 
   const mergedStocks = useMemo(() => {
     const bySymbol = new Map<string, StockRow>();
@@ -196,8 +241,8 @@ export default function ScannerPage() {
     // Apply server-side filters client-side now that we merge two sources
     if (sectorFilter !== "all") arr = arr.filter(s => s.sector === sectorFilter);
     if (signalFilter !== "all") arr = arr.filter(s => s.recommendation.signal === signalFilter);
-    if (searchFilter.trim()) {
-      const q = searchFilter.trim().toUpperCase();
+    if (deferredSearch.trim()) {
+      const q = deferredSearch.trim().toUpperCase();
       arr = arr.filter(s => s.symbol.toUpperCase().includes(q) || (s.name ?? "").toUpperCase().includes(q));
     }
     arr = arr.filter(s => {
@@ -227,7 +272,7 @@ export default function ScannerPage() {
       return sort.dir === "desc" ? -cmp : cmp;
     });
     return arr;
-  }, [mergedStocks, sort, screen, sectorFilter, signalFilter, searchFilter]);
+  }, [mergedStocks, sort, screen, sectorFilter, signalFilter, deferredSearch]);
 
   const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
   const fmt = (n: number | undefined | null, dp = 2) => n == null ? "—" : n.toFixed(dp);
@@ -242,12 +287,34 @@ export default function ScannerPage() {
             {fullMeta && <span className="block mt-0.5 text-[11px]">Last full scan: <span className="font-mono">{(fullMeta.scanMs / 1000).toFixed(1)}s</span> · {fullMeta.failures} no-feed · {fullMeta.rested} rested · source {fullMeta.sourceDate}.</span>}
           </p>
         </div>
-        {fullLoading && mergedStocks.length > 0 && (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card font-mono text-[11px] text-muted-foreground">
-            <RefreshCw className="h-3 w-3 animate-spin" />
-            Loading full NSE…
+        <div className="flex flex-col items-end gap-2">
+          {/* Live cold-scan progress badge — only visible while a scan is actually running */}
+          {fullProgress?.running && fullProgress.total > 0 && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-primary/40 bg-primary/10 font-mono text-[11px] text-primary">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Scanning {fullProgress.scanned.toLocaleString("en-IN")} of {fullProgress.total.toLocaleString("en-IN")}
+              <span className="text-primary/60">·</span>
+              <span>{Math.round((fullProgress.scanned / Math.max(1, fullProgress.total)) * 100)}%</span>
+            </div>
+          )}
+          {/* CSV/JSON download — credentialed by cookie, anchor opens save dialog */}
+          <div className="inline-flex items-center gap-1.5">
+            <a
+              href="/api/scan/full-nse/export?format=csv"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary font-mono text-[11px] uppercase tracking-wider transition-colors"
+              download
+            >
+              <Download className="h-3 w-3" /> CSV
+            </a>
+            <a
+              href="/api/scan/full-nse/export?format=json"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary font-mono text-[11px] uppercase tracking-wider transition-colors"
+              download
+            >
+              <Download className="h-3 w-3" /> JSON
+            </a>
           </div>
-        )}
+        </div>
       </div>
 
       <Card>

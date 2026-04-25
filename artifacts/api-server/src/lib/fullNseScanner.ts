@@ -33,17 +33,30 @@ import { ema, rsi, atr, sessionVwap } from "./indicators";
 import { getAllSymbols, getDeliveryPct } from "./nseBhavcopy";
 import { UNIVERSE, INACTIVE_SYMBOLS } from "./universe";
 import { logger } from "./logger";
+import { loadBlob, saveBlob } from "./diskCache";
 
 const REFRESH_MS = 5 * 60_000;        // 5 min between full scans
-const CONCURRENCY = 8;                // Yahoo bounded parallel
+// Yahoo's intraday endpoint is generous; 16 parallel workers cuts the cold
+// scan from ~5min to ~2.5min on a 2,500-symbol universe with no observed
+// rate-limit pushback in this region.
+const CONCURRENCY = 16;
 const REST_AFTER_FAILS = 3;           // consecutive nulls → rest the symbol
 const REST_DURATION_MS = 60 * 60_000; // 1h before retrying a rested symbol
 const MIN_BARS = 5;                   // need at least this many 15m bars to compute anything
+const DISK_CACHE_NAME = "full-nse-scan";
+const DISK_CACHE_VERSION = 2;
+const DISK_CACHE_MAX_AGE_MS = 60 * 60_000; // 1h — older than this, do a fresh scan but still serve stale immediately
 
 interface SymbolState { fails: number; restedUntil: number }
 const symbolState = new Map<string, SymbolState>();
 
 interface Cache { rows: StockRow[]; lastUpdated: number; sourceDate: string; total: number; scanMs: number; failures: number; rested: number }
+
+// Progress signal — exposed via getFullNseStatus() so the UI can show
+// "1850 of 2486 scanned" while the cold scan is running.
+interface Progress { scanned: number; total: number; startedAt: number | null; running: boolean }
+const progress: Progress = { scanned: 0, total: 0, startedAt: null, running: false };
+
 let cache: Cache | null = null;
 let scanInFlight: Promise<Cache> | null = null;
 let timer: NodeJS.Timeout | null = null;
@@ -260,6 +273,12 @@ async function performFullScan(): Promise<Cache> {
   let failures = 0;
   let cursor = 0;
 
+  // Reset progress for this run so the UI shows "0 of N → N of N".
+  progress.scanned = 0;
+  progress.total = eligible.length;
+  progress.startedAt = start;
+  progress.running = true;
+
   async function worker() {
     while (cursor < eligible.length) {
       const idx = cursor++;
@@ -283,11 +302,14 @@ async function performFullScan(): Promise<Cache> {
         if (st.fails >= REST_AFTER_FAILS) { st.restedUntil = Date.now() + REST_DURATION_MS; restedCount++; }
         symbolState.set(sym, st);
         logger.debug({ err: (err as Error).message, symbol: sym }, "Full NSE scan: row error");
+      } finally {
+        progress.scanned++;
       }
     }
   }
 
   await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+  progress.running = false;
 
   // Stable sort by symbol so consumers can binary-search
   rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
@@ -311,7 +333,12 @@ export async function scanFullNse(): Promise<Cache> {
   scanInFlight = (async () => {
     try {
       const next = await performFullScan();
-      if (next.rows.length > 0) cache = next;
+      if (next.rows.length > 0) {
+        cache = next;
+        // Persist after every successful scan so the next cold boot hands the
+        // UI a warm 2,400-row dataset within milliseconds, not 5 minutes.
+        try { saveBlob(DISK_CACHE_NAME, DISK_CACHE_VERSION, next); } catch { /* logged inside */ }
+      }
       return cache ?? next;
     } finally {
       scanInFlight = null;
@@ -320,19 +347,55 @@ export async function scanFullNse(): Promise<Cache> {
   return scanInFlight;
 }
 
+/** All currently-cached rows (for export/CSV). Returns [] if cache is cold. */
+export function getAllScannedRows(): { rows: StockRow[]; sourceDate: string | null; lastUpdated: number | null } {
+  if (!cache) return { rows: [], sourceDate: null, lastUpdated: null };
+  return { rows: cache.rows.slice(), sourceDate: cache.sourceDate, lastUpdated: cache.lastUpdated };
+}
+
 export function startFullNseScannerBackground(): void {
   if (timer) return;
-  // Initial kick: small delay so bhavcopy + boot work finishes first
-  setTimeout(() => { void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Initial full NSE scan failed")); }, 30_000);
+
+  // Warm-start: try the disk cache first. If we have a recent blob, it
+  // becomes the immediate response — the UI sees a full universe within
+  // a few ms instead of waiting for the cold scan to complete.
+  const blob = loadBlob<Cache>(DISK_CACHE_NAME, DISK_CACHE_VERSION);
+  if (blob && blob.payload && blob.payload.rows && blob.payload.rows.length > 0) {
+    cache = blob.payload;
+    const ageMin = Math.round((Date.now() - blob.ts) / 60_000);
+    logger.info({ rows: cache.rows.length, total: cache.total, ageMin }, "Full NSE: warm-started from disk cache");
+  }
+
+  // Kick the first scan ASAP (was 30s — that was a holdover from when the
+  // bhavcopy fetch was slow and we wanted boot to settle first; bhavcopy is
+  // now disk-cached too, so we can start almost immediately).
+  setTimeout(() => { void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Initial full NSE scan failed")); }, 1500);
   timer = setInterval(() => {
     void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Background full NSE scan failed"));
   }, REFRESH_MS);
   if (typeof timer.unref === "function") timer.unref();
-  logger.info({ refreshMs: REFRESH_MS, concurrency: CONCURRENCY }, "Full NSE background scanner started");
+  logger.info({ refreshMs: REFRESH_MS, concurrency: CONCURRENCY, warmCache: !!cache }, "Full NSE background scanner started");
 }
 
-export function getFullNseStatus(): { hasCache: boolean; lastUpdated: number | null; total: number; rows: number; failures: number; rested: number; sourceDate: string | null; scanMs: number | null } {
-  if (!cache) return { hasCache: false, lastUpdated: null, total: 0, rows: 0, failures: 0, rested: 0, sourceDate: null, scanMs: null };
+export function getFullNseStatus(): {
+  hasCache: boolean;
+  lastUpdated: number | null;
+  total: number;
+  rows: number;
+  failures: number;
+  rested: number;
+  sourceDate: string | null;
+  scanMs: number | null;
+  // Live progress for the cold scan (0 → total). Lets the UI show
+  // "1850 of 2486 scanned" while the user waits.
+  progress: { running: boolean; scanned: number; total: number; startedAt: number | null };
+  ageMs: number | null;
+  stale: boolean;
+} {
+  const ageMs = cache ? Date.now() - cache.lastUpdated : null;
+  const stale = ageMs != null && ageMs > DISK_CACHE_MAX_AGE_MS;
+  const prog = { running: progress.running, scanned: progress.scanned, total: progress.total, startedAt: progress.startedAt };
+  if (!cache) return { hasCache: false, lastUpdated: null, total: 0, rows: 0, failures: 0, rested: 0, sourceDate: null, scanMs: null, progress: prog, ageMs: null, stale: false };
   return {
     hasCache: true,
     lastUpdated: cache.lastUpdated,
@@ -342,5 +405,8 @@ export function getFullNseStatus(): { hasCache: boolean; lastUpdated: number | n
     rested: cache.rested,
     sourceDate: cache.sourceDate,
     scanMs: cache.scanMs,
+    progress: prog,
+    ageMs,
+    stale,
   };
 }

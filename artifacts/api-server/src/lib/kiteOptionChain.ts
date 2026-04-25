@@ -243,11 +243,22 @@ export async function fetchKiteOptionChain(
     }
     // For deep-ITM legs without solvable IV, delta is essentially ±1 / 0 by
     // construction — surface that so the UI never renders a totally blank row.
+    //
+    // The threshold is a percentage of spot (5%), NOT an absolute strike count.
+    // STRIKE_STEPS only has entries for indices; for high-priced stocks the
+    // fallback `50` would mean 5 strikes ≈ ₹250 — which on a ₹100k stock is
+    // 0.25% (almost ATM) and would aggressively misclassify slightly-OTM legs
+    // as deep-OTM. Percentage-of-spot scales correctly across all underlyings.
     if (delta == null && T > 0) {
+      const deepBand = spot * 0.05;
       if (optType === "CE") {
-        delta = leg.strike < spot - 5 * (STRIKE_STEPS[sym] ?? 50) ? 1 : leg.strike > spot + 5 * (STRIKE_STEPS[sym] ?? 50) ? 0 : undefined;
+        delta = leg.strike < spot - deepBand ? 1
+              : leg.strike > spot + deepBand ? 0
+              : undefined;
       } else {
-        delta = leg.strike > spot + 5 * (STRIKE_STEPS[sym] ?? 50) ? -1 : leg.strike < spot - 5 * (STRIKE_STEPS[sym] ?? 50) ? 0 : undefined;
+        delta = leg.strike > spot + deepBand ? -1
+              : leg.strike < spot - deepBand ? 0
+              : undefined;
       }
     }
 

@@ -14,7 +14,8 @@ import {
 } from "@workspace/api-zod";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll } from "../lib/scanner";
-import { scanFullNse, getFullNseStatus, startFullNseScannerBackground } from "../lib/fullNseScanner";
+import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
+import { sendExport } from "../lib/csvExport";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
 import { getMarketEvents, computeMarketStatus } from "../lib/marketEvents";
@@ -461,7 +462,11 @@ router.get("/scan/full-nse", async (req, res, next) => {
 
     const total = rows.length;
     const offset = Math.max(0, parseInt(String(req.query["offset"] ?? "0"), 10) || 0);
-    const limit = Math.max(1, Math.min(2500, parseInt(String(req.query["limit"] ?? "200"), 10) || 200));
+    // Default limit raised from 200 → 5000 because the Scanner UI is built
+    // around showing the entire universe (sortable, filterable, downloadable).
+    // 5000 comfortably covers every NSE EQ name; smaller pagers can still
+    // pass an explicit limit. Hard cap stays at 5000.
+    const limit = Math.max(1, Math.min(5000, parseInt(String(req.query["limit"] ?? "5000"), 10) || 5000));
     const paged = rows.slice(offset, offset + limit);
 
     res.json({
@@ -484,6 +489,60 @@ router.get("/scan/full-nse", async (req, res, next) => {
 /** GET /api/scan/full-nse/status — lightweight status (no row payload). */
 router.get("/scan/full-nse/status", (_req, res) => {
   res.json(getFullNseStatus());
+});
+
+/**
+ * GET /api/scan/full-nse/export?format=csv|json
+ *
+ * Streams every currently-cached row as a downloadable file. Triggers a
+ * scan first if the cache is cold so the user always gets a non-empty file.
+ * No filter parameters — the whole universe is exported deliberately so
+ * downloads are deterministic. Re-filter offline if needed.
+ */
+router.get("/scan/full-nse/export", async (req, res, next) => {
+  try {
+    let { rows, sourceDate, lastUpdated } = getAllScannedRows();
+    if (rows.length === 0) {
+      // Cold cache — kick a fetch and re-read.
+      const fresh = await scanFullNse();
+      rows = fresh.rows;
+      sourceDate = fresh.sourceDate;
+      lastUpdated = fresh.lastUpdated;
+    }
+    const format = String(req.query["format"] ?? "csv").toLowerCase();
+    // Flatten StockRow → wide spreadsheet row (one row per symbol with the
+    // most useful indicator columns broken out side-by-side).
+    const flat = rows.map(r => ({
+      symbol: r.symbol,
+      name: r.name,
+      sector: r.sector,
+      price: r.quote.price,
+      change: r.quote.change,
+      changePct: r.quote.changePercent,
+      open: r.quote.open,
+      high: r.quote.high,
+      low: r.quote.low,
+      previousClose: r.quote.previousClose,
+      volume: r.quote.volume,
+      avgVolume: r.quote.avgVolume,
+      fiftyTwoWeekHigh: r.quote.fiftyTwoWeekHigh ?? "",
+      fiftyTwoWeekLow:  r.quote.fiftyTwoWeekLow ?? "",
+      vwap:    r.indicators?.vwap ?? "",
+      ema20:   r.indicators?.ema20 ?? "",
+      ema50:   r.indicators?.ema50 ?? "",
+      ema100:  r.indicators?.ema100 ?? "",
+      ema200:  r.indicators?.ema200 ?? "",
+      rsi14:   r.indicators?.rsi14 ?? "",
+      atr14:   r.indicators?.atr14 ?? "",
+      volumeRatio: r.indicators?.volumeRatio ?? "",
+      deliveryPct: r.indicators?.deliveryPct ?? "",
+      score: r.recommendation.score,
+      signal: r.recommendation.signal,
+      sourceDate: sourceDate ?? "",
+      asOf: lastUpdated ? new Date(lastUpdated).toISOString() : "",
+    }));
+    sendExport(res, "nse-scan", format, flat);
+  } catch (err) { next(err); }
 });
 
 export default router;
