@@ -7,7 +7,6 @@ import IndianStrip from "@/components/indian-strip";
 import { useListStocks, getListStocksQueryKey } from "@workspace/api-client-react";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ThemeSwitcher, applyTheme, loadInitialTheme } from "@/components/theme-switcher";
-import logoUrl from "@assets/logo_transparent.png";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
@@ -148,52 +147,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <header className="w-full border-b border-border">
         <div className="w-full px-4 flex h-20 items-center gap-4 min-w-0">
           <Link
-            href="/"
-            className="group flex items-center gap-3.5 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
-            aria-label="Hrishi Associates Market Scanner — Home"
+            href="/manifesto"
+            className="brand-link group flex flex-col justify-center leading-[1.05] shrink-0 select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md py-1 pl-1 pr-2"
+            aria-label="Hrishi Associates Market Scanner — open manifesto"
+            title="Open the Trader's Manifesto"
           >
-            {/* Logo with glow ring */}
-            <span className="relative inline-flex items-center justify-center shrink-0">
-              <span
-                aria-hidden
-                className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-400/30 via-rose-500/20 to-cyan-400/30 blur-md opacity-70 group-hover:opacity-100 transition-opacity"
-              />
-              <span
-                aria-hidden
-                className="absolute inset-0 rounded-full ring-1 ring-foreground/10"
-              />
-              <img
-                src={logoUrl}
-                alt="Hrishi Associates Market Scanner logo"
-                className="relative h-[68px] w-[68px] object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] select-none transition-transform group-hover:scale-[1.03]"
-                draggable={false}
-              />
-            </span>
-
-            {/* Vertical gradient divider */}
             <span
-              aria-hidden
-              className="hidden md:block self-stretch w-px my-2 bg-gradient-to-b from-transparent via-border to-transparent"
-            />
-
-            {/* Wordmark */}
-            <span className="hidden md:flex flex-col leading-[1.1] select-none">
-              <span
-                className="font-extrabold tracking-tight text-[18px] lg:text-[20px] uppercase bg-gradient-to-r from-amber-500 via-orange-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm"
-                style={{ fontFamily: '"Playfair Display", "Georgia", serif', letterSpacing: "0.01em" }}
-              >
-                Hrishi&nbsp;Associates
-              </span>
-              <span className="font-mono text-[11px] tracking-[0.22em] uppercase text-foreground/70 mt-0.5">
-                Market Scanner <span className="text-foreground/40">·</span> by Dev
-              </span>
-              <span className="font-sans italic text-[10.5px] text-muted-foreground/85 mt-1 flex items-center gap-1.5">
-                <span>Learn Smarter</span>
-                <span aria-hidden className="inline-block h-1 w-1 rounded-full bg-amber-500/70" />
-                <span>Trade Smarter</span>
-                <span aria-hidden className="inline-block h-1 w-1 rounded-full bg-cyan-500/70" />
-                <span>Grow Faster</span>
-              </span>
+              className="brand-name font-black italic text-[26px] sm:text-[28px] lg:text-[32px] tracking-tight leading-none"
+              style={{ fontFamily: '"Playfair Display", Georgia, serif' }}
+            >
+              Hrishi&nbsp;Associates
+            </span>
+            <span className="font-mono text-[10px] sm:text-[10.5px] tracking-[0.32em] uppercase text-foreground/65 mt-1.5">
+              Market Scanner <span className="text-foreground/35">·</span> by Dev
+            </span>
+            <span className="hidden sm:flex items-center gap-1.5 italic text-[10.5px] text-muted-foreground/85 mt-1">
+              <span>Learn Smarter</span>
+              <span aria-hidden className="inline-block h-1 w-1 rounded-full bg-amber-500/80" />
+              <span>Trade Smarter</span>
+              <span aria-hidden className="inline-block h-1 w-1 rounded-full bg-cyan-500/80" />
+              <span>Grow Faster</span>
             </span>
           </Link>
           <div className="relative flex-1 min-w-0">

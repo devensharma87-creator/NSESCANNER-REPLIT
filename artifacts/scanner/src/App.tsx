@@ -27,6 +27,7 @@ import KitePage from "@/pages/kite";
 import LearnPage from "@/pages/learn";
 import AuditPage from "@/pages/audit";
 import StatusPage from "@/pages/status";
+import Manifesto from "@/pages/manifesto";
 
 const queryClient = new QueryClient();
 
@@ -54,6 +55,7 @@ function Router() {
       <Route path="/learn" component={LearnPage} />
       <Route path="/status" component={StatusPage} />
       <Route path="/audit" component={AuditPage} />
+      <Route path="/manifesto" component={Manifesto} />
       <Route component={NotFound} />
     </Switch>
   );

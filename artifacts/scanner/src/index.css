@@ -427,4 +427,41 @@ html.theme-ocean {
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after, .border.active-elevate:not(.no-active-interaction-elevate)::after, .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after, .border.active-elevate-2:not(.no-active-interaction-elevate)::after, .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
   }
+
+  .brand-link {
+    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 220ms ease;
+    will-change: transform;
+  }
+  .brand-link:hover { transform: translateY(-1px); }
+  .brand-link:active { transform: translateY(0); }
+
+  .brand-name {
+    background-image: linear-gradient(
+      92deg,
+      hsl(45 95% 60%) 0%,
+      hsl(28 95% 58%) 28%,
+      hsl(8 88% 60%) 52%,
+      hsl(330 80% 62%) 76%,
+      hsl(280 70% 65%) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    background-size: 200% 100%;
+    background-position: 0% 50%;
+    transition: background-position 600ms ease, filter 220ms ease;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.0);
+    filter: drop-shadow(0 1px 6px hsl(28 95% 58% / 0.18));
+  }
+  .brand-link:hover .brand-name {
+    background-position: 100% 50%;
+    filter: drop-shadow(0 2px 10px hsl(28 95% 58% / 0.35));
+  }
+  @supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+    .brand-name {
+      color: hsl(28 95% 58%);
+      -webkit-text-fill-color: hsl(28 95% 58%);
+    }
+  }
 }
