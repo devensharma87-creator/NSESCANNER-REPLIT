@@ -63,10 +63,11 @@ function SignalCard({ s }: { s: WatchSignal }) {
       <CardContent className="p-3.5 space-y-1.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <Link href={`/stock/${s.symbol}`}>
-              <a className={`font-mono font-bold text-base tracking-tight ${tickerColor} hover:underline`}>
-                {s.symbol}
-              </a>
+            <Link
+              href={`/stock/${s.symbol}`}
+              className={`font-mono font-bold text-base tracking-tight ${tickerColor} hover:underline`}
+            >
+              {s.symbol}
             </Link>
             {s.name && <div className="text-[11px] text-muted-foreground truncate">{s.name}{s.sector ? ` · ${s.sector}` : ""}</div>}
           </div>
