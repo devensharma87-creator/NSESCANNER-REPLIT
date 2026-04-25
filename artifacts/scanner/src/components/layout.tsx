@@ -100,8 +100,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Activity className="h-5 w-5 text-signal-strong-buy" />
             <span className="font-bold tracking-tight uppercase tracking-wider font-mono">NSE Scanner</span>
           </Link>
-          <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
-            <nav className="flex items-center space-x-5 text-[15px] font-semibold whitespace-nowrap">
+          <div className="relative flex-1 min-w-0">
+            <div className="overflow-x-auto no-scrollbar">
+            <nav className="flex items-center gap-x-4 lg:gap-x-5 text-[13.5px] lg:text-[14px] font-semibold whitespace-nowrap">
               <Link href="/" className={`transition-colors hover:text-foreground ${location === "/" ? "text-foreground" : "text-foreground/60"}`}>
                 Dashboard
               </Link>
@@ -141,18 +142,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link href="/news" className={`transition-colors hover:text-foreground ${location === "/news" ? "text-foreground" : "text-foreground/60"}`}>
                 Market Info
               </Link>
-              <Link href="/status" className={`transition-colors hover:text-foreground ${location.startsWith("/status") ? "text-foreground" : "text-foreground/60"}`}>
-                Status
+              <Link href="/kite" className={`transition-colors hover:text-foreground ${location.startsWith("/kite") ? "text-foreground" : "text-foreground/60"}`}>
+                Live Feed
               </Link>
               <Link href="/audit" className={`transition-colors hover:text-foreground ${location.startsWith("/audit") ? "text-foreground" : "text-foreground/60"}`}>
                 Audit
               </Link>
-              <Link href="/kite" className={`transition-colors hover:text-foreground ${location.startsWith("/kite") ? "text-foreground" : "text-foreground/60"}`}>
-                Live Feed
+              <Link href="/status" className={`transition-colors hover:text-foreground ${location.startsWith("/status") ? "text-foreground" : "text-foreground/60"}`}>
+                Status
               </Link>
             </nav>
+            </div>
+            {/* Right-edge fade hint that more tabs are scrollable */}
+            <div className="pointer-events-none absolute top-0 right-0 h-full w-8 bg-gradient-to-l from-card to-transparent" aria-hidden />
           </div>
-          <div className="flex items-center justify-end gap-2 shrink-0 w-40 sm:w-64 md:w-80 lg:w-96">
+          <div className="flex items-center justify-end gap-2 shrink-0 w-40 sm:w-56 md:w-64 lg:w-72">
             <ThemeSwitcher />
             <div ref={containerRef} className="relative flex-1 min-w-0">
               <form onSubmit={handleSubmit}>
