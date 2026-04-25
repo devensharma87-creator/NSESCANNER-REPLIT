@@ -175,16 +175,47 @@ function buildPayoff(legs: StrategyLeg[], spot: number, lotSize: number): {
   const sampleAt = (s: number) =>
     legs.reduce((acc, l) => acc + legPayoff(l, s), 0) * lotSize;
 
-  // ── Visualization grid: 161 evenly-spaced points across ±35% of spot ──
-  const lo = spot * 0.65;
-  const hi = spot * 1.35;
-  const N = 161;
-  const step = (hi - lo) / (N - 1);
-  const payoff: PayoffPoint[] = [];
-  for (let i = 0; i < N; i++) {
-    const s = lo + i * step;
-    payoff.push({ spot: +s.toFixed(2), pnl: +sampleAt(s).toFixed(2) });
+  // ── Visualization grid: focus around the actual leg strikes so the
+  // kinks (which is where the strategy's edge lives) are visible. We zoom
+  // out to the wider of (a) ±10% of spot, or (b) the leg strike span padded
+  // by 4 strike widths on each side. Sample 201 points and **always include
+  // every leg strike exactly** so the recharts `linear` interpolation draws
+  // crisp kinks instead of smoothing them off.
+  const legStrikes = legs.map(l => l.strike).filter(k => k > 0);
+  const sortedLegStrikes = [...new Set(legStrikes)].sort((a, b) => a - b);
+  const minK = sortedLegStrikes.length ? sortedLegStrikes[0] : spot;
+  const maxK = sortedLegStrikes.length ? sortedLegStrikes[sortedLegStrikes.length - 1] : spot;
+  // Strike-width estimate: smallest gap between adjacent strikes; fall back to 0.5% of spot
+  let strikeWidth = Math.max(1, Math.round(spot * 0.005));
+  if (sortedLegStrikes.length >= 2) {
+    let minGap = Infinity;
+    for (let i = 1; i < sortedLegStrikes.length; i++) {
+      const g = sortedLegStrikes[i] - sortedLegStrikes[i - 1];
+      if (g > 0 && g < minGap) minGap = g;
+    }
+    if (Number.isFinite(minGap)) strikeWidth = minGap;
   }
+  const padding = Math.max(strikeWidth * 4, spot * 0.025);
+  let lo = Math.min(minK, spot) - padding;
+  let hi = Math.max(maxK, spot) + padding;
+  // Always show at least ±10% around spot so the chart never looks "zoomed in"
+  // for single-strike strategies (long call, etc.) on stocks with wide ranges.
+  lo = Math.min(lo, spot * 0.90);
+  hi = Math.max(hi, spot * 1.10);
+  if (lo < 0) lo = 0;
+
+  const N = 201;
+  const step = (hi - lo) / (N - 1);
+  const sampleSet = new Set<number>();
+  for (let i = 0; i < N; i++) sampleSet.add(+(lo + i * step).toFixed(2));
+  // Force-include strike kinks + spot so the linear interpolation has anchor
+  // points exactly at the discontinuities of the payoff slope.
+  for (const k of legStrikes) sampleSet.add(+k.toFixed(2));
+  sampleSet.add(+spot.toFixed(2));
+  const sortedSpots = Array.from(sampleSet).sort((a, b) => a - b);
+  const payoff: PayoffPoint[] = sortedSpots.map(s => ({
+    spot: s, pnl: +sampleAt(s).toFixed(2),
+  }));
 
   // ── Analytical extrema ────────────────────────────────────────────────
   // Payoff is piecewise-linear in S with kinks at each strike. Therefore

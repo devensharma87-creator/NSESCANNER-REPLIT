@@ -1101,12 +1101,20 @@ function InsightsTab() {
                 <div className="h-80 flex items-center justify-center text-sm text-muted-foreground">No strikes in range.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={360}>
-                  <BarChart data={oiBars} barCategoryGap={2}>
+                  <BarChart data={oiBars} barCategoryGap={2} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                    <XAxis dataKey="strike" tick={{ fontSize: 10 }} interval={oiBars.length > 25 ? 1 : 0} />
+                    <XAxis
+                      dataKey="strike"
+                      tick={{ fontSize: 10 }}
+                      interval={oiBars.length > 25 ? 1 : 0}
+                      tickFormatter={(v) => String(v)}
+                    />
                     <YAxis
+                      width={64}
                       tick={{ fontSize: 10 }}
                       tickFormatter={chartView === "pcr" ? (v) => v.toFixed(2) : (v) => fmtNum(v)}
+                      domain={chartView === "oichg" ? ["auto", "auto"] : [0, "auto"]}
+                      allowDataOverflow={false}
                     />
                     <RTooltip
                       contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}

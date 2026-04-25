@@ -435,8 +435,8 @@ function PayoffChart({ s, spot }: { s: StrategySnapshot; spot: number }) {
           ))}
           <ReferenceDot x={spot} y={spotPnl} r={3} fill="hsl(var(--foreground))" stroke="hsl(var(--foreground))" />
           <ReferenceLine x={spot} stroke="hsl(var(--foreground))" strokeOpacity={0.3} strokeDasharray="2 2" />
-          <Area type="monotone" dataKey="pnl" stroke="hsl(var(--signal-strong-buy))" strokeWidth={1.5}
-                fill="url(#pnlGradient)" baseValue={0} />
+          <Area type="linear" dataKey="pnl" stroke="hsl(var(--signal-strong-buy))" strokeWidth={1.5}
+                fill="url(#pnlGradient)" baseValue={0} dot={false} isAnimationActive={false} />
           <defs>
             <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%"  stopColor="hsl(var(--signal-strong-buy))"  stopOpacity={0.4} />
@@ -445,7 +445,7 @@ function PayoffChart({ s, spot }: { s: StrategySnapshot; spot: number }) {
               <stop offset="100%" stopColor="hsl(var(--signal-strong-sell))" stopOpacity={0.4} />
             </linearGradient>
           </defs>
-          <Line type="monotone" dataKey="pnl" stroke="hsl(var(--signal-strong-buy))" strokeWidth={1.8} dot={false} />
+          <Line type="linear" dataKey="pnl" stroke="hsl(var(--signal-strong-buy))" strokeWidth={1.8} dot={false} isAnimationActive={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
