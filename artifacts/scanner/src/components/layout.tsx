@@ -6,6 +6,7 @@ import GlobalStrip from "@/components/global-strip";
 import IndianStrip from "@/components/indian-strip";
 import { useListStocks, getListStocksQueryKey } from "@workspace/api-client-react";
 import { SignalBadge } from "@/components/ui/signal-badge";
+import { ThemeSwitcher, applyTheme, loadInitialTheme } from "@/components/theme-switcher";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
@@ -50,9 +51,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("click", onClick);
   }, []);
 
-  // Add dark class on mount for dark-only theme
+  // Apply persisted theme on mount (defaults to dark)
   useEffect(() => {
-    document.documentElement.classList.add("dark");
+    applyTheme(loadInitialTheme());
   }, []);
 
   const [location] = useLocation();
@@ -151,8 +152,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             </nav>
           </div>
-          <div className="flex items-center justify-end space-x-2 shrink-0 w-40 sm:w-64 md:w-80 lg:w-96">
-            <div ref={containerRef} className="relative w-full">
+          <div className="flex items-center justify-end gap-2 shrink-0 w-40 sm:w-64 md:w-80 lg:w-96">
+            <ThemeSwitcher />
+            <div ref={containerRef} className="relative flex-1 min-w-0">
               <form onSubmit={handleSubmit}>
                 <div className="relative">
                   <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -177,7 +179,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           type="button"
                           key={s.symbol}
                           onClick={() => go(s.symbol)}
-                          className="w-full text-left flex items-center justify-between gap-3 px-3 py-2 hover:bg-white/5 border-b border-border/50 last:border-0"
+                          className="w-full text-left flex items-center justify-between gap-3 px-3 py-2 hover-row border-b border-border/50 last:border-0"
                         >
                           <div className="min-w-0">
                             <div className="font-mono font-bold text-sm">{s.symbol}</div>

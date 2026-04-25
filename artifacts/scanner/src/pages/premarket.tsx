@@ -247,7 +247,7 @@ export default function PreMarket() {
                 <ul className="space-y-1 text-sm">
                   {data.earningsToday.map((e) => (
                     <li key={e.symbol}>
-                      <Link href={`/stock/${encodeURIComponent(e.symbol ?? "")}`} className="flex items-center justify-between hover:bg-white/5 px-2 py-1 rounded">
+                      <Link href={`/stock/${encodeURIComponent(e.symbol ?? "")}`} className="flex items-center justify-between hover-row px-2 py-1 rounded">
                         <span className="font-mono font-bold">{e.symbol}</span>
                         <span className="text-xs text-muted-foreground truncate ml-3">{e.name}</span>
                       </Link>
@@ -289,7 +289,7 @@ function MoverList({ title, icon, items, positive }: { title: string; icon: Reac
             {items.map(s => (
               <li key={s.symbol}>
                 <Link href={`/stock/${encodeURIComponent(s.symbol)}`}>
-                  <div className="flex items-center justify-between gap-3 px-2 py-1.5 rounded hover:bg-white/5">
+                  <div className="flex items-center justify-between gap-3 px-2 py-1.5 rounded hover-row">
                     <div className="min-w-0">
                       <div className="font-mono font-bold text-sm">{s.symbol}</div>
                       <div className="text-[10px] text-muted-foreground truncate">{s.name}{s.sector ? ` · ${s.sector}` : ""}</div>
@@ -323,7 +323,7 @@ function GapList({ title, icon, items }: { title: string; icon: React.ReactNode;
             {items.map(g => (
               <li key={g.symbol}>
                 <Link href={`/stock/${encodeURIComponent(g.symbol)}`}>
-                  <div className="flex items-center justify-between gap-3 px-2 py-1.5 rounded hover:bg-white/5">
+                  <div className="flex items-center justify-between gap-3 px-2 py-1.5 rounded hover-row">
                     <div className="min-w-0">
                       <div className="font-mono font-bold text-sm">{g.symbol}</div>
                       <div className="text-[10px] text-muted-foreground truncate">{g.name}</div>

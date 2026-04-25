@@ -162,7 +162,7 @@ export default function Strategies() {
                 <button
                   key={it.sym}
                   onClick={() => { setPicker(it); setQuery(""); setOpen(false); }}
-                  className="w-full text-left flex items-center justify-between gap-3 px-3 py-2 hover:bg-white/5 border-b border-border/50 last:border-0"
+                  className="w-full text-left flex items-center justify-between gap-3 px-3 py-2 hover-row border-b border-border/50 last:border-0"
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <Badge variant="outline" className={`font-mono text-[9px] uppercase ${it.kind === "INDEX" ? "text-amber-400 border-amber-500/40" : ""}`}>

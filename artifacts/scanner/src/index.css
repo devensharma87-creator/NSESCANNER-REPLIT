@@ -135,8 +135,8 @@
 
   --app-font-sans: 'Inter', system-ui, sans-serif;
   --app-font-serif: Georgia, serif;
-  --app-font-mono: 'Space Mono', Menlo, monospace;
-  --radius: 0.25rem;
+  --app-font-mono: 'JetBrains Mono', Menlo, monospace;
+  --radius: 0.5rem;
 
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.2);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.2);
@@ -162,6 +162,116 @@
   /* same since root is already dark */
 }
 
+/* ---------- Theme: Light (clean Bloomberg-style daytime) ---------- */
+html.theme-light {
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .06);
+  --opaque-button-border-intensity: -9;
+  --elevate-1: rgba(0,0,0, .035);
+  --elevate-2: rgba(0,0,0, .07);
+
+  --background: 210 20% 98%;
+  --foreground: 222 47% 11%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --card-border: 220 13% 91%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --popover-border: 220 13% 91%;
+
+  --primary: 222 47% 11%;
+  --primary-foreground: 210 40% 98%;
+
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 222 47% 11%;
+
+  --muted: 220 14% 96%;
+  --muted-foreground: 215 16% 47%;
+
+  --accent: 220 14% 96%;
+  --accent-foreground: 222 47% 11%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --ring: 222 47% 11%;
+
+  --signal-strong-buy: 142 71% 38%;
+  --signal-buy: 142 60% 32%;
+  --signal-neutral: 215 16% 47%;
+  --signal-sell: 0 72% 48%;
+  --signal-strong-sell: 348 83% 44%;
+
+  --chart-1: 142 71% 38%;
+  --chart-2: 0 72% 48%;
+  --chart-3: 215 16% 47%;
+  --chart-4: 220 13% 80%;
+  --chart-5: 222 47% 11%;
+
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-border: 220 13% 91%;
+}
+
+/* ---------- Theme: Ocean (deep teal, cyan accents) ---------- */
+html.theme-ocean {
+  --button-outline: rgba(125, 211, 252, .14);
+  --badge-outline: rgba(125, 211, 252, .08);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(125, 211, 252, .05);
+  --elevate-2: rgba(125, 211, 252, .10);
+
+  --background: 200 60% 7%;
+  --foreground: 195 30% 96%;
+
+  --card: 200 55% 10%;
+  --card-foreground: 195 30% 96%;
+  --card-border: 198 40% 20%;
+
+  --popover: 200 55% 10%;
+  --popover-foreground: 195 30% 96%;
+  --popover-border: 198 40% 20%;
+
+  --primary: 188 95% 60%;
+  --primary-foreground: 200 60% 9%;
+
+  --secondary: 198 40% 18%;
+  --secondary-foreground: 195 30% 96%;
+
+  --muted: 198 40% 18%;
+  --muted-foreground: 195 20% 70%;
+
+  --accent: 188 70% 25%;
+  --accent-foreground: 195 30% 96%;
+
+  --destructive: 0 75% 55%;
+  --destructive-foreground: 195 30% 96%;
+
+  --border: 198 40% 20%;
+  --input: 198 40% 20%;
+  --ring: 188 95% 60%;
+
+  --signal-strong-buy: 158 75% 48%;
+  --signal-buy: 158 60% 38%;
+  --signal-neutral: 195 20% 70%;
+  --signal-sell: 8 80% 58%;
+  --signal-strong-sell: 354 82% 52%;
+
+  --chart-1: 158 75% 48%;
+  --chart-2: 8 80% 58%;
+  --chart-3: 195 20% 70%;
+  --chart-4: 198 40% 22%;
+  --chart-5: 188 95% 60%;
+
+  --sidebar: 200 60% 7%;
+  --sidebar-foreground: 195 30% 96%;
+  --sidebar-border: 198 40% 20%;
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -175,6 +285,11 @@
   input[type="search"]::-webkit-search-cancel-button { @apply hidden; }
   .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
   .no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  /* Theme-safe hover overlay — uses --elevate-1 which is defined per theme */
+  .hover-row { transition: background-color 120ms ease; }
+  .hover-row:hover { background-color: var(--elevate-1); }
+  .hover-row-strong { transition: background-color 120ms ease; }
+  .hover-row-strong:hover { background-color: var(--elevate-2); }
   [contenteditable][data-placeholder]:empty::before {
     content: attr(data-placeholder);
     color: hsl(var(--muted-foreground));

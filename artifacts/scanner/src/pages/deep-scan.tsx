@@ -234,7 +234,7 @@ export default function DeepScan() {
                   <button
                     key={`${it.kind}-${it.symbol}`}
                     onClick={() => select(it)}
-                    className="w-full text-left flex items-center justify-between gap-3 px-3 py-2 hover:bg-white/5 border-b border-border/50 last:border-0"
+                    className="w-full text-left flex items-center justify-between gap-3 px-3 py-2 hover-row border-b border-border/50 last:border-0"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <Badge variant="outline" className={`font-mono text-[9px] uppercase ${it.kind === "index" ? "text-amber-400 border-amber-500/40" : "text-foreground/80"}`}>
@@ -252,7 +252,7 @@ export default function DeepScan() {
               {(lookupQ.data?.items.length ?? 0) === 0 && query.trim().length >= 2 && (
                 <button
                   onClick={() => select({ kind: "stock", symbol: query.trim().toUpperCase(), name: query.trim().toUpperCase() })}
-                  className="w-full text-left px-3 py-2 hover:bg-white/5 border-t border-border/50"
+                  className="w-full text-left px-3 py-2 hover-row border-t border-border/50"
                 >
                   <span className="font-mono text-xs">Scan <b>{query.trim().toUpperCase()}.NS</b> directly →</span>
                 </button>
@@ -684,7 +684,7 @@ function ScannerSnapshot({
                   <a
                     key={p.symbol}
                     href={`${import.meta.env.BASE_URL}deep-scan?sym=${encodeURIComponent(p.symbol)}`}
-                    className="block rounded border border-border bg-card/60 hover:border-foreground/40 hover:bg-white/5 p-2 transition-colors"
+                    className="block rounded border border-border bg-card/60 hover:border-foreground/40 hover-row p-2 transition-colors"
                   >
                     <div className="font-mono font-bold text-sm">{p.symbol}</div>
                     <div className="text-[10px] text-muted-foreground truncate">{p.name}</div>

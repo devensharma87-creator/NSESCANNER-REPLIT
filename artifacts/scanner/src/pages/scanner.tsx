@@ -339,7 +339,7 @@ export default function ScannerPage() {
                     const chgClass = q.changePercent >= 0 ? 'text-signal-strong-buy' : 'text-signal-strong-sell';
                     const cmpVsVwap = ind?.vwap != null ? (q.price >= ind.vwap ? 'text-signal-strong-buy' : 'text-signal-strong-sell') : '';
                     return (
-                      <TableRow key={stock.symbol} className="hover:bg-white/5 border-border/50 group" title={buildReasonsTitle(stock)}>
+                      <TableRow key={stock.symbol} className="hover-row border-border/50 group" title={buildReasonsTitle(stock)}>
                         <TableCell className="sticky left-0 bg-card group-hover:bg-card z-10 py-1.5">
                           <Link href={`/stock/${stock.symbol}`} className="font-mono font-bold hover:underline text-sm">
                             {stock.symbol}

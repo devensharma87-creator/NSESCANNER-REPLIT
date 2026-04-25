@@ -18,7 +18,7 @@ function NewsRow({ item, defaultOpen = false }: { item: NewsItem; defaultOpen?: 
   const cls = SENT_CLASS[sentiment] ?? SENT_CLASS.neutral;
   return (
     <Collapsible defaultOpen={defaultOpen} className="border-b border-border/40 last:border-b-0">
-      <CollapsibleTrigger className="group w-full flex items-start justify-between gap-3 py-3 text-left hover:bg-white/[0.02] px-1 -mx-1 rounded transition-colors">
+      <CollapsibleTrigger className="group w-full flex items-start justify-between gap-3 py-3 text-left hover-row px-1 -mx-1 rounded transition-colors">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 mb-1">
             <span>{item.source}</span>

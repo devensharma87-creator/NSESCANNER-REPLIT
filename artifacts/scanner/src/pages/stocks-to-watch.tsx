@@ -54,34 +54,41 @@ function ConfidenceDots({ confidence }: { confidence: number }) {
 function SignalCard({ s }: { s: WatchSignal }) {
   const isWatch = s.side === "watch";
   const accent = isWatch
-    ? "border-l-4 border-l-signal-strong-buy bg-signal-strong-buy/[0.04]"
-    : "border-l-4 border-l-signal-strong-sell bg-signal-strong-sell/[0.04]";
+    ? "border-l-4 border-l-signal-strong-buy"
+    : "border-l-4 border-l-signal-strong-sell";
   const tickerColor = isWatch ? "text-signal-strong-buy" : "text-signal-strong-sell";
 
   return (
-    <Card className={`${accent} hover:bg-card/80 transition-colors`}>
-      <CardContent className="p-3.5 space-y-1.5">
+    <Card className={`${accent} bg-card hover:bg-accent/40 transition-colors shadow-sm`}>
+      <CardContent className="p-4 space-y-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <Link
               href={`/stock/${s.symbol}`}
-              className={`font-mono font-bold text-base tracking-tight ${tickerColor} hover:underline`}
+              className={`font-mono font-semibold text-base tracking-tight ${tickerColor} hover:underline`}
             >
               {s.symbol}
             </Link>
-            {s.name && <div className="text-[11px] text-muted-foreground truncate">{s.name}{s.sector ? ` · ${s.sector}` : ""}</div>}
+            {s.name && (
+              <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                {s.name}{s.sector ? ` · ${s.sector}` : ""}
+              </div>
+            )}
           </div>
-          <Badge variant="outline" className={`shrink-0 font-mono text-[10px] ${tickerColor} border-current/40`}>
+          <Badge
+            variant="outline"
+            className={`shrink-0 font-mono text-[10px] uppercase tracking-wider ${tickerColor} border-current/40 bg-current/5`}
+          >
             {s.catalyst}
             <ConfidenceDots confidence={s.confidence} />
           </Badge>
         </div>
 
-        <div className="text-[13.5px] leading-snug text-foreground/90">
+        <div className="text-[14px] leading-relaxed text-foreground/90">
           {s.headline}
         </div>
 
-        <div className="flex items-center justify-between gap-2 pt-1 text-[10.5px] text-muted-foreground font-mono">
+        <div className="flex items-center justify-between gap-2 pt-1.5 text-[11px] text-muted-foreground font-mono border-t border-border/40">
           <span className="truncate">
             {s.source} · {formatDistanceToNow(parseISO(s.publishedAt), { addSuffix: true })}
           </span>
@@ -89,16 +96,18 @@ function SignalCard({ s }: { s: WatchSignal }) {
             href={s.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 hover:text-foreground shrink-0"
+            className="inline-flex items-center gap-1 hover:text-foreground shrink-0 uppercase tracking-wider"
           >
-            read <ExternalLink className="h-3 w-3" />
+            Read <ExternalLink className="h-3 w-3" />
           </a>
         </div>
 
         {s.evidence.length > 1 && (
           <details className="text-[11px] text-muted-foreground pt-1">
-            <summary className="cursor-pointer hover:text-foreground">+{s.evidence.length - 1} more headline{s.evidence.length - 1 > 1 ? "s" : ""}</summary>
-            <ul className="mt-1.5 space-y-1 pl-2 border-l border-border/60">
+            <summary className="cursor-pointer hover:text-foreground font-mono uppercase tracking-wider">
+              +{s.evidence.length - 1} more headline{s.evidence.length - 1 > 1 ? "s" : ""}
+            </summary>
+            <ul className="mt-2 space-y-1.5 pl-3 border-l border-border/60">
               {s.evidence.slice(1).map((e, i) => (
                 <li key={i}>
                   <a href={e.url} target="_blank" rel="noopener noreferrer" className="hover:text-foreground">
@@ -118,14 +127,16 @@ function SignalCard({ s }: { s: WatchSignal }) {
 function ColumnHeader({ side, count }: { side: "watch" | "avoid"; count: number }) {
   const isWatch = side === "watch";
   return (
-    <div className={`flex items-center gap-2 px-3 py-2 rounded-md font-mono text-sm font-bold uppercase tracking-wide ${
-      isWatch
-        ? "text-signal-strong-buy bg-signal-strong-buy/10 border border-signal-strong-buy/30"
-        : "text-signal-strong-sell bg-signal-strong-sell/10 border border-signal-strong-sell/30"
-    }`}>
+    <div
+      className={`flex items-center gap-2 px-4 py-2.5 rounded-md font-mono text-sm font-semibold uppercase tracking-wider ${
+        isWatch
+          ? "text-signal-strong-buy bg-signal-strong-buy/10 border border-signal-strong-buy/30"
+          : "text-signal-strong-sell bg-signal-strong-sell/10 border border-signal-strong-sell/30"
+      }`}
+    >
       {isWatch ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-      {isWatch ? "GREEN — Stocks to Watch" : "RED — Stocks to Avoid"}
-      <span className="ml-auto text-xs opacity-80">{count}</span>
+      {isWatch ? "Green — Stocks to Watch" : "Red — Stocks to Avoid"}
+      <span className="ml-auto text-xs opacity-80 font-mono">{count}</span>
     </div>
   );
 }
@@ -142,25 +153,30 @@ export default function StocksToWatchPage() {
   const dateLabel = format(today, "EEEE · d MMM yyyy").toUpperCase();
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-6 space-y-5">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold font-mono tracking-tight flex items-center gap-2">
+    <div className="w-full px-4 lg:px-6 py-6 space-y-6">
+      {/* Header band */}
+      <div className="flex items-start justify-between gap-4 flex-wrap pb-4 border-b border-border">
+        <div className="space-y-1.5 min-w-0">
+          <h1 className="text-2xl lg:text-3xl font-bold font-mono tracking-tight flex items-center gap-2.5">
             <Calendar className="h-6 w-6 text-primary" />
-            STOCKS TO WATCH
+            Stocks To Watch
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Daily catalyst deck · NSE stocks with positive (orders, projects, beats, approvals) or negative (probes, downgrades, misses, recalls) news from the last {data?.lookbackHours ?? 24}h
-            {data && <> · scanned <span className="font-mono text-foreground">{data.scanned}</span> headlines, matched <span className="font-mono text-foreground">{data.matched}</span> · last refresh {formatDistanceToNow(parseISO(data.asOf), { addSuffix: true })}</>}
+          <p className="text-sm text-muted-foreground max-w-3xl leading-relaxed">
+            Daily catalyst deck — NSE stocks with positive (orders, projects, beats, approvals) or negative (probes, downgrades, misses, recalls) news from the last {data?.lookbackHours ?? 24}h.
+            {data && (
+              <>
+                {" "}Scanned <span className="font-mono text-foreground">{data.scanned}</span> headlines, matched <span className="font-mono text-foreground">{data.matched}</span> · last refresh {formatDistanceToNow(parseISO(data.asOf), { addSuffix: true })}.
+              </>
+            )}
           </p>
-          <p className="text-[11px] text-muted-foreground font-mono">{dateLabel}</p>
+          <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">{dateLabel}</p>
         </div>
         <button
           onClick={() => refetch()}
           disabled={isFetching}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card hover:bg-card/80 font-mono text-xs disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-md border border-border bg-card hover:bg-accent font-mono text-xs uppercase tracking-wider disabled:opacity-50 transition-colors"
         >
-          <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
           Refresh
         </button>
       </div>
@@ -173,7 +189,8 @@ export default function StocksToWatchPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* Two-column full-width grid: Watch | Avoid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* GREEN column */}
         <div className="space-y-3">
           <ColumnHeader side="watch" count={data?.watch.length ?? 0} />
@@ -183,9 +200,11 @@ export default function StocksToWatchPage() {
             </div>
           )}
           {!isLoading && data?.watch.length === 0 && (
-            <Card><CardContent className="p-6 text-sm text-muted-foreground text-center">
-              No clear positive catalysts in the last {data.lookbackHours}h. Check back later — feeds refresh every 5 minutes.
-            </CardContent></Card>
+            <Card>
+              <CardContent className="p-6 text-sm text-muted-foreground text-center">
+                No clear positive catalysts in the last {data.lookbackHours}h. Check back later — feeds refresh every 5 minutes.
+              </CardContent>
+            </Card>
           )}
           {data?.watch.map(s => <SignalCard key={`w-${s.symbol}`} s={s} />)}
         </div>
@@ -199,19 +218,22 @@ export default function StocksToWatchPage() {
             </div>
           )}
           {!isLoading && data?.avoid.length === 0 && (
-            <Card><CardContent className="p-6 text-sm text-muted-foreground text-center">
-              No clear negative catalysts in the last {data.lookbackHours}h.
-            </CardContent></Card>
+            <Card>
+              <CardContent className="p-6 text-sm text-muted-foreground text-center">
+                No clear negative catalysts in the last {data.lookbackHours}h.
+              </CardContent>
+            </Card>
           )}
           {data?.avoid.map(s => <SignalCard key={`a-${s.symbol}`} s={s} />)}
         </div>
       </div>
 
+      {/* Sources strip */}
       {data && data.sources.length > 0 && (
-        <Card>
-          <CardContent className="p-3 flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground font-mono">
-            <Newspaper className="h-3 w-3" />
-            <span>Sources:</span>
+        <Card className="bg-card/60">
+          <CardContent className="p-3.5 flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground font-mono">
+            <Newspaper className="h-3.5 w-3.5" />
+            <span className="uppercase tracking-wider">Sources:</span>
             {data.sources.map(s => (
               <Badge key={s.source} variant="outline" className="text-[10px]">
                 {s.source} <span className="opacity-60 ml-1">{s.count}</span>

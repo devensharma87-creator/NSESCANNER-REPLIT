@@ -148,7 +148,7 @@ export default function OptionChainPage() {
         <div className="relative w-full sm:w-[340px]">
           <button
             onClick={() => { setPickerOpen(o => !o); setTimeout(() => searchRef.current?.focus(), 30); }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono rounded border border-border bg-card hover:bg-white/5 text-left"
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono rounded border border-border bg-card hover-row text-left"
           >
             <Search className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="flex-1 text-foreground/80 truncate">
@@ -189,7 +189,7 @@ export default function OptionChainPage() {
                           className={`text-left px-2 py-1.5 rounded text-[11px] font-mono border transition-colors ${
                             underlying === e.sym
                               ? "border-primary bg-primary/15 text-primary"
-                              : "border-transparent hover:border-border hover:bg-white/5 text-foreground/85"
+                              : "border-transparent hover:border-border hover-row text-foreground/85"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-1">
@@ -225,7 +225,7 @@ export default function OptionChainPage() {
             className={`px-2.5 py-1 text-[11px] font-mono rounded border transition-colors ${
               underlying === p.sym
                 ? "border-primary bg-primary/15 text-primary font-bold"
-                : "border-border bg-card hover:bg-white/5 text-foreground/70"
+                : "border-border bg-card hover-row text-foreground/70"
             }`}
           >
             {p.label}
@@ -360,7 +360,7 @@ export default function OptionChainPage() {
               className={`px-2.5 py-1 text-[11px] font-mono rounded border transition-colors ${
                 e === chain.expiry
                   ? "border-primary bg-primary/15 text-primary font-bold"
-                  : "border-border bg-card hover:bg-white/5 text-foreground/70"
+                  : "border-border bg-card hover-row text-foreground/70"
               }`}
             >
               {e}
@@ -477,7 +477,7 @@ function Row({ row, atm, spot, maxOi }: { row: OptionChainStrikeRow; atm: number
   const peItm = row.strike > spot;
 
   return (
-    <tr className={`border-b border-border/30 hover:bg-white/[0.03] ${isAtm ? "bg-primary/[0.07] font-bold" : ""}`}>
+    <tr className={`border-b border-border/30 hover-row ${isAtm ? "bg-primary/[0.07] font-bold" : ""}`}>
       {/* ── CALL side ─────────────────────────── */}
       <td className={`px-2 py-1 text-right tabular-nums relative ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>
         <div

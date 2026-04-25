@@ -35,7 +35,7 @@ function MoverRow({ s, kind }: { s: StockRow; kind: "gain" | "loss" }) {
   return (
     <Link
       href={`/stock/${s.symbol}`}
-      className="grid grid-cols-[1fr_auto_auto] items-center gap-3 p-2.5 rounded hover:bg-white/5 cursor-pointer border border-transparent hover:border-border"
+      className="grid grid-cols-[1fr_auto_auto] items-center gap-3 p-2.5 rounded hover-row cursor-pointer border border-transparent hover:border-border"
     >
       <div className="min-w-0">
         <div className="font-bold font-mono text-sm truncate">{s.symbol}</div>
@@ -142,7 +142,7 @@ export default function Dashboard() {
             {scansLoading ? <Skeleton className="h-32 w-full" /> : (
               <div className="space-y-2">
                 {topScans?.topBuys?.slice(0, 8).map(stock => (
-                  <Link key={stock.symbol} href={`/stock/${stock.symbol}`} className="flex items-center justify-between p-2.5 rounded hover:bg-white/5 cursor-pointer border border-transparent hover:border-border" title={buildReasonsTitle(stock)}>
+                  <Link key={stock.symbol} href={`/stock/${stock.symbol}`} className="flex items-center justify-between p-2.5 rounded hover-row cursor-pointer border border-transparent hover:border-border" title={buildReasonsTitle(stock)}>
                     <div>
                       <div className="font-bold font-mono text-sm">{stock.symbol}</div>
                       <div className="text-xs text-muted-foreground truncate max-w-[200px]">{stock.name}</div>
@@ -168,7 +168,7 @@ export default function Dashboard() {
             {scansLoading ? <Skeleton className="h-32 w-full" /> : (
               <div className="space-y-2">
                 {topScans?.topSells?.slice(0, 8).map(stock => (
-                  <Link key={stock.symbol} href={`/stock/${stock.symbol}`} className="flex items-center justify-between p-2.5 rounded hover:bg-white/5 cursor-pointer border border-transparent hover:border-border" title={buildReasonsTitle(stock)}>
+                  <Link key={stock.symbol} href={`/stock/${stock.symbol}`} className="flex items-center justify-between p-2.5 rounded hover-row cursor-pointer border border-transparent hover:border-border" title={buildReasonsTitle(stock)}>
                     <div>
                       <div className="font-bold font-mono text-sm">{stock.symbol}</div>
                       <div className="text-xs text-muted-foreground truncate max-w-[200px]">{stock.name}</div>

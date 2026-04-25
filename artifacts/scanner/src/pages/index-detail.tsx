@@ -173,7 +173,7 @@ export default function IndexDetail() {
               </TableHeader>
               <TableBody>
                 {data.constituents.map(s => (
-                  <TableRow key={s.symbol} className="hover:bg-white/5 border-border/50">
+                  <TableRow key={s.symbol} className="hover-row border-border/50">
                     <TableCell className="py-1.5">
                       <Link href={`/stock/${s.symbol}`} className="font-mono font-bold hover:underline text-sm">{s.symbol}</Link>
                       <div className="text-[10px] text-muted-foreground truncate max-w-[180px]">{s.name}</div>
@@ -205,7 +205,7 @@ function ConstituentTable({ title, rows }: { title: string; rows: StockRow[] }) 
       <CardHeader className="pb-2"><CardTitle className="text-sm font-mono">{title}</CardTitle></CardHeader>
       <CardContent className="space-y-1">
         {rows.map(s => (
-          <Link key={s.symbol} href={`/stock/${s.symbol}`} className="flex items-center justify-between p-2 rounded hover:bg-white/5 border border-transparent hover:border-border">
+          <Link key={s.symbol} href={`/stock/${s.symbol}`} className="flex items-center justify-between p-2 rounded hover-row border border-transparent hover:border-border">
             <div className="min-w-0">
               <div className="font-mono font-bold text-sm">{s.symbol}</div>
               <div className="text-[11px] text-muted-foreground truncate">{s.name}</div>

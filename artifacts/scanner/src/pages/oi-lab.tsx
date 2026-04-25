@@ -867,7 +867,7 @@ function InsightsTab() {
             <div className="relative">
               <button
                 onClick={() => { setPickerOpen(o => !o); setSearchQ(""); }}
-                className="flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-background hover:bg-white/5 text-sm font-mono min-w-[180px]"
+                className="flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-background hover-row text-sm font-mono min-w-[180px]"
               >
                 <Search className="w-3.5 h-3.5 text-muted-foreground" />
                 <span className="font-bold">{underlying}</span>
@@ -894,7 +894,7 @@ function InsightsTab() {
                       <button
                         key={s}
                         onClick={() => { setUnderlying(s); setPickerOpen(false); }}
-                        className={`w-full text-left px-2 py-1 text-xs rounded hover:bg-white/5 font-mono ${
+                        className={`w-full text-left px-2 py-1 text-xs rounded hover-row font-mono ${
                           underlying === s ? "bg-primary/15 text-primary" : ""
                         } ${universe.indices.includes(s) ? "font-bold" : ""}`}
                       >
@@ -946,7 +946,7 @@ function InsightsTab() {
                     className={`px-2 py-0.5 text-[11px] font-mono rounded border transition ${
                       e === data.expiry
                         ? "border-primary bg-primary/15 text-primary font-bold"
-                        : "border-border bg-card hover:bg-white/5 text-foreground/70"
+                        : "border-border bg-card hover-row text-foreground/70"
                     }`}
                   >
                     {e}
@@ -962,7 +962,7 @@ function InsightsTab() {
                     className={`px-2 py-0.5 text-[11px] font-mono rounded border uppercase transition ${
                       s === strikesAround
                         ? "border-primary bg-primary/15 text-primary font-bold"
-                        : "border-border bg-card hover:bg-white/5 text-foreground/70"
+                        : "border-border bg-card hover-row text-foreground/70"
                     }`}
                   >
                     {s}
@@ -1085,7 +1085,7 @@ function InsightsTab() {
                       className={`px-2.5 py-1 text-[11px] font-mono rounded border transition ${
                         chartView === b.v
                           ? "border-primary bg-primary/15 text-primary font-bold"
-                          : "border-border bg-card hover:bg-white/5 text-foreground/70"
+                          : "border-border bg-card hover-row text-foreground/70"
                       }`}
                     >
                       {b.l}

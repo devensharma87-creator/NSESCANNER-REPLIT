@@ -224,7 +224,7 @@ export default function Watchlist() {
                       const up = r.changePercent >= 0;
                       const chgColor = up ? "text-signal-strong-buy" : "text-signal-strong-sell";
                       return (
-                        <TableRow key={r.symbol} className="hover:bg-white/5 border-border">
+                        <TableRow key={r.symbol} className="hover-row border-border">
                           <TableCell className="sticky left-0 bg-card z-10">
                             <Link href={`/stock/${encodeURIComponent(r.symbol)}`} className="block group">
                               <div className="font-mono font-bold text-sm group-hover:text-primary">{r.symbol}</div>

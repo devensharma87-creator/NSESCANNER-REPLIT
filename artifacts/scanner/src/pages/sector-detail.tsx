@@ -81,7 +81,7 @@ export default function SectorDetail() {
                   ))
                 ) : (
                   data?.stocks.map(s => (
-                    <TableRow key={s.symbol} className="hover:bg-white/5 border-border/50">
+                    <TableRow key={s.symbol} className="hover-row border-border/50">
                       <TableCell>
                         <Link href={`/stock/${encodeURIComponent(s.symbol)}`} className="font-mono font-bold hover:underline">
                           {s.symbol}
