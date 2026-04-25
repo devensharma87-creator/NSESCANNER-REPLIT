@@ -161,7 +161,12 @@ export default function ScannerPage() {
   // with lighter indicators). Curated data wins on overlap because it has
   // strictly more fields populated.
   const { data: curatedStocks, isLoading: curatedLoading } = useListStocks(undefined, {
-    query: { refetchInterval: 30000, queryKey: getListStocksQueryKey(undefined) },
+    query: {
+      refetchInterval: 60_000,
+      refetchIntervalInBackground: false,
+      refetchOnWindowFocus: true,
+      queryKey: getListStocksQueryKey(undefined),
+    },
   });
   const { data: fullStocks, isLoading: fullLoading, meta: fullMeta } = useFullNseStocks();
 

@@ -54,6 +54,10 @@ function buildupShort(b: string | undefined): string {
     default:               return "—";
   }
 }
+function fmtGreek(n: number | null | undefined, dp = 2): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return n.toFixed(dp);
+}
 
 export default function OptionChainPage() {
   const params = useParams<{ underlying?: string }>();
@@ -78,6 +82,7 @@ export default function OptionChainPage() {
 
   const chain = chainQ.data;
   const analytics = analyticsQ.data;
+  const [showGreeks, setShowGreeks] = useState(false);
 
   const maxOi = useMemo(() => {
     if (!chain) return 0;
@@ -410,15 +415,54 @@ export default function OptionChainPage() {
 
       {chain && (
         <>
+          {/* Greeks toggle + summary */}
+          <div className="flex flex-wrap items-center justify-between gap-2 -mb-1">
+            <div className="flex items-center gap-2 text-[11px] font-mono">
+              <button
+                onClick={() => setShowGreeks(g => !g)}
+                className={`px-2.5 py-1 rounded border transition-colors ${
+                  showGreeks
+                    ? "border-primary bg-primary/15 text-primary font-bold"
+                    : "border-border bg-card hover-row text-foreground/70"
+                }`}
+              >
+                {showGreeks ? "Hide Greeks" : "Show Greeks (Δ Γ Θ V)"}
+              </button>
+              <span className="text-muted-foreground">
+                Black-Scholes · r=6.75% · IV solved from market price
+              </span>
+            </div>
+            {chain && (() => {
+              const atmRow = chain.rows.find(r => r.strike === chain.atmStrike);
+              if (!atmRow) return null;
+              return (
+                <div className="text-[11px] font-mono text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  <span>ATM Δ:
+                    <span className="text-signal-strong-buy ml-1">CE {fmtGreek(atmRow.ce?.delta, 3)}</span>
+                    <span className="text-signal-strong-sell ml-1">PE {fmtGreek(atmRow.pe?.delta, 3)}</span>
+                  </span>
+                  <span>Θ/day:
+                    <span className="text-signal-strong-sell ml-1">CE {fmtGreek(atmRow.ce?.theta, 2)}</span>
+                    <span className="text-signal-strong-sell ml-1">PE {fmtGreek(atmRow.pe?.theta, 2)}</span>
+                  </span>
+                  <span>V:
+                    <span className="text-foreground/70 ml-1">CE {fmtGreek(atmRow.ce?.vega, 2)}</span>
+                    <span className="text-foreground/70 ml-1">PE {fmtGreek(atmRow.pe?.vega, 2)}</span>
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
+
           <div className="overflow-x-auto rounded border border-border">
             <table className="w-full text-[11px] font-mono">
               <thead className="bg-card/80 sticky top-0">
                 <tr className="text-muted-foreground border-b border-border">
-                  <th colSpan={6} className="text-center text-signal-strong-buy py-1 border-r border-border bg-signal-strong-buy/[0.04]">
+                  <th colSpan={showGreeks ? 9 : 6} className="text-center text-signal-strong-buy py-1 border-r border-border bg-signal-strong-buy/[0.04]">
                     CALLS
                   </th>
                   <th className="text-center text-foreground py-1 px-3">STRIKE</th>
-                  <th colSpan={6} className="text-center text-signal-strong-sell py-1 border-l border-border bg-signal-strong-sell/[0.04]">
+                  <th colSpan={showGreeks ? 9 : 6} className="text-center text-signal-strong-sell py-1 border-l border-border bg-signal-strong-sell/[0.04]">
                     PUTS
                   </th>
                 </tr>
@@ -427,11 +471,17 @@ export default function OptionChainPage() {
                   <th className="px-2 py-1 text-right">Δ OI</th>
                   <th className="px-2 py-1 text-right">Vol</th>
                   <th className="px-2 py-1 text-right">IV</th>
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Theta per day">Θ</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Vega per 1% IV">V</th>}
                   <th className="px-2 py-1 text-right">LTP</th>
                   <th className="px-2 py-1 text-center border-r border-border">B</th>
                   <th className="px-3 py-1 text-center">Strike</th>
                   <th className="px-2 py-1 text-center border-l border-border">B</th>
                   <th className="px-2 py-1 text-right">LTP</th>
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Theta per day">Θ</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Vega per 1% IV">V</th>}
                   <th className="px-2 py-1 text-right">IV</th>
                   <th className="px-2 py-1 text-right">Vol</th>
                   <th className="px-2 py-1 text-right">Δ OI</th>
@@ -439,7 +489,7 @@ export default function OptionChainPage() {
                 </tr>
               </thead>
               <tbody>
-                {chain.rows.map((r) => <Row key={r.strike} row={r} atm={chain.atmStrike} spot={chain.spot} maxOi={maxOi} />)}
+                {chain.rows.map((r) => <Row key={r.strike} row={r} atm={chain.atmStrike} spot={chain.spot} maxOi={maxOi} showGreeks={showGreeks} />)}
               </tbody>
             </table>
           </div>
@@ -464,7 +514,7 @@ export default function OptionChainPage() {
   );
 }
 
-function Row({ row, atm, spot, maxOi }: { row: OptionChainStrikeRow; atm: number; spot: number; maxOi: number }) {
+function Row({ row, atm, spot, maxOi, showGreeks }: { row: OptionChainStrikeRow; atm: number; spot: number; maxOi: number; showGreeks: boolean }) {
   const isAtm = row.strike === atm;
   const ce = row.ce, pe = row.pe;
 
@@ -492,6 +542,9 @@ function Row({ row, atm, spot, maxOi }: { row: OptionChainStrikeRow; atm: number
       </td>
       <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtKL(ce?.volume)}</td>
       <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{ce?.iv ? ce.iv.toFixed(1) : "—"}</td>
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.delta, 3)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-signal-strong-sell ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.theta, 2)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.vega, 2)}</td>}
       <td className={`px-2 py-1 text-right tabular-nums font-bold ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmt(ce?.ltp)}</td>
       <td className={`px-2 py-1 text-center border-r border-border ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>
         <span className={`px-1 rounded text-[9px] font-bold ${buildupTone(ce?.oiBuildup)}`}>{buildupShort(ce?.oiBuildup)}</span>
@@ -508,6 +561,9 @@ function Row({ row, atm, spot, maxOi }: { row: OptionChainStrikeRow; atm: number
         <span className={`px-1 rounded text-[9px] font-bold ${buildupTone(pe?.oiBuildup)}`}>{buildupShort(pe?.oiBuildup)}</span>
       </td>
       <td className={`px-2 py-1 text-right tabular-nums font-bold ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmt(pe?.ltp)}</td>
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.delta, 3)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-signal-strong-sell ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.theta, 2)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.vega, 2)}</td>}
       <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{pe?.iv ? pe.iv.toFixed(1) : "—"}</td>
       <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtKL(pe?.volume)}</td>
       <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""} ${(pe?.chgOi ?? 0) > 0 ? "text-signal-strong-buy" : (pe?.chgOi ?? 0) < 0 ? "text-signal-strong-sell" : ""}`}>

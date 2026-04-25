@@ -15,6 +15,9 @@
 import { logger } from "./logger";
 import { getRestClient } from "./kiteAuth";
 import type { OcResponse, OcRow, OcSide } from "./optionChain";
+import { priceAndGreeks, impliedVolatility, yearsToExpiry } from "./blackScholes";
+
+const RISK_FREE_RATE = 0.0675;
 
 interface KiteInstrument {
   instrument_token: number;
@@ -193,6 +196,11 @@ export async function fetchKiteOptionChain(
   }
 
   // 4. Build per-strike rows (CE + PE)
+  // Kite quotes don't include IV, so we solve it from the market price using
+  // Black-Scholes (Newton-Raphson + bisection fallback) and then use the same
+  // model to derive Greeks. Time-to-expiry is computed once from the active
+  // expiry — it's the same for every leg in this chain.
+  const T = yearsToExpiry(activeExpiry);
   const strikeMap = new Map<number, OcRow>();
   for (const leg of activeLegs) {
     const q = quoteMap.get(`NFO:${leg.tradingsymbol}`);
@@ -208,29 +216,61 @@ export async function fetchKiteOptionChain(
     const netChg = q.net_change ?? 0;
     const chgOi = oiRange ? Math.sign(netChg || 1) * oiRange : 0;
 
-    const intrinsic = leg.instrument_type === "CE"
+    const optType = leg.instrument_type as "CE" | "PE";
+    const intrinsic = optType === "CE"
       ? Math.max(0, spot - leg.strike)
       : Math.max(0, leg.strike - spot);
     const timeValue = Math.max(0, ltp - intrinsic);
+
+    // Solve IV when we have a real bid+ask (or a non-zero LTP) and there's at
+    // least some time-value left in the option. Deep-ITM legs and stale ticks
+    // get null IV — we surface that to the UI rather than fabricate a number.
+    let ivPct: number | undefined;
+    let delta: number | undefined, gamma: number | undefined, theta: number | undefined, vega: number | undefined;
+    if (ltp > 0 && T > 0 && timeValue > 0.05) {
+      const sigma = impliedVolatility({
+        S: spot, K: leg.strike, T, r: RISK_FREE_RATE, q: 0,
+        type: optType, marketPrice: ltp,
+      });
+      if (sigma != null && sigma > 0 && sigma < 5) {
+        ivPct = +(sigma * 100).toFixed(2);
+        const g = priceAndGreeks({ S: spot, K: leg.strike, T, r: RISK_FREE_RATE, q: 0, sigma, type: optType });
+        delta = +g.delta.toFixed(4);
+        gamma = +g.gamma.toFixed(6);
+        theta = +g.theta.toFixed(3);
+        vega  = +g.vega.toFixed(3);
+      }
+    }
+    // For deep-ITM legs without solvable IV, delta is essentially ±1 / 0 by
+    // construction — surface that so the UI never renders a totally blank row.
+    if (delta == null && T > 0) {
+      if (optType === "CE") {
+        delta = leg.strike < spot - 5 * (STRIKE_STEPS[sym] ?? 50) ? 1 : leg.strike > spot + 5 * (STRIKE_STEPS[sym] ?? 50) ? 0 : undefined;
+      } else {
+        delta = leg.strike > spot + 5 * (STRIKE_STEPS[sym] ?? 50) ? -1 : leg.strike < spot - 5 * (STRIKE_STEPS[sym] ?? 50) ? 0 : undefined;
+      }
+    }
 
     const side: OcSide = {
       oi: oi != null ? oi : undefined,
       chgOi,
       volume: q.volume,
+      iv: ivPct,
       ltp,
       bid: q.depth?.buy?.[0]?.price,
       ask: q.depth?.sell?.[0]?.price,
       bidQty: q.depth?.buy?.[0]?.quantity,
       askQty: q.depth?.sell?.[0]?.quantity,
+      delta, gamma, theta, vega,
       intrinsic,
       timeValue,
-      moneyness: classifyMoneyness(leg.strike, spot, leg.instrument_type as "CE" | "PE", STRIKE_STEPS[sym] ?? 50),
+      moneyness: classifyMoneyness(leg.strike, spot, optType, STRIKE_STEPS[sym] ?? 50),
       oiBuildup: classifyOiBuildup(netChg, chgOi),
     };
 
     let row = strikeMap.get(leg.strike);
     if (!row) { row = { strike: leg.strike }; strikeMap.set(leg.strike, row); }
-    if (leg.instrument_type === "CE") row.ce = side;
+    if (optType === "CE") row.ce = side;
     else row.pe = side;
   }
 

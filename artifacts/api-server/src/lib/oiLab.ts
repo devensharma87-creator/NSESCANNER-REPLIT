@@ -263,6 +263,11 @@ export interface OiStrikeRow {
   ceLtp: number;
   ceIv: number | null;
   ceBuildup: "LONG_BUILDUP" | "SHORT_BUILDUP" | "SHORT_COVERING" | "LONG_UNWINDING" | "NEUTRAL";
+  // Black-Scholes Greeks (computed in optionChain/kiteOptionChain layer)
+  ceDelta?: number;
+  ceGamma?: number;
+  ceTheta?: number;
+  ceVega?: number;
   // Puts
   peOi: number;
   peOiChg: number;
@@ -270,6 +275,10 @@ export interface OiStrikeRow {
   peLtp: number;
   peIv: number | null;
   peBuildup: "LONG_BUILDUP" | "SHORT_BUILDUP" | "SHORT_COVERING" | "LONG_UNWINDING" | "NEUTRAL";
+  peDelta?: number;
+  peGamma?: number;
+  peTheta?: number;
+  peVega?: number;
   // Per-strike PCR (OI)
   pcr: number;
   // Max-pain payout if expiry pinned at this strike (lower = more pain to writers AT this strike)
@@ -535,12 +544,20 @@ export function computeOiInsights(chain: OcResponse, strikesAround = 20): OiInsi
       ceLtp: r.ce?.ltp ?? 0,
       ceIv: r.ce?.iv != null ? +r.ce.iv.toFixed(2) : null,
       ceBuildup: legBuildupTag(r.ce?.oiBuildup),
+      ceDelta: r.ce?.delta,
+      ceGamma: r.ce?.gamma,
+      ceTheta: r.ce?.theta,
+      ceVega:  r.ce?.vega,
       peOi,
       peOiChg: r.pe?.chgOi ?? 0,
       peVolume: r.pe?.volume ?? 0,
       peLtp: r.pe?.ltp ?? 0,
       peIv: r.pe?.iv != null ? +r.pe.iv.toFixed(2) : null,
       peBuildup: legBuildupTag(r.pe?.oiBuildup),
+      peDelta: r.pe?.delta,
+      peGamma: r.pe?.gamma,
+      peTheta: r.pe?.theta,
+      peVega:  r.pe?.vega,
       pcr: ceOi > 0 ? +(peOi / ceOi).toFixed(2) : 0,
       painValue: painByStrike.get(r.strike) ?? 0,
     };

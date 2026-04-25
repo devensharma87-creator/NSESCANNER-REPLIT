@@ -12,6 +12,10 @@
 import { logger } from "./logger";
 import { fetchChart } from "./yahoo";
 import { fetchKiteOptionChain } from "./kiteOptionChain";
+import { priceAndGreeks, yearsToExpiry } from "./blackScholes";
+
+// Indian risk-free rate proxy (10Y G-sec yield, refreshed quarterly).
+const RISK_FREE_RATE = 0.0675;
 
 const NSE_BASE = "https://www.nseindia.com";
 const UA =
@@ -282,11 +286,12 @@ export async function fetchOptionChain(underlying: string, expiryFilter?: string
   const atmStrike = Math.round(spot / step) * step;
 
   const filtered = json.records.data.filter(d => d.expiryDate === activeRaw);
+  const T = yearsToExpiry(activeRaw);
   const byStrike = new Map<number, OcRow>();
   for (const d of filtered) {
     const row: OcRow = byStrike.get(d.strikePrice) ?? { strike: d.strikePrice };
-    if (d.CE) row.ce = mapLeg(d.CE, d.strikePrice, spot, step, "CE");
-    if (d.PE) row.pe = mapLeg(d.PE, d.strikePrice, spot, step, "PE");
+    if (d.CE) row.ce = mapLeg(d.CE, d.strikePrice, spot, step, "CE", T);
+    if (d.PE) row.pe = mapLeg(d.PE, d.strikePrice, spot, step, "PE", T);
     byStrike.set(d.strikePrice, row);
   }
   // Sort ascending and trim to ±20 strikes from ATM (40 rows is plenty for UI)
@@ -320,22 +325,39 @@ export async function fetchOptionChain(underlying: string, expiryFilter?: string
   return data;
 }
 
-function mapLeg(leg: NseLeg, strike: number, spot: number, step: number, type: "CE" | "PE"): OcSide {
+function mapLeg(leg: NseLeg, strike: number, spot: number, step: number, type: "CE" | "PE", T: number): OcSide {
   const ltp = leg.lastPrice ?? 0;
   const oi = leg.openInterest ?? 0;
   const oiChg = leg.changeinOpenInterest ?? 0;
   const intrinsic = type === "CE" ? Math.max(0, spot - strike) : Math.max(0, strike - spot);
   const timeValue = Math.max(0, ltp - intrinsic);
+
+  // Greeks via Black-Scholes when we have IV and a positive expiry. NSE quotes
+  // IV in % (e.g. 18.5 for 18.5%) so we divide by 100 for the model.
+  const ivPct = leg.impliedVolatility;
+  let delta: number | undefined, gamma: number | undefined, theta: number | undefined, vega: number | undefined;
+  if (ivPct && ivPct > 0 && spot > 0 && T > 0) {
+    const g = priceAndGreeks({
+      S: spot, K: strike, T, r: RISK_FREE_RATE, q: 0,
+      sigma: ivPct / 100, type,
+    });
+    delta = +g.delta.toFixed(4);
+    gamma = +g.gamma.toFixed(6);
+    theta = +g.theta.toFixed(3);
+    vega  = +g.vega.toFixed(3);
+  }
+
   return {
     oi,
     chgOi: oiChg,
     volume: leg.totalTradedVolume ?? 0,
-    iv: leg.impliedVolatility,
+    iv: ivPct,
     ltp,
     bid: leg.bidprice,
     ask: leg.askPrice,
     bidQty: leg.bidQty,
     askQty: leg.askQty,
+    delta, gamma, theta, vega,
     intrinsic: +intrinsic.toFixed(2),
     timeValue: +timeValue.toFixed(2),
     moneyness: classifyMoneyness(strike, spot, type, step),

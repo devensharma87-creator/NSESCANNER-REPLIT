@@ -560,6 +560,10 @@ function TrackerTab() {
         putOi: s.totalPutOi,
         atmIv: s.atmIv,
         maxPain: s.maxPain,
+        callOiAdded: s.callOiAdded ?? 0,
+        putOiAdded:  s.putOiAdded  ?? 0,
+        // Net flow: positive = puts being written more than calls (bullish)
+        netFlow: (s.putOiAdded ?? 0) - (s.callOiAdded ?? 0),
       }));
   }, [series, chartUnderlying]);
 
@@ -590,7 +594,14 @@ function TrackerTab() {
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <div>
-              <Label className="text-xs">Interval (minutes)</Label>
+              <Label className="text-xs">
+                Interval (minutes)
+                {intervalMin > 5 && (
+                  <span className="ml-2 text-[10px] text-amber-400">
+                    Tip: 2–3 min gives the cleanest intraday signal
+                  </span>
+                )}
+              </Label>
               <Input type="number" min={1} max={60} value={intervalMin}
                 onChange={e => setIntervalMin(Math.max(1, Math.min(60, Number(e.target.value) || 5)))}
                 className="w-24 h-9" />
@@ -711,6 +722,30 @@ function TrackerTab() {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+              <div>
+                <div className="text-xs font-medium mb-1 flex items-center gap-2">
+                  <Activity className="w-3 h-3" /> OI Added Flow (CE vs PE) — net = put writers ahead
+                </div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => fmtNum(v)} />
+                    <RTooltip
+                      contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                      formatter={(v: number) => fmtNum(v)}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <ReferenceLine y={0} stroke="#71717a" strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="callOiAdded" stroke="#ef4444" strokeWidth={1.5} dot={false} name="CE OI added" />
+                    <Line type="monotone" dataKey="putOiAdded"  stroke="#22c55e" strokeWidth={1.5} dot={false} name="PE OI added" />
+                    <Line type="monotone" dataKey="netFlow"     stroke="#a855f7" strokeWidth={2}   dot={{ r: 2 }} name="Net flow (PE−CE)" />
+                  </LineChart>
+                </ResponsiveContainer>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Positive net flow = put writers stepping in (bullish). Negative = call writers in control (bearish).
+                </p>
+              </div>
             </div>
           )}
         </CardContent>
@@ -725,7 +760,9 @@ interface InsightStrike {
   strike: number;
   isAtm: boolean;
   ceOi: number; ceOiChg: number; ceVolume: number; ceLtp: number; ceIv: number | null; ceBuildup: string;
+  ceDelta?: number; ceGamma?: number; ceTheta?: number; ceVega?: number;
   peOi: number; peOiChg: number; peVolume: number; peLtp: number; peIv: number | null; peBuildup: string;
+  peDelta?: number; peGamma?: number; peTheta?: number; peVega?: number;
   pcr: number;
   painValue: number;
 }
@@ -1057,6 +1094,53 @@ function InsightsTab() {
               </CardContent>
             </Card>
           )}
+
+          {(() => {
+            const atm = data?.strikes.find(s => s.isAtm);
+            const hasGreeks = !!atm && (
+              atm.ceDelta != null || atm.peDelta != null ||
+              atm.ceTheta != null || atm.peTheta != null
+            );
+            if (!atm || !hasGreeks) return null;
+            const fmt = (v: number | undefined | null, d = 3) =>
+              v == null || !isFinite(v) ? "—" : v.toFixed(d);
+            return (
+              <Card>
+                <CardContent className="p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs uppercase font-mono tracking-wider text-muted-foreground">
+                    <span className="flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5" /> ATM Greeks
+                    </span>
+                    <span className="normal-case font-normal text-[10px]">Strike {atm.strike}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[11px] font-mono">
+                    <div></div>
+                    <div className="text-center text-red-400 font-bold">CE</div>
+                    <div className="text-center text-green-400 font-bold">PE</div>
+
+                    <div className="text-muted-foreground">Δ Delta</div>
+                    <div className="text-right">{fmt(atm.ceDelta)}</div>
+                    <div className="text-right">{fmt(atm.peDelta)}</div>
+
+                    <div className="text-muted-foreground">Γ Gamma</div>
+                    <div className="text-right">{fmt(atm.ceGamma, 4)}</div>
+                    <div className="text-right">{fmt(atm.peGamma, 4)}</div>
+
+                    <div className="text-muted-foreground">Θ Theta</div>
+                    <div className="text-right text-red-400">{fmt(atm.ceTheta, 2)}</div>
+                    <div className="text-right text-red-400">{fmt(atm.peTheta, 2)}</div>
+
+                    <div className="text-muted-foreground">V Vega</div>
+                    <div className="text-right">{fmt(atm.ceVega, 2)}</div>
+                    <div className="text-right">{fmt(atm.peVega, 2)}</div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-snug pt-1 border-t border-border">
+                    Theta is the rupee value lost per day (long options bleed time).
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })()}
         </div>
 
         {/* ── RIGHT: Charts ────────────────────────────────────────────────── */}
@@ -1098,7 +1182,18 @@ function InsightsTab() {
               {!data ? (
                 <Skeleton className="h-80 w-full" />
               ) : oiBars.length === 0 ? (
-                <div className="h-80 flex items-center justify-center text-sm text-muted-foreground">No strikes in range.</div>
+                <div className="h-80 flex flex-col items-center justify-center text-sm text-muted-foreground gap-2 px-6 text-center">
+                  <AlertTriangle className="w-6 h-6 opacity-50" />
+                  <div>No strikes returned by the broker for <b>{underlying}</b>{data?.expiry ? <> · expiry <b>{data.expiry}</b></> : null}.</div>
+                  <div className="text-xs">
+                    Likely causes:
+                    <ul className="mt-1 space-y-0.5 text-left list-disc list-inside">
+                      <li>Broker session has expired — re-connect from the Live Feed tab.</li>
+                      <li>Selected expiry has no liquid strikes around the spot — pick a closer one above.</li>
+                      <li>Underlying is illiquid in the F&amp;O segment — try NIFTY / BANKNIFTY / FINNIFTY first.</li>
+                    </ul>
+                  </div>
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height={360}>
                   <BarChart data={oiBars} barCategoryGap={2} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
