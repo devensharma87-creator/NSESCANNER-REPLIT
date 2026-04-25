@@ -8,7 +8,6 @@ import { LoginGate } from "@/components/login-gate";
 import Layout from "@/components/layout";
 import Dashboard from "@/pages/dashboard";
 import Scanner from "@/pages/scanner";
-import FullNse from "@/pages/full-nse";
 import DeepScan from "@/pages/deep-scan";
 import Strategies from "@/pages/strategies";
 import Sectors from "@/pages/sectors";
@@ -33,7 +32,6 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/scanner" component={Scanner} />
-      <Route path="/full-nse" component={FullNse} />
       <Route path="/deep-scan" component={DeepScan} />
       <Route path="/options" component={Options} />
       <Route path="/option-chain" component={OptionChain} />

@@ -8,12 +8,75 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
-import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { ArrowUp, ArrowDown, ArrowUpDown, RefreshCw } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useMemo, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StockRow } from "@workspace/api-client-react";
+
+type Universe = "curated" | "full";
+
+interface FullNseResponse {
+  rows: StockRow[];
+  total: number;
+  universeSize: number;
+  sourceDate: string;
+  scanMs: number;
+  failures: number;
+  rested: number;
+}
+
+/**
+ * Hook for the Full NSE EQ universe (~2486 symbols, lighter scanner).
+ * Mirrors the shape returned by useListStocks (StockRow[]) so the rest of
+ * the page renders identically. Server already supports search/signal —
+ * sector and screen presets are applied client-side after fetch (same as
+ * curated).
+ */
+function useFullNseStocks(params: { search?: string; signal?: string }, enabled: boolean) {
+  const [data, setData] = useState<StockRow[] | undefined>(undefined);
+  const [meta, setMeta] = useState<{ universeSize: number; sourceDate: string; scanMs: number; failures: number; rested: number } | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(enabled);
+
+  const qs = useMemo(() => {
+    const p = new URLSearchParams();
+    p.set("limit", "5000");
+    p.set("sortBy", "changePct");
+    p.set("order", "desc");
+    if (params.signal && params.signal !== "all") p.set("signal", params.signal);
+    if (params.search?.trim()) p.set("search", params.search.trim());
+    return p.toString();
+  }, [params.search, params.signal]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    setIsLoading(true);
+    fetch(`/api/scan/full-nse?${qs}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((j: FullNseResponse) => {
+        if (cancelled) return;
+        setData(j.rows);
+        setMeta({ universeSize: j.universeSize, sourceDate: j.sourceDate, scanMs: j.scanMs, failures: j.failures, rested: j.rested });
+      })
+      .catch(() => { if (!cancelled) setData([]); })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    const t = setInterval(() => {
+      fetch(`/api/scan/full-nse?${qs}`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then((j: FullNseResponse | null) => {
+          if (cancelled || !j) return;
+          setData(j.rows);
+          setMeta({ universeSize: j.universeSize, sourceDate: j.sourceDate, scanMs: j.scanMs, failures: j.failures, rested: j.rested });
+        })
+        .catch(() => {});
+    }, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [qs, enabled]);
+
+  return { data, isLoading, meta };
+}
 
 type SortKey = "symbol" | "price" | "change" | "changePct" | "open" | "high" | "low" | "prev" | "vwap" | "ema20" | "ema50" | "ema100" | "ema200" | "rsi" | "yrHi" | "yrLo" | "vol" | "score";
 type SortDir = "asc" | "desc";
@@ -96,27 +159,51 @@ export default function ScannerPage() {
     return idx >= 0 ? new URLSearchParams(location.slice(idx + 1)).get("sector") || "all" : "all";
   }, [location]);
 
+  const [universe, setUniverse] = useState<Universe>(() => {
+    if (typeof window === "undefined") return "curated";
+    return (localStorage.getItem("scanner.universe") as Universe) || "curated";
+  });
+  useEffect(() => { try { localStorage.setItem("scanner.universe", universe); } catch {} }, [universe]);
+
   const [sectorFilter, setSectorFilter] = useState<string>(initialSector);
   const [signalFilter, setSignalFilter] = useState<string>("all");
   const [searchFilter, setSearchFilter] = useState<string>(initialSearch);
+  // Debounce the search input. Without this, every keystroke fires a fresh
+  // /api/scan/full-nse request on the Full NSE universe path.
+  const [debouncedSearch, setDebouncedSearch] = useState<string>(initialSearch);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchFilter.trim()), 250);
+    return () => clearTimeout(t);
+  }, [searchFilter]);
+
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "score", dir: "desc" });
   const [screen, setScreen] = useState<string>("none");
 
   useEffect(() => { setSearchFilter(initialSearch); }, [initialSearch]);
   useEffect(() => { setSectorFilter(initialSector); }, [initialSector]);
 
+  // ---- Curated F&O universe (~280) — orval-generated hook ----
   const listParams = useMemo(() => {
     const p = {
       ...(sectorFilter !== "all" && { sector: sectorFilter }),
       ...(signalFilter !== "all" && { signal: signalFilter as ListStocksSignal }),
-      ...(searchFilter && { search: searchFilter }),
+      ...(debouncedSearch && { search: debouncedSearch }),
     };
     return Object.keys(p).length === 0 ? undefined : p;
-  }, [sectorFilter, signalFilter, searchFilter]);
+  }, [sectorFilter, signalFilter, debouncedSearch]);
 
-  const { data: stocks, isLoading: stocksLoading } = useListStocks(listParams, {
-    query: { refetchInterval: 30000, queryKey: getListStocksQueryKey(listParams) },
+  const { data: curatedStocks, isLoading: curatedLoading } = useListStocks(listParams, {
+    query: { refetchInterval: 30000, queryKey: getListStocksQueryKey(listParams), enabled: universe === "curated" },
   });
+
+  // ---- Full NSE EQ universe (~2486) — lightweight bhavcopy-driven scan ----
+  const { data: fullStocks, isLoading: fullLoading, meta: fullMeta } = useFullNseStocks(
+    { search: debouncedSearch, signal: signalFilter },
+    universe === "full",
+  );
+
+  const stocks = universe === "full" ? fullStocks : curatedStocks;
+  const stocksLoading = universe === "full" ? fullLoading : curatedLoading;
 
   // Sectors auto-derived from data so dropdown stays accurate as universe grows
   const sectors = useMemo(() => {
@@ -162,16 +249,42 @@ export default function ScannerPage() {
 
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-4">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold font-mono tracking-tight">FULL SCANNER</h1>
-        <p className="text-sm text-muted-foreground">All NSE F&O / index constituents tracked live · click any column header to sort · use screen presets to narrow · hover any row for the top reasons behind its signal.</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold font-mono tracking-tight">FULL SCANNER</h1>
+          <p className="text-sm text-muted-foreground">
+            {universe === "curated"
+              ? "All NSE F&O / index constituents tracked live · click any column header to sort · use screen presets to narrow · hover any row for the top reasons behind its signal."
+              : <>Live scan across <span className="font-mono text-foreground">{fullMeta?.universeSize ?? "…"}</span> active NSE EQ symbols (driven by the official NSE bhavcopy, refreshed every 5 min). {fullMeta && <>Last scan: <span className="font-mono">{(fullMeta.scanMs / 1000).toFixed(1)}s</span> · {fullMeta.failures} no-feed · {fullMeta.rested} rested · source {fullMeta.sourceDate}.</>}</>}
+          </p>
+        </div>
+        {/* Universe toggle: curated F&O (~280, deep indicators) vs full NSE EQ (~2486, lightweight). */}
+        <div className="inline-flex items-center rounded-md border border-border bg-card p-0.5 font-mono text-[11px]">
+          <button
+            onClick={() => setUniverse("curated")}
+            className={`px-3 py-1.5 rounded-sm transition-colors ${universe === "curated" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            data-testid="universe-curated"
+          >
+            F&amp;O CURATED <span className="opacity-60">(~280)</span>
+          </button>
+          <button
+            onClick={() => setUniverse("full")}
+            className={`px-3 py-1.5 rounded-sm transition-colors ${universe === "full" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            data-testid="universe-full"
+          >
+            FULL NSE EQ <span className="opacity-60">(~2486)</span>
+          </button>
+          {universe === "full" && stocksLoading && (
+            <RefreshCw className="ml-2 mr-2 h-3 w-3 animate-spin text-muted-foreground" />
+          )}
+        </div>
       </div>
 
       <Card>
         <CardHeader className="border-b border-border pb-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <CardTitle className="text-base font-mono">{sortedStocks?.length ?? 0} stocks shown · universe = {stocks?.length ?? 0}</CardTitle>
+              <CardTitle className="text-base font-mono">{sortedStocks?.length ?? 0} stocks shown · universe = {stocks?.length ?? 0}{universe === "full" && fullMeta ? ` of ${fullMeta.universeSize}` : ""}</CardTitle>
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {SCREENS.map(p => (
                   <button
