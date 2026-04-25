@@ -46,6 +46,8 @@ The project is structured as a pnpm workspace monorepo, leveraging TypeScript 5.
 - **System Status**: `lib/systemStatus.ts` collects real-time status of subsystems (API uptime, DB, Kite, TradingView, market state) with cached probes for external services.
 - **OI Insights**: Calculates per-strike OI distribution, PCR aggregates, max-pain, and sentiment scoring based on multiple signals. Uses a dynamic F&O universe from Kite NFO instruments.
 - **Full NSE Coverage**: Lightweight Yahoo intraday scanner for ~2486 active NSE EQ symbols, with RSI/EMA/ATR/VWAP and recommendations. Includes a bhavcopy fallback and symbol aliasing.
+- **Deep Scan Universal Lookup**: `searchUniverse()` merges the curated UNIVERSE (richer metadata) with the full daily NSE bhavcopy (background-refreshed every 15 min) so any of the ~2,486 listed symbols is searchable, not just the curated F&O names.
+- **Yahoo Resilience**: `chartCall()` retries on transient errors (HTTP 429 / Too Many Requests, 502/503/504, ETIMEDOUT, ECONNRESET) with exponential backoff (800/2000/4500 ms) so bursty load against shared Yahoo endpoints (Deep Scan, market summary, trends) recovers cleanly without bubbling failure to the UI.
 - **Stocks To Watch**: Identifies catalysts from 21 news feeds, scores headlines, and resolves NSE symbols. Groups by symbol with aggregated confidence.
 - **OI Lab**: Provides bulk snapshot download, OI heatmap with buildup classification, and intraday tracker with time-series analytics (Spot vs MaxPain, PCR(OI), Call vs Put OI).
 

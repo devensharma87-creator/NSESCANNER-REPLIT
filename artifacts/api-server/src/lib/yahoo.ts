@@ -57,9 +57,37 @@ type Interval = "1m" | "5m" | "15m" | "30m" | "60m" | "1d" | "1wk" | "1mo";
 async function chartCall(ticker: string, range: string, interval: Interval): Promise<YahooChart | null> {
   const days = RANGE_DAYS[range] ?? 190;
   const period1 = new Date(Date.now() - days * 24 * 3600 * 1000);
+  // Yahoo's edge will sporadically return "Too Many Requests" (HTTP 429) under
+  // bursty load — we hammer it across many endpoints (market summary, trends,
+  // deep snapshots, etc.). A short exponential-backoff retry inside the single
+  // network primitive turns transient throttling into a clean success without
+  // requiring every caller to add its own retry logic.
+  const RATE_LIMIT_BACKOFF_MS = [800, 2000, 4500];
+  let res: Awaited<ReturnType<typeof yf.chart>> | null = null;
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt <= RATE_LIMIT_BACKOFF_MS.length; attempt++) {
+    try {
+      // The library accepts "1m"/"5m" but typing of `chart` is permissive.
+      res = await yf.chart(ticker, { period1, interval: interval as never });
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err as Error;
+      const msg = lastErr.message ?? "";
+      // Only retry on rate-limit / transient gateway failures, never on
+      // legitimate "not found" responses.
+      const isTransient = /Too Many Requests|429|502|503|504|ETIMEDOUT|ECONNRESET/i.test(msg);
+      if (!isTransient || attempt >= RATE_LIMIT_BACKOFF_MS.length) break;
+      await new Promise(r => setTimeout(r, RATE_LIMIT_BACKOFF_MS[attempt]));
+    }
+  }
+  if (lastErr || !res) {
+    if (lastErr) {
+      logger.warn({ err: lastErr.message, ticker, range, interval }, "Yahoo chart failed");
+    }
+    return null;
+  }
   try {
-    // The library accepts "1m"/"5m" but typing of `chart` is permissive.
-    const res = await yf.chart(ticker, { period1, interval: interval as never });
     if (!res?.meta || !res.quotes?.length) return null;
     const open: number[] = [];
     const high: number[] = [];

@@ -22,9 +22,18 @@ router.get("/deepscan/snapshot/:symbol", async (req, res) => {
     kindRaw === "stock" || kindRaw === "index" ? kindRaw : undefined;
 
   try {
-    const snap = await getDeepSnapshot(symbol, range, kind);
+    // Yahoo's free chart API rate-limits us under load. One quick retry with
+    // a short backoff turns a transient "No data available for NIFTY" error
+    // (which the user just hit on a fresh server boot) into a clean 200.
+    let snap = await getDeepSnapshot(symbol, range, kind);
     if (!snap) {
-      res.status(404).json({ error: "No data available for this symbol" });
+      await new Promise(r => setTimeout(r, 600));
+      snap = await getDeepSnapshot(symbol, range, kind);
+    }
+    if (!snap) {
+      res.status(404).json({
+        error: `No data available for ${symbol}. The chart provider rate-limited the request — please retry in a few seconds.`,
+      });
       return;
     }
     res.json(snap);

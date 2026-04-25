@@ -13,6 +13,27 @@
 import { UNIVERSE, getEntry, INDEX_CONSTITUENTS, type UniverseEntry } from "./universe";
 import { fetchChart, fetchIntraday, fetchFundamentals, yahooTickerFor, type YahooFundamentals } from "./yahoo";
 import { ema } from "./indicators";
+import { getAllSymbols } from "./nseBhavcopy";
+
+// Sync mirror of the bhavcopy symbol list. We refresh this in the background
+// from getAllSymbols() (which is async) so that searchUniverse() can stay sync
+// and respond instantly even while the bhavcopy is being downloaded for the
+// first time. Survives one cold start because the bhavcopy itself is cached
+// to disk by nseBhavcopy.ts.
+let bhavcopySymbolsCache: { symbols: string[]; sourceDate: string } | null = null;
+async function refreshBhavcopySymbolsCache(): Promise<void> {
+  try {
+    const r = await getAllSymbols();
+    if (r) bhavcopySymbolsCache = r;
+  } catch {
+    // Keep last-known good cache; this just means the lookup is degraded
+    // to the curated 280 names until the next refresh succeeds.
+  }
+}
+// Kick off an initial refresh; nseBhavcopy.getDeliveryMap() handles caching
+// and inflight de-dup, so this is cheap to call any number of times.
+void refreshBhavcopySymbolsCache();
+setInterval(() => { void refreshBhavcopySymbolsCache(); }, 15 * 60_000).unref();
 
 /** Series version of rolling-VWAP (the indicator helper returns only the latest value). */
 function rollingVwapSeries(
@@ -82,25 +103,61 @@ export interface LookupItem {
   category?: string;
 }
 
-/** Fuzzy search (substring, case-insensitive) across stocks + indices. Caps result. */
-export function searchUniverse(q: string, limit = 15): LookupItem[] {
+/**
+ * Fuzzy search (substring, case-insensitive) across:
+ *   1. Indian indices (NIFTY, BANKNIFTY, sector indices, …)
+ *   2. The curated UNIVERSE (~280 names with rich metadata: name, sector, …)
+ *   3. The FULL NSE EQ universe (~2,486 symbols from the daily bhavcopy)
+ *
+ * Curated entries always win on collision because they carry the friendly
+ * company name + sector. Symbols that exist only in the bhavcopy come back
+ * with the symbol itself as the name and no sector tag, but they still
+ * resolve correctly to a Yahoo ticker via yahooTickerFor() in the snapshot
+ * endpoint — meaning users can deep-scan ANY listed NSE EQ stock by typing
+ * its ticker (TATAMOTORS, RELIANCE, IRCTC, BHEL, etc.) and not just the
+ * curated F&O names.
+ */
+export function searchUniverse(q: string, limit = 25): LookupItem[] {
   const term = q.trim().toUpperCase();
   if (!term) return [];
 
   const out: LookupItem[] = [];
-  // Indices first (usually intent when typing NIFTY/BANK/…)
+  const seen = new Set<string>();
+
+  // 1) Indices first — usually intent when typing NIFTY/BANK/SENSEX/…
   for (const idx of INDEX_LIST) {
     if (idx.symbol.toUpperCase().includes(term) || idx.name.toUpperCase().includes(term)) {
       out.push({ kind: "index", symbol: idx.symbol, name: idx.name, category: idx.category });
+      seen.add(`index:${idx.symbol.toUpperCase()}`);
     }
   }
-  // Then stocks
+
+  // 2) Curated stocks (richer metadata wins on overlap with bhavcopy)
   for (const s of UNIVERSE) {
-    if (s.symbol.toUpperCase().includes(term) || s.name.toUpperCase().includes(term)) {
+    if (out.length >= limit) break;
+    const sym = s.symbol.toUpperCase();
+    if (seen.has(`stock:${sym}`)) continue;
+    if (sym.includes(term) || s.name.toUpperCase().includes(term)) {
       out.push({ kind: "stock", symbol: s.symbol, name: s.name, sector: s.sector });
-      if (out.length >= limit) break;
+      seen.add(`stock:${sym}`);
     }
   }
+
+  // 3) Full NSE bhavcopy universe — symbols only (no friendly name in
+  //    bhavcopy). Every symbol the broker actually trades is searchable.
+  const bhav = bhavcopySymbolsCache;
+  if (bhav) {
+    for (const sym of bhav.symbols) {
+      if (out.length >= limit) break;
+      const u = sym.toUpperCase();
+      if (seen.has(`stock:${u}`)) continue;
+      if (u.includes(term)) {
+        out.push({ kind: "stock", symbol: sym, name: sym });
+        seen.add(`stock:${u}`);
+      }
+    }
+  }
+
   return out.slice(0, limit);
 }
 
