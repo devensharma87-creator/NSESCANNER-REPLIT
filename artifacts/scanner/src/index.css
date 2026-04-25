@@ -217,6 +217,116 @@ html.theme-light {
   --sidebar-border: 220 13% 91%;
 }
 
+/* ---------- Theme: Carbon Blue (gunmetal + steel blue) ---------- */
+html.theme-carbon {
+  --button-outline: rgba(148, 184, 224, .12);
+  --badge-outline: rgba(148, 184, 224, .07);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(148, 184, 224, .045);
+  --elevate-2: rgba(148, 184, 224, .09);
+
+  --background: 218 28% 8%;
+  --foreground: 215 25% 95%;
+
+  --card: 218 26% 11%;
+  --card-foreground: 215 25% 95%;
+  --card-border: 218 22% 20%;
+
+  --popover: 218 26% 11%;
+  --popover-foreground: 215 25% 95%;
+  --popover-border: 218 22% 20%;
+
+  --primary: 210 90% 65%;
+  --primary-foreground: 218 28% 9%;
+
+  --secondary: 218 22% 18%;
+  --secondary-foreground: 215 25% 95%;
+
+  --muted: 218 22% 18%;
+  --muted-foreground: 215 18% 68%;
+
+  --accent: 210 60% 25%;
+  --accent-foreground: 215 25% 95%;
+
+  --destructive: 0 72% 52%;
+  --destructive-foreground: 215 25% 95%;
+
+  --border: 218 22% 20%;
+  --input: 218 22% 20%;
+  --ring: 210 90% 65%;
+
+  --signal-strong-buy: 152 70% 50%;
+  --signal-buy: 152 55% 40%;
+  --signal-neutral: 215 18% 68%;
+  --signal-sell: 4 78% 58%;
+  --signal-strong-sell: 350 80% 52%;
+
+  --chart-1: 152 70% 50%;
+  --chart-2: 4 78% 58%;
+  --chart-3: 215 18% 68%;
+  --chart-4: 218 22% 22%;
+  --chart-5: 210 90% 65%;
+
+  --sidebar: 218 28% 8%;
+  --sidebar-foreground: 215 25% 95%;
+  --sidebar-border: 218 22% 20%;
+}
+
+/* ---------- Theme: Royal Blue (deep navy + gold) ---------- */
+html.theme-royal {
+  --button-outline: rgba(250, 204, 102, .14);
+  --badge-outline: rgba(250, 204, 102, .08);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(250, 204, 102, .05);
+  --elevate-2: rgba(250, 204, 102, .10);
+
+  --background: 224 60% 9%;
+  --foreground: 45 50% 96%;
+
+  --card: 224 55% 13%;
+  --card-foreground: 45 50% 96%;
+  --card-border: 224 45% 24%;
+
+  --popover: 224 55% 13%;
+  --popover-foreground: 45 50% 96%;
+  --popover-border: 224 45% 24%;
+
+  --primary: 42 95% 62%;
+  --primary-foreground: 224 60% 11%;
+
+  --secondary: 224 45% 22%;
+  --secondary-foreground: 45 50% 96%;
+
+  --muted: 224 45% 22%;
+  --muted-foreground: 220 25% 75%;
+
+  --accent: 224 70% 32%;
+  --accent-foreground: 45 50% 96%;
+
+  --destructive: 0 75% 55%;
+  --destructive-foreground: 45 50% 96%;
+
+  --border: 224 45% 24%;
+  --input: 224 45% 24%;
+  --ring: 42 95% 62%;
+
+  --signal-strong-buy: 145 72% 50%;
+  --signal-buy: 145 60% 40%;
+  --signal-neutral: 220 25% 75%;
+  --signal-sell: 4 80% 60%;
+  --signal-strong-sell: 350 82% 55%;
+
+  --chart-1: 145 72% 50%;
+  --chart-2: 4 80% 60%;
+  --chart-3: 220 25% 75%;
+  --chart-4: 224 45% 28%;
+  --chart-5: 42 95% 62%;
+
+  --sidebar: 224 60% 9%;
+  --sidebar-foreground: 45 50% 96%;
+  --sidebar-border: 224 45% 24%;
+}
+
 /* ---------- Theme: Ocean (deep teal, cyan accents) ---------- */
 html.theme-ocean {
   --button-outline: rgba(125, 211, 252, .14);

@@ -1,13 +1,17 @@
 import { useEffect, useState, useRef } from "react";
-import { Sun, Moon, Waves, Palette } from "lucide-react";
+import { Sun, Moon, Waves, Palette, Hexagon, Crown } from "lucide-react";
 
-export type ThemeName = "dark" | "light" | "ocean";
+export type ThemeName = "dark" | "light" | "ocean" | "carbon" | "royal";
 const STORAGE_KEY = "nse_scanner_theme";
 const THEME_CLASSES: Record<ThemeName, string> = {
   dark: "theme-dark dark",
   light: "theme-light",
   ocean: "theme-ocean dark",
+  carbon: "theme-carbon dark",
+  royal: "theme-royal dark",
 };
+
+const VALID_THEMES = new Set<ThemeName>(["dark", "light", "ocean", "carbon", "royal"]);
 
 export function applyTheme(name: ThemeName) {
   const root = document.documentElement;
@@ -24,8 +28,8 @@ export function applyTheme(name: ThemeName) {
 
 export function loadInitialTheme(): ThemeName {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "dark" || saved === "light" || saved === "ocean") return saved;
+    const saved = localStorage.getItem(STORAGE_KEY) as ThemeName | null;
+    if (saved && VALID_THEMES.has(saved)) return saved;
   } catch {
     /* ignore */
   }
@@ -36,6 +40,8 @@ const THEMES: { id: ThemeName; label: string; icon: React.ElementType }[] = [
   { id: "dark", label: "Dark", icon: Moon },
   { id: "light", label: "Light", icon: Sun },
   { id: "ocean", label: "Ocean", icon: Waves },
+  { id: "carbon", label: "Carbon Blue", icon: Hexagon },
+  { id: "royal", label: "Royal Blue", icon: Crown },
 ];
 
 export function ThemeSwitcher() {
