@@ -1,19 +1,19 @@
 import {
   useListStocks,
   getListStocksQueryKey,
-  ListStocksSignal,
 } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
 import { ArrowUp, ArrowDown, ArrowUpDown, RefreshCw, Download } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useState, useMemo, useEffect, useDeferredValue } from "react";
+import { useState, useMemo, useEffect, useDeferredValue, useRef, memo } from "react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StockRow } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 interface FullNseResponse {
   rows: StockRow[];
@@ -32,74 +32,63 @@ interface FullNseStatus {
   progress: { running: boolean; scanned: number; total: number; startedAt: number | null };
 }
 
+const FULL_NSE_QS = "limit=5000&sortBy=changePct&order=desc";
+
 /**
- * Hook for the Full NSE EQ universe (~2486 symbols, lighter scanner).
- * Mirrors the shape returned by useListStocks (StockRow[]) so the rest of
- * the page renders identically. Always enabled — Scanner page merges this
- * with the curated 280-name dataset so the table shows EVERY NSE EQ stock.
+ * React-Query backed full NSE EQ universe (~2486 symbols). Switching to a
+ * shared QueryClient cache means navigating away from /scanner and back no
+ * longer drops the rows back to undefined — which was the root cause of the
+ * "after I switch tabs only 199 stocks show up again" bug. The data lives
+ * in the QueryClient for the lifetime of the app session.
  */
 function useFullNseStocks() {
-  const [data, setData] = useState<StockRow[] | undefined>(undefined);
-  const [meta, setMeta] = useState<{ universeSize: number; sourceDate: string; scanMs: number; failures: number; rested: number } | null>(null);
-  const [progress, setProgress] = useState<FullNseStatus["progress"] | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const q = useQuery({
+    queryKey: ["full-nse", FULL_NSE_QS],
+    queryFn: async (): Promise<FullNseResponse> => {
+      const r = await fetch(`/api/scan/full-nse?${FULL_NSE_QS}`, { credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+    // Keep the previous payload in cache forever within the session — never
+    // replace good data with `undefined`. This is what kills the "now I only
+    // see 199 stocks again" flash on tab switch.
+    gcTime: Infinity,
+  });
+  return {
+    data: q.data?.rows,
+    isLoading: q.isLoading && !q.data,
+    meta: q.data ? {
+      universeSize: q.data.universeSize,
+      sourceDate: q.data.sourceDate,
+      scanMs: q.data.scanMs,
+      failures: q.data.failures,
+      rested: q.data.rested,
+    } : null,
+  };
+}
 
-  // Pull the entire dataset once and apply filters client-side. The endpoint
-  // tops out at limit=5000 which comfortably covers the ~2486 universe.
-  const qs = "limit=5000&sortBy=changePct&order=desc";
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    const loadRows = (showLoading: boolean) => {
-      if (showLoading) setIsLoading(true);
-      return fetch(`/api/scan/full-nse?${qs}`, { credentials: "include" })
-        .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-        .then((j: FullNseResponse) => {
-          if (cancelled) return;
-          setData(j.rows);
-          setMeta({ universeSize: j.universeSize, sourceDate: j.sourceDate, scanMs: j.scanMs, failures: j.failures, rested: j.rested });
-        })
-        .catch(() => { if (!cancelled && showLoading) setData(prev => prev ?? []); })
-        .finally(() => { if (!cancelled && showLoading) setIsLoading(false); });
-    };
-    // Live progress poll — runs faster than the row poll while a cold scan
-    // is in progress so the user sees "X of 2486" tick up in near-real-time.
-    const loadStatus = () => {
-      return fetch(`/api/scan/full-nse/status`, { credentials: "include" })
-        .then(r => r.ok ? r.json() as Promise<FullNseStatus> : null)
-        .then(j => { if (!cancelled && j) setProgress(j.progress); })
-        .catch(() => undefined);
-    };
-    loadRows(true);
-    loadStatus();
-    // Background polling — guarded by document.visibilityState so a tab
-    // sitting in the background doesn't keep hammering the API for data
-    // the user can't see. Errors swallowed so a single failure doesn't
-    // sever the recurring interval handler.
-    const tickRows = () => {
-      if (document.hidden) return;
-      try { void loadRows(false); } catch { /* keep polling */ }
-    };
-    const tickStatus = () => {
-      if (document.hidden) return;
-      try { void loadStatus(); } catch { /* keep polling */ }
-    };
-    // 60s row refetch (was 30s); 5s progress poll (was 3s). The progress
-    // endpoint is cheap (no Kite calls) so a slightly faster cadence is OK.
-    const tRows = setInterval(tickRows, 60_000);
-    const tStatus = setInterval(tickStatus, 5_000);
-    // Catch up immediately when the user comes back to the tab.
-    const onVis = () => { if (!document.hidden) { loadRows(false); loadStatus(); } };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      cancelled = true;
-      clearInterval(tRows); clearInterval(tStatus);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, []);
-
-  return { data, isLoading, meta, progress };
+/**
+ * Lightweight cold-scan progress poll — separate query so progress can update
+ * every 5s without re-fetching the heavyweight rows payload.
+ */
+function useFullNseProgress() {
+  const q = useQuery({
+    queryKey: ["full-nse-status"],
+    queryFn: async (): Promise<FullNseStatus> => {
+      const r = await fetch(`/api/scan/full-nse/status`, { credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
+    staleTime: 0,
+    gcTime: 60_000,
+  });
+  return q.data?.progress ?? null;
 }
 
 type SortKey = "symbol" | "price" | "change" | "changePct" | "open" | "high" | "low" | "prev" | "vwap" | "ema20" | "ema50" | "ema100" | "ema200" | "rsi" | "yrHi" | "yrLo" | "vol" | "score";
@@ -171,6 +160,64 @@ const SCREENS = [
   { id: "topSells", label: "Strong Sell" },
 ];
 
+const ROW_HEIGHT = 48;
+// Total table width = sum of column widths below; sticky symbol col + 18 numeric cols
+const COL_WIDTHS = {
+  symbol: 160, price: 90, change: 70, changePct: 78, open: 80, high: 80, low: 80,
+  prev: 80, vwap: 80, ema20: 80, ema50: 80, ema100: 80, ema200: 80, rsi: 70,
+  yrHi: 90, yrLo: 90, vol: 70, score: 130, signal: 110,
+} as const;
+const TOTAL_WIDTH = Object.values(COL_WIDTHS).reduce((a, b) => a + b, 0);
+
+const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
+const fmt = (n: number | undefined | null, dp = 2) => n == null ? "—" : n.toFixed(dp);
+
+/**
+ * Memoized row component — referentially stable so the virtualizer can skip
+ * re-renders for rows that didn't change. Each row is a flex row of <div>s
+ * (NOT a <tr>) because virtualization requires absolute positioning, which
+ * the browser doesn't apply correctly inside <table> markup.
+ */
+const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) {
+  const q = stock.quote;
+  const ind = stock.indicators;
+  const chgClass = q.changePercent >= 0 ? 'text-signal-strong-buy' : 'text-signal-strong-sell';
+  const cmpVsVwap = ind?.vwap != null ? (q.price >= ind.vwap ? 'text-signal-strong-buy' : 'text-signal-strong-sell') : '';
+  return (
+    <div
+      role="row"
+      className="absolute left-0 right-0 flex items-center border-b border-border/50 hover:bg-accent/40 group"
+      style={{ top, height: ROW_HEIGHT, width: TOTAL_WIDTH }}
+      title={buildReasonsTitle(stock)}
+    >
+      <div className="sticky left-0 bg-card group-hover:bg-accent/40 z-10 px-3 py-1.5 flex flex-col justify-center" style={{ width: COL_WIDTHS.symbol }}>
+        <Link href={`/stock/${stock.symbol}`} className="font-mono font-bold hover:underline text-sm leading-tight">
+          {stock.symbol}
+        </Link>
+        <div className="text-[10px] text-muted-foreground truncate">{stock.sector}</div>
+      </div>
+      <div className={`text-right font-mono text-sm font-bold tabular-nums px-2 ${cmpVsVwap}`} style={{ width: COL_WIDTHS.price }}>{fmtIN(q.price)}</div>
+      <div className={`text-right font-mono text-xs tabular-nums px-2 ${chgClass}`} style={{ width: COL_WIDTHS.change }}>{q.change >= 0 ? "+" : ""}{fmt(q.change)}</div>
+      <div className={`text-right font-mono text-xs font-medium tabular-nums px-2 ${chgClass}`} style={{ width: COL_WIDTHS.changePct }}>{formatPct(q.changePercent)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.open }}>{fmt(q.open)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.high }}>{fmt(q.high)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.low }}>{fmt(q.low)}</div>
+      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.prev }}>{fmt(q.previousClose)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.vwap }}>{fmt(ind?.vwap)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.ema20 }}>{fmt(ind?.ema20)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.ema50 }}>{fmt(ind?.ema50)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.ema100 }}>{fmt(ind?.ema100)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.ema200 }}>{fmt(ind?.ema200)}</div>
+      <div className={`text-right font-mono text-xs tabular-nums px-2 ${ind?.rsi14 != null && ind.rsi14 > 70 ? 'text-signal-strong-sell' : ind?.rsi14 != null && ind.rsi14 < 30 ? 'text-signal-strong-buy' : ''}`} style={{ width: COL_WIDTHS.rsi }}>{fmt(ind?.rsi14, 1)}</div>
+      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrHi }}>{fmt(q.fiftyTwoWeekHigh)}</div>
+      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrLo }}>{fmt(q.fiftyTwoWeekLow)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.vol }}>{ind?.volumeRatio != null ? `${ind.volumeRatio.toFixed(1)}×` : '—'}</div>
+      <div className="px-2" style={{ width: COL_WIDTHS.score }}><ScoreBar score={stock.recommendation.score} /></div>
+      <div className="text-right px-2" style={{ width: COL_WIDTHS.signal }}><SignalBadge signal={stock.recommendation.signal} /></div>
+    </div>
+  );
+});
+
 export default function ScannerPage() {
   const [location] = useLocation();
 
@@ -204,31 +251,28 @@ export default function ScannerPage() {
       refetchInterval: 60_000,
       refetchIntervalInBackground: false,
       refetchOnWindowFocus: true,
+      staleTime: 30_000,
+      gcTime: Infinity,
       queryKey: getListStocksQueryKey(undefined),
     },
   });
-  const { data: fullStocks, isLoading: fullLoading, meta: fullMeta, progress: fullProgress } = useFullNseStocks();
+  const { data: fullStocks, isLoading: fullLoading, meta: fullMeta } = useFullNseStocks();
+  const fullProgress = useFullNseProgress();
 
-  // useDeferredValue lets React keep the input responsive even when the
-  // expensive 2,500-row filter+sort recomputes. Typing updates `searchFilter`
-  // immediately (so the input renders instantly), and the table catches up
-  // on the next idle frame.
+  // useDeferredValue keeps the input responsive while the expensive 2,500-row
+  // filter+sort recomputes on a lower-priority render pass.
   const deferredSearch = useDeferredValue(searchFilter);
 
   const mergedStocks = useMemo(() => {
     const bySymbol = new Map<string, StockRow>();
-    // Seed with full NSE rows first
     for (const r of fullStocks ?? []) bySymbol.set(r.symbol, r);
-    // Then overlay curated rows (richer fields) — these win on collision
     for (const r of curatedStocks ?? []) bySymbol.set(r.symbol, r);
     return Array.from(bySymbol.values());
   }, [fullStocks, curatedStocks]);
 
-  // Show loading only while we have NO data at all. Once either source has
-  // arrived we render — the other can hot-fill in the background.
-  const stocksLoading = (curatedLoading && fullLoading) && mergedStocks.length === 0;
+  // Spinner only when literally nothing has arrived yet
+  const stocksLoading = curatedLoading && fullLoading && mergedStocks.length === 0;
 
-  // Sectors auto-derived from data so dropdown stays accurate as universe grows
   const sectors = useMemo(() => {
     const set = new Set<string>();
     mergedStocks.forEach(s => set.add(s.sector));
@@ -236,9 +280,8 @@ export default function ScannerPage() {
   }, [mergedStocks]);
 
   const sortedStocks = useMemo(() => {
-    if (!mergedStocks || mergedStocks.length === 0) return undefined;
+    if (!mergedStocks || mergedStocks.length === 0) return [] as StockRow[];
     let arr = mergedStocks;
-    // Apply server-side filters client-side now that we merge two sources
     if (sectorFilter !== "all") arr = arr.filter(s => s.sector === sectorFilter);
     if (signalFilter !== "all") arr = arr.filter(s => s.recommendation.signal === signalFilter);
     if (deferredSearch.trim()) {
@@ -263,7 +306,7 @@ export default function ScannerPage() {
         default: return true;
       }
     });
-    arr.sort((a, b) => {
+    arr = arr.slice().sort((a, b) => {
       const av = getSortValue(a, sort.key);
       const bv = getSortValue(b, sort.key);
       let cmp = 0;
@@ -274,8 +317,15 @@ export default function ScannerPage() {
     return arr;
   }, [mergedStocks, sort, screen, sectorFilter, signalFilter, deferredSearch]);
 
-  const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
-  const fmt = (n: number | undefined | null, dp = 2) => n == null ? "—" : n.toFixed(dp);
+  // --- Virtualization ----------------------------------------------------
+  // Render only the visible rows — so 2,500 stocks feel as snappy as 25.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: sortedStocks.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 8,
+  });
 
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-4">
@@ -288,7 +338,6 @@ export default function ScannerPage() {
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          {/* Live cold-scan progress badge — only visible while a scan is actually running */}
           {fullProgress?.running && fullProgress.total > 0 && (
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-primary/40 bg-primary/10 font-mono text-[11px] text-primary">
               <RefreshCw className="h-3 w-3 animate-spin" />
@@ -297,7 +346,6 @@ export default function ScannerPage() {
               <span>{Math.round((fullProgress.scanned / Math.max(1, fullProgress.total)) * 100)}%</span>
             </div>
           )}
-          {/* CSV/JSON download — credentialed by cookie, anchor opens save dialog */}
           <div className="inline-flex items-center gap-1.5">
             <a
               href="/api/scan/full-nse/export?format=csv"
@@ -322,7 +370,7 @@ export default function ScannerPage() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <CardTitle className="text-base font-mono">
-                {sortedStocks?.length ?? 0} stocks shown · universe = {mergedStocks.length}{fullMeta ? ` of ${fullMeta.universeSize}` : ""}
+                {sortedStocks.length.toLocaleString("en-IN")} stocks shown · universe = {mergedStocks.length.toLocaleString("en-IN")}{fullMeta ? ` of ${fullMeta.universeSize.toLocaleString("en-IN")}` : ""}
               </CardTitle>
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {SCREENS.map(p => (
@@ -367,81 +415,54 @@ export default function ScannerPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <Table containerClassName="max-h-[calc(100vh-220px)]">
-              <TableHeader className="sticky top-0 z-20 bg-card shadow-[0_1px_0_0_hsl(var(--border))]">
-                <TableRow className="hover:bg-transparent border-border">
-                  <TableHead className="font-mono text-[11px] sticky left-0 bg-card z-10"><SortHead k="symbol" label="SYMBOL" sort={sort} setSort={setSort} align="left" /></TableHead>
-                  <TableHead className="text-right"><SortHead k="price" label="CMP" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="change" label="CHG" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="changePct" label="%CHG" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="open" label="OPEN" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="high" label="HIGH" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="low" label="LOW" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="prev" label="PREV" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="vwap" label="VWAP" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="ema20" label="EMA20" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="ema50" label="EMA50" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="ema100" label="EMA100" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="ema200" label="EMA200" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="rsi" label="RSI" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="yrHi" label="52W H" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="yrLo" label="52W L" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="text-right"><SortHead k="vol" label="VOL×" sort={sort} setSort={setSort} /></TableHead>
-                  <TableHead className="w-[120px]"><SortHead k="score" label="SCORE" sort={sort} setSort={setSort} align="left" /></TableHead>
-                  <TableHead className="font-mono text-[11px] text-right">SIGNAL</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {stocksLoading ? (
-                  Array.from({ length: 12 }).map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell colSpan={19} className="h-10"><Skeleton className="h-4 w-full" /></TableCell>
-                    </TableRow>
-                  ))
-                ) : sortedStocks?.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={19} className="h-24 text-center text-muted-foreground font-mono text-sm">
-                      NO MATCHING STOCKS FOUND
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  sortedStocks?.map(stock => {
-                    const q = stock.quote;
-                    const ind = stock.indicators;
-                    const chgClass = q.changePercent >= 0 ? 'text-signal-strong-buy' : 'text-signal-strong-sell';
-                    const cmpVsVwap = ind?.vwap != null ? (q.price >= ind.vwap ? 'text-signal-strong-buy' : 'text-signal-strong-sell') : '';
-                    return (
-                      <TableRow key={stock.symbol} className="hover-row border-border/50 group" title={buildReasonsTitle(stock)}>
-                        <TableCell className="sticky left-0 bg-card group-hover:bg-card z-10 py-1.5">
-                          <Link href={`/stock/${stock.symbol}`} className="font-mono font-bold hover:underline text-sm">
-                            {stock.symbol}
-                          </Link>
-                          <div className="text-[10px] text-muted-foreground truncate max-w-[140px]">{stock.sector}</div>
-                        </TableCell>
-                        <TableCell className={`text-right font-mono text-sm font-bold tabular-nums ${cmpVsVwap}`}>{fmtIN(q.price)}</TableCell>
-                        <TableCell className={`text-right font-mono text-xs tabular-nums ${chgClass}`}>{q.change >= 0 ? "+" : ""}{fmt(q.change)}</TableCell>
-                        <TableCell className={`text-right font-mono text-xs font-medium tabular-nums ${chgClass}`}>{formatPct(q.changePercent)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">{fmt(q.open)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">{fmt(q.high)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">{fmt(q.low)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground tabular-nums">{fmt(q.previousClose)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">{fmt(ind?.vwap)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">{fmt(ind?.ema20)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">{fmt(ind?.ema50)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">{fmt(ind?.ema100)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">{fmt(ind?.ema200)}</TableCell>
-                        <TableCell className={`text-right font-mono text-xs tabular-nums ${ind?.rsi14 != null && ind.rsi14 > 70 ? 'text-signal-strong-sell' : ind?.rsi14 != null && ind.rsi14 < 30 ? 'text-signal-strong-buy' : ''}`}>{fmt(ind?.rsi14, 1)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground tabular-nums">{fmt(q.fiftyTwoWeekHigh)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground tabular-nums">{fmt(q.fiftyTwoWeekLow)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">{ind?.volumeRatio != null ? `${ind.volumeRatio.toFixed(1)}×` : '—'}</TableCell>
-                        <TableCell className="align-middle"><ScoreBar score={stock.recommendation.score} /></TableCell>
-                        <TableCell className="text-right"><SignalBadge signal={stock.recommendation.signal} /></TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
+          {/* Virtualized table — windowed rendering keeps the page snappy
+              even at 2,500 rows. Header is a plain flex row outside the
+              virtualizer. */}
+          <div ref={scrollRef} className="overflow-auto max-h-[calc(100vh-260px)] relative" role="grid" aria-label="NSE stocks scanner">
+            <div style={{ width: TOTAL_WIDTH, minWidth: TOTAL_WIDTH }}>
+              {/* Header row */}
+              <div role="row" className="sticky top-0 z-30 flex items-center bg-card border-b border-border h-10" style={{ width: TOTAL_WIDTH }}>
+                <div className="sticky left-0 bg-card z-10 px-3" style={{ width: COL_WIDTHS.symbol }}><SortHead k="symbol" label="SYMBOL" sort={sort} setSort={setSort} align="left" /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.price }}><SortHead k="price" label="CMP" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.change }}><SortHead k="change" label="CHG" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.changePct }}><SortHead k="changePct" label="%CHG" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.open }}><SortHead k="open" label="OPEN" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.high }}><SortHead k="high" label="HIGH" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.low }}><SortHead k="low" label="LOW" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.prev }}><SortHead k="prev" label="PREV" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.vwap }}><SortHead k="vwap" label="VWAP" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.ema20 }}><SortHead k="ema20" label="EMA20" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.ema50 }}><SortHead k="ema50" label="EMA50" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.ema100 }}><SortHead k="ema100" label="EMA100" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.ema200 }}><SortHead k="ema200" label="EMA200" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.rsi }}><SortHead k="rsi" label="RSI" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.yrHi }}><SortHead k="yrHi" label="52W H" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.yrLo }}><SortHead k="yrLo" label="52W L" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" style={{ width: COL_WIDTHS.vol }}><SortHead k="vol" label="VOL×" sort={sort} setSort={setSort} /></div>
+                <div className="px-2" style={{ width: COL_WIDTHS.score }}><SortHead k="score" label="SCORE" sort={sort} setSort={setSort} align="left" /></div>
+                <div className="text-right px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground" style={{ width: COL_WIDTHS.signal }}>SIGNAL</div>
+              </div>
+
+              {stocksLoading ? (
+                <div className="p-4 space-y-2">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <Skeleton key={i} className="h-8 w-full" />
+                  ))}
+                </div>
+              ) : sortedStocks.length === 0 ? (
+                <div className="h-24 flex items-center justify-center text-muted-foreground font-mono text-sm">
+                  NO MATCHING STOCKS FOUND
+                </div>
+              ) : (
+                <div className="relative" style={{ height: rowVirtualizer.getTotalSize(), width: TOTAL_WIDTH }}>
+                  {rowVirtualizer.getVirtualItems().map(v => {
+                    const stock = sortedStocks[v.index];
+                    return <Row key={stock.symbol} stock={stock} top={v.start} />;
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
