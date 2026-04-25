@@ -15,8 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StockRow } from "@workspace/api-client-react";
 
-type Universe = "curated" | "full";
-
 interface FullNseResponse {
   rows: StockRow[];
   total: number;
@@ -30,50 +28,37 @@ interface FullNseResponse {
 /**
  * Hook for the Full NSE EQ universe (~2486 symbols, lighter scanner).
  * Mirrors the shape returned by useListStocks (StockRow[]) so the rest of
- * the page renders identically. Server already supports search/signal —
- * sector and screen presets are applied client-side after fetch (same as
- * curated).
+ * the page renders identically. Always enabled — Scanner page merges this
+ * with the curated 280-name dataset so the table shows EVERY NSE EQ stock.
  */
-function useFullNseStocks(params: { search?: string; signal?: string }, enabled: boolean) {
+function useFullNseStocks() {
   const [data, setData] = useState<StockRow[] | undefined>(undefined);
   const [meta, setMeta] = useState<{ universeSize: number; sourceDate: string; scanMs: number; failures: number; rested: number } | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(enabled);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const qs = useMemo(() => {
-    const p = new URLSearchParams();
-    p.set("limit", "5000");
-    p.set("sortBy", "changePct");
-    p.set("order", "desc");
-    if (params.signal && params.signal !== "all") p.set("signal", params.signal);
-    if (params.search?.trim()) p.set("search", params.search.trim());
-    return p.toString();
-  }, [params.search, params.signal]);
+  // Pull the entire dataset once and apply filters client-side. The endpoint
+  // tops out at limit=5000 which comfortably covers the ~2486 universe.
+  const qs = "limit=5000&sortBy=changePct&order=desc";
 
   useEffect(() => {
-    if (!enabled) return;
     let cancelled = false;
     setIsLoading(true);
-    fetch(`/api/scan/full-nse?${qs}`, { credentials: "include" })
-      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then((j: FullNseResponse) => {
-        if (cancelled) return;
-        setData(j.rows);
-        setMeta({ universeSize: j.universeSize, sourceDate: j.sourceDate, scanMs: j.scanMs, failures: j.failures, rested: j.rested });
-      })
-      .catch(() => { if (!cancelled) setData([]); })
-      .finally(() => { if (!cancelled) setIsLoading(false); });
-    const t = setInterval(() => {
-      fetch(`/api/scan/full-nse?${qs}`, { credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then((j: FullNseResponse | null) => {
-          if (cancelled || !j) return;
+    const load = (showLoading: boolean) => {
+      if (showLoading) setIsLoading(true);
+      return fetch(`/api/scan/full-nse?${qs}`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+        .then((j: FullNseResponse) => {
+          if (cancelled) return;
           setData(j.rows);
           setMeta({ universeSize: j.universeSize, sourceDate: j.sourceDate, scanMs: j.scanMs, failures: j.failures, rested: j.rested });
         })
-        .catch(() => {});
-    }, 30_000);
+        .catch(() => { if (!cancelled && showLoading) setData(prev => prev ?? []); })
+        .finally(() => { if (!cancelled && showLoading) setIsLoading(false); });
+    };
+    load(true);
+    const t = setInterval(() => load(false), 30_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [qs, enabled]);
+  }, []);
 
   return { data, isLoading, meta };
 }
@@ -159,22 +144,9 @@ export default function ScannerPage() {
     return idx >= 0 ? new URLSearchParams(location.slice(idx + 1)).get("sector") || "all" : "all";
   }, [location]);
 
-  const [universe, setUniverse] = useState<Universe>(() => {
-    if (typeof window === "undefined") return "curated";
-    return (localStorage.getItem("scanner.universe") as Universe) || "curated";
-  });
-  useEffect(() => { try { localStorage.setItem("scanner.universe", universe); } catch {} }, [universe]);
-
   const [sectorFilter, setSectorFilter] = useState<string>(initialSector);
   const [signalFilter, setSignalFilter] = useState<string>("all");
   const [searchFilter, setSearchFilter] = useState<string>(initialSearch);
-  // Debounce the search input. Without this, every keystroke fires a fresh
-  // /api/scan/full-nse request on the Full NSE universe path.
-  const [debouncedSearch, setDebouncedSearch] = useState<string>(initialSearch);
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchFilter.trim()), 250);
-    return () => clearTimeout(t);
-  }, [searchFilter]);
 
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "score", dir: "desc" });
   const [screen, setScreen] = useState<string>("none");
@@ -182,39 +154,47 @@ export default function ScannerPage() {
   useEffect(() => { setSearchFilter(initialSearch); }, [initialSearch]);
   useEffect(() => { setSectorFilter(initialSector); }, [initialSector]);
 
-  // ---- Curated F&O universe (~280) — orval-generated hook ----
-  const listParams = useMemo(() => {
-    const p = {
-      ...(sectorFilter !== "all" && { sector: sectorFilter }),
-      ...(signalFilter !== "all" && { signal: signalFilter as ListStocksSignal }),
-      ...(debouncedSearch && { search: debouncedSearch }),
-    };
-    return Object.keys(p).length === 0 ? undefined : p;
-  }, [sectorFilter, signalFilter, debouncedSearch]);
-
-  const { data: curatedStocks, isLoading: curatedLoading } = useListStocks(listParams, {
-    query: { refetchInterval: 30000, queryKey: getListStocksQueryKey(listParams), enabled: universe === "curated" },
+  // Always pull BOTH datasets and merge on the client. The Scanner table is
+  // expected to show every NSE-listed stock the system knows about — so we
+  // need the curated F&O universe (rich indicators: ema100/ema200/52W highs,
+  // sector tagging) AND the full bhavcopy-derived universe (~2486 EQ names
+  // with lighter indicators). Curated data wins on overlap because it has
+  // strictly more fields populated.
+  const { data: curatedStocks, isLoading: curatedLoading } = useListStocks(undefined, {
+    query: { refetchInterval: 30000, queryKey: getListStocksQueryKey(undefined) },
   });
+  const { data: fullStocks, isLoading: fullLoading, meta: fullMeta } = useFullNseStocks();
 
-  // ---- Full NSE EQ universe (~2486) — lightweight bhavcopy-driven scan ----
-  const { data: fullStocks, isLoading: fullLoading, meta: fullMeta } = useFullNseStocks(
-    { search: debouncedSearch, signal: signalFilter },
-    universe === "full",
-  );
+  const mergedStocks = useMemo(() => {
+    const bySymbol = new Map<string, StockRow>();
+    // Seed with full NSE rows first
+    for (const r of fullStocks ?? []) bySymbol.set(r.symbol, r);
+    // Then overlay curated rows (richer fields) — these win on collision
+    for (const r of curatedStocks ?? []) bySymbol.set(r.symbol, r);
+    return Array.from(bySymbol.values());
+  }, [fullStocks, curatedStocks]);
 
-  const stocks = universe === "full" ? fullStocks : curatedStocks;
-  const stocksLoading = universe === "full" ? fullLoading : curatedLoading;
+  // Show loading only while we have NO data at all. Once either source has
+  // arrived we render — the other can hot-fill in the background.
+  const stocksLoading = (curatedLoading && fullLoading) && mergedStocks.length === 0;
 
   // Sectors auto-derived from data so dropdown stays accurate as universe grows
   const sectors = useMemo(() => {
     const set = new Set<string>();
-    (stocks ?? []).forEach(s => set.add(s.sector));
+    mergedStocks.forEach(s => set.add(s.sector));
     return Array.from(set).sort();
-  }, [stocks]);
+  }, [mergedStocks]);
 
   const sortedStocks = useMemo(() => {
-    if (!stocks) return undefined;
-    let arr = [...stocks];
+    if (!mergedStocks || mergedStocks.length === 0) return undefined;
+    let arr = mergedStocks;
+    // Apply server-side filters client-side now that we merge two sources
+    if (sectorFilter !== "all") arr = arr.filter(s => s.sector === sectorFilter);
+    if (signalFilter !== "all") arr = arr.filter(s => s.recommendation.signal === signalFilter);
+    if (searchFilter.trim()) {
+      const q = searchFilter.trim().toUpperCase();
+      arr = arr.filter(s => s.symbol.toUpperCase().includes(q) || (s.name ?? "").toUpperCase().includes(q));
+    }
     arr = arr.filter(s => {
       const ind = s.indicators;
       const q = s.quote;
@@ -242,7 +222,7 @@ export default function ScannerPage() {
       return sort.dir === "desc" ? -cmp : cmp;
     });
     return arr;
-  }, [stocks, sort, screen]);
+  }, [mergedStocks, sort, screen, sectorFilter, signalFilter, searchFilter]);
 
   const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
   const fmt = (n: number | undefined | null, dp = 2) => n == null ? "—" : n.toFixed(dp);
@@ -253,38 +233,25 @@ export default function ScannerPage() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold font-mono tracking-tight">FULL SCANNER</h1>
           <p className="text-sm text-muted-foreground">
-            {universe === "curated"
-              ? "All NSE F&O / index constituents tracked live · click any column header to sort · use screen presets to narrow · hover any row for the top reasons behind its signal."
-              : <>Live scan across <span className="font-mono text-foreground">{fullMeta?.universeSize ?? "…"}</span> active NSE EQ symbols (driven by the official NSE bhavcopy, refreshed every 5 min). {fullMeta && <>Last scan: <span className="font-mono">{(fullMeta.scanMs / 1000).toFixed(1)}s</span> · {fullMeta.failures} no-feed · {fullMeta.rested} rested · source {fullMeta.sourceDate}.</>}</>}
+            Every NSE-listed stock tracked live ({fullMeta?.universeSize ?? "…"} from the official bhavcopy + curated F&amp;O depth) · click any column header to sort · use screen presets to narrow · hover any row for the top reasons behind its signal.
+            {fullMeta && <span className="block mt-0.5 text-[11px]">Last full scan: <span className="font-mono">{(fullMeta.scanMs / 1000).toFixed(1)}s</span> · {fullMeta.failures} no-feed · {fullMeta.rested} rested · source {fullMeta.sourceDate}.</span>}
           </p>
         </div>
-        {/* Universe toggle: curated F&O (~280, deep indicators) vs full NSE EQ (~2486, lightweight). */}
-        <div className="inline-flex items-center rounded-md border border-border bg-card p-0.5 font-mono text-[11px]">
-          <button
-            onClick={() => setUniverse("curated")}
-            className={`px-3 py-1.5 rounded-sm transition-colors ${universe === "curated" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}
-            data-testid="universe-curated"
-          >
-            F&amp;O CURATED <span className="opacity-60">(~280)</span>
-          </button>
-          <button
-            onClick={() => setUniverse("full")}
-            className={`px-3 py-1.5 rounded-sm transition-colors ${universe === "full" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}
-            data-testid="universe-full"
-          >
-            FULL NSE EQ <span className="opacity-60">(~2486)</span>
-          </button>
-          {universe === "full" && stocksLoading && (
-            <RefreshCw className="ml-2 mr-2 h-3 w-3 animate-spin text-muted-foreground" />
-          )}
-        </div>
+        {fullLoading && mergedStocks.length > 0 && (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card font-mono text-[11px] text-muted-foreground">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Loading full NSE…
+          </div>
+        )}
       </div>
 
       <Card>
         <CardHeader className="border-b border-border pb-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <CardTitle className="text-base font-mono">{sortedStocks?.length ?? 0} stocks shown · universe = {stocks?.length ?? 0}{universe === "full" && fullMeta ? ` of ${fullMeta.universeSize}` : ""}</CardTitle>
+              <CardTitle className="text-base font-mono">
+                {sortedStocks?.length ?? 0} stocks shown · universe = {mergedStocks.length}{fullMeta ? ` of ${fullMeta.universeSize}` : ""}
+              </CardTitle>
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {SCREENS.map(p => (
                   <button
