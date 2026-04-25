@@ -80,6 +80,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       "/status": "Status",
       "/audit": "Audit",
       "/kite": "Live Feed",
+      "/learn": "Learn",
     };
     let label = titles[location];
     if (!label) {
@@ -144,6 +145,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
               <Link href="/kite" className={`transition-colors hover:text-foreground ${location.startsWith("/kite") ? "text-foreground" : "text-foreground/60"}`}>
                 Live Feed
+              </Link>
+              <Link href="/learn" className={`transition-colors hover:text-foreground ${location.startsWith("/learn") ? "text-foreground" : "text-foreground/60"}`}>
+                Learn
               </Link>
               <Link href="/audit" className={`transition-colors hover:text-foreground ${location.startsWith("/audit") ? "text-foreground" : "text-foreground/60"}`}>
                 Audit

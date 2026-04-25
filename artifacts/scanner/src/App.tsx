@@ -24,6 +24,7 @@ import Flows from "@/pages/flows";
 import PreMarket from "@/pages/premarket";
 import Watchlist from "@/pages/watchlist";
 import KitePage from "@/pages/kite";
+import LearnPage from "@/pages/learn";
 import AuditPage from "@/pages/audit";
 import StatusPage from "@/pages/status";
 
@@ -50,6 +51,7 @@ function Router() {
       <Route path="/stocks-to-watch" component={StocksToWatch} />
       <Route path="/flows" component={Flows} />
       <Route path="/kite" component={KitePage} />
+      <Route path="/learn" component={LearnPage} />
       <Route path="/status" component={StatusPage} />
       <Route path="/audit" component={AuditPage} />
       <Route component={NotFound} />
