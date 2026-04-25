@@ -57,17 +57,50 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const [location] = useLocation();
 
+  // Update browser tab title per route
+  useEffect(() => {
+    const safeDecode = (s: string): string => {
+      try { return decodeURIComponent(s); } catch { return s; }
+    };
+    const titles: Record<string, string> = {
+      "/": "Dashboard",
+      "/scanner": "Scanner",
+      "/deep-scan": "Deep Scan",
+      "/options": "F&O Intraday",
+      "/strategies": "Strategies",
+      "/option-chain": "Option Chain",
+      "/oi-lab": "OI Lab",
+      "/premarket": "Pre / Post",
+      "/watchlist": "Watchlist",
+      "/sectors": "Sectors",
+      "/flows": "FII / DII",
+      "/stocks-to-watch": "Stocks To Watch",
+      "/news": "Market Info",
+      "/status": "Status",
+      "/audit": "Audit",
+      "/kite": "Live Feed",
+    };
+    let label = titles[location];
+    if (!label) {
+      if (location.startsWith("/stock/")) label = safeDecode(location.slice(7));
+      else if (location.startsWith("/sectors/")) label = safeDecode(location.slice(9));
+      else if (location.startsWith("/index/")) label = safeDecode(location.slice(7)).toUpperCase();
+      else if (location.startsWith("/option-chain/")) label = `${safeDecode(location.slice(14))} Chain`;
+    }
+    document.title = label ? `${label} · NSE Scanner` : "NSE Scanner";
+  }, [location]);
+
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary">
       <div className="sticky top-0 z-50 w-full bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/65 border-b border-border">
       <header className="w-full border-b border-border">
-        <div className="w-full px-4 flex h-14 items-center">
-          <div className="mr-4 flex">
-            <Link href="/" className="mr-6 flex items-center space-x-2">
-              <Activity className="h-5 w-5 text-signal-strong-buy" />
-              <span className="font-bold tracking-tight uppercase tracking-wider font-mono">NSE Scanner</span>
-            </Link>
-            <nav className="flex items-center space-x-5 text-[15px] font-semibold">
+        <div className="w-full px-4 flex h-14 items-center gap-3 min-w-0">
+          <Link href="/" className="flex items-center space-x-2 shrink-0">
+            <Activity className="h-5 w-5 text-signal-strong-buy" />
+            <span className="font-bold tracking-tight uppercase tracking-wider font-mono">NSE Scanner</span>
+          </Link>
+          <div className="flex-1 min-w-0 overflow-x-auto scrollbar-thin">
+            <nav className="flex items-center space-x-5 text-[15px] font-semibold whitespace-nowrap">
               <Link href="/" className={`transition-colors hover:text-foreground ${location === "/" ? "text-foreground" : "text-foreground/60"}`}>
                 Dashboard
               </Link>
@@ -118,8 +151,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             </nav>
           </div>
-          <div className="flex flex-1 items-center justify-end space-x-2">
-            <div ref={containerRef} className="relative w-full max-w-md">
+          <div className="flex items-center justify-end space-x-2 shrink-0 w-40 sm:w-64 md:w-80 lg:w-96">
+            <div ref={containerRef} className="relative w-full">
               <form onSubmit={handleSubmit}>
                 <div className="relative">
                   <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />

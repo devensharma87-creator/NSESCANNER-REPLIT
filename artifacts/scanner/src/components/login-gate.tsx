@@ -116,12 +116,23 @@ export function LoginGate({ children }: { children: ReactNode }) {
               </div>
             ) : null}
             <form onSubmit={handleLogin} className="space-y-3">
+              <input
+                type="text"
+                name="username"
+                value="nse-scanner"
+                readOnly
+                autoComplete="username"
+                aria-hidden="true"
+                tabIndex={-1}
+                className="sr-only"
+              />
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="text-xs uppercase tracking-wide text-muted-foreground">
                   Password
                 </Label>
                 <Input
                   id="password"
+                  name="password"
                   type="password"
                   autoComplete="current-password"
                   autoFocus

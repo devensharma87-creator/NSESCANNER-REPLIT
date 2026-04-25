@@ -1,10 +1,11 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 
 import { LoginGate } from "@/components/login-gate";
+import { ErrorBoundary } from "@/components/error-boundary";
 import Layout from "@/components/layout";
 import Dashboard from "@/pages/dashboard";
 import Scanner from "@/pages/scanner";
@@ -56,17 +57,28 @@ function Router() {
   );
 }
 
+function RoutedShell() {
+  const [location] = useLocation();
+  return (
+    <Layout>
+      <ErrorBoundary resetKey={location}>
+        <Router />
+      </ErrorBoundary>
+    </Layout>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <LoginGate>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Layout>
-              <Router />
-            </Layout>
-          </WouterRouter>
-        </LoginGate>
+        <ErrorBoundary>
+          <LoginGate>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <RoutedShell />
+            </WouterRouter>
+          </LoginGate>
+        </ErrorBoundary>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
