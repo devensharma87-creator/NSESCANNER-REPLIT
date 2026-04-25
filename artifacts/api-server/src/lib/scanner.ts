@@ -1,6 +1,6 @@
 import type { Indicators, Quote, StockHistory, StockRow } from "@workspace/api-zod";
 import { UNIVERSE, INACTIVE_SYMBOLS, type UniverseEntry } from "./universe";
-import { fetchChart, fetchIntraday, type YahooChart } from "./yahoo";
+import { fetchChart, fetchIntraday, yahooTickerFor, type YahooChart } from "./yahoo";
 import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportResistance, volumeProfile, pivots } from "./indicators";
 import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
@@ -38,7 +38,11 @@ async function getIntradayVwap(symbol: string): Promise<number | null> {
   const cached = intradayVwapCache.get(symbol);
   if (cached && Date.now() - cached.ts < INTRADAY_TTL) return cached.vwap;
   try {
-    const intra = await fetchIntraday(`${symbol}.NS`, "15m", "1d");
+    // Use yahooTickerFor() so renamed NSE symbols (ZOMATO→ETERNAL,
+    // MCDOWELL-N→UNITDSPR, NIPPONLIFE→NAM-INDIA, GMRINFRA→GMRAIRPORT, …)
+    // get translated to the live Yahoo ticker. Without this we logged
+    // "No data found" warnings every scan cycle for these 4 names.
+    const intra = await fetchIntraday(yahooTickerFor(symbol), "15m", "1d");
     if (!intra || intra.close.length < 4) {
       intradayVwapCache.set(symbol, { ts: Date.now(), vwap: null });
       return null;
