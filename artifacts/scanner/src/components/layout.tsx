@@ -74,6 +74,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link href="/scanner" className={`transition-colors hover:text-foreground ${location.startsWith("/scanner") ? "text-foreground" : "text-foreground/60"}`}>
                 Scanner
               </Link>
+              <Link href="/full-nse" className={`transition-colors hover:text-foreground ${location.startsWith("/full-nse") ? "text-foreground" : "text-foreground/60"}`}>
+                Full NSE
+              </Link>
               <Link href="/deep-scan" className={`transition-colors hover:text-foreground ${location.startsWith("/deep-scan") ? "text-foreground" : "text-foreground/60"}`}>
                 Deep Scan
               </Link>

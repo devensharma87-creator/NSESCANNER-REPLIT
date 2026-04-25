@@ -14,6 +14,7 @@ import {
 } from "@workspace/api-zod";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll } from "../lib/scanner";
+import { scanFullNse, getFullNseStatus, startFullNseScannerBackground } from "../lib/fullNseScanner";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
 import { getMarketEvents, computeMarketStatus } from "../lib/marketEvents";
@@ -413,6 +414,77 @@ function round2(n: number): number { return Math.round(n * 100) / 100; }
 
 void scanAll().catch(() => undefined);
 setInterval(() => { void scanAll().catch(() => undefined); }, 60 * 1000);
+
+// Full NSE EQ scanner — covers ~2,400+ symbols from the daily NSE bhavcopy
+// (live, not synthetic). Refresh cadence is 5 min so we don't crush Yahoo.
+startFullNseScannerBackground();
+
+/** GET /api/scan/full-nse — full NSE EQ scan, optional sort/filter/paginate.
+ *  Query params: sortBy (changePct|score|volume|rsi|symbol|price), order (asc|desc),
+ *                signal (BUY|WEAK_BUY|HOLD|WEAK_SELL|SELL), search (substring),
+ *                limit (default 200, max 2500), offset (default 0). */
+router.get("/scan/full-nse", async (req, res, next) => {
+  try {
+    const data = await scanFullNse();
+    let rows = data.rows.slice();
+
+    const search = String(req.query["search"] ?? "").trim().toUpperCase();
+    if (search) rows = rows.filter(r => r.symbol.includes(search) || (r.name ?? "").toUpperCase().includes(search));
+
+    // Signal filter — must match the actual emitted enum (Signal type from
+    // api-zod): STRONG_BUY | BUY | NEUTRAL | SELL | STRONG_SELL.
+    const signal = String(req.query["signal"] ?? "").trim().toUpperCase();
+    const allowedSigs = new Set(["STRONG_BUY","BUY","NEUTRAL","SELL","STRONG_SELL"]);
+    if (signal && allowedSigs.has(signal)) {
+      rows = rows.filter(r => r.recommendation.signal === signal);
+    }
+
+    const sortBy = String(req.query["sortBy"] ?? "changePct");
+    const order = String(req.query["order"] ?? "desc") === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      const get = (r: typeof a): number | string => {
+        switch (sortBy) {
+          case "symbol": return r.symbol;
+          case "price": return r.quote.price;
+          case "changePct": return r.quote.changePercent;
+          case "volume": return r.quote.volume;
+          case "rsi": return r.indicators?.rsi14 ?? 0;
+          case "score": return r.recommendation.score;
+          case "deliveryPct": return r.indicators?.deliveryPct ?? 0;
+          default: return r.quote.changePercent;
+        }
+      };
+      const va = get(a); const vb = get(b);
+      if (typeof va === "string" && typeof vb === "string") return order * va.localeCompare(vb);
+      return order * (((va as number) ?? 0) - ((vb as number) ?? 0));
+    });
+
+    const total = rows.length;
+    const offset = Math.max(0, parseInt(String(req.query["offset"] ?? "0"), 10) || 0);
+    const limit = Math.max(1, Math.min(2500, parseInt(String(req.query["limit"] ?? "200"), 10) || 200));
+    const paged = rows.slice(offset, offset + limit);
+
+    res.json({
+      rows: paged,
+      total,
+      shown: paged.length,
+      offset,
+      limit,
+      lastUpdated: new Date(data.lastUpdated).toISOString(),
+      sourceDate: data.sourceDate,
+      universeSize: data.total,
+      scanMs: data.scanMs,
+      failures: data.failures,
+      rested: data.rested,
+      source: "yahoo-intraday + nse-bhavcopy",
+    });
+  } catch (err) { next(err); }
+});
+
+/** GET /api/scan/full-nse/status — lightweight status (no row payload). */
+router.get("/scan/full-nse/status", (_req, res) => {
+  res.json(getFullNseStatus());
+});
 
 export default router;
 

@@ -135,3 +135,14 @@ export async function getDeliveryPct(symbol: string): Promise<{ pct: number; sou
   const v = m.map.get(symbol.toUpperCase());
   return v != null ? { pct: v, sourceDate: m.sourceDate } : null;
 }
+
+/** Returns the full list of NSE EQ symbols present in the latest bhavcopy.
+ *  Used by the full-market scanner to drive coverage of all ~2400+ active
+ *  NSE equities (vs the ~280-name curated UNIVERSE used by the focused
+ *  scanner). Returns null when bhavcopy is unavailable; caller should fall
+ *  back to the curated universe in that case. */
+export async function getAllSymbols(): Promise<{ symbols: string[]; sourceDate: string } | null> {
+  const m = await getDeliveryMap();
+  if (!m) return null;
+  return { symbols: Array.from(m.map.keys()).sort(), sourceDate: m.sourceDate };
+}
