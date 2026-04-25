@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
-import { Search } from "lucide-react";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import GlobalStrip from "@/components/global-strip";
 import IndianStrip from "@/components/indian-strip";
@@ -59,6 +59,55 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const [location] = useLocation();
 
+  // Horizontal nav scroll affordances
+  const navScrollRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  const updateNavEdges = useCallback(() => {
+    const el = navScrollRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    setCanLeft(el.scrollLeft > 2);
+    setCanRight(el.scrollLeft < maxScroll - 2);
+  }, []);
+
+  useEffect(() => {
+    const el = navScrollRef.current;
+    if (!el) return;
+    updateNavEdges();
+    el.addEventListener("scroll", updateNavEdges, { passive: true });
+    const ro = new ResizeObserver(updateNavEdges);
+    ro.observe(el);
+    if (navRef.current) ro.observe(navRef.current);
+    return () => {
+      el.removeEventListener("scroll", updateNavEdges);
+      ro.disconnect();
+    };
+  }, [updateNavEdges]);
+
+  // Auto-scroll the active tab into view on route change
+  useEffect(() => {
+    const el = navScrollRef.current;
+    if (!el) return;
+    const active = el.querySelector<HTMLElement>('[data-active="true"]');
+    if (active) {
+      const elBox = el.getBoundingClientRect();
+      const aBox = active.getBoundingClientRect();
+      const offset = aBox.left - elBox.left + el.scrollLeft - (elBox.width - aBox.width) / 2;
+      el.scrollTo({ left: Math.max(0, offset), behavior: "smooth" });
+    }
+    requestAnimationFrame(updateNavEdges);
+  }, [location, updateNavEdges]);
+
+  const scrollNav = (dir: 1 | -1) => {
+    const el = navScrollRef.current;
+    if (!el) return;
+    const step = Math.max(120, Math.round(el.clientWidth * 0.7));
+    el.scrollBy({ left: dir * step, behavior: "smooth" });
+  };
+
   // Update browser tab title per route
   useEffect(() => {
     const safeDecode = (s: string): string => {
@@ -112,63 +161,78 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </span>
           </Link>
           <div className="relative flex-1 min-w-0">
-            <div className="overflow-x-auto no-scrollbar">
-            <nav className="flex items-center gap-x-4 lg:gap-x-5 text-[13.5px] lg:text-[14px] font-semibold whitespace-nowrap">
-              <Link href="/" className={`transition-colors hover:text-foreground ${location === "/" ? "text-foreground" : "text-foreground/60"}`}>
-                Dashboard
-              </Link>
-              <Link href="/scanner" className={`transition-colors hover:text-foreground ${location.startsWith("/scanner") ? "text-foreground" : "text-foreground/60"}`}>
-                Scanner
-              </Link>
-              <Link href="/deep-scan" className={`transition-colors hover:text-foreground ${location.startsWith("/deep-scan") ? "text-foreground" : "text-foreground/60"}`}>
-                Deep Scan
-              </Link>
-              <Link href="/options" className={`transition-colors hover:text-foreground ${location === "/options" ? "text-foreground" : "text-foreground/60"}`}>
-                F&amp;O Intraday
-              </Link>
-              <Link href="/strategies" className={`transition-colors hover:text-foreground ${location.startsWith("/strategies") ? "text-foreground" : "text-foreground/60"}`}>
-                Strategies
-              </Link>
-              <Link href="/option-chain" className={`transition-colors hover:text-foreground ${location.startsWith("/option-chain") ? "text-foreground" : "text-foreground/60"}`}>
-                Option Chain
-              </Link>
-              <Link href="/oi-lab" className={`transition-colors hover:text-foreground ${location.startsWith("/oi-lab") ? "text-foreground" : "text-foreground/60"}`}>
-                OI Lab
-              </Link>
-              <Link href="/premarket" className={`transition-colors hover:text-foreground ${location.startsWith("/premarket") ? "text-foreground" : "text-foreground/60"}`}>
-                Pre / Post
-              </Link>
-              <Link href="/watchlist" className={`transition-colors hover:text-foreground ${location.startsWith("/watchlist") ? "text-foreground" : "text-foreground/60"}`}>
-                Watchlist
-              </Link>
-              <Link href="/sectors" className={`transition-colors hover:text-foreground ${location.startsWith("/sectors") ? "text-foreground" : "text-foreground/60"}`}>
-                Sectors
-              </Link>
-              <Link href="/flows" className={`transition-colors hover:text-foreground ${location.startsWith("/flows") ? "text-foreground" : "text-foreground/60"}`}>
-                FII / DII
-              </Link>
-              <Link href="/stocks-to-watch" className={`transition-colors hover:text-foreground ${location.startsWith("/stocks-to-watch") ? "text-foreground" : "text-foreground/60"}`}>
-                To Watch
-              </Link>
-              <Link href="/news" className={`transition-colors hover:text-foreground ${location === "/news" ? "text-foreground" : "text-foreground/60"}`}>
-                Market Info
-              </Link>
-              <Link href="/kite" className={`transition-colors hover:text-foreground ${location.startsWith("/kite") ? "text-foreground" : "text-foreground/60"}`}>
-                Live Feed
-              </Link>
-              <Link href="/learn" className={`transition-colors hover:text-foreground ${location.startsWith("/learn") ? "text-foreground" : "text-foreground/60"}`}>
-                Learn
-              </Link>
-              <Link href="/audit" className={`transition-colors hover:text-foreground ${location.startsWith("/audit") ? "text-foreground" : "text-foreground/60"}`}>
-                Audit
-              </Link>
-              <Link href="/status" className={`transition-colors hover:text-foreground ${location.startsWith("/status") ? "text-foreground" : "text-foreground/60"}`}>
-                Status
-              </Link>
-            </nav>
-            </div>
-            {/* Right-edge fade hint that more tabs are scrollable */}
-            <div className="pointer-events-none absolute top-0 right-0 h-full w-8 bg-gradient-to-l from-card to-transparent" aria-hidden />
+            {(() => {
+              const tabs: { href: string; label: string; isActive: (l: string) => boolean }[] = [
+                { href: "/", label: "Dashboard", isActive: l => l === "/" },
+                { href: "/scanner", label: "Scanner", isActive: l => l.startsWith("/scanner") },
+                { href: "/deep-scan", label: "Deep Scan", isActive: l => l.startsWith("/deep-scan") },
+                { href: "/options", label: "F\u00A0&\u00A0O Intraday", isActive: l => l === "/options" },
+                { href: "/strategies", label: "Strategies", isActive: l => l.startsWith("/strategies") },
+                { href: "/option-chain", label: "Option Chain", isActive: l => l.startsWith("/option-chain") },
+                { href: "/oi-lab", label: "OI Lab", isActive: l => l.startsWith("/oi-lab") },
+                { href: "/premarket", label: "Pre / Post", isActive: l => l.startsWith("/premarket") },
+                { href: "/watchlist", label: "Watchlist", isActive: l => l.startsWith("/watchlist") },
+                { href: "/sectors", label: "Sectors", isActive: l => l.startsWith("/sectors") },
+                { href: "/flows", label: "FII / DII", isActive: l => l.startsWith("/flows") },
+                { href: "/stocks-to-watch", label: "To Watch", isActive: l => l.startsWith("/stocks-to-watch") },
+                { href: "/news", label: "Market Info", isActive: l => l === "/news" },
+                { href: "/kite", label: "Live Feed", isActive: l => l.startsWith("/kite") },
+                { href: "/learn", label: "Learn", isActive: l => l.startsWith("/learn") },
+                { href: "/audit", label: "Audit", isActive: l => l.startsWith("/audit") },
+                { href: "/status", label: "Status", isActive: l => l.startsWith("/status") },
+              ];
+              return (
+                <div ref={navScrollRef} className="overflow-x-auto no-scrollbar scroll-smooth">
+                  <nav ref={navRef} className="flex items-center gap-x-4 lg:gap-x-5 text-[13.5px] lg:text-[14px] font-semibold whitespace-nowrap pl-7 pr-7">
+                    {tabs.map(t => {
+                      const active = t.isActive(location);
+                      return (
+                        <Link
+                          key={t.href}
+                          href={t.href}
+                          data-active={active ? "true" : undefined}
+                          className={`transition-colors hover:text-foreground ${active ? "text-foreground" : "text-foreground/60"}`}
+                        >
+                          {t.label}
+                        </Link>
+                      );
+                    })}
+                  </nav>
+                </div>
+              );
+            })()}
+
+            {/* Left edge: fade + chevron */}
+            <div
+              className={`pointer-events-none absolute top-0 left-0 h-full w-10 bg-gradient-to-r from-card via-card/85 to-transparent transition-opacity ${canLeft ? "opacity-100" : "opacity-0"}`}
+              aria-hidden
+            />
+            {canLeft && (
+              <button
+                type="button"
+                onClick={() => scrollNav(-1)}
+                aria-label="Scroll navigation left"
+                className="absolute top-1/2 -translate-y-1/2 left-0 z-10 inline-flex items-center justify-center h-7 w-7 rounded-full border border-border bg-card/95 text-foreground shadow-md hover:bg-background hover:scale-105 transition-all focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            )}
+
+            {/* Right edge: fade + chevron */}
+            <div
+              className={`pointer-events-none absolute top-0 right-0 h-full w-10 bg-gradient-to-l from-card via-card/85 to-transparent transition-opacity ${canRight ? "opacity-100" : "opacity-0"}`}
+              aria-hidden
+            />
+            {canRight && (
+              <button
+                type="button"
+                onClick={() => scrollNav(1)}
+                aria-label="Scroll navigation right"
+                className="absolute top-1/2 -translate-y-1/2 right-0 z-10 inline-flex items-center justify-center h-7 w-7 rounded-full border border-border bg-card/95 text-foreground shadow-md hover:bg-background hover:scale-105 transition-all focus:outline-none focus:ring-2 focus:ring-ring animate-pulse-once"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <div className="flex items-center justify-end gap-2 shrink-0 w-40 sm:w-56 md:w-64 lg:w-72">
             <ThemeSwitcher />
