@@ -173,6 +173,8 @@
 
 @layer utilities {
   input[type="search"]::-webkit-search-cancel-button { @apply hidden; }
+  .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
   [contenteditable][data-placeholder]:empty::before {
     content: attr(data-placeholder);
     color: hsl(var(--muted-foreground));

@@ -99,7 +99,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Activity className="h-5 w-5 text-signal-strong-buy" />
             <span className="font-bold tracking-tight uppercase tracking-wider font-mono">NSE Scanner</span>
           </Link>
-          <div className="flex-1 min-w-0 overflow-x-auto scrollbar-thin">
+          <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
             <nav className="flex items-center space-x-5 text-[15px] font-semibold whitespace-nowrap">
               <Link href="/" className={`transition-colors hover:text-foreground ${location === "/" ? "text-foreground" : "text-foreground/60"}`}>
                 Dashboard
