@@ -1,7 +1,7 @@
 import { useGetGlobalIndices, getGetGlobalIndicesQueryKey } from "@workspace/api-client-react";
 import { TrendingUp, TrendingDown, Globe, Play, Pause, ExternalLink } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useState, useMemo } from "react";
 import type { IndexQuote } from "@workspace/api-client-react";
 
@@ -73,12 +73,12 @@ function RangeBar({ value, lo, hi, label }: { value: number; lo: number; hi: num
   );
 }
 
-function ItemPopover({ idx }: { idx: IndexQuote }) {
+function ItemHover({ idx }: { idx: IndexQuote }) {
   const up = idx.change >= 0;
   const tone = up ? "text-signal-strong-buy" : "text-signal-strong-sell";
   return (
-    <Popover>
-      <PopoverTrigger asChild>
+    <HoverCard openDelay={120} closeDelay={80}>
+      <HoverCardTrigger asChild>
         <button
           type="button"
           className="flex items-baseline gap-2 text-sm font-mono shrink-0 px-3 py-1.5 rounded border border-border/50 bg-background/40 hover:bg-background/80 hover:border-border transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
@@ -91,8 +91,8 @@ function ItemPopover({ idx }: { idx: IndexQuote }) {
             <span className="opacity-90 ml-1">{`${idx.changePercent > 0 ? "+" : ""}${idx.changePercent.toFixed(2)}%`}</span>
           </span>
         </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-0" sideOffset={6}>
+      </HoverCardTrigger>
+      <HoverCardContent align="start" className="w-80 p-0" sideOffset={6}>
         <div className="p-4 space-y-3">
           {/* Header */}
           <div className="flex items-start justify-between gap-3">
@@ -172,8 +172,8 @@ function ItemPopover({ idx }: { idx: IndexQuote }) {
             View on Yahoo Finance <ExternalLink className="w-3 h-3" />
           </a>
         </div>
-      </PopoverContent>
-    </Popover>
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
@@ -204,7 +204,7 @@ export default function GlobalStrip() {
         >
           {reg.label}
         </span>,
-        ...items.map(idx => <ItemPopover key={`${reg.key}-${idx.symbol}`} idx={idx} />),
+        ...items.map(idx => <ItemHover key={`${reg.key}-${idx.symbol}`} idx={idx} />),
       ];
     });
   }, [data]);
