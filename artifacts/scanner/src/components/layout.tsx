@@ -97,14 +97,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary">
       <div className="sticky top-0 z-50 w-full bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/65 border-b border-border">
       <header className="w-full border-b border-border">
-        <div className="w-full px-4 flex h-14 items-center gap-3 min-w-0">
-          <Link href="/" className="flex items-center shrink-0" aria-label="Hrishi Associates Market Scanner — Home">
+        <div className="w-full px-4 flex h-16 items-center gap-3 min-w-0">
+          <Link href="/" className="flex items-center gap-2.5 shrink-0" aria-label="Hrishi Associates Market Scanner — Home">
             <img
               src={logoUrl}
-              alt="Hrishi Associates"
-              className="h-10 w-10 object-contain"
+              alt="Hrishi Associates Market Scanner logo"
+              className="h-14 w-14 object-contain drop-shadow-sm select-none"
               draggable={false}
             />
+            <span className="hidden md:flex flex-col leading-tight font-mono">
+              <span className="text-[13px] font-bold tracking-tight uppercase">Hrishi Associates</span>
+              <span className="text-[10px] tracking-widest uppercase text-muted-foreground">Market Scanner</span>
+            </span>
           </Link>
           <div className="relative flex-1 min-w-0">
             <div className="overflow-x-auto no-scrollbar">
