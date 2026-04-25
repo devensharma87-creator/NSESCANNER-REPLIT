@@ -146,18 +146,54 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary">
       <div className="sticky top-0 z-50 w-full bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/65 border-b border-border">
       <header className="w-full border-b border-border">
-        <div className="w-full px-4 flex h-20 items-center gap-3 min-w-0">
-          <Link href="/" className="flex items-center gap-3 shrink-0" aria-label="Hrishi Associates Market Scanner — Home">
-            <img
-              src={logoUrl}
-              alt="Hrishi Associates Market Scanner logo"
-              className="h-16 w-16 object-contain drop-shadow-sm select-none"
-              draggable={false}
+        <div className="w-full px-4 flex h-20 items-center gap-4 min-w-0">
+          <Link
+            href="/"
+            className="group flex items-center gap-3.5 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+            aria-label="Hrishi Associates Market Scanner — Home"
+          >
+            {/* Logo with glow ring */}
+            <span className="relative inline-flex items-center justify-center shrink-0">
+              <span
+                aria-hidden
+                className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-400/30 via-rose-500/20 to-cyan-400/30 blur-md opacity-70 group-hover:opacity-100 transition-opacity"
+              />
+              <span
+                aria-hidden
+                className="absolute inset-0 rounded-full ring-1 ring-foreground/10"
+              />
+              <img
+                src={logoUrl}
+                alt="Hrishi Associates Market Scanner logo"
+                className="relative h-[68px] w-[68px] object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] select-none transition-transform group-hover:scale-[1.03]"
+                draggable={false}
+              />
+            </span>
+
+            {/* Vertical gradient divider */}
+            <span
+              aria-hidden
+              className="hidden md:block self-stretch w-px my-2 bg-gradient-to-b from-transparent via-border to-transparent"
             />
-            <span className="hidden md:flex flex-col leading-[1.15] font-mono">
-              <span className="text-[14px] font-bold tracking-tight uppercase">Hrishi Associates</span>
-              <span className="text-[11px] tracking-widest uppercase text-muted-foreground">Market Scanner by Dev</span>
-              <span className="text-[10px] italic text-muted-foreground/80 mt-0.5">Learn Smarter. Trade Smarter. Grow Faster.</span>
+
+            {/* Wordmark */}
+            <span className="hidden md:flex flex-col leading-[1.1] select-none">
+              <span
+                className="font-extrabold tracking-tight text-[18px] lg:text-[20px] uppercase bg-gradient-to-r from-amber-500 via-orange-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm"
+                style={{ fontFamily: '"Playfair Display", "Georgia", serif', letterSpacing: "0.01em" }}
+              >
+                Hrishi&nbsp;Associates
+              </span>
+              <span className="font-mono text-[11px] tracking-[0.22em] uppercase text-foreground/70 mt-0.5">
+                Market Scanner <span className="text-foreground/40">·</span> by Dev
+              </span>
+              <span className="font-sans italic text-[10.5px] text-muted-foreground/85 mt-1 flex items-center gap-1.5">
+                <span>Learn Smarter</span>
+                <span aria-hidden className="inline-block h-1 w-1 rounded-full bg-amber-500/70" />
+                <span>Trade Smarter</span>
+                <span aria-hidden className="inline-block h-1 w-1 rounded-full bg-cyan-500/70" />
+                <span>Grow Faster</span>
+              </span>
             </span>
           </Link>
           <div className="relative flex-1 min-w-0">
