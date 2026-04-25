@@ -583,6 +583,15 @@ const TEMPLATES: Template[] = [
     description: "Long 1 lot of stock + short 1 OTM call (2 strikes above ATM). Reduces basis.",
     suitability: { ivContext: "ANY", biasFit: ["NEUTRAL", "BULLISH"] },
     build: ({ chain, spot, T, q, atmRow }) => {
+      // Indices (NIFTY/BANKNIFTY/FINNIFTY/MIDCPNIFTY/NIFTYNXT50/SENSEX) are
+      // cash-settled — there is no deliverable "share" you can buy and hold.
+      // The classic Covered Call (long stock + short OTM call) is meaningless
+      // for an index, so we surface it as unavailable instead of synthesizing
+      // a fake "buy NIFTY at spot" leg (which made Max Loss = full underlying
+      // value, e.g. -₹15.4L on NIFTY for a +₹16k premium — a non-trade).
+      if (chain.kind === "INDEX") {
+        return { error: "Covered Call needs ownership of the underlying — indices are cash-settled, so this strategy doesn't apply. (Use a futures-based covered call separately if you want similar exposure.)" };
+      }
       const otmCall = strikeOffset(chain, atmRow.strike, +2);
       if (!otmCall?.ce) return { error: "OTM call leg not quoted" };
       const short = buildLeg({ row: otmCall, side: otmCall.ce, type: "CE" }, "SELL", 1, spot, T, q);

@@ -208,13 +208,29 @@ export async function fetchKiteOptionChain(
 
     const ltp = q.last_price;
     const oi = q.oi;
-    // Kite gives current OI; we don't get day-open OI. Approximate ChgOI as
-    // (oi_day_high - oi_day_low) signed by intraday net price change (positive
-    // when price up, negative when price down). This isn't exact but matches
-    // the directional interpretation the OI-buildup classifier needs.
-    const oiRange = (q.oi_day_high ?? 0) - (q.oi_day_low ?? 0);
     const netChg = q.net_change ?? 0;
-    const chgOi = oiRange ? Math.sign(netChg || 1) * oiRange : 0;
+    // Kite getQuote doesn't give us yesterday's close OI directly, so we infer
+    // intraday OI direction from where the live OI sits inside today's range
+    // [oi_day_low, oi_day_high]. If OI is near the high, fresh positions are
+    // being added (positive ΔOI). If it's near the low, positions have been
+    // released (negative ΔOI). At the midpoint, no net change → 0.
+    //
+    // CRITICAL: Direction must be derived from OI itself, NOT from price. The
+    // earlier formula `Math.sign(netChg) * oiRange` made every leg with rising
+    // price always look like "OI added" — so the classifier could never emit
+    // SHORT_BUILDUP (price↓ + OI↑) or SHORT_COVERING (price↑ + OI↓). With the
+    // independent OI signal below, all four buildup buckets are reachable.
+    const oiNow = oi ?? 0;
+    const oiHi  = q.oi_day_high ?? oiNow;
+    const oiLo  = q.oi_day_low  ?? oiNow;
+    const oiRange = Math.max(0, oiHi - oiLo);
+    let chgOi = 0;
+    if (oiRange > 0 && oiNow > 0) {
+      // pos ∈ [0, 1]: 0 = at day's low, 1 = at day's high
+      const pos = Math.max(0, Math.min(1, (oiNow - oiLo) / oiRange));
+      // Map to signed magnitude: ±oiRange at the extremes, 0 at midpoint
+      chgOi = (pos - 0.5) * 2 * oiRange;
+    }
 
     const optType = leg.instrument_type as "CE" | "PE";
     const intrinsic = optType === "CE"

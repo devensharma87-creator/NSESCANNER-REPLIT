@@ -63,7 +63,10 @@ async function chartCall(ticker: string, range: string, interval: Interval): Pro
   // network primitive turns transient throttling into a clean success without
   // requiring every caller to add its own retry logic.
   const RATE_LIMIT_BACKOFF_MS = [800, 2000, 4500];
-  let res: Awaited<ReturnType<typeof yf.chart>> | null = null;
+  // The yahoo-finance2 type for `chart` over-narrows to `{}` in some library
+  // versions when called with permissive options — cast through `any` so we
+  // can still inspect `meta` / `quotes` defensively at runtime.
+  let res: any = null;
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt <= RATE_LIMIT_BACKOFF_MS.length; attempt++) {
     try {
