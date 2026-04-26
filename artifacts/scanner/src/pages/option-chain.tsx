@@ -490,11 +490,11 @@ export default function OptionChainPage() {
             <table className="w-full text-[11px] font-mono">
               <thead className="bg-card/80 sticky top-0">
                 <tr className="text-muted-foreground border-b border-border">
-                  <th colSpan={showGreeks ? 9 : 6} className="text-center text-signal-strong-buy py-1 border-r border-border bg-signal-strong-buy/[0.04]">
+                  <th colSpan={showGreeks ? 10 : 6} className="text-center text-signal-strong-buy py-1 border-r border-border bg-signal-strong-buy/[0.04]">
                     CALLS
                   </th>
                   <th className="text-center text-foreground py-1 px-3">STRIKE</th>
-                  <th colSpan={showGreeks ? 9 : 6} className="text-center text-signal-strong-sell py-1 border-l border-border bg-signal-strong-sell/[0.04]">
+                  <th colSpan={showGreeks ? 10 : 6} className="text-center text-signal-strong-sell py-1 border-l border-border bg-signal-strong-sell/[0.04]">
                     PUTS
                   </th>
                 </tr>
@@ -504,6 +504,7 @@ export default function OptionChainPage() {
                   <th className="px-2 py-1 text-right">Vol</th>
                   <th className="px-2 py-1 text-right">IV</th>
                   {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Gamma">Γ</th>}
                   {showGreeks && <th className="px-2 py-1 text-right" title="Theta per day">Θ</th>}
                   {showGreeks && <th className="px-2 py-1 text-right" title="Vega per 1% IV">V</th>}
                   <th className="px-2 py-1 text-right">LTP</th>
@@ -512,6 +513,7 @@ export default function OptionChainPage() {
                   <th className="px-2 py-1 text-center border-l border-border">B</th>
                   <th className="px-2 py-1 text-right">LTP</th>
                   {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Gamma">Γ</th>}
                   {showGreeks && <th className="px-2 py-1 text-right" title="Theta per day">Θ</th>}
                   {showGreeks && <th className="px-2 py-1 text-right" title="Vega per 1% IV">V</th>}
                   <th className="px-2 py-1 text-right">IV</th>
@@ -575,6 +577,7 @@ function Row({ row, atm, spot, maxOi, showGreeks }: { row: OptionChainStrikeRow;
       <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtKL(ce?.volume)}</td>
       <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{ce?.iv ? ce.iv.toFixed(1) : "—"}</td>
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.delta, 3)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.gamma, 5)}</td>}
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-signal-strong-sell ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.theta, 2)}</td>}
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.vega, 2)}</td>}
       <td className={`px-2 py-1 text-right tabular-nums font-bold ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmt(ce?.ltp)}</td>
@@ -594,6 +597,7 @@ function Row({ row, atm, spot, maxOi, showGreeks }: { row: OptionChainStrikeRow;
       </td>
       <td className={`px-2 py-1 text-right tabular-nums font-bold ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmt(pe?.ltp)}</td>
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.delta, 3)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.gamma, 5)}</td>}
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-signal-strong-sell ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.theta, 2)}</td>}
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.vega, 2)}</td>}
       <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{pe?.iv ? pe.iv.toFixed(1) : "—"}</td>

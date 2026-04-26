@@ -80,6 +80,60 @@ let instrumentsCache: InstrumentCache | null = null;
 let instrumentsInflight: Promise<InstrumentCache | null> | null = null;
 
 /**
+ * Decide whether a Kite NSE-segment EQ instrument is a real, tradeable
+ * equity (or ETF) — versus a mutual-fund NAV tracker, sovereign gold bond,
+ * govt-security, T-bill, or other listed-but-not-actively-traded scrip.
+ *
+ * Kite's `kc.getInstruments("NSE")` returns ~9,600 rows where
+ * `instrument_type === "EQ"`, but only ~2,500 of those are actually
+ * traded equities. The rest are funds & bonds whose `getQuote` always
+ * returns zeros (no LTP, no volume, no OHLC) — they pollute the scanner
+ * with thousands of useless rows. We filter using both tradingsymbol
+ * patterns and the descriptive `name` field.
+ *
+ * Whitelist note: real ETFs that traders use (NIFTYBEES, BANKBEES,
+ * GOLDBEES, JUNIORBEES, etc.) are kept — they have proper trading
+ * volume and belong in the scanner.
+ */
+function isLikelyTradeableEquity(sym: string, name?: string): boolean {
+  // Mutual-fund / NAV tracker tradingsymbol patterns
+  if (/INAV$/.test(sym)) return false;          // direct/regular NAV trackers
+  if (/IETF$/.test(sym)) return false;          // international ETF NAV trackers
+  if (/LIQUID(CASE|BEES|ADD|FUND)?$/.test(sym)) return false; // liquid funds
+
+  // Sovereign Gold Bonds — symbol always starts with "SGB"
+  if (/^SGB/.test(sym)) return false;
+
+  // Govt-securities (e.g. "GS28", "GS720729") and T-Bills
+  if (/^GS\d/.test(sym)) return false;
+  if (/^TB\d/.test(sym)) return false;
+  if (/^\d{2}[A-Z]{2,4}\d/.test(sym)) return false; // year-prefixed g-sec/T-bill codes
+
+  // Name-based filter — Kite's `name` field is descriptive for fund products.
+  // Plain equities have company names ("RELIANCE INDUSTRIES LIMITED") which
+  // never match these tokens.
+  const n = (name || "").toUpperCase();
+  if (
+    /MUTUAL FUND/.test(n) ||
+    /LIQUID FUND/.test(n) ||
+    /INDEX FUND/.test(n) ||
+    /GILT FUND/.test(n) ||
+    /OVERNIGHT FUND/.test(n) ||
+    /ARBITRAGE FUND/.test(n) ||
+    /MONEY MARKET FUND/.test(n) ||
+    /CORPORATE BOND FUND/.test(n) ||
+    /SOVEREIGN GOLD/.test(n) ||
+    /GOVT SECURIT/.test(n) ||
+    /TREASURY BILL/.test(n) ||
+    /STATE DEVELOPMENT LOAN/.test(n)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Load (or return cached) NSE EQ instrument list from Kite.
  * Returns null if Kite isn't logged in or the call fails — caller decides
  * how to fall back.
@@ -100,10 +154,22 @@ export async function loadKiteNseEqInstruments(): Promise<InstrumentCache | null
       const raw = (await ctx.kc.getInstruments("NSE")) as KiteRawInstrument[];
       const bySymbol = new Map<string, KiteScannerInstrument>();
       const list: KiteScannerInstrument[] = [];
+      let dropped = 0;
       for (const ins of raw) {
         // Only cash-segment EQ — exclude indices, ETFs handled separately, BE-series etc.
         if (ins.segment !== "NSE" || ins.instrument_type !== "EQ") continue;
         if (!ins.tradingsymbol) continue;
+        // Kite's "NSE EQ" bucket includes ~7000 non-tradeable instruments —
+        // mutual-fund NAV trackers (HDF100INAV, HDFCLIQUID, *INAV/*IETF),
+        // Sovereign Gold Bonds (SGBxxx), Govt-securities (GS*), T-Bills (TB*),
+        // and other listed-but-not-actively-traded scrips. They all return
+        // 0/zero-OHLC quotes and pollute the scanner with thousands of
+        // useless rows. Filter them out so the universe is the ~2,500 real
+        // tradeable equities + bona-fide ETFs (NIFTYBEES, BANKBEES, etc).
+        if (!isLikelyTradeableEquity(ins.tradingsymbol, ins.name)) {
+          dropped++;
+          continue;
+        }
         const item: KiteScannerInstrument = {
           tradingsymbol: ins.tradingsymbol,
           instrumentToken: ins.instrument_token,
@@ -114,7 +180,7 @@ export async function loadKiteNseEqInstruments(): Promise<InstrumentCache | null
       }
       list.sort((a, b) => a.tradingsymbol.localeCompare(b.tradingsymbol));
       instrumentsCache = { fetchedAt: Date.now(), bySymbol, list };
-      logger.info({ count: list.length }, "Kite NSE EQ instruments loaded");
+      logger.info({ count: list.length, dropped }, "Kite NSE EQ instruments loaded (post-filter)");
       return instrumentsCache;
     } catch (err) {
       logger.warn({ err: (err as Error).message }, "Kite NSE EQ instruments fetch failed");

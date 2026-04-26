@@ -52,6 +52,9 @@ The project is structured as a pnpm workspace monorepo, leveraging TypeScript 5.
 - **Yahoo Resilience**: `chartCall()` retries on transient errors (HTTP 429 / Too Many Requests, 502/503/504, ETIMEDOUT, ECONNRESET) with exponential backoff (800/2000/4500 ms) so bursty load against shared Yahoo endpoints (Deep Scan, market summary, trends) recovers cleanly without bubbling failure to the UI.
 - **Stocks To Watch**: Identifies catalysts from 21 news feeds, scores headlines, and resolves NSE symbols. Groups by symbol with aggregated confidence.
 - **OI Lab**: Provides bulk snapshot download, OI heatmap with buildup classification, and intraday tracker with time-series analytics (Spot vs MaxPain, PCR(OI), Call vs Put OI).
+- **Kite Universe Hygiene**: `isLikelyTradeableEquity()` in `kiteScanner.ts` filters Kite's NSE-EQ instrument dump (~9,600 rows) down to the ~2,500 actively-tradeable stocks + bona-fide ETFs. Drops mutual-fund NAV trackers (`*INAV`, `*IETF`), liquid funds, Sovereign Gold Bonds (`SGB*`), Govt-securities (`GS\d*`), T-bills, and any instrument whose `name` field matches `MUTUAL FUND` / `LIQUID FUND` / `INDEX FUND` / `GILT FUND` / `SOVEREIGN GOLD` / `TREASURY BILL` / `STATE DEVELOPMENT LOAN`.
+- **Option Chain Greeks**: UI surfaces all four Black-Scholes Greeks per leg — Δ (delta, 3-dp), Γ (gamma, 5-dp), Θ (theta-per-day, 2-dp), V (vega-per-1%-IV, 2-dp). Greeks are derived from solved IV via `priceAndGreeks()`; rows where IV cannot be solved (deep-ITM, stale ticks, no time value) show "—" instead of a fabricated number.
+- **Covered Call (Indices)**: For cash-settled indices (NIFTY/BANKNIFTY/FINNIFTY/MIDCPNIFTY/NIFTYNXT50/SENSEX), the Covered Call template returns an "unavailable" entry with a clear explanation rather than synthesizing a fictitious "buy underlying at spot" leg (which previously made Max Loss = full underlying notional, e.g. -₹15.4L on NIFTY).
 
 # External Dependencies
 
