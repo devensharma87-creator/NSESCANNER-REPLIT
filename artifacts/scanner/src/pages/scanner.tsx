@@ -83,7 +83,7 @@ function useFullNseProgress() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     },
-    refetchInterval: 5_000,
+    refetchInterval: 15_000,
     refetchIntervalInBackground: false,
     staleTime: 0,
     gcTime: 60_000,

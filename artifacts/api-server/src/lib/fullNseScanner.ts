@@ -425,10 +425,15 @@ async function performFullScan(): Promise<Cache> {
     const enrichPromise = Promise.all(
       Array.from({ length: ENRICH_CONCURRENCY }, () => enrichWorker()),
     );
-    await Promise.race([
-      enrichPromise,
-      new Promise<void>(res => setTimeout(() => { enrichTimedOut = true; res(); }, ENRICH_TIMEOUT_MS)),
-    ]);
+    let timeoutHandle: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<void>(res => {
+      timeoutHandle = setTimeout(() => { enrichTimedOut = true; res(); }, ENRICH_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([enrichPromise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
     // Circuit-breaker: if Yahoo failed almost every call, pause enrichment
     // for a cool-off period so we don't spam warnings every minute.
     if (yahooAttempted >= YAHOO_OUTAGE_MIN_SAMPLE) {

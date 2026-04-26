@@ -319,11 +319,11 @@ function SnapshotTab() {
                       <td colSpan={12} className="py-2 text-red-400">{it.error}</td>
                     ) : (
                       <>
-                        <td className="py-2 pr-3 text-right">{it.spot?.toFixed(2)}</td>
+                        <td className="py-2 pr-3 text-right">{it.spot != null ? it.spot.toFixed(2) : "—"}</td>
                         <td className={`py-2 pr-3 text-right ${(it.changePercent ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>{fmtPct(it.changePercent)}</td>
-                        <td className="py-2 pr-3 text-right">{it.atmStrike}</td>
-                        <td className="py-2 pr-3 text-right">{it.maxPain}</td>
-                        <td className="py-2 pr-3 text-right font-medium">{it.pcrOi?.toFixed(2)}</td>
+                        <td className="py-2 pr-3 text-right">{it.atmStrike ?? "—"}</td>
+                        <td className="py-2 pr-3 text-right">{it.maxPain ?? "—"}</td>
+                        <td className="py-2 pr-3 text-right font-medium">{it.pcrOi != null ? it.pcrOi.toFixed(2) : "—"}</td>
                         <td className="py-2 pr-3 text-right">{it.atmIv != null ? it.atmIv.toFixed(1) : "—"}</td>
                         <td className="py-2 pr-3 text-right">{fmtNum(it.totalCallOi)}</td>
                         <td className="py-2 pr-3 text-right">{fmtNum(it.totalPutOi)}</td>
@@ -461,8 +461,8 @@ function HeatmapTab() {
                     return (
                       <tr key={r.symbol}>
                         <td className="py-1.5 pr-3 font-medium">{r.symbol}</td>
-                        <td className="py-1.5 pr-3 text-right">{r.ltp.toFixed(2)}</td>
-                        <td className={`py-1.5 pr-3 text-right ${r.priceChgPct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                        <td className="py-1.5 pr-3 text-right">{r.ltp != null ? r.ltp.toFixed(2) : "—"}</td>
+                        <td className={`py-1.5 pr-3 text-right ${(r.priceChgPct ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
                           {fmtPct(r.priceChgPct)}
                         </td>
                         <td className="py-1.5 pr-3 text-right">{fmtNum(r.oi)}</td>

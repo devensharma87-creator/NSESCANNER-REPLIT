@@ -410,7 +410,8 @@ function PayoffChart({ s, spot }: { s: StrategySnapshot; spot: number }) {
       let i = 1;
       while (i < data.length && data[i].spot < spot) i++;
       const a = data[i - 1], b = data[i];
-      const t = (spot - a.spot) / (b.spot - a.spot);
+      const denom = b.spot - a.spot;
+      const t = denom === 0 ? 0 : (spot - a.spot) / denom;
       spotPnl = a.pnl + t * (b.pnl - a.pnl);
     }
   }
