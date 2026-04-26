@@ -254,17 +254,39 @@ export async function buildStatusReport(): Promise<StatusReport> {
     const p = probes[i]!;
     const label = labels[i]!;
     const id = ids[i]!;
+
+    // NSE direct is geo-fenced to Indian IPs — a 401/403 from a non-Indian
+    // host is the *expected* state, not a fault. We deliberately route around
+    // it via Kite Connect, so surface this case as an informational note
+    // rather than a yellow warning that makes the user think something broke.
+    const isNseGeoBlock =
+      id === "upstream_nse" && (p.status === 401 || p.status === 403);
+
+    let status: "ok" | "warn" | "fail" | "info";
+    let detail: string;
+    if (p.ok) {
+      status = "ok";
+      detail = `HTTP ${p.status} in ${p.latencyMs} ms.`;
+    } else if (isNseGeoBlock) {
+      status = "info";
+      detail = `HTTP ${p.status} in ${p.latencyMs} ms — expected from non-Indian hosts. Live data is served via Kite Connect (see Live Feed status above).`;
+    } else if (p.status === 401 || p.status === 403) {
+      status = "warn";
+      detail = `HTTP ${p.status} in ${p.latencyMs} ms.`;
+    } else if (p.status) {
+      status = "fail";
+      detail = `HTTP ${p.status} in ${p.latencyMs} ms.`;
+    } else {
+      status = "fail";
+      detail = `Probe failed: ${p.error ?? "no response"}`;
+    }
+
     items.push({
       id,
       group: "upstream",
       title: label,
-      status: p.ok ? "ok" : p.status === 401 || p.status === 403 ? "warn" : "fail",
-      detail:
-        p.ok
-          ? `HTTP ${p.status} in ${p.latencyMs} ms.`
-          : p.status
-            ? `HTTP ${p.status} in ${p.latencyMs} ms${id === "upstream_nse" ? " (NSE blocks non-Indian IPs — Kite is the primary feed in production)." : "."}`
-            : `Probe failed: ${p.error ?? "no response"}`,
+      status,
+      detail,
       latencyMs: p.latencyMs,
     });
   }
