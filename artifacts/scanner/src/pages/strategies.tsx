@@ -347,7 +347,7 @@ function StrategyCard({
         {/* Breakevens row */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono">
           <span><span className="text-muted-foreground uppercase">Breakeven{s.breakevens.length === 1 ? "" : "s"}:</span> {s.breakevens.length ? s.breakevens.map(b => fmt(b)).join(" / ") : "—"}</span>
-          <span><span className="text-muted-foreground uppercase">R:R</span> {s.rrRatio == null ? "—" : `1 : ${(1 / s.rrRatio).toFixed(2)}`}</span>
+          <span><span className="text-muted-foreground uppercase">R:R</span> {s.rrRatio == null ? "—" : `1 : ${s.rrRatio.toFixed(2)}`}</span>
           <span><span className="text-muted-foreground uppercase">Lot</span> {s.lotSize}</span>
         </div>
 
