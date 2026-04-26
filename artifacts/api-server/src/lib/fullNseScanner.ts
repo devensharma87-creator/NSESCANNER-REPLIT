@@ -41,7 +41,21 @@ const REFRESH_MS = 5 * 60_000;        // 5 min between full scans
 // rate-limit pushback in this region.
 const CONCURRENCY = 16;
 const REST_AFTER_FAILS = 3;           // consecutive nulls → rest the symbol
-const REST_DURATION_MS = 60 * 60_000; // 1h before retrying a rested symbol
+// Lowered from 60min → 10min: during a system-wide Yahoo outage the old
+// 1h rest meant once every symbol failed 3 times, the scanner sat idle for
+// a full hour serving rows=0 even after Yahoo recovered. 10min keeps load
+// off Yahoo while a real outage is in progress, but lets the scanner
+// recover within minutes once the upstream is healthy again. Combined
+// with the self-heal guard in performFullScan() that wipes per-symbol
+// state when >50% of the universe is rested, the worst-case stuck
+// duration is now bounded.
+const REST_DURATION_MS = 10 * 60_000; // 10 min before retrying a rested symbol
+// If more than this fraction of the universe is currently rested, treat the
+// situation as a system-wide upstream outage rather than per-symbol failures
+// and wipe the per-symbol fail/rest state so the next scan retries every
+// symbol immediately. Without this guard the scanner can sit at rows=0
+// indefinitely after a transient Yahoo outage.
+const SELFHEAL_RESTED_FRACTION = 0.5;
 const MIN_BARS = 5;                   // need at least this many 15m bars to compute anything
 const DISK_CACHE_NAME = "full-nse-scan";
 // v3: never persist degraded (curated-fallback) cache blobs. Bumping the
@@ -265,6 +279,26 @@ async function performFullScan(): Promise<Cache> {
   }
 
   const now = Date.now();
+
+  // Self-heal: if a system-wide upstream outage drove most of the universe
+  // into the rested state, we'd otherwise sit at rows=0 until every rest
+  // window expires. Detect that condition (>50% rested) BEFORE building
+  // the eligible list and wipe the per-symbol state so this scan retries
+  // every symbol from scratch. This is the single guarantee that the
+  // scanner can't get permanently stuck behind a transient Yahoo outage.
+  let preRested = 0;
+  for (const sym of symbolList) {
+    const st = symbolState.get(sym);
+    if (st && st.restedUntil > now) preRested++;
+  }
+  if (symbolList.length > 0 && preRested / symbolList.length >= SELFHEAL_RESTED_FRACTION) {
+    logger.warn(
+      { restedBefore: preRested, total: symbolList.length, fraction: +(preRested / symbolList.length).toFixed(2) },
+      "Full NSE scan: >50% of universe rested — wiping per-symbol state to self-heal from suspected upstream outage",
+    );
+    symbolState.clear();
+  }
+
   const eligible: string[] = [];
   let restedCount = 0;
   for (const sym of symbolList) {

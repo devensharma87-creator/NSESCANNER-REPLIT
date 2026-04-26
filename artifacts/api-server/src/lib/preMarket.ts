@@ -18,7 +18,7 @@
 
 import { fetchIntraday, fetchIndexChart } from "./yahoo";
 import { getGlobalIndices } from "./globalIndices";
-import { scanAll } from "./scanner";
+import { scanAll, getCachedScanRows, refreshScanInBackground } from "./scanner";
 import { getMarketEvents } from "./marketEvents";
 import { INDEX_CONSTITUENTS } from "./universe";
 import { logger } from "./logger";
@@ -202,7 +202,18 @@ async function buildIndexPreviews() {
 
 /** Top gainers/losers from Nifty 100 universe — by % change vs prev close. */
 async function buildMovers() {
-  const allRows = await scanAll().catch(() => []);
+  // Fast path — read whatever the background scanner has cached and kick a
+  // refresh in the background. Only fall back to awaiting `scanAll()` on a
+  // true cold start (cache never populated). This stops the pre-market
+  // endpoint from hanging behind a slow Yahoo full-universe scan.
+  const cached = getCachedScanRows();
+  let allRows: Awaited<ReturnType<typeof scanAll>>;
+  if (cached.rows.length > 0) {
+    allRows = cached.rows;
+    refreshScanInBackground();
+  } else {
+    allRows = await scanAll().catch(() => []);
+  }
   const nifty100 = new Set<string>([
     ...(INDEX_CONSTITUENTS["NIFTY50"] ?? []),
     ...(INDEX_CONSTITUENTS["BANKNIFTY"] ?? []),

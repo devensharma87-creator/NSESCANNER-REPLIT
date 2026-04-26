@@ -1,5 +1,5 @@
 import type { MarketTrend, SignalReason, SectorSummary, StockRow } from "@workspace/api-zod";
-import { scanAll } from "./scanner";
+import { scanAll, getCachedScanRows, refreshScanInBackground } from "./scanner";
 import { fetchIntraday, fetchIndexChart } from "./yahoo";
 import { ema, rsi, sessionVwap } from "./indicators";
 import { SECTORS } from "./universe";
@@ -15,7 +15,19 @@ function lastVal(arr: (number | null)[]): number | null {
 export async function getMarketTrend(): Promise<MarketTrend> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
 
-  const rows = await scanAll();
+  // Prefer the synchronous cached scan rows so a slow Yahoo refresh never
+  // blocks this endpoint. Only await `scanAll()` on a true cold start
+  // when the cache has never been populated. This keeps /market/trend
+  // responsive (sub-second) during Yahoo regional outages while still
+  // recomputing breadth/sector leaders the moment the scanner is warm.
+  const cached = getCachedScanRows();
+  let rows: StockRow[];
+  if (cached.rows.length > 0) {
+    rows = cached.rows;
+    refreshScanInBackground();
+  } else {
+    rows = await scanAll();
+  }
   // Threshold of ±0.05% so trivial intraday flicker is counted as unchanged
   // (matches the watchlist UI). Using exactly 0 over-counts noise.
   const FLAT = 0.05;

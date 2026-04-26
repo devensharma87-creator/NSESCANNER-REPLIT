@@ -301,6 +301,27 @@ export async function scanAll(): Promise<StockRow[]> {
   return scanInFlight;
 }
 
+/**
+ * Synchronous accessor for the last completed scan. Returns whatever rows
+ * are currently cached without ever awaiting Yahoo. Endpoints that need
+ * breadth/A-D ratio for a fast-path response can use this and kick off a
+ * fresh `scanAll()` in the background. Returns an empty array if the
+ * cache hasn't been populated yet (cold boot).
+ */
+export function getCachedScanRows(): { rows: StockRow[]; fetchedAt: number | null } {
+  if (!scanCache) return { rows: [], fetchedAt: null };
+  return { rows: scanCache.rows, fetchedAt: scanCache.fetchedAt };
+}
+
+/**
+ * Fire-and-forget scan refresh. Returns immediately. Used by fast-path
+ * endpoints that serve `getCachedScanRows()` synchronously but want to
+ * keep the cache warm.
+ */
+export function refreshScanInBackground(): void {
+  void scanAll().catch(() => undefined);
+}
+
 export async function getStockHistoryWithSeries(
   symbol: string,
   range: "1mo" | "3mo" | "6mo" | "1y" | "2y",

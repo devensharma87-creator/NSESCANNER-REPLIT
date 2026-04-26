@@ -13,7 +13,8 @@ import {
   ListStocksResponse,
 } from "@workspace/api-zod";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
-import { getStockHistoryWithSeries, scanAll } from "../lib/scanner";
+import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground } from "../lib/scanner";
+import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
 import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
 import { sendExport } from "../lib/csvExport";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
@@ -42,8 +43,22 @@ const INDEX_SYMBOLS: Array<{ yahoo: string; name: string; display: string; slug?
 
 router.get("/market/summary", async (_req, res, next) => {
   try {
-    // Pre-compute per-index breadth from full universe scan once.
-    const allRows = await scanAll().catch(() => []);
+    // FAST PATH — never block this endpoint on a fresh Yahoo full-universe
+    // scan. The homepage strip needs to render in well under a second even
+    // when Yahoo is degraded. Two changes vs the old behaviour:
+    //   1. Read whatever rows the background scanner has cached for breadth.
+    //      Kick a background refresh if they're stale, but don't await it.
+    //   2. Prefer Kite's live spot quote for each Indian index when the
+    //      Kite session is active. Only fall back to Yahoo's index chart
+    //      for the indices Kite didn't supply (or all of them when no
+    //      Kite session exists). This means the strip stays live during
+    //      Yahoo regional outages, and even the cold path returns within
+    //      a few seconds rather than the full Yahoo scan timeout.
+    const { rows: allRows, fetchedAt } = getCachedScanRows();
+    const SCAN_FRESH_MS = 60_000;
+    if (!fetchedAt || Date.now() - fetchedAt > SCAN_FRESH_MS) {
+      refreshScanInBackground();
+    }
     const bySymbol = new Map(allRows.map(r => [r.symbol.toUpperCase(), r]));
     const breadthFor = (symbols?: string[]) => {
       if (!symbols || symbols.length === 0) return undefined;
@@ -59,8 +74,37 @@ router.get("/market/summary", async (_req, res, next) => {
       return { advancers: a, decliners: d, unchanged: u, adRatio: d === 0 ? (a > 0 ? null : 0) : +(a / d).toFixed(2) };
     };
 
+    // Try Kite first for the Indian indices. This call is bounded by the
+    // 10s in-module cache and a single Kite getQuote batch — typically
+    // returns in under 300ms even on a cold cache.
+    const kiteQuotes = await getKiteIndexQuotes().catch(() => null);
+
     const indices = await Promise.all(INDEX_SYMBOLS.map(async i => {
-      const c = await fetchIndexChart(i.yahoo);
+      const slug = i.slug;
+      const breadth = slug ? breadthFor(INDEX_CONSTITUENTS[slug]) : undefined;
+      const kq = kiteQuotes?.get(i.yahoo);
+      if (kq && kq.price > 0) {
+        // Kite path — live spot, OHLC, prev close, computed change/pct.
+        return {
+          symbol: i.yahoo,
+          name: i.display,
+          region: "India",
+          price: round2(kq.price),
+          change: round2(kq.change),
+          changePercent: round2(kq.changePercent),
+          open: kq.open != null ? round2(kq.open) : undefined,
+          high: kq.high != null ? round2(kq.high) : undefined,
+          low: kq.low != null ? round2(kq.low) : undefined,
+          previousClose: round2(kq.previousClose),
+          trend: kq.change > 0 ? "bullish" as const : kq.change < 0 ? "bearish" as const : "neutral" as const,
+          breadth,
+          constituentSlug: slug,
+        };
+      }
+      // Yahoo fallback — same logic as before. Wrapped so a single index
+      // failure doesn't tank the whole strip.
+      let c: Awaited<ReturnType<typeof fetchIndexChart>> = null;
+      try { c = await fetchIndexChart(i.yahoo); } catch { c = null; }
       const price = c?.meta.regularMarketPrice ?? 0;
       const closes = c?.close ?? [];
       const opens = c?.open ?? [];
@@ -82,8 +126,6 @@ router.get("/market/summary", async (_req, res, next) => {
       const metaLooksBroken = metaHigh != null && metaLow != null && metaHigh === metaLow;
       const high = (!metaLooksBroken && metaHigh != null) ? metaHigh : (barHigh ?? metaHigh);
       const low = (!metaLooksBroken && metaLow != null) ? metaLow : (barLow ?? metaLow);
-      const slug = i.slug;
-      const breadth = slug ? breadthFor(INDEX_CONSTITUENTS[slug]) : undefined;
       return {
         symbol: i.yahoo,
         name: i.display,
