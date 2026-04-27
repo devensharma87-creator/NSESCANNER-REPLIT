@@ -982,6 +982,176 @@ export interface PostMarketDigest {
 }
 
 /**
+ * NARROW < 0.4% (trending day likely), WIDE > 1.0% (range/chop likely)
+ */
+export type KeyIndexLevelsCprWidthLabel =
+  (typeof KeyIndexLevelsCprWidthLabel)[keyof typeof KeyIndexLevelsCprWidthLabel];
+
+export const KeyIndexLevelsCprWidthLabel = {
+  NARROW: "NARROW",
+  NORMAL: "NORMAL",
+  WIDE: "WIDE",
+} as const;
+
+/**
+ * Pro pre-market index level pack. CPR (Central Pivot Range) and classic floor pivots from previous-session OHLC. Narrow CPR (<0.4% of price) tends to precede a trending day, wide CPR (>1.0%) precedes range/chop. positionInYearRangePct = where price sits inside the 52-week high-low band (0%=at low, 100%=at high).
+ */
+export interface KeyIndexLevels {
+  /** Yahoo-style symbol (e.g. ^NSEI) */
+  symbol: string;
+  /** Display name (e.g. NIFTY 50) */
+  name: string;
+  previousClose: number;
+  /** Previous session high */
+  prevHigh: number;
+  /** Previous session low */
+  prevLow: number;
+  /** Today's open if market has opened */
+  todayOpen?: number | null;
+  /** Highest close over last 5 trading days */
+  weekHigh: number;
+  /** Lowest close over last 5 trading days */
+  weekLow: number;
+  /** Highest close over last 21 trading days */
+  monthHigh?: number | null;
+  /** Lowest close over last 21 trading days */
+  monthLow?: number | null;
+  /** 52-week high (~252 trading days) */
+  yearHigh: number;
+  /** 52-week low */
+  yearLow: number;
+  /** Classic floor pivot P = (PH + PL + PC) / 3 */
+  pivot: number;
+  r1: number;
+  r2: number;
+  s1: number;
+  s2: number;
+  /** TC = 2P - BC (top of CPR) */
+  cprTop: number;
+  /** = classic pivot, middle of CPR */
+  cprPivot: number;
+  /** BC = (PH + PL) / 2 (bottom of CPR) */
+  cprBottom: number;
+  /** (TC - BC) / PC * 100 */
+  cprWidthPct: number;
+  /** NARROW < 0.4% (trending day likely), WIDE > 1.0% (range/chop likely) */
+  cprWidthLabel: KeyIndexLevelsCprWidthLabel;
+  /** 0..100 — distance through the 52-week range (PC at yearLow=0, at yearHigh=100) */
+  positionInYearRangePct: number;
+}
+
+export type OptionSnapshotBias =
+  (typeof OptionSnapshotBias)[keyof typeof OptionSnapshotBias];
+
+export const OptionSnapshotBias = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+/**
+ * Compact pre-market option-chain read for a single F&O underlying. Sourced from the same chain endpoint that powers the Options page; surfaced here so the morning checklist (ATM strike, expected move, PCR, max-pain, top OI walls) is one glance away.
+ */
+export interface OptionSnapshot {
+  /** F&O underlying e.g. NIFTY, BANKNIFTY, FINNIFTY */
+  underlying: string;
+  spot: number;
+  /** Active expiry YYYY-MM-DD */
+  expiry: string;
+  atmStrike: number;
+  /** ATM CE LTP + ATM PE LTP (in points) */
+  atmStraddle: number;
+  /** atmStraddle / spot * 100 — implied move by expiry */
+  expectedMovePct: number;
+  pcrOi: number;
+  pcrVolume: number;
+  /** ATM straddle IV (% annualised) */
+  atmIv?: number | null;
+  /** Strike where option writers lose least */
+  maxPain: number;
+  /** Resistance — strike with biggest CE open interest */
+  maxCallOiStrike?: number | null;
+  /** Support — strike with biggest PE open interest */
+  maxPutOiStrike?: number | null;
+  bias: OptionSnapshotBias;
+  /** Plain-English read in one line */
+  interpretation: string;
+  generatedAt: string;
+}
+
+/**
+ * One row of the daily sector ranking — full leader→laggard list (the existing /market/trend endpoint only returns top-3 leaders + bottom-3 laggards, this ranks every NSE sectoral index).
+ */
+export interface SectorHeatmapEntry {
+  /** Sector display name (Banks, IT, Auto, Pharma, …) */
+  sector: string;
+  /** Mean % change of constituent stocks today */
+  avgChangePercent: number;
+  /** Stocks closing positive in the sector */
+  gainers: number;
+  /** Stocks closing negative in the sector */
+  losers: number;
+  /** Sector universe size from this scan */
+  stockCount: number;
+  /** Highest-scoring stock in the sector */
+  topPickSymbol?: string;
+}
+
+/**
+ * Last published cash-segment FII / DII net activity, plus 5-day rolling totals. Values are in INR Crores. Negative = net seller, positive = net buyer.
+ */
+export interface FiiDiiSnapshot {
+  /** Trading date the latest figures belong to (T-1 typically) */
+  latestDate: string;
+  /** FII cash-segment net for latestDate (INR Cr) */
+  fiiCashCr: number;
+  /** DII cash-segment net for latestDate (INR Cr) */
+  diiCashCr: number;
+  /** Sum of FII cash-segment net over the most recent 5 trading days */
+  fiveDayFiiCr: number;
+  /** Sum of DII cash-segment net over the most recent 5 trading days */
+  fiveDayDiiCr: number;
+}
+
+export type TradingScenarioKind =
+  (typeof TradingScenarioKind)[keyof typeof TradingScenarioKind];
+
+export const TradingScenarioKind = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  RANGE: "RANGE",
+} as const;
+
+/**
+ * Heuristic likelihood given current overnight setup
+ */
+export type TradingScenarioProbability =
+  (typeof TradingScenarioProbability)[keyof typeof TradingScenarioProbability];
+
+export const TradingScenarioProbability = {
+  HIGH: "HIGH",
+  MEDIUM: "MEDIUM",
+  LOW: "LOW",
+} as const;
+
+/**
+ * One of three pre-planned scenarios for the day (bullish / bearish / range). A pro trader prepares all three before the open and follows whichever one the market actually takes — never tries to predict a single outcome.
+ */
+export interface TradingScenario {
+  kind: TradingScenarioKind;
+  /** Short headline e.g. 'Bullish breakout above R1' */
+  label: string;
+  /** Specific level/condition that activates this scenario */
+  trigger: string;
+  /** Concrete steps to take if this scenario plays out */
+  actions: string[];
+  /** Specific level/condition that proves this scenario is wrong — abandon the plan and switch to the appropriate alternative. */
+  invalidation: string;
+  /** Heuristic likelihood given current overnight setup */
+  probability: TradingScenarioProbability;
+}
+
+/**
  * Auto-detected based on IST time
  */
 export type PreMarketReportMode =
@@ -1011,6 +1181,15 @@ export interface PreMarketReport {
   keyTakeaways?: string[];
   overnightCues: OvernightCue[];
   indexPreviews: PreMarketIndexPreview[];
+  /** 3 pre-planned scenarios for today (bullish / bearish / range) with triggers + action plans */
+  scenarios?: TradingScenario[];
+  /** Pro pre-market level pack — CPR + classic pivots + previous-day H/L + weekly H/L + 52-week H/L for the 5 main F&O indices */
+  indexLevels?: KeyIndexLevels[];
+  /** Morning option-chain summary for NIFTY / BANKNIFTY / FINNIFTY (omitted when no Kite session is active and NSE is geo-blocked) */
+  optionSnapshots?: OptionSnapshot[];
+  /** Full sector ranking, leader → laggard */
+  sectorHeatmap?: SectorHeatmapEntry[];
+  fiiDii?: FiiDiiSnapshot;
   topGainers?: PreMarketMover[];
   topLosers?: PreMarketMover[];
   gapUps?: GapStock[];

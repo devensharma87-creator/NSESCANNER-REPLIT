@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import {
   Sun, Moon, TrendingUp, TrendingDown, Globe2, Activity, AlertCircle, Calendar,
-  ArrowUpRight, ArrowDownRight, Gauge, BarChart3,
+  ArrowUpRight, ArrowDownRight, Gauge, BarChart3, Layers, Target, Building2, Crosshair,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -114,6 +114,23 @@ export default function PreMarket() {
         </CardContent>
       </Card>
 
+      {/* Today's 3 scenarios — pre-planned trade book before the open */}
+      {data.scenarios && data.scenarios.length > 0 && (
+        <section>
+          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+            <Target className="w-4 h-4" /> Today's 3 Scenarios — Trade Plan
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            {data.scenarios.map(s => (
+              <ScenarioCard key={s.kind} scenario={s} />
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground/70 mt-2 italic">
+            Pros prepare all three plans, then trade the one the market actually picks. Probability is a heuristic from overnight cues + CPR width — never a forecast.
+          </p>
+        </section>
+      )}
+
       {/* Index previews */}
       {data.indexPreviews && data.indexPreviews.length > 0 && (
         <section>
@@ -135,6 +152,36 @@ export default function PreMarket() {
               </Card>
             ))}
           </div>
+        </section>
+      )}
+
+      {/* Key index levels — CPR + classic pivots + prev/weekly/52w bands */}
+      {data.indexLevels && data.indexLevels.length > 0 && (
+        <section>
+          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+            <Layers className="w-4 h-4" /> Key Index Levels — CPR & Pivots
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+            {data.indexLevels.map(lv => <IndexLevelsCard key={lv.symbol} lv={lv} />)}
+          </div>
+          <p className="text-[10px] text-muted-foreground/70 mt-2 italic">
+            Pivots from previous-session OHLC. CPR width — narrow (&lt;0.4%) tends to precede a trending day, wide (&gt;1.0%) precedes range/chop.
+          </p>
+        </section>
+      )}
+
+      {/* Option chain morning snapshot — for the 3 main F&O indices */}
+      {data.optionSnapshots && data.optionSnapshots.length > 0 && (
+        <section>
+          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+            <Crosshair className="w-4 h-4" /> Option Chain Morning Snapshot
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {data.optionSnapshots.map(o => <OptionSnapshotCard key={o.underlying} snap={o} />)}
+          </div>
+          <p className="text-[10px] text-muted-foreground/70 mt-2 italic">
+            Expected move = ATM straddle ÷ spot. Max-pain = strike where option writers lose least. Highest CE-OI is intraday resistance, highest PE-OI is intraday support.
+          </p>
         </section>
       )}
 
@@ -195,6 +242,18 @@ export default function PreMarket() {
         </section>
       )}
 
+      {/* Sector heatmap — full leader→laggard ranking */}
+      {data.sectorHeatmap && data.sectorHeatmap.length > 0 && (
+        <section>
+          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" /> Sector Heatmap — Leaders to Laggards
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+            {data.sectorHeatmap.map(s => <SectorTile key={s.sector} s={s} />)}
+          </div>
+        </section>
+      )}
+
       {/* Movers */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <MoverList title="Top Gainers" icon={<TrendingUp className="w-4 h-4 text-signal-strong-buy" />} items={data.topGainers ?? []} positive />
@@ -214,9 +273,10 @@ export default function PreMarket() {
         </section>
       ) : null}
 
-      {/* Events / Earnings today */}
-      {(data.eventsToday?.length || data.earningsToday?.length) ? (
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Events / Earnings / FII-DII row */}
+      {(data.eventsToday?.length || data.earningsToday?.length || data.fiiDii) ? (
+        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {data.fiiDii && <FiiDiiCard f={data.fiiDii} />}
           {data.eventsToday && data.eventsToday.length > 0 && (
             <Card className="border border-border/50">
               <CardContent className="p-4">
@@ -342,5 +402,243 @@ function GapList({ title, icon, items }: { title: string; icon: React.ReactNode;
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ───────── Today's 3 Scenarios ─────────
+const SCENARIO_TONE: Record<string, { card: string; label: string; pill: string }> = {
+  BULLISH: { card: "border-signal-strong-buy/40 bg-signal-strong-buy/[0.06]",  label: "text-signal-strong-buy",  pill: "bg-signal-strong-buy/20 text-signal-strong-buy border-signal-strong-buy/40" },
+  BEARISH: { card: "border-signal-strong-sell/40 bg-signal-strong-sell/[0.06]", label: "text-signal-strong-sell", pill: "bg-signal-strong-sell/20 text-signal-strong-sell border-signal-strong-sell/40" },
+  RANGE:   { card: "border-border/50 bg-secondary/30",                          label: "text-foreground/85",      pill: "bg-secondary/60 text-muted-foreground border-border/40" },
+};
+const PROB_TONE: Record<string, string> = {
+  HIGH: "text-signal-strong-buy", MEDIUM: "text-foreground/80", LOW: "text-muted-foreground",
+};
+function ScenarioCard({ scenario }: { scenario: { kind: string; label: string; trigger: string; actions: string[]; invalidation?: string; probability: string } }) {
+  const t = SCENARIO_TONE[scenario.kind] ?? SCENARIO_TONE["RANGE"]!;
+  return (
+    <Card className={`border ${t.card}`}>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className={`text-xs font-mono uppercase tracking-wider font-bold ${t.label}`}>{scenario.kind}</div>
+          <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${PROB_TONE[scenario.probability] ?? "text-muted-foreground"} border-current/30`}>
+            {scenario.probability} prob
+          </span>
+        </div>
+        <div className="text-sm font-bold mb-2">{scenario.label}</div>
+        <div className="text-[11px] font-mono text-muted-foreground uppercase mb-1">Trigger</div>
+        <p className="text-xs text-foreground/85 mb-3 leading-relaxed">{scenario.trigger}</p>
+        <div className="text-[11px] font-mono text-muted-foreground uppercase mb-1">Actions</div>
+        <ul className="space-y-1 text-xs mb-3">
+          {scenario.actions.map((a, i) => (
+            <li key={i} className="flex items-start gap-1.5"><span className="text-muted-foreground mt-0.5">·</span><span className="text-foreground/90 leading-snug">{a}</span></li>
+          ))}
+        </ul>
+        {scenario.invalidation && (
+          <>
+            <div className="text-[11px] font-mono text-muted-foreground uppercase mb-1">Invalidation</div>
+            <p className="text-xs text-foreground/75 leading-relaxed italic">{scenario.invalidation}</p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───────── Key Index Levels (CPR + pivots) ─────────
+type IxLv = {
+  symbol: string; name: string; previousClose: number;
+  prevHigh: number; prevLow: number; weekHigh: number; weekLow: number;
+  monthHigh?: number | null; monthLow?: number | null;
+  yearHigh: number; yearLow: number;
+  pivot: number; r1: number; r2: number; s1: number; s2: number;
+  cprTop: number; cprPivot: number; cprBottom: number; cprWidthPct: number; cprWidthLabel: string;
+  positionInYearRangePct: number; todayOpen?: number | null;
+};
+const CPR_TONE: Record<string, string> = {
+  NARROW: "bg-signal-strong-buy/15 text-signal-strong-buy border-signal-strong-buy/30",
+  NORMAL: "bg-secondary/60 text-muted-foreground border-border/40",
+  WIDE:   "bg-signal-strong-sell/10 text-signal-strong-sell border-signal-strong-sell/30",
+};
+function IndexLevelsCard({ lv }: { lv: IxLv }) {
+  return (
+    <Card className="border border-border/50">
+      <CardContent className="p-4">
+        <div className="flex items-baseline justify-between gap-2 mb-3">
+          <div>
+            <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">{lv.name}</div>
+            <div className="text-lg font-bold tabular-nums mt-0.5">{fmt(lv.previousClose)}</div>
+          </div>
+          <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${CPR_TONE[lv.cprWidthLabel] ?? CPR_TONE["NORMAL"]}`}>
+            CPR {lv.cprWidthLabel} · {lv.cprWidthPct.toFixed(2)}%
+          </span>
+        </div>
+
+        <div className="space-y-0.5 text-xs font-mono tabular-nums">
+          <LevelRow label="R2"     value={lv.r2}        tone="text-signal-strong-sell" />
+          <LevelRow label="R1"     value={lv.r1}        tone="text-signal-strong-sell/80" />
+          <LevelRow label="CPR-T"  value={lv.cprTop}    tone="text-foreground/70" />
+          <LevelRow label="Pivot"  value={lv.pivot}     tone="text-foreground font-bold" />
+          <LevelRow label="CPR-B"  value={lv.cprBottom} tone="text-foreground/70" />
+          <LevelRow label="S1"     value={lv.s1}        tone="text-signal-strong-buy/80" />
+          <LevelRow label="S2"     value={lv.s2}        tone="text-signal-strong-buy" />
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-border/40 text-[11px]">
+          <RangeStat label="Prev day" hi={lv.prevHigh} lo={lv.prevLow} />
+          <RangeStat label="Week"     hi={lv.weekHigh} lo={lv.weekLow} />
+          <RangeStat label="52-wk"    hi={lv.yearHigh} lo={lv.yearLow} />
+        </div>
+
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground mb-1">
+            <span>52-wk position</span>
+            <span className="tabular-nums">{lv.positionInYearRangePct.toFixed(0)}%</span>
+          </div>
+          <div className="h-1.5 bg-secondary/60 rounded-full overflow-hidden">
+            <div
+              className={lv.positionInYearRangePct > 70 ? "h-full bg-signal-strong-buy"
+                : lv.positionInYearRangePct < 30 ? "h-full bg-signal-strong-sell"
+                : "h-full bg-foreground/40"}
+              style={{ width: `${Math.max(2, Math.min(100, lv.positionInYearRangePct))}%` }}
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+function LevelRow({ label, value, tone: t }: { label: string; value: number; tone: string }) {
+  return (
+    <div className={`flex items-center justify-between gap-2 ${t}`}>
+      <span className="text-muted-foreground/90 w-12">{label}</span>
+      <span className="tabular-nums">{fmt(value)}</span>
+    </div>
+  );
+}
+function RangeStat({ label, hi, lo }: { label: string; hi: number; lo: number }) {
+  return (
+    <div>
+      <div className="text-[10px] font-mono uppercase text-muted-foreground">{label}</div>
+      <div className="font-mono tabular-nums text-signal-strong-buy text-[11px]">{fmt(hi)}</div>
+      <div className="font-mono tabular-nums text-signal-strong-sell text-[11px]">{fmt(lo)}</div>
+    </div>
+  );
+}
+
+// ───────── Option Chain Snapshot ─────────
+type OptSnap = {
+  underlying: string; spot: number; expiry: string;
+  atmStrike: number; atmStraddle: number; expectedMovePct: number;
+  pcrOi: number; pcrVolume: number; atmIv?: number | null; maxPain: number;
+  maxCallOiStrike?: number | null; maxPutOiStrike?: number | null;
+  bias: string; interpretation: string;
+};
+const OPT_BIAS_TONE: Record<string, string> = {
+  BULLISH: "bg-signal-strong-buy/15 text-signal-strong-buy border-signal-strong-buy/30",
+  BEARISH: "bg-signal-strong-sell/15 text-signal-strong-sell border-signal-strong-sell/30",
+  NEUTRAL: "bg-secondary/60 text-muted-foreground border-border/40",
+};
+function OptionSnapshotCard({ snap }: { snap: OptSnap }) {
+  return (
+    <Card className="border border-border/50">
+      <CardContent className="p-4">
+        <div className="flex items-baseline justify-between gap-2 mb-2">
+          <div className="text-sm font-bold font-mono">{snap.underlying}</div>
+          <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${OPT_BIAS_TONE[snap.bias] ?? OPT_BIAS_TONE["NEUTRAL"]}`}>
+            {snap.bias}
+          </span>
+        </div>
+        <div className="text-[10px] font-mono text-muted-foreground mb-2">
+          spot {fmt(snap.spot)} · expiry {snap.expiry}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <KV label="ATM Strike"   value={fmt(snap.atmStrike, 0)} />
+          <KV label="ATM Straddle" value={fmt(snap.atmStraddle)} />
+          <KV label="Exp. Move"    value={`±${snap.expectedMovePct.toFixed(2)}%`} tone="text-foreground font-bold" />
+          <KV label="ATM IV"       value={snap.atmIv != null ? `${snap.atmIv.toFixed(1)}%` : "—"} />
+          <KV label="PCR (OI)"     value={snap.pcrOi.toFixed(2)} tone={snap.pcrOi > 1.2 ? "text-signal-strong-buy" : snap.pcrOi < 0.8 ? "text-signal-strong-sell" : ""} />
+          <KV label="PCR (Vol)"    value={snap.pcrVolume.toFixed(2)} />
+          <KV label="Max Pain"     value={fmt(snap.maxPain, 0)} />
+          <KV label="Resistance"   value={snap.maxCallOiStrike != null ? fmt(snap.maxCallOiStrike, 0) : "—"} tone="text-signal-strong-sell" />
+          <KV label="Support"      value={snap.maxPutOiStrike  != null ? fmt(snap.maxPutOiStrike, 0)  : "—"} tone="text-signal-strong-buy" />
+        </div>
+
+        {snap.interpretation && (
+          <p className="text-[11px] text-foreground/80 mt-3 pt-3 border-t border-border/40 leading-relaxed">
+            {snap.interpretation}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+function KV({ label, value, tone: t }: { label: string; value: string; tone?: string }) {
+  return (
+    <div>
+      <div className="text-[10px] font-mono uppercase text-muted-foreground">{label}</div>
+      <div className={`font-mono tabular-nums text-sm ${t ?? ""}`}>{value}</div>
+    </div>
+  );
+}
+
+// ───────── Sector Heatmap tile ─────────
+function SectorTile({ s }: { s: { sector: string; avgChangePercent: number; gainers: number; losers: number; stockCount: number; topPickSymbol?: string } }) {
+  const intensity = Math.min(1, Math.abs(s.avgChangePercent) / 2.5);
+  const bg = s.avgChangePercent > 0
+    ? `rgba(34,197,94,${0.08 + intensity * 0.22})`
+    : s.avgChangePercent < 0
+      ? `rgba(239,68,68,${0.08 + intensity * 0.22})`
+      : "rgba(148,163,184,0.08)";
+  return (
+    <div
+      className="rounded border border-border/40 p-2.5 transition-colors"
+      style={{ backgroundColor: bg }}
+      title={`${s.gainers} up · ${s.losers} down out of ${s.stockCount}${s.topPickSymbol ? ` · top: ${s.topPickSymbol}` : ""}`}
+    >
+      <div className="text-[11px] font-medium truncate">{s.sector}</div>
+      <div className={`text-sm font-bold font-mono tabular-nums ${tone(s.avgChangePercent)}`}>
+        {pct(s.avgChangePercent)}
+      </div>
+      <div className="text-[9px] font-mono text-muted-foreground mt-0.5">
+        <span className="text-signal-strong-buy">{s.gainers}↑</span> · <span className="text-signal-strong-sell">{s.losers}↓</span> · {s.stockCount} stk
+      </div>
+    </div>
+  );
+}
+
+// ───────── FII / DII snapshot ─────────
+function FiiDiiCard({ f }: { f: { latestDate: string; fiiCashCr: number; diiCashCr: number; fiveDayFiiCr: number; fiveDayDiiCr: number } }) {
+  return (
+    <Card className="border border-border/50">
+      <CardContent className="p-4">
+        <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
+          <Building2 className="w-3.5 h-3.5" /> FII / DII Cash · {f.latestDate}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <FlowStat label="FII (latest)"  value={f.fiiCashCr}    />
+          <FlowStat label="DII (latest)"  value={f.diiCashCr}    />
+          <FlowStat label="FII (5-day)"   value={f.fiveDayFiiCr} />
+          <FlowStat label="DII (5-day)"   value={f.fiveDayDiiCr} />
+        </div>
+        <div className="mt-3 pt-3 border-t border-border/40 text-[10px] font-mono text-muted-foreground leading-relaxed">
+          {(f.diiCashCr > 0 && f.fiiCashCr < 0) ? "DII absorbing FII selling — typically supportive." :
+           (f.diiCashCr < 0 && f.fiiCashCr < 0) ? "Both sides selling — caution; weak hands lifting bids." :
+           (f.diiCashCr > 0 && f.fiiCashCr > 0) ? "Both sides buying — strong undertone." :
+           "Mixed flows."}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+function FlowStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <div className="text-[10px] font-mono uppercase text-muted-foreground">{label}</div>
+      <div className={`font-mono tabular-nums text-sm font-bold ${tone(value)}`}>
+        {value >= 0 ? "+" : ""}{value.toLocaleString("en-IN", { maximumFractionDigits: 0 })} <span className="text-[9px] text-muted-foreground font-normal">Cr</span>
+      </div>
+    </div>
   );
 }

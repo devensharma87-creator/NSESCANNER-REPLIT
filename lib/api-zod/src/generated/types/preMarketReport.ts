@@ -6,7 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { EconomicEvent } from "./economicEvent";
+import type { FiiDiiSnapshot } from "./fiiDiiSnapshot";
 import type { GapStock } from "./gapStock";
+import type { KeyIndexLevels } from "./keyIndexLevels";
+import type { OptionSnapshot } from "./optionSnapshot";
 import type { OvernightCue } from "./overnightCue";
 import type { PostMarketDigest } from "./postMarketDigest";
 import type { PreMarketIndexPreview } from "./preMarketIndexPreview";
@@ -14,6 +17,8 @@ import type { PreMarketMover } from "./preMarketMover";
 import type { PreMarketReportEarningsTodayItem } from "./preMarketReportEarningsTodayItem";
 import type { PreMarketReportMode } from "./preMarketReportMode";
 import type { PreMarketSentiment } from "./preMarketSentiment";
+import type { SectorHeatmapEntry } from "./sectorHeatmapEntry";
+import type { TradingScenario } from "./tradingScenario";
 
 export interface PreMarketReport {
   /** Auto-detected based on IST time */
@@ -27,6 +32,15 @@ export interface PreMarketReport {
   keyTakeaways?: string[];
   overnightCues: OvernightCue[];
   indexPreviews: PreMarketIndexPreview[];
+  /** 3 pre-planned scenarios for today (bullish / bearish / range) with triggers + action plans */
+  scenarios?: TradingScenario[];
+  /** Pro pre-market level pack — CPR + classic pivots + previous-day H/L + weekly H/L + 52-week H/L for the 5 main F&O indices */
+  indexLevels?: KeyIndexLevels[];
+  /** Morning option-chain summary for NIFTY / BANKNIFTY / FINNIFTY (omitted when no Kite session is active and NSE is geo-blocked) */
+  optionSnapshots?: OptionSnapshot[];
+  /** Full sector ranking, leader → laggard */
+  sectorHeatmap?: SectorHeatmapEntry[];
+  fiiDii?: FiiDiiSnapshot;
   topGainers?: PreMarketMover[];
   topLosers?: PreMarketMover[];
   gapUps?: GapStock[];

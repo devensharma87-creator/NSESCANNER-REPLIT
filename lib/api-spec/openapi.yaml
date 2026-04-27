@@ -1256,6 +1256,94 @@ components:
         marketBreadthScore: { type: number, description: "-100 to 100" }
         narrative: { type: string, description: "One-line market summary" }
 
+    KeyIndexLevels:
+      type: object
+      required: [symbol, name, previousClose, prevHigh, prevLow, weekHigh, weekLow, yearHigh, yearLow, pivot, r1, r2, s1, s2, cprTop, cprPivot, cprBottom, cprWidthPct, cprWidthLabel, positionInYearRangePct]
+      description: "Pro pre-market index level pack. CPR (Central Pivot Range) and classic floor pivots from previous-session OHLC. Narrow CPR (<0.4% of price) tends to precede a trending day, wide CPR (>1.0%) precedes range/chop. positionInYearRangePct = where price sits inside the 52-week high-low band (0%=at low, 100%=at high)."
+      properties:
+        symbol:                  { type: string, description: "Yahoo-style symbol (e.g. ^NSEI)" }
+        name:                    { type: string, description: "Display name (e.g. NIFTY 50)" }
+        previousClose:           { type: number }
+        prevHigh:                { type: number, description: "Previous session high" }
+        prevLow:                 { type: number, description: "Previous session low" }
+        todayOpen:               { type: number, nullable: true, description: "Today's open if market has opened" }
+        weekHigh:                { type: number, description: "Highest close over last 5 trading days" }
+        weekLow:                 { type: number, description: "Lowest close over last 5 trading days" }
+        monthHigh:               { type: number, nullable: true, description: "Highest close over last 21 trading days" }
+        monthLow:                { type: number, nullable: true, description: "Lowest close over last 21 trading days" }
+        yearHigh:                { type: number, description: "52-week high (~252 trading days)" }
+        yearLow:                 { type: number, description: "52-week low" }
+        pivot:                   { type: number, description: "Classic floor pivot P = (PH + PL + PC) / 3" }
+        r1:                      { type: number }
+        r2:                      { type: number }
+        s1:                      { type: number }
+        s2:                      { type: number }
+        cprTop:                  { type: number, description: "TC = 2P - BC (top of CPR)" }
+        cprPivot:                { type: number, description: "= classic pivot, middle of CPR" }
+        cprBottom:               { type: number, description: "BC = (PH + PL) / 2 (bottom of CPR)" }
+        cprWidthPct:             { type: number, description: "(TC - BC) / PC * 100" }
+        cprWidthLabel:           { type: string, enum: [NARROW, NORMAL, WIDE], description: "NARROW < 0.4% (trending day likely), WIDE > 1.0% (range/chop likely)" }
+        positionInYearRangePct:  { type: number, description: "0..100 — distance through the 52-week range (PC at yearLow=0, at yearHigh=100)" }
+
+    OptionSnapshot:
+      type: object
+      required: [underlying, spot, expiry, atmStrike, atmStraddle, expectedMovePct, pcrOi, pcrVolume, maxPain, bias, interpretation, generatedAt]
+      description: "Compact pre-market option-chain read for a single F&O underlying. Sourced from the same chain endpoint that powers the Options page; surfaced here so the morning checklist (ATM strike, expected move, PCR, max-pain, top OI walls) is one glance away."
+      properties:
+        underlying:       { type: string, description: "F&O underlying e.g. NIFTY, BANKNIFTY, FINNIFTY" }
+        spot:             { type: number }
+        expiry:           { type: string, description: "Active expiry YYYY-MM-DD" }
+        atmStrike:        { type: number }
+        atmStraddle:      { type: number, description: "ATM CE LTP + ATM PE LTP (in points)" }
+        expectedMovePct:  { type: number, description: "atmStraddle / spot * 100 — implied move by expiry" }
+        pcrOi:            { type: number }
+        pcrVolume:        { type: number }
+        atmIv:            { type: number, nullable: true, description: "ATM straddle IV (% annualised)" }
+        maxPain:          { type: number, description: "Strike where option writers lose least" }
+        maxCallOiStrike:  { type: number, nullable: true, description: "Resistance — strike with biggest CE open interest" }
+        maxPutOiStrike:   { type: number, nullable: true, description: "Support — strike with biggest PE open interest" }
+        bias:             { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
+        interpretation:   { type: string, description: "Plain-English read in one line" }
+        generatedAt:      { type: string, format: date-time }
+
+    SectorHeatmapEntry:
+      type: object
+      required: [sector, avgChangePercent, gainers, losers, stockCount]
+      description: "One row of the daily sector ranking — full leader→laggard list (the existing /market/trend endpoint only returns top-3 leaders + bottom-3 laggards, this ranks every NSE sectoral index)."
+      properties:
+        sector:           { type: string, description: "Sector display name (Banks, IT, Auto, Pharma, …)" }
+        avgChangePercent: { type: number, description: "Mean % change of constituent stocks today" }
+        gainers:          { type: integer, description: "Stocks closing positive in the sector" }
+        losers:           { type: integer, description: "Stocks closing negative in the sector" }
+        stockCount:       { type: integer, description: "Sector universe size from this scan" }
+        topPickSymbol:    { type: string, description: "Highest-scoring stock in the sector" }
+
+    FiiDiiSnapshot:
+      type: object
+      required: [latestDate, fiiCashCr, diiCashCr, fiveDayFiiCr, fiveDayDiiCr]
+      description: "Last published cash-segment FII / DII net activity, plus 5-day rolling totals. Values are in INR Crores. Negative = net seller, positive = net buyer."
+      properties:
+        latestDate:    { type: string, format: date, description: "Trading date the latest figures belong to (T-1 typically)" }
+        fiiCashCr:     { type: number, description: "FII cash-segment net for latestDate (INR Cr)" }
+        diiCashCr:     { type: number, description: "DII cash-segment net for latestDate (INR Cr)" }
+        fiveDayFiiCr:  { type: number, description: "Sum of FII cash-segment net over the most recent 5 trading days" }
+        fiveDayDiiCr:  { type: number, description: "Sum of DII cash-segment net over the most recent 5 trading days" }
+
+    TradingScenario:
+      type: object
+      required: [kind, label, trigger, actions, invalidation, probability]
+      description: "One of three pre-planned scenarios for the day (bullish / bearish / range). A pro trader prepares all three before the open and follows whichever one the market actually takes — never tries to predict a single outcome."
+      properties:
+        kind:        { type: string, enum: [BULLISH, BEARISH, RANGE] }
+        label:       { type: string, description: "Short headline e.g. 'Bullish breakout above R1'" }
+        trigger:     { type: string, description: "Specific level/condition that activates this scenario" }
+        actions:
+          type: array
+          items: { type: string }
+          description: "Concrete steps to take if this scenario plays out"
+        invalidation: { type: string, description: "Specific level/condition that proves this scenario is wrong — abandon the plan and switch to the appropriate alternative." }
+        probability: { type: string, enum: [HIGH, MEDIUM, LOW], description: "Heuristic likelihood given current overnight setup" }
+
     PreMarketReport:
       type: object
       required: [mode, sentiment, sentimentScore, narrative, overnightCues, indexPreviews, generatedAt]
@@ -1274,6 +1362,23 @@ components:
         indexPreviews:
           type: array
           items: { $ref: "#/components/schemas/PreMarketIndexPreview" }
+        scenarios:
+          type: array
+          items: { $ref: "#/components/schemas/TradingScenario" }
+          description: "3 pre-planned scenarios for today (bullish / bearish / range) with triggers + action plans"
+        indexLevels:
+          type: array
+          items: { $ref: "#/components/schemas/KeyIndexLevels" }
+          description: "Pro pre-market level pack — CPR + classic pivots + previous-day H/L + weekly H/L + 52-week H/L for the 5 main F&O indices"
+        optionSnapshots:
+          type: array
+          items: { $ref: "#/components/schemas/OptionSnapshot" }
+          description: "Morning option-chain summary for NIFTY / BANKNIFTY / FINNIFTY (omitted when no Kite session is active and NSE is geo-blocked)"
+        sectorHeatmap:
+          type: array
+          items: { $ref: "#/components/schemas/SectorHeatmapEntry" }
+          description: "Full sector ranking, leader → laggard"
+        fiiDii: { $ref: "#/components/schemas/FiiDiiSnapshot" }
         topGainers:
           type: array
           items: { $ref: "#/components/schemas/PreMarketMover" }

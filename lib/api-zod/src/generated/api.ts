@@ -1894,6 +1894,201 @@ export const GetPreMarketResponse = zod.object({
         ),
     }),
   ),
+  scenarios: zod
+    .array(
+      zod
+        .object({
+          kind: zod.enum(["BULLISH", "BEARISH", "RANGE"]),
+          label: zod
+            .string()
+            .describe("Short headline e.g. 'Bullish breakout above R1'"),
+          trigger: zod
+            .string()
+            .describe("Specific level\/condition that activates this scenario"),
+          actions: zod
+            .array(zod.string())
+            .describe("Concrete steps to take if this scenario plays out"),
+          invalidation: zod
+            .string()
+            .describe(
+              "Specific level\/condition that proves this scenario is wrong — abandon the plan and switch to the appropriate alternative.",
+            ),
+          probability: zod
+            .enum(["HIGH", "MEDIUM", "LOW"])
+            .describe("Heuristic likelihood given current overnight setup"),
+        })
+        .describe(
+          "One of three pre-planned scenarios for the day (bullish \/ bearish \/ range). A pro trader prepares all three before the open and follows whichever one the market actually takes — never tries to predict a single outcome.",
+        ),
+    )
+    .optional()
+    .describe(
+      "3 pre-planned scenarios for today (bullish \/ bearish \/ range) with triggers + action plans",
+    ),
+  indexLevels: zod
+    .array(
+      zod
+        .object({
+          symbol: zod.string().describe("Yahoo-style symbol (e.g. ^NSEI)"),
+          name: zod.string().describe("Display name (e.g. NIFTY 50)"),
+          previousClose: zod.number(),
+          prevHigh: zod.number().describe("Previous session high"),
+          prevLow: zod.number().describe("Previous session low"),
+          todayOpen: zod
+            .number()
+            .nullish()
+            .describe("Today's open if market has opened"),
+          weekHigh: zod
+            .number()
+            .describe("Highest close over last 5 trading days"),
+          weekLow: zod
+            .number()
+            .describe("Lowest close over last 5 trading days"),
+          monthHigh: zod
+            .number()
+            .nullish()
+            .describe("Highest close over last 21 trading days"),
+          monthLow: zod
+            .number()
+            .nullish()
+            .describe("Lowest close over last 21 trading days"),
+          yearHigh: zod.number().describe("52-week high (~252 trading days)"),
+          yearLow: zod.number().describe("52-week low"),
+          pivot: zod
+            .number()
+            .describe("Classic floor pivot P = (PH + PL + PC) \/ 3"),
+          r1: zod.number(),
+          r2: zod.number(),
+          s1: zod.number(),
+          s2: zod.number(),
+          cprTop: zod.number().describe("TC = 2P - BC (top of CPR)"),
+          cprPivot: zod.number().describe("= classic pivot, middle of CPR"),
+          cprBottom: zod
+            .number()
+            .describe("BC = (PH + PL) \/ 2 (bottom of CPR)"),
+          cprWidthPct: zod.number().describe("(TC - BC) \/ PC \* 100"),
+          cprWidthLabel: zod
+            .enum(["NARROW", "NORMAL", "WIDE"])
+            .describe(
+              "NARROW < 0.4% (trending day likely), WIDE > 1.0% (range\/chop likely)",
+            ),
+          positionInYearRangePct: zod
+            .number()
+            .describe(
+              "0..100 — distance through the 52-week range (PC at yearLow=0, at yearHigh=100)",
+            ),
+        })
+        .describe(
+          "Pro pre-market index level pack. CPR (Central Pivot Range) and classic floor pivots from previous-session OHLC. Narrow CPR (<0.4% of price) tends to precede a trending day, wide CPR (>1.0%) precedes range\/chop. positionInYearRangePct = where price sits inside the 52-week high-low band (0%=at low, 100%=at high).",
+        ),
+    )
+    .optional()
+    .describe(
+      "Pro pre-market level pack — CPR + classic pivots + previous-day H\/L + weekly H\/L + 52-week H\/L for the 5 main F&O indices",
+    ),
+  optionSnapshots: zod
+    .array(
+      zod
+        .object({
+          underlying: zod
+            .string()
+            .describe("F&O underlying e.g. NIFTY, BANKNIFTY, FINNIFTY"),
+          spot: zod.number(),
+          expiry: zod.string().describe("Active expiry YYYY-MM-DD"),
+          atmStrike: zod.number(),
+          atmStraddle: zod
+            .number()
+            .describe("ATM CE LTP + ATM PE LTP (in points)"),
+          expectedMovePct: zod
+            .number()
+            .describe("atmStraddle \/ spot \* 100 — implied move by expiry"),
+          pcrOi: zod.number(),
+          pcrVolume: zod.number(),
+          atmIv: zod
+            .number()
+            .nullish()
+            .describe("ATM straddle IV (% annualised)"),
+          maxPain: zod
+            .number()
+            .describe("Strike where option writers lose least"),
+          maxCallOiStrike: zod
+            .number()
+            .nullish()
+            .describe("Resistance — strike with biggest CE open interest"),
+          maxPutOiStrike: zod
+            .number()
+            .nullish()
+            .describe("Support — strike with biggest PE open interest"),
+          bias: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]),
+          interpretation: zod
+            .string()
+            .describe("Plain-English read in one line"),
+          generatedAt: zod.coerce.date(),
+        })
+        .describe(
+          "Compact pre-market option-chain read for a single F&O underlying. Sourced from the same chain endpoint that powers the Options page; surfaced here so the morning checklist (ATM strike, expected move, PCR, max-pain, top OI walls) is one glance away.",
+        ),
+    )
+    .optional()
+    .describe(
+      "Morning option-chain summary for NIFTY \/ BANKNIFTY \/ FINNIFTY (omitted when no Kite session is active and NSE is geo-blocked)",
+    ),
+  sectorHeatmap: zod
+    .array(
+      zod
+        .object({
+          sector: zod
+            .string()
+            .describe("Sector display name (Banks, IT, Auto, Pharma, …)"),
+          avgChangePercent: zod
+            .number()
+            .describe("Mean % change of constituent stocks today"),
+          gainers: zod
+            .number()
+            .describe("Stocks closing positive in the sector"),
+          losers: zod
+            .number()
+            .describe("Stocks closing negative in the sector"),
+          stockCount: zod
+            .number()
+            .describe("Sector universe size from this scan"),
+          topPickSymbol: zod
+            .string()
+            .optional()
+            .describe("Highest-scoring stock in the sector"),
+        })
+        .describe(
+          "One row of the daily sector ranking — full leader→laggard list (the existing \/market\/trend endpoint only returns top-3 leaders + bottom-3 laggards, this ranks every NSE sectoral index).",
+        ),
+    )
+    .optional()
+    .describe("Full sector ranking, leader → laggard"),
+  fiiDii: zod
+    .object({
+      latestDate: zod.coerce
+        .date()
+        .describe("Trading date the latest figures belong to (T-1 typically)"),
+      fiiCashCr: zod
+        .number()
+        .describe("FII cash-segment net for latestDate (INR Cr)"),
+      diiCashCr: zod
+        .number()
+        .describe("DII cash-segment net for latestDate (INR Cr)"),
+      fiveDayFiiCr: zod
+        .number()
+        .describe(
+          "Sum of FII cash-segment net over the most recent 5 trading days",
+        ),
+      fiveDayDiiCr: zod
+        .number()
+        .describe(
+          "Sum of DII cash-segment net over the most recent 5 trading days",
+        ),
+    })
+    .optional()
+    .describe(
+      "Last published cash-segment FII \/ DII net activity, plus 5-day rolling totals. Values are in INR Crores. Negative = net seller, positive = net buyer.",
+    ),
   topGainers: zod
     .array(
       zod.object({
