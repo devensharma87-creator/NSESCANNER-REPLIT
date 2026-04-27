@@ -30,6 +30,10 @@ interface FullNseStatus {
   rows: number;
   total: number;
   progress: { running: boolean; scanned: number; total: number; startedAt: number | null };
+  // Best-known universe size — server-reported, falls back to in-flight
+  // scan total during a cold start so the loading UI can show a real
+  // number instead of "0 of 0".
+  universeEstimate: number;
 }
 
 const FULL_NSE_QS = "limit=5000&sortBy=changePct&order=desc";
@@ -73,9 +77,14 @@ function useFullNseStocks() {
 
 /**
  * Lightweight cold-scan progress poll — separate query so progress can update
- * every 5s without re-fetching the heavyweight rows payload.
+ * frequently without re-fetching the heavyweight rows payload. Polls fast
+ * (3s) while a scan is running so the X/Y counter ticks live, and slows
+ * down (30s) when idle so we don't keep slamming the server doing nothing.
+ * Returns the FULL status payload (not just `progress`) so the caller can
+ * show a real universe-size estimate during the very first cold scan
+ * before any rows have arrived.
  */
-function useFullNseProgress() {
+function useFullNseStatus() {
   const q = useQuery({
     queryKey: ["full-nse-status"],
     queryFn: async (): Promise<FullNseStatus> => {
@@ -83,12 +92,16 @@ function useFullNseProgress() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     },
-    refetchInterval: 15_000,
+    refetchInterval: (query) => {
+      // Adaptive cadence: tight loop while scanning, lazy when idle.
+      const running = query.state.data?.progress.running;
+      return running ? 3_000 : 30_000;
+    },
     refetchIntervalInBackground: false,
     staleTime: 0,
     gcTime: 60_000,
   });
-  return q.data?.progress ?? null;
+  return q.data ?? null;
 }
 
 type SortKey = "symbol" | "price" | "change" | "changePct" | "open" | "high" | "low" | "prev" | "vwap" | "ema20" | "ema50" | "ema100" | "ema200" | "rsi" | "yrHi" | "yrLo" | "vol" | "score";
@@ -246,18 +259,25 @@ export default function ScannerPage() {
   // sector tagging) AND the full bhavcopy-derived universe (~2486 EQ names
   // with lighter indicators). Curated data wins on overlap because it has
   // strictly more fields populated.
+  //
+  // The curated query refreshes much more lazily than the full-NSE query —
+  // /api/scan/full-nse already covers every symbol curated does, and the
+  // curated payload exists only to enrich indicator coverage on the F&O
+  // names. Polling it every minute was wasteful (200-row response, every
+  // tab in the app pays the cost). 5-minute interval is plenty.
   const { data: curatedStocks, isLoading: curatedLoading } = useListStocks(undefined, {
     query: {
-      refetchInterval: 60_000,
+      refetchInterval: 300_000,
       refetchIntervalInBackground: false,
-      refetchOnWindowFocus: true,
-      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+      staleTime: 120_000,
       gcTime: Infinity,
       queryKey: getListStocksQueryKey(undefined),
     },
   });
   const { data: fullStocks, isLoading: fullLoading, meta: fullMeta } = useFullNseStocks();
-  const fullProgress = useFullNseProgress();
+  const status = useFullNseStatus();
+  const fullProgress = status?.progress ?? null;
 
   // useDeferredValue keeps the input responsive while the expensive 2,500-row
   // filter+sort recomputes on a lower-priority render pass.
@@ -270,8 +290,22 @@ export default function ScannerPage() {
     return Array.from(bySymbol.values());
   }, [fullStocks, curatedStocks]);
 
-  // Spinner only when literally nothing has arrived yet
-  const stocksLoading = curatedLoading && fullLoading && mergedStocks.length === 0;
+  // Spinner only when literally nothing has arrived yet. Once EITHER source
+  // returns rows we hide the loading state — even if the other is still
+  // refetching in the background — so the table never blanks out on every
+  // 60s refresh.
+  const stocksLoading = mergedStocks.length === 0 && (curatedLoading || fullLoading);
+
+  // Best-known universe size during a cold start: prefer the cache total
+  // once it lands, else the in-flight scan total (post-dedup), else the
+  // raw progress count. Lets the UI show "Scanning ~2,486 stocks…"
+  // instead of "0 of 0" while the very first /api/scan/full-nse call
+  // is still running.
+  const universeEstimate =
+    fullMeta?.universeSize
+    ?? status?.universeEstimate
+    ?? fullProgress?.total
+    ?? 0;
 
   const sectors = useMemo(() => {
     const set = new Set<string>();
@@ -370,7 +404,10 @@ export default function ScannerPage() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <CardTitle className="text-base font-mono">
-                {sortedStocks.length.toLocaleString("en-IN")} stocks shown · universe = {mergedStocks.length.toLocaleString("en-IN")}{fullMeta ? ` of ${fullMeta.universeSize.toLocaleString("en-IN")}` : ""}
+                {stocksLoading
+                  ? `Loading first scan${universeEstimate > 0 ? ` of ~${universeEstimate.toLocaleString("en-IN")} stocks` : ""}…`
+                  : <>{sortedStocks.length.toLocaleString("en-IN")} stocks shown · universe = {mergedStocks.length.toLocaleString("en-IN")}{universeEstimate > mergedStocks.length ? ` of ${universeEstimate.toLocaleString("en-IN")}` : ""}</>
+                }
               </CardTitle>
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {SCREENS.map(p => (

@@ -598,11 +598,16 @@ export function getFullNseStatus(): {
   progress: { running: boolean; scanned: number; total: number; startedAt: number | null };
   ageMs: number | null;
   stale: boolean;
+  // Best-known universe size — falls back to the in-flight scan total
+  // (post-dedup) when the cache hasn't landed yet, so the UI can show
+  // "Scanning ~2,486 stocks…" during a cold start instead of "0 of 0".
+  universeEstimate: number;
 } {
   const ageMs = cache ? Date.now() - cache.lastUpdated : null;
   const stale = ageMs != null && ageMs > DISK_CACHE_MAX_AGE_MS;
   const prog = { running: progress.running, scanned: progress.scanned, total: progress.total, startedAt: progress.startedAt };
-  if (!cache) return { hasCache: false, lastUpdated: null, total: 0, rows: 0, failures: 0, rested: 0, sourceDate: null, scanMs: null, progress: prog, ageMs: null, stale: false };
+  const universeEstimate = cache?.total ?? progress.total ?? 0;
+  if (!cache) return { hasCache: false, lastUpdated: null, total: 0, rows: 0, failures: 0, rested: 0, sourceDate: null, scanMs: null, progress: prog, ageMs: null, stale: false, universeEstimate };
   return {
     hasCache: true,
     lastUpdated: cache.lastUpdated,
@@ -615,5 +620,6 @@ export function getFullNseStatus(): {
     progress: prog,
     ageMs,
     stale,
+    universeEstimate,
   };
 }
