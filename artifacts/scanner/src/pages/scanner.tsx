@@ -178,7 +178,7 @@ const ROW_HEIGHT = 48;
 const COL_WIDTHS = {
   symbol: 160, price: 90, change: 70, changePct: 78, open: 80, high: 80, low: 80,
   prev: 80, vwap: 80, ema20: 80, ema50: 80, ema100: 80, ema200: 80, rsi: 70,
-  yrHi: 90, yrLo: 90, vol: 70, score: 130, signal: 110,
+  yrHi: 90, yrLo: 90, vol: 70, score: 130, signal: 96,
 } as const;
 const TOTAL_WIDTH = Object.values(COL_WIDTHS).reduce((a, b) => a + b, 0);
 
@@ -225,8 +225,8 @@ const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) 
       <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrHi }}>{fmt(q.fiftyTwoWeekHigh)}</div>
       <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrLo }}>{fmt(q.fiftyTwoWeekLow)}</div>
       <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.vol }}>{ind?.volumeRatio != null ? `${ind.volumeRatio.toFixed(1)}×` : '—'}</div>
-      <div className="px-2" style={{ width: COL_WIDTHS.score }}><ScoreBar score={stock.recommendation.score} /></div>
-      <div className="text-right px-2 flex-1" style={{ minWidth: COL_WIDTHS.signal }}><SignalBadge signal={stock.recommendation.signal} /></div>
+      <div className="px-2 flex-1" style={{ minWidth: COL_WIDTHS.score }}><ScoreBar score={stock.recommendation.score} /></div>
+      <div className="px-2 flex items-center justify-end" style={{ width: COL_WIDTHS.signal }}><SignalBadge signal={stock.recommendation.signal} /></div>
     </div>
   );
 });
@@ -476,8 +476,8 @@ export default function ScannerPage() {
                 <div className="text-right px-2" style={{ width: COL_WIDTHS.yrHi }}><SortHead k="yrHi" label="52W H" sort={sort} setSort={setSort} /></div>
                 <div className="text-right px-2" style={{ width: COL_WIDTHS.yrLo }}><SortHead k="yrLo" label="52W L" sort={sort} setSort={setSort} /></div>
                 <div className="text-right px-2" style={{ width: COL_WIDTHS.vol }}><SortHead k="vol" label="VOL×" sort={sort} setSort={setSort} /></div>
-                <div className="px-2" style={{ width: COL_WIDTHS.score }}><SortHead k="score" label="SCORE" sort={sort} setSort={setSort} align="left" /></div>
-                <div className="text-right px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground flex-1" style={{ minWidth: COL_WIDTHS.signal }}>SIGNAL</div>
+                <div className="px-2 flex-1" style={{ minWidth: COL_WIDTHS.score }}><SortHead k="score" label="SCORE" sort={sort} setSort={setSort} align="left" /></div>
+                <div className="text-right px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground" style={{ width: COL_WIDTHS.signal }}>SIGNAL</div>
               </div>
 
               {stocksLoading ? (
