@@ -367,19 +367,25 @@ function StrategyCard({
   // direction of the cashflow.
   const cashflowMagnitude = Math.abs(s.netDebit * s.lotSize);
 
-  // Headline Max Profit/Loss = chart-range. The user can only see what's on
-  // the curve, so quoting theoretical ₹15L on a Long Put (when chart tops
-  // out at ₹150K) is misleading. Show both when they meaningfully differ.
+  // Headline Max Profit/Loss = realistic value within the ±2σ expected-move
+  // window by expiry. For a Long Put on NIFTY this gives a tradeable ~₹10K
+  // figure instead of the chart-range ₹135K (arbitrary visualization edge)
+  // or the theoretical ₹18L+ (at S=0, economically unreachable). For bounded
+  // strategies (verticals, condors) the 2σ window envelops every kink so
+  // the realistic value equals the theoretical max — both correct.
+  // We surface the theoretical absolute extreme as a sub-line ONLY when it
+  // sits within ~10× of the realistic value; beyond that it's so far from
+  // anything tradeable that quoting it confuses more than it informs.
   const headlineMaxProfit: number | null =
     s.perLot.maxProfit == null ? null : s.perLot.displayMaxProfit;
   const headlineMaxLoss: number | null =
     s.perLot.maxLoss == null ? null : s.perLot.displayMaxLoss;
-  const showTheoreticalProfit =
-    s.perLot.maxProfit != null
-    && Math.abs(s.perLot.maxProfit - s.perLot.displayMaxProfit) > Math.max(1, Math.abs(s.perLot.displayMaxProfit) * 0.05);
-  const showTheoreticalLoss =
-    s.perLot.maxLoss != null
-    && Math.abs(s.perLot.maxLoss - s.perLot.displayMaxLoss) > Math.max(1, Math.abs(s.perLot.displayMaxLoss) * 0.05);
+  const profitDiverges = (theo: number | null, disp: number) =>
+    theo != null
+    && Math.abs(theo - disp) > Math.max(1, Math.abs(disp) * 0.05)
+    && Math.abs(theo) <= Math.max(Math.abs(disp) * 10, 1);
+  const showTheoreticalProfit = profitDiverges(s.perLot.maxProfit, s.perLot.displayMaxProfit);
+  const showTheoreticalLoss   = profitDiverges(s.perLot.maxLoss,   s.perLot.displayMaxLoss);
 
   // R:R reform — the old "headline R:R" used chart-range max profit / max loss.
   // Those are arbitrary (chart range is ±10% of spot, picked for readability),
@@ -453,8 +459,8 @@ function StrategyCard({
           <span>
             <span className="text-muted-foreground uppercase">R:R (prob)</span>{" "}
             {probRr == null ? "—" : `1 : ${probRr.toFixed(2)}`}
-            {s.rrRatio != null && (
-              <span className="text-muted-foreground/70"> · cap-to-cap 1 : {s.rrRatio.toFixed(2)}</span>
+            {s.displayRrRatio != null && (
+              <span className="text-muted-foreground/70"> · realistic 1 : {s.displayRrRatio.toFixed(2)}</span>
             )}
           </span>
           <span><span className="text-muted-foreground uppercase">Lot</span> {s.lotSize}</span>

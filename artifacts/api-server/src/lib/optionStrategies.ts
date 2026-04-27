@@ -227,14 +227,23 @@ function legPayoff(leg: StrategyLeg, spotAtExpiry: number): number {
   return sign * (intrinsic - leg.premium) * leg.qty;
 }
 
-function buildPayoff(legs: StrategyLeg[], spot: number, lotSize: number): {
+function buildPayoff(
+  legs: StrategyLeg[],
+  spot: number,
+  lotSize: number,
+  expectedMove2Sigma: number,
+): {
   payoff: PayoffPoint[];
   maxProfit: number | null;        // theoretical, evaluated at S=0 and S→∞
   maxLoss: number | null;
-  // Chart-range extrema — what the user actually sees on the payoff curve.
-  // For Long Put on NIFTY this is ~₹150K (chart only goes down to spot*0.9),
-  // versus the theoretical ₹15L+ at S=0 which is mathematically true but
-  // economically meaningless. UI prefers the display values.
+  // Realistic extrema — max/min P&L within the **±2σ expected-move window**
+  // by expiry (lognormal model). For Long Put on NIFTY, chart-range max would
+  // sit at spot*0.9 (~₹135K), theoretical max sits at S=0 (~₹18L+), but the
+  // 2σ-bounded value is the only one a trader can actually reason about
+  // ("what's likely if the move plays out as priced"). For bounded strategies
+  // (verticals, condors, etc.) the 2σ window typically envelops the kinks so
+  // the realistic value equals the theoretical max — both safe and meaningful.
+  // Falls back to chart-range if expectedMove2Sigma is 0 (no IV available).
   displayMaxProfit: number;
   displayMaxLoss: number;
   breakevens: number[];
@@ -331,16 +340,45 @@ function buildPayoff(legs: StrategyLeg[], spot: number, lotSize: number): {
     maxLoss   = +Math.min(minBp, vFar).toFixed(2);
   }
 
-  // ── Display extrema: the max/min P&L the user can actually SEE on the
-  // payoff curve. For a Long Put the theoretical max is at S=0 (uneconomic),
-  // but the chart only renders down to ~spot*0.9 — quoting "Max Profit
-  // ₹15L" next to a chart that tops out at ₹150K makes the card look
-  // broken. We separate the two: maxProfit/maxLoss above stay analytically
-  // correct (used for slope-at-infinity reasoning, etc.); the display
-  // values below are what the UI quotes by default.
+  // ── Realistic display extrema: max/min P&L over the **±2σ expected-move
+  // window** by expiry. This is the only economically meaningful "max"
+  // for unbounded-direction strategies (Long Put theoretical max at S=0 is
+  // mathematically true but uneconomic; chart-range max at spot*0.9 is an
+  // arbitrary visualization artefact). For bounded strategies (verticals,
+  // condors), the 2σ window typically envelops every kink so the realistic
+  // value equals the theoretical max — both correct.
+  //
+  // The realistic window is clamped to the chart range so we never quote a
+  // P&L the chart doesn't render. Falls back to chart-range when no IV is
+  // available (expectedMove2Sigma <= 0) — preserves prior behaviour.
+  let realisticLo: number;
+  let realisticHi: number;
+  if (expectedMove2Sigma > 0) {
+    realisticLo = Math.max(lo, spot - expectedMove2Sigma);
+    realisticHi = Math.min(hi, spot + expectedMove2Sigma);
+    if (realisticLo < 0) realisticLo = 0;
+    // Sanity: if window collapsed (e.g. tiny T), fall back to chart range
+    if (realisticHi <= realisticLo) { realisticLo = lo; realisticHi = hi; }
+  } else {
+    realisticLo = lo;
+    realisticHi = hi;
+  }
   let displayMaxProfit = -Infinity;
   let displayMaxLoss = +Infinity;
+  // (a) include both window endpoints (exact P&L at the 2σ edges)
+  // (b) include any leg-strike kink within the window (where extrema may sit)
+  // (c) include all sampled chart points that fall within the window
+  const realisticEval: number[] = [realisticLo, realisticHi];
+  for (const k of legStrikes) {
+    if (k >= realisticLo && k <= realisticHi) realisticEval.push(k);
+  }
+  for (const v of realisticEval) {
+    const pnl = sampleAt(v);
+    if (pnl > displayMaxProfit) displayMaxProfit = pnl;
+    if (pnl < displayMaxLoss)   displayMaxLoss   = pnl;
+  }
   for (const p of payoff) {
+    if (p.spot < realisticLo || p.spot > realisticHi) continue;
     if (p.pnl > displayMaxProfit) displayMaxProfit = p.pnl;
     if (p.pnl < displayMaxLoss)   displayMaxLoss   = p.pnl;
   }
@@ -858,8 +896,15 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     const legs = built.legs;
     const debit = +netDebit(legs).toFixed(2);
     const greeksAgg = netGreeks(legs);
+    // ±2σ expected move in price units — used to bound the realistic
+    // display extrema. Lognormal stdev × spot, doubled. Falls back to 0
+    // when no IV is available, in which case buildPayoff reverts to its
+    // chart-range behaviour (preserves prior output for IV-blind cases).
+    const stdLnATM = Number.isFinite(atmSigma) && atmSigma > 0 && T > 0
+      ? atmSigma * Math.sqrt(T) : 0;
+    const expectedMove2Sigma = spot > 0 ? spot * 2 * stdLnATM : 0;
     const { payoff, maxProfit, maxLoss, displayMaxProfit, displayMaxLoss, breakevens } =
-      buildPayoff(legs, spot, lotSize);
+      buildPayoff(legs, spot, lotSize, expectedMove2Sigma);
     const dist = distributionalMetrics(legs, lotSize, spot, T, atmSigma, RISK_FREE, q);
     const { edges: legEdges, netEdge: netEdgeRaw } = computeLegEdges(legs, spot, T, atmSigma, RISK_FREE, q);
     const netEdge = +(netEdgeRaw * lotSize).toFixed(2);
@@ -868,8 +913,10 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     const recommended = isRecommended(tpl, ivContext, analytics.bias);
     const rationale = recommended ? buildRationale(tpl, ivContext, analytics.bias) : undefined;
 
-    // Display R:R uses chart-range numbers — for a Long Put this turns the
-    // misleading "1:287" (theoretical) into a realistic "1:25" or so.
+    // Display R:R now uses **±2σ realistic** numbers. For a Long Put on
+    // NIFTY this turns the old chart-range "1:25" (and the absurd theoretical
+    // "1:287") into a tradeable "1:1.4" or so — matching what a trader
+    // actually sees if the move plays out as priced.
     const displayRrRatio = displayMaxLoss < 0 && displayMaxProfit > 0
       ? +Math.abs(displayMaxProfit / displayMaxLoss).toFixed(3)
       : null;
