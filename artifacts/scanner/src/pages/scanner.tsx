@@ -191,19 +191,38 @@ const SCREENS = [
 ];
 
 const ROW_HEIGHT = 48;
-// Column widths for the 19-column NSE table. Sum (excluding score) =
-// SCORE_OFFSET; SCORE itself is flex-1 with this value as its minWidth, so on
-// any container wider than the fixed-column total the SCORE column expands to
-// absorb the slack — nothing is left as empty space between the row's last
-// numeric value and the SIGNAL pill on the right edge. Both the header row
-// and every data row apply the same flex-1 + minWidth recipe to score so they
-// stay perfectly aligned at every viewport width.
-const COL_WIDTHS = {
-  symbol: 130, price: 78, change: 60, changePct: 66, open: 64, high: 64, low: 64,
-  prev: 64, vwap: 64, ema20: 60, ema50: 60, ema100: 60, ema200: 60, rsi: 52,
-  yrHi: 68, yrLo: 68, vol: 56, score: 100, signal: 84,
-} as const;
-const TOTAL_WIDTH = Object.values(COL_WIDTHS).reduce((a, b) => a + b, 0);
+// CSS Grid template for the 19-column NSE table. Every column is `minmax(min,
+// fr)` — `min` is the smallest readable width for that column's typical
+// content, `fr` is its share of the leftover space when the viewport is wider
+// than the sum of all minima. This auto-fits the table to any viewport
+// (1280 px laptop → 2560 px monitor) without leaving a dead band on the
+// right edge or forcing horizontal scroll on standard widths. Header and
+// rows BOTH use this exact template via `display: grid`, so column
+// boundaries align perfectly — no per-cell width styles required.
+const GRID_TEMPLATE = [
+  "minmax(110px, 130px)",   // SYMBOL    — stock + sector, sticky left
+  "minmax(74px, 1.2fr)",    // CMP       — bold price, slightly wider
+  "minmax(60px, 1fr)",      // CHG
+  "minmax(64px, 1fr)",      // %CHG
+  "minmax(60px, 1fr)",      // OPEN
+  "minmax(60px, 1fr)",      // HIGH
+  "minmax(60px, 1fr)",      // LOW
+  "minmax(60px, 1fr)",      // PREV
+  "minmax(60px, 1fr)",      // VWAP
+  "minmax(60px, 1fr)",      // EMA20
+  "minmax(60px, 1fr)",      // EMA50
+  "minmax(60px, 1fr)",      // EMA100
+  "minmax(60px, 1fr)",      // EMA200
+  "minmax(46px, 0.8fr)",    // RSI       — 2-digit decimal, narrowest
+  "minmax(64px, 1.1fr)",    // 52W H
+  "minmax(64px, 1.1fr)",    // 52W L
+  "minmax(52px, 0.9fr)",    // VOL×
+  "minmax(112px, 1.6fr)",   // SCORE     — visualisation bar (ScoreBar inner min-w-[90px] + cell px-2 ≈ 106 px), rounded up
+  "minmax(100px, 110px)",   // SIGNAL    — pill, capped; min sized to clear "STRONG SELL" label at the badge's text-[10px] font-mono
+].join(" ");
+// Sum of all `min` values — the breakpoint below which the table starts
+// horizontally scrolling instead of squashing.
+const TOTAL_WIDTH = 110 + 74 + 60 + 64 + 60*5 + 60*4 + 46 + 64*2 + 52 + 112 + 100;
 
 const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
 const fmt = (n: number | undefined | null, dp = 2) => n == null ? "—" : n.toFixed(dp);
@@ -222,34 +241,34 @@ const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) 
   return (
     <div
       role="row"
-      className="absolute left-0 right-0 flex items-center border-b border-border/50 hover:bg-accent/40 group"
-      style={{ top, height: ROW_HEIGHT, minWidth: TOTAL_WIDTH }}
+      className="absolute left-0 right-0 grid items-center border-b border-border/50 hover:bg-accent/40 group"
+      style={{ top, height: ROW_HEIGHT, minWidth: TOTAL_WIDTH, gridTemplateColumns: GRID_TEMPLATE }}
       title={buildReasonsTitle(stock)}
     >
-      <div className="sticky left-0 bg-card group-hover:bg-accent/40 z-10 px-3 py-1.5 flex flex-col justify-center" style={{ width: COL_WIDTHS.symbol }}>
-        <Link href={`/stock/${stock.symbol}`} className="font-mono font-bold hover:underline text-sm leading-tight">
+      <div className="sticky left-0 bg-card group-hover:bg-accent/40 z-10 px-3 py-1.5 flex flex-col justify-center min-w-0">
+        <Link href={`/stock/${stock.symbol}`} className="font-mono font-bold hover:underline text-sm leading-tight truncate">
           {stock.symbol}
         </Link>
         <div className="text-[10px] text-muted-foreground truncate">{stock.sector}</div>
       </div>
-      <div className={`text-right font-mono text-sm font-bold tabular-nums px-2 ${cmpVsVwap}`} style={{ width: COL_WIDTHS.price }}>{fmtIN(q.price)}</div>
-      <div className={`text-right font-mono text-xs tabular-nums px-2 ${chgClass}`} style={{ width: COL_WIDTHS.change }}>{q.change >= 0 ? "+" : ""}{fmt(q.change)}</div>
-      <div className={`text-right font-mono text-xs font-medium tabular-nums px-2 ${chgClass}`} style={{ width: COL_WIDTHS.changePct }}>{formatPct(q.changePercent)}</div>
-      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.open }}>{fmt(q.open)}</div>
-      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.high }}>{fmt(q.high)}</div>
-      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.low }}>{fmt(q.low)}</div>
-      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.prev }}>{fmt(q.previousClose)}</div>
-      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.vwap }}>{fmt(ind?.vwap)}</div>
-      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.ema20 }}>{fmt(ind?.ema20)}</div>
-      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.ema50 }}>{fmt(ind?.ema50)}</div>
-      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.ema100 }}>{fmt(ind?.ema100)}</div>
-      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.ema200 }}>{fmt(ind?.ema200)}</div>
-      <div className={`text-right font-mono text-xs tabular-nums px-2 ${ind?.rsi14 != null && ind.rsi14 > 70 ? 'text-signal-strong-sell' : ind?.rsi14 != null && ind.rsi14 < 30 ? 'text-signal-strong-buy' : ''}`} style={{ width: COL_WIDTHS.rsi }}>{fmt(ind?.rsi14, 1)}</div>
-      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrHi }}>{fmt(q.fiftyTwoWeekHigh)}</div>
-      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrLo }}>{fmt(q.fiftyTwoWeekLow)}</div>
-      <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.vol }}>{ind?.volumeRatio != null ? `${ind.volumeRatio.toFixed(1)}×` : '—'}</div>
-      <div className="px-2 flex-1" style={{ minWidth: COL_WIDTHS.score }}><ScoreBar score={stock.recommendation.score} /></div>
-      <div className="px-2 flex items-center justify-end shrink-0" style={{ width: COL_WIDTHS.signal }}><SignalBadge signal={stock.recommendation.signal} /></div>
+      <div className={`text-right font-mono text-sm font-bold tabular-nums px-2 ${cmpVsVwap}`}>{fmtIN(q.price)}</div>
+      <div className={`text-right font-mono text-xs tabular-nums px-2 ${chgClass}`}>{q.change >= 0 ? "+" : ""}{fmt(q.change)}</div>
+      <div className={`text-right font-mono text-xs font-medium tabular-nums px-2 ${chgClass}`}>{formatPct(q.changePercent)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(q.open)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(q.high)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(q.low)}</div>
+      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2">{fmt(q.previousClose)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(ind?.vwap)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(ind?.ema20)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(ind?.ema50)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(ind?.ema100)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(ind?.ema200)}</div>
+      <div className={`text-right font-mono text-xs tabular-nums px-2 ${ind?.rsi14 != null && ind.rsi14 > 70 ? 'text-signal-strong-sell' : ind?.rsi14 != null && ind.rsi14 < 30 ? 'text-signal-strong-buy' : ''}`}>{fmt(ind?.rsi14, 1)}</div>
+      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2">{fmt(q.fiftyTwoWeekHigh)}</div>
+      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2">{fmt(q.fiftyTwoWeekLow)}</div>
+      <div className="text-right font-mono text-xs tabular-nums px-2">{ind?.volumeRatio != null ? `${ind.volumeRatio.toFixed(1)}×` : '—'}</div>
+      <div className="px-2 min-w-0"><ScoreBar score={stock.recommendation.score} /></div>
+      <div className="px-2 flex items-center justify-end"><SignalBadge signal={stock.recommendation.signal} /></div>
     </div>
   );
 });
@@ -501,29 +520,30 @@ export default function ScannerPage() {
               virtualizer. */}
           <div ref={scrollRef} className="overflow-auto max-h-[calc(100vh-260px)] relative" role="grid" aria-label="NSE stocks scanner">
             <div className="w-full" style={{ minWidth: TOTAL_WIDTH }}>
-              {/* Header row — uses minWidth instead of fixed width so the
-                  table fills wide screens (no wasted space on the right)
-                  while still scrolling horizontally on narrow ones. */}
-              <div role="row" className="sticky top-0 z-30 flex items-center bg-card border-b border-border h-10" style={{ minWidth: TOTAL_WIDTH }}>
-                <div className="sticky left-0 bg-card z-10 px-3" style={{ width: COL_WIDTHS.symbol }}><SortHead k="symbol" label="SYMBOL" sort={sort} setSort={setSort} align="left" /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.price }}><SortHead k="price" label="CMP" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.change }}><SortHead k="change" label="CHG" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.changePct }}><SortHead k="changePct" label="%CHG" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.open }}><SortHead k="open" label="OPEN" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.high }}><SortHead k="high" label="HIGH" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.low }}><SortHead k="low" label="LOW" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.prev }}><SortHead k="prev" label="PREV" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.vwap }}><SortHead k="vwap" label="VWAP" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.ema20 }}><SortHead k="ema20" label="EMA20" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.ema50 }}><SortHead k="ema50" label="EMA50" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.ema100 }}><SortHead k="ema100" label="EMA100" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.ema200 }}><SortHead k="ema200" label="EMA200" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.rsi }}><SortHead k="rsi" label="RSI" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.yrHi }}><SortHead k="yrHi" label="52W H" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.yrLo }}><SortHead k="yrLo" label="52W L" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2" style={{ width: COL_WIDTHS.vol }}><SortHead k="vol" label="VOL×" sort={sort} setSort={setSort} /></div>
-                <div className="px-2 flex-1" style={{ minWidth: COL_WIDTHS.score }}><SortHead k="score" label="SCORE" sort={sort} setSort={setSort} align="left" /></div>
-                <div className="text-right px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground" style={{ width: COL_WIDTHS.signal }}>SIGNAL</div>
+              {/* Header row — uses the same CSS-grid template as every data
+                  row, so columns stay aligned at every viewport width and
+                  the table auto-fits the screen with no dead band on the
+                  right. Below TOTAL_WIDTH the parent scrolls horizontally. */}
+              <div role="row" className="sticky top-0 z-30 grid items-center bg-card border-b border-border h-10" style={{ minWidth: TOTAL_WIDTH, gridTemplateColumns: GRID_TEMPLATE }}>
+                <div className="sticky left-0 bg-card z-10 px-3"><SortHead k="symbol" label="SYMBOL" sort={sort} setSort={setSort} align="left" /></div>
+                <div className="text-right px-2"><SortHead k="price" label="CMP" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="change" label="CHG" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="changePct" label="%CHG" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="open" label="OPEN" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="high" label="HIGH" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="low" label="LOW" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="prev" label="PREV" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="vwap" label="VWAP" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="ema20" label="EMA20" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="ema50" label="EMA50" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="ema100" label="EMA100" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="ema200" label="EMA200" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="rsi" label="RSI" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="yrHi" label="52W H" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="yrLo" label="52W L" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2"><SortHead k="vol" label="VOL×" sort={sort} setSort={setSort} /></div>
+                <div className="px-2"><SortHead k="score" label="SCORE" sort={sort} setSort={setSort} align="left" /></div>
+                <div className="text-right px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">SIGNAL</div>
               </div>
 
               {stocksLoading ? (
