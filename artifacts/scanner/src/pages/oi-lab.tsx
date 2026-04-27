@@ -1049,6 +1049,17 @@ function InsightsTab() {
       ceOiChg: num(s.ceOiChg),
       peOiChg: num(s.peOiChg),
       pcr: num(s.pcr),
+      // Per-strike PCR is unbounded above — at deep ITM-call strikes (well
+      // below spot) call OI is tiny and the ratio explodes to 30..100+. The
+      // chart's YAxis auto-scales to that extreme, which makes the genuinely
+      // meaningful PCR values for high strikes (~0.1..0.5, where call OI
+      // dominates) appear as essentially zero-height bars — i.e. visually
+      // missing from the right half of the chart. Cap the rendered value at
+      // 3 (well above the 1.3/0.7 bullish/bearish thresholds we shade
+      // against) so every strike's bar is visible at a useful scale; the
+      // tooltip still surfaces the true uncapped `pcr` so extreme readings
+      // are never hidden from the trader.
+      pcrCapped: Math.min(num(s.pcr), 3),
       pain: num(s.painValue),
       isAtm: s.isAtm,
     }));
@@ -1534,7 +1545,10 @@ function InsightsTab() {
                       </Bar>
                     )}
                     {chartView === "pcr" && (
-                      <Bar dataKey="pcr" name="PCR">
+                      // dataKey is `pcrCapped` (capped at 3) so high-strike
+                      // bars are visible at a meaningful scale; cell color
+                      // and tooltip continue to read the true `pcr`.
+                      <Bar dataKey="pcrCapped" name="PCR">
                         {oiBars.map((d, i) => (
                           <Cell key={i} fill={d.pcr >= 1.3 ? "#16a34a" : d.pcr <= 0.7 ? "#dc2626" : "#a3a3a3"} />
                         ))}
