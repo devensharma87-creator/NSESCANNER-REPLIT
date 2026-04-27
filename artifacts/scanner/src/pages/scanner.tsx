@@ -176,9 +176,9 @@ const SCREENS = [
 const ROW_HEIGHT = 48;
 // Total table width = sum of column widths below; sticky symbol col + 18 numeric cols
 const COL_WIDTHS = {
-  symbol: 160, price: 90, change: 70, changePct: 78, open: 80, high: 80, low: 80,
-  prev: 80, vwap: 80, ema20: 80, ema50: 80, ema100: 80, ema200: 80, rsi: 70,
-  yrHi: 90, yrLo: 90, vol: 70, score: 130, signal: 96,
+  symbol: 150, price: 84, change: 64, changePct: 72, open: 72, high: 72, low: 72,
+  prev: 72, vwap: 72, ema20: 70, ema50: 70, ema100: 70, ema200: 70, rsi: 56,
+  yrHi: 78, yrLo: 78, vol: 60, score: 120, signal: 96,
 } as const;
 const TOTAL_WIDTH = Object.values(COL_WIDTHS).reduce((a, b) => a + b, 0);
 
@@ -199,8 +199,8 @@ const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) 
   return (
     <div
       role="row"
-      className="absolute left-0 right-0 flex items-center border-b border-border/50 hover:bg-accent/40 group"
-      style={{ top, height: ROW_HEIGHT, minWidth: TOTAL_WIDTH }}
+      className="absolute left-0 flex items-center border-b border-border/50 hover:bg-accent/40 group"
+      style={{ top, height: ROW_HEIGHT, width: TOTAL_WIDTH }}
       title={buildReasonsTitle(stock)}
     >
       <div className="sticky left-0 bg-card group-hover:bg-accent/40 z-10 px-3 py-1.5 flex flex-col justify-center" style={{ width: COL_WIDTHS.symbol }}>
@@ -225,7 +225,7 @@ const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) 
       <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrHi }}>{fmt(q.fiftyTwoWeekHigh)}</div>
       <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrLo }}>{fmt(q.fiftyTwoWeekLow)}</div>
       <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.vol }}>{ind?.volumeRatio != null ? `${ind.volumeRatio.toFixed(1)}×` : '—'}</div>
-      <div className="px-2 flex-1" style={{ minWidth: COL_WIDTHS.score }}><ScoreBar score={stock.recommendation.score} /></div>
+      <div className="px-2" style={{ width: COL_WIDTHS.score }}><ScoreBar score={stock.recommendation.score} /></div>
       <div className="px-2 flex items-center justify-end" style={{ width: COL_WIDTHS.signal }}><SignalBadge signal={stock.recommendation.signal} /></div>
     </div>
   );
@@ -456,9 +456,9 @@ export default function ScannerPage() {
               even at 2,500 rows. Header is a plain flex row outside the
               virtualizer. */}
           <div ref={scrollRef} className="overflow-auto max-h-[calc(100vh-260px)] relative" role="grid" aria-label="NSE stocks scanner">
-            <div style={{ minWidth: TOTAL_WIDTH }}>
+            <div style={{ width: TOTAL_WIDTH }}>
               {/* Header row */}
-              <div role="row" className="sticky top-0 z-30 flex items-center bg-card border-b border-border h-10" style={{ minWidth: TOTAL_WIDTH }}>
+              <div role="row" className="sticky top-0 z-30 flex items-center bg-card border-b border-border h-10" style={{ width: TOTAL_WIDTH }}>
                 <div className="sticky left-0 bg-card z-10 px-3" style={{ width: COL_WIDTHS.symbol }}><SortHead k="symbol" label="SYMBOL" sort={sort} setSort={setSort} align="left" /></div>
                 <div className="text-right px-2" style={{ width: COL_WIDTHS.price }}><SortHead k="price" label="CMP" sort={sort} setSort={setSort} /></div>
                 <div className="text-right px-2" style={{ width: COL_WIDTHS.change }}><SortHead k="change" label="CHG" sort={sort} setSort={setSort} /></div>
