@@ -1,11 +1,25 @@
 import { Router, type IRouter } from "express";
 import { fetchOptionChain } from "../lib/optionChain";
-import { computeAnalytics } from "../lib/optionAnalytics";
-import { buildStrategies } from "../lib/optionStrategies";
+import { computeAnalytics, type OptionAnalytics } from "../lib/optionAnalytics";
+import { buildStrategies, type StrategyBundle } from "../lib/optionStrategies";
 import { getActiveSession } from "../lib/kiteAuth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+// ─── Bundle-level cache ─────────────────────────────────────────────────────
+// Building 13 strategies × Black-Scholes × 201 payoff samples × IV solver
+// takes 80-200ms per call. The frontend polls every 30s, but the underlying
+// option chain (`fetchOptionChain`) is itself cached for 30s — so back-to-back
+// requests for the same underlying within the chain-cache window get
+// IDENTICAL chain data and produce IDENTICAL bundles.
+//
+// We dedupe with a 5s TTL keyed on the chain timestamp. This is short enough
+// that any chain refresh propagates immediately, and long enough that a tab
+// switch + immediate refetch hits the cache cleanly.
+interface CachedBundle { ts: number; chainTs: number; payload: StrategyBundle & { analytics: OptionAnalytics } }
+const bundleCache = new Map<string, CachedBundle>();
+const BUNDLE_TTL_MS = 5_000;
 
 router.get("/options/strategies/:underlying", async (req, res): Promise<void> => {
   const underlying = String(req.params.underlying ?? "").trim();
@@ -27,9 +41,27 @@ router.get("/options/strategies/:underlying", async (req, res): Promise<void> =>
       });
       return;
     }
+
+    const cacheKey = `${underlying.toUpperCase()}:${expiry ?? "_"}`;
+    // `generatedAt` is set by `fetchOptionChain` whenever it produces a fresh
+    // chain payload (either NSE or Kite source). Two calls within the chain's
+    // 30s cache window return the SAME `generatedAt`, so this is the right
+    // signal to dedupe Black-Scholes work on.
+    const chainTs = chain.generatedAt ? Date.parse(chain.generatedAt) : 0;
+    const cached = bundleCache.get(cacheKey);
+    // Cache hit only when the chain itself is unchanged AND the bundle is
+    // young enough — protects against quietly serving stale strategy math
+    // even if `chainTs` happens to lag.
+    if (cached && cached.chainTs === chainTs && Date.now() - cached.ts < BUNDLE_TTL_MS) {
+      res.json(cached.payload);
+      return;
+    }
+
     const analytics = computeAnalytics(chain);
     const bundle = buildStrategies(chain, analytics);
-    res.json({ ...bundle, analytics });
+    const payload = { ...bundle, analytics };
+    bundleCache.set(cacheKey, { ts: Date.now(), chainTs, payload });
+    res.json(payload);
   } catch (err) {
     logger.error({ err: (err as Error).message, underlying }, "Strategies handler crashed");
     res.status(500).json({ error: "Internal error building strategies" });

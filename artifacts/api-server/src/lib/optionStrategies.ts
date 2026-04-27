@@ -54,14 +54,26 @@ export interface StrategySnapshot {
   legs: StrategyLeg[];
   netDebit: number;          // positive = pay (debit), negative = receive (credit)
   netGreeks: { delta: number; gamma: number; vega: number; theta: number };
-  maxProfit: number | null;  // null = unbounded
-  maxLoss: number | null;    // null = unbounded; signed (negative if loss)
+  maxProfit: number | null;  // theoretical, null = unbounded
+  maxLoss: number | null;    // theoretical, null = unbounded; signed (negative if loss)
   breakevens: number[];
   payoff: PayoffPoint[];
   pop: number | null;        // approximate probability of profit (decimal)
-  rrRatio: number | null;    // |maxProfit / maxLoss|, when both bounded
+  rrRatio: number | null;    // |maxProfit / maxLoss| (theoretical), when both bounded
+  // Display-mode (chart-range) extrema. These are what the user actually
+  // sees on the curve and what the UI should headline. For Long Put on
+  // NIFTY this is ~₹150K, not the theoretical ₹15L+ at S=0.
+  displayMaxProfit: number;
+  displayMaxLoss: number;
+  displayRrRatio: number | null;
   lotSize: number;
-  perLot: { maxProfit: number | null; maxLoss: number | null; netDebit: number };
+  perLot: {
+    maxProfit: number | null;        // theoretical, ₹/lot
+    maxLoss: number | null;          // theoretical, ₹/lot
+    netDebit: number;                // ₹/lot
+    displayMaxProfit: number;        // chart-range, ₹/lot
+    displayMaxLoss: number;          // chart-range, ₹/lot
+  };
   suitability: { ivContext: "LOW" | "HIGH" | "ANY"; biasFit: ("BULLISH" | "BEARISH" | "NEUTRAL")[] };
   recommended: boolean;
   rationale?: string;
@@ -168,10 +180,16 @@ function legPayoff(leg: StrategyLeg, spotAtExpiry: number): number {
 
 function buildPayoff(legs: StrategyLeg[], spot: number, lotSize: number): {
   payoff: PayoffPoint[];
-  maxProfit: number | null;
+  maxProfit: number | null;        // theoretical, evaluated at S=0 and S→∞
   maxLoss: number | null;
+  // Chart-range extrema — what the user actually sees on the payoff curve.
+  // For Long Put on NIFTY this is ~₹150K (chart only goes down to spot*0.9),
+  // versus the theoretical ₹15L+ at S=0 which is mathematically true but
+  // economically meaningless. UI prefers the display values.
+  displayMaxProfit: number;
+  displayMaxLoss: number;
   breakevens: number[];
-} {
+}  {
   const sampleAt = (s: number) =>
     legs.reduce((acc, l) => acc + legPayoff(l, s), 0) * lotSize;
 
@@ -264,6 +282,24 @@ function buildPayoff(legs: StrategyLeg[], spot: number, lotSize: number): {
     maxLoss   = +Math.min(minBp, vFar).toFixed(2);
   }
 
+  // ── Display extrema: the max/min P&L the user can actually SEE on the
+  // payoff curve. For a Long Put the theoretical max is at S=0 (uneconomic),
+  // but the chart only renders down to ~spot*0.9 — quoting "Max Profit
+  // ₹15L" next to a chart that tops out at ₹150K makes the card look
+  // broken. We separate the two: maxProfit/maxLoss above stay analytically
+  // correct (used for slope-at-infinity reasoning, etc.); the display
+  // values below are what the UI quotes by default.
+  let displayMaxProfit = -Infinity;
+  let displayMaxLoss = +Infinity;
+  for (const p of payoff) {
+    if (p.pnl > displayMaxProfit) displayMaxProfit = p.pnl;
+    if (p.pnl < displayMaxLoss)   displayMaxLoss   = p.pnl;
+  }
+  if (!Number.isFinite(displayMaxProfit)) displayMaxProfit = 0;
+  if (!Number.isFinite(displayMaxLoss))   displayMaxLoss   = 0;
+  displayMaxProfit = +displayMaxProfit.toFixed(2);
+  displayMaxLoss   = +displayMaxLoss.toFixed(2);
+
   // ── Breakevens: zero crossings on the analytical breakpoint ladder ────
   // Walk the kinks in order (0, strikes, far) and interpolate linearly between
   // adjacent breakpoints. This is exact for piecewise-linear payoffs.
@@ -285,7 +321,7 @@ function buildPayoff(legs: StrategyLeg[], spot: number, lotSize: number): {
   const uniq: number[] = [];
   for (const b of breakevens) if (!uniq.some(u => Math.abs(u - b) < 0.01)) uniq.push(b);
 
-  return { payoff, maxProfit, maxLoss, breakevens: uniq };
+  return { payoff, maxProfit, maxLoss, displayMaxProfit, displayMaxLoss, breakevens: uniq };
 }
 
 function netDebit(legs: StrategyLeg[]): number {
@@ -649,10 +685,17 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     const legs = built.legs;
     const debit = +netDebit(legs).toFixed(2);
     const greeksAgg = netGreeks(legs);
-    const { payoff, maxProfit, maxLoss, breakevens } = buildPayoff(legs, spot, lotSize);
+    const { payoff, maxProfit, maxLoss, displayMaxProfit, displayMaxLoss, breakevens } =
+      buildPayoff(legs, spot, lotSize);
     const pop = approxPop(payoff, spot, T, atmSigma);
     const recommended = isRecommended(tpl, ivContext, analytics.bias);
     const rationale = recommended ? buildRationale(tpl, ivContext, analytics.bias) : undefined;
+
+    // Display R:R uses chart-range numbers — for a Long Put this turns the
+    // misleading "1:287" (theoretical) into a realistic "1:25" or so.
+    const displayRrRatio = displayMaxLoss < 0 && displayMaxProfit > 0
+      ? +Math.abs(displayMaxProfit / displayMaxLoss).toFixed(3)
+      : null;
 
     out.push({
       kind: tpl.kind,
@@ -670,11 +713,16 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
       pop,
       rrRatio: maxProfit != null && maxLoss != null && maxLoss !== 0
         ? +Math.abs(maxProfit / maxLoss).toFixed(3) : null,
+      displayMaxProfit,
+      displayMaxLoss,
+      displayRrRatio,
       lotSize,
       perLot: {
         maxProfit: maxProfit != null ? +maxProfit.toFixed(2) : null,
         maxLoss:   maxLoss   != null ? +maxLoss.toFixed(2)   : null,
         netDebit:  +(debit * lotSize).toFixed(2),
+        displayMaxProfit,
+        displayMaxLoss,
       },
       suitability: tpl.suitability,
       recommended,

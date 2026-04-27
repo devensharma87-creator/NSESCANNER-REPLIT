@@ -45,14 +45,26 @@ interface StrategySnapshot {
   legs: StrategyLeg[];
   netDebit: number;
   netGreeks: { delta: number; gamma: number; vega: number; theta: number };
-  maxProfit: number | null;
+  maxProfit: number | null;       // theoretical (S=0 / S→∞)
   maxLoss: number | null;
   breakevens: number[];
   payoff: { spot: number; pnl: number }[];
   pop: number | null;
-  rrRatio: number | null;
+  rrRatio: number | null;          // theoretical
+  // Chart-range extrema — what the user actually sees on the curve.
+  // Card headlines use these so a Long Put no longer claims "Max Profit ₹15L"
+  // (the math at S=0) when the chart only goes down to spot*0.9.
+  displayMaxProfit: number;
+  displayMaxLoss: number;
+  displayRrRatio: number | null;
   lotSize: number;
-  perLot: { maxProfit: number | null; maxLoss: number | null; netDebit: number };
+  perLot: {
+    maxProfit: number | null;
+    maxLoss: number | null;
+    netDebit: number;
+    displayMaxProfit: number;
+    displayMaxLoss: number;
+  };
   suitability: { ivContext: "LOW" | "HIGH" | "ANY"; biasFit: ("BULLISH" | "BEARISH" | "NEUTRAL")[] };
   recommended: boolean;
   rationale?: string;
@@ -269,7 +281,7 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
             <div className="flex items-baseline gap-2 flex-wrap">
               <h2 className="text-xl font-bold font-mono">{bundle.underlying}</h2>
               <Badge variant="outline" className="font-mono text-[10px]">EXP {bundle.expiry}</Badge>
-              <Badge variant="outline" className="font-mono text-[10px]">{bundle.daysToExpiry}D to expiry</Badge>
+              <Badge variant="outline" className="font-mono text-[10px]">{bundle.daysToExpiry} days to expiry</Badge>
             </div>
             {bundle.analytics?.interpretation && (
               <p className="text-[11px] text-muted-foreground font-mono max-w-3xl">{bundle.analytics.interpretation}</p>
@@ -279,7 +291,12 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
             <div className="text-2xl font-mono font-bold tabular-nums">{fmt(bundle.spot)}</div>
             <div className="flex items-center justify-end gap-3 text-[11px] font-mono uppercase">
               <span><span className="text-muted-foreground">Bias</span> <span className={`font-bold ${biasColor}`}>{bundle.bias}</span></span>
-              <span><span className="text-muted-foreground">IV</span> <span className={`font-bold ${ivColor}`}>{bundle.ivContext}</span></span>
+              <span>
+                <span className="text-muted-foreground">IV RANK</span>{" "}
+                <span className={`font-bold ${ivColor}`}>
+                  {bundle.ivContext === "UNKNOWN" ? "n/a" : bundle.ivContext}
+                </span>
+              </span>
               {bundle.analytics?.atmIv != null && (
                 <span><span className="text-muted-foreground">ATM IV</span> <span className="font-bold text-foreground">{bundle.analytics.atmIv.toFixed(1)}%</span></span>
               )}
@@ -295,8 +312,36 @@ function StrategyCard({
   s, spot, expanded, onToggle, highlight,
 }: { s: StrategySnapshot; spot: number; expanded: boolean; onToggle: () => void; highlight?: boolean }) {
   const isCredit = s.netDebit < 0;
-  const credit = Math.abs(s.netDebit * s.lotSize);
-  const debit  = s.netDebit * s.lotSize;
+  // Per-lot magnitude — debits and credits are BOTH positive numbers when
+  // shown in the card. Old behaviour rendered debits as "-₹6,866" with a
+  // minus sign, which made it look like a loss instead of a cost. The
+  // label ("Net Cost" / "Net Credit") + colour already encode the
+  // direction of the cashflow.
+  const cashflowMagnitude = Math.abs(s.netDebit * s.lotSize);
+
+  // Headline Max Profit/Loss = chart-range. The user can only see what's on
+  // the curve, so quoting theoretical ₹15L on a Long Put (when chart tops
+  // out at ₹150K) is misleading. Show both when they meaningfully differ.
+  const headlineMaxProfit: number | null =
+    s.perLot.maxProfit == null ? null : s.perLot.displayMaxProfit;
+  const headlineMaxLoss: number | null =
+    s.perLot.maxLoss == null ? null : s.perLot.displayMaxLoss;
+  const showTheoreticalProfit =
+    s.perLot.maxProfit != null
+    && Math.abs(s.perLot.maxProfit - s.perLot.displayMaxProfit) > Math.max(1, Math.abs(s.perLot.displayMaxProfit) * 0.05);
+  const showTheoreticalLoss =
+    s.perLot.maxLoss != null
+    && Math.abs(s.perLot.maxLoss - s.perLot.displayMaxLoss) > Math.max(1, Math.abs(s.perLot.displayMaxLoss) * 0.05);
+  const headlineRr = s.displayRrRatio ?? s.rrRatio;
+  // Mirror the Max P/L disclosure: when chart-range R:R differs materially
+  // from theoretical (Covered Call is the worst offender — its theoretical
+  // max loss is at S=0 so theoretical R:R is tiny while chart-range R:R
+  // looks healthy), surface the theoretical figure so the user can spot
+  // the gap. Threshold matches the >5% rule used for the P/L sublines.
+  const showTheoreticalRr =
+    s.displayRrRatio != null
+    && s.rrRatio != null
+    && Math.abs(s.displayRrRatio - s.rrRatio) > Math.max(0.05, Math.abs(s.rrRatio) * 0.05);
 
   return (
     <Card className={`border-border ${highlight ? "ring-1 ring-amber-500/30" : ""}`}>
@@ -324,21 +369,28 @@ function StrategyCard({
         {/* Key stats grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border rounded overflow-hidden border border-border">
           <Stat
-            label={isCredit ? "Net Credit" : "Net Debit"}
-            value={fmtRupees(isCredit ? credit : -debit)}
+            label={isCredit ? "Net Credit" : "Net Cost"}
+            value={`₹${fmt(cashflowMagnitude, 0)}`}
+            sub="per lot"
             tone={isCredit ? "buy" : "sell"}
           />
           <Stat
             label="Max Profit"
-            value={s.perLot.maxProfit == null ? "Unbounded" : fmtRupees(s.perLot.maxProfit)}
-            tone={s.perLot.maxProfit == null || s.perLot.maxProfit > 0 ? "buy" : undefined}
+            value={headlineMaxProfit == null ? "Unbounded" : fmtRupees(headlineMaxProfit)}
+            sub={showTheoreticalProfit && s.perLot.maxProfit != null
+              ? `theoretical ${fmtRupees(s.perLot.maxProfit)}`
+              : "in chart range"}
+            tone={headlineMaxProfit == null || headlineMaxProfit > 0 ? "buy" : undefined}
           />
           <Stat
             label="Max Loss"
-            value={s.perLot.maxLoss == null ? "Unbounded" : fmtRupees(s.perLot.maxLoss)}
+            value={headlineMaxLoss == null ? "Unbounded" : fmtRupees(headlineMaxLoss)}
+            sub={showTheoreticalLoss && s.perLot.maxLoss != null
+              ? `theoretical ${fmtRupees(s.perLot.maxLoss)}`
+              : "in chart range"}
             tone="sell"
           />
-          <Stat label="POP" value={fmtPctRaw(s.pop)} />
+          <Stat label="POP" value={fmtPctRaw(s.pop)} sub="lognormal model" />
         </div>
 
         {/* Payoff chart */}
@@ -347,15 +399,22 @@ function StrategyCard({
         {/* Breakevens row */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono">
           <span><span className="text-muted-foreground uppercase">Breakeven{s.breakevens.length === 1 ? "" : "s"}:</span> {s.breakevens.length ? s.breakevens.map(b => fmt(b)).join(" / ") : "—"}</span>
-          <span><span className="text-muted-foreground uppercase">R:R</span> {s.rrRatio == null ? "—" : `1 : ${s.rrRatio.toFixed(2)}`}</span>
+          <span>
+            <span className="text-muted-foreground uppercase">R:R</span>{" "}
+            {headlineRr == null ? "—" : `1 : ${headlineRr.toFixed(2)}`}
+            {showTheoreticalRr && s.rrRatio != null && (
+              <span className="text-muted-foreground/70"> (theoretical 1 : {s.rrRatio.toFixed(2)})</span>
+            )}
+          </span>
           <span><span className="text-muted-foreground uppercase">Lot</span> {s.lotSize}</span>
         </div>
 
-        {/* Net Greeks */}
+        {/* Net Greeks — gamma scaled ×1000 so "0.00146" renders as a clean
+            "+1.46" instead of leading-zero confusion in mono fonts. */}
         <div className="grid grid-cols-4 gap-px bg-border rounded overflow-hidden border border-border">
           <Stat label="Δ Delta" value={fmtSigned(s.netGreeks.delta)} small />
-          <Stat label="Γ Gamma" value={s.netGreeks.gamma.toFixed(5)} small />
-          <Stat label="Vega"   value={fmtSigned(s.netGreeks.vega)} small />
+          <Stat label="Γ × 10³" value={fmtSigned(s.netGreeks.gamma * 1000)} small />
+          <Stat label="ν Vega"   value={fmtSigned(s.netGreeks.vega)} small />
           <Stat label="Θ Theta" value={fmtSigned(s.netGreeks.theta)} tone={s.netGreeks.theta > 0 ? "buy" : "sell"} small />
         </div>
 
@@ -453,12 +512,13 @@ function PayoffChart({ s, spot }: { s: StrategySnapshot; spot: number }) {
   );
 }
 
-function Stat({ label, value, tone, small }: { label: string; value: React.ReactNode; tone?: "buy" | "sell"; small?: boolean }) {
+function Stat({ label, value, tone, small, sub }: { label: string; value: React.ReactNode; tone?: "buy" | "sell"; small?: boolean; sub?: string }) {
   const cls = tone === "buy" ? "text-signal-strong-buy" : tone === "sell" ? "text-signal-strong-sell" : "text-foreground";
   return (
     <div className="bg-card p-2">
       <div className={`${small ? "text-[9px]" : "text-[10px]"} font-mono uppercase tracking-wider text-muted-foreground`}>{label}</div>
       <div className={`font-mono ${small ? "text-[12px]" : "text-sm"} font-bold tabular-nums mt-0.5 ${cls}`}>{value}</div>
+      {sub && <div className="text-[9px] font-mono text-muted-foreground/70 mt-0.5 truncate" title={sub}>{sub}</div>}
     </div>
   );
 }
