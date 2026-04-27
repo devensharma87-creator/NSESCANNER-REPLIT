@@ -174,13 +174,13 @@ const SCREENS = [
 ];
 
 const ROW_HEIGHT = 48;
-// Tighter column widths so the full 19-column table fits a 1280px viewport
-// without horizontal scrolling. The numeric columns are sized to comfortably
-// hold values like "1,624.20" / "+14.40" / "+0.89%" / "61.6" in our 12px
-// tabular font + px-2 (8px each side) padding. Sum below = ~1252px, which
-// leaves a small margin inside `px-4` (32px total horizontal padding) on a
-// 1280px window. On wider screens the container expands to 100% and the
-// SCORE column (flex-1) absorbs the extra space so nothing looks empty.
+// Column widths for the 19-column NSE table. Sum (excluding score) =
+// SCORE_OFFSET; SCORE itself is flex-1 with this value as its minWidth, so on
+// any container wider than the fixed-column total the SCORE column expands to
+// absorb the slack — nothing is left as empty space between the row's last
+// numeric value and the SIGNAL pill on the right edge. Both the header row
+// and every data row apply the same flex-1 + minWidth recipe to score so they
+// stay perfectly aligned at every viewport width.
 const COL_WIDTHS = {
   symbol: 130, price: 78, change: 60, changePct: 66, open: 64, high: 64, low: 64,
   prev: 64, vwap: 64, ema20: 60, ema50: 60, ema100: 60, ema200: 60, rsi: 52,
@@ -231,8 +231,8 @@ const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) 
       <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrHi }}>{fmt(q.fiftyTwoWeekHigh)}</div>
       <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2" style={{ width: COL_WIDTHS.yrLo }}>{fmt(q.fiftyTwoWeekLow)}</div>
       <div className="text-right font-mono text-xs tabular-nums px-2" style={{ width: COL_WIDTHS.vol }}>{ind?.volumeRatio != null ? `${ind.volumeRatio.toFixed(1)}×` : '—'}</div>
-      <div className="px-2" style={{ width: COL_WIDTHS.score }}><ScoreBar score={stock.recommendation.score} /></div>
-      <div className="px-2 flex items-center justify-end" style={{ width: COL_WIDTHS.signal }}><SignalBadge signal={stock.recommendation.signal} /></div>
+      <div className="px-2 flex-1" style={{ minWidth: COL_WIDTHS.score }}><ScoreBar score={stock.recommendation.score} /></div>
+      <div className="px-2 flex items-center justify-end shrink-0" style={{ width: COL_WIDTHS.signal }}><SignalBadge signal={stock.recommendation.signal} /></div>
     </div>
   );
 });
