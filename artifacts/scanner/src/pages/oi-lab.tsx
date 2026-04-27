@@ -1329,7 +1329,26 @@ function InsightsTab() {
                       allowDataOverflow={false}
                     />
                     <RTooltip
-                      contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                      // Explicit text colors are mandatory: the wrapper has a
+                      // near-black background and Recharts default item/label
+                      // text is dark, so the per-series rows ("Δ Call OI : N",
+                      // "Δ Put OI : N", "PCR : N", "Pain : N") were rendering
+                      // invisible on top of it — the tooltip box appeared but
+                      // looked empty (only the strike label showed because
+                      // `labelStyle` happened to inherit a light color from
+                      // the parent container). All four chartViews are fixed
+                      // by the same styling block below.
+                      contentStyle={{
+                        background: "#0a0a0a",
+                        border: "1px solid #27272a",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        padding: "6px 10px",
+                      }}
+                      labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
+                      itemStyle={{ color: "#e4e4e7", padding: 0, lineHeight: 1.6 }}
+                      cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                      labelFormatter={(label: string) => `Strike ${label}`}
                       formatter={(v: number, name: string) =>
                         chartView === "pcr" ? [v.toFixed(2), name] : [fmtNum(v), name]
                       }
@@ -1417,7 +1436,15 @@ function InsightsTab() {
                     {chartView === "pain" && (
                       <Bar dataKey="pain" name="Pain">
                         {oiBars.map((d, i) => (
-                          <Cell key={i} fill={d.strike === data.maxPain ? "#f97316" : "#525252"} />
+                          // Float-tolerant match — `data.maxPain` can drift by
+                          // a fraction of a strike-step due to upstream math,
+                          // so a strict `===` would silently fail to highlight
+                          // the actual max-pain bar even when the reference
+                          // line snaps correctly.
+                          <Cell
+                            key={i}
+                            fill={Math.abs(d.strike - data.maxPain) <= halfStep ? "#f97316" : "#525252"}
+                          />
                         ))}
                       </Bar>
                     )}
@@ -1451,7 +1478,9 @@ function InsightsTab() {
                       <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                       <YAxis hide />
                       <RTooltip
-                        contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                        contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: 4, fontSize: 11, padding: "6px 10px" }}
+                        labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
+                        itemStyle={{ color: "#e4e4e7", padding: 0, lineHeight: 1.6 }}
                         cursor={{ fill: "rgba(255,255,255,0.04)" }}
                         formatter={(v: number, name: string) => [fmtNum(v), name]}
                         labelFormatter={() => "Intraday change"}
@@ -1486,7 +1515,9 @@ function InsightsTab() {
                       <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                       <YAxis hide />
                       <RTooltip
-                        contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                        contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: 4, fontSize: 11, padding: "6px 10px" }}
+                        labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
+                        itemStyle={{ color: "#e4e4e7", padding: 0, lineHeight: 1.6 }}
                         cursor={{ fill: "rgba(255,255,255,0.04)" }}
                         formatter={(v: number, name: string) => [fmtNum(v), name]}
                         labelFormatter={() => "Outstanding OI"}
