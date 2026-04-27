@@ -903,8 +903,27 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     const stdLnATM = Number.isFinite(atmSigma) && atmSigma > 0 && T > 0
       ? atmSigma * Math.sqrt(T) : 0;
     const expectedMove2Sigma = spot > 0 ? spot * 2 * stdLnATM : 0;
-    const { payoff, maxProfit, maxLoss, displayMaxProfit, displayMaxLoss, breakevens } =
-      buildPayoff(legs, spot, lotSize, expectedMove2Sigma);
+    const buildResult = buildPayoff(legs, spot, lotSize, expectedMove2Sigma);
+    const { payoff, displayMaxProfit, displayMaxLoss, breakevens } = buildResult;
+    let { maxProfit, maxLoss } = buildResult;
+
+    // ── LONG_PUT-specific trader-convention override. Mathematically the
+    // Long Put payoff at S=0 is bounded at (strike − premium) × lot — a huge
+    // but finite number — because the underlying can't go negative, so the
+    // analytic slope-at-infinity classifier in buildPayoff (slopeAtInf=0,
+    // flat tail) correctly reports a bounded maxProfit. But every options
+    // textbook describes a long put the way the user did: "you pay premium,
+    // that's the worst case; the profit grows as the underlying moves your
+    // way." LONG_CALL is already null because its slope at S→∞ is positive;
+    // LONG_STRADDLE / LONG_STRANGLE are already null thanks to their call
+    // leg. Only LONG_PUT trips this presentation mismatch. Force null so the
+    // headline prints "Unbounded" symmetrically with Long Call. The realistic
+    // 2σ display value (`displayMaxProfit`) and `displayRrRatio` are left
+    // untouched and continue to drive the chart, R:R sub-line, EV, and
+    // capital math; rrRatio falls to null exactly the way Long Call's does.
+    if (tpl.kind === "LONG_PUT") {
+      maxProfit = null;
+    }
     const dist = distributionalMetrics(legs, lotSize, spot, T, atmSigma, RISK_FREE, q);
     const { edges: legEdges, netEdge: netEdgeRaw } = computeLegEdges(legs, spot, T, atmSigma, RISK_FREE, q);
     const netEdge = +(netEdgeRaw * lotSize).toFixed(2);
