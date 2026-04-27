@@ -31,7 +31,7 @@ function ConfidencePill({ confidence }: { confidence: number }) {
   return <span className={`px-2 py-0.5 rounded border text-[10px] font-mono font-bold ${tone}`}>{confidence}% conf</span>;
 }
 
-function SetupCard({ sig }: { sig: OptionSignal }) {
+function SetupCard({ sig, planNumber, totalPlans }: { sig: OptionSignal; planNumber: number; totalPlans: number }) {
   const isCall = sig.leg.type === "CALL";
   const tone = isCall ? "border-signal-strong-buy/30 bg-signal-strong-buy/[0.04]" : "border-signal-strong-sell/30 bg-signal-strong-sell/[0.04]";
   const accent = isCall ? "text-signal-strong-buy" : "text-signal-strong-sell";
@@ -50,17 +50,26 @@ function SetupCard({ sig }: { sig: OptionSignal }) {
 
   return (
     <div className={`rounded-md border ${tone} p-3 space-y-3`}>
-      {/* Header */}
+      {/* Header — setup is the primary identifier; strike is secondary because it's
+          shared across every plan for this index. */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-            {SETUP_ICON[sig.setupKey ?? ""] ?? <Crosshair className="w-3 h-3" />}
-            {sig.setupName ?? "Setup"}
+          <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider">
+            <span className="px-1.5 py-0.5 rounded bg-secondary/60 text-foreground border border-border/40">
+              Plan {planNumber} of {totalPlans}
+            </span>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              {SETUP_ICON[sig.setupKey ?? ""] ?? <Crosshair className="w-3 h-3" />}
+              {sig.setupName ?? "Setup"}
+            </span>
           </div>
-          <div className={`mt-1 font-bold font-mono text-base flex items-center gap-2 ${accent}`}>
+          <div className={`mt-1.5 font-bold font-mono text-base flex items-center gap-2 ${accent}`}>
             {isCall ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-            BUY {sig.leg.type} · {sig.index} {fmt(sig.leg.strike)}
-            {sig.leg.expiry && <span className="text-muted-foreground font-normal text-xs">({sig.leg.expiry})</span>}
+            <span>BUY {sig.leg.type} · {sig.index} {fmt(sig.leg.strike)}</span>
+          </div>
+          <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
+            {sig.leg.expiry ? <>expiry {sig.leg.expiry} · </> : null}
+            ATM strike (same across plans)
           </div>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
@@ -84,23 +93,35 @@ function SetupCard({ sig }: { sig: OptionSignal }) {
         </div>
       )}
 
-      {/* Levels grid */}
-      <div className="grid grid-cols-4 gap-2 text-xs font-mono">
-        <Cell label="Entry" value={fmt(sig.leg.entry)} icon={<Crosshair className="w-3 h-3" />} bold />
-        <Cell label="Stop" value={fmt(sig.leg.stopLoss)} icon={<ShieldAlert className="w-3 h-3 text-signal-strong-sell" />} />
-        <Cell label="Target 1" value={fmt(sig.leg.target1)} icon={<Target className="w-3 h-3 text-signal-strong-buy" />} />
-        <Cell label="Target 2" value={fmt(sig.leg.target2)} icon={<Target className="w-3 h-3 text-signal-strong-buy/60" />} />
+      {/* Levels grid — labelled "SPOT …" so it's unmistakable these are index levels,
+          not option premium. Each plan computes its own levels from a different formula
+          (swing-high vs VWAP offset vs VAH vs EMA21), which is why two plans on the same
+          strike show different numbers. */}
+      <div>
+        <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground mb-1">
+          Underlying ({sig.index}) levels — manage by spot, not by option price
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+          <Cell label="Spot Entry" value={fmt(sig.leg.entry)} icon={<Crosshair className="w-3 h-3" />} bold />
+          <Cell label="Spot Stop" value={fmt(sig.leg.stopLoss)} icon={<ShieldAlert className="w-3 h-3 text-signal-strong-sell" />} />
+          <Cell label="Spot T1" value={fmt(sig.leg.target1)} icon={<Target className="w-3 h-3 text-signal-strong-buy" />} />
+          <Cell label="Spot T2" value={fmt(sig.leg.target2)} icon={<Target className="w-3 h-3 text-signal-strong-buy/60" />} />
+        </div>
       </div>
 
       {risk != null && reward != null && (
         <div className="text-[10px] font-mono text-muted-foreground -mt-1">
-          Risk {fmt(risk)} pts · Reward {fmt(reward)} pts (T1) · entry/SL/T are <span className="text-foreground">underlying spot</span> levels
+          Risk {fmt(risk)} pts · Reward {fmt(reward)} pts (T1)
         </div>
       )}
 
       {/* Levels-on-bar visualisation */}
       <div className="space-y-1">
-        <div className="relative h-2 rounded-full bg-secondary/40 overflow-hidden">
+        <div
+          className="relative h-2 rounded-full bg-secondary/40 overflow-hidden"
+          role="img"
+          aria-label={`Spot levels for this plan. Stop ${fmt(sig.leg.stopLoss)}, Entry ${fmt(sig.leg.entry)}, current Spot ${fmt(sig.spot)}, Target 1 ${fmt(sig.leg.target1)}, Target 2 ${fmt(sig.leg.target2)}.`}
+        >
           {sig.leg.stopLoss != null && (
             <div className="absolute top-0 bottom-0 w-1 bg-signal-strong-sell/80" style={{ left: `calc(${pct(sig.leg.stopLoss)}% - 2px)` }} title={`Stop ${fmt(sig.leg.stopLoss)}`} />
           )}
@@ -193,7 +214,10 @@ export default function OptionsPage() {
         </h1>
         <p className="text-muted-foreground text-sm max-w-3xl mt-1">
           Up to 3 high-conviction CALL/PUT setups per index — built from <span className="text-foreground">Price Action · RSI · Fixed Volume Profile · VWAP · EMA 9/21</span>.
-          Higher-conviction setups (≥50% with multi-indicator confluence) appear first; an always-on baseline directional read is also shown for every index. Entry / Stop / Targets are <span className="text-foreground">underlying spot</span> levels — pick any liquid ATM strike.
+          Higher-conviction setups (≥50% with multi-indicator confluence) appear first; an always-on baseline directional read is also shown for every index.
+        </p>
+        <p className="text-xs text-muted-foreground max-w-3xl mt-2 leading-relaxed border-l-2 border-primary/40 pl-3">
+          <span className="text-foreground font-mono uppercase tracking-wider">How to read this:</span> the strike (e.g. NIFTY 25500 CE) is the same across every plan for an index because it's the nearest ATM. The Entry / Stop / Target numbers are <span className="text-foreground">underlying spot</span> levels (where NIFTY itself needs to trade), not option premium. Different plans show different spot levels because each one is a different technical setup with its own trigger formula — they are alternative ways to take the same directional view.
         </p>
         <div className="text-[11px] font-mono text-muted-foreground mt-2 flex items-center gap-3">
           <span>{totalSignals} live setups across {grouped.length} indices</span>
@@ -249,9 +273,26 @@ export default function OptionsPage() {
                     </div>
                   </div>
 
+                  {/* Disambiguation banner — explains why same-strike plans show
+                      different entry/SL/target. The UNDERLYING is the same; each plan
+                      is a different technical setup with its own trigger formula. */}
+                  {grp.signals.length > 1 && (
+                    <div className="rounded border border-border/40 bg-secondary/20 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed">
+                      <span className="text-foreground font-mono uppercase tracking-wider mr-1">Why {grp.signals.length} plans on the same strike?</span>
+                      Each plan below is an <span className="text-foreground">independent intraday setup</span> (Trend Continuation, VWAP Reclaim, Volume Breakout, Baseline, etc.) with its own trigger condition. They all point at the same ATM strike because that's the natural directional play on {grp.indexName}. The Spot Entry / Stop / Target levels differ because each setup uses a different formula (swing high vs VWAP offset vs Value Area vs EMA21). Pick the plan whose trigger fires first or whose style suits you — don't trade more than one at a time on the same instrument.
+                    </div>
+                  )}
+
                   {/* Setups grid */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                    {grp.signals.map((s, i) => <SetupCard key={`${s.index}-${s.setupKey}-${i}`} sig={s} />)}
+                    {grp.signals.map((s, i) => (
+                      <SetupCard
+                        key={`${s.index}-${s.setupKey}-${i}`}
+                        sig={s}
+                        planNumber={i + 1}
+                        totalPlans={grp.signals.length}
+                      />
+                    ))}
                   </div>
                 </CardContent>
               </Card>
