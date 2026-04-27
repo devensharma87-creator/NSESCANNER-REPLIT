@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Legend, ReferenceLine,
-  BarChart, Bar, Cell, PieChart, Pie,
+  BarChart, Bar, Cell, PieChart, Pie, ComposedChart,
 } from "recharts";
 import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, Target } from "lucide-react";
 
@@ -1299,7 +1299,13 @@ function InsightsTab() {
                   ? String(maxPainNearest) : null;
                 return (
                 <ResponsiveContainer width="100%" height={360}>
-                  <BarChart data={oiBars} barCategoryGap={2} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                  {/*
+                    ComposedChart so the OI view can overlay dotted ΔOI lines
+                    on top of the Total OI bars (same scale — both are OI
+                    contract counts). Other views (oichg / pcr / pain) keep the
+                    same single-metric bar behavior they had before.
+                  */}
+                  <ComposedChart data={oiBars} barCategoryGap={2} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
                     <XAxis
                       dataKey="strikeLabel"
@@ -1311,7 +1317,15 @@ function InsightsTab() {
                       width={64}
                       tick={{ fontSize: 10 }}
                       tickFormatter={chartView === "pcr" ? (v) => v.toFixed(2) : (v) => fmtNum(v)}
-                      domain={chartView === "oichg" ? ["auto", "auto"] : [0, "auto"]}
+                      // For "oi" view we now overlay ΔOI lines that go negative
+                      // when contracts unwind, so the axis must auto-extend
+                      // below zero (otherwise negative ΔOI gets clipped at the
+                      // baseline and reads as flat).
+                      domain={
+                        chartView === "oichg" || chartView === "oi"
+                          ? ["auto", "auto"]
+                          : [0, "auto"]
+                      }
                       allowDataOverflow={false}
                     />
                     <RTooltip
@@ -1338,16 +1352,47 @@ function InsightsTab() {
                       />
                     )}
                     {/*
-                      Each <Bar> MUST be a direct child of <BarChart> — Recharts
-                      walks `props.children` to discover Bar components, and a
-                      surrounding <>…</> Fragment hides them from that walk.
-                      Symptom (production): bars and Y-axis ticks vanish while
-                      reference lines and X-axis labels still render. So every
-                      conditional below is a single inline expression returning
-                      either <Bar/> or false.
+                      Each chart series MUST be a direct child of the chart —
+                      Recharts walks `props.children` to discover Bar/Line
+                      components, and a surrounding <>…</> Fragment hides them
+                      from that walk. Symptom (production): bars and Y-axis
+                      ticks vanish while reference lines and X-axis labels
+                      still render. So every conditional below is a single
+                      inline expression returning a series element or false.
                     */}
                     {chartView === "oi" && <Bar dataKey="ceOi" fill="#dc2626" name="Call OI" />}
                     {chartView === "oi" && <Bar dataKey="peOi" fill="#16a34a" name="Put OI" />}
+                    {/* Zero baseline so positive vs negative ΔOI is unambiguous */}
+                    {chartView === "oi" && (
+                      <ReferenceLine y={0} stroke="#52525b" strokeWidth={1} />
+                    )}
+                    {/* Dotted overlay: ΔOI on the same axis as Total OI */}
+                    {chartView === "oi" && (
+                      <Line
+                        type="monotone"
+                        dataKey="ceOiChg"
+                        name="Δ Call OI"
+                        stroke="#fca5a5"
+                        strokeWidth={1.5}
+                        strokeDasharray="4 3"
+                        dot={false}
+                        activeDot={{ r: 3 }}
+                        isAnimationActive={false}
+                      />
+                    )}
+                    {chartView === "oi" && (
+                      <Line
+                        type="monotone"
+                        dataKey="peOiChg"
+                        name="Δ Put OI"
+                        stroke="#86efac"
+                        strokeWidth={1.5}
+                        strokeDasharray="4 3"
+                        dot={false}
+                        activeDot={{ r: 3 }}
+                        isAnimationActive={false}
+                      />
+                    )}
                     {chartView === "oichg" && (
                       <Bar dataKey="ceOiChg" name="Δ Call OI">
                         {oiBars.map((d, i) => (
@@ -1376,7 +1421,7 @@ function InsightsTab() {
                         ))}
                       </Bar>
                     )}
-                  </BarChart>
+                  </ComposedChart>
                 </ResponsiveContainer>
                 );
               })()}
