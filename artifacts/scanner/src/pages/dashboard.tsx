@@ -1,3 +1,16 @@
+/**
+ * Home — single landing tab that merges the legacy Dashboard and Indices
+ * tabs into one screen. Order:
+ *   1. Markets fact-pack (the rich indices/commodities/ADR/FX board)
+ *   2. Trend overview + Market Mood gauge
+ *   3. Top Gainers / Top Losers (intraday)
+ *   4. Top Bullish / Top Bearish setups
+ *   5. Browse-full-scanner CTA
+ *
+ * Removed (their data is fully covered by IndicesBoard, no duplication):
+ *   - <KeyIndicesCards />  → INDIA section of the board
+ *   - <MarketsTabs />      → GLOBAL + COMMODITY + FX sections of the board
+ */
 import {
   useGetTopScans,
   useListStocks,
@@ -7,12 +20,11 @@ import {
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SignalBadge } from "@/components/ui/signal-badge";
-import { TrendingUp, TrendingDown, ArrowRight, Flame, Snowflake } from "lucide-react";
+import { TrendingUp, TrendingDown, ArrowRight, Flame, Snowflake, Home as HomeIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import TrendCard from "@/components/trend-card";
 import MarketMoodGauge from "@/components/mmi-gauge";
-import MarketsTabs from "@/components/markets-tabs";
-import KeyIndicesCards from "@/components/key-indices-cards";
+import IndicesBoard from "@/components/indices-board";
 import { useMemo } from "react";
 import type { StockRow } from "@workspace/api-client-react";
 
@@ -54,7 +66,7 @@ function MoverRow({ s, kind }: { s: StockRow; kind: "gain" | "loss" }) {
   );
 }
 
-export default function Dashboard() {
+export default function Home() {
   const { data: topScans, isLoading: scansLoading } = useGetTopScans({
     query: { refetchInterval: 30000, queryKey: getGetTopScansQueryKey() },
   });
@@ -74,18 +86,29 @@ export default function Dashboard() {
   }, [allStocks]);
 
   return (
-    <div className="w-full max-w-none px-4 py-6 space-y-6">
-      {/* Key Indices — Nifty50, BankNifty, Sensex, FinNifty (live) */}
-      <KeyIndicesCards />
+    <div className="w-full max-w-none px-4 lg:px-6 2xl:px-8 py-6 space-y-8">
+      {/* Page header */}
+      <header className="flex items-center gap-3">
+        <HomeIcon className="h-6 w-6 text-primary" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Home</h1>
+          <p className="text-sm text-muted-foreground">Live market overview, indices fact-pack, top movers and setups.</p>
+        </div>
+      </header>
 
-      {/* Trend + Mood */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 1) Markets fact-pack — replaces both KeyIndicesCards and MarketsTabs */}
+      <section data-testid="home-markets">
+        <IndicesBoard embedded />
+      </section>
+
+      {/* 2) Trend + Mood */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2"><TrendCard /></div>
         <MarketMoodGauge />
-      </div>
+      </section>
 
-      {/* Top Gainers / Losers (intraday, by % change) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* 3) Top Gainers / Losers (intraday, by % change) */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="border-signal-strong-buy/20 bg-gradient-to-b from-signal-strong-buy/5 to-transparent">
           <CardHeader className="pb-2 flex-row items-center justify-between">
             <CardTitle className="text-base font-mono flex items-center gap-2">
@@ -125,13 +148,10 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-      </div>
+      </section>
 
-      {/* Global Markets — tabbed by region (Google-Finance-style) */}
-      <MarketsTabs />
-
-      {/* Top Setups */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* 4) Top Setups */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="border-signal-strong-buy/20 bg-gradient-to-b from-signal-strong-buy/5 to-transparent">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-mono flex items-center gap-2">
@@ -183,11 +203,11 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-      </div>
+      </section>
 
       <div className="text-center pt-2">
         <Link href="/scanner" className="inline-flex items-center gap-2 text-sm font-mono font-semibold text-primary hover:underline">
-          Browse the full scanner with all {topScans ? '~280' : ''} stocks · sortable & filterable <ArrowRight className="w-4 h-4" />
+          Browse the full scanner with all {topScans ? '~280' : ''} stocks · sortable &amp; filterable <ArrowRight className="w-4 h-4" />
         </Link>
       </div>
     </div>

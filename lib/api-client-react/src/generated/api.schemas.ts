@@ -409,6 +409,7 @@ export const IndexBoardItemCategory = {
   GLOBAL: "GLOBAL",
   COMMODITY: "COMMODITY",
   ADR: "ADR",
+  FX: "FX",
 } as const;
 
 /**

@@ -35,7 +35,7 @@ import { ema, sessionVwap, volumeProfile } from "./indicators";
 import { getKiteIndexQuotes, type KiteIndexQuote } from "./kiteIndexQuotes";
 import { logger } from "./logger";
 
-export type IndicesCategory = "INDIA" | "GLOBAL" | "COMMODITY" | "ADR";
+export type IndicesCategory = "INDIA" | "GLOBAL" | "COMMODITY" | "ADR" | "FX";
 
 export interface InstrumentCfg {
   /** Canonical key — stable identifier the frontend keys rows by. */
@@ -79,11 +79,23 @@ export const INSTRUMENTS: InstrumentCfg[] = [
   { key: "SENSEX",      name: "SENSEX",           category: "INDIA",     yahoo: "^BSESN",                kiteYahooKey: "^BSESN",               currency: "₹" },
 
   // ── Global indices ───────────────────────────────────────────────
+  // GIFT NIFTY trades on NSE IFSC and isn't carried under any public Yahoo
+  // ticker; we use NIFTY 50 spot (^NSEI) as the closest available proxy and
+  // disclose that explicitly in the card notes — same convention as the
+  // legacy Markets tab. Once a paid IFSC feed is wired up we'll swap this.
+  { key: "GIFTNIFTY",   name: "GIFT NIFTY (proxy)", category: "GLOBAL",
+    yahoo: "^NSEI",
+    proxyNote: "GIFT NIFTY isn't on Yahoo; using NIFTY 50 spot as the closest available proxy",
+    currency: "₹" },
   { key: "SP500",       name: "S&P 500",          category: "GLOBAL",    yahoo: "^GSPC",                 currency: "$" },
   { key: "NASDAQ",      name: "NASDAQ",           category: "GLOBAL",    yahoo: "^IXIC",                 currency: "$" },
   { key: "DOWJONES",    name: "Dow Jones",        category: "GLOBAL",    yahoo: "^DJI",                  currency: "$" },
   { key: "FTSE100",     name: "FTSE 100",         category: "GLOBAL",    yahoo: "^FTSE",                 currency: "£" },
+  { key: "DAX",         name: "DAX",              category: "GLOBAL",    yahoo: "^GDAXI",                currency: "€" },
   { key: "NIKKEI225",   name: "Nikkei 225",       category: "GLOBAL",    yahoo: "^N225",                 currency: "¥" },
+  { key: "HANGSENG",    name: "Hang Seng",        category: "GLOBAL",    yahoo: "^HSI",                  currency: "HK$" },
+  { key: "SHANGHAI",    name: "Shanghai Comp.",   category: "GLOBAL",    yahoo: "000001.SS",             currency: "¥" },
+  { key: "VIX",         name: "VIX (Volatility)", category: "GLOBAL",    yahoo: "^VIX",                  currency: "" },
 
   // ── Commodities (CME futures continuous contracts on Yahoo) ───────
   { key: "GOLD",        name: "Gold",             category: "COMMODITY", yahoo: "GC=F",                  currency: "$" },
@@ -101,6 +113,10 @@ export const INSTRUMENTS: InstrumentCfg[] = [
   { key: "ADR_WIT",   name: "Wipro (WIT)",             category: "ADR", yahoo: "WIT",  currency: "$" },
   { key: "ADR_RDY",   name: "Dr. Reddy's (RDY)",       category: "ADR", yahoo: "RDY",  currency: "$" },
   { key: "ADR_MMYT",  name: "MakeMyTrip (MMYT)",       category: "ADR", yahoo: "MMYT", currency: "$" },
+
+  // ── FX / Macro (currency pair + dollar index) ─────────────────────
+  { key: "USDINR",      name: "USD / INR",        category: "FX",        yahoo: "INR=X",                 currency: "₹" },
+  { key: "DXY",         name: "Dollar Index",     category: "FX",        yahoo: "DX-Y.NYB",              currency: "$" },
 ];
 
 export interface IndexBoardItem {

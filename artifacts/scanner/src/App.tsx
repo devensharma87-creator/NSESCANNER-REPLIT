@@ -7,9 +7,9 @@ import NotFound from "@/pages/not-found";
 import { LoginGate } from "@/components/login-gate";
 import { ErrorBoundary } from "@/components/error-boundary";
 import Layout from "@/components/layout";
-import Dashboard from "@/pages/dashboard";
+import Home from "@/pages/dashboard";
 import Scanner from "@/pages/scanner";
-import IndicesPage from "@/pages/indices";
+import IndicesRedirect from "@/pages/indices";
 import DeepScan from "@/pages/deep-scan";
 import Strategies from "@/pages/strategies";
 import Sectors from "@/pages/sectors";
@@ -35,9 +35,9 @@ const queryClient = new QueryClient();
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
+      <Route path="/" component={Home} />
       <Route path="/scanner" component={Scanner} />
-      <Route path="/indices" component={IndicesPage} />
+      <Route path="/indices" component={IndicesRedirect} />
       <Route path="/deep-scan" component={DeepScan} />
       <Route path="/options" component={Options} />
       <Route path="/option-chain" component={OptionChain} />
