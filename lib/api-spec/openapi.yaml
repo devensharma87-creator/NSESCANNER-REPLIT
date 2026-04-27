@@ -1245,7 +1245,7 @@ components:
 
     PostMarketDigest:
       type: object
-      required: [advancers, decliners, unchanged, totalVolume, marketBreadthScore, narrative]
+      required: [advancers, decliners, unchanged, totalVolume, marketBreadthScore, new52wHigh, new52wLow, upperCircuits, lowerCircuits, narrative]
       properties:
         advancers: { type: integer }
         decliners: { type: integer }
@@ -1254,6 +1254,10 @@ components:
         totalVolume: { type: number }
         avgChangePercent: { type: number }
         marketBreadthScore: { type: number, description: "-100 to 100" }
+        new52wHigh:    { type: integer, description: "Stocks within 0.5% of their 52-week high" }
+        new52wLow:     { type: integer, description: "Stocks within 0.5% of their 52-week low" }
+        upperCircuits: { type: integer, description: "Stocks at +4.8% or more (probable upper circuit hit)" }
+        lowerCircuits: { type: integer, description: "Stocks at -4.8% or less (probable lower circuit hit)" }
         narrative: { type: string, description: "One-line market summary" }
 
     KeyIndexLevels:
@@ -1287,12 +1291,14 @@ components:
 
     OptionSnapshot:
       type: object
-      required: [underlying, spot, expiry, atmStrike, atmStraddle, expectedMovePct, pcrOi, pcrVolume, maxPain, bias, interpretation, generatedAt]
+      required: [underlying, spot, expiry, daysToExpiry, expiryContext, atmStrike, atmStraddle, expectedMovePct, pcrOi, pcrVolume, maxPain, bias, interpretation, generatedAt]
       description: "Compact pre-market option-chain read for a single F&O underlying. Sourced from the same chain endpoint that powers the Options page; surfaced here so the morning checklist (ATM strike, expected move, PCR, max-pain, top OI walls) is one glance away."
       properties:
         underlying:       { type: string, description: "F&O underlying e.g. NIFTY, BANKNIFTY, FINNIFTY" }
         spot:             { type: number }
-        expiry:           { type: string, description: "Active expiry YYYY-MM-DD" }
+        expiry:           { type: string, description: "Active expiry as returned by NSE (YYYY-MM-DD or DD-MMM-YYYY)" }
+        daysToExpiry:     { type: integer, description: "Calendar days from today (IST) to the active expiry; 0 = expires today" }
+        expiryContext:    { type: string, enum: [EXPIRY_TODAY, EXPIRY_TOMORROW, EXPIRY_THIS_WEEK, EXPIRY_NEXT_WEEK, FAR], description: "Bucket for quick visual flagging — expiry day means heightened intraday volatility and theta-decay traps" }
         atmStrike:        { type: number }
         atmStraddle:      { type: number, description: "ATM CE LTP + ATM PE LTP (in points)" }
         expectedMovePct:  { type: number, description: "atmStraddle / spot * 100 — implied move by expiry" }

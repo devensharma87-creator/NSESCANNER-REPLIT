@@ -422,6 +422,8 @@ interface OptionSnapshot {
   underlying: string;
   spot: number;
   expiry: string;
+  daysToExpiry: number;
+  expiryContext: "EXPIRY_TODAY" | "EXPIRY_TOMORROW" | "EXPIRY_THIS_WEEK" | "EXPIRY_NEXT_WEEK" | "FAR";
   atmStrike: number;
   atmStraddle: number;
   expectedMovePct: number;
@@ -434,6 +436,50 @@ interface OptionSnapshot {
   bias: "BULLISH" | "BEARISH" | "NEUTRAL";
   interpretation: string;
   generatedAt: string;
+}
+
+/**
+ * Days between today (IST date) and the option expiry date string returned by
+ * NSE. Accepts both "YYYY-MM-DD" and NSE's native "DD-MMM-YYYY" (e.g.
+ * "08-May-2026"). Calendar-day diff is computed in IST by normalising both
+ * sides to a canonical "YYYY-MM-DD" string and then to a UTC midnight epoch,
+ * so the result is independent of the host process timezone or DST.
+ * Negative values (chain not yet rolled past the expiry) collapse to 0.
+ */
+const MONTH_ABBR: Record<string, number> = {
+  JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
+  JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
+};
+function normaliseExpiryToISO(expiry: string): string | null {
+  const s = expiry.trim();
+  // Already YYYY-MM-DD?
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  // NSE format: DD-MMM-YYYY (e.g. 08-May-2026)
+  const nse = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(s);
+  if (nse) {
+    const dd = nse[1].padStart(2, "0");
+    const mm = MONTH_ABBR[nse[2].toUpperCase()];
+    if (!mm) return null;
+    return `${nse[3]}-${String(mm).padStart(2, "0")}-${dd}`;
+  }
+  return null;
+}
+function computeExpiryContext(expiry: string): { daysToExpiry: number; context: OptionSnapshot["expiryContext"] } {
+  const todayISO = istParts().dateISO; // "YYYY-MM-DD" already in IST
+  const expiryISO = normaliseExpiryToISO(expiry);
+  if (!expiryISO) return { daysToExpiry: 0, context: "FAR" };
+  // Both anchored to UTC midnight → integer-safe day diff, no rounding.
+  const todayMs  = Date.UTC(+todayISO.slice(0, 4),  +todayISO.slice(5, 7) - 1,  +todayISO.slice(8, 10));
+  const expiryMs = Date.UTC(+expiryISO.slice(0, 4), +expiryISO.slice(5, 7) - 1, +expiryISO.slice(8, 10));
+  const days = Math.max(0, Math.floor((expiryMs - todayMs) / 86400000));
+  let context: OptionSnapshot["expiryContext"];
+  if (days === 0) context = "EXPIRY_TODAY";
+  else if (days === 1) context = "EXPIRY_TOMORROW";
+  else if (days <= 5) context = "EXPIRY_THIS_WEEK";
+  else if (days <= 12) context = "EXPIRY_NEXT_WEEK";
+  else context = "FAR";
+  return { daysToExpiry: days, context };
 }
 
 const OPTION_SNAPSHOT_UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY"];
@@ -454,10 +500,13 @@ async function buildOptionSnapshots(): Promise<OptionSnapshot[]> {
       const atmStraddle = ceLtp + peLtp;
       const expectedMovePct = chain.spot > 0 ? (atmStraddle / chain.spot) * 100 : 0;
 
+      const exp = computeExpiryContext(chain.expiry);
       return {
         underlying: u,
         spot: chain.spot,
         expiry: chain.expiry,
+        daysToExpiry: exp.daysToExpiry,
+        expiryContext: exp.context,
         atmStrike: chain.atmStrike,
         atmStraddle: +atmStraddle.toFixed(2),
         expectedMovePct: +expectedMovePct.toFixed(2),
@@ -723,7 +772,8 @@ function buildPostMarketDigest(rows: Awaited<ReturnType<typeof scanAll>>) {
   // and 52w extremes / circuits are the primary "warning sign" the doc
   // calls out (strong index + weak breadth = distribution risk).
   if (new52wHigh > 0 || new52wLow > 0) {
-    narrative += ` ${new52wHigh} stocks at 52-week highs, ${new52wLow} at lows`;
+    const hiWord = new52wHigh === 1 ? "stock" : "stocks";
+    narrative += ` ${new52wHigh} ${hiWord} at 52-week highs, ${new52wLow} at lows`;
     if (upperCircuits > 0 || lowerCircuits > 0) {
       narrative += ` · ${upperCircuits} upper circuit, ${lowerCircuits} lower circuit.`;
     } else {

@@ -15,6 +15,14 @@ export interface PostMarketDigest {
   avgChangePercent?: number;
   /** -100 to 100 */
   marketBreadthScore: number;
+  /** Stocks within 0.5% of their 52-week high */
+  new52wHigh: number;
+  /** Stocks within 0.5% of their 52-week low */
+  new52wLow: number;
+  /** Stocks at +4.8% or more (probable upper circuit hit) */
+  upperCircuits: number;
+  /** Stocks at -4.8% or less (probable lower circuit hit) */
+  lowerCircuits: number;
   /** One-line market summary */
   narrative: string;
 }

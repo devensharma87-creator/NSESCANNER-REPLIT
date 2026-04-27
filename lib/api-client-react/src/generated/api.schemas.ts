@@ -977,6 +977,14 @@ export interface PostMarketDigest {
   avgChangePercent?: number;
   /** -100 to 100 */
   marketBreadthScore: number;
+  /** Stocks within 0.5% of their 52-week high */
+  new52wHigh: number;
+  /** Stocks within 0.5% of their 52-week low */
+  new52wLow: number;
+  /** Stocks at +4.8% or more (probable upper circuit hit) */
+  upperCircuits: number;
+  /** Stocks at -4.8% or less (probable lower circuit hit) */
+  lowerCircuits: number;
   /** One-line market summary */
   narrative: string;
 }
@@ -1040,6 +1048,20 @@ export interface KeyIndexLevels {
   positionInYearRangePct: number;
 }
 
+/**
+ * Bucket for quick visual flagging — expiry day means heightened intraday volatility and theta-decay traps
+ */
+export type OptionSnapshotExpiryContext =
+  (typeof OptionSnapshotExpiryContext)[keyof typeof OptionSnapshotExpiryContext];
+
+export const OptionSnapshotExpiryContext = {
+  EXPIRY_TODAY: "EXPIRY_TODAY",
+  EXPIRY_TOMORROW: "EXPIRY_TOMORROW",
+  EXPIRY_THIS_WEEK: "EXPIRY_THIS_WEEK",
+  EXPIRY_NEXT_WEEK: "EXPIRY_NEXT_WEEK",
+  FAR: "FAR",
+} as const;
+
 export type OptionSnapshotBias =
   (typeof OptionSnapshotBias)[keyof typeof OptionSnapshotBias];
 
@@ -1056,8 +1078,12 @@ export interface OptionSnapshot {
   /** F&O underlying e.g. NIFTY, BANKNIFTY, FINNIFTY */
   underlying: string;
   spot: number;
-  /** Active expiry YYYY-MM-DD */
+  /** Active expiry as returned by NSE (YYYY-MM-DD or DD-MMM-YYYY) */
   expiry: string;
+  /** Calendar days from today (IST) to the active expiry; 0 = expires today */
+  daysToExpiry: number;
+  /** Bucket for quick visual flagging — expiry day means heightened intraday volatility and theta-decay traps */
+  expiryContext: OptionSnapshotExpiryContext;
   atmStrike: number;
   /** ATM CE LTP + ATM PE LTP (in points) */
   atmStraddle: number;

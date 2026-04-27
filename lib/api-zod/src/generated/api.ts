@@ -1994,7 +1994,27 @@ export const GetPreMarketResponse = zod.object({
             .string()
             .describe("F&O underlying e.g. NIFTY, BANKNIFTY, FINNIFTY"),
           spot: zod.number(),
-          expiry: zod.string().describe("Active expiry YYYY-MM-DD"),
+          expiry: zod
+            .string()
+            .describe(
+              "Active expiry as returned by NSE (YYYY-MM-DD or DD-MMM-YYYY)",
+            ),
+          daysToExpiry: zod
+            .number()
+            .describe(
+              "Calendar days from today (IST) to the active expiry; 0 = expires today",
+            ),
+          expiryContext: zod
+            .enum([
+              "EXPIRY_TODAY",
+              "EXPIRY_TOMORROW",
+              "EXPIRY_THIS_WEEK",
+              "EXPIRY_NEXT_WEEK",
+              "FAR",
+            ])
+            .describe(
+              "Bucket for quick visual flagging — expiry day means heightened intraday volatility and theta-decay traps",
+            ),
           atmStrike: zod.number(),
           atmStraddle: zod
             .number()
@@ -2193,6 +2213,18 @@ export const GetPreMarketResponse = zod.object({
       totalVolume: zod.number(),
       avgChangePercent: zod.number().optional(),
       marketBreadthScore: zod.number().describe("-100 to 100"),
+      new52wHigh: zod
+        .number()
+        .describe("Stocks within 0.5% of their 52-week high"),
+      new52wLow: zod
+        .number()
+        .describe("Stocks within 0.5% of their 52-week low"),
+      upperCircuits: zod
+        .number()
+        .describe("Stocks at +4.8% or more (probable upper circuit hit)"),
+      lowerCircuits: zod
+        .number()
+        .describe("Stocks at -4.8% or less (probable lower circuit hit)"),
       narrative: zod.string().describe("One-line market summary"),
     })
     .optional(),

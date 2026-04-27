@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OptionSnapshotBias } from "./optionSnapshotBias";
+import type { OptionSnapshotExpiryContext } from "./optionSnapshotExpiryContext";
 
 /**
  * Compact pre-market option-chain read for a single F&O underlying. Sourced from the same chain endpoint that powers the Options page; surfaced here so the morning checklist (ATM strike, expected move, PCR, max-pain, top OI walls) is one glance away.
@@ -14,8 +15,12 @@ export interface OptionSnapshot {
   /** F&O underlying e.g. NIFTY, BANKNIFTY, FINNIFTY */
   underlying: string;
   spot: number;
-  /** Active expiry YYYY-MM-DD */
+  /** Active expiry as returned by NSE (YYYY-MM-DD or DD-MMM-YYYY) */
   expiry: string;
+  /** Calendar days from today (IST) to the active expiry; 0 = expires today */
+  daysToExpiry: number;
+  /** Bucket for quick visual flagging — expiry day means heightened intraday volatility and theta-decay traps */
+  expiryContext: OptionSnapshotExpiryContext;
   atmStrike: number;
   /** ATM CE LTP + ATM PE LTP (in points) */
   atmStraddle: number;

@@ -236,6 +236,16 @@ export default function PreMarket() {
                 <Stat label="Breadth Score" value={`${(data.postMarketDigest.marketBreadthScore ?? 0) >= 0 ? "+" : ""}${(data.postMarketDigest.marketBreadthScore ?? 0).toFixed(0)}`}
                   tone={tone(data.postMarketDigest.marketBreadthScore ?? 0)} />
               </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-border/40">
+                <Stat label="52W Highs" value={String(data.postMarketDigest.new52wHigh ?? 0)}
+                  tone={(data.postMarketDigest.new52wHigh ?? 0) > 0 ? "text-signal-strong-buy" : undefined} />
+                <Stat label="52W Lows" value={String(data.postMarketDigest.new52wLow ?? 0)}
+                  tone={(data.postMarketDigest.new52wLow ?? 0) > 0 ? "text-signal-strong-sell" : undefined} />
+                <Stat label="Upper Circuits" value={String(data.postMarketDigest.upperCircuits ?? 0)}
+                  tone={(data.postMarketDigest.upperCircuits ?? 0) > 0 ? "text-signal-strong-buy" : undefined} />
+                <Stat label="Lower Circuits" value={String(data.postMarketDigest.lowerCircuits ?? 0)}
+                  tone={(data.postMarketDigest.lowerCircuits ?? 0) > 0 ? "text-signal-strong-sell" : undefined} />
+              </div>
               <p className="text-sm text-foreground/85 mt-4">{data.postMarketDigest.narrative ?? ""}</p>
             </CardContent>
           </Card>
@@ -529,6 +539,7 @@ function RangeStat({ label, hi, lo }: { label: string; hi: number; lo: number })
 // ───────── Option Chain Snapshot ─────────
 type OptSnap = {
   underlying: string; spot: number; expiry: string;
+  daysToExpiry?: number; expiryContext?: string;
   atmStrike: number; atmStraddle: number; expectedMovePct: number;
   pcrOi: number; pcrVolume: number; atmIv?: number | null; maxPain: number;
   maxCallOiStrike?: number | null; maxPutOiStrike?: number | null;
@@ -539,7 +550,15 @@ const OPT_BIAS_TONE: Record<string, string> = {
   BEARISH: "bg-signal-strong-sell/15 text-signal-strong-sell border-signal-strong-sell/30",
   NEUTRAL: "bg-secondary/60 text-muted-foreground border-border/40",
 };
+const EXPIRY_TONE: Record<string, { tone: string; label: string }> = {
+  EXPIRY_TODAY:     { tone: "bg-signal-strong-sell/20 text-signal-strong-sell border-signal-strong-sell/50",  label: "EXPIRY TODAY" },
+  EXPIRY_TOMORROW:  { tone: "bg-amber-500/20 text-amber-400 border-amber-500/40",                              label: "EXPIRY TOMORROW" },
+  EXPIRY_THIS_WEEK: { tone: "bg-amber-500/10 text-amber-300 border-amber-500/30",                              label: "EXPIRY THIS WEEK" },
+  EXPIRY_NEXT_WEEK: { tone: "bg-secondary/60 text-muted-foreground border-border/40",                          label: "NEXT WEEK" },
+  FAR:              { tone: "bg-secondary/40 text-muted-foreground border-border/30",                          label: "FAR" },
+};
 function OptionSnapshotCard({ snap }: { snap: OptSnap }) {
+  const expCtx = snap.expiryContext ? EXPIRY_TONE[snap.expiryContext] : undefined;
   return (
     <Card className="border border-border/50">
       <CardContent className="p-4">
@@ -549,8 +568,21 @@ function OptionSnapshotCard({ snap }: { snap: OptSnap }) {
             {snap.bias}
           </span>
         </div>
-        <div className="text-[10px] font-mono text-muted-foreground mb-2">
-          spot {fmt(snap.spot)} · expiry {snap.expiry}
+        <div className="text-[10px] font-mono text-muted-foreground mb-2 flex items-center flex-wrap gap-1.5">
+          <span>spot {fmt(snap.spot)}</span>
+          <span>·</span>
+          <span>expiry {snap.expiry}</span>
+          {snap.daysToExpiry != null && (
+            <>
+              <span>·</span>
+              <span>{snap.daysToExpiry === 0 ? "0d" : `${snap.daysToExpiry}d`}</span>
+            </>
+          )}
+          {expCtx && snap.expiryContext !== "FAR" && snap.expiryContext !== "EXPIRY_NEXT_WEEK" && (
+            <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${expCtx.tone}`}>
+              {expCtx.label}
+            </span>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-xs">
