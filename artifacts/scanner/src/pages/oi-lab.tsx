@@ -1058,13 +1058,25 @@ function OiInsightsTooltip(props: {
         </div>
       )}
 
+      {/* PCR row — always shown. Per-strike PCR (Put OI / Call OI at this
+          strike) is one of the first numbers a trader looks at on hover,
+          so it doesn't make sense to gate it on the chart view. Also
+          color-tinted by threshold so the reading is readable at a glance:
+          ≥1.3 bullish (green), ≤0.7 bearish (red), middle = neutral. */}
+      <div className="h-px bg-zinc-800 my-1.5" />
+      <Row
+        label="PCR (this strike)"
+        value={Number.isFinite(row.pcr) ? row.pcr.toFixed(2) : "—"}
+        valueClass={`font-mono tabular-nums ${
+          !Number.isFinite(row.pcr) ? "text-zinc-400"
+            : row.pcr >= 1.3 ? "text-emerald-300"
+            : row.pcr <= 0.7 ? "text-rose-300"
+            : "text-zinc-100"
+        }`}
+        dotClass="bg-zinc-400"
+      />
+
       {/* View-specific extras */}
-      {view === "pcr" && (
-        <>
-          <div className="h-px bg-zinc-800 my-1.5" />
-          <Row label="PCR (this strike)" value={row.pcr.toFixed(2)} dotClass="bg-zinc-400" />
-        </>
-      )}
       {view === "pain" && (
         <>
           <div className="h-px bg-zinc-800 my-1.5" />
@@ -1996,30 +2008,37 @@ function InsightsTab() {
                     {chartView === "oi" && (
                       <ReferenceLine y={0} stroke="#52525b" strokeWidth={1} />
                     )}
-                    {/* Dotted overlay: ΔOI on the same axis as Total OI */}
+                    {/* Dashed overlay: ΔOI on the same axis as Total OI.
+                        Visible dots on every strike + thicker stroke + brighter
+                        colors so the per-strike Δ values are individually
+                        readable instead of registering as a faint smear.
+                        `monotoneX` keeps the curve smooth horizontally without
+                        introducing fake vertical wiggles between adjacent
+                        strikes (a common Recharts artifact with type="monotone"
+                        on sparse Y values). */}
                     {chartView === "oi" && (
                       <Line
-                        type="monotone"
+                        type="monotoneX"
                         dataKey="ceOiChg"
                         name="Δ Call OI"
-                        stroke="#fca5a5"
-                        strokeWidth={1.5}
-                        strokeDasharray="4 3"
-                        dot={false}
-                        activeDot={{ r: 3 }}
+                        stroke="#f87171"
+                        strokeWidth={2.5}
+                        strokeDasharray="5 3"
+                        dot={{ r: 2.5, fill: "#f87171", stroke: "#0a0a0a", strokeWidth: 0.5 }}
+                        activeDot={{ r: 5, fill: "#fecaca", stroke: "#7f1d1d", strokeWidth: 1 }}
                         isAnimationActive={false}
                       />
                     )}
                     {chartView === "oi" && (
                       <Line
-                        type="monotone"
+                        type="monotoneX"
                         dataKey="peOiChg"
                         name="Δ Put OI"
-                        stroke="#86efac"
-                        strokeWidth={1.5}
-                        strokeDasharray="4 3"
-                        dot={false}
-                        activeDot={{ r: 3 }}
+                        stroke="#4ade80"
+                        strokeWidth={2.5}
+                        strokeDasharray="5 3"
+                        dot={{ r: 2.5, fill: "#4ade80", stroke: "#0a0a0a", strokeWidth: 0.5 }}
+                        activeDot={{ r: 5, fill: "#bbf7d0", stroke: "#14532d", strokeWidth: 1 }}
                         isAnimationActive={false}
                       />
                     )}
