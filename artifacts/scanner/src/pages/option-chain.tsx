@@ -488,9 +488,21 @@ export default function OptionChainPage() {
             })()}
           </div>
 
-          <div className="overflow-x-auto rounded border border-border">
+          {/*
+            Container scrolls in BOTH directions internally (max-height clamps
+            it to ~70% of the viewport, overflow-auto enables both axes). This
+            is what makes the sticky thead actually freeze — `position: sticky`
+            sticks to the nearest scroll ancestor, so the ancestor must
+            actually scroll vertically. Without the height clamp the page
+            itself was the scroll context and `top-0` had nothing to anchor
+            against, so the header drifted off-screen with the rest of the
+            table on long chains. `z-20` keeps the frozen header above the
+            ITM-tinted body cells (which have their own background) so the
+            row labels never bleed through during scroll.
+          */}
+          <div className="overflow-auto rounded border border-border max-h-[calc(100vh-260px)]">
             <table className="w-full text-[11px] font-mono">
-              <thead className="bg-card/80 sticky top-0">
+              <thead className="bg-card sticky top-0 z-20 shadow-[0_1px_0_0_hsl(var(--border))]">
                 <tr className="text-muted-foreground border-b border-border">
                   <th colSpan={showGreeks ? 10 : 6} className="text-center text-signal-strong-buy py-1 border-r border-border bg-signal-strong-buy/[0.04]">
                     CALLS
