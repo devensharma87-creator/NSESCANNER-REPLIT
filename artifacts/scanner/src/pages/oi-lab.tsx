@@ -940,7 +940,14 @@ function OiInsightsTooltip(props: {
       {/* Call block — red */}
       <div className="space-y-0">
         <Row label="Call OI at 9:15 AM" value={fmtNum(openCe)} dotClass="bg-rose-500" />
-        <Row label="Call OI chg"        value={fmtSigned(row.ceOiChg)} valueClass={`font-mono tabular-nums ${sign(-row.ceOiChg)}`} dotClass="bg-rose-500/60" />
+        {/*
+          Color the change row purely by the sign of the number:
+          negative = red (OI shed), positive = green (OI added),
+          zero = neutral. We deliberately do NOT invert for the Call leg —
+          the user wants a literal "negative number → red" reading
+          everywhere in the OI change rows.
+        */}
+        <Row label="Call OI chg"        value={fmtSigned(row.ceOiChg)} valueClass={`font-mono tabular-nums ${sign(row.ceOiChg)}`} dotClass="bg-rose-500/60" />
         <Row label={`Call OI at ${nowTime}`} value={fmtNum(row.ceOi)} dotClass="bg-rose-500" />
       </div>
 
@@ -1628,9 +1635,30 @@ function InsightsTab() {
                   </ResponsiveContainer>
                 )}
                 {data && (
+                  // Below each total, show the signed intraday Δ so the user
+                  // can read the absolute outstanding OI AND how much of it
+                  // was added/shed today, in one glance — without having to
+                  // cross-reference the OI Change card. Δ color is purely
+                  // sign-based: green = OI added, red = OI shed.
                   <div className="flex justify-between text-[10px] font-mono mt-1">
-                    <span className="text-red-400">CALL {fmtNum(data.totalCallOi)}</span>
-                    <span className="text-green-400">PUT {fmtNum(data.totalPutOi)}</span>
+                    <div className="flex flex-col">
+                      <span className="text-red-400">CALL {fmtNum(data.totalCallOi)}</span>
+                      <span className={
+                        !Number.isFinite(data.callOiAdded) || data.callOiAdded === 0 ? "text-zinc-500"
+                          : data.callOiAdded > 0 ? "text-emerald-400" : "text-rose-400"
+                      }>
+                        Δ {Number.isFinite(data.callOiAdded) && data.callOiAdded > 0 ? "+" : ""}{fmtNum(data.callOiAdded)}
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-green-400">PUT {fmtNum(data.totalPutOi)}</span>
+                      <span className={
+                        !Number.isFinite(data.putOiAdded) || data.putOiAdded === 0 ? "text-zinc-500"
+                          : data.putOiAdded > 0 ? "text-emerald-400" : "text-rose-400"
+                      }>
+                        Δ {Number.isFinite(data.putOiAdded) && data.putOiAdded > 0 ? "+" : ""}{fmtNum(data.putOiAdded)}
+                      </span>
+                    </div>
                   </div>
                 )}
               </CardContent>
