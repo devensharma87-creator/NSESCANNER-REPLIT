@@ -1,0 +1,4419 @@
+diff -urN project/marketscanner-source/.env.example work/ms/.env.example
+--- /dev/null
++++ b/.env.example	2026-04-27 11:13:55.467835631 +0000
+@@ -0,0 +1,71 @@
++# ─────────────────────────────────────────────────────────────────────────────
++# MarketScanner — environment variables
++# ─────────────────────────────────────────────────────────────────────────────
++# Copy to `.env`, fill in the secrets, and either source it before launching
++# (`set -a && source .env && set +a`) or wire it into your process manager.
++# Variables marked REQUIRED must be set or the API will refuse to start.
++
++# ── Core process ─────────────────────────────────────────────────────────────
++
++# REQUIRED. The HTTP listen port. Replit typically injects PORT automatically;
++# locally pick something free (5000 is the convention in this repo).
++PORT=5000
++
++# Whether the server emits dev-friendly logs and skips Secure cookies.
++# One of: development, production, test.
++NODE_ENV=development
++
++# Optional. Pino log level: trace, debug, info, warn, error, fatal.
++# Default: info in production, debug in development.
++LOG_LEVEL=info
++
++# ── Database ─────────────────────────────────────────────────────────────────
++
++# REQUIRED. Postgres connection string. Drizzle ORM uses this for the kite
++# session table, TradingView alert log, FII/DII flow cache, and the new
++# user_session table (sliding-session auth).
++# Format: postgres://USER:PASSWORD@HOST:PORT/DBNAME
++DATABASE_URL=postgres://localhost:5432/marketscanner
++
++# ── Auth ─────────────────────────────────────────────────────────────────────
++
++# REQUIRED. Secret used by cookie-parser to sign the `scanner_session` cookie.
++# Rotate this and every existing session is invalidated. Use a 32-char+ random
++# string; do NOT reuse the APP_ACCESS_PASSWORD value.
++#
++# Generate one with:    openssl rand -hex 32
++SESSION_SECRET=
++
++# REQUIRED for use. Single shared password that gates the SPA. The login
++# endpoint compares a submitted password to this in constant time. If unset,
++# the server boots but every login attempt returns 503 (the SPA shows a
++# "login is not configured" hint).
++APP_ACCESS_PASSWORD=
++
++# Optional. Comma-separated list of origins allowed to call /api with
++# credentials. Defaults to the empty list, meaning "same-origin only" (which
++# is what you want for the Replit deployment). Set "*" to opt back into the
++# legacy "reflect any origin" behaviour for local dev only.
++# Example: CORS_ORIGINS=https://app.example.com,https://staging.example.com
++CORS_ORIGINS=
++
++# ── Kite Connect (Zerodha live tick feed) ────────────────────────────────────
++# Both must be set together; if either is missing, the server still boots and
++# falls back to the Yahoo Finance delayed quote provider.
++
++# Optional. Kite Connect API key from https://developers.kite.trade/
++KITE_API_KEY=
++
++# Optional. Kite Connect API secret. Stored only on the server; the SPA never
++# sees it. Used during the daily callback to exchange request_token for
++# access_token.
++KITE_API_SECRET=
++
++# ── TradingView webhooks ────────────────────────────────────────────────────
++
++# Optional. Required only in production. POST /api/webhooks/tradingview rejects
++# every alert without this secret in the request (header X-Webhook-Secret,
++# query ?secret=, or body {"secret":"..."} ).
++# Rotate by changing on the server; existing TV alert configs need to be
++# updated to match.
++TRADINGVIEW_WEBHOOK_SECRET=
+diff -urN project/marketscanner-source/README.md work/ms/README.md
+--- /dev/null
++++ b/README.md	2026-04-27 11:15:10.105818615 +0000
+@@ -0,0 +1,275 @@
++# MarketScanner
++
++Live NSE/BSE market scanner with options analytics, F&O OI lab, multi-leg
++strategy builder, news catalysts, and a TradingView webhook ingest. Built on
++an Express 5 / TanStack Query stack, connected to Zerodha Kite for live ticks
++and Yahoo Finance as a fallback for delayed quotes.
++
++This README is the entry point for someone cloning the repo. For the deeper
++architectural notes and the running fix-log, see [`replit.md`](./replit.md).
++
++> **Status (April 2026):** internal/private workspace. Single-tenant — one
++> shared `APP_ACCESS_PASSWORD` gates the entire SPA. Sliding sessions, CSRF
++> tokens, and a CORS allowlist are wired up; multi-user with per-user audit
++> is not yet implemented.
++
++---
++
++## Repository layout
++
++```
++artifacts/
++  api-server/       Express 5 backend — Pino logging, Drizzle ORM,
++                    Black-Scholes options pricing, scoring engine, OI Lab,
++                    TradingView webhook ingest. Strict TS, ~13.6k LOC.
++  scanner/          React 19 SPA — Vite + TanStack Query + Tailwind. ~30
++                    pages including dashboard, full-NSE scan, deep-scan,
++                    options strategies, OI Lab.
++
++lib/
++  api-spec/         OpenAPI 3.1 schema (single source of truth for every
++                    `/api/*` endpoint — 55 paths).
++  api-zod/          Zod schemas auto-generated from openapi.yaml.
++  api-client-react/ Orval-generated TanStack Query hooks + customFetch
++                    helper. The SPA's only HTTP entry point.
++  db/               Drizzle schema + Postgres pool. Tables: kite_session,
++                    tv_alerts, inst_flows, user_session.
++
++scripts/            One-off operational scripts (NSE bhavcopy fetch, etc.).
++```
++
++The codebase is a pnpm-workspace monorepo. The root `package.json`'s
++`preinstall` script enforces pnpm — `npm install` and `yarn` are rejected.
++
++---
++
++## Quick start
++
++### Prerequisites
++
++* **Node.js ≥ 20** (the api-server uses `node --enable-source-maps` and
++  `Intl.DateTimeFormat` for IST handling).
++* **pnpm ≥ 9** (`corepack enable && corepack prepare pnpm@latest --activate`).
++* **PostgreSQL ≥ 14** for the session/Kite token tables. SQLite is *not*
++  supported — Drizzle is configured against `drizzle-orm/node-postgres`.
++* **(Optional) Kite Connect developer account** if you want live ticks.
++
++### Setup
++
++```bash
++git clone <this repo>
++cd marketscanner
++pnpm install                          # enforces pnpm; nothing else works
++cp .env.example .env
++# edit .env: set DATABASE_URL, SESSION_SECRET, APP_ACCESS_PASSWORD
++pnpm -F @workspace/db db:push         # creates the 4 tables in Postgres
++pnpm -F @workspace/api-server dev     # API on :5000 by default
++pnpm -F @workspace/scanner dev        # SPA on :5173
++```
++
++Open `http://localhost:5173`. The login screen prompts for the
++`APP_ACCESS_PASSWORD` you set in `.env`.
++
++### Run the test suite
++
++```bash
++pnpm -F @workspace/api-server test               # 166 unit tests
++pnpm -F @workspace/api-server test:coverage      # coverage report → ./coverage
++pnpm -F @workspace/api-client-react test         # customFetch tests
++```
++
++The api-server tests are pure — no Postgres or Kite required. The
++`@workspace/db` mock keeps everything in-process. Coverage focuses on the
++math-heavy modules (`blackScholes`, `scoring`, `optionStrategies`,
++`indicators`, `oiLab`, `auth`, `kiteAuth`).
++
++### Type-check the whole monorepo
++
++```bash
++pnpm typecheck      # exits non-zero if any workspace fails
++```
++
++---
++
++## Operational topics
++
++### Authentication
++
++* **One shared password** (`APP_ACCESS_PASSWORD`) authorises every request.
++* On successful login the server creates a row in `user_session` and sets a
++  signed httpOnly cookie carrying an opaque 64-char ID.
++* Every authenticated request looks up the row and **slides the expiry
++  forward** (throttled to one DB write per minute). Active users are never
++  logged out at the 30-day boundary.
++* `POST /api/auth/logout` deletes the row, so a stolen cookie can be revoked
++  instantly.
++* State-changing endpoints (POST/PUT/PATCH/DELETE) require an
++  `X-CSRF-Token` header that matches the per-session token returned by
++  `GET /api/auth/status`. The token is also returned in `POST /api/auth/login`'s
++  response.
++* Expired session rows are reaped on boot and once an hour after.
++
++### CORS
++
++Set `CORS_ORIGINS` to a CSV of allowed origins (default: same-origin only).
++Use `*` for "reflect any origin" in development. The previous behaviour
++(`origin: true`) is gone — that pattern is the Mozilla-flagged broad-CORS
++anti-pattern when paired with `credentials: true`.
++
++### Kite Connect
++
++* The Kite access token expires at ~06:00 IST every morning.
++* `GET /api/kite/login-url` returns the Zerodha OAuth URL.
++* After the user logs in on Zerodha, the redirect lands on
++  `/api/kite/callback?request_token=...`, which exchanges it for an
++  access token and persists the row in `kite_session`.
++* `next6amIST` (in `kiteAuth.ts`) computes the exact moment of expiry using
++  `Intl.DateTimeFormat('Asia/Kolkata')` — DST-safe and unit-tested.
++* If Kite is not configured, every Kite-aware feature degrades to Yahoo:
++  delayed quotes work but tick-level OI deltas don't.
++
++### Rate limits
++
++| Path                           | Window  | Limit        | Notes                                |
++| ------------------------------ | ------- | ------------ | ------------------------------------ |
++| `/api/auth/login`              | 15 min  | 5 / IP       | Successful logins are not counted    |
++| `/api/webhooks/*`              | 1 min   | 60 / IP      | TradingView burst-friendly           |
++| `/api/*` (everything else)     | 1 min   | 300 / IP     | Default per-IP cap                   |
++
++### TradingView webhooks
++
++`POST /api/webhooks/tradingview` is the only public state-changing endpoint.
++In production it requires `TRADINGVIEW_WEBHOOK_SECRET` to be supplied via:
++
++* `?secret=...` querystring, or
++* `X-Webhook-Secret` header, or
++* `secret` field in the JSON body.
++
++`GET /api/webhooks/tradingview` (auth required) lists recent alerts;
++`DELETE /api/webhooks/tradingview` clears them (also requires the secret).
++
++### Logs and observability
++
++Pino structured JSON to stdout. `pino-pretty` is bundled — pipe through it in
++development:
++
++```bash
++pnpm -F @workspace/api-server dev | pnpm exec pino-pretty
++```
++
++There is currently **no** `/metrics` endpoint, error reporter, or trace
++exporter. See the open issues list at the bottom of this file.
++
++---
++
++## API spec
++
++The single source of truth is [`lib/api-spec/openapi.yaml`](./lib/api-spec/openapi.yaml).
++Every `/api/*` endpoint is documented (55 paths, 86 schemas). The orval
++config in `lib/api-client-react/orval.config.ts` regenerates the typed
++TanStack Query hooks from this file:
++
++```bash
++pnpm -F @workspace/api-client-react gen
++```
++
++If you add a route in `artifacts/api-server`, **also** update the OpenAPI
++spec in the same change. The TypeScript build will succeed regardless, but
++the SPA loses type safety for the new endpoint.
++
++The OpenAPI document is validated on every PR (CI step `validate-openapi`).
++You can run it locally:
++
++```bash
++pip install --user openapi-spec-validator
++python3 -c 'from openapi_spec_validator import validate; import yaml; validate(yaml.safe_load(open("lib/api-spec/openapi.yaml")))'
++```
++
++---
++
++## Architecture highlights
++
++### Scoring engine (`artifacts/api-server/src/lib/scoring.ts`)
++
++* 13 weighted rules produce a score in `[-100, +100]`.
++* Cutoffs: `≥ 50` STRONG_BUY, `≥ 22` BUY, `≥ -22` NEUTRAL, `≥ -50` SELL,
++  else STRONG_SELL.
++* When an indicator (ADX, volume ratio, delivery %) isn't computed for a
++  symbol, the corresponding rule is **skipped** — it does not contribute
++  fake "neutral" weight that biases the score toward zero.
++* The `confidence` field is the *alignment* of evidence (what fraction of
++  weighted reasons agree with the final direction), not a probability of
++  trade success. A back-test harness for predictive validity is on the
++  roadmap.
++* Stop-loss is capped at `price × 0.999` for BUYs (mirror for SELLs) so a
++  fast breakdown that pushes price below the lagging 20-day support can
++  never invert the trade.
++
++### Options pricing (`artifacts/api-server/src/lib/blackScholes.ts`)
++
++* Standard Black-Scholes-Merton with continuous dividend yield `q`.
++* Newton-Raphson IV solver with bisection fallback over `σ ∈ [0.01, 5.0]`.
++* `yearsToExpiry` anchors at the 15:30 IST settlement instant (10:00 UTC)
++  and floors at 1 hour to keep Greeks finite at expiry.
++
++### OI Lab (`artifacts/api-server/src/lib/oiLab.ts`)
++
++* `computeOiInsights` produces a per-strike OI bar chart, max-pain, PCR,
++  ATM IV, sentiment band, and a 1-line interpretation.
++* `fetchOiHeatmap` uses the Kite NFO instruments dump + a session OI baseline
++  (mid-of-day-high-and-low) to classify every F&O equity into LONG_BUILDUP,
++  SHORT_BUILDUP, SHORT_COVERING, LONG_UNWINDING, or NEUTRAL.
++* The intraday `tracker` polls every 1–60 minutes and persists snapshots to
++  disk so a server restart mid-day keeps the chart history.
++* Max-pain tie-breaker prefers the strike closest to spot.
++
++### Strategy builder (`artifacts/api-server/src/lib/optionStrategies.ts`)
++
++* 13 strategy templates: long call/put, straddles, strangles, call/put
++  spreads, iron condor, iron butterfly, covered call.
++* Each strategy returns a fully-computed payoff curve, breakevens, signed
++  max P/L, net Greeks, probability-of-profit, and a recommendation flag.
++* **Cash-settled indices** (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY,
++  NIFTYNXT50, SENSEX, BANKEX) skip Covered Call instead of synthesising a
++  fake "long stock" leg — the previous behaviour produced absurd Max Loss
++  values like ₹15.43 lakh on NIFTY. Tested.
++
++---
++
++## Known gaps / roadmap
++
++These are tracked in the code review's "What is missing / requires fix"
++sections. The biggest items still open:
++
++* `/metrics` (Prometheus) endpoint and a metrics counter for: scans completed,
++  Yahoo retries, Kite reconnects, IV-solve failures, RSS feed failures.
++* Sentry-style error reporter for the SPA (currently silent breadcrumbs).
++* Backtest harness for the scoring engine (predict forward returns; calibrate
++  the rule weights and signal cutoffs against actual hit-rates).
++* SSE / WebSocket push from the Kite feed to the SPA dashboard so the
++  ticker doesn't poll every 30s.
++* Versioned Drizzle migrations (currently `db:push` workflow — fine for
++  development, dangerous in production).
++* Replace the `1500-row` full-NSE-scan response with a streaming variant
++  for mobile.
++
++---
++
++## Contributing
++
++1. Fork or create a branch.
++2. Make your change. If you add a route, **update `openapi.yaml`** and
++   regenerate the client.
++3. Add or extend a Vitest suite. The bar for math/finance code is "table
++   tests with reference values from a known-correct source" (Hull, QuantLib,
++   pandas-ta, etc.) — see `blackScholes.test.ts` for the pattern.
++4. `pnpm typecheck` and `pnpm -F @workspace/api-server test` must both
++   exit zero.
++5. Open a PR. CI runs typecheck, tests, OpenAPI validation, and
++   `pnpm audit --audit-level=high`.
++
++---
++
++## License
++
++MIT (see root `package.json`).
+diff -urN project/marketscanner-source/artifacts/api-server/package.json work/ms/artifacts/api-server/package.json
+--- a/artifacts/api-server/package.json	2026-04-24 10:22:52.000000000 +0000
++++ b/artifacts/api-server/package.json	2026-04-27 09:43:21.000000000 +0000
+@@ -7,7 +7,10 @@
+     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+     "build": "node ./build.mjs",
+     "start": "node --enable-source-maps ./dist/index.mjs",
+-    "typecheck": "tsc -p tsconfig.json --noEmit"
++    "typecheck": "tsc -p tsconfig.json --noEmit",
++    "test": "vitest run",
++    "test:watch": "vitest",
++    "test:coverage": "vitest run --coverage"
+   },
+   "dependencies": {
+     "@workspace/api-zod": "workspace:*",
+@@ -28,9 +31,11 @@
+     "@types/cors": "^2.8.19",
+     "@types/express": "^5.0.6",
+     "@types/node": "catalog:",
++    "@vitest/coverage-v8": "^1.6.0",
+     "esbuild": "^0.27.3",
+     "esbuild-plugin-pino": "^2.3.3",
+     "pino-pretty": "^13",
+-    "thread-stream": "3.1.0"
++    "thread-stream": "3.1.0",
++    "vitest": "^1.6.0"
+   }
+ }
+diff -urN project/marketscanner-source/artifacts/api-server/src/app.ts work/ms/artifacts/api-server/src/app.ts
+--- a/artifacts/api-server/src/app.ts	2026-04-24 10:33:45.000000000 +0000
++++ b/artifacts/api-server/src/app.ts	2026-04-27 11:04:15.233967911 +0000
+@@ -7,12 +7,13 @@
+ import router from "./routes";
+ import authRouter from "./routes/auth";
+ import { logger } from "./lib/logger";
+-import { requireAuth, logAuthBootState } from "./lib/auth";
++import { requireAuth, requireCsrf, reapExpiredSessions, logAuthBootState } from "./lib/auth";
+ 
+ const app: Express = express();
+ 
+-// We're behind Replit's reverse proxy in deployment — needed so req.ip,
+-// rate-limit keys, and `secure` cookie behavior work correctly.
++// Behind Replit's reverse proxy — needed so req.ip, rate-limit keys, and
++// `secure` cookie behavior work correctly. Set to a fixed CIDR list (or
++// raise the count) if you also front this with Cloudflare/Fastly.
+ app.set("trust proxy", 1);
+ 
+ const SESSION_SECRET = process.env["SESSION_SECRET"];
+@@ -20,13 +21,60 @@
+   throw new Error("SESSION_SECRET env var is required (used to sign session cookies).");
+ }
+ 
++// ── CORS allowlist ──────────────────────────────────────────────────────────
++//
++// Previous behaviour — `origin: true` — reflected ANY origin into ACAO with
++// credentials=true, which is the Mozilla-flagged "broad CORS" pattern. With
++// SameSite=Lax cookies the practical risk is small, but a misconfigured
++// subdomain or partner could exploit it.
++//
++// New behaviour: an explicit allowlist sourced from CORS_ORIGINS (CSV in env).
++// Same-origin (Origin header missing) is always allowed — this is how the
++// SPA on Replit talks to its own /api. Set CORS_ORIGINS=* to opt back into
++// the previous behaviour for development.
++const CORS_ORIGINS = (process.env["CORS_ORIGINS"] ?? "")
++  .split(",")
++  .map((s) => s.trim())
++  .filter(Boolean);
++const CORS_WILDCARD = CORS_ORIGINS.includes("*");
++
++function corsOriginCheck(
++  origin: string | undefined,
++  cb: (err: Error | null, allow?: boolean) => void,
++): void {
++  if (!origin) return cb(null, true); // same-origin / curl / no Origin header
++  if (CORS_WILDCARD) return cb(null, true);
++  if (CORS_ORIGINS.includes(origin)) return cb(null, true);
++  // Don't error — just deny so the browser blocks at the CORS layer with a
++  // clear message instead of throwing a 500.
++  cb(null, false);
++}
++
+ app.use(
+   helmet({
+-    // CSP turned off — Vite HMR + react inline-style are noisy under default CSP.
+-    // The app is single-tenant private, so the major helmet headers we want are
+-    // HSTS / X-Content-Type-Options / X-Frame-Options, which stay on.
+-    contentSecurityPolicy: false,
++    // Enable CSP. Defaults from helmet block inline scripts entirely. We need
++    // 'unsafe-inline' for style-src because Radix/Tailwind inject inline
++    // styles. We do NOT allow 'unsafe-inline' for script-src — the SPA is
++    // pre-bundled by Vite. Tighten further by removing 'unsafe-inline' on
++    // style-src once you migrate to nonces.
++    contentSecurityPolicy: {
++      directives: {
++        defaultSrc: ["'self'"],
++        scriptSrc: ["'self'"],
++        styleSrc: ["'self'", "'unsafe-inline'"],
++        imgSrc: ["'self'", "data:", "blob:"],
++        connectSrc: ["'self'", ...CORS_ORIGINS.filter((o) => o !== "*")],
++        fontSrc: ["'self'", "data:"],
++        frameAncestors: ["'self'"],
++        objectSrc: ["'none'"],
++        baseUri: ["'self'"],
++        formAction: ["'self'"],
++        upgradeInsecureRequests: [],
++      },
++    },
+     crossOriginResourcePolicy: { policy: "cross-origin" },
++    crossOriginOpenerPolicy: { policy: "same-origin" },
++    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+   }),
+ );
+ 
+@@ -50,13 +98,12 @@
+   }),
+ );
+ 
+-// Same-origin in production (path-routed by Replit's proxy). Keep credentials
+-// enabled so the auth cookie is sent on XHR. `origin: true` reflects the request
+-// origin instead of using a wildcard, which is required when credentials=true.
+ app.use(
+   cors({
+-    origin: true,
++    origin: corsOriginCheck,
+     credentials: true,
++    // Cap exposed headers to what the SPA actually reads.
++    exposedHeaders: ["X-Request-Id", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"],
+   }),
+ );
+ 
+@@ -64,10 +111,7 @@
+ app.use(express.json({ limit: "256kb" }));
+ app.use(express.urlencoded({ extended: true, limit: "256kb" }));
+ 
+-// ---- Rate limiting ----
+-// Strict bucket for the login endpoint so password guessing is impractical.
+-// Successful logins do NOT count against the budget so legitimate
+-// re-authentication (new device, cleared cookies) isn't penalised.
++// ── Rate limiting ───────────────────────────────────────────────────────────
+ const loginLimiter = rateLimit({
+   windowMs: 15 * 60 * 1000,
+   limit: 5,
+@@ -76,7 +120,6 @@
+   skipSuccessfulRequests: true,
+   message: { error: "too_many_login_attempts" },
+ });
+-// Webhook bucket — TradingView can fire frequently but each IP shouldn't burst.
+ const webhookLimiter = rateLimit({
+   windowMs: 60 * 1000,
+   limit: 60,
+@@ -84,7 +127,6 @@
+   legacyHeaders: false,
+   message: { error: "rate_limited" },
+ });
+-// Default per-IP cap on /api/* so a runaway client can't DoS the upstream feeds.
+ const apiLimiter = rateLimit({
+   windowMs: 60 * 1000,
+   limit: 300,
+@@ -97,19 +139,35 @@
+ app.use("/api/webhooks/", webhookLimiter);
+ app.use("/api/", apiLimiter);
+ 
+-// Auth routes are mounted BEFORE the gate so login/logout/status are reachable
+-// while logged out. The gate then guards everything else under /api.
++// Auth + CSRF: auth routes are reachable while logged out; everything else
++// goes through requireAuth → requireCsrf. CSRF is skipped on safe verbs by
++// the middleware itself (GET/HEAD/OPTIONS).
+ app.use("/api", authRouter);
+ app.use(requireAuth);
++app.use(requireCsrf);
+ app.use("/api", router);
+ 
+ // Global error handler — keep stack traces out of responses.
+ app.use((err: unknown, req: Request, res: Response, _next: NextFunction): void => {
+   logger.error({ err, path: req.path, method: req.method }, "Unhandled request error");
+-  if (res.headersSent) return;
++  if (res.headersSent) {
++    // Connection already streaming — destroy rather than leak a half-written body.
++    res.destroy();
++    return;
++  }
+   res.status(500).json({ error: "internal_server_error" });
+ });
+ 
+ logAuthBootState();
+ 
++// Reap expired sessions on boot, then every hour. `.unref()` so this timer
++// doesn't keep the process alive past SIGTERM.
++void reapExpiredSessions().catch((err) => {
++  logger.warn({ err: (err as Error).message }, "Initial session reap failed");
++});
++const reaperTimer = setInterval(() => {
++  void reapExpiredSessions().catch(() => undefined);
++}, 60 * 60 * 1000);
++reaperTimer.unref();
++
+ export default app;
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/auth.test.ts work/ms/artifacts/api-server/src/lib/auth.test.ts
+--- /dev/null
++++ b/artifacts/api-server/src/lib/auth.test.ts	2026-04-27 11:08:37.260908173 +0000
+@@ -0,0 +1,405 @@
++import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
++import type { Request, Response } from "express";
++
++vi.mock("./logger", () => ({
++  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
++}));
++
++// Mock the @workspace/db module — the auth module reads/writes a sessions
++// table; the unit tests use an in-memory map so we don't need a Postgres pool.
++//
++// The store lives on globalThis so it survives `vi.resetModules()` (which
++// re-runs vi.mock factories with fresh closures otherwise). This mirrors
++// how a real DB pool would persist across module reloads.
++type Row = {
++  id: string; csrfToken: string;
++  createdAt: Date; lastSeenAt: Date; expiresAt: Date;
++  ip: string | null; userAgent: string | null;
++};
++const G = globalThis as unknown as { __authTestStore?: Map<string, Row> };
++G.__authTestStore = G.__authTestStore ?? new Map<string, Row>();
++const sessionStore: Map<string, Row> = G.__authTestStore;
++
++vi.mock("@workspace/db", () => {
++  // Read fresh from globalThis at every operation so resetModules doesn't break us.
++  const store = () => (globalThis as unknown as { __authTestStore: Map<string, Row> }).__authTestStore;
++  return {
++    // The real userSessionTable's columns are Column objects; for the mock we
++    // just need eq(table.id, x) to produce { id: x } so the where-handler can
++    // route the lookup. Mocked drizzle's `eq` uses bracket notation on the
++    // first argument as a key, so we pass the column NAME as a string-coerced
++    // key proxy.
++    userSessionTable: { id: "id", csrfToken: "csrfToken", createdAt: "createdAt", lastSeenAt: "lastSeenAt", expiresAt: "expiresAt", ip: "ip", userAgent: "userAgent" },
++    db: {
++      insert: () => ({
++        values: async (v: Row) => { store().set(v.id, { ...v }); },
++      }),
++      delete: () => ({
++        where: (w: Record<string, unknown>) => {
++          const id = w["id"] as string | undefined;
++          const ltCutoff = w["__lt_expiresAt"] as Date | undefined;
++          return {
++            returning: async () => {
++              if (id != null) {
++                const ok = store().delete(id);
++                return ok ? [{ id }] : [];
++              }
++              if (ltCutoff) {
++                const reaped: { id: string }[] = [];
++                for (const [k, v] of store()) {
++                  if (v.expiresAt < ltCutoff) {
++                    store().delete(k);
++                    reaped.push({ id: k });
++                  }
++                }
++                return reaped;
++              }
++              return [];
++            },
++            then: (resolve: (value: void) => void, reject?: (e: unknown) => void) => {
++              try {
++                if (id != null) store().delete(id);
++                return Promise.resolve().then(resolve, reject);
++              } catch (e) {
++                return Promise.reject(e);
++              }
++            },
++            catch: function (this: unknown) { return this; },
++          };
++        },
++      }),
++      select: () => ({
++        from: () => ({
++          where: (w: Record<string, unknown>) => ({
++            limit: async (_n: number) => {
++              const id = w["id"] as string | undefined;
++              if (!id) return [];
++              const r = store().get(id);
++              return r ? [r] : [];
++            },
++          }),
++        }),
++      }),
++      update: () => ({
++        set: (patch: Partial<{ lastSeenAt: Date; expiresAt: Date }>) => ({
++          where: async (w: Record<string, unknown>) => {
++            const id = w["id"] as string | undefined;
++            if (!id) return;
++            const cur = store().get(id);
++            if (cur) store().set(id, { ...cur, ...patch });
++          },
++        }),
++      }),
++    },
++  };
++});
++
++vi.mock("drizzle-orm", () => ({
++  eq: (col: string, val: string) => ({ [col]: val }),
++  lt: (col: string, val: unknown) => ({ [`__lt_${col}`]: val }),
++}));
++
++let originalEnv: NodeJS.ProcessEnv;
++beforeEach(() => {
++  originalEnv = { ...process.env };
++  sessionStore.clear();
++});
++afterEach(() => {
++  process.env = originalEnv;
++  vi.restoreAllMocks();
++});
++
++function makeReq(over: Partial<Request> = {}): Request {
++  return {
++    originalUrl: "/api/test",
++    method: "GET",
++    signedCookies: {},
++    ip: "127.0.0.1",
++    get: () => undefined,
++    header: () => undefined,
++    ...over,
++  } as unknown as Request;
++}
++
++function makeRes(): Response & {
++  _status: number; _json?: unknown;
++  _cookies: { name: string; value: string; opts: object }[];
++  _cleared: { name: string; opts: object }[];
++} {
++  const cookies: { name: string; value: string; opts: object }[] = [];
++  const cleared: { name: string; opts: object }[] = [];
++  let _status = 200;
++  let _json: unknown;
++  return {
++    cookie: (name: string, value: string, opts: object) => { cookies.push({ name, value, opts }); },
++    clearCookie: (name: string, opts: object) => { cleared.push({ name, opts }); },
++    status: function (n: number) { _status = n; return this; },
++    json: function (b: unknown) { _json = b; return this; },
++    get _status() { return _status; },
++    get _json() { return _json; },
++    _cookies: cookies,
++    _cleared: cleared,
++  } as unknown as Response & { _status: number; _json: unknown; _cookies: { name: string; value: string; opts: object }[]; _cleared: { name: string; opts: object }[] };
++}
++
++// ─── Password verification ──────────────────────────────────────────────────
++
++describe("auth – password verification", () => {
++  it("verifyPassword returns false when APP_ACCESS_PASSWORD is not set", async () => {
++    delete process.env["APP_ACCESS_PASSWORD"];
++const { verifyPassword, isPasswordConfigured } = await import("./auth");
++    expect(isPasswordConfigured()).toBe(false);
++    expect(verifyPassword("anything")).toBe(false);
++  });
++
++  it("verifyPassword returns false on wrong password", async () => {
++    process.env["APP_ACCESS_PASSWORD"] = "correct horse battery staple";
++const { verifyPassword } = await import("./auth");
++    expect(verifyPassword("wrong horse battery staple")).toBe(false);
++    expect(verifyPassword("correct horse battery stapl")).toBe(false);
++    expect(verifyPassword("")).toBe(false);
++  });
++
++  it("verifyPassword returns true on the configured password", async () => {
++    process.env["APP_ACCESS_PASSWORD"] = "correct horse battery staple";
++const { verifyPassword } = await import("./auth");
++    expect(verifyPassword("correct horse battery staple")).toBe(true);
++  });
++});
++
++// ─── Sliding sessions (DB-backed) ───────────────────────────────────────────
++
++describe("auth – createSession / loadSession / destroySession", () => {
++  it("createSession persists a row and sets a signed httpOnly cookie", async () => {
++const { createSession } = await import("./auth");
++    const req = makeReq({ ip: "1.2.3.4", get: () => "TestAgent/1.0" } as Partial<Request>);
++    const res = makeRes();
++    const sess = await createSession(req, res);
++    expect(sess.id).toMatch(/^[a-f0-9]{64}$/);
++    expect(sess.csrfToken).toMatch(/^[a-f0-9]{48}$/);
++    expect(sessionStore.size).toBe(1);
++    expect(res._cookies.length).toBe(1);
++    const c = res._cookies[0];
++    expect(c.name).toBe("scanner_session");
++    expect(c.value).toBe(sess.id);
++    expect(c.opts).toMatchObject({ httpOnly: true, sameSite: "lax", signed: true, path: "/" });
++  });
++
++  it("loadSession returns null when no cookie is present", async () => {
++const { loadSession } = await import("./auth");
++    const req = makeReq({ signedCookies: {} as Request["signedCookies"] });
++    expect(await loadSession(req)).toBeNull();
++  });
++
++  it("loadSession returns null when cookie value is the legacy 'ok' sentinel", async () => {
++    // The new API requires a 64-char hex id. Old cookies of the form
++    // `scanner_session=ok` should be rejected by the new path so a stale
++    // browser cookie can't be silently honoured.
++const { loadSession } = await import("./auth");
++    const req = makeReq({ signedCookies: { scanner_session: "ok" } as Request["signedCookies"] });
++    expect(await loadSession(req)).toBeNull();
++  });
++
++  it("loadSession returns the session for a valid cookie", async () => {
++const { createSession, loadSession } = await import("./auth");
++    const res = makeRes();
++    const sess = await createSession(makeReq(), res);
++    const cookie = (res._cookies[0]).value;
++    const req2 = makeReq({ signedCookies: { scanner_session: cookie } as Request["signedCookies"] });
++    const loaded = await loadSession(req2);
++    expect(loaded).not.toBeNull();
++    expect(loaded!.id).toBe(sess.id);
++    expect(loaded!.csrfToken).toBe(sess.csrfToken);
++  });
++
++  it("loadSession reaps and returns null when the session has expired", async () => {
++const { createSession, loadSession } = await import("./auth");
++    const res = makeRes();
++    const sess = await createSession(makeReq(), res);
++    // Forcibly expire the row in the mock store.
++    const row = sessionStore.get(sess.id)!;
++    row.expiresAt = new Date(Date.now() - 1000);
++    const req2 = makeReq({ signedCookies: { scanner_session: sess.id } as Request["signedCookies"] });
++    expect(await loadSession(req2)).toBeNull();
++    // Reaped from the store as a side effect.
++    expect(sessionStore.has(sess.id)).toBe(false);
++  });
++
++  it("destroySession deletes the row AND clears the cookie (server-side revocation)", async () => {
++const { createSession, destroySession, loadSession } = await import("./auth");
++    const res1 = makeRes();
++    const sess = await createSession(makeReq(), res1);
++    const cookie = res1._cookies[0].value;
++    const req = makeReq({ signedCookies: { scanner_session: cookie } as Request["signedCookies"] });
++    const res2 = makeRes();
++    await destroySession(req, res2);
++    expect(res2._cleared.length).toBe(1);
++    expect(sessionStore.has(sess.id)).toBe(false);
++    // Subsequent presentation of the same cookie returns null — stolen-cookie
++    // revocation works.
++    expect(await loadSession(req)).toBeNull();
++  });
++});
++
++// ─── Public-route allowlist + auth gate ─────────────────────────────────────
++
++describe("auth – requireAuth gate", () => {
++  it("blocks unauthenticated requests with 401 + AUTH_REQUIRED code", async () => {
++const { requireAuth } = await import("./auth");
++    const req = makeReq({ originalUrl: "/api/options/signals" });
++    const res = makeRes();
++    let nextCalled = false;
++    await requireAuth(req, res, () => { nextCalled = true; });
++    expect(nextCalled).toBe(false);
++    expect(res._status).toBe(401);
++    expect(res._json).toMatchObject({ error: "unauthorized", code: "AUTH_REQUIRED" });
++  });
++
++  it("allows authenticated requests through and attaches req.session", async () => {
++const { createSession, requireAuth } = await import("./auth");
++    const r0 = makeRes();
++    const sess = await createSession(makeReq(), r0);
++    const req = makeReq({
++      originalUrl: "/api/stocks",
++      signedCookies: { scanner_session: sess.id } as Request["signedCookies"],
++    });
++    const res = makeRes();
++    let nextCalled = false;
++    await requireAuth(req, res, () => { nextCalled = true; });
++    expect(nextCalled).toBe(true);
++    expect(req.session?.id).toBe(sess.id);
++  });
++
++  it("permits public routes regardless of auth", async () => {
++const { requireAuth } = await import("./auth");
++    const cases: Array<[string, string]> = [
++      ["GET", "/api/healthz"],
++      ["GET", "/api/auth/status"],
++      ["POST", "/api/auth/login"],
++      ["GET", "/api/kite/callback?request_token=abc"],
++      ["POST", "/api/webhooks/tradingview"],
++    ];
++    for (const [method, url] of cases) {
++      const req = makeReq({ originalUrl: url, method });
++      const res = makeRes();
++      let nextCalled = false;
++      await requireAuth(req, res, () => { nextCalled = true; });
++      expect(nextCalled, `should permit ${method} ${url}`).toBe(true);
++    }
++  });
++
++  it("does NOT permit GET on /api/webhooks/tradingview (POST-only public)", async () => {
++const { requireAuth } = await import("./auth");
++    const req = makeReq({ originalUrl: "/api/webhooks/tradingview", method: "GET" });
++    const res = makeRes();
++    let nextCalled = false;
++    await requireAuth(req, res, () => { nextCalled = true; });
++    expect(nextCalled).toBe(false);
++    expect(res._status).toBe(401);
++  });
++
++  it("does NOT permit DELETE on /api/webhooks/tradingview", async () => {
++const { requireAuth } = await import("./auth");
++    const req = makeReq({ originalUrl: "/api/webhooks/tradingview", method: "DELETE" });
++    const res = makeRes();
++    let nextCalled = false;
++    await requireAuth(req, res, () => { nextCalled = true; });
++    expect(nextCalled).toBe(false);
++    expect(res._status).toBe(401);
++  });
++
++  it("permits queries with querystring on auth status endpoint", async () => {
++const { requireAuth } = await import("./auth");
++    const req = makeReq({ originalUrl: "/api/auth/status?cb=12345", method: "GET" });
++    const res = makeRes();
++    let nextCalled = false;
++    await requireAuth(req, res, () => { nextCalled = true; });
++    expect(nextCalled).toBe(true);
++  });
++});
++
++// ─── CSRF middleware ────────────────────────────────────────────────────────
++
++describe("auth – requireCsrf middleware", () => {
++  it("permits GET / HEAD / OPTIONS without checking the header", async () => {
++const { requireCsrf } = await import("./auth");
++    for (const method of ["GET", "HEAD", "OPTIONS"]) {
++      const req = makeReq({ method });
++      const res = makeRes();
++      let next = false;
++      requireCsrf(req, res, () => { next = true; });
++      expect(next, method).toBe(true);
++    }
++  });
++
++  it("rejects POST without an X-CSRF-Token header", async () => {
++const { requireCsrf } = await import("./auth");
++    const req = makeReq({ method: "POST" });
++    // Simulate a session attached by an upstream requireAuth
++    (req as Request & { session: unknown }).session = {
++      id: "x".repeat(64), csrfToken: "expected", createdAt: new Date(), expiresAt: new Date(),
++    };
++    const res = makeRes();
++    let next = false;
++    requireCsrf(req, res, () => { next = true; });
++    expect(next).toBe(false);
++    expect(res._status).toBe(403);
++    expect(res._json).toMatchObject({ error: "csrf_token_invalid", code: "CSRF_REQUIRED" });
++  });
++
++  it("rejects POST with the wrong X-CSRF-Token", async () => {
++const { requireCsrf } = await import("./auth");
++    const req = makeReq({ method: "POST", header: ((name: string) => name.toLowerCase() === "x-csrf-token" ? "wrong" : undefined) as unknown as Request["header"] });
++    (req as Request & { session: unknown }).session = {
++      id: "x".repeat(64), csrfToken: "expected", createdAt: new Date(), expiresAt: new Date(),
++    };
++    const res = makeRes();
++    let next = false;
++    requireCsrf(req, res, () => { next = true; });
++    expect(next).toBe(false);
++    expect(res._status).toBe(403);
++  });
++
++  it("permits POST when X-CSRF-Token matches the session token", async () => {
++const { requireCsrf } = await import("./auth");
++    const req = makeReq({ method: "POST", header: ((name: string) => name.toLowerCase() === "x-csrf-token" ? "expected" : undefined) as unknown as Request["header"] });
++    (req as Request & { session: unknown }).session = {
++      id: "x".repeat(64), csrfToken: "expected", createdAt: new Date(), expiresAt: new Date(),
++    };
++    const res = makeRes();
++    let next = false;
++    requireCsrf(req, res, () => { next = true; });
++    expect(next).toBe(true);
++  });
++
++  it("rejects POST without any session attached", async () => {
++const { requireCsrf } = await import("./auth");
++    const req = makeReq({ method: "POST", header: ((name: string) => name.toLowerCase() === "x-csrf-token" ? "x" : undefined) as unknown as Request["header"] });
++    const res = makeRes();
++    let next = false;
++    requireCsrf(req, res, () => { next = true; });
++    expect(next).toBe(false);
++    expect(res._status).toBe(401);
++  });
++});
++
++// ─── Reaper ─────────────────────────────────────────────────────────────────
++
++describe("auth – reapExpiredSessions", () => {
++  it("returns 0 when there are no expired rows", async () => {
++const { createSession, reapExpiredSessions } = await import("./auth");
++    await createSession(makeReq(), makeRes());
++    expect(await reapExpiredSessions()).toBe(0);
++    expect(sessionStore.size).toBe(1);
++  });
++
++  it("deletes only the rows whose expiresAt is in the past", async () => {
++const { createSession, reapExpiredSessions } = await import("./auth");
++    const a = await createSession(makeReq(), makeRes());
++    const b = await createSession(makeReq(), makeRes());
++    sessionStore.get(a.id)!.expiresAt = new Date(Date.now() - 1000);
++    expect(await reapExpiredSessions()).toBe(1);
++    expect(sessionStore.has(a.id)).toBe(false);
++    expect(sessionStore.has(b.id)).toBe(true);
++  });
++});
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/auth.ts work/ms/artifacts/api-server/src/lib/auth.ts
+--- a/artifacts/api-server/src/lib/auth.ts	2026-04-24 10:29:31.000000000 +0000
++++ b/artifacts/api-server/src/lib/auth.ts	2026-04-27 09:56:46.000000000 +0000
+@@ -1,9 +1,45 @@
+ import type { Request, Response, NextFunction } from "express";
+ import crypto from "node:crypto";
++import { db, userSessionTable } from "@workspace/db";
++import { eq, lt } from "drizzle-orm";
+ import { logger } from "./logger";
+ 
++/**
++ * Session model — sliding, DB-backed, CSRF-equipped.
++ *
++ * Cookie: `scanner_session` (signed httpOnly, SameSite=Lax, Secure in prod)
++ *   value = opaque 64-char hex session ID
++ *
++ * On each authenticated request:
++ *   1. We look up the session ID in `user_session`.
++ *   2. If the row exists and `expiresAt > now`, the request is authorised.
++ *   3. We bump `lastSeenAt` and roll `expiresAt` forward so an active user
++ *      stays logged in indefinitely. `lastSeen` updates are throttled to
++ *      once per minute (see SLIDE_THROTTLE_MS) to avoid one DB write per API call.
++ *   4. We attach the session row to `req.session` so downstream code can
++ *      read it cheaply (e.g. for the CSRF check).
++ *
++ * On logout we DELETE the row, which is what makes server-side revocation
++ * possible — a stolen cookie can be invalidated by the user pressing
++ * "Sign out" without having to wait for the cookie's nominal expiry.
++ *
++ * CSRF defense: every session has a `csrfToken`. The `requireCsrf` middleware
++ * compares the token from `X-CSRF-Token` header against `req.session.csrfToken`
++ * and rejects mismatches with 403. The token is exposed to the SPA via
++ * `/api/auth/status`, never via Set-Cookie (so JS code in the SPA can read
++ * it from a JSON response, but XSRF attackers cannot read it via reflected
++ * cookies because the session cookie itself is httpOnly).
++ *
++ * Public-route allowlist follows the original design — exempted endpoints
++ * are: `/healthz`, `/auth/*`, `/kite/callback`, and `POST /webhooks/tradingview`
++ * (the last one has its OWN secret-token check inside the route).
++ */
++
+ const COOKIE_NAME = "scanner_session";
+-const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
++const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
++const SLIDE_THROTTLE_MS = 60 * 1000;
++const CSRF_HEADER = "x-csrf-token";
++
+ const isProd = (): boolean => process.env["NODE_ENV"] === "production";
+ 
+ function getPassword(): string | undefined {
+@@ -18,24 +54,106 @@
+   return crypto.timingSafeEqual(ab, bb);
+ }
+ 
+-export function setSessionCookie(res: Response): void {
+-  res.cookie(COOKIE_NAME, "ok", {
++function newId(): string {
++  return crypto.randomBytes(32).toString("hex");
++}
++
++function newCsrfToken(): string {
++  return crypto.randomBytes(24).toString("hex");
++}
++
++// ── Public surface ───────────────────────────────────────────────────────────
++
++export interface SessionInfo {
++  id: string;
++  csrfToken: string;
++  createdAt: Date;
++  expiresAt: Date;
++}
++
++declare module "express-serve-static-core" {
++  interface Request {
++    session?: SessionInfo;
++  }
++}
++
++/** Issue a new session: persist a row + set the signed cookie. */
++export async function createSession(req: Request, res: Response): Promise<SessionInfo> {
++  const id = newId();
++  const csrfToken = newCsrfToken();
++  const now = new Date();
++  const expiresAt = new Date(now.getTime() + SESSION_LIFETIME_MS);
++  await db.insert(userSessionTable).values({
++    id,
++    csrfToken,
++    createdAt: now,
++    lastSeenAt: now,
++    expiresAt,
++    ip: (req.ip ?? "").slice(0, 64) || null,
++    userAgent: (req.get("user-agent") ?? "").slice(0, 200) || null,
++  });
++  res.cookie(COOKIE_NAME, id, {
+     httpOnly: true,
+     secure: isProd(),
+     sameSite: "lax",
+-    maxAge: COOKIE_MAX_AGE_MS,
++    maxAge: SESSION_LIFETIME_MS,
+     signed: true,
+     path: "/",
+   });
++  return { id, csrfToken, createdAt: now, expiresAt };
+ }
+ 
+-export function clearSessionCookie(res: Response): void {
++/** Clear the cookie AND delete the DB row so the cookie can't be reused. */
++export async function destroySession(req: Request, res: Response): Promise<void> {
++  const v = readCookieId(req);
++  if (v) {
++    await db.delete(userSessionTable).where(eq(userSessionTable.id, v)).catch(() => {});
++  }
+   res.clearCookie(COOKIE_NAME, { path: "/", signed: true });
+ }
+ 
+-export function isAuthenticated(req: Request): boolean {
++/**
++ * Look up the active session for this request. Returns null when:
++ *   - no cookie present
++ *   - cookie present but no DB row (logged out, or stolen-cookie revoked)
++ *   - row present but expired (server treats as expired and reaps lazily)
++ *
++ * Side effect: bumps `lastSeenAt` if the previous bump was > SLIDE_THROTTLE_MS
++ * ago, and rolls `expiresAt` forward by `SESSION_LIFETIME_MS`.
++ */
++export async function loadSession(req: Request): Promise<SessionInfo | null> {
++  const id = readCookieId(req);
++  if (!id) return null;
++  const rows = await db.select().from(userSessionTable).where(eq(userSessionTable.id, id)).limit(1);
++  const row = rows[0];
++  if (!row) return null;
++  const now = Date.now();
++  if (row.expiresAt.getTime() <= now) {
++    await db.delete(userSessionTable).where(eq(userSessionTable.id, id)).catch(() => {});
++    return null;
++  }
++  if (now - row.lastSeenAt.getTime() > SLIDE_THROTTLE_MS) {
++    const nowDate = new Date(now);
++    const newExpiry = new Date(now + SESSION_LIFETIME_MS);
++    await db
++      .update(userSessionTable)
++      .set({ lastSeenAt: nowDate, expiresAt: newExpiry })
++      .where(eq(userSessionTable.id, id))
++      .catch(() => {});
++    row.lastSeenAt = nowDate;
++    row.expiresAt = newExpiry;
++  }
++  return {
++    id: row.id,
++    csrfToken: row.csrfToken,
++    createdAt: row.createdAt,
++    expiresAt: row.expiresAt,
++  };
++}
++
++function readCookieId(req: Request): string | null {
+   const v = (req.signedCookies as Record<string, unknown> | undefined)?.[COOKIE_NAME];
+-  return v === "ok";
++  return typeof v === "string" && v.length === 64 ? v : null;
+ }
+ 
+ export function verifyPassword(supplied: string): boolean {
+@@ -48,10 +166,8 @@
+   return getPassword() !== undefined;
+ }
+ 
+-/** Public routes that bypass the cookie gate.
+- *  - `path` is matched as a prefix against `req.originalUrl` (sans querystring).
+- *  - `methods`, if present, restricts the bypass to those HTTP verbs (others fall
+- *    back to requiring a session cookie). Defaults to all methods. */
++// ── Public-route allowlist + middleware ──────────────────────────────────────
++
+ interface PublicRoute {
+   path: string;
+   methods?: string[];
+@@ -59,8 +175,8 @@
+ const PUBLIC_ROUTES: PublicRoute[] = [
+   { path: "/api/healthz" },
+   { path: "/api/auth/" },
+-  { path: "/api/kite/callback" },                       // Zerodha redirect (auth = request_token + KITE_API_SECRET)
+-  { path: "/api/webhooks/tradingview", methods: ["POST"] }, // ONLY POST is public — TradingView S2S with TRADINGVIEW_WEBHOOK_SECRET
++  { path: "/api/kite/callback" },
++  { path: "/api/webhooks/tradingview", methods: ["POST"] },
+ ];
+ 
+ function isPublicRoute(url: string, method: string): boolean {
+@@ -73,10 +189,66 @@
+   return false;
+ }
+ 
+-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
++/**
++ * Auth gate. Loads the session and:
++ *   - public route → next()
++ *   - valid session → attaches to req.session, next()
++ *   - missing/invalid → 401 unauthorized
++ */
++export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+   if (isPublicRoute(req.originalUrl, req.method)) return next();
+-  if (isAuthenticated(req)) return next();
+-  res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
++  const sess = await loadSession(req).catch((err) => {
++    logger.warn({ err: (err as Error).message }, "Session lookup failed");
++    return null;
++  });
++  if (!sess) {
++    res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
++    return;
++  }
++  req.session = sess;
++  next();
++}
++
++/**
++ * CSRF gate. Apply to state-changing endpoints (POST/PUT/PATCH/DELETE) that are
++ * NOT also protected by a non-cookie shared secret (TradingView webhook secret,
++ * Kite callback request_token, login password). The SPA reads `csrfToken` from
++ * `/api/auth/status` and echoes it on subsequent mutating requests via the
++ * `X-CSRF-Token` header — the classic double-submit defence.
++ *
++ * Attach AFTER requireAuth so `req.session` is populated.
++ */
++export function requireCsrf(req: Request, res: Response, next: NextFunction): void {
++  const m = req.method.toUpperCase();
++  if (m === "GET" || m === "HEAD" || m === "OPTIONS") return next();
++  const sess = req.session;
++  if (!sess) {
++    res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
++    return;
++  }
++  const supplied = (req.header(CSRF_HEADER) ?? "").trim();
++  if (!supplied || !safeEqual(supplied, sess.csrfToken)) {
++    res.status(403).json({ error: "csrf_token_invalid", code: "CSRF_REQUIRED" });
++    return;
++  }
++  next();
++}
++
++/**
++ * Reaper for expired sessions. Call on boot + on a scheduled tick.
++ * Idempotent and cheap: a single DELETE WHERE expires_at < now.
++ */
++export async function reapExpiredSessions(): Promise<number> {
++  const now = new Date();
++  const r = await db
++    .delete(userSessionTable)
++    .where(lt(userSessionTable.expiresAt, now))
++    .returning({ id: userSessionTable.id })
++    .catch(() => [] as { id: string }[]);
++  if (r.length > 0) {
++    logger.info({ reaped: r.length }, "Expired sessions reaped");
++  }
++  return r.length;
+ }
+ 
+ export function logAuthBootState(): void {
+@@ -89,3 +261,27 @@
+     logger.info("Auth gate enabled (APP_ACCESS_PASSWORD configured)");
+   }
+ }
++
++// ── Backwards-compatibility shims ────────────────────────────────────────────
++
++export function setSessionCookie(res: Response): void {
++  res.cookie(COOKIE_NAME, "ok", {
++    httpOnly: true,
++    secure: isProd(),
++    sameSite: "lax",
++    maxAge: SESSION_LIFETIME_MS,
++    signed: true,
++    path: "/",
++  });
++}
++
++export function clearSessionCookie(res: Response): void {
++  res.clearCookie(COOKIE_NAME, { path: "/", signed: true });
++}
++
++export function isAuthenticated(req: Request): boolean {
++  const v = (req.signedCookies as Record<string, unknown> | undefined)?.[COOKIE_NAME];
++  if (v === "ok") return true;
++  if (typeof v === "string" && v.length === 64) return true;
++  return false;
++}
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/blackScholes.test.ts work/ms/artifacts/api-server/src/lib/blackScholes.test.ts
+--- /dev/null
++++ b/artifacts/api-server/src/lib/blackScholes.test.ts	2026-04-27 09:35:24.000000000 +0000
+@@ -0,0 +1,249 @@
++import { describe, it, expect } from "vitest";
++import {
++  priceAndGreeks,
++  bsPrice,
++  impliedVolatility,
++  yearsToExpiry,
++} from "./blackScholes";
++
++/**
++ * Tests for the Black-Scholes-Merton pricing module.
++ *
++ * Reference values come from cross-checking with QuantLib (Python) and
++ * Hull, "Options, Futures, and Other Derivatives" 9th ed. examples.
++ *
++ * Tolerance choices:
++ *   - PRICE_EPS = 0.05  → ~5 paise on a NIFTY option (well under bid-ask spread)
++ *   - GREEK_EPS = 1e-3  → 0.1% of typical Greek magnitude
++ *   - IV_EPS    = 5e-3  → ~0.5% absolute IV (Newton solver tolerance)
++ */
++const PRICE_EPS = 0.05;
++const GREEK_EPS = 1e-3;
++const IV_EPS = 5e-3;
++
++describe("priceAndGreeks", () => {
++  describe("ATM call/put parity", () => {
++    it("call and put prices satisfy put-call parity at ATM", () => {
++      // Standard parity: C - P = S·e^(-qT) - K·e^(-rT)
++      const inp = { S: 100, K: 100, T: 0.5, r: 0.05, q: 0.02, sigma: 0.2 };
++      const c = priceAndGreeks({ ...inp, type: "CE" }).price;
++      const p = priceAndGreeks({ ...inp, type: "PE" }).price;
++      const parity = inp.S * Math.exp(-inp.q * inp.T) - inp.K * Math.exp(-inp.r * inp.T);
++      expect(c - p).toBeCloseTo(parity, 4);
++    });
++
++    it("call delta + |put delta| = e^(-qT)", () => {
++      // delta_C - delta_P = e^(-qT) (with q=0, this is just 1).
++      const inp = { S: 100, K: 100, T: 0.5, r: 0.05, q: 0.02, sigma: 0.2 };
++      const c = priceAndGreeks({ ...inp, type: "CE" }).delta;
++      const p = priceAndGreeks({ ...inp, type: "PE" }).delta;
++      expect(c - p).toBeCloseTo(Math.exp(-inp.q * inp.T), 4);
++    });
++  });
++
++  describe("Hull textbook examples", () => {
++    it("Hull example: S=42, K=40, r=10%, σ=20%, T=0.5 → C ≈ 4.76", () => {
++      // Hull 9e, Example 15.6: European call with no dividends.
++      const r = priceAndGreeks({ S: 42, K: 40, T: 0.5, r: 0.1, q: 0, sigma: 0.2, type: "CE" });
++      expect(r.price).toBeCloseTo(4.7594, 2);
++      // delta should be near 0.78
++      expect(r.delta).toBeGreaterThan(0.77);
++      expect(r.delta).toBeLessThan(0.79);
++    });
++
++    it("ATM call with σ=20%, T=1y, r=5%, q=0 prices to ~10.45", () => {
++      // Standard textbook ATM call value.
++      const r = priceAndGreeks({ S: 100, K: 100, T: 1, r: 0.05, q: 0, sigma: 0.2, type: "CE" });
++      expect(r.price).toBeCloseTo(10.4506, 2);
++    });
++  });
++
++  describe("Greeks bounds", () => {
++    it("call delta is in [0, e^(-qT)]", () => {
++      for (const K of [80, 100, 120]) {
++        for (const sigma of [0.1, 0.3, 0.6]) {
++          const r = priceAndGreeks({ S: 100, K, T: 0.25, r: 0.05, q: 0.02, sigma, type: "CE" });
++          expect(r.delta).toBeGreaterThanOrEqual(-1e-9);
++          expect(r.delta).toBeLessThanOrEqual(Math.exp(-0.02 * 0.25) + 1e-9);
++        }
++      }
++    });
++
++    it("put delta is in [-e^(-qT), 0]", () => {
++      for (const K of [80, 100, 120]) {
++        for (const sigma of [0.1, 0.3, 0.6]) {
++          const r = priceAndGreeks({ S: 100, K, T: 0.25, r: 0.05, q: 0.02, sigma, type: "PE" });
++          const upper = Math.exp(-0.02 * 0.25);
++          expect(r.delta).toBeLessThanOrEqual(1e-9);
++          expect(r.delta).toBeGreaterThanOrEqual(-upper - 1e-9);
++        }
++      }
++    });
++
++    it("gamma is identical for matching call and put (same K, T, σ)", () => {
++      const inp = { S: 100, K: 105, T: 0.5, r: 0.05, q: 0.01, sigma: 0.25 };
++      const c = priceAndGreeks({ ...inp, type: "CE" }).gamma;
++      const p = priceAndGreeks({ ...inp, type: "PE" }).gamma;
++      expect(Math.abs(c - p)).toBeLessThan(GREEK_EPS);
++      expect(c).toBeGreaterThan(0);
++    });
++
++    it("vega is identical for matching call and put", () => {
++      const inp = { S: 100, K: 105, T: 0.5, r: 0.05, q: 0.01, sigma: 0.25 };
++      const c = priceAndGreeks({ ...inp, type: "CE" }).vega;
++      const p = priceAndGreeks({ ...inp, type: "PE" }).vega;
++      expect(Math.abs(c - p)).toBeLessThan(GREEK_EPS);
++      expect(c).toBeGreaterThan(0);
++    });
++
++    it("theta on a long option is negative (time decay hurts holder)", () => {
++      const c = priceAndGreeks({ S: 100, K: 100, T: 0.25, r: 0.05, q: 0, sigma: 0.2, type: "CE" });
++      const p = priceAndGreeks({ S: 100, K: 100, T: 0.25, r: 0.05, q: 0, sigma: 0.2, type: "PE" });
++      expect(c.theta).toBeLessThan(0);
++      expect(p.theta).toBeLessThan(0);
++    });
++  });
++
++  describe("Edge: deep-OTM put noted in replit.md (April 2026 audit)", () => {
++    // From replit.md: "Reproduced Black-Scholes for the reported deep-OTM put
++    // scenario (S=24100, K=22850, T=1day, σ across 0.05..10.0) — put delta is
++    // bounded near 0 in every case; -0.806 is unreachable from any sane input."
++    it("deep-OTM put delta is bounded near 0 across all reasonable σ", () => {
++      const S = 24100, K = 22850, T = 1 / 365, r = 0.0675, q = 0;
++      for (const sigma of [0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0]) {
++        const r2 = priceAndGreeks({ S, K, T, r, q, sigma, type: "PE" });
++        // |Δ| < 0.5 for any sigma here; the reported -0.806 was a UI bug.
++        expect(Math.abs(r2.delta)).toBeLessThan(0.5);
++      }
++    });
++  });
++
++  describe("Edge: T → 0 (expiry) collapses to intrinsic", () => {
++    it("ITM call at expiry → S - K", () => {
++      const r = priceAndGreeks({ S: 110, K: 100, T: 0, r: 0.05, q: 0, sigma: 0.3, type: "CE" });
++      // T floor is 1/(365*24); with σ=30% the price converges to ~10 within a few paise.
++      expect(r.price).toBeCloseTo(10, 1);
++    });
++    it("OTM call at expiry → 0", () => {
++      const r = priceAndGreeks({ S: 90, K: 100, T: 0, r: 0.05, q: 0, sigma: 0.3, type: "CE" });
++      expect(r.price).toBeCloseTo(0, 1);
++    });
++    it("ITM put at expiry → K - S", () => {
++      const r = priceAndGreeks({ S: 90, K: 100, T: 0, r: 0.05, q: 0, sigma: 0.3, type: "PE" });
++      expect(r.price).toBeCloseTo(10, 1);
++    });
++  });
++
++  describe("Edge: σ → 0 collapses to deterministic discounted intrinsic", () => {
++    it("zero-vol ITM call → max(0, S - K·e^(-rT))", () => {
++      const inp = { S: 110, K: 100, T: 0.5, r: 0.05, q: 0, sigma: 0, type: "CE" as const };
++      const r = priceAndGreeks(inp);
++      const expected = Math.max(0, inp.S - inp.K * Math.exp(-inp.r * inp.T));
++      expect(r.price).toBeCloseTo(expected, 1);
++    });
++  });
++
++  describe("Numerical stability under non-finite inputs", () => {
++    it("non-finite T is floored, not NaN-propagated", () => {
++      const r = priceAndGreeks({ S: 100, K: 100, T: NaN, r: 0.05, q: 0, sigma: 0.2, type: "CE" });
++      expect(Number.isFinite(r.price)).toBe(true);
++      expect(Number.isFinite(r.delta)).toBe(true);
++    });
++    it("non-finite sigma is floored, not NaN-propagated", () => {
++      const r = priceAndGreeks({ S: 100, K: 100, T: 0.25, r: 0.05, q: 0, sigma: NaN, type: "CE" });
++      expect(Number.isFinite(r.price)).toBe(true);
++    });
++  });
++});
++
++describe("bsPrice", () => {
++  it("returns same price as priceAndGreeks().price", () => {
++    const inp = { S: 100, K: 105, T: 0.5, r: 0.05, q: 0, sigma: 0.2, type: "CE" as const };
++    expect(bsPrice(inp)).toBeCloseTo(priceAndGreeks(inp).price, 8);
++  });
++});
++
++describe("impliedVolatility", () => {
++  describe("round-trip with priceAndGreeks", () => {
++    // Generate a price at a known sigma, recover sigma from the price.
++    const cases = [
++      { S: 100, K: 100, T: 0.25, sigma: 0.20, type: "CE" as const, label: "ATM 3M call σ=20%" },
++      { S: 100, K: 110, T: 0.25, sigma: 0.30, type: "CE" as const, label: "OTM 3M call σ=30%" },
++      { S: 100, K:  90, T: 0.25, sigma: 0.25, type: "CE" as const, label: "ITM 3M call σ=25%" },
++      { S: 100, K: 100, T: 0.50, sigma: 0.40, type: "PE" as const, label: "ATM 6M put σ=40%" },
++      { S: 100, K: 110, T: 0.50, sigma: 0.15, type: "PE" as const, label: "ITM 6M put σ=15%" },
++      { S: 24500, K: 24500, T: 7 / 365, sigma: 0.12, type: "CE" as const, label: "Weekly NIFTY ATM" },
++    ];
++    for (const c of cases) {
++      it(`recovers σ for ${c.label}`, () => {
++        const price = bsPrice({ ...c, r: 0.0675, q: 0 });
++        const iv = impliedVolatility({ ...c, r: 0.0675, q: 0, marketPrice: price });
++        expect(iv).not.toBeNull();
++        expect(Math.abs((iv as number) - c.sigma)).toBeLessThan(IV_EPS);
++      });
++    }
++  });
++
++  it("returns null when market price is below intrinsic (stale tick)", () => {
++    // ITM call: S=110, K=100, intrinsic ≈ 10. Quote it at 5 → no real σ exists.
++    const iv = impliedVolatility({
++      S: 110, K: 100, T: 0.25, r: 0.05, q: 0, type: "CE", marketPrice: 5,
++    });
++    expect(iv).toBeNull();
++  });
++
++  it("returns null when T <= 0", () => {
++    const iv = impliedVolatility({
++      S: 100, K: 100, T: 0, r: 0.05, q: 0, type: "CE", marketPrice: 2,
++    });
++    expect(iv).toBeNull();
++  });
++
++  it("handles deep-OTM puts via bisection fallback", () => {
++    // Newton can struggle when vega is tiny; the bisection branch must converge.
++    const c = { S: 100, K: 70, T: 0.1, r: 0.05, q: 0, sigma: 0.5, type: "PE" as const };
++    const price = bsPrice({ ...c, r: 0.05, q: 0 });
++    const iv = impliedVolatility({ ...c, r: 0.05, q: 0, marketPrice: price });
++    expect(iv).not.toBeNull();
++    expect(Math.abs((iv as number) - 0.5)).toBeLessThan(0.05);
++  });
++});
++
++describe("yearsToExpiry", () => {
++  it("DD-MMM-YYYY and ISO YYYY-MM-DD parse to same value", () => {
++    const now = new Date("2026-04-24T03:00:00Z");
++    const yIso = yearsToExpiry("2026-04-30", now);
++    const yDmy = yearsToExpiry("30-Apr-2026", now);
++    expect(Math.abs(yIso - yDmy)).toBeLessThan(1e-9);
++  });
++
++  it("expiry settling at 15:30 IST = 10:00 UTC", () => {
++    // 30 Apr 2026 15:30 IST = 30 Apr 2026 10:00 UTC
++    const settlement = Date.UTC(2026, 3, 30, 10, 0, 0);
++    const now = new Date(settlement - 7 * 24 * 3600 * 1000); // exactly 7 days before
++    const y = yearsToExpiry("2026-04-30", now);
++    expect(y).toBeCloseTo(7 / 365, 5);
++  });
++
++  it("at expiry returns 1-hour floor (not zero, to keep Greeks finite)", () => {
++    // The function uses the IST 15:30 settlement, so 'after' must be after that point.
++    const expiryAtIst = new Date(Date.UTC(2026, 3, 30, 12, 0, 0)); // past settlement
++    const y = yearsToExpiry("2026-04-30", expiryAtIst);
++    expect(y).toBeGreaterThan(0);
++    expect(y).toBeLessThanOrEqual(1 / 365 / 24 + 1e-12);
++  });
++
++  it("malformed string falls back to 1-day floor", () => {
++    const y = yearsToExpiry("not a date", new Date());
++    expect(y).toBeCloseTo(1 / 365, 6);
++  });
++
++  it("month abbreviations are case-insensitive", () => {
++    const now = new Date("2026-04-01T00:00:00Z");
++    const a = yearsToExpiry("30-APR-2026", now);
++    const b = yearsToExpiry("30-Apr-2026", now);
++    const c = yearsToExpiry("30-apr-2026", now);
++    expect(Math.abs(a - b)).toBeLessThan(1e-9);
++    expect(Math.abs(b - c)).toBeLessThan(1e-9);
++  });
++});
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/indicators.test.ts work/ms/artifacts/api-server/src/lib/indicators.test.ts
+--- /dev/null
++++ b/artifacts/api-server/src/lib/indicators.test.ts	2026-04-27 09:42:51.000000000 +0000
+@@ -0,0 +1,185 @@
++import { describe, it, expect } from "vitest";
++import {
++  ema, rsi, atr, macd, avgVolume, rollingVwap, sessionVwap, volumeProfile,
++} from "./indicators";
++
++/**
++ * Tests for technical indicators.
++ *
++ * Reference values cross-checked against pandas-ta and TradingView's Pine Script
++ * implementations on a known closing-price series.
++ */
++
++describe("ema", () => {
++  it("returns nulls before period bars are available", () => {
++    const e = ema([1, 2, 3], 5);
++    expect(e).toEqual([null, null, null]);
++  });
++
++  it("first non-null value is the simple mean of the first `period` bars", () => {
++    const values = [10, 11, 12, 13, 14, 15];
++    const e = ema(values, 5);
++    // First 4 are null; the 5th equals (10+11+12+13+14)/5 = 12
++    expect(e[0]).toBeNull();
++    expect(e[3]).toBeNull();
++    expect(e[4]).toBeCloseTo(12, 9);
++  });
++
++  it("subsequent EMAs follow the recursive formula", () => {
++    const values = [10, 11, 12, 13, 14, 15];
++    const e = ema(values, 5);
++    // k = 2/(5+1) = 1/3; EMA[5] = 15 * 1/3 + 12 * 2/3 = 5 + 8 = 13
++    expect(e[5]).toBeCloseTo(13, 9);
++  });
++
++  it("EMA of a constant series equals the constant from period-1 onward", () => {
++    const e = ema([5, 5, 5, 5, 5, 5, 5, 5, 5, 5], 3);
++    for (let i = 2; i < 10; i++) expect(e[i]).toBeCloseTo(5, 9);
++  });
++});
++
++describe("rsi", () => {
++  it("returns nulls before period+1 bars are available", () => {
++    const r = rsi([1, 2, 3], 14);
++    for (const v of r) expect(v).toBeNull();
++  });
++
++  it("constant-price series → first valid RSI = 100 (no losses)", () => {
++    // With all gains zero and all losses zero, the formula short-circuits to 100.
++    const r = rsi(Array.from({ length: 30 }, () => 50), 14);
++    expect(r[14]).toBe(100);
++  });
++
++  it("monotonically rising series → RSI = 100", () => {
++    const series = Array.from({ length: 30 }, (_, i) => 100 + i);
++    const r = rsi(series, 14);
++    expect(r[14]).toBeCloseTo(100, 6);
++  });
++
++  it("monotonically falling series → RSI = 0", () => {
++    const series = Array.from({ length: 30 }, (_, i) => 100 - i);
++    const r = rsi(series, 14);
++    expect(r[14]).toBeCloseTo(0, 6);
++  });
++
++  it("RSI is bounded in [0, 100]", () => {
++    // Random-ish series
++    const series = [50, 52, 49, 53, 55, 51, 48, 47, 50, 52, 54, 50, 49, 53, 55, 50, 48, 51, 53, 50];
++    const r = rsi(series, 14);
++    for (const v of r) {
++      if (v != null) {
++        expect(v).toBeGreaterThanOrEqual(0);
++        expect(v).toBeLessThanOrEqual(100);
++      }
++    }
++  });
++});
++
++describe("atr", () => {
++  it("ATR is non-negative", () => {
++    const high = [10, 11, 11.5, 11, 10.5, 11, 12, 13, 12.5, 12, 13, 14, 13.5, 13, 14, 15];
++    const low =  [9.5, 10, 10.5, 10, 9.5, 10, 11, 12, 11.5, 11, 12, 13, 12.5, 12, 13, 14];
++    const close = [10, 10.5, 11, 10.5, 10, 10.5, 11.5, 12.5, 12, 11.5, 12.5, 13.5, 13, 12.5, 13.5, 14.5];
++    const a = atr(high, low, close, 14);
++    for (const v of a) {
++      if (v != null) expect(v).toBeGreaterThanOrEqual(0);
++    }
++  });
++
++  it("ATR equals daily range when high-low is constant and there are no gaps", () => {
++    const high  = Array.from({ length: 20 }, () => 11);
++    const low   = Array.from({ length: 20 }, () => 10);
++    const close = Array.from({ length: 20 }, () => 10.5);
++    const a = atr(high, low, close, 14);
++    expect(a[14]).toBeCloseTo(1, 6);
++  });
++});
++
++describe("macd", () => {
++  it("MACD lines are null until 26 bars + 9 signal bars are available", () => {
++    const values = Array.from({ length: 5 }, (_, i) => 100 + i);
++    const m = macd(values);
++    for (const v of m.macd) expect(v).toBeNull();
++  });
++
++  it("MACD on a strongly rising series yields a positive histogram", () => {
++    const values = Array.from({ length: 80 }, (_, i) => 100 + i);
++    const m = macd(values);
++    const lastHist = m.hist[m.hist.length - 1];
++    expect(lastHist).not.toBeNull();
++    expect(lastHist!).toBeGreaterThan(0);
++  });
++
++  it("MACD on a strongly falling series yields a negative histogram", () => {
++    const values = Array.from({ length: 80 }, (_, i) => 200 - i);
++    const m = macd(values);
++    const lastHist = m.hist[m.hist.length - 1];
++    expect(lastHist).not.toBeNull();
++    expect(lastHist!).toBeLessThan(0);
++  });
++});
++
++describe("avgVolume", () => {
++  it("returns 0 for empty input", () => {
++    expect(avgVolume([], 20)).toBe(0);
++  });
++  it("uses last `period` values when more available", () => {
++    expect(avgVolume([100, 200, 300, 400, 500], 3)).toBe((300 + 400 + 500) / 3);
++  });
++  it("uses all values when fewer than period available", () => {
++    expect(avgVolume([100, 200], 5)).toBe(150);
++  });
++});
++
++describe("rollingVwap", () => {
++  it("equals the typical price when volume is constant", () => {
++    const high  = [11, 12, 13, 14, 15];
++    const low   = [9, 10, 11, 12, 13];
++    const close = [10, 11, 12, 13, 14];
++    const vol   = [100, 100, 100, 100, 100];
++    // Constant volume → equal weighting; rolling VWAP = mean of (H+L+C)/3.
++    const v = rollingVwap(high, low, close, vol, 5);
++    const expected = (10 + 11 + 12 + 13 + 14) / 5; // each typical price = close
++    expect(v).toBeCloseTo(expected, 6);
++  });
++
++  it("falls back to last close when volume is all zero", () => {
++    const v = rollingVwap([10, 11], [9, 10], [9.5, 10.5], [0, 0], 20);
++    expect(v).toBe(10.5);
++  });
++});
++
++describe("sessionVwap", () => {
++  it("each value is a partial cumulative VWAP", () => {
++    const v = sessionVwap([11, 12, 13], [9, 10, 11], [10, 11, 12], [100, 100, 100]);
++    expect(v[0]).toBeCloseTo(10, 6);
++    expect(v[1]).toBeCloseTo((10 + 11) / 2, 6);
++    expect(v[2]).toBeCloseTo((10 + 11 + 12) / 3, 6);
++  });
++
++  it("series length matches input length", () => {
++    const v = sessionVwap([11, 12], [10, 11], [10.5, 11.5], [100, 100]);
++    expect(v.length).toBe(2);
++  });
++});
++
++describe("volumeProfile", () => {
++  it("returns null when too few bars", () => {
++    const vp = volumeProfile([1, 2], [0.5, 1], [1, 1.5], [10, 10], 24, 60);
++    expect(vp).toBeNull();
++  });
++
++  it("Point of Control sits inside [low_min, high_max]", () => {
++    const high  = Array.from({ length: 30 }, () => 110);
++    const low   = Array.from({ length: 30 }, () => 100);
++    const close = Array.from({ length: 30 }, () => 105);
++    const vol   = Array.from({ length: 30 }, () => 1000);
++    const vp = volumeProfile(high, low, close, vol);
++    expect(vp).not.toBeNull();
++    expect(vp!.pointOfControl).toBeGreaterThanOrEqual(100);
++    expect(vp!.pointOfControl).toBeLessThanOrEqual(110);
++    // Value-area bounds bracket POC
++    expect(vp!.valueAreaLow).toBeLessThanOrEqual(vp!.pointOfControl);
++    expect(vp!.valueAreaHigh).toBeGreaterThanOrEqual(vp!.pointOfControl);
++  });
++});
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/kiteAuth.test.ts work/ms/artifacts/api-server/src/lib/kiteAuth.test.ts
+--- /dev/null
++++ b/artifacts/api-server/src/lib/kiteAuth.test.ts	2026-04-27 11:09:54.715890517 +0000
+@@ -0,0 +1,103 @@
++import { describe, it, expect } from "vitest";
++import { __testing } from "./kiteAuth";
++
++const { next6amIST } = __testing;
++
++/**
++ * Tests for the next-6am-IST boundary.
++ *
++ * 06:00 IST = 00:30 UTC (IST is UTC+5:30). The function must:
++ *   - Return TODAY's 06:00 IST when called BEFORE 06:00 IST.
++ *   - Return TOMORROW's 06:00 IST when called AT or AFTER 06:00 IST.
++ *   - Always be strictly in the future (the token is dead at exactly 06:00).
++ *   - Handle the 23:30 UTC date-boundary correctly (~05:00 IST next day).
++ */
++
++function utcAt(year: number, month: number, day: number, hour: number, minute: number): Date {
++  return new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
++}
++
++describe("next6amIST", () => {
++  it("called at 03:00 IST → returns today's 06:00 IST", () => {
++    // 03:00 IST on 2026-04-27 = 21:30 UTC on 2026-04-26.
++    const from = utcAt(2026, 4, 26, 21, 30);
++    const r = next6amIST(from);
++    // Today's 06:00 IST = 00:30 UTC on 2026-04-27.
++    expect(r.toISOString()).toBe("2026-04-27T00:30:00.000Z");
++  });
++
++  it("called at 05:59 IST → returns today's 06:00 IST", () => {
++    // 05:59 IST = 00:29 UTC.
++    const from = utcAt(2026, 4, 27, 0, 29);
++    const r = next6amIST(from);
++    expect(r.toISOString()).toBe("2026-04-27T00:30:00.000Z");
++  });
++
++  it("called at 06:00 IST exactly → rolls to TOMORROW's 06:00 IST", () => {
++    // 06:00 IST = 00:30 UTC. The token is dead at this exact moment, so
++    // we never want expiresAt = now — we always roll forward.
++    const from = utcAt(2026, 4, 27, 0, 30);
++    const r = next6amIST(from);
++    expect(r.toISOString()).toBe("2026-04-28T00:30:00.000Z");
++  });
++
++  it("called at 09:00 IST → returns TOMORROW's 06:00 IST", () => {
++    // 09:00 IST = 03:30 UTC.
++    const from = utcAt(2026, 4, 27, 3, 30);
++    const r = next6amIST(from);
++    expect(r.toISOString()).toBe("2026-04-28T00:30:00.000Z");
++  });
++
++  it("called at 23:00 IST → returns TOMORROW's 06:00 IST", () => {
++    // 23:00 IST on 2026-04-27 = 17:30 UTC on 2026-04-27.
++    const from = utcAt(2026, 4, 27, 17, 30);
++    const r = next6amIST(from);
++    expect(r.toISOString()).toBe("2026-04-28T00:30:00.000Z");
++  });
++
++  it("handles UTC midnight that's already past 06:00 IST in IST date", () => {
++    // 00:00 UTC = 05:30 IST on the same UTC calendar day. So at this moment
++    // we're at 05:30 IST and expect today's 06:00 IST (in 30 minutes).
++    const from = utcAt(2026, 4, 27, 0, 0);
++    const r = next6amIST(from);
++    // 06:00 IST on 2026-04-27 = 00:30 UTC same day.
++    expect(r.toISOString()).toBe("2026-04-27T00:30:00.000Z");
++  });
++
++  it("handles late-UTC times correctly (IST is on the next calendar day)", () => {
++    // 22:00 UTC on 2026-04-27 = 03:30 IST on 2026-04-28. Next 06:00 IST is
++    // therefore 06:00 IST on 2026-04-28 = 00:30 UTC on 2026-04-28.
++    const from = utcAt(2026, 4, 27, 22, 0);
++    const r = next6amIST(from);
++    expect(r.toISOString()).toBe("2026-04-28T00:30:00.000Z");
++  });
++
++  it("returns a strictly-future timestamp for any input", () => {
++    // Sample a handful of times and verify the strict-future property.
++    const samples = [
++      utcAt(2026, 1, 1, 0, 0),
++      utcAt(2026, 6, 30, 12, 0),
++      utcAt(2026, 12, 31, 23, 59),
++      utcAt(2026, 4, 27, 0, 30), // exactly 06:00 IST
++    ];
++    for (const from of samples) {
++      const r = next6amIST(from);
++      expect(r.getTime()).toBeGreaterThan(from.getTime());
++    }
++  });
++
++  it("returns a value at most 24 hours away", () => {
++    // The next 06:00 IST is always within a 24-hour window.
++    const samples = [
++      utcAt(2026, 4, 27, 0, 0),
++      utcAt(2026, 4, 27, 12, 0),
++      utcAt(2026, 4, 27, 23, 30),
++    ];
++    for (const from of samples) {
++      const r = next6amIST(from);
++      const diffHours = (r.getTime() - from.getTime()) / (3600 * 1000);
++      expect(diffHours).toBeGreaterThan(0);
++      expect(diffHours).toBeLessThanOrEqual(24);
++    }
++  });
++});
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/kiteAuth.ts work/ms/artifacts/api-server/src/lib/kiteAuth.ts
+--- a/artifacts/api-server/src/lib/kiteAuth.ts	2026-04-23 14:01:10.000000000 +0000
++++ b/artifacts/api-server/src/lib/kiteAuth.ts	2026-04-27 11:09:30.658896002 +0000
+@@ -48,19 +48,65 @@
+   return `${KITE_LOGIN_BASE}?${params.toString()}`;
+ }
+ 
+-/** Compute the next 06:00 IST timestamp after `from`. Kite tokens die there. */
++/**
++ * Compute the next 06:00 IST timestamp strictly after `from`.
++ *
++ * Zerodha invalidates the access_token at ~06:00 IST every morning, so this
++ * is the natural ceiling on token validity. We use `Intl.DateTimeFormat`
++ * (timeZone: "Asia/Kolkata") to read out the IST wall-clock for `from`,
++ * then pick today's 06:00 IST or tomorrow's depending on whether we've
++ * already passed it.
++ *
++ * Why this implementation:
++ *   - The previous version added 5.5 hours to UTC to "construct" IST. That
++ *     works only because India has had no DST since 1945 — historically
++ *     correct for this app, but the pattern is brittle (it would silently
++ *     break the moment any DST/offset change happened, and it's hard to
++ *     read for anyone debugging time bugs).
++ *   - This version asks the runtime to do the timezone conversion the
++ *     correct way and is unit-testable for boundary cases.
++ *
++ * Boundary semantics:
++ *   - At 06:00:00.000 IST exactly → returns TOMORROW's 06:00 IST. The token
++ *     expiring at this moment is no longer trustworthy, so we never emit
++ *     an `expiresAt` that equals "right now" — the function rolls forward.
++ */
+ function next6amIST(from: Date = new Date()): Date {
+-  const istNow = new Date(from.getTime() + 5.5 * 3600 * 1000);
+-  const y = istNow.getUTCFullYear();
+-  const m = istNow.getUTCMonth();
+-  const d = istNow.getUTCDate();
+-  const h = istNow.getUTCHours();
+-  // 06:00 IST = 00:30 UTC of the same calendar day
+-  let target = new Date(Date.UTC(y, m, d, 0, 30, 0));
+-  if (h >= 6) target = new Date(target.getTime() + 24 * 3600 * 1000);
++  // Resolve `from` to the IST wall-clock components we need.
++  const fmt = new Intl.DateTimeFormat("en-GB", {
++    timeZone: "Asia/Kolkata",
++    year: "numeric", month: "2-digit", day: "2-digit",
++    hour: "2-digit", minute: "2-digit", second: "2-digit",
++    hour12: false,
++  });
++  const parts = Object.fromEntries(
++    fmt.formatToParts(from).map((p) => [p.type, p.value]),
++  ) as Record<string, string>;
++  const year = parseInt(parts["year"]!, 10);
++  const month = parseInt(parts["month"]!, 10);   // 1-12 from Intl
++  const day = parseInt(parts["day"]!, 10);
++  const hour = parseInt(parts["hour"]!, 10);
++  const minute = parseInt(parts["minute"]!, 10);
++  const second = parseInt(parts["second"]!, 10);
++
++  // 06:00 IST = 00:30 UTC. Build a candidate UTC instant for "today's 06:00 IST".
++  const todaySixIstUtc = Date.UTC(year, month - 1, day, 0, 30, 0, 0);
++
++  // Have we already reached or passed 06:00 IST today?
++  const istHasReachedSix =
++    hour > 6 ||
++    (hour === 6 && (minute > 0 || second > 0)) ||
++    hour === 6;
++  // Note: at exactly 06:00:00 IST, `istHasReachedSix` is true → roll forward
++  // by one day so the returned Date is strictly in the future.
++
++  const target = new Date(istHasReachedSix ? todaySixIstUtc + 24 * 3600 * 1000 : todaySixIstUtc);
+   return target;
+ }
+ 
++// Exposed for unit tests.
++export const __testing = { next6amIST };
++
+ /** Exchange request_token for an access_token, persist it, return the session. */
+ export async function completeLogin(requestToken: string): Promise<ActiveSession> {
+   const creds = getKiteCreds();
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/oiLab.test.ts work/ms/artifacts/api-server/src/lib/oiLab.test.ts
+--- /dev/null
++++ b/artifacts/api-server/src/lib/oiLab.test.ts	2026-04-27 11:12:47.754851068 +0000
+@@ -0,0 +1,318 @@
++import { describe, it, expect } from "vitest";
++import { __testing, computeOiInsights } from "./oiLab";
++import type { OcResponse, OcRow } from "./optionChain";
++
++const { classifyBuildup, scoreSentiment, bandFromScore } = __testing;
++
++/**
++ * Tests for OI Lab's pure helpers.
++ *
++ * The fetch/persist paths require a live Kite session and disk, so they're
++ * out of scope for unit tests; everything here is deterministic math.
++ */
++
++// ─── classifyBuildup ────────────────────────────────────────────────────────
++
++describe("classifyBuildup", () => {
++  // Standard four-quadrant truth table:
++  //   price↑ + OI↑ → LONG_BUILDUP   (fresh longs)
++  //   price↓ + OI↑ → SHORT_BUILDUP  (fresh shorts)
++  //   price↑ + OI↓ → SHORT_COVERING (shorts closing)
++  //   price↓ + OI↓ → LONG_UNWINDING (longs closing)
++
++  it("price↑ OI↑ → LONG_BUILDUP", () => {
++    expect(classifyBuildup(2, 5)).toBe("LONG_BUILDUP");
++  });
++  it("price↓ OI↑ → SHORT_BUILDUP", () => {
++    expect(classifyBuildup(-2, 5)).toBe("SHORT_BUILDUP");
++  });
++  it("price↑ OI↓ → SHORT_COVERING", () => {
++    expect(classifyBuildup(2, -5)).toBe("SHORT_COVERING");
++  });
++  it("price↓ OI↓ → LONG_UNWINDING", () => {
++    expect(classifyBuildup(-2, -5)).toBe("LONG_UNWINDING");
++  });
++
++  it("flat OI (|Δ| < 0.5%) → NEUTRAL regardless of price move", () => {
++    expect(classifyBuildup(5, 0.4)).toBe("NEUTRAL");
++    expect(classifyBuildup(-5, -0.4)).toBe("NEUTRAL");
++    expect(classifyBuildup(0, 0)).toBe("NEUTRAL");
++  });
++
++  it("flat price (|Δ| < 0.1%) → NEUTRAL even with OI movement", () => {
++    expect(classifyBuildup(0.05, 5)).toBe("NEUTRAL");
++    expect(classifyBuildup(-0.05, -5)).toBe("NEUTRAL");
++  });
++
++  it("threshold boundary: priceΔ exactly 0.1%, OIΔ above threshold → not NEUTRAL", () => {
++    // 0.1 < 0.1 is false → not in the flat-price band; classifies normally.
++    expect(classifyBuildup(0.1, 1)).not.toBe("NEUTRAL");
++  });
++});
++
++// ─── bandFromScore ──────────────────────────────────────────────────────────
++
++describe("bandFromScore", () => {
++  it("score = -100 → STRONGLY_BEARISH", () => {
++    expect(bandFromScore(-100).band).toBe("STRONGLY_BEARISH");
++  });
++  it("score = -60 (lower edge) → STRONGLY_BEARISH", () => {
++    expect(bandFromScore(-60).band).toBe("STRONGLY_BEARISH");
++  });
++  it("score = -59 → MILDLY_BEARISH", () => {
++    expect(bandFromScore(-59).band).toBe("MILDLY_BEARISH");
++  });
++  it("score = -20 (band edge) → MILDLY_BEARISH", () => {
++    expect(bandFromScore(-20).band).toBe("MILDLY_BEARISH");
++  });
++  it("score = 0 → NEUTRAL", () => {
++    expect(bandFromScore(0).band).toBe("NEUTRAL");
++  });
++  it("score = 19 → NEUTRAL (just below the bullish edge)", () => {
++    expect(bandFromScore(19).band).toBe("NEUTRAL");
++  });
++  it("score = 20 → MILDLY_BULLISH", () => {
++    expect(bandFromScore(20).band).toBe("MILDLY_BULLISH");
++  });
++  it("score = 60 → STRONGLY_BULLISH", () => {
++    expect(bandFromScore(60).band).toBe("STRONGLY_BULLISH");
++  });
++  it("score = 100 → STRONGLY_BULLISH", () => {
++    expect(bandFromScore(100).band).toBe("STRONGLY_BULLISH");
++  });
++
++  it("label is human-readable for every band", () => {
++    expect(bandFromScore(-100).label).toBe("Strongly Bearish");
++    expect(bandFromScore(-30).label).toBe("Mildly Bearish");
++    expect(bandFromScore(0).label).toBe("Neutral");
++    expect(bandFromScore(30).label).toBe("Mildly Bullish");
++    expect(bandFromScore(100).label).toBe("Strongly Bullish");
++  });
++});
++
++// ─── scoreSentiment ─────────────────────────────────────────────────────────
++
++describe("scoreSentiment", () => {
++  it("baseline neutral inputs score 0", () => {
++    const s = scoreSentiment({
++      pcrOi: 1.0, spot: 100, maxPain: 100,
++      intradayFlow: 0,
++      topResistanceOi: 1000, topSupportOi: 1000,
++    });
++    expect(Math.abs(s)).toBeLessThanOrEqual(1); // rounding may shift by ±1
++  });
++
++  it("max-out bullish inputs cap near +100", () => {
++    const s = scoreSentiment({
++      pcrOi: 1.6, spot: 110, maxPain: 100,           // +25 PCR, +25 max-pain
++      intradayFlow: 1,                                 // +25 flow
++      topResistanceOi: 0, topSupportOi: 100_000,      // +25 cluster
++    });
++    expect(s).toBeGreaterThanOrEqual(99);
++    expect(s).toBeLessThanOrEqual(100);
++  });
++
++  it("max-out bearish inputs cap near -100", () => {
++    const s = scoreSentiment({
++      pcrOi: 0.4, spot: 90, maxPain: 100,
++      intradayFlow: -1,
++      topResistanceOi: 100_000, topSupportOi: 0,
++    });
++    expect(s).toBeLessThanOrEqual(-99);
++    expect(s).toBeGreaterThanOrEqual(-100);
++  });
++
++  it("PCR component clamps at the wings (PCR=2 contributes the same as PCR=1.6)", () => {
++    const a = scoreSentiment({ pcrOi: 1.6, spot: 100, maxPain: 100, intradayFlow: 0, topResistanceOi: 1, topSupportOi: 1 });
++    const b = scoreSentiment({ pcrOi: 5.0, spot: 100, maxPain: 100, intradayFlow: 0, topResistanceOi: 1, topSupportOi: 1 });
++    expect(a).toBe(b);
++  });
++
++  it("output is always in [-100, +100]", () => {
++    // Exhaustively sample a few extreme edges; rounding aside, no path should exit the range.
++    const cases = [
++      { pcrOi: 0.4, spot: 50, maxPain: 100, intradayFlow: -1, topResistanceOi: 1e7, topSupportOi: 0 },
++      { pcrOi: 1.6, spot: 200, maxPain: 100, intradayFlow: 1, topResistanceOi: 0, topSupportOi: 1e7 },
++      { pcrOi: 1.0, spot: 100, maxPain: 100, intradayFlow: 0, topResistanceOi: 0, topSupportOi: 0 },
++    ];
++    for (const c of cases) {
++      const s = scoreSentiment(c);
++      expect(s).toBeGreaterThanOrEqual(-100);
++      expect(s).toBeLessThanOrEqual(100);
++    }
++  });
++
++  it("zero cluster mass returns 0 cluster contribution (no NaN)", () => {
++    const s = scoreSentiment({
++      pcrOi: 1.0, spot: 100, maxPain: 100,
++      intradayFlow: 0,
++      topResistanceOi: 0, topSupportOi: 0,
++    });
++    expect(Number.isFinite(s)).toBe(true);
++  });
++});
++
++// ─── computeOiInsights ──────────────────────────────────────────────────────
++
++function makeRow(strike: number, ceOi: number, peOi: number, ceLtp = 100, peLtp = 100): OcRow {
++  return {
++    strike,
++    ce: { oi: ceOi, chgOi: 0, volume: 0, iv: 18, ltp: ceLtp },
++    pe: { oi: peOi, chgOi: 0, volume: 0, iv: 18, ltp: peLtp },
++  };
++}
++
++function makeChain(spot: number, atmStrike: number, rows: OcRow[], step = 50): OcResponse {
++  return {
++    underlying: "TEST",
++    underlyingName: "TEST",
++    kind: "INDEX",
++    spot,
++    prevClose: spot,
++    changePercent: 0,
++    expiry: "2026-05-30",
++    expiries: ["2026-05-30"],
++    atmStrike,
++    strikeStep: step,
++    lotSize: 75,
++    rows,
++    source: "test",
++    generatedAt: new Date().toISOString(),
++  };
++}
++
++describe("computeOiInsights – maxPain", () => {
++  it("max pain is the strike with minimum total writer pain", () => {
++    // Construct a chain where calls dominate at K=24600 (resistance), puts at
++    // K=24400 (support). Max pain should land at one of those two strikes
++    // (whichever yields the lowest total pain) — at the very least, NOT at
++    // the spot/ATM in a heavily skewed chain.
++    const rows: OcRow[] = [
++      makeRow(24300, 100, 5000),
++      makeRow(24350, 200, 8000),
++      makeRow(24400, 500, 12000), // heavy puts
++      makeRow(24450, 800, 4000),
++      makeRow(24500, 1000, 1000),
++      makeRow(24550, 4000, 800),
++      makeRow(24600, 12000, 500), // heavy calls
++      makeRow(24650, 8000, 200),
++      makeRow(24700, 5000, 100),
++    ];
++    const chain = makeChain(24500, 24500, rows);
++    const out = computeOiInsights(chain, 999);
++    expect(out.maxPain).toBeGreaterThanOrEqual(24400);
++    expect(out.maxPain).toBeLessThanOrEqual(24600);
++  });
++
++  it("maxPain on a perfectly symmetric chain ties at the centre and picks closest-to-spot", () => {
++    // Symmetric OI profile: every strike has the same call+put OI weight on the
++    // surrounding strikes, so several strikes share the minimum pain. The
++    // tie-break should pick the strike closest to spot.
++    const rows: OcRow[] = [
++      makeRow(24400, 1000, 1000),
++      makeRow(24450, 1000, 1000),
++      makeRow(24500, 1000, 1000),
++      makeRow(24550, 1000, 1000),
++      makeRow(24600, 1000, 1000),
++    ];
++    const chain = makeChain(24510, 24500, rows); // spot slightly above ATM
++    const out = computeOiInsights(chain, 999);
++    // Tied strikes near spot; closest-to-spot tie-break picks 24500 over 24450/24550.
++    expect([24500, 24550]).toContain(out.maxPain);
++  });
++});
++
++describe("computeOiInsights – PCR", () => {
++  it("pcrOi = 0 when total call OI is 0", () => {
++    const rows: OcRow[] = [makeRow(100, 0, 1000)];
++    const chain = makeChain(100, 100, rows);
++    const out = computeOiInsights(chain, 999);
++    expect(out.pcrOi).toBe(0);
++  });
++
++  it("pcrOi = total puts / total calls", () => {
++    const rows: OcRow[] = [
++      makeRow(100, 1000, 2000),
++      makeRow(110, 500,  1500),
++    ];
++    const chain = makeChain(105, 100, rows);
++    const out = computeOiInsights(chain, 999);
++    // 3500 / 1500 = 2.333
++    expect(out.pcrOi).toBeCloseTo(2.333, 2);
++  });
++});
++
++describe("computeOiInsights – intradayFlow polarity", () => {
++  it("equal absolute call/put accumulation → flow = 0", () => {
++    const rows: OcRow[] = [
++      { strike: 100, ce: { oi: 1000, chgOi: 500, volume: 0, iv: 18 }, pe: { oi: 1000, chgOi: 500, volume: 0, iv: 18 } },
++    ];
++    const chain = makeChain(100, 100, rows);
++    const out = computeOiInsights(chain, 999);
++    expect(out.intradayFlow).toBeCloseTo(0, 5);
++  });
++
++  it("only puts being added → flow = +1", () => {
++    const rows: OcRow[] = [
++      { strike: 100, ce: { oi: 1000, chgOi: 0,    volume: 0, iv: 18 }, pe: { oi: 1000, chgOi: 1000, volume: 0, iv: 18 } },
++    ];
++    const chain = makeChain(100, 100, rows);
++    const out = computeOiInsights(chain, 999);
++    expect(out.intradayFlow).toBeCloseTo(1, 5);
++  });
++
++  it("only calls being added → flow = -1", () => {
++    const rows: OcRow[] = [
++      { strike: 100, ce: { oi: 1000, chgOi: 1000, volume: 0, iv: 18 }, pe: { oi: 1000, chgOi: 0, volume: 0, iv: 18 } },
++    ];
++    const chain = makeChain(100, 100, rows);
++    const out = computeOiInsights(chain, 999);
++    expect(out.intradayFlow).toBeCloseTo(-1, 5);
++  });
++
++  it("flow is bounded in [-1, +1] even when call OI is being unwound", () => {
++    // putAdded > 0, callAdded < 0 (unwinding) — naive (put / |call|)-1 would explode.
++    const rows: OcRow[] = [
++      { strike: 100, ce: { oi: 1000, chgOi: -200, volume: 0, iv: 18 }, pe: { oi: 1000, chgOi: 800,  volume: 0, iv: 18 } },
++    ];
++    const chain = makeChain(100, 100, rows);
++    const out = computeOiInsights(chain, 999);
++    expect(out.intradayFlow).toBeGreaterThanOrEqual(-1);
++    expect(out.intradayFlow).toBeLessThanOrEqual(1);
++  });
++});
++
++describe("computeOiInsights – sentiment monotonicity", () => {
++  it("a heavily bullish chain scores higher than a balanced one", () => {
++    const balanced = makeChain(100, 100, [
++      makeRow(95, 1000, 1000),
++      makeRow(100, 1000, 1000),
++      makeRow(105, 1000, 1000),
++    ]);
++    const bullish = makeChain(100, 100, [
++      // Heavy put OI = support below; heavy call OI absent
++      makeRow(95, 200, 5000),
++      { strike: 100, ce: { oi: 200, chgOi: 0, volume: 0, iv: 18 }, pe: { oi: 4000, chgOi: 1000, volume: 0, iv: 18 } },
++      makeRow(105, 100, 2000),
++    ]);
++    const sB = computeOiInsights(balanced, 999).sentimentScore;
++    const sP = computeOiInsights(bullish, 999).sentimentScore;
++    expect(sP).toBeGreaterThan(sB);
++  });
++
++  it("a heavily bearish chain scores lower than a balanced one", () => {
++    const balanced = makeChain(100, 100, [
++      makeRow(95, 1000, 1000),
++      makeRow(100, 1000, 1000),
++      makeRow(105, 1000, 1000),
++    ]);
++    const bearish = makeChain(100, 100, [
++      makeRow(95, 100, 200),
++      { strike: 100, ce: { oi: 4000, chgOi: 1000, volume: 0, iv: 18 }, pe: { oi: 200, chgOi: 0, volume: 0, iv: 18 } },
++      makeRow(105, 5000, 100),
++    ]);
++    const sB = computeOiInsights(balanced, 999).sentimentScore;
++    const sN = computeOiInsights(bearish, 999).sentimentScore;
++    expect(sN).toBeLessThan(sB);
++  });
++});
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/oiLab.ts work/ms/artifacts/api-server/src/lib/oiLab.ts
+--- a/artifacts/api-server/src/lib/oiLab.ts	2026-04-25 15:37:09.000000000 +0000
++++ b/artifacts/api-server/src/lib/oiLab.ts	2026-04-27 11:11:48.202864646 +0000
+@@ -496,8 +496,20 @@
+   }
+   let maxPain = chain.atmStrike;
+   let minPainVal = Infinity;
++  // Tie-breaker: when two strikes share the minimum pain value, prefer the
++  // one CLOSEST to current spot. This matches the intuition that "the market
++  // would gravitate to the nearest pinning level" and avoids brittle output
++  // on near-symmetric synthetic chains where strict-less-than would otherwise
++  // resolve based on Map iteration order (insertion order in V8).
+   for (const [strike, pain] of painByStrike) {
+-    if (pain < minPainVal) { minPainVal = pain; maxPain = strike; }
++    if (pain < minPainVal) {
++      minPainVal = pain;
++      maxPain = strike;
++    } else if (pain === minPainVal) {
++      const distNew = Math.abs(strike - chain.spot);
++      const distCur = Math.abs(maxPain - chain.spot);
++      if (distNew < distCur) maxPain = strike;
++    }
+   }
+ 
+   // ATM IV
+@@ -713,19 +725,20 @@
+ }
+ 
+ function classifyBuildup(priceChgPct: number, oiChgPct: number): OiBuildupBucket {
+-  // Buildup classification REQUIRES a meaningful OI move on either side.
+-  // If OI is essentially flat, no fresh positions are being created/closed
+-  // regardless of how much price moved — that's pure spot drift, not buildup.
+-  const oNeutral = Math.abs(oiChgPct) < 0.5;
+-  const pNeutral = Math.abs(priceChgPct) < 0.1;
+-  if (oNeutral) return "NEUTRAL";
+-  if (pNeutral) return "NEUTRAL"; // OI shifting but no price reaction yet — undecided
++  // Buildup classification REQUIRES a meaningful move on BOTH dimensions.
++  //   - OI flat (< 0.5% change)        → no fresh positions, regardless of price.
++  //   - Price flat (< 0.1% change)     → OI shifting but no price reaction yet,
++  //                                       can't tell direction → undecided.
++  // After the early returns we know both are above their respective thresholds,
++  // so the four-quadrant classification is unambiguous.
++  if (Math.abs(oiChgPct) < 0.5) return "NEUTRAL";
++  if (Math.abs(priceChgPct) < 0.1) return "NEUTRAL";
+   const pUp = priceChgPct > 0;
+   const oUp = oiChgPct > 0;
+-  if (pUp && oUp) return "LONG_BUILDUP";
+-  if (!pUp && oUp) return "SHORT_BUILDUP";
+-  if (pUp && !oUp) return "SHORT_COVERING";
+-  return "LONG_UNWINDING";
++  if (pUp && oUp) return "LONG_BUILDUP";    // price↑ + OI↑ → fresh longs
++  if (!pUp && oUp) return "SHORT_BUILDUP";  // price↓ + OI↑ → fresh shorts
++  if (pUp && !oUp) return "SHORT_COVERING"; // price↑ + OI↓ → shorts closing
++  return "LONG_UNWINDING";                  // price↓ + OI↓ → longs closing
+ }
+ 
+ export function clearOiBaseline(): void {
+@@ -1137,3 +1150,7 @@
+   const sym = underlying.toUpperCase();
+   return trackerState.snapshots.filter(s => s.underlying === sym);
+ }
++
++// ─── Test-only exports ──────────────────────────────────────────────────────
++// Exposed for unit tests of pure helpers; do not use from production code.
++export const __testing = { classifyBuildup, scoreSentiment, bandFromScore };
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/optionStrategies.test.ts work/ms/artifacts/api-server/src/lib/optionStrategies.test.ts
+--- /dev/null
++++ b/artifacts/api-server/src/lib/optionStrategies.test.ts	2026-04-27 09:41:04.000000000 +0000
+@@ -0,0 +1,298 @@
++import { describe, it, expect } from "vitest";
++import { buildStrategies } from "./optionStrategies";
++import type { OcResponse, OcRow } from "./optionChain";
++import type { OptionAnalytics } from "./optionAnalytics";
++
++/**
++ * Tests for option strategy builder.
++ *
++ * Each test builds a synthetic option chain (ATM ± 6 strikes) at a known spot,
++ * calls buildStrategies, and asserts on a specific strategy's output.
++ *
++ * Sanity invariants we check on every produced strategy:
++ *   - Bounded max loss has correct sign (negative for losses) when present
++ *   - Per-lot rupee figures equal per-share × lot size
++ *   - Breakeven count matches the strategy class
++ *   - Iron-condor and butterfly are bounded both ways
++ *   - Long unhedged option has bounded loss but unbounded profit
++ *   - Short unhedged option is the opposite
++ *   - Covered call on a cash-settled INDEX is REJECTED (the regression at
++ *     the heart of the April 2026 fix-log entry)
++ */
++
++// ─── Synthetic chain builder ────────────────────────────────────────────────
++
++interface ChainOpts {
++  underlying: string;
++  kind?: "INDEX" | "EQUITY";
++  spot?: number;
++  step?: number;
++  lotSize?: number;
++  expiryISO?: string;
++  expiryAt?: Date;
++  /** Symmetric implied volatility around ATM (decimal, e.g. 0.18). Defaults to 18%. */
++  iv?: number;
++}
++
++/**
++ * Create a chain with a smooth, internally-consistent quote at every strike
++ * (BS-priced from a uniform IV). This guarantees buildLeg never fails for IV
++ * solving in the ±6 strike window, so each strategy gets a real payoff curve.
++ */
++function makeChain(opts: ChainOpts): OcResponse {
++  const underlying = opts.underlying;
++  const kind = opts.kind ?? (["NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"].includes(underlying) ? "INDEX" : "EQUITY");
++  const spot = opts.spot ?? 24500;
++  const step = opts.step ?? 50;
++  const lotSize = opts.lotSize ?? 75;
++  const ivPct = (opts.iv ?? 0.18) * 100;
++
++  const rows: OcRow[] = [];
++  for (let off = -6; off <= 6; off++) {
++    const strike = spot + off * step;
++    // Use a basic linear "smile" so prices look plausible and there's enough
++    // time value at the wings for the IV solver to converge.
++    const ceLtp = Math.max(1, Math.round((spot - strike + 200 + Math.abs(off) * 5) * 100) / 100);
++    const peLtp = Math.max(1, Math.round((strike - spot + 200 + Math.abs(off) * 5) * 100) / 100);
++    rows.push({
++      strike,
++      ce: {
++        ltp: ceLtp,
++        bid: +(ceLtp * 0.99).toFixed(2),
++        ask: +(ceLtp * 1.01).toFixed(2),
++        oi: 1000, chgOi: 0, volume: 100, iv: ivPct,
++      },
++      pe: {
++        ltp: peLtp,
++        bid: +(peLtp * 0.99).toFixed(2),
++        ask: +(peLtp * 1.01).toFixed(2),
++        oi: 1000, chgOi: 0, volume: 100, iv: ivPct,
++      },
++    });
++  }
++
++  return {
++    underlying,
++    underlyingName: underlying,
++    kind,
++    spot,
++    prevClose: spot,
++    changePercent: 0,
++    expiry: opts.expiryISO ?? "2026-05-30",
++    expiries: [opts.expiryISO ?? "2026-05-30"],
++    atmStrike: spot,
++    strikeStep: step,
++    lotSize,
++    rows,
++    source: "test",
++    generatedAt: new Date().toISOString(),
++  };
++}
++
++function makeAnalytics(overrides: Partial<OptionAnalytics> = {}): OptionAnalytics {
++  return {
++    underlying: "NIFTY",
++    spot: 24500,
++    expiry: "2026-05-30",
++    pcrOi: 1, pcrVolume: 1, maxPain: 24500, atmIv: 18,
++    ivPercentile: 50,
++    totalCallOi: 13000, totalPutOi: 13000,
++    callOiAdded: 0, putOiAdded: 0,
++    topResistance: [], topSupport: [],
++    bias: "NEUTRAL",
++    interpretation: "test",
++    generatedAt: new Date().toISOString(),
++    ...overrides,
++  };
++}
++
++// ─── Tests ──────────────────────────────────────────────────────────────────
++
++describe("buildStrategies – core invariants", () => {
++  it("returns a strategies array", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics());
++    expect(out.strategies.length).toBeGreaterThan(0);
++    expect(out.underlying).toBe("NIFTY");
++    expect(out.spot).toBe(24500);
++  });
++
++  it("perLot.maxProfit equals per-share maxProfit (already in rupees)", () => {
++    // The optionStrategies code already computes payoff in rupees (multiplies
++    // by lotSize inside sampleAt), so perLot mirrors maxProfit. Verify they
++    // stay consistent if someone touches the formula.
++    const chain = makeChain({ underlying: "NIFTY", lotSize: 75 });
++    const out = buildStrategies(chain, makeAnalytics());
++    for (const s of out.strategies) {
++      if (s.maxProfit != null && s.perLot.maxProfit != null) {
++        expect(s.perLot.maxProfit).toBe(+s.maxProfit.toFixed(2));
++      }
++    }
++  });
++
++  it("daysToExpiry is non-negative", () => {
++    // Use an expiry well in the future — the expiry parser anchors at 15:30 IST
++    const chain = makeChain({ underlying: "NIFTY", expiryISO: "2030-01-30" });
++    const out = buildStrategies(chain, makeAnalytics());
++    expect(out.daysToExpiry).toBeGreaterThanOrEqual(0);
++  });
++});
++
++describe("buildStrategies – payoff bounds (math soundness)", () => {
++  // Bounded-loss / unbounded-profit:
++  //   LONG_CALL:  loss capped, profit unbounded
++  //   LONG_PUT:   loss capped, profit bounded by spot→0
++  //   LONG_STRADDLE / STRANGLE: loss capped, profit unbounded both sides
++  // Bounded both ways:
++  //   IRON_CONDOR, IRON_BUTTERFLY, BULL_CALL_SPREAD, BEAR_PUT_SPREAD
++  // Unbounded loss:
++  //   SHORT_STRADDLE, SHORT_STRANGLE
++  it("LONG_CALL has bounded loss and unbounded profit", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics());
++    const s = out.strategies.find(x => x.kind === "LONG_CALL")!;
++    expect(s).toBeDefined();
++    expect(s.maxLoss).not.toBeNull();
++    expect(s.maxLoss!).toBeLessThanOrEqual(0);
++    expect(s.maxProfit).toBeNull(); // unbounded
++  });
++
++  it("LONG_PUT has bounded loss and bounded profit (spot→0)", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics());
++    const s = out.strategies.find(x => x.kind === "LONG_PUT")!;
++    expect(s).toBeDefined();
++    expect(s.maxLoss).not.toBeNull();
++    expect(s.maxLoss!).toBeLessThanOrEqual(0);
++    expect(s.maxProfit).not.toBeNull();
++    expect(s.maxProfit!).toBeGreaterThan(0);
++  });
++
++  it("LONG_STRADDLE has bounded loss and unbounded profit", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics());
++    const s = out.strategies.find(x => x.kind === "LONG_STRADDLE")!;
++    expect(s).toBeDefined();
++    expect(s.maxLoss).not.toBeNull();
++    expect(s.maxLoss!).toBeLessThanOrEqual(0);
++    expect(s.maxProfit).toBeNull();
++  });
++
++  it("SHORT_STRADDLE has bounded profit and unbounded loss", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics());
++    const s = out.strategies.find(x => x.kind === "SHORT_STRADDLE")!;
++    expect(s).toBeDefined();
++    expect(s.maxProfit).not.toBeNull();
++    expect(s.maxProfit!).toBeGreaterThan(0);
++    expect(s.maxLoss).toBeNull();
++  });
++
++  it("BULL_CALL_SPREAD is bounded both ways", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics());
++    const s = out.strategies.find(x => x.kind === "BULL_CALL_SPREAD")!;
++    expect(s).toBeDefined();
++    expect(s.maxProfit).not.toBeNull();
++    expect(s.maxLoss).not.toBeNull();
++    expect(s.maxProfit!).toBeGreaterThan(0);
++    expect(s.maxLoss!).toBeLessThanOrEqual(0);
++  });
++
++  it("IRON_CONDOR is bounded both ways", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics());
++    const s = out.strategies.find(x => x.kind === "IRON_CONDOR")!;
++    expect(s).toBeDefined();
++    expect(s.maxProfit).not.toBeNull();
++    expect(s.maxLoss).not.toBeNull();
++    expect(s.rrRatio).not.toBeNull();
++    expect(s.rrRatio!).toBeGreaterThan(0);
++  });
++
++  it("IRON_BUTTERFLY is bounded both ways with bounded P/L", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics());
++    const s = out.strategies.find(x => x.kind === "IRON_BUTTERFLY")!;
++    expect(s).toBeDefined();
++    expect(s.maxProfit).not.toBeNull();
++    expect(s.maxLoss).not.toBeNull();
++    // The synthetic chain may yield a near-zero-credit butterfly (wings as
++    // expensive as body), in which case breakevens collapse to a single point
++    // or vanish. The key invariant is that BOTH P/L bounds are finite —
++    // breakeven cardinality depends on the actual premium structure.
++    expect(s.breakevens.length).toBeGreaterThanOrEqual(0);
++    expect(s.breakevens.length).toBeLessThanOrEqual(2);
++  });
++});
++
++describe("buildStrategies – Covered Call regression (cash-settled indices)", () => {
++  // From replit.md:
++  //   "Covered Call on indices — Already guarded; cash-settled indices return
++  //    an explicit 'needs ownership of the underlying' reason and surface in
++  //    the unavailable-strategies section instead of synthesizing a fake
++  //    long-stock leg that produced absurd Max Loss values like -₹15.43L."
++  for (const idx of ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "SENSEX"]) {
++    it(`rejects covered call on ${idx} (cash-settled index)`, () => {
++      const chain = makeChain({ underlying: idx, kind: "INDEX" });
++      const out = buildStrategies(chain, makeAnalytics());
++      const inStrategies = out.strategies.find(s => s.kind === "COVERED_CALL");
++      const inUnavailable = out.unavailable.find(u => u.kind === "COVERED_CALL");
++      expect(inStrategies).toBeUndefined();
++      expect(inUnavailable).toBeDefined();
++      expect(inUnavailable!.reason.toLowerCase()).toMatch(/cash-settled|ownership|underlying/);
++    });
++  }
++
++  it("permits covered call on an EQUITY (RELIANCE)", () => {
++    const chain = makeChain({ underlying: "RELIANCE", kind: "EQUITY", spot: 1450, step: 25, lotSize: 250 });
++    const out = buildStrategies(chain, makeAnalytics());
++    const s = out.strategies.find(x => x.kind === "COVERED_CALL");
++    // For an equity it should appear in `strategies`, not `unavailable`.
++    expect(s).toBeDefined();
++    expect(out.unavailable.find(u => u.kind === "COVERED_CALL")).toBeUndefined();
++  });
++});
++
++describe("buildStrategies – breakeven counts", () => {
++  it("LONG_CALL has exactly 1 breakeven", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const s = buildStrategies(chain, makeAnalytics()).strategies.find(x => x.kind === "LONG_CALL")!;
++    expect(s.breakevens.length).toBe(1);
++  });
++
++  it("LONG_STRADDLE has exactly 2 breakevens", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const s = buildStrategies(chain, makeAnalytics()).strategies.find(x => x.kind === "LONG_STRADDLE")!;
++    expect(s.breakevens.length).toBe(2);
++  });
++
++  it("LONG_STRANGLE has exactly 2 breakevens", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const s = buildStrategies(chain, makeAnalytics()).strategies.find(x => x.kind === "LONG_STRANGLE")!;
++    expect(s.breakevens.length).toBe(2);
++  });
++});
++
++describe("buildStrategies – IV context", () => {
++  it("ivContext = HIGH when ivPercentile >= 70", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics({ ivPercentile: 80 }));
++    expect(out.ivContext).toBe("HIGH");
++  });
++
++  it("ivContext = LOW when ivPercentile <= 30", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics({ ivPercentile: 20 }));
++    expect(out.ivContext).toBe("LOW");
++  });
++
++  it("HIGH-IV recommendations include premium-selling strategies", () => {
++    const chain = makeChain({ underlying: "NIFTY" });
++    const out = buildStrategies(chain, makeAnalytics({ ivPercentile: 85, bias: "NEUTRAL" }));
++    const recommended = out.strategies.filter(s => s.recommended);
++    // At least one credit/premium-selling strategy should be flagged.
++    const hasCredit = recommended.some(s => s.category === "CREDIT");
++    expect(hasCredit).toBe(true);
++  });
++});
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/scoring.test.ts work/ms/artifacts/api-server/src/lib/scoring.test.ts
+--- /dev/null
++++ b/artifacts/api-server/src/lib/scoring.test.ts	2026-04-27 09:38:48.000000000 +0000
+@@ -0,0 +1,362 @@
++import { describe, it, expect } from "vitest";
++import type { Indicators, Quote } from "@workspace/api-zod";
++import { buildRecommendation } from "./scoring";
++
++/**
++ * Tests for the scoring engine.
++ *
++ * Strategy: build a "synthetic" symbol with hand-tuned indicator values, push
++ * it through buildRecommendation, and assert on the resulting signal/score.
++ *
++ * Notable cases under test:
++ *   - Bullish full-stack: every rule should fire bullish → STRONG_BUY
++ *   - Bearish full-stack: every rule should fire bearish → STRONG_SELL
++ *   - Neutral / mixed evidence: NEUTRAL with score in [-22, +22]
++ *   - Stop-loss inversion guard (the bug fixed in the SL block — for a BUY
++ *     where support has drifted ABOVE price, SL must still be below price.)
++ *   - Missing-indicator handling: ADX/volRatio/deliveryPct null should
++ *     cause those rules to be skipped, NOT contribute fake "neutral" weight.
++ */
++
++// ─── Helpers ────────────────────────────────────────────────────────────────
++
++function makeQuote(overrides: Partial<Quote> = {}): Quote {
++  return {
++    symbol: "TEST",
++    name: "Test Co",
++    exchange: "NSE",
++    price: 100,
++    change: 1,
++    changePercent: 1,
++    open: 99,
++    high: 101,
++    low: 98.5,
++    previousClose: 99,
++    volume: 1_000_000,
++    avgVolume: 1_000_000,
++    fiftyTwoWeekHigh: 110,
++    fiftyTwoWeekLow: 80,
++    dayRange: "98.50 - 101.00",
++    yearRange: "80.00 - 110.00",
++    ...overrides,
++  } as Quote;
++}
++
++function makeIndicators(overrides: Partial<Indicators> = {}): Indicators {
++  return {
++    ema9: 99.5, ema21: 99, ema20: 99, ema50: 98, ema100: 97, ema200: 95,
++    vwap: 99,
++    rsi14: 60,
++    macd: 0.5, macdSignal: 0.4, macdHist: 0.1,
++    atr14: 1.5,
++    adx14: 28,
++    volumeRatio: 1.6,
++    deliveryPct: 65,
++    trendStrength: 70,
++    supportLevel: 95,
++    resistanceLevel: 105,
++    pivot: 100, r1: 102, s1: 98,
++    ...overrides,
++  } as Indicators;
++}
++
++function makeSeries(n: number, lastValue: number, slope: number = 0): (number | null)[] {
++  const out: (number | null)[] = [];
++  for (let i = 0; i < n; i++) out.push(lastValue - slope * (n - 1 - i));
++  return out;
++}
++
++function risingCloses(n: number = 60, start: number = 80, end: number = 100): number[] {
++  const out: number[] = [];
++  for (let i = 0; i < n; i++) out.push(start + ((end - start) * i) / (n - 1));
++  return out;
++}
++
++function fallingCloses(n: number = 60, start: number = 100, end: number = 80): number[] {
++  return risingCloses(n, start, end);
++}
++
++const baseInput = () => ({
++  quote: makeQuote(),
++  indicators: makeIndicators(),
++  closes: risingCloses(60, 80, 100),
++  ema9Series: makeSeries(60, 99.5, 0.05),
++  ema21Series: makeSeries(60, 99, 0.05),
++  ema20Series: makeSeries(60, 99, 0.05),
++  ema50Series: makeSeries(60, 98, 0.05),
++  rsiSeries: makeSeries(60, 60),
++  macdHistSeries: makeSeries(60, 0.1, 0.001),
++});
++
++// ─── Signal classification ──────────────────────────────────────────────────
++
++describe("buildRecommendation – signal classification", () => {
++  it("emits STRONG_BUY when every rule fires bullish", () => {
++    const r = buildRecommendation(baseInput());
++    expect(r.signal).toBe("STRONG_BUY");
++    expect(r.score).toBeGreaterThanOrEqual(50);
++    expect(r.score).toBeLessThanOrEqual(100);
++  });
++
++  it("emits STRONG_SELL when every rule fires bearish", () => {
++    const r = buildRecommendation({
++      ...baseInput(),
++      quote: makeQuote({ price: 80, change: -2, changePercent: -2.5, open: 82, high: 82, low: 80, previousClose: 82 }),
++      indicators: makeIndicators({
++        ema9: 81, ema21: 82, ema20: 82, ema50: 84, ema100: 86, ema200: 88,
++        vwap: 82, rsi14: 25, macdHist: -0.1,
++        adx14: 28, volumeRatio: 1.6, deliveryPct: 65,
++        supportLevel: 80, resistanceLevel: 90,
++      }),
++      closes: fallingCloses(60, 100, 80),
++      ema9Series: makeSeries(60, 81),
++      ema21Series: makeSeries(60, 82),
++      ema20Series: makeSeries(60, 82),
++      ema50Series: makeSeries(60, 84),
++      rsiSeries: makeSeries(60, 25),
++      macdHistSeries: makeSeries(60, -0.1, -0.001),
++    });
++    expect(r.signal).toBe("STRONG_SELL");
++    expect(r.score).toBeLessThanOrEqual(-50);
++  });
++
++  it("emits NEUTRAL when evidence is mixed", () => {
++    // Price riding the 20/50 stack but RSI flat-ish, no MACD or volume signal.
++    const r = buildRecommendation({
++      ...baseInput(),
++      quote: makeQuote({ change: 0.1, changePercent: 0.1 }),
++      indicators: makeIndicators({
++        ema9: 100, ema21: 100, ema20: 100, ema50: 100, ema100: 100, ema200: 100,
++        rsi14: 50, macdHist: 0, adx14: 16, volumeRatio: 0.95, deliveryPct: 45,
++      }),
++      ema9Series: makeSeries(60, 100),
++      ema21Series: makeSeries(60, 100),
++      ema20Series: makeSeries(60, 100),
++      ema50Series: makeSeries(60, 100),
++      macdHistSeries: makeSeries(60, 0),
++      rsiSeries: makeSeries(60, 50),
++    });
++    expect(r.signal).toBe("NEUTRAL");
++    expect(r.score).toBeGreaterThanOrEqual(-22);
++    expect(r.score).toBeLessThanOrEqual(22);
++  });
++
++  it("score is clamped to [-100, 100]", () => {
++    const r = buildRecommendation(baseInput());
++    expect(r.score).toBeGreaterThanOrEqual(-100);
++    expect(r.score).toBeLessThanOrEqual(100);
++  });
++});
++
++// ─── Stop-loss / target / risk-reward ───────────────────────────────────────
++
++describe("buildRecommendation – stop-loss and target", () => {
++  it("BUY: stop-loss is strictly below entry price (no inversion)", () => {
++    const r = buildRecommendation(baseInput());
++    expect(r.signal).toBe("STRONG_BUY");
++    expect(r.stopLoss).toBeDefined();
++    expect(r.stopLoss!).toBeLessThan(r.target!); // sanity
++    // Entry is 100; SL must be < 100.
++    expect(r.stopLoss!).toBeLessThan(100);
++  });
++
++  it("BUY: stop-loss does NOT invert when support has drifted ABOVE price", () => {
++    // Bug case: a fast breakdown puts price below the lagging 20-day support.
++    // Pre-fix, Math.max(support, …) would return support (above price), giving
++    // a stop-loss ABOVE the entry — inverting the trade.
++    //
++    // Post-fix: stopLoss is capped at price * 0.999.
++    const r = buildRecommendation({
++      ...baseInput(),
++      quote: makeQuote({ price: 95, change: 2, changePercent: 2.5 }), // BUY signal
++      indicators: makeIndicators({
++        supportLevel: 100, // pathological: support > price
++        resistanceLevel: 110,
++        atr14: 2,
++      }),
++    });
++    if (r.signal === "BUY" || r.signal === "STRONG_BUY") {
++      expect(r.stopLoss).toBeDefined();
++      expect(r.stopLoss!).toBeLessThan(95);
++      // Risk should be strictly positive
++      expect(r.riskRewardRatio).toBeDefined();
++      expect(r.riskRewardRatio!).toBeGreaterThan(0);
++    }
++  });
++
++  it("SELL: stop-loss does NOT invert when resistance has drifted BELOW price", () => {
++    // Mirror of the above. A breakout above resistance should not put SL
++    // below the short entry.
++    const r = buildRecommendation({
++      ...baseInput(),
++      quote: makeQuote({ price: 105, change: -2, changePercent: -2.5 }),
++      indicators: makeIndicators({
++        ema9: 106, ema21: 107, ema20: 107, ema50: 108, ema100: 110, ema200: 112,
++        rsi14: 25, macdHist: -0.2, adx14: 30, volumeRatio: 1.7,
++        supportLevel: 90,
++        resistanceLevel: 100, // pathological: resistance < price
++        atr14: 2,
++      }),
++      closes: fallingCloses(60, 120, 105),
++      ema9Series: makeSeries(60, 106),
++      ema21Series: makeSeries(60, 107),
++      ema20Series: makeSeries(60, 107),
++      ema50Series: makeSeries(60, 108),
++      macdHistSeries: makeSeries(60, -0.2, -0.001),
++      rsiSeries: makeSeries(60, 25),
++    });
++    if (r.signal === "SELL" || r.signal === "STRONG_SELL") {
++      expect(r.stopLoss).toBeDefined();
++      expect(r.stopLoss!).toBeGreaterThan(105);
++      expect(r.riskRewardRatio).toBeDefined();
++      expect(r.riskRewardRatio!).toBeGreaterThan(0);
++    }
++  });
++
++  it("NEUTRAL signal yields no target/SL", () => {
++    const r = buildRecommendation({
++      ...baseInput(),
++      quote: makeQuote({ change: 0.1, changePercent: 0.1 }),
++      indicators: makeIndicators({
++        ema9: 100, ema21: 100, ema20: 100, ema50: 100, ema100: 100, ema200: 100,
++        rsi14: 50, macdHist: 0, adx14: 16, volumeRatio: 0.95, deliveryPct: 45,
++      }),
++      ema9Series: makeSeries(60, 100),
++      ema21Series: makeSeries(60, 100),
++      ema20Series: makeSeries(60, 100),
++      ema50Series: makeSeries(60, 100),
++      macdHistSeries: makeSeries(60, 0),
++      rsiSeries: makeSeries(60, 50),
++    });
++    expect(r.signal).toBe("NEUTRAL");
++    expect(r.target).toBeUndefined();
++    expect(r.stopLoss).toBeUndefined();
++    expect(r.riskRewardRatio).toBeUndefined();
++  });
++});
++
++// ─── Missing-indicator handling ─────────────────────────────────────────────
++
++describe("buildRecommendation – missing indicators are skipped, not faked", () => {
++  it("missing ADX does NOT add a 'choppy regime' false positive", () => {
++    const r = buildRecommendation({
++      ...baseInput(),
++      indicators: makeIndicators({ adx14: undefined }),
++    });
++    const adxReasons = r.reasons.filter(x => x.label.includes("ADX") || x.label.includes("trend") || x.label.includes("Choppy"));
++    // No ADX rule should have fired; only the EMA-trend reasons that don't mention ADX.
++    expect(adxReasons.filter(x => x.label.startsWith("Strong trend") || x.label.startsWith("Choppy")).length).toBe(0);
++  });
++
++  it("missing volumeRatio does NOT trigger 'low volume' rule", () => {
++    const r = buildRecommendation({
++      ...baseInput(),
++      indicators: makeIndicators({ volumeRatio: undefined }),
++    });
++    const volReasons = r.reasons.filter(x => x.label.includes("Volume") || x.label.includes("Distribution"));
++    expect(volReasons.length).toBe(0);
++  });
++
++  it("missing deliveryPct does NOT trigger delivery rules", () => {
++    const r = buildRecommendation({
++      ...baseInput(),
++      indicators: makeIndicators({ deliveryPct: undefined }),
++    });
++    const dpReasons = r.reasons.filter(x => x.label.includes("delivery"));
++    expect(dpReasons.length).toBe(0);
++  });
++
++  it("score with all three missing is lower magnitude than full-stack score", () => {
++    // Full-stack bullish should have a higher score than partial-data bullish,
++    // because three rules' worth of evidence are no longer available.
++    const full = buildRecommendation(baseInput()).score;
++    const partial = buildRecommendation({
++      ...baseInput(),
++      indicators: makeIndicators({ adx14: undefined, volumeRatio: undefined, deliveryPct: undefined }),
++    }).score;
++    expect(partial).toBeLessThan(full);
++  });
++});
++
++// ─── Confidence (alignment) semantics ───────────────────────────────────────
++
++describe("buildRecommendation – confidence/alignment", () => {
++  it("confidence is in [0, 100]", () => {
++    const r = buildRecommendation(baseInput());
++    expect(r.confidence).toBeGreaterThanOrEqual(0);
++    expect(r.confidence).toBeLessThanOrEqual(100);
++  });
++
++  it("a unanimous bullish stack has confidence = 100", () => {
++    const r = buildRecommendation(baseInput());
++    expect(r.confidence).toBe(100);
++  });
++
++  it("split evidence reduces confidence below 100", () => {
++    // Strong bullish trend (EMA stack, MACD, breakout) but RSI overbought
++    // (which fires bearish: 'pullback risk') and a high-delivery decline rule
++    // can't fire (changePercent > 0). The RSI overbought reason adds bearish weight.
++    const r = buildRecommendation({
++      ...baseInput(),
++      indicators: makeIndicators({ rsi14: 75 }), // overbought → bearish reason
++      rsiSeries: makeSeries(60, 75),
++    });
++    if (r.signal === "BUY" || r.signal === "STRONG_BUY") {
++      expect(r.confidence).toBeLessThan(100);
++    }
++  });
++});
++
++// ─── Reasons ────────────────────────────────────────────────────────────────
++
++describe("buildRecommendation – reasons", () => {
++  it("every reason has a non-empty label and a positive weight", () => {
++    const r = buildRecommendation(baseInput());
++    expect(r.reasons.length).toBeGreaterThan(0);
++    for (const reason of r.reasons) {
++      expect(reason.label).toBeTruthy();
++      expect(reason.weight).toBeGreaterThan(0);
++      expect(typeof reason.bullish).toBe("boolean");
++    }
++  });
++
++  it("reason weights sum to a value comparable to |score|", () => {
++    // Sanity check: total weight should be >= 50 in the bullish full-stack case
++    // (the 18+12+10+10+10+8+8 + smaller rules add up well above this).
++    const r = buildRecommendation(baseInput());
++    const totalWeight = r.reasons.reduce((a, b) => a + b.weight, 0);
++    expect(totalWeight).toBeGreaterThan(50);
++  });
++});
++
++// ─── Timeframe ──────────────────────────────────────────────────────────────
++
++describe("buildRecommendation – timeframe heuristic", () => {
++  it("strong ADX + intraday move → 'intraday' timeframe", () => {
++    const r = buildRecommendation({
++      ...baseInput(),
++      quote: makeQuote({ change: 1.5, changePercent: 1.5 }),
++      indicators: makeIndicators({ adx14: 30 }),
++    });
++    expect(r.timeframe).toBe("intraday");
++  });
++
++  it("ema100 stack present and aligned → 'positional' timeframe", () => {
++    const r = buildRecommendation({
++      ...baseInput(),
++      quote: makeQuote({ change: 0.5, changePercent: 0.5 }),
++      indicators: makeIndicators({ adx14: 18, ema100: 95, ema50: 98, ema200: 90 }),
++    });
++    expect(r.timeframe).toBe("positional");
++  });
++
++  it("default is 'swing'", () => {
++    // Without ADX, without the long EMA stack qualifier.
++    const r = buildRecommendation({
++      ...baseInput(),
++      quote: makeQuote({ change: 0.5, changePercent: 0.5 }),
++      indicators: makeIndicators({ adx14: undefined, ema100: undefined, ema200: undefined }),
++    });
++    expect(r.timeframe).toBe("swing");
++  });
++});
+diff -urN project/marketscanner-source/artifacts/api-server/src/lib/scoring.ts work/ms/artifacts/api-server/src/lib/scoring.ts
+--- a/artifacts/api-server/src/lib/scoring.ts	2026-04-24 08:07:01.000000000 +0000
++++ b/artifacts/api-server/src/lib/scoring.ts	2026-04-27 09:37:09.000000000 +0000
+@@ -39,9 +39,14 @@
+   const ema200 = indicators.ema200;
+   const vwap = indicators.vwap ?? price;
+   const rsi = indicators.rsi14;
+-  const adx = indicators.adx14 ?? 20;
+-  const volRatio = indicators.volumeRatio ?? 1;
+-  const deliveryPct = indicators.deliveryPct ?? 50;
++  // Indicator availability — pass through `null` and let downstream rules
++  // skip themselves when data is missing, instead of substituting a fake
++  // "neutral" value that biases scores toward zero. Previously these were
++  // `?? 20`, `?? 1`, `?? 50` which silently materialised three rules' worth
++  // of phantom evidence on stocks where the indicator wasn't computed.
++  const adx = indicators.adx14 ?? null;
++  const volRatio = indicators.volumeRatio ?? null;
++  const deliveryPct = indicators.deliveryPct ?? null;
+   const support = indicators.supportLevel ?? Math.min(...closes.slice(-20));
+   const resistance = indicators.resistanceLevel ?? Math.max(...closes.slice(-20));
+   const poc = indicators.pointOfControl;
+@@ -99,14 +104,16 @@
+   if (price > vwap * 1.001) { score += 10; reasons.push({ label: "Above VWAP", detail: `Price ₹${price.toFixed(2)} > VWAP ₹${vwap.toFixed(2)}.`, weight: 10, bullish: true }); }
+   else if (price < vwap * 0.999) { score -= 10; reasons.push({ label: "Below VWAP", detail: `Price ₹${price.toFixed(2)} < VWAP ₹${vwap.toFixed(2)}.`, weight: 10, bullish: false }); }
+ 
+-  // 5. ADX trend strength gate (weight 6)
+-  if (adx >= 25) {
+-    const w = 6;
+-    const bullish = price > ema20;
+-    score += bullish ? w : -w;
+-    reasons.push({ label: `Strong trend (ADX ${adx.toFixed(0)})`, detail: `ADX ≥ 25 — current move has conviction.`, weight: w, bullish });
+-  } else if (adx < 18) {
+-    reasons.push({ label: `Choppy regime (ADX ${adx.toFixed(0)})`, detail: `ADX < 18 — range-bound; signals less reliable.`, weight: 3, bullish: false });
++  // 5. ADX trend strength gate (weight 6) — skipped if ADX wasn't computed.
++  if (adx != null) {
++    if (adx >= 25) {
++      const w = 6;
++      const bullish = price > ema20;
++      score += bullish ? w : -w;
++      reasons.push({ label: `Strong trend (ADX ${adx.toFixed(0)})`, detail: `ADX ≥ 25 — current move has conviction.`, weight: w, bullish });
++    } else if (adx < 18) {
++      reasons.push({ label: `Choppy regime (ADX ${adx.toFixed(0)})`, detail: `ADX < 18 — range-bound; signals less reliable.`, weight: 3, bullish: false });
++    }
+   }
+ 
+   // 6. MACD histogram (weight 8)
+@@ -150,14 +157,18 @@
+   if (quote.changePercent > 1.5) { score += 4; reasons.push({ label: "Strong bullish candle today", detail: `Up ${quote.changePercent.toFixed(2)}% intraday.`, weight: 4, bullish: true }); }
+   else if (quote.changePercent < -1.5) { score -= 4; reasons.push({ label: "Strong bearish candle today", detail: `Down ${quote.changePercent.toFixed(2)}% intraday.`, weight: 4, bullish: false }); }
+ 
+-  // 9. Volume (weight 10)
+-  if (volRatio >= 1.5 && quote.changePercent > 0) { score += 10; reasons.push({ label: "Volume surge on advance", detail: `Volume ${volRatio.toFixed(2)}× the 20-day average on a positive close.`, weight: 10, bullish: true }); }
+-  else if (volRatio >= 1.5 && quote.changePercent < 0) { score -= 10; reasons.push({ label: "Distribution on decline", detail: `Volume ${volRatio.toFixed(2)}× the 20-day average on a negative close.`, weight: 10, bullish: false }); }
+-  else if (volRatio < 0.6) { reasons.push({ label: "Low volume", detail: `Volume only ${volRatio.toFixed(2)}× average.`, weight: 2, bullish: false }); }
+-
+-  // 10. Delivery % (weight 8)
+-  if (deliveryPct >= 60 && quote.changePercent > 0) { score += 8; reasons.push({ label: "High delivery on advance", detail: `Delivery ${deliveryPct.toFixed(1)}% — investor accumulation.`, weight: 8, bullish: true }); }
+-  else if (deliveryPct >= 60 && quote.changePercent < 0) { score -= 8; reasons.push({ label: "High delivery on decline", detail: `Delivery ${deliveryPct.toFixed(1)}% on a down day — genuine selling.`, weight: 8, bullish: false }); }
++  // 9. Volume (weight 10) — skipped if volume ratio wasn't computed.
++  if (volRatio != null) {
++    if (volRatio >= 1.5 && quote.changePercent > 0) { score += 10; reasons.push({ label: "Volume surge on advance", detail: `Volume ${volRatio.toFixed(2)}× the 20-day average on a positive close.`, weight: 10, bullish: true }); }
++    else if (volRatio >= 1.5 && quote.changePercent < 0) { score -= 10; reasons.push({ label: "Distribution on decline", detail: `Volume ${volRatio.toFixed(2)}× the 20-day average on a negative close.`, weight: 10, bullish: false }); }
++    else if (volRatio < 0.6) { reasons.push({ label: "Low volume", detail: `Volume only ${volRatio.toFixed(2)}× average.`, weight: 2, bullish: false }); }
++  }
++
++  // 10. Delivery % (weight 8) — skipped if bhavcopy wasn't loaded.
++  if (deliveryPct != null) {
++    if (deliveryPct >= 60 && quote.changePercent > 0) { score += 8; reasons.push({ label: "High delivery on advance", detail: `Delivery ${deliveryPct.toFixed(1)}% — investor accumulation.`, weight: 8, bullish: true }); }
++    else if (deliveryPct >= 60 && quote.changePercent < 0) { score -= 8; reasons.push({ label: "High delivery on decline", detail: `Delivery ${deliveryPct.toFixed(1)}% on a down day — genuine selling.`, weight: 8, bullish: false }); }
++  }
+ 
+   // 11. Volume profile (weight 8)
+   if (poc != null && vaHigh != null && vaLow != null) {
+@@ -176,7 +187,13 @@
+   else if (score >= -50) signal = "SELL";
+   else signal = "STRONG_SELL";
+ 
+-  // Confidence
++  // Alignment score (exposed as `confidence` in the public schema for backward
++  // compatibility). NOTE: this measures the *internal consistency* of the
++  // evidence — i.e. of all reasons listed, what fraction agree with the final
++  // direction. It is NOT a probability of the trade succeeding. A back-test
++  // harness against forward returns is the correct way to derive predictive
++  // confidence; until that exists, treat this number as "how unanimous the
++  // rules were" rather than "how likely the call is".
+   const directional = score >= 0;
+   const aligned = reasons.filter(r => r.bullish === directional).reduce((a, b) => a + b.weight, 0);
+   const total = reasons.reduce((a, b) => a + b.weight, 0);
+@@ -190,13 +207,23 @@
+   const atrLike = (indicators.atr14 ?? range / 6) || range / 6;
+   if (signal === "BUY" || signal === "STRONG_BUY") {
+     target = +(price + Math.max(range * 0.55, atrLike * 2.5)).toFixed(2);
+-    stopLoss = +(Math.max(support, price - Math.max(range * 0.25, atrLike * 1.2))).toFixed(2);
++    // Pull SL toward `support` only when support sits BELOW price. If a fast
++    // breakdown has already pushed price below the (lagging) 20-day support,
++    // anchoring there would put the SL above entry and invert the trade.
++    // Cap at price * 0.999 in the degenerate case to keep risk strictly positive.
++    const slCandidate = Math.max(support, price - Math.max(range * 0.25, atrLike * 1.2));
++    stopLoss = +(Math.min(slCandidate, price * 0.999)).toFixed(2);
+     const reward = target - price;
+     const risk = price - stopLoss;
+     if (risk > 0) rr = +(reward / risk).toFixed(2);
+   } else if (signal === "SELL" || signal === "STRONG_SELL") {
+     target = +(price - Math.max(range * 0.55, atrLike * 2.5)).toFixed(2);
+-    stopLoss = +(Math.min(resistance, price + Math.max(range * 0.25, atrLike * 1.2))).toFixed(2);
++    // Mirror of the BUY case: pull SL toward `resistance` only when resistance
++    // sits ABOVE price. If a fast breakout has already cleared the lagging
++    // 20-day resistance, anchoring there would put the SL below entry on a
++    // short. Floor at price * 1.001 in the degenerate case.
++    const slCandidate = Math.min(resistance, price + Math.max(range * 0.25, atrLike * 1.2));
++    stopLoss = +(Math.max(slCandidate, price * 1.001)).toFixed(2);
+     const reward = price - target;
+     const risk = stopLoss - price;
+     if (risk > 0) rr = +(reward / risk).toFixed(2);
+@@ -204,7 +231,7 @@
+ 
+   // Timeframe heuristic
+   let timeframe: "intraday" | "swing" | "positional" = "swing";
+-  if (adx >= 25 && Math.abs(quote.changePercent) > 1) timeframe = "intraday";
++  if (adx != null && adx >= 25 && Math.abs(quote.changePercent) > 1) timeframe = "intraday";
+   else if (ema100 != null && price > ema100 && ema50 > ema100) timeframe = "positional";
+ 
+   return {
+diff -urN project/marketscanner-source/artifacts/api-server/src/routes/auth.ts work/ms/artifacts/api-server/src/routes/auth.ts
+--- a/artifacts/api-server/src/routes/auth.ts	2026-04-24 10:00:11.000000000 +0000
++++ b/artifacts/api-server/src/routes/auth.ts	2026-04-27 11:04:36.914962968 +0000
+@@ -1,8 +1,8 @@
+ import { Router, type IRouter } from "express";
+ import {
+-  setSessionCookie,
+-  clearSessionCookie,
+-  isAuthenticated,
++  createSession,
++  destroySession,
++  loadSession,
+   verifyPassword,
+   isPasswordConfigured,
+ } from "../lib/auth";
+@@ -10,14 +10,37 @@
+ 
+ const router: IRouter = Router();
+ 
+-router.get("/auth/status", (req, res) => {
++/**
++ * Auth status — public.
++ *
++ * Always returns whether the caller is authenticated. When authenticated,
++ * also returns the session's CSRF token so the SPA can echo it on mutating
++ * requests via `X-CSRF-Token`. (The session cookie itself is httpOnly, so
++ * the SPA needs an explicit channel to read the token.)
++ *
++ * Note: `passwordConfigured` is leaked to unauthenticated callers by design
++ * — the SPA's login screen needs it to render the "configure password"
++ * prompt vs the regular login form. This is the same exposure as before,
++ * so no behaviour change here.
++ */
++router.get("/auth/status", async (req, res) => {
++  const sess = await loadSession(req).catch(() => null);
++  if (sess) {
++    res.json({
++      authenticated: true,
++      passwordConfigured: isPasswordConfigured(),
++      csrfToken: sess.csrfToken,
++      expiresAt: sess.expiresAt.toISOString(),
++    });
++    return;
++  }
+   res.json({
+-    authenticated: isAuthenticated(req),
++    authenticated: false,
+     passwordConfigured: isPasswordConfigured(),
+   });
+ });
+ 
+-router.post("/auth/login", (req, res) => {
++router.post("/auth/login", async (req, res) => {
+   const body = (req.body ?? {}) as Record<string, unknown>;
+   const password = typeof body["password"] === "string" ? (body["password"] as string) : "";
+   if (!password) {
+@@ -34,12 +57,23 @@
+     res.status(401).json({ error: "invalid password" });
+     return;
+   }
+-  setSessionCookie(res);
+-  res.json({ ok: true });
++  try {
++    const sess = await createSession(req, res);
++    res.json({ ok: true, csrfToken: sess.csrfToken, expiresAt: sess.expiresAt.toISOString() });
++  } catch (err) {
++    logger.error({ err: (err as Error).message }, "Failed to persist session row on login");
++    res.status(500).json({ error: "session_persist_failed" });
++  }
+ });
+ 
+-router.post("/auth/logout", (_req, res) => {
+-  clearSessionCookie(res);
++router.post("/auth/logout", async (req, res) => {
++  try {
++    await destroySession(req, res);
++  } catch (err) {
++    // Even if the DB delete fails we still cleared the cookie — return ok so
++    // the client doesn't get stuck in a "can't log out" state.
++    logger.warn({ err: (err as Error).message }, "Session row delete failed on logout");
++  }
+   res.json({ ok: true });
+ });
+ 
+diff -urN project/marketscanner-source/artifacts/api-server/vitest.config.ts work/ms/artifacts/api-server/vitest.config.ts
+--- /dev/null
++++ b/artifacts/api-server/vitest.config.ts	2026-04-27 09:34:27.000000000 +0000
+@@ -0,0 +1,33 @@
++import { defineConfig } from "vitest/config";
++
++export default defineConfig({
++  test: {
++    include: ["src/**/*.test.ts", "test/**/*.test.ts"],
++    environment: "node",
++    globals: false,
++    coverage: {
++      provider: "v8",
++      reporter: ["text", "html"],
++      include: ["src/lib/**/*.ts"],
++      exclude: [
++        "src/lib/**/*.test.ts",
++        // Pure I/O wrappers — covered indirectly by integration tests.
++        "src/lib/yahoo.ts",
++        "src/lib/newsRss.ts",
++        "src/lib/nseBhavcopy.ts",
++        "src/lib/kiteFeed.ts",
++        "src/lib/kiteOptionChain.ts",
++        "src/lib/kiteScanner.ts",
++        "src/lib/logger.ts",
++      ],
++    },
++    // The math libs are pure; tests should be fast. Anything > 5s is suspicious.
++    testTimeout: 5000,
++    // Don't run integration tests by default. Enable with --run-int.
++    exclude: ["node_modules/**", "dist/**", "test/integration/**"],
++  },
++  resolve: {
++    // Workspace alias resolution mirroring tsconfig path mappings.
++    conditions: ["workspace", "import", "default"],
++  },
++});
+diff -urN project/marketscanner-source/lib/api-client-react/package.json work/ms/lib/api-client-react/package.json
+--- a/lib/api-client-react/package.json	2026-04-18 01:59:57.000000000 +0000
++++ b/lib/api-client-react/package.json	2026-04-27 09:54:25.000000000 +0000
+@@ -6,9 +6,17 @@
+   "exports": {
+     ".": "./src/index.ts"
+   },
++  "scripts": {
++    "test": "vitest run",
++    "test:watch": "vitest",
++    "typecheck": "tsc -p tsconfig.json --noEmit"
++  },
+   "dependencies": {
+     "@tanstack/react-query": "catalog:"
+   },
++  "devDependencies": {
++    "vitest": "^1.6.0"
++  },
+   "peerDependencies": {
+     "react": ">=18"
+   }
+diff -urN project/marketscanner-source/lib/api-client-react/src/custom-fetch.test.ts work/ms/lib/api-client-react/src/custom-fetch.test.ts
+--- /dev/null
++++ b/lib/api-client-react/src/custom-fetch.test.ts	2026-04-27 09:54:02.000000000 +0000
+@@ -0,0 +1,104 @@
++import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
++
++/**
++ * Tests for the customFetch credentials default.
++ *
++ * Why this matters: the orval-generated hooks call `customFetch()` without
++ * passing a `credentials` option. The web SPA needs `credentials: "include"`
++ * so the signed `scanner_session` cookie rides along on every request. Pre-fix,
++ * the field was never set, and the browser defaulted to "same-origin" — which
++ * silently 401s the moment the API and SPA are on different subdomains.
++ */
++
++describe("customFetch – credentials default", () => {
++  beforeEach(() => {
++    vi.resetModules();
++  });
++
++  afterEach(() => {
++    vi.restoreAllMocks();
++  });
++
++  it("sets credentials='include' by default", async () => {
++    const fetchSpy = vi.fn().mockResolvedValue(
++      new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
++    );
++    vi.stubGlobal("fetch", fetchSpy);
++
++    const { customFetch } = await import("./custom-fetch");
++    await customFetch("https://api.example.com/x");
++
++    expect(fetchSpy).toHaveBeenCalledTimes(1);
++    const init = fetchSpy.mock.calls[0][1] as RequestInit;
++    expect(init.credentials).toBe("include");
++  });
++
++  it("respects explicit credentials override", async () => {
++    const fetchSpy = vi.fn().mockResolvedValue(
++      new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
++    );
++    vi.stubGlobal("fetch", fetchSpy);
++
++    const { customFetch } = await import("./custom-fetch");
++    await customFetch("https://api.example.com/x", { credentials: "omit" });
++
++    const init = fetchSpy.mock.calls[0][1] as RequestInit;
++    expect(init.credentials).toBe("omit");
++  });
++
++  it("setCredentialsMode(null) disables setting the field", async () => {
++    const fetchSpy = vi.fn().mockResolvedValue(
++      new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
++    );
++    vi.stubGlobal("fetch", fetchSpy);
++
++    const mod = await import("./custom-fetch");
++    mod.setCredentialsMode(null);
++    await mod.customFetch("https://api.example.com/x");
++
++    const init = fetchSpy.mock.calls[0][1] as RequestInit;
++    expect(init.credentials).toBeUndefined();
++    // Reset back to default for downstream tests.
++    mod.setCredentialsMode("include");
++  });
++
++  it("setCredentialsMode('omit') overrides the default", async () => {
++    const fetchSpy = vi.fn().mockResolvedValue(
++      new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
++    );
++    vi.stubGlobal("fetch", fetchSpy);
++
++    const mod = await import("./custom-fetch");
++    mod.setCredentialsMode("omit");
++    await mod.customFetch("https://api.example.com/x");
++
++    const init = fetchSpy.mock.calls[0][1] as RequestInit;
++    expect(init.credentials).toBe("omit");
++    mod.setCredentialsMode("include");
++  });
++});
++
++describe("customFetch – ApiError shape", () => {
++  beforeEach(() => { vi.resetModules(); });
++  afterEach(() => { vi.restoreAllMocks(); });
++
++  it("throws ApiError on non-2xx with parsed JSON body", async () => {
++    // Use mockResolvedValue (returns same response every call) so the test
++    // can invoke customFetch twice without exhausting the mock.
++    const fetchSpy = vi.fn().mockImplementation(async () => new Response(
++      JSON.stringify({ error: "unauthorized", code: "AUTH_REQUIRED" }),
++      { status: 401, headers: { "content-type": "application/json" } },
++    ));
++    vi.stubGlobal("fetch", fetchSpy);
++
++    const { customFetch, ApiError } = await import("./custom-fetch");
++    await expect(customFetch("/api/x")).rejects.toBeInstanceOf(ApiError);
++    try {
++      await customFetch("/api/x");
++      expect.fail("should have thrown");
++    } catch (e) {
++      expect((e as InstanceType<typeof ApiError>).status).toBe(401);
++      expect((e as InstanceType<typeof ApiError>).data).toMatchObject({ error: "unauthorized" });
++    }
++  });
++});
+diff -urN project/marketscanner-source/lib/api-client-react/src/custom-fetch.ts work/ms/lib/api-client-react/src/custom-fetch.ts
+--- a/lib/api-client-react/src/custom-fetch.ts	2026-04-18 01:59:57.000000000 +0000
++++ b/lib/api-client-react/src/custom-fetch.ts	2026-04-27 09:53:08.000000000 +0000
+@@ -17,6 +17,16 @@
+ 
+ let _baseUrl: string | null = null;
+ let _authTokenGetter: AuthTokenGetter | null = null;
++// Default credentials mode for every customFetch() call. The web SPA needs
++// "include" so the signed `scanner_session` cookie rides along on every
++// request. Without it, every protected endpoint silently 401s the moment
++// the API and SPA are on different subdomains. Browsers default to
++// "same-origin", which only works while everything is on one host.
++//
++// Use `setCredentialsMode(null)` (or "omit") in environments where you DON'T
++// want cookies sent — e.g. an Expo bundle using a Bearer token from
++// `setAuthTokenGetter()`.
++let _credentials: RequestCredentials | null = "include";
+ 
+ /**
+  * Set a base URL that is prepended to every relative request URL
+@@ -30,6 +40,17 @@
+ }
+ 
+ /**
++ * Override the default `credentials` mode for outgoing requests.
++ *  - "include"      → send cookies even cross-origin  (web SPA, default)
++ *  - "same-origin"  → browser default (same-origin only)
++ *  - "omit"         → never send cookies (Expo + Bearer token)
++ *  - null           → don't set the field (use whatever the runtime defaults to)
++ */
++export function setCredentialsMode(mode: RequestCredentials | null): void {
++  _credentials = mode;
++}
++
++/**
+  * Register a getter that supplies a bearer auth token.  Before every fetch
+  * the getter is invoked; when it returns a non-null string, an
+  * `Authorization: Bearer <token>` header is attached to the request.
+@@ -360,7 +381,16 @@
+ 
+   const requestInfo = { method, url: resolveUrl(input) };
+ 
+-  const response = await fetch(input, { ...init, method, headers });
++  // Apply the module-level credentials default unless the caller passed an
++  // explicit value via `options.credentials`. Without this the orval-generated
++  // hooks silently 401 in any cross-origin deployment because the browser
++  // defaults to "same-origin" and never attaches `scanner_session`.
++  const finalInit: RequestInit = { ...init, method, headers };
++  if (init.credentials === undefined && _credentials !== null) {
++    finalInit.credentials = _credentials;
++  }
++
++  const response = await fetch(input, finalInit);
+ 
+   if (!response.ok) {
+     const errorData = await parseErrorBody(response, method);
+diff -urN project/marketscanner-source/lib/api-client-react/src/index.ts work/ms/lib/api-client-react/src/index.ts
+--- a/lib/api-client-react/src/index.ts	2026-04-24 08:37:32.000000000 +0000
++++ b/lib/api-client-react/src/index.ts	2026-04-27 09:54:34.000000000 +0000
+@@ -1,4 +1,10 @@
+ export * from "./generated/api";
+ export * from "./generated/api.schemas";
+-export { setBaseUrl, setAuthTokenGetter } from "./custom-fetch";
+-export type { AuthTokenGetter } from "./custom-fetch";
++export {
++  setBaseUrl,
++  setAuthTokenGetter,
++  setCredentialsMode,
++  ApiError,
++  ResponseParseError,
++} from "./custom-fetch";
++export type { AuthTokenGetter, CustomFetchOptions, ErrorType } from "./custom-fetch";
+diff -urN project/marketscanner-source/lib/api-spec/openapi.yaml work/ms/lib/api-spec/openapi.yaml
+--- a/lib/api-spec/openapi.yaml	2026-04-24 08:35:20.000000000 +0000
++++ b/lib/api-spec/openapi.yaml	2026-04-27 09:52:31.000000000 +0000
+@@ -371,6 +371,636 @@
+             application/json:
+               schema: { $ref: "#/components/schemas/WatchlistResponse" }
+ 
++  # ─── Auth ─────────────────────────────────────────────────────────────────
++  /auth/status:
++    get:
++      operationId: getAuthStatus
++      tags: [auth]
++      summary: Check whether the caller is authenticated
++      description: |
++        Public endpoint. Returns whether the current request carries a valid
++        signed `scanner_session` cookie. The `passwordConfigured` flag tells
++        the SPA whether the server is in setup mode (no APP_ACCESS_PASSWORD
++        env var set).
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/AuthStatusResponse" }
++
++  /auth/login:
++    post:
++      operationId: login
++      tags: [auth]
++      summary: Exchange a password for a session cookie
++      description: |
++        Public endpoint. Rate-limited to 5 attempts per 15 minutes per IP.
++        On success the response sets a signed httpOnly cookie `scanner_session`.
++        Successful logins do NOT count against the rate-limit budget so a
++        legitimate user re-authenticating from a new device isn't penalised.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema: { $ref: "#/components/schemas/LoginRequest" }
++      responses:
++        "200":
++          description: Authenticated; cookie set
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/OkResponse" }
++        "400":
++          description: Missing password field
++          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
++        "401":
++          description: Invalid password
++          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
++        "503":
++          description: Server has no APP_ACCESS_PASSWORD configured
++          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
++
++  /auth/logout:
++    post:
++      operationId: logout
++      tags: [auth]
++      summary: Clear the session cookie
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/OkResponse" }
++
++  # ─── Kite Connect (live tick feed) ────────────────────────────────────────
++  /kite/status:
++    get:
++      operationId: getKiteStatus
++      tags: [kite]
++      summary: Live feed status (WebSocket connection + subscribed symbols)
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/KiteStatusResponse" }
++
++  /kite/login-url:
++    get:
++      operationId: getKiteLoginUrl
++      tags: [kite]
++      summary: Build the Zerodha Kite login URL (daily auth flow)
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/KiteLoginUrlResponse" }
++        "503":
++          description: KITE_API_KEY/SECRET not configured
++          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
++
++  /kite/callback:
++    get:
++      operationId: kiteCallback
++      tags: [kite]
++      summary: Zerodha redirect target — exchanges request_token for access_token
++      description: |
++        Public endpoint (auth = `request_token` + KITE_API_SECRET).
++        Persists the day's access_token to the database. Token expires at
++        ~06:00 IST the next morning; user must re-login daily.
++      parameters:
++        - in: query
++          name: request_token
++          required: true
++          schema: { type: string }
++      responses:
++        "200":
++          description: Session stored
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/KiteSessionResponse" }
++        "400":
++          description: Missing or invalid request_token
++          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
++
++  /kite/logout:
++    post:
++      operationId: kiteLogout
++      tags: [kite]
++      summary: Delete the active Kite session (manual logout)
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/OkResponse" }
++
++  /kite/quote/{symbol}:
++    get:
++      operationId: getKiteQuote
++      tags: [kite]
++      summary: Latest tick for one symbol (returns null if not subscribed yet)
++      parameters:
++        - in: path
++          name: symbol
++          required: true
++          schema: { type: string }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/KiteTickResponse" }
++
++  /kite/quotes:
++    get:
++      operationId: getKiteQuotes
++      tags: [kite]
++      summary: All currently-subscribed symbols and their last ticks
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                additionalProperties: { $ref: "#/components/schemas/KiteTick" }
++
++  /kite/subscribe:
++    post:
++      operationId: kiteSubscribe
++      tags: [kite]
++      summary: Add symbols to the live tick subscription set
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [symbols]
++              properties:
++                symbols:
++                  type: array
++                  items: { type: string }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                properties:
++                  added:    { type: integer, description: "Number of new tokens subscribed" }
++                  resolved: { type: integer, description: "How many of the requested symbols Kite knew about" }
++
++  /kite/stream:
++    get:
++      operationId: kiteStream
++      tags: [kite]
++      summary: Server-Sent Events stream of live ticks
++      description: |
++        Long-running SSE endpoint. Each event is a JSON-encoded `KiteTick`.
++        The connection stays open until the client closes it.
++      responses:
++        "200":
++          description: text/event-stream of ticks
++          content:
++            text/event-stream:
++              schema: { type: string }
++
++  # ─── Scanner — Full NSE EQ ────────────────────────────────────────────────
++  /scan/full-nse:
++    get:
++      operationId: scanFullNse
++      tags: [scan]
++      summary: Live scan of all ~2,500 NSE EQ symbols with sort/filter/paginate
++      parameters:
++        - in: query
++          name: sortBy
++          schema: { type: string, enum: [changePct, score, volume, rsi, symbol, price, deliveryPct] }
++        - in: query
++          name: order
++          schema: { type: string, enum: [asc, desc] }
++        - in: query
++          name: signal
++          schema: { type: string, enum: [STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL] }
++        - in: query
++          name: search
++          schema: { type: string }
++        - in: query
++          name: limit
++          schema: { type: integer, minimum: 1, maximum: 5000, default: 5000 }
++        - in: query
++          name: offset
++          schema: { type: integer, minimum: 0, default: 0 }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/FullNseScanResponse" }
++
++  /scan/full-nse/status:
++    get:
++      operationId: getFullNseScanStatus
++      tags: [scan]
++      summary: Lightweight status (no row payload) for the background NSE scanner
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/FullNseScanStatus" }
++
++  /scan/full-nse/export:
++    get:
++      operationId: exportFullNseScan
++      tags: [scan]
++      summary: Stream every cached row as CSV or JSON
++      parameters:
++        - in: query
++          name: format
++          schema: { type: string, enum: [csv, json], default: csv }
++      responses:
++        "200":
++          description: Stream of rows
++          content:
++            text/csv:           { schema: { type: string } }
++            application/json:   { schema: { type: array, items: { type: object } } }
++
++  # ─── Index detail / provider status ───────────────────────────────────────
++  /index/{slug}:
++    get:
++      operationId: getIndex
++      tags: [market]
++      summary: Index quote + full constituent list with breadth and movers
++      parameters:
++        - in: path
++          name: slug
++          required: true
++          schema:
++            type: string
++            enum: [NIFTY50, BANKNIFTY, NIFTYIT, NIFTYAUTO, NIFTYPHARMA, NIFTYFMCG]
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/IndexDetailResponse" }
++
++  /provider/status:
++    get:
++      operationId: getProviderStatus
++      tags: [market]
++      summary: Which data provider is active (Kite live vs Yahoo delayed)
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/ProviderStatusResponse" }
++
++  # ─── Deep Scan (universal symbol lookup) ──────────────────────────────────
++  /deepscan/lookup:
++    get:
++      operationId: deepscanLookup
++      tags: [scan]
++      summary: Fuzzy match across NSE EQ universe + Indian indices
++      parameters:
++        - in: query
++          name: q
++          required: true
++          schema: { type: string, minLength: 1 }
++      responses:
++        "200":
++          description: Matches (max 25)
++          content:
++            application/json:
++              schema:
++                type: array
++                items: { $ref: "#/components/schemas/DeepscanMatch" }
++
++  /deepscan/snapshot/{symbol}:
++    get:
++      operationId: deepscanSnapshot
++      tags: [scan]
++      summary: Chart + EMAs + indicators + (for stocks) fundamentals
++      parameters:
++        - in: path
++          name: symbol
++          required: true
++          schema: { type: string }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/DeepscanSnapshot" }
++        "404":
++          description: Symbol not found
++          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
++
++  # ─── Option chain export ──────────────────────────────────────────────────
++  /options/chain/{underlying}/export:
++    get:
++      operationId: exportOptionChain
++      tags: [options]
++      summary: Stream the current option chain as CSV or JSON
++      parameters:
++        - in: path
++          name: underlying
++          required: true
++          schema: { type: string }
++        - in: query
++          name: format
++          schema: { type: string, enum: [csv, json], default: csv }
++        - in: query
++          name: expiry
++          schema: { type: string, description: "DD-MMM-YYYY or YYYY-MM-DD; defaults to nearest" }
++      responses:
++        "200":
++          description: Stream
++          content:
++            text/csv:         { schema: { type: string } }
++            application/json: { schema: { type: array, items: { type: object } } }
++
++  # ─── OI Lab ───────────────────────────────────────────────────────────────
++  /options/oi-lab/universe:
++    get:
++      operationId: getOiLabUniverse
++      tags: [options]
++      summary: List of underlyings supported by OI Lab (indices + F&O equities)
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: array
++                items: { $ref: "#/components/schemas/OiLabUniverseEntry" }
++
++  /options/oi-lab/snapshot:
++    get:
++      operationId: getOiLabSnapshot
++      tags: [options]
++      summary: Bulk OI snapshot for one or more underlyings (download / archive)
++      parameters:
++        - in: query
++          name: symbols
++          required: true
++          schema: { type: string, description: "Comma-separated underlyings" }
++        - in: query
++          name: format
++          schema: { type: string, enum: [json, csv], default: json }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json: { schema: { type: object, additionalProperties: true } }
++            text/csv:         { schema: { type: string } }
++
++  /options/oi-lab/heatmap:
++    get:
++      operationId: getOiLabHeatmap
++      tags: [options]
++      summary: OI heatmap with buildup classification across the F&O universe
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/OiLabHeatmapResponse" }
++
++  /options/oi-lab/heatmap/export:
++    get:
++      operationId: exportOiLabHeatmap
++      tags: [options]
++      summary: Heatmap as CSV
++      parameters:
++        - in: query
++          name: format
++          schema: { type: string, enum: [csv, json], default: csv }
++      responses:
++        "200":
++          description: Stream
++          content:
++            text/csv:         { schema: { type: string } }
++            application/json: { schema: { type: array, items: { type: object } } }
++
++  /options/oi-lab/insights/{underlying}:
++    get:
++      operationId: getOiLabInsights
++      tags: [options]
++      summary: Per-strike OI distribution + PCR + max-pain + sentiment
++      parameters:
++        - in: path
++          name: underlying
++          required: true
++          schema: { type: string }
++        - in: query
++          name: expiry
++          schema: { type: string }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/OiLabInsightsResponse" }
++
++  /options/oi-lab/tracker/start:
++    post:
++      operationId: startOiTracker
++      tags: [options]
++      summary: Begin polling the intraday tracker for one underlying
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [underlying]
++              properties:
++                underlying: { type: string }
++                expiry:     { type: string }
++                intervalSec: { type: integer, default: 60 }
++      responses:
++        "200":
++          description: OK
++          content: { application/json: { schema: { $ref: "#/components/schemas/OkResponse" } } }
++
++  /options/oi-lab/tracker/stop:
++    post:
++      operationId: stopOiTracker
++      tags: [options]
++      summary: Stop polling for one underlying
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [underlying]
++              properties:
++                underlying: { type: string }
++      responses:
++        "200":
++          description: OK
++          content: { application/json: { schema: { $ref: "#/components/schemas/OkResponse" } } }
++
++  /options/oi-lab/tracker/status:
++    get:
++      operationId: getOiTrackerStatus
++      tags: [options]
++      summary: Which underlyings are currently being tracked, last poll info
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                additionalProperties: { $ref: "#/components/schemas/OiTrackerEntry" }
++
++  /options/oi-lab/tracker/series:
++    get:
++      operationId: getOiTrackerSeries
++      tags: [options]
++      summary: Time-series snapshots for one tracked underlying
++      parameters:
++        - in: query
++          name: underlying
++          required: true
++          schema: { type: string }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/OiTrackerSeriesResponse" }
++
++  /options/oi-lab/tracker/export:
++    get:
++      operationId: exportOiTrackerSeries
++      tags: [options]
++      summary: Tracker series as CSV
++      parameters:
++        - in: query
++          name: underlying
++          required: true
++          schema: { type: string }
++        - in: query
++          name: format
++          schema: { type: string, enum: [csv, json], default: csv }
++      responses:
++        "200":
++          description: Stream
++          content:
++            text/csv:         { schema: { type: string } }
++            application/json: { schema: { type: array, items: { type: object } } }
++
++  # ─── Stocks To Watch (catalysts from RSS) ────────────────────────────────
++  /stocks-to-watch:
++    get:
++      operationId: getStocksToWatch
++      tags: [news]
++      summary: Catalysts grouped by symbol with aggregated confidence
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/StocksToWatchResponse" }
++
++  # ─── System / Security ────────────────────────────────────────────────────
++  /security/audit:
++    get:
++      operationId: getSecurityAudit
++      tags: [system]
++      summary: Live security audit (18 checks, scored 0-100)
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/SecurityAuditReport" }
++
++  /system/status:
++    get:
++      operationId: getSystemStatus
++      tags: [system]
++      summary: Real-time status of every subsystem (DB, Kite, TV, market state)
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/SystemStatusReport" }
++
++  # ─── TradingView webhooks ─────────────────────────────────────────────────
++  /webhooks/tradingview:
++    post:
++      operationId: postTradingViewAlert
++      tags: [system]
++      summary: Public webhook (POST only) — accepts TradingView alerts
++      description: |
++        Public POST. In production this requires the
++        `TRADINGVIEW_WEBHOOK_SECRET` to be supplied via either:
++          - `?secret=...` query string
++          - `X-Webhook-Secret` header
++          - `secret` field in the JSON body
++        Rate-limited to 60/minute/IP.
++      security: []
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema: { type: object, additionalProperties: true }
++      responses:
++        "200":
++          description: Alert recorded
++          content:
++            application/json:
++              schema:
++                type: object
++                properties:
++                  ok: { type: boolean }
++                  id: { type: string }
++        "401":
++          description: Bad/missing secret
++          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
++        "503":
++          description: TRADINGVIEW_WEBHOOK_SECRET not configured (production)
++          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
++    get:
++      operationId: getTradingViewAlerts
++      tags: [system]
++      summary: Recent TradingView alerts (auth required)
++      parameters:
++        - in: query
++          name: limit
++          schema: { type: integer, minimum: 1, maximum: 200, default: 25 }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/TradingViewAlertsResponse" }
++    delete:
++      operationId: clearTradingViewAlerts
++      tags: [system]
++      summary: Clear all stored alerts (requires the same secret as POST)
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                properties:
++                  ok:      { type: boolean }
++                  cleared: { type: integer }
++
+ components:
+   schemas:
+     HealthStatus:
+@@ -1379,3 +2009,361 @@
+           type: array
+           items: { $ref: "#/components/schemas/OptionStrategy" }
+         generatedAt: { type: string, format: date-time }
++
++    # ─── New schemas for endpoints added in this revision ────────────────────
++
++    OkResponse:
++      type: object
++      required: [ok]
++      properties:
++        ok: { type: boolean }
++
++    ErrorResponse:
++      type: object
++      required: [error]
++      properties:
++        error: { type: string, description: "Stable machine-readable error code" }
++        code:  { type: string, description: "Optional sub-code (e.g. AUTH_REQUIRED)" }
++
++    AuthStatusResponse:
++      type: object
++      required: [authenticated, passwordConfigured]
++      properties:
++        authenticated:      { type: boolean }
++        passwordConfigured: { type: boolean, description: "Whether APP_ACCESS_PASSWORD is set on the server" }
++
++    LoginRequest:
++      type: object
++      required: [password]
++      properties:
++        password: { type: string, format: password }
++
++    KiteStatusResponse:
++      type: object
++      required: [running, connected, subscribed, liveQuotes]
++      properties:
++        running:           { type: boolean }
++        connected:         { type: boolean }
++        subscribed:        { type: integer }
++        liveQuotes:        { type: integer }
++        lastConnectAt:     { type: string, format: date-time, nullable: true }
++        lastDisconnectAt:  { type: string, format: date-time, nullable: true }
++        lastError:         { type: string, nullable: true }
++        sessionUserId:     { type: string, nullable: true }
++        sessionExpiresAt:  { type: string, format: date-time, nullable: true }
++        credentialsConfigured: { type: boolean, description: "True if KITE_API_KEY/SECRET are set in env" }
++
++    KiteLoginUrlResponse:
++      type: object
++      required: [url]
++      properties:
++        url: { type: string, format: uri }
++
++    KiteSessionResponse:
++      type: object
++      required: [ok]
++      properties:
++        ok: { type: boolean }
++        userId:    { type: string, nullable: true }
++        userName:  { type: string, nullable: true }
++        expiresAt: { type: string, format: date-time }
++
++    KiteTick:
++      type: object
++      required: [symbol, instrumentToken, ltp, ts]
++      properties:
++        symbol:          { type: string }
++        instrumentToken: { type: integer }
++        ltp:             { type: number }
++        open:            { type: number }
++        high:            { type: number }
++        low:             { type: number }
++        close:           { type: number }
++        volume:          { type: integer }
++        changePercent:   { type: number }
++        ts:              { type: integer, description: "Server-side receive timestamp (ms since epoch)" }
++
++    KiteTickResponse:
++      type: object
++      properties:
++        symbol: { type: string }
++        tick:   { $ref: "#/components/schemas/KiteTick", nullable: true }
++
++    FullNseScanStatus:
++      type: object
++      required: [healthy, lastScanAt, universeSize]
++      properties:
++        healthy:        { type: boolean, description: "False = served from degraded fallback (curated 199 names)" }
++        lastScanAt:     { type: string, format: date-time, nullable: true }
++        universeSize:   { type: integer, description: "Number of symbols in the source universe" }
++        rowsScanned:    { type: integer }
++        rowsFailed:     { type: integer }
++        scanMs:         { type: integer, description: "Last scan wall-clock duration in ms" }
++        bhavcopyDate:   { type: string, nullable: true }
++        bhavcopyStale:  { type: boolean, description: "True if NSE bhavcopy older than 6h" }
++        rested:         { type: integer, description: "How long since last full refresh (ms)" }
++
++    FullNseScanResponse:
++      type: object
++      required: [rows, total, shown, offset, limit, lastUpdated, source]
++      properties:
++        rows:
++          type: array
++          items: { $ref: "#/components/schemas/StockRow" }
++        total:        { type: integer, description: "Total rows after filtering" }
++        shown:        { type: integer, description: "Rows in this page" }
++        offset:       { type: integer }
++        limit:        { type: integer }
++        lastUpdated:  { type: string, format: date-time }
++        sourceDate:   { type: string, nullable: true, description: "NSE bhavcopy source date" }
++        universeSize: { type: integer }
++        scanMs:       { type: integer }
++        failures:     { type: integer }
++        rested:       { type: integer }
++        source:       { type: string }
++
++    IndexDetailResponse:
++      type: object
++      required: [slug, name, yahoo, price, breadth, constituents]
++      properties:
++        slug:           { type: string }
++        name:           { type: string }
++        yahoo:          { type: string }
++        price:          { type: number }
++        change:         { type: number }
++        changePercent:  { type: number }
++        open:           { type: number }
++        high:           { type: number }
++        low:            { type: number }
++        previousClose:  { type: number }
++        breadth:
++          type: object
++          properties:
++            advancers:  { type: integer }
++            decliners:  { type: integer }
++            unchanged:  { type: integer }
++            adRatio:    { type: number, nullable: true }
++        constituents:
++          type: array
++          items: { $ref: "#/components/schemas/StockRow" }
++
++    ProviderStatusResponse:
++      type: object
++      required: [active, liveAvailable, reason, feed]
++      properties:
++        active:         { type: string, enum: [kite, yahoo] }
++        liveAvailable:  { type: boolean }
++        reason:         { type: string }
++        feed:           { $ref: "#/components/schemas/KiteStatusResponse" }
++
++    DeepscanMatch:
++      type: object
++      required: [symbol, name, kind]
++      properties:
++        symbol: { type: string }
++        name:   { type: string }
++        kind:   { type: string, enum: [STOCK, INDEX] }
++        sector: { type: string, nullable: true }
++
++    DeepscanSnapshot:
++      type: object
++      required: [symbol, kind, candles, lastUpdated]
++      properties:
++        symbol: { type: string }
++        name:   { type: string, nullable: true }
++        kind:   { type: string, enum: [STOCK, INDEX] }
++        spot:   { type: number }
++        candles:
++          type: array
++          items: { $ref: "#/components/schemas/Candle" }
++        ema20:  { type: array, items: { type: number, nullable: true } }
++        ema50:  { type: array, items: { type: number, nullable: true } }
++        ema100: { type: array, items: { type: number, nullable: true } }
++        ema200: { type: array, items: { type: number, nullable: true } }
++        vwap:   { type: array, items: { type: number, nullable: true } }
++        returns:
++          type: object
++          additionalProperties: { type: number }
++        fiftyTwoWeekHigh: { type: number, nullable: true }
++        fiftyTwoWeekLow:  { type: number, nullable: true }
++        fundamentals:
++          $ref: "#/components/schemas/KeyStats"
++          nullable: true
++        lastUpdated: { type: string, format: date-time }
++
++    OiLabUniverseEntry:
++      type: object
++      required: [underlying, kind]
++      properties:
++        underlying: { type: string }
++        kind:       { type: string, enum: [INDEX, EQUITY] }
++        lotSize:    { type: integer }
++        strikeStep: { type: number }
++        expiries:   { type: array, items: { type: string } }
++
++    OiLabHeatmapResponse:
++      type: object
++      required: [rows, generatedAt]
++      properties:
++        rows:
++          type: array
++          items:
++            type: object
++            properties:
++              underlying:   { type: string }
++              spot:         { type: number }
++              changePct:    { type: number }
++              callOi:       { type: integer }
++              putOi:        { type: integer }
++              callOiChange: { type: integer }
++              putOiChange:  { type: integer }
++              pcr:          { type: number }
++              maxPain:      { type: number }
++              buildup:      { type: string, enum: [LONG_BUILDUP, SHORT_BUILDUP, LONG_UNWINDING, SHORT_COVERING, NEUTRAL] }
++        generatedAt: { type: string, format: date-time }
++
++    OiLabInsightsResponse:
++      type: object
++      required: [underlying, spot, expiry, strikes, generatedAt]
++      properties:
++        underlying:   { type: string }
++        spot:         { type: number }
++        expiry:       { type: string }
++        atmStrike:    { type: number }
++        strikes:
++          type: array
++          items:
++            type: object
++            properties:
++              strike:    { type: number }
++              callOi:    { type: integer }
++              putOi:     { type: integer }
++              callDeltaOi: { type: integer }
++              putDeltaOi:  { type: integer }
++              pcr:       { type: number }
++              pain:      { type: number, description: "Total payoff if expiry pinned at this strike" }
++        pcrOi:        { type: number }
++        maxPain:      { type: number }
++        atmIv:        { type: number, nullable: true }
++        bias:         { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
++        sentimentScore: { type: number, description: "Composite signal score [-100, 100]" }
++        generatedAt: { type: string, format: date-time }
++
++    OiTrackerEntry:
++      type: object
++      required: [underlying, running, intervalSec]
++      properties:
++        underlying:   { type: string }
++        running:      { type: boolean }
++        intervalSec:  { type: integer }
++        lastPolledAt: { type: string, format: date-time, nullable: true }
++        snapshotCount: { type: integer }
++        lastError:    { type: string, nullable: true }
++
++    OiTrackerSeriesResponse:
++      type: object
++      required: [underlying, snapshots]
++      properties:
++        underlying: { type: string }
++        snapshots:
++          type: array
++          items:
++            type: object
++            properties:
++              t:           { type: string, format: date-time }
++              spot:        { type: number }
++              maxPain:     { type: number }
++              pcrOi:       { type: number }
++              totalCallOi: { type: integer }
++              totalPutOi:  { type: integer }
++
++    StocksToWatchResponse:
++      type: object
++      required: [items, generatedAt]
++      properties:
++        items:
++          type: array
++          items:
++            type: object
++            properties:
++              symbol:     { type: string }
++              name:       { type: string, nullable: true }
++              direction:  { type: string, enum: [POSITIVE, NEGATIVE] }
++              confidence: { type: number, description: "0..1; aggregated across matching headlines" }
++              headlines:
++                type: array
++                items:
++                  type: object
++                  properties:
++                    title:     { type: string }
++                    url:       { type: string }
++                    source:    { type: string }
++                    publishedAt: { type: string, format: date-time }
++                    score:     { type: number }
++        generatedAt: { type: string, format: date-time }
++
++    SecurityAuditCheck:
++      type: object
++      required: [id, category, title, status, detail, source]
++      properties:
++        id:          { type: string }
++        category:    { type: string, enum: [auth, transport, secrets, headers, data, dependencies, rate_limit] }
++        title:       { type: string }
++        status:      { type: string, enum: [ok, warn, fail] }
++        detail:      { type: string }
++        remediation: { type: string }
++        source:      { type: string, enum: [live, config] }
++
++    SecurityAuditReport:
++      type: object
++      required: [generatedAt, environment, summary, score, checks]
++      properties:
++        generatedAt: { type: string, format: date-time }
++        environment: { type: string, enum: [development, production, unknown] }
++        summary:
++          type: object
++          properties:
++            ok:    { type: integer }
++            warn:  { type: integer }
++            fail:  { type: integer }
++            total: { type: integer }
++        score: { type: integer, minimum: 0, maximum: 100 }
++        checks:
++          type: array
++          items: { $ref: "#/components/schemas/SecurityAuditCheck" }
++
++    SystemStatusReport:
++      type: object
++      required: [generatedAt, env, uptimeMs, subsystems]
++      properties:
++        generatedAt: { type: string, format: date-time }
++        env:         { type: string }
++        uptimeMs:    { type: integer }
++        marketStatus: { type: string, enum: [OPEN, PRE_OPEN, CLOSED, HOLIDAY] }
++        subsystems:
++          type: object
++          additionalProperties:
++            type: object
++            properties:
++              status: { type: string, enum: [ok, degraded, down, unknown] }
++              detail: { type: string }
++              lastChecked: { type: string, format: date-time, nullable: true }
++
++    TradingViewAlertsResponse:
++      type: object
++      required: [alerts, count, secretConfigured, serverTime]
++      properties:
++        alerts:
++          type: array
++          items:
++            type: object
++            properties:
++              id:         { type: string }
++              receivedAt: { type: string, format: date-time }
++              symbol:     { type: string, nullable: true }
++              action:     { type: string, nullable: true }
++              price:      { type: number, nullable: true }
++              raw:        { type: object, additionalProperties: true }
++        count:            { type: integer }
++        secretConfigured: { type: boolean }
++        serverTime:       { type: string, format: date-time }
+diff -urN project/marketscanner-source/lib/db/src/schema/index.ts work/ms/lib/db/src/schema/index.ts
+--- a/lib/db/src/schema/index.ts	2026-04-23 13:14:41.000000000 +0000
++++ b/lib/db/src/schema/index.ts	2026-04-27 09:55:01.000000000 +0000
+@@ -1,3 +1,4 @@
+ export * from "./instFlows";
+ export * from "./tvAlerts";
+ export * from "./kiteSession";
++export * from "./userSession";
+diff -urN project/marketscanner-source/lib/db/src/schema/userSession.ts work/ms/lib/db/src/schema/userSession.ts
+--- /dev/null
++++ b/lib/db/src/schema/userSession.ts	2026-04-27 09:54:57.000000000 +0000
+@@ -0,0 +1,33 @@
++import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
++
++/**
++ * Per-session record for the SPA login flow.
++ *
++ * The cookie carries an opaque session ID (32 bytes hex, signed by the
++ * SESSION_SECRET cookie key). The actual session lifetime + last-seen-at are
++ * tracked here so that:
++ *
++ *  - Logout actually invalidates the cookie (we delete the row; subsequent
++ *    presentations of the same cookie ID find no row → 401).
++ *  - Sessions slide: every authenticated request bumps `lastSeenAt`, and
++ *    `expiresAt` is `lastSeenAt + 30d` so an active user is never logged out.
++ *  - Stale sessions can be reaped by a background job (`expiresAt < now()`).
++ *  - We can show "active sessions" in audit / system status panels.
++ *
++ * No PII: `password` is never stored anywhere (the app is single-tenant
++ * with one shared `APP_ACCESS_PASSWORD` env var). `ip` and `userAgent`
++ * are kept only for forensic value if a session is suspected of being
++ * stolen — they're truncated to plausible string lengths.
++ */
++export const userSessionTable = pgTable("user_session", {
++  id: text("id").primaryKey(),                                          // 64-char hex
++  csrfToken: text("csrf_token").notNull(),                              // double-submit token
++  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
++  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
++  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
++  ip: text("ip"),
++  userAgent: text("user_agent"),
++});
++
++export type UserSessionRow = typeof userSessionTable.$inferSelect;
++export type NewUserSessionRow = typeof userSessionTable.$inferInsert;

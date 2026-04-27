@@ -497,7 +497,19 @@ export function computeOiInsights(chain: OcResponse, strikesAround = 20): OiInsi
   let maxPain = chain.atmStrike;
   let minPainVal = Infinity;
   for (const [strike, pain] of painByStrike) {
-    if (pain < minPainVal) { minPainVal = pain; maxPain = strike; }
+    if (pain < minPainVal) {
+      minPainVal = pain;
+      maxPain = strike;
+    } else if (
+      pain === minPainVal &&
+      Math.abs(strike - chain.spot) < Math.abs(maxPain - chain.spot)
+    ) {
+      // Deterministic tie-break: when two strikes both minimise option-writer
+      // pain, prefer the one closest to spot. Old code relied on Map iteration
+      // order which (a) is implementation-defined and (b) made max-pain jitter
+      // run-to-run for chains that had ties.
+      maxPain = strike;
+    }
   }
 
   // ATM IV

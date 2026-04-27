@@ -20,13 +20,38 @@ if (!SESSION_SECRET) {
   throw new Error("SESSION_SECRET env var is required (used to sign session cookies).");
 }
 
+// Content Security Policy — was disabled because Vite's HMR client used inline
+// scripts. In production the SPA is built and served by the API; there's no
+// HMR. Apply a tight policy in production and only relax it for local dev.
+//
+// Third-party allowances:
+//   - TradingView advanced-chart widget (s3.tradingview.com loads the script,
+//     www.tradingview.com renders the iframe + serves data + symbol logos).
+//   - Google Fonts CSS (fonts.googleapis.com) and font files (fonts.gstatic.com).
+const isProd = process.env["NODE_ENV"] === "production";
 app.use(
   helmet({
-    // CSP turned off — Vite HMR + react inline-style are noisy under default CSP.
-    // The app is single-tenant private, so the major helmet headers we want are
-    // HSTS / X-Content-Type-Options / X-Frame-Options, which stay on.
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: isProd
+      ? {
+          useDefaults: true,
+          directives: {
+            "default-src": ["'self'"],
+            "script-src": ["'self'", "https://s3.tradingview.com", "https://www.tradingview.com"],
+            // Radix and Tailwind both rely on inline styles at runtime.
+            "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
+            "img-src": ["'self'", "data:", "blob:", "https://*.tradingview.com"],
+            "connect-src": ["'self'", "https://*.tradingview.com"],
+            "frame-src": ["'self'", "https://www.tradingview.com", "https://s.tradingview.com"],
+            "frame-ancestors": ["'self'"],
+            "object-src": ["'none'"],
+            "base-uri": ["'self'"],
+          },
+        }
+      : false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: { policy: "same-origin" },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   }),
 );
 
@@ -50,12 +75,36 @@ app.use(
   }),
 );
 
-// Same-origin in production (path-routed by Replit's proxy). Keep credentials
-// enabled so the auth cookie is sent on XHR. `origin: true` reflects the request
-// origin instead of using a wildcard, which is required when credentials=true.
+// CORS — driven by an env-configured allowlist instead of the legacy
+// `origin: true` reflective behaviour. Reflecting any origin while sending
+// credentials is the well-known broad-CORS antipattern: a malicious site that
+// tricks the browser into sending requests then reads the response. Default
+// behaviour (CORS_ORIGINS unset) is same-origin only, which is what the
+// Replit deployment needs anyway. Set CORS_ORIGINS="*" to opt back into the
+// reflective behaviour for local dev with a separate frontend host.
+const corsOriginsRaw = (process.env["CORS_ORIGINS"] ?? "").trim();
+const corsAllowAny = corsOriginsRaw === "*";
+// Hard-fail at startup if someone leaves `CORS_ORIGINS=*` set in production.
+// Reflective CORS + credentials is the broad-CORS antipattern we just fixed;
+// allowing it back in via env in prod would silently re-create the hole.
+if (corsAllowAny && isProd) {
+  throw new Error(
+    'CORS_ORIGINS="*" is not allowed in production (NODE_ENV=production). ' +
+    "Set an explicit comma-separated origin list, or unset for same-origin only.",
+  );
+}
+const corsAllowlist = corsOriginsRaw && !corsAllowAny
+  ? corsOriginsRaw.split(",").map(s => s.trim()).filter(Boolean)
+  : [];
 app.use(
   cors({
-    origin: true,
+    origin: (origin, cb) => {
+      // No Origin header = same-origin or non-browser caller. Always allow.
+      if (!origin) return cb(null, true);
+      if (corsAllowAny) return cb(null, true);
+      if (corsAllowlist.includes(origin)) return cb(null, true);
+      cb(null, false);
+    },
     credentials: true,
   }),
 );

@@ -360,7 +360,18 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  // Default to `credentials: "include"` so the auth cookie rides along with
+  // every generated TanStack-Query call. Without this default, browsers fall
+  // back to `same-origin`, which silently 401's the moment the API is served
+  // from a different subdomain. Bespoke per-call `credentials` overrides still
+  // win because of the spread order above (`...init` lands before our default
+  // is read; here we only set when the caller didn't).
+  const finalInit: RequestInit = { ...init, method, headers };
+  if (finalInit.credentials === undefined) {
+    finalInit.credentials = "include";
+  }
+
+  const response = await fetch(input, finalInit);
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);

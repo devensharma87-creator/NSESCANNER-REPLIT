@@ -39,9 +39,15 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   const ema200 = indicators.ema200;
   const vwap = indicators.vwap ?? price;
   const rsi = indicators.rsi14;
-  const adx = indicators.adx14 ?? 20;
-  const volRatio = indicators.volumeRatio ?? 1;
-  const deliveryPct = indicators.deliveryPct ?? 50;
+  // Honest missing-indicator handling: when ADX / volumeRatio / deliveryPct are
+  // not computed for a symbol (e.g. newly-listed names with thin history, or
+  // bhavcopy-only rows that have no delivery split), we used to substitute fake
+  // "neutral" defaults (20 / 1 / 50) which silently biased every score toward
+  // zero. Instead, pass null through and gate every rule that consumes them.
+  // The score then reflects only the rules that have real evidence behind them.
+  const adx = indicators.adx14 ?? null;
+  const volRatio = indicators.volumeRatio ?? null;
+  const deliveryPct = indicators.deliveryPct ?? null;
   const support = indicators.supportLevel ?? Math.min(...closes.slice(-20));
   const resistance = indicators.resistanceLevel ?? Math.max(...closes.slice(-20));
   const poc = indicators.pointOfControl;
@@ -99,14 +105,16 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   if (price > vwap * 1.001) { score += 10; reasons.push({ label: "Above VWAP", detail: `Price ₹${price.toFixed(2)} > VWAP ₹${vwap.toFixed(2)}.`, weight: 10, bullish: true }); }
   else if (price < vwap * 0.999) { score -= 10; reasons.push({ label: "Below VWAP", detail: `Price ₹${price.toFixed(2)} < VWAP ₹${vwap.toFixed(2)}.`, weight: 10, bullish: false }); }
 
-  // 5. ADX trend strength gate (weight 6)
-  if (adx >= 25) {
-    const w = 6;
-    const bullish = price > ema20;
-    score += bullish ? w : -w;
-    reasons.push({ label: `Strong trend (ADX ${adx.toFixed(0)})`, detail: `ADX ≥ 25 — current move has conviction.`, weight: w, bullish });
-  } else if (adx < 18) {
-    reasons.push({ label: `Choppy regime (ADX ${adx.toFixed(0)})`, detail: `ADX < 18 — range-bound; signals less reliable.`, weight: 3, bullish: false });
+  // 5. ADX trend strength gate (weight 6) — skip entirely when adx is unknown.
+  if (adx != null) {
+    if (adx >= 25) {
+      const w = 6;
+      const bullish = price > ema20;
+      score += bullish ? w : -w;
+      reasons.push({ label: `Strong trend (ADX ${adx.toFixed(0)})`, detail: `ADX ≥ 25 — current move has conviction.`, weight: w, bullish });
+    } else if (adx < 18) {
+      reasons.push({ label: `Choppy regime (ADX ${adx.toFixed(0)})`, detail: `ADX < 18 — range-bound; signals less reliable.`, weight: 3, bullish: false });
+    }
   }
 
   // 6. MACD histogram (weight 8)
@@ -150,14 +158,18 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   if (quote.changePercent > 1.5) { score += 4; reasons.push({ label: "Strong bullish candle today", detail: `Up ${quote.changePercent.toFixed(2)}% intraday.`, weight: 4, bullish: true }); }
   else if (quote.changePercent < -1.5) { score -= 4; reasons.push({ label: "Strong bearish candle today", detail: `Down ${quote.changePercent.toFixed(2)}% intraday.`, weight: 4, bullish: false }); }
 
-  // 9. Volume (weight 10)
-  if (volRatio >= 1.5 && quote.changePercent > 0) { score += 10; reasons.push({ label: "Volume surge on advance", detail: `Volume ${volRatio.toFixed(2)}× the 20-day average on a positive close.`, weight: 10, bullish: true }); }
-  else if (volRatio >= 1.5 && quote.changePercent < 0) { score -= 10; reasons.push({ label: "Distribution on decline", detail: `Volume ${volRatio.toFixed(2)}× the 20-day average on a negative close.`, weight: 10, bullish: false }); }
-  else if (volRatio < 0.6) { reasons.push({ label: "Low volume", detail: `Volume only ${volRatio.toFixed(2)}× average.`, weight: 2, bullish: false }); }
+  // 9. Volume (weight 10) — skip when volume ratio is unknown.
+  if (volRatio != null) {
+    if (volRatio >= 1.5 && quote.changePercent > 0) { score += 10; reasons.push({ label: "Volume surge on advance", detail: `Volume ${volRatio.toFixed(2)}× the 20-day average on a positive close.`, weight: 10, bullish: true }); }
+    else if (volRatio >= 1.5 && quote.changePercent < 0) { score -= 10; reasons.push({ label: "Distribution on decline", detail: `Volume ${volRatio.toFixed(2)}× the 20-day average on a negative close.`, weight: 10, bullish: false }); }
+    else if (volRatio < 0.6) { reasons.push({ label: "Low volume", detail: `Volume only ${volRatio.toFixed(2)}× average.`, weight: 2, bullish: false }); }
+  }
 
-  // 10. Delivery % (weight 8)
-  if (deliveryPct >= 60 && quote.changePercent > 0) { score += 8; reasons.push({ label: "High delivery on advance", detail: `Delivery ${deliveryPct.toFixed(1)}% — investor accumulation.`, weight: 8, bullish: true }); }
-  else if (deliveryPct >= 60 && quote.changePercent < 0) { score -= 8; reasons.push({ label: "High delivery on decline", detail: `Delivery ${deliveryPct.toFixed(1)}% on a down day — genuine selling.`, weight: 8, bullish: false }); }
+  // 10. Delivery % (weight 8) — skip when delivery split is unknown.
+  if (deliveryPct != null) {
+    if (deliveryPct >= 60 && quote.changePercent > 0) { score += 8; reasons.push({ label: "High delivery on advance", detail: `Delivery ${deliveryPct.toFixed(1)}% — investor accumulation.`, weight: 8, bullish: true }); }
+    else if (deliveryPct >= 60 && quote.changePercent < 0) { score -= 8; reasons.push({ label: "High delivery on decline", detail: `Delivery ${deliveryPct.toFixed(1)}% on a down day — genuine selling.`, weight: 8, bullish: false }); }
+  }
 
   // 11. Volume profile (weight 8)
   if (poc != null && vaHigh != null && vaLow != null) {
@@ -190,13 +202,26 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   const atrLike = (indicators.atr14 ?? range / 6) || range / 6;
   if (signal === "BUY" || signal === "STRONG_BUY") {
     target = +(price + Math.max(range * 0.55, atrLike * 2.5)).toFixed(2);
-    stopLoss = +(Math.max(support, price - Math.max(range * 0.25, atrLike * 1.2))).toFixed(2);
+    // Stop-loss must always sit BELOW entry for a long. Old code did
+    // `Math.max(support, price - …)` which inverted the trade when a fast
+    // breakdown left the 20-day support ABOVE the live price (support > price
+    // → returned support → stopLoss > price → negative risk → bogus RR).
+    // Cap at price * 0.999 so the stop is always at least 0.1% below entry.
+    stopLoss = +Math.min(
+      price * 0.999,
+      Math.max(support, price - Math.max(range * 0.25, atrLike * 1.2)),
+    ).toFixed(2);
     const reward = target - price;
     const risk = price - stopLoss;
     if (risk > 0) rr = +(reward / risk).toFixed(2);
   } else if (signal === "SELL" || signal === "STRONG_SELL") {
     target = +(price - Math.max(range * 0.55, atrLike * 2.5)).toFixed(2);
-    stopLoss = +(Math.min(resistance, price + Math.max(range * 0.25, atrLike * 1.2))).toFixed(2);
+    // Mirror of the long case: stop must always sit ABOVE entry for a short.
+    // Old `Math.min(resistance, price + …)` inverted when resistance < price.
+    stopLoss = +Math.max(
+      price * 1.001,
+      Math.min(resistance, price + Math.max(range * 0.25, atrLike * 1.2)),
+    ).toFixed(2);
     const reward = price - target;
     const risk = stopLoss - price;
     if (risk > 0) rr = +(reward / risk).toFixed(2);
@@ -204,7 +229,7 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
 
   // Timeframe heuristic
   let timeframe: "intraday" | "swing" | "positional" = "swing";
-  if (adx >= 25 && Math.abs(quote.changePercent) > 1) timeframe = "intraday";
+  if (adx != null && adx >= 25 && Math.abs(quote.changePercent) > 1) timeframe = "intraday";
   else if (ema100 != null && price > ema100 && ema50 > ema100) timeframe = "positional";
 
   return {
