@@ -22,7 +22,7 @@
  * Yahoo (~15 min delayed, with a "delayed" pill).
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useGetIndicesBoard, getGetIndicesBoardQueryKey } from "@workspace/api-client-react";
 import type { IndexBoardItem } from "@workspace/api-client-react";
 import { Activity, Globe2, Flame, AlertTriangle } from "lucide-react";
@@ -67,6 +67,8 @@ function srBandClass(price: number | undefined, level: number | undefined, kind:
 }
 
 export default function IndicesPage() {
+  const [active, setActive] = useState<Cat>("INDIA");
+
   const { data, isLoading, error } = useGetIndicesBoard({
     query: {
       queryKey: getGetIndicesBoardQueryKey(),
@@ -82,6 +84,9 @@ export default function IndicesPage() {
     for (const it of items) m.get(it.category as Cat)?.push(it);
     return m;
   }, [items]);
+
+  const activeRows = grouped.get(active) ?? [];
+  const ActiveIcon = SECTIONS.find(s => s.key === active)?.icon ?? Activity;
 
   return (
     <div className="w-full px-4 py-6 max-w-[1600px] mx-auto">
@@ -126,40 +131,63 @@ export default function IndicesPage() {
         </div>
       )}
 
-      {/* Three fixed panels — India / Global / Commodities */}
+      {/* Section selector — clickable chips for India / Global / Commodities */}
       {!isLoading && !error && (
-        <div className="space-y-8">
-          {SECTIONS.map(sec => {
-            const Icon = sec.icon;
-            const rows = grouped.get(sec.key) ?? [];
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          {SECTIONS.map(tab => {
+            const Icon = tab.icon;
+            const isActive = tab.key === active;
+            const count = grouped.get(tab.key)?.length ?? 0;
             return (
-              <section key={sec.key} data-testid={`indices-section-${sec.key.toLowerCase()}`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Icon className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                    {sec.label}
-                  </h2>
-                  <div className="flex-1 border-t border-border ml-2" />
-                  <span className="text-[11px] font-mono text-muted-foreground">
-                    {rows.length} instrument{rows.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-
-                {rows.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
-                    No instruments in this section.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {rows.map(item => (
-                      <InstrumentCard key={item.key} item={item} />
-                    ))}
-                  </div>
-                )}
-              </section>
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActive(tab.key)}
+                data-testid={`indices-tab-${tab.key.toLowerCase()}`}
+                aria-pressed={isActive}
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                  isActive
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-foreground/70 hover:text-foreground border-border hover:border-foreground/40"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {tab.label}
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${isActive ? "bg-primary-foreground/20" : "bg-muted text-muted-foreground"}`}>
+                  {count}
+                </span>
+              </button>
             );
           })}
         </div>
+      )}
+
+      {/* Active section — fixed grid of instrument cards */}
+      {!isLoading && !error && (
+        <section data-testid={`indices-section-${active.toLowerCase()}`}>
+          <div className="flex items-center gap-2 mb-3">
+            <ActiveIcon className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              {SECTIONS.find(s => s.key === active)?.label}
+            </h2>
+            <div className="flex-1 border-t border-border ml-2" />
+            <span className="text-[11px] font-mono text-muted-foreground">
+              {activeRows.length} instrument{activeRows.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          {activeRows.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
+              No instruments in this section.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {activeRows.map(item => (
+                <InstrumentCard key={item.key} item={item} />
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       <p className="text-[11px] text-muted-foreground mt-6 leading-relaxed">
