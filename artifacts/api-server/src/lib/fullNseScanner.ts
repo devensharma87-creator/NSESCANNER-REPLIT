@@ -524,32 +524,49 @@ async function performFullScan(): Promise<Cache> {
 }
 
 export async function scanFullNse(): Promise<Cache> {
-  const cacheUsable = cache && !cache.degraded && Date.now() - cache.lastUpdated < REFRESH_MS;
-  if (cacheUsable) return cache!;
-  if (scanInFlight) return scanInFlight;
-  scanInFlight = (async () => {
-    try {
-      const next = await performFullScan();
-      if (next.rows.length > 0) {
-        const prev = cache;
-        const downgrading = !prev?.degraded && next.degraded && (prev?.rows.length ?? 0) > next.rows.length;
-        if (!downgrading) cache = next;
-        if (!next.degraded) {
-          try { saveBlob(DISK_CACHE_NAME, DISK_CACHE_VERSION, next); } catch { /* logged inside */ }
+  const fresh = cache && !cache.degraded && Date.now() - cache.lastUpdated < REFRESH_MS;
+  if (fresh) return cache!;
+
+  // Kick off (or join) a background refresh.
+  if (!scanInFlight) {
+    scanInFlight = (async () => {
+      try {
+        const next = await performFullScan();
+        if (next.rows.length > 0) {
+          const prev = cache;
+          const downgrading = !prev?.degraded && next.degraded && (prev?.rows.length ?? 0) > next.rows.length;
+          if (!downgrading) cache = next;
+          if (!next.degraded) {
+            try { saveBlob(DISK_CACHE_NAME, DISK_CACHE_VERSION, next); } catch { /* logged inside */ }
+          }
         }
+        // After a degraded scan, retry sooner — Kite session may have just
+        // come back online or bhavcopy may have become reachable.
+        if (next.degraded) {
+          setTimeout(() => {
+            void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Degraded-recovery full NSE scan failed"));
+          }, 30_000).unref?.();
+        }
+        return cache ?? next;
+      } finally {
+        scanInFlight = null;
       }
-      // After a degraded scan, retry sooner — Kite session may have just
-      // come back online or bhavcopy may have become reachable.
-      if (next.degraded) {
-        setTimeout(() => {
-          void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Degraded-recovery full NSE scan failed"));
-        }, 30_000).unref?.();
-      }
-      return cache ?? next;
-    } finally {
-      scanInFlight = null;
-    }
-  })();
+    })();
+    // Detach a swallow-catch so the background promise can never raise
+    // an unhandled rejection when only the fast path (returning stale
+    // cache) is awaited and no other caller has joined.
+    scanInFlight.catch(() => { /* logged inside performFullScan */ });
+  }
+
+  // Stale-while-revalidate: if there's ANY cache (warm-started from
+  // disk, or stale from a prior cycle), serve it immediately. The
+  // background refresh continues; the next poll picks up the fresh
+  // payload. This is what stops the Scanner page from feeling "stuck"
+  // for 7-12s on every server restart — the disk warm-start cache is
+  // good enough to render instantly.
+  if (cache && cache.rows.length > 0) return cache;
+
+  // Truly cold cache (first deploy, disk wiped) — must wait.
   return scanInFlight;
 }
 

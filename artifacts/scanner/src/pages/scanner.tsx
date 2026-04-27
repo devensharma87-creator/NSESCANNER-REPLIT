@@ -174,11 +174,17 @@ const SCREENS = [
 ];
 
 const ROW_HEIGHT = 48;
-// Total table width = sum of column widths below; sticky symbol col + 18 numeric cols
+// Tighter column widths so the full 19-column table fits a 1280px viewport
+// without horizontal scrolling. The numeric columns are sized to comfortably
+// hold values like "1,624.20" / "+14.40" / "+0.89%" / "61.6" in our 12px
+// tabular font + px-2 (8px each side) padding. Sum below = ~1252px, which
+// leaves a small margin inside `px-4` (32px total horizontal padding) on a
+// 1280px window. On wider screens the container expands to 100% and the
+// SCORE column (flex-1) absorbs the extra space so nothing looks empty.
 const COL_WIDTHS = {
-  symbol: 150, price: 84, change: 64, changePct: 72, open: 72, high: 72, low: 72,
-  prev: 72, vwap: 72, ema20: 70, ema50: 70, ema100: 70, ema200: 70, rsi: 56,
-  yrHi: 78, yrLo: 78, vol: 60, score: 120, signal: 96,
+  symbol: 130, price: 78, change: 60, changePct: 66, open: 64, high: 64, low: 64,
+  prev: 64, vwap: 64, ema20: 60, ema50: 60, ema100: 60, ema200: 60, rsi: 52,
+  yrHi: 68, yrLo: 68, vol: 56, score: 100, signal: 84,
 } as const;
 const TOTAL_WIDTH = Object.values(COL_WIDTHS).reduce((a, b) => a + b, 0);
 
@@ -199,8 +205,8 @@ const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) 
   return (
     <div
       role="row"
-      className="absolute left-0 flex items-center border-b border-border/50 hover:bg-accent/40 group"
-      style={{ top, height: ROW_HEIGHT, width: TOTAL_WIDTH }}
+      className="absolute left-0 right-0 flex items-center border-b border-border/50 hover:bg-accent/40 group"
+      style={{ top, height: ROW_HEIGHT, minWidth: TOTAL_WIDTH }}
       title={buildReasonsTitle(stock)}
     >
       <div className="sticky left-0 bg-card group-hover:bg-accent/40 z-10 px-3 py-1.5 flex flex-col justify-center" style={{ width: COL_WIDTHS.symbol }}>
@@ -456,9 +462,11 @@ export default function ScannerPage() {
               even at 2,500 rows. Header is a plain flex row outside the
               virtualizer. */}
           <div ref={scrollRef} className="overflow-auto max-h-[calc(100vh-260px)] relative" role="grid" aria-label="NSE stocks scanner">
-            <div style={{ width: TOTAL_WIDTH }}>
-              {/* Header row */}
-              <div role="row" className="sticky top-0 z-30 flex items-center bg-card border-b border-border h-10" style={{ width: TOTAL_WIDTH }}>
+            <div className="w-full" style={{ minWidth: TOTAL_WIDTH }}>
+              {/* Header row — uses minWidth instead of fixed width so the
+                  table fills wide screens (no wasted space on the right)
+                  while still scrolling horizontally on narrow ones. */}
+              <div role="row" className="sticky top-0 z-30 flex items-center bg-card border-b border-border h-10" style={{ minWidth: TOTAL_WIDTH }}>
                 <div className="sticky left-0 bg-card z-10 px-3" style={{ width: COL_WIDTHS.symbol }}><SortHead k="symbol" label="SYMBOL" sort={sort} setSort={setSort} align="left" /></div>
                 <div className="text-right px-2" style={{ width: COL_WIDTHS.price }}><SortHead k="price" label="CMP" sort={sort} setSort={setSort} /></div>
                 <div className="text-right px-2" style={{ width: COL_WIDTHS.change }}><SortHead k="change" label="CHG" sort={sort} setSort={setSort} /></div>
