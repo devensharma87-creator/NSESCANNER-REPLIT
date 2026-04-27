@@ -1348,6 +1348,24 @@ function InsightsTab() {
       };
     });
   }, [data, tfResolved]);
+  // Windowed Δ totals — sum the per-strike windowed Δ across the visible
+  // strike set so the small "Open Interest Change" / "Total OI Δ" cards
+  // stay in sync with the timeframe pill above the main chart. In "all"
+  // and "fallback_open" modes these match the broker since-open totals
+  // exactly (oiBars retains s.ceOiChg / s.peOiChg unchanged); in finite
+  // window modes they sum the recomputed Δ (with missingBaseline strikes
+  // contributing 0, exactly as the chart shows them). Single source of
+  // truth — no possibility of card and chart disagreeing.
+  const windowedTotals = useMemo(() => {
+    let call = 0, put = 0, missing = 0;
+    for (const r of oiBars) {
+      call += r.ceOiChg;
+      put  += r.peOiChg;
+      if (r.missingBaseline) missing++;
+    }
+    return { call, put, missing };
+  }, [oiBars]);
+
   const pcrPie = useMemo(() => {
     if (!data) return [];
     const total = data.totalCallOi + data.totalPutOi;
@@ -2053,11 +2071,24 @@ function InsightsTab() {
 
           {/* Bottom strip: 3 small cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* OI Change */}
+            {/* OI Change — windowed to match the timeframe pill above the
+                main chart. In "all" / "fallback_open" mode this is the
+                broker since-open Δ; in "exact" / "approx" mode it's the
+                sum of per-strike windowed Δ over the visible strike set,
+                so card and chart can never disagree. */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs uppercase font-mono flex items-center gap-1.5">
-                  <TrendingUp className="w-3.5 h-3.5" /> Open Interest Change
+                <CardTitle className="text-xs uppercase font-mono flex items-center gap-1.5 justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5" /> Open Interest Change
+                  </span>
+                  {data && (
+                    <span className="text-[9px] normal-case font-normal text-muted-foreground">
+                      {tfResolved.mode === "all" || tfResolved.mode === "fallback_open"
+                        ? "since 9:15"
+                        : `last ${TIMEFRAMES.find(t => t.v === timeframe)!.l.replace(/^Last\s+/i, "")}`}
+                    </span>
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -2070,7 +2101,7 @@ function InsightsTab() {
                       "Put ΔOI" labels — instead of a generic "value : N" entry
                       that doesn't tell you which side the number belongs to.
                     */}
-                    <BarChart data={[{ name: "OI Δ", call: data.callOiAdded, put: data.putOiAdded }]}>
+                    <BarChart data={[{ name: "OI Δ", call: windowedTotals.call, put: windowedTotals.put }]}>
                       <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                       <YAxis hide />
                       <RTooltip
@@ -2079,20 +2110,31 @@ function InsightsTab() {
                         itemStyle={{ color: "#e4e4e7", padding: 0, lineHeight: 1.6 }}
                         cursor={{ fill: "rgba(255,255,255,0.04)" }}
                         formatter={(v: number, name: string) => [fmtNum(v), name]}
-                        labelFormatter={() => "Intraday change"}
+                        labelFormatter={() =>
+                          tfResolved.mode === "all" || tfResolved.mode === "fallback_open"
+                            ? "Intraday change (since 9:15)"
+                            : `Change in last ${TIMEFRAMES.find(t => t.v === timeframe)!.l.replace(/^Last\s+/i, "")}`
+                        }
                       />
                       <Bar dataKey="call" name="Call ΔOI" radius={[4, 4, 0, 0]}
-                        fill={data.callOiAdded >= 0 ? "#dc2626" : "#fca5a5"} />
+                        fill={windowedTotals.call >= 0 ? "#dc2626" : "#fca5a5"} />
                       <Bar dataKey="put" name="Put ΔOI" radius={[4, 4, 0, 0]}
-                        fill={data.putOiAdded >= 0 ? "#16a34a" : "#86efac"} />
+                        fill={windowedTotals.put >= 0 ? "#16a34a" : "#86efac"} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
                 {data && (
-                  <div className="flex justify-between text-[10px] font-mono mt-1">
-                    <span className={data.callOiAdded >= 0 ? "text-red-400" : "text-red-300"}>CALL {fmtNum(data.callOiAdded)}</span>
-                    <span className={data.putOiAdded  >= 0 ? "text-green-400" : "text-green-300"}>PUT {fmtNum(data.putOiAdded)}</span>
-                  </div>
+                  <>
+                    <div className="flex justify-between text-[10px] font-mono mt-1">
+                      <span className={windowedTotals.call >= 0 ? "text-red-400" : "text-red-300"}>CALL {fmtNum(windowedTotals.call)}</span>
+                      <span className={windowedTotals.put  >= 0 ? "text-green-400" : "text-green-300"}>PUT {fmtNum(windowedTotals.put)}</span>
+                    </div>
+                    {(tfResolved.mode === "exact" || tfResolved.mode === "approx") && windowedTotals.missing > 0 && (
+                      <div className="text-[9px] font-mono mt-0.5 text-amber-300/80 leading-tight">
+                        {windowedTotals.missing} strike{windowedTotals.missing === 1 ? "" : "s"} excluded (no baseline yet)
+                      </div>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -2124,28 +2166,29 @@ function InsightsTab() {
                   </ResponsiveContainer>
                 )}
                 {data && (
-                  // Below each total, show the signed intraday Δ so the user
-                  // can read the absolute outstanding OI AND how much of it
-                  // was added/shed today, in one glance — without having to
-                  // cross-reference the OI Change card. Δ color is purely
-                  // sign-based: green = OI added, red = OI shed.
+                  // Below each total, show the signed Δ for the active
+                  // timeframe (since-open in "all"/"fallback_open" mode,
+                  // window Δ in "exact"/"approx" mode) so this card stays
+                  // consistent with the chart and the OI Change card.
+                  // Δ color is purely sign-based: green = OI added,
+                  // red = OI shed.
                   <div className="flex justify-between text-[10px] font-mono mt-1">
                     <div className="flex flex-col">
                       <span className="text-red-400">CALL {fmtNum(data.totalCallOi)}</span>
                       <span className={
-                        !Number.isFinite(data.callOiAdded) || data.callOiAdded === 0 ? "text-zinc-500"
-                          : data.callOiAdded > 0 ? "text-emerald-400" : "text-rose-400"
+                        !Number.isFinite(windowedTotals.call) || windowedTotals.call === 0 ? "text-zinc-500"
+                          : windowedTotals.call > 0 ? "text-emerald-400" : "text-rose-400"
                       }>
-                        Δ {Number.isFinite(data.callOiAdded) && data.callOiAdded > 0 ? "+" : ""}{fmtNum(data.callOiAdded)}
+                        Δ {Number.isFinite(windowedTotals.call) && windowedTotals.call > 0 ? "+" : ""}{fmtNum(windowedTotals.call)}
                       </span>
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-green-400">PUT {fmtNum(data.totalPutOi)}</span>
                       <span className={
-                        !Number.isFinite(data.putOiAdded) || data.putOiAdded === 0 ? "text-zinc-500"
-                          : data.putOiAdded > 0 ? "text-emerald-400" : "text-rose-400"
+                        !Number.isFinite(windowedTotals.put) || windowedTotals.put === 0 ? "text-zinc-500"
+                          : windowedTotals.put > 0 ? "text-emerald-400" : "text-rose-400"
                       }>
-                        Δ {Number.isFinite(data.putOiAdded) && data.putOiAdded > 0 ? "+" : ""}{fmtNum(data.putOiAdded)}
+                        Δ {Number.isFinite(windowedTotals.put) && windowedTotals.put > 0 ? "+" : ""}{fmtNum(windowedTotals.put)}
                       </span>
                     </div>
                   </div>
