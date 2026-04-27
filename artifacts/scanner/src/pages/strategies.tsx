@@ -36,6 +36,26 @@ type StrategyKind =
   | "BULL_PUT_SPREAD"  | "BEAR_CALL_SPREAD"
   | "IRON_CONDOR" | "IRON_BUTTERFLY" | "COVERED_CALL";
 
+interface LegEdge {
+  strike: number;
+  type: "CE" | "PE";
+  action: "BUY" | "SELL";
+  mid: number;
+  theoretical: number;
+  edge: number;
+}
+
+interface DistMetrics {
+  expectedValue: number;
+  stdDev: number;
+  pop: number;
+  avgWin: number;
+  avgLoss: number;
+  probabilisticRr: number | null;
+  expectedMove1Sigma: number;
+  expectedMove2Sigma: number;
+}
+
 interface StrategySnapshot {
   kind: StrategyKind;
   name: string;
@@ -57,6 +77,12 @@ interface StrategySnapshot {
   displayMaxProfit: number;
   displayMaxLoss: number;
   displayRrRatio: number | null;
+  // Distributional analytics from a single risk-neutral lognormal integration.
+  dist: DistMetrics;
+  legEdges: LegEdge[];
+  netEdge: number;
+  marginRequired: number;
+  returnOnCapital: number | null;
   lotSize: number;
   perLot: {
     maxProfit: number | null;
@@ -273,9 +299,14 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
     : bundle.ivContext === "LOW" ? "text-blue-300"
     : "text-muted-foreground";
 
+  // Steal the expected-move bands from the first strategy that has them — they
+  // depend only on (spot, T, ATM IV) so they're identical across strategies.
+  // Showing them in the chrome contextualises every R:R / breakeven below.
+  const sampleDist = bundle.strategies.find(s => s.dist?.expectedMove1Sigma > 0)?.dist;
+
   return (
     <Card className="border-border">
-      <CardContent className="p-4">
+      <CardContent className="p-4 space-y-2">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-baseline gap-2 flex-wrap">
@@ -303,6 +334,23 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
             </div>
           </div>
         </div>
+        {sampleDist && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-mono uppercase border-t border-border/50 pt-2">
+            <span className="text-muted-foreground">Implied move at expiry</span>
+            <span><span className="text-muted-foreground">±1σ</span>{" "}
+              <span className="font-bold text-foreground">
+                {fmt(bundle.spot - sampleDist.expectedMove1Sigma, 0)} – {fmt(bundle.spot + sampleDist.expectedMove1Sigma, 0)}
+              </span>
+              <span className="text-muted-foreground"> · ±{fmt(sampleDist.expectedMove1Sigma, 0)} pts (~68%)</span>
+            </span>
+            <span><span className="text-muted-foreground">±2σ</span>{" "}
+              <span className="font-bold text-foreground">
+                {fmt(bundle.spot - sampleDist.expectedMove2Sigma, 0)} – {fmt(bundle.spot + sampleDist.expectedMove2Sigma, 0)}
+              </span>
+              <span className="text-muted-foreground"> · ±{fmt(sampleDist.expectedMove2Sigma, 0)} pts (~95%)</span>
+            </span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -332,16 +380,16 @@ function StrategyCard({
   const showTheoreticalLoss =
     s.perLot.maxLoss != null
     && Math.abs(s.perLot.maxLoss - s.perLot.displayMaxLoss) > Math.max(1, Math.abs(s.perLot.displayMaxLoss) * 0.05);
-  const headlineRr = s.displayRrRatio ?? s.rrRatio;
-  // Mirror the Max P/L disclosure: when chart-range R:R differs materially
-  // from theoretical (Covered Call is the worst offender — its theoretical
-  // max loss is at S=0 so theoretical R:R is tiny while chart-range R:R
-  // looks healthy), surface the theoretical figure so the user can spot
-  // the gap. Threshold matches the >5% rule used for the P/L sublines.
-  const showTheoreticalRr =
-    s.displayRrRatio != null
-    && s.rrRatio != null
-    && Math.abs(s.displayRrRatio - s.rrRatio) > Math.max(0.05, Math.abs(s.rrRatio) * 0.05);
+
+  // R:R reform — the old "headline R:R" used chart-range max profit / max loss.
+  // Those are arbitrary (chart range is ±10% of spot, picked for readability),
+  // so the resulting "1 : 21.55" was a UI artefact, not a tradeable number.
+  // Replace it with **Probabilistic R:R = E[win] / E[loss]** — a real
+  // statistical quantity defined even when payoff is unbounded. Theoretical
+  // R:R (cap-to-cap) and chart-range R:R are still surfaced as supporting
+  // context but no longer headline.
+  const probRr = s.dist?.probabilisticRr ?? null;
+  const ev = s.dist?.expectedValue ?? 0;
 
   return (
     <Card className={`border-border ${highlight ? "ring-1 ring-amber-500/30" : ""}`}>
@@ -396,17 +444,50 @@ function StrategyCard({
         {/* Payoff chart */}
         <PayoffChart s={s} spot={spot} />
 
-        {/* Breakevens row */}
+        {/* Breakevens · R:R · Lot. R:R now headlines the **probabilistic**
+            ratio (E[win]/E[loss]) — that's a real statistical quantity even
+            when payoff is unbounded. The old chart-range R:R is shown as
+            secondary text only when it differs materially. */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono">
           <span><span className="text-muted-foreground uppercase">Breakeven{s.breakevens.length === 1 ? "" : "s"}:</span> {s.breakevens.length ? s.breakevens.map(b => fmt(b)).join(" / ") : "—"}</span>
           <span>
-            <span className="text-muted-foreground uppercase">R:R</span>{" "}
-            {headlineRr == null ? "—" : `1 : ${headlineRr.toFixed(2)}`}
-            {showTheoreticalRr && s.rrRatio != null && (
-              <span className="text-muted-foreground/70"> (theoretical 1 : {s.rrRatio.toFixed(2)})</span>
+            <span className="text-muted-foreground uppercase">R:R (prob)</span>{" "}
+            {probRr == null ? "—" : `1 : ${probRr.toFixed(2)}`}
+            {s.rrRatio != null && (
+              <span className="text-muted-foreground/70"> · cap-to-cap 1 : {s.rrRatio.toFixed(2)}</span>
             )}
           </span>
           <span><span className="text-muted-foreground uppercase">Lot</span> {s.lotSize}</span>
+        </div>
+
+        {/* Distributional metrics — the four numbers that actually drive a
+            sizing decision: expected value, capital required, expected
+            return on that capital, and net pricing edge vs the ATM-IV
+            curve (positive = favourable skew capture). */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border rounded overflow-hidden border border-border">
+          <Stat
+            label="Expected Value"
+            value={s.dist ? fmtRupees(s.dist.expectedValue) : "—"}
+            sub="per lot, lognormal"
+            tone={ev > 0 ? "buy" : ev < 0 ? "sell" : undefined}
+          />
+          <Stat
+            label="Capital Req."
+            value={s.marginRequired > 0 ? `₹${fmt(s.marginRequired, 0)}` : "—"}
+            sub="margin proxy"
+          />
+          <Stat
+            label="Return on Cap."
+            value={s.returnOnCapital == null ? "—" : `${(s.returnOnCapital * 100).toFixed(2)}%`}
+            sub="EV ÷ capital"
+            tone={s.returnOnCapital != null && s.returnOnCapital > 0 ? "buy" : s.returnOnCapital != null && s.returnOnCapital < 0 ? "sell" : undefined}
+          />
+          <Stat
+            label="Skew Edge"
+            value={fmtRupees(s.netEdge)}
+            sub="vs ATM-IV fair"
+            tone={s.netEdge > 0 ? "buy" : s.netEdge < 0 ? "sell" : undefined}
+          />
         </div>
 
         {/* Net Greeks — gamma scaled ×1000 so "0.00146" renders as a clean
@@ -421,6 +502,24 @@ function StrategyCard({
         {expanded && (
           <>
             <div className="text-[11px] text-muted-foreground italic">{s.description}</div>
+            {s.dist && (
+              <div className="text-[10px] font-mono text-muted-foreground border-l-2 border-border/60 pl-2 space-y-0.5">
+                <div>
+                  <span className="uppercase">Avg win</span>{" "}
+                  <span className="text-signal-strong-buy font-bold">{fmtRupees(s.dist.avgWin)}</span>
+                  {" · "}
+                  <span className="uppercase">Avg loss</span>{" "}
+                  <span className="text-signal-strong-sell font-bold">{fmtRupees(s.dist.avgLoss)}</span>
+                  {" · "}
+                  <span className="uppercase">σ of P/L</span>{" "}
+                  <span className="text-foreground font-bold">{fmtRupees(s.dist.stdDev)}</span>
+                </div>
+                <div className="text-muted-foreground/80">
+                  Probabilistic R:R = E[win] ÷ E[loss]. Capital is a SPAN+exposure proxy,
+                  not your broker's actual block. ROC and Skew Edge are computed on the same lognormal grid.
+                </div>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-[11px] font-mono">
                 <thead className="text-muted-foreground uppercase text-[10px]">
@@ -429,23 +528,36 @@ function StrategyCard({
                     <th className="text-left py-1">Type</th>
                     <th className="text-right py-1">Strike</th>
                     <th className="text-right py-1">Premium</th>
+                    <th className="text-right py-1">Theo</th>
+                    <th className="text-right py-1">Edge</th>
                     <th className="text-right py-1">IV</th>
                     <th className="text-right py-1">Δ</th>
                     <th className="text-right py-1">Θ/day</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {s.legs.map((l, i) => (
-                    <tr key={i} className="border-b border-border/30">
-                      <td className={`py-1 font-bold ${l.action === "BUY" ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>{l.action}</td>
-                      <td className="py-1">{l.optionType === "CE" ? "CALL" : "PUT"}</td>
-                      <td className="text-right py-1 tabular-nums">{l.strike === 0 ? "Stock" : fmt(l.strike, 0)}</td>
-                      <td className="text-right py-1 tabular-nums">₹{fmt(l.premium)}</td>
-                      <td className="text-right py-1 tabular-nums">{(l.iv * 100).toFixed(1)}%</td>
-                      <td className="text-right py-1 tabular-nums">{l.delta.toFixed(3)}</td>
-                      <td className="text-right py-1 tabular-nums">{l.theta.toFixed(2)}</td>
-                    </tr>
-                  ))}
+                  {s.legs.map((l, i) => {
+                    // Per-leg edge is keyed by (strike, type, action). Skip
+                    // the synthetic stock leg (strike=0) which has no edge.
+                    const edge = l.strike === 0 ? null : s.legEdges.find(
+                      e => e.strike === l.strike && e.type === l.optionType && e.action === l.action,
+                    );
+                    return (
+                      <tr key={i} className="border-b border-border/30">
+                        <td className={`py-1 font-bold ${l.action === "BUY" ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>{l.action}</td>
+                        <td className="py-1">{l.optionType === "CE" ? "CALL" : "PUT"}</td>
+                        <td className="text-right py-1 tabular-nums">{l.strike === 0 ? "Stock" : fmt(l.strike, 0)}</td>
+                        <td className="text-right py-1 tabular-nums">₹{fmt(l.premium)}</td>
+                        <td className="text-right py-1 tabular-nums text-muted-foreground">{edge ? `₹${fmt(edge.theoretical)}` : "—"}</td>
+                        <td className={`text-right py-1 tabular-nums font-bold ${edge ? (edge.edge > 0 ? "text-signal-strong-buy" : edge.edge < 0 ? "text-signal-strong-sell" : "") : ""}`}>
+                          {edge ? `${edge.edge >= 0 ? "+" : ""}₹${fmt(edge.edge)}` : "—"}
+                        </td>
+                        <td className="text-right py-1 tabular-nums">{(l.iv * 100).toFixed(1)}%</td>
+                        <td className="text-right py-1 tabular-nums">{l.delta.toFixed(3)}</td>
+                        <td className="text-right py-1 tabular-nums">{l.theta.toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

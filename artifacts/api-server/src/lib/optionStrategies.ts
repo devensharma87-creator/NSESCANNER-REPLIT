@@ -45,6 +45,39 @@ export type StrategyKind =
   | "IRON_CONDOR"      | "IRON_BUTTERFLY"
   | "COVERED_CALL";
 
+export interface LegEdge {
+  strike: number;
+  type: OptionType;
+  action: "BUY" | "SELL";
+  mid: number;          // ₹/share — what the chain quoted
+  theoretical: number;  // ₹/share — BS price using a single reference IV (ATM)
+  edge: number;         // ₹/share — signed (positive = good for the trader)
+}
+
+export interface DistMetrics {
+  /** Expected payoff in ₹/lot under the risk-neutral lognormal distribution. */
+  expectedValue: number;
+  /** σ of the payoff distribution in ₹/lot — gives a "typical swing" feel. */
+  stdDev: number;
+  /** P(payoff > 0). Replaces the old approxPop. */
+  pop: number;
+  /** Mean of payoff conditional on a winning outcome (₹/lot). */
+  avgWin: number;
+  /** Mean of |payoff| conditional on a losing outcome (₹/lot). */
+  avgLoss: number;
+  /**
+   * **Probabilistic R:R = avgWin / avgLoss.** This is the R:R that actually
+   * matters to a trader: "when I win, this is what I make on average; when I
+   * lose, this is what I lose on average." Unlike chart-range R:R it's a real
+   * statistical quantity, defined even when payoff is unbounded.
+   */
+  probabilisticRr: number | null;
+  /** ±1σ price band at expiry (₹ from spot, both directions equal in % terms). */
+  expectedMove1Sigma: number;
+  /** ±2σ price band at expiry. */
+  expectedMove2Sigma: number;
+}
+
 export interface StrategySnapshot {
   kind: StrategyKind;
   name: string;
@@ -58,7 +91,7 @@ export interface StrategySnapshot {
   maxLoss: number | null;    // theoretical, null = unbounded; signed (negative if loss)
   breakevens: number[];
   payoff: PayoffPoint[];
-  pop: number | null;        // approximate probability of profit (decimal)
+  pop: number | null;        // = dist.pop (kept top-level for backwards compat)
   rrRatio: number | null;    // |maxProfit / maxLoss| (theoretical), when both bounded
   // Display-mode (chart-range) extrema. These are what the user actually
   // sees on the curve and what the UI should headline. For Long Put on
@@ -66,6 +99,22 @@ export interface StrategySnapshot {
   displayMaxProfit: number;
   displayMaxLoss: number;
   displayRrRatio: number | null;
+  /** Distributional metrics — see DistMetrics. Always present. */
+  dist: DistMetrics;
+  /** Per-leg edge vs ATM-IV-flat BS price. Sum reflects net skew capture. */
+  legEdges: LegEdge[];
+  /** ₹/lot net edge across all legs (positive = trader benefits from skew). */
+  netEdge: number;
+  /**
+   * Capital required to hold the position for one lot in ₹.
+   * - Debit strategies → net premium paid (max loss).
+   * - Defined-risk credit spreads (condor/butterfly/vertical) → |max loss|.
+   * - Naked-credit (short straddle / strangle) → SPAN+exposure proxy
+   *   (≈ 18% of underlying notional minus the credit received).
+   */
+  marginRequired: number;
+  /** Expected return on the capital required (decimal, e.g. 0.04 = +4%). */
+  returnOnCapital: number | null;
   lotSize: number;
   perLot: {
     maxProfit: number | null;        // theoretical, ₹/lot
@@ -346,44 +395,168 @@ function netGreeks(legs: StrategyLeg[]) {
 }
 
 /**
- * Approximate probability of profit using the lognormal model.
- * For each breakeven and the +/- tails being profitable, we sum the
- * normal CDF mass over the profit regions.
+ * Compute the full distributional summary of a strategy's payoff at expiry
+ * under the **risk-neutral lognormal** model:
+ *   ln(S_T) ~ N( ln(F) - σ²T/2 , σ²T )   where F = S₀ · e^((r-q)T)
+ *
+ * Why this replaces the old `approxPop`: it uses one numerical integration
+ * pass on a dense grid spanning ±5σ in log-space and computes everything we
+ * need from the same set of samples — POP, expected value, σ of P/L, mean
+ * win, mean loss, **probabilistic R:R = E[win]/E[loss]**.
+ *
+ * The probabilistic R:R is the only R:R that's defined for unbounded payoffs
+ * (Long Call, Long Straddle, Short Straddle): you can't divide by ∞, but you
+ * CAN ask "if I win, on average how much; if I lose, on average how much."
+ * This is exactly what traders mean when they say "I want 1:2 R:R on this".
+ *
+ * The drift uses the forward (S₀·e^((r-q)T)), which is the proper risk-
+ * neutral mean — for short-dated indices in India this nudges POP up by ~1%
+ * vs the old "spot-as-center" assumption, but it's the textbook-correct call.
  */
-function approxPop(payoff: PayoffPoint[], spot: number, T: number, sigma: number): number | null {
-  if (!Number.isFinite(sigma) || sigma <= 0 || T <= 0 || !payoff.length) return null;
-  const stdDev = sigma * Math.sqrt(T);
-  // Standard normal CDF (same approximation as in blackScholes.ts)
-  const cdf = (x: number) => {
-    const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
-    const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
-    const sign = x < 0 ? -1 : 1;
-    const ax = Math.abs(x) / Math.SQRT2;
-    const t = 1 / (1 + p * ax);
-    const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax);
-    return 0.5 * (1 + sign * y);
-  };
-  // Lognormal: ln(S_T/S_0) ~ N((-σ²/2)T, σ²T)
-  const mu = -0.5 * stdDev * stdDev;
-  const probSpotBelow = (s: number) => cdf((Math.log(s / spot) - mu) / stdDev);
+function distributionalMetrics(
+  legs: StrategyLeg[],
+  lotSize: number,
+  spot: number,
+  T: number,
+  sigma: number,
+  r: number,
+  q: number,
+): DistMetrics | null {
+  if (!Number.isFinite(sigma) || sigma <= 0 || T <= 0 || spot <= 0) return null;
+  const stdLn = sigma * Math.sqrt(T);
+  const forward = spot * Math.exp((r - q) * T);
+  const muLn = Math.log(forward) - 0.5 * stdLn * stdLn;
 
-  let prob = 0;
-  let currentlyProfit = payoff[0].pnl > 0;
-  let regionStart = payoff[0].spot;
-  for (let i = 1; i < payoff.length; i++) {
-    const profitNow = payoff[i].pnl > 0;
-    if (profitNow !== currentlyProfit) {
-      // Crossed boundary at approximately payoff[i-1]/payoff[i] interpolation
-      const a = payoff[i - 1], b = payoff[i];
-      const t = -a.pnl / (b.pnl - a.pnl);
-      const cross = a.spot + t * (b.spot - a.spot);
-      if (currentlyProfit) prob += probSpotBelow(cross) - probSpotBelow(regionStart);
-      regionStart = cross;
-      currentlyProfit = profitNow;
-    }
+  // 1001 samples across ±5σ in log-space ≈ 0.99999% of total mass. The
+  // remaining tail (Long Call's payoff at S→∞, etc.) contributes negligibly
+  // to E[X] for all the strategies in this list because the lognormal pdf
+  // decays super-exponentially while payoff grows only linearly in S.
+  const N = 1001;
+  const lnLo = muLn - 5 * stdLn;
+  const lnHi = muLn + 5 * stdLn;
+  const dLn = (lnHi - lnLo) / (N - 1);
+  const norm = 1 / (Math.sqrt(2 * Math.PI) * stdLn);
+
+  let ev = 0, eX2 = 0, prob = 0, evWin = 0, evLossAbs = 0;
+  for (let i = 0; i < N; i++) {
+    const lnS = lnLo + i * dLn;
+    const S = Math.exp(lnS);
+    const z = (lnS - muLn) / stdLn;
+    // Probability mass in this lnS slice (∫ pdf(lnS) dlnS):
+    const w = norm * Math.exp(-0.5 * z * z) * dLn;
+    const pnl = legs.reduce((acc, l) => acc + legPayoff(l, S), 0) * lotSize;
+    ev   += pnl * w;
+    eX2  += pnl * pnl * w;
+    if (pnl > 0)      { prob      += w; evWin     += pnl * w; }
+    else if (pnl < 0) {                 evLossAbs += -pnl * w; }
   }
-  if (currentlyProfit) prob += 1 - probSpotBelow(regionStart);
-  return Math.max(0, Math.min(1, +prob.toFixed(4)));
+
+  const variance = Math.max(0, eX2 - ev * ev);
+  const stdDev   = Math.sqrt(variance);
+  const pop      = Math.max(0, Math.min(1, prob));
+  const probLoss = Math.max(0, Math.min(1, 1 - prob));
+  const avgWin   = pop      > 1e-6 ? evWin     / pop      : 0;
+  const avgLoss  = probLoss > 1e-6 ? evLossAbs / probLoss : 0;
+  const probabilisticRr = avgLoss > 1e-6 ? avgWin / avgLoss : null;
+
+  // ±1σ / ±2σ moves in price units (the lognormal is asymmetric — strictly
+  // speaking the up-move and down-move are not equal — but at typical
+  // short-dated σ ≈ 1-3% the symmetric approximation is well within rounding).
+  const expectedMove1Sigma = spot * stdLn;
+  const expectedMove2Sigma = spot * 2 * stdLn;
+
+  return {
+    expectedValue:     +ev.toFixed(2),
+    stdDev:            +stdDev.toFixed(2),
+    pop:               +pop.toFixed(4),
+    avgWin:            +avgWin.toFixed(2),
+    avgLoss:           +avgLoss.toFixed(2),
+    probabilisticRr:   probabilisticRr == null ? null : +probabilisticRr.toFixed(3),
+    expectedMove1Sigma: +expectedMove1Sigma.toFixed(2),
+    expectedMove2Sigma: +expectedMove2Sigma.toFixed(2),
+  };
+}
+
+/**
+ * For each leg, compute the BS theoretical price using **a single reference
+ * IV (ATM)** and report the per-share edge:
+ *   - BUY  edge = theoretical - market      (paid less than fair → positive)
+ *   - SELL edge = market      - theoretical (received more than fair → positive)
+ *
+ * Because each leg's `iv` was solved FROM the leg's market price, comparing
+ * theoretical(leg.iv) to market would always return zero. Using the ATM IV as
+ * the reference surfaces volatility skew: a far-OTM put trading at IV 30%
+ * while ATM IV is 15% will look "rich" — selling it carries positive edge.
+ */
+function computeLegEdges(
+  legs: StrategyLeg[],
+  spot: number,
+  T: number,
+  refSigma: number,
+  r: number,
+  q: number,
+): { edges: LegEdge[]; netEdge: number } {
+  const edges: LegEdge[] = [];
+  let netEdge = 0;
+  for (const l of legs) {
+    if (l.strike <= 0) continue; // synthetic stock leg in covered call
+    const theoretical = priceAndGreeks({
+      S: spot, K: l.strike, T, r, q, sigma: refSigma, type: l.optionType,
+    }).price;
+    const edgePerShare = l.action === "BUY"
+      ? (theoretical - l.premium)
+      : (l.premium - theoretical);
+    edges.push({
+      strike: l.strike,
+      type: l.optionType,
+      action: l.action,
+      mid:         +l.premium.toFixed(2),
+      theoretical: +theoretical.toFixed(2),
+      edge:        +edgePerShare.toFixed(2),
+    });
+    netEdge += edgePerShare * l.qty;
+  }
+  return { edges, netEdge };
+}
+
+/**
+ * Capital required to put on one lot of the strategy in INR.
+ *
+ * For exchange-cleared margin in India this is approximated, not exact —
+ * SPAN+exposure depends on real-time portfolio risk that we don't model.
+ * The proxy errs on the side of being usable for sizing decisions:
+ *   - Pure debit (long call, long straddle, etc.)         → premium paid
+ *   - Defined-risk credit (spreads, condor, butterfly)    → |max loss|
+ *   - Naked credit (short straddle / strangle, unbounded) → 18% of underlying
+ *     notional minus the credit received (the SPAN+exposure rough rule of
+ *     thumb for sold index naked options).
+ */
+function estimateMargin(
+  netDebitPerShare: number,
+  maxLossLot: number | null,
+  spot: number,
+  lotSize: number,
+): number {
+  const cashflowLot = netDebitPerShare * lotSize;
+  // Pure debit → cost is the capital
+  if (cashflowLot > 0) return +cashflowLot.toFixed(2);
+  const creditReceived = -cashflowLot;
+  if (maxLossLot != null) {
+    // Defined-risk credit spread (vertical, condor, butterfly).
+    //
+    // Capital at risk = |maxLoss|. The maxLoss returned by buildPayoff is
+    // ALREADY the net P/L at the worst expiry point — i.e. it already nets
+    // the credit you kept. For a 100-wide bull-put spread sold for ₹50
+    // credit, |maxLoss| = ₹50 (= width − credit) per share, which is exactly
+    // the working capital. Do NOT subtract creditReceived again — that
+    // double-counts the credit and drives capital to ~₹0.
+    return +Math.abs(maxLossLot).toFixed(2);
+  }
+  // Unbounded credit (short straddle / strangle): SPAN+exposure proxy.
+  // ~18% of underlying notional, less the credit retained in cash (brokers
+  // typically allow the premium received to offset part of the SPAN block).
+  const notional = spot * lotSize;
+  return +Math.max(0, 0.18 * notional - creditReceived).toFixed(2);
 }
 
 // ─── Strategy templates ─────────────────────────────────────────────────────
@@ -687,7 +860,11 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     const greeksAgg = netGreeks(legs);
     const { payoff, maxProfit, maxLoss, displayMaxProfit, displayMaxLoss, breakevens } =
       buildPayoff(legs, spot, lotSize);
-    const pop = approxPop(payoff, spot, T, atmSigma);
+    const dist = distributionalMetrics(legs, lotSize, spot, T, atmSigma, RISK_FREE, q);
+    const { edges: legEdges, netEdge: netEdgeRaw } = computeLegEdges(legs, spot, T, atmSigma, RISK_FREE, q);
+    const netEdge = +(netEdgeRaw * lotSize).toFixed(2);
+
+    const marginRequired = estimateMargin(debit, maxLoss, spot, lotSize);
     const recommended = isRecommended(tpl, ivContext, analytics.bias);
     const rationale = recommended ? buildRationale(tpl, ivContext, analytics.bias) : undefined;
 
@@ -695,6 +872,17 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     // misleading "1:287" (theoretical) into a realistic "1:25" or so.
     const displayRrRatio = displayMaxLoss < 0 && displayMaxProfit > 0
       ? +Math.abs(displayMaxProfit / displayMaxLoss).toFixed(3)
+      : null;
+
+    // Fall back gracefully when distributional metrics couldn't be built
+    // (no IV available) — preserve the old behaviour so the strategy still
+    // renders, just without EV/probabilistic R:R/etc.
+    const safeDist: DistMetrics = dist ?? {
+      expectedValue: 0, stdDev: 0, pop: 0, avgWin: 0, avgLoss: 0,
+      probabilisticRr: null, expectedMove1Sigma: 0, expectedMove2Sigma: 0,
+    };
+    const returnOnCapital = marginRequired > 0
+      ? +(safeDist.expectedValue / marginRequired).toFixed(4)
       : null;
 
     out.push({
@@ -710,12 +898,17 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
       maxLoss,
       breakevens,
       payoff,
-      pop,
+      pop: dist ? safeDist.pop : null,
       rrRatio: maxProfit != null && maxLoss != null && maxLoss !== 0
         ? +Math.abs(maxProfit / maxLoss).toFixed(3) : null,
       displayMaxProfit,
       displayMaxLoss,
       displayRrRatio,
+      dist: safeDist,
+      legEdges,
+      netEdge,
+      marginRequired,
+      returnOnCapital,
       lotSize,
       perLot: {
         maxProfit: maxProfit != null ? +maxProfit.toFixed(2) : null,
