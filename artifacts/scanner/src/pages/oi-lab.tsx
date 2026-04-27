@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -443,9 +443,14 @@ function HeatmapTab() {
           {loading && <Skeleton className="h-64 w-full" />}
 
           {!loading && data && (
-            <div className="overflow-x-auto">
+            // Container scrolls in BOTH directions internally so the sticky
+            // thead has a real scroll-ancestor to anchor against. Without the
+            // height clamp the whole page becomes the scroll context and
+            // `top-0` has nothing to stick within (the same root cause we
+            // fixed on the Option Chain table).
+            <div className="overflow-auto max-h-[calc(100vh-280px)]">
               <table className="w-full text-xs">
-                <thead className="text-left text-muted-foreground border-b">
+                <thead className="sticky top-0 z-20 bg-card text-left text-muted-foreground shadow-[0_1px_0_0_hsl(var(--border))]">
                   <tr>
                     <th className="py-2 pr-3">Stock</th>
                     <th className="py-2 pr-3 text-right">LTP</th>
@@ -719,19 +724,93 @@ function TrackerTab() {
             </div>
           ) : (
             <div className="space-y-6">
+              {/*
+                "Latest snapshot" summary card — fixes the perceived "zero
+                values" problem the user reported. With only 2 snapshots the
+                line charts below render as thin 2-point segments that read
+                as flat / empty even though the data is fine; surfacing the
+                most-recent numbers as readable text means the page is
+                actionable from snapshot 1, not snapshot 20.
+              */}
+              {(() => {
+                const latest = chartData[chartData.length - 1]!;
+                const prev = chartData.length >= 2 ? chartData[chartData.length - 2] : null;
+                const tone = (n: number) =>
+                  n > 0 ? "text-emerald-400" : n < 0 ? "text-rose-400" : "text-zinc-400";
+                const Tile = ({ label, value, sub, accent = "text-foreground" }:
+                  { label: string; value: string; sub?: { text: string; cls: string } | null; accent?: string }) => (
+                  <div className="rounded border border-border bg-card/60 p-2.5">
+                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-mono">{label}</div>
+                    <div className={`text-lg font-bold tabular-nums ${accent}`}>{value}</div>
+                    {sub && <div className={`text-[10px] font-mono ${sub.cls}`}>{sub.text}</div>}
+                  </div>
+                );
+                const spotDelta = prev ? latest.spot - prev.spot : 0;
+                const pcrDelta  = prev ? latest.pcrOi - prev.pcrOi : 0;
+                return (
+                  <div>
+                    <div className="text-xs font-medium mb-2 flex items-center gap-2">
+                      <Sparkles className="w-3 h-3" /> Latest snapshot — {chartUnderlying}
+                      <span className="ml-auto text-[10px] text-muted-foreground font-mono">{latest.label}</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                      <Tile
+                        label="Spot"
+                        value={latest.spot.toFixed(2)}
+                        sub={prev ? { text: `${spotDelta >= 0 ? "+" : ""}${spotDelta.toFixed(2)} vs prev`, cls: tone(spotDelta) } : null}
+                      />
+                      <Tile
+                        label="PCR (OI)"
+                        value={latest.pcrOi.toFixed(2)}
+                        accent={latest.pcrOi >= 1.3 ? "text-emerald-400" : latest.pcrOi <= 0.7 ? "text-rose-400" : "text-foreground"}
+                        sub={prev ? { text: `${pcrDelta >= 0 ? "+" : ""}${pcrDelta.toFixed(2)} vs prev`, cls: tone(pcrDelta) } : null}
+                      />
+                      <Tile label="Max Pain" value={String(latest.maxPain)} accent="text-orange-400" />
+                      <Tile
+                        label="ATM IV"
+                        value={latest.atmIv != null ? `${latest.atmIv.toFixed(1)}%` : "—"}
+                      />
+                      <Tile
+                        label="Total Call OI"
+                        value={fmtNum(latest.callOi)}
+                        accent="text-rose-400"
+                        sub={{ text: `Δ ${latest.callOiAdded >= 0 ? "+" : ""}${fmtNum(latest.callOiAdded)}`, cls: tone(latest.callOiAdded) }}
+                      />
+                      <Tile
+                        label="Total Put OI"
+                        value={fmtNum(latest.putOi)}
+                        accent="text-emerald-400"
+                        sub={{ text: `Δ ${latest.putOiAdded >= 0 ? "+" : ""}${fmtNum(latest.putOiAdded)}`, cls: tone(latest.putOiAdded) }}
+                      />
+                      <Tile
+                        label="Net Flow (PE−CE)"
+                        value={`${latest.netFlow >= 0 ? "+" : ""}${fmtNum(latest.netFlow)}`}
+                        accent={latest.netFlow > 0 ? "text-emerald-400" : latest.netFlow < 0 ? "text-rose-400" : "text-foreground"}
+                        sub={{ text: latest.netFlow > 0 ? "put writers ahead (bullish)" : latest.netFlow < 0 ? "call writers ahead (bearish)" : "balanced", cls: "text-muted-foreground" }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div>
                 <div className="text-xs font-medium mb-1 flex items-center gap-2">
                   <TrendingUp className="w-3 h-3" /> Spot vs Max Pain — {chartUnderlying}
                 </div>
                 <ResponsiveContainer width="100%" height={200}>
+                  {/* dot={{ r: 2 }} on every series so even a 2-snapshot chart
+                      reads as concrete data points instead of a barely-visible
+                      line segment. */}
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                     <YAxis tick={{ fontSize: 10 }} domain={["auto", "auto"]} />
-                    <RTooltip contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }} />
+                    <RTooltip contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                      labelStyle={{ color: "#fafafa", fontWeight: 600 }}
+                      itemStyle={{ color: "#e4e4e7" }} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line type="monotone" dataKey="spot" stroke="#22c55e" strokeWidth={2} dot={false} name="Spot" />
-                    <Line type="monotone" dataKey="maxPain" stroke="#f97316" strokeWidth={1} strokeDasharray="4 4" dot={false} name="Max Pain" />
+                    <Line type="monotone" dataKey="spot" stroke="#22c55e" strokeWidth={2} dot={{ r: 2 }} name="Spot" />
+                    <Line type="monotone" dataKey="maxPain" stroke="#f97316" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 2 }} name="Max Pain" />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -744,9 +823,11 @@ function TrackerTab() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                     <YAxis tick={{ fontSize: 10 }} domain={[0, "auto"]} />
-                    <RTooltip contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }} />
+                    <RTooltip contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                      labelStyle={{ color: "#fafafa", fontWeight: 600 }}
+                      itemStyle={{ color: "#e4e4e7" }} />
                     <ReferenceLine y={1} stroke="#71717a" strokeDasharray="3 3" label={{ value: "Neutral 1.0", fill: "#71717a", fontSize: 10 }} />
-                    <Line type="monotone" dataKey="pcrOi" stroke="#a855f7" strokeWidth={2} dot={{ r: 2 }} />
+                    <Line type="monotone" dataKey="pcrOi" stroke="#a855f7" strokeWidth={2} dot={{ r: 2.5 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -760,10 +841,12 @@ function TrackerTab() {
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                     <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => fmtNum(v)} />
                     <RTooltip contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                      labelStyle={{ color: "#fafafa", fontWeight: 600 }}
+                      itemStyle={{ color: "#e4e4e7" }}
                       formatter={(v: number) => fmtNum(v)} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line type="monotone" dataKey="callOi" stroke="#ef4444" strokeWidth={2} dot={false} name="Call OI" />
-                    <Line type="monotone" dataKey="putOi" stroke="#22c55e" strokeWidth={2} dot={false} name="Put OI" />
+                    <Line type="monotone" dataKey="callOi" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} name="Call OI" />
+                    <Line type="monotone" dataKey="putOi" stroke="#22c55e" strokeWidth={2} dot={{ r: 2 }} name="Put OI" />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -778,13 +861,15 @@ function TrackerTab() {
                     <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => fmtNum(v)} />
                     <RTooltip
                       contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                      labelStyle={{ color: "#fafafa", fontWeight: 600 }}
+                      itemStyle={{ color: "#e4e4e7" }}
                       formatter={(v: number) => fmtNum(v)}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <ReferenceLine y={0} stroke="#71717a" strokeDasharray="3 3" />
-                    <Line type="monotone" dataKey="callOiAdded" stroke="#ef4444" strokeWidth={1.5} dot={false} name="CE OI added" />
-                    <Line type="monotone" dataKey="putOiAdded"  stroke="#22c55e" strokeWidth={1.5} dot={false} name="PE OI added" />
-                    <Line type="monotone" dataKey="netFlow"     stroke="#a855f7" strokeWidth={2}   dot={{ r: 2 }} name="Net flow (PE−CE)" />
+                    <Line type="monotone" dataKey="callOiAdded" stroke="#ef4444" strokeWidth={2}   dot={{ r: 2 }} name="CE OI added" />
+                    <Line type="monotone" dataKey="putOiAdded"  stroke="#22c55e" strokeWidth={2}   dot={{ r: 2 }} name="PE OI added" />
+                    <Line type="monotone" dataKey="netFlow"     stroke="#a855f7" strokeWidth={2.5} dot={{ r: 2.5 }} name="Net flow (PE−CE)" />
                   </LineChart>
                 </ResponsiveContainer>
                 <p className="text-[10px] text-muted-foreground mt-1">
@@ -877,15 +962,31 @@ type OiBarRow = {
 };
 function OiInsightsTooltip(props: {
   active?: boolean;
-  payload?: Array<{ payload: OiBarRow }>;
+  payload?: Array<{ payload: OiBarRow & { missingBaseline?: boolean } }>;
   label?: string | number;
   view: "oi" | "oichg" | "pcr" | "pain";
   nowTime: string;
+  // Timeframe context — when finite-window mode is active, the baseline row
+  // and Δ row need to label themselves as "at HH:MM:SS / since HH:MM:SS",
+  // NOT "at 9:15 AM / since 9:15 AM" (the prior bug). Passed-in so the
+  // tooltip's labels can never disagree with what the chart computed.
+  tfMode: "all" | "exact" | "approx" | "fallback_open";
+  tfWindowLabel: string;            // e.g. "Last 5 min"
+  tfBaselineTime: string | null;    // e.g. "10:42:30" — null when "all" / fallback_open
 }) {
-  const { active, payload, label, view, nowTime } = props;
+  const { active, payload, label, view, nowTime, tfMode, tfWindowLabel, tfBaselineTime } = props;
   if (!active || !payload || payload.length === 0) return null;
   const row = payload[0].payload;
   if (!row) return null;
+
+  // Decide what the baseline row actually represents:
+  //   - "all" / "fallback_open" → broker since-open Δ → 9:15 AM
+  //   - "exact" / "approx"      → user-selected window → baseline timestamp
+  const useWindow = tfMode === "exact" || tfMode === "approx";
+  const baselineLabel = useWindow && tfBaselineTime
+    ? `at ${tfBaselineTime} (${tfWindowLabel})`
+    : "at 9:15 AM";
+  const chgLabel = useWindow ? `chg in ${tfWindowLabel.toLowerCase()}` : "chg";
 
   const openCe = row.ceOi - row.ceOiChg;
   const openPe = row.peOi - row.peOiChg;
@@ -930,8 +1031,8 @@ function OiInsightsTooltip(props: {
 
       {/* Put block — green */}
       <div className="space-y-0">
-        <Row label="Put OI at 9:15 AM" value={fmtNum(openPe)} dotClass="bg-emerald-500" />
-        <Row label="Put OI chg"        value={fmtSigned(row.peOiChg)} valueClass={`font-mono tabular-nums ${sign(row.peOiChg)}`} dotClass="bg-emerald-500/60" />
+        <Row label={`Put OI ${baselineLabel}`} value={fmtNum(openPe)} dotClass="bg-emerald-500" />
+        <Row label={`Put OI ${chgLabel}`}      value={fmtSigned(row.peOiChg)} valueClass={`font-mono tabular-nums ${sign(row.peOiChg)}`} dotClass="bg-emerald-500/60" />
         <Row label={`Put OI at ${nowTime}`} value={fmtNum(row.peOi)} dotClass="bg-emerald-500" />
       </div>
 
@@ -939,7 +1040,7 @@ function OiInsightsTooltip(props: {
 
       {/* Call block — red */}
       <div className="space-y-0">
-        <Row label="Call OI at 9:15 AM" value={fmtNum(openCe)} dotClass="bg-rose-500" />
+        <Row label={`Call OI ${baselineLabel}`} value={fmtNum(openCe)} dotClass="bg-rose-500" />
         {/*
           Color the change row purely by the sign of the number:
           negative = red (OI shed), positive = green (OI added),
@@ -947,9 +1048,15 @@ function OiInsightsTooltip(props: {
           the user wants a literal "negative number → red" reading
           everywhere in the OI change rows.
         */}
-        <Row label="Call OI chg"        value={fmtSigned(row.ceOiChg)} valueClass={`font-mono tabular-nums ${sign(row.ceOiChg)}`} dotClass="bg-rose-500/60" />
+        <Row label={`Call OI ${chgLabel}`}      value={fmtSigned(row.ceOiChg)} valueClass={`font-mono tabular-nums ${sign(row.ceOiChg)}`} dotClass="bg-rose-500/60" />
         <Row label={`Call OI at ${nowTime}`} value={fmtNum(row.ceOi)} dotClass="bg-rose-500" />
       </div>
+
+      {useWindow && row.missingBaseline && (
+        <div className="mt-1.5 text-[10px] text-amber-300/90 font-mono leading-tight">
+          ⚠ baseline missing for this strike — added mid-window, Δ shown as 0
+        </div>
+      )}
 
       {/* View-specific extras */}
       {view === "pcr" && (
@@ -968,6 +1075,38 @@ function OiInsightsTooltip(props: {
   );
 }
 
+/**
+ * Intraday timeframe selector for the main "OI by Strike" chart.
+ *
+ * "All" = use the broker's since-open Δ (the existing `ceOiChg` / `peOiChg`
+ *  fields, which are intraday change since 9:15 AM).
+ *
+ * Any finite window = recompute per-strike Δ as
+ *  `currentOi - earliestOiInWindow` from the client-side rolling buffer of
+ *  insights snapshots (see `oiHistoryRef` below). The buffer is keyed by
+ *  underlying+expiry and grows by 1 entry every 30s (the existing poll
+ *  cadence), so the 3-hour pill needs ~360 entries — well within any
+ *  reasonable memory budget.
+ */
+type TimeFrame = "3m" | "5m" | "10m" | "15m" | "30m" | "1h" | "2h" | "3h" | "all";
+const TIMEFRAMES: { v: TimeFrame; l: string; ms: number | null }[] = [
+  { v: "3m",  l: "Last 3 min",  ms: 3 * 60_000 },
+  { v: "5m",  l: "Last 5 min",  ms: 5 * 60_000 },
+  { v: "10m", l: "Last 10 min", ms: 10 * 60_000 },
+  { v: "15m", l: "Last 15 min", ms: 15 * 60_000 },
+  { v: "30m", l: "Last 30 min", ms: 30 * 60_000 },
+  { v: "1h",  l: "Last 1 hr",   ms: 60 * 60_000 },
+  { v: "2h",  l: "Last 2 hr",   ms: 120 * 60_000 },
+  { v: "3h",  l: "Last 3 hr",   ms: 180 * 60_000 },
+  { v: "all", l: "All",         ms: null },
+];
+
+interface OiHistorySnap {
+  ts: number;                          // epoch ms
+  ce: Record<number, number>;          // strike -> ceOi
+  pe: Record<number, number>;          // strike -> peOi
+}
+
 function InsightsTab() {
   const [universe, setUniverse] = useState<{ indices: string[]; stocks: string[]; source?: string; count?: number; note?: string }>({ indices: [], stocks: [] });
   const [underlying, setUnderlying] = useState("NIFTY");
@@ -979,6 +1118,17 @@ function InsightsTab() {
   const [searchQ, setSearchQ] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [chartView, setChartView] = useState<"oi" | "oichg" | "pcr" | "pain">("oi");
+  const [timeframe, setTimeframe] = useState<TimeFrame>("all");
+  // Per-(underlying|expiry) rolling buffer of OI snapshots so we can compute
+  // Δ over an arbitrary window (Last 5m / 1h / etc) on the client without
+  // additional server round-trips. Stored in a ref because we don't want
+  // every push to re-render the whole InsightsTab — only the oiBars memo
+  // needs the data, and it's gated behind `data` (which IS state) and
+  // `timeframe` (also state), so any meaningful change is already a render.
+  const oiHistoryRef = useRef<Record<string, OiHistorySnap[]>>({});
+  // Bumped on every successful fetch so the oiBars useMemo re-evaluates
+  // against the freshly-pushed snapshot (refs alone don't trigger memos).
+  const [historyTick, setHistoryTick] = useState(0);
 
   // Load universe once
   useEffect(() => {
@@ -988,22 +1138,48 @@ function InsightsTab() {
       .catch(() => {});
   }, []);
 
+  // Monotonic request id — only the most-recently-issued fetch is allowed
+  // to commit `setData`/buffer-push, so a stale in-flight response from a
+  // previous symbol cannot overwrite the current one (the cross-symbol
+  // leakage path the reviewer flagged).
+  const reqIdRef = useRef(0);
+
   // Load insights — re-fetches on underlying / expiry / strikes change + every 30s
   const load = async () => {
     setError(null);
+    const myId = ++reqIdRef.current;
     try {
       const qs = new URLSearchParams();
       qs.set("strikes", strikesAround);
       if (expiry) qs.set("expiry", expiry);
       const r = await fetch(`${base}api/options/oi-lab/insights/${encodeURIComponent(underlying)}?${qs}`, { credentials: "include" });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.detail || j.error || r.statusText);
+      const j: InsightResp = await r.json();
+      // Drop the response if a newer request has already been issued (or
+      // the buffer was reset by a symbol switch in the meantime).
+      if (myId !== reqIdRef.current) return;
+      if (!r.ok) throw new Error((j as unknown as { detail?: string; error?: string }).detail || (j as unknown as { error?: string }).error || r.statusText);
       setData(j);
+      // Push per-strike snapshot into the rolling buffer for THIS
+      // underlying+expiry. Trim to the longest configured window (3h) +
+      // a small slack so a fresh "Last 3h" pill always has its baseline.
+      const key = `${j.underlying}|${j.expiry}`;
+      const snap: OiHistorySnap = {
+        ts: new Date(j.generatedAt).getTime(),
+        ce: Object.fromEntries(j.strikes.map(s => [s.strike, s.ceOi])),
+        pe: Object.fromEntries(j.strikes.map(s => [s.strike, s.peOi])),
+      };
+      const buf = oiHistoryRef.current[key] ?? [];
+      buf.push(snap);
+      const cutoff = snap.ts - (3 * 60 + 5) * 60_000; // 3h + 5min slack
+      while (buf.length > 0 && buf[0]!.ts < cutoff) buf.shift();
+      oiHistoryRef.current[key] = buf;
+      setHistoryTick(t => t + 1);
     } catch (e) {
+      if (myId !== reqIdRef.current) return;
       setError((e as Error).message);
       setData(null);
     } finally {
-      setLoading(false);
+      if (myId === reqIdRef.current) setLoading(false);
     }
   };
   useEffect(() => {
@@ -1014,8 +1190,18 @@ function InsightsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [underlying, expiry, strikesAround]);
 
-  // Reset expiry when underlying changes (re-pick nearest)
-  useEffect(() => { setExpiry(undefined); }, [underlying]);
+  // Reset expiry AND drop any buffered history that no longer matches the
+  // new underlying so a "Last 30 min" pill can never compare strikes from
+  // two different symbols. Also reset the timeframe back to "All" — keeping
+  // a finite-window pill active across symbols would briefly render a
+  // misleading title until the buffer caught up (the silent-mismatch bug
+  // the reviewer flagged).
+  useEffect(() => {
+    setExpiry(undefined);
+    oiHistoryRef.current = {};
+    setHistoryTick(0);
+    setTimeframe("all");
+  }, [underlying]);
 
   const allUnderlyings = useMemo(
     () => [...universe.indices, ...universe.stocks],
@@ -1035,35 +1221,133 @@ function InsightsTab() {
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
   };
+  // Resolve the active timeframe and its baseline snapshot (if any) from the
+  // rolling history. The `mode` discriminator is the source of truth that
+  // every consumer (title, pills, oiBars, badge) reads from — so the pill
+  // label, the chart title, and the actual computed Δ can never disagree
+  // (the silent-mismatch bug the reviewer flagged). Possible modes:
+  //   - "all"          : All / since-open Δ from broker (default)
+  //   - "exact"        : finite window AND we have a snap inside [cutoff, now)
+  //   - "approx"       : finite window AND nearest available snap is OUTSIDE
+  //                      the requested window (older or newer-than-cutoff
+  //                      mismatch) — surfaced as "approx" badge
+  //   - "fallback_open": finite window selected BUT no usable baseline
+  //                      exists — Δ silently uses broker since-open AND the
+  //                      title shows "since open" so the user is never lied
+  //                      to about what the chart represents.
+  type TfMode = "all" | "exact" | "approx" | "fallback_open";
+  const tfResolved = useMemo<{
+    tf: TimeFrame;
+    mode: TfMode;
+    windowMs: number | null;
+    baseline: OiHistorySnap | null;
+    baselineUsedAt: number | null;
+    bufferLen: number;
+  }>(() => {
+    if (!data) return { tf: timeframe, mode: "all", windowMs: null, baseline: null, baselineUsedAt: null, bufferLen: 0 };
+    const meta = TIMEFRAMES.find(t => t.v === timeframe)!;
+    const key = `${data.underlying}|${data.expiry}`;
+    const buf = oiHistoryRef.current[key] ?? [];
+    if (meta.ms == null) {
+      return { tf: timeframe, mode: "all", windowMs: null, baseline: null, baselineUsedAt: null, bufferLen: buf.length };
+    }
+    if (buf.length < 2) {
+      // No usable baseline at all. Compute Δ via since-open fallback so the
+      // chart isn't blank, but flag the mode so the title and pill render
+      // honestly as "since open".
+      return { tf: timeframe, mode: "fallback_open", windowMs: meta.ms, baseline: null, baselineUsedAt: null, bufferLen: buf.length };
+    }
+    const nowMs = new Date(data.generatedAt).getTime();
+    const cutoff = nowMs - meta.ms;
+    // Pick the snap whose ts is closest to `cutoff` AND is strictly older
+    // than `nowMs`. Closest-to-cutoff (rather than first-in-window) gives a
+    // baseline that best approximates "exactly N min ago" even when the
+    // sampling is sparse (tab throttled, network hiccup) — far better than
+    // the previous "first snap in window" rule which could pick a sample
+    // only ~1s old when the window was 5min.
+    const candidates = buf.filter(s => s.ts < nowMs);
+    if (candidates.length === 0) {
+      return { tf: timeframe, mode: "fallback_open", windowMs: meta.ms, baseline: null, baselineUsedAt: null, bufferLen: buf.length };
+    }
+    let best = candidates[0]!;
+    let bestDist = Math.abs(best.ts - cutoff);
+    for (const s of candidates) {
+      const d = Math.abs(s.ts - cutoff);
+      if (d < bestDist) { best = s; bestDist = d; }
+    }
+    // "Exact" only when the chosen baseline lies inside ±20% of the
+    // requested window (i.e. close enough that calling it "Last N min" is
+    // honest). Otherwise classify as "approx" and surface a warning.
+    const tolMs = meta.ms * 0.2;
+    const mode: TfMode = bestDist <= tolMs ? "exact" : "approx";
+    return {
+      tf: timeframe,
+      mode,
+      windowMs: meta.ms,
+      baseline: best,
+      baselineUsedAt: best.ts,
+      bufferLen: buf.length,
+    };
+    // historyTick re-evaluates this memo each time the buffer grows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, timeframe, historyTick]);
+
   const oiBars = useMemo(() => {
     if (!data) return [];
-    return data.strikes.map(s => ({
-      strike: num(s.strike),
-      // strikeLabel forces a stable string category on the X axis — Recharts'
-      // categorical scale gets confused when numeric `strike` values look like
-      // a continuous scale, which (combined with the Fragment-wrapped Bars
-      // below) sometimes drops every bar from the plot.
-      strikeLabel: String(s.strike),
-      ceOi: num(s.ceOi),
-      peOi: num(s.peOi),
-      ceOiChg: num(s.ceOiChg),
-      peOiChg: num(s.peOiChg),
-      pcr: num(s.pcr),
-      // Per-strike PCR is unbounded above — at deep ITM-call strikes (well
-      // below spot) call OI is tiny and the ratio explodes to 30..100+. The
-      // chart's YAxis auto-scales to that extreme, which makes the genuinely
-      // meaningful PCR values for high strikes (~0.1..0.5, where call OI
-      // dominates) appear as essentially zero-height bars — i.e. visually
-      // missing from the right half of the chart. Cap the rendered value at
-      // 3 (well above the 1.3/0.7 bullish/bearish thresholds we shade
-      // against) so every strike's bar is visible at a useful scale; the
-      // tooltip still surfaces the true uncapped `pcr` so extreme readings
-      // are never hidden from the trader.
-      pcrCapped: Math.min(num(s.pcr), 3),
-      pain: num(s.painValue),
-      isAtm: s.isAtm,
-    }));
-  }, [data]);
+    const { baseline, mode } = tfResolved;
+    // mode === "fallback_open" or "all" → broker since-open Δ
+    // mode === "exact" or "approx"      → diff vs baseline snapshot
+    const useBaseline = (mode === "exact" || mode === "approx") && baseline != null;
+    return data.strikes.map(s => {
+      let ceOiChg = num(s.ceOiChg);
+      let peOiChg = num(s.peOiChg);
+      let missingBaseline = false;
+      if (useBaseline && baseline) {
+        const baseCe = baseline.ce[s.strike];
+        const basePe = baseline.pe[s.strike];
+        // Strict semantics: in a finite-window mode, EITHER both legs of
+        // the strike have a baseline (Δ is honest) OR neither does and Δ
+        // renders as 0 (no change attributable to this window). We never
+        // mix window-Δ and since-open Δ in the same chart — that mixing
+        // was the silent-mismatch bug the reviewer flagged.
+        if (baseCe != null && basePe != null) {
+          ceOiChg = num(s.ceOi) - num(baseCe);
+          peOiChg = num(s.peOi) - num(basePe);
+        } else {
+          ceOiChg = 0;
+          peOiChg = 0;
+          missingBaseline = true;
+        }
+      }
+      return {
+        strike: num(s.strike),
+        // strikeLabel forces a stable string category on the X axis — Recharts'
+        // categorical scale gets confused when numeric `strike` values look
+        // like a continuous scale, which (combined with the Fragment-wrapped
+        // Bars below) sometimes drops every bar from the plot.
+        strikeLabel: String(s.strike),
+        ceOi: num(s.ceOi),
+        peOi: num(s.peOi),
+        ceOiChg,
+        peOiChg,
+        missingBaseline,
+        pcr: num(s.pcr),
+        // Per-strike PCR is unbounded above — at deep ITM-call strikes (well
+        // below spot) call OI is tiny and the ratio explodes to 30..100+. The
+        // chart's YAxis auto-scales to that extreme, which makes the genuinely
+        // meaningful PCR values for high strikes (~0.1..0.5, where call OI
+        // dominates) appear as essentially zero-height bars — i.e. visually
+        // missing from the right half of the chart. Cap the rendered value at
+        // 3 (well above the 1.3/0.7 bullish/bearish thresholds we shade
+        // against) so every strike's bar is visible at a useful scale; the
+        // tooltip still surfaces the true uncapped `pcr` so extreme readings
+        // are never hidden from the trader.
+        pcrCapped: Math.min(num(s.pcr), 3),
+        pain: num(s.painValue),
+        isAtm: s.isAtm,
+      };
+    });
+  }, [data, tfResolved]);
   const pcrPie = useMemo(() => {
     if (!data) return [];
     const total = data.totalCallOi + data.totalPutOi;
@@ -1196,6 +1480,66 @@ function InsightsTab() {
       {error && (
         <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3">
           <AlertTriangle className="w-4 h-4" /> {error}
+        </div>
+      )}
+
+      {/*
+        At-a-glance KPI strip — duplicates a couple of values shown in the
+        header on purpose, so traders scanning the page get every key
+        decision-input in one horizontal sweep without needing to look at
+        three different cards. Tinted by sentiment / threshold so glance =
+        signal.
+      */}
+      {data && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {(() => {
+            const pcrTone = data.pcrOi >= 1.3 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
+              : data.pcrOi <= 0.7 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
+              : "text-foreground border-border bg-card";
+            const painDist = data.spot - data.maxPain;
+            const painPct = data.spot > 0 ? (painDist / data.spot) * 100 : 0;
+            const painTone = Math.abs(painPct) < 0.3 ? "text-amber-300 border-amber-500/30 bg-amber-500/10"
+              : "text-foreground border-border bg-card";
+            const ivTone = data.atmIv != null && data.atmIv > 25 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
+              : data.atmIv != null && data.atmIv < 12 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
+              : "text-foreground border-border bg-card";
+            const sentClass = `${sentTone.bg} ${sentTone.border}`;
+            const Tile = ({ label, value, sub, cls }: { label: string; value: string; sub?: string; cls: string }) => (
+              <div className={`rounded border px-3 py-2 ${cls}`}>
+                <div className="text-[9px] uppercase tracking-wider font-mono opacity-80">{label}</div>
+                <div className="text-lg font-bold tabular-nums">{value}</div>
+                {sub && <div className="text-[10px] font-mono opacity-80">{sub}</div>}
+              </div>
+            );
+            return (
+              <>
+                <Tile
+                  label="PCR (OI)"
+                  value={data.pcrOi.toFixed(2)}
+                  sub={data.pcrOi >= 1.3 ? "bullish bias" : data.pcrOi <= 0.7 ? "bearish bias" : "neutral"}
+                  cls={pcrTone}
+                />
+                <Tile
+                  label="Max Pain"
+                  value={String(data.maxPain)}
+                  sub={`${painDist >= 0 ? "+" : ""}${painDist.toFixed(0)} from spot (${painPct >= 0 ? "+" : ""}${painPct.toFixed(2)}%)`}
+                  cls={painTone}
+                />
+                <Tile
+                  label="ATM IV"
+                  value={data.atmIv != null ? `${data.atmIv.toFixed(1)}%` : "—"}
+                  sub={data.atmIv != null ? (data.atmIv > 25 ? "elevated" : data.atmIv < 12 ? "subdued" : "normal") : undefined}
+                  cls={ivTone}
+                />
+                <Tile
+                  label="Sentiment"
+                  value={data.sentiment.replace("_", " ")}
+                  sub={`${data.sentimentScore >= 0 ? "+" : ""}${data.sentimentScore.toFixed(0)} score`}
+                  cls={sentClass}
+                />
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -1333,10 +1677,44 @@ function InsightsTab() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Layers className="w-4 h-4" />
-                  {chartView === "oi" && "Open Interest by Strike"}
-                  {chartView === "oichg" && "OI Change by Strike (intraday Δ)"}
-                  {chartView === "pcr" && "Put/Call Ratio by Strike"}
-                  {chartView === "pain" && "Max Pain Curve"}
+                  {(() => {
+                    // Title text reads from tfResolved.mode (the same source
+                    // the chart computes its bars from), so the title and
+                    // the data cannot drift apart — even if the user picks
+                    // "Last 5 min" before the buffer is warm.
+                    const meta = TIMEFRAMES.find(t => t.v === timeframe)!;
+                    const subForChange = (() => {
+                      if (tfResolved.mode === "all") return "intraday Δ since 9:15 AM";
+                      if (tfResolved.mode === "fallback_open")
+                        return `${meta.l} requested · using since-open Δ until buffer fills`;
+                      if (tfResolved.mode === "approx") return `~${meta.l} (approx baseline)`;
+                      return meta.l; // exact
+                    })();
+                    if (chartView === "oi") {
+                      return (
+                        <>
+                          Open Interest by Strike
+                          {timeframe !== "all" && (
+                            <span className={`text-[10px] font-mono font-normal ${tfResolved.mode === "exact" ? "text-muted-foreground" : "text-amber-300"}`}>
+                              · ΔOI window: {subForChange}
+                            </span>
+                          )}
+                        </>
+                      );
+                    }
+                    if (chartView === "oichg") {
+                      return (
+                        <>
+                          OI Change by Strike
+                          <span className={`text-[10px] font-mono font-normal ${tfResolved.mode === "exact" || tfResolved.mode === "all" ? "text-muted-foreground" : "text-amber-300"}`}>
+                            ({subForChange})
+                          </span>
+                        </>
+                      );
+                    }
+                    if (chartView === "pcr") return "Put/Call Ratio by Strike";
+                    return "Max Pain Curve";
+                  })()}
                 </CardTitle>
                 <div className="flex items-center gap-1">
                   {([
@@ -1359,6 +1737,90 @@ function InsightsTab() {
                   ))}
                 </div>
               </div>
+              {/*
+                Intraday timeframe pills — only relevant when the chart is
+                actually showing OI Δ (the OI Change view, or the dotted ΔOI
+                overlay rendered on top of OI Total). For PCR / Max Pain we
+                hide the row entirely so the user isn't tempted to click a
+                control that wouldn't change the chart.
+              */}
+              {(chartView === "oi" || chartView === "oichg") && (() => {
+                const nowMs = data ? new Date(data.generatedAt).getTime() : Date.now();
+                return (
+                  <div className="mt-2 flex flex-wrap items-center gap-1">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono mr-1">
+                      Δ window
+                    </span>
+                    {TIMEFRAMES.map(t => {
+                      const buf = data ? oiHistoryRef.current[`${data.underlying}|${data.expiry}`] ?? [] : [];
+                      const oldestAge = buf.length > 0 ? nowMs - buf[0]!.ts : 0;
+                      // A finite window has a usable baseline only once the
+                      // buffer reaches back at least that far (otherwise we
+                      // fall back to the "since you opened" mode and the
+                      // pill renders as semi-active with a tooltip).
+                      const haveBaseline = t.ms == null ? true : oldestAge >= t.ms * 0.8;
+                      const isActive = timeframe === t.v;
+                      const partial = !isActive && t.ms != null && !haveBaseline && buf.length >= 2;
+                      const empty = t.ms != null && buf.length < 2;
+                      const title = empty
+                        ? `Need at least 2 buffered snapshots — currently have ${buf.length}. Buffer fills at ~30s cadence.`
+                        : t.ms != null && !haveBaseline
+                        ? `Buffer only goes back ${(oldestAge / 60_000).toFixed(1)} min — comparison will use the oldest snapshot we have.`
+                        : t.ms == null
+                        ? "Use broker's intraday Δ since 9:15 AM"
+                        : `Compare current OI to a snapshot from ~${t.l.toLowerCase().replace("last ", "")} ago`;
+                      return (
+                        <button
+                          key={t.v}
+                          onClick={() => !empty && setTimeframe(t.v)}
+                          disabled={empty}
+                          title={title}
+                          className={`px-2 py-0.5 text-[10px] font-mono rounded border transition ${
+                            isActive
+                              ? "border-amber-400 bg-amber-400/15 text-amber-300 font-bold"
+                              : empty
+                              ? "border-border/50 bg-card/40 text-muted-foreground/50 cursor-not-allowed"
+                              : partial
+                              ? "border-border bg-card text-muted-foreground hover-row"
+                              : "border-border bg-card text-foreground/80 hover-row"
+                          }`}
+                        >
+                          {t.l.replace("Last ", "")}
+                        </button>
+                      );
+                    })}
+                    {timeframe !== "all" && (
+                      <span className="ml-2 text-[10px] font-mono">
+                        {tfResolved.mode === "fallback_open" ? (
+                          <span className="text-amber-400/90">
+                            buffer warming up — falling back to broker since-open Δ
+                          </span>
+                        ) : tfResolved.baselineUsedAt ? (
+                          <>
+                            <span className="text-muted-foreground">
+                              baseline: {new Date(tfResolved.baselineUsedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                            </span>
+                            {tfResolved.mode === "approx" && (
+                              <span className="ml-1 text-amber-400/90">
+                                (Δ vs nearest available, not exactly {TIMEFRAMES.find(t => t.v === timeframe)!.l.toLowerCase()})
+                              </span>
+                            )}
+                            {(() => {
+                              const missing = oiBars.filter(r => r.missingBaseline).length;
+                              if (missing === 0) return null;
+                              return (
+                                <span className="ml-1 text-amber-400/90">
+                                  · {missing} strike{missing === 1 ? "" : "s"} added mid-window (Δ shown as 0)
+                                </span>
+                              );
+                            })()}
+                          </>
+                        ) : null}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </CardHeader>
             <CardContent>
               {!data ? (
@@ -1468,6 +1930,19 @@ function InsightsTab() {
                             hour12: true,
                             timeZone: "Asia/Kolkata",
                           })}
+                          tfMode={tfResolved.mode}
+                          tfWindowLabel={TIMEFRAMES.find(t => t.v === timeframe)!.l}
+                          tfBaselineTime={
+                            tfResolved.baselineUsedAt
+                              ? new Date(tfResolved.baselineUsedAt).toLocaleTimeString("en-IN", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  second: "2-digit",
+                                  hour12: false,
+                                  timeZone: "Asia/Kolkata",
+                                })
+                              : null
+                          }
                         />
                       }
                     />
