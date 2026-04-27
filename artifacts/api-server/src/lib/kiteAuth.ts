@@ -143,6 +143,72 @@ export async function clearSession(): Promise<void> {
   logger.info("Kite session cleared");
 }
 
+/** Payload shape returned by /api/kite/export-session and consumed by
+ *  /api/kite/import-session. Timestamps are ISO strings. */
+export interface ExportedSession {
+  apiKey: string;
+  accessToken: string;
+  publicToken: string | null;
+  userId: string | null;
+  userName: string | null;
+  loginTime: string;
+  expiresAt: string;
+}
+
+/** Persist a session row that was minted on a different environment (e.g.
+ *  the production server). We do NOT contact Zerodha — the access_token is
+ *  taken as-is. Returns the active session record. */
+export async function storeImportedSession(s: ExportedSession): Promise<ActiveSession> {
+  const loginTime = new Date(s.loginTime);
+  const expiresAt = new Date(s.expiresAt);
+  if (Number.isNaN(loginTime.getTime()) || Number.isNaN(expiresAt.getTime())) {
+    throw new Error("Imported session has invalid timestamps");
+  }
+  if (expiresAt.getTime() <= Date.now()) {
+    throw new Error("Imported session is already expired");
+  }
+  if (!s.apiKey || !s.accessToken) {
+    throw new Error("Imported session is missing apiKey or accessToken");
+  }
+  const row = {
+    id: ACTIVE_ID,
+    apiKey: s.apiKey,
+    accessToken: s.accessToken,
+    publicToken: s.publicToken ?? null,
+    userId: s.userId ?? null,
+    userName: s.userName ?? null,
+    loginTime,
+    expiresAt,
+  };
+  await db
+    .insert(kiteSessionTable)
+    .values(row)
+    .onConflictDoUpdate({
+      target: kiteSessionTable.id,
+      set: {
+        apiKey: row.apiKey,
+        accessToken: row.accessToken,
+        publicToken: row.publicToken,
+        userId: row.userId,
+        userName: row.userName,
+        loginTime: row.loginTime,
+        expiresAt: row.expiresAt,
+      },
+    });
+  logger.info(
+    { userId: row.userId, expiresAt: row.expiresAt.toISOString() },
+    "Kite session imported from peer environment",
+  );
+  return {
+    apiKey: row.apiKey,
+    accessToken: row.accessToken,
+    userId: row.userId,
+    userName: row.userName,
+    loginTime: row.loginTime,
+    expiresAt: row.expiresAt,
+  };
+}
+
 /** Build a KiteConnect REST client from the active session, or return null. */
 export async function getRestClient(): Promise<{ kc: any; session: ActiveSession } | null> {
   const session = await getActiveSession();

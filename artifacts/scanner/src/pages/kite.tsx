@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertCircle, CheckCircle2, ExternalLink, LogOut, RefreshCw } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle2, Download, ExternalLink, LogOut, RefreshCw } from "lucide-react";
+
+const MIRROR_URL_KEY = "kite.mirrorSourceUrl";
 
 interface KiteStatus {
   credentialsConfigured: boolean;
@@ -101,6 +103,55 @@ export default function KitePage() {
     setTicks({});
   };
 
+  // ── Mirror-from-production ────────────────────────────────────────────────
+  // Zerodha allows ONE Redirect URL per Connect app, so the daily login can
+  // only complete on the production domain. This pulls the active session row
+  // from the production server into this environment so dev mirrors prod.
+  const [mirrorUrl, setMirrorUrl] = useState<string>(() => {
+    try { return localStorage.getItem(MIRROR_URL_KEY) ?? "https://marketscannerbydev.in"; }
+    catch { return "https://marketscannerbydev.in"; }
+  });
+  const [mirrorPassword, setMirrorPassword] = useState<string>("");
+  const [mirrorBusy, setMirrorBusy] = useState(false);
+  const [mirrorMsg, setMirrorMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(MIRROR_URL_KEY, mirrorUrl); } catch { /* ignore */ }
+  }, [mirrorUrl]);
+
+  const handleMirror = async () => {
+    setMirrorMsg(null);
+    if (!mirrorUrl.trim() || !mirrorPassword) {
+      setMirrorMsg({ type: "err", text: "Source URL and password are both required." });
+      return;
+    }
+    setMirrorBusy(true);
+    try {
+      const r = await fetch(API("/kite/import-session"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sourceUrl: mirrorUrl.trim(), password: mirrorPassword }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const head = j.error ?? `Import failed (HTTP ${r.status})`;
+        const detail = typeof j.detail === "string" && j.detail.trim() ? ` — ${j.detail.slice(0, 300)}` : "";
+        setMirrorMsg({ type: "err", text: `${head}${detail}` });
+      } else {
+        setMirrorPassword("");
+        setMirrorMsg({
+          type: "ok",
+          text: `Imported session for ${j.userId ?? "?"}, expires ${fmtTs(j.expiresAt)}.`,
+        });
+        qc.invalidateQueries({ queryKey: ["kite"] });
+      }
+    } catch (e) {
+      setMirrorMsg({ type: "err", text: (e as Error).message });
+    } finally {
+      setMirrorBusy(false);
+    }
+  };
+
   const sortedTicks = useMemo(() => {
     return Object.values(ticks).sort((a, b) => b.ts - a.ts);
   }, [ticks]);
@@ -180,6 +231,57 @@ export default function KitePage() {
                 <LogOut className="h-3.5 w-3.5" /> Disconnect
               </button>
             </div>
+          </div>
+        )}
+      </section>
+
+      {/* Mirror-from-production card */}
+      <section className="rounded-lg border border-border bg-card p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Mirror Session from Production</h2>
+        <p className="text-sm text-muted-foreground mb-3">
+          Zerodha allows only one Redirect URL per Connect app, so the daily Kite login can only complete on the production domain.
+          After you've logged in there, paste the production URL and the app password below to copy that live session into this environment — no Zerodha re-login needed, and your production session stays active.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+          <label className="block">
+            <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">Production URL</span>
+            <input
+              type="url"
+              value={mirrorUrl}
+              onChange={(e) => setMirrorUrl(e.target.value)}
+              placeholder="https://marketscannerbydev.in"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
+              autoComplete="off"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">App password</span>
+            <input
+              type="password"
+              value={mirrorPassword}
+              onChange={(e) => setMirrorPassword(e.target.value)}
+              placeholder="APP_ACCESS_PASSWORD"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              autoComplete="current-password"
+              onKeyDown={(e) => { if (e.key === "Enter" && !mirrorBusy) handleMirror(); }}
+            />
+          </label>
+          <button
+            onClick={handleMirror}
+            disabled={mirrorBusy}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 h-[38px]"
+          >
+            <Download className="h-4 w-4" /> {mirrorBusy ? "Importing…" : "Mirror"}
+          </button>
+        </div>
+        {mirrorMsg && (
+          <div className={`mt-3 px-3 py-2 rounded-md text-sm flex items-start gap-2 ${
+            mirrorMsg.type === "ok"
+              ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
+              : "bg-red-500/10 border border-red-500/30 text-red-300"
+          }`}>
+            {mirrorMsg.type === "ok" ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />}
+            <span className="break-words">{mirrorMsg.text}</span>
           </div>
         )}
       </section>

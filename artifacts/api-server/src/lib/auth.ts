@@ -60,6 +60,7 @@ const PUBLIC_ROUTES: PublicRoute[] = [
   { path: "/api/healthz" },
   { path: "/api/auth/" },
   { path: "/api/kite/callback" },                       // Zerodha redirect (auth = request_token + KITE_API_SECRET)
+  { path: "/api/kite/export-session", methods: ["GET"] }, // Cross-env mirror; gated by X-App-Password header inside the route
   { path: "/api/webhooks/tradingview", methods: ["POST"] }, // ONLY POST is public — TradingView S2S with TRADINGVIEW_WEBHOOK_SECRET
 ];
 
