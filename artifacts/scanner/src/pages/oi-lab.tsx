@@ -914,16 +914,28 @@ function InsightsTab() {
   }, [allUnderlyings, searchQ]);
 
   // ── Chart data ─────────────────────────────────────────────────────────────
+  // Defensive: coerce every numeric to a real Number (never NaN/undefined) so
+  // Recharts can compute its YAxis domain. A single bad row used to leave the
+  // whole BarChart blank.
+  const num = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
   const oiBars = useMemo(() => {
     if (!data) return [];
     return data.strikes.map(s => ({
-      strike: s.strike,
-      ceOi: s.ceOi,
-      peOi: s.peOi,
-      ceOiChg: s.ceOiChg,
-      peOiChg: s.peOiChg,
-      pcr: s.pcr,
-      pain: s.painValue,
+      strike: num(s.strike),
+      // strikeLabel forces a stable string category on the X axis — Recharts'
+      // categorical scale gets confused when numeric `strike` values look like
+      // a continuous scale, which (combined with the Fragment-wrapped Bars
+      // below) sometimes drops every bar from the plot.
+      strikeLabel: String(s.strike),
+      ceOi: num(s.ceOi),
+      peOi: num(s.peOi),
+      ceOiChg: num(s.ceOiChg),
+      peOiChg: num(s.peOiChg),
+      pcr: num(s.pcr),
+      pain: num(s.painValue),
       isAtm: s.isAtm,
     }));
   }, [data]);
@@ -1267,15 +1279,33 @@ function InsightsTab() {
                     </div>
                   );
                 }
+                // Snap reference lines to a real X-axis category (string label)
+                // — Recharts categorical XAxis only renders ReferenceLines whose
+                // `x` matches a tick value exactly.
+                const closestStrike = oiBars.reduce((closest, r) =>
+                  Math.abs(r.strike - data.spot) < Math.abs(closest - data.spot) ? r.strike : closest,
+                  oiBars[0]!.strike,
+                );
+                const spotLabel = String(closestStrike);
+                // Tolerant match: a tiny floating-point drift in strike values
+                // shouldn't suppress the Max Pain reference line. Snap to the
+                // nearest strike within half a strike-step.
+                const maxPainNearest = oiBars.reduce((closest, r) =>
+                  Math.abs(r.strike - data.maxPain) < Math.abs(closest - data.maxPain) ? r.strike : closest,
+                  oiBars[0]!.strike,
+                );
+                const halfStep = (data.strikeStep ?? 50) / 2;
+                const maxPainLabel = Math.abs(maxPainNearest - data.maxPain) <= halfStep
+                  ? String(maxPainNearest) : null;
                 return (
                 <ResponsiveContainer width="100%" height={360}>
                   <BarChart data={oiBars} barCategoryGap={2} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
                     <XAxis
-                      dataKey="strike"
+                      dataKey="strikeLabel"
+                      type="category"
                       tick={{ fontSize: 10 }}
                       interval={oiBars.length > 25 ? 1 : 0}
-                      tickFormatter={(v) => String(v)}
                     />
                     <YAxis
                       width={64}
@@ -1293,40 +1323,44 @@ function InsightsTab() {
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     {/* Spot reference line */}
                     <ReferenceLine
-                      x={oiBars.reduce((closest, r) =>
-                        Math.abs(r.strike - data.spot) < Math.abs(closest - data.spot) ? r.strike : closest,
-                        oiBars[0]!.strike,
-                      )}
+                      x={spotLabel}
                       stroke="#22c55e"
                       strokeDasharray="2 2"
                       label={{ value: `Spot ${data.spot.toFixed(0)}`, position: "top", fill: "#22c55e", fontSize: 10 }}
                     />
-                    {/* Max-pain reference line */}
-                    <ReferenceLine
-                      x={data.maxPain}
-                      stroke="#f97316"
-                      strokeDasharray="4 2"
-                      label={{ value: `Max Pain ${data.maxPain}`, position: "insideTopRight", fill: "#f97316", fontSize: 10 }}
-                    />
-                    {chartView === "oi" && (
-                      <>
-                        <Bar dataKey="ceOi" fill="#dc2626" name="Call OI" />
-                        <Bar dataKey="peOi" fill="#16a34a" name="Put OI" />
-                      </>
+                    {/* Max-pain reference line — only render when it lines up with a real strike */}
+                    {maxPainLabel && (
+                      <ReferenceLine
+                        x={maxPainLabel}
+                        stroke="#f97316"
+                        strokeDasharray="4 2"
+                        label={{ value: `Max Pain ${data.maxPain}`, position: "insideTopRight", fill: "#f97316", fontSize: 10 }}
+                      />
+                    )}
+                    {/*
+                      Each <Bar> MUST be a direct child of <BarChart> — Recharts
+                      walks `props.children` to discover Bar components, and a
+                      surrounding <>…</> Fragment hides them from that walk.
+                      Symptom (production): bars and Y-axis ticks vanish while
+                      reference lines and X-axis labels still render. So every
+                      conditional below is a single inline expression returning
+                      either <Bar/> or false.
+                    */}
+                    {chartView === "oi" && <Bar dataKey="ceOi" fill="#dc2626" name="Call OI" />}
+                    {chartView === "oi" && <Bar dataKey="peOi" fill="#16a34a" name="Put OI" />}
+                    {chartView === "oichg" && (
+                      <Bar dataKey="ceOiChg" name="Δ Call OI">
+                        {oiBars.map((d, i) => (
+                          <Cell key={i} fill={d.ceOiChg >= 0 ? "#dc2626" : "#fca5a5"} />
+                        ))}
+                      </Bar>
                     )}
                     {chartView === "oichg" && (
-                      <>
-                        <Bar dataKey="ceOiChg" name="Δ Call OI">
-                          {oiBars.map((d, i) => (
-                            <Cell key={i} fill={d.ceOiChg >= 0 ? "#dc2626" : "#fca5a5"} />
-                          ))}
-                        </Bar>
-                        <Bar dataKey="peOiChg" name="Δ Put OI">
-                          {oiBars.map((d, i) => (
-                            <Cell key={i} fill={d.peOiChg >= 0 ? "#16a34a" : "#86efac"} />
-                          ))}
-                        </Bar>
-                      </>
+                      <Bar dataKey="peOiChg" name="Δ Put OI">
+                        {oiBars.map((d, i) => (
+                          <Cell key={i} fill={d.peOiChg >= 0 ? "#16a34a" : "#86efac"} />
+                        ))}
+                      </Bar>
                     )}
                     {chartView === "pcr" && (
                       <Bar dataKey="pcr" name="PCR">
