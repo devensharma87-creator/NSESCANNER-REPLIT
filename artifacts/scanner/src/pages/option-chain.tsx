@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import {
   useGetOptionChain,
@@ -10,7 +10,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Activity, Target, Search, ChevronDown, ChevronUp } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Target, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
   FNO_ALL,
@@ -99,6 +99,59 @@ export default function OptionChainPage() {
   const chain = chainQ.data;
   const analytics = analyticsQ.data;
   const [showGreeks, setShowGreeks] = useState(false);
+
+  // ── "Jump to ATM" floating button ─────────────────────────────────
+  // The chain table has 30+ strikes and the scroll container is clamped to
+  // ~70vh, so the ATM row often sits well off-screen — especially on long
+  // chains with deep ITM/OTM coverage. Track whether the ATM row is
+  // currently visible inside the scroll container, and offer a one-click
+  // jump back when it's drifted out of view.
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const [atmDirection, setAtmDirection] = useState<"above" | "below" | "visible">("visible");
+
+  const checkAtmVisibility = useCallback(() => {
+    const scroller = tableScrollRef.current;
+    if (!scroller) return;
+    const atmRow = scroller.querySelector<HTMLTableRowElement>('tr[data-atm-row="true"]');
+    if (!atmRow) return;
+    const sRect = scroller.getBoundingClientRect();
+    const rRect = atmRow.getBoundingClientRect();
+    // The thead is `position: sticky` so the top portion of the scroll
+    // container is permanently obscured by the frozen header. Treat that
+    // strip as "not really visible" so we don't claim the ATM row is in
+    // view when it's actually hiding behind the header.
+    const headerH = scroller.querySelector<HTMLTableSectionElement>("thead")?.getBoundingClientRect().height ?? 0;
+    const visibleTop = sRect.top + headerH;
+    const visibleBottom = sRect.bottom;
+    if (rRect.bottom <= visibleTop) setAtmDirection("above");
+    else if (rRect.top >= visibleBottom) setAtmDirection("below");
+    else setAtmDirection("visible");
+  }, []);
+
+  // Re-check on scroll (rAF-throttled implicitly by browser scroll events),
+  // on resize, and whenever the chain data changes (rebuilds the row set).
+  useEffect(() => {
+    const scroller = tableScrollRef.current;
+    if (!scroller) return;
+    scroller.addEventListener("scroll", checkAtmVisibility, { passive: true });
+    window.addEventListener("resize", checkAtmVisibility);
+    checkAtmVisibility();
+    return () => {
+      scroller.removeEventListener("scroll", checkAtmVisibility);
+      window.removeEventListener("resize", checkAtmVisibility);
+    };
+  }, [checkAtmVisibility, chain]);
+
+  const scrollToAtm = useCallback(() => {
+    const scroller = tableScrollRef.current;
+    if (!scroller) return;
+    const atmRow = scroller.querySelector<HTMLTableRowElement>('tr[data-atm-row="true"]');
+    if (!atmRow) return;
+    const headerH = scroller.querySelector<HTMLTableSectionElement>("thead")?.getBoundingClientRect().height ?? 0;
+    // Center the ATM row in the visible area BELOW the sticky header.
+    const target = atmRow.offsetTop - headerH - (scroller.clientHeight - headerH - atmRow.offsetHeight) / 2;
+    scroller.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  }, []);
 
   const maxOi = useMemo(() => {
     if (!chain) return 0;
@@ -500,7 +553,8 @@ export default function OptionChainPage() {
             ITM-tinted body cells (which have their own background) so the
             row labels never bleed through during scroll.
           */}
-          <div className="overflow-auto rounded border border-border max-h-[calc(100vh-260px)]">
+          <div className="relative">
+          <div ref={tableScrollRef} className="overflow-auto rounded border border-border max-h-[calc(100vh-260px)]">
             <table className="w-full text-[11px] font-mono">
               <thead className="bg-card sticky top-0 z-20 shadow-[0_1px_0_0_hsl(var(--border))]">
                 <tr className="text-muted-foreground border-b border-border">
@@ -541,6 +595,33 @@ export default function OptionChainPage() {
               </tbody>
             </table>
           </div>
+            {/*
+              "Jump to ATM" floating pill. Anchored INSIDE the relative
+              wrapper so it sits over the scroll container, not over the
+              page below. The arrow points the way the chain has to scroll
+              to bring ATM back: ↑ when you've scrolled down past it,
+              ↓ when you're still above it. Pinned to the side that's
+              furthest from the user's current cursor focus area (top-right
+              when ATM is above; bottom-right when it's below) so it never
+              covers the strike row the user is actually reading.
+            */}
+            {atmDirection !== "visible" && chain && (
+              <button
+                type="button"
+                onClick={scrollToAtm}
+                className={`absolute right-4 z-30 flex items-center gap-1.5 rounded-full
+                  bg-primary text-primary-foreground px-3 py-1.5 text-[11px] font-mono font-bold
+                  shadow-lg ring-1 ring-primary/40 hover:bg-primary/90 transition
+                  ${atmDirection === "above" ? "top-16" : "bottom-4"}`}
+                title={`Scroll to ATM strike ${fmt(chain.atmStrike, 0)}`}
+              >
+                {atmDirection === "above"
+                  ? <ArrowUp className="w-3.5 h-3.5" />
+                  : <ArrowDown className="w-3.5 h-3.5" />}
+                <span>Jump to ATM {fmt(chain.atmStrike, 0)}</span>
+              </button>
+            )}
+          </div>
 
           {/* Buildup legend */}
           <div className="flex flex-wrap gap-3 text-[11px] font-mono">
@@ -575,7 +656,7 @@ function Row({ row, atm, spot, maxOi, showGreeks }: { row: OptionChainStrikeRow;
   const peItm = row.strike > spot;
 
   return (
-    <tr className={`border-b border-border/30 hover-row ${isAtm ? "bg-primary/[0.07] font-bold" : ""}`}>
+    <tr data-atm-row={isAtm ? "true" : undefined} className={`border-b border-border/30 hover-row ${isAtm ? "bg-primary/[0.07] font-bold" : ""}`}>
       {/* ── CALL side ─────────────────────────── */}
       <td className={`px-2 py-1 text-right tabular-nums relative ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>
         <div
