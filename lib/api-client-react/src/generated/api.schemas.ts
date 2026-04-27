@@ -519,6 +519,32 @@ export const OptionSignalSetupKey = {
   BASELINE: "BASELINE",
 } as const;
 
+/**
+ * Live lifecycle state vs locked entry/SL/targets.
+ */
+export type OptionSignalStatus =
+  (typeof OptionSignalStatus)[keyof typeof OptionSignalStatus];
+
+export const OptionSignalStatus = {
+  PENDING: "PENDING",
+  TRIGGERED: "TRIGGERED",
+  TARGET1_HIT: "TARGET1_HIT",
+  TARGET2_HIT: "TARGET2_HIT",
+  STOPPED: "STOPPED",
+  EXPIRED: "EXPIRED",
+} as const;
+
+export type OptionSignalExitReason =
+  (typeof OptionSignalExitReason)[keyof typeof OptionSignalExitReason];
+
+export const OptionSignalExitReason = {
+  TARGET1_HIT: "TARGET1_HIT",
+  TARGET2_HIT: "TARGET2_HIT",
+  STOPPED: "STOPPED",
+  EXPIRED_TRIGGERED: "EXPIRED_TRIGGERED",
+  EXPIRED_PENDING: "EXPIRED_PENDING",
+} as const;
+
 export interface OptionSignal {
   index: string;
   indexName: string;
@@ -557,6 +583,22 @@ export interface OptionSignal {
   drivers: SignalReason[];
   invalidation?: string;
   generatedAt: string;
+  /** Live lifecycle state vs locked entry/SL/targets. */
+  status?: OptionSignalStatus;
+  /** When this exact (date+index+setup+direction) signal was first emitted today; persisted, never moves. */
+  firstSeenAt?: string;
+  /** First time spot crossed the entry trigger in trade direction. */
+  triggeredAt?: string;
+  /** Time the trade was closed by stop, target, or session end. */
+  exitedAt?: string;
+  exitReason?: OptionSignalExitReason;
+  exitPrice?: number;
+  /** Maximum points moved in trade's favour from entry, observed today. */
+  maxFavorableExcursionPts?: number;
+  /** Maximum points moved against trade from entry, observed today. */
+  maxAdverseExcursionPts?: number;
+  /** Most recent observed spot used to evaluate this signal. */
+  lastSpot?: number;
 }
 
 export type OptionSignalDiagnosticsSuppressedItem = {
@@ -593,6 +635,82 @@ export interface OptionSignalSet {
   /** NSE equity-market session state at generation time. */
   marketState?: OptionSignalSetMarketState;
   diagnostics?: OptionSignalDiagnostics;
+}
+
+export type OptionSignalHistoryItemDirection =
+  (typeof OptionSignalHistoryItemDirection)[keyof typeof OptionSignalHistoryItemDirection];
+
+export const OptionSignalHistoryItemDirection = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+} as const;
+
+export type OptionSignalHistoryItemOptionType =
+  (typeof OptionSignalHistoryItemOptionType)[keyof typeof OptionSignalHistoryItemOptionType];
+
+export const OptionSignalHistoryItemOptionType = {
+  CALL: "CALL",
+  PUT: "PUT",
+} as const;
+
+export type OptionSignalHistoryItemStatus =
+  (typeof OptionSignalHistoryItemStatus)[keyof typeof OptionSignalHistoryItemStatus];
+
+export const OptionSignalHistoryItemStatus = {
+  PENDING: "PENDING",
+  TRIGGERED: "TRIGGERED",
+  TARGET1_HIT: "TARGET1_HIT",
+  TARGET2_HIT: "TARGET2_HIT",
+  STOPPED: "STOPPED",
+  EXPIRED: "EXPIRED",
+} as const;
+
+export type OptionSignalHistoryItemExitReason =
+  | (typeof OptionSignalHistoryItemExitReason)[keyof typeof OptionSignalHistoryItemExitReason]
+  | null;
+
+export const OptionSignalHistoryItemExitReason = {
+  TARGET1_HIT: "TARGET1_HIT",
+  TARGET2_HIT: "TARGET2_HIT",
+  STOPPED: "STOPPED",
+  EXPIRED_TRIGGERED: "EXPIRED_TRIGGERED",
+  EXPIRED_PENDING: "EXPIRED_PENDING",
+} as const;
+
+export interface OptionSignalHistoryItem {
+  /** IST trading date YYYY-MM-DD */
+  signalDate: string;
+  indexSymbol: string;
+  indexName: string;
+  setupKey: string;
+  setupName?: string | null;
+  direction: OptionSignalHistoryItemDirection;
+  optionType: OptionSignalHistoryItemOptionType;
+  strike: number;
+  entry: number;
+  stopLoss: number;
+  target1: number;
+  target2: number;
+  entryTrigger?: string | null;
+  confidence: number;
+  tier?: string | null;
+  status: OptionSignalHistoryItemStatus;
+  generatedAt: string;
+  triggeredAt?: string | null;
+  exitedAt?: string | null;
+  exitReason?: OptionSignalHistoryItemExitReason;
+  exitPrice?: number | null;
+  maxFavorableExcursionPts: number;
+  maxAdverseExcursionPts: number;
+  lastSpot: number;
+  lastEvaluatedAt: string;
+}
+
+export interface OptionSignalHistorySet {
+  /** IST trading date YYYY-MM-DD */
+  signalDate: string;
+  generatedAt: string;
+  signals: OptionSignalHistoryItem[];
 }
 
 export interface TopScans {

@@ -2,6 +2,11 @@ import type { OptionSignal, SignalReason } from "@workspace/api-zod";
 import { fetchIntraday, type YahooChart } from "./yahoo";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
 import { logger } from "./logger";
+import {
+  recordOrUpdate as recordLifecycle,
+  expireOpenSignalsForToday,
+  type SpotSnapshot,
+} from "./optionSignalLifecycle";
 
 export interface IndexCfg {
   symbol: string;
@@ -660,6 +665,8 @@ export interface IndexBuildResult {
   suppressed: string[];
   /** Did this index produce ≥1 bar of intraday data? */
   hasBars: boolean;
+  /** Live snapshot used to evaluate lifecycle — null if no bars. */
+  snapshot?: SpotSnapshot;
 }
 
 function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): IndexBuildResult {
@@ -699,14 +706,19 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
   highConviction.sort((a, b) => b.confidence - a.confidence);
   const out: OptionSignal[] = [];
   for (const d of highConviction.slice(0, 3)) {
-    const s = applyLock(toSignal(ctx, d, "HIGH_CONVICTION"));
-    out.push(s);
+    out.push(applyLock(toSignal(ctx, d, "HIGH_CONVICTION")));
   }
   if (baseline) {
-    const s = applyLock(toSignal(ctx, baseline, "BASELINE"));
-    out.push(s);
+    out.push(applyLock(toSignal(ctx, baseline, "BASELINE")));
   }
-  return { signals: out, suppressed, hasBars: true };
+  return { signals: out, suppressed, hasBars: true, snapshot: snapshotFromCtx(ctx) };
+}
+
+/** Last-bar high/low/spot for the index — fed to lifecycle so wicks count. */
+function snapshotFromCtx(ctx: Ctx): SpotSnapshot {
+  const h = ctx.bars.h.at(-1) ?? ctx.spot;
+  const l = ctx.bars.l.at(-1) ?? ctx.spot;
+  return { spot: ctx.spot, high: h, low: l };
 }
 
 export interface OptionSignalsResult {
@@ -798,6 +810,11 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   let indicesWithBars = 0;
   let highConvictionCount = 0;
   let baselineCount = 0;
+
+  // Per-index bundle so we can run lifecycle persistence with the right snapshot.
+  interface IdxBundle { signals: OptionSignal[]; snapshot?: SpotSnapshot; }
+  const bundles: IdxBundle[] = [];
+
   for (const cfg of OPTION_INDICES) {
     try {
       const intra = await fetchIntraday(cfg.yahoo, "15m", "5d");
@@ -809,6 +826,7 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       const r = buildSignalsForIndex(cfg, intra, daily);
       if (r.hasBars) indicesWithBars++;
       out.push(...r.signals);
+      bundles.push({ signals: r.signals, snapshot: r.snapshot });
       for (const s of r.signals) {
         if (s.tier === "BASELINE") baselineCount++;
         else highConvictionCount++;
@@ -823,6 +841,56 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       suppressed.push({ index: cfg.symbol, reasons: [`exception: ${msg}`] });
     }
   }
+
+  // Persist + evaluate lifecycle for every signal (best-effort; mutates each
+  // signal in-place so the API response carries status/MFE/MAE/etc).
+  for (const b of bundles) {
+    if (!b.snapshot) continue;
+    for (const s of b.signals) {
+      try {
+        const lc = await recordLifecycle({ signal: s, snapshot: b.snapshot });
+        if (!lc) continue;
+        s.status = lc.status;
+        s.firstSeenAt = lc.firstSeenAt;
+        s.triggeredAt = lc.triggeredAt;
+        s.exitedAt = lc.exitedAt;
+        s.exitReason = lc.exitReason;
+        s.exitPrice = lc.exitPrice;
+        s.maxFavorableExcursionPts = lc.maxFavorableExcursionPts;
+        s.maxAdverseExcursionPts = lc.maxAdverseExcursionPts;
+        s.lastSpot = lc.lastSpot;
+        // DB-as-source-of-truth for locked levels: after a server restart
+        // the in-process lockStore is empty, so without this override the
+        // card would show recomputed levels that drift from what's already
+        // persisted. Splice the persisted levels back in and re-derive RR.
+        const lockedRisk = Math.abs(lc.lockedEntry - lc.lockedStopLoss);
+        const lockedReward = Math.abs(lc.lockedTarget1 - lc.lockedEntry);
+        const lockedRr = lockedRisk > 0
+          ? Math.round((lockedReward / lockedRisk) * 100) / 100
+          : undefined;
+        s.leg = {
+          ...s.leg,
+          entry: round2(lc.lockedEntry),
+          stopLoss: round2(lc.lockedStopLoss),
+          target1: round2(lc.lockedTarget1),
+          target2: round2(lc.lockedTarget2),
+          riskRewardRatio: lockedRr,
+        };
+        if (lc.lockedEntryTrigger != null && lc.lockedEntryTrigger !== "") {
+          s.entryTrigger = lc.lockedEntryTrigger;
+        }
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error).message, idx: s.index, setup: s.setupKey },
+          "Lifecycle merge failed",
+        );
+      }
+    }
+  }
+
+  // Sweep open rows to EXPIRED after market close (no-op intra-session).
+  await expireOpenSignalsForToday().catch(() => 0);
+
   const result: OptionSignalsResult = {
     signals: out,
     diagnostics: {

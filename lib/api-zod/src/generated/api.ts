@@ -1329,6 +1329,59 @@ export const GetOptionSignalsResponse = zod.object({
       ),
       invalidation: zod.string().optional(),
       generatedAt: zod.coerce.date(),
+      status: zod
+        .enum([
+          "PENDING",
+          "TRIGGERED",
+          "TARGET1_HIT",
+          "TARGET2_HIT",
+          "STOPPED",
+          "EXPIRED",
+        ])
+        .optional()
+        .describe("Live lifecycle state vs locked entry\/SL\/targets."),
+      firstSeenAt: zod.coerce
+        .date()
+        .optional()
+        .describe(
+          "When this exact (date+index+setup+direction) signal was first emitted today; persisted, never moves.",
+        ),
+      triggeredAt: zod.coerce
+        .date()
+        .optional()
+        .describe(
+          "First time spot crossed the entry trigger in trade direction.",
+        ),
+      exitedAt: zod.coerce
+        .date()
+        .optional()
+        .describe("Time the trade was closed by stop, target, or session end."),
+      exitReason: zod
+        .enum([
+          "TARGET1_HIT",
+          "TARGET2_HIT",
+          "STOPPED",
+          "EXPIRED_TRIGGERED",
+          "EXPIRED_PENDING",
+        ])
+        .optional(),
+      exitPrice: zod.number().optional(),
+      maxFavorableExcursionPts: zod
+        .number()
+        .optional()
+        .describe(
+          "Maximum points moved in trade's favour from entry, observed today.",
+        ),
+      maxAdverseExcursionPts: zod
+        .number()
+        .optional()
+        .describe(
+          "Maximum points moved against trade from entry, observed today.",
+        ),
+      lastSpot: zod
+        .number()
+        .optional()
+        .describe("Most recent observed spot used to evaluate this signal."),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -1356,6 +1409,58 @@ export const GetOptionSignalsResponse = zod.object({
         .describe("Per-index report of why no high-conviction setup fired."),
     })
     .optional(),
+});
+
+/**
+ * @summary Today's persisted option signals with live status, MFE/MAE and exit info.
+ */
+export const GetOptionSignalHistoryResponse = zod.object({
+  signalDate: zod.string().describe("IST trading date YYYY-MM-DD"),
+  generatedAt: zod.coerce.date(),
+  signals: zod.array(
+    zod.object({
+      signalDate: zod.string().describe("IST trading date YYYY-MM-DD"),
+      indexSymbol: zod.string(),
+      indexName: zod.string(),
+      setupKey: zod.string(),
+      setupName: zod.string().nullish(),
+      direction: zod.enum(["BULLISH", "BEARISH"]),
+      optionType: zod.enum(["CALL", "PUT"]),
+      strike: zod.number(),
+      entry: zod.number(),
+      stopLoss: zod.number(),
+      target1: zod.number(),
+      target2: zod.number(),
+      entryTrigger: zod.string().nullish(),
+      confidence: zod.number(),
+      tier: zod.string().nullish(),
+      status: zod.enum([
+        "PENDING",
+        "TRIGGERED",
+        "TARGET1_HIT",
+        "TARGET2_HIT",
+        "STOPPED",
+        "EXPIRED",
+      ]),
+      generatedAt: zod.coerce.date(),
+      triggeredAt: zod.coerce.date().nullish(),
+      exitedAt: zod.coerce.date().nullish(),
+      exitReason: zod
+        .enum([
+          "TARGET1_HIT",
+          "TARGET2_HIT",
+          "STOPPED",
+          "EXPIRED_TRIGGERED",
+          "EXPIRED_PENDING",
+        ])
+        .nullish(),
+      exitPrice: zod.number().nullish(),
+      maxFavorableExcursionPts: zod.number(),
+      maxAdverseExcursionPts: zod.number(),
+      lastSpot: zod.number(),
+      lastEvaluatedAt: zod.coerce.date(),
+    }),
+  ),
 });
 
 /**

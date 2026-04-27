@@ -202,6 +202,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/OptionSignalSet" }
 
+  /options/signal-history:
+    get:
+      operationId: getOptionSignalHistory
+      tags: [options]
+      summary: "Today's persisted option signals with live status, MFE/MAE and exit info."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionSignalHistorySet" }
+
   /options/chain/{underlying}:
     get:
       operationId: getOptionChain
@@ -887,6 +899,35 @@ components:
           items: { $ref: "#/components/schemas/SignalReason" }
         invalidation: { type: string }
         generatedAt: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [PENDING, TRIGGERED, TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED]
+          description: "Live lifecycle state vs locked entry/SL/targets."
+        firstSeenAt:
+          type: string
+          format: date-time
+          description: "When this exact (date+index+setup+direction) signal was first emitted today; persisted, never moves."
+        triggeredAt:
+          type: string
+          format: date-time
+          description: "First time spot crossed the entry trigger in trade direction."
+        exitedAt:
+          type: string
+          format: date-time
+          description: "Time the trade was closed by stop, target, or session end."
+        exitReason:
+          type: string
+          enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED_TRIGGERED, EXPIRED_PENDING]
+        exitPrice: { type: number }
+        maxFavorableExcursionPts:
+          type: number
+          description: "Maximum points moved in trade's favour from entry, observed today."
+        maxAdverseExcursionPts:
+          type: number
+          description: "Maximum points moved against trade from entry, observed today."
+        lastSpot:
+          type: number
+          description: "Most recent observed spot used to evaluate this signal."
 
     OptionSignalDiagnostics:
       type: object
@@ -922,6 +963,69 @@ components:
           enum: [open, closed, pre_open]
           description: "NSE equity-market session state at generation time."
         diagnostics: { $ref: "#/components/schemas/OptionSignalDiagnostics" }
+
+    OptionSignalHistoryItem:
+      type: object
+      required:
+        - signalDate
+        - indexSymbol
+        - indexName
+        - setupKey
+        - direction
+        - optionType
+        - strike
+        - entry
+        - stopLoss
+        - target1
+        - target2
+        - confidence
+        - status
+        - generatedAt
+        - maxFavorableExcursionPts
+        - maxAdverseExcursionPts
+        - lastSpot
+        - lastEvaluatedAt
+      properties:
+        signalDate:    { type: string, description: "IST trading date YYYY-MM-DD" }
+        indexSymbol:   { type: string }
+        indexName:     { type: string }
+        setupKey:      { type: string }
+        setupName:     { type: string, nullable: true }
+        direction:     { type: string, enum: [BULLISH, BEARISH] }
+        optionType:    { type: string, enum: [CALL, PUT] }
+        strike:        { type: number }
+        entry:         { type: number }
+        stopLoss:      { type: number }
+        target1:       { type: number }
+        target2:       { type: number }
+        entryTrigger:  { type: string, nullable: true }
+        confidence:    { type: integer }
+        tier:          { type: string, nullable: true }
+        status:
+          type: string
+          enum: [PENDING, TRIGGERED, TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED]
+        generatedAt:   { type: string, format: date-time }
+        triggeredAt:   { type: string, format: date-time, nullable: true }
+        exitedAt:      { type: string, format: date-time, nullable: true }
+        exitReason:
+          type: string
+          nullable: true
+          enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED_TRIGGERED, EXPIRED_PENDING]
+        exitPrice:     { type: number, nullable: true }
+        maxFavorableExcursionPts: { type: number }
+        maxAdverseExcursionPts:   { type: number }
+        lastSpot:      { type: number }
+        lastEvaluatedAt: { type: string, format: date-time }
+
+    OptionSignalHistorySet:
+      type: object
+      required: [signalDate, generatedAt, signals]
+      properties:
+        signalDate:  { type: string, description: "IST trading date YYYY-MM-DD" }
+        generatedAt: { type: string, format: date-time }
+        signals:
+          type: array
+          items: { $ref: "#/components/schemas/OptionSignalHistoryItem" }
 
     TopScans:
       type: object

@@ -7,8 +7,10 @@
  */
 import type { OptionLeg } from "./optionLeg";
 import type { OptionSignalBias } from "./optionSignalBias";
+import type { OptionSignalExitReason } from "./optionSignalExitReason";
 import type { OptionSignalHtfBias } from "./optionSignalHtfBias";
 import type { OptionSignalSetupKey } from "./optionSignalSetupKey";
+import type { OptionSignalStatus } from "./optionSignalStatus";
 import type { OptionSignalTier } from "./optionSignalTier";
 import type { SignalReason } from "./signalReason";
 
@@ -50,4 +52,20 @@ export interface OptionSignal {
   drivers: SignalReason[];
   invalidation?: string;
   generatedAt: Date;
+  /** Live lifecycle state vs locked entry/SL/targets. */
+  status?: OptionSignalStatus;
+  /** When this exact (date+index+setup+direction) signal was first emitted today; persisted, never moves. */
+  firstSeenAt?: Date;
+  /** First time spot crossed the entry trigger in trade direction. */
+  triggeredAt?: Date;
+  /** Time the trade was closed by stop, target, or session end. */
+  exitedAt?: Date;
+  exitReason?: OptionSignalExitReason;
+  exitPrice?: number;
+  /** Maximum points moved in trade's favour from entry, observed today. */
+  maxFavorableExcursionPts?: number;
+  /** Maximum points moved against trade from entry, observed today. */
+  maxAdverseExcursionPts?: number;
+  /** Most recent observed spot used to evaluate this signal. */
+  lastSpot?: number;
 }

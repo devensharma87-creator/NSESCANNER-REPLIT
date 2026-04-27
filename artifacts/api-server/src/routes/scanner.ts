@@ -4,6 +4,7 @@ import {
   GetMarketSummaryResponse,
   GetMarketTrendResponse,
   GetNewsResponse,
+  GetOptionSignalHistoryResponse,
   GetOptionSignalsResponse,
   GetSectorResponse,
   GetStockDetailResponse,
@@ -24,6 +25,10 @@ import { getPreMarketReport } from "../lib/preMarket";
 import { getWatchlist } from "../lib/watchlist";
 import { getMarketNewsLive } from "../lib/newsRss";
 import { getOptionSignals } from "../lib/optionSignals";
+import {
+  getTodayHistory as getTodayOptionSignalHistory,
+  expireOpenSignalsForToday,
+} from "../lib/optionSignalLifecycle";
 import { getGlobalIndices } from "../lib/globalIndices";
 import { getMarketTrend } from "../lib/marketTrend";
 import { providerStatus } from "../lib/dataProvider";
@@ -193,6 +198,25 @@ router.get("/options/signals", async (_req, res, next) => {
       lastUpdated: now,
       marketState: computeMarketStatus(now),
       diagnostics,
+    });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/options/signal-history", async (_req, res, next) => {
+  try {
+    // Best-effort sweep so the scoreboard reflects after-close expirations
+    // even if no live request hit /options/signals after 15:30 IST.
+    await expireOpenSignalsForToday().catch(() => 0);
+    const rows = await getTodayOptionSignalHistory();
+    const now = new Date();
+    const signalDate =
+      rows[0]?.signalDate ??
+      new Date(now.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const data = GetOptionSignalHistoryResponse.parse({
+      signalDate,
+      generatedAt: now,
+      signals: rows,
     });
     res.json(data);
   } catch (err) { next(err); }

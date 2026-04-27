@@ -34,6 +34,7 @@ import type {
   NewsItem,
   OptionAnalyticsResponse,
   OptionChainResponse,
+  OptionSignalHistorySet,
   OptionSignalSet,
   OptionStrategiesResponse,
   ParticipantOiResponse,
@@ -1039,6 +1040,82 @@ export function useGetOptionSignals<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetOptionSignalsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Today's persisted option signals with live status, MFE/MAE and exit info.
+ */
+export const getGetOptionSignalHistoryUrl = () => {
+  return `/api/options/signal-history`;
+};
+
+export const getOptionSignalHistory = async (
+  options?: RequestInit,
+): Promise<OptionSignalHistorySet> => {
+  return customFetch<OptionSignalHistorySet>(getGetOptionSignalHistoryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOptionSignalHistoryQueryKey = () => {
+  return [`/api/options/signal-history`] as const;
+};
+
+export const getGetOptionSignalHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOptionSignalHistory>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignalHistory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOptionSignalHistoryQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOptionSignalHistory>>
+  > = ({ signal }) => getOptionSignalHistory({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignalHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOptionSignalHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOptionSignalHistory>>
+>;
+export type GetOptionSignalHistoryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Today's persisted option signals with live status, MFE/MAE and exit info.
+ */
+
+export function useGetOptionSignalHistory<
+  TData = Awaited<ReturnType<typeof getOptionSignalHistory>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignalHistory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOptionSignalHistoryQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
