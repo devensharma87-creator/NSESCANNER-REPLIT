@@ -38,14 +38,15 @@
 import { useMemo, useState } from "react";
 import { useGetIndicesBoard, getGetIndicesBoardQueryKey } from "@workspace/api-client-react";
 import type { IndexBoardItem } from "@workspace/api-client-react";
-import { Activity, Globe2, Flame, AlertTriangle } from "lucide-react";
+import { Activity, Globe2, Flame, AlertTriangle, Building2 } from "lucide-react";
 
-type Cat = "INDIA" | "GLOBAL" | "COMMODITY";
+type Cat = "INDIA" | "GLOBAL" | "COMMODITY" | "ADR";
 
 const SECTIONS: { key: Cat; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { key: "INDIA",     label: "India",       icon: Activity },
-  { key: "GLOBAL",    label: "Global",      icon: Globe2   },
-  { key: "COMMODITY", label: "Commodities", icon: Flame    },
+  { key: "INDIA",     label: "India",        icon: Activity  },
+  { key: "GLOBAL",    label: "Global",       icon: Globe2    },
+  { key: "COMMODITY", label: "Commodities",  icon: Flame     },
+  { key: "ADR",       label: "Indian ADRs",  icon: Building2 },
 ];
 
 function fmt(n: number | undefined, digits = 2): string {
@@ -126,7 +127,7 @@ export default function IndicesPage() {
   const ActiveIcon = SECTIONS.find(s => s.key === active)?.icon ?? Activity;
 
   return (
-    <div className="w-full px-4 py-6 max-w-[1700px] mx-auto">
+    <div className="w-full px-4 lg:px-6 2xl:px-8 py-6">
       <header className="flex items-end justify-between gap-4 mb-5">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Indices</h1>
@@ -190,7 +191,7 @@ export default function IndicesPage() {
               >
                 <Icon className="h-3.5 w-3.5" />
                 {tab.label}
-                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${isActive ? "bg-primary-foreground/20" : "bg-muted text-muted-foreground"}`}>
+                <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded ${isActive ? "bg-primary-foreground/20" : "bg-muted text-muted-foreground"}`}>
                   {count}
                 </span>
               </button>
@@ -218,7 +219,7 @@ export default function IndicesPage() {
               No instruments in this section.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(420px,100%),1fr))]">
               {activeRows.map(item => (
                 <InstrumentCard key={item.key} item={item} />
               ))}
@@ -261,11 +262,11 @@ function InstrumentCard({ item }: { item: IndexBoardItem }) {
       <div className="px-4 py-3 border-b border-border/70 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="font-semibold text-base leading-tight truncate">{item.name}</div>
-          <div className="text-[10px] font-mono text-muted-foreground/80 mt-1 flex items-center gap-1.5 flex-wrap">
+          <div className="text-[11px] font-mono text-muted-foreground/80 mt-1 flex items-center gap-1.5 flex-wrap">
             <span>{item.yahooSymbol}</span>
-            {item.source === "kite"  && <span className="px-1 rounded bg-emerald-500/15 text-emerald-500 text-[9px] font-bold tracking-wide">LIVE</span>}
-            {item.source === "yahoo" && <span className="px-1 rounded bg-muted text-muted-foreground text-[9px] font-bold tracking-wide">DELAYED</span>}
-            {item.source === null    && <span className="px-1 rounded bg-rose-500/15 text-rose-500 text-[9px] font-bold tracking-wide">NO DATA</span>}
+            {item.source === "kite"  && <span className="px-1 rounded bg-emerald-500/15 text-emerald-500 text-[10px] font-bold tracking-wide">LIVE</span>}
+            {item.source === "yahoo" && <span className="px-1 rounded bg-muted text-muted-foreground text-[10px] font-bold tracking-wide">DELAYED</span>}
+            {item.source === null    && <span className="px-1 rounded bg-rose-500/15 text-rose-500 text-[10px] font-bold tracking-wide">NO DATA</span>}
           </div>
         </div>
         <div className="text-right shrink-0">
@@ -365,7 +366,7 @@ function InstrumentCard({ item }: { item: IndexBoardItem }) {
         <div className="flex items-center justify-between mb-2">
           <ColTitle>Key Levels (Floor Pivots)</ColTitle>
           {nearest && (
-            <span className="text-[10px] font-mono text-muted-foreground">
+            <span className="text-[11px] font-mono text-muted-foreground">
               LTP {nearest.distancePct >= 0 ? "↓" : "↑"}{Math.abs(nearest.distancePct).toFixed(2)}% to{" "}
               <span className="text-foreground font-semibold">{nearest.label}</span>
             </span>
@@ -382,7 +383,7 @@ function InstrumentCard({ item }: { item: IndexBoardItem }) {
 
       {/* Notes (proxy disclosures, partial-data warnings) */}
       {item.notes && item.notes.length > 0 && (
-        <div className="px-4 py-2 border-t border-amber-500/30 bg-amber-500/5 text-[10px] text-amber-500 flex items-start gap-1.5">
+        <div className="px-4 py-2 border-t border-amber-500/30 bg-amber-500/5 text-[11px] text-amber-500 flex items-start gap-1.5">
           <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
           <div className="leading-snug">{item.notes.join(" · ")}</div>
         </div>
@@ -397,7 +398,7 @@ function InstrumentCard({ item }: { item: IndexBoardItem }) {
 
 function ColTitle({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">
+    <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">
       {children}
     </div>
   );
@@ -425,11 +426,11 @@ function EmaCell({ label, ltp, val, currency }: { label: string; ltp?: number; v
     : "border-transparent";
   return (
     <div className={`flex items-center justify-between gap-1.5 px-1.5 py-0.5 rounded border ${tone}`}>
-      <span className="text-muted-foreground text-[10px]">{label}</span>
+      <span className="text-muted-foreground text-[11px]">{label}</span>
       <span className="font-mono tabular-nums">{currency}{fmt(val)}</span>
       {direction && (
         <span
-          className={`text-[10px] leading-none font-bold ${
+          className={`text-[11px] leading-none font-bold ${
             direction === "above" ? "text-emerald-500" : "text-rose-500"
           }`}
         >
@@ -443,7 +444,7 @@ function EmaCell({ label, ltp, val, currency }: { label: string; ltp?: number; v
 function ProfileStat({ label, value, currency, bold = false }: { label: string; value?: number; currency: string; bold?: boolean }) {
   return (
     <span className="inline-flex items-baseline gap-1">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className={bold ? "font-semibold" : ""}>{currency}{fmt(value)}</span>
     </span>
   );
@@ -455,7 +456,7 @@ function RangeBar({ title, lo, hi, ltp, currency }: { title: string; lo?: number
   const posPct = pos != null ? Math.round(pos * 100) : null;
   return (
     <div>
-      <div className="flex items-center justify-between text-[10px] mb-1">
+      <div className="flex items-center justify-between text-[11px] mb-1">
         <span className="text-muted-foreground uppercase tracking-wider font-semibold">{title}</span>
         {posPct != null && (
           <span className="font-mono text-muted-foreground">{posPct}% of range</span>
@@ -476,7 +477,7 @@ function RangeBar({ title, lo, hi, ltp, currency }: { title: string; lo?: number
           </>
         )}
       </div>
-      <div className="flex items-center justify-between text-[10px] font-mono tabular-nums text-muted-foreground mt-1">
+      <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-muted-foreground mt-1">
         <span>{currency}{fmt(lo)}</span>
         <span>{currency}{fmt(hi)}</span>
       </div>
@@ -526,7 +527,7 @@ function PivotLadder({
           return (
             <span
               key={`lab-${i}`}
-              className={`absolute -translate-x-1/2 text-[9px] font-bold uppercase ${tone}`}
+              className={`absolute -translate-x-1/2 text-[10px] font-bold uppercase ${tone}`}
               style={{ left: `${left}%` }}
             >
               {l.label}
@@ -574,7 +575,7 @@ function PivotLadder({
           return (
             <span
               key={`val-${i}`}
-              className={`absolute -translate-x-1/2 text-[9px] font-mono tabular-nums ${near ? "text-foreground font-bold" : "text-muted-foreground"}`}
+              className={`absolute -translate-x-1/2 text-[10px] font-mono tabular-nums ${near ? "text-foreground font-bold" : "text-muted-foreground"}`}
               style={{ left: `${left}%` }}
             >
               {currency}{fmt(l.level, l.level >= 1000 ? 0 : 2)}

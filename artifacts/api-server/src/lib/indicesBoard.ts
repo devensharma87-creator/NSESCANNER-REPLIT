@@ -35,7 +35,7 @@ import { ema, sessionVwap, volumeProfile } from "./indicators";
 import { getKiteIndexQuotes, type KiteIndexQuote } from "./kiteIndexQuotes";
 import { logger } from "./logger";
 
-export type IndicesCategory = "INDIA" | "GLOBAL" | "COMMODITY";
+export type IndicesCategory = "INDIA" | "GLOBAL" | "COMMODITY" | "ADR";
 
 export interface InstrumentCfg {
   /** Canonical key — stable identifier the frontend keys rows by. */
@@ -90,6 +90,17 @@ export const INSTRUMENTS: InstrumentCfg[] = [
   { key: "SILVER",      name: "Silver",           category: "COMMODITY", yahoo: "SI=F",                  currency: "$" },
   { key: "CRUDE_WTI",   name: "Crude Oil (WTI)",  category: "COMMODITY", yahoo: "CL=F",                  currency: "$" },
   { key: "CRUDE_BRENT", name: "Brent Oil",        category: "COMMODITY", yahoo: "BZ=F",                  currency: "$" },
+
+  // ── Indian ADRs (NYSE / NASDAQ listings of Indian companies) ──────
+  // Quoted in USD. Useful as an after-hours sentiment read on India once
+  // the cash session has closed. All confirmed live on Yahoo (251 daily
+  // bars / yr). VEDL is delisted (Vedanta went private 2023); skipped.
+  { key: "ADR_INFY",  name: "Infosys (INFY)",          category: "ADR", yahoo: "INFY", currency: "$" },
+  { key: "ADR_HDB",   name: "HDFC Bank (HDB)",         category: "ADR", yahoo: "HDB",  currency: "$" },
+  { key: "ADR_IBN",   name: "ICICI Bank (IBN)",        category: "ADR", yahoo: "IBN",  currency: "$" },
+  { key: "ADR_WIT",   name: "Wipro (WIT)",             category: "ADR", yahoo: "WIT",  currency: "$" },
+  { key: "ADR_RDY",   name: "Dr. Reddy's (RDY)",       category: "ADR", yahoo: "RDY",  currency: "$" },
+  { key: "ADR_MMYT",  name: "MakeMyTrip (MMYT)",       category: "ADR", yahoo: "MMYT", currency: "$" },
 ];
 
 export interface IndexBoardItem {

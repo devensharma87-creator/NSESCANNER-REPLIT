@@ -835,7 +835,7 @@ components:
         name: { type: string, description: "Display name" }
         category:
           type: string
-          enum: [INDIA, GLOBAL, COMMODITY]
+          enum: [INDIA, GLOBAL, COMMODITY, ADR]
         yahooSymbol: { type: string }
         currency: { type: string }
         source:

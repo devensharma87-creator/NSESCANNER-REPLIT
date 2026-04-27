@@ -2338,7 +2338,7 @@ export const GetIndicesBoardResponse = zod.object({
         .string()
         .describe("Stable instrument identifier (e.g. NIFTY50, GOLD)"),
       name: zod.string().describe("Display name"),
-      category: zod.enum(["INDIA", "GLOBAL", "COMMODITY"]),
+      category: zod.enum(["INDIA", "GLOBAL", "COMMODITY", "ADR"]),
       yahooSymbol: zod.string(),
       currency: zod.string(),
       source: zod
