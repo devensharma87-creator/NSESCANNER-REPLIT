@@ -11,6 +11,92 @@ interface Affirmation {
   borderTone: string;
 }
 
+interface Shloka {
+  number: string;
+  title?: string;
+  sanskrit: string[];          // each entry = one line in Devanagari
+  reference: string;           // e.g. "Gita 2.48"
+  meaning: string;
+  lesson: string;
+  accent: "amber" | "rose" | "cyan" | "violet" | "emerald";
+}
+
+const ACCENT: Record<Shloka["accent"], { ring: string; chip: string; glow: string; bullet: string }> = {
+  amber:   { ring: "ring-amber-400/30",   chip: "text-amber-300   bg-amber-500/10   border-amber-400/30",   glow: "shadow-amber-500/10",   bullet: "text-amber-300" },
+  rose:    { ring: "ring-rose-400/30",    chip: "text-rose-300    bg-rose-500/10    border-rose-400/30",    glow: "shadow-rose-500/10",    bullet: "text-rose-300" },
+  cyan:    { ring: "ring-cyan-400/30",    chip: "text-cyan-300    bg-cyan-500/10    border-cyan-400/30",    glow: "shadow-cyan-500/10",    bullet: "text-cyan-300" },
+  violet:  { ring: "ring-violet-400/30",  chip: "text-violet-300  bg-violet-500/10  border-violet-400/30",  glow: "shadow-violet-500/10",  bullet: "text-violet-300" },
+  emerald: { ring: "ring-emerald-400/30", chip: "text-emerald-300 bg-emerald-500/10 border-emerald-400/30", glow: "shadow-emerald-500/10", bullet: "text-emerald-300" },
+};
+
+// Centered shlok that sits directly beneath the hero (2.47).
+const SHLOKA_CENTER: Shloka = {
+  number: "·",
+  title: "Act without attachment",
+  sanskrit: [
+    "तस्मादसक्तः सततं कार्यं कर्म समाचर।",
+    "असक्तो ह्याचरन्कर्म परमाप्नोति पूरुषः॥",
+  ],
+  reference: "Gita 3.19",
+  meaning: "Therefore, perform your duty without attachment, for by acting without attachment one reaches the highest state.",
+  lesson: "Take the trade if it fits your plan. Exit when the plan says. Do not marry a position.",
+  accent: "amber",
+};
+
+// Left column — inner discipline.
+const SHLOKAS_LEFT: Shloka[] = [
+  {
+    number: "01",
+    title: "Control the restless mind",
+    sanskrit: [
+      "असंशयं महाबाहो मनो दुर्निग्रहं चलम्।",
+      "अभ्यासेन तु कौन्तेय वैराग्येण च गृह्यते॥",
+    ],
+    reference: "Gita 6.35",
+    meaning: "The mind is restless and difficult to control, but it can be controlled by practice and detachment.",
+    lesson: "Discipline comes from repeated practice and detachment from every single trade.",
+    accent: "violet",
+  },
+  {
+    number: "02",
+    title: "Rise by self-control",
+    sanskrit: [
+      "उद्धरेदात्मनात्मानं नात्मानमवसादयेत्।",
+      "आत्मैव ह्यात्मनो बन्धुरात्मैव रिपुरात्मनः॥",
+    ],
+    reference: "Gita 6.5",
+    meaning: "Lift yourself by your own mind; do not degrade yourself. Your mind can be your friend or enemy.",
+    lesson: "The biggest enemy is not the market — it is impulsiveness, fear, greed, and lack of discipline.",
+    accent: "emerald",
+  },
+];
+
+// Right column — equanimity in P&L.
+const SHLOKAS_RIGHT: Shloka[] = [
+  {
+    number: "01",
+    sanskrit: [
+      "योगस्थः कुरु कर्माणि सङ्गं त्यक्त्वा धनञ्जय।",
+      "सिद्ध्यसिद्ध्योः समो भूत्वा समत्वं योग उच्यते॥",
+    ],
+    reference: "Gita 2.48",
+    meaning: "Perform your duty with calmness, giving up attachment. Be equal in success and failure; this balance is called yoga.",
+    lesson: "Do not become overconfident after profit or revengeful after loss. Emotional balance is edge.",
+    accent: "amber",
+  },
+  {
+    number: "02",
+    sanskrit: [
+      "सुखदुःखे समे कृत्वा लाभालाभौ जयाजयौ।",
+      "ततो युद्धाय युज्यस्व नैवं पापमवाप्स्यसि॥",
+    ],
+    reference: "Gita 2.38",
+    meaning: "Treat pleasure and pain, gain and loss, victory and defeat alike, then perform your duty.",
+    lesson: "Profit and loss are part of the game. Trade with a clear mind, not with ego.",
+    accent: "rose",
+  },
+];
+
 const AFFIRMATIONS: Affirmation[] = [
   {
     text: "You are unique, courageous, and intelligent enough to make it happen.",
@@ -146,6 +232,42 @@ export default function Manifesto() {
           </p>
         </section>
 
+        {/* ── Centered companion shloka (Gita 3.19) — sits beneath the hero ── */}
+        <section className="mt-10 sm:mt-12 fade-up" style={{ animationDelay: "120ms" }}>
+          <div className="mx-auto max-w-2xl">
+            <ShlokaCard s={SHLOKA_CENTER} variant="center" />
+          </div>
+        </section>
+
+        {/* ── Two-column flank: discipline (left) + equanimity (right) ── */}
+        <section className="mt-10 sm:mt-12">
+          <div className="grid lg:grid-cols-2 gap-5 sm:gap-6">
+            {/* Left column */}
+            <div className="space-y-5">
+              <h3 className="text-center lg:text-left text-[11px] font-mono uppercase tracking-[0.35em] text-violet-300/80">
+                Inner Discipline
+              </h3>
+              {SHLOKAS_LEFT.map((s, i) => (
+                <div key={s.reference} className="fade-up" style={{ animationDelay: `${160 + i * 80}ms` }}>
+                  <ShlokaCard s={s} />
+                </div>
+              ))}
+            </div>
+
+            {/* Right column */}
+            <div className="space-y-5">
+              <h3 className="text-center lg:text-left text-[11px] font-mono uppercase tracking-[0.35em] text-amber-300/80">
+                Equanimity in P&amp;L
+              </h3>
+              {SHLOKAS_RIGHT.map((s, i) => (
+                <div key={s.reference} className="fade-up" style={{ animationDelay: `${200 + i * 80}ms` }}>
+                  <ShlokaCard s={s} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* Brand banner */}
         <section className="mt-12 sm:mt-14 text-center fade-up" style={{ animationDelay: "180ms" }}>
           <h1
@@ -206,6 +328,63 @@ export default function Manifesto() {
             <span className="h-px w-12 bg-border" />
           </div>
         </section>
+      </div>
+    </div>
+  );
+}
+
+function ShlokaCard({ s, variant }: { s: Shloka; variant?: "center" }) {
+  const a = ACCENT[s.accent];
+  const isCenter = variant === "center";
+  return (
+    <div
+      className={`relative rounded-2xl border border-border/60 bg-card/80 backdrop-blur-md p-5 sm:p-6 ring-1 ${a.ring} shadow-lg ${a.glow} transition-transform hover:-translate-y-0.5`}
+    >
+      {/* Header row: number + title + reference chip */}
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={`font-mono text-xs font-bold ${a.bullet} tracking-widest`}>
+            {s.number}
+          </span>
+          {s.title && (
+            <h4 className={`text-sm sm:text-base font-semibold italic ${isCenter ? "text-amber-200" : "text-foreground"} truncate`}>
+              {s.title}
+            </h4>
+          )}
+        </div>
+        <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-widest ${a.chip}`}>
+          {s.reference}
+        </span>
+      </div>
+
+      {/* Sanskrit verse */}
+      <div
+        className={`space-y-1 ${isCenter ? "text-center" : ""}`}
+        style={{ fontFamily: '"Noto Serif Devanagari", serif' }}
+      >
+        {s.sanskrit.map((line, i) => (
+          <p
+            key={i}
+            className={`${isCenter ? "text-lg sm:text-xl md:text-2xl" : "text-base sm:text-lg"} font-semibold leading-[1.7] text-amber-200/95`}
+          >
+            {line}
+          </p>
+        ))}
+      </div>
+
+      {/* Divider */}
+      <div className={`my-4 h-px bg-gradient-to-r from-transparent via-border to-transparent`} />
+
+      {/* Meaning + Trader lesson */}
+      <div className="space-y-2.5 text-[13px] sm:text-[14px] leading-relaxed">
+        <p className="text-foreground/85">
+          <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground mr-2">Meaning</span>
+          <span className="italic">{s.meaning}</span>
+        </p>
+        <p className="text-foreground/90">
+          <span className={`text-[10px] font-mono uppercase tracking-[0.2em] mr-2 ${a.bullet}`}>Trader's Lesson</span>
+          {s.lesson}
+        </p>
       </div>
     </div>
   );
