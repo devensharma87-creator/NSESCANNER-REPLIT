@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import Layout from "@/components/layout";
 import Dashboard from "@/pages/dashboard";
 import Scanner from "@/pages/scanner";
+import IndicesPage from "@/pages/indices";
 import DeepScan from "@/pages/deep-scan";
 import Strategies from "@/pages/strategies";
 import Sectors from "@/pages/sectors";
@@ -36,6 +37,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/scanner" component={Scanner} />
+      <Route path="/indices" component={IndicesPage} />
       <Route path="/deep-scan" component={DeepScan} />
       <Route path="/options" component={Options} />
       <Route path="/option-chain" component={OptionChain} />

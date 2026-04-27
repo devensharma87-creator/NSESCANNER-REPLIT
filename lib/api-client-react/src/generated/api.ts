@@ -27,6 +27,7 @@ import type {
   GetStockHistoryParams,
   GlobalMarket,
   HealthStatus,
+  IndicesBoardSnapshot,
   ListStocksParams,
   MarketEventsResponse,
   MarketSummary,
@@ -2110,6 +2111,81 @@ export function useGetWatchlist<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetWatchlistQueryOptions(key, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Indices board — Indian + global benchmarks + commodities with full fact pack
+ */
+export const getGetIndicesBoardUrl = () => {
+  return `/api/indices`;
+};
+
+export const getIndicesBoard = async (
+  options?: RequestInit,
+): Promise<IndicesBoardSnapshot> => {
+  return customFetch<IndicesBoardSnapshot>(getGetIndicesBoardUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetIndicesBoardQueryKey = () => {
+  return [`/api/indices`] as const;
+};
+
+export const getGetIndicesBoardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getIndicesBoard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getIndicesBoard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetIndicesBoardQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getIndicesBoard>>> = ({
+    signal,
+  }) => getIndicesBoard({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getIndicesBoard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetIndicesBoardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getIndicesBoard>>
+>;
+export type GetIndicesBoardQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Indices board — Indian + global benchmarks + commodities with full fact pack
+ */
+
+export function useGetIndicesBoard<
+  TData = Awaited<ReturnType<typeof getIndicesBoard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getIndicesBoard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetIndicesBoardQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

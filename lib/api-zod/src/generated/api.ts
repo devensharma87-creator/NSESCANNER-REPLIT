@@ -2327,3 +2327,78 @@ export const GetWatchlistResponse = zod.object({
     }),
   ),
 });
+
+/**
+ * @summary Indices board — Indian + global benchmarks + commodities with full fact pack
+ */
+export const GetIndicesBoardResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      key: zod
+        .string()
+        .describe("Stable instrument identifier (e.g. NIFTY50, GOLD)"),
+      name: zod.string().describe("Display name"),
+      category: zod.enum(["INDIA", "GLOBAL", "COMMODITY"]),
+      yahooSymbol: zod.string(),
+      currency: zod.string(),
+      source: zod
+        .enum(["kite", "yahoo"])
+        .nullish()
+        .describe("Origin of LTP\/OHLC. kite = live, yahoo = ~15min delayed."),
+      asOf: zod.number().optional().describe("Last update unix seconds"),
+      ltp: zod.number().optional(),
+      open: zod.number().optional(),
+      high: zod.number().optional(),
+      low: zod.number().optional(),
+      change: zod.number().optional(),
+      changePercent: zod.number().optional(),
+      fiftyTwoWeekHigh: zod.number().optional(),
+      fiftyTwoWeekLow: zod.number().optional(),
+      prevOpen: zod.number().optional(),
+      prevHigh: zod.number().optional(),
+      prevLow: zod.number().optional(),
+      prevClose: zod.number().optional(),
+      ema9: zod.number().optional(),
+      ema20: zod.number().optional(),
+      ema50: zod.number().optional(),
+      ema100: zod.number().optional(),
+      ema200: zod.number().optional(),
+      vwap: zod.number().optional().describe("Session VWAP from intraday bars"),
+      vah: zod
+        .number()
+        .optional()
+        .describe("Value Area High (intraday volume profile)"),
+      val: zod
+        .number()
+        .optional()
+        .describe("Value Area Low (intraday volume profile)"),
+      poc: zod
+        .number()
+        .optional()
+        .describe("Point of Control (intraday volume profile)"),
+      pivot: zod
+        .number()
+        .optional()
+        .describe("Floor-trader pivot from prev day OHLC"),
+      support: zod
+        .array(zod.number())
+        .describe(
+          "S1, S2, S3 floor-trader pivots (length 3 when prev OHLC present, [] otherwise)",
+        ),
+      resistance: zod
+        .array(zod.number())
+        .describe("R1, R2, R3 floor-trader pivots"),
+      notes: zod
+        .array(zod.string())
+        .describe(
+          "Human-readable diagnostic notes (e.g. partial-data warnings)",
+        ),
+    }),
+  ),
+  lastUpdated: zod.coerce.date(),
+  kiteAuthenticated: zod
+    .boolean()
+    .describe(
+      "True when Indian-index LTPs were sourced from a live Kite session",
+    ),
+});

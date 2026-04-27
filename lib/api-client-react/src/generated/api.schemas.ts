@@ -401,6 +401,81 @@ export interface GlobalMarket {
   lastUpdated: string;
 }
 
+export type IndexBoardItemCategory =
+  (typeof IndexBoardItemCategory)[keyof typeof IndexBoardItemCategory];
+
+export const IndexBoardItemCategory = {
+  INDIA: "INDIA",
+  GLOBAL: "GLOBAL",
+  COMMODITY: "COMMODITY",
+} as const;
+
+/**
+ * Origin of LTP/OHLC. kite = live, yahoo = ~15min delayed.
+ */
+export type IndexBoardItemSource =
+  | (typeof IndexBoardItemSource)[keyof typeof IndexBoardItemSource]
+  | null;
+
+export const IndexBoardItemSource = {
+  kite: "kite",
+  yahoo: "yahoo",
+} as const;
+
+export interface IndexBoardItem {
+  /** Stable instrument identifier (e.g. NIFTY50, GOLD) */
+  key: string;
+  /** Display name */
+  name: string;
+  category: IndexBoardItemCategory;
+  yahooSymbol: string;
+  currency: string;
+  /** Origin of LTP/OHLC. kite = live, yahoo = ~15min delayed. */
+  source?: IndexBoardItemSource;
+  /** Last update unix seconds */
+  asOf?: number;
+  ltp?: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  change?: number;
+  changePercent?: number;
+  fiftyTwoWeekHigh?: number;
+  fiftyTwoWeekLow?: number;
+  prevOpen?: number;
+  prevHigh?: number;
+  prevLow?: number;
+  prevClose?: number;
+  ema9?: number;
+  ema20?: number;
+  ema50?: number;
+  ema100?: number;
+  ema200?: number;
+  /** Session VWAP from intraday bars */
+  vwap?: number;
+  /** Value Area High (intraday volume profile) */
+  vah?: number;
+  /** Value Area Low (intraday volume profile) */
+  val?: number;
+  /** Point of Control (intraday volume profile) */
+  poc?: number;
+  /** Floor-trader pivot from prev day OHLC */
+  pivot?: number;
+  /** S1, S2, S3 floor-trader pivots (length 3 when prev OHLC present, [] otherwise) */
+  support: number[];
+  /** R1, R2, R3 floor-trader pivots */
+  resistance: number[];
+  /** Human-readable diagnostic notes (e.g. partial-data warnings) */
+  notes: string[];
+}
+
+export interface IndicesBoardSnapshot {
+  items: IndexBoardItem[];
+  lastUpdated: string;
+  /** True when Indian-index LTPs were sourced from a live Kite session */
+  kiteAuthenticated: boolean;
+}
+
 export type MarketTrendBias =
   (typeof MarketTrendBias)[keyof typeof MarketTrendBias];
 

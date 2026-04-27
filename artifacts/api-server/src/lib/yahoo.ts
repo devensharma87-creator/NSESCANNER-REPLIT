@@ -6,8 +6,14 @@ import { YAHOO_TICKER_OVERRIDES } from "./universe";
  *  network calls. Applies the renamed-ticker map (e.g. ZOMATO → ETERNAL.NS) and
  *  appends the appropriate exchange suffix when missing. */
 export function yahooTickerFor(symbol: string, exchange: "NS" | "BO" = "NS"): string {
-  // Already includes a suffix (passed by index/global lookups) — return as-is.
-  if (/\.(NS|BO|BSE)$/i.test(symbol) || symbol.startsWith("^")) return symbol;
+  // Already a fully-qualified Yahoo ticker — return as-is. Covers:
+  //   .NS / .BO / .BSE  → Indian listings
+  //   ^                  → indices (^GSPC, ^NSEI, ^BSESN, …)
+  //   =F                 → futures continuous contracts (GC=F, CL=F, BZ=F, SI=F)
+  //   =X                 → currencies (USDINR=X, INR=X, EURUSD=X, …)
+  //   /                  → crypto pairs (BTC-USD has a dash, but commodity-style
+  //                        future-symbols never contain `/`; this is a safety net)
+  if (/\.(NS|BO|BSE)$/i.test(symbol) || /^[\^]/.test(symbol) || /[=]F$/.test(symbol) || /[=]X$/.test(symbol)) return symbol;
   const base = YAHOO_TICKER_OVERRIDES[symbol.toUpperCase()] ?? symbol;
   return `${base}.${exchange}`;
 }

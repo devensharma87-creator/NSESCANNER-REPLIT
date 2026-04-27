@@ -115,6 +115,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const titles: Record<string, string> = {
       "/": "Dashboard",
       "/scanner": "Scanner",
+      "/indices": "Indices",
       "/deep-scan": "Deep Scan",
       "/options": "F&O Intraday",
       "/strategies": "Strategies",
@@ -174,6 +175,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               const tabs: { href: string; label: string; isActive: (l: string) => boolean }[] = [
                 { href: "/", label: "Dashboard", isActive: l => l === "/" },
                 { href: "/scanner", label: "Scanner", isActive: l => l.startsWith("/scanner") },
+                { href: "/indices", label: "Indices", isActive: l => l.startsWith("/indices") },
                 { href: "/deep-scan", label: "Deep Scan", isActive: l => l.startsWith("/deep-scan") },
                 { href: "/options", label: "F\u00A0&\u00A0O Intraday", isActive: l => l === "/options" },
                 { href: "/strategies", label: "Strategies", isActive: l => l.startsWith("/strategies") },

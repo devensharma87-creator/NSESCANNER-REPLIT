@@ -383,6 +383,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/WatchlistResponse" }
 
+  /indices:
+    get:
+      operationId: getIndicesBoard
+      tags: [market]
+      summary: Indices board — Indian + global benchmarks + commodities with full fact pack
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IndicesBoardSnapshot" }
+
 components:
   schemas:
     HealthStatus:
@@ -814,6 +826,70 @@ components:
           type: array
           items: { $ref: "#/components/schemas/IndexQuote" }
         lastUpdated: { type: string, format: date-time }
+
+    IndexBoardItem:
+      type: object
+      required: [key, name, category, yahooSymbol, currency, support, resistance, notes]
+      properties:
+        key: { type: string, description: "Stable instrument identifier (e.g. NIFTY50, GOLD)" }
+        name: { type: string, description: "Display name" }
+        category:
+          type: string
+          enum: [INDIA, GLOBAL, COMMODITY]
+        yahooSymbol: { type: string }
+        currency: { type: string }
+        source:
+          type: string
+          enum: [kite, yahoo]
+          nullable: true
+          description: "Origin of LTP/OHLC. kite = live, yahoo = ~15min delayed."
+        asOf: { type: integer, description: "Last update unix seconds" }
+        ltp: { type: number }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        change: { type: number }
+        changePercent: { type: number }
+        fiftyTwoWeekHigh: { type: number }
+        fiftyTwoWeekLow: { type: number }
+        prevOpen: { type: number }
+        prevHigh: { type: number }
+        prevLow: { type: number }
+        prevClose: { type: number }
+        ema9: { type: number }
+        ema20: { type: number }
+        ema50: { type: number }
+        ema100: { type: number }
+        ema200: { type: number }
+        vwap: { type: number, description: "Session VWAP from intraday bars" }
+        vah: { type: number, description: "Value Area High (intraday volume profile)" }
+        val: { type: number, description: "Value Area Low (intraday volume profile)" }
+        poc: { type: number, description: "Point of Control (intraday volume profile)" }
+        pivot: { type: number, description: "Floor-trader pivot from prev day OHLC" }
+        support:
+          type: array
+          description: "S1, S2, S3 floor-trader pivots (length 3 when prev OHLC present, [] otherwise)"
+          items: { type: number }
+        resistance:
+          type: array
+          description: "R1, R2, R3 floor-trader pivots"
+          items: { type: number }
+        notes:
+          type: array
+          description: "Human-readable diagnostic notes (e.g. partial-data warnings)"
+          items: { type: string }
+
+    IndicesBoardSnapshot:
+      type: object
+      required: [items, lastUpdated, kiteAuthenticated]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/IndexBoardItem" }
+        lastUpdated: { type: string, format: date-time }
+        kiteAuthenticated:
+          type: boolean
+          description: "True when Indian-index LTPs were sourced from a live Kite session"
 
     MarketTrend:
       type: object

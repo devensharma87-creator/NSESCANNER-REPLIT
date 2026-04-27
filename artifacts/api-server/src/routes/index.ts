@@ -10,6 +10,7 @@ import optionStrategiesRouter from "./optionStrategies";
 import deepScanRouter from "./deepscan";
 import systemRouter from "./system";
 import stocksToWatchRouter from "./stocksToWatch";
+import indicesRouter from "./indices";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
 
@@ -26,6 +27,7 @@ router.use(optionStrategiesRouter);
 router.use(deepScanRouter);
 router.use(systemRouter);
 router.use(stocksToWatchRouter);
+router.use(indicesRouter);
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 startInstFlowsRefresher();
