@@ -547,6 +547,7 @@ router.get("/scan/full-nse", async (req, res, next) => {
       scanMs: data.scanMs,
       failures: data.failures,
       rested: data.rested,
+      kiteOffline: !!data.kiteOffline,
       source: "yahoo-intraday + nse-bhavcopy",
     });
   } catch (err) { next(err); }

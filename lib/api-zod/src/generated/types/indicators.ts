@@ -9,13 +9,13 @@
 export interface Indicators {
   ema9?: number;
   ema21?: number;
-  ema20: number;
-  ema50: number;
+  ema20?: number;
+  ema50?: number;
   ema100?: number;
   ema200?: number;
   /** Daily intraday VWAP if available, else rolling proxy */
   vwap?: number;
-  rsi14: number;
+  rsi14?: number;
   macd?: number;
   macdSignal?: number;
   macdHist?: number;

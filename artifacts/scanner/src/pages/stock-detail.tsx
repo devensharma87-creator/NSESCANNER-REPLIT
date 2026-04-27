@@ -173,9 +173,9 @@ export default function StockDetail() {
             <CardHeader className="pb-2"><CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Indicators</CardTitle></CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-px bg-border rounded overflow-hidden border border-border">
-                <Stat label="EMA 20" value={`₹${indicators.ema20.toFixed(2)}`} tone={quote.price > indicators.ema20 ? "buy" : "sell"} />
-                <Stat label="EMA 50" value={`₹${indicators.ema50.toFixed(2)}`} tone={quote.price > indicators.ema50 ? "buy" : "sell"} />
-                <Stat label="RSI 14" value={indicators.rsi14.toFixed(1)} tone={indicators.rsi14 > 70 ? "sell" : indicators.rsi14 < 30 ? "buy" : undefined} />
+                <Stat label="EMA 20" value={indicators.ema20 != null ? `₹${indicators.ema20.toFixed(2)}` : "—"} tone={indicators.ema20 != null ? (quote.price > indicators.ema20 ? "buy" : "sell") : undefined} />
+                <Stat label="EMA 50" value={indicators.ema50 != null ? `₹${indicators.ema50.toFixed(2)}` : "—"} tone={indicators.ema50 != null ? (quote.price > indicators.ema50 ? "buy" : "sell") : undefined} />
+                <Stat label="RSI 14" value={indicators.rsi14 != null ? indicators.rsi14.toFixed(1) : "—"} tone={indicators.rsi14 != null ? (indicators.rsi14 > 70 ? "sell" : indicators.rsi14 < 30 ? "buy" : undefined) : undefined} />
                 <Stat label="ATR 14" value={indicators.atr14?.toFixed(2) ?? "—"} />
                 <Stat label="Vol Ratio" value={`${indicators.volumeRatio?.toFixed(2) ?? "—"}×`} tone={(indicators.volumeRatio ?? 1) >= 1.5 ? "buy" : undefined} />
                 <Stat label="Delivery %" value={`${indicators.deliveryPct?.toFixed(1) ?? "—"}%`} />

@@ -80,7 +80,70 @@ const RANGE_DAYS: Record<string, number> = {
 
 type Interval = "1m" | "5m" | "15m" | "30m" | "60m" | "1d" | "1wk" | "1mo";
 
+// ── Process-wide Yahoo rate-limit circuit-breaker ──────────────────
+// When Yahoo's edge starts returning 429 it does so for the entire IP, not
+// just the endpoint that tripped it. If only the scanner pauses but the deep-
+// scan / market-summary / dashboard endpoints keep firing 15m & 1d requests,
+// the per-IP throttle never clears and every caller stays broken. A SHARED
+// breaker fixes the root cause: any caller that observes a 429 trips it for
+// every other caller too, so Yahoo gets a real quiet window and recovers.
+//
+// Exponential backoff: 90s → 180s → 360s → 720s (capped at 15 min). If we
+// trip again within `BACKOFF_RESET_WINDOW_MS` of the last reset, that means
+// Yahoo's per-IP ban was longer than the previous pause and we need to wait
+// longer. Counter resets after one quiet window, so a single isolated 429
+// doesn't escalate forever.
+let yahooGlobalSkipUntil = 0;
+const YAHOO_PAUSE_LADDER_MS = [90_000, 180_000, 360_000, 720_000, 900_000];
+const BACKOFF_RESET_WINDOW_MS = 5 * 60_000;
+let yahooBackoffStep = 0;
+let yahooLastTripAt = 0;
+let yahooRecent429s = 0;            // rolling count to log only on transitions
+export function isYahooPaused(): boolean { return Date.now() < yahooGlobalSkipUntil; }
+export function yahooPausedForMs(): number { return Math.max(0, yahooGlobalSkipUntil - Date.now()); }
+function tripYahooBreaker(reason: string, ticker: string): void {
+  const now = Date.now();
+  const wasOpen = isYahooPaused();
+  // If the previous trip was a long time ago, reset the ladder. This way a
+  // single 429 today doesn't penalise tomorrow's first trip.
+  if (now - yahooLastTripAt > BACKOFF_RESET_WINDOW_MS) yahooBackoffStep = 0;
+  const pauseMs = YAHOO_PAUSE_LADDER_MS[Math.min(yahooBackoffStep, YAHOO_PAUSE_LADDER_MS.length - 1)]!;
+  yahooGlobalSkipUntil = now + pauseMs;
+  yahooLastTripAt = now;
+  yahooBackoffStep = Math.min(yahooBackoffStep + 1, YAHOO_PAUSE_LADDER_MS.length - 1);
+  yahooRecent429s++;
+  if (!wasOpen) {
+    logger.warn(
+      { reason, ticker, pauseMs, backoffStep: yahooBackoffStep, recent429s: yahooRecent429s },
+      "Yahoo global rate-limit breaker tripped — pausing ALL Yahoo calls",
+    );
+  }
+}
+
+/** Run any Yahoo-finance call (chart, quoteSummary, search, etc.) through
+ *  the global breaker. Fast-fails to `null` when the breaker is open and
+ *  trips the breaker on a 429 so every other caller pauses too. Use this
+ *  for `yf.quoteSummary` and any future direct Yahoo calls.
+ */
+export async function callYahoo<T>(op: string, ticker: string, fn: () => Promise<T>): Promise<T | null> {
+  if (isYahooPaused()) return null;
+  try {
+    return await fn();
+  } catch (err) {
+    const msg = (err as Error)?.message ?? "";
+    if (/Too Many Requests|429/i.test(msg)) {
+      tripYahooBreaker("429", ticker);
+    }
+    logger.warn({ err: msg, op, ticker }, "Yahoo call failed");
+    return null;
+  }
+}
+
 async function chartCall(ticker: string, range: string, interval: Interval): Promise<YahooChart | null> {
+  // Fast-fail when the global breaker is open. Burning ~150ms per blocked
+  // call (instead of an actual HTTP round-trip) keeps the server responsive
+  // and stops piling more 429s onto Yahoo while it's trying to forgive us.
+  if (isYahooPaused()) return null;
   const days = RANGE_DAYS[range] ?? 190;
   const period1 = new Date(Date.now() - days * 24 * 3600 * 1000);
   // Yahoo's edge will sporadically return "Too Many Requests" (HTTP 429) under
@@ -118,7 +181,16 @@ async function chartCall(ticker: string, range: string, interval: Interval): Pro
       // (timeout, connection reset, DNS) are likely persistent in this
       // environment and retrying just multiplies the wait.
       const isRateLimit = /Too Many Requests|429/i.test(msg);
-      if (!isRateLimit || attempt >= RATE_LIMIT_BACKOFF_MS.length) break;
+      if (isRateLimit) {
+        // Trip the global breaker on the FIRST 429 — keeping every other
+        // caller off Yahoo for 90s is what actually lets the per-IP throttle
+        // reset. Continuing to spin in our local backoff just postpones the
+        // failure for this one ticker while everyone else keeps poking the
+        // throttled endpoint.
+        tripYahooBreaker("429", ticker);
+        break;
+      }
+      if (attempt >= RATE_LIMIT_BACKOFF_MS.length) break;
       await new Promise(r => setTimeout(r, RATE_LIMIT_BACKOFF_MS[attempt]));
     }
   }
@@ -335,15 +407,22 @@ export async function fetchStatements(symbol: string, exchange: "NS" | "BO" = "N
   const c = stmtCache.get(ticker);
   if (c && Date.now() - c.ts < STMT_TTL) return c.data;
   try {
-    const r = await withTimeout("quoteSummary(statements)", YF_QUOTE_SUMMARY_TIMEOUT_MS, yf.quoteSummary(ticker, {
-      modules: [
-        "incomeStatementHistory", "incomeStatementHistoryQuarterly",
-        "balanceSheetHistory", "balanceSheetHistoryQuarterly",
-        "cashflowStatementHistory", "cashflowStatementHistoryQuarterly",
-        "majorHoldersBreakdown", "institutionOwnership", "insiderHolders",
-        "defaultKeyStatistics", "financialData",
-      ] as never,
-    }));
+    // Route through the global breaker so a stock-detail page request
+    // doesn't keep poking Yahoo while the per-IP throttle is in effect.
+    const r = await callYahoo("quoteSummary(statements)", ticker, () => withTimeout(
+      "quoteSummary(statements)",
+      YF_QUOTE_SUMMARY_TIMEOUT_MS,
+      yf.quoteSummary(ticker, {
+        modules: [
+          "incomeStatementHistory", "incomeStatementHistoryQuarterly",
+          "balanceSheetHistory", "balanceSheetHistoryQuarterly",
+          "cashflowStatementHistory", "cashflowStatementHistoryQuarterly",
+          "majorHoldersBreakdown", "institutionOwnership", "insiderHolders",
+          "defaultKeyStatistics", "financialData",
+        ] as never,
+      }),
+    ));
+    if (!r) return null;
 
     const inc = ((r as Record<string, unknown>)["incomeStatementHistory"] as { incomeStatementHistory?: YfStmtRow[] })?.incomeStatementHistory ?? [];
     const incQ = ((r as Record<string, unknown>)["incomeStatementHistoryQuarterly"] as { incomeStatementHistory?: YfStmtRow[] })?.incomeStatementHistory ?? [];
@@ -493,9 +572,14 @@ export async function fetchFundamentals(symbol: string, exchange: "NS" | "BO" = 
   const c = fundCache.get(ticker);
   if (c && Date.now() - c.ts < FUND_TTL) return c.data;
   try {
-    const r = await withTimeout("quoteSummary(fundamentals)", YF_QUOTE_SUMMARY_TIMEOUT_MS, yf.quoteSummary(ticker, {
-      modules: ["price", "summaryDetail", "defaultKeyStatistics", "financialData"] as never,
-    }));
+    const r = await callYahoo("quoteSummary(fundamentals)", ticker, () => withTimeout(
+      "quoteSummary(fundamentals)",
+      YF_QUOTE_SUMMARY_TIMEOUT_MS,
+      yf.quoteSummary(ticker, {
+        modules: ["price", "summaryDetail", "defaultKeyStatistics", "financialData"] as never,
+      }),
+    ));
+    if (!r) return null;
     const price = (r as { price?: { marketCap?: number; sharesOutstanding?: number } }).price ?? {};
     const sd = (r as { summaryDetail?: Record<string, number | undefined> }).summaryDetail ?? {};
     const ks = (r as { defaultKeyStatistics?: Record<string, number | undefined> }).defaultKeyStatistics ?? {};

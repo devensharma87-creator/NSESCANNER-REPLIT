@@ -184,8 +184,8 @@ export const GetMarketTrendResponse = zod.object({
             .object({
               ema9: zod.number().optional(),
               ema21: zod.number().optional(),
-              ema20: zod.number(),
-              ema50: zod.number(),
+              ema20: zod.number().optional(),
+              ema50: zod.number().optional(),
               ema100: zod.number().optional(),
               ema200: zod.number().optional(),
               vwap: zod
@@ -194,7 +194,7 @@ export const GetMarketTrendResponse = zod.object({
                 .describe(
                   "Daily intraday VWAP if available, else rolling proxy",
                 ),
-              rsi14: zod.number(),
+              rsi14: zod.number().optional(),
               macd: zod.number().optional(),
               macdSignal: zod.number().optional(),
               macdHist: zod.number().optional(),
@@ -286,8 +286,8 @@ export const GetMarketTrendResponse = zod.object({
             .object({
               ema9: zod.number().optional(),
               ema21: zod.number().optional(),
-              ema20: zod.number(),
-              ema50: zod.number(),
+              ema20: zod.number().optional(),
+              ema50: zod.number().optional(),
               ema100: zod.number().optional(),
               ema200: zod.number().optional(),
               vwap: zod
@@ -296,7 +296,7 @@ export const GetMarketTrendResponse = zod.object({
                 .describe(
                   "Daily intraday VWAP if available, else rolling proxy",
                 ),
-              rsi14: zod.number(),
+              rsi14: zod.number().optional(),
               macd: zod.number().optional(),
               macdSignal: zod.number().optional(),
               macdHist: zod.number().optional(),
@@ -392,15 +392,15 @@ export const ListSectorsResponseItem = zod.object({
       .object({
         ema9: zod.number().optional(),
         ema21: zod.number().optional(),
-        ema20: zod.number(),
-        ema50: zod.number(),
+        ema20: zod.number().optional(),
+        ema50: zod.number().optional(),
         ema100: zod.number().optional(),
         ema200: zod.number().optional(),
         vwap: zod
           .number()
           .optional()
           .describe("Daily intraday VWAP if available, else rolling proxy"),
-        rsi14: zod.number(),
+        rsi14: zod.number().optional(),
         macd: zod.number().optional(),
         macdSignal: zod.number().optional(),
         macdHist: zod.number().optional(),
@@ -493,15 +493,15 @@ export const GetSectorResponse = zod.object({
         .object({
           ema9: zod.number().optional(),
           ema21: zod.number().optional(),
-          ema20: zod.number(),
-          ema50: zod.number(),
+          ema20: zod.number().optional(),
+          ema50: zod.number().optional(),
           ema100: zod.number().optional(),
           ema200: zod.number().optional(),
           vwap: zod
             .number()
             .optional()
             .describe("Daily intraday VWAP if available, else rolling proxy"),
-          rsi14: zod.number(),
+          rsi14: zod.number().optional(),
           macd: zod.number().optional(),
           macdSignal: zod.number().optional(),
           macdHist: zod.number().optional(),
@@ -583,15 +583,15 @@ export const GetSectorResponse = zod.object({
         .object({
           ema9: zod.number().optional(),
           ema21: zod.number().optional(),
-          ema20: zod.number(),
-          ema50: zod.number(),
+          ema20: zod.number().optional(),
+          ema50: zod.number().optional(),
           ema100: zod.number().optional(),
           ema200: zod.number().optional(),
           vwap: zod
             .number()
             .optional()
             .describe("Daily intraday VWAP if available, else rolling proxy"),
-          rsi14: zod.number(),
+          rsi14: zod.number().optional(),
           macd: zod.number().optional(),
           macdSignal: zod.number().optional(),
           macdHist: zod.number().optional(),
@@ -685,15 +685,15 @@ export const ListStocksResponseItem = zod.object({
     .object({
       ema9: zod.number().optional(),
       ema21: zod.number().optional(),
-      ema20: zod.number(),
-      ema50: zod.number(),
+      ema20: zod.number().optional(),
+      ema50: zod.number().optional(),
       ema100: zod.number().optional(),
       ema200: zod.number().optional(),
       vwap: zod
         .number()
         .optional()
         .describe("Daily intraday VWAP if available, else rolling proxy"),
-      rsi14: zod.number(),
+      rsi14: zod.number().optional(),
       macd: zod.number().optional(),
       macdSignal: zod.number().optional(),
       macdHist: zod.number().optional(),
@@ -819,15 +819,15 @@ export const GetStockDetailResponse = zod.object({
   indicators: zod.object({
     ema9: zod.number().optional(),
     ema21: zod.number().optional(),
-    ema20: zod.number(),
-    ema50: zod.number(),
+    ema20: zod.number().optional(),
+    ema50: zod.number().optional(),
     ema100: zod.number().optional(),
     ema200: zod.number().optional(),
     vwap: zod
       .number()
       .optional()
       .describe("Daily intraday VWAP if available, else rolling proxy"),
-    rsi14: zod.number(),
+    rsi14: zod.number().optional(),
     macd: zod.number().optional(),
     macdSignal: zod.number().optional(),
     macdHist: zod.number().optional(),
@@ -1082,15 +1082,15 @@ export const GetTopScansResponse = zod.object({
         .object({
           ema9: zod.number().optional(),
           ema21: zod.number().optional(),
-          ema20: zod.number(),
-          ema50: zod.number(),
+          ema20: zod.number().optional(),
+          ema50: zod.number().optional(),
           ema100: zod.number().optional(),
           ema200: zod.number().optional(),
           vwap: zod
             .number()
             .optional()
             .describe("Daily intraday VWAP if available, else rolling proxy"),
-          rsi14: zod.number(),
+          rsi14: zod.number().optional(),
           macd: zod.number().optional(),
           macdSignal: zod.number().optional(),
           macdHist: zod.number().optional(),
@@ -1172,15 +1172,15 @@ export const GetTopScansResponse = zod.object({
         .object({
           ema9: zod.number().optional(),
           ema21: zod.number().optional(),
-          ema20: zod.number(),
-          ema50: zod.number(),
+          ema20: zod.number().optional(),
+          ema50: zod.number().optional(),
           ema100: zod.number().optional(),
           ema200: zod.number().optional(),
           vwap: zod
             .number()
             .optional()
             .describe("Daily intraday VWAP if available, else rolling proxy"),
-          rsi14: zod.number(),
+          rsi14: zod.number().optional(),
           macd: zod.number().optional(),
           macdSignal: zod.number().optional(),
           macdHist: zod.number().optional(),

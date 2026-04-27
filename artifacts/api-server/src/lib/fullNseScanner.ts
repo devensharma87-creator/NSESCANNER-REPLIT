@@ -33,8 +33,8 @@
  */
 
 import type { Quote, StockRow, Recommendation } from "@workspace/api-zod";
-import { fetchIntraday, yahooTickerFor } from "./yahoo";
-import { ema, rsi, atr, sessionVwap } from "./indicators";
+import { fetchIntraday, fetchChart, yahooTickerFor, isYahooPaused, yahooPausedForMs } from "./yahoo";
+import { ema, rsi, atr, sessionVwap, macd as macdSeries } from "./indicators";
 import { getAllSymbols, getDeliveryPct, getDeliveryMap } from "./nseBhavcopy";
 import { UNIVERSE, INACTIVE_SYMBOLS } from "./universe";
 import { logger } from "./logger";
@@ -44,24 +44,38 @@ import { loadKiteNseEqInstruments, loadKiteQuotes, type KiteScannerQuote } from 
 // Refresh cadence. Kite quotes are cheap and authenticated, so we can
 // refresh more frequently than the old 5-minute Yahoo cycle.
 const REFRESH_MS = 60_000;
-// Indicator-enrichment concurrency for the Yahoo intraday calls. Lower
-// than before because indicators are now optional, not blocking.
-const ENRICH_CONCURRENCY = 12;
-// Cap how many symbols we attempt to enrich per cycle so a slow Yahoo
-// doesn't hold the cycle open forever. The cap is the curated F&O
+// Indicator-enrichment concurrency for the Yahoo intraday calls when
+// Kite IS the primary price source — indicators are optional gravy.
+const ENRICH_CONCURRENCY_KITE = 12;
+// When Kite is offline, Yahoo is the ONLY price source, so we crank the
+// concurrency way up to cover the full universe inside one refresh cycle.
+// 24 is the empirically-safe ceiling — pushing to 56 triggered Yahoo's
+// "Edge: Too Many Requests" rate-limiter and tripped the local outage
+// detector, which then locked us out of Yahoo for 10 minutes. 24 holds
+// up alongside the index-summary / market-summary / deep-scan calls that
+// also fan out to Yahoo continuously.
+const ENRICH_CONCURRENCY_NO_KITE = 24;
+// Cap how many symbols we attempt to enrich per cycle when Kite is
+// online and serving every quote. The cap is the curated F&O
 // universe size + headroom — the symbols traders actually care about.
-const ENRICH_CAP = 400;
+const ENRICH_CAP_KITE_ONLINE = 400;
 // How long the indicator-enrichment phase is allowed to take before we
 // publish the cache anyway with whatever indicators came back. Keeps the
 // scan from stalling indefinitely behind a slow upstream.
-const ENRICH_TIMEOUT_MS = 25_000;
+const ENRICH_TIMEOUT_KITE_MS = 25_000;
+// When Kite is offline we let the Yahoo pass run almost the full
+// 60-second refresh window so we can cover the entire ~2,500-symbol NSE
+// universe inside a single cycle.
+const ENRICH_TIMEOUT_NO_KITE_MS = 50_000;
 const MIN_BARS = 5;
 
 const DISK_CACHE_NAME = "full-nse-scan";
-// v4 — schema is unchanged but bumping the version invalidates the v3
-// blob from before the Kite-first rewrite landed, so the next cold boot
-// starts clean rather than serving an old Yahoo-only snapshot forever.
-const DISK_CACHE_VERSION = 4;
+// v6 — switched Yahoo enrichment from "15m / 1d" intraday (~26 bars,
+// no ema100/200, no MACD) to "1d / 1y" daily (~250 bars, real ema100,
+// ema200, MACD, RSI for every reasonably-aged listing). Old v5 blobs
+// still carry intraday-window EMAs and would mix two different timeframes
+// in the table — invalidate them.
+const DISK_CACHE_VERSION = 6;
 const DISK_CACHE_MAX_AGE_MS = 60 * 60_000;
 
 interface Cache {
@@ -74,6 +88,8 @@ interface Cache {
   rested: number;
   enriched: number;
   degraded?: boolean;
+  /** True when the most recent scan ran without an authenticated Kite session. */
+  kiteOffline?: boolean;
 }
 
 interface Progress { scanned: number; total: number; startedAt: number | null; running: boolean }
@@ -152,11 +168,18 @@ function buildRecommendation(args: {
 }
 
 interface YahooIndicators {
+  ema9: number | null;
+  ema21: number | null;
   ema20: number | null;
   ema50: number | null;
+  ema100: number | null;
+  ema200: number | null;
   rsi14: number | null;
   atr14: number | null;
   vwap: number | null;
+  macd: number | null;
+  macdSignal: number | null;
+  macdHist: number | null;
   volumeRatio: number;
   high52w: number | null;
   low52w: number | null;
@@ -171,50 +194,90 @@ interface YahooIndicators {
   realVolume: number;
 }
 
-// ── Yahoo outage circuit-breaker ───────────────────────────────────
-// In production Yahoo is geo-blocked. Without a circuit-breaker the
-// every-60s enrichment pass logs hundreds of warnings continuously. Once
-// we observe a high failure rate we pause Yahoo enrichment for a while.
-let yahooSkipUntil = 0;
-const YAHOO_OUTAGE_PAUSE_MS = 10 * 60_000;       // 10-min cool-off
-const YAHOO_OUTAGE_FAIL_RATIO = 0.9;              // >=90% failed → outage
-const YAHOO_OUTAGE_MIN_SAMPLE = 30;               // need 30 attempts to judge
+// Yahoo rate-limiting is now handled by the SHARED breaker inside
+// `lib/yahoo.ts` (`isYahooPaused` / auto-trip on 429). The scanner just
+// reads that state — having a second, scanner-only breaker meant the
+// other Yahoo callers (deepscan, market summary, dashboard) kept poking
+// the throttled IP and prevented Yahoo from ever forgiving us.
 
 async function tryYahooIndicators(symbol: string): Promise<YahooIndicators | null> {
   try {
     const yt = yahooTickerFor(symbol);
-    const bars = await fetchIntraday(yt, "15m", "1d");
-    if (!bars || bars.close.length < MIN_BARS) return null;
-    const closes = bars.close.filter((v): v is number => v != null);
-    const highs = bars.high.filter((v): v is number => v != null);
-    const lows = bars.low.filter((v): v is number => v != null);
-    const vols = bars.volume.filter((v): v is number => v != null);
+    // Daily bars over 1y: ~250 trading days, enough for ema200, MACD, RSI,
+    // and 14-period ATR with full warm-up. The previous "15m / 1d" fetch
+    // only delivered ~26 intraday bars, leaving ema100/200 and MACD null
+    // for the entire universe.
+    //
+    // Single network call per symbol — keeps per-symbol latency in line
+    // with the previous intraday-only path so we still cover the full
+    // 2,483-symbol universe inside the cycle budget. Intraday VWAP for the
+    // table view is a deep-scan concern (the detail page does its own
+    // fetch), so we don't pay the cost here.
+    const daily = await chartCallShim(yt);
+    if (!daily || daily.close.length < MIN_BARS) return null;
+    const closes = daily.close.filter((v): v is number => v != null);
+    const highs  = daily.high.filter((v): v is number => v != null);
+    const lows   = daily.low.filter((v): v is number => v != null);
+    const vols   = daily.volume.filter((v): v is number => v != null);
     if (closes.length < MIN_BARS) return null;
-    const ema20 = lastVal(ema(closes, 20));
-    const ema50 = lastVal(ema(closes, 50));
-    const rsiVal = lastVal(rsi(closes, 14));
-    const atrVal = lastVal(atr(highs, lows, closes, 14));
-    const vwap = sessionVwap(highs, lows, closes, vols).slice(-1)[0] ?? null;
-    const window = Math.min(20, vols.length);
-    const avgVol = window > 0 ? vols.slice(-window).reduce((a, b) => a + b, 0) / window : 1;
-    const lastVol = vols[vols.length - 1] ?? 0;
-    const volumeRatio = avgVol > 0 ? lastVol / avgVol : 1;
-    const realPrice = bars.meta.regularMarketPrice ?? closes[closes.length - 1] ?? null;
-    const realOpen = bars.open.find(v => v != null) ?? realPrice;
-    const realHigh = highs.length ? Math.max(...highs) : null;
-    const realLow = lows.length ? Math.min(...lows) : null;
-    const realPrev = bars.meta.chartPreviousClose ?? realOpen;
-    const realVolume = vols.reduce((a, b) => a + b, 0);
+
+    const ema9   = lastVal(ema(closes, 9));
+    const ema21  = lastVal(ema(closes, 21));
+    const ema20  = lastVal(ema(closes, 20));
+    const ema50  = closes.length >= 50  ? lastVal(ema(closes, 50))  : null;
+    const ema100 = closes.length >= 100 ? lastVal(ema(closes, 100)) : null;
+    const ema200 = closes.length >= 200 ? lastVal(ema(closes, 200)) : null;
+    const rsiVal = closes.length >= 15  ? lastVal(rsi(closes, 14))  : null;
+    const atrVal = closes.length >= 15  ? lastVal(atr(highs, lows, closes, 14)) : null;
+    // MACD needs slow=26 + signal=9 = ~35 bars to be meaningful. Daily
+    // history gives us hundreds, so this is now populated for every
+    // reasonably-aged listing.
+    let macdLast: number | null = null, macdSig: number | null = null, macdH: number | null = null;
+    if (closes.length >= 35) {
+      const m = macdSeries(closes, 12, 26, 9);
+      macdLast = lastVal(m.macd);
+      macdSig  = lastVal(m.signal);
+      macdH    = lastVal(m.hist);
+    }
+
+    // Volume ratio = today's daily volume vs 20-day average — the standard
+    // definition used by every retail screener (TradingView "Relative Volume",
+    // Chartink, etc.). This is the right interpretation for a daily scanner.
+    const volWindow = Math.min(20, vols.length - 1);
+    const todayVol = vols[vols.length - 1] ?? 0;
+    const avgVol = volWindow > 0
+      ? vols.slice(-1 - volWindow, -1).reduce((a, b) => a + b, 0) / volWindow
+      : 0;
+    const volumeRatio = avgVol > 0 ? todayVol / avgVol : null;
+
+    // VWAP requires intraday volume-weighted bars. We dropped the intraday
+    // fetch from this path (it was burning the per-symbol budget while
+    // delivering only ~26 bars / no MACD). For the scanner table we now
+    // leave VWAP null when Kite is offline — the UI renders "—" honestly.
+    // The deep-scan / detail page issues its own intraday fetch when the
+    // user actually opens a stock, so detail-view VWAP is unaffected.
+    const vwap: number | null = null;
+
+    const meta = daily.meta;
+    const realPrice = meta.regularMarketPrice ?? closes[closes.length - 1] ?? null;
+    const realOpen  = daily.open[daily.open.length - 1] ?? realPrice;
+    const realHigh  = daily.high[daily.high.length - 1] ?? null;
+    const realLow   = daily.low[daily.low.length - 1] ?? null;
+    const realPrev  = meta.chartPreviousClose ?? closes[closes.length - 2] ?? realOpen;
+    const realVolume = todayVol;
+
     return {
-      ema20,
-      ema50,
+      ema9, ema21, ema20, ema50, ema100, ema200,
       rsi14: rsiVal,
       atr14: atrVal,
       vwap,
-      volumeRatio,
-      high52w: bars.meta.fiftyTwoWeekHigh ?? null,
-      low52w: bars.meta.fiftyTwoWeekLow ?? null,
-      longName: bars.meta.longName ?? bars.meta.shortName ?? null,
+      macd: macdLast,
+      macdSignal: macdSig,
+      macdHist: macdH,
+      volumeRatio: volumeRatio ?? 0,
+      high52w: meta.fiftyTwoWeekHigh ?? null,
+      low52w: meta.fiftyTwoWeekLow ?? null,
+      longName: meta.longName ?? meta.shortName ?? null,
       realPrice,
       realOpen,
       realHigh,
@@ -225,6 +288,12 @@ async function tryYahooIndicators(symbol: string): Promise<YahooIndicators | nul
   } catch {
     return null;
   }
+}
+
+/** Daily-bar Yahoo chart: 1y / 1d. Wrapped so tryYahooIndicators stays
+ * concise and the call site can be swapped in tests. */
+async function chartCallShim(yahooSymbol: string) {
+  return fetchChart(yahooSymbol.replace(/\.NS$|\.BO$/, ""), "1y", "1d");
 }
 
 function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number): StockRow {
@@ -252,25 +321,31 @@ function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number): StockRow {
     changePct: kq.changePercent,
     vwapAbove: null,
   });
+  // Honest indicator object: we don't have intraday bars for this symbol,
+  // so EMAs / RSI / MACD / VWAP / ATR are simply unknown. Leaving them
+  // undefined makes the UI render "—" instead of a misleading "0.00".
+  // Pivot / S/R / delivery% are derived from real OHLC and stay populated.
+  const pivot = (kq.high + kq.low + kq.lastPrice) / 3;
   return {
     symbol: kq.symbol,
     name: kq.name,
     sector: "NSE EQ",
     quote,
     indicators: {
-      ema9: 0, ema21: 0, ema20: 0, ema50: 0,
+      ema9: undefined, ema21: undefined, ema20: undefined, ema50: undefined,
+      ema100: undefined, ema200: undefined,
       vwap: undefined,
-      rsi14: 50,
-      macd: 0, macdSignal: 0, macdHist: 0,
-      atr14: 0, adx14: 0,
-      volumeRatio: 1,
+      rsi14: undefined,
+      macd: undefined, macdSignal: undefined, macdHist: undefined,
+      atr14: undefined, adx14: undefined,
+      volumeRatio: undefined,
       deliveryPct: round2(deliveryPct),
       trendStrength: 50,
       supportLevel: round2(kq.low),
       resistanceLevel: round2(kq.high),
-      pivot: round2((kq.high + kq.low + kq.lastPrice) / 3),
-      r1: round2(2 * ((kq.high + kq.low + kq.lastPrice) / 3) - kq.low),
-      s1: round2(2 * ((kq.high + kq.low + kq.lastPrice) / 3) - kq.high),
+      pivot: round2(pivot),
+      r1: round2(2 * pivot - kq.low),
+      s1: round2(2 * pivot - kq.high),
     },
     recommendation,
   };
@@ -308,28 +383,34 @@ function rowFromKitePlusIndicators(kq: KiteScannerQuote, ind: YahooIndicators, d
     : trend === "BEARISH"
       ? Math.max(0, 30 - (ind.rsi14 != null ? Math.max(0, 50 - ind.rsi14) / 5 : 0))
       : 50;
+  const pivot = (kq.high + kq.low + kq.lastPrice) / 3;
   return {
     symbol: kq.symbol,
     name: ind.longName || kq.name,
     sector: "NSE EQ",
     quote,
     indicators: {
-      ema9: 0, ema21: 0,
-      ema20: ind.ema20 != null ? round2(ind.ema20) : 0,
-      ema50: ind.ema50 != null ? round2(ind.ema50) : 0,
-      vwap: ind.vwap != null ? round2(ind.vwap) : undefined,
-      rsi14: ind.rsi14 != null ? round2(ind.rsi14) : 50,
-      macd: 0, macdSignal: 0, macdHist: 0,
-      atr14: ind.atr14 != null ? round2(ind.atr14) : 0,
-      adx14: 0,
+      ema9:   ind.ema9   != null ? round2(ind.ema9)   : undefined,
+      ema21:  ind.ema21  != null ? round2(ind.ema21)  : undefined,
+      ema20:  ind.ema20  != null ? round2(ind.ema20)  : undefined,
+      ema50:  ind.ema50  != null ? round2(ind.ema50)  : undefined,
+      ema100: ind.ema100 != null ? round2(ind.ema100) : undefined,
+      ema200: ind.ema200 != null ? round2(ind.ema200) : undefined,
+      vwap:   ind.vwap   != null ? round2(ind.vwap)   : undefined,
+      rsi14:  ind.rsi14  != null ? round2(ind.rsi14)  : undefined,
+      macd:       ind.macd       != null ? round2(ind.macd)       : undefined,
+      macdSignal: ind.macdSignal != null ? round2(ind.macdSignal) : undefined,
+      macdHist:   ind.macdHist   != null ? round2(ind.macdHist)   : undefined,
+      atr14:  ind.atr14  != null ? round2(ind.atr14)  : undefined,
+      adx14:  undefined,
       volumeRatio: round2(ind.volumeRatio),
       deliveryPct: round2(deliveryPct),
       trendStrength,
       supportLevel: round2(kq.low),
       resistanceLevel: round2(kq.high),
-      pivot: round2((kq.high + kq.low + kq.lastPrice) / 3),
-      r1: round2(2 * ((kq.high + kq.low + kq.lastPrice) / 3) - kq.low),
-      s1: round2(2 * ((kq.high + kq.low + kq.lastPrice) / 3) - kq.high),
+      pivot: round2(pivot),
+      r1: round2(2 * pivot - kq.low),
+      s1: round2(2 * pivot - kq.high),
     },
     recommendation,
   };
@@ -386,30 +467,50 @@ async function performFullScan(): Promise<Cache> {
   }
 
   // ── 3. INDICATOR ENRICHMENT (best effort, optional) ────────────────
-  // Pick a bounded subset to enrich with Yahoo indicators. Prioritize:
-  //   (a) symbols in the curated UNIVERSE (F&O names traders care about)
-  //   (b) high-ADV / index constituents already in UNIVERSE
-  // The rest get Kite-only rows (price/OHLC/volume/change), no fake indicators.
+  // Pick the enrichment target list based on whether Kite is serving
+  // quotes:
+  //   • Kite ONLINE  → enrich the curated F&O universe only (capped). Kite
+  //     already supplies price/OHLC/volume for every symbol, so indicators
+  //     are gravy and we keep the cycle fast.
+  //   • Kite OFFLINE → enrich the ENTIRE NSE EQ universe. Yahoo is the only
+  //     price source we have, and any symbol we skip ships ZERO data this
+  //     cycle. Crank concurrency + timeout to fit the full universe in the
+  //     60-second refresh window.
   const universeSet = new Set(UNIVERSE.filter(u => !u.inactive).map(u => u.symbol));
-  const enrichTargets: string[] = [];
-  for (const s of symbolList) {
-    if (!kiteQuotes || !kiteQuotes.has(s)) continue;
-    if (universeSet.has(s)) enrichTargets.push(s);
-    if (enrichTargets.length >= ENRICH_CAP) break;
+  let enrichList: string[];
+  let enrichConcurrency: number;
+  let enrichTimeoutMs: number;
+  if (kiteQuotes) {
+    const enrichTargets: string[] = [];
+    for (const s of symbolList) {
+      if (!kiteQuotes.has(s)) continue;
+      if (universeSet.has(s)) enrichTargets.push(s);
+      if (enrichTargets.length >= ENRICH_CAP_KITE_ONLINE) break;
+    }
+    enrichList = enrichTargets;
+    enrichConcurrency = ENRICH_CONCURRENCY_KITE;
+    enrichTimeoutMs = ENRICH_TIMEOUT_KITE_MS;
+  } else {
+    enrichList = symbolList;
+    enrichConcurrency = ENRICH_CONCURRENCY_NO_KITE;
+    enrichTimeoutMs = ENRICH_TIMEOUT_NO_KITE_MS;
   }
-  // If Kite isn't available we have to enrich every symbol via Yahoo
-  // (that's the only price source left), so skip the cap.
-  const enrichList = kiteQuotes ? enrichTargets : symbolList.slice(0, ENRICH_CAP);
 
   const yahooByScopedSymbol = new Map<string, YahooIndicators>();
   let cursor = 0;
   let enrichTimedOut = false;
   let yahooAttempted = 0;
   let yahooSucceeded = 0;
-  const yahooEnabled = Date.now() >= yahooSkipUntil;
+  // The shared yahoo.ts breaker is the source of truth. Skip the entire
+  // pass when it's open so we don't burn cycle budget on calls that will
+  // immediately short-circuit to null.
+  const yahooEnabled = !isYahooPaused();
 
   async function enrichWorker() {
     while (cursor < enrichList.length && !enrichTimedOut) {
+      // If the shared breaker trips mid-cycle (one ticker hits 429), drain
+      // immediately — every remaining symbol would just return null anyway.
+      if (isYahooPaused()) { enrichTimedOut = true; break; }
       const idx = cursor++;
       const sym = enrichList[idx]!;
       yahooAttempted++;
@@ -423,33 +524,19 @@ async function performFullScan(): Promise<Cache> {
 
   if (yahooEnabled) {
     const enrichPromise = Promise.all(
-      Array.from({ length: ENRICH_CONCURRENCY }, () => enrichWorker()),
+      Array.from({ length: enrichConcurrency }, () => enrichWorker()),
     );
     let timeoutHandle: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<void>(res => {
-      timeoutHandle = setTimeout(() => { enrichTimedOut = true; res(); }, ENRICH_TIMEOUT_MS);
+      timeoutHandle = setTimeout(() => { enrichTimedOut = true; res(); }, enrichTimeoutMs);
     });
     try {
       await Promise.race([enrichPromise, timeoutPromise]);
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
     }
-    // Circuit-breaker: if Yahoo failed almost every call, pause enrichment
-    // for a cool-off period so we don't spam warnings every minute.
-    if (yahooAttempted >= YAHOO_OUTAGE_MIN_SAMPLE) {
-      const failRatio = 1 - (yahooSucceeded / yahooAttempted);
-      if (failRatio >= YAHOO_OUTAGE_FAIL_RATIO) {
-        yahooSkipUntil = Date.now() + YAHOO_OUTAGE_PAUSE_MS;
-        logger.warn({
-          attempted: yahooAttempted,
-          succeeded: yahooSucceeded,
-          failRatio: +failRatio.toFixed(2),
-          pausedForMs: YAHOO_OUTAGE_PAUSE_MS,
-        }, "Yahoo enrichment circuit-breaker tripped — pausing indicator pass");
-      }
-    }
   } else {
-    logger.debug({ skipUntil: new Date(yahooSkipUntil).toISOString() }, "Yahoo enrichment skipped (circuit-breaker active)");
+    logger.debug({ pausedForMs: yahooPausedForMs() }, "Yahoo enrichment skipped — global breaker open");
   }
 
   // ── 4. ROW ASSEMBLY ────────────────────────────────────────────────
@@ -508,6 +595,7 @@ async function performFullScan(): Promise<Cache> {
     rested: 0,
     enriched: enrichedCount,
     degraded,
+    kiteOffline: !kiteQuotes,
   };
   logger.info({
     rows: rows.length,
@@ -519,6 +607,7 @@ async function performFullScan(): Promise<Cache> {
     scanMs: result.scanMs,
     sourceDate,
     degraded,
+    kiteOffline: !kiteQuotes,
   }, "Full NSE scan complete (Kite-first)");
   return result;
 }

@@ -30,6 +30,10 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   let score = 0;
 
   const price = quote.price;
+  // After the OpenAPI schema relaxed all Indicator fields to optional (so
+  // Kite-only rows can ship `undefined` instead of fake zeros), every
+  // consumer here has to gate on presence. We keep the local variable types
+  // narrow but skip rules whose inputs are missing.
   const ema20 = indicators.ema20;
   const ema50 = indicators.ema50;
   // Long EMAs are OPTIONAL — only used when we genuinely have ≥100 / ≥200 bars
@@ -57,9 +61,9 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   const macdHistPrev = valueAtOffset(macdHistSeries, 2);
 
   // 1. Long-term EMA 50/100/200 trend (weight 18) — only when we actually have
-  // 100 + 200 bars of history. For newly-listed symbols (or 6mo-only history)
-  // we skip this rule rather than silently substitute ema50.
-  if (ema100 != null && ema200 != null) {
+  // 100 + 200 bars of history AND a real ema50. For newly-listed symbols
+  // (or 6mo-only history) we skip this rule rather than silently substitute.
+  if (ema50 != null && ema100 != null && ema200 != null) {
     if (price > ema50 && ema50 > ema100 && ema100 > ema200) {
       score += 18;
       reasons.push({ label: "Long-term uptrend (50>100>200)", detail: `Stacked EMAs confirm a primary uptrend.`, weight: 18, bullish: true });
@@ -74,13 +78,15 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
     }
   }
 
-  // 2. Short-term EMA 20/50 stack (weight 12)
-  if (price > ema20 && ema20 > ema50) {
-    score += 12;
-    reasons.push({ label: "Short-term EMA bullish", detail: `Price > EMA20 > EMA50 — momentum supportive.`, weight: 12, bullish: true });
-  } else if (price < ema20 && ema20 < ema50) {
-    score -= 12;
-    reasons.push({ label: "Short-term EMA bearish", detail: `Price < EMA20 < EMA50.`, weight: 12, bullish: false });
+  // 2. Short-term EMA 20/50 stack (weight 12) — needs both EMAs.
+  if (ema20 != null && ema50 != null) {
+    if (price > ema20 && ema20 > ema50) {
+      score += 12;
+      reasons.push({ label: "Short-term EMA bullish", detail: `Price > EMA20 > EMA50 — momentum supportive.`, weight: 12, bullish: true });
+    } else if (price < ema20 && ema20 < ema50) {
+      score -= 12;
+      reasons.push({ label: "Short-term EMA bearish", detail: `Price < EMA20 < EMA50.`, weight: 12, bullish: false });
+    }
   }
 
   // EMA cross (golden/death) detection on 20/50 over last 5 bars
@@ -109,7 +115,10 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   if (adx != null) {
     if (adx >= 25) {
       const w = 6;
-      const bullish = price > ema20;
+      // Without ema20 we fall back to today's intraday change to decide
+      // bull/bear bias for the ADX-strong rule. Better than skipping the
+      // rule entirely (ADX still says the move has conviction).
+      const bullish = ema20 != null ? price > ema20 : quote.changePercent > 0;
       score += bullish ? w : -w;
       reasons.push({ label: `Strong trend (ADX ${adx.toFixed(0)})`, detail: `ADX ≥ 25 — current move has conviction.`, weight: w, bullish });
     } else if (adx < 18) {
@@ -123,12 +132,14 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
     else if (macdHist < 0 && macdHist < macdHistPrev) { score -= 8; reasons.push({ label: "MACD bearish & falling", detail: `Histogram negative and expanding.`, weight: 8, bullish: false }); }
   }
 
-  // 7. RSI state (weight 10)
-  if (rsi >= 55 && rsi <= 70) { score += 10; reasons.push({ label: "RSI in bullish zone", detail: `RSI(14) ${rsi.toFixed(1)}.`, weight: 10, bullish: true }); }
-  else if (rsi > 70) { score -= 6; reasons.push({ label: "RSI overbought", detail: `RSI(14) ${rsi.toFixed(1)} — pullback risk.`, weight: 6, bullish: false }); }
-  else if (rsi >= 45 && rsi < 55) { reasons.push({ label: "RSI neutral", detail: `RSI(14) ${rsi.toFixed(1)}.`, weight: 2, bullish: rsi >= 50 }); }
-  else if (rsi < 30) { score += 8; reasons.push({ label: "RSI oversold", detail: `RSI(14) ${rsi.toFixed(1)} — bounce zone.`, weight: 8, bullish: true }); }
-  else { score -= 8; reasons.push({ label: "RSI weak", detail: `RSI(14) ${rsi.toFixed(1)}.`, weight: 8, bullish: false }); }
+  // 7. RSI state (weight 10) — gated on RSI being computed.
+  if (rsi != null) {
+    if (rsi >= 55 && rsi <= 70) { score += 10; reasons.push({ label: "RSI in bullish zone", detail: `RSI(14) ${rsi.toFixed(1)}.`, weight: 10, bullish: true }); }
+    else if (rsi > 70) { score -= 6; reasons.push({ label: "RSI overbought", detail: `RSI(14) ${rsi.toFixed(1)} — pullback risk.`, weight: 6, bullish: false }); }
+    else if (rsi >= 45 && rsi < 55) { reasons.push({ label: "RSI neutral", detail: `RSI(14) ${rsi.toFixed(1)}.`, weight: 2, bullish: rsi >= 50 }); }
+    else if (rsi < 30) { score += 8; reasons.push({ label: "RSI oversold", detail: `RSI(14) ${rsi.toFixed(1)} — bounce zone.`, weight: 8, bullish: true }); }
+    else { score -= 8; reasons.push({ label: "RSI weak", detail: `RSI(14) ${rsi.toFixed(1)}.`, weight: 8, bullish: false }); }
+  }
 
   // RSI divergence
   const closeNow = closes[closes.length - 1] ?? price;
@@ -175,7 +186,7 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   if (poc != null && vaHigh != null && vaLow != null) {
     if (price > vaHigh) { score += 8; reasons.push({ label: "Trading above value area", detail: `Price > VAH ₹${vaHigh.toFixed(2)}.`, weight: 8, bullish: true }); }
     else if (price < vaLow) { score -= 8; reasons.push({ label: "Trading below value area", detail: `Price < VAL ₹${vaLow.toFixed(2)}.`, weight: 8, bullish: false }); }
-    else if (Math.abs(price - poc) / poc < 0.01) { reasons.push({ label: "Price at point of control", detail: `Coiling near POC ₹${poc.toFixed(2)}.`, weight: 3, bullish: price > ema20 }); }
+    else if (Math.abs(price - poc) / poc < 0.01) { reasons.push({ label: "Price at point of control", detail: `Coiling near POC ₹${poc.toFixed(2)}.`, weight: 3, bullish: ema20 != null ? price > ema20 : quote.changePercent > 0 }); }
   }
 
   // Clamp
@@ -230,7 +241,7 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   // Timeframe heuristic
   let timeframe: "intraday" | "swing" | "positional" = "swing";
   if (adx != null && adx >= 25 && Math.abs(quote.changePercent) > 1) timeframe = "intraday";
-  else if (ema100 != null && price > ema100 && ema50 > ema100) timeframe = "positional";
+  else if (ema50 != null && ema100 != null && price > ema100 && ema50 > ema100) timeframe = "positional";
 
   return {
     signal,

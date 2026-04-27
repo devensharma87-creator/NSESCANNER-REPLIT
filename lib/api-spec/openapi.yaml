@@ -420,7 +420,11 @@ components:
 
     Indicators:
       type: object
-      required: [ema20, ema50, rsi14]
+      # Every field is optional — Kite-only rows have no intraday bars to
+      # compute EMAs/RSI/MACD/VWAP/ATR with, so they ship `undefined` for
+      # those fields and the UI renders "—" instead of fake zeros.
+      # Pivot/S/R/delivery% are derived from real OHLC and are always
+      # populated when a row exists.
       properties:
         ema9: { type: number }
         ema21: { type: number }

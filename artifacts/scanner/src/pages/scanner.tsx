@@ -23,6 +23,8 @@ interface FullNseResponse {
   scanMs: number;
   failures: number;
   rested: number;
+  /** True when the most recent scan ran without an authenticated Kite session — coverage will be limited to whatever Yahoo can supply. */
+  kiteOffline?: boolean;
 }
 
 interface FullNseStatus {
@@ -71,6 +73,7 @@ function useFullNseStocks() {
       scanMs: q.data.scanMs,
       failures: q.data.failures,
       rested: q.data.rested,
+      kiteOffline: q.data.kiteOffline,
     } : null,
   };
 }
@@ -390,6 +393,16 @@ export default function ScannerPage() {
             Every NSE-listed stock tracked live ({fullMeta?.universeSize ?? "…"} from the official bhavcopy + curated F&amp;O depth) · click any column header to sort · use screen presets to narrow · hover any row for the top reasons behind its signal.
             {fullMeta && <span className="block mt-0.5 text-[11px]">Last full scan: <span className="font-mono">{(fullMeta.scanMs / 1000).toFixed(1)}s</span> · {fullMeta.failures} no-feed · {fullMeta.rested} rested · source {fullMeta.sourceDate}.</span>}
           </p>
+          {fullMeta?.kiteOffline && (
+            <div className="mt-2 inline-flex items-start gap-2 px-3 py-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-300 text-[11px] font-mono max-w-2xl">
+              <span className="font-bold uppercase tracking-wider">Kite session offline</span>
+              <span className="text-amber-200/80">
+                — primary broker feed isn't authenticated. Quotes are coming from the chart provider as a backup, so a portion of the universe may be missing each cycle.
+                {" "}
+                <a href="/kite" className="underline hover:text-amber-100">Reconnect Kite</a> for full coverage.
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex flex-col items-end gap-2">
           {fullProgress?.running && fullProgress.total > 0 && (
