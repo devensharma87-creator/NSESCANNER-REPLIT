@@ -2,6 +2,7 @@ import type { OptionSignal, SignalReason } from "@workspace/api-zod";
 import { fetchIntraday, type YahooChart } from "./yahoo";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
 import { logger } from "./logger";
+import { fetchOptionChain, type OcRow, type OcSide } from "./optionChain";
 import {
   recordOrUpdate as recordLifecycle,
   expireOpenSignalsForToday,
@@ -803,6 +804,71 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000).unref?.();
 
+// ─── Option-level enrichment (current LTP / projected entry-T1-T2-SL) ────
+//
+// We translate each signal's spot-level plan into option-premium values using
+// delta from the live chain. Math (works for both CALL and PUT because delta
+// sign cancels with the move sign):
+//
+//   optionEntry = optionLtp + delta × (spotEntry − spot)
+//   optionT1    = optionEntry + delta × (spotT1   − spotEntry)
+//   optionT2    = optionEntry + delta × (spotT2   − spotEntry)
+//   optionSL    = optionEntry + delta × (spotSL   − spotEntry)   (floored at 0.05)
+//
+// Floor on SL: option premium can't trade below ~0; we cap at 0.05 ₹/share to
+// avoid showing negative or absurd targets when the move blows past intrinsic.
+function projectOptionLevel(optionEntry: number, delta: number, spotFrom: number, spotTo: number): number {
+  return optionEntry + delta * (spotTo - spotFrom);
+}
+
+interface BundleLike { signals: OptionSignal[]; snapshot?: SpotSnapshot }
+
+async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<void> {
+  await Promise.all(
+    bundles.map(async (b) => {
+      if (b.signals.length === 0) return;
+      // All signals in a bundle share the same index + ATM strike + expiry,
+      // so we fetch the chain once per bundle.
+      const first = b.signals[0]!;
+      const expiry = first.leg.expiry;
+      try {
+        const chain = await fetchOptionChain(first.index, expiry);
+        if (!chain) return;
+        const row: OcRow | undefined = chain.rows.find((r) => r.strike === first.leg.strike);
+        if (!row) return;
+        for (const s of b.signals) {
+          const side: OcSide | undefined = s.leg.type === "CALL" ? row.ce : row.pe;
+          if (!side || side.ltp == null || side.delta == null) continue;
+          const ltp = side.ltp;
+          const delta = side.delta;
+          // Ground projection in current spot, not signal-time spot, so the
+          // displayed entry adapts as price moves toward the trigger.
+          const spotNow = chain.spot;
+          const optionEntry = Math.max(0.05, projectOptionLevel(ltp, delta, spotNow, s.leg.entry));
+          const optionT1 = Math.max(0.05, projectOptionLevel(optionEntry, delta, s.leg.entry, s.leg.target1));
+          const optionT2 = s.leg.target2 != null
+            ? Math.max(0.05, projectOptionLevel(optionEntry, delta, s.leg.entry, s.leg.target2))
+            : undefined;
+          const optionSL = Math.max(0.05, projectOptionLevel(optionEntry, delta, s.leg.entry, s.leg.stopLoss));
+          s.optionLtp = round2(ltp);
+          s.optionEntry = round2(optionEntry);
+          s.optionTarget1 = round2(optionT1);
+          s.optionTarget2 = optionT2 != null ? round2(optionT2) : undefined;
+          s.optionStopLoss = round2(optionSL);
+          s.optionDelta = +delta.toFixed(4);
+          if (side.theta != null) s.optionTheta = +side.theta.toFixed(4);
+          if (side.vega != null) s.optionVega = +side.vega.toFixed(4);
+        }
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error).message, idx: first.index, expiry },
+          "Option-level enrichment failed",
+        );
+      }
+    }),
+  );
+}
+
 export async function getOptionSignals(): Promise<OptionSignalsResult> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
   const out: OptionSignal[] = [];
@@ -887,6 +953,16 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       }
     }
   }
+
+  // Enrich every signal with option-level pricing AFTER lifecycle merge so
+  // the math uses the FINAL locked spot entry/T1/T2/SL the UI will display.
+  // (Doing this before lifecycle would compute against pre-merge values that
+  // get overwritten on server restart, giving a card where the spot plan and
+  // option plan disagree — a real bug for a paying user.)
+  // Best-effort — if the chain isn't available (NSE block / no Kite session)
+  // we silently skip and the card just falls back to spot-only display
+  // (with an inline notice on the card so the absence isn't mistaken for a bug).
+  await enrichBundlesWithOptionLevels(bundles);
 
   // Sweep open rows to EXPIRED after market close (no-op intra-session).
   await expireOpenSignalsForToday().catch(() => 0);

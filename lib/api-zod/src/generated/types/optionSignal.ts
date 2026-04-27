@@ -68,4 +68,20 @@ export interface OptionSignal {
   maxAdverseExcursionPts?: number;
   /** Most recent observed spot used to evaluate this signal. */
   lastSpot?: number;
+  /** Current premium (₹/share) of the option at the chosen strike — CE for BULLISH, PE for BEARISH. Sourced from Kite or NSE option chain when available. */
+  optionLtp?: number;
+  /** Greeks-projected option premium at the spot entry trigger. Equals optionLtp + delta×(spotEntry − spot). What the trader will likely pay if the trigger fires now. */
+  optionEntry?: number;
+  /** Greeks-projected option premium at the spot target 1. Equals optionEntry + delta×(spotT1 − spotEntry). */
+  optionTarget1?: number;
+  /** Greeks-projected option premium at the spot target 2. */
+  optionTarget2?: number;
+  /** Greeks-projected option premium at the spot stop. Floored at 0.05 ₹/share so it never goes negative. */
+  optionStopLoss?: number;
+  /** Delta of the chosen strike at signal time. Used to translate spot moves into option moves. */
+  optionDelta?: number;
+  /** Theta (₹/share/day, time decay) of the chosen strike. */
+  optionTheta?: number;
+  /** Vega (₹/share per 1 vol point) of the chosen strike. */
+  optionVega?: number;
 }

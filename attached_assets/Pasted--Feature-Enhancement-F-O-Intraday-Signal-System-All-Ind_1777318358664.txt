@@ -1,0 +1,127 @@
+📌 Feature Enhancement: F&O Intraday Signal System (All Indices)
+1. 🚨 Signal Trigger Popup (On Website UI)
+When a Call (CE) or Put (PE) signal is triggered:
+Display a real-time popup notification on the website.
+Popup must appear inside the F&O Intraday Tab (not external alert).
+Popup should include:
+Index Name (e.g., NIFTY, BANKNIFTY, FINNIFTY, etc.)
+Signal Type: CALL / PUT
+Strike Price
+Timestamp (IST)
+Confidence/Signal Strength (if available)
+Behavior:
+Auto-dismiss after configurable time (e.g., 5–10 seconds)
+Option to pin or view history of signals
+Must not interrupt or reload existing UI data
+2. 📊 Option Price + Trade Levels (Core Requirement)
+
+For every generated signal (CE/PE), dynamically calculate and display:
+
+A. Live Option Data
+Current Option Price (LTP)
+Strike Price
+Expiry (weekly/monthly)
+B. Trade Setup Values
+
+For each signal, compute and display:
+
+Entry Price
+Target Price
+Stop Loss
+3. 🧠 Greeks-Based Calculation Logic
+
+Use Option Greeks + Underlying Movement to derive levels.
+
+Inputs Required:
+Underlying Index Price (Spot/Futures)
+Option Chain Data:
+Delta (Δ)
+Gamma (Γ) (optional for refinement)
+Theta (Θ)
+Vega (ν)
+Current Option LTP
+4. 📐 Calculation Model (Simplified + Practical)
+Step 1: Expected Move (Underlying)
+Define expected move (configurable):
+Example:
+NIFTY: ±0.5% – 1%
+BANKNIFTY: ±1% – 1.5%
+Step 2: Option Price Projection
+
+Approximate option price change:
+
+ΔOption Price≈Delta×ΔUnderlying
+Step 3: Trade Levels
+
+Entry:
+
+Current Option LTP (or slight pullback logic)
+
+Target:
+
+Entry + (Delta × Expected Move × Multiplier)
+Example multiplier: 1.2–1.5
+
+Stop Loss:
+
+Entry − (Delta × Expected Move × Risk Factor)
+Example risk factor: 0.5–0.7
+5. ⚙️ Example (For Developer Clarity)
+NIFTY at 22,000
+Expected Move: +100 points
+Delta (CE): 0.5
+Option LTP: ₹120
+
+Calculation:
+
+Price Change ≈ 0.5 × 100 = ₹50
+
+Output:
+
+Entry: ₹120
+Target: ₹170
+Stop Loss: ₹95
+6. 🔁 Multi-Index Support
+
+Apply this system to:
+
+NIFTY
+BANKNIFTY
+FINNIFTY
+MIDCPNIFTY
+SENSEX (if applicable)
+
+Architecture must support easy addition of new indices.
+
+7. 🧩 Integration Constraints (Important)
+❗ Do NOT remove or modify any existing data in the F&O Intraday tab
+Add this as an overlay/enhancement layer
+Maintain backward compatibility
+8. ⚡ Performance & Data Handling
+Real-time updates (WebSocket preferred)
+Fallback: polling (1–3 sec interval)
+Cache Greeks for efficiency
+Ensure minimal UI lag
+9. 🎯 UI Placement
+
+Inside F&O Intraday Tab, add:
+
+Signal Card / Row containing:
+CE/PE Tag
+Strike
+LTP
+Entry / Target / SL
+Highlight active trades visually (color-coded)
+10. 🔧 Optional Advanced Enhancements (Future Scope)
+Dynamic SL trailing based on Gamma
+IV-based volatility adjustment
+Risk-reward ratio auto-display
+Backtesting of signals
+✅ Final Outcome
+
+User should be able to:
+
+Instantly see signal popup
+View exact tradable levels (Entry, Target, SL)
+Act without manual calculation
+Use it across all indices in one place

@@ -8,12 +8,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { TradingViewAlerts } from "@/components/tradingview-alerts";
+import { useToast } from "@/hooks/use-toast";
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Crosshair, Zap, Activity, Layers, Repeat, RotateCcw,
-  Clock, CheckCircle2, XCircle, Hourglass, BarChart3,
+  Clock, CheckCircle2, XCircle, Hourglass, BarChart3, IndianRupee,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   OptionSignal,
   OptionSignalHistoryItem,
@@ -172,6 +173,48 @@ function SetupCard({ sig, planNumber, totalPlans }: { sig: OptionSignal; planNum
         </div>
       </div>
 
+      {/* Option-premium grid — what you actually pay / book on the broker. Derived
+          from the chosen strike's live LTP and delta:
+            optionEntry = optionLtp + delta × (spotEntry − spot)
+            optionT1/T2 = optionEntry + delta × (spotT1/T2 − spotEntry)
+            optionSL    = optionEntry + delta × (spotSL    − spotEntry), floored at ₹0.05
+          Sign cancels for puts (delta<0 with target<entry), so values stay sensible
+          for both CALL and PUT. Section is hidden when the option chain wasn't
+          available at signal time (NSE block / no broker session). */}
+      {sig.optionLtp != null && sig.optionEntry != null ? (
+        <div>
+          <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1.5">
+            <IndianRupee className="w-3 h-3" />
+            <span>Option premium ({sig.leg.type === "CALL" ? "CE" : "PE"} {fmt(sig.leg.strike)}) — what you pay & book</span>
+            {sig.optionDelta != null && (
+              <span className="text-foreground/70 normal-case tracking-normal">· δ {sig.optionDelta.toFixed(2)}</span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+            <Cell label="Opt LTP" value={`₹${fmt(sig.optionLtp)}`} icon={<Activity className="w-3 h-3" />} />
+            <Cell label="Opt Entry" value={`₹${fmt(sig.optionEntry)}`} icon={<Crosshair className="w-3 h-3" />} bold />
+            <Cell label="Opt T1" value={`₹${fmt(sig.optionTarget1)}`} icon={<Target className="w-3 h-3 text-signal-strong-buy" />} />
+            <Cell label="Opt SL" value={`₹${fmt(sig.optionStopLoss)}`} icon={<ShieldAlert className="w-3 h-3 text-signal-strong-sell" />} />
+          </div>
+          {sig.optionTarget2 != null && (
+            <div className="text-[10px] font-mono text-muted-foreground mt-1">
+              Opt T2 <span className="text-foreground">₹{fmt(sig.optionTarget2)}</span>
+              {sig.optionTheta != null && (
+                <span className="ml-3">θ <span className="text-foreground">{sig.optionTheta.toFixed(2)}</span>/day</span>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        // Visible fallback so a missing option row isn't mistaken for a UI bug.
+        // The spot plan above is still actionable — only the option-premium
+        // projection is unavailable until the broker chain is reachable.
+        <div className="text-[10px] font-mono text-muted-foreground/80 border border-dashed border-border/40 rounded px-2 py-1.5 leading-relaxed">
+          <span className="uppercase tracking-wider mr-1">Option premium:</span>
+          live chain unavailable right now (broker session offline / NSE blocked) — spot plan above is still actionable; check the option chain manually before trading.
+        </div>
+      )}
+
       {risk != null && reward != null && (
         <div className="text-[10px] font-mono text-muted-foreground -mt-1">
           Risk {fmt(risk)} pts · Reward {fmt(reward)} pts (T1)
@@ -283,11 +326,93 @@ function Cell({ label, value, icon, bold }: { label: string; value?: string; ico
 
 type Tab = "live" | "scoreboard";
 
+// Composite identity for a signal — same key the backend uses to dedupe in
+// option_signal_history (date + index + setupKey + bias). This keeps a single
+// triggered signal from re-firing the popup across refreshes / reloads.
+function signalKey(s: OptionSignal): string {
+  const day = (s.firstSeenAt ?? s.generatedAt)?.toString().slice(0, 10) ?? "";
+  return `${day}|${s.index}|${s.setupKey ?? "BASELINE"}|${s.bias}`;
+}
+
+const TRIGGER_TOAST_SEEN_LS_KEY = "fno.triggerToast.seen.v1";
+
+function loadSeenTriggers(): Set<string> {
+  try {
+    const raw = localStorage.getItem(TRIGGER_TOAST_SEEN_LS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSeenTriggers(set: Set<string>) {
+  try {
+    // Cap the set so it doesn't grow forever — keep the most recent 500 keys.
+    const arr = Array.from(set).slice(-500);
+    localStorage.setItem(TRIGGER_TOAST_SEEN_LS_KEY, JSON.stringify(arr));
+  } catch { /* ignore quota errors */ }
+}
+
+// Pop a top-right toast every time a CE/PE signal flips from PENDING to
+// TRIGGERED (or shows up already TRIGGERED for the first time after the user
+// loaded the page mid-session). Persists "seen" keys in localStorage so the
+// same trigger doesn't fire again on every 30-second refresh.
+function useTriggerToasts(signals: OptionSignal[] | undefined) {
+  const { toast } = useToast();
+  const seenRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    if (!signals || signals.length === 0) return;
+    if (seenRef.current === null) {
+      seenRef.current = loadSeenTriggers();
+    }
+    const seen = seenRef.current;
+
+    // Per the user's final spec: pop ONLY when a CE/PE actually triggers
+    // (PENDING → TRIGGERED). Exit events (T1/T2/STOPPED) and EXPIRED are
+    // already shown on the card and in the scoreboard tab; firing toasts for
+    // them would flood the screen at session-end.
+    const TRIGGER_STATES = new Set(["TRIGGERED", "TARGET1_HIT", "TARGET2_HIT"]);
+    let changed = false;
+
+    for (const s of signals) {
+      // We accept TARGET1/TARGET2_HIT here too because lifecycle can jump
+      // straight from PENDING through TRIGGERED to a target-hit between two
+      // 30-sec polls — without this the user would silently miss the entry
+      // event. We still dedupe by signalKey so each plan only ever fires once.
+      if (!s.status || !TRIGGER_STATES.has(s.status)) continue;
+      const key = signalKey(s);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      changed = true;
+
+      const side = s.leg.type === "CALL" ? "CE" : "PE";
+      const dirIcon = s.leg.type === "CALL" ? "BUY CALL" : "BUY PUT";
+      const optBlock = s.optionEntry != null
+        ? `Opt entry ₹${s.optionEntry.toFixed(2)} · T1 ₹${(s.optionTarget1 ?? 0).toFixed(2)} · SL ₹${(s.optionStopLoss ?? 0).toFixed(2)}`
+        : "";
+      toast({
+        title: `${s.indexName} — ${dirIcon} ${s.leg.strike} ${side} triggered`,
+        description: [
+          `${s.setupName ?? s.setupKey ?? "Setup"} fired`,
+          `Spot entry ${s.leg.entry.toFixed(2)} · T1 ${s.leg.target1.toFixed(2)} · SL ${s.leg.stopLoss.toFixed(2)}`,
+          optBlock,
+        ].filter(Boolean).join(" · "),
+      });
+    }
+
+    if (changed) saveSeenTriggers(seen);
+  }, [signals, toast]);
+}
+
 export default function OptionsPage() {
   const [tab, setTab] = useState<Tab>("live");
   const { data, isLoading } = useGetOptionSignals({
     query: { refetchInterval: 30000, queryKey: getGetOptionSignalsQueryKey() },
   });
+  useTriggerToasts(data?.signals);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, OptionSignal[]>();

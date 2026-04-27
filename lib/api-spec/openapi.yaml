@@ -932,6 +932,30 @@ components:
         lastSpot:
           type: number
           description: "Most recent observed spot used to evaluate this signal."
+        optionLtp:
+          type: number
+          description: "Current premium (₹/share) of the option at the chosen strike — CE for BULLISH, PE for BEARISH. Sourced from Kite or NSE option chain when available."
+        optionEntry:
+          type: number
+          description: "Greeks-projected option premium at the spot entry trigger. Equals optionLtp + delta×(spotEntry − spot). What the trader will likely pay if the trigger fires now."
+        optionTarget1:
+          type: number
+          description: "Greeks-projected option premium at the spot target 1. Equals optionEntry + delta×(spotT1 − spotEntry)."
+        optionTarget2:
+          type: number
+          description: "Greeks-projected option premium at the spot target 2."
+        optionStopLoss:
+          type: number
+          description: "Greeks-projected option premium at the spot stop. Floored at 0.05 ₹/share so it never goes negative."
+        optionDelta:
+          type: number
+          description: "Delta of the chosen strike at signal time. Used to translate spot moves into option moves."
+        optionTheta:
+          type: number
+          description: "Theta (₹/share/day, time decay) of the chosen strike."
+        optionVega:
+          type: number
+          description: "Vega (₹/share per 1 vol point) of the chosen strike."
 
     OptionSignalDiagnostics:
       type: object
