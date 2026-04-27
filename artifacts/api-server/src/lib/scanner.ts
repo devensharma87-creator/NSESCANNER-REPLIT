@@ -20,7 +20,10 @@ const intradayVwapCache = new Map<string, { ts: number; vwap: number | null }>()
 const INTRADAY_TTL = 90 * 1000;
 
 let scanCache: { fetchedAt: number; rows: StockRow[] } | null = null;
-let scanInFlight: Promise<StockRow[]> | null = null;
+// We bind both the in-flight Promise *and* the shared accumulator together
+// so that every concurrent awaiter (not just the one that started the scan)
+// can read the partial rows when its hard-timeout fires.
+let scanInFlight: { work: Promise<StockRow[]>; acc: ScanAccumulator } | null = null;
 
 export async function getHistory(
   symbol: string,
@@ -255,8 +258,21 @@ async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
   };
 }
 
-async function performScan(): Promise<StockRow[]> {
-  const rows: StockRow[] = [];
+// Hard cap on a single in-flight scan. With per-Yahoo-call timeouts in
+// `yahoo.ts` (~6s) plus an unfriendly upstream, a 280-symbol scan could
+// still in theory take minutes. We never want to hold an HTTP request
+// open that long, so the awaiter stops waiting after this budget and
+// returns whatever rows have already been collected (or whatever's in
+// the cache). The underlying scan keeps running in the background and
+// will populate the cache for the next request.
+const SCAN_HARD_TIMEOUT_MS = 25_000;
+
+// Mutable container the orchestrator can hand to the awaiter so it can
+// peek at partial results when the hard timer fires.
+interface ScanAccumulator { rows: StockRow[]; done: boolean }
+
+async function performScan(acc?: ScanAccumulator): Promise<StockRow[]> {
+  const rows = acc?.rows ?? [];
   const start = Date.now();
   let nullCount = 0;
   // Skip explicitly inactive symbols (delisted, no live feed) so we don't spam logs.
@@ -278,27 +294,60 @@ async function performScan(): Promise<StockRow[]> {
     }
   }
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  if (acc) acc.done = true;
   logger.info({ rows: rows.length, nullCount, ms: Date.now() - start }, "Scan complete");
   return rows;
 }
 
 export async function scanAll(): Promise<StockRow[]> {
   if (scanCache && Date.now() - scanCache.fetchedAt < SCAN_TTL_MS) return scanCache.rows;
-  if (scanInFlight) return scanInFlight;
-  scanInFlight = (async () => {
-    try {
-      const rows = await performScan();
-      if (rows.length > 0) {
-        scanCache = { fetchedAt: Date.now(), rows };
-      } else if (scanCache) {
-        scanCache.fetchedAt = Date.now() - SCAN_TTL_MS + 15_000;
+
+  // Lazily start a scan if no one else has. The accumulator is shared
+  // between the running scan and *every* awaiter below — so when any
+  // caller's hard timer fires, that caller can hand back the partial
+  // rows already built rather than wait for the full sweep to finish.
+  if (!scanInFlight) {
+    const acc: ScanAccumulator = { rows: [], done: false };
+    const work = (async () => {
+      try {
+        const rows = await performScan(acc);
+        if (rows.length > 0) {
+          scanCache = { fetchedAt: Date.now(), rows };
+        } else if (scanCache) {
+          scanCache.fetchedAt = Date.now() - SCAN_TTL_MS + 15_000;
+        }
+        return scanCache?.rows ?? [];
+      } finally {
+        scanInFlight = null;
       }
-      return scanCache?.rows ?? [];
-    } finally {
-      scanInFlight = null;
-    }
-  })();
-  return scanInFlight;
+    })();
+    scanInFlight = { work, acc };
+  }
+
+  // EVERY caller — first or piggy-back — gets bounded by the same hard
+  // budget. Without this, a slow Yahoo could leave the second/third
+  // request to the same in-flight scan waiting indefinitely (`scanInFlight`
+  // is unwrapped, with no timer of its own).
+  const { work, acc } = scanInFlight;
+  return new Promise<StockRow[]>(resolve => {
+    let settled = false;
+    const finish = (rows: StockRow[]) => { if (!settled) { settled = true; resolve(rows); } };
+    const timer = setTimeout(() => {
+      if (acc.done) return; // scan finished between schedule + fire — work.then will resolve us
+      const partial = acc.rows.slice();
+      const fallback = scanCache?.rows ?? [];
+      // Prefer whichever is bigger — partial rows from the in-flight
+      // scan, or the previously-cached set.
+      const out = partial.length > fallback.length ? partial : fallback;
+      logger.warn({ partial: partial.length, cached: fallback.length, returned: out.length }, "scanAll hard-timeout reached, returning partial/cached");
+      finish(out);
+    }, SCAN_HARD_TIMEOUT_MS);
+    work.then(rows => { clearTimeout(timer); finish(rows); }).catch(err => {
+      clearTimeout(timer);
+      logger.warn({ err: (err as Error).message }, "scanAll failed");
+      finish(scanCache?.rows ?? []);
+    });
+  });
 }
 
 /**

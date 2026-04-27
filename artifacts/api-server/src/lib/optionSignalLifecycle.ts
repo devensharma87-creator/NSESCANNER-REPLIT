@@ -370,6 +370,10 @@ export async function recordOrUpdate(
       snapshot,
     );
     const exc = bestExcursions(direction, lockedEntry, snapshot);
+    // Local "best so far" view returned to *this* caller. Note the
+    // value persisted to the DB below is computed atomically with
+    // `GREATEST(...)`, not from this local snapshot — so two concurrent
+    // evaluators can't clobber each other's high-water marks.
     const newMfe = Math.max(num(row.maxFavorableExcursion), exc.mfeBar);
     const newMae = Math.max(num(row.maxAdverseExcursion), exc.maeBar);
 
@@ -386,6 +390,12 @@ export async function recordOrUpdate(
     // If the conditional update touches 0 rows, that means another
     // evaluator already advanced the row — fine, the next refresh
     // (30s later) will re-read and reconcile.
+    //
+    // Excursion fields use SQL `GREATEST` so two concurrent evaluators
+    // racing on the same row can never lower the persisted MFE/MAE.
+    // (Without this, a stale read of MFE=10 in caller A and MFE=10 in
+    // caller B, where B observes a 15-pt favourable move and writes 15
+    // and A then writes 12, would leave 12 in the DB and lose the peak.)
     await db
       .update(optionSignalHistoryTable)
       .set({
@@ -394,8 +404,8 @@ export async function recordOrUpdate(
         exitedAt,
         exitReason,
         exitPrice,
-        maxFavorableExcursion: toDbNumeric(newMfe),
-        maxAdverseExcursion: toDbNumeric(newMae),
+        maxFavorableExcursion: sql`GREATEST(${optionSignalHistoryTable.maxFavorableExcursion}, ${toDbNumeric(exc.mfeBar)}::numeric)`,
+        maxAdverseExcursion: sql`GREATEST(${optionSignalHistoryTable.maxAdverseExcursion}, ${toDbNumeric(exc.maeBar)}::numeric)`,
         lastSpot: toDbNumeric(snapshot.spot),
         lastEvaluatedAt: now,
       })

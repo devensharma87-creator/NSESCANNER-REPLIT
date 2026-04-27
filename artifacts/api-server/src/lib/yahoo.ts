@@ -40,6 +40,32 @@ export interface YahooChart {
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
 
+// ── Hard-timeout guard for every external Yahoo call ─────────────────
+// `yahoo-finance2` does not expose a per-request abort signal in the
+// version we're on, so it will happily wait until the OS-level socket
+// timeout (which can be 5+ minutes) when the upstream is unreachable.
+// In production we've observed ~300s aborts cascading across every
+// endpoint that depends on Yahoo (`/api/stocks`, `/api/sectors`,
+// `/api/scan/top`, `/api/watchlist/*`, `/api/market/trend`,
+// `/api/market/premarket`, …). Wrapping each call in `Promise.race`
+// against a hard timer means a single slow ticker can't hold the
+// entire request for minutes — it fails fast and the caller falls
+// back to whatever data is already cached.
+const YF_CHART_TIMEOUT_MS = 6_000;        // per attempt
+const YF_QUOTE_SUMMARY_TIMEOUT_MS = 8_000; // per attempt — quoteSummary is heavier
+
+class YahooTimeoutError extends Error {
+  constructor(op: string, ms: number) { super(`Yahoo ${op} timed out after ${ms}ms`); this.name = "YahooTimeoutError"; }
+}
+
+function withTimeout<T>(op: string, ms: number, p: Promise<T>): Promise<T> {
+  let to: NodeJS.Timeout | undefined;
+  const timer = new Promise<never>((_, reject) => {
+    to = setTimeout(() => reject(new YahooTimeoutError(op, ms)), ms);
+  });
+  return Promise.race([p, timer]).finally(() => { if (to) clearTimeout(to); }) as Promise<T>;
+}
+
 const RANGE_DAYS: Record<string, number> = {
   "1d": 2,
   "5d": 7,
@@ -61,8 +87,12 @@ async function chartCall(ticker: string, range: string, interval: Interval): Pro
   // bursty load — we hammer it across many endpoints (market summary, trends,
   // deep snapshots, etc.). A short exponential-backoff retry inside the single
   // network primitive turns transient throttling into a clean success without
-  // requiring every caller to add its own retry logic.
-  const RATE_LIMIT_BACKOFF_MS = [800, 2000, 4500];
+  // requiring every caller to add its own retry logic. We intentionally only
+  // retry on 429 — for ETIMEDOUT/ECONNRESET (which in production usually means
+  // Yahoo is unreachable from the deploy region, not a transient blip) we
+  // fail fast on the first hit so a 280-symbol scan can't burn 7+ minutes
+  // waiting for socket timeouts.
+  const RATE_LIMIT_BACKOFF_MS = [600, 1500];
   // The yahoo-finance2 type for `chart` over-narrows to `{}` in some library
   // versions when called with permissive options — cast through `any` so we
   // can still inspect `meta` / `quotes` defensively at runtime.
@@ -71,16 +101,24 @@ async function chartCall(ticker: string, range: string, interval: Interval): Pro
   for (let attempt = 0; attempt <= RATE_LIMIT_BACKOFF_MS.length; attempt++) {
     try {
       // The library accepts "1m"/"5m" but typing of `chart` is permissive.
-      res = await yf.chart(ticker, { period1, interval: interval as never });
+      // Each individual attempt is bounded by a hard timer so we never wait
+      // longer than YF_CHART_TIMEOUT_MS for one call regardless of what the
+      // library does internally.
+      res = await withTimeout(
+        "chart",
+        YF_CHART_TIMEOUT_MS,
+        yf.chart(ticker, { period1, interval: interval as never }) as Promise<unknown>,
+      );
       lastErr = null;
       break;
     } catch (err) {
       lastErr = err as Error;
       const msg = lastErr.message ?? "";
-      // Only retry on rate-limit / transient gateway failures, never on
-      // legitimate "not found" responses.
-      const isTransient = /Too Many Requests|429|502|503|504|ETIMEDOUT|ECONNRESET/i.test(msg);
-      if (!isTransient || attempt >= RATE_LIMIT_BACKOFF_MS.length) break;
+      // Only retry on hard rate-limit responses. Network-level failures
+      // (timeout, connection reset, DNS) are likely persistent in this
+      // environment and retrying just multiplies the wait.
+      const isRateLimit = /Too Many Requests|429/i.test(msg);
+      if (!isRateLimit || attempt >= RATE_LIMIT_BACKOFF_MS.length) break;
       await new Promise(r => setTimeout(r, RATE_LIMIT_BACKOFF_MS[attempt]));
     }
   }
@@ -297,7 +335,7 @@ export async function fetchStatements(symbol: string, exchange: "NS" | "BO" = "N
   const c = stmtCache.get(ticker);
   if (c && Date.now() - c.ts < STMT_TTL) return c.data;
   try {
-    const r = await yf.quoteSummary(ticker, {
+    const r = await withTimeout("quoteSummary(statements)", YF_QUOTE_SUMMARY_TIMEOUT_MS, yf.quoteSummary(ticker, {
       modules: [
         "incomeStatementHistory", "incomeStatementHistoryQuarterly",
         "balanceSheetHistory", "balanceSheetHistoryQuarterly",
@@ -305,7 +343,7 @@ export async function fetchStatements(symbol: string, exchange: "NS" | "BO" = "N
         "majorHoldersBreakdown", "institutionOwnership", "insiderHolders",
         "defaultKeyStatistics", "financialData",
       ] as never,
-    });
+    }));
 
     const inc = ((r as Record<string, unknown>)["incomeStatementHistory"] as { incomeStatementHistory?: YfStmtRow[] })?.incomeStatementHistory ?? [];
     const incQ = ((r as Record<string, unknown>)["incomeStatementHistoryQuarterly"] as { incomeStatementHistory?: YfStmtRow[] })?.incomeStatementHistory ?? [];
@@ -455,9 +493,9 @@ export async function fetchFundamentals(symbol: string, exchange: "NS" | "BO" = 
   const c = fundCache.get(ticker);
   if (c && Date.now() - c.ts < FUND_TTL) return c.data;
   try {
-    const r = await yf.quoteSummary(ticker, {
+    const r = await withTimeout("quoteSummary(fundamentals)", YF_QUOTE_SUMMARY_TIMEOUT_MS, yf.quoteSummary(ticker, {
       modules: ["price", "summaryDetail", "defaultKeyStatistics", "financialData"] as never,
-    });
+    }));
     const price = (r as { price?: { marketCap?: number; sharesOutstanding?: number } }).price ?? {};
     const sd = (r as { summaryDetail?: Record<string, number | undefined> }).summaryDetail ?? {};
     const ks = (r as { defaultKeyStatistics?: Record<string, number | undefined> }).defaultKeyStatistics ?? {};
