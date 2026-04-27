@@ -689,12 +689,47 @@ function buildPostMarketDigest(rows: Awaited<ReturnType<typeof scanAll>>) {
   const adRatio = dec > 0 ? +(adv / dec).toFixed(2) : (adv > 0 ? null : 0);
   const breadthScore = Math.max(-100, Math.min(100, ((adv - dec) / Math.max(1, rows.length)) * 100));
 
+  // 52-week extremes — "near" = within 0.5% of the band so we capture both
+  // exact prints AND the cluster of names probing the level intraday. This
+  // is the textbook market-breadth signal: lots of names making new highs
+  // confirms strength; a lopsided print of new lows confirms distribution.
+  const TOL = 0.005;
+  let new52wHigh = 0, new52wLow = 0;
+  for (const r of rows) {
+    const p = r.quote.price;
+    const yh = r.quote.fiftyTwoWeekHigh;
+    const yl = r.quote.fiftyTwoWeekLow;
+    if (yh != null && p >= yh * (1 - TOL)) new52wHigh++;
+    if (yl != null && yl > 0 && p <= yl * (1 + TOL)) new52wLow++;
+  }
+
+  // Circuit breakers — NSE uses 5%/10%/20% bands per stock. Without per-stock
+  // band metadata we conservatively flag any move at or beyond +/- 4.8% as a
+  // probable circuit hit (covers the 5% band exactly and almost all 10%/20%
+  // names that lock circuit on the open). This is a directional pressure
+  // indicator, not a precise count.
+  const CIRCUIT = 4.8;
+  const upperCircuits = rows.filter(r => r.quote.changePercent >= CIRCUIT).length;
+  const lowerCircuits = rows.filter(r => r.quote.changePercent <= -CIRCUIT).length;
+
   let narrative: string;
   if (breadthScore > 30) narrative = `Broad-based rally — ${adv} advances vs ${dec} declines (A/D ${adRatio ?? "∞"}). Buyers in control across the board.`;
   else if (breadthScore > 10) narrative = `Mildly positive close — ${adv} advances vs ${dec} declines. Selective buying.`;
   else if (breadthScore < -30) narrative = `Broad-based selling — ${dec} declines vs ${adv} advances (A/D ${adRatio ?? "0"}). Risk-off across the tape.`;
   else if (breadthScore < -10) narrative = `Mildly negative close — ${dec} declines vs ${adv} advances. Selective selling.`;
   else narrative = `Indecisive close — ${adv} advances vs ${dec} declines roughly balanced. Direction unclear.`;
+
+  // Append a breadth-quality annotation — divergences between index move
+  // and 52w extremes / circuits are the primary "warning sign" the doc
+  // calls out (strong index + weak breadth = distribution risk).
+  if (new52wHigh > 0 || new52wLow > 0) {
+    narrative += ` ${new52wHigh} stocks at 52-week highs, ${new52wLow} at lows`;
+    if (upperCircuits > 0 || lowerCircuits > 0) {
+      narrative += ` · ${upperCircuits} upper circuit, ${lowerCircuits} lower circuit.`;
+    } else {
+      narrative += ".";
+    }
+  }
 
   return {
     advancers: adv,
@@ -704,6 +739,10 @@ function buildPostMarketDigest(rows: Awaited<ReturnType<typeof scanAll>>) {
     totalVolume: totalVol,
     avgChangePercent: +avgChg.toFixed(2),
     marketBreadthScore: +breadthScore.toFixed(1),
+    new52wHigh,
+    new52wLow,
+    upperCircuits,
+    lowerCircuits,
     narrative,
   };
 }

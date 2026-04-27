@@ -1,0 +1,70 @@
+Pre-Market Analysis (typically 4:00 AM – 9:30 AM ET)
+Overnight & global cues Check how Asian markets (Nikkei, Hang Seng, Shanghai) and European markets (FTSE, DAX, CAC) closed or are trading. Global sentiment often spills into the local open. Track currency moves (USD/INR, DXY), crude oil, gold, and US futures (S&P 500, Nasdaq, Dow futures).
+Corporate news flow Earnings released before the open, management guidance changes, M&A announcements, regulatory approvals, dividend declarations, stock splits, insider buying/selling disclosures, and analyst upgrades/downgrades.
+Macro & economic data Scheduled releases like inflation (CPI, WPI), GDP, jobs data, central bank decisions (Fed, RBI), PMI numbers, and bond yields. Note any surprises vs. consensus estimates.
+Pre-market price & volume action Look at gainers and losers in pre-market trading, gap-up and gap-down setups, and volume relative to typical pre-market activity. Heavy pre-market volume often signals conviction behind a move.
+Sector & index focus Identify which sectors are reacting to the news flow (e.g., banking on RBI policy day, IT on a weak rupee, energy on crude spikes). Watch index heavyweights that can move the broader market.
+Key levels to mark Previous day's high, low, and close. Support and resistance zones. Pivot points. VWAP from the prior session.
+Post-Market Analysis (after 4:00 PM ET / after market close)
+Performance review How indices closed vs. opened, sector winners and losers, advance-decline ratio, market breadth, and FII/DII flows (especially relevant in Indian markets).
+Top movers and why Stocks with the biggest % moves and unusual volume. Tie each move back to a catalyst — earnings, news, block deals, or technical breakouts.
+After-hours news & earnings Many US companies report after the close. Check earnings beats/misses, guidance, and the after-hours stock reaction. For Indian markets, board meeting outcomes and disclosures filed post-close.
+Derivatives data Open interest changes, put-call ratio, FII derivatives positioning, max pain, and implied volatility shifts. This often telegraphs the next session's bias.
+Technical wrap-up Daily candle patterns, whether key levels held or broke, moving average behavior, and divergences on RSI/MACD.
+Setup for next session Build a watchlist: stocks that broke out, stocks near key levels, stocks with upcoming catalysts. Note the global cues you'll need to revisit pre-market.
+Pre-Market Analysis (before 9:15 AM IST)
+Global cues to check first US markets close around 1:30 AM IST — note how the Dow, S&P 500, and Nasdaq closed. Then track SGX Nifty / GIFT Nifty (now on NSE IX) for the early indication of where Nifty will open. Check Asian markets that open before India: Nikkei (5:30 AM IST), Hang Seng, Kospi, and Shanghai. A red Asia usually drags Nifty's open.
+Currency, commodities & bonds USD/INR direction (weak rupee hurts importers, helps IT and pharma exporters). Brent crude (impacts OMCs, paint companies, aviation, logistics). Gold (sentiment proxy, plus relevant for jewellery stocks). US 10-year yield and India 10-year G-Sec yield — rising yields typically pressure rate-sensitive sectors like banks, NBFCs, realty, and autos.
+FII and DII activity Yesterday's cash market FII/DII numbers (released after market close). Sustained FII selling is a key headwind; DII buying often cushions falls. Also check FII activity in index futures and options — net long/short positioning hints at directional bias.
+Stock-specific news flow Quarterly results announced before the open or after yesterday's close, board meeting outcomes, order wins, regulatory actions (SEBI, CCI, RBI), credit rating changes, promoter pledging or stake changes, and bulk/block deal data from NSE/BSE.
+The pre-open session (9:00 – 9:15 AM) This is unique to Indian markets. Order collection happens 9:00–9:08, matching 9:08–9:12. The discovered prices for Nifty 50 and Sensex stocks give a real opening indication — far more reliable than GIFT Nifty alone. Watch for unusual gap-ups or gap-downs in heavyweights like Reliance, HDFC Bank, ICICI Bank, Infosys, and TCS.
+F&O and event watch Expiry days (Tuesdays for Sensex, Thursdays for Nifty under current schedule — worth verifying as NSE/BSE have shuffled this) bring volatility. Check India VIX — above 15 signals nervousness, below 12 suggests complacency. Note RBI policy dates, Fed meetings, Budget, GDP/CPI/IIP release days.
+Key levels Nifty and Bank Nifty previous day's high, low, close, and pivot levels. Mark options-based support and resistance using max OI on call and put strikes — these often act as magnets and barriers intraday.
+Post-Market Analysis (after 3:30 PM IST)
+Index recap Nifty 50, Sensex, Bank Nifty, Nifty Midcap 100, Smallcap 100 — closing levels, % change, and intraday range. Check if it was a trending day or a range-bound one, and whether the close was near the high (bullish) or low (bearish).
+Market breadth Advance-decline ratio on NSE, number of stocks hitting 52-week highs vs. lows, number of upper vs. lower circuits. Strong index moves on weak breadth (few stocks pulling the index) are warning signs.
+Sectoral performance Which sectoral indices led and which lagged — Bank Nifty, Nifty IT, Nifty Auto, Nifty Pharma, Nifty FMCG, Nifty Metal, Nifty Realty, Nifty PSU Bank. Sector rotation patterns matter for swing positioning.
+FII / DII cash data Released around 6 PM. Note net buy/sell figures and the trend over the past 5–10 sessions. Also check the FII derivatives data — long-short ratio in index futures, and OI changes in index options.
+Derivatives and OI analysis Nifty and Bank Nifty option chain — where call writers and put writers are concentrated for the current and next expiry. Long buildup, short buildup, long unwinding, short covering in stock futures (price vs. OI matrix). PCR (put-call ratio) — extreme readings often precede reversals.
+Stock-specific scan Top gainers and losers with reasons, stocks with unusual volume (3x+ average), bulk and block deals (who bought/sold and at what price), stocks breaking out of consolidations or 52-week highs, and stocks breaking key supports.
+Corporate actions and disclosures Companies with board meetings, results announced after-hours, disclosures filed post 3:30 (often material), credit rating updates, and ex-dividend or ex-split dates for tomorrow.
+US market open setup US markets open at 7:00 PM IST (8:00 PM during US daylight saving). Their direction influences GIFT Nifty overnight and your next day's pre-market mood.
+Build tomorrow's watchlist Stocks at make-or-break technical levels, stocks with results due, stocks reacting to today's news, and Nifty/Bank Nifty levels you'll trade around. Write down your bias and the levels that would invalidate it.
+1. Reading the Option Chain (Nifty / Bank Nifty)
+The option chain is a snapshot of all call (CE) and put (PE) strikes for an expiry, showing open interest, change in OI, volume, IV, and LTP. Here's how to read it like a trader, not a spectator.
+Open Interest (OI) basics OI = number of contracts currently open (not closed or expired). High OI at a strike means a lot of money is parked there. In Indian index options, the dominant participants writing options are institutions — so heavy OI tells you where the smart money expects price to not go.
+Support and resistance from OI The strike with the highest Put OI is usually treated as support — put writers are betting price stays above it. The strike with the highest Call OI is usually treated as resistance — call writers are betting price stays below it. Example: Nifty at 24,500 with max put OI at 24,400 and max call OI at 24,700 → expected range 24,400–24,700 for that expiry.
+Change in OI is more important than total OI Total OI tells you where positions are; change in OI tells you what's happening today. Fresh put writing at a strike (PE OI rising + price stable or rising) = bullish, support being built. Fresh call writing (CE OI rising + price stable or falling) = bearish, resistance being built. Put unwinding (PE OI falling) = supports being pulled away → bearish. Call unwinding (CE OI falling) = resistance being removed → bullish.
+The four-quadrant framework Combine price change with OI change for any strike or stock future:
+Price	OI	Interpretation
+Up	Up	Long buildup (bullish)
+Up	Down	Short covering (bullish, but weaker)
+Down	Up	Short buildup (bearish)
+Down	Down	Long unwinding (bearish, but weaker)
+PCR (Put-Call Ratio) PCR = Total Put OI / Total Call OI. PCR above 1.3 generally suggests excessive put writing → bullish bias. Below 0.7 suggests excessive call writing → bearish bias. But extremes (above 1.5 or below 0.5) often signal contrarian reversals — when everyone's on one side, the trade is crowded.
+IV (Implied Volatility) Rising IV = options getting expensive, market expecting bigger moves (often before events). Falling IV = complacency or post-event crush. Compare strike IV to India VIX for context. Buy options when IV is low; sell options when IV is high — that's the textbook (real life is messier).
+Max Pain The strike at which option writers (collectively) lose the least money at expiry. Price often gravitates toward max pain near expiry day, especially in the last 2–3 sessions. Useful as a magnet level, not a precise target.
+2. Interpreting FII Derivatives Data
+FII cash data gets all the attention, but FII derivatives positioning often tells you more about institutional bias. NSE publishes this daily under the "FII Derivatives Statistics" report.
+The key table: FII positions in index futures You'll see Long Contracts, Short Contracts, and Net (Long – Short). What matters:
+The long-short ratio in index futures. A ratio above 2 (twice as many longs as shorts) is bullish positioning. Below 0.7 is bearish. Track it daily — direction of change matters more than the absolute number. If FIIs were 60% long last week and are 35% long today, they've been aggressively flipping bearish even if still net long.
+Index options positioning FII activity in index call and put options. Heavy FII put buying combined with cash selling = hedging or outright bearish. Heavy FII call buying with cash buying = aggressive bullish bet. Watch for divergences — e.g., FIIs selling cash but buying index calls can mean they're hedged short-term but positioning long.
+Stock futures FII net long/short in stock futures by individual stock. A stock seeing consistent FII long buildup over 3–5 sessions often runs. Same for short buildup on the downside. Cross-reference with the four-quadrant framework above.
+The combined picture (this is the actual edge) On any given day, look at: FII cash flow + FII index futures net + FII index options activity + DII cash flow. Examples of what to look for:
+FIIs net sellers in cash but adding longs in index futures → they may be covering shorts or expecting a bounce. Don't blindly short.
+FIIs net buyers in cash but heavily short index futures → hedged buying, conviction is lower than headlines suggest.
+FIIs and DIIs both buying aggressively → strongest possible institutional setup. Rare and worth respecting.
+FIIs selling cash + selling index futures + buying puts → triple bearish. Reduce risk.
+Where to find this data NSE website → "Reports" → "Derivatives" → "FII Statistics" (released around 7–8 PM). Free aggregators like Trendlyne, ChartInk, and Moneycontrol also display it. Set a daily 8 PM habit to glance at it.
+3. The 15-Minute Pre-Market Checklist
+Run this every morning between 8:30 and 9:00 AM IST. The point is to walk into the market with a thesis, not react blindly.
+Minutes 0–3: Global & overnight scan US closing (Dow, S&P, Nasdaq — direction and %). GIFT Nifty current level vs. yesterday's Nifty close → gives expected gap. Asian markets snapshot (Nikkei, Hang Seng). Brent crude price and overnight % change. USD/INR. US 10-year yield.
+Minutes 3–6: FII/DII & derivatives recap from yesterday Yesterday's FII and DII cash flow. FII index futures long-short ratio and how it changed. India VIX level and direction. Yesterday's Nifty and Bank Nifty close, and where they sit vs. key moving averages (20, 50, 200 DMA).
+Minutes 6–9: Option chain levels for the day Nifty: max call OI strike (resistance), max put OI strike (support), expected range. Same for Bank Nifty. Note any major change-in-OI shifts from yesterday's close. PCR reading.
+Minutes 9–12: News and stock-specific catalysts Results announced post-market yesterday or pre-market today. Companies with board meetings today. Sectoral news (oil price spike → OMCs; rate news → banks; rupee move → IT/pharma). Bulk/block deals from yesterday. Any SEBI/RBI/government announcements.
+Minutes 12–14: Build the day's bias and watchlist Write down in one or two sentences: "Bias today is X because Y." Examples: "Cautiously bullish — GIFT Nifty +50, FIIs covered shorts yesterday, no major event risk, Nifty above 20 DMA." Or: "Defensive — weak US close, FIIs sold ₹3,000 cr cash + added shorts, VIX up 8%."
+Then list 5–8 stocks to watch with specific levels: stocks with results, stocks at breakout/breakdown levels, stocks with FII buildup, stocks reacting to news. For each, note the level you'd act on and the invalidation point.
+Minute 14–15: Pre-open session check (9:00–9:15) Watch the indicative open for Nifty heavyweights — Reliance, HDFC Bank, ICICI Bank, Infosys, TCS, L&T, ITC. If they open very differently from GIFT Nifty's signal, adjust your bias. A gap-up that fades in the first 15 minutes vs. one that holds is a critical early read.
+A small but important habit
+Keep this checklist in a notebook or a simple template (Notion, Google Doc, even a physical journal). At the end of the day, spend 5 minutes writing what actually happened vs. your morning thesis. Over 3–6 months, you'll start spotting your own blind spots — maybe you over-weight US cues, or ignore FII derivatives, or get spooked by VIX spikes. That feedback loop is where the real edge develops.
+
