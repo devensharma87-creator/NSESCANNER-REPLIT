@@ -81,3 +81,10 @@ The project is structured as a pnpm workspace monorepo, leveraging TypeScript 5.
 - **Business Standard**: News feed source (via RSS).
 - **Investing.com**: News feed source (via RSS).
 - **Google Fonts**: For typography (JetBrains Mono).
+
+# Recent Fixes (April 2026)
+
+- **ΔOI floating-point garbage** — Backend `kiteOptionChain.ts` now `Math.round`s the inferred `chgOi` value (OI counts whole contracts; eliminates IEEE-754 noise like `+268.6000000000006`). Frontend `fmtKL` / `fmtNum` defensively round small magnitudes as a safety net.
+- **OI Insights "all values zero" empty state** — When the broker returns strikes but every value in the active chart view (OI / OI Δ / PCR / pain) is zero (newly-listed contract, off-hours snapshot), the chart now shows a mode-specific explanatory message instead of an empty plot with axes only.
+- **Covered Call on indices** — Already guarded in `optionStrategies.ts` (commit `4ac9b94`); cash-settled indices return an explicit "needs ownership of the underlying" reason and surface in the unavailable-strategies section instead of synthesizing a fake long-stock leg that produced absurd Max Loss values like -₹15.43L on NIFTY.
+- **Quote-payload hardening** — `kiteOptionChain.ts` coerces non-finite `last_price` / `oi` / `net_change` from broker payloads to safe defaults so NaN never propagates to the IV solver, Greeks, or UI.

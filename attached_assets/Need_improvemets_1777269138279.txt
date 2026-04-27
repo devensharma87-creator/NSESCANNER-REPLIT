@@ -1,0 +1,208 @@
+We are facing multiple critical issues on the website that need to be investigated thoroughly and fixed on priority. The main concerns are related to missing data, incorrect market data, slow website response, and unreliable functionality across several tabs.
+
+Please review the issues below carefully, identify the root cause, fix the bugs, improve accuracy, and share a detailed status report after completion.
+
+Critical Issues to Fix
+1. Website Performance
+
+The website is responding very slowly. Pages, tabs, scanners, live data sections, and dashboards are taking too much time to load.
+
+Please check and optimize:
+
+Page load speed
+API response time
+Database queries
+Live data refresh speed
+Frontend performance
+Server-side bottlenecks
+Caching, if applicable
+
+The website should be fast, stable, and responsive during market hours.
+
+2. OI Lab Tab
+
+The OI Lab tab is not pulling strike prices properly.
+
+Please fix:
+
+Missing strike price data
+Incorrect or delayed OI data
+Data refresh issue
+Expiry-wise strike loading
+Call/Put OI display accuracy
+Any API or backend mapping issue
+3. Option Chain
+
+The Option Chain tab needs to be fixed urgently.
+
+Current issues:
+
+Data is not loading properly
+Strike prices are missing or incomplete
+Values are not reliable
+Data may not be refreshing correctly
+Accuracy needs improvement
+
+Please ensure the option chain shows correct and complete data for all required indices/stocks, expiries, strike prices, CE/PE data, OI, change in OI, volume, IV, LTP, bid/ask, and other required fields.
+
+4. Pre-Market / Post-Market Data
+
+The Pre/Post Market section is not showing correct details.
+
+Please fix:
+
+Incorrect pre-market data
+Missing post-market data
+Wrong values or delayed values
+Data refresh issue
+Source/API mismatch
+
+The data should be accurate, timely, and reliable.
+
+5. Live Feed
+
+The live feed is not pulling data properly.
+
+Please check:
+
+Live market data connection
+API/socket connectivity
+Data refresh interval
+Missing symbols
+Incorrect or delayed data
+Backend processing errors
+
+The live feed should work continuously and accurately during market hours.
+
+Tab-Wise Issues Requiring Attention
+Scanner Tab
+
+The Scanner tab is not showing all required data.
+
+Please fix:
+
+Missing data
+Incorrect filters
+Incomplete scanner results
+Delayed refresh
+Any mismatch between backend data and frontend display
+Deep Scan Tab
+
+The Deep Scan tab is also not showing all data.
+
+Please check:
+
+Full data loading
+Filter logic
+Data calculation logic
+Backend query/API issue
+Missing rows or columns
+F&O Intraday
+
+The F&O Intraday section needs more accuracy.
+
+Please review:
+
+Data source accuracy
+Calculation logic
+Real-time refresh
+Symbol coverage
+Entry/exit logic, if applicable
+Any mismatch with live market data
+Strategies Tab
+
+The Strategies tab needs to be fixed.
+
+Please check:
+
+Strategy calculations
+Strategy signals
+Display errors
+Incorrect or missing data
+Backend logic
+Accuracy of strategy output
+Watchlist Tab
+
+The Watchlist tab is not working properly.
+
+Please fix:
+
+Add/remove symbols
+Saved watchlist loading
+Live price updates
+User-specific watchlist data
+Any frontend/backend sync issue
+Sector Tab
+
+The Sector tab needs to be fixed.
+
+Please check:
+
+Sector-wise data accuracy
+Missing sector data
+Incorrect gainers/losers
+Real-time updates
+Mapping of stocks to sectors
+FII / DII Tab
+
+The FII/DII tab needs accurate and reliable data.
+
+Please fix and improve:
+
+Data source reliability
+Date-wise data accuracy
+Cash/F&O data, if applicable
+Missing or delayed updates
+Incorrect values
+Historical data display
+
+This section must be highly reliable because users depend on it for market analysis.
+
+To Watch Tab
+
+The To Watch tab needs more attention and improvement.
+
+Please make it:
+
+More content-rich
+More useful for users
+More accurate
+Better organized
+Updated with relevant market data
+Clear in terms of why a stock/index is listed
+
+Please review the logic behind this section and improve the quality of the content shown.
+
+Required Action from Your Side
+
+Please do a complete technical review of the website and fix all bugs related to:
+
+Data not loading
+Missing strike prices
+Incorrect option chain data
+Wrong pre-market/post-market data
+Live feed not working properly
+Slow website response
+Inaccurate scanner results
+Watchlist not working
+Unreliable FII/DII data
+Incorrect calculations or logic
+Poor tab performance
+Missing or incomplete frontend display
+Expected Deliverables
+
+Please share the following after your review and fixes:
+
+Root cause of each issue
+What exactly was fixed
+Which APIs/data sources are being used for each module
+Confirmation that all tabs have been tested during live market hours
+Screenshots or screen recording after fixes
+Any pending limitations, if any
+Timeline for completion
+Final testing report before deployment
+Priority
+
+This is urgent and needs immediate attention. The website is used for market data and analysis, so data accuracy, speed, and reliability are extremely important.
+
+Please treat this as a high-priority task and confirm once you start working on it.

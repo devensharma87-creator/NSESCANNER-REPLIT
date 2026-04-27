@@ -206,9 +206,12 @@ export async function fetchKiteOptionChain(
     const q = quoteMap.get(`NFO:${leg.tradingsymbol}`);
     if (!q) continue;
 
-    const ltp = q.last_price;
-    const oi = q.oi;
-    const netChg = q.net_change ?? 0;
+    // Defensive: a malformed broker payload could send NaN/Infinity for any of
+    // these numerics. Coerce non-finite values to safe defaults so downstream
+    // math (chgOi mapping, IV solver, Greeks) never propagates NaN to the UI.
+    const ltp    = Number.isFinite(q.last_price) ? q.last_price : 0;
+    const oi     = Number.isFinite(q.oi) ? q.oi : 0;
+    const netChg = Number.isFinite(q.net_change) ? q.net_change! : 0;
     // Kite getQuote doesn't give us yesterday's close OI directly, so we infer
     // intraday OI direction from where the live OI sits inside today's range
     // [oi_day_low, oi_day_high]. If OI is near the high, fresh positions are
@@ -228,8 +231,11 @@ export async function fetchKiteOptionChain(
     if (oiRange > 0 && oiNow > 0) {
       // pos ∈ [0, 1]: 0 = at day's low, 1 = at day's high
       const pos = Math.max(0, Math.min(1, (oiNow - oiLo) / oiRange));
-      // Map to signed magnitude: ±oiRange at the extremes, 0 at midpoint
-      chgOi = (pos - 0.5) * 2 * oiRange;
+      // Map to signed magnitude: ±oiRange at the extremes, 0 at midpoint.
+      // Round to integer — OI counts whole contracts, never fractions, so this
+      // also eliminates IEEE-754 float garbage like "+268.6000000000006" or
+      // "-99.99000000000004" surfacing in the UI.
+      chgOi = Math.round((pos - 0.5) * 2 * oiRange);
     }
 
     const optType = leg.instrument_type as "CE" | "PE";

@@ -109,7 +109,10 @@ function fmtNum(n: number | undefined | null, digits = 0): string {
   if (n == null || !Number.isFinite(n)) return "—";
   if (Math.abs(n) >= 1e7) return (n / 1e7).toFixed(2) + " Cr";
   if (Math.abs(n) >= 1e5) return (n / 1e5).toFixed(2) + " L";
-  if (Math.abs(n) >= 1e3) return n.toLocaleString("en-IN");
+  // Round whole-number magnitudes (OI, volume, contracts) before locale-format
+  // so any IEEE-754 noise from upstream math doesn't bleed through as
+  // "268.6000000000006".
+  if (Math.abs(n) >= 1e3) return Math.round(n).toLocaleString("en-IN");
   return n.toFixed(digits);
 }
 function fmtPct(n: number | undefined | null): string {
@@ -1236,7 +1239,35 @@ function InsightsTab() {
                     </ul>
                   </div>
                 </div>
-              ) : (
+              ) : (() => {
+                // The broker returned strikes but every CE/PE OI value is zero.
+                // Recharts would render an "empty" plot (axes + reference lines
+                // but no visible bars) — surface that explicitly so the chart
+                // doesn't look broken.
+                const allZero =
+                  (chartView === "oi"    && oiBars.every(r => (r.ceOi ?? 0) === 0 && (r.peOi ?? 0) === 0)) ||
+                  (chartView === "oichg" && oiBars.every(r => (r.ceOiChg ?? 0) === 0 && (r.peOiChg ?? 0) === 0)) ||
+                  (chartView === "pcr"   && oiBars.every(r => (r.pcr ?? 0) === 0)) ||
+                  (chartView === "pain"  && oiBars.every(r => (r.pain ?? 0) === 0));
+                if (allZero) {
+                  const metricLabel =
+                    chartView === "oichg" ? "intraday OI changes" :
+                    chartView === "pcr"   ? "put/call ratios" :
+                    chartView === "pain"  ? "pain values" :
+                                            "open interest values";
+                  return (
+                    <div className="h-80 flex flex-col items-center justify-center text-sm text-muted-foreground gap-2 px-6 text-center">
+                      <AlertTriangle className="w-6 h-6 opacity-50" />
+                      <div>Strikes loaded for <b>{underlying}</b>, but all {metricLabel} in this view are zero.</div>
+                      <div className="text-xs">
+                        This usually means the broker hasn't published this metric for this expiry yet
+                        (newly listed contract, weekend snapshot, or session just opened).
+                        Try a nearer expiry, switch the chart view above, or check back in a few minutes.
+                      </div>
+                    </div>
+                  );
+                }
+                return (
                 <ResponsiveContainer width="100%" height={360}>
                   <BarChart data={oiBars} barCategoryGap={2} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
@@ -1313,7 +1344,8 @@ function InsightsTab() {
                     )}
                   </BarChart>
                 </ResponsiveContainer>
-              )}
+                );
+              })()}
             </CardContent>
           </Card>
 
