@@ -130,7 +130,7 @@ export interface OcResponse {
 }
 
 // NSE endpoint dispatch
-const INDEX_SET = new Set(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50"]);
+const INDEX_SET = new Set(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "SENSEX", "BANKEX"]);
 
 interface NseRecord {
   records: {
@@ -161,9 +161,18 @@ interface NseLeg {
 
 const STRIKE_STEPS: Record<string, number> = {
   NIFTY: 50, BANKNIFTY: 100, FINNIFTY: 50, MIDCPNIFTY: 25,
+  NIFTYNXT50: 100, SENSEX: 100, BANKEX: 100,
 };
+// NSE-direct lot sizes for indices. Kite path reads `lot_size` directly from
+// the instruments dump (always current); these are the fallback used only
+// when the Kite session is inactive AND we're hitting NSE from an Indian IP.
+// Equity lots are not enumerated here — `chain.lotSize` will be `undefined`
+// for stocks under the NSE-direct path, which collapses Strategies' per-lot
+// rupee maths to per-share. That's a known fallback limitation; the Kite
+// path (the primary source) handles all symbols correctly.
 const LOT_SIZES: Record<string, number> = {
   NIFTY: 75, BANKNIFTY: 30, FINNIFTY: 65, MIDCPNIFTY: 140,
+  NIFTYNXT50: 25, SENSEX: 10, BANKEX: 15,
 };
 
 function normaliseExpiry(d: string): string {

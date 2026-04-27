@@ -445,7 +445,7 @@ export default function OptionChainPage() {
                 {showGreeks ? "Hide Greeks" : "Show Greeks (Δ Γ Θ V)"}
               </button>
               <span className="text-muted-foreground">
-                Black-Scholes · r=6.75% · IV solved from market price
+                Black-Scholes · r=6.75% · {chain?.source === "kite" ? "IV solved per leg from market price" : "IV from exchange feed"}
               </span>
               {/* Download — credentialed by cookie. Includes the active expiry
                   so the file matches what's currently on screen. */}
