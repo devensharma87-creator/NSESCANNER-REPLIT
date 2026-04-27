@@ -134,12 +134,26 @@ function SortHead({ k, label, sort, setSort, align = "right" }: { k: SortKey; la
   const active = sort.key === k;
   const Icon = !active ? ArrowUpDown : sort.dir === "desc" ? ArrowDown : ArrowUp;
   const click = () => setSort({ key: k, dir: active && sort.dir === "desc" ? "asc" : "desc" });
+  // For right-aligned columns we render [icon][label] (icon on the LEFT of the
+  // label) so the label's right edge sits flush with the data digits below it.
+  // The previous [label][icon] layout pushed the label ~16px left of every
+  // numeric value, making the header look misaligned with its column data.
   return (
     <button
       onClick={click}
-      className={`inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider hover:text-foreground transition-colors ${active ? "text-foreground" : "text-muted-foreground"} ${align === "right" ? "ml-auto" : ""}`}
+      className={`inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider hover:text-foreground transition-colors ${active ? "text-foreground" : "text-muted-foreground"}`}
     >
-      {label} <Icon className="w-3 h-3 opacity-70" />
+      {align === "right" ? (
+        <>
+          <Icon className="w-3 h-3 opacity-70" />
+          {label}
+        </>
+      ) : (
+        <>
+          {label}
+          <Icon className="w-3 h-3 opacity-70" />
+        </>
+      )}
     </button>
   );
 }
@@ -410,10 +424,21 @@ export default function ScannerPage() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <CardTitle className="text-base font-mono">
-                {stocksLoading
-                  ? `Loading first scan${universeEstimate > 0 ? ` of ~${universeEstimate.toLocaleString("en-IN")} stocks` : ""}…`
-                  : <>{sortedStocks.length.toLocaleString("en-IN")} stocks shown · universe = {mergedStocks.length.toLocaleString("en-IN")}{universeEstimate > mergedStocks.length ? ` of ${universeEstimate.toLocaleString("en-IN")}` : ""}</>
-                }
+                {(() => {
+                  if (stocksLoading) {
+                    return `Loading first scan${universeEstimate > 0 ? ` of ~${universeEstimate.toLocaleString("en-IN")} stocks` : ""}…`;
+                  }
+                  const fmt = (n: number) => n.toLocaleString("en-IN");
+                  const shown = sortedStocks.length;
+                  const scanned = mergedStocks.length;
+                  const universe = Math.max(universeEstimate, scanned);
+                  const filtered = shown < scanned;
+                  const stillScanning = scanned < universe;
+                  if (filtered && stillScanning) return `Showing ${fmt(shown)} of ${fmt(scanned)} scanned · ${fmt(universe)} in universe`;
+                  if (filtered) return `Showing ${fmt(shown)} of ${fmt(scanned)} stocks`;
+                  if (stillScanning) return `${fmt(scanned)} of ${fmt(universe)} stocks scanned`;
+                  return `All ${fmt(scanned)} stocks scanned`;
+                })()}
               </CardTitle>
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {SCREENS.map(p => (
