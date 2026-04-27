@@ -1440,24 +1440,33 @@ function InsightsTab() {
               <CardContent>
                 {!data ? <Skeleton className="h-32" /> : (
                   <ResponsiveContainer width="100%" height={140}>
-                    <BarChart data={[
-                      { name: "CALL", value: data.callOiAdded },
-                      { name: "PUT",  value: data.putOiAdded },
-                    ]}>
+                    {/*
+                      Two separate Bar series (one Call, one Put) keyed off the
+                      same single-row dataset so the tooltip naturally shows
+                      BOTH values together on hover with proper "Call ΔOI" /
+                      "Put ΔOI" labels — instead of a generic "value : N" entry
+                      that doesn't tell you which side the number belongs to.
+                    */}
+                    <BarChart data={[{ name: "OI Δ", call: data.callOiAdded, put: data.putOiAdded }]}>
                       <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                       <YAxis hide />
-                      <RTooltip contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }} formatter={(v: number) => fmtNum(v)} />
-                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                        <Cell fill={data.callOiAdded >= 0 ? "#dc2626" : "#fca5a5"} />
-                        <Cell fill={data.putOiAdded >= 0 ? "#16a34a" : "#86efac"} />
-                      </Bar>
+                      <RTooltip
+                        contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                        cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                        formatter={(v: number, name: string) => [fmtNum(v), name]}
+                        labelFormatter={() => "Intraday change"}
+                      />
+                      <Bar dataKey="call" name="Call ΔOI" radius={[4, 4, 0, 0]}
+                        fill={data.callOiAdded >= 0 ? "#dc2626" : "#fca5a5"} />
+                      <Bar dataKey="put" name="Put ΔOI" radius={[4, 4, 0, 0]}
+                        fill={data.putOiAdded >= 0 ? "#16a34a" : "#86efac"} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
                 {data && (
                   <div className="flex justify-between text-[10px] font-mono mt-1">
-                    <span className={data.callOiAdded >= 0 ? "text-red-400" : "text-red-300"}>{fmtNum(data.callOiAdded)}</span>
-                    <span className={data.putOiAdded  >= 0 ? "text-green-400" : "text-green-300"}>{fmtNum(data.putOiAdded)}</span>
+                    <span className={data.callOiAdded >= 0 ? "text-red-400" : "text-red-300"}>CALL {fmtNum(data.callOiAdded)}</span>
+                    <span className={data.putOiAdded  >= 0 ? "text-green-400" : "text-green-300"}>PUT {fmtNum(data.putOiAdded)}</span>
                   </div>
                 )}
               </CardContent>
@@ -1473,24 +1482,24 @@ function InsightsTab() {
               <CardContent>
                 {!data ? <Skeleton className="h-32" /> : (
                   <ResponsiveContainer width="100%" height={140}>
-                    <BarChart data={[
-                      { name: "CALL", value: data.totalCallOi },
-                      { name: "PUT",  value: data.totalPutOi  },
-                    ]}>
+                    <BarChart data={[{ name: "Total OI", call: data.totalCallOi, put: data.totalPutOi }]}>
                       <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                       <YAxis hide />
-                      <RTooltip contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }} formatter={(v: number) => fmtNum(v)} />
-                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                        <Cell fill="#dc2626" />
-                        <Cell fill="#16a34a" />
-                      </Bar>
+                      <RTooltip
+                        contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", fontSize: 11 }}
+                        cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                        formatter={(v: number, name: string) => [fmtNum(v), name]}
+                        labelFormatter={() => "Outstanding OI"}
+                      />
+                      <Bar dataKey="call" name="Call OI" radius={[4, 4, 0, 0]} fill="#dc2626" />
+                      <Bar dataKey="put"  name="Put OI"  radius={[4, 4, 0, 0]} fill="#16a34a" />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
                 {data && (
                   <div className="flex justify-between text-[10px] font-mono mt-1">
-                    <span className="text-red-400">{fmtNum(data.totalCallOi)}</span>
-                    <span className="text-green-400">{fmtNum(data.totalPutOi)}</span>
+                    <span className="text-red-400">CALL {fmtNum(data.totalCallOi)}</span>
+                    <span className="text-green-400">PUT {fmtNum(data.totalPutOi)}</span>
                   </div>
                 )}
               </CardContent>
