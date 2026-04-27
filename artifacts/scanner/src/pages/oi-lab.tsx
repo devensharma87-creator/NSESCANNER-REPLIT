@@ -854,6 +854,113 @@ const SENTIMENT_TONE: Record<SentimentBand, { color: string; bg: string; border:
   STRONGLY_BULLISH: { color: "#16a34a", bg: "bg-green-500/15", border: "border-green-500/40" },
 };
 
+/**
+ * Custom tooltip for the main "OI Insights" chart.
+ *
+ * Goal: when hovering a strike, show the same per-strike breakdown a trader
+ * would expect from a Sensibull-/StockMojo-style chart — open OI at market
+ * open (9:15 AM), intraday change, and current OI for both Call and Put,
+ * along with view-specific extras (PCR / Pain).
+ *
+ * Open OI is derived from the row itself:  openOi = currentOi − intradayΔ.
+ */
+type OiBarRow = {
+  strike: number;
+  strikeLabel: string;
+  ceOi: number;
+  peOi: number;
+  ceOiChg: number;
+  peOiChg: number;
+  pcr: number;
+  pain: number;
+  isAtm: boolean;
+};
+function OiInsightsTooltip(props: {
+  active?: boolean;
+  payload?: Array<{ payload: OiBarRow }>;
+  label?: string | number;
+  view: "oi" | "oichg" | "pcr" | "pain";
+  nowTime: string;
+}) {
+  const { active, payload, label, view, nowTime } = props;
+  if (!active || !payload || payload.length === 0) return null;
+  const row = payload[0].payload;
+  if (!row) return null;
+
+  const openCe = row.ceOi - row.ceOiChg;
+  const openPe = row.peOi - row.peOiChg;
+  const fmtSigned = (n: number): string => {
+    if (!Number.isFinite(n) || n === 0) return "0";
+    return (n > 0 ? "+" : "") + fmtNum(n);
+  };
+  const sign = (n: number): string =>
+    n === 0 ? "text-zinc-400" : n > 0 ? "text-emerald-300" : "text-rose-300";
+
+  const Row = ({
+    label: l,
+    value,
+    valueClass = "text-zinc-100",
+    dotClass,
+  }: {
+    label: string;
+    value: string;
+    valueClass?: string;
+    dotClass: string;
+  }) => (
+    <div className="flex items-center justify-between gap-6 py-[2px]">
+      <span className="flex items-center gap-1.5 text-zinc-300">
+        <span className={`inline-block w-2 h-2 rounded-full ${dotClass}`} />
+        {l}
+      </span>
+      <span className={`font-mono text-[11px] tabular-nums ${valueClass}`}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div
+      className="rounded-md border border-zinc-700 bg-zinc-950/95 px-3 py-2 shadow-xl"
+      style={{ minWidth: 220, fontSize: 11 }}
+    >
+      <div className="text-zinc-100 font-semibold text-xs mb-1.5 flex items-center gap-2">
+        Strike {label}
+        {row.isAtm && (
+          <span className="text-[9px] uppercase tracking-wide bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">ATM</span>
+        )}
+      </div>
+
+      {/* Put block — green */}
+      <div className="space-y-0">
+        <Row label="Put OI at 9:15 AM" value={fmtNum(openPe)} dotClass="bg-emerald-500" />
+        <Row label="Put OI chg"        value={fmtSigned(row.peOiChg)} valueClass={`font-mono tabular-nums ${sign(row.peOiChg)}`} dotClass="bg-emerald-500/60" />
+        <Row label={`Put OI at ${nowTime}`} value={fmtNum(row.peOi)} dotClass="bg-emerald-500" />
+      </div>
+
+      <div className="h-px bg-zinc-800 my-1.5" />
+
+      {/* Call block — red */}
+      <div className="space-y-0">
+        <Row label="Call OI at 9:15 AM" value={fmtNum(openCe)} dotClass="bg-rose-500" />
+        <Row label="Call OI chg"        value={fmtSigned(row.ceOiChg)} valueClass={`font-mono tabular-nums ${sign(-row.ceOiChg)}`} dotClass="bg-rose-500/60" />
+        <Row label={`Call OI at ${nowTime}`} value={fmtNum(row.ceOi)} dotClass="bg-rose-500" />
+      </div>
+
+      {/* View-specific extras */}
+      {view === "pcr" && (
+        <>
+          <div className="h-px bg-zinc-800 my-1.5" />
+          <Row label="PCR (this strike)" value={row.pcr.toFixed(2)} dotClass="bg-zinc-400" />
+        </>
+      )}
+      {view === "pain" && (
+        <>
+          <div className="h-px bg-zinc-800 my-1.5" />
+          <Row label="Total writer pain" value={fmtNum(row.pain)} dotClass="bg-orange-400" />
+        </>
+      )}
+    </div>
+  );
+}
+
 function InsightsTab() {
   const [universe, setUniverse] = useState<{ indices: string[]; stocks: string[]; source?: string; count?: number; note?: string }>({ indices: [], stocks: [] });
   const [underlying, setUnderlying] = useState("NIFTY");
@@ -1329,28 +1436,21 @@ function InsightsTab() {
                       allowDataOverflow={false}
                     />
                     <RTooltip
-                      // Explicit text colors are mandatory: the wrapper has a
-                      // near-black background and Recharts default item/label
-                      // text is dark, so the per-series rows ("Δ Call OI : N",
-                      // "Δ Put OI : N", "PCR : N", "Pain : N") were rendering
-                      // invisible on top of it — the tooltip box appeared but
-                      // looked empty (only the strike label showed because
-                      // `labelStyle` happened to inherit a light color from
-                      // the parent container). All four chartViews are fixed
-                      // by the same styling block below.
-                      contentStyle={{
-                        background: "#0a0a0a",
-                        border: "1px solid #27272a",
-                        borderRadius: 4,
-                        fontSize: 11,
-                        padding: "6px 10px",
-                      }}
-                      labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
-                      itemStyle={{ color: "#e4e4e7", padding: 0, lineHeight: 1.6 }}
                       cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                      labelFormatter={(label: string) => `Strike ${label}`}
-                      formatter={(v: number, name: string) =>
-                        chartView === "pcr" ? [v.toFixed(2), name] : [fmtNum(v), name]
+                      // Custom tooltip — shows full per-strike OI breakdown:
+                      // open OI (9:15 AM), intraday change, current OI for both
+                      // Call and Put, plus view-specific extras (PCR / Pain).
+                      // Open OI is computed inline as currentOi - intradayΔ.
+                      content={
+                        <OiInsightsTooltip
+                          view={chartView}
+                          nowTime={new Date(data.generatedAt).toLocaleTimeString("en-IN", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                            hour12: true,
+                            timeZone: "Asia/Kolkata",
+                          })}
+                        />
                       }
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
