@@ -22,11 +22,11 @@ interface Shloka {
 }
 
 const ACCENT: Record<Shloka["accent"], { ring: string; chip: string; glow: string; bullet: string }> = {
-  amber:   { ring: "ring-amber-400/30",   chip: "text-amber-300   bg-amber-500/10   border-amber-400/30",   glow: "shadow-amber-500/10",   bullet: "text-amber-300" },
-  rose:    { ring: "ring-rose-400/30",    chip: "text-rose-300    bg-rose-500/10    border-rose-400/30",    glow: "shadow-rose-500/10",    bullet: "text-rose-300" },
-  cyan:    { ring: "ring-cyan-400/30",    chip: "text-cyan-300    bg-cyan-500/10    border-cyan-400/30",    glow: "shadow-cyan-500/10",    bullet: "text-cyan-300" },
-  violet:  { ring: "ring-violet-400/30",  chip: "text-violet-300  bg-violet-500/10  border-violet-400/30",  glow: "shadow-violet-500/10",  bullet: "text-violet-300" },
-  emerald: { ring: "ring-emerald-400/30", chip: "text-emerald-300 bg-emerald-500/10 border-emerald-400/30", glow: "shadow-emerald-500/10", bullet: "text-emerald-300" },
+  amber:   { ring: "ring-amber-400/30",   chip: "text-amber-300   light:text-amber-800   bg-amber-500/10   light:bg-amber-500/15   border-amber-400/30   light:border-amber-600/40",   glow: "shadow-amber-500/10",   bullet: "text-amber-300   light:text-amber-700" },
+  rose:    { ring: "ring-rose-400/30",    chip: "text-rose-300    light:text-rose-800    bg-rose-500/10    light:bg-rose-500/15    border-rose-400/30    light:border-rose-600/40",    glow: "shadow-rose-500/10",    bullet: "text-rose-300    light:text-rose-700" },
+  cyan:    { ring: "ring-cyan-400/30",    chip: "text-cyan-300    light:text-cyan-800    bg-cyan-500/10    light:bg-cyan-500/15    border-cyan-400/30    light:border-cyan-700/40",    glow: "shadow-cyan-500/10",    bullet: "text-cyan-300    light:text-cyan-800" },
+  violet:  { ring: "ring-violet-400/30",  chip: "text-violet-300  light:text-violet-800  bg-violet-500/10  light:bg-violet-500/15  border-violet-400/30  light:border-violet-700/40",  glow: "shadow-violet-500/10",  bullet: "text-violet-300  light:text-violet-700" },
+  emerald: { ring: "ring-emerald-400/30", chip: "text-emerald-300 light:text-emerald-800 bg-emerald-500/10 light:bg-emerald-500/15 border-emerald-400/30 light:border-emerald-700/40", glow: "shadow-emerald-500/10", bullet: "text-emerald-300 light:text-emerald-700" },
 };
 
 // Centered shlok that sits directly beneath the hero (2.47).
@@ -204,26 +204,26 @@ export default function Manifesto() {
 
         {/* Hero — shloka */}
         <section className="text-center fade-up" style={{ animationDelay: "60ms" }}>
-          <div className="om-symbol mx-auto mb-4 text-amber-400/80 select-none" style={{ width: 56, height: 56, fontSize: 56, lineHeight: 1, fontFamily: '"Noto Serif Devanagari", serif' }}>
+          <div className="om-symbol mx-auto mb-4 text-amber-400/80 light:text-amber-700 select-none" style={{ width: 56, height: 56, fontSize: 56, lineHeight: 1, fontFamily: '"Noto Serif Devanagari", serif' }}>
             ॐ
           </div>
 
           <div
-            className="mx-auto max-w-3xl space-y-2 text-amber-100"
+            className="mx-auto max-w-3xl space-y-2 text-amber-100 light:text-amber-800"
             style={{ fontFamily: '"Noto Serif Devanagari", serif' }}
           >
-            <p className="shloka-line text-2xl sm:text-3xl md:text-4xl font-semibold leading-[1.6] text-amber-200">
-              कर्मण्येवाधिकारस्ते <span className="text-amber-300">मा</span> फलेषु कदाचन॥
+            <p className="shloka-line text-2xl sm:text-3xl md:text-4xl font-semibold leading-[1.6] text-amber-200 light:text-amber-800">
+              कर्मण्येवाधिकारस्ते <span className="text-amber-300 light:text-amber-700">मा</span> फलेषु कदाचन॥
             </p>
-            <p className="shloka-line text-2xl sm:text-3xl md:text-4xl font-semibold leading-[1.6] text-amber-200" style={{ animationDelay: "1s" }}>
+            <p className="shloka-line text-2xl sm:text-3xl md:text-4xl font-semibold leading-[1.6] text-amber-200 light:text-amber-800" style={{ animationDelay: "1s" }}>
               मा कर्मफलहेतुर्भूर्मा ते सङ्गोऽस्त्वकर्मणि॥
             </p>
           </div>
 
-          <div className="mt-5 inline-flex items-center gap-3 text-[11px] font-mono uppercase tracking-[0.3em] text-amber-300/80">
-            <span className="h-px w-10 bg-amber-300/40" />
+          <div className="mt-5 inline-flex items-center gap-3 text-[11px] font-mono uppercase tracking-[0.3em] text-amber-300/80 light:text-amber-700">
+            <span className="h-px w-10 bg-amber-300/40 light:bg-amber-700/50" />
             <span>Bhagavad Gītā · 2.47</span>
-            <span className="h-px w-10 bg-amber-300/40" />
+            <span className="h-px w-10 bg-amber-300/40 light:bg-amber-700/50" />
           </div>
 
           <p className="mt-4 max-w-2xl mx-auto text-sm sm:text-base italic text-foreground/75 leading-relaxed">
@@ -244,7 +244,7 @@ export default function Manifesto() {
           <div className="grid lg:grid-cols-2 gap-5 sm:gap-6">
             {/* Left column */}
             <div className="space-y-5">
-              <h3 className="text-center lg:text-left text-[11px] font-mono uppercase tracking-[0.35em] text-violet-300/80">
+              <h3 className="text-center lg:text-left text-[11px] font-mono uppercase tracking-[0.35em] text-violet-300/80 light:text-violet-700">
                 Inner Discipline
               </h3>
               {SHLOKAS_LEFT.map((s, i) => (
@@ -256,7 +256,7 @@ export default function Manifesto() {
 
             {/* Right column */}
             <div className="space-y-5">
-              <h3 className="text-center lg:text-left text-[11px] font-mono uppercase tracking-[0.35em] text-amber-300/80">
+              <h3 className="text-center lg:text-left text-[11px] font-mono uppercase tracking-[0.35em] text-amber-300/80 light:text-amber-700">
                 Equanimity in P&amp;L
               </h3>
               {SHLOKAS_RIGHT.map((s, i) => (
@@ -347,7 +347,7 @@ function ShlokaCard({ s, variant }: { s: Shloka; variant?: "center" }) {
             {s.number}
           </span>
           {s.title && (
-            <h4 className={`text-sm sm:text-base font-semibold italic ${isCenter ? "text-amber-200" : "text-foreground"} truncate`}>
+            <h4 className={`text-sm sm:text-base font-semibold italic ${isCenter ? "text-amber-200 light:text-amber-800" : "text-foreground"} truncate`}>
               {s.title}
             </h4>
           )}
@@ -365,7 +365,7 @@ function ShlokaCard({ s, variant }: { s: Shloka; variant?: "center" }) {
         {s.sanskrit.map((line, i) => (
           <p
             key={i}
-            className={`${isCenter ? "text-lg sm:text-xl md:text-2xl" : "text-base sm:text-lg"} font-semibold leading-[1.7] text-amber-200/95`}
+            className={`${isCenter ? "text-lg sm:text-xl md:text-2xl" : "text-base sm:text-lg"} font-semibold leading-[1.7] text-amber-200/95 light:text-amber-800`}
           >
             {line}
           </p>

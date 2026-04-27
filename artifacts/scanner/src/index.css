@@ -3,6 +3,7 @@
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant light (&:is(html.theme-light *));
 
 @theme inline {
   --color-background: hsl(var(--background));
