@@ -150,8 +150,11 @@ function evaluateTransition(
 
   // Step 2: if triggered (just now or earlier), check for stop / target hits.
   // Order of evaluation is unavoidably ambiguous within a single bar — we
-  // resolve conservatively: if a bar's range covers BOTH the stop and a
-  // target, we count the STOP first (worst-case for the trader).
+  // resolve conservatively WORST-CASE FOR THE TRADER: if a bar's range
+  // covers BOTH the locked stop and a target, the stop wins. This rule
+  // applies in BOTH the TRIGGERED and TARGET1_HIT states — a runner that
+  // already hit T1 can still get stopped if price retraces to the locked
+  // stop on the same or later bar (we do not auto-trail the stop on T1).
   const stopHit =
     direction === "BULLISH" ? lo <= stop : hi >= stop;
   const t1Hit =
@@ -159,7 +162,7 @@ function evaluateTransition(
   const t2Hit =
     direction === "BULLISH" ? hi >= target2 : lo <= target2;
 
-  if (stopHit && next !== "TARGET1_HIT" && next !== "TARGET2_HIT") {
+  if (stopHit) {
     return {
       next: "STOPPED",
       triggered,
@@ -387,16 +390,20 @@ export async function recordOrUpdate(
     // row's status hasn't been moved by a concurrent evaluator since we
     // read it. Without this guard, a stale evaluator could regress a
     // newer terminal state (e.g. overwrite STOPPED with TRIGGERED).
-    // If the conditional update touches 0 rows, that means another
-    // evaluator already advanced the row — fine, the next refresh
-    // (30s later) will re-read and reconcile.
     //
     // Excursion fields use SQL `GREATEST` so two concurrent evaluators
     // racing on the same row can never lower the persisted MFE/MAE.
     // (Without this, a stale read of MFE=10 in caller A and MFE=10 in
     // caller B, where B observes a 15-pt favourable move and writes 15
     // and A then writes 12, would leave 12 in the DB and lose the peak.)
-    await db
+    //
+    // Use `.returning()` so we can detect when the CAS guard rejected our
+    // write (row count == 0). If that happens, a concurrent evaluator (or
+    // the post-close sweep) already advanced the row — we MUST re-read
+    // the persisted state and return THAT to the caller, otherwise the
+    // card would render with our stale, locally computed `trans.next`
+    // until the next 30s poll.
+    const updated = await db
       .update(optionSignalHistoryTable)
       .set({
         status: trans.next,
@@ -423,7 +430,43 @@ export async function recordOrUpdate(
           // (e.g. T1 → T2) and clobber sweep semantics.
           sql`${optionSignalHistoryTable.exitedAt} IS NULL`,
         ),
-      );
+      )
+      .returning();
+
+    if (updated.length === 0) {
+      // Concurrent writer (or sweep) advanced the row first. Re-read and
+      // surface the persisted truth to the caller so the card never
+      // reports a stale transition we computed locally.
+      const fresh = await db
+        .select()
+        .from(optionSignalHistoryTable)
+        .where(
+          and(
+            eq(optionSignalHistoryTable.signalDate, date),
+            eq(optionSignalHistoryTable.indexSymbol, signal.index),
+            eq(optionSignalHistoryTable.setupKey, signal.setupKey),
+            eq(optionSignalHistoryTable.direction, direction),
+          ),
+        )
+        .limit(1);
+      const fr = fresh[0] ?? row;
+      return {
+        status: (fr.status as LifecycleStatus) ?? "PENDING",
+        firstSeenAt: fr.generatedAt,
+        triggeredAt: fr.triggeredAt ?? undefined,
+        exitedAt: fr.exitedAt ?? undefined,
+        exitReason: (fr.exitReason as LifecycleExitReason | null) ?? undefined,
+        exitPrice: fr.exitPrice != null ? num(fr.exitPrice) : undefined,
+        maxFavorableExcursionPts: round2(num(fr.maxFavorableExcursion)),
+        maxAdverseExcursionPts: round2(num(fr.maxAdverseExcursion)),
+        lastSpot: num(fr.lastSpot),
+        lockedEntry: num(fr.entry),
+        lockedStopLoss: num(fr.stopLoss),
+        lockedTarget1: num(fr.target1),
+        lockedTarget2: num(fr.target2),
+        lockedEntryTrigger: fr.entryTrigger,
+      };
+    }
 
     return {
       status: trans.next,

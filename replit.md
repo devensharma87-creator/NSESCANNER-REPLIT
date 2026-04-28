@@ -5,7 +5,7 @@ This project is a pnpm monorepo using TypeScript to develop a comprehensive stoc
 Key capabilities include:
 - Market Scanning: Comprehensive NSE/BSE stock scanner.
 - Options Analysis: Detailed option chain, Black-Scholes model, and OI insights.
-- Intraday Signals: F&O intraday signals for indices with confidence scoring.
+- Intraday Signals: F&O intraday signals for indices with confidence scoring and full lifecycle tracking (PENDING → TRIGGERED → TARGET1_HIT → TARGET2_HIT or → STOPPED, expired at 15:30 IST), persisted in `option_signal_history` so cards survive server restarts and a Today's Scoreboard tab shows win/loss.
 - Catalyst Tracking: "Stocks To Watch" feature identifying positive and negative catalysts from news feeds.
 - System Monitoring: Security audit and system status checks.
 - User Authentication: Secure, cookie-based authentication with rate limiting.
