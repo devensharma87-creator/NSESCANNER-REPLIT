@@ -72,12 +72,12 @@ function Router() {
       <Route path="/news" component={guarded(News, { tab: "NEWS" })} />
       <Route path="/learn" component={guarded(LearnPage, { tab: "LEARN" })} />
 
-      {/* Owner-only tabs */}
-      <Route path="/deep-scan" component={guarded(DeepScan, { ownerOnly: true })} />
-      <Route path="/options" component={guarded(Options, { ownerOnly: true })} />
-      <Route path="/strategies" component={guarded(Strategies, { ownerOnly: true })} />
-      <Route path="/sectors" component={guarded(Sectors, { ownerOnly: true })} />
-      <Route path="/sectors/:sector" component={guarded(SectorDetail, { ownerOnly: true })} />
+      {/* Subscriber-grantable tabs (owner can grant via /admin) */}
+      <Route path="/deep-scan" component={guarded(DeepScan, { tab: "DEEP_SCAN" })} />
+      <Route path="/options" component={guarded(Options, { tab: "FNO" })} />
+      <Route path="/strategies" component={guarded(Strategies, { tab: "STRATEGIES" })} />
+      <Route path="/sectors" component={guarded(Sectors, { tab: "SECTORS" })} />
+      <Route path="/sectors/:sector" component={guarded(SectorDetail, { tab: "SECTORS" })} />
       <Route path="/kite" component={guarded(KitePage, { ownerOnly: true })} />
       <Route path="/audit" component={guarded(AuditPage, { ownerOnly: true })} />
       <Route path="/status" component={guarded(StatusPage, { ownerOnly: true })} />

@@ -4,10 +4,9 @@
  *
  *   - Owner: always allowed.
  *   - Subscriber: allowed iff page's tab key is in their allowedTabs.
- *   - Pages without a tab key (owner-only routes like /admin, /deep-scan,
- *     /options, /strategies, /sectors, /kite, /audit, /status, /manifesto,
- *     /stock/:symbol, /index/:slug) require owner role unless explicitly
- *     opted in via the `allowSubscriberDetail` prop.
+ *   - Pages without a tab key (owner-only routes like /admin, /kite, /audit,
+ *     /status, /manifesto, /stock/:symbol, /index/:slug) require owner role
+ *     unless explicitly opted in via the `allowSubscriberDetail` prop.
  *
  * Subscribers hitting a forbidden URL see a "not in your plan" screen with a
  * link back to Home — it's a hard backend gate too, but this gives a friendly

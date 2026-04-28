@@ -9,13 +9,22 @@
 
 const apiUrl = (path: string) => `${import.meta.env.BASE_URL}api${path}`;
 
+// Mirror of `ALLOWED_TAB_KEYS` in `lib/db/src/schema/users.ts`. Kept as a
+// hand-maintained copy so the frontend bundle does not have to import the
+// drizzle/pg packages just for a string list. If you add a key here, add it
+// to the schema too (and vice-versa) — the admin PATCH endpoint validates
+// against the schema list, so a mismatch silently drops grants.
 export const ALLOWED_TAB_KEYS = [
   "HOME",
   "SCANNER",
+  "DEEP_SCAN",
+  "FNO",
+  "STRATEGIES",
   "OPTION_CHAIN",
   "OI_LAB",
-  "WATCHLIST",
   "PREMARKET",
+  "WATCHLIST",
+  "SECTORS",
   "FLOWS",
   "STOCKS_TO_WATCH",
   "NEWS",
@@ -27,10 +36,14 @@ export type AllowedTabKey = (typeof ALLOWED_TAB_KEYS)[number];
 export const TAB_PATH: Record<AllowedTabKey, string> = {
   HOME: "/",
   SCANNER: "/scanner",
+  DEEP_SCAN: "/deep-scan",
+  FNO: "/options",
+  STRATEGIES: "/strategies",
   OPTION_CHAIN: "/option-chain",
   OI_LAB: "/oi-lab",
-  WATCHLIST: "/watchlist",
   PREMARKET: "/premarket",
+  WATCHLIST: "/watchlist",
+  SECTORS: "/sectors",
   FLOWS: "/flows",
   STOCKS_TO_WATCH: "/stocks-to-watch",
   NEWS: "/news",

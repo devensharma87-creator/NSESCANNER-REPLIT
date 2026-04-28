@@ -27,16 +27,28 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Allowed tab keys = the 10 tabs subscribers may be granted.
- * Mirrored on the frontend in `lib/tab-access.ts`. Keep the two in sync.
+ * Allowed tab keys = every subscriber-grantable tab.
+ *
+ * Owner-only / internal tabs (Live Feed `/kite`, Audit, Status, the Admin
+ * page itself) are deliberately excluded — they are surfaced exclusively
+ * to the site owner via the `ownerOnly` flag in the frontend nav and the
+ * `requireOwner` middleware on the corresponding API routes.
+ *
+ * Labels for these keys live in the admin UI (`pages/admin.tsx`
+ * TAB_LABELS) and the navigation list (`components/layout.tsx`). Keep
+ * those two surfaces aligned with this list whenever it grows or shrinks.
  */
 export const ALLOWED_TAB_KEYS = [
   "HOME",
   "SCANNER",
+  "DEEP_SCAN",
+  "FNO",
+  "STRATEGIES",
   "OPTION_CHAIN",
   "OI_LAB",
-  "WATCHLIST",
   "PREMARKET",
+  "WATCHLIST",
+  "SECTORS",
   "FLOWS",
   "STOCKS_TO_WATCH",
   "NEWS",

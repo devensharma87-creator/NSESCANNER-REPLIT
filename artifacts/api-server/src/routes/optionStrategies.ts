@@ -3,14 +3,15 @@ import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics, type OptionAnalytics } from "../lib/optionAnalytics";
 import { buildStrategies, type StrategyBundle } from "../lib/optionStrategies";
 import { getActiveSession } from "../lib/kiteAuth";
-import { requireOwner } from "../lib/userAuth";
+import { requireSubscriberOrOwner } from "../lib/userAuth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-// Strategies tab is owner-only.
+// Strategies tab is gated by the STRATEGIES tab — owner always allowed, plus
+// active subscribers granted the tab via /admin/users.
 // Path-scoped to /options/strategies/* (only route in this router).
-router.use("/options/strategies", requireOwner);
+router.use("/options/strategies", requireSubscriberOrOwner("STRATEGIES"));
 
 // ─── Bundle-level cache ─────────────────────────────────────────────────────
 // Building 13 strategies × Black-Scholes × 201 payoff samples × IV solver

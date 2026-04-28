@@ -13,7 +13,7 @@ import {
   ListSectorsResponse,
   ListStocksResponse,
 } from "@workspace/api-zod";
-import { requireOwner } from "../lib/userAuth";
+import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground } from "../lib/scanner";
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
@@ -193,7 +193,7 @@ router.get("/market/trend", async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get("/options/signals", requireOwner, async (_req, res, next) => {
+router.get("/options/signals", requireSubscriberOrOwner("FNO"), async (_req, res, next) => {
   try {
     const { signals, diagnostics } = await getOptionSignals();
     const now = new Date();
@@ -208,7 +208,7 @@ router.get("/options/signals", requireOwner, async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get("/options/signal-history", requireOwner, async (_req, res, next) => {
+router.get("/options/signal-history", requireSubscriberOrOwner("FNO"), async (_req, res, next) => {
   try {
     // Best-effort sweep so the scoreboard reflects after-close expirations
     // even if no live request hit /options/signals after 15:30 IST.
@@ -227,7 +227,7 @@ router.get("/options/signal-history", requireOwner, async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get("/sectors", requireOwner, async (_req, res, next) => {
+router.get("/sectors", requireSubscriberOrOwner("SECTORS"), async (_req, res, next) => {
   try {
     const rows = await scanAll();
     const grouped = new Map<string, typeof rows>();
@@ -260,7 +260,7 @@ router.get("/sectors", requireOwner, async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get("/sectors/:sector", requireOwner, async (req, res, next) => {
+router.get("/sectors/:sector", requireSubscriberOrOwner("SECTORS"), async (req, res, next) => {
   try {
     const sectorParam = String(req.params["sector"] ?? "");
     const rows = await scanAll();
