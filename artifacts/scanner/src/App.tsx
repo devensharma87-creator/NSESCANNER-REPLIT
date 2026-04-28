@@ -9,6 +9,7 @@ import { LoginGate } from "@/components/login-gate";
 import { AccessGuard } from "@/components/access-guard";
 import { ErrorBoundary } from "@/components/error-boundary";
 import Layout from "@/components/layout";
+import { OptionSignalAlerter } from "@/components/option-signal-alerter";
 import Home from "@/pages/dashboard";
 import Scanner from "@/pages/scanner";
 import IndicesRedirect from "@/pages/indices";
@@ -117,6 +118,7 @@ function App() {
               <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
                 <RoutedShell />
               </WouterRouter>
+              <OptionSignalAlerter />
             </LoginGate>
           </AuthProvider>
         </ErrorBoundary>
