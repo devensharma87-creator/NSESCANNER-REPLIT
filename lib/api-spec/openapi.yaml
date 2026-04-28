@@ -214,6 +214,69 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/OptionSignalHistorySet" }
 
+  /paper/account:
+    get:
+      operationId: getPaperAccount
+      tags: [paper]
+      summary: "Owner-only paper trading account state for one segment."
+      parameters:
+        - in: query
+          name: segment
+          required: true
+          schema: { type: string, enum: [FNO, EQUITY] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperAccountState" }
+
+  /paper/positions/fo:
+    get:
+      operationId: getPaperPositionsFO
+      tags: [paper]
+      summary: "Owner-only list of currently OPEN F&O paper positions with live MTM."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperPositionsFOResponse" }
+
+  /paper/trades/fo:
+    get:
+      operationId: getPaperTradesFO
+      tags: [paper]
+      summary: "Owner-only list of CLOSED F&O paper trades for a given IST date."
+      parameters:
+        - in: query
+          name: date
+          required: false
+          schema: { type: string, description: "IST date YYYY-MM-DD; defaults to today." }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperTradesFOResponse" }
+
+  /paper/positions/fo/{id}/close:
+    post:
+      operationId: closePaperPositionFO
+      tags: [paper]
+      summary: "Owner-only manual force-exit of an OPEN F&O paper position at last known premium."
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, description: "paper_trade_fo.id (uuid)" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperTradeFOClosed" }
+
   /options/chain/{underlying}:
     get:
       operationId: getOptionChain
@@ -1697,4 +1760,132 @@ components:
         strategies:
           type: array
           items: { $ref: "#/components/schemas/OptionStrategy" }
+        generatedAt: { type: string, format: date-time }
+
+    PaperAccountState:
+      type: object
+      required:
+        - segment
+        - seedCapital
+        - balance
+        - dayRealizedPnl
+        - dayOpenCount
+        - dayTradeCount
+        - lastResetDate
+        - dailyTradeCap
+        - maxLossPctPerTrade
+      properties:
+        segment:           { type: string, enum: [FNO, EQUITY] }
+        seedCapital:       { type: number, description: "Starting / refill capital in INR." }
+        balance:           { type: number, description: "Live cash balance after debits/credits." }
+        dayRealizedPnl:    { type: number, description: "Realized P&L (INR) accumulated since last daily reset." }
+        dayOpenCount:      { type: integer, description: "Number of trades currently OPEN today." }
+        dayTradeCount:     { type: integer, description: "Number of trades opened so far today (cap counter)." }
+        lastResetDate:     { type: string, description: "IST date YYYY-MM-DD of the last daily reset." }
+        dailyTradeCap:     { type: integer, description: "Hard cap on opens/day for this segment." }
+        maxLossPctPerTrade: { type: number, description: "Max % of balance risked per trade (e.g. 0.02 = 2%)." }
+
+    PaperTradeFOPosition:
+      type: object
+      required:
+        - id
+        - signalDate
+        - indexSymbol
+        - indexName
+        - setupKey
+        - direction
+        - optionType
+        - strike
+        - lots
+        - lotSize
+        - entryPremium
+        - stopPremium
+        - target1Premium
+        - target2Premium
+        - capitalDeployed
+        - lastPremium
+        - unrealizedPnl
+        - openedAt
+        - lastEvaluatedAt
+        - status
+      properties:
+        id:              { type: string }
+        signalDate:      { type: string }
+        indexSymbol:     { type: string }
+        indexName:       { type: string }
+        setupKey:        { type: string }
+        direction:       { type: string, enum: [BULLISH, BEARISH] }
+        optionType:      { type: string, enum: [CALL, PUT] }
+        strike:          { type: number }
+        lots:            { type: integer }
+        lotSize:         { type: integer }
+        entryPremium:    { type: number }
+        stopPremium:     { type: number }
+        target1Premium:  { type: number }
+        target2Premium:  { type: number }
+        capitalDeployed: { type: number, description: "INR cost (lots × lotSize × entryPremium)." }
+        lastPremium:     { type: number, description: "Most recent observed option premium for MTM." }
+        unrealizedPnl:   { type: number, description: "(lastPremium − entryPremium) × lots × lotSize." }
+        maxRunup:        { type: number, description: "Highest unrealized P&L observed for this position." }
+        maxDrawdown:     { type: number, description: "Lowest unrealized P&L observed for this position (≤ 0)." }
+        openedAt:        { type: string, format: date-time }
+        lastEvaluatedAt: { type: string, format: date-time }
+        status:          { type: string, enum: [OPEN] }
+
+    PaperTradeFOClosed:
+      type: object
+      required:
+        - id
+        - signalDate
+        - indexSymbol
+        - indexName
+        - setupKey
+        - direction
+        - optionType
+        - strike
+        - lots
+        - lotSize
+        - entryPremium
+        - exitPremium
+        - capitalDeployed
+        - realizedPnl
+        - exitReason
+        - openedAt
+        - exitedAt
+      properties:
+        id:              { type: string }
+        signalDate:      { type: string }
+        indexSymbol:     { type: string }
+        indexName:       { type: string }
+        setupKey:        { type: string }
+        direction:       { type: string, enum: [BULLISH, BEARISH] }
+        optionType:      { type: string, enum: [CALL, PUT] }
+        strike:          { type: number }
+        lots:            { type: integer }
+        lotSize:         { type: integer }
+        entryPremium:    { type: number }
+        exitPremium:     { type: number }
+        capitalDeployed: { type: number }
+        realizedPnl:     { type: number }
+        exitReason:      { type: string, enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED, MANUAL_OVERRIDE] }
+        openedAt:        { type: string, format: date-time }
+        exitedAt:        { type: string, format: date-time }
+
+    PaperPositionsFOResponse:
+      type: object
+      required: [positions, generatedAt]
+      properties:
+        positions:
+          type: array
+          items: { $ref: "#/components/schemas/PaperTradeFOPosition" }
+        generatedAt: { type: string, format: date-time }
+
+    PaperTradesFOResponse:
+      type: object
+      required: [date, trades, generatedAt]
+      properties:
+        date:        { type: string, description: "IST trading date YYYY-MM-DD" }
+        trades:
+          type: array
+          items: { $ref: "#/components/schemas/PaperTradeFOClosed" }
         generatedAt: { type: string, format: date-time }

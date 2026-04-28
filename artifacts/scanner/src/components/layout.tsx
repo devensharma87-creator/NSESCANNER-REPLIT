@@ -133,6 +133,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       "/status": "Status",
       "/audit": "Audit",
       "/kite": "Live Feed",
+      "/paper-trading": "Paper Trading",
       "/learn": "Learn",
     };
     let label = titles[location];
@@ -203,6 +204,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 { href: "/learn", label: "Learn", isActive: l => l.startsWith("/learn"), tab: "LEARN" },
                 { href: "/audit", label: "Audit", isActive: l => l.startsWith("/audit"), ownerOnly: true },
                 { href: "/status", label: "Status", isActive: l => l.startsWith("/status"), ownerOnly: true },
+                { href: "/paper-trading", label: "Paper", isActive: l => l.startsWith("/paper-trading"), ownerOnly: true },
               ];
               const tabs = allTabs.filter(t => {
                 if (role === "owner") return true;

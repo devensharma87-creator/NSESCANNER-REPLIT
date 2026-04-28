@@ -3,12 +3,12 @@
 This project is a pnpm monorepo using TypeScript to develop a comprehensive stock market scanner and analysis platform for the Indian market, featuring an Express API backend and a React + Vite frontend. It aims to provide real-time market insights, including NSE/BSE tracking, options chain analysis, F&O intraday signals, and stock-specific catalysts, for traders and investors.
 
 Key capabilities include:
-- Market Scanning: Comprehensive NSE/BSE stock scanner.
-- Options Analysis: Detailed option chain, Black-Scholes model, and OI insights.
-- Intraday Signals: F&O intraday signals for indices with confidence scoring and full lifecycle tracking (PENDING → TRIGGERED → TARGET1_HIT → TARGET2_HIT or → STOPPED, expired at 15:30 IST), persisted in `option_signal_history` so cards survive server restarts and a Today's Scoreboard tab shows win/loss.
-- Catalyst Tracking: "Stocks To Watch" feature identifying positive and negative catalysts from news feeds.
-- System Monitoring: Security audit and system status checks.
-- User Authentication: Secure, cookie-based authentication with rate limiting.
+- **Market Scanning**: Comprehensive NSE/BSE stock scanner with full NSE coverage and real daily indicators.
+- **Options Analysis**: Detailed option chain, Black-Scholes model, OI insights, and advanced option strategy building.
+- **Intraday Signals**: F&O intraday signals for indices with confidence scoring and full lifecycle tracking.
+- **Catalyst Tracking**: "Stocks To Watch" feature identifying positive and negative catalysts from news feeds.
+- **System Monitoring**: Security audit and system status checks.
+- **User Authentication**: Secure, cookie-based authentication with role-based access for owners and subscribers.
 
 # User Preferences
 
@@ -23,12 +23,11 @@ The project is structured as a pnpm workspace monorepo, utilizing TypeScript 5.9
 - **Theming**: Supports Dark, Light, and Ocean themes with `localStorage` persistence.
 - **Typography**: Uses JetBrains Mono for monospaced elements.
 - **Design Elements**: Softened card corners and theme-safe hover states.
-- **Layout**: Dynamic header navigation, responsive search bar, and full-width layouts for analytical pages.
+- **Layout**: Dynamic header navigation, responsive search bar, full-width layouts, and dynamic grid layouts for data tables.
 - **Accessibility**: Includes `sr-only` inputs and `autoComplete` attributes.
 - **Error Handling**: Top-level `ErrorBoundary` for robust UI error management.
 - **Page Titles**: Dynamic `document.title` updates based on the current route.
-- **Scanner Fit-to-Viewport**: Dynamic grid layout for the full NSE table to auto-fit various viewport widths, ensuring alignment and readability.
-- **Manifesto Page Contrast**: Implemented light-mode specific styling to ensure readability of text elements previously tuned for dark backgrounds.
+- **Manifesto Page Contrast**: Implemented light-mode specific styling for readability.
 
 ## Technical Implementations
 
@@ -37,48 +36,38 @@ The project is structured as a pnpm workspace monorepo, utilizing TypeScript 5.9
 - **Validation**: Zod (v4) for schema validation, integrated with `drizzle-zod`.
 - **API Codegen**: Orval generates API hooks and Zod schemas from OpenAPI specifications.
 - **Build System**: esbuild for bundling packages.
-- **Authentication**: HMAC-SHA256 signed HttpOnly session cookies with rate limiting.
-  - Two cookie identities share one `scanner_session` cookie name: site **owner** (cookie value `"owner"`/legacy `"ok"`, set by `APP_ACCESS_PASSWORD` login at `POST /api/auth/login`) and **subscriber** (cookie value `"u:<userId>"`, set by `POST /api/auth/user-login` after `POST /api/auth/signup`). `lib/userAuth.ts#getSession` decodes the cookie into a `{role:"owner"} | {role:"subscriber",userId}` discriminated union.
-  - The global `requireAuth` gate in `lib/auth.ts` is async and enforces a single live status check on every `/api/*` request: owner cookie → pass without DB hit; subscriber cookie → DB lookup, active → pass, pending/suspended/expired → 403 with `ACCOUNT_<STATE>` code, missing user row → 401 `USER_GONE`. This is the single chokepoint — putting an active-status middleware on individual sub-routers caused sibling `/api/auth/*` 401 bleed (Express runs `router.use(middleware)` without a path against EVERY parent request).
-  - All five owner-only sub-routers (`admin.ts`, `deepscan.ts`, `optionStrategies.ts`, `system.ts`, `kite.ts`) MUST scope `requireOwner` with a path prefix, e.g. `router.use("/admin", requireOwner)` — never `router.use(requireOwner)` because that intercepts everything when mounted via the unprefixed parent `router.use(subRouter)` pattern in `routes/index.ts`.
-- **Subscriber accounts (Rs 5500/year, manual owner verification)**:
-  - Schema in `lib/db/src/schema/users.ts`: `usersTable` (status pending/active/suspended/expired, allowedTabs text[], denormalised payment fields amountPaise/paidAt/paymentRef/notes/subscriptionStartedAt/subscriptionExpiresAt) + `personalWatchlistTable` (composite PK `(ownerKey, symbol)`, ownerKey is opaque `"owner"` or `"u:<id>"` so site owner and subscribers share storage without a NULL FK).
-  - 14 subscriber-grantable tab keys: HOME, SCANNER, DEEP_SCAN, FNO, STRATEGIES, OPTION_CHAIN, OI_LAB, PREMARKET, WATCHLIST, SECTORS, FLOWS, STOCKS_TO_WATCH, NEWS, LEARN. Owner-only / internal tabs (Live Feed `/kite`, Audit, Status, Admin) deliberately excluded — gated by `requireOwner` only. List mirrored in frontend `lib/auth-api.ts`; the schema list at `lib/db/src/schema/users.ts` is the source of truth.
-  - Owner manages users via `/api/admin/users` (list/detail/PATCH/DELETE); PATCH `allowedTabs` rejects with HTTP 400 if any key is not in the canonical list (no silent dropping).
-  - Frontend: `hooks/use-auth.tsx` provides AuthProvider context; `components/access-guard.tsx` gates routes by allowedTabs; `components/login-gate.tsx` offers owner password OR subscriber email/password OR signup; `pages/admin.tsx` is the owner UI; `pages/watchlist.tsx` Personal tab uses `/api/personal-watchlist` GET/POST/DELETE.
+- **Authentication**: HMAC-SHA256 signed HttpOnly session cookies with rate limiting and role-based access control for owners and subscribers.
 - **Security Headers**: Helmet applies a tight production CSP, Cross-Origin-Opener-Policy, and Referrer-Policy.
 - **CORS**: Environment-configured allowlist with strict production defaults.
-- **Frontend API Client**: TanStack-Query custom fetcher defaults to `credentials: "include"` for authentication.
-- **Scoring Robustness**: Recommendation scorer avoids synthetic defaults for missing indicators, ensuring scores reflect only real evidence. Stop-loss logic prevents inversion on fast market movements. Max-pain ties are broken deterministically.
-- **Market Data Providers**: Primary reliance on Yahoo, with `lib/dataProvider.ts` designed for switching to Zerodha Kite.
-- **Option Chain**: Orchestrates data from Kite Connect (primary) and NSE direct (fallback) with a 15s response cache. Includes Black-Scholes model for analytical payoff calculations and Greeks, and handles covered call logic for indices.
-- **Option Strategies**: Builds 11 strategy templates against the live chain, providing distributional summaries, probabilistic R:R, and capital requirements. Headline Max Profit/Loss and the realistic R:R suffix are anchored to the **±2σ expected-move window by expiry** (lognormal stdev × spot, doubled), not the chart range — a Long Put now reports a tradeable ~₹55K instead of the misleading ~₹180K chart-edge or ₹1.86M theoretical-at-S=0; bounded strategies (verticals, condors) automatically resolve back to their analytical max because the 2σ window envelops every kink. Theoretical extremum is shown only when within 10× of realistic.
-- **F&O Intraday Signals**: Uses 4 detectors (Trend Continuation, VWAP Reclaim, Volume Breakout, EMA Pullback) with a Baseline Outlook fallback.
-- **F&O Signal Lifecycle Tracking**: Persists and re-evaluates intraday signals against latest bar data, tracking status (PENDING, TRIGGERED, TARGET_HIT, STOPPED, EXPIRED) and MFE/MAE.
-- **F&O Option-Premium Projection**: Every CE/PE card shows a second levels grid with the chosen strike's live LTP plus delta-projected entry/T1/T2/SL on the option premium itself (`optionEntry = LTP + δ×(spotEntry−spot)`, then `optionT1/SL = optionEntry + δ×(spotT1/SL − spotEntry)`, floored at ₹0.05). Sign cancels for puts (δ<0), so the same formula works for both directions. Enrichment runs AFTER lifecycle merge so the option math always derives from the locked spot levels the UI shows. Falls back to a visible inline notice when the broker/NSE chain is unreachable.
-- **F&O Trigger Toast (top-right)**: When any CE/PE signal flips into TRIGGERED (or jumps straight to T1/T2 between polls), a top-right toast pops with the index, BUY direction, strike, setup name, spot levels, and projected option premium plan. Dedupes via a localStorage seen-set keyed on `date|index|setupKey|bias` (capped at 500 entries) so the same trigger never re-fires across the 30-second poll cycle or page reloads.
-- **Home tab (merged Dashboard + Indices)**: The legacy "Dashboard" (`/`) and "Indices" (`/indices`) tabs were merged into a single "Home" tab. `/indices` now redirects to `/`. The page sections in order: (1) **Markets fact-pack** — the rich indices/commodities/ADR/FX board (`components/indices-board.tsx`, embedded with `embedded` prop), (2) Trend overview + Market Mood gauge, (3) Top Gainers / Top Losers, (4) Top Bullish / Bearish setups, (5) Browse-full-scanner CTA. The legacy `KeyIndicesCards` and `MarketsTabs` components were deleted — their data is fully covered by IndicesBoard with no duplication.
-- **Indices Board (instrument catalog)**: 27 instruments across 5 categories, served by `getIndicesBoard()` and consumed by both the embedded board on Home and the legacy `/indices` URL. Categories — **INDIA** (5: NIFTY 50, BANK NIFTY, FIN NIFTY, MIDCAP NIFTY, SENSEX), **GLOBAL** (10: GIFT NIFTY proxy + S&P 500, NASDAQ, Dow Jones, FTSE 100, DAX, Nikkei 225, Hang Seng, Shanghai Composite, VIX), **COMMODITY** (4: Gold, Silver, WTI Crude, Brent), **ADR** (6: INFY, HDB, IBN, WIT, RDY, MMYT), **FX** (2: USD/INR, Dollar Index). Per instrument the card shows live LTP / OHLC / change & %, day-range bar, 52w-range bar, prev day OHLC, daily-close EMAs (9/20/50/100/200), session VWAP, market profile (VAH/VAL/POC) and a horizontal pivot ladder (S3..R3 with LTP marker + nearest-level callout). Indian-index LTPs prefer the live Kite session when authenticated; otherwise Yahoo (~15 min delayed) with a visible "delayed" pill. The category enum (`INDIA | GLOBAL | COMMODITY | ADR | FX`) is mirrored across backend type, OpenAPI schema and frontend SECTIONS array — keep all three in sync. Backend lib `indicesBoard.ts` caches the full snapshot for 10 s, fans out daily + intraday Yahoo fetches per instrument in parallel, and surfaces partial-data notes when a chart fetch returns insufficient bars (no synthetic placeholders). The grid uses an auto-fill responsive layout (`minmax(min(420px,100%),1fr)`) that always uses the full screen width, scaling from 1 column on mobile up to 5+ columns on 4K monitors.
-- **GIFT NIFTY proxy convention**: GIFT NIFTY trades on NSE IFSC and isn't carried under any public Yahoo ticker (verified via probes of `GIFTNIFTY=F`, `GNIFTY`, `^GIFT`, `NIFTY=F`, `SGXNIFTY`, `GIFTNIFTY.NS`, etc. — all return "symbol may be delisted"). Standard Kite Connect doesn't include NSE-IFSC instruments either. The catalog uses `^NSEI` (NIFTY 50 spot) as the closest available proxy with a `proxyNote` disclosure shown in the card. Same convention as the legacy MarketsTabs which already showed it this way. Swap to a paid IFSC feed if/when one is wired up.
-- **Indices Tab — MIDCPNIFTY proxy convention**: The F&O underlying "Nifty Midcap Select" (Yahoo `NIFTY_MID_SELECT.NS`, Kite `NSE:NIFTY MID SELECT`) returns only a single live tick from Yahoo — no historical bars. The instrument config supports a separate `yahooDaily` field so live LTP / intraday / VWAP / market profile come from the exact underlying ticker, while EMAs / 52w extrema / pivots use the closest historical proxy (`^NSEMDCP50`, Nifty Midcap 50). The row's `prevClose` (and therefore `change` / `changePercent`) is overridden from the live ticker's `chartPreviousClose` so the headline performance reflects the actual underlying, and a `proxyNote` is appended to the row's `notes` array so the UI can disclose the proxy source honestly. When a Kite session is active, the Kite quote takes precedence over both.
-- **Yahoo `yahooTickerFor` futures/FX support**: The ticker resolver now treats Yahoo futures (`*=F` like `GC=F`, `CL=F`, `BZ=F`, `SI=F`) and FX (`*=X` like `INR=X`) as fully-qualified symbols and skips the `.NS` suffix append — previously they were getting `.NS` tacked on and silently failing daily-chart fetches. Required for the Indices Tab commodities to populate daily EMAs / pivots.
-- **Strategies — Long Put "Unbounded" convention**: Mathematically the Long Put payoff is bounded at S=0 by `(strike − premium) × lot` (a huge but finite number), which the analytic slope detector correctly classifies as a flat-tail bounded strategy. Per trader convention ("buying a call or a put = unlimited profit, max loss = premium paid") the snapshot now overrides `maxProfit = null` for `LONG_PUT` so the headline renders as "Unbounded" symmetrically with Long Call. The realistic 2σ display value (`displayMaxProfit`) and `displayRrRatio` are left intact and continue to drive the chart, R:R sub-line, EV, and capital math. LONG_CALL / LONG_STRADDLE / LONG_STRANGLE already report null naturally because their call leg has positive slope at S→∞.
-- **Yahoo Hard Timeouts**: Implements `Promise.race` with hard timers for Yahoo Finance API calls and a 429-only retry policy to prevent client aborts.
-- **Curated Scan Hard Cap**: `scanAll()` is bounded by a `SCAN_HARD_TIMEOUT_MS`, returning partial results while warming the cache in the background.
-- **Full NSE Stale-While-Revalidate**: `scanFullNse()` returns cached data immediately and triggers a background refresh to eliminate loading pauses.
-- **Full NSE Coverage + Real Daily Indicators**: When Kite is offline, the scanner falls back to Yahoo, covering all 2,483 symbols and enriching them with `1y / 1d` data for accurate technical indicators.
-- **Shared Yahoo 429 Circuit-Breaker**: A process-wide circuit breaker pauses all Yahoo calls on the first 429 error, with an exponential backoff, to allow Yahoo's throttle to reset.
+- **Frontend API Client**: TanStack-Query custom fetcher with `credentials: "include"`.
+- **Scoring Robustness**: Recommendation scorer avoids synthetic defaults and ensures deterministic tie-breaking.
+- **Market Data**: Primary reliance on Yahoo, with `lib/dataProvider.ts` designed for switching to Zerodha Kite.
+- **Option Chain**: Orchestrates data from Kite Connect (primary) and NSE direct (fallback) with a 15s response cache, including Black-Scholes model and Greeks.
+- **Option Strategies**: Builds 11 strategy templates against the live chain, providing distributional summaries, probabilistic R:R, and capital requirements, with realistic max profit/loss calculations.
+- **F&O Intraday Signals**: Uses 4 detectors (Trend Continuation, VWAP Reclaim, Volume Breakout, EMA Pullback) with a Baseline Outlook fallback and persists lifecycle tracking.
+- **F&O Option-Premium Projection**: Displays delta-projected entry/T1/T2/SL on option premiums.
+- **F&O Trigger Toast**: Provides real-time notifications for signal triggers with deduplication.
+- **Home Tab**: Merged Dashboard and Indices functionality into a single "Home" tab with a comprehensive market fact-pack, trend overview, top gainers/losers, and setups.
+- **Indices Board**: Displays 27 instruments across 5 categories (INDIA, GLOBAL, COMMODITY, ADR, FX) with live LTP, OHLC, range bars, EMAs, VWAP, market profile, and pivot ladders.
+- **GIFT NIFTY and MIDCPNIFTY Proxy**: Uses `^NSEI` as a proxy for GIFT NIFTY and `^NSEMDCP50` for Nifty Midcap 50's historical data, with clear disclosures.
+- **Yahoo `yahooTickerFor`**: Supports Yahoo futures and FX symbols without `.NS` suffix.
+- **Strategies - Long Put "Unbounded"**: Overrides `maxProfit = null` for Long Put to align with trader conventions while retaining realistic R:R calculations.
+- **Yahoo Hard Timeouts**: Implements `Promise.race` for Yahoo API calls with a 429-only retry policy.
+- **Curated Scan Hard Cap**: `scanAll()` is bounded by a `SCAN_HARD_TIMEOUT_MS`, returning partial results.
+- **Full NSE Stale-While-Revalidate**: `scanFullNse()` returns cached data immediately and triggers background refresh.
+- **Shared Yahoo 429 Circuit-Breaker**: Implements a process-wide circuit breaker for Yahoo API calls with exponential backoff.
 - **TradingView Webhooks**: Processes rich payloads for alerts.
-- **Security Audit**: `lib/securityAudit.ts` performs 18 checks for configuration, probes, authentication, secrets, and dependencies.
-- **System Status**: `lib/systemStatus.ts` collects real-time status of subsystems.
-- **OI Insights**: Calculates per-strike OI distribution, PCR aggregates, max-pain, and sentiment scoring using a dynamic F&O universe.
-- **Deep Scan Universal Lookup**: Merges curated universe with full daily NSE bhavcopy for comprehensive symbol search.
+- **Security Audit**: Performs 18 checks for configuration, probes, authentication, secrets, and dependencies.
+- **System Status**: Collects real-time status of subsystems.
+- **OI Insights**: Calculates per-strike OI distribution, PCR aggregates, max-pain, and sentiment scoring.
+- **Deep Scan Universal Lookup**: Merges curated universe with full daily NSE bhavcopy.
 - **Stocks To Watch**: Identifies catalysts from 21 news feeds, scores headlines, and resolves NSE symbols.
-- **OI Lab**: Provides bulk snapshot download, OI heatmap, and intraday tracker with time-series analytics.
-- **Kite Universe Hygiene**: Filters Kite's instrument dump to actively-tradeable stocks and bona-fide ETFs.
-- **Mirror Kite Session Across Environments**: Allows secure mirroring of Kite sessions from production to dev environments, with SSRF/credential-leak guards.
+- **OI Lab**: Provides bulk snapshot download, OI heatmap, and intraday tracker.
+- **Kite Universe Hygiene**: Filters Kite's instrument dump to active, bona-fide instruments.
+- **Mirror Kite Session**: Allows secure mirroring of Kite sessions from production to dev.
 - **Learn Tab Expansion**: Expanded content on futures, options, derivatives, trading psychology, and risk management.
-- **Pre/Post-Market Trader-Grade Additions**: The `/premarket` page now renders five additional sections: Today's Game Plan (trading scenarios with probabilities), Key Index Levels (pivots, CPR, high-low bands for F&O indices), Option Snapshot (ATM straddle, expected-move, PCR, max-pain), Sector Heatmap (ranking of sectors), and FII / DII Snapshot (cash and cumulative data). Error handling ensures report robustness against upstream failures.
+- **Pre/Post-Market Additions**: The `/premarket` page includes Today's Game Plan, Key Index Levels, Option Snapshot, Sector Heatmap, and FII / DII Snapshot.
+- **Paper Trading (owner-only)**: Auto-traded F&O paper account seeded ₹2,00,000 with daily IST refill. Risk = 2% of balance per trade, max 4 trades/day, only signals with confidence ≥ 70 are auto-opened. Lifecycle hook drives opens (PENDING → TRIGGERED) and closes (TARGET1/2, STOPPED, EXPIRED). All ledger mutations are wrapped in `db.transaction` with `SELECT FOR UPDATE` on the account row + conditional UPDATE on `dayTradeCount < cap` so the daily cap and the balance cannot race. `closePaperTradeForSignal` does the trade-row CAS and the account credit in one transaction. A `reconcileOrphanedPaperTrades()` safety net joins paper trades with terminal lifecycle rows and closes any orphans, called from `ensureDailyReset` (BEFORE the balance is wiped) and from the EOD `expireOpenSignalsForToday`. UI page at `/paper-trading` shows account stats, open positions with manual force-close, and today's closed trades; surfaces explicit error blocks rather than silent empty fallbacks. Equity segment is a Phase 3 placeholder.
 
 # External Dependencies
 

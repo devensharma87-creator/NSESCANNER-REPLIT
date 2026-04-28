@@ -1506,6 +1506,152 @@ export const GetOptionSignalHistoryResponse = zod.object({
 });
 
 /**
+ * @summary Owner-only paper trading account state for one segment.
+ */
+export const GetPaperAccountQueryParams = zod.object({
+  segment: zod.enum(["FNO", "EQUITY"]),
+});
+
+export const GetPaperAccountResponse = zod.object({
+  segment: zod.enum(["FNO", "EQUITY"]),
+  seedCapital: zod.number().describe("Starting \/ refill capital in INR."),
+  balance: zod.number().describe("Live cash balance after debits\/credits."),
+  dayRealizedPnl: zod
+    .number()
+    .describe("Realized P&L (INR) accumulated since last daily reset."),
+  dayOpenCount: zod.number().describe("Number of trades currently OPEN today."),
+  dayTradeCount: zod
+    .number()
+    .describe("Number of trades opened so far today (cap counter)."),
+  lastResetDate: zod
+    .string()
+    .describe("IST date YYYY-MM-DD of the last daily reset."),
+  dailyTradeCap: zod
+    .number()
+    .describe("Hard cap on opens\/day for this segment."),
+  maxLossPctPerTrade: zod
+    .number()
+    .describe("Max % of balance risked per trade (e.g. 0.02 = 2%)."),
+});
+
+/**
+ * @summary Owner-only list of currently OPEN F&O paper positions with live MTM.
+ */
+export const GetPaperPositionsFOResponse = zod.object({
+  positions: zod.array(
+    zod.object({
+      id: zod.string(),
+      signalDate: zod.string(),
+      indexSymbol: zod.string(),
+      indexName: zod.string(),
+      setupKey: zod.string(),
+      direction: zod.enum(["BULLISH", "BEARISH"]),
+      optionType: zod.enum(["CALL", "PUT"]),
+      strike: zod.number(),
+      lots: zod.number(),
+      lotSize: zod.number(),
+      entryPremium: zod.number(),
+      stopPremium: zod.number(),
+      target1Premium: zod.number(),
+      target2Premium: zod.number(),
+      capitalDeployed: zod
+        .number()
+        .describe("INR cost (lots × lotSize × entryPremium)."),
+      lastPremium: zod
+        .number()
+        .describe("Most recent observed option premium for MTM."),
+      unrealizedPnl: zod
+        .number()
+        .describe("(lastPremium − entryPremium) × lots × lotSize."),
+      maxRunup: zod
+        .number()
+        .optional()
+        .describe("Highest unrealized P&L observed for this position."),
+      maxDrawdown: zod
+        .number()
+        .optional()
+        .describe("Lowest unrealized P&L observed for this position (≤ 0)."),
+      openedAt: zod.coerce.date(),
+      lastEvaluatedAt: zod.coerce.date(),
+      status: zod.enum(["OPEN"]),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Owner-only list of CLOSED F&O paper trades for a given IST date.
+ */
+export const GetPaperTradesFOQueryParams = zod.object({
+  date: zod.coerce.string().optional(),
+});
+
+export const GetPaperTradesFOResponse = zod.object({
+  date: zod.string().describe("IST trading date YYYY-MM-DD"),
+  trades: zod.array(
+    zod.object({
+      id: zod.string(),
+      signalDate: zod.string(),
+      indexSymbol: zod.string(),
+      indexName: zod.string(),
+      setupKey: zod.string(),
+      direction: zod.enum(["BULLISH", "BEARISH"]),
+      optionType: zod.enum(["CALL", "PUT"]),
+      strike: zod.number(),
+      lots: zod.number(),
+      lotSize: zod.number(),
+      entryPremium: zod.number(),
+      exitPremium: zod.number(),
+      capitalDeployed: zod.number(),
+      realizedPnl: zod.number(),
+      exitReason: zod.enum([
+        "TARGET1_HIT",
+        "TARGET2_HIT",
+        "STOPPED",
+        "EXPIRED",
+        "MANUAL_OVERRIDE",
+      ]),
+      openedAt: zod.coerce.date(),
+      exitedAt: zod.coerce.date(),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Owner-only manual force-exit of an OPEN F&O paper position at last known premium.
+ */
+export const ClosePaperPositionFOParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ClosePaperPositionFOResponse = zod.object({
+  id: zod.string(),
+  signalDate: zod.string(),
+  indexSymbol: zod.string(),
+  indexName: zod.string(),
+  setupKey: zod.string(),
+  direction: zod.enum(["BULLISH", "BEARISH"]),
+  optionType: zod.enum(["CALL", "PUT"]),
+  strike: zod.number(),
+  lots: zod.number(),
+  lotSize: zod.number(),
+  entryPremium: zod.number(),
+  exitPremium: zod.number(),
+  capitalDeployed: zod.number(),
+  realizedPnl: zod.number(),
+  exitReason: zod.enum([
+    "TARGET1_HIT",
+    "TARGET2_HIT",
+    "STOPPED",
+    "EXPIRED",
+    "MANUAL_OVERRIDE",
+  ]),
+  openedAt: zod.coerce.date(),
+  exitedAt: zod.coerce.date(),
+});
+
+/**
  * @summary Live NSE option chain (indices + F&O equities)
  */
 export const GetOptionChainParams = zod.object({

@@ -23,6 +23,8 @@ import type {
   GetOptionAnalyticsParams,
   GetOptionChainParams,
   GetOptionStrategiesParams,
+  GetPaperAccountParams,
+  GetPaperTradesFOParams,
   GetParticipantOiParams,
   GetStockHistoryParams,
   GlobalMarket,
@@ -38,6 +40,10 @@ import type {
   OptionSignalHistorySet,
   OptionSignalSet,
   OptionStrategiesResponse,
+  PaperAccountState,
+  PaperPositionsFOResponse,
+  PaperTradeFOClosed,
+  PaperTradesFOResponse,
   ParticipantOiResponse,
   PreMarketReport,
   RefreshInstFlows200,
@@ -1124,6 +1130,356 @@ export function useGetOptionSignalHistory<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Owner-only paper trading account state for one segment.
+ */
+export const getGetPaperAccountUrl = (params: GetPaperAccountParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/paper/account?${stringifiedParams}`
+    : `/api/paper/account`;
+};
+
+export const getPaperAccount = async (
+  params: GetPaperAccountParams,
+  options?: RequestInit,
+): Promise<PaperAccountState> => {
+  return customFetch<PaperAccountState>(getGetPaperAccountUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPaperAccountQueryKey = (params?: GetPaperAccountParams) => {
+  return [`/api/paper/account`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPaperAccountQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperAccount>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperAccountParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperAccount>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPaperAccountQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPaperAccount>>> = ({
+    signal,
+  }) => getPaperAccount(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperAccount>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperAccountQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperAccount>>
+>;
+export type GetPaperAccountQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only paper trading account state for one segment.
+ */
+
+export function useGetPaperAccount<
+  TData = Awaited<ReturnType<typeof getPaperAccount>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperAccountParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperAccount>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperAccountQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only list of currently OPEN F&O paper positions with live MTM.
+ */
+export const getGetPaperPositionsFOUrl = () => {
+  return `/api/paper/positions/fo`;
+};
+
+export const getPaperPositionsFO = async (
+  options?: RequestInit,
+): Promise<PaperPositionsFOResponse> => {
+  return customFetch<PaperPositionsFOResponse>(getGetPaperPositionsFOUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPaperPositionsFOQueryKey = () => {
+  return [`/api/paper/positions/fo`] as const;
+};
+
+export const getGetPaperPositionsFOQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperPositionsFO>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperPositionsFO>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPaperPositionsFOQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPaperPositionsFO>>
+  > = ({ signal }) => getPaperPositionsFO({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperPositionsFO>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperPositionsFOQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperPositionsFO>>
+>;
+export type GetPaperPositionsFOQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only list of currently OPEN F&O paper positions with live MTM.
+ */
+
+export function useGetPaperPositionsFO<
+  TData = Awaited<ReturnType<typeof getPaperPositionsFO>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperPositionsFO>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperPositionsFOQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only list of CLOSED F&O paper trades for a given IST date.
+ */
+export const getGetPaperTradesFOUrl = (params?: GetPaperTradesFOParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/paper/trades/fo?${stringifiedParams}`
+    : `/api/paper/trades/fo`;
+};
+
+export const getPaperTradesFO = async (
+  params?: GetPaperTradesFOParams,
+  options?: RequestInit,
+): Promise<PaperTradesFOResponse> => {
+  return customFetch<PaperTradesFOResponse>(getGetPaperTradesFOUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPaperTradesFOQueryKey = (
+  params?: GetPaperTradesFOParams,
+) => {
+  return [`/api/paper/trades/fo`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPaperTradesFOQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperTradesFO>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetPaperTradesFOParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperTradesFO>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPaperTradesFOQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPaperTradesFO>>
+  > = ({ signal }) => getPaperTradesFO(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperTradesFO>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperTradesFOQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperTradesFO>>
+>;
+export type GetPaperTradesFOQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only list of CLOSED F&O paper trades for a given IST date.
+ */
+
+export function useGetPaperTradesFO<
+  TData = Awaited<ReturnType<typeof getPaperTradesFO>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetPaperTradesFOParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperTradesFO>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperTradesFOQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only manual force-exit of an OPEN F&O paper position at last known premium.
+ */
+export const getClosePaperPositionFOUrl = (id: string) => {
+  return `/api/paper/positions/fo/${id}/close`;
+};
+
+export const closePaperPositionFO = async (
+  id: string,
+  options?: RequestInit,
+): Promise<PaperTradeFOClosed> => {
+  return customFetch<PaperTradeFOClosed>(getClosePaperPositionFOUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getClosePaperPositionFOMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closePaperPositionFO>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof closePaperPositionFO>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["closePaperPositionFO"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof closePaperPositionFO>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return closePaperPositionFO(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ClosePaperPositionFOMutationResult = NonNullable<
+  Awaited<ReturnType<typeof closePaperPositionFO>>
+>;
+
+export type ClosePaperPositionFOMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only manual force-exit of an OPEN F&O paper position at last known premium.
+ */
+export const useClosePaperPositionFO = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closePaperPositionFO>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof closePaperPositionFO>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getClosePaperPositionFOMutationOptions(options));
+};
 
 /**
  * @summary Live NSE option chain (indices + F&O equities)

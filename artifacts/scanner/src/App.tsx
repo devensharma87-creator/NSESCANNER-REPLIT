@@ -33,6 +33,7 @@ import AuditPage from "@/pages/audit";
 import StatusPage from "@/pages/status";
 import Manifesto from "@/pages/manifesto";
 import AdminPage from "@/pages/admin";
+import PaperTrading from "@/pages/paper-trading";
 
 const queryClient = new QueryClient();
 
@@ -84,6 +85,7 @@ function Router() {
       <Route path="/status" component={guarded(StatusPage, { ownerOnly: true })} />
       <Route path="/manifesto" component={guarded(Manifesto, { ownerOnly: true })} />
       <Route path="/admin" component={guarded(AdminPage, { ownerOnly: true })} />
+      <Route path="/paper-trading" component={guarded(PaperTrading, { ownerOnly: true })} />
 
       {/* Detail pages — any active subscriber may view (drill-down from allowed tabs) */}
       <Route path="/stock/:symbol" component={guarded(StockDetail, { allowSubscriberDetail: true })} />

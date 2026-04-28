@@ -3,6 +3,11 @@ import type { OptionSignalHistoryRow } from "@workspace/db";
 import type { OptionSignal } from "@workspace/api-zod";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { logger } from "./logger";
+import {
+  onLifecycleUpsert,
+  closePaperTradeForSignal,
+  reconcileOrphanedPaperTrades,
+} from "./paperTradingFO";
 
 /**
  * Signal lifecycle tracker.
@@ -292,6 +297,18 @@ export async function recordOrUpdate(
         .returning();
 
       if (inserted.length > 0) {
+        // Paper trading hook — runs AFTER the lifecycle row is durably
+        // persisted, so a hook crash can never leave a paper trade
+        // referencing a signal that doesn't exist. `prev=null` because
+        // this is the very first emission of this signal today.
+        await onLifecycleUpsert({
+          prev: null,
+          next: init.next,
+          exited: init.exited,
+          signal,
+          signalDate: date,
+          direction,
+        });
         return {
           status: init.next,
           firstSeenAt: now,
@@ -468,6 +485,19 @@ export async function recordOrUpdate(
       };
     }
 
+    // Paper trading hook — only fired when WE successfully advanced
+    // the row (CAS update returned a row above). The "fall-through to
+    // re-read" branch intentionally does NOT call the hook because
+    // the concurrent writer that won the CAS already invoked it.
+    await onLifecycleUpsert({
+      prev: currentStatus,
+      next: trans.next,
+      exited: trans.exited,
+      signal,
+      signalDate: date,
+      direction,
+    });
+
     return {
       status: trans.next,
       firstSeenAt: row.generatedAt,
@@ -478,8 +508,7 @@ export async function recordOrUpdate(
       maxFavorableExcursionPts: round2(newMfe),
       maxAdverseExcursionPts: round2(newMae),
       lastSpot: snapshot.spot,
-      // Source of truth for locked levels — survives server restarts.
-      lockedEntry: lockedEntry,
+      lockedEntry,
       lockedStopLoss: lockedStop,
       lockedTarget1: lockedT1,
       lockedTarget2: lockedT2,
@@ -529,7 +558,7 @@ export async function expireOpenSignalsForToday(): Promise<number> {
       // the meantime. Pinning both `status` and `exitedAt IS NULL`
       // prevents the sweep from clobbering a fresh terminal outcome
       // (e.g. a TARGET2_HIT or STOPPED that landed on the very last bar).
-      await db
+      const settled = await db
         .update(optionSignalHistoryTable)
         .set({
           status: row.status === "TARGET1_HIT" ? "TARGET1_HIT" : "EXPIRED",
@@ -547,7 +576,38 @@ export async function expireOpenSignalsForToday(): Promise<number> {
             eq(optionSignalHistoryTable.status, row.status),
             sql`${optionSignalHistoryTable.exitedAt} IS NULL`,
           ),
+        )
+        .returning();
+
+      // Mirror the lifecycle settlement into paper trading. Only fire
+      // if WE actually owned the settlement write (settled.length > 0)
+      // and only if the row had triggered (no paper trade exists for
+      // PENDING-only signals). T1 runners settle at T1; full EXPIRED
+      // close at lastPremium fallback.
+      if (settled.length > 0 && row.triggeredAt) {
+        const reasonForPaper = row.status === "TARGET1_HIT" ? "TARGET1_HIT" : "EXPIRED";
+        const dir: "BULLISH" | "BEARISH" =
+          row.direction === "BEARISH" ? "BEARISH" : "BULLISH";
+        await closePaperTradeForSignal(
+          row.signalDate,
+          row.indexSymbol,
+          row.setupKey,
+          dir,
+          reasonForPaper,
         );
+      }
+    }
+    // Final safety net: any paper trade still OPEN whose lifecycle row
+    // is now terminal (e.g. because a previous lifecycle hook fired
+    // before we existed, or one crashed) — close it now using the
+    // proper exit reason from the lifecycle, never lastPremium fallback.
+    try {
+      await reconcileOrphanedPaperTrades();
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message },
+        "reconcileOrphanedPaperTrades after EOD sweep failed (continuing)",
+      );
     }
     return open.length;
   } catch (err) {

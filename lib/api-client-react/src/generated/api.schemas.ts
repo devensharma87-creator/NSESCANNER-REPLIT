@@ -1580,6 +1580,146 @@ export interface OptionStrategiesResponse {
   generatedAt: string;
 }
 
+export type PaperAccountStateSegment =
+  (typeof PaperAccountStateSegment)[keyof typeof PaperAccountStateSegment];
+
+export const PaperAccountStateSegment = {
+  FNO: "FNO",
+  EQUITY: "EQUITY",
+} as const;
+
+export interface PaperAccountState {
+  segment: PaperAccountStateSegment;
+  /** Starting / refill capital in INR. */
+  seedCapital: number;
+  /** Live cash balance after debits/credits. */
+  balance: number;
+  /** Realized P&L (INR) accumulated since last daily reset. */
+  dayRealizedPnl: number;
+  /** Number of trades currently OPEN today. */
+  dayOpenCount: number;
+  /** Number of trades opened so far today (cap counter). */
+  dayTradeCount: number;
+  /** IST date YYYY-MM-DD of the last daily reset. */
+  lastResetDate: string;
+  /** Hard cap on opens/day for this segment. */
+  dailyTradeCap: number;
+  /** Max % of balance risked per trade (e.g. 0.02 = 2%). */
+  maxLossPctPerTrade: number;
+}
+
+export type PaperTradeFOPositionDirection =
+  (typeof PaperTradeFOPositionDirection)[keyof typeof PaperTradeFOPositionDirection];
+
+export const PaperTradeFOPositionDirection = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+} as const;
+
+export type PaperTradeFOPositionOptionType =
+  (typeof PaperTradeFOPositionOptionType)[keyof typeof PaperTradeFOPositionOptionType];
+
+export const PaperTradeFOPositionOptionType = {
+  CALL: "CALL",
+  PUT: "PUT",
+} as const;
+
+export type PaperTradeFOPositionStatus =
+  (typeof PaperTradeFOPositionStatus)[keyof typeof PaperTradeFOPositionStatus];
+
+export const PaperTradeFOPositionStatus = {
+  OPEN: "OPEN",
+} as const;
+
+export interface PaperTradeFOPosition {
+  id: string;
+  signalDate: string;
+  indexSymbol: string;
+  indexName: string;
+  setupKey: string;
+  direction: PaperTradeFOPositionDirection;
+  optionType: PaperTradeFOPositionOptionType;
+  strike: number;
+  lots: number;
+  lotSize: number;
+  entryPremium: number;
+  stopPremium: number;
+  target1Premium: number;
+  target2Premium: number;
+  /** INR cost (lots × lotSize × entryPremium). */
+  capitalDeployed: number;
+  /** Most recent observed option premium for MTM. */
+  lastPremium: number;
+  /** (lastPremium − entryPremium) × lots × lotSize. */
+  unrealizedPnl: number;
+  /** Highest unrealized P&L observed for this position. */
+  maxRunup?: number;
+  /** Lowest unrealized P&L observed for this position (≤ 0). */
+  maxDrawdown?: number;
+  openedAt: string;
+  lastEvaluatedAt: string;
+  status: PaperTradeFOPositionStatus;
+}
+
+export type PaperTradeFOClosedDirection =
+  (typeof PaperTradeFOClosedDirection)[keyof typeof PaperTradeFOClosedDirection];
+
+export const PaperTradeFOClosedDirection = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+} as const;
+
+export type PaperTradeFOClosedOptionType =
+  (typeof PaperTradeFOClosedOptionType)[keyof typeof PaperTradeFOClosedOptionType];
+
+export const PaperTradeFOClosedOptionType = {
+  CALL: "CALL",
+  PUT: "PUT",
+} as const;
+
+export type PaperTradeFOClosedExitReason =
+  (typeof PaperTradeFOClosedExitReason)[keyof typeof PaperTradeFOClosedExitReason];
+
+export const PaperTradeFOClosedExitReason = {
+  TARGET1_HIT: "TARGET1_HIT",
+  TARGET2_HIT: "TARGET2_HIT",
+  STOPPED: "STOPPED",
+  EXPIRED: "EXPIRED",
+  MANUAL_OVERRIDE: "MANUAL_OVERRIDE",
+} as const;
+
+export interface PaperTradeFOClosed {
+  id: string;
+  signalDate: string;
+  indexSymbol: string;
+  indexName: string;
+  setupKey: string;
+  direction: PaperTradeFOClosedDirection;
+  optionType: PaperTradeFOClosedOptionType;
+  strike: number;
+  lots: number;
+  lotSize: number;
+  entryPremium: number;
+  exitPremium: number;
+  capitalDeployed: number;
+  realizedPnl: number;
+  exitReason: PaperTradeFOClosedExitReason;
+  openedAt: string;
+  exitedAt: string;
+}
+
+export interface PaperPositionsFOResponse {
+  positions: PaperTradeFOPosition[];
+  generatedAt: string;
+}
+
+export interface PaperTradesFOResponse {
+  /** IST trading date YYYY-MM-DD */
+  date: string;
+  trades: PaperTradeFOClosed[];
+  generatedAt: string;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;
@@ -1611,6 +1751,25 @@ export const GetStockHistoryRange = {
   "1y": "1y",
   "2y": "2y",
 } as const;
+
+export type GetPaperAccountParams = {
+  segment: GetPaperAccountSegment;
+};
+
+export type GetPaperAccountSegment =
+  (typeof GetPaperAccountSegment)[keyof typeof GetPaperAccountSegment];
+
+export const GetPaperAccountSegment = {
+  FNO: "FNO",
+  EQUITY: "EQUITY",
+} as const;
+
+export type GetPaperTradesFOParams = {
+  /**
+   * IST date YYYY-MM-DD; defaults to today.
+   */
+  date?: string;
+};
 
 export type GetOptionChainParams = {
   /**

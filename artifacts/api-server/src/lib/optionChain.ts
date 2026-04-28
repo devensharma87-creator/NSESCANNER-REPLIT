@@ -170,7 +170,7 @@ const STRIKE_STEPS: Record<string, number> = {
 // for stocks under the NSE-direct path, which collapses Strategies' per-lot
 // rupee maths to per-share. That's a known fallback limitation; the Kite
 // path (the primary source) handles all symbols correctly.
-const LOT_SIZES: Record<string, number> = {
+export const LOT_SIZES: Record<string, number> = {
   NIFTY: 75, BANKNIFTY: 30, FINNIFTY: 65, MIDCPNIFTY: 140,
   NIFTYNXT50: 25, SENSEX: 10, BANKEX: 15,
 };
