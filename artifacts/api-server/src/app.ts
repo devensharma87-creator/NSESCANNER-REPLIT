@@ -36,13 +36,34 @@ app.use(
           useDefaults: true,
           directives: {
             "default-src": ["'self'"],
-            "script-src": ["'self'", "https://s3.tradingview.com", "https://www.tradingview.com"],
+            "script-src": [
+              "'self'",
+              "https://s3.tradingview.com",
+              "https://www.tradingview.com",
+              // Trendlyne web-widget loader (SWOT / Checklist / QVT /
+              // Forecaster on stock detail + deep-scan pages). Free,
+              // public-embed product — no API key.
+              "https://cdn-static.trendlyne.com",
+            ],
             // Radix and Tailwind both rely on inline styles at runtime.
             "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
-            "img-src": ["'self'", "data:", "blob:", "https://*.tradingview.com"],
-            "connect-src": ["'self'", "https://*.tradingview.com"],
-            "frame-src": ["'self'", "https://www.tradingview.com", "https://s.tradingview.com"],
+            "img-src": ["'self'", "data:", "blob:", "https://*.tradingview.com", "https://*.trendlyne.com"],
+            "connect-src": [
+              "'self'",
+              "https://*.tradingview.com",
+              // Trendlyne loader fetches the widget HTML over XHR before
+              // converting the blockquote into an iframe. Wildcard so
+              // www.trendlyne.com and any other subdomain they may
+              // shard onto in future are covered without a redeploy.
+              "https://*.trendlyne.com",
+            ],
+            "frame-src": [
+              "'self'",
+              "https://www.tradingview.com",
+              "https://s.tradingview.com",
+              "https://*.trendlyne.com",
+            ],
             "frame-ancestors": ["'self'"],
             "object-src": ["'none'"],
             "base-uri": ["'self'"],

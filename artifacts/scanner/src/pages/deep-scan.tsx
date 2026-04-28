@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
+import { TrendlyneInsights } from "@/components/trendlyne-widget";
 import {
   useGetStockDetail,
   getGetStockDetailQueryKey,
@@ -457,9 +458,22 @@ export default function DeepScan() {
           )}
 
           {snap.kind === "stock" && (
-            <div className="text-center text-xs text-muted-foreground font-mono">
-              Want full financials, holdings, news? <a href={`${import.meta.env.BASE_URL}stock/${snap.symbol}`} className="text-foreground underline">Open the dedicated stock page →</a>
-            </div>
+            <>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                    Trendlyne insights
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs text-muted-foreground">
+                  SWOT, checklist, QVT score and analyst forecaster — live from Trendlyne. Blank cards mean the symbol is not tracked there.
+                </CardContent>
+              </Card>
+              <TrendlyneInsights symbol={snap.symbol} />
+              <div className="text-center text-xs text-muted-foreground font-mono">
+                Want full financials, holdings, news? <a href={`${import.meta.env.BASE_URL}stock/${snap.symbol}`} className="text-foreground underline">Open the dedicated stock page →</a>
+              </div>
+            </>
           )}
         </>
       )}

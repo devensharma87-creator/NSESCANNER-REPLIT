@@ -10,6 +10,7 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { TrendlyneInsights } from "@/components/trendlyne-widget";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -163,6 +164,7 @@ export default function StockDetail() {
         <TabsList className="bg-card border border-border">
           <TabsTrigger value="overview" className="font-mono text-xs uppercase">Overview</TabsTrigger>
           <TabsTrigger value="chart" className="font-mono text-xs uppercase">Chart</TabsTrigger>
+          <TabsTrigger value="insights" className="font-mono text-xs uppercase">Insights</TabsTrigger>
           <TabsTrigger value="financials" className="font-mono text-xs uppercase">Financials</TabsTrigger>
           <TabsTrigger value="holdings" className="font-mono text-xs uppercase">Holdings</TabsTrigger>
           <TabsTrigger value="news" className="font-mono text-xs uppercase">News</TabsTrigger>
@@ -265,6 +267,20 @@ export default function StockDetail() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="insights" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                Trendlyne insights
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground">
+              SWOT, financial-health checklist, Quality / Valuation / Technicals score and analyst price-target consensus — sourced live from Trendlyne. If a card stays blank for a few seconds, Trendlyne does not currently track this symbol.
+            </CardContent>
+          </Card>
+          <TrendlyneInsights symbol={profile.symbol} />
         </TabsContent>
 
         <TabsContent value="chart" className="space-y-4">
