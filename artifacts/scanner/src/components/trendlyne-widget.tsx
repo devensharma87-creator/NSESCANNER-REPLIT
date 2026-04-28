@@ -19,7 +19,7 @@
 import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export type TrendlyneWidgetKind = "swot" | "checklist" | "qvtscore" | "forecaster";
+export type TrendlyneWidgetKind = "swot" | "checklist" | "qvtscore" | "forecaster" | "technical";
 
 const WIDGET_LOADER_SRC =
   "https://cdn-static.trendlyne.com/static/js/webwidgets/tl-widgets.js";
@@ -34,6 +34,7 @@ const WIDGET_LABELS: Record<TrendlyneWidgetKind, string> = {
   checklist: "Checklist",
   qvtscore: "Quality / Valuation / Technicals",
   forecaster: "Analyst forecaster",
+  technical: "Technical analysis",
 };
 
 function buildUrl(kind: TrendlyneWidgetKind, symbol: string): string {
@@ -100,6 +101,7 @@ export function TrendlyneInsights({ symbol }: { symbol: string }) {
       <TrendlyneWidget kind="checklist" symbol={symbol} />
       <TrendlyneWidget kind="qvtscore" symbol={symbol} />
       <TrendlyneWidget kind="forecaster" symbol={symbol} />
+      <TrendlyneWidget kind="technical" symbol={symbol} />
     </div>
   );
 }
