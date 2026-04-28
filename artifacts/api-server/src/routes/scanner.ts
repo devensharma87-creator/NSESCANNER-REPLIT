@@ -13,6 +13,7 @@ import {
   ListSectorsResponse,
   ListStocksResponse,
 } from "@workspace/api-zod";
+import { requireOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground } from "../lib/scanner";
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
@@ -34,6 +35,10 @@ import { getMarketTrend } from "../lib/marketTrend";
 import { providerStatus } from "../lib/dataProvider";
 
 const router: IRouter = Router();
+
+// Active-subscription floor (pending/suspended/expired subscriber blocked)
+// is enforced GLOBALLY by `requireAuth` in lib/auth.ts — putting it here
+// would also fire for every sibling route mounted on the same parent.
 
 const INDEX_SYMBOLS: Array<{ yahoo: string; name: string; display: string; slug?: string }> = [
   { yahoo: "^NSEI", name: "NIFTY 50", display: "NIFTY 50", slug: "NIFTY50" },
@@ -188,7 +193,7 @@ router.get("/market/trend", async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get("/options/signals", async (_req, res, next) => {
+router.get("/options/signals", requireOwner, async (_req, res, next) => {
   try {
     const { signals, diagnostics } = await getOptionSignals();
     const now = new Date();
@@ -203,7 +208,7 @@ router.get("/options/signals", async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get("/options/signal-history", async (_req, res, next) => {
+router.get("/options/signal-history", requireOwner, async (_req, res, next) => {
   try {
     // Best-effort sweep so the scoreboard reflects after-close expirations
     // even if no live request hit /options/signals after 15:30 IST.
@@ -222,7 +227,7 @@ router.get("/options/signal-history", async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get("/sectors", async (_req, res, next) => {
+router.get("/sectors", requireOwner, async (_req, res, next) => {
   try {
     const rows = await scanAll();
     const grouped = new Map<string, typeof rows>();
@@ -255,7 +260,7 @@ router.get("/sectors", async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get("/sectors/:sector", async (req, res, next) => {
+router.get("/sectors/:sector", requireOwner, async (req, res, next) => {
   try {
     const sectorParam = String(req.params["sector"] ?? "");
     const rows = await scanAll();

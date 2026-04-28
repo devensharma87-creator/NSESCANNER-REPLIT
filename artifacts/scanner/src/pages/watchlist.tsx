@@ -1,13 +1,22 @@
 import { useState, useMemo } from "react";
-import { useGetWatchlist, getGetWatchlistQueryKey } from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useGetWatchlist, getGetWatchlistQueryKey, useListStocks, getListStocksQueryKey } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, TrendingDown, Minus, Search } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Search, Star, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  getPersonalWatchlist,
+  addToPersonalWatchlist,
+  removeFromPersonalWatchlist,
+  type PersonalWatchlistItem,
+} from "@/lib/auth-api";
 
 type WatchlistKey =
+  | "MY_LIST"
   | "SENSEX"
   | "BANKNIFTY"
   | "NIFTY50"
@@ -16,7 +25,10 @@ type WatchlistKey =
   | "NIFTYSMALLCAP100"
   | "NIFTY500";
 
+type IndexKey = Exclude<WatchlistKey, "MY_LIST">;
+
 const TABS: Array<{ key: WatchlistKey; label: string; sub: string }> = [
+  { key: "MY_LIST",          label: "My List",           sub: "Your personal watchlist — symbols you saved" },
   { key: "SENSEX",           label: "Sensex 30",         sub: "BSE 30 — bellwether large-caps" },
   { key: "BANKNIFTY",        label: "Bank Nifty",        sub: "12 most liquid Indian banks" },
   { key: "NIFTY50",          label: "Nifty 50",          sub: "Top 50 by free-float mcap" },
@@ -28,7 +40,7 @@ const TABS: Array<{ key: WatchlistKey; label: string; sub: string }> = [
 
 /** Nominal constituent counts per index. Used to flag when our live fetch
  * returned fewer rows than the index actually contains (Yahoo throttling, etc.). */
-const NOMINAL: Record<WatchlistKey, number> = {
+const NOMINAL: Record<IndexKey, number> = {
   SENSEX: 30, BANKNIFTY: 12, NIFTY50: 50, NIFTY100: 100,
   NIFTYMIDCAP100: 100, NIFTYSMALLCAP100: 100, NIFTY500: 500,
 };
@@ -58,12 +70,21 @@ function formatVolume(v: number): string {
 }
 
 export default function Watchlist() {
-  const [tab, setTab] = useState<WatchlistKey>("SENSEX");
+  const [tab, setTab] = useState<WatchlistKey>("MY_LIST");
   const [filter, setFilter] = useState("");
   const [trendFilter, setTrendFilter] = useState<"ALL" | "BULL" | "BEAR">("ALL");
 
-  const { data, isLoading, isError, error } = useGetWatchlist(tab, {
-    query: { staleTime: 30_000, refetchInterval: 60_000, queryKey: getGetWatchlistQueryKey(tab) },
+  // We always have to call the same hooks every render — but when on the
+  // MY_LIST tab we render a different component below and ignore this data.
+  // Pass a fallback index key so the codegen call is well-formed; React Query
+  // dedupes and is harmless when we don't read the result.
+  const indexKey: IndexKey = tab === "MY_LIST" ? "SENSEX" : tab;
+  const { data, isLoading, isError, error } = useGetWatchlist(indexKey, {
+    query: {
+      staleTime: 30_000, refetchInterval: 60_000,
+      queryKey: getGetWatchlistQueryKey(indexKey),
+      enabled: tab !== "MY_LIST",
+    },
   });
 
   const rows = data?.rows ?? [];
@@ -84,6 +105,12 @@ export default function Watchlist() {
   const unchanged = rows.length - advancers - decliners;
   const bullCount = rows.filter(r => r.mcTrend.includes("Bullish")).length;
   const bearCount = rows.filter(r => r.mcTrend.includes("Bearish")).length;
+
+  // The MY_LIST tab uses a completely different data source (personal-watchlist
+  // API + cross-joined with the live universe), so render a separate component.
+  if (tab === "MY_LIST") {
+    return <PersonalWatchlistView tabs={TABS} currentTab={tab} onChangeTab={setTab} />;
+  }
 
   return (
     <div className="w-full px-4 py-4 space-y-4">
@@ -171,9 +198,9 @@ export default function Watchlist() {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              {!isLoading && rows.length > 0 && rows.length < NOMINAL[tab] && (
+              {!isLoading && rows.length > 0 && rows.length < NOMINAL[indexKey] && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold border border-amber-500/40 text-amber-500 bg-amber-500/10">
-                  Stale: {NOMINAL[tab] - rows.length} / {NOMINAL[tab]} missing
+                  Stale: {NOMINAL[indexKey] - rows.length} / {NOMINAL[indexKey]} missing
                 </span>
               )}
               {data?.asOf && (
@@ -253,6 +280,260 @@ export default function Watchlist() {
                       );
                     })
                   )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Personal Watchlist View
+// ───────────────────────────────────────────────────────────────────────────
+//
+// Renders the MY_LIST tab. Two data sources joined client-side:
+//   1. /api/personal-watchlist  → { items: [{ symbol, addedAt, notes }, ...] }
+//   2. /api/stocks (codegen)    → full universe with live quote + signal
+//
+// We left-join personal items against the live universe so symbols that aren't
+// currently in the universe (e.g. illiquid F&O underlyings) still show up in
+// the table — just without quote data.
+
+interface PersonalViewProps {
+  tabs: Array<{ key: WatchlistKey; label: string; sub: string }>;
+  currentTab: WatchlistKey;
+  onChangeTab: (k: WatchlistKey) => void;
+}
+
+function PersonalWatchlistView({ tabs, currentTab, onChangeTab }: PersonalViewProps) {
+  const qc = useQueryClient();
+  const [addInput, setAddInput] = useState("");
+  const [filter, setFilter] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: personal, isLoading: personalLoading } = useQuery({
+    queryKey: ["personal-watchlist"],
+    queryFn: getPersonalWatchlist,
+    staleTime: 30_000,
+  });
+
+  // Universe — used to pull live quote/signal data for each personal symbol
+  const { data: universe } = useListStocks(undefined, {
+    query: { staleTime: 30_000, queryKey: getListStocksQueryKey() },
+  });
+
+  const universeBySymbol = useMemo(() => {
+    const m = new Map<string, NonNullable<typeof universe>[number]>();
+    for (const s of universe ?? []) m.set(s.symbol.toUpperCase(), s);
+    return m;
+  }, [universe]);
+
+  const items: PersonalWatchlistItem[] = personal?.items ?? [];
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toUpperCase();
+    if (!q) return items;
+    return items.filter(it => it.symbol.includes(q));
+  }, [items, filter]);
+
+  const addMutation = useMutation({
+    mutationFn: (symbol: string) => addToPersonalWatchlist(symbol, null),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-watchlist"] }),
+  });
+  const removeMutation = useMutation({
+    mutationFn: (symbol: string) => removeFromPersonalWatchlist(symbol),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-watchlist"] }),
+  });
+
+  // Universe-aware suggestions for the add box
+  const suggestions = useMemo(() => {
+    const q = addInput.trim().toUpperCase();
+    if (q.length < 1) return [];
+    const have = new Set(items.map(it => it.symbol));
+    return (universe ?? [])
+      .filter(s =>
+        !have.has(s.symbol) &&
+        (s.symbol.toUpperCase().includes(q) || s.name.toUpperCase().includes(q)),
+      )
+      .slice(0, 6);
+  }, [addInput, universe, items]);
+
+  async function handleAdd(symbol: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await addMutation.mutateAsync(symbol.trim().toUpperCase());
+      setAddInput("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "add failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove(symbol: string) {
+    if (!confirm(`Remove ${symbol} from your personal watchlist?`)) return;
+    setBusy(true);
+    setError(null);
+    try { await removeMutation.mutateAsync(symbol); }
+    catch (err) { setError(err instanceof Error ? err.message : "remove failed"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="w-full px-4 py-4 space-y-4">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <Star className="h-6 w-6 text-amber-500" /> Watchlist
+        </h1>
+        <p className="text-sm text-muted-foreground">Pre-loaded NSE index baskets — live quotes and short-term trend bias.</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-2 border-b border-border">
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => onChangeTab(t.key)}
+            data-testid={`tab-${t.key.toLowerCase()}`}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+              currentTab === t.key
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <div className="text-left">
+              <div className="flex items-center gap-1.5">
+                {t.key === "MY_LIST" && <Star className="h-3.5 w-3.5 text-amber-500" />}
+                {t.label}
+              </div>
+              <div className="text-[10px] font-mono font-normal text-muted-foreground">{t.sub}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+            <div className="flex-1 max-w-md space-y-1">
+              <label className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Add a symbol to your list</label>
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={addInput}
+                  onChange={e => setAddInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && addInput.trim()) void handleAdd(addInput); }}
+                  placeholder="Type a symbol e.g. RELIANCE, INFY, TATAMOTORS…"
+                  className="pl-8"
+                  data-testid="input-add-symbol"
+                />
+                {addInput && suggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-md border border-border bg-card shadow-xl max-h-72 overflow-auto">
+                    {suggestions.map(s => (
+                      <button
+                        key={s.symbol}
+                        type="button"
+                        onClick={() => void handleAdd(s.symbol)}
+                        className="w-full text-left px-3 py-2 hover:bg-muted/40 border-b border-border/50 last:border-0 flex items-center justify-between gap-3"
+                        data-testid={`suggest-${s.symbol}`}
+                      >
+                        <div>
+                          <div className="font-mono font-bold text-sm">{s.symbol}</div>
+                          <div className="text-[11px] text-muted-foreground truncate">{s.name}</div>
+                        </div>
+                        <Plus className="h-4 w-4 text-primary" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {error && <div className="text-xs text-red-500">{error}</div>}
+            </div>
+            <div className="flex items-end gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Filter</label>
+                <Input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter your list…" className="w-[200px]" />
+              </div>
+              <div className="text-xs text-muted-foreground font-mono pb-2">{items.length} saved</div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {personalLoading ? (
+            <div className="p-6 space-y-2">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="p-10 text-center">
+              <Star className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+              <div className="text-base font-semibold">Your personal watchlist is empty</div>
+              <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+                Use the search box above to add the symbols you want to track. Live quotes and signals update automatically.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-auto max-h-[calc(100vh-360px)]">
+              <Table>
+                <TableHeader className="sticky top-0 z-20 bg-card shadow-[0_1px_0_0_hsl(var(--border))]">
+                  <TableRow className="hover:bg-transparent border-border">
+                    <TableHead className="font-mono text-[11px] sticky left-0 bg-card z-10">Symbol</TableHead>
+                    <TableHead className="font-mono text-[11px]">Name</TableHead>
+                    <TableHead className="font-mono text-[11px] text-right">Live Price</TableHead>
+                    <TableHead className="font-mono text-[11px] text-right">Change %</TableHead>
+                    <TableHead className="font-mono text-[11px] text-right">Volume</TableHead>
+                    <TableHead className="font-mono text-[11px]">Signal</TableHead>
+                    <TableHead className="font-mono text-[11px]">Added</TableHead>
+                    <TableHead className="font-mono text-[11px] text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map(it => {
+                    const live = universeBySymbol.get(it.symbol);
+                    const up = (live?.quote.changePercent ?? 0) >= 0;
+                    const chgColor = !live ? "text-muted-foreground" : up ? "text-signal-strong-buy" : "text-signal-strong-sell";
+                    return (
+                      <TableRow key={it.symbol} className="hover-row border-border" data-testid={`personal-row-${it.symbol}`}>
+                        <TableCell className="font-mono font-bold sticky left-0 bg-card z-10">
+                          <Link href={`/stock/${it.symbol}`} className="hover:underline">{it.symbol}</Link>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground truncate max-w-[200px]">{live?.name ?? "—"}</TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">{live?.quote.price.toFixed(2) ?? "—"}</TableCell>
+                        <TableCell className={`text-right font-mono tabular-nums ${chgColor}`}>
+                          {live ? `${up ? "+" : ""}${live.quote.changePercent.toFixed(2)}%` : "—"}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums text-xs">{live ? formatVolume(live.quote.volume) : "—"}</TableCell>
+                        <TableCell>
+                          {live ? (
+                            <span className="text-[10px] font-mono font-semibold">
+                              {live.recommendation.signal}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">not in current universe</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-[11px] font-mono text-muted-foreground">
+                          {new Date(it.addedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-7 w-7 text-red-500 hover:text-red-500 hover:bg-red-500/10"
+                            onClick={() => void handleRemove(it.symbol)}
+                            disabled={busy}
+                            data-testid={`button-remove-${it.symbol}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

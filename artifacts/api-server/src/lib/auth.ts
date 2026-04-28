@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import crypto from "node:crypto";
 import { logger } from "./logger";
+import { getSession, getUserById, getEffectiveStatus } from "./userAuth";
 
 const COOKIE_NAME = "scanner_session";
 const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -33,9 +34,18 @@ export function clearSessionCookie(res: Response): void {
   res.clearCookie(COOKIE_NAME, { path: "/", signed: true });
 }
 
+/**
+ * True if the request carries any valid signed session cookie. The cookie's
+ * value distinguishes owner ("ok"/"owner") from subscriber ("u:<id>");
+ * downstream middleware in `userAuth.ts` does the role-level gating.
+ *
+ * For the global gate we only care that the cookie is *some* legitimate
+ * session, so we accept any non-empty signed value. Signature integrity is
+ * guaranteed by cookie-parser using SESSION_SECRET.
+ */
 export function isAuthenticated(req: Request): boolean {
   const v = (req.signedCookies as Record<string, unknown> | undefined)?.[COOKIE_NAME];
-  return v === "ok";
+  return typeof v === "string" && v.length > 0;
 }
 
 export function verifyPassword(supplied: string): boolean {
@@ -74,10 +84,53 @@ function isPublicRoute(url: string, method: string): boolean {
   return false;
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+/**
+ * Global gate for /api/*. Order:
+ *   1. Public route → pass.
+ *   2. No session cookie → 401 AUTH_REQUIRED.
+ *   3. Owner cookie → pass (no DB hit).
+ *   4. Subscriber cookie → look up user, check effective status:
+ *        active → pass; pending/suspended/expired → 403 with the matching
+ *        ACCOUNT_<STATE> code; user row missing → 401 USER_GONE.
+ *
+ * Per-route `requireOwner` further down narrows owner-only endpoints
+ * (admin/deepscan/options/system/kite/options-signals/sectors).
+ *
+ * Async because step 4 needs a DB lookup; for owner sessions the gate stays
+ * synchronous.
+ */
+export async function requireAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   if (isPublicRoute(req.originalUrl, req.method)) return next();
-  if (isAuthenticated(req)) return next();
-  res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
+  const sess = getSession(req);
+  if (!sess) {
+    res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
+    return;
+  }
+  if (sess.role === "owner") return next();
+  // sess.role === "subscriber"
+  try {
+    const user = await getUserById(sess.userId);
+    if (!user) {
+      res.status(401).json({ error: "user_not_found", code: "USER_GONE" });
+      return;
+    }
+    const eff = getEffectiveStatus(user);
+    if (eff !== "active") {
+      res.status(403).json({
+        error: `account_${eff}`,
+        code: `ACCOUNT_${eff.toUpperCase()}`,
+      });
+      return;
+    }
+    return next();
+  } catch (err) {
+    logger.error({ err, url: req.originalUrl }, "requireAuth subscriber lookup failed");
+    res.status(500).json({ error: "internal_error" });
+  }
 }
 
 export function logAuthBootState(): void {

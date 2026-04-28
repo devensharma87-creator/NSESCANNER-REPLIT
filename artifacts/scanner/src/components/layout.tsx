@@ -1,18 +1,22 @@
 import { Link, useLocation } from "wouter";
-import { Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, ShieldCheck, LogOut } from "lucide-react";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import GlobalStrip from "@/components/global-strip";
 import IndianStrip from "@/components/indian-strip";
 import { useListStocks, getListStocksQueryKey } from "@workspace/api-client-react";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ThemeSwitcher, applyTheme, loadInitialTheme } from "@/components/theme-switcher";
+import { useAuth } from "@/hooks/use-auth";
+import { logout, type AllowedTabKey } from "@/lib/auth-api";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { role, allowedTabs, subscriber, refresh: refreshAuth } = useAuth();
 
   const { data: allStocks } = useListStocks(undefined, {
     query: { staleTime: 30_000, queryKey: getListStocksQueryKey() },
@@ -171,25 +175,41 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Link>
           <div className="relative flex-1 min-w-0">
             {(() => {
-              const tabs: { href: string; label: string; isActive: (l: string) => boolean }[] = [
-                { href: "/", label: "Home", isActive: l => l === "/" },
-                { href: "/scanner", label: "Scanner", isActive: l => l.startsWith("/scanner") },
-                { href: "/deep-scan", label: "Deep Scan", isActive: l => l.startsWith("/deep-scan") },
-                { href: "/options", label: "F\u00A0&\u00A0O Intraday", isActive: l => l === "/options" },
-                { href: "/strategies", label: "Strategies", isActive: l => l.startsWith("/strategies") },
-                { href: "/option-chain", label: "Option Chain", isActive: l => l.startsWith("/option-chain") },
-                { href: "/oi-lab", label: "OI Lab", isActive: l => l.startsWith("/oi-lab") },
-                { href: "/premarket", label: "Pre / Post", isActive: l => l.startsWith("/premarket") },
-                { href: "/watchlist", label: "Watchlist", isActive: l => l.startsWith("/watchlist") },
-                { href: "/sectors", label: "Sectors", isActive: l => l.startsWith("/sectors") },
-                { href: "/flows", label: "FII / DII", isActive: l => l.startsWith("/flows") },
-                { href: "/stocks-to-watch", label: "To Watch", isActive: l => l.startsWith("/stocks-to-watch") },
-                { href: "/news", label: "Market Info", isActive: l => l === "/news" },
-                { href: "/kite", label: "Live Feed", isActive: l => l.startsWith("/kite") },
-                { href: "/learn", label: "Learn", isActive: l => l.startsWith("/learn") },
-                { href: "/audit", label: "Audit", isActive: l => l.startsWith("/audit") },
-                { href: "/status", label: "Status", isActive: l => l.startsWith("/status") },
+              // Each tab is tagged with either:
+              //   tab: AllowedTabKey  → visible only if subscriber has that grant (always shown to owner)
+              //   ownerOnly: true     → visible only to the site owner
+              type NavTab = {
+                href: string;
+                label: string;
+                isActive: (l: string) => boolean;
+                tab?: AllowedTabKey;
+                ownerOnly?: boolean;
+              };
+              const allTabs: NavTab[] = [
+                { href: "/", label: "Home", isActive: l => l === "/", tab: "HOME" },
+                { href: "/scanner", label: "Scanner", isActive: l => l.startsWith("/scanner"), tab: "SCANNER" },
+                { href: "/deep-scan", label: "Deep Scan", isActive: l => l.startsWith("/deep-scan"), ownerOnly: true },
+                { href: "/options", label: "F\u00A0&\u00A0O Intraday", isActive: l => l === "/options", ownerOnly: true },
+                { href: "/strategies", label: "Strategies", isActive: l => l.startsWith("/strategies"), ownerOnly: true },
+                { href: "/option-chain", label: "Option Chain", isActive: l => l.startsWith("/option-chain"), tab: "OPTION_CHAIN" },
+                { href: "/oi-lab", label: "OI Lab", isActive: l => l.startsWith("/oi-lab"), tab: "OI_LAB" },
+                { href: "/premarket", label: "Pre / Post", isActive: l => l.startsWith("/premarket"), tab: "PREMARKET" },
+                { href: "/watchlist", label: "Watchlist", isActive: l => l.startsWith("/watchlist"), tab: "WATCHLIST" },
+                { href: "/sectors", label: "Sectors", isActive: l => l.startsWith("/sectors"), ownerOnly: true },
+                { href: "/flows", label: "FII / DII", isActive: l => l.startsWith("/flows"), tab: "FLOWS" },
+                { href: "/stocks-to-watch", label: "To Watch", isActive: l => l.startsWith("/stocks-to-watch"), tab: "STOCKS_TO_WATCH" },
+                { href: "/news", label: "Market Info", isActive: l => l === "/news", tab: "NEWS" },
+                { href: "/kite", label: "Live Feed", isActive: l => l.startsWith("/kite"), ownerOnly: true },
+                { href: "/learn", label: "Learn", isActive: l => l.startsWith("/learn"), tab: "LEARN" },
+                { href: "/audit", label: "Audit", isActive: l => l.startsWith("/audit"), ownerOnly: true },
+                { href: "/status", label: "Status", isActive: l => l.startsWith("/status"), ownerOnly: true },
               ];
+              const tabs = allTabs.filter(t => {
+                if (role === "owner") return true;
+                if (t.ownerOnly) return false;
+                if (t.tab) return allowedTabs.includes(t.tab);
+                return false;
+              });
               return (
                 <div ref={navScrollRef} className="overflow-x-auto no-scrollbar scroll-smooth">
                   <nav ref={navRef} className="flex items-center gap-x-4 lg:gap-x-5 text-[13.5px] lg:text-[14px] font-semibold whitespace-nowrap pl-7 pr-7">
@@ -244,6 +264,42 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             )}
           </div>
           <div className="flex items-center justify-end gap-2 shrink-0 w-40 sm:w-56 md:w-64 lg:w-72">
+            {/*
+              UserMenu — small identity chip at the top-right.
+              Owner: shows "ADMIN" badge + link to /admin + sign-out.
+              Subscriber: shows initials + name + sign-out.
+            */}
+            {role === "owner" ? (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Link href="/admin" className="inline-flex items-center gap-1 px-2 py-1 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 text-[11px] font-mono font-bold tracking-wider" data-testid="link-admin">
+                  <ShieldCheck className="h-3.5 w-3.5" /> ADMIN
+                </Link>
+                <Button
+                  variant="ghost" size="icon"
+                  className="h-7 w-7"
+                  title="Sign out"
+                  onClick={async () => { await logout(); await refreshAuth(); }}
+                  data-testid="button-logout"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : role === "subscriber" && subscriber ? (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="text-[11px] font-mono text-muted-foreground hidden lg:block max-w-[100px] truncate" title={subscriber.email}>
+                  {subscriber.fullName.split(" ")[0]}
+                </div>
+                <Button
+                  variant="ghost" size="icon"
+                  className="h-7 w-7"
+                  title="Sign out"
+                  onClick={async () => { await logout(); await refreshAuth(); }}
+                  data-testid="button-logout"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : null}
             <ThemeSwitcher />
             <div ref={containerRef} className="relative flex-1 min-w-0">
               <form onSubmit={handleSubmit}>

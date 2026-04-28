@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import crypto from "node:crypto";
 import { buildLoginUrl, clearSession, completeLogin, getActiveSession, getKiteCreds, storeImportedSession, type ExportedSession } from "../lib/kiteAuth";
 import { addTickListener, feedStatus, getAllLiveQuotes, getLiveQuote, startTicker, stopTicker, subscribe } from "../lib/kiteFeed";
+import { requireOwner } from "../lib/userAuth";
 import { logger } from "../lib/logger";
 
 function getAppPassword(): string | undefined {
@@ -17,6 +18,21 @@ function safeStrEq(a: string, b: string): boolean {
 }
 
 const router: IRouter = Router();
+
+// Live Feed tab is owner-only. Path-scoped to /kite/* so this middleware
+// doesn't intercept (and 401) every other request flowing through the parent
+// router. Skip the gate on:
+//   - /kite/callback         (OAuth redirect from Zerodha — no session yet)
+//   - /kite/export-session   (gated separately by X-App-Password header)
+//   - /kite/import-session   (also gated by X-App-Password header)
+router.use("/kite", (req, res, next) => {
+  // req.path here is RELATIVE to the "/kite" mount, so /kite/callback => "/callback".
+  const p = req.path;
+  if (p === "/callback" || p === "/export-session" || p === "/import-session") {
+    return next();
+  }
+  return requireOwner(req, res, next);
+});
 
 /** Combined status for the Kite settings page. */
 router.get("/kite/status", async (_req, res) => {

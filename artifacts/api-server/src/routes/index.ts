@@ -11,6 +11,8 @@ import deepScanRouter from "./deepscan";
 import systemRouter from "./system";
 import stocksToWatchRouter from "./stocksToWatch";
 import indicesRouter from "./indices";
+import userAuthRouter from "./userAuth";
+import adminRouter from "./admin";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
 
@@ -28,6 +30,8 @@ router.use(deepScanRouter);
 router.use(systemRouter);
 router.use(stocksToWatchRouter);
 router.use(indicesRouter);
+router.use(userAuthRouter);   // /auth/signup, /auth/user-login, /auth/me, /personal-watchlist/*
+router.use(adminRouter);      // /admin/users[/:id] — owner-only via router-level requireOwner
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 startInstFlowsRefresher();

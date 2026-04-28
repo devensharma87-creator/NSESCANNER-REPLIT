@@ -1,8 +1,16 @@
 import { Router, type IRouter } from "express";
 import { searchUniverse, getDeepSnapshot, type LookupKind, type Range, RANGES_FOR_DEEPSCAN } from "../lib/deepscan";
+import { requireOwner } from "../lib/userAuth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+// Deep Scan is an owner-only tab. Block subscribers from hitting these
+// endpoints directly even if they know the URLs.
+// Path-scoped to /deepscan/* — without the prefix, this would intercept
+// every request flowing through the parent router (express runs sub-router
+// middleware for all paths until the request is handled).
+router.use("/deepscan", requireOwner);
 
 router.get("/deepscan/lookup", (req, res) => {
   const q = String(req.query["q"] ?? "").trim();
