@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "@tanstack/react-virtual": "^3.13.24"
+    "@tanstack/react-virtual": "^3.13.24",
+    "lightweight-charts": "^5.2.0"
   }
 }
