@@ -1,0 +1,142 @@
+Hi [Coder Name],
+
+Please add a **Paper Trading System** as a separate tab/module. This will be a testing environment first, with the possibility of moving to real-money algo trading later only after successful testing for at least **3–4 months**.
+
+The system should have **two separate sections**:
+
+## 1. Equity Swing Trading — Cash Carry
+
+This section should generate and execute paper trades for equity swing trading based on our buy/sell signals.
+
+### Requirements
+
+* The system should automatically create a paper buy trade only when the equity recommendation has **high confidence and high probability**.
+* The recommendation engine must be improved and made much more reliable before triggering any trade.
+* Avoid weak, random, or low-confidence signals.
+* Entry should happen only at the recommended buy price or within a defined acceptable range.
+* Exit should happen automatically based on:
+
+  * Target hit
+  * Stop loss hit
+  * Manual exit, if required
+  * Signal reversal, if applicable
+
+### Equity Signal Quality Rules
+
+Before generating a buy signal, the system should check multiple confirmations, such as:
+
+* Trend confirmation
+* Volume confirmation
+* Support/resistance validation
+* Breakout or pullback quality
+* Risk-reward ratio
+* Market condition
+* Sector strength
+* Avoiding overbought/weak setups
+* Avoiding stocks with poor liquidity or abnormal movement
+
+Only genuine, strong, and high-probability swing trades should be recommended.
+
+## 2. F&O Paper Trading — Index Options Only
+
+This section should paper trade **Call/Put options in indices only**.
+
+### Requirements
+
+* Only index options should be included.
+* The system should generate only **2–2 genuine, high-quality trades per day**, not more than that.
+* No overtrading.
+* Trades should be triggered only when the signal is strong and confirmed.
+* Entry should happen as per the generated signal.
+* Exit should happen automatically based on:
+
+  * Target hit
+  * Stop loss hit
+  * Time-based exit
+  * Signal reversal
+  * End-of-day exit, if required
+
+### F&O Signal Quality Rules
+
+The F&O signal system should check:
+
+* Index trend direction
+* Momentum confirmation
+* Option price movement
+* Volume and open interest, if available
+* Support/resistance levels
+* Breakout/reversal confirmation
+* Risk-reward ratio
+* Avoiding sideways/no-trade zones
+* Avoiding false breakouts
+* Avoiding trades during unclear market conditions
+
+Only high-quality trades should be taken. The system should strictly avoid unnecessary trades.
+
+## Stop Loss System
+
+Please add a proper stop loss system across all segments.
+
+Stop loss should be mandatory for every trade, including:
+
+* Equity swing trades
+* Index option trades
+* Any future segment we add
+
+The trade should not be allowed unless stop loss is defined.
+
+The system should support:
+
+* Fixed stop loss
+* Percentage-based stop loss
+* Technical stop loss
+* Trailing stop loss, if applicable
+* Automatic exit when stop loss is hit
+
+## Risk Management
+
+Since we may use this for real-money algo trading in the future, the structure should be built carefully from the beginning.
+
+Please include:
+
+* Maximum trades per day
+* Maximum loss per day
+* Maximum open positions
+* Capital allocation per trade
+* Risk per trade
+* Daily profit/loss tracking
+* Trade history
+* Signal history
+* Reason for every trade entry and exit
+* Paper trading ledger
+* Error logs
+* Manual override option
+
+## Testing Stage
+
+For now, this is only for **paper trading/testing**.
+
+We will monitor the performance for at least **3–4 months**. Only if the system performs consistently and safely, we may later switch to real-money algo trading.
+
+So please build the system in a way that it can later be connected to a live broker API, but for now, no real orders should be placed.
+
+## Important Development Notes
+
+Please make the analysis and signalling system as strong and reliable as possible.
+
+The system should avoid:
+
+* Low-confidence signals
+* Duplicate trades
+* Wrong entries
+* Trades without stop loss
+* Overtrading
+* False breakouts
+* Poor liquidity trades
+* Trades during unclear market conditions
+* Bugs in entry/exit logic
+* Any situation where a trade is placed without proper validation
+
+Every signal should have a clear reason, confidence score, entry price, target, stop loss, risk-reward ratio, and exit logic.
+
+The goal is to make the recommendation and paper trading system very robust, disciplined, and suitable for future algo trading after proper testing.
