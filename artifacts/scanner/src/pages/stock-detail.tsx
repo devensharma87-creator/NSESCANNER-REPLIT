@@ -18,22 +18,9 @@ import { Button } from "@/components/ui/button";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
 import { ArrowLeft, TrendingUp, TrendingDown, Target, ShieldAlert, ExternalLink } from "lucide-react";
-import { TradingViewChart } from "@/components/tradingview-chart";
+import { InAppCandleChart } from "@/components/in-app-candle-chart";
 import StockStatements from "@/components/stock-statements";
 import { formatDistanceToNow } from "date-fns";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  ReferenceLine,
-  Legend,
-  Area,
-  ComposedChart,
-} from "recharts";
 
 const RANGES = ["1mo", "3mo", "6mo", "1y", "2y"] as const;
 type Range = typeof RANGES[number];
@@ -69,14 +56,6 @@ export default function StockDetail() {
   const { profile, quote, indicators, recommendation, financials, holdings } = detail;
   const upDay = quote.changePercent >= 0;
 
-  const chartData = history?.candles.map((c, i) => ({
-    t: new Date(c.t).getTime(),
-    label: new Date(c.t).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
-    close: c.c,
-    ema20: history.ema20Series?.[i] ?? null,
-    ema50: history.ema50Series?.[i] ?? null,
-    rsi: history.rsiSeries?.[i] ?? null,
-  })) ?? [];
 
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-6">
@@ -285,67 +264,41 @@ export default function StockDetail() {
 
         <TabsContent value="chart" className="space-y-4">
           <Card>
-            <CardHeader className="border-b border-border pb-3">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-border pb-3 gap-2">
               <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                TradingView · Live Chart
-                <span className="text-[10px] text-muted-foreground/70 normal-case tracking-normal">(EMA 9/21 · RSI · VWAP preloaded · sign in to TV for your own templates)</span>
+                {profile.symbol} · Daily candles · EMA 20/50 · Volume
               </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <TradingViewChart symbol={`NSE:${profile.symbol}`} interval="15" height={560} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between border-b border-border pb-3">
-              <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Daily Price · EMA 20 · EMA 50 (in-app)</CardTitle>
-              <div className="flex gap-1">
+              <div className="flex items-center gap-1">
                 {RANGES.map(r => (
                   <Button key={r} size="sm" variant={r === range ? "default" : "outline"} onClick={() => setRange(r)} className="h-7 px-2 text-xs font-mono uppercase">
                     {r}
                   </Button>
                 ))}
+                <a
+                  href={`https://www.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(profile.symbol)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-2 inline-flex items-center gap-1 text-[10px] font-mono uppercase text-muted-foreground hover:text-foreground"
+                  title="Open this symbol on TradingView in a new tab"
+                >
+                  TradingView <ExternalLink className="h-3 w-3" />
+                </a>
               </div>
             </CardHeader>
-            <CardContent className="pt-4">
-              {histLoading || !history ? <Skeleton className="h-[340px] w-full" /> : (
-                <div className="h-[340px]">
-                  <ResponsiveContainer>
-                    <ComposedChart data={chartData} margin={{ top: 8, right: 10, left: 0, bottom: 0 }}>
-                      <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="2 4" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} minTickGap={32} />
-                      <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} width={56} />
-                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-                      <Legend wrapperStyle={{ fontSize: 11, fontFamily: "monospace" }} />
-                      <Area type="monotone" dataKey="close" stroke="hsl(var(--signal-strong-buy))" strokeWidth={1.6} fill="hsl(var(--signal-strong-buy))" fillOpacity={0.06} dot={false} name="Price" />
-                      <Line type="monotone" dataKey="ema20" stroke="hsl(45 93% 58%)" strokeWidth={1.2} dot={false} name="EMA 20" />
-                      <Line type="monotone" dataKey="ema50" stroke="hsl(280 80% 65%)" strokeWidth={1.2} dot={false} name="EMA 50" />
-                    </ComposedChart>
-                  </ResponsiveContainer>
+            <CardContent className="pt-3 pb-2">
+              {histLoading || !history ? (
+                <Skeleton className="h-[460px] w-full" />
+              ) : history.candles.length === 0 ? (
+                <div className="h-[460px] flex items-center justify-center text-sm text-muted-foreground">
+                  No price history available for this symbol.
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="border-b border-border pb-3">
-              <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">RSI 14</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4">
-              {histLoading || !history ? <Skeleton className="h-[180px] w-full" /> : (
-                <div className="h-[180px]">
-                  <ResponsiveContainer>
-                    <LineChart data={chartData} margin={{ top: 8, right: 10, left: 0, bottom: 0 }}>
-                      <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="2 4" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} minTickGap={32} />
-                      <YAxis domain={[0, 100]} ticks={[0, 30, 50, 70, 100]} tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} width={36} />
-                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-                      <ReferenceLine y={70} stroke="hsl(var(--signal-strong-sell))" strokeDasharray="3 3" />
-                      <ReferenceLine y={30} stroke="hsl(var(--signal-strong-buy))" strokeDasharray="3 3" />
-                      <Line type="monotone" dataKey="rsi" stroke="hsl(210 80% 65%)" strokeWidth={1.4} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+              ) : (
+                <InAppCandleChart
+                  candles={history.candles}
+                  ema20Series={history.ema20Series ?? null}
+                  ema50Series={history.ema50Series ?? null}
+                  height={460}
+                />
               )}
             </CardContent>
           </Card>
