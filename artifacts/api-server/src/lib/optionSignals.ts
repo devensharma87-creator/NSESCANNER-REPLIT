@@ -117,7 +117,13 @@ interface Ctx {
   dailyEma50: number;      // higher-timeframe trend filter
   htfBias: "BULLISH" | "BEARISH" | "NEUTRAL";
   avgVol20: number;
-  lastVol: number;
+  /** Most recent intraday-bar volume. `null` when Yahoo returned no
+   *  volume for the latest bar (rare, but happens at the very first
+   *  pre-open print). Detectors that consume this MUST gate on
+   *  `null` rather than treating it as zero — coercing `null → 0`
+   *  silently fails every "volume confirmation" check and biases
+   *  detector confidence. */
+  lastVol: number | null;
   prevSwingHigh: number;
   prevSwingLow: number;
   bars: { o: number[]; h: number[]; l: number[]; c: number[]; v: number[] };
@@ -189,7 +195,7 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     atr15, atrDaily, dailyEma50,
     htfBias,
     avgVol20,
-    lastVol: vols.at(-1) ?? 0,
+    lastVol: vols.at(-1) ?? null,
     prevSwingHigh, prevSwingLow,
     bars: { o: today.open, h: highs, l: lows, c: closes, v: vols },
   };
@@ -230,7 +236,7 @@ function detectTrendContinuation(c: Ctx): Detected | null {
     if (c.rsi14 >= 52 && c.rsi14 <= 68) { drivers.push({ label: "RSI healthy bullish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (52–68).`, weight: 15, bullish: true }); conf += 15; }
     else if (c.rsi14 > 68) { drivers.push({ label: "RSI overbought caution", detail: `RSI ${c.rsi14.toFixed(1)} — extended; size smaller.`, weight: 5, bullish: false }); conf -= 5; }
     if (c.vp && c.spot > c.vp.pointOfControl) { drivers.push({ label: "Above POC", detail: `Spot above POC ${c.vp.pointOfControl.toFixed(2)} — value supports buyers.`, weight: 8, bullish: true }); conf += 8; }
-    if (c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: true }); conf += 8; }
+    if (c.lastVol != null && c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: true }); conf += 8; }
   } else {
     drivers.push({ label: "Spot below VWAP", detail: `${c.spot.toFixed(2)} < VWAP ${c.vwap.toFixed(2)}`, weight: 25, bullish: false });
     drivers.push({ label: "EMA 9 < EMA 21 stack", detail: `EMA9 ${c.ema9.toFixed(2)} < EMA21 ${c.ema21.toFixed(2)} — fast below slow.`, weight: 20, bullish: false });
@@ -238,7 +244,7 @@ function detectTrendContinuation(c: Ctx): Detected | null {
     if (c.rsi14 <= 48 && c.rsi14 >= 32) { drivers.push({ label: "RSI healthy bearish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (32–48).`, weight: 15, bullish: false }); conf += 15; }
     else if (c.rsi14 < 32) { drivers.push({ label: "RSI oversold caution", detail: `RSI ${c.rsi14.toFixed(1)} — bounce risk; size smaller.`, weight: 5, bullish: true }); conf -= 5; }
     if (c.vp && c.spot < c.vp.pointOfControl) { drivers.push({ label: "Below POC", detail: `Spot below POC ${c.vp.pointOfControl.toFixed(2)} — value supports sellers.`, weight: 8, bullish: false }); conf += 8; }
-    if (c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: false }); conf += 8; }
+    if (c.lastVol != null && c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: false }); conf += 8; }
   }
   conf = Math.max(0, Math.min(100, conf));
   // Soft HTF filter: counter-HTF signals get a confidence haircut and a tag,
@@ -333,7 +339,7 @@ function detectVwapReclaim(c: Ctx): Detected | null {
   if (dir === "BULLISH" && c.ema9 > c.ema21) { drivers.push({ label: "EMA 9 > 21 supports reclaim", detail: "Fast EMA still above slow — pullback was healthy.", weight: 12, bullish: true }); conf += 12; }
   if (dir === "BEARISH" && c.ema9 < c.ema21) { drivers.push({ label: "EMA 9 < 21 supports rejection", detail: "Fast EMA still below slow — bounce was a relief rally.", weight: 12, bullish: false }); conf += 12; }
 
-  if (c.lastVol > c.avgVol20) { drivers.push({ label: "Volume on cross", detail: `Last bar vol > 20-bar avg.`, weight: 8, bullish: dir === "BULLISH" }); conf += 8; }
+  if (c.lastVol != null && c.lastVol > c.avgVol20) { drivers.push({ label: "Volume on cross", detail: `Last bar vol > 20-bar avg.`, weight: 8, bullish: dir === "BULLISH" }); conf += 8; }
 
   conf = Math.max(0, Math.min(100, conf));
   if (conf < 50) return null;
@@ -375,8 +381,12 @@ function detectVolumeBreakout(c: Ctx): Detected | null {
   if (!aboveVAH && !belowVAL) return null;
   const dir: Direction = aboveVAH ? "BULLISH" : "BEARISH";
 
-  // require volume + momentum
-  const volOk = c.lastVol > c.avgVol20 * 1.3;
+  // require volume + momentum. Volume Breakout DEPENDS on a real volume
+  // print — without one the entire detector is meaningless, so we drop
+  // the signal rather than fire on momentum alone.
+  if (c.lastVol == null) return null;
+  const lastVol = c.lastVol;
+  const volOk = lastVol > c.avgVol20 * 1.3;
   const momentumOk = dir === "BULLISH" ? c.spot > c.ema9 && c.spot > c.vwap : c.spot < c.ema9 && c.spot < c.vwap;
   if (!volOk || !momentumOk) return null;
 
@@ -389,7 +399,7 @@ function detectVolumeBreakout(c: Ctx): Detected | null {
   });
   drivers.push({
     label: "Volume expansion",
-    detail: `Last bar volume ${(c.lastVol / 1e6).toFixed(2)}M is ${(c.lastVol / Math.max(1, c.avgVol20)).toFixed(1)}× the 20-bar avg.`,
+    detail: `Last bar volume ${(lastVol / 1e6).toFixed(2)}M is ${(lastVol / Math.max(1, c.avgVol20)).toFixed(1)}× the 20-bar avg.`,
     weight: 18, bullish: dir === "BULLISH",
   });
   drivers.push({

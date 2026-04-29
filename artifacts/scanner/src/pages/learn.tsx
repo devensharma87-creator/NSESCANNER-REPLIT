@@ -3,6 +3,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { PatternDiagram, hasDiagram } from "@/components/learn/pattern-diagrams";
+import {
   GraduationCap,
   BookOpen,
   LineChart,
@@ -27,7 +34,40 @@ import {
   Lightbulb,
   TrendingUp,
   ListChecks,
+  CandlestickChart,
+  AreaChart,
 } from "lucide-react";
+
+const CANDLE_PATTERN_PREFIX = "Candlestick pattern —";
+const CHART_PATTERN_PREFIX = "Chart pattern —";
+
+const patternSlugFromTerm = (term: string): string | null => {
+  const m = term.match(/^(Candlestick pattern|Chart pattern)\s*—\s*(.+)$/);
+  if (!m) return null;
+  const namePart = m[2].split("(")[0].trim();
+  return namePart
+    .toLowerCase()
+    .replace(/[\s/&]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+};
+
+const parsePatternHeader = (term: string): { name: string; nature: string } => {
+  const stripped = term.replace(/^(Candlestick pattern|Chart pattern)\s*—\s*/, "");
+  const m = stripped.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+  if (!m) return { name: stripped, nature: "" };
+  return { name: m[1].trim(), nature: m[2].trim() };
+};
+
+const natureColorClass = (nature: string): string => {
+  const n = nature.toLowerCase();
+  if (n.includes("bullish") && n.includes("bearish")) return "text-amber-500";
+  if (n.includes("bullish") || n.includes("strong bullish")) return "text-signal-strong-buy";
+  if (n.includes("bearish") || n.includes("strong bearish")) return "text-signal-strong-sell";
+  if (n.includes("bilateral") || n.includes("indecision") || n.includes("neutral")) return "text-amber-500";
+  return "text-muted-foreground";
+};
 
 type ResourceType = "Course" | "Article" | "Book" | "Site" | "Video" | "Doc";
 
@@ -1087,25 +1127,101 @@ function TopicSection({ topic }: { topic: Topic }) {
           </div>
         )}
 
-        {/* Key concepts */}
-        {topic.keyConcepts.length > 0 && (
-          <div>
-            <h3 className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-              Key concepts
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {topic.keyConcepts.map((k) => (
-                <div
-                  key={k.term}
-                  className="border border-border rounded p-3 bg-background/40 hover-row"
-                >
-                  <div className="font-mono text-[12.5px] font-bold text-foreground mb-0.5">{k.term}</div>
-                  <div className="text-[12.5px] text-muted-foreground leading-relaxed">{k.desc}</div>
+        {/* Pattern catalogues — collapsible bars per pattern, with diagrams */}
+        {(() => {
+          const candleConcepts = topic.keyConcepts.filter((k) => k.term.startsWith(CANDLE_PATTERN_PREFIX));
+          const chartConcepts = topic.keyConcepts.filter((k) => k.term.startsWith(CHART_PATTERN_PREFIX));
+          const otherConcepts = topic.keyConcepts.filter(
+            (k) => !k.term.startsWith(CANDLE_PATTERN_PREFIX) && !k.term.startsWith(CHART_PATTERN_PREFIX),
+          );
+
+          const renderPatternList = (concepts: typeof topic.keyConcepts) => (
+            <Accordion type="multiple" className="border border-border rounded bg-background/40 divide-y divide-border">
+              {concepts.map((k) => {
+                const { name, nature } = parsePatternHeader(k.term);
+                const slug = patternSlugFromTerm(k.term);
+                const colorClass = natureColorClass(nature);
+                return (
+                  <AccordionItem key={k.term} value={k.term} className="border-b-0">
+                    <AccordionTrigger className="px-3 py-2.5 hover:no-underline hover:bg-muted/30 rounded-none">
+                      <div className="flex items-center gap-3 min-w-0 flex-1 text-left">
+                        <span className="font-mono text-[12.5px] font-bold text-foreground truncate">{name}</span>
+                        {nature && (
+                          <span className={`font-mono text-[10px] uppercase tracking-wider ${colorClass} shrink-0 ml-auto pr-2`}>
+                            {nature}
+                          </span>
+                        )}
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-3 pt-1 pb-3">
+                      <div className="flex flex-col md:flex-row gap-4 items-start">
+                        {slug && hasDiagram(slug) && (
+                          <div className="shrink-0 w-full md:w-auto">
+                            <PatternDiagram slug={slug} />
+                          </div>
+                        )}
+                        <p className="text-[12.5px] text-muted-foreground leading-relaxed flex-1">{k.desc}</p>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          );
+
+          return (
+            <>
+              {candleConcepts.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <CandlestickChart className="h-3.5 w-3.5 text-primary" />
+                    <h3 className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Heading 01 — Candlestick patterns
+                    </h3>
+                    <span className="text-[10px] text-muted-foreground/70 ml-auto">
+                      Click any bar to expand the diagram and description
+                    </span>
+                  </div>
+                  {renderPatternList(candleConcepts)}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+              )}
+
+              {chartConcepts.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <AreaChart className="h-3.5 w-3.5 text-primary" />
+                    <h3 className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Heading 02 — Chart patterns
+                    </h3>
+                    <span className="text-[10px] text-muted-foreground/70 ml-auto">
+                      Click any bar to expand the diagram and description
+                    </span>
+                  </div>
+                  {renderPatternList(chartConcepts)}
+                </div>
+              )}
+
+              {otherConcepts.length > 0 && (
+                <div>
+                  <h3 className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
+                    Key concepts
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {otherConcepts.map((k) => (
+                      <div
+                        key={k.term}
+                        className="border border-border rounded p-3 bg-background/40 hover-row"
+                      >
+                        <div className="font-mono text-[12.5px] font-bold text-foreground mb-0.5">{k.term}</div>
+                        <div className="text-[12.5px] text-muted-foreground leading-relaxed">{k.desc}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* Videos */}
         {topic.videos.length > 0 && (

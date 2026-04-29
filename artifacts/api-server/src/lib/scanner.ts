@@ -87,11 +87,19 @@ function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
   const todayOpen = live?.open ?? todayOpenY;
   const high = live?.high ?? meta.regularMarketDayHigh ?? null;
   const low = live?.low ?? meta.regularMarketDayLow ?? null;
-  if (prevCloseRaw == null || todayOpen == null || high == null || low == null) {
+  // Volume must be REAL — Kite tick → Yahoo meta → last daily-bar volume.
+  // If all three are missing we used to silently substitute 0, which then
+  // routed through scoring's `volRatio < 0.6` "Low volume" rule and biased
+  // every score bearish. No-synthetic policy: drop the quote instead.
+  const volumeRaw = live?.volume ?? meta.regularMarketVolume ?? chart.volume[lastIdx] ?? null;
+  if (
+    prevCloseRaw == null || todayOpen == null || high == null || low == null
+    || volumeRaw == null
+  ) {
     return null;
   }
   const prevClose = prevCloseRaw;
-  const volume = live?.volume ?? meta.regularMarketVolume ?? chart.volume[lastIdx] ?? 0;
+  const volume = volumeRaw;
   const change = price - prevClose;
   const changePct = prevClose > 0 ? (change / prevClose) * 100 : 0;
   const avgV = avgVolume(chart.volume.slice(0, -1).filter(v => v > 0), 20);
@@ -399,17 +407,24 @@ export async function getStockHistoryWithSeries(
 ): Promise<StockHistory | null> {
   const chart = await getHistory(symbol, range);
   if (!chart) return null;
+  // Bars with any missing OHLCV field are dropped rather than coerced to
+  // 0 — painting a flat-zero volume bar onto the UI chart where Yahoo
+  // returned `null` is exactly the kind of synthetic substitution the
+  // audit forbids. Yahoo occasionally returns `null` for early
+  // pre-market bars; honest absence > fake zero.
+  const candles = chart.timestamps.flatMap((t, i) => {
+    const o = chart.open[i], h = chart.high[i], l = chart.low[i],
+          c = chart.close[i], v = chart.volume[i];
+    if (o == null || h == null || l == null || c == null || v == null) return [];
+    return [{
+      t: new Date(t * 1000),
+      o: round2(o), h: round2(h), l: round2(l), c: round2(c), v,
+    }];
+  });
   return {
     symbol,
     range,
-    candles: chart.timestamps.map((t, i) => ({
-      t: new Date(t * 1000),
-      o: round2(chart.open[i]!),
-      h: round2(chart.high[i]!),
-      l: round2(chart.low[i]!),
-      c: round2(chart.close[i]!),
-      v: chart.volume[i] ?? 0,
-    })),
+    candles,
     ema20Series: ema(chart.close, 20).map(v => v == null ? null : round2(v)),
     ema50Series: ema(chart.close, 50).map(v => v == null ? null : round2(v)),
     rsiSeries: rsi(chart.close, 14).map(v => v == null ? null : round2(v)),
