@@ -91,7 +91,35 @@ const DISK_CACHE_NAME = "full-nse-scan";
 // ema200, MACD, RSI for every reasonably-aged listing). Old v5 blobs
 // still carry intraday-window EMAs and would mix two different timeframes
 // in the table — invalidate them.
-const DISK_CACHE_VERSION = 6;
+// v7 (2026-04-29): synthetic-data audit fix. Removed delivery%-noise
+// heuristic, RSI=50 default, EMA=price defaults. Old cache rows carry
+// fake "neutral" indicators — bumping the version forces a clean recompute.
+// v8 (2026-04-29): second pass — Kite-only rows now emit undefined for
+// volumeRatio/trendStrength (not 1× / 50), and missing delivery% is null
+// instead of 0. Old v7 still carries those neutral defaults — invalidate.
+// v9 (2026-04-29): YahooIndicators.volumeRatio is now nullable; previously
+// `volumeRatio ?? 0` was forcing a synthetic zero into row.indicators on
+// any symbol whose 20-day average couldn't be computed. v8 rows still
+// carry that fake zero — invalidate so a fresh scan emits honest nulls.
+// v10 (2026-04-29): trendStrength now emits undefined when EMA20 or EMA50
+// is missing (was defaulting to 50 which conflated "unknown" with
+// "measured neutral"). Old v9 rows can carry the misleading 50.
+// v11 (2026-04-29): scoring no longer fabricates target/stopLoss/RR when
+// ATR is missing (was using `range / 6` as a fake ATR). Old v10 rows
+// can carry those fabricated levels — invalidate.
+// v12 (2026-04-29): Yahoo-fallback row builder now hard-gates on real
+// OHLC. Previously high/low fell back to ind.realPrice when Yahoo's
+// last bar was missing those fields, which made support/resistance/
+// pivot/r1/s1 collapse to the live price (a fabricated "level").
+// v13 (2026-04-29): tryYahooIndicators no longer collapses missing
+// realOpen / realPrevClose to realPrice. The downstream hard-gate now
+// has truthful nulls to test against; symbols with incomplete Yahoo
+// daily bars are skipped instead of emitting fabricated open/prev/change.
+// v14 (2026-04-29): scanner.ts quoteFromChart now drops the quote
+// entirely when previousClose / today open / high / low can't be
+// sourced for real. Old rows in v13 may carry quotes built off
+// `Math.max/min(price, todayOpen)` placeholders.
+const DISK_CACHE_VERSION = 14;
 const DISK_CACHE_MAX_AGE_MS = 60 * 60_000;
 
 interface Cache {
@@ -130,7 +158,7 @@ function classifyTrend(price: number, ema20: number | null, ema50: number | null
 function buildRecommendation(args: {
   rsiVal: number | null;
   trend: "BULLISH" | "BEARISH" | "NEUTRAL";
-  volumeRatio: number;
+  volumeRatio: number | null;
   changePct: number;
   vwapAbove: boolean | null;
 }): Recommendation {
@@ -148,7 +176,10 @@ function buildRecommendation(args: {
     else if (rsiVal < 45) { score -= 4; reasons.push({ text: `RSI ${rsiVal.toFixed(0)} bearish bias`, weight: 4, positive: false }); }
   }
 
-  if (volumeRatio >= 1.5) {
+  // Volume rule only applies when we actually measured a real ratio.
+  // Kite-only rows (no daily-bar history) pass null and the rule is skipped
+  // — we will not invent volume-confirmation evidence we don't have.
+  if (volumeRatio != null && volumeRatio >= 1.5) {
     const dir = changePct >= 0;
     score += dir ? 6 : -6;
     reasons.push({ text: `Volume ${volumeRatio.toFixed(1)}× avg ${dir ? "buying" : "selling"} pressure`, weight: 6, positive: dir });
@@ -196,7 +227,7 @@ interface YahooIndicators {
   macd: number | null;
   macdSignal: number | null;
   macdHist: number | null;
-  volumeRatio: number;
+  volumeRatio: number | null;     // null when 20-day average isn't computable
   high52w: number | null;
   low52w: number | null;
   longName: string | null;
@@ -275,11 +306,17 @@ async function tryYahooIndicators(symbol: string): Promise<YahooIndicators | nul
     const vwap: number | null = null;
 
     const meta = daily.meta;
+    // We MUST NOT silently fabricate Yahoo OHLC fields by collapsing
+    // missing values to `realPrice`. The Yahoo-fallback row builder
+    // hard-gates on every one of these being non-null and then publishes
+    // them as user-visible quote.open / previousClose / change /
+    // changePercent / support / resistance / pivot / r1 / s1. If a field
+    // is genuinely missing, leave it null so the gate skips the symbol.
     const realPrice = meta.regularMarketPrice ?? closes[closes.length - 1] ?? null;
-    const realOpen  = daily.open[daily.open.length - 1] ?? realPrice;
+    const realOpen  = daily.open[daily.open.length - 1] ?? null;
     const realHigh  = daily.high[daily.high.length - 1] ?? null;
     const realLow   = daily.low[daily.low.length - 1] ?? null;
-    const realPrev  = meta.chartPreviousClose ?? closes[closes.length - 2] ?? realOpen;
+    const realPrev  = meta.chartPreviousClose ?? closes[closes.length - 2] ?? null;
     const realVolume = todayVol;
 
     return {
@@ -290,7 +327,8 @@ async function tryYahooIndicators(symbol: string): Promise<YahooIndicators | nul
       macd: macdLast,
       macdSignal: macdSig,
       macdHist: macdH,
-      volumeRatio: volumeRatio ?? 0,
+      volumeRatio,                  // null propagates honestly — no synthetic 0
+
       high52w: meta.fiftyTwoWeekHigh ?? null,
       low52w: meta.fiftyTwoWeekLow ?? null,
       longName: meta.longName ?? meta.shortName ?? null,
@@ -312,7 +350,7 @@ async function chartCallShim(yahooSymbol: string) {
   return fetchChart(yahooSymbol.replace(/\.NS$|\.BO$/, ""), "1y", "1d");
 }
 
-function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number): StockRow {
+function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number | null): StockRow {
   const quote: Quote = {
     symbol: kq.symbol,
     name: kq.name,
@@ -333,7 +371,7 @@ function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number): StockRow {
   const recommendation = buildRecommendation({
     rsiVal: null,
     trend: "NEUTRAL",
-    volumeRatio: 1,
+    volumeRatio: null,        // unknown — do NOT pretend it's "1×" (neutral-ish)
     changePct: kq.changePercent,
     vwapAbove: null,
   });
@@ -355,8 +393,8 @@ function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number): StockRow {
       macd: undefined, macdSignal: undefined, macdHist: undefined,
       atr14: undefined, adx14: undefined,
       volumeRatio: undefined,
-      deliveryPct: round2(deliveryPct),
-      trendStrength: 50,
+      deliveryPct: deliveryPct != null ? round2(deliveryPct) : undefined,
+      trendStrength: undefined,        // unknown — do NOT pretend it's "50" (neutral)
       supportLevel: round2(kq.low),
       resistanceLevel: round2(kq.high),
       pivot: round2(pivot),
@@ -367,7 +405,7 @@ function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number): StockRow {
   };
 }
 
-function rowFromKitePlusIndicators(kq: KiteScannerQuote, ind: YahooIndicators, deliveryPct: number): StockRow {
+function rowFromKitePlusIndicators(kq: KiteScannerQuote, ind: YahooIndicators, deliveryPct: number | null): StockRow {
   const trend = classifyTrend(kq.lastPrice, ind.ema20, ind.ema50);
   const vwapAbove = ind.vwap != null ? kq.lastPrice > ind.vwap : null;
   const quote: Quote = {
@@ -394,11 +432,20 @@ function rowFromKitePlusIndicators(kq: KiteScannerQuote, ind: YahooIndicators, d
     changePct: kq.changePercent,
     vwapAbove,
   });
-  const trendStrength = trend === "BULLISH"
-    ? Math.min(100, 70 + (ind.rsi14 != null ? Math.max(0, ind.rsi14 - 50) / 5 : 0))
-    : trend === "BEARISH"
-      ? Math.max(0, 30 - (ind.rsi14 != null ? Math.max(0, 50 - ind.rsi14) / 5 : 0))
-      : 50;
+  // trendStrength is a derivative of the EMA20 / EMA50 stack. When EITHER
+  // EMA is missing, classifyTrend returns "NEUTRAL" — but that "neutral"
+  // is "we don't know", not a measured equilibrium. Emit undefined for
+  // unknown so the UI renders "—" instead of a misleading "50".
+  let trendStrength: number | undefined;
+  if (ind.ema20 == null || ind.ema50 == null) {
+    trendStrength = undefined;
+  } else if (trend === "BULLISH") {
+    trendStrength = Math.min(100, 70 + (ind.rsi14 != null ? Math.max(0, ind.rsi14 - 50) / 5 : 0));
+  } else if (trend === "BEARISH") {
+    trendStrength = Math.max(0, 30 - (ind.rsi14 != null ? Math.max(0, 50 - ind.rsi14) / 5 : 0));
+  } else {
+    trendStrength = 50;        // genuine measured neutral (both EMAs known, price between them)
+  }
   const pivot = (kq.high + kq.low + kq.lastPrice) / 3;
   return {
     symbol: kq.symbol,
@@ -419,8 +466,8 @@ function rowFromKitePlusIndicators(kq: KiteScannerQuote, ind: YahooIndicators, d
       macdHist:   ind.macdHist   != null ? round2(ind.macdHist)   : undefined,
       atr14:  ind.atr14  != null ? round2(ind.atr14)  : undefined,
       adx14:  undefined,
-      volumeRatio: round2(ind.volumeRatio),
-      deliveryPct: round2(deliveryPct),
+      volumeRatio: ind.volumeRatio != null ? round2(ind.volumeRatio) : undefined,
+      deliveryPct: deliveryPct != null ? round2(deliveryPct) : undefined,
       trendStrength,
       supportLevel: round2(kq.low),
       resistanceLevel: round2(kq.high),
@@ -565,28 +612,42 @@ async function performFullScan(): Promise<Cache> {
     const kq = kiteQuotes?.get(sym) ?? null;
     const ind = yahooByScopedSymbol.get(sym) ?? null;
     const realDelv = await getDeliveryPct(sym).catch(() => null);
-    const deliveryPct = realDelv?.pct ?? 0;
+    // null when bhavcopy hasn't loaded yet OR symbol isn't in today's
+    // bhavcopy. Propagate null down the row builders — never invent "0%".
+    const deliveryPct: number | null = realDelv?.pct ?? null;
     if (kq && ind) {
       rows.push(rowFromKitePlusIndicators(kq, ind, deliveryPct));
       enrichedCount++;
     } else if (kq) {
       rows.push(rowFromKiteOnly(kq, deliveryPct));
       kiteOnlyCount++;
-    } else if (ind && ind.realPrice != null && ind.realPrice > 0) {
-      // No Kite quote but Yahoo bars are real and complete — emit a row
-      // built from genuine Yahoo last-bar prices. NEVER synthetic.
-      const realPrev = ind.realPrevClose ?? ind.realOpen ?? ind.realPrice;
+    } else if (
+      ind &&
+      ind.realPrice != null && ind.realPrice > 0 &&
+      ind.realHigh != null && ind.realLow != null &&
+      ind.realOpen != null && ind.realPrevClose != null
+    ) {
+      // No Kite quote but Yahoo's last DAILY bar is fully populated —
+      // emit a row built from genuine Yahoo OHLC. We HARD-GATE on every
+      // OHLC field being real because rowFromKitePlusIndicators publishes
+      // supportLevel/resistanceLevel/pivot/r1/s1 derived from kq.high
+      // and kq.low. If we let those default to ind.realPrice when the
+      // bar's high/low were missing, the user would see a "support" and
+      // "resistance" both equal to the live price — a fabricated level
+      // dressed up as a measured one. If any OHLC field is missing,
+      // skip the symbol entirely. Honest absence over fabricated levels.
+      const realPrev = ind.realPrevClose;
       const yQuote: KiteScannerQuote = {
         symbol: sym,
         name: ind.longName ?? sym,
         lastPrice: ind.realPrice,
-        open: ind.realOpen ?? ind.realPrice,
-        high: ind.realHigh ?? ind.realPrice,
-        low: ind.realLow ?? ind.realPrice,
-        close: realPrev ?? ind.realPrice,
+        open: ind.realOpen,
+        high: ind.realHigh,
+        low: ind.realLow,
+        close: realPrev,
         volume: ind.realVolume,
-        change: ind.realPrice - (realPrev ?? ind.realPrice),
-        changePercent: realPrev ? ((ind.realPrice - realPrev) / realPrev) * 100 : 0,
+        change: ind.realPrice - realPrev,
+        changePercent: realPrev > 0 ? ((ind.realPrice - realPrev) / realPrev) * 100 : 0,
         ts: Date.now(),
       };
       // Same sanity guard as Kite path — drop suspected corp-action glitches.

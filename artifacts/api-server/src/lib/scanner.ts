@@ -67,16 +67,30 @@ function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
   // back to Yahoo (~15-min delayed) otherwise. We always keep the historical
   // chart-derived prevClose & 52-week levels from Yahoo since Kite ticks
   // don't carry those.
+  //
+  // Strict no-synthetic policy: previously we collapsed missing prevClose to
+  // `regularMarketPrice` (zero change), and missing high/low to
+  // `Math.max/min(price, todayOpen)` — both fabricate a "real" quote field
+  // out of the live price. Now: previousClose, high, low, and todayOpen
+  // are required to be REAL. If any one is missing we drop the quote
+  // entirely (`return null`) — the caller treats that as "no data" and
+  // never presents a fake one to the user.
   const live = getLiveQuote(entry.symbol);
   const closes = chart.close;
   const lastIdx = closes.length - 1;
-  const todayOpenY = chart.open[lastIdx] ?? meta.regularMarketPrice;
-  const prevClose = lastIdx >= 1 ? (closes[lastIdx - 1] ?? meta.chartPreviousClose ?? meta.regularMarketPrice) : (meta.chartPreviousClose ?? meta.regularMarketPrice);
+  const todayOpenY = chart.open[lastIdx] ?? null;
+  const prevCloseRaw = lastIdx >= 1
+    ? (closes[lastIdx - 1] ?? meta.chartPreviousClose ?? null)
+    : (meta.chartPreviousClose ?? null);
 
   const price = live?.ltp ?? meta.regularMarketPrice;
   const todayOpen = live?.open ?? todayOpenY;
-  const high = live?.high ?? meta.regularMarketDayHigh ?? Math.max(price, todayOpen);
-  const low = live?.low ?? meta.regularMarketDayLow ?? Math.min(price, todayOpen);
+  const high = live?.high ?? meta.regularMarketDayHigh ?? null;
+  const low = live?.low ?? meta.regularMarketDayLow ?? null;
+  if (prevCloseRaw == null || todayOpen == null || high == null || low == null) {
+    return null;
+  }
+  const prevClose = prevCloseRaw;
   const volume = live?.volume ?? meta.regularMarketVolume ?? chart.volume[lastIdx] ?? 0;
   const change = price - prevClose;
   const changePct = prevClose > 0 ? (change / prevClose) * 100 : 0;
@@ -143,24 +157,41 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
   const prevC = dn >= 2 ? closes[dn - 2]! : closes[dn - 1] ?? quote.price;
   const piv = pivots(prevH, prevL, prevC);
 
-  const ema20Last = lastVal(ema20Series) ?? quote.price;
-  const ema50Last = lastVal(ema50Series) ?? quote.price;
-  // ema100/ema200 are OPTIONAL in the schema — leave them undefined when the
-  // series is too short rather than silently substituting ema50 (which would
-  // make the UI display the same number twice and mislead the user).
+  // No-synthetic-data rule: every indicator below is left UNDEFINED when the
+  // series is too short to compute it honestly. Substituting `quote.price`
+  // for a missing EMA (or `50` for a missing RSI) silently passes "neutral"
+  // signal noise into scoring.ts, biasing the score toward zero and
+  // pretending we had evidence we didn't have. Scoring already gates every
+  // rule on `!= null`, so the right thing is to pass the truth through.
+  const ema9Last  = lastVal(ema9Series);
+  const ema21Last = lastVal(ema21Series);
+  const ema20Last = lastVal(ema20Series);
+  const ema50Last = lastVal(ema50Series);
   const ema100Last = lastVal(ema100Series);
   const ema200Last = lastVal(ema200Series);
+  const rsiLast   = lastVal(rsiSeries);
+  const atrLast   = lastVal(atrSeries);
+  const adxLast   = lastVal(adxSeries);
+  const macdLast    = lastVal(macdRes.macd);
+  const macdSigLast = lastVal(macdRes.signal);
+  const macdHistLast= lastVal(macdRes.hist);
 
-  let trendStrength = 50;
-  if (ema20Last > ema50Last) trendStrength += 15;
-  else if (ema20Last < ema50Last) trendStrength -= 15;
-  trendStrength += Math.max(-25, Math.min(25, ((quote.price - ema50Last) / ema50Last) * 200));
-  trendStrength = Math.max(0, Math.min(100, Math.round(trendStrength)));
+  // trendStrength is a derived 0-100 indicator that combines the EMA stack
+  // and price-vs-EMA50 distance. With no EMA20 / EMA50 we have nothing
+  // meaningful to anchor it on — leave it undefined so the UI shows "—".
+  let trendStrength: number | undefined;
+  if (ema20Last != null && ema50Last != null) {
+    let ts = 50;
+    if (ema20Last > ema50Last) ts += 15;
+    else if (ema20Last < ema50Last) ts -= 15;
+    ts += Math.max(-25, Math.min(25, ((quote.price - ema50Last) / ema50Last) * 200));
+    trendStrength = Math.max(0, Math.min(100, Math.round(ts)));
+  }
 
-  // Placeholder — overridden in buildRow with the real NSE bhavcopy value
-  // when available. Heuristic is the fallback only.
-  const deliveryPct = estimateDeliveryPctHeuristic(quote);
-
+  // Delivery % is sourced exclusively from the real NSE bhavcopy in
+  // buildRow(). When the bhavcopy is unreachable the field is left undefined
+  // — we used to invent a 38–62 % "deterministic noise" number here, which
+  // is exactly the kind of synthetic data the audit rules forbid.
   return {
     closes,
     ema9Series,
@@ -170,21 +201,21 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
     rsiSeries,
     macdHistSeries: macdRes.hist,
     indicators: {
-      ema9: round2(lastVal(ema9Series) ?? quote.price),
-      ema21: round2(lastVal(ema21Series) ?? quote.price),
-      ema20: round2(ema20Last),
-      ema50: round2(ema50Last),
+      ema9:  ema9Last  != null ? round2(ema9Last)  : undefined,
+      ema21: ema21Last != null ? round2(ema21Last) : undefined,
+      ema20: ema20Last != null ? round2(ema20Last) : undefined,
+      ema50: ema50Last != null ? round2(ema50Last) : undefined,
       ema100: ema100Last != null ? round2(ema100Last) : undefined,
       ema200: ema200Last != null ? round2(ema200Last) : undefined,
       vwap: vwap != null ? round2(vwap) : undefined,
-      rsi14: round2(lastVal(rsiSeries) ?? 50),
-      macd: round2(lastVal(macdRes.macd) ?? 0),
-      macdSignal: round2(lastVal(macdRes.signal) ?? 0),
-      macdHist: round2(lastVal(macdRes.hist) ?? 0),
-      atr14: round2(lastVal(atrSeries) ?? 0),
-      adx14: round2(lastVal(adxSeries) ?? 0),
-      volumeRatio: round2(volumeRatio),
-      deliveryPct: round2(deliveryPct),
+      rsi14: rsiLast != null ? round2(rsiLast) : undefined,
+      macd:       macdLast    != null ? round2(macdLast)    : undefined,
+      macdSignal: macdSigLast != null ? round2(macdSigLast) : undefined,
+      macdHist:   macdHistLast!= null ? round2(macdHistLast): undefined,
+      atr14: atrLast != null ? round2(atrLast) : undefined,
+      adx14: adxLast != null ? round2(adxLast) : undefined,
+      volumeRatio: avgVol > 0 ? round2(volumeRatio) : undefined,
+      deliveryPct: undefined, // populated in buildRow() ONLY if real bhavcopy hit
       trendStrength,
       supportLevel: round2(sr.support),
       resistanceLevel: round2(sr.resistance),
@@ -196,24 +227,6 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
       valueAreaLow: vp ? round2(vp.valueAreaLow) : undefined,
     },
   };
-}
-
-function deterministicNoise(seed: string, lo: number, hi: number): number {
-  let h = 2166136261;
-  for (let i = 0; i < seed.length; i++) {
-    h ^= seed.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  const v = ((h >>> 0) % 10000) / 10000;
-  return lo + v * (hi - lo);
-}
-
-/** Heuristic fallback only — used when the real NSE bhavcopy is unavailable
- * (network down, NSE returns 403, weekend before first cache fill, etc). */
-function estimateDeliveryPctHeuristic(quote: Quote): number {
-  const base = deterministicNoise(`${quote.symbol}-delv`, 38, 62);
-  const moveBoost = Math.max(-10, Math.min(10, Math.abs(quote.changePercent) * -1.5));
-  return Math.max(15, Math.min(85, base + moveBoost));
 }
 
 function lastVal(arr: (number | null)[]): number | null {
@@ -231,8 +244,10 @@ async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
   const intraVwap = await getIntradayVwap(entry.symbol);
   const computed = computeIndicators(chart, quote, intraVwap);
 
-  // Real NSE delivery % override (when bhavcopy is reachable). Falls back
-  // silently to the heuristic placeholder set in computeIndicators.
+  // Real NSE delivery %. computeIndicators leaves this undefined; we ONLY
+  // populate it from the bhavcopy. When bhavcopy is unreachable the field
+  // stays undefined and scoring.ts skips the delivery-confirmation rule
+  // (no synthetic 38–62 % placeholder is ever passed through).
   const realDelv = await getDeliveryPct(entry.symbol).catch(() => null);
   if (realDelv) {
     computed.indicators.deliveryPct = round2(realDelv.pct);

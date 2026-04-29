@@ -8,6 +8,7 @@ import {
   expireOpenSignalsForToday,
   type SpotSnapshot,
 } from "./optionSignalLifecycle";
+import { computeMarketStatus } from "./marketEvents";
 
 export interface IndexCfg {
   symbol: string;
@@ -124,7 +125,10 @@ interface Ctx {
 
 function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx | null {
   const today = todayBarsOnly(intra);
-  if (today.close.length < 8) return null;
+  // Require enough intraday bars for EMA21 + RSI14 + ATR14 + VWAP to be real,
+  // not approximations. Earlier in the session we simply emit no high-conviction
+  // signals — Baseline Outlook still renders so the UI is never blank.
+  if (today.close.length < 21) return null;
   const closes = today.close, highs = today.high, lows = today.low, vols = today.volume;
   const spot = closes.at(-1)!, open0 = today.open[0]!;
   const vwapSeries = sessionVwap(highs, lows, closes, vols);
@@ -133,6 +137,7 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const rsiSeries = rsi(closes, 14);
   const atrSeries = atr(highs, lows, closes, 14);
   const dn = daily.close.length;
+  if (dn < 50) return null;  // dailyEma50 + meaningful pivots need history
   const piv = pivots(
     dn >= 2 ? daily.high[dn - 2]! : daily.high[dn - 1]!,
     dn >= 2 ? daily.low[dn - 2]! : daily.low[dn - 1]!,
@@ -147,11 +152,27 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const swingWin = Math.min(20, lookback.length);
   const prevSwingHigh = swingWin > 0 ? Math.max(...lookbackH.slice(-swingWin)) : spot;
   const prevSwingLow = swingWin > 0 ? Math.min(...lookbackL.slice(-swingWin)) : spot;
-  // Higher-timeframe filter: daily EMA50 + daily ATR for stop placement
+  // Higher-timeframe filter: daily EMA50 + daily ATR for stop placement.
+  // ZERO synthetic fallbacks here — every value below must be a real series tail.
   const dailyEma50Series = ema(daily.close, 50);
-  const dailyEma50 = lastVal(dailyEma50Series) ?? spot;
   const dailyAtrSeries = atr(daily.high, daily.low, daily.close, 14);
-  const atrDaily = lastVal(dailyAtrSeries) ?? Math.max(spot * 0.01, 1);
+
+  const vwap     = lastVal(vwapSeries);
+  const ema9Last = lastVal(ema9Series);
+  const ema21Last= lastVal(ema21Series);
+  const rsi14    = lastVal(rsiSeries);
+  const atr15    = lastVal(atrSeries);
+  const dailyEma50 = lastVal(dailyEma50Series);
+  const atrDaily = lastVal(dailyAtrSeries);
+
+  // If ANY core indicator is unknown we refuse to build a context. The
+  // detectors that follow assume real values; we will not invent neutral
+  // defaults to make a "signal" appear.
+  if (vwap == null || ema9Last == null || ema21Last == null
+      || rsi14 == null || atr15 == null || dailyEma50 == null || atrDaily == null) {
+    return null;
+  }
+
   const htfBias: "BULLISH" | "BEARISH" | "NEUTRAL" =
     spot > dailyEma50 * 1.001 ? "BULLISH"
     : spot < dailyEma50 * 0.999 ? "BEARISH"
@@ -160,17 +181,12 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   return {
     cfg, spot, open0,
     sessionChangePct: ((spot - open0) / open0) * 100,
-    vwap: lastVal(vwapSeries) ?? spot,
-    vwapSeries,
-    ema9: lastVal(ema9Series) ?? spot,
-    ema21: lastVal(ema21Series) ?? spot,
+    vwap, vwapSeries,
+    ema9: ema9Last, ema21: ema21Last,
     ema9Series, ema21Series,
-    rsi14: lastVal(rsiSeries) ?? 50,
-    rsiSeries,
+    rsi14, rsiSeries,
     vp, piv,
-    atr15: lastVal(atrSeries) ?? Math.max(spot * 0.0015, 1),
-    atrDaily,
-    dailyEma50,
+    atr15, atrDaily, dailyEma50,
     htfBias,
     avgVol20,
     lastVol: vols.at(-1) ?? 0,
@@ -278,8 +294,14 @@ function detectVwapReclaim(c: Ctx): Detected | null {
   const closes = c.bars.c;
   const n = closes.length;
   if (n < 4) return null;
-  const wasBelow = (closes[n - 3]! < (series[n - 3] ?? 0)) || (closes[n - 4]! < (series[n - 4] ?? 0));
-  const wasAbove = (closes[n - 3]! > (series[n - 3] ?? 0)) || (closes[n - 4]! > (series[n - 4] ?? 0));
+  // Require REAL VWAP at both look-back points (n-3 and n-4). If either is
+  // null (insufficient warm-up early in the session) we skip — we will not
+  // substitute 0 and pretend the previous bars closed above/below VWAP.
+  const v3 = series[n - 3];
+  const v4 = series[n - 4];
+  if (v3 == null || v4 == null) return null;
+  const wasBelow = (closes[n - 3]! < v3) || (closes[n - 4]! < v4);
+  const wasAbove = (closes[n - 3]! > v3) || (closes[n - 4]! > v4);
   const nowAbove = c.spot > c.vwap;
   const nowBelow = c.spot < c.vwap;
 
@@ -288,8 +310,10 @@ function detectVwapReclaim(c: Ctx): Detected | null {
   else if (wasAbove && nowBelow && c.ema9 < c.ema21) dir = "BEARISH";
   if (!dir) return null;
 
-  // RSI must be moving in the direction
-  const rsiPrev = c.rsiSeries[n - 4] ?? 50;
+  // RSI must be moving in the direction. Require a REAL prior RSI reading;
+  // substituting 50 would let the gate pass on missing data.
+  const rsiPrev = c.rsiSeries[n - 4];
+  if (rsiPrev == null) return null;
   if (dir === "BULLISH" && (c.rsi14 < 50 || c.rsi14 < rsiPrev)) return null;
   if (dir === "BEARISH" && (c.rsi14 > 50 || c.rsi14 > rsiPrev)) return null;
 
@@ -674,6 +698,16 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
   const ctx = buildContext(cfg, intra, daily);
   if (!ctx) return { signals: [], suppressed: ["NO_BARS_OR_INSUFFICIENT_DATA"], hasBars: false };
 
+  // IST market-hours gate for high-conviction detectors. Outside the
+  // 09:15–15:30 IST regular session the most-recent intraday bar is
+  // either yesterday's last bar or this morning's pre-open quote — both
+  // of which would emit stale "live" signals if we let the detectors
+  // run. We still evaluate the always-on Baseline Outlook below so the
+  // user sees a directional read, but it is clearly labelled "BASELINE"
+  // and never shipped to the lifecycle as a fresh entry plan.
+  const marketStatus = computeMarketStatus(new Date());
+  const isMarketOpen = marketStatus === "open";
+
   const detectors = [
     { name: "trend_continuation", fn: detectTrendContinuation },
     { name: "vwap_reclaim",       fn: detectVwapReclaim },
@@ -683,15 +717,19 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
   ];
   const highConviction: Detected[] = [];
   const suppressed: string[] = [];
-  for (const det of detectors) {
-    try {
-      const r = det.fn(ctx);
-      if (r) highConviction.push(r);
-      else suppressed.push(`${det.name}: conditions not met`);
-    } catch (err) {
-      const msg = (err as Error).message;
-      logger.warn({ err: msg, idx: cfg.symbol, det: det.name }, "Setup detector failed");
-      suppressed.push(`${det.name}: error`);
+  if (!isMarketOpen) {
+    suppressed.push(`market_closed: ${marketStatus} (high-conviction setups gated to 09:15–15:30 IST)`);
+  } else {
+    for (const det of detectors) {
+      try {
+        const r = det.fn(ctx);
+        if (r) highConviction.push(r);
+        else suppressed.push(`${det.name}: conditions not met`);
+      } catch (err) {
+        const msg = (err as Error).message;
+        logger.warn({ err: msg, idx: cfg.symbol, det: det.name }, "Setup detector failed");
+        suppressed.push(`${det.name}: error`);
+      }
     }
   }
 
@@ -715,10 +753,20 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
   return { signals: out, suppressed, hasBars: true, snapshot: snapshotFromCtx(ctx) };
 }
 
-/** Last-bar high/low/spot for the index — fed to lifecycle so wicks count. */
-function snapshotFromCtx(ctx: Ctx): SpotSnapshot {
-  const h = ctx.bars.h.at(-1) ?? ctx.spot;
-  const l = ctx.bars.l.at(-1) ?? ctx.spot;
+/**
+ * Last-bar high/low/spot for the index — fed to lifecycle so wicks count.
+ *
+ * Hard-gated on real bar high & low. Old code fell back to `ctx.spot`
+ * when the bar's high/low were missing, but the lifecycle uses these
+ * values to test "did the wick touch entry / SL / target?" — substituting
+ * spot would cause a stop or target to be marked HIT off a fabricated
+ * extreme. If a real bar extreme is missing, omit high/low so the
+ * lifecycle skips that tick (no fabricated fills).
+ */
+function snapshotFromCtx(ctx: Ctx): SpotSnapshot | undefined {
+  const h = ctx.bars.h.at(-1);
+  const l = ctx.bars.l.at(-1);
+  if (h == null || l == null) return undefined;
   return { spot: ctx.spot, high: h, low: l };
 }
 

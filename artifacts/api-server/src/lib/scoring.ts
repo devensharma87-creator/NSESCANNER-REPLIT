@@ -41,7 +41,11 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   // reasons that label ema50 as the 200 EMA in the UI.
   const ema100 = indicators.ema100;
   const ema200 = indicators.ema200;
-  const vwap = indicators.vwap ?? price;
+  // VWAP rule must NOT silently fall back to price — that turns the
+  // price-vs-VWAP comparison into price-vs-price (always neutral) and
+  // hides the fact that VWAP is missing. Pass null through and gate
+  // the rule below.
+  const vwap = indicators.vwap ?? null;
   const rsi = indicators.rsi14;
   // Honest missing-indicator handling: when ADX / volumeRatio / deliveryPct are
   // not computed for a symbol (e.g. newly-listed names with thin history, or
@@ -107,9 +111,11 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
     else if (e9 < e21 && price < e9) { score -= 8; reasons.push({ label: "Fast EMA bearish", detail: `EMA9 < EMA21 with price below.`, weight: 8, bullish: false }); }
   }
 
-  // 4. VWAP (weight 10)
-  if (price > vwap * 1.001) { score += 10; reasons.push({ label: "Above VWAP", detail: `Price ₹${price.toFixed(2)} > VWAP ₹${vwap.toFixed(2)}.`, weight: 10, bullish: true }); }
-  else if (price < vwap * 0.999) { score -= 10; reasons.push({ label: "Below VWAP", detail: `Price ₹${price.toFixed(2)} < VWAP ₹${vwap.toFixed(2)}.`, weight: 10, bullish: false }); }
+  // 4. VWAP (weight 10) — gated; we never invent a VWAP.
+  if (vwap != null) {
+    if (price > vwap * 1.001) { score += 10; reasons.push({ label: "Above VWAP", detail: `Price ₹${price.toFixed(2)} > VWAP ₹${vwap.toFixed(2)}.`, weight: 10, bullish: true }); }
+    else if (price < vwap * 0.999) { score -= 10; reasons.push({ label: "Below VWAP", detail: `Price ₹${price.toFixed(2)} < VWAP ₹${vwap.toFixed(2)}.`, weight: 10, bullish: false }); }
+  }
 
   // 5. ADX trend strength gate (weight 6) — skip entirely when adx is unknown.
   if (adx != null) {
@@ -141,12 +147,14 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
     else { score -= 8; reasons.push({ label: "RSI weak", detail: `RSI(14) ${rsi.toFixed(1)}.`, weight: 8, bullish: false }); }
   }
 
-  // RSI divergence
-  const closeNow = closes[closes.length - 1] ?? price;
+  // RSI divergence — gated on REAL last close. We will not fall back to
+  // the live quote price (different timeframe / timing) and call that a
+  // valid divergence comparison.
+  const closeNow = closes[closes.length - 1];
   const closePrev10 = closes.length > 10 ? closes[closes.length - 11]! : null;
   const rsiNow = lastNonNull(rsiSeries);
   const rsiPrev10 = valueAtOffset(rsiSeries, 10);
-  if (closePrev10 != null && rsiNow != null && rsiPrev10 != null) {
+  if (closeNow != null && closePrev10 != null && rsiNow != null && rsiPrev10 != null) {
     if (closeNow > closePrev10 * 1.02 && rsiNow < rsiPrev10 - 3) { score -= 6; reasons.push({ label: "Bearish RSI divergence", detail: "Higher high in price, lower high in RSI.", weight: 6, bullish: false }); }
     else if (closeNow < closePrev10 * 0.98 && rsiNow > rsiPrev10 + 3) { score += 6; reasons.push({ label: "Bullish RSI divergence", detail: "Lower low in price, higher low in RSI.", weight: 6, bullish: true }); }
   }
@@ -205,37 +213,45 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   const total = reasons.reduce((a, b) => a + b.weight, 0);
   const confidence = total === 0 ? 0 : Math.round((aligned / total) * 100);
 
-  // Targets / SL
+  // Targets / SL — gated on a REAL ATR(14). Previously we fell back to
+  // `range / 6` (a heuristic from the 20-day support/resistance band) when
+  // ATR was missing, then published target/stopLoss/RR as if they were
+  // real volatility-derived levels. They were not. A scanner subscriber
+  // sizing a trade off those numbers would be sizing off invented data.
+  // If ATR is unknown, we leave target/SL/RR undefined and the UI shows
+  // "—" — honest absence of data, not a fabricated level.
   const range = Math.max(0, resistance - support);
   let target: number | undefined;
   let stopLoss: number | undefined;
   let rr: number | undefined;
-  const atrLike = (indicators.atr14 ?? range / 6) || range / 6;
-  if (signal === "BUY" || signal === "STRONG_BUY") {
-    target = +(price + Math.max(range * 0.55, atrLike * 2.5)).toFixed(2);
-    // Stop-loss must always sit BELOW entry for a long. Old code did
-    // `Math.max(support, price - …)` which inverted the trade when a fast
-    // breakdown left the 20-day support ABOVE the live price (support > price
-    // → returned support → stopLoss > price → negative risk → bogus RR).
-    // Cap at price * 0.999 so the stop is always at least 0.1% below entry.
-    stopLoss = +Math.min(
-      price * 0.999,
-      Math.max(support, price - Math.max(range * 0.25, atrLike * 1.2)),
-    ).toFixed(2);
-    const reward = target - price;
-    const risk = price - stopLoss;
-    if (risk > 0) rr = +(reward / risk).toFixed(2);
-  } else if (signal === "SELL" || signal === "STRONG_SELL") {
-    target = +(price - Math.max(range * 0.55, atrLike * 2.5)).toFixed(2);
-    // Mirror of the long case: stop must always sit ABOVE entry for a short.
-    // Old `Math.min(resistance, price + …)` inverted when resistance < price.
-    stopLoss = +Math.max(
-      price * 1.001,
-      Math.min(resistance, price + Math.max(range * 0.25, atrLike * 1.2)),
-    ).toFixed(2);
-    const reward = price - target;
-    const risk = stopLoss - price;
-    if (risk > 0) rr = +(reward / risk).toFixed(2);
+  const atr14 = indicators.atr14;
+  if (atr14 != null && atr14 > 0) {
+    if (signal === "BUY" || signal === "STRONG_BUY") {
+      target = +(price + Math.max(range * 0.55, atr14 * 2.5)).toFixed(2);
+      // Stop-loss must always sit BELOW entry for a long. Old code did
+      // `Math.max(support, price - …)` which inverted the trade when a fast
+      // breakdown left the 20-day support ABOVE the live price (support > price
+      // → returned support → stopLoss > price → negative risk → bogus RR).
+      // Cap at price * 0.999 so the stop is always at least 0.1% below entry.
+      stopLoss = +Math.min(
+        price * 0.999,
+        Math.max(support, price - Math.max(range * 0.25, atr14 * 1.2)),
+      ).toFixed(2);
+      const reward = target - price;
+      const risk = price - stopLoss;
+      if (risk > 0) rr = +(reward / risk).toFixed(2);
+    } else if (signal === "SELL" || signal === "STRONG_SELL") {
+      target = +(price - Math.max(range * 0.55, atr14 * 2.5)).toFixed(2);
+      // Mirror of the long case: stop must always sit ABOVE entry for a short.
+      // Old `Math.min(resistance, price + …)` inverted when resistance < price.
+      stopLoss = +Math.max(
+        price * 1.001,
+        Math.min(resistance, price + Math.max(range * 0.25, atr14 * 1.2)),
+      ).toFixed(2);
+      const reward = price - target;
+      const risk = stopLoss - price;
+      if (risk > 0) rr = +(reward / risk).toFixed(2);
+    }
   }
 
   // Timeframe heuristic

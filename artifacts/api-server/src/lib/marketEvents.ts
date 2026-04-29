@@ -189,11 +189,14 @@ const NSE_HOLIDAYS_BY_YEAR: Record<number, MarketHoliday[]> = {
   2027: NSE_HOLIDAYS_2027,
 };
 
-/** Set of YYYY-MM-DD dates on which NSE/BSE equity segment is closed (full-day). */
+/** Set of YYYY-MM-DD dates on which the NSE/BSE *regular* equity session
+ *  (09:15–15:30 IST) does NOT run. Muhurat trading on Diwali is a special
+ *  evening session (~6:15 PM); the daytime regular session is closed.
+ *  Since the scanner / signal engine targets the regular session only, we
+ *  treat Muhurat days as fully closed — preventing detectors from firing
+ *  on stale daytime quotes that won't have any matching trading interest. */
 const NSE_HOLIDAY_SET: Set<string> = new Set(
-  Object.values(NSE_HOLIDAYS_BY_YEAR).flat()
-    .filter(h => !/Muhurat/i.test(h.name))   // Diwali Muhurat is a half/special session, not a closure
-    .map(h => h.date)
+  Object.values(NSE_HOLIDAYS_BY_YEAR).flat().map(h => h.date)
 );
 
 export function isNseHoliday(istDate: Date): boolean {

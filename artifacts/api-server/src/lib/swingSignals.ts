@@ -34,9 +34,59 @@
  * aren't there — the symbol is rejected and logged.
  */
 import type { StockRow } from "@workspace/api-zod";
-import { atr } from "./indicators";
+import { atr, ema } from "./indicators";
 import { fetchChart } from "./yahoo";
 import { logger } from "./logger";
+
+/**
+ * Volume confirmation floor for a swing entry. The signal-bar volume must
+ * be at least this multiple of the 20-day average — without confirming
+ * participation, a "STRONG_BUY" technical setup is just price action
+ * without follow-through. 1.3× matches the conventional retail breakout
+ * filter (Chartink, TradingView's "Relative Volume" preset).
+ */
+const VOL_CONFIRM_FLOOR = 1.3;
+
+/**
+ * Broader-market trend gate. A swing-equity book that buys individual
+ * names while NIFTY is in a confirmed downtrend gets chopped — sector
+ * leaders fall with the index. We require the NIFTY 50 spot to sit
+ * above its 50-day EMA (computed from daily closes) before opening
+ * any new equity trade. Existing positions are unaffected.
+ */
+const MARKET_TREND_TICKER = "^NSEI"; // NIFTY 50 daily
+
+/** Cached NIFTY trend snapshot. Refreshed at most once every 5 minutes
+ *  to bound Yahoo calls during the per-minute scanner tick. */
+let marketTrendCache: { ts: number; bullish: boolean | null } | null = null;
+const MARKET_TREND_TTL_MS = 5 * 60 * 1000;
+
+async function isBroaderMarketBullish(): Promise<boolean | null> {
+  if (marketTrendCache && Date.now() - marketTrendCache.ts < MARKET_TREND_TTL_MS) {
+    return marketTrendCache.bullish;
+  }
+  const chart = await fetchChart(MARKET_TREND_TICKER, "6mo", "1d");
+  if (!chart) {
+    // Honest "unknown" — caller decides whether to skip.
+    marketTrendCache = { ts: Date.now(), bullish: null };
+    return null;
+  }
+  const closes = chart.close.filter((v): v is number => v != null);
+  if (closes.length < 50) {
+    marketTrendCache = { ts: Date.now(), bullish: null };
+    return null;
+  }
+  const ema50Series = ema(closes, 50);
+  const ema50 = ema50Series[ema50Series.length - 1];
+  const last  = closes[closes.length - 1];
+  if (ema50 == null || last == null) {
+    marketTrendCache = { ts: Date.now(), bullish: null };
+    return null;
+  }
+  const bullish = last > ema50;
+  marketTrendCache = { ts: Date.now(), bullish };
+  return bullish;
+}
 
 /**
  * Curated NSE F&O underlyings (stocks that have derivative contracts
@@ -212,6 +262,21 @@ export async function buildSwingSignalFromRow(
     return null;
   }
 
+  // Volume confirmation: require the signal-bar volume to be ≥ 1.3× the
+  // 20-day average. We never paper-trade a STRONG_BUY that fired on weak
+  // participation — institutional buying leaves a volume footprint, and
+  // a setup without one is far more likely to fail. If volumeRatio is
+  // undefined (Kite-only row, no daily-bar history yet) we skip — no
+  // confirmation, no trade.
+  const volRatio = row.indicators?.volumeRatio;
+  if (volRatio == null || volRatio < VOL_CONFIRM_FLOOR) {
+    logger.info(
+      { symbol: row.symbol, volRatio, floor: VOL_CONFIRM_FLOOR },
+      "Swing skip: insufficient volume confirmation",
+    );
+    return null;
+  }
+
   const levels = await computeSwingLevels(row.symbol);
   if (!levels) {
     logger.info({ symbol: row.symbol }, "Swing skip: insufficient bars for ATR/swing-low");
@@ -272,6 +337,22 @@ export async function buildAllSwingSignals(
       (r.recommendation.score ?? 0) >= minScore,
   );
   if (candidates.length === 0) return [];
+
+  // Broader-market trend gate (NIFTY 50 vs 50-EMA) — checked ONCE per
+  // tick and cached. When the broader market is bearish we suppress new
+  // longs entirely; existing open positions are unaffected and continue
+  // to be evaluated by the executor. When the broader-market read is
+  // unknown (Yahoo unreachable for the index) we conservatively suppress
+  // new entries rather than buying blind.
+  const marketBullish = await isBroaderMarketBullish();
+  if (marketBullish !== true) {
+    logger.info(
+      { candidates: candidates.length, marketBullish },
+      "Swing suppression: NIFTY 50 not above its 50-day EMA — skipping new entries",
+    );
+    return [];
+  }
+
   const built = await Promise.all(
     candidates.map((r) => buildSwingSignalFromRow(r, minScore)),
   );
