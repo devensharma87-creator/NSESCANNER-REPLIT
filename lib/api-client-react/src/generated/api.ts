@@ -24,6 +24,8 @@ import type {
   GetOptionChainParams,
   GetOptionStrategiesParams,
   GetPaperAccountParams,
+  GetPaperReportFoMonthlyParams,
+  GetPaperReportFoYearlyParams,
   GetPaperTradesFOParams,
   GetParticipantOiParams,
   GetStockHistoryParams,
@@ -42,6 +44,8 @@ import type {
   OptionStrategiesResponse,
   PaperAccountState,
   PaperPositionsFOResponse,
+  PaperReportFoMonthly,
+  PaperReportFoYearly,
   PaperTradeFOClosed,
   PaperTradesFOResponse,
   ParticipantOiResponse,
@@ -1480,6 +1484,215 @@ export const useClosePaperPositionFO = <
 > => {
   return useMutation(getClosePaperPositionFOMutationOptions(options));
 };
+
+/**
+ * @summary Owner-only F&O paper P&L report for one IST calendar month with daily buckets and per-trade detail.
+ */
+export const getGetPaperReportFoMonthlyUrl = (
+  params: GetPaperReportFoMonthlyParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/paper/reports/fo/monthly?${stringifiedParams}`
+    : `/api/paper/reports/fo/monthly`;
+};
+
+export const getPaperReportFoMonthly = async (
+  params: GetPaperReportFoMonthlyParams,
+  options?: RequestInit,
+): Promise<PaperReportFoMonthly> => {
+  return customFetch<PaperReportFoMonthly>(
+    getGetPaperReportFoMonthlyUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetPaperReportFoMonthlyQueryKey = (
+  params?: GetPaperReportFoMonthlyParams,
+) => {
+  return [
+    `/api/paper/reports/fo/monthly`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetPaperReportFoMonthlyQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperReportFoMonthly>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperReportFoMonthlyParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperReportFoMonthly>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPaperReportFoMonthlyQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPaperReportFoMonthly>>
+  > = ({ signal }) =>
+    getPaperReportFoMonthly(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperReportFoMonthly>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperReportFoMonthlyQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperReportFoMonthly>>
+>;
+export type GetPaperReportFoMonthlyQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only F&O paper P&L report for one IST calendar month with daily buckets and per-trade detail.
+ */
+
+export function useGetPaperReportFoMonthly<
+  TData = Awaited<ReturnType<typeof getPaperReportFoMonthly>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperReportFoMonthlyParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperReportFoMonthly>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperReportFoMonthlyQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only F&O paper P&L report for one Indian financial year with monthly buckets.
+ */
+export const getGetPaperReportFoYearlyUrl = (
+  params: GetPaperReportFoYearlyParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/paper/reports/fo/yearly?${stringifiedParams}`
+    : `/api/paper/reports/fo/yearly`;
+};
+
+export const getPaperReportFoYearly = async (
+  params: GetPaperReportFoYearlyParams,
+  options?: RequestInit,
+): Promise<PaperReportFoYearly> => {
+  return customFetch<PaperReportFoYearly>(
+    getGetPaperReportFoYearlyUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetPaperReportFoYearlyQueryKey = (
+  params?: GetPaperReportFoYearlyParams,
+) => {
+  return [`/api/paper/reports/fo/yearly`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPaperReportFoYearlyQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperReportFoYearly>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperReportFoYearlyParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperReportFoYearly>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPaperReportFoYearlyQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPaperReportFoYearly>>
+  > = ({ signal }) =>
+    getPaperReportFoYearly(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperReportFoYearly>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperReportFoYearlyQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperReportFoYearly>>
+>;
+export type GetPaperReportFoYearlyQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only F&O paper P&L report for one Indian financial year with monthly buckets.
+ */
+
+export function useGetPaperReportFoYearly<
+  TData = Awaited<ReturnType<typeof getPaperReportFoYearly>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperReportFoYearlyParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperReportFoYearly>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperReportFoYearlyQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Live NSE option chain (indices + F&O equities)

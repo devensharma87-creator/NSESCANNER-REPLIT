@@ -1652,6 +1652,151 @@ export const ClosePaperPositionFOResponse = zod.object({
 });
 
 /**
+ * @summary Owner-only F&O paper P&L report for one IST calendar month with daily buckets and per-trade detail.
+ */
+export const GetPaperReportFoMonthlyQueryParams = zod.object({
+  month: zod.coerce.string(),
+});
+
+export const GetPaperReportFoMonthlyResponse = zod.object({
+  month: zod.string().describe("IST calendar month YYYY-MM"),
+  from: zod.string(),
+  to: zod.string(),
+  totals: zod.object({
+    realizedPnl: zod
+      .number()
+      .describe("Sum of gross realized P&L across all trades in the window"),
+    netPnl: zod
+      .number()
+      .describe("realizedPnl minus estimated taxes & charges"),
+    charges: zod
+      .number()
+      .describe(
+        "Estimated taxes & charges using the standard NSE F&O option fee schedule",
+      ),
+    tradeCount: zod.number(),
+    wins: zod.number().describe("Trades with positive net P&L"),
+    losses: zod.number().describe("Trades with negative net P&L"),
+    winRatePct: zod.number(),
+    avgWin: zod.number(),
+    avgLoss: zod.number(),
+    bestTrade: zod.number(),
+    worstTrade: zod.number(),
+    avgRMultiple: zod
+      .number()
+      .describe("Average achieved R multiple across all trades"),
+    profitFactor: zod
+      .number()
+      .describe(
+        "Sum of winning net P&L divided by absolute sum of losing net P&L",
+      ),
+  }),
+  days: zod.array(
+    zod.object({
+      date: zod.string().describe("IST date YYYY-MM-DD"),
+      realizedPnl: zod.number(),
+      netPnl: zod.number(),
+      charges: zod.number(),
+      tradeCount: zod.number(),
+      wins: zod.number(),
+      losses: zod.number(),
+    }),
+  ),
+  trades: zod.array(
+    zod.object({
+      id: zod.string(),
+      signalDate: zod.string(),
+      exitedAt: zod.coerce.date(),
+      indexSymbol: zod.string(),
+      indexName: zod.string(),
+      setupKey: zod.string(),
+      direction: zod.enum(["BULLISH", "BEARISH"]),
+      optionType: zod.enum(["CALL", "PUT"]),
+      strike: zod.number(),
+      lots: zod.number(),
+      lotSize: zod.number(),
+      entryPremium: zod.number(),
+      exitPremium: zod.number(),
+      stopPremium: zod.number(),
+      target1Premium: zod.number(),
+      target2Premium: zod.number(),
+      capitalDeployed: zod.number(),
+      realizedPnl: zod.number(),
+      charges: zod.number(),
+      netPnl: zod.number(),
+      plannedRiskPerShare: zod.number(),
+      achievedPerShare: zod.number(),
+      rMultiple: zod
+        .number()
+        .describe("Achieved R = (exit-entry) \/ |entry-stop| per share"),
+      exitReason: zod.enum([
+        "TARGET1_HIT",
+        "TARGET2_HIT",
+        "STOPPED",
+        "EXPIRED",
+        "MANUAL_OVERRIDE",
+      ]),
+      durationSec: zod.number(),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Owner-only F&O paper P&L report for one Indian financial year with monthly buckets.
+ */
+export const GetPaperReportFoYearlyQueryParams = zod.object({
+  fy: zod.coerce.string(),
+});
+
+export const GetPaperReportFoYearlyResponse = zod.object({
+  fy: zod.string().describe("Indian FY YYYY-YYYY (April through March)"),
+  from: zod.string(),
+  to: zod.string(),
+  totals: zod.object({
+    realizedPnl: zod
+      .number()
+      .describe("Sum of gross realized P&L across all trades in the window"),
+    netPnl: zod
+      .number()
+      .describe("realizedPnl minus estimated taxes & charges"),
+    charges: zod
+      .number()
+      .describe(
+        "Estimated taxes & charges using the standard NSE F&O option fee schedule",
+      ),
+    tradeCount: zod.number(),
+    wins: zod.number().describe("Trades with positive net P&L"),
+    losses: zod.number().describe("Trades with negative net P&L"),
+    winRatePct: zod.number(),
+    avgWin: zod.number(),
+    avgLoss: zod.number(),
+    bestTrade: zod.number(),
+    worstTrade: zod.number(),
+    avgRMultiple: zod
+      .number()
+      .describe("Average achieved R multiple across all trades"),
+    profitFactor: zod
+      .number()
+      .describe(
+        "Sum of winning net P&L divided by absolute sum of losing net P&L",
+      ),
+  }),
+  months: zod.array(
+    zod.object({
+      month: zod.string().describe("IST calendar month YYYY-MM"),
+      realizedPnl: zod.number(),
+      netPnl: zod.number(),
+      charges: zod.number(),
+      tradeCount: zod.number(),
+      wins: zod.number(),
+      losses: zod.number(),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
  * @summary Live NSE option chain (indices + F&O equities)
  */
 export const GetOptionChainParams = zod.object({

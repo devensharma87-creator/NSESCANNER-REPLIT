@@ -1720,6 +1720,128 @@ export interface PaperTradesFOResponse {
   generatedAt: string;
 }
 
+export interface PaperReportTotals {
+  /** Sum of gross realized P&L across all trades in the window */
+  realizedPnl: number;
+  /** realizedPnl minus estimated taxes & charges */
+  netPnl: number;
+  /** Estimated taxes & charges using the standard NSE F&O option fee schedule */
+  charges: number;
+  tradeCount: number;
+  /** Trades with positive net P&L */
+  wins: number;
+  /** Trades with negative net P&L */
+  losses: number;
+  winRatePct: number;
+  avgWin: number;
+  avgLoss: number;
+  bestTrade: number;
+  worstTrade: number;
+  /** Average achieved R multiple across all trades */
+  avgRMultiple: number;
+  /** Sum of winning net P&L divided by absolute sum of losing net P&L */
+  profitFactor: number;
+}
+
+export interface PaperReportDayBucket {
+  /** IST date YYYY-MM-DD */
+  date: string;
+  realizedPnl: number;
+  netPnl: number;
+  charges: number;
+  tradeCount: number;
+  wins: number;
+  losses: number;
+}
+
+export interface PaperReportMonthBucket {
+  /** IST calendar month YYYY-MM */
+  month: string;
+  realizedPnl: number;
+  netPnl: number;
+  charges: number;
+  tradeCount: number;
+  wins: number;
+  losses: number;
+}
+
+export type PaperTradeFODetailDirection =
+  (typeof PaperTradeFODetailDirection)[keyof typeof PaperTradeFODetailDirection];
+
+export const PaperTradeFODetailDirection = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+} as const;
+
+export type PaperTradeFODetailOptionType =
+  (typeof PaperTradeFODetailOptionType)[keyof typeof PaperTradeFODetailOptionType];
+
+export const PaperTradeFODetailOptionType = {
+  CALL: "CALL",
+  PUT: "PUT",
+} as const;
+
+export type PaperTradeFODetailExitReason =
+  (typeof PaperTradeFODetailExitReason)[keyof typeof PaperTradeFODetailExitReason];
+
+export const PaperTradeFODetailExitReason = {
+  TARGET1_HIT: "TARGET1_HIT",
+  TARGET2_HIT: "TARGET2_HIT",
+  STOPPED: "STOPPED",
+  EXPIRED: "EXPIRED",
+  MANUAL_OVERRIDE: "MANUAL_OVERRIDE",
+} as const;
+
+export interface PaperTradeFODetail {
+  id: string;
+  signalDate: string;
+  exitedAt: string;
+  indexSymbol: string;
+  indexName: string;
+  setupKey: string;
+  direction: PaperTradeFODetailDirection;
+  optionType: PaperTradeFODetailOptionType;
+  strike: number;
+  lots: number;
+  lotSize: number;
+  entryPremium: number;
+  exitPremium: number;
+  stopPremium: number;
+  target1Premium: number;
+  target2Premium: number;
+  capitalDeployed: number;
+  realizedPnl: number;
+  charges: number;
+  netPnl: number;
+  plannedRiskPerShare: number;
+  achievedPerShare: number;
+  /** Achieved R = (exit-entry) / |entry-stop| per share */
+  rMultiple: number;
+  exitReason: PaperTradeFODetailExitReason;
+  durationSec: number;
+}
+
+export interface PaperReportFoMonthly {
+  /** IST calendar month YYYY-MM */
+  month: string;
+  from: string;
+  to: string;
+  totals: PaperReportTotals;
+  days: PaperReportDayBucket[];
+  trades: PaperTradeFODetail[];
+  generatedAt: string;
+}
+
+export interface PaperReportFoYearly {
+  /** Indian FY YYYY-YYYY (April through March) */
+  fy: string;
+  from: string;
+  to: string;
+  totals: PaperReportTotals;
+  months: PaperReportMonthBucket[];
+  generatedAt: string;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;
@@ -1769,6 +1891,20 @@ export type GetPaperTradesFOParams = {
    * IST date YYYY-MM-DD; defaults to today.
    */
   date?: string;
+};
+
+export type GetPaperReportFoMonthlyParams = {
+  /**
+   * IST calendar month YYYY-MM
+   */
+  month: string;
+};
+
+export type GetPaperReportFoYearlyParams = {
+  /**
+   * Indian FY in YYYY-YYYY form, eg 2026-2027
+   */
+  fy: string;
 };
 
 export type GetOptionChainParams = {

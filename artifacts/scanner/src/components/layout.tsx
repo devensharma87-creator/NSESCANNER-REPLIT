@@ -205,6 +205,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 { href: "/audit", label: "Audit", isActive: l => l.startsWith("/audit"), ownerOnly: true },
                 { href: "/status", label: "Status", isActive: l => l.startsWith("/status"), ownerOnly: true },
                 { href: "/paper-trading", label: "Paper", isActive: l => l.startsWith("/paper-trading"), ownerOnly: true },
+                { href: "/paper-reports", label: "Reports", isActive: l => l.startsWith("/paper-reports"), ownerOnly: true },
               ];
               const tabs = allTabs.filter(t => {
                 if (role === "owner") return true;

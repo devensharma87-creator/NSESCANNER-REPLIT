@@ -277,6 +277,40 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PaperTradeFOClosed" }
 
+  /paper/reports/fo/monthly:
+    get:
+      operationId: getPaperReportFoMonthly
+      tags: [paper]
+      summary: "Owner-only F&O paper P&L report for one IST calendar month with daily buckets and per-trade detail."
+      parameters:
+        - in: query
+          name: month
+          required: true
+          schema: { type: string, description: "IST calendar month YYYY-MM" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperReportFoMonthly" }
+
+  /paper/reports/fo/yearly:
+    get:
+      operationId: getPaperReportFoYearly
+      tags: [paper]
+      summary: "Owner-only F&O paper P&L report for one Indian financial year with monthly buckets."
+      parameters:
+        - in: query
+          name: fy
+          required: true
+          schema: { type: string, description: "Indian FY in YYYY-YYYY form, eg 2026-2027" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperReportFoYearly" }
+
   /options/chain/{underlying}:
     get:
       operationId: getOptionChain
@@ -1888,4 +1922,143 @@ components:
         trades:
           type: array
           items: { $ref: "#/components/schemas/PaperTradeFOClosed" }
+        generatedAt: { type: string, format: date-time }
+
+    PaperReportTotals:
+      type: object
+      required:
+        - realizedPnl
+        - netPnl
+        - charges
+        - tradeCount
+        - wins
+        - losses
+        - winRatePct
+        - avgWin
+        - avgLoss
+        - bestTrade
+        - worstTrade
+        - avgRMultiple
+        - profitFactor
+      properties:
+        realizedPnl:    { type: number, description: "Sum of gross realized P&L across all trades in the window" }
+        netPnl:         { type: number, description: "realizedPnl minus estimated taxes & charges" }
+        charges:        { type: number, description: "Estimated taxes & charges using the standard NSE F&O option fee schedule" }
+        tradeCount:     { type: integer }
+        wins:           { type: integer, description: "Trades with positive net P&L" }
+        losses:         { type: integer, description: "Trades with negative net P&L" }
+        winRatePct:     { type: number }
+        avgWin:         { type: number }
+        avgLoss:        { type: number }
+        bestTrade:      { type: number }
+        worstTrade:     { type: number }
+        avgRMultiple:   { type: number, description: "Average achieved R multiple across all trades" }
+        profitFactor:   { type: number, description: "Sum of winning net P&L divided by absolute sum of losing net P&L" }
+
+    PaperReportDayBucket:
+      type: object
+      required: [date, realizedPnl, netPnl, charges, tradeCount, wins, losses]
+      properties:
+        date:        { type: string, description: "IST date YYYY-MM-DD" }
+        realizedPnl: { type: number }
+        netPnl:      { type: number }
+        charges:     { type: number }
+        tradeCount:  { type: integer }
+        wins:        { type: integer }
+        losses:      { type: integer }
+
+    PaperReportMonthBucket:
+      type: object
+      required: [month, realizedPnl, netPnl, charges, tradeCount, wins, losses]
+      properties:
+        month:       { type: string, description: "IST calendar month YYYY-MM" }
+        realizedPnl: { type: number }
+        netPnl:      { type: number }
+        charges:     { type: number }
+        tradeCount:  { type: integer }
+        wins:        { type: integer }
+        losses:      { type: integer }
+
+    PaperTradeFODetail:
+      type: object
+      required:
+        - id
+        - signalDate
+        - exitedAt
+        - indexSymbol
+        - indexName
+        - setupKey
+        - direction
+        - optionType
+        - strike
+        - lots
+        - lotSize
+        - entryPremium
+        - exitPremium
+        - stopPremium
+        - target1Premium
+        - target2Premium
+        - capitalDeployed
+        - realizedPnl
+        - charges
+        - netPnl
+        - plannedRiskPerShare
+        - achievedPerShare
+        - rMultiple
+        - exitReason
+        - durationSec
+      properties:
+        id:                  { type: string }
+        signalDate:          { type: string }
+        exitedAt:            { type: string, format: date-time }
+        indexSymbol:         { type: string }
+        indexName:           { type: string }
+        setupKey:            { type: string }
+        direction:           { type: string, enum: [BULLISH, BEARISH] }
+        optionType:          { type: string, enum: [CALL, PUT] }
+        strike:              { type: number }
+        lots:                { type: integer }
+        lotSize:             { type: integer }
+        entryPremium:        { type: number }
+        exitPremium:         { type: number }
+        stopPremium:         { type: number }
+        target1Premium:      { type: number }
+        target2Premium:      { type: number }
+        capitalDeployed:     { type: number }
+        realizedPnl:         { type: number }
+        charges:             { type: number }
+        netPnl:              { type: number }
+        plannedRiskPerShare: { type: number }
+        achievedPerShare:    { type: number }
+        rMultiple:           { type: number, description: "Achieved R = (exit-entry) / |entry-stop| per share" }
+        exitReason:          { type: string, enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED, MANUAL_OVERRIDE] }
+        durationSec:         { type: integer }
+
+    PaperReportFoMonthly:
+      type: object
+      required: [month, from, to, totals, days, trades, generatedAt]
+      properties:
+        month:       { type: string, description: "IST calendar month YYYY-MM" }
+        from:        { type: string }
+        to:          { type: string }
+        totals:      { $ref: "#/components/schemas/PaperReportTotals" }
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/PaperReportDayBucket" }
+        trades:
+          type: array
+          items: { $ref: "#/components/schemas/PaperTradeFODetail" }
+        generatedAt: { type: string, format: date-time }
+
+    PaperReportFoYearly:
+      type: object
+      required: [fy, from, to, totals, months, generatedAt]
+      properties:
+        fy:          { type: string, description: "Indian FY YYYY-YYYY (April through March)" }
+        from:        { type: string }
+        to:          { type: string }
+        totals:      { $ref: "#/components/schemas/PaperReportTotals" }
+        months:
+          type: array
+          items: { $ref: "#/components/schemas/PaperReportMonthBucket" }
         generatedAt: { type: string, format: date-time }

@@ -13,6 +13,8 @@ import {
   GetPaperPositionsFOResponse,
   GetPaperTradesFOResponse,
   ClosePaperPositionFOResponse,
+  GetPaperReportFoMonthlyResponse,
+  GetPaperReportFoYearlyResponse,
 } from "@workspace/api-zod";
 import {
   db,
@@ -27,6 +29,7 @@ import {
   type Segment,
 } from "../lib/paperAccount";
 import { closePaperTradeForSignal } from "../lib/paperTradingFO";
+import { getMonthlyReport, getYearlyReport } from "../lib/paperReportsFO";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -209,6 +212,43 @@ router.post("/paper/positions/fo/:id/close", requireOwner, async (req, res, next
     }
     logger.info({ id, indexSymbol: row.indexSymbol, setupKey: row.setupKey }, "Manual paper FO close");
     const data = ClosePaperPositionFOResponse.parse(toClosedTrade(closed));
+    return res.json(data);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get("/paper/reports/fo/monthly", requireOwner, async (req, res, next) => {
+  try {
+    const month = String(req.query.month ?? "").trim();
+    const m = month.match(/^(\d{4})-(\d{2})$/);
+    if (!m) {
+      return res.status(400).json({ error: "month required as YYYY-MM" });
+    }
+    const mm = Number(m[2]);
+    if (mm < 1 || mm > 12) {
+      return res.status(400).json({ error: "month component must be 01-12" });
+    }
+    const report = await getMonthlyReport(month);
+    const data = GetPaperReportFoMonthlyResponse.parse(report);
+    return res.json(data);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get("/paper/reports/fo/yearly", requireOwner, async (req, res, next) => {
+  try {
+    const fy = String(req.query.fy ?? "").trim();
+    const m = fy.match(/^(\d{4})-(\d{4})$/);
+    if (!m) {
+      return res.status(400).json({ error: "fy required as YYYY-YYYY" });
+    }
+    if (Number(m[2]) !== Number(m[1]) + 1) {
+      return res.status(400).json({ error: "fy years must be consecutive (eg 2026-2027)" });
+    }
+    const report = await getYearlyReport(fy);
+    const data = GetPaperReportFoYearlyResponse.parse(report);
     return res.json(data);
   } catch (err) {
     return next(err);
