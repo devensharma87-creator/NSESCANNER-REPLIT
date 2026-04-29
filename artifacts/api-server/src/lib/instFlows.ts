@@ -14,7 +14,7 @@
 
 import { db } from "@workspace/db";
 import { fiiDiiDailyTable, participantOiDailyTable } from "@workspace/db/schema";
-import { sql, gte, asc, desc, eq } from "drizzle-orm";
+import { sql, gte, asc, desc, eq, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 
 const UA =
@@ -450,29 +450,36 @@ export async function getFiiDiiMonthly(monthsBack = 12): Promise<FiiDiiMonthDto[
   return months;
 }
 
+export interface ParticipantOiRowDto {
+  clientType: string;
+  futureIndexLong: number;
+  futureIndexShort: number;
+  futureIndexNet: number;
+  futureStockLong: number;
+  futureStockShort: number;
+  futureStockNet: number;
+  optionIndexCallLong: number;
+  optionIndexCallShort: number;
+  optionIndexPutLong: number;
+  optionIndexPutShort: number;
+  optionStockCallLong: number;
+  optionStockCallShort: number;
+  optionStockPutLong: number;
+  optionStockPutShort: number;
+  totalLongContracts: number;
+  totalShortContracts: number;
+  netContracts: number;
+}
+
 export interface ParticipantOiDayDto {
   date: string;
-  rows: Array<{
-    clientType: string;
-    futureIndexLong: number;
-    futureIndexShort: number;
-    futureIndexNet: number;
-    futureStockLong: number;
-    futureStockShort: number;
-    futureStockNet: number;
-    optionIndexCallLong: number;
-    optionIndexCallShort: number;
-    optionIndexPutLong: number;
-    optionIndexPutShort: number;
-    optionStockCallLong: number;
-    optionStockCallShort: number;
-    optionStockPutLong: number;
-    optionStockPutShort: number;
-    totalLongContracts: number;
-    totalShortContracts: number;
-    netContracts: number;
-  }>;
+  rows: ParticipantOiRowDto[];
   availableDates: string[];
+  /** Trading date immediately preceding `date` for which we have data, or
+   *  null when `date` is the oldest record. */
+  previousDate: string | null;
+  /** Rows for `previousDate`. Empty when `previousDate` is null. */
+  previousRows: ParticipantOiRowDto[];
 }
 
 const PARTICIPANT_ORDER = ["Client", "FII", "DII", "Pro", "TOTAL"];
@@ -487,11 +494,26 @@ export async function getParticipantOi(date?: string): Promise<ParticipantOiDayD
   const availableDates = dateRows.map(r => r.d);
   if (availableDates.length === 0) return null;
   const useDate = date && availableDates.includes(date) ? date : availableDates[0];
-  const rows = await db
+  // Previous trading date for which we actually have data — sourced from the
+  // distinct-date list rather than calendar-walking, so weekends, holidays,
+  // and any back-fill gaps are handled automatically. Null when `useDate` is
+  // the oldest record, in which case the Segment View renders Change OI as
+  // "—" rather than fabricating a zero baseline.
+  const idx = availableDates.indexOf(useDate);
+  const prevDate: string | null = idx >= 0 && idx + 1 < availableDates.length
+    ? availableDates[idx + 1]
+    : null;
+
+  const rawRows = await db
     .select()
     .from(participantOiDailyTable)
-    .where(eq(participantOiDailyTable.date, useDate));
-  const mapped = rows.map(r => ({
+    .where(
+      prevDate
+        ? inArray(participantOiDailyTable.date, [useDate, prevDate])
+        : eq(participantOiDailyTable.date, useDate),
+    );
+
+  const toDto = (r: typeof rawRows[number]) => ({
     clientType: r.clientType,
     futureIndexLong: r.futureIndexLong,
     futureIndexShort: r.futureIndexShort,
@@ -510,13 +532,23 @@ export async function getParticipantOi(date?: string): Promise<ParticipantOiDayD
     totalLongContracts: r.totalLongContracts,
     totalShortContracts: r.totalShortContracts,
     netContracts: r.totalLongContracts - r.totalShortContracts,
-  }));
-  mapped.sort((a, b) => {
-    const ai = PARTICIPANT_ORDER.indexOf(a.clientType);
-    const bi = PARTICIPANT_ORDER.indexOf(b.clientType);
-    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
-  return { date: useDate, rows: mapped, availableDates };
+
+  const sortByParticipant = <T extends { clientType: string }>(arr: T[]) => {
+    arr.sort((a, b) => {
+      const ai = PARTICIPANT_ORDER.indexOf(a.clientType);
+      const bi = PARTICIPANT_ORDER.indexOf(b.clientType);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+    return arr;
+  };
+
+  const mapped = sortByParticipant(rawRows.filter(r => r.date === useDate).map(toDto));
+  const previousRows = prevDate
+    ? sortByParticipant(rawRows.filter(r => r.date === prevDate).map(toDto))
+    : [];
+
+  return { date: useDate, rows: mapped, availableDates, previousDate: prevDate, previousRows };
 }
 
 // ──────────────── Background refresher ────────────────

@@ -1425,6 +1425,19 @@ components:
         availableDates:
           type: array
           items: { type: string }
+        previousDate:
+          type: string
+          nullable: true
+          description: |
+            The trading date immediately preceding `date` for which we have
+            participant-OI data, used by the Segment View to compute
+            day-over-day "Change OI". Null if `date` is the oldest available.
+        previousRows:
+          type: array
+          description: |
+            Participant rows for `previousDate`. Empty when no prior date
+            exists. Same shape as `rows`.
+          items: { $ref: "#/components/schemas/ParticipantOiRow" }
         generatedAt:    { type: string, format: date-time }
 
     MarketHoliday:

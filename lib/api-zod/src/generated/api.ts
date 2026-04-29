@@ -2439,6 +2439,39 @@ export const GetParticipantOiResponse = zod.object({
     }),
   ),
   availableDates: zod.array(zod.string()),
+  previousDate: zod
+    .string()
+    .nullish()
+    .describe(
+      'The trading date immediately preceding `date` for which we have\nparticipant-OI data, used by the Segment View to compute\nday-over-day \"Change OI\". Null if `date` is the oldest available.\n',
+    ),
+  previousRows: zod
+    .array(
+      zod.object({
+        clientType: zod.string(),
+        futureIndexLong: zod.number(),
+        futureIndexShort: zod.number(),
+        futureIndexNet: zod.number(),
+        futureStockLong: zod.number(),
+        futureStockShort: zod.number(),
+        futureStockNet: zod.number(),
+        optionIndexCallLong: zod.number(),
+        optionIndexCallShort: zod.number(),
+        optionIndexPutLong: zod.number(),
+        optionIndexPutShort: zod.number(),
+        optionStockCallLong: zod.number(),
+        optionStockCallShort: zod.number(),
+        optionStockPutLong: zod.number(),
+        optionStockPutShort: zod.number(),
+        totalLongContracts: zod.number(),
+        totalShortContracts: zod.number(),
+        netContracts: zod.number(),
+      }),
+    )
+    .optional()
+    .describe(
+      "Participant rows for `previousDate`. Empty when no prior date\nexists. Same shape as `rows`.\n",
+    ),
   generatedAt: zod.coerce.date(),
 });
 

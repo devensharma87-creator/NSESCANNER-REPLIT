@@ -373,16 +373,95 @@ function FiiDiiSection() {
 
 /* ───────────────────────── Participant OI section ───────────────────────── */
 
+/** Format a contract count with the Indian Lakh (L) / Crore (Cr) shorthand
+ *  used by NSE-style trading dashboards. ≥1 Cr → "1.23 Cr", ≥1 L → "1.71 L",
+ *  smaller values render with a thousands separator. Returns "—" for null. */
+function fmtLakh(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1e7) return `${sign}${(abs / 1e7).toFixed(2)} Cr`;
+  if (abs >= 1e5) return `${sign}${(abs / 1e5).toFixed(2)} L`;
+  return n.toLocaleString("en-IN");
+}
+/** Same as fmtLakh but with explicit "+" prefix for positive — used in the
+ *  Change-OI column so direction is unambiguous at a glance. */
+function fmtLakhSigned(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const s = fmtLakh(n);
+  return n > 0 ? `+${s}` : s;
+}
+
+/* ── Per-segment Net OI: futures use long-short directly; options sum
+   (CallLong + PutLong) - (CallShort + PutShort). Lifted out so both
+   "today" and "previous day" rows go through the identical formula. */
+type ParticipantRow = {
+  clientType: string;
+  futureIndexLong: number; futureIndexShort: number;
+  futureStockLong: number; futureStockShort: number;
+  optionIndexCallLong: number; optionIndexCallShort: number;
+  optionIndexPutLong: number; optionIndexPutShort: number;
+  optionStockCallLong: number; optionStockCallShort: number;
+  optionStockPutLong: number; optionStockPutShort: number;
+};
+type SegmentKey = "indexFut" | "indexOpt" | "stockFut" | "stockOpt";
+
+const SEGMENTS: { key: SegmentKey; label: string }[] = [
+  { key: "indexFut", label: "Index Futures" },
+  { key: "indexOpt", label: "Index Options" },
+  { key: "stockFut", label: "Stock Futures" },
+  { key: "stockOpt", label: "Stock Options" },
+];
+// Display order matches the reference dashboard layout (FII, Pro, Client, DII).
+// Excludes the synthetic "TOTAL" row from the segment view since each cell is
+// already a per-participant net.
+const PARTICIPANT_DISPLAY: { key: string; label: string }[] = [
+  { key: "FII", label: "FII" },
+  { key: "Pro", label: "Pro" },
+  { key: "Client", label: "Client" },
+  { key: "DII", label: "DII" },
+];
+
+function netForSegment(r: ParticipantRow, seg: SegmentKey): number {
+  switch (seg) {
+    case "indexFut": return r.futureIndexLong - r.futureIndexShort;
+    case "stockFut": return r.futureStockLong - r.futureStockShort;
+    case "indexOpt":
+      return (r.optionIndexCallLong + r.optionIndexPutLong)
+           - (r.optionIndexCallShort + r.optionIndexPutShort);
+    case "stockOpt":
+      return (r.optionStockCallLong + r.optionStockPutLong)
+           - (r.optionStockCallShort + r.optionStockPutShort);
+  }
+}
+
 function ParticipantOiSection() {
   const [date, setDate] = useState<string | undefined>(undefined);
+  const [view, setView] = useState<"segment" | "detail">("segment");
   const { data, isLoading, refetch, isFetching } = useGetParticipantOi(
     date ? { date } : {},
     { query: { refetchInterval: 5 * 60 * 1000, queryKey: getGetParticipantOiQueryKey(date ? { date } : {}) } },
   );
 
   const rows = data?.rows ?? [];
+  const previousRows = data?.previousRows ?? [];
   const availableDates = data?.availableDates ?? [];
   const currentDate = data?.date ?? null;
+  const previousDate = data?.previousDate ?? null;
+
+  // Index by participant name for O(1) lookup in the segment grid. Both today
+  // and previous-day are indexed the same way — the segment view tolerates a
+  // missing previous row (renders Prev/Change as "—") rather than fabricating.
+  const todayByParticipant = useMemo(() => {
+    const m = new Map<string, ParticipantRow>();
+    for (const r of rows) m.set(r.clientType, r as ParticipantRow);
+    return m;
+  }, [rows]);
+  const prevByParticipant = useMemo(() => {
+    const m = new Map<string, ParticipantRow>();
+    for (const r of previousRows) m.set(r.clientType, r as ParticipantRow);
+    return m;
+  }, [previousRows]);
 
   return (
     <Card>
@@ -393,11 +472,27 @@ function ParticipantOiSection() {
             Participant-wise Open Interest
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1 font-mono">
-            Daily OI in number of contracts across Index / Stock Futures and Options for each participant category.
+            Net OI by segment and participant. Source: NSE F&amp;O participant-wise OI archive.
             {currentDate && <> · As of <span className="text-foreground">{fmtDate(currentDate)}</span></>}
+            {previousDate && view === "segment" && <> · Prev <span className="text-foreground">{fmtDate(previousDate)}</span></>}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* Segment / Detail view switch — Segment matches the reference
+              dashboard layout (Net OI / Prev Day Net OI / Change OI), Detail
+              keeps the existing per-leg long/short breakdown for power users. */}
+          <div className="inline-flex border border-border rounded overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setView("segment")}
+              className={`px-2 py-1 text-[10px] font-mono uppercase tracking-wider ${view === "segment" ? "bg-signal-strong-buy/20 text-signal-strong-buy" : "text-muted-foreground hover:bg-muted/40"}`}
+            >Segment View</button>
+            <button
+              type="button"
+              onClick={() => setView("detail")}
+              className={`px-2 py-1 text-[10px] font-mono uppercase tracking-wider border-l border-border ${view === "detail" ? "bg-signal-strong-buy/20 text-signal-strong-buy" : "text-muted-foreground hover:bg-muted/40"}`}
+            >Long/Short Detail</button>
+          </div>
           {availableDates.length > 0 && (
             <select
               value={date ?? availableDates[0]}
@@ -423,6 +518,64 @@ function ParticipantOiSection() {
           <div className="p-6 text-center text-sm text-muted-foreground font-mono">
             No participant OI data yet. Background fetch is running — try refreshing in a few seconds.
           </div>
+        ) : view === "segment" ? (
+          /* ── Segment View — Net OI / Prev Day Net OI / Change OI ────────
+             Layout mirrors NSE-style participant dashboards: 4 segments down
+             the left as merged cells, 4 participants per segment, and three
+             value columns. Net is computed live from long/short via
+             `netForSegment`; absolute change is `netToday - netPrev` only
+             when both rows exist (otherwise "—"). */
+          <Table className="min-w-[800px]">
+            <TableHeader>
+              <TableRow className="border-border/40 bg-muted/30">
+                <TableHead className="font-mono text-[10px] uppercase w-[140px]">Segment</TableHead>
+                <TableHead className="font-mono text-[10px] uppercase">Participant</TableHead>
+                <TableHead className="font-mono text-[10px] uppercase text-right">Net OI</TableHead>
+                <TableHead className="font-mono text-[10px] uppercase text-right">Prev Day Net OI</TableHead>
+                <TableHead className="font-mono text-[10px] uppercase text-right">Change OI</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {SEGMENTS.map(seg => (
+                <Fragment key={seg.key}>
+                  {PARTICIPANT_DISPLAY.map((p, pIdx) => {
+                    const today = todayByParticipant.get(p.key);
+                    const prev = prevByParticipant.get(p.key);
+                    const netToday = today ? netForSegment(today, seg.key) : null;
+                    const netPrev = prev ? netForSegment(prev, seg.key) : null;
+                    const changeOi = (netToday != null && netPrev != null) ? netToday - netPrev : null;
+                    const isLastInSegment = pIdx === PARTICIPANT_DISPLAY.length - 1;
+
+                    return (
+                      <TableRow key={`${seg.key}-${p.key}`} className={`hover:bg-muted/30 ${isLastInSegment ? "border-b border-border/60" : "border-b border-border/15"}`}>
+                        {pIdx === 0 && (
+                          <TableCell
+                            rowSpan={PARTICIPANT_DISPLAY.length}
+                            className="font-mono text-xs font-semibold text-foreground bg-muted/20 align-middle text-center border-r border-border/40"
+                          >
+                            <div className="flex flex-col items-center gap-1">
+                              <Layers className="h-3.5 w-3.5 text-signal-strong-buy" />
+                              <span>{seg.label}</span>
+                            </div>
+                          </TableCell>
+                        )}
+                        <TableCell className="font-mono text-xs py-2">{p.label}</TableCell>
+                        <TableCell className={`font-mono text-xs text-right py-2 ${netClass(netToday ?? 0)}`}>
+                          {fmtLakh(netToday)}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-right py-2 text-muted-foreground">
+                          {fmtLakh(netPrev)}
+                        </TableCell>
+                        <TableCell className={`font-mono text-xs text-right py-2 font-semibold ${netClass(changeOi ?? 0)}`}>
+                          {fmtLakhSigned(changeOi)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </TableBody>
+          </Table>
         ) : (
           <Table className="min-w-[1200px]">
             <TableHeader>

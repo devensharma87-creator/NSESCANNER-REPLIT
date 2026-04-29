@@ -11,5 +11,14 @@ export interface ParticipantOiResponse {
   date: string | null;
   rows: ParticipantOiRow[];
   availableDates: string[];
+  /** The trading date immediately preceding `date` for which we have
+participant-OI data, used by the Segment View to compute
+day-over-day "Change OI". Null if `date` is the oldest available.
+ */
+  previousDate?: string | null;
+  /** Participant rows for `previousDate`. Empty when no prior date
+exists. Same shape as `rows`.
+ */
+  previousRows?: ParticipantOiRow[];
   generatedAt: Date;
 }
