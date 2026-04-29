@@ -12,3 +12,9 @@ id = "KXHIJXE_6zV_2K99QIE1X"
 uri = "file://exports/stock_scanner_pro_data_inventory.csv"
 type = "table"
 title = "Stock Scanner Pro — Full Data Inventory (Cross-Check)"
+
+[[outputs]]
+id = "q5r49PMDoSPoeCtPsJ_sP"
+uri = "file://exports/stock_scanner_pro_source.tar.gz"
+type = "unspecified"
+title = "Stock Scanner Pro — Full Source Code Bundle"
