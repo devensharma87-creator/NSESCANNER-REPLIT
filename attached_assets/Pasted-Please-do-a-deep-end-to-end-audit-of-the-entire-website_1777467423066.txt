@@ -1,0 +1,55 @@
+Please do a deep, end-to-end audit of the entire website and fix all issues you find.
+
+I want you to thoroughly check every page, feature, data flow, API integration, live update, and calculation logic. The goal is to make sure the website is fully working, accurate, data-based, and reliable.
+
+Please specifically verify the following:
+
+1. **Full Website Bug Check**
+
+   * Check the whole website deeply, including frontend, backend, APIs, database, charts, filters, buttons, forms, navigation, responsiveness, and user flows.
+   * Identify anything broken, slow, inconsistent, or not working as expected.
+   * Fix all bugs found during the review.
+
+2. **Buy/Sell Recommendation Accuracy**
+
+   * Verify that all buy, sell, hold, and recommendation logic is correct.
+   * Check whether recommendations are based on the right data points, formulas, indicators, and conditions.
+   * Make sure no recommendation is being generated incorrectly or without proper supporting data.
+
+3. **Data Accuracy and Alignment**
+
+   * Check that all fetched data is correct, updated, and aligned across the website.
+   * Verify that the frontend values match the backend/API/database values.
+   * Make sure charts, tables, summaries, numbers, percentages, prices, signals, and indicators are all showing the correct data.
+   * Check for mismatched, missing, delayed, duplicated, or outdated data.
+
+4. **Result Verification**
+
+   * Analyze whether the results shown on the website are accurate and data-based.
+   * Cross-check calculations, formulas, rankings, signals, and outputs.
+   * Make sure the website is not showing misleading or incorrect results.
+
+5. **Live Functionality Check**
+
+   * Confirm that live data, live updates, refresh logic, and real-time features are working properly.
+   * Check whether live values update correctly without breaking the UI.
+   * Verify that data sync, WebSocket/API polling, cache handling, and update frequency are working correctly.
+
+6. **Performance and Stability**
+
+   * Check page load speed, API response time, memory usage, console errors, server errors, and any failed requests.
+   * Fix anything affecting performance, reliability, or user experience.
+
+7. **Final Report**
+
+   * After checking and fixing everything, please send me a detailed report covering:
+
+     * Bugs found
+     * Bugs fixed
+     * Data issues found
+     * Data issues fixed
+     * Features tested
+     * Remaining risks, if any
+     * Confirmation that live data and recommendations are working correctly
+
+Please treat this as a full QA, debugging, and verification task. Do not only check visually — please inspect the code, APIs, database/data source, calculations, and live data flow thoroughly.

@@ -435,6 +435,200 @@ function netForSegment(r: ParticipantRow, seg: SegmentKey): number {
   }
 }
 
+/* ── Stance classification: turns (net, change) into a human-readable
+   tag + tone. The tone drives color so a trader can scan the whole grid
+   at a glance and pick out where smart money is leaning vs unwinding.
+
+   Convention used by NSE-style desks:
+     • Net Long + adding         → bullish (trend strengthening)
+     • Net Long + reducing       → neutral (profit-taking, not yet flipped)
+     • Net Short + adding        → bearish
+     • Net Short + covering      → neutral (relief, not yet bullish)
+   Steady = |change| < 0.5% of |net|, so noise from rounding doesn't get
+   labelled as momentum. Returns "unknown" tone when net itself is null. */
+type StanceTone = "bull" | "bear" | "neutral" | "unknown";
+type StanceInfo = { stance: string; momentum: string | null; tone: StanceTone };
+
+function describeStance(net: number | null, change: number | null): StanceInfo {
+  if (net == null) return { stance: "No data", momentum: null, tone: "unknown" };
+  if (net === 0 && (change == null || change === 0)) {
+    return { stance: "Flat", momentum: null, tone: "neutral" };
+  }
+  const stance = net > 0 ? "Net Long" : net < 0 ? "Net Short" : "Flat";
+  const baseTone: StanceTone = net > 0 ? "bull" : net < 0 ? "bear" : "neutral";
+  if (change == null) return { stance, momentum: null, tone: baseTone };
+  const isSteady = Math.abs(change) < Math.max(1, Math.abs(net) * 0.005);
+  if (isSteady) return { stance, momentum: "steady", tone: baseTone };
+  if (net > 0 && change > 0) return { stance, momentum: "longs added", tone: "bull" };
+  if (net > 0 && change < 0) return { stance, momentum: "longs trimmed", tone: "neutral" };
+  if (net < 0 && change < 0) return { stance, momentum: "shorts added", tone: "bear" };
+  if (net < 0 && change > 0) return { stance, momentum: "shorts covered", tone: "neutral" };
+  if (net === 0 && change > 0) return { stance: "Building Long", momentum: null, tone: "bull" };
+  if (net === 0 && change < 0) return { stance: "Building Short", momentum: null, tone: "bear" };
+  return { stance, momentum: null, tone: baseTone };
+}
+
+const TONE_CLASSES: Record<StanceTone, { text: string; bg: string; border: string; dot: string }> = {
+  bull:    { text: "text-signal-strong-buy",  bg: "bg-signal-strong-buy/10",  border: "border-signal-strong-buy/30",  dot: "bg-signal-strong-buy" },
+  bear:    { text: "text-signal-strong-sell", bg: "bg-signal-strong-sell/10", border: "border-signal-strong-sell/30", dot: "bg-signal-strong-sell" },
+  neutral: { text: "text-amber-400",          bg: "bg-amber-400/10",          border: "border-amber-400/30",          dot: "bg-amber-400" },
+  unknown: { text: "text-muted-foreground",   bg: "bg-muted/20",              border: "border-border/40",             dot: "bg-muted-foreground" },
+};
+
+/* ── Centered diverging bar — left half fills red for shorts, right half
+   fills green for longs. Width is proportional to |value| / max so all
+   four participants in a card are visually comparable to each other but
+   not across cards (each card normalizes to its own segment max). */
+function BarVis({ value, max }: { value: number | null; max: number }) {
+  const halfPct = (value != null && max > 0)
+    ? Math.min(100, (Math.abs(value) / max) * 100) / 2
+    : 0;
+  return (
+    <div className="h-1.5 w-full bg-muted/15 rounded relative overflow-hidden">
+      <div className="absolute top-0 bottom-0 w-px bg-border/60 z-[1]" style={{ left: "50%" }} />
+      {value != null && value > 0 && (
+        <div className="absolute top-0 bottom-0 bg-signal-strong-buy/70" style={{ left: "50%", width: `${halfPct}%` }} />
+      )}
+      {value != null && value < 0 && (
+        <div className="absolute top-0 bottom-0 bg-signal-strong-sell/70" style={{ right: "50%", width: `${halfPct}%` }} />
+      )}
+    </div>
+  );
+}
+
+/* ── Top-of-section insight strip: 4 tiles, one per segment, FII-focused.
+   FII is the most-watched smart-money signal on Indian desks, so this gives
+   a single-glance read on institutional positioning across the whole F&O
+   complex. Each tile shows: stance label (Net Long / Short / Flat), the
+   absolute net contracts, the day-over-day change, and a one-word momentum
+   tag (longs added / shorts covered / steady). When previous-day data is
+   missing, the change line and momentum render as "—" / null rather than
+   fabricating zero. */
+function FiiInsightStrip({
+  todayByParticipant,
+  prevByParticipant,
+  hasPrev,
+}: {
+  todayByParticipant: Map<string, ParticipantRow>;
+  prevByParticipant: Map<string, ParticipantRow>;
+  hasPrev: boolean;
+}) {
+  const today = todayByParticipant.get("FII");
+  if (!today) return null;
+  const prev = prevByParticipant.get("FII");
+  return (
+    <div className="px-4 pt-3 pb-1">
+      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+        <TrendingUp className="h-3 w-3" />
+        FII positioning {hasPrev ? "vs prev day" : "(no comparison — oldest record)"}
+      </div>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
+        {SEGMENTS.map(seg => {
+          const net = netForSegment(today, seg.key);
+          const netPrev = prev ? netForSegment(prev, seg.key) : null;
+          const change = netPrev != null ? net - netPrev : null;
+          const info = describeStance(net, change);
+          const tone = TONE_CLASSES[info.tone];
+          return (
+            <div key={seg.key} className={`border ${tone.border} ${tone.bg} rounded px-2.5 py-1.5`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider truncate">{seg.label}</span>
+                <span className={`text-[10px] font-mono font-semibold ${tone.text} shrink-0`}>{info.stance}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2 mt-1">
+                <span className={`font-mono text-sm font-bold ${tone.text}`}>{fmtLakh(net)}</span>
+                <span className={`font-mono text-[10px] ${change == null ? "text-muted-foreground" : netClass(change)}`}>
+                  {fmtLakhSigned(change)}
+                </span>
+              </div>
+              <div className={`text-[9px] font-mono mt-0.5 ${info.momentum ? tone.text : "text-muted-foreground/60"}`}>
+                {info.momentum ?? "—"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ── Per-segment card: 4 participants with name, net contracts, day-over-day
+   change, and a centered diverging bar showing relative position size within
+   the segment. Footer shows Σ across participants — should be ~0 since every
+   long has a short, so a non-zero Σ is a data-integrity yellow flag and is
+   colored amber when it deviates noticeably from balance. */
+function SegmentCard({
+  segment,
+  todayByParticipant,
+  prevByParticipant,
+}: {
+  segment: { key: SegmentKey; label: string };
+  todayByParticipant: Map<string, ParticipantRow>;
+  prevByParticipant: Map<string, ParticipantRow>;
+}) {
+  const parts = PARTICIPANT_DISPLAY.map(p => {
+    const today = todayByParticipant.get(p.key);
+    const prev = prevByParticipant.get(p.key);
+    const net = today ? netForSegment(today, segment.key) : null;
+    const netPrev = prev ? netForSegment(prev, segment.key) : null;
+    const change = (net != null && netPrev != null) ? net - netPrev : null;
+    return { ...p, net, change, info: describeStance(net, change) };
+  });
+  const maxAbsNet = Math.max(0, ...parts.map(p => p.net != null ? Math.abs(p.net) : 0));
+  // Σ across all 4 — in healthy NSE participant data this nets to ~0 because
+  // every long contract has a corresponding short contract somewhere in the
+  // FII/Pro/Client/DII universe. Treat |Σ| > 0.5% of segment activity as a
+  // data-integrity yellow flag.
+  const knownNets = parts.filter(p => p.net != null).map(p => p.net as number);
+  const sigma = knownNets.length === parts.length ? knownNets.reduce((s, n) => s + n, 0) : null;
+  const totalActivity = knownNets.reduce((s, n) => s + Math.abs(n), 0);
+  const sigmaImbalanced = sigma != null && totalActivity > 0 && Math.abs(sigma) > totalActivity * 0.005;
+
+  return (
+    <div className="border border-border/40 rounded-md bg-muted/[0.04] p-3 hover:bg-muted/[0.08] transition-colors">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Layers className="h-3.5 w-3.5 text-signal-strong-buy" />
+          <span className="font-mono text-xs uppercase tracking-wider font-semibold">{segment.label}</span>
+        </div>
+        <span
+          className={`text-[9px] font-mono ${sigmaImbalanced ? "text-amber-400" : "text-muted-foreground/70"}`}
+          title="Σ Net OI across FII + Pro + Client + DII. In a balanced market this is ≈ 0 because every long has a matching short. A non-zero value here is a data-integrity hint."
+        >
+          Σ {fmtLakhSigned(sigma)}
+        </span>
+      </div>
+      <div className="space-y-2.5">
+        {parts.map(p => {
+          const tone = TONE_CLASSES[p.info.tone];
+          return (
+            <div key={p.key} className="space-y-1">
+              <div className="flex items-baseline justify-between gap-2 text-xs font-mono">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <span className={`h-1.5 w-1.5 rounded-full ${tone.dot} shrink-0`} />
+                  <span className="font-semibold w-12 shrink-0">{p.label}</span>
+                  <span className={`${tone.text} truncate`}>{fmtLakh(p.net)}</span>
+                </div>
+                <div className="flex items-baseline gap-2 shrink-0">
+                  {p.info.momentum && (
+                    <span className={`text-[9px] uppercase tracking-wider ${tone.text} opacity-80 hidden sm:inline`}>
+                      {p.info.momentum}
+                    </span>
+                  )}
+                  <span className={`text-[10px] ${p.change == null ? "text-muted-foreground" : netClass(p.change)}`}>
+                    {fmtLakhSigned(p.change)}
+                  </span>
+                </div>
+              </div>
+              <BarVis value={p.net} max={maxAbsNet} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ParticipantOiSection() {
   const [date, setDate] = useState<string | undefined>(undefined);
   const [view, setView] = useState<"segment" | "detail">("segment");
@@ -478,15 +672,16 @@ function ParticipantOiSection() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          {/* Segment / Detail view switch — Segment matches the reference
-              dashboard layout (Net OI / Prev Day Net OI / Change OI), Detail
-              keeps the existing per-leg long/short breakdown for power users. */}
+          {/* Analysis / Detail view switch — Analysis is the default rich
+              card layout (insight strip + per-segment cards with magnitude
+              bars), Detail keeps the wide per-leg long/short table for
+              power users who want raw call/put breakdowns. */}
           <div className="inline-flex border border-border rounded overflow-hidden">
             <button
               type="button"
               onClick={() => setView("segment")}
               className={`px-2 py-1 text-[10px] font-mono uppercase tracking-wider ${view === "segment" ? "bg-signal-strong-buy/20 text-signal-strong-buy" : "text-muted-foreground hover:bg-muted/40"}`}
-            >Segment View</button>
+            >Analysis</button>
             <button
               type="button"
               onClick={() => setView("detail")}
@@ -509,7 +704,7 @@ function ParticipantOiSection() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="p-0 overflow-x-auto">
+      <CardContent className={`p-0 ${view === "detail" ? "overflow-x-auto" : ""}`}>
         {isLoading ? (
           <div className="p-4 space-y-2">
             {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
@@ -519,63 +714,38 @@ function ParticipantOiSection() {
             No participant OI data yet. Background fetch is running — try refreshing in a few seconds.
           </div>
         ) : view === "segment" ? (
-          /* ── Segment View — Net OI / Prev Day Net OI / Change OI ────────
-             Layout mirrors NSE-style participant dashboards: 4 segments down
-             the left as merged cells, 4 participants per segment, and three
-             value columns. Net is computed live from long/short via
-             `netForSegment`; absolute change is `netToday - netPrev` only
-             when both rows exist (otherwise "—"). */
-          <Table className="min-w-[800px]">
-            <TableHeader>
-              <TableRow className="border-border/40 bg-muted/30">
-                <TableHead className="font-mono text-[10px] uppercase w-[140px]">Segment</TableHead>
-                <TableHead className="font-mono text-[10px] uppercase">Participant</TableHead>
-                <TableHead className="font-mono text-[10px] uppercase text-right">Net OI</TableHead>
-                <TableHead className="font-mono text-[10px] uppercase text-right">Prev Day Net OI</TableHead>
-                <TableHead className="font-mono text-[10px] uppercase text-right">Change OI</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {SEGMENTS.map(seg => (
-                <Fragment key={seg.key}>
-                  {PARTICIPANT_DISPLAY.map((p, pIdx) => {
-                    const today = todayByParticipant.get(p.key);
-                    const prev = prevByParticipant.get(p.key);
-                    const netToday = today ? netForSegment(today, seg.key) : null;
-                    const netPrev = prev ? netForSegment(prev, seg.key) : null;
-                    const changeOi = (netToday != null && netPrev != null) ? netToday - netPrev : null;
-                    const isLastInSegment = pIdx === PARTICIPANT_DISPLAY.length - 1;
-
-                    return (
-                      <TableRow key={`${seg.key}-${p.key}`} className={`hover:bg-muted/30 ${isLastInSegment ? "border-b border-border/60" : "border-b border-border/15"}`}>
-                        {pIdx === 0 && (
-                          <TableCell
-                            rowSpan={PARTICIPANT_DISPLAY.length}
-                            className="font-mono text-xs font-semibold text-foreground bg-muted/20 align-middle text-center border-r border-border/40"
-                          >
-                            <div className="flex flex-col items-center gap-1">
-                              <Layers className="h-3.5 w-3.5 text-signal-strong-buy" />
-                              <span>{seg.label}</span>
-                            </div>
-                          </TableCell>
-                        )}
-                        <TableCell className="font-mono text-xs py-2">{p.label}</TableCell>
-                        <TableCell className={`font-mono text-xs text-right py-2 ${netClass(netToday ?? 0)}`}>
-                          {fmtLakh(netToday)}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-right py-2 text-muted-foreground">
-                          {fmtLakh(netPrev)}
-                        </TableCell>
-                        <TableCell className={`font-mono text-xs text-right py-2 font-semibold ${netClass(changeOi ?? 0)}`}>
-                          {fmtLakhSigned(changeOi)}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </Fragment>
-              ))}
-            </TableBody>
-          </Table>
+          /* ── Analysis View — insight strip + 2×2 segment cards ──────────
+             Top: FII positioning across all four segments, the most-watched
+             smart-money signal, with stance + day-over-day change + a
+             one-word momentum tag. Below: per-segment cards with all four
+             participants, each with a centered diverging bar (red-left for
+             shorts, green-right for longs) sized relative to the segment's
+             largest position. Footer per card shows Σ Net across all four —
+             a sanity check that should net to ~0 in healthy data, since
+             every long must have a matching short. */
+          <div>
+            <FiiInsightStrip
+              todayByParticipant={todayByParticipant}
+              prevByParticipant={prevByParticipant}
+              hasPrev={previousDate != null}
+            />
+            <div className="px-4 pt-3 pb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {SEGMENTS.map(seg => (
+                  <SegmentCard
+                    key={seg.key}
+                    segment={seg}
+                    todayByParticipant={todayByParticipant}
+                    prevByParticipant={prevByParticipant}
+                  />
+                ))}
+              </div>
+              <div className="text-[9px] font-mono text-muted-foreground/70 mt-3 leading-relaxed">
+                Bar = relative position size within segment · Centerline marks zero · Green right = net long, red left = net short ·
+                Change badge & momentum compare today vs previous trading day · Σ row = sum across FII + Pro + Client + DII (≈ 0 means data is balanced)
+              </div>
+            </div>
+          </div>
         ) : (
           <Table className="min-w-[1200px]">
             <TableHeader>
