@@ -17,11 +17,27 @@ function csvEscape(v: unknown): string {
   return s;
 }
 
-/** Convert array of flat row objects to a CSV string. Header is the union of keys
- *  of the first row (predictable column order). Nested values are JSON-stringified. */
+/** Convert array of flat row objects to a CSV string. Header is the union of
+ *  keys across ALL rows (preserving first-seen order). We previously used
+ *  only `Object.keys(rows[0])` which silently dropped any column whose value
+ *  was `undefined` on the first row but populated on later rows — e.g. a
+ *  scanner CSV where the first symbol had no `deliveryPct` would lose the
+ *  delivery column for every other symbol that did. Nested values are
+ *  JSON-stringified. */
 export function toCsv(rows: Array<Record<string, unknown>>, headerOverride?: string[]): string {
   if (rows.length === 0) return "";
-  const headers = headerOverride ?? Object.keys(rows[0]!);
+  let headers: string[];
+  if (headerOverride) {
+    headers = headerOverride;
+  } else {
+    const seen = new Set<string>();
+    headers = [];
+    for (const r of rows) {
+      for (const k of Object.keys(r)) {
+        if (!seen.has(k)) { seen.add(k); headers.push(k); }
+      }
+    }
+  }
   const lines: string[] = [headers.join(",")];
   for (const r of rows) {
     lines.push(headers.map(h => csvEscape(r[h])).join(","));

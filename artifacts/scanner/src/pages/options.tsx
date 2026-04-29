@@ -435,7 +435,10 @@ export default function OptionsPage() {
     return Array.from(groups.entries()).map(([index, signals]) => ({
       index,
       indexName: signals[0]?.indexName ?? index,
-      spot: signals[0]?.spot ?? 0,
+      // `?? 0` previously claimed the index was trading at zero whenever the
+      // spot snapshot hadn't landed — visibly misleading on the F&O page. Pass
+      // null through; the renderer's `fmt(grp.spot)` already prints "—".
+      spot: signals[0]?.spot ?? null,
       spotChangePercent: signals[0]?.spotChangePercent,
       vwap: signals[0]?.vwap,
       ema9: signals[0]?.ema9,

@@ -56,8 +56,14 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   const adx = indicators.adx14 ?? null;
   const volRatio = indicators.volumeRatio ?? null;
   const deliveryPct = indicators.deliveryPct ?? null;
-  const support = indicators.supportLevel ?? Math.min(...closes.slice(-20));
-  const resistance = indicators.resistanceLevel ?? Math.max(...closes.slice(-20));
+  // Support / resistance are emitted from the live quote's intraday high / low
+  // (Kite path) or the realised Yahoo bar. When both are absent we will NOT
+  // synthesize a level from `Math.min/max(closes.slice(-20))` — that confused
+  // the breakout / breakdown rule with a mechanically-derived 20-bar band that
+  // had no relation to the level the trader is actually watching. Skip the
+  // S/R-dependent rules when the inputs are missing.
+  const support = indicators.supportLevel ?? null;
+  const resistance = indicators.resistanceLevel ?? null;
   const poc = indicators.pointOfControl;
   const vaHigh = indicators.valueAreaHigh;
   const vaLow = indicators.valueAreaLow;
@@ -159,13 +165,15 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
     else if (closeNow < closePrev10 * 0.98 && rsiNow > rsiPrev10 + 3) { score += 6; reasons.push({ label: "Bullish RSI divergence", detail: "Lower low in price, higher low in RSI.", weight: 6, bullish: true }); }
   }
 
-  // 8. Price action vs swing levels (weight 12)
-  const distFromRes = (resistance - price) / resistance;
-  const distFromSup = (price - support) / support;
-  if (price >= resistance * 0.999 && quote.changePercent > 0.5) { score += 12; reasons.push({ label: "Breakout above resistance", detail: `Clearing swing high ₹${resistance.toFixed(2)}.`, weight: 12, bullish: true }); }
-  else if (price <= support * 1.001 && quote.changePercent < -0.5) { score -= 12; reasons.push({ label: "Breakdown below support", detail: `Losing swing low ₹${support.toFixed(2)}.`, weight: 12, bullish: false }); }
-  else if (distFromSup < 0.03) { score += 5; reasons.push({ label: "Trading near support", detail: `Within 3% of ₹${support.toFixed(2)}.`, weight: 5, bullish: true }); }
-  else if (distFromRes < 0.03) { score -= 5; reasons.push({ label: "Trading near resistance", detail: `Within 3% of ₹${resistance.toFixed(2)}.`, weight: 5, bullish: false }); }
+  // 8. Price action vs swing levels (weight 12) — gated on real S/R levels.
+  if (support != null && resistance != null && resistance > 0 && support > 0) {
+    const distFromRes = (resistance - price) / resistance;
+    const distFromSup = (price - support) / support;
+    if (price >= resistance * 0.999 && quote.changePercent > 0.5) { score += 12; reasons.push({ label: "Breakout above resistance", detail: `Clearing swing high ₹${resistance.toFixed(2)}.`, weight: 12, bullish: true }); }
+    else if (price <= support * 1.001 && quote.changePercent < -0.5) { score -= 12; reasons.push({ label: "Breakdown below support", detail: `Losing swing low ₹${support.toFixed(2)}.`, weight: 12, bullish: false }); }
+    else if (distFromSup < 0.03) { score += 5; reasons.push({ label: "Trading near support", detail: `Within 3% of ₹${support.toFixed(2)}.`, weight: 5, bullish: true }); }
+    else if (distFromRes < 0.03) { score -= 5; reasons.push({ label: "Trading near resistance", detail: `Within 3% of ₹${resistance.toFixed(2)}.`, weight: 5, bullish: false }); }
+  }
 
   // 52-week proximity
   const yrHi = quote.fiftyTwoWeekHigh;
@@ -213,19 +221,21 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   const total = reasons.reduce((a, b) => a + b.weight, 0);
   const confidence = total === 0 ? 0 : Math.round((aligned / total) * 100);
 
-  // Targets / SL — gated on a REAL ATR(14). Previously we fell back to
-  // `range / 6` (a heuristic from the 20-day support/resistance band) when
-  // ATR was missing, then published target/stopLoss/RR as if they were
-  // real volatility-derived levels. They were not. A scanner subscriber
-  // sizing a trade off those numbers would be sizing off invented data.
-  // If ATR is unknown, we leave target/SL/RR undefined and the UI shows
-  // "—" — honest absence of data, not a fabricated level.
-  const range = Math.max(0, resistance - support);
+  // Targets / SL — gated on a REAL ATR(14) AND real S/R levels. Previously
+  // we fell back to `range / 6` (a heuristic from the 20-day support/
+  // resistance band) when ATR was missing, then published target/stopLoss/RR
+  // as if they were real volatility-derived levels. They were not. We also
+  // used to substitute a synthesized 20-day-min/max for support/resistance
+  // when those were absent — feeding that into the SL clamp below produced
+  // stops anchored to a level the trader wasn't watching.
+  // If ATR or S/R is unknown, we leave target/SL/RR undefined and the UI
+  // shows "—" — honest absence of data, not a fabricated level.
   let target: number | undefined;
   let stopLoss: number | undefined;
   let rr: number | undefined;
   const atr14 = indicators.atr14;
-  if (atr14 != null && atr14 > 0) {
+  if (atr14 != null && atr14 > 0 && support != null && resistance != null) {
+    const range = Math.max(0, resistance - support);
     if (signal === "BUY" || signal === "STRONG_BUY") {
       target = +(price + Math.max(range * 0.55, atr14 * 2.5)).toFixed(2);
       // Stop-loss must always sit BELOW entry for a long. Old code did

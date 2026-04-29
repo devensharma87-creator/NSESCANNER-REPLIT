@@ -119,7 +119,13 @@ const DISK_CACHE_NAME = "full-nse-scan";
 // entirely when previousClose / today open / high / low can't be
 // sourced for real. Old rows in v13 may carry quotes built off
 // `Math.max/min(price, todayOpen)` placeholders.
-const DISK_CACHE_VERSION = 14;
+// v15 (2026-04-29): scoring.ts no longer fabricates support/resistance
+// from `Math.min/max(closes.slice(-20))`. The breakout/breakdown,
+// near-S/R, and target/SL/RR rules now skip entirely when real
+// supportLevel/resistanceLevel are missing. Old v14 cached
+// recommendations carry scores and target/SL/RR derived from the
+// 20-bar synthesised band — bump to force a clean recompute.
+const DISK_CACHE_VERSION = 15;
 const DISK_CACHE_MAX_AGE_MS = 60 * 60_000;
 
 interface Cache {

@@ -67,10 +67,10 @@ function MoverRow({ s, kind }: { s: StockRow; kind: "gain" | "loss" }) {
 }
 
 export default function Home() {
-  const { data: topScans, isLoading: scansLoading } = useGetTopScans({
+  const { data: topScans, isLoading: scansLoading, isError: scansError } = useGetTopScans({
     query: { refetchInterval: 30000, queryKey: getGetTopScansQueryKey() },
   });
-  const { data: allStocks, isLoading: stocksLoading } = useListStocks(undefined, {
+  const { data: allStocks, isLoading: stocksLoading, isError: stocksError } = useListStocks(undefined, {
     query: { refetchInterval: 30000, queryKey: getListStocksQueryKey() },
   });
 
@@ -119,7 +119,9 @@ export default function Home() {
             </span>
           </CardHeader>
           <CardContent>
-            {stocksLoading ? <Skeleton className="h-72 w-full" /> : topGainers.length === 0 ? (
+            {stocksLoading ? <Skeleton className="h-72 w-full" /> : stocksError ? (
+              <p className="text-xs text-signal-strong-sell font-mono">Couldn't load market data — retrying.</p>
+            ) : topGainers.length === 0 ? (
               <p className="text-xs text-muted-foreground font-mono">No data yet.</p>
             ) : (
               <div className="space-y-1">
@@ -139,7 +141,9 @@ export default function Home() {
             </span>
           </CardHeader>
           <CardContent>
-            {stocksLoading ? <Skeleton className="h-72 w-full" /> : topLosers.length === 0 ? (
+            {stocksLoading ? <Skeleton className="h-72 w-full" /> : stocksError ? (
+              <p className="text-xs text-signal-strong-sell font-mono">Couldn't load market data — retrying.</p>
+            ) : topLosers.length === 0 ? (
               <p className="text-xs text-muted-foreground font-mono">No data yet.</p>
             ) : (
               <div className="space-y-1">

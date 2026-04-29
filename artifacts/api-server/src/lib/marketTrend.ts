@@ -56,10 +56,17 @@ export async function getMarketTrend(): Promise<MarketTrend> {
       const intra = await fetchIntraday(idx.sym, "15m", "5d");
       if (!intra || intra.close.length < 6) continue;
       const last = intra.close[intra.close.length - 1]!;
-      const vwap = lastVal(sessionVwap(intra.high, intra.low, intra.close, intra.volume)) ?? last;
-      const e9 = lastVal(ema(intra.close, 9)) ?? last;
-      const e21 = lastVal(ema(intra.close, 21)) ?? last;
-      const r14 = lastVal(rsi(intra.close, 14)) ?? 50;
+      // VWAP / EMA9 / EMA21 / RSI must NOT silently fall back to `last` or 50.
+      // Substituting `last` makes `last > vwap` always false (last == last)
+      // and silently fabricates a "no bias" verdict; substituting RSI=50
+      // wedges the rule into the neutral arm. Skip the entire index rule
+      // when any of the four inputs is missing — honest absence beats a
+      // mechanically-neutral verdict that looks measured.
+      const vwap = lastVal(sessionVwap(intra.high, intra.low, intra.close, intra.volume));
+      const e9 = lastVal(ema(intra.close, 9));
+      const e21 = lastVal(ema(intra.close, 21));
+      const r14 = lastVal(rsi(intra.close, 14));
+      if (vwap == null || e9 == null || e21 == null || r14 == null) continue;
       const above = last > vwap && e9 > e21;
       const below = last < vwap && e9 < e21;
       if (above && r14 >= 50) { score += idx.w; drivers.push({ label: `${idx.name} bullish intraday`, detail: `Above VWAP ${vwap.toFixed(2)} with EMA9>EMA21, RSI ${r14.toFixed(0)}.`, weight: idx.w, bullish: true }); }
