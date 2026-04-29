@@ -2087,6 +2087,12 @@ export const GetOptionChainResponse = zod.object({
   atmStrike: zod.number(),
   strikeStep: zod.number(),
   lotSize: zod.number().optional(),
+  maxPainStrike: zod
+    .number()
+    .nullish()
+    .describe(
+      "Strike where option writers' aggregate loss is minimised — same algorithm as analytics, surfaced inline so the chain table can mark the row.",
+    ),
   rows: zod.array(
     zod.object({
       strike: zod.number(),
@@ -2094,12 +2100,30 @@ export const GetOptionChainResponse = zod.object({
         .object({
           oi: zod.number().optional().describe("Open Interest in contracts"),
           chgOi: zod.number().optional().describe("OI change since prev close"),
+          oiChgPct: zod
+            .number()
+            .nullish()
+            .describe(
+              "Day-over-day OI % change. Null when prior-day OI cannot be derived.",
+            ),
           volume: zod.number().optional(),
+          volOiRatio: zod
+            .number()
+            .nullish()
+            .describe(
+              "Volume \/ OI for this leg — proxy for fresh speculative activity. Null when OI is zero\/missing.",
+            ),
           iv: zod
             .number()
             .optional()
             .describe("Implied Volatility (% annualised)"),
           ltp: zod.number().optional().describe("Last traded premium"),
+          ltpChgPct: zod
+            .number()
+            .nullish()
+            .describe(
+              "Day-over-day LTP % change vs previous session close. Null when prev close is unavailable (e.g. NSE-direct path).",
+            ),
           bid: zod.number().optional(),
           ask: zod.number().optional(),
           bidQty: zod.number().optional(),
@@ -2109,6 +2133,12 @@ export const GetOptionChainResponse = zod.object({
           gamma: zod.number().optional(),
           vega: zod.number().optional(),
           intrinsic: zod.number().optional(),
+          intrinsicPct: zod
+            .number()
+            .nullish()
+            .describe(
+              "Intrinsic \/ LTP × 100 — share of premium that is real intrinsic value (rest is time value).",
+            ),
           timeValue: zod.number().optional(),
           moneyness: zod.enum(["ITM", "ATM", "OTM"]).optional(),
           oiBuildup: zod
@@ -2126,12 +2156,30 @@ export const GetOptionChainResponse = zod.object({
         .object({
           oi: zod.number().optional().describe("Open Interest in contracts"),
           chgOi: zod.number().optional().describe("OI change since prev close"),
+          oiChgPct: zod
+            .number()
+            .nullish()
+            .describe(
+              "Day-over-day OI % change. Null when prior-day OI cannot be derived.",
+            ),
           volume: zod.number().optional(),
+          volOiRatio: zod
+            .number()
+            .nullish()
+            .describe(
+              "Volume \/ OI for this leg — proxy for fresh speculative activity. Null when OI is zero\/missing.",
+            ),
           iv: zod
             .number()
             .optional()
             .describe("Implied Volatility (% annualised)"),
           ltp: zod.number().optional().describe("Last traded premium"),
+          ltpChgPct: zod
+            .number()
+            .nullish()
+            .describe(
+              "Day-over-day LTP % change vs previous session close. Null when prev close is unavailable (e.g. NSE-direct path).",
+            ),
           bid: zod.number().optional(),
           ask: zod.number().optional(),
           bidQty: zod.number().optional(),
@@ -2141,6 +2189,12 @@ export const GetOptionChainResponse = zod.object({
           gamma: zod.number().optional(),
           vega: zod.number().optional(),
           intrinsic: zod.number().optional(),
+          intrinsicPct: zod
+            .number()
+            .nullish()
+            .describe(
+              "Intrinsic \/ LTP × 100 — share of premium that is real intrinsic value (rest is time value).",
+            ),
           timeValue: zod.number().optional(),
           moneyness: zod.enum(["ITM", "ATM", "OTM"]).optional(),
           oiBuildup: zod
@@ -2154,11 +2208,27 @@ export const GetOptionChainResponse = zod.object({
             .optional(),
         })
         .optional(),
+      pcrOi: zod
+        .number()
+        .nullish()
+        .describe(
+          "Per-strike Put\/Call ratio by OI (pe.oi \/ ce.oi). Null when CE OI is zero.",
+        ),
+      pcrVol: zod
+        .number()
+        .nullish()
+        .describe(
+          "Per-strike Put\/Call ratio by Volume. Null when CE volume is zero.",
+        ),
+      isMaxPain: zod
+        .boolean()
+        .optional()
+        .describe("True on the single Max-Pain strike for the expiry."),
     }),
   ),
   source: zod
     .string()
-    .describe("Origin tag — 'NSE' for live fetch, 'MOCK' for synthetic"),
+    .describe("Origin tag — 'NSE' for live fetch, 'kite' for Kite-derived"),
   generatedAt: zod.coerce.date(),
 });
 

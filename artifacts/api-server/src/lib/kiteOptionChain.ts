@@ -15,6 +15,7 @@
 import { logger } from "./logger";
 import { getRestClient } from "./kiteAuth";
 import type { OcResponse, OcRow, OcSide } from "./optionChain";
+import { deriveSideMetrics, finalizeChain } from "./optionChain";
 import { priceAndGreeks, impliedVolatility, yearsToExpiry } from "./blackScholes";
 
 const RISK_FREE_RATE = 0.0675;
@@ -300,6 +301,12 @@ export async function fetchKiteOptionChain(
       moneyness: classifyMoneyness(leg.strike, spot, optType, STRIKE_STEPS[sym] ?? 50),
       oiBuildup: classifyOiBuildup(netChg, chgOi),
     };
+    // Kite quote includes per-leg `ohlc.close` — yesterday's settlement of the
+    // option contract itself. Pass it so `ltpChgPct` is a real day-over-day %
+    // (vs the NSE-direct path where this baseline doesn't exist and the field
+    // stays null).
+    const prevCloseLtp = q.ohlc?.close;
+    deriveSideMetrics(side, Number.isFinite(prevCloseLtp) ? prevCloseLtp : undefined);
 
     let row = strikeMap.get(leg.strike);
     if (!row) { row = { strike: leg.strike }; strikeMap.set(leg.strike, row); }
@@ -339,6 +346,12 @@ export async function fetchKiteOptionChain(
     generatedAt: new Date().toISOString(),
   };
 
+  // Stamp per-strike PCR (pcrOi/pcrVol), `isMaxPain` on the single max-pain
+  // strike, and the top-level `maxPainStrike` pointer. Mirrors what the NSE
+  // path does in `fetchOptionChain` so both sources hand the UI an identical
+  // shape — without this, Kite-sourced chains would silently miss the MaxPain
+  // marker and the per-strike PCR pill.
+  finalizeChain(out);
   chainCache.set(cacheKey, { data: out, ts: Date.now() });
   return out;
 }

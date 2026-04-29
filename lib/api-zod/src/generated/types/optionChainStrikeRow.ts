@@ -11,4 +11,10 @@ export interface OptionChainStrikeRow {
   strike: number;
   ce?: OptionChainSide;
   pe?: OptionChainSide;
+  /** Per-strike Put/Call ratio by OI (pe.oi / ce.oi). Null when CE OI is zero. */
+  pcrOi?: number | null;
+  /** Per-strike Put/Call ratio by Volume. Null when CE volume is zero. */
+  pcrVol?: number | null;
+  /** True on the single Max-Pain strike for the expiry. */
+  isMaxPain?: boolean;
 }

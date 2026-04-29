@@ -1400,11 +1400,17 @@ export interface OptionChainSide {
   oi?: number;
   /** OI change since prev close */
   chgOi?: number;
+  /** Day-over-day OI % change. Null when prior-day OI cannot be derived. */
+  oiChgPct?: number | null;
   volume?: number;
+  /** Volume / OI for this leg — proxy for fresh speculative activity. Null when OI is zero/missing. */
+  volOiRatio?: number | null;
   /** Implied Volatility (% annualised) */
   iv?: number;
   /** Last traded premium */
   ltp?: number;
+  /** Day-over-day LTP % change vs previous session close. Null when prev close is unavailable (e.g. NSE-direct path). */
+  ltpChgPct?: number | null;
   bid?: number;
   ask?: number;
   bidQty?: number;
@@ -1414,6 +1420,8 @@ export interface OptionChainSide {
   gamma?: number;
   vega?: number;
   intrinsic?: number;
+  /** Intrinsic / LTP × 100 — share of premium that is real intrinsic value (rest is time value). */
+  intrinsicPct?: number | null;
   timeValue?: number;
   moneyness?: OptionChainSideMoneyness;
   oiBuildup?: OptionChainSideOiBuildup;
@@ -1423,6 +1431,12 @@ export interface OptionChainStrikeRow {
   strike: number;
   ce?: OptionChainSide;
   pe?: OptionChainSide;
+  /** Per-strike Put/Call ratio by OI (pe.oi / ce.oi). Null when CE OI is zero. */
+  pcrOi?: number | null;
+  /** Per-strike Put/Call ratio by Volume. Null when CE volume is zero. */
+  pcrVol?: number | null;
+  /** True on the single Max-Pain strike for the expiry. */
+  isMaxPain?: boolean;
 }
 
 export type OptionChainResponseKind =
@@ -1446,8 +1460,10 @@ export interface OptionChainResponse {
   atmStrike: number;
   strikeStep: number;
   lotSize?: number;
+  /** Strike where option writers' aggregate loss is minimised — same algorithm as analytics, surfaced inline so the chain table can mark the row. */
+  maxPainStrike?: number | null;
   rows: OptionChainStrikeRow[];
-  /** Origin tag — 'NSE' for live fetch, 'MOCK' for synthetic */
+  /** Origin tag — 'NSE' for live fetch, 'kite' for Kite-derived */
   source: string;
   generatedAt: string;
 }

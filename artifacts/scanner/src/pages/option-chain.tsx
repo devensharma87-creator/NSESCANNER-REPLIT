@@ -38,6 +38,19 @@ function fmtKL(n: number | null | undefined): string {
   // upstream float noise (e.g. "268.6000000000006") never reaches the user.
   return `${Math.round(n)}`;
 }
+/** Signed percentage with explicit "+" for positive values. Renders "—" for
+ *  null/undefined so a missing baseline (e.g. NSE-direct path has no per-leg
+ *  prev close) never shows as a fake "0.00%". */
+function fmtPct(n: number | null | undefined, dp = 2): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(dp)}%`;
+}
+/** Vol/OI ratio: 3 dp; null-safe. */
+function fmtRatio(n: number | null | undefined, dp = 2): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return n.toFixed(dp);
+}
 function buildupTone(b: string | undefined): string {
   switch (b) {
     case "LONG_BUILDUP":   return "bg-signal-strong-buy/20 text-signal-strong-buy";
@@ -557,34 +570,51 @@ export default function OptionChainPage() {
           <div ref={tableScrollRef} className="overflow-auto rounded border border-border max-h-[calc(100vh-260px)]">
             <table className="w-full text-[11px] font-mono">
               <thead className="bg-card sticky top-0 z-20 shadow-[0_1px_0_0_hsl(var(--border))]">
-                <tr className="text-muted-foreground border-b border-border">
-                  <th colSpan={showGreeks ? 10 : 6} className="text-center text-signal-strong-buy py-1 border-r border-border bg-signal-strong-buy/[0.04]">
-                    CALLS
-                  </th>
-                  <th className="text-center text-foreground py-1 px-3">STRIKE</th>
-                  <th colSpan={showGreeks ? 10 : 6} className="text-center text-signal-strong-sell py-1 border-l border-border bg-signal-strong-sell/[0.04]">
-                    PUTS
-                  </th>
-                </tr>
-                <tr className="text-muted-foreground border-b border-border bg-card/50">
+                {(() => {
+                  // Column count per side — keep both halves balanced so the
+                  // CALLS / PUTS top-banner spans the right cells. Always-on:
+                  // OI, Δ OI, Vol, V/O, IV, LTP, %Chg, B = 8.
+                  // Greeks toggle adds 4 (Δ Γ Θ V) and 2 (Intrinsic, TimeVal).
+                  const sideCols = showGreeks ? 8 + 4 + 2 : 8;
+                  return (
+                    <tr className="text-muted-foreground border-b border-border">
+                      <th colSpan={sideCols} className="text-center text-signal-strong-buy py-1 border-r border-border bg-signal-strong-buy/[0.04]">
+                        CALLS
+                      </th>
+                      <th className="text-center text-foreground py-1 px-3">STRIKE</th>
+                      <th colSpan={sideCols} className="text-center text-signal-strong-sell py-1 border-l border-border bg-signal-strong-sell/[0.04]">
+                        PUTS
+                      </th>
+                    </tr>
+                  );
+                })()}
+                <tr className="text-muted-foreground border-b border-border bg-card/50 text-[10px]">
                   <th className="px-2 py-1 text-right">OI</th>
-                  <th className="px-2 py-1 text-right">Δ OI</th>
+                  <th className="px-2 py-1 text-right" title="Day-over-day OI change (absolute) and OI % below">Δ OI</th>
                   <th className="px-2 py-1 text-right">Vol</th>
+                  <th className="px-2 py-1 text-right" title="Volume / OI — fresh activity proxy">V/O</th>
                   <th className="px-2 py-1 text-right">IV</th>
                   {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
                   {showGreeks && <th className="px-2 py-1 text-right" title="Gamma">Γ</th>}
                   {showGreeks && <th className="px-2 py-1 text-right" title="Theta per day">Θ</th>}
                   {showGreeks && <th className="px-2 py-1 text-right" title="Vega per 1% IV">V</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Intrinsic premium">Int</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Time value (LTP − Intrinsic)">TV</th>}
                   <th className="px-2 py-1 text-right">LTP</th>
+                  <th className="px-2 py-1 text-right" title="LTP day-over-day % change vs prev close (Kite-only)">%Δ</th>
                   <th className="px-2 py-1 text-center border-r border-border">B</th>
                   <th className="px-3 py-1 text-center">Strike</th>
                   <th className="px-2 py-1 text-center border-l border-border">B</th>
+                  <th className="px-2 py-1 text-right">%Δ</th>
                   <th className="px-2 py-1 text-right">LTP</th>
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Time value">TV</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Intrinsic">Int</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Vega">V</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Theta">Θ</th>}
                   {showGreeks && <th className="px-2 py-1 text-right" title="Gamma">Γ</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Theta per day">Θ</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Vega per 1% IV">V</th>}
+                  {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
                   <th className="px-2 py-1 text-right">IV</th>
+                  <th className="px-2 py-1 text-right" title="Volume / OI">V/O</th>
                   <th className="px-2 py-1 text-right">Vol</th>
                   <th className="px-2 py-1 text-right">Δ OI</th>
                   <th className="px-2 py-1 text-right">OI</th>
@@ -645,6 +675,7 @@ export default function OptionChainPage() {
 
 function Row({ row, atm, spot, maxOi, showGreeks }: { row: OptionChainStrikeRow; atm: number; spot: number; maxOi: number; showGreeks: boolean }) {
   const isAtm = row.strike === atm;
+  const isMaxPain = !!row.isMaxPain;
   const ce = row.ce, pe = row.pe;
 
   // CE OI bar (greenish, anchored right)
@@ -655,8 +686,21 @@ function Row({ row, atm, spot, maxOi, showGreeks }: { row: OptionChainStrikeRow;
   const ceItm = row.strike < spot;
   const peItm = row.strike > spot;
 
+  // Per-side helpers — colour the LTP %Chg cell green/red, neutral on null.
+  function pctTone(p: number | null | undefined): string {
+    if (p == null || !Number.isFinite(p)) return "text-muted-foreground/60";
+    if (p > 0) return "text-signal-strong-buy";
+    if (p < 0) return "text-signal-strong-sell";
+    return "text-foreground/60";
+  }
+  // Strike row tint: ATM > MaxPain (so when both coincide ATM wins). MaxPain
+  // gets a distinct amber accent so it never reads as another "buy" tint.
+  const rowTint = isAtm
+    ? "bg-primary/[0.07] font-bold"
+    : isMaxPain ? "bg-amber-500/[0.06]" : "";
+
   return (
-    <tr data-atm-row={isAtm ? "true" : undefined} className={`border-b border-border/30 hover-row ${isAtm ? "bg-primary/[0.07] font-bold" : ""}`}>
+    <tr data-atm-row={isAtm ? "true" : undefined} className={`border-b border-border/30 hover-row ${rowTint}`}>
       {/* ── CALL side ─────────────────────────── */}
       <td className={`px-2 py-1 text-right tabular-nums relative ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>
         <div
@@ -667,38 +711,69 @@ function Row({ row, atm, spot, maxOi, showGreeks }: { row: OptionChainStrikeRow;
         <span className="relative">{fmtKL(ce?.oi)}</span>
       </td>
       <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""} ${(ce?.chgOi ?? 0) > 0 ? "text-signal-strong-buy" : (ce?.chgOi ?? 0) < 0 ? "text-signal-strong-sell" : ""}`}>
-        {ce?.chgOi != null && ce.chgOi > 0 ? "+" : ""}{fmtKL(ce?.chgOi)}
+        <div className="leading-tight">{ce?.chgOi != null && ce.chgOi > 0 ? "+" : ""}{fmtKL(ce?.chgOi)}</div>
+        <div className="text-[9px] opacity-70 leading-tight">{fmtPct(ce?.oiChgPct, 1)}</div>
       </td>
       <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtKL(ce?.volume)}</td>
+      <td className={`px-2 py-1 text-right tabular-nums text-foreground/70 ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`} title="Volume / OI">{fmtRatio(ce?.volOiRatio)}</td>
       <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{ce?.iv ? ce.iv.toFixed(1) : "—"}</td>
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.delta, 3)}</td>}
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.gamma, 5)}</td>}
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-signal-strong-sell ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.theta, 2)}</td>}
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.vega, 2)}</td>}
+      {showGreeks && (
+        <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`} title={ce?.intrinsicPct != null ? `${ce.intrinsicPct.toFixed(0)}% of LTP is intrinsic` : undefined}>
+          <div className="leading-tight">{fmt(ce?.intrinsic)}</div>
+          {ce?.intrinsicPct != null && <div className="text-[9px] opacity-70 leading-tight">{ce.intrinsicPct.toFixed(0)}%</div>}
+        </td>
+      )}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-foreground/80 ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmt(ce?.timeValue)}</td>}
       <td className={`px-2 py-1 text-right tabular-nums font-bold ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmt(ce?.ltp)}</td>
+      <td className={`px-2 py-1 text-right tabular-nums ${pctTone(ce?.ltpChgPct)} ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtPct(ce?.ltpChgPct, 1)}</td>
       <td className={`px-2 py-1 text-center border-r border-border ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>
         <span className={`px-1 rounded text-[9px] font-bold ${buildupTone(ce?.oiBuildup)}`}>{buildupShort(ce?.oiBuildup)}</span>
       </td>
 
-      {/* ── Strike ─────────────────────────── */}
-      <td className={`px-3 py-1 text-center tabular-nums font-bold ${isAtm ? "text-primary" : "text-foreground"}`}>
-        {row.strike}
-        {isAtm && <span className="ml-1 text-[9px] text-primary/80">ATM</span>}
+      {/* ── Strike — ATM, MaxPain, per-strike PCR ─────────────────── */}
+      <td className={`px-2 py-1 text-center tabular-nums ${isAtm ? "text-primary" : isMaxPain ? "text-amber-500" : "text-foreground"}`}>
+        <div className={`leading-tight font-bold ${isAtm || isMaxPain ? "text-[12px]" : ""}`}>{row.strike}</div>
+        <div className="flex items-center justify-center gap-1 leading-tight mt-0.5">
+          {isAtm && <span className="text-[8px] px-1 rounded bg-primary/20 text-primary font-bold">ATM</span>}
+          {isMaxPain && <span className="text-[8px] px-1 rounded bg-amber-500/25 text-amber-500 font-bold" title="Max-Pain strike">MP</span>}
+          {row.pcrOi != null && (
+            <span className={`text-[9px] font-mono ${
+              row.pcrOi >= 1.3 ? "text-signal-strong-buy" :
+              row.pcrOi <= 0.7 ? "text-signal-strong-sell" : "text-muted-foreground"
+            }`} title="Per-strike PCR by OI (PE OI / CE OI)">
+              {row.pcrOi.toFixed(2)}
+            </span>
+          )}
+        </div>
       </td>
 
       {/* ── PUT side ─────────────────────────── */}
       <td className={`px-2 py-1 text-center border-l border-border ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>
         <span className={`px-1 rounded text-[9px] font-bold ${buildupTone(pe?.oiBuildup)}`}>{buildupShort(pe?.oiBuildup)}</span>
       </td>
+      <td className={`px-2 py-1 text-right tabular-nums ${pctTone(pe?.ltpChgPct)} ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtPct(pe?.ltpChgPct, 1)}</td>
       <td className={`px-2 py-1 text-right tabular-nums font-bold ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmt(pe?.ltp)}</td>
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.delta, 3)}</td>}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.gamma, 5)}</td>}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-signal-strong-sell ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.theta, 2)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-foreground/80 ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmt(pe?.timeValue)}</td>}
+      {showGreeks && (
+        <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`} title={pe?.intrinsicPct != null ? `${pe.intrinsicPct.toFixed(0)}% of LTP is intrinsic` : undefined}>
+          <div className="leading-tight">{fmt(pe?.intrinsic)}</div>
+          {pe?.intrinsicPct != null && <div className="text-[9px] opacity-70 leading-tight">{pe.intrinsicPct.toFixed(0)}%</div>}
+        </td>
+      )}
       {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.vega, 2)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-signal-strong-sell ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.theta, 2)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.gamma, 5)}</td>}
+      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.delta, 3)}</td>}
       <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{pe?.iv ? pe.iv.toFixed(1) : "—"}</td>
+      <td className={`px-2 py-1 text-right tabular-nums text-foreground/70 ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`} title="Volume / OI">{fmtRatio(pe?.volOiRatio)}</td>
       <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtKL(pe?.volume)}</td>
       <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""} ${(pe?.chgOi ?? 0) > 0 ? "text-signal-strong-buy" : (pe?.chgOi ?? 0) < 0 ? "text-signal-strong-sell" : ""}`}>
-        {pe?.chgOi != null && pe.chgOi > 0 ? "+" : ""}{fmtKL(pe?.chgOi)}
+        <div className="leading-tight">{pe?.chgOi != null && pe.chgOi > 0 ? "+" : ""}{fmtKL(pe?.chgOi)}</div>
+        <div className="text-[9px] opacity-70 leading-tight">{fmtPct(pe?.oiChgPct, 1)}</div>
       </td>
       <td className={`px-2 py-1 text-right tabular-nums relative ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>
         <div

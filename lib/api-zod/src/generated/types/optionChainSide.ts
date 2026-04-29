@@ -13,11 +13,17 @@ export interface OptionChainSide {
   oi?: number;
   /** OI change since prev close */
   chgOi?: number;
+  /** Day-over-day OI % change. Null when prior-day OI cannot be derived. */
+  oiChgPct?: number | null;
   volume?: number;
+  /** Volume / OI for this leg — proxy for fresh speculative activity. Null when OI is zero/missing. */
+  volOiRatio?: number | null;
   /** Implied Volatility (% annualised) */
   iv?: number;
   /** Last traded premium */
   ltp?: number;
+  /** Day-over-day LTP % change vs previous session close. Null when prev close is unavailable (e.g. NSE-direct path). */
+  ltpChgPct?: number | null;
   bid?: number;
   ask?: number;
   bidQty?: number;
@@ -27,6 +33,8 @@ export interface OptionChainSide {
   gamma?: number;
   vega?: number;
   intrinsic?: number;
+  /** Intrinsic / LTP × 100 — share of premium that is real intrinsic value (rest is time value). */
+  intrinsicPct?: number | null;
   timeValue?: number;
   moneyness?: OptionChainSideMoneyness;
   oiBuildup?: OptionChainSideOiBuildup;

@@ -21,8 +21,10 @@ export interface OptionChainResponse {
   atmStrike: number;
   strikeStep: number;
   lotSize?: number;
+  /** Strike where option writers' aggregate loss is minimised — same algorithm as analytics, surfaced inline so the chain table can mark the row. */
+  maxPainStrike?: number | null;
   rows: OptionChainStrikeRow[];
-  /** Origin tag — 'NSE' for live fetch, 'MOCK' for synthetic */
+  /** Origin tag — 'NSE' for live fetch, 'kite' for Kite-derived */
   source: string;
   generatedAt: Date;
 }

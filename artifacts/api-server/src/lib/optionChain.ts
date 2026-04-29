@@ -13,6 +13,7 @@ import { logger } from "./logger";
 import { fetchChart } from "./yahoo";
 import { fetchKiteOptionChain } from "./kiteOptionChain";
 import { priceAndGreeks, yearsToExpiry } from "./blackScholes";
+import { computeMaxPainStrike } from "./optionAnalytics";
 
 // Indian risk-free rate proxy (10Y G-sec yield, refreshed quarterly).
 const RISK_FREE_RATE = 0.0675;
@@ -104,14 +105,24 @@ async function nseFetch(path: string): Promise<unknown | null> {
 
 // ─── Public types (mirror openapi.yaml) ──────────────────────────────────
 export interface OcSide {
-  oi?: number; chgOi?: number; volume?: number; iv?: number;
-  ltp?: number; bid?: number; ask?: number; bidQty?: number; askQty?: number;
+  oi?: number; chgOi?: number; oiChgPct?: number | null;
+  volume?: number; volOiRatio?: number | null;
+  iv?: number;
+  ltp?: number; ltpChgPct?: number | null;
+  bid?: number; ask?: number; bidQty?: number; askQty?: number;
   delta?: number; theta?: number; gamma?: number; vega?: number;
-  intrinsic?: number; timeValue?: number;
+  intrinsic?: number; intrinsicPct?: number | null; timeValue?: number;
   moneyness?: "ITM" | "ATM" | "OTM";
   oiBuildup?: "LONG_BUILDUP" | "SHORT_BUILDUP" | "LONG_UNWINDING" | "SHORT_COVERING" | "NEUTRAL";
 }
-export interface OcRow { strike: number; ce?: OcSide; pe?: OcSide }
+export interface OcRow {
+  strike: number;
+  ce?: OcSide;
+  pe?: OcSide;
+  pcrOi?: number | null;
+  pcrVol?: number | null;
+  isMaxPain?: boolean;
+}
 export interface OcResponse {
   underlying: string;
   underlyingName: string;
@@ -124,9 +135,73 @@ export interface OcResponse {
   atmStrike: number;
   strikeStep: number;
   lotSize?: number;
+  maxPainStrike?: number | null;
   rows: OcRow[];
   source: string;
   generatedAt: string;
+}
+
+/**
+ * Derived per-side metrics that BOTH the NSE and Kite paths need to compute
+ * once a leg is built. Strict no-synthetic-data policy:
+ *   • `oiChgPct` returns null when the prior-day OI baseline (`oi - chgOi`)
+ *     is non-positive (would be a divide-by-zero or sign-flipped baseline).
+ *   • `volOiRatio` returns null when OI is zero/missing (cannot divide).
+ *   • `intrinsicPct` returns null when LTP is zero (cannot divide).
+ * Callers that have a real prev-close LTP also pass `prevCloseLtp` so we can
+ * derive `ltpChgPct`; the NSE-direct path never has it (NSE doesn't return
+ * prev-close per option leg) and leaves it undefined.
+ */
+export function deriveSideMetrics(side: OcSide, prevCloseLtp?: number): void {
+  const oi = side.oi;
+  const chgOi = side.chgOi;
+  if (oi != null && chgOi != null) {
+    const baseline = oi - chgOi;
+    side.oiChgPct = baseline > 0 ? +((chgOi / baseline) * 100).toFixed(2) : null;
+  } else {
+    side.oiChgPct = null;
+  }
+  if (oi != null && oi > 0 && side.volume != null) {
+    side.volOiRatio = +(side.volume / oi).toFixed(3);
+  } else {
+    side.volOiRatio = null;
+  }
+  if (side.intrinsic != null && side.ltp != null && side.ltp > 0) {
+    side.intrinsicPct = +((side.intrinsic / side.ltp) * 100).toFixed(1);
+  } else {
+    side.intrinsicPct = null;
+  }
+  if (prevCloseLtp != null && prevCloseLtp > 0 && side.ltp != null) {
+    side.ltpChgPct = +(((side.ltp - prevCloseLtp) / prevCloseLtp) * 100).toFixed(2);
+  } else {
+    side.ltpChgPct = null;
+  }
+}
+
+/**
+ * Final pass over a freshly-built chain: stamp per-strike PCR (OI + Volume),
+ * compute Max-Pain once and tag both the row + the chain header. Mutates the
+ * passed chain in place and returns it for chainability.
+ */
+export function finalizeChain(chain: OcResponse): OcResponse {
+  for (const r of chain.rows) {
+    const ceOi = r.ce?.oi ?? 0;
+    const peOi = r.pe?.oi ?? 0;
+    r.pcrOi = ceOi > 0 ? +(peOi / ceOi).toFixed(3) : null;
+    const ceVol = r.ce?.volume ?? 0;
+    const peVol = r.pe?.volume ?? 0;
+    r.pcrVol = ceVol > 0 ? +(peVol / ceVol).toFixed(3) : null;
+    r.isMaxPain = false;
+  }
+  if (chain.rows.length > 0) {
+    const mp = computeMaxPainStrike(chain);
+    chain.maxPainStrike = mp;
+    const mpRow = chain.rows.find(r => r.strike === mp);
+    if (mpRow) mpRow.isMaxPain = true;
+  } else {
+    chain.maxPainStrike = null;
+  }
+  return chain;
 }
 
 // NSE endpoint dispatch
@@ -330,6 +405,7 @@ export async function fetchOptionChain(underlying: string, expiryFilter?: string
     source: "NSE",
     generatedAt: new Date().toISOString(),
   };
+  finalizeChain(data);
   chainCache.set(cacheKey, { ts: Date.now(), data });
   return data;
 }
@@ -356,7 +432,7 @@ function mapLeg(leg: NseLeg, strike: number, spot: number, step: number, type: "
     vega  = +g.vega.toFixed(3);
   }
 
-  return {
+  const side: OcSide = {
     oi,
     chgOi: oiChg,
     volume: leg.totalTradedVolume ?? 0,
@@ -375,6 +451,11 @@ function mapLeg(leg: NseLeg, strike: number, spot: number, step: number, type: "
     // per-strike here uses ΔOI vs. spot-vs-strike heuristic.
     oiBuildup: classifyOiBuildup(type === "CE" ? spot - strike : strike - spot, oiChg),
   };
+  // NSE-direct path: prev-close LTP per option leg is NOT in the response, so
+  // `ltpChgPct` stays undefined (the helper writes null when no baseline is
+  // passed). Kite path passes its own `q.ohlc.close`.
+  deriveSideMetrics(side);
+  return side;
 }
 
 function inferEquityStep(rows: NseRow[], spot: number): number {

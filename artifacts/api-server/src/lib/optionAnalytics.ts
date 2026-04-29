@@ -8,6 +8,30 @@ import type { OcResponse } from "./optionChain";
 
 export interface OiCluster { strike: number; oi: number }
 
+/**
+ * Max-Pain strike: the strike where the aggregate loss to all option WRITERS
+ * is minimised, i.e. where most options would expire worthless. Iterate every
+ * strike; for each candidate `target` sum (target − K)·CE_OI for K<target and
+ * (K − target)·PE_OI for K>target. The candidate with the smallest sum wins.
+ *
+ * Extracted so both the chain finaliser (per-row `isMaxPain` flag + top-level
+ * `maxPainStrike`) and the analytics endpoint use the same algorithm and can
+ * never drift out of sync.
+ */
+export function computeMaxPainStrike(chain: OcResponse): number {
+  let maxPain = chain.atmStrike;
+  let minPain = Infinity;
+  for (const target of chain.rows) {
+    let pain = 0;
+    for (const r of chain.rows) {
+      if (r.strike < target.strike) pain += (target.strike - r.strike) * (r.ce?.oi ?? 0);
+      else if (r.strike > target.strike) pain += (r.strike - target.strike) * (r.pe?.oi ?? 0);
+    }
+    if (pain < minPain) { minPain = pain; maxPain = target.strike; }
+  }
+  return maxPain;
+}
+
 export interface OptionAnalytics {
   underlying: string;
   spot: number;
@@ -53,20 +77,10 @@ export function computeAnalytics(chain: OcResponse): OptionAnalytics {
   const pcrOi     = totalCallOi > 0 ? +(totalPutOi / totalCallOi).toFixed(3) : 0;
   const pcrVolume = callVol     > 0 ? +(putVol     / callVol).toFixed(3)     : 0;
 
-  // Max pain: strike at which the total premium paid out by option writers is
-  // minimised. We iterate every strike and sum (strike — K)·CE_OI for K<strike
-  // and (K — strike)·PE_OI for K>strike — the strike with the smallest total
-  // is the max-pain strike.
-  let maxPain = chain.atmStrike;
-  let minPain = Infinity;
-  for (const target of chain.rows) {
-    let pain = 0;
-    for (const r of chain.rows) {
-      if (r.strike < target.strike) pain += (target.strike - r.strike) * (r.ce?.oi ?? 0);
-      else if (r.strike > target.strike) pain += (r.strike - target.strike) * (r.pe?.oi ?? 0);
-    }
-    if (pain < minPain) { minPain = pain; maxPain = target.strike; }
-  }
+  // Max-pain — same algorithm as the chain finaliser. If the chain already
+  // carries it (set by `finalizeChain`) reuse it; otherwise compute. Both
+  // surfaces always agree because they share `computeMaxPainStrike`.
+  const maxPain = chain.maxPainStrike ?? computeMaxPainStrike(chain);
 
   // ATM IV — pick the row whose strike == atmStrike (or closest) and avg
   // CE & PE implied vols.

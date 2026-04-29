@@ -1741,54 +1741,62 @@ components:
     OptionChainSide:
       type: object
       properties:
-        oi:        { type: integer, description: "Open Interest in contracts" }
-        chgOi:     { type: integer, description: "OI change since prev close" }
-        volume:    { type: integer }
-        iv:        { type: number, description: "Implied Volatility (% annualised)" }
-        ltp:       { type: number, description: "Last traded premium" }
-        bid:       { type: number }
-        ask:       { type: number }
-        bidQty:    { type: integer }
-        askQty:    { type: integer }
-        delta:     { type: number }
-        theta:     { type: number }
-        gamma:     { type: number }
-        vega:      { type: number }
-        intrinsic: { type: number }
-        timeValue: { type: number }
-        moneyness: { type: string, enum: [ITM, ATM, OTM] }
-        oiBuildup: { type: string, enum: [LONG_BUILDUP, SHORT_BUILDUP, LONG_UNWINDING, SHORT_COVERING, NEUTRAL] }
+        oi:           { type: integer, description: "Open Interest in contracts" }
+        chgOi:        { type: integer, description: "OI change since prev close" }
+        oiChgPct:     { type: number, nullable: true, description: "Day-over-day OI % change. Null when prior-day OI cannot be derived." }
+        volume:       { type: integer }
+        volOiRatio:   { type: number, nullable: true, description: "Volume / OI for this leg — proxy for fresh speculative activity. Null when OI is zero/missing." }
+        iv:           { type: number, description: "Implied Volatility (% annualised)" }
+        ltp:          { type: number, description: "Last traded premium" }
+        ltpChgPct:    { type: number, nullable: true, description: "Day-over-day LTP % change vs previous session close. Null when prev close is unavailable (e.g. NSE-direct path)." }
+        bid:          { type: number }
+        ask:          { type: number }
+        bidQty:       { type: integer }
+        askQty:       { type: integer }
+        delta:        { type: number }
+        theta:        { type: number }
+        gamma:        { type: number }
+        vega:         { type: number }
+        intrinsic:    { type: number }
+        intrinsicPct: { type: number, nullable: true, description: "Intrinsic / LTP × 100 — share of premium that is real intrinsic value (rest is time value)." }
+        timeValue:    { type: number }
+        moneyness:    { type: string, enum: [ITM, ATM, OTM] }
+        oiBuildup:    { type: string, enum: [LONG_BUILDUP, SHORT_BUILDUP, LONG_UNWINDING, SHORT_COVERING, NEUTRAL] }
 
     OptionChainStrikeRow:
       type: object
       required: [strike]
       properties:
-        strike: { type: number }
-        ce:     { $ref: "#/components/schemas/OptionChainSide" }
-        pe:     { $ref: "#/components/schemas/OptionChainSide" }
+        strike:    { type: number }
+        ce:        { $ref: "#/components/schemas/OptionChainSide" }
+        pe:        { $ref: "#/components/schemas/OptionChainSide" }
+        pcrOi:     { type: number, nullable: true, description: "Per-strike Put/Call ratio by OI (pe.oi / ce.oi). Null when CE OI is zero." }
+        pcrVol:    { type: number, nullable: true, description: "Per-strike Put/Call ratio by Volume. Null when CE volume is zero." }
+        isMaxPain: { type: boolean, description: "True on the single Max-Pain strike for the expiry." }
 
     OptionChainResponse:
       type: object
       required: [underlying, spot, expiry, expiries, atmStrike, strikeStep, rows, source, generatedAt]
       properties:
-        underlying:      { type: string }
-        underlyingName:  { type: string }
-        kind:            { type: string, enum: [INDEX, EQUITY] }
-        spot:            { type: number }
-        prevClose:       { type: number }
-        changePercent:   { type: number }
-        expiry:          { type: string, description: "Active expiry YYYY-MM-DD" }
+        underlying:     { type: string }
+        underlyingName: { type: string }
+        kind:           { type: string, enum: [INDEX, EQUITY] }
+        spot:           { type: number }
+        prevClose:      { type: number }
+        changePercent:  { type: number }
+        expiry:         { type: string, description: "Active expiry YYYY-MM-DD" }
         expiries:
           type: array
           items: { type: string }
-        atmStrike:       { type: number }
-        strikeStep:      { type: number }
-        lotSize:         { type: integer }
+        atmStrike:      { type: number }
+        strikeStep:     { type: number }
+        lotSize:        { type: integer }
+        maxPainStrike:  { type: number, nullable: true, description: "Strike where option writers' aggregate loss is minimised — same algorithm as analytics, surfaced inline so the chain table can mark the row." }
         rows:
           type: array
           items: { $ref: "#/components/schemas/OptionChainStrikeRow" }
-        source:          { type: string, description: "Origin tag — 'NSE' for live fetch, 'MOCK' for synthetic" }
-        generatedAt:     { type: string, format: date-time }
+        source:         { type: string, description: "Origin tag — 'NSE' for live fetch, 'kite' for Kite-derived" }
+        generatedAt:    { type: string, format: date-time }
 
     OiClusterStrike:
       type: object
