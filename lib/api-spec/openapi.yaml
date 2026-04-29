@@ -311,6 +311,86 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PaperReportFoYearly" }
 
+  /paper/positions/eq:
+    get:
+      operationId: getPaperPositionsEq
+      tags: [paper]
+      summary: "Owner-only list of currently OPEN equity (delivery) paper positions with live MTM."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperPositionsEqResponse" }
+
+  /paper/trades/eq:
+    get:
+      operationId: getPaperTradesEq
+      tags: [paper]
+      summary: "Owner-only list of CLOSED equity paper trades for a given IST date (by exitedAt)."
+      parameters:
+        - in: query
+          name: date
+          required: false
+          schema: { type: string, description: "IST date YYYY-MM-DD; defaults to today." }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperTradesEqResponse" }
+
+  /paper/positions/eq/{id}/close:
+    post:
+      operationId: closePaperPositionEq
+      tags: [paper]
+      summary: "Owner-only manual force-exit of an OPEN equity paper position at last known LTP."
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, description: "paper_trade_eq.id (uuid)" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperTradeEqClosed" }
+
+  /paper/reports/eq/monthly:
+    get:
+      operationId: getPaperReportEqMonthly
+      tags: [paper]
+      summary: "Owner-only equity paper P&L report for one IST calendar month with daily buckets and per-trade detail."
+      parameters:
+        - in: query
+          name: month
+          required: true
+          schema: { type: string, description: "IST calendar month YYYY-MM" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperReportEqMonthly" }
+
+  /paper/reports/eq/yearly:
+    get:
+      operationId: getPaperReportEqYearly
+      tags: [paper]
+      summary: "Owner-only equity paper P&L report for one Indian financial year with monthly buckets."
+      parameters:
+        - in: query
+          name: fy
+          required: true
+          schema: { type: string, description: "Indian FY in YYYY-YYYY form, eg 2026-2027" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperReportEqYearly" }
+
   /options/chain/{underlying}:
     get:
       operationId: getOptionChain
@@ -2051,6 +2131,177 @@ components:
         generatedAt: { type: string, format: date-time }
 
     PaperReportFoYearly:
+      type: object
+      required: [fy, from, to, totals, months, generatedAt]
+      properties:
+        fy:          { type: string, description: "Indian FY YYYY-YYYY (April through March)" }
+        from:        { type: string }
+        to:          { type: string }
+        totals:      { $ref: "#/components/schemas/PaperReportTotals" }
+        months:
+          type: array
+          items: { $ref: "#/components/schemas/PaperReportMonthBucket" }
+        generatedAt: { type: string, format: date-time }
+
+    PaperTradeEqPosition:
+      type: object
+      required:
+        - id
+        - symbol
+        - name
+        - exchange
+        - signalDate
+        - signalTriggeredAt
+        - qty
+        - entryPrice
+        - stopPrice
+        - target1Price
+        - target2Price
+        - trailedToT1
+        - capitalDeployed
+        - lastPrice
+        - unrealizedPnl
+        - openedAt
+        - lastEvaluatedAt
+        - status
+      properties:
+        id:                { type: string }
+        symbol:            { type: string }
+        name:              { type: string }
+        exchange:          { type: string }
+        signalDate:        { type: string }
+        signalTriggeredAt: { type: string, format: date-time }
+        qty:               { type: integer }
+        entryPrice:        { type: number }
+        stopPrice:         { type: number, description: "Live stop — may have been trailed up to T1." }
+        target1Price:      { type: number }
+        target2Price:      { type: number }
+        trailedToT1:       { type: boolean, description: "True once price touched T1 and the stop was trailed up." }
+        capitalDeployed:   { type: number, description: "INR cost (qty × entryPrice)." }
+        lastPrice:         { type: number, description: "Most recent observed LTP for MTM." }
+        unrealizedPnl:     { type: number, description: "(lastPrice − entryPrice) × qty." }
+        maxRunup:          { type: number, description: "Highest unrealized P&L observed for this position." }
+        maxDrawdown:       { type: number, description: "Lowest unrealized P&L observed for this position (≤ 0)." }
+        openedAt:          { type: string, format: date-time }
+        lastEvaluatedAt:   { type: string, format: date-time }
+        status:            { type: string, enum: [OPEN] }
+
+    PaperTradeEqClosed:
+      type: object
+      required:
+        - id
+        - symbol
+        - name
+        - exchange
+        - signalDate
+        - qty
+        - entryPrice
+        - exitPrice
+        - capitalDeployed
+        - realizedPnl
+        - exitReason
+        - openedAt
+        - exitedAt
+      properties:
+        id:              { type: string }
+        symbol:          { type: string }
+        name:            { type: string }
+        exchange:        { type: string }
+        signalDate:      { type: string }
+        qty:             { type: integer }
+        entryPrice:      { type: number }
+        exitPrice:       { type: number }
+        capitalDeployed: { type: number }
+        realizedPnl:     { type: number }
+        exitReason:      { type: string, enum: [TARGET2_HIT, STOPPED, TRAIL_STOP_HIT, TIME_STOP, SIGNAL_FLIP, MANUAL_OVERRIDE] }
+        openedAt:        { type: string, format: date-time }
+        exitedAt:        { type: string, format: date-time }
+
+    PaperPositionsEqResponse:
+      type: object
+      required: [positions, generatedAt]
+      properties:
+        positions:
+          type: array
+          items: { $ref: "#/components/schemas/PaperTradeEqPosition" }
+        generatedAt: { type: string, format: date-time }
+
+    PaperTradesEqResponse:
+      type: object
+      required: [date, trades, generatedAt]
+      properties:
+        date:        { type: string, description: "IST trading date YYYY-MM-DD (bucketed by exitedAt)" }
+        trades:
+          type: array
+          items: { $ref: "#/components/schemas/PaperTradeEqClosed" }
+        generatedAt: { type: string, format: date-time }
+
+    PaperTradeEqDetail:
+      type: object
+      required:
+        - id
+        - signalDate
+        - exitedAt
+        - symbol
+        - name
+        - exchange
+        - qty
+        - entryPrice
+        - exitPrice
+        - stopPrice
+        - target1Price
+        - target2Price
+        - capitalDeployed
+        - realizedPnl
+        - charges
+        - netPnl
+        - plannedRiskPerShare
+        - achievedPerShare
+        - rMultiple
+        - exitReason
+        - daysHeld
+        - trailedToT1
+      properties:
+        id:                  { type: string }
+        signalDate:          { type: string }
+        exitedAt:            { type: string, format: date-time }
+        symbol:              { type: string }
+        name:                { type: string }
+        exchange:            { type: string }
+        qty:                 { type: integer }
+        entryPrice:          { type: number }
+        exitPrice:           { type: number }
+        stopPrice:           { type: number }
+        target1Price:        { type: number }
+        target2Price:        { type: number }
+        capitalDeployed:     { type: number }
+        realizedPnl:         { type: number }
+        charges:             { type: number, description: "NSE delivery charges (STT + txn + SEBI + GST + stamp + DP)" }
+        netPnl:              { type: number }
+        plannedRiskPerShare: { type: number }
+        achievedPerShare:    { type: number }
+        rMultiple:           { type: number, description: "Achieved R = (exit-entry) / |entry-stop| per share" }
+        exitReason:          { type: string, enum: [TARGET2_HIT, STOPPED, TRAIL_STOP_HIT, TIME_STOP, SIGNAL_FLIP, MANUAL_OVERRIDE] }
+        daysHeld:            { type: integer, description: "Calendar days the trade was held (rounded)." }
+        trailedToT1:         { type: boolean, description: "True if the stop had been trailed to T1 before the exit." }
+
+    PaperReportEqMonthly:
+      type: object
+      required: [month, from, to, totals, days, trades, generatedAt]
+      properties:
+        month:       { type: string, description: "IST calendar month YYYY-MM" }
+        from:        { type: string }
+        to:          { type: string }
+        totals:      { $ref: "#/components/schemas/PaperReportTotals" }
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/PaperReportDayBucket" }
+        trades:
+          type: array
+          items: { $ref: "#/components/schemas/PaperTradeEqDetail" }
+        generatedAt: { type: string, format: date-time }
+
+    PaperReportEqYearly:
       type: object
       required: [fy, from, to, totals, months, generatedAt]
       properties:

@@ -24,8 +24,11 @@ import type {
   GetOptionChainParams,
   GetOptionStrategiesParams,
   GetPaperAccountParams,
+  GetPaperReportEqMonthlyParams,
+  GetPaperReportEqYearlyParams,
   GetPaperReportFoMonthlyParams,
   GetPaperReportFoYearlyParams,
+  GetPaperTradesEqParams,
   GetPaperTradesFOParams,
   GetParticipantOiParams,
   GetStockHistoryParams,
@@ -43,10 +46,15 @@ import type {
   OptionSignalSet,
   OptionStrategiesResponse,
   PaperAccountState,
+  PaperPositionsEqResponse,
   PaperPositionsFOResponse,
+  PaperReportEqMonthly,
+  PaperReportEqYearly,
   PaperReportFoMonthly,
   PaperReportFoYearly,
+  PaperTradeEqClosed,
   PaperTradeFOClosed,
+  PaperTradesEqResponse,
   PaperTradesFOResponse,
   ParticipantOiResponse,
   PreMarketReport,
@@ -1686,6 +1694,471 @@ export function useGetPaperReportFoYearly<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetPaperReportFoYearlyQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only list of currently OPEN equity (delivery) paper positions with live MTM.
+ */
+export const getGetPaperPositionsEqUrl = () => {
+  return `/api/paper/positions/eq`;
+};
+
+export const getPaperPositionsEq = async (
+  options?: RequestInit,
+): Promise<PaperPositionsEqResponse> => {
+  return customFetch<PaperPositionsEqResponse>(getGetPaperPositionsEqUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPaperPositionsEqQueryKey = () => {
+  return [`/api/paper/positions/eq`] as const;
+};
+
+export const getGetPaperPositionsEqQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperPositionsEq>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperPositionsEq>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPaperPositionsEqQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPaperPositionsEq>>
+  > = ({ signal }) => getPaperPositionsEq({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperPositionsEq>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperPositionsEqQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperPositionsEq>>
+>;
+export type GetPaperPositionsEqQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only list of currently OPEN equity (delivery) paper positions with live MTM.
+ */
+
+export function useGetPaperPositionsEq<
+  TData = Awaited<ReturnType<typeof getPaperPositionsEq>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperPositionsEq>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperPositionsEqQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only list of CLOSED equity paper trades for a given IST date (by exitedAt).
+ */
+export const getGetPaperTradesEqUrl = (params?: GetPaperTradesEqParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/paper/trades/eq?${stringifiedParams}`
+    : `/api/paper/trades/eq`;
+};
+
+export const getPaperTradesEq = async (
+  params?: GetPaperTradesEqParams,
+  options?: RequestInit,
+): Promise<PaperTradesEqResponse> => {
+  return customFetch<PaperTradesEqResponse>(getGetPaperTradesEqUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPaperTradesEqQueryKey = (
+  params?: GetPaperTradesEqParams,
+) => {
+  return [`/api/paper/trades/eq`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPaperTradesEqQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperTradesEq>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetPaperTradesEqParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperTradesEq>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPaperTradesEqQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPaperTradesEq>>
+  > = ({ signal }) => getPaperTradesEq(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperTradesEq>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperTradesEqQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperTradesEq>>
+>;
+export type GetPaperTradesEqQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only list of CLOSED equity paper trades for a given IST date (by exitedAt).
+ */
+
+export function useGetPaperTradesEq<
+  TData = Awaited<ReturnType<typeof getPaperTradesEq>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetPaperTradesEqParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperTradesEq>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperTradesEqQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only manual force-exit of an OPEN equity paper position at last known LTP.
+ */
+export const getClosePaperPositionEqUrl = (id: string) => {
+  return `/api/paper/positions/eq/${id}/close`;
+};
+
+export const closePaperPositionEq = async (
+  id: string,
+  options?: RequestInit,
+): Promise<PaperTradeEqClosed> => {
+  return customFetch<PaperTradeEqClosed>(getClosePaperPositionEqUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getClosePaperPositionEqMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closePaperPositionEq>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof closePaperPositionEq>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["closePaperPositionEq"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof closePaperPositionEq>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return closePaperPositionEq(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ClosePaperPositionEqMutationResult = NonNullable<
+  Awaited<ReturnType<typeof closePaperPositionEq>>
+>;
+
+export type ClosePaperPositionEqMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only manual force-exit of an OPEN equity paper position at last known LTP.
+ */
+export const useClosePaperPositionEq = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closePaperPositionEq>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof closePaperPositionEq>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getClosePaperPositionEqMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only equity paper P&L report for one IST calendar month with daily buckets and per-trade detail.
+ */
+export const getGetPaperReportEqMonthlyUrl = (
+  params: GetPaperReportEqMonthlyParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/paper/reports/eq/monthly?${stringifiedParams}`
+    : `/api/paper/reports/eq/monthly`;
+};
+
+export const getPaperReportEqMonthly = async (
+  params: GetPaperReportEqMonthlyParams,
+  options?: RequestInit,
+): Promise<PaperReportEqMonthly> => {
+  return customFetch<PaperReportEqMonthly>(
+    getGetPaperReportEqMonthlyUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetPaperReportEqMonthlyQueryKey = (
+  params?: GetPaperReportEqMonthlyParams,
+) => {
+  return [
+    `/api/paper/reports/eq/monthly`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetPaperReportEqMonthlyQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperReportEqMonthly>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperReportEqMonthlyParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperReportEqMonthly>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPaperReportEqMonthlyQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPaperReportEqMonthly>>
+  > = ({ signal }) =>
+    getPaperReportEqMonthly(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperReportEqMonthly>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperReportEqMonthlyQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperReportEqMonthly>>
+>;
+export type GetPaperReportEqMonthlyQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only equity paper P&L report for one IST calendar month with daily buckets and per-trade detail.
+ */
+
+export function useGetPaperReportEqMonthly<
+  TData = Awaited<ReturnType<typeof getPaperReportEqMonthly>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperReportEqMonthlyParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperReportEqMonthly>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperReportEqMonthlyQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only equity paper P&L report for one Indian financial year with monthly buckets.
+ */
+export const getGetPaperReportEqYearlyUrl = (
+  params: GetPaperReportEqYearlyParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/paper/reports/eq/yearly?${stringifiedParams}`
+    : `/api/paper/reports/eq/yearly`;
+};
+
+export const getPaperReportEqYearly = async (
+  params: GetPaperReportEqYearlyParams,
+  options?: RequestInit,
+): Promise<PaperReportEqYearly> => {
+  return customFetch<PaperReportEqYearly>(
+    getGetPaperReportEqYearlyUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetPaperReportEqYearlyQueryKey = (
+  params?: GetPaperReportEqYearlyParams,
+) => {
+  return [`/api/paper/reports/eq/yearly`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPaperReportEqYearlyQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperReportEqYearly>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperReportEqYearlyParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperReportEqYearly>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPaperReportEqYearlyQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPaperReportEqYearly>>
+  > = ({ signal }) =>
+    getPaperReportEqYearly(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperReportEqYearly>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperReportEqYearlyQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperReportEqYearly>>
+>;
+export type GetPaperReportEqYearlyQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only equity paper P&L report for one Indian financial year with monthly buckets.
+ */
+
+export function useGetPaperReportEqYearly<
+  TData = Awaited<ReturnType<typeof getPaperReportEqYearly>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPaperReportEqYearlyParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperReportEqYearly>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperReportEqYearlyQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

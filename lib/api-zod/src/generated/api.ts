@@ -1797,6 +1797,264 @@ export const GetPaperReportFoYearlyResponse = zod.object({
 });
 
 /**
+ * @summary Owner-only list of currently OPEN equity (delivery) paper positions with live MTM.
+ */
+export const GetPaperPositionsEqResponse = zod.object({
+  positions: zod.array(
+    zod.object({
+      id: zod.string(),
+      symbol: zod.string(),
+      name: zod.string(),
+      exchange: zod.string(),
+      signalDate: zod.string(),
+      signalTriggeredAt: zod.coerce.date(),
+      qty: zod.number(),
+      entryPrice: zod.number(),
+      stopPrice: zod
+        .number()
+        .describe("Live stop — may have been trailed up to T1."),
+      target1Price: zod.number(),
+      target2Price: zod.number(),
+      trailedToT1: zod
+        .boolean()
+        .describe("True once price touched T1 and the stop was trailed up."),
+      capitalDeployed: zod.number().describe("INR cost (qty × entryPrice)."),
+      lastPrice: zod.number().describe("Most recent observed LTP for MTM."),
+      unrealizedPnl: zod.number().describe("(lastPrice − entryPrice) × qty."),
+      maxRunup: zod
+        .number()
+        .optional()
+        .describe("Highest unrealized P&L observed for this position."),
+      maxDrawdown: zod
+        .number()
+        .optional()
+        .describe("Lowest unrealized P&L observed for this position (≤ 0)."),
+      openedAt: zod.coerce.date(),
+      lastEvaluatedAt: zod.coerce.date(),
+      status: zod.enum(["OPEN"]),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Owner-only list of CLOSED equity paper trades for a given IST date (by exitedAt).
+ */
+export const GetPaperTradesEqQueryParams = zod.object({
+  date: zod.coerce.string().optional(),
+});
+
+export const GetPaperTradesEqResponse = zod.object({
+  date: zod
+    .string()
+    .describe("IST trading date YYYY-MM-DD (bucketed by exitedAt)"),
+  trades: zod.array(
+    zod.object({
+      id: zod.string(),
+      symbol: zod.string(),
+      name: zod.string(),
+      exchange: zod.string(),
+      signalDate: zod.string(),
+      qty: zod.number(),
+      entryPrice: zod.number(),
+      exitPrice: zod.number(),
+      capitalDeployed: zod.number(),
+      realizedPnl: zod.number(),
+      exitReason: zod.enum([
+        "TARGET2_HIT",
+        "STOPPED",
+        "TRAIL_STOP_HIT",
+        "TIME_STOP",
+        "SIGNAL_FLIP",
+        "MANUAL_OVERRIDE",
+      ]),
+      openedAt: zod.coerce.date(),
+      exitedAt: zod.coerce.date(),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Owner-only manual force-exit of an OPEN equity paper position at last known LTP.
+ */
+export const ClosePaperPositionEqParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ClosePaperPositionEqResponse = zod.object({
+  id: zod.string(),
+  symbol: zod.string(),
+  name: zod.string(),
+  exchange: zod.string(),
+  signalDate: zod.string(),
+  qty: zod.number(),
+  entryPrice: zod.number(),
+  exitPrice: zod.number(),
+  capitalDeployed: zod.number(),
+  realizedPnl: zod.number(),
+  exitReason: zod.enum([
+    "TARGET2_HIT",
+    "STOPPED",
+    "TRAIL_STOP_HIT",
+    "TIME_STOP",
+    "SIGNAL_FLIP",
+    "MANUAL_OVERRIDE",
+  ]),
+  openedAt: zod.coerce.date(),
+  exitedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Owner-only equity paper P&L report for one IST calendar month with daily buckets and per-trade detail.
+ */
+export const GetPaperReportEqMonthlyQueryParams = zod.object({
+  month: zod.coerce.string(),
+});
+
+export const GetPaperReportEqMonthlyResponse = zod.object({
+  month: zod.string().describe("IST calendar month YYYY-MM"),
+  from: zod.string(),
+  to: zod.string(),
+  totals: zod.object({
+    realizedPnl: zod
+      .number()
+      .describe("Sum of gross realized P&L across all trades in the window"),
+    netPnl: zod
+      .number()
+      .describe("realizedPnl minus estimated taxes & charges"),
+    charges: zod
+      .number()
+      .describe(
+        "Estimated taxes & charges using the standard NSE F&O option fee schedule",
+      ),
+    tradeCount: zod.number(),
+    wins: zod.number().describe("Trades with positive net P&L"),
+    losses: zod.number().describe("Trades with negative net P&L"),
+    winRatePct: zod.number(),
+    avgWin: zod.number(),
+    avgLoss: zod.number(),
+    bestTrade: zod.number(),
+    worstTrade: zod.number(),
+    avgRMultiple: zod
+      .number()
+      .describe("Average achieved R multiple across all trades"),
+    profitFactor: zod
+      .number()
+      .describe(
+        "Sum of winning net P&L divided by absolute sum of losing net P&L",
+      ),
+  }),
+  days: zod.array(
+    zod.object({
+      date: zod.string().describe("IST date YYYY-MM-DD"),
+      realizedPnl: zod.number(),
+      netPnl: zod.number(),
+      charges: zod.number(),
+      tradeCount: zod.number(),
+      wins: zod.number(),
+      losses: zod.number(),
+    }),
+  ),
+  trades: zod.array(
+    zod.object({
+      id: zod.string(),
+      signalDate: zod.string(),
+      exitedAt: zod.coerce.date(),
+      symbol: zod.string(),
+      name: zod.string(),
+      exchange: zod.string(),
+      qty: zod.number(),
+      entryPrice: zod.number(),
+      exitPrice: zod.number(),
+      stopPrice: zod.number(),
+      target1Price: zod.number(),
+      target2Price: zod.number(),
+      capitalDeployed: zod.number(),
+      realizedPnl: zod.number(),
+      charges: zod
+        .number()
+        .describe("NSE delivery charges (STT + txn + SEBI + GST + stamp + DP)"),
+      netPnl: zod.number(),
+      plannedRiskPerShare: zod.number(),
+      achievedPerShare: zod.number(),
+      rMultiple: zod
+        .number()
+        .describe("Achieved R = (exit-entry) \/ |entry-stop| per share"),
+      exitReason: zod.enum([
+        "TARGET2_HIT",
+        "STOPPED",
+        "TRAIL_STOP_HIT",
+        "TIME_STOP",
+        "SIGNAL_FLIP",
+        "MANUAL_OVERRIDE",
+      ]),
+      daysHeld: zod
+        .number()
+        .describe("Calendar days the trade was held (rounded)."),
+      trailedToT1: zod
+        .boolean()
+        .describe("True if the stop had been trailed to T1 before the exit."),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Owner-only equity paper P&L report for one Indian financial year with monthly buckets.
+ */
+export const GetPaperReportEqYearlyQueryParams = zod.object({
+  fy: zod.coerce.string(),
+});
+
+export const GetPaperReportEqYearlyResponse = zod.object({
+  fy: zod.string().describe("Indian FY YYYY-YYYY (April through March)"),
+  from: zod.string(),
+  to: zod.string(),
+  totals: zod.object({
+    realizedPnl: zod
+      .number()
+      .describe("Sum of gross realized P&L across all trades in the window"),
+    netPnl: zod
+      .number()
+      .describe("realizedPnl minus estimated taxes & charges"),
+    charges: zod
+      .number()
+      .describe(
+        "Estimated taxes & charges using the standard NSE F&O option fee schedule",
+      ),
+    tradeCount: zod.number(),
+    wins: zod.number().describe("Trades with positive net P&L"),
+    losses: zod.number().describe("Trades with negative net P&L"),
+    winRatePct: zod.number(),
+    avgWin: zod.number(),
+    avgLoss: zod.number(),
+    bestTrade: zod.number(),
+    worstTrade: zod.number(),
+    avgRMultiple: zod
+      .number()
+      .describe("Average achieved R multiple across all trades"),
+    profitFactor: zod
+      .number()
+      .describe(
+        "Sum of winning net P&L divided by absolute sum of losing net P&L",
+      ),
+  }),
+  months: zod.array(
+    zod.object({
+      month: zod.string().describe("IST calendar month YYYY-MM"),
+      realizedPnl: zod.number(),
+      netPnl: zod.number(),
+      charges: zod.number(),
+      tradeCount: zod.number(),
+      wins: zod.number(),
+      losses: zod.number(),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
  * @summary Live NSE option chain (indices + F&O equities)
  */
 export const GetOptionChainParams = zod.object({

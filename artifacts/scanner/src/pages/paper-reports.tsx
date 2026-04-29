@@ -132,6 +132,56 @@ interface YearlyReport {
   generatedAt: string;
 }
 
+type EqExitReason =
+  | "TARGET2_HIT"
+  | "STOPPED"
+  | "TRAIL_STOP_HIT"
+  | "TIME_STOP"
+  | "SIGNAL_FLIP"
+  | "MANUAL_OVERRIDE";
+
+interface EqTradeDetailRow {
+  id: string;
+  signalDate: string;
+  exitedAt: string;
+  symbol: string;
+  name: string;
+  exchange: string;
+  qty: number;
+  entryPrice: number;
+  exitPrice: number;
+  stopPrice: number;
+  target1Price: number;
+  target2Price: number;
+  capitalDeployed: number;
+  realizedPnl: number;
+  charges: number;
+  netPnl: number;
+  plannedRiskPerShare: number;
+  achievedPerShare: number;
+  rMultiple: number;
+  exitReason: EqExitReason;
+  daysHeld: number;
+  trailedToT1: boolean;
+}
+interface EqMonthlyReport {
+  month: string;
+  from: string;
+  to: string;
+  totals: ReportTotals;
+  days: DayBucket[];
+  trades: EqTradeDetailRow[];
+  generatedAt: string;
+}
+interface EqYearlyReport {
+  fy: string;
+  from: string;
+  to: string;
+  totals: ReportTotals;
+  months: MonthBucket[];
+  generatedAt: string;
+}
+
 // ---------- formatters ----------
 const inrFull = (n: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(n);
@@ -217,10 +267,7 @@ export default function PaperReports() {
           />
         </TabsContent>
         <TabsContent value="EQUITY">
-          <ComingSoon
-            title="Equity (swing) — coming next"
-            body="Multi-day equity positions from STRONG_BUY signals. The equity paper book is also Phase 3; this tab will populate automatically the moment closed equity trades exist."
-          />
+          <EqReport />
         </TabsContent>
         <TabsContent value="FNO">
           <FOReport />
@@ -745,4 +792,198 @@ function formatDuration(sec: number): string {
   const h = Math.floor(m / 60);
   const rm = m % 60;
   return rm === 0 ? `${h}h` : `${h}h ${rm}m`;
+}
+
+// ---------- Equity report ----------
+const EQ_REASON_TONE: Record<EqExitReason, string> = {
+  TARGET2_HIT:     "bg-emerald-500/15 text-emerald-200 border-emerald-500/30",
+  STOPPED:         "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  TRAIL_STOP_HIT:  "bg-amber-500/15 text-amber-200 border-amber-500/30",
+  TIME_STOP:       "bg-sky-500/15 text-sky-200 border-sky-500/30",
+  SIGNAL_FLIP:     "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-500/30",
+  MANUAL_OVERRIDE: "bg-slate-500/15 text-slate-200 border-slate-500/30",
+};
+
+function EqReport() {
+  const [period, setPeriod] = useState<"MONTHLY" | "YEARLY">("MONTHLY");
+  const [month, setMonth] = useState<string>(currentIstMonth());
+  const [fy, setFy] = useState<string>(currentIstFY());
+
+  const months = useMemo(() => {
+    return Array.from({ length: 6 }, (_, i) => shiftMonth(currentIstMonth(), -i));
+  }, []);
+  const fys = useMemo(() => {
+    return Array.from({ length: 4 }, (_, i) => shiftFY(currentIstFY(), -i));
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={period} onValueChange={v => setPeriod(v as typeof period)}>
+          <SelectTrigger className="w-[140px] border-sky-500/60 text-sky-300 hover:text-sky-200">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="MONTHLY">Monthly</SelectItem>
+            <SelectItem value="YEARLY">Yearly</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-2 overflow-x-auto">
+          {period === "MONTHLY"
+            ? months.map(m => (
+                <PeriodChip
+                  key={m}
+                  label={monthLabel(m)}
+                  active={m === month}
+                  onClick={() => setMonth(m)}
+                />
+              ))
+            : fys.map(f => (
+                <PeriodChip
+                  key={f}
+                  label={`FY ${f}`}
+                  active={f === fy}
+                  onClick={() => setFy(f)}
+                />
+              ))}
+        </div>
+      </div>
+      {period === "MONTHLY"
+        ? <EqMonthlyView month={month} onChangeMonth={setMonth} />
+        : <EqYearlyView fy={fy} onChangeFy={setFy} />}
+    </div>
+  );
+}
+
+function EqMonthlyView({ month, onChangeMonth }: {
+  month: string; onChangeMonth: (m: string) => void;
+}) {
+  const q = useQuery({
+    queryKey: ["paper", "report", "eq", "monthly", month],
+    queryFn: () => api<EqMonthlyReport>(`/paper/reports/eq/monthly?month=${month}`),
+  });
+  if (q.isLoading) return <Skeleton className="h-96 w-full" />;
+  if (q.error) return <ErrorBlock message={q.error instanceof Error ? q.error.message : "Unknown error"} />;
+  const r = q.data!;
+  return (
+    <div className="space-y-6">
+      <TotalsCard totals={r.totals} />
+      <CalendarCard
+        month={r.month}
+        days={r.days}
+        onPrev={() => onChangeMonth(shiftMonth(month, -1))}
+        onNext={() => onChangeMonth(shiftMonth(month, 1))}
+      />
+      <EqTradeDetailTable trades={r.trades} />
+    </div>
+  );
+}
+
+function EqYearlyView({ fy, onChangeFy }: {
+  fy: string; onChangeFy: (f: string) => void;
+}) {
+  const q = useQuery({
+    queryKey: ["paper", "report", "eq", "yearly", fy],
+    queryFn: () => api<EqYearlyReport>(`/paper/reports/eq/yearly?fy=${fy}`),
+  });
+  if (q.isLoading) return <Skeleton className="h-96 w-full" />;
+  if (q.error) return <ErrorBlock message={q.error instanceof Error ? q.error.message : "Unknown error"} />;
+  const r = q.data!;
+  return (
+    <div className="space-y-6">
+      <TotalsCard totals={r.totals} />
+      <YearlyGridCard
+        fy={r.fy}
+        months={r.months}
+        onPrev={() => onChangeFy(shiftFY(fy, -1))}
+        onNext={() => onChangeFy(shiftFY(fy, 1))}
+      />
+    </div>
+  );
+}
+
+function EqTradeDetailTable({ trades }: { trades: EqTradeDetailRow[] }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Trade detail</CardTitle>
+        <CardDescription>
+          Every closed equity paper trade in this month. R achieved =
+          (exit − entry) ÷ |entry − stop| per share. Charges include
+          STT, NSE transaction, SEBI, GST, stamp duty and DP charges.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="px-0">
+        {trades.length === 0 ? (
+          <div className="px-6 py-8 text-sm text-muted-foreground text-center">
+            No closed equity trades in this month yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs uppercase text-slate-400 bg-slate-900/40">
+                <tr>
+                  <Th>Closed</Th>
+                  <Th>Symbol</Th>
+                  <Th align="right">Qty</Th>
+                  <Th align="right">Entry</Th>
+                  <Th align="right">Exit</Th>
+                  <Th align="right">Stop</Th>
+                  <Th align="right">R achieved</Th>
+                  <Th align="right">Gross P&amp;L</Th>
+                  <Th align="right">Charges</Th>
+                  <Th align="right">Net P&amp;L</Th>
+                  <Th>Reason</Th>
+                  <Th align="right">Days</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.map(t => <EqTradeRow key={t.id} t={t} />)}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EqTradeRow({ t }: { t: EqTradeDetailRow }) {
+  const rTone = t.rMultiple > 0 ? "good" : t.rMultiple < 0 ? "bad" : undefined;
+  const pnlTone = t.netPnl > 0 ? "good" : t.netPnl < 0 ? "bad" : undefined;
+  const exitDate = (() => {
+    try {
+      return new Date(t.exitedAt).toLocaleDateString("en-IN", {
+        day: "2-digit", month: "short",
+      });
+    } catch { return t.exitedAt; }
+  })();
+  return (
+    <tr className="border-t border-slate-800/60">
+      <Td>{exitDate}</Td>
+      <Td>
+        <div className="font-medium">{t.symbol}</div>
+        <div className="text-[11px] text-muted-foreground">{t.name}</div>
+      </Td>
+      <Td align="right">{t.qty}</Td>
+      <Td align="right">{t.entryPrice.toFixed(2)}</Td>
+      <Td align="right">{t.exitPrice.toFixed(2)}</Td>
+      <Td align="right">{t.stopPrice.toFixed(2)}</Td>
+      <Td align="right" tone={rTone}>{t.rMultiple.toFixed(2)}R</Td>
+      <Td align="right" tone={t.realizedPnl > 0 ? "good" : t.realizedPnl < 0 ? "bad" : undefined}>
+        {inr0(t.realizedPnl)}
+      </Td>
+      <Td align="right" tone="bad">- {inr0(t.charges)}</Td>
+      <Td align="right" tone={pnlTone}>{inr0(t.netPnl)}</Td>
+      <Td>
+        <span className={cn(
+          "text-xs px-2 py-0.5 rounded-full border",
+          EQ_REASON_TONE[t.exitReason],
+        )}>
+          {t.exitReason.replace("_HIT", "").replace("_OVERRIDE", "").replace(/_/g, " ")}
+        </span>
+      </Td>
+      <Td align="right">{t.daysHeld}</Td>
+    </tr>
+  );
 }

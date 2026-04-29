@@ -1842,6 +1842,145 @@ export interface PaperReportFoYearly {
   generatedAt: string;
 }
 
+export type PaperTradeEqPositionStatus =
+  (typeof PaperTradeEqPositionStatus)[keyof typeof PaperTradeEqPositionStatus];
+
+export const PaperTradeEqPositionStatus = {
+  OPEN: "OPEN",
+} as const;
+
+export interface PaperTradeEqPosition {
+  id: string;
+  symbol: string;
+  name: string;
+  exchange: string;
+  signalDate: string;
+  signalTriggeredAt: string;
+  qty: number;
+  entryPrice: number;
+  /** Live stop — may have been trailed up to T1. */
+  stopPrice: number;
+  target1Price: number;
+  target2Price: number;
+  /** True once price touched T1 and the stop was trailed up. */
+  trailedToT1: boolean;
+  /** INR cost (qty × entryPrice). */
+  capitalDeployed: number;
+  /** Most recent observed LTP for MTM. */
+  lastPrice: number;
+  /** (lastPrice − entryPrice) × qty. */
+  unrealizedPnl: number;
+  /** Highest unrealized P&L observed for this position. */
+  maxRunup?: number;
+  /** Lowest unrealized P&L observed for this position (≤ 0). */
+  maxDrawdown?: number;
+  openedAt: string;
+  lastEvaluatedAt: string;
+  status: PaperTradeEqPositionStatus;
+}
+
+export type PaperTradeEqClosedExitReason =
+  (typeof PaperTradeEqClosedExitReason)[keyof typeof PaperTradeEqClosedExitReason];
+
+export const PaperTradeEqClosedExitReason = {
+  TARGET2_HIT: "TARGET2_HIT",
+  STOPPED: "STOPPED",
+  TRAIL_STOP_HIT: "TRAIL_STOP_HIT",
+  TIME_STOP: "TIME_STOP",
+  SIGNAL_FLIP: "SIGNAL_FLIP",
+  MANUAL_OVERRIDE: "MANUAL_OVERRIDE",
+} as const;
+
+export interface PaperTradeEqClosed {
+  id: string;
+  symbol: string;
+  name: string;
+  exchange: string;
+  signalDate: string;
+  qty: number;
+  entryPrice: number;
+  exitPrice: number;
+  capitalDeployed: number;
+  realizedPnl: number;
+  exitReason: PaperTradeEqClosedExitReason;
+  openedAt: string;
+  exitedAt: string;
+}
+
+export interface PaperPositionsEqResponse {
+  positions: PaperTradeEqPosition[];
+  generatedAt: string;
+}
+
+export interface PaperTradesEqResponse {
+  /** IST trading date YYYY-MM-DD (bucketed by exitedAt) */
+  date: string;
+  trades: PaperTradeEqClosed[];
+  generatedAt: string;
+}
+
+export type PaperTradeEqDetailExitReason =
+  (typeof PaperTradeEqDetailExitReason)[keyof typeof PaperTradeEqDetailExitReason];
+
+export const PaperTradeEqDetailExitReason = {
+  TARGET2_HIT: "TARGET2_HIT",
+  STOPPED: "STOPPED",
+  TRAIL_STOP_HIT: "TRAIL_STOP_HIT",
+  TIME_STOP: "TIME_STOP",
+  SIGNAL_FLIP: "SIGNAL_FLIP",
+  MANUAL_OVERRIDE: "MANUAL_OVERRIDE",
+} as const;
+
+export interface PaperTradeEqDetail {
+  id: string;
+  signalDate: string;
+  exitedAt: string;
+  symbol: string;
+  name: string;
+  exchange: string;
+  qty: number;
+  entryPrice: number;
+  exitPrice: number;
+  stopPrice: number;
+  target1Price: number;
+  target2Price: number;
+  capitalDeployed: number;
+  realizedPnl: number;
+  /** NSE delivery charges (STT + txn + SEBI + GST + stamp + DP) */
+  charges: number;
+  netPnl: number;
+  plannedRiskPerShare: number;
+  achievedPerShare: number;
+  /** Achieved R = (exit-entry) / |entry-stop| per share */
+  rMultiple: number;
+  exitReason: PaperTradeEqDetailExitReason;
+  /** Calendar days the trade was held (rounded). */
+  daysHeld: number;
+  /** True if the stop had been trailed to T1 before the exit. */
+  trailedToT1: boolean;
+}
+
+export interface PaperReportEqMonthly {
+  /** IST calendar month YYYY-MM */
+  month: string;
+  from: string;
+  to: string;
+  totals: PaperReportTotals;
+  days: PaperReportDayBucket[];
+  trades: PaperTradeEqDetail[];
+  generatedAt: string;
+}
+
+export interface PaperReportEqYearly {
+  /** Indian FY YYYY-YYYY (April through March) */
+  fy: string;
+  from: string;
+  to: string;
+  totals: PaperReportTotals;
+  months: PaperReportMonthBucket[];
+  generatedAt: string;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;
@@ -1901,6 +2040,27 @@ export type GetPaperReportFoMonthlyParams = {
 };
 
 export type GetPaperReportFoYearlyParams = {
+  /**
+   * Indian FY in YYYY-YYYY form, eg 2026-2027
+   */
+  fy: string;
+};
+
+export type GetPaperTradesEqParams = {
+  /**
+   * IST date YYYY-MM-DD; defaults to today.
+   */
+  date?: string;
+};
+
+export type GetPaperReportEqMonthlyParams = {
+  /**
+   * IST calendar month YYYY-MM
+   */
+  month: string;
+};
+
+export type GetPaperReportEqYearlyParams = {
   /**
    * Indian FY in YYYY-YYYY form, eg 2026-2027
    */

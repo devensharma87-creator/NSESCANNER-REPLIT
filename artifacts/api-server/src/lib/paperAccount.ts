@@ -1,19 +1,22 @@
 /**
  * Paper trading account state.
  *
- * One row per segment ("FNO" | "EQUITY"), owner-only. Each segment has
- * an auto-seeded starting capital that auto-refills at the start of
- * every IST trading day. Cumulative P&L lives on individual trade
- * rows (paper_trade_fo etc.), so the daily refill never erases history.
+ * One row per segment ("FNO" | "EQUITY"), owner-only.
  *
- * Why "auto-refill" rather than "carry the running balance forever"?
- * The user explicitly asked for this — they want a clean bankroll each
- * day so a single bad week doesn't pollute every following day's tests.
- * Per-day P&L is what's used to evaluate the strategy.
+ *   - FNO is intraday by design: balance auto-refills to seed_capital
+ *     at the start of every IST trading day so each day's signals can
+ *     be tested with the full bankroll. Cumulative P&L lives on
+ *     individual paper_trade_fo rows, so the refill never erases
+ *     history.
  *
- * All state mutations run inside a SERIALIZABLE-equivalent flow by
- * SELECT ... FOR UPDATE on the account row, so concurrent webhook
- * handlers cannot oversize a position or double-debit the balance.
+ *   - EQUITY is a multi-day swing book: the daily reset MUST NOT touch
+ *     balance, because capital is locked in OPEN swing positions across
+ *     days. We only zero the day_trade_count + day_open_count counters
+ *     and bump last_reset_date.
+ *
+ * All state mutations run through SQL conditional updates on the
+ * account row, so concurrent handlers cannot oversize a position or
+ * double-debit the balance.
  */
 import { db, paperAccountTable, paperTradeFoTable } from "@workspace/db";
 import type { PaperAccountRow } from "@workspace/db";
@@ -36,6 +39,24 @@ export const FNO_RISK = {
   MAX_TRADES_PER_DAY: 4,
   /** Minimum signal confidence to auto-trade. */
   MIN_CONFIDENCE: 70,
+} as const;
+
+/** Equity (swing-cash) specific allocation rules. User-decided. */
+export const EQUITY_RISK = {
+  /**
+   * Per-position allocation = account_value / max(BASE_SLOTS, open_count + 1).
+   * BASE_SLOTS=4 means the first 4 positions each get 25% of account
+   * value; a 5th concurrent position would get 20%, a 6th 16.7%, etc.
+   */
+  BASE_SLOTS: 4,
+  /** Hard cap on concurrent OPEN equity positions. */
+  MAX_CONCURRENT: 10,
+  /** Hard cap on new OPEN trades per IST day (quality > quantity). */
+  MAX_NEW_PER_DAY: 3,
+  /** Minimum scanner score for a STRONG_BUY to qualify for paper buy. */
+  MIN_SCORE: 24,
+  /** Trading-days time stop: close any position still OPEN after this. */
+  MAX_HOLD_TRADING_DAYS: 30,
 } as const;
 
 function istDateKey(d: Date = new Date()): string {
@@ -119,16 +140,35 @@ export async function ensureDailyReset(segment: Segment): Promise<PaperAccountRo
     }
   }
 
+  // FNO refills balance back to seed_capital each IST day.
+  // EQUITY MUST NOT touch balance — capital is locked in OPEN swing
+  // positions across days; resetting would orphan that capital and
+  // double-count when the position closes. We only zero the day
+  // counters (number of new entries today, number currently open
+  // counter) and bump last_reset_date.
+  const setClause =
+    segment === "FNO"
+      ? {
+          balance: sql`${paperAccountTable.seedCapital}`,
+          dayRealizedPnl: "0",
+          dayTradeCount: 0,
+          dayOpenCount: 0,
+          lastResetDate: today,
+          updatedAt: new Date(),
+        }
+      : {
+          // EQUITY: balance is preserved as-is. dayOpenCount is also
+          // NOT reset because OPEN equity positions carry over the
+          // night and must continue to be reflected in the counter.
+          dayRealizedPnl: "0",
+          dayTradeCount: 0,
+          lastResetDate: today,
+          updatedAt: new Date(),
+        };
+
   const updated = await db
     .update(paperAccountTable)
-    .set({
-      balance: sql`${paperAccountTable.seedCapital}`,
-      dayRealizedPnl: "0",
-      dayTradeCount: 0,
-      dayOpenCount: 0,
-      lastResetDate: today,
-      updatedAt: new Date(),
-    })
+    .set(setClause)
     .where(
       and(
         eq(paperAccountTable.segment, segment),
@@ -143,7 +183,10 @@ export async function ensureDailyReset(segment: Segment): Promise<PaperAccountRo
     .returning();
 
   if (updated.length > 0) {
-    logger.info({ segment, today, balance: updated[0]!.balance }, "Paper account daily refill");
+    logger.info(
+      { segment, today, balance: updated[0]!.balance },
+      segment === "FNO" ? "Paper account daily refill" : "Paper account day-counter rollover",
+    );
     // Final stale-sweep for any rows that still have status=OPEN at
     // this point (no matching terminal lifecycle row, e.g. signal
     // history was wiped, or the lifecycle row never reached terminal).

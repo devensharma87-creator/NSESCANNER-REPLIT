@@ -40,6 +40,22 @@ import { UNIVERSE, INACTIVE_SYMBOLS } from "./universe";
 import { logger } from "./logger";
 import { loadBlob, saveBlob } from "./diskCache";
 import { loadKiteNseEqInstruments, loadKiteQuotes, type KiteScannerQuote } from "./kiteScanner";
+import { buildAllSwingSignals } from "./swingSignals";
+import { runEquityPaperTradingTick } from "./paperTradingEq";
+import { EQUITY_RISK } from "./paperAccount";
+
+/**
+ * Bridge between the scanner cycle and the equity paper-trading
+ * executor. Builds SwingSignals from this scan's STRONG_BUY rows
+ * (filtered to F&O 200), then runs one open + evaluate tick. Catches
+ * its own errors so a hook failure cannot poison the scanner cache.
+ */
+async function runSwingTickForLatestScan(scan: Cache): Promise<void> {
+  const rows = scan.rows;
+  if (rows.length === 0) return;
+  const signals = await buildAllSwingSignals(rows, EQUITY_RISK.MIN_SCORE);
+  await runEquityPaperTradingTick(rows, signals);
+}
 
 // Refresh cadence. Kite quotes are cheap and authenticated, so we can
 // refresh more frequently than the old 5-minute Yahoo cycle.
@@ -627,6 +643,21 @@ export async function scanFullNse(): Promise<Cache> {
           if (!downgrading) cache = next;
           if (!next.degraded) {
             try { saveBlob(DISK_CACHE_NAME, DISK_CACHE_VERSION, next); } catch { /* logged inside */ }
+          }
+          // After every successful (non-degraded-only) scan, run the
+          // swing-equity paper trading tick: open new STRONG_BUY paper
+          // trades and re-evaluate every OPEN paper position. Detached
+          // so a hook failure can never poison the scan cache. We only
+          // run the tick when we actually accepted the new scan into
+          // cache; a downgrading degraded scan would mark stale rows
+          // to market with stale prices.
+          if (!downgrading) {
+            void runSwingTickForLatestScan(cache ?? next).catch((err) =>
+              logger.warn(
+                { err: (err as Error).message },
+                "Swing equity tick failed after scan",
+              ),
+            );
           }
         }
         // After a degraded scan, retry sooner — Kite session may have just

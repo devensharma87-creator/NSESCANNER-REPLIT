@@ -2,11 +2,16 @@
  * Paper trading state.
  *
  * OWNER-ONLY system. There is exactly one paper account per segment
- * ("FNO" / "EQUITY"). The account is auto-seeded on first read and
- * auto-refilled (reset balance to seed_capital, zero day counters)
- * once per IST trading day so that each day's signals can be tested
- * with the full bankroll. Cumulative P&L lives on individual trade
- * rows, not on the account row, so a daily refill never erases history.
+ * ("FNO" / "EQUITY").
+ *
+ *   - FNO is intraday by design: the account auto-refills balance to
+ *     seed_capital and zeroes day counters once per IST trading day.
+ *     Cumulative P&L lives on individual trade rows so the refill never
+ *     erases history.
+ *
+ *   - EQUITY is a multi-day swing book: capital stays locked in OPEN
+ *     positions across days, so the daily reset for EQUITY only zeroes
+ *     day_trade_count + day_open_count and DOES NOT touch balance.
  *
  * paper_trade_fo represents one virtual options position. The composite
  * (signalDate, indexSymbol, setupKey, direction) refers to a row in
@@ -14,6 +19,11 @@
  * (enforced by a unique constraint on that 4-tuple) so we cannot
  * accidentally double-open if the lifecycle hook fires twice for the
  * same TRIGGERED transition.
+ *
+ * paper_trade_eq represents one virtual equity-delivery position. The
+ * unique (symbol, openedDate) index prevents the swing scanner from
+ * double-loading the same stock on the same IST day even if the
+ * STRONG_BUY recommendation flips on/off between scanner ticks.
  */
 import {
   pgTable,
@@ -134,3 +144,93 @@ export const paperTradeFoTable = pgTable(
 
 export type PaperTradeFoRow = typeof paperTradeFoTable.$inferSelect;
 export type NewPaperTradeFoRow = typeof paperTradeFoTable.$inferInsert;
+
+/**
+ * One row per paper EQUITY (delivery) position. Linked to a real NSE
+ * equity symbol; held across multiple IST trading days. The unique
+ * (symbol, openedDate) index prevents the swing scanner from opening
+ * the same stock twice on the same day even if STRONG_BUY toggles on
+ * and off between scanner ticks.
+ */
+export const paperTradeEqTable = pgTable(
+  "paper_trade_eq",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+
+    /** NSE trading symbol (e.g. "RELIANCE", "TCS"). */
+    symbol: text("symbol").notNull(),
+    /** Display name (company name as known by the scanner). */
+    name: text("name").notNull(),
+    /** Always "NSE" today; future-proofed for BSE delivery. */
+    exchange: text("exchange").notNull().default("NSE"),
+
+    /** IST date the signal fired (YYYY-MM-DD). */
+    signalDate: date("signal_date").notNull(),
+    /** Wall-clock instant the scanner first saw STRONG_BUY for this row. */
+    signalTriggeredAt: timestamp("signal_triggered_at", {
+      withTimezone: true,
+    }).notNull(),
+
+    /** Number of shares purchased. */
+    qty: integer("qty").notNull(),
+
+    /** Locked entry plan (frozen at open). */
+    entryPrice: numeric("entry_price", { precision: 18, scale: 4 }).notNull(),
+    stopPrice: numeric("stop_price", { precision: 18, scale: 4 }).notNull(),
+    target1Price: numeric("target1_price", { precision: 18, scale: 4 }).notNull(),
+    target2Price: numeric("target2_price", { precision: 18, scale: 4 }).notNull(),
+
+    /**
+     * True once price has touched target1 and the stop has been trailed
+     * up to entry's target1 level. While true, the position rides for
+     * target2 with stopPrice = (original) target1Price.
+     */
+    trailedToT1: integer("trailed_to_t1").notNull().default(0),
+
+    /** Capital deployed at open = qty * entryPrice. */
+    capitalDeployed: numeric("capital_deployed", { precision: 18, scale: 2 }).notNull(),
+
+    /** Last LTP observed by the swing evaluator. */
+    lastPrice: numeric("last_price", { precision: 18, scale: 4 }).notNull(),
+    lastEvaluatedAt: timestamp("last_evaluated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+
+    status: text("status").notNull().default("OPEN"), // OPEN | CLOSED
+
+    // Closed-trade fields (NULL while OPEN).
+    exitedAt: timestamp("exited_at", { withTimezone: true }),
+    exitPrice: numeric("exit_price", { precision: 18, scale: 4 }),
+    /**
+     * One of:
+     *   TARGET2_HIT | STOPPED | TRAIL_STOP_HIT | TIME_STOP |
+     *   SIGNAL_FLIP | MANUAL_OVERRIDE
+     */
+    exitReason: text("exit_reason"),
+    /** Realised P&L = (exitPrice - entryPrice) * qty. */
+    realizedPnl: numeric("realized_pnl", { precision: 18, scale: 2 }),
+
+    /** Best unrealised P&L observed while the trade was open (₹). */
+    maxRunup: numeric("max_runup", { precision: 18, scale: 2 }).notNull().default("0"),
+    /** Worst unrealised P&L observed while the trade was open (₹). */
+    maxDrawdown: numeric("max_drawdown", { precision: 18, scale: 2 }).notNull().default("0"),
+  },
+  (t) => ({
+    // One open trade per symbol per IST day.
+    symbolDayUq: uniqueIndex("paper_trade_eq_symbol_day_uq").on(
+      t.symbol,
+      t.signalDate,
+    ),
+    statusIdx: index("paper_trade_eq_status_idx").on(t.status),
+    symbolStatusIdx: index("paper_trade_eq_symbol_status_idx").on(
+      t.symbol,
+      t.status,
+    ),
+    exitedAtIdx: index("paper_trade_eq_exited_at_idx").on(t.exitedAt),
+  }),
+);
+
+export type PaperTradeEqRow = typeof paperTradeEqTable.$inferSelect;
+export type NewPaperTradeEqRow = typeof paperTradeEqTable.$inferInsert;
