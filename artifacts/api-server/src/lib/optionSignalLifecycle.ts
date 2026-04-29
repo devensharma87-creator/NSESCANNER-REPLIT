@@ -299,6 +299,14 @@ export async function recordOrUpdate(
         target1: toDbNumeric(t1),
         target2: toDbNumeric(t2),
         entryTrigger: signal.entryTrigger ?? null,
+        // Lock the option-premium plan AT GENERATION TIME so the alert
+        // popup, the scoreboard and the paper-trade engine all see the
+        // same numbers — the live option chain re-projects every poll
+        // and would otherwise drift after the row was created.
+        optionEntry: signal.optionEntry != null ? toDbNumeric(signal.optionEntry) : null,
+        optionStopLoss: signal.optionStopLoss != null ? toDbNumeric(signal.optionStopLoss) : null,
+        optionTarget1: signal.optionTarget1 != null ? toDbNumeric(signal.optionTarget1) : null,
+        optionTarget2: signal.optionTarget2 != null ? toDbNumeric(signal.optionTarget2) : null,
         confidence: Math.round(signal.confidence ?? 0),
         tier: signal.tier ?? null,
         setupName: signal.setupName ?? null,
@@ -499,6 +507,31 @@ export async function recordOrUpdate(
     // the persisted state and return THAT to the caller, otherwise the
     // card would render with our stale, locally computed `trans.next`
     // until the next 30s poll.
+    // Refresh option-premium snapshot ONLY on PENDING → TRIGGERED transition.
+    // Rationale: at first-emit (PENDING) we record a projection from the chain
+    // at that moment, but spot can drift for hours before the trigger crosses
+    // and the paper-trade engine enters at signal.optionEntry AS OF THE TRIGGER
+    // tick. Re-snapping here keeps the popup, the lifecycle row and the paper
+    // trade in lockstep — without this the alert popup would show stale prices
+    // that don't match what the user actually paid.
+    //
+    // We do NOT refresh on any other transition (TRIGGERED → T1/T2/STOP/EXPIRED)
+    // because once we're in the trade the locked entry/SL/T1/T2 plan is what
+    // matters; recomputing would silently mutate the booked plan.
+    const refreshOptionPremium =
+      currentStatus === "PENDING" && trans.next === "TRIGGERED";
+    const optionPremiumPatch = refreshOptionPremium
+      ? {
+          optionEntry:
+            signal.optionEntry != null ? toDbNumeric(signal.optionEntry) : null,
+          optionStopLoss:
+            signal.optionStopLoss != null ? toDbNumeric(signal.optionStopLoss) : null,
+          optionTarget1:
+            signal.optionTarget1 != null ? toDbNumeric(signal.optionTarget1) : null,
+          optionTarget2:
+            signal.optionTarget2 != null ? toDbNumeric(signal.optionTarget2) : null,
+        }
+      : {};
     const updated = await db
       .update(optionSignalHistoryTable)
       .set({
@@ -511,6 +544,7 @@ export async function recordOrUpdate(
         maxAdverseExcursion: sql`GREATEST(${optionSignalHistoryTable.maxAdverseExcursion}, ${toDbNumeric(exc.maeBar)}::numeric)`,
         lastSpot: toDbNumeric(snapshot.spot),
         lastEvaluatedAt: now,
+        ...optionPremiumPatch,
       })
       .where(
         and(
@@ -726,6 +760,11 @@ export interface HistoryRow {
   maxAdverseExcursionPts: number;
   lastSpot: number;
   lastEvaluatedAt: Date;
+  /** Locked option-premium plan (nullable when chain was unavailable). */
+  optionEntry: number | null;
+  optionStopLoss: number | null;
+  optionTarget1: number | null;
+  optionTarget2: number | null;
 }
 
 function toHistoryRow(r: OptionSignalHistoryRow): HistoryRow {
@@ -755,6 +794,10 @@ function toHistoryRow(r: OptionSignalHistoryRow): HistoryRow {
     maxAdverseExcursionPts: round2(num(r.maxAdverseExcursion)),
     lastSpot: num(r.lastSpot),
     lastEvaluatedAt: r.lastEvaluatedAt,
+    optionEntry: r.optionEntry != null ? round2(num(r.optionEntry)) : null,
+    optionStopLoss: r.optionStopLoss != null ? round2(num(r.optionStopLoss)) : null,
+    optionTarget1: r.optionTarget1 != null ? round2(num(r.optionTarget1)) : null,
+    optionTarget2: r.optionTarget2 != null ? round2(num(r.optionTarget2)) : null,
   };
 }
 

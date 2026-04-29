@@ -1284,6 +1284,14 @@ components:
         target1:       { type: number }
         target2:       { type: number }
         entryTrigger:  { type: string, nullable: true }
+        # Option-premium plan locked at signal generation time. Nullable
+        # because (a) older lifecycle rows pre-date these columns, and
+        # (b) the option chain may have been unavailable when the signal
+        # was first emitted.
+        optionEntry:     { type: number, nullable: true }
+        optionStopLoss:  { type: number, nullable: true }
+        optionTarget1:   { type: number, nullable: true }
+        optionTarget2:   { type: number, nullable: true }
         confidence:    { type: integer }
         tier:          { type: string, nullable: true }
         status:

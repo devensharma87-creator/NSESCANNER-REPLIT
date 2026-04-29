@@ -25,6 +25,10 @@ export interface OptionSignalHistoryItem {
   target1: number;
   target2: number;
   entryTrigger?: string | null;
+  optionEntry?: number | null;
+  optionStopLoss?: number | null;
+  optionTarget1?: number | null;
+  optionTarget2?: number | null;
   confidence: number;
   tier?: string | null;
   status: OptionSignalHistoryItemStatus;

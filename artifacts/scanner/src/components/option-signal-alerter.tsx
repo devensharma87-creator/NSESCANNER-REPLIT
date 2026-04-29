@@ -279,24 +279,66 @@ export function OptionSignalAlerter() {
               <span className="text-base font-semibold">{ui.optionLabel}</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded border border-border/50 p-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Entry</div>
-                <div className="text-sm tabular-nums">{fmt(ui.s.entry)}</div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+                Spot levels
               </div>
-              <div className="rounded border border-border/50 p-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Stop loss</div>
-                <div className="text-sm tabular-nums text-signal-strong-sell">{fmt(ui.s.stopLoss)}</div>
-              </div>
-              <div className="rounded border border-border/50 p-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Target 1</div>
-                <div className="text-sm tabular-nums text-signal-strong-buy">{fmt(ui.s.target1)}</div>
-              </div>
-              <div className="rounded border border-border/50 p-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Target 2</div>
-                <div className="text-sm tabular-nums text-signal-strong-buy">{fmt(ui.s.target2)}</div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded border border-border/50 p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Entry</div>
+                  <div className="text-sm tabular-nums">{fmt(ui.s.entry)}</div>
+                </div>
+                <div className="rounded border border-border/50 p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Stop loss</div>
+                  <div className="text-sm tabular-nums text-signal-strong-sell">{fmt(ui.s.stopLoss)}</div>
+                </div>
+                <div className="rounded border border-border/50 p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Target 1</div>
+                  <div className="text-sm tabular-nums text-signal-strong-buy">{fmt(ui.s.target1)}</div>
+                </div>
+                <div className="rounded border border-border/50 p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Target 2</div>
+                  <div className="text-sm tabular-nums text-signal-strong-buy">{fmt(ui.s.target2)}</div>
+                </div>
               </div>
             </div>
+
+            {ui.s.optionEntry != null
+              || ui.s.optionStopLoss != null
+              || ui.s.optionTarget1 != null
+              || ui.s.optionTarget2 != null ? (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+                  Option premium ({ui.s.optionType})
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded border border-border/50 p-2">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Entry</div>
+                    <div className="text-sm tabular-nums">
+                      {ui.s.optionEntry != null ? fmt(ui.s.optionEntry) : "—"}
+                    </div>
+                  </div>
+                  <div className="rounded border border-border/50 p-2">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Stop loss</div>
+                    <div className="text-sm tabular-nums text-signal-strong-sell">
+                      {ui.s.optionStopLoss != null ? fmt(ui.s.optionStopLoss) : "—"}
+                    </div>
+                  </div>
+                  <div className="rounded border border-border/50 p-2">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Target 1</div>
+                    <div className="text-sm tabular-nums text-signal-strong-buy">
+                      {ui.s.optionTarget1 != null ? fmt(ui.s.optionTarget1) : "—"}
+                    </div>
+                  </div>
+                  <div className="rounded border border-border/50 p-2">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Target 2</div>
+                    <div className="text-sm tabular-nums text-signal-strong-buy">
+                      {ui.s.optionTarget2 != null ? fmt(ui.s.optionTarget2) : "—"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-border/40">
               <div>

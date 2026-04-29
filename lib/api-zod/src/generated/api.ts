@@ -1480,6 +1480,10 @@ export const GetOptionSignalHistoryResponse = zod.object({
       target1: zod.number(),
       target2: zod.number(),
       entryTrigger: zod.string().nullish(),
+      optionEntry: zod.number().nullish(),
+      optionStopLoss: zod.number().nullish(),
+      optionTarget1: zod.number().nullish(),
+      optionTarget2: zod.number().nullish(),
       confidence: zod.number(),
       tier: zod.string().nullish(),
       status: zod.enum([

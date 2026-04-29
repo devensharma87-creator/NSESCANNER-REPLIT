@@ -26,6 +26,17 @@ export const optionSignalHistoryTable = pgTable(
     target2: numeric("target2", { precision: 18, scale: 4 }).notNull(),
     entryTrigger: text("entry_trigger"),
 
+    // Option-premium plan locked at signal generation time. Nullable
+    // because (a) existing rows pre-date this column, and (b) the option
+    // chain may have been unavailable when the signal fired (Kite +
+    // NSE both down). When present, these are the same locked premium
+    // values the alert popup and the paper-trade engine see — never
+    // recomputed once the lifecycle row exists.
+    optionEntry: numeric("option_entry", { precision: 18, scale: 4 }),
+    optionStopLoss: numeric("option_stop_loss", { precision: 18, scale: 4 }),
+    optionTarget1: numeric("option_target1", { precision: 18, scale: 4 }),
+    optionTarget2: numeric("option_target2", { precision: 18, scale: 4 }),
+
     confidence: integer("confidence").notNull().default(0),
     tier: text("tier"),
     setupName: text("setup_name"),

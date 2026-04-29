@@ -38,7 +38,13 @@ export const FNO_RISK = {
   /** Max paper trades opened per IST trading day. */
   MAX_TRADES_PER_DAY: 4,
   /** Minimum signal confidence to auto-trade. */
-  MIN_CONFIDENCE: 70,
+  // Lowered from 70 → 60 so paper-trade execution matches the popup
+  // alert threshold. The popup fires for every emitted plan regardless
+  // of confidence (display-only), but at 70 we were silently dropping
+  // mid-conviction setups (e.g. NIFTY TREND_CONTINUATION conf=60) so
+  // users saw alerts that never produced a paper trade. 60 is the
+  // floor where a setup is still considered actionable.
+  MIN_CONFIDENCE: 60,
 } as const;
 
 /** Equity (swing-cash) specific allocation rules. User-decided. */

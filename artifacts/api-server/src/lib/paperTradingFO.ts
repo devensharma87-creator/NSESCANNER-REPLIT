@@ -108,7 +108,10 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
   // Pre-checks that do NOT touch the account.
   const confidence = Math.round(signal.confidence ?? 0);
   if (confidence < FNO_RISK.MIN_CONFIDENCE) {
-    logger.info({ indexSymbol, setupKey, confidence }, "Paper FO skip: confidence < 70");
+    logger.info(
+      { indexSymbol, setupKey, confidence, floor: FNO_RISK.MIN_CONFIDENCE },
+      `Paper FO skip: confidence < ${FNO_RISK.MIN_CONFIDENCE}`,
+    );
     return null;
   }
   const lotSize = lotSizeFor(indexSymbol);
