@@ -151,10 +151,17 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
   const vwapNum = intradayVwap ?? rollingVwap(chart.high, chart.low, closes, chart.volume, 20);
   const vwap = vwapNum;
 
+  // buildRow() above already guarantees chart.close.length >= 30, so dn is
+  // always >= 2 here and the previous-bar OHLC reads below cannot fall off
+  // the array. We deliberately do NOT add a `?? quote.price` fallback — that
+  // would silently turn a thin-history symbol's "previous-day pivot" into the
+  // current spot, producing a degenerate pivot at exactly today's price and
+  // tricking scoring.ts into emitting "price respects pivot" signal noise.
+  // No-synthetic-data rule: insufficient history → caller rejects the row.
   const dn = closes.length;
-  const prevH = dn >= 2 ? chart.high[dn - 2]! : chart.high[dn - 1] ?? quote.price;
-  const prevL = dn >= 2 ? chart.low[dn - 2]! : chart.low[dn - 1] ?? quote.price;
-  const prevC = dn >= 2 ? closes[dn - 2]! : closes[dn - 1] ?? quote.price;
+  const prevH = chart.high[dn - 2]!;
+  const prevL = chart.low[dn - 2]!;
+  const prevC = closes[dn - 2]!;
   const piv = pivots(prevH, prevL, prevC);
 
   // No-synthetic-data rule: every indicator below is left UNDEFINED when the
