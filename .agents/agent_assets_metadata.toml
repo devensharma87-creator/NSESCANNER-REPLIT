@@ -6,3 +6,9 @@ id = "cBgQLrasZ7QYiVjdoun2_"
 uri = "file://backups/marketscanner-source-20260427-083848.tar.gz"
 type = "unspecified"
 title = "Market Scanner — full source backup (Apr 27, 2026)"
+
+[[outputs]]
+id = "KXHIJXE_6zV_2K99QIE1X"
+uri = "file://exports/stock_scanner_pro_data_inventory.csv"
+type = "table"
+title = "Stock Scanner Pro — Full Data Inventory (Cross-Check)"
