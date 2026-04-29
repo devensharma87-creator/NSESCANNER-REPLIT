@@ -11,7 +11,7 @@ import { TradingViewAlerts } from "@/components/tradingview-alerts";
 import { useToast } from "@/hooks/use-toast";
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Crosshair, Zap, Activity, Layers, Repeat, RotateCcw,
-  Clock, CheckCircle2, XCircle, Hourglass, BarChart3, IndianRupee,
+  Clock, CheckCircle2, XCircle, Hourglass, BarChart3, IndianRupee, Eye,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -309,6 +309,17 @@ function SetupLifecycleFooter({ sig }: { sig: OptionSignal }) {
           {sig.lastSpot != null && (
             <span className="text-muted-foreground/70">last spot {sig.lastSpot.toFixed(2)}</span>
           )}
+        </div>
+      )}
+      {sig.lastEvaluatedAt && (
+        // Trust signal: shows that the trigger pipeline IS evaluating this
+        // plan against live spot. If this stops advancing, the user knows
+        // immediately that something is wrong with the data feed — they
+        // don't have to wonder whether the level was missed.
+        <div className="flex items-center gap-1.5 flex-wrap pt-0.5 text-muted-foreground/70">
+          <Eye className="w-3 h-3 shrink-0" />
+          <span>last checked <span className="text-foreground tabular-nums">{fmtIstTime(sig.lastEvaluatedAt)} IST</span></span>
+          <span className="text-muted-foreground/60">· {fmtRelative(sig.lastEvaluatedAt)}</span>
         </div>
       )}
     </div>

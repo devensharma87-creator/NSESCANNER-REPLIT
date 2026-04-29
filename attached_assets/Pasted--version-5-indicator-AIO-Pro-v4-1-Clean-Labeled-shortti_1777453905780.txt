@@ -1,0 +1,175 @@
+//@version=5
+indicator("AIO Pro v4.1: Clean & Labeled", shorttitle="AIO_v4_Fixed", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+grp_sr      = "Support / Resistance"
+showSR      = input.bool(true, "Show Multi-Level S/R", group=grp_sr)
+srCount     = input.int(2, "Levels to Keep", minval=1, maxval=5, group=grp_sr)
+pivotLeft   = input.int(10, "Pivot Left Bars", group=grp_sr)
+pivotRight  = input.int(10, "Pivot Right Bars", group=grp_sr)
+
+grp_vp      = "Volume Profile (Institutional)"
+vpLookback  = input.int(200, "VP Lookback Bars", minval=20, maxval=2000, group=grp_vp)
+vpRows      = input.int(80, "VP Row Count", minval=10, maxval=200, group=grp_vp)
+vaPercent   = input.float(70.0, "Value Area %", group=grp_vp)
+
+grp_ema     = "Trend & Ribbon"
+showRibbon  = input.bool(true, "Show EMA Ribbon (9-21)", group=grp_ema)
+ema9Len = 9, ema21Len = 21, ema50Len = 50
+
+grp_sig     = "Signals"
+showSignals = input.bool(true, "Show Buy/Sell Signals", group=grp_sig)
+trendFilter = input.bool(true, "Require EMA 50 Filter", group=grp_sig)
+
+// ============================================================================
+// TREND & INDICATORS
+// ============================================================================
+ema9  = ta.ema(close, ema9Len)
+ema21 = ta.ema(close, ema21Len)
+ema50 = ta.ema(close, ema50Len)
+vwapVal = ta.vwap(hlc3)
+
+// EMA Ribbon Plots
+p1 = plot(ema9, "EMA 9", color=color.new(color.orange, 0), linewidth=1)
+p2 = plot(ema21, "EMA 21", color=color.new(color.blue, 0), linewidth=1)
+fill(p1, p2, color = showRibbon ? (ema9 > ema21 ? color.new(color.teal, 85) : color.new(color.red, 85)) : na)
+plot(ema50, "EMA 50", color=color.new(color.purple, 20), linewidth=3)
+plot(vwapVal, "VWAP", color=color.new(color.fuchsia, 0), linewidth=2)
+
+// Dynamic Right-side Labels for identification
+var label lblE9 = na, var label lblE21 = na, var label lblE50 = na, var label lblVWAP = na
+if barstate.islast
+    label.delete(lblE9), label.delete(lblE21), label.delete(lblE50), label.delete(lblVWAP)
+    lblE9   := label.new(bar_index + 2, ema9, "EMA 9", color=color.orange, textcolor=color.white, style=label.style_label_left, size=size.small)
+    lblE21  := label.new(bar_index + 2, ema21, "EMA 21", color=color.blue, textcolor=color.white, style=label.style_label_left, size=size.small)
+    lblE50  := label.new(bar_index + 2, ema50, "EMA 50", color=color.purple, textcolor=color.white, style=label.style_label_left, size=size.small)
+    lblVWAP := label.new(bar_index + 2, vwapVal, "VWAP", color=color.fuchsia, textcolor=color.white, style=label.style_label_left, size=size.small)
+
+// ============================================================================
+// S/R PIVOTS WITH IDENTIFICATION
+// ============================================================================
+var line[] resLines = array.new_line()
+var label[] resLabels = array.new_label()
+var line[] supLines = array.new_line()
+var label[] supLabels = array.new_label()
+
+f_updateSR(bool isHigh, float price) =>
+    linesArr  = isHigh ? resLines : supLines
+    labelsArr = isHigh ? resLabels : supLabels
+    lineCol   = isHigh ? color.red : color.green
+    txt       = isHigh ? "RES" : "SUP"
+    
+    if array.size(linesArr) >= srCount
+        line.delete(array.shift(linesArr))
+        label.delete(array.shift(labelsArr))
+    
+    newLine = line.new(bar_index - pivotRight, price, bar_index, price, color=color.new(lineCol, 40), width=2, extend=extend.right)
+    newLabl = label.new(bar_index + 5, price, txt + ": " + str.tostring(price, format.mintick), color=color.new(lineCol, 20), textcolor=color.white, style=label.style_label_left, size=size.small)
+    array.push(linesArr, newLine)
+    array.push(labelsArr, newLabl)
+
+ph = ta.pivothigh(high, pivotLeft, pivotRight)
+pl = ta.pivotlow(low, pivotLeft, pivotRight)
+
+if showSR
+    if not na(ph)
+        f_updateSR(true, ph)
+    if not na(pl)
+        f_updateSR(false, pl)
+
+// ============================================================================
+// VOLUME PROFILE (ULTRA STABLE)
+// ============================================================================
+var float pocPrice = na
+var float vahPrice = na
+var float valPrice = na
+
+if barstate.islast
+    int   lb = math.min(vpLookback, bar_index)
+    float hh = ta.highest(high, lb)
+    float ll = ta.lowest(low,  lb)
+    float rng = hh - ll
+
+    if rng > 0 and not na(ll)
+        float rowH = rng / vpRows
+        float[] volBins = array.new_float(vpRows, 0.0)
+
+        for i = 0 to lb - 1
+            float v_i = volume[i], c_i = close[i], h_i = high[i], l_i = low[i]
+            if not na(v_i) and v_i > 0 and not na(h_i) and not na(l_i) and not na(c_i)
+                int binStart = int(math.max(0, math.min(vpRows - 1, math.floor((l_i - ll) / rowH))))
+                int binEnd   = int(math.max(0, math.min(vpRows - 1, math.floor((h_i - ll) / rowH))))
+                int closeBin = int(math.max(binStart, math.min(binEnd, math.floor((c_i - ll) / rowH))))
+                
+                float vClose = v_i * 0.4
+                float vRest  = v_i * 0.6 / math.max(1, (binEnd - binStart + 1))
+                for b = binStart to binEnd
+                    array.set(volBins, b, array.get(volBins, b) + (b == closeBin ? vRest + vClose : vRest))
+
+        float maxVol = 0.0
+        int   pocIdx = 0
+        for i = 0 to vpRows - 1
+            float v = array.get(volBins, i)
+            if v > maxVol
+                maxVol := v
+                pocIdx := i
+        
+        pocPrice := ll + (pocIdx + 0.5) * rowH
+
+        float totalVol = 0.0
+        for i = 0 to vpRows - 1
+            totalVol += array.get(volBins, i)
+        
+        float targetVol = totalVol * (vaPercent / 100.0)
+        float accVol = array.get(volBins, pocIdx)
+        int upI = pocIdx, dnI = pocIdx
+
+        while accVol < targetVol and (upI < vpRows - 1 or dnI > 0)
+            float upV = (upI < vpRows - 1) ? array.get(volBins, upI + 1) : -1.0
+            float dnV = (dnI > 0)          ? array.get(volBins, dnI - 1) : -1.0
+            if upV >= dnV and upI < vpRows - 1
+                upI += 1, accVol += upV
+            else if dnI > 0
+                dnI -= 1, accVol += dnV
+            else
+                break
+        
+        vahPrice := ll + (upI + 1) * rowH
+        valPrice := ll + dnI * rowH
+
+// Institutional Labels for Volume
+var line lPOC = na, var line lVAH = na, var line lVAL = na
+var label lblPOC = na, var label lblVAH = na, var label lblVAL = na
+
+if barstate.islast
+    line.delete(lPOC), line.delete(lVAH), line.delete(lVAL)
+    label.delete(lblPOC), label.delete(lblVAH), label.delete(lblVAL)
+    
+    lPOC := line.new(bar_index - vpLookback, pocPrice, bar_index, pocPrice, color=color.yellow, width=3, extend=extend.right)
+    lblPOC := label.new(bar_index + 10, pocPrice, "POC (Volume)", color=color.yellow, textcolor=color.black, style=label.style_label_left, size=size.small)
+    
+    lVAH := line.new(bar_index - vpLookback, vahPrice, bar_index, vahPrice, color=color.green, width=1, style=line.style_dashed, extend=extend.right)
+    lblVAH := label.new(bar_index + 10, vahPrice, "VAH", color=color.green, textcolor=color.white, style=label.style_label_left, size=size.small)
+    
+    lVAL := line.new(bar_index - vpLookback, valPrice, bar_index, valPrice, color=color.red, width=1, style=line.style_dashed, extend=extend.right)
+    lblVAL := label.new(bar_index + 10, valPrice, "VAL", color=color.red, textcolor=color.white, style=label.style_label_left, size=size.small)
+
+// ============================================================================
+// SIGNALS
+// ============================================================================
+rsiVal = ta.rsi(close, 14)
+long  = ta.crossover(ema9, ema21) and (not trendFilter or close > ema50) and rsiVal < 70
+short = ta.crossunder(ema9, ema21) and (not trendFilter or close < ema50) and rsiVal > 30
+
+plotshape(showSignals and long,  style=shape.labelup,   location=location.belowbar, color=color.green, text="BUY",  textcolor=color.white)
+plotshape(showSignals and short, style=shape.labeldown, location=location.abovebar, color=color.red,   text="SELL", textcolor=color.white)
+
+// Info Table
+var table t = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 20), border_width=1)
+if barstate.islast
+    table.cell(t, 0, 0, "RSI", text_color=color.white)
+    table.cell(t, 1, 0, str.tostring(rsiVal, "#.#"), text_color=rsiVal > 70 ? color.red : rsiVal < 30 ? color.lime : color.white)
+    table.cell(t, 0, 1, "POC", text_color=color.yellow)
+    table.cell(t, 1, 1, str.tostring(pocPrice, format.mintick), text_color=color.yellow)

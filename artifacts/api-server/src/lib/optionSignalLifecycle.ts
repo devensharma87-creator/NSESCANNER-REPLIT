@@ -57,6 +57,12 @@ export interface LifecycleFields {
   maxAdverseExcursionPts: number;
   lastSpot: number;
   /**
+   * Wall-clock time of the most recent lifecycle evaluation. Surfaced to
+   * the UI so the user can see exactly when each plan was last checked
+   * against live spot — trust signal that the trigger pipeline is alive.
+   */
+  lastEvaluatedAt: Date;
+  /**
    * The locked levels that are persisted in the DB row. After a server
    * restart the in-process lockStore is empty, so the caller must use
    * THESE values (not freshly recomputed ones) to render the signal —
@@ -71,12 +77,21 @@ export interface LifecycleFields {
 }
 
 export interface SpotSnapshot {
-  /** Latest mid/last price */
+  /** Latest mid/last price (always present). */
   spot: number;
-  /** Last bar high (so a wick that touched the level is captured) */
-  high: number;
-  /** Last bar low */
-  low: number;
+  /**
+   * Last bar high — used to capture wick-based trigger / target hits when
+   * the wick reached a level even if it didn't close there. OPTIONAL: when
+   * the latest 15-min bar's high isn't available (e.g. the bar literally
+   * just opened and Yahoo hasn't published an extreme yet), the lifecycle
+   * conservatively falls back to `spot`. Falling back to spot is HONEST
+   * (it's the price we know we observed) and SAFER than assuming a wick
+   * that may not exist — trigger fires on real spot crossings, never on a
+   * fabricated extreme.
+   */
+  high?: number;
+  /** Last bar low — same semantics as `high` above. */
+  low?: number;
 }
 
 function istDateKey(d: Date = new Date()): string {
@@ -136,8 +151,12 @@ function evaluateTransition(
     return { next: current, triggered: false, exited: false };
   }
 
-  const hi = Math.max(snap.high, snap.spot);
-  const lo = Math.min(snap.low, snap.spot);
+  // When the bar's high/low are unknown, fall back to spot. This is NOT
+  // synthetic data — it's the conservative envelope of what we actually
+  // observed (`spot` itself is a real measurement). Trigger fires when
+  // real spot reaches the level; we just don't claim a wick we can't see.
+  const hi = Math.max(snap.high ?? snap.spot, snap.spot);
+  const lo = Math.min(snap.low ?? snap.spot, snap.spot);
 
   // Step 1: figure out whether we've triggered.
   let next: LifecycleStatus = current;
@@ -198,15 +217,19 @@ function bestExcursions(
   entry: number,
   snap: SpotSnapshot,
 ): { mfeBar: number; maeBar: number } {
+  // Same conservative envelope as evaluateTransition: when bar extremes
+  // aren't known, the best we can claim is what spot has reached.
+  const hi = snap.high ?? snap.spot;
+  const lo = snap.low ?? snap.spot;
   if (direction === "BULLISH") {
     return {
-      mfeBar: Math.max(0, snap.high - entry),
-      maeBar: Math.max(0, entry - snap.low),
+      mfeBar: Math.max(0, hi - entry),
+      maeBar: Math.max(0, entry - lo),
     };
   }
   return {
-    mfeBar: Math.max(0, entry - snap.low),
-    maeBar: Math.max(0, snap.high - entry),
+    mfeBar: Math.max(0, entry - lo),
+    maeBar: Math.max(0, hi - entry),
   };
 }
 
@@ -296,6 +319,33 @@ export async function recordOrUpdate(
         .onConflictDoNothing()
         .returning();
 
+      // Per-plan structured trace so the user can see exactly when each
+      // setup was evaluated and why it did/didn't transition. Logged at
+      // INFO so it's visible in deployment logs without bumping log level.
+      logger.info(
+        {
+          phase: "lifecycle_insert",
+          idx: signal.index,
+          setup: signal.setupKey,
+          dir: direction,
+          entry,
+          stop,
+          t1,
+          t2,
+          spot: snapshot.spot,
+          barHigh: snapshot.high ?? null,
+          barLow: snapshot.low ?? null,
+          before: "PENDING",
+          after: init.next,
+          triggered: init.triggered,
+          exited: init.exited,
+          exitReason: init.exitReason ?? null,
+          inserted: inserted.length > 0,
+          at: now.toISOString(),
+        },
+        "lifecycle insert",
+      );
+
       if (inserted.length > 0) {
         // Paper trading hook — runs AFTER the lifecycle row is durably
         // persisted, so a hook crash can never leave a paper trade
@@ -319,6 +369,7 @@ export async function recordOrUpdate(
           maxFavorableExcursionPts: round2(exc.mfeBar),
           maxAdverseExcursionPts: round2(exc.maeBar),
           lastSpot: snapshot.spot,
+          lastEvaluatedAt: now,
           lockedEntry: entry,
           lockedStopLoss: stop,
           lockedTarget1: t1,
@@ -373,6 +424,7 @@ export async function recordOrUpdate(
         maxFavorableExcursionPts: round2(num(row.maxFavorableExcursion)),
         maxAdverseExcursionPts: round2(num(row.maxAdverseExcursion)),
         lastSpot: num(row.lastSpot),
+        lastEvaluatedAt: row.lastEvaluatedAt,
         lockedEntry,
         lockedStopLoss: lockedStop,
         lockedTarget1: lockedT1,
@@ -390,6 +442,33 @@ export async function recordOrUpdate(
       snapshot,
     );
     const exc = bestExcursions(direction, lockedEntry, snapshot);
+
+    // Per-evaluation structured trace. Logged on every tick so we have a
+    // complete audit trail of why a plan did or did not advance — the
+    // missing diagnostic that made the "stuck on Waiting trigger" bug so
+    // hard to chase down.
+    logger.info(
+      {
+        phase: "lifecycle_eval",
+        idx: signal.index,
+        setup: signal.setupKey,
+        dir: direction,
+        entry: lockedEntry,
+        stop: lockedStop,
+        t1: lockedT1,
+        t2: lockedT2,
+        spot: snapshot.spot,
+        barHigh: snapshot.high ?? null,
+        barLow: snapshot.low ?? null,
+        before: currentStatus,
+        after: trans.next,
+        triggered: trans.triggered,
+        exited: trans.exited,
+        exitReason: trans.exitReason ?? null,
+        at: now.toISOString(),
+      },
+      "lifecycle eval",
+    );
     // Local "best so far" view returned to *this* caller. Note the
     // value persisted to the DB below is computed atomically with
     // `GREATEST(...)`, not from this local snapshot — so two concurrent
@@ -477,6 +556,7 @@ export async function recordOrUpdate(
         maxFavorableExcursionPts: round2(num(fr.maxFavorableExcursion)),
         maxAdverseExcursionPts: round2(num(fr.maxAdverseExcursion)),
         lastSpot: num(fr.lastSpot),
+        lastEvaluatedAt: fr.lastEvaluatedAt,
         lockedEntry: num(fr.entry),
         lockedStopLoss: num(fr.stopLoss),
         lockedTarget1: num(fr.target1),
@@ -508,6 +588,7 @@ export async function recordOrUpdate(
       maxFavorableExcursionPts: round2(newMfe),
       maxAdverseExcursionPts: round2(newMae),
       lastSpot: snapshot.spot,
+      lastEvaluatedAt: now,
       lockedEntry,
       lockedStopLoss: lockedStop,
       lockedTarget1: lockedT1,

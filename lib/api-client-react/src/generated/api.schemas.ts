@@ -676,6 +676,8 @@ export interface OptionSignal {
   maxAdverseExcursionPts?: number;
   /** Most recent observed spot used to evaluate this signal. */
   lastSpot?: number;
+  /** Wall-clock time the lifecycle was last evaluated against live spot. Surfaced on the card so the user can verify the trigger pipeline is alive — not stuck on stale data. */
+  lastEvaluatedAt?: string;
   /** Current premium (₹/share) of the option at the chosen strike — CE for BULLISH, PE for BEARISH. Sourced from Kite or NSE option chain when available. */
   optionLtp?: number;
   /** Greeks-projected option premium at the spot entry trigger. Equals optionLtp + delta×(spotEntry − spot). What the trader will likely pay if the trigger fires now. */

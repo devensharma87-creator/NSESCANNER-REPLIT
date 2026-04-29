@@ -754,20 +754,29 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
 }
 
 /**
- * Last-bar high/low/spot for the index — fed to lifecycle so wicks count.
+ * Snapshot fed to lifecycle for trigger / SL / target evaluation.
  *
- * Hard-gated on real bar high & low. Old code fell back to `ctx.spot`
- * when the bar's high/low were missing, but the lifecycle uses these
- * values to test "did the wick touch entry / SL / target?" — substituting
- * spot would cause a stop or target to be marked HIT off a fabricated
- * extreme. If a real bar extreme is missing, omit high/low so the
- * lifecycle skips that tick (no fabricated fills).
+ * Spot is ALWAYS emitted (we have it from the live tick / chart meta).
+ * Bar high/low are emitted ONLY when Yahoo has published a real extreme
+ * for the latest 15-min bar. If they're missing (e.g. brand-new bar that
+ * just opened), the lifecycle's evaluateTransition / bestExcursions
+ * fall back to spot — which is the SAFE, honest default (no fabricated
+ * wick can mark a stop or target as hit, but a real spot crossing of the
+ * entry level still fires the trigger).
+ *
+ * IMPORTANT: this MUST always return a snapshot. Returning undefined
+ * caused getOptionSignals to skip the entire index's lifecycle update,
+ * which left every PENDING plan stuck at "Waiting trigger" even when the
+ * market crossed the level (the bug paid users reported).
  */
-function snapshotFromCtx(ctx: Ctx): SpotSnapshot | undefined {
+function snapshotFromCtx(ctx: Ctx): SpotSnapshot {
   const h = ctx.bars.h.at(-1);
   const l = ctx.bars.l.at(-1);
-  if (h == null || l == null) return undefined;
-  return { spot: ctx.spot, high: h, low: l };
+  return {
+    spot: ctx.spot,
+    high: h ?? undefined,
+    low: l ?? undefined,
+  };
 }
 
 export interface OptionSignalsResult {
@@ -851,6 +860,37 @@ setInterval(() => {
     if (v.lockedAt.getTime() < cutoff) lockStore.delete(k);
   }
 }, 60 * 60 * 1000).unref?.();
+
+// ─── Server-side trigger evaluator ───────────────────────────────────────
+//
+// The lifecycle pipeline is otherwise demand-driven: a plan is only
+// re-evaluated when /api/options/signals is called, which only happens
+// when a user has the page open. If nobody is looking at the page during
+// the 09:15–15:30 IST session, plans stay PENDING even when spot crosses
+// the trigger.
+//
+// This interval calls getOptionSignals() once a minute during regular
+// market hours so the lifecycle keeps advancing whether or not anyone is
+// watching. Errors are swallowed (best-effort heartbeat — the next tick
+// will retry), and the call is a no-op outside market hours so it costs
+// effectively nothing on weekends / overnight.
+let triggerSweepRunning = false;
+const TRIGGER_SWEEP_INTERVAL_MS = 60 * 1000;
+setInterval(() => {
+  if (triggerSweepRunning) return; // skip if previous tick still in flight
+  if (computeMarketStatus(new Date()) !== "open") return;
+  triggerSweepRunning = true;
+  void getOptionSignals()
+    .catch((err) => {
+      logger.warn(
+        { err: (err as Error).message },
+        "trigger sweep getOptionSignals failed",
+      );
+    })
+    .finally(() => {
+      triggerSweepRunning = false;
+    });
+}, TRIGGER_SWEEP_INTERVAL_MS).unref?.();
 
 // ─── Option-level enrichment (current LTP / projected entry-T1-T2-SL) ────
 //
@@ -959,6 +999,11 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // Persist + evaluate lifecycle for every signal (best-effort; mutates each
   // signal in-place so the API response carries status/MFE/MAE/etc).
   for (const b of bundles) {
+    // snapshotFromCtx ALWAYS returns a snapshot now (spot is always known;
+    // bar h/l are optional). The previous `if (!b.snapshot) continue` was
+    // skipping the entire index's lifecycle whenever the just-opened 15-min
+    // bar didn't yet have published extremes — leaving every PENDING plan
+    // stuck at "Waiting trigger" while the market blew past the level.
     if (!b.snapshot) continue;
     for (const s of b.signals) {
       try {
@@ -973,6 +1018,7 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
         s.maxFavorableExcursionPts = lc.maxFavorableExcursionPts;
         s.maxAdverseExcursionPts = lc.maxAdverseExcursionPts;
         s.lastSpot = lc.lastSpot;
+        s.lastEvaluatedAt = lc.lastEvaluatedAt;
         // DB-as-source-of-truth for locked levels: after a server restart
         // the in-process lockStore is empty, so without this override the
         // card would show recomputed levels that drift from what's already

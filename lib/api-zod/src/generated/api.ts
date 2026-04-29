@@ -1382,6 +1382,12 @@ export const GetOptionSignalsResponse = zod.object({
         .number()
         .optional()
         .describe("Most recent observed spot used to evaluate this signal."),
+      lastEvaluatedAt: zod.coerce
+        .date()
+        .optional()
+        .describe(
+          "Wall-clock time the lifecycle was last evaluated against live spot. Surfaced on the card so the user can verify the trigger pipeline is alive — not stuck on stale data.",
+        ),
       optionLtp: zod
         .number()
         .optional()
