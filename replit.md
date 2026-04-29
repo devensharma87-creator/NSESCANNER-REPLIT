@@ -99,3 +99,14 @@ The project is structured as a pnpm workspace monorepo, utilizing TypeScript 5.9
 - **TradingView**: Webhook integration.
 - **News Feeds**: Moneycontrol, Mint, Economic Times (ET), CNBC TV18, Business Standard, Investing.com.
 - **Google Fonts**: For typography.
+
+# Recent Changes (2026-04-29) — F&O Intraday Quality Pass
+
+The F&O Intraday signal engine and scoreboard had four root-cause defects producing the user-reported "0% win rate, 13 signals, 6 short × 1 long, MAE >> MFE" failure mode. All four fixed in `artifacts/api-server/src/lib/optionSignals.ts` and `artifacts/scanner/src/pages/options.tsx`:
+
+1. **HTF bias deadband ±0.1% → ±0.4%** around daily EMA50 in `buildContext`. Tight band was flipping `htfBias` BEARISH on every micro-cross and silently haircutting longs by 12 confidence points — the systemic short bias.
+2. **Late-session entry gate at 14:30 IST** for trend-class detectors (TREND_CONTINUATION, VWAP_RECLAIM, VOLUME_BREAKOUT, EMA_PULLBACK). Mean Reversion exempt. Trend setups need the full afternoon to reach pivot R1.
+3. **`clampPlanForIntraday` helper** wired into `buildSignalsForIndex`. Tightens structural stop/T1/T2 to an empirically-traversable intraday envelope (stop ≤ max(0.45% spot, 0.6×ATR15); T1 ≤ min(structural, max(1.0% spot, 1.6×ATR15)); T2 = T1 × 1.7 with structural ceiling). Rejects high-conviction signals whose post-clamp RR < 1.4. Mean Reversion exempt. Includes T2-must-sit-beyond-T1 invariant guard so the lifecycle (which evaluates T2 before T1) cannot mint false T2 hits.
+4. **Scoreboard win-rate folds in EXPIRED_TRIGGERED outcomes**. Previously expired-but-triggered trades (the dominant outcome in the failing snapshot) were excluded entirely from the denominator — masking real losses. Now classified by direction-signed `exitPrice − entry`: >0 win, <0 loss, |Δ|/entry < 5 bps scratch. Headline KPIs added: "Expired (open) NW/ML" and "Realised P&L pts". Per-setup / per-index `BucketTable` adds a "Realised pts" column.
+
+Architect review: PASS with one edge case caught and patched (T2/T1 ordering invariant). Both packages typecheck clean.

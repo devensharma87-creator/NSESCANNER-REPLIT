@@ -605,14 +605,40 @@ interface KpiBucket {
   stopped: number;
   expired: number;
   pending: number;
+  /** EXPIRED_TRIGGERED rows that finished above entry in trade direction. */
+  expiredWin: number;
+  /** EXPIRED_TRIGGERED rows that finished below entry in trade direction. */
+  expiredLoss: number;
+  /** EXPIRED_TRIGGERED rows whose exit was within ±5 bps of entry — neither win nor loss. */
+  expiredScratch: number;
   totalMfe: number;
   totalMae: number;
+  /** Sum of realised points-in-trade across all decided rows (wins + losses).
+   *  Bullish: exitPrice − entry. Bearish: entry − exitPrice. */
+  realisedPts: number;
 }
 
 const EMPTY_KPI: KpiBucket = {
   total: 0, triggered: 0, t1Hit: 0, t2Hit: 0, stopped: 0, expired: 0, pending: 0,
-  totalMfe: 0, totalMae: 0,
+  expiredWin: 0, expiredLoss: 0, expiredScratch: 0,
+  totalMfe: 0, totalMae: 0, realisedPts: 0,
 };
+
+/** Realised point P&L for a row that has an exitPrice and an entry, in the
+ *  trade direction. Returns null if either is missing. */
+function realisedPtsFor(item: OptionSignalHistoryItem): number | null {
+  if (item.exitPrice == null || item.entry == null) return null;
+  return item.direction === "BULLISH"
+    ? item.exitPrice - item.entry
+    : item.entry - item.exitPrice;
+}
+
+/** Scratch threshold: ±5 bps of entry. Below this we don't claim a directional
+ *  outcome — the trade was effectively flat at the close. */
+function isScratch(entry: number, exitPrice: number): boolean {
+  if (entry <= 0) return false;
+  return Math.abs(exitPrice - entry) / entry < 0.0005;
+}
 
 function addToBucket(b: KpiBucket, item: OptionSignalHistoryItem): KpiBucket {
   const next = { ...b };
@@ -625,16 +651,45 @@ function addToBucket(b: KpiBucket, item: OptionSignalHistoryItem): KpiBucket {
   if (item.status === "PENDING") next.pending += 1;
   next.totalMfe += item.maxFavorableExcursionPts ?? 0;
   next.totalMae += item.maxAdverseExcursionPts ?? 0;
+
+  // Classify EXPIRED_TRIGGERED into realised win / loss / scratch using the
+  // direction-signed gap between exitPrice and entry. The previous
+  // scoreboard excluded these entirely from win-rate, which made a day with
+  // 5 real losers (every triggered trade closed below entry) display as
+  // "no decided trades" — silently masking poor signal quality. EXPIRED
+  // without a triggeredAt (PENDING-only that aged out) is NOT counted; it
+  // had no position so it has no P&L.
+  const realised = realisedPtsFor(item);
+  if (
+    item.status === "EXPIRED" &&
+    item.exitReason === "EXPIRED_TRIGGERED" &&
+    item.exitPrice != null &&
+    item.entry != null &&
+    realised != null
+  ) {
+    if (isScratch(item.entry, item.exitPrice)) next.expiredScratch += 1;
+    else if (realised > 0) next.expiredWin += 1;
+    else next.expiredLoss += 1;
+  }
+
+  // Realised P&L sum: every row that has an exitPrice contributes,
+  // including T1_HIT (settled at T1 by EOD sweep), T2_HIT, STOPPED, and
+  // EXPIRED_TRIGGERED. PENDING and pre-trigger expirations have no P&L.
+  if (realised != null && (item.triggeredAt || item.status === "STOPPED")) {
+    next.realisedPts += realised;
+  }
   return next;
 }
 
 function winRate(b: KpiBucket): number | null {
-  // Win = T1_HIT or T2_HIT. Loss = STOPPED. EXPIRED counted as no-decision
-  // (not a win, not a loss) — they aren't included in the denominator so
-  // the rate isn't artificially deflated by signals that simply ran out
-  // of session time.
-  const wins = b.t1Hit + b.t2Hit;
-  const losses = b.stopped;
+  // Wins  = T1 hit + T2 hit + EXPIRED_TRIGGERED that closed above entry.
+  // Losses= STOPPED + EXPIRED_TRIGGERED that closed below entry.
+  // Scratch (EXPIRED_TRIGGERED at ~entry) and pre-trigger EXPIRED rows are
+  // excluded — neither win nor loss. Including expired-triggered outcomes
+  // is the honest accounting: those positions WERE entered and DID realise
+  // a P&L at session close, even though they didn't tag a target.
+  const wins = b.t1Hit + b.t2Hit + b.expiredWin;
+  const losses = b.stopped + b.expiredLoss;
   const decided = wins + losses;
   if (decided === 0) return null;
   return Math.round((wins / decided) * 100);
@@ -709,7 +764,11 @@ function ScoreboardTab() {
             <KpiCell label="T1 hit" value={overall.t1Hit.toString()} tone="text-signal-strong-buy" />
             <KpiCell label="T2 hit" value={overall.t2Hit.toString()} tone="text-signal-strong-buy" />
             <KpiCell label="Stopped" value={overall.stopped.toString()} tone="text-signal-strong-sell" />
-            <KpiCell label="Expired" value={overall.expired.toString()} />
+            <KpiCell
+              label="Expired (open)"
+              value={(overall.expiredWin + overall.expiredLoss + overall.expiredScratch).toString()}
+              sub={`${overall.expiredWin}W / ${overall.expiredLoss}L${overall.expiredScratch > 0 ? ` / ${overall.expiredScratch}≈` : ""}`}
+            />
             <KpiCell
               label="Win rate"
               value={overallWin == null ? "—" : `${overallWin}%`}
@@ -720,12 +779,22 @@ function ScoreboardTab() {
                   ? "text-signal-strong-buy"
                   : "text-signal-strong-sell"
               }
-              sub={overallWin == null ? "no decided trades" : `${overall.t1Hit + overall.t2Hit}W / ${overall.stopped}L`}
+              sub={
+                overallWin == null
+                  ? "no decided trades"
+                  : `${overall.t1Hit + overall.t2Hit + overall.expiredWin}W / ${overall.stopped + overall.expiredLoss}L`
+              }
             />
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs font-mono mt-3 pt-3 border-t border-border/40">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono mt-3 pt-3 border-t border-border/40">
             <KpiCell label="Avg MFE / signal" value={`+${avgMfe(overall).toFixed(2)} pts`} tone="text-signal-strong-buy" />
             <KpiCell label="Avg MAE / signal" value={`-${avgMae(overall).toFixed(2)} pts`} tone="text-signal-strong-sell" />
+            <KpiCell
+              label="Realised P&L"
+              value={`${overall.realisedPts >= 0 ? "+" : ""}${overall.realisedPts.toFixed(2)} pts`}
+              tone={overall.realisedPts >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}
+              sub="sum across decided trades"
+            />
             <KpiCell label="Pending" value={overall.pending.toString()} sub="awaiting trigger" />
           </div>
         </CardContent>
@@ -843,8 +912,9 @@ function BucketTable({ rows, keyLabel }: { rows: Array<[string, KpiBucket]>; key
             <th className="text-right py-1.5 px-2">T1</th>
             <th className="text-right py-1.5 px-2">T2</th>
             <th className="text-right py-1.5 px-2">Stopped</th>
-            <th className="text-right py-1.5 px-2">Expired</th>
+            <th className="text-right py-1.5 px-2" title="Trades that triggered but didn't tag T1 or stop before 15:30 IST. W/L split by exit price vs entry.">Expired (open)</th>
             <th className="text-right py-1.5 px-2">Win rate</th>
+            <th className="text-right py-1.5 px-2" title="Sum of points realised across all decided trades (T1/T2 + stops + expired-triggered).">Realised pts</th>
             <th className="text-right py-1.5 px-2">Avg MFE</th>
             <th className="text-right py-1.5 px-2">Avg MAE</th>
           </tr>
@@ -852,6 +922,7 @@ function BucketTable({ rows, keyLabel }: { rows: Array<[string, KpiBucket]>; key
         <tbody>
           {rows.map(([name, b]) => {
             const wr = winRate(b);
+            const expDecided = b.expiredWin + b.expiredLoss + b.expiredScratch;
             return (
               <tr key={name} className="border-b border-border/20 hover:bg-secondary/20">
                 <td className="py-1.5 px-2 text-foreground">{name}</td>
@@ -860,9 +931,19 @@ function BucketTable({ rows, keyLabel }: { rows: Array<[string, KpiBucket]>; key
                 <td className="py-1.5 px-2 text-right tabular-nums text-signal-strong-buy">{b.t1Hit}</td>
                 <td className="py-1.5 px-2 text-right tabular-nums text-signal-strong-buy">{b.t2Hit}</td>
                 <td className="py-1.5 px-2 text-right tabular-nums text-signal-strong-sell">{b.stopped}</td>
-                <td className="py-1.5 px-2 text-right tabular-nums text-muted-foreground">{b.expired}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-muted-foreground" title={expDecided > 0 ? `${b.expiredWin}W / ${b.expiredLoss}L${b.expiredScratch > 0 ? ` / ${b.expiredScratch} scratch` : ""}` : undefined}>
+                  {expDecided}
+                  {expDecided > 0 && (
+                    <span className="ml-1 text-[9px] opacity-70">
+                      ({b.expiredWin}W/{b.expiredLoss}L)
+                    </span>
+                  )}
+                </td>
                 <td className={`py-1.5 px-2 text-right tabular-nums font-bold ${wr == null ? "text-muted-foreground" : wr >= 50 ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
                   {wr == null ? "—" : `${wr}%`}
+                </td>
+                <td className={`py-1.5 px-2 text-right tabular-nums font-bold ${b.realisedPts >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
+                  {b.realisedPts >= 0 ? "+" : ""}{b.realisedPts.toFixed(2)}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums text-signal-strong-buy">+{avgMfe(b).toFixed(2)}</td>
                 <td className="py-1.5 px-2 text-right tabular-nums text-signal-strong-sell">-{avgMae(b).toFixed(2)}</td>

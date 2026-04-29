@@ -179,9 +179,17 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     return null;
   }
 
+  // Deadband around daily EMA50. The previous ±0.1% threshold was too tight:
+  // when an index oscillates within ~50 bps of its 50-day mean (which is the
+  // norm in non-trending sessions), every micro-cross flipped htfBias and the
+  // BEARISH tag silently haircut every long setup by 12 confidence pts —
+  // producing the systemic short bias seen in the scoreboard (6 shorts vs 1
+  // long across the indices). Widening to ±0.4% requires a meaningfully
+  // displaced spot before tagging trend, leaving routine wobbles NEUTRAL
+  // (which carries no bullish/bearish penalty).
   const htfBias: "BULLISH" | "BEARISH" | "NEUTRAL" =
-    spot > dailyEma50 * 1.001 ? "BULLISH"
-    : spot < dailyEma50 * 0.999 ? "BEARISH"
+    spot > dailyEma50 * 1.004 ? "BULLISH"
+    : spot < dailyEma50 * 0.996 ? "BEARISH"
     : "NEUTRAL";
 
   return {
@@ -199,6 +207,53 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     prevSwingHigh, prevSwingLow,
     bars: { o: today.open, h: highs, l: lows, c: closes, v: vols },
   };
+}
+
+// ─── Intraday plan-quality clamps ────────────────────────────────────────
+//
+// The original detectors derived stop / target from STRUCTURAL levels
+// (pivot S1/R1, swing high/low, value-area edges) which on Indian indices
+// regularly sit 1–2% from spot. For an INTRADAY option play that's a
+// catastrophic plan: the underlying spends most of the session inside a
+// 0.5–1% range, so the locked T1 never hits while the wide stop accumulates
+// MAE all session. The user's scoreboard reflects this exactly — every
+// triggered trade that didn't immediately fail expired below entry with
+// MAE much greater than MFE.
+//
+// We clamp the structural plan back into the empirically achievable
+// intraday envelope:
+//
+//   stop distance  ≤ max(0.45% of spot, 0.6 × ATR15)
+//   T1 distance    ≤ min(structural T1, max(1.0% of spot, 1.6 × ATR15))
+//   T2 distance    = T1 distance × 1.7   (preserves the existing T1→T2
+//                                         runner geometry)
+//
+// We REJECT (return null) any high-conviction signal whose post-clamp
+// risk-reward falls below 1.4 — the trade plan is no longer worth the
+// premium decay, and shipping it would be dishonest.
+//
+// Mean-reversion setups skip the T1/T2 clamp because by construction
+// their target IS a mean (VWAP / EMA21) which is necessarily close to
+// spot — re-clamping would mangle the geometry.
+const MAX_STOP_PCT_OF_SPOT = 0.0045;
+const MAX_T1_PCT_OF_SPOT = 0.010;
+const STOP_ATR_MULT = 0.6;
+const T1_ATR_MULT = 1.6;
+const T2_FROM_T1_MULT = 1.7;
+const MIN_RR_FOR_HC = 1.4;
+
+// IST minute-of-day after which fresh high-conviction TREND-style entries
+// are blocked. Trend Continuation / VWAP Reclaim / Volume Breakout / EMA
+// Pullback all target a pivot R1/R2-class move that historically takes
+// the full afternoon to materialise. Firing one at 14:45 with 45 minutes
+// of session left almost guarantees an EXPIRED_TRIGGERED outcome — which
+// is exactly what the scoreboard shows. Mean Reversion is exempt because
+// its target is the *nearest* mean (close, fast).
+const LATE_ENTRY_CUTOFF_IST_MIN = 14 * 60 + 30; // 14:30 IST
+
+function nowIstMinutes(d: Date = new Date()): number {
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.getUTCHours() * 60 + ist.getUTCMinutes();
 }
 
 // ---------- setup detectors ----------
@@ -635,6 +690,72 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
   };
 }
 
+/**
+ * Tighten a detector's structural plan to an INTRADAY-realistic envelope.
+ * Returns the modified Detected if its post-clamp risk-reward still
+ * clears `MIN_RR_FOR_HC`; otherwise returns null and the caller drops
+ * the signal. Mean-reversion is exempt — its target is the proximate
+ * mean by design and any clamp would distort the geometry.
+ *
+ * The clamp NEVER widens stops or pulls targets out — it only shrinks
+ * a too-wide structural plan back to what the underlying actually
+ * traverses in a typical session. If the structural plan is already
+ * tight, this is a no-op.
+ */
+function clampPlanForIntraday(d: Detected, c: Ctx): Detected | null {
+  if (d.setupKey === "MEAN_REVERSION") return d;
+
+  const dir = d.direction;
+  const entry = d.entryLevel;
+
+  // Stop: clamp distance to max(0.45% spot, 0.6 × ATR15). If the structural
+  // stop is already tighter than this envelope, keep it (we never widen).
+  const maxStopDist = Math.max(MAX_STOP_PCT_OF_SPOT * c.spot, STOP_ATR_MULT * c.atr15);
+  const structStopDist = Math.abs(entry - d.stopLevel);
+  const newStopDist = Math.min(structStopDist, maxStopDist);
+  const stopLevel = dir === "BULLISH" ? entry - newStopDist : entry + newStopDist;
+
+  // T1: clamp distance to min(structural T1, max(1.0% spot, 1.6 × ATR15)).
+  // Same one-sided semantics — we never push the target further out.
+  const maxT1Dist = Math.max(MAX_T1_PCT_OF_SPOT * c.spot, T1_ATR_MULT * c.atr15);
+  const structT1Dist = Math.abs(d.targetLevel - entry);
+  const newT1Dist = Math.min(structT1Dist, maxT1Dist);
+  const targetLevel = dir === "BULLISH" ? entry + newT1Dist : entry - newT1Dist;
+
+  // T2: pinned to T1 × 1.7 from entry so a runner still has meaningful
+  // upside without being so far away it can never hit. We also keep
+  // structural T2 as a ceiling — never push past where the original
+  // detector said the move would target.
+  //
+  // INVARIANT: T2 must always sit strictly beyond T1 in trade direction.
+  // Some structural plans put T2 == T1 (or close), and after we shrink T1
+  // the structural-T2 ceiling can collapse to a value <= newT1Dist. The
+  // lifecycle evaluates T2 BEFORE T1, so a folded geometry would fire
+  // false T2 hits the moment T1 is touched. If the structural cap would
+  // violate the ordering, drop the cap and use the geometric T2 directly.
+  const proposedT2Dist = newT1Dist * T2_FROM_T1_MULT;
+  const structT2Dist = Math.abs(d.target2Level - entry);
+  const cappedT2Dist =
+    structT2Dist > newT1Dist
+      ? Math.min(proposedT2Dist, structT2Dist)
+      : proposedT2Dist;
+  if (cappedT2Dist <= newT1Dist) return null;
+  const target2Level = dir === "BULLISH" ? entry + cappedT2Dist : entry - cappedT2Dist;
+
+  // RR gate. Stop distance can collapse to ~0 in pathological cases
+  // (entry == structural stop), in which case the trade is meaningless.
+  if (newStopDist <= 0) return null;
+  const rr = newT1Dist / newStopDist;
+  if (rr < MIN_RR_FOR_HC) return null;
+
+  return {
+    ...d,
+    stopLevel,
+    targetLevel,
+    target2Level,
+  };
+}
+
 // ---------- builder ----------
 function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): OptionSignal {
   const strike = nearestStrike(c.spot, c.cfg.strikeStep);
@@ -718,12 +839,19 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
   const marketStatus = computeMarketStatus(new Date());
   const isMarketOpen = marketStatus === "open";
 
-  const detectors = [
-    { name: "trend_continuation", fn: detectTrendContinuation },
-    { name: "vwap_reclaim",       fn: detectVwapReclaim },
-    { name: "volume_breakout",    fn: detectVolumeBreakout },
-    { name: "ema_pullback",       fn: detectEmaPullback },
-    { name: "mean_reversion",     fn: detectMeanReversion },
+  // Trend-class detectors target a pivot R1/R2-class move and need the full
+  // afternoon to play out; gate them off after 14:30 IST so we don't ship a
+  // signal that geometrically cannot resolve before the 15:30 close. Mean
+  // Reversion targets the proximate VWAP/EMA21 mean and remains eligible.
+  const istMin = nowIstMinutes(new Date());
+  const trendEntryAllowed = istMin < LATE_ENTRY_CUTOFF_IST_MIN;
+
+  const detectors: Array<{ name: string; fn: (c: Ctx) => Detected | null; trendClass: boolean }> = [
+    { name: "trend_continuation", fn: detectTrendContinuation, trendClass: true  },
+    { name: "vwap_reclaim",       fn: detectVwapReclaim,       trendClass: true  },
+    { name: "volume_breakout",    fn: detectVolumeBreakout,    trendClass: true  },
+    { name: "ema_pullback",       fn: detectEmaPullback,       trendClass: true  },
+    { name: "mean_reversion",     fn: detectMeanReversion,     trendClass: false },
   ];
   const highConviction: Detected[] = [];
   const suppressed: string[] = [];
@@ -731,10 +859,27 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
     suppressed.push(`market_closed: ${marketStatus} (high-conviction setups gated to 09:15–15:30 IST)`);
   } else {
     for (const det of detectors) {
+      if (det.trendClass && !trendEntryAllowed) {
+        suppressed.push(`${det.name}: late-session entry gate (after 14:30 IST — insufficient runway for trend target)`);
+        continue;
+      }
       try {
         const r = det.fn(ctx);
-        if (r) highConviction.push(r);
-        else suppressed.push(`${det.name}: conditions not met`);
+        if (!r) {
+          suppressed.push(`${det.name}: conditions not met`);
+          continue;
+        }
+        // Tighten the structural plan into an INTRADAY-realistic envelope
+        // and reject if the post-clamp risk-reward is no longer worth the
+        // premium decay. This is what stops the system from shipping the
+        // "stop 1.5% wide, target 2% away" plans that produced 0% win rate
+        // in the user's scoreboard. Mean Reversion is exempt by design.
+        const clamped = clampPlanForIntraday(r, ctx);
+        if (!clamped) {
+          suppressed.push(`${det.name}: post-clamp RR < ${MIN_RR_FOR_HC} — plan rejected as not worth premium decay`);
+          continue;
+        }
+        highConviction.push(clamped);
       } catch (err) {
         const msg = (err as Error).message;
         logger.warn({ err: msg, idx: cfg.symbol, det: det.name }, "Setup detector failed");
