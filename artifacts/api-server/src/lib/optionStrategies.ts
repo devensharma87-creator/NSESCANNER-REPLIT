@@ -32,6 +32,18 @@ export interface StrategyLeg {
   theta: number;          // per calendar day
   qty: number;            // number of lots (positive); BUY = +qty contracts, SELL = -qty
   source: "chain" | "bs"; // "chain" = used quoted price, "bs" = derived
+  /** Liquidity & quote-quality fields. Surfaced so the UI can refuse to
+   *  mislead the user about a strike that nobody actually trades. All
+   *  nullable to honour the no-synthetic-data rule when the chain didn't
+   *  return real bid/ask/oi/vol. */
+  bid: number | null;
+  ask: number | null;
+  spreadPct: number | null;   // (ask - bid) / mid, decimal
+  oi: number | null;
+  volume: number | null;
+  /** True only when both bid AND ask were quoted by the chain. False when
+   *  we fell back to LTP (a stale-price proxy that's unsafe to work). */
+  quoted: boolean;
 }
 
 export interface PayoffPoint { spot: number; pnl: number }
@@ -126,6 +138,20 @@ export interface StrategySnapshot {
   suitability: { ivContext: "LOW" | "HIGH" | "ANY"; biasFit: ("BULLISH" | "BEARISH" | "NEUTRAL")[] };
   recommended: boolean;
   rationale?: string;
+  /** Worst-case execution quality across all legs. Drives a UI badge so the
+   *  user knows whether the listed prices are tradeable.
+   *   TIGHT — every leg has a real bid/ask quote with spread ≤ 4% of mid
+   *   WIDE  — at least one leg has spread between 4–15% (workable but slip)
+   *   POOR  — at least one leg has spread > 15% OR fell back to LTP-only.
+   *           These plans should be sized down or skipped at the bid/ask. */
+  legQuality: "TIGHT" | "WIDE" | "POOR";
+  /** Average IV across all option legs (decimal). Lets the card surface a
+   *  "characteristic IV" pill without expanding the leg table. */
+  avgLegIv: number;
+  /** Volume-weighted-mid OI on the strategy's short legs. Useful for the
+   *  user to see how thick the wings really are. Null when the chain didn't
+   *  return per-leg OI. */
+  shortLegOi: number | null;
 }
 
 export interface StrategyBundle {
@@ -148,6 +174,174 @@ function midOrLtp(side: OcSide | undefined): number | null {
     return +(((side.bid + side.ask) / 2)).toFixed(2);
   }
   return side.ltp != null && side.ltp > 0 ? side.ltp : null;
+}
+
+/** Returns whether the side has a real two-sided quote, plus the relative
+ *  spread (ask - bid) / mid as a decimal. Used by the liquidity gate so the
+ *  builder can refuse to ship a strategy that's only "priceable" via stale
+ *  LTP, and so the UI can warn on tail-strike legs with a 25%-wide spread. */
+function legLiquidity(side: OcSide | undefined): {
+  bid: number | null;
+  ask: number | null;
+  spreadPct: number | null;
+  oi: number | null;
+  volume: number | null;
+  quoted: boolean;
+} {
+  if (!side) {
+    return { bid: null, ask: null, spreadPct: null, oi: null, volume: null, quoted: false };
+  }
+  const bid = side.bid != null && side.bid > 0 ? side.bid : null;
+  const ask = side.ask != null && side.ask > 0 ? side.ask : null;
+  const quoted = bid != null && ask != null && ask >= bid;
+  const spreadPct = quoted
+    ? +((ask! - bid!) / ((ask! + bid!) / 2)).toFixed(4)
+    : null;
+  return {
+    bid, ask, spreadPct,
+    oi:     side.oi     != null ? side.oi     : null,
+    volume: side.volume != null ? side.volume : null,
+    quoted,
+  };
+}
+
+/** Compute the option's delta from a chain row using its quoted IV when
+ *  available, otherwise solving via the leg's mid price, otherwise falling
+ *  back to the strategy's reference ATM IV. Used by `pickStrikeByDelta`. */
+function deltaForRow(
+  row: OcRow,
+  type: OptionType,
+  spot: number,
+  T: number,
+  q: number,
+  atmSigma: number,
+): number | null {
+  const side = type === "CE" ? row.ce : row.pe;
+  if (!side) return null;
+  const mid = midOrLtp(side);
+  if (mid == null) return null;
+  let iv = side.iv != null && side.iv > 0 ? side.iv / 100 : null;
+  if (iv == null) {
+    iv = impliedVolatility({
+      S: spot, K: row.strike, T, r: RISK_FREE, q, type, marketPrice: mid,
+    });
+  }
+  if (iv == null) iv = atmSigma;
+  if (!Number.isFinite(iv) || iv <= 0) return null;
+  return priceAndGreeks({ S: spot, K: row.strike, T, r: RISK_FREE, q, sigma: iv, type }).delta;
+}
+
+/**
+ * Pick the chain row whose absolute delta is closest to `targetAbsDelta`
+ * for the requested option type. This is the **professional standard** for
+ * scaling multi-leg strategies to an underlying's actual implied volatility,
+ * and replaces the rigid "±N strike steps from ATM" convention which is
+ * arbitrary across underlyings (±2 steps is ±0.4% of NIFTY but ±4% of a
+ * ₹500 stock — totally different risk profiles).
+ *
+ * For OTM-only requests (e.g. "the short put wing of an iron condor"), the
+ * scan is restricted to strikes on the OTM side of spot, otherwise we'd
+ * accidentally pick a deep-ITM call to satisfy a "30Δ short call" goal.
+ *
+ * Returns `null` when no row meets the criteria — caller is expected to fall
+ * back to `strikeOffset` so the strategy still ships on thin chains.
+ */
+function pickStrikeByDelta(
+  chain: OcResponse,
+  targetAbsDelta: number,
+  type: OptionType,
+  side: "OTM" | "ANY",
+  spot: number,
+  T: number,
+  q: number,
+  atmSigma: number,
+): OcRow | null {
+  let best: { row: OcRow; dist: number } | null = null;
+  for (const row of chain.rows) {
+    if (side === "OTM") {
+      if (type === "CE" && row.strike <= spot) continue;
+      if (type === "PE" && row.strike >= spot) continue;
+    }
+    const d = deltaForRow(row, type, spot, T, q, atmSigma);
+    if (d == null) continue;
+    const dist = Math.abs(Math.abs(d) - targetAbsDelta);
+    if (!best || dist < best.dist) best = { row, dist };
+  }
+  return best ? best.row : null;
+}
+
+/** Combined picker: try delta-targeted first, fall back to step-based. */
+function pickStrike(
+  chain: OcResponse,
+  fromStrike: number,
+  fallbackStep: number,
+  targetAbsDelta: number,
+  type: OptionType,
+  spot: number,
+  T: number,
+  q: number,
+  atmSigma: number,
+): OcRow | null {
+  return pickStrikeByDelta(chain, targetAbsDelta, type, "OTM", spot, T, q, atmSigma)
+      ?? strikeOffset(chain, fromStrike, fallbackStep);
+}
+
+/**
+ * Pair-aware picker for the **protective long wing** of a credit spread or
+ * condor. Identical to `pickStrike`, but constrained so the chosen strike is
+ * strictly *beyond* `anchorStrike` in the OTM direction (i.e. higher for CE,
+ * lower for PE). This prevents the delta picker from accidentally placing
+ * the long wing on top of (or inside of) the short wing on coarse strike
+ * grids, which would collapse the spread width to zero or invert the geometry.
+ *
+ * Selection algorithm:
+ *   1. Try delta-targeted pick restricted to strikes farther OTM than the anchor.
+ *   2. If nothing found, fall back to the next strike step in the right
+ *      direction from the anchor (always farther OTM, never colliding).
+ *   3. If even that doesn't exist on the chain, give up — caller will mark
+ *      the strategy unavailable.
+ */
+function pickStrikeFartherOtm(
+  chain: OcResponse,
+  anchorStrike: number,
+  fallbackStep: number,
+  targetAbsDelta: number,
+  type: OptionType,
+  spot: number,
+  T: number,
+  q: number,
+  atmSigma: number,
+): OcRow | null {
+  // Scan strikes that meet *both* constraints: real OTM relative to spot AND
+  // strictly farther OTM than the anchor (the short leg).
+  let best: { row: OcRow; dist: number } | null = null;
+  for (const row of chain.rows) {
+    if (type === "CE") {
+      if (row.strike <= spot) continue;
+      if (row.strike <= anchorStrike) continue;
+    } else {
+      if (row.strike >= spot) continue;
+      if (row.strike >= anchorStrike) continue;
+    }
+    const d = deltaForRow(row, type, spot, T, q, atmSigma);
+    if (d == null) continue;
+    const dist = Math.abs(Math.abs(d) - targetAbsDelta);
+    if (!best || dist < best.dist) best = { row, dist };
+  }
+  if (best) return best.row;
+  // Fallback: walk one step further OTM from the anchor, then keep walking
+  // until we find a quoted row on the requested side. Caps at 6 steps to
+  // avoid runaway loops on pathological chains.
+  const step = type === "CE" ? +1 : -1;
+  for (let i = 1; i <= 6; i++) {
+    const cand = strikeOffset(chain, anchorStrike, step * i);
+    if (!cand) continue;
+    const side = type === "CE" ? cand.ce : cand.pe;
+    if (side && midOrLtp(side) != null) return cand;
+  }
+  // Last-resort: respect the original fallbackStep request from the template.
+  void fallbackStep;
+  return null;
 }
 
 function nearestRow(rows: OcRow[], target: number): OcRow | null {
@@ -202,6 +396,7 @@ function buildLeg(
     S: spot, K: built.row.strike, T, r: RISK_FREE, q, sigma: iv, type: built.type,
   });
 
+  const liq = legLiquidity(built.side);
   return {
     action,
     optionType: built.type,
@@ -214,6 +409,12 @@ function buildLeg(
     theta: greeks.theta,
     qty,
     source: built.side.iv != null ? "chain" : "bs",
+    bid: liq.bid,
+    ask: liq.ask,
+    spreadPct: liq.spreadPct,
+    oi: liq.oi,
+    volume: liq.volume,
+    quoted: liq.quoted,
   };
 }
 
@@ -574,6 +775,7 @@ function estimateMargin(
   maxLossLot: number | null,
   spot: number,
   lotSize: number,
+  underlyingKind: "INDEX" | "EQUITY",
 ): number {
   const cashflowLot = netDebitPerShare * lotSize;
   // Pure debit → cost is the capital
@@ -590,11 +792,38 @@ function estimateMargin(
     // double-counts the credit and drives capital to ~₹0.
     return +Math.abs(maxLossLot).toFixed(2);
   }
-  // Unbounded credit (short straddle / strangle): SPAN+exposure proxy.
-  // ~18% of underlying notional, less the credit retained in cash (brokers
-  // typically allow the premium received to offset part of the SPAN block).
+  // Unbounded credit (short straddle / strangle): SPAN+exposure proxy
+  // tuned to India F&O exchange rules:
+  //   SPAN initial margin   ≈ 13% scenario shock for indices, 15% for equity
+  //   Exposure margin       ≈ 3% of notional (NSE F&O exposure rule)
+  //   Credit retained       reduces the cash blocked
+  //
+  // The naked-credit strategy here is a short STRANGLE/STRADDLE — both sides
+  // open simultaneously. Brokers typically apply the SPAN block once
+  // (because shocks on either tail offset on the other side), so we don't
+  // double-count.
   const notional = spot * lotSize;
-  return +Math.max(0, 0.18 * notional - creditReceived).toFixed(2);
+  const spanPct     = underlyingKind === "INDEX" ? 0.13 : 0.15;
+  const exposurePct = 0.03;
+  const block = (spanPct + exposurePct) * notional;
+  return +Math.max(0, block - creditReceived).toFixed(2);
+}
+
+/** Roll up per-leg liquidity into a single execution-quality bucket for the
+ *  strategy. Drives the colored badge on each card so a glance tells the
+ *  user whether the listed prices are tradeable, workable with slippage, or
+ *  effectively a placeholder. */
+function classifyLegQuality(legs: StrategyLeg[]): "TIGHT" | "WIDE" | "POOR" {
+  let worst: "TIGHT" | "WIDE" | "POOR" = "TIGHT";
+  for (const l of legs) {
+    if (l.strike === 0) continue; // synthetic stock leg — N/A
+    if (!l.quoted) { return "POOR"; }
+    const sp = l.spreadPct;
+    if (sp == null) { worst = worst === "POOR" ? "POOR" : "WIDE"; continue; }
+    if (sp > 0.15) return "POOR";
+    if (sp > 0.04 && worst === "TIGHT") worst = "WIDE";
+  }
+  return worst;
 }
 
 // ─── Strategy templates ─────────────────────────────────────────────────────
@@ -685,11 +914,13 @@ const TEMPLATES: Template[] = [
     name: "Long Strangle",
     category: "DEBIT",
     outlook: "Big move expected — cheaper than straddle, needs larger move to profit.",
-    description: "Buy OTM call + OTM put 2 strikes away. Limited risk, unlimited reward.",
+    description: "Buy ~25Δ OTM call + ~25Δ OTM put (≈ ±1σ wings). Limited risk, unlimited reward.",
     suitability: { ivContext: "LOW", biasFit: ["NEUTRAL"] },
-    build: ({ chain, spot, T, q, atmRow }) => {
-      const otmCall = strikeOffset(chain, atmRow.strike, +2);
-      const otmPut  = strikeOffset(chain, atmRow.strike, -2);
+    build: ({ chain, spot, T, q, atmRow, atmSigma }) => {
+      // 25-delta wings sit roughly at the ±1σ expected-move band — the
+      // textbook "buy the wings of the move" construction for a strangle.
+      const otmCall = pickStrike(chain, atmRow.strike, +2, 0.25, "CE", spot, T, q, atmSigma);
+      const otmPut  = pickStrike(chain, atmRow.strike, -2, 0.25, "PE", spot, T, q, atmSigma);
       if (!otmCall?.ce || !otmPut?.pe) return { error: "OTM legs not quoted" };
       const ce = buildLeg({ row: otmCall, side: otmCall.ce, type: "CE" }, "BUY", 1, spot, T, q);
       const pe = buildLeg({ row: otmPut,  side: otmPut.pe,  type: "PE" }, "BUY", 1, spot, T, q);
@@ -701,12 +932,14 @@ const TEMPLATES: Template[] = [
     kind: "SHORT_STRANGLE",
     name: "Short Strangle",
     category: "CREDIT",
-    outlook: "Range-bound, lower IV-rank floor than short straddle. Defined area of profit.",
-    description: "Sell OTM call + OTM put 2 strikes away. Wider profit zone, unlimited risk.",
+    outlook: "Range-bound — sell ~16Δ wings (~1σ band, ~68% POP) and let theta work.",
+    description: "Sell ~16Δ OTM call + ~16Δ OTM put. Wider profit zone than short straddle, unlimited risk.",
     suitability: { ivContext: "HIGH", biasFit: ["NEUTRAL"] },
-    build: ({ chain, spot, T, q, atmRow }) => {
-      const otmCall = strikeOffset(chain, atmRow.strike, +2);
-      const otmPut  = strikeOffset(chain, atmRow.strike, -2);
+    build: ({ chain, spot, T, q, atmRow, atmSigma }) => {
+      // 16-delta is the conventional "1σ short wing" used by professional
+      // premium sellers — POP ≈ 68%, balances credit vs assignment risk.
+      const otmCall = pickStrike(chain, atmRow.strike, +2, 0.16, "CE", spot, T, q, atmSigma);
+      const otmPut  = pickStrike(chain, atmRow.strike, -2, 0.16, "PE", spot, T, q, atmSigma);
       if (!otmCall?.ce || !otmPut?.pe) return { error: "OTM legs not quoted" };
       const ce = buildLeg({ row: otmCall, side: otmCall.ce, type: "CE" }, "SELL", 1, spot, T, q);
       const pe = buildLeg({ row: otmPut,  side: otmPut.pe,  type: "PE" }, "SELL", 1, spot, T, q);
@@ -718,12 +951,15 @@ const TEMPLATES: Template[] = [
     kind: "BULL_CALL_SPREAD",
     name: "Bull Call Spread",
     category: "DEBIT",
-    outlook: "Moderately bullish — wants upside but offsets cost by selling higher strike.",
-    description: "Buy ATM call + sell call 2 strikes higher. Defined risk, defined reward.",
+    outlook: "Moderately bullish — buy ATM call, finance by selling ~30Δ call above.",
+    description: "Buy ATM call + sell ~30Δ OTM call (≈ +0.7σ). Defined risk, defined reward.",
     suitability: { ivContext: "ANY", biasFit: ["BULLISH"] },
-    build: ({ chain, spot, T, q, atmRow }) => {
-      const upper = strikeOffset(chain, atmRow.strike, +2);
+    build: ({ chain, spot, T, q, atmRow, atmSigma }) => {
+      // The short call must sit strictly above the ATM long; otherwise the
+      // spread collapses to width=0 (or inverts).
+      const upper = pickStrikeFartherOtm(chain, atmRow.strike, +2, 0.30, "CE", spot, T, q, atmSigma);
       if (!atmRow.ce || !upper?.ce) return { error: "Spread strikes not both quoted" };
+      if (upper.strike <= atmRow.strike) return { error: "Chain too thin — no OTM call above ATM" };
       const long  = buildLeg({ row: atmRow, side: atmRow.ce, type: "CE" }, "BUY",  1, spot, T, q);
       const short = buildLeg({ row: upper,  side: upper.ce,  type: "CE" }, "SELL", 1, spot, T, q);
       if (!long || !short) return { error: "Cannot price spread legs" };
@@ -734,12 +970,14 @@ const TEMPLATES: Template[] = [
     kind: "BEAR_PUT_SPREAD",
     name: "Bear Put Spread",
     category: "DEBIT",
-    outlook: "Moderately bearish — wants downside profit with reduced cost.",
-    description: "Buy ATM put + sell put 2 strikes lower. Defined risk, defined reward.",
+    outlook: "Moderately bearish — buy ATM put, finance by selling ~30Δ put below.",
+    description: "Buy ATM put + sell ~30Δ OTM put (≈ −0.7σ). Defined risk, defined reward.",
     suitability: { ivContext: "ANY", biasFit: ["BEARISH"] },
-    build: ({ chain, spot, T, q, atmRow }) => {
-      const lower = strikeOffset(chain, atmRow.strike, -2);
+    build: ({ chain, spot, T, q, atmRow, atmSigma }) => {
+      // The short put must sit strictly below the ATM long.
+      const lower = pickStrikeFartherOtm(chain, atmRow.strike, -2, 0.30, "PE", spot, T, q, atmSigma);
       if (!atmRow.pe || !lower?.pe) return { error: "Spread strikes not both quoted" };
+      if (lower.strike >= atmRow.strike) return { error: "Chain too thin — no OTM put below ATM" };
       const long  = buildLeg({ row: atmRow, side: atmRow.pe, type: "PE" }, "BUY",  1, spot, T, q);
       const short = buildLeg({ row: lower,  side: lower.pe,  type: "PE" }, "SELL", 1, spot, T, q);
       if (!long || !short) return { error: "Cannot price spread legs" };
@@ -750,14 +988,19 @@ const TEMPLATES: Template[] = [
     kind: "BULL_PUT_SPREAD",
     name: "Bull Put Spread",
     category: "CREDIT",
-    outlook: "Moderately bullish, prefers credit — ideal in higher IV regimes.",
-    description: "Sell ATM put + buy put 2 strikes lower. Defined risk, max profit = net credit.",
+    outlook: "Moderately bullish — sell ~30Δ put for credit, buy ~15Δ wing for protection.",
+    description: "Sell ~30Δ OTM put + buy ~15Δ OTM put. Defined risk, max profit = net credit.",
     suitability: { ivContext: "HIGH", biasFit: ["BULLISH"] },
-    build: ({ chain, spot, T, q, atmRow }) => {
-      const lower = strikeOffset(chain, atmRow.strike, -2);
-      if (!atmRow.pe || !lower?.pe) return { error: "Spread strikes not both quoted" };
-      const short = buildLeg({ row: atmRow, side: atmRow.pe, type: "PE" }, "SELL", 1, spot, T, q);
-      const long  = buildLeg({ row: lower,  side: lower.pe,  type: "PE" }, "BUY",  1, spot, T, q);
+    build: ({ chain, spot, T, q, atmRow, atmSigma }) => {
+      const shortR = pickStrike(chain, atmRow.strike, -2, 0.30, "PE", spot, T, q, atmSigma);
+      if (!shortR?.pe) return { error: "Short put leg not quoted" };
+      // Long wing must be strictly farther OTM than the short — anchor on
+      // shortR so the picker can never collide / invert.
+      const longR  = pickStrikeFartherOtm(chain, shortR.strike, -1, 0.15, "PE", spot, T, q, atmSigma);
+      if (!longR?.pe) return { error: "Long protective wing unavailable on chain" };
+      if (longR.strike >= shortR.strike) return { error: "Chain too thin to seat protective put below short" };
+      const short = buildLeg({ row: shortR, side: shortR.pe, type: "PE" }, "SELL", 1, spot, T, q);
+      const long  = buildLeg({ row: longR,  side: longR.pe,  type: "PE" }, "BUY",  1, spot, T, q);
       if (!short || !long) return { error: "Cannot price spread legs" };
       return { legs: [short, long] };
     },
@@ -766,14 +1009,17 @@ const TEMPLATES: Template[] = [
     kind: "BEAR_CALL_SPREAD",
     name: "Bear Call Spread",
     category: "CREDIT",
-    outlook: "Moderately bearish, prefers credit — ideal in higher IV regimes.",
-    description: "Sell ATM call + buy call 2 strikes higher. Defined risk, max profit = net credit.",
+    outlook: "Moderately bearish — sell ~30Δ call for credit, buy ~15Δ wing for protection.",
+    description: "Sell ~30Δ OTM call + buy ~15Δ OTM call. Defined risk, max profit = net credit.",
     suitability: { ivContext: "HIGH", biasFit: ["BEARISH"] },
-    build: ({ chain, spot, T, q, atmRow }) => {
-      const upper = strikeOffset(chain, atmRow.strike, +2);
-      if (!atmRow.ce || !upper?.ce) return { error: "Spread strikes not both quoted" };
-      const short = buildLeg({ row: atmRow, side: atmRow.ce, type: "CE" }, "SELL", 1, spot, T, q);
-      const long  = buildLeg({ row: upper,  side: upper.ce,  type: "CE" }, "BUY",  1, spot, T, q);
+    build: ({ chain, spot, T, q, atmRow, atmSigma }) => {
+      const shortR = pickStrike(chain, atmRow.strike, +2, 0.30, "CE", spot, T, q, atmSigma);
+      if (!shortR?.ce) return { error: "Short call leg not quoted" };
+      const longR  = pickStrikeFartherOtm(chain, shortR.strike, +1, 0.15, "CE", spot, T, q, atmSigma);
+      if (!longR?.ce) return { error: "Long protective wing unavailable on chain" };
+      if (longR.strike <= shortR.strike) return { error: "Chain too thin to seat protective call above short" };
+      const short = buildLeg({ row: shortR, side: shortR.ce, type: "CE" }, "SELL", 1, spot, T, q);
+      const long  = buildLeg({ row: longR,  side: longR.ce,  type: "CE" }, "BUY",  1, spot, T, q);
       if (!short || !long) return { error: "Cannot price spread legs" };
       return { legs: [short, long] };
     },
@@ -782,16 +1028,21 @@ const TEMPLATES: Template[] = [
     kind: "IRON_CONDOR",
     name: "Iron Condor",
     category: "CREDIT",
-    outlook: "Range-bound — collect credit while spot stays inside short strikes.",
-    description: "Sell OTM put & call (2 steps from ATM) + buy further OTM wings (4 steps).",
+    outlook: "Range-bound — sell ~18Δ wings, buy further OTM ~7Δ guards for defined risk.",
+    description: "Sell ~18Δ put & call + buy ~7Δ wings. Profits if spot pins inside the short strikes.",
     suitability: { ivContext: "HIGH", biasFit: ["NEUTRAL"] },
-    build: ({ chain, spot, T, q, atmRow }) => {
-      const shortPutR  = strikeOffset(chain, atmRow.strike, -2);
-      const longPutR   = strikeOffset(chain, atmRow.strike, -4);
-      const shortCallR = strikeOffset(chain, atmRow.strike, +2);
-      const longCallR  = strikeOffset(chain, atmRow.strike, +4);
-      if (!shortPutR?.pe || !longPutR?.pe || !shortCallR?.ce || !longCallR?.ce) {
-        return { error: "Condor wings not all quoted" };
+    build: ({ chain, spot, T, q, atmRow, atmSigma }) => {
+      // Step 1: pick the short wings by delta.
+      const shortPutR  = pickStrike(chain, atmRow.strike, -2, 0.18, "PE", spot, T, q, atmSigma);
+      const shortCallR = pickStrike(chain, atmRow.strike, +2, 0.18, "CE", spot, T, q, atmSigma);
+      if (!shortPutR?.pe || !shortCallR?.ce) return { error: "Condor short wings not quoted" };
+      // Step 2: anchor the protective long wings *off the short wings*, not
+      // off ATM, so the long is always strictly farther OTM than its short.
+      const longPutR   = pickStrikeFartherOtm(chain, shortPutR.strike,  -1, 0.07, "PE", spot, T, q, atmSigma);
+      const longCallR  = pickStrikeFartherOtm(chain, shortCallR.strike, +1, 0.07, "CE", spot, T, q, atmSigma);
+      if (!longPutR?.pe || !longCallR?.ce) return { error: "Condor protective wings unavailable on chain" };
+      if (shortPutR.strike <= longPutR.strike || shortCallR.strike >= longCallR.strike) {
+        return { error: "Chain too thin to construct distinct condor wings" };
       }
       const sp = buildLeg({ row: shortPutR,  side: shortPutR.pe,  type: "PE" }, "SELL", 1, spot, T, q);
       const lp = buildLeg({ row: longPutR,   side: longPutR.pe,   type: "PE" }, "BUY",  1, spot, T, q);
@@ -806,13 +1057,21 @@ const TEMPLATES: Template[] = [
     name: "Iron Butterfly",
     category: "CREDIT",
     outlook: "Strong pin to ATM — narrower than condor, larger credit, smaller profit zone.",
-    description: "Sell ATM call + ATM put + buy OTM wings (2 steps each side).",
+    description: "Sell ATM call + ATM put + buy ~10Δ OTM wings. Maximum credit, tightest profit zone.",
     suitability: { ivContext: "HIGH", biasFit: ["NEUTRAL"] },
-    build: ({ chain, spot, T, q, atmRow }) => {
-      const longPutR  = strikeOffset(chain, atmRow.strike, -2);
-      const longCallR = strikeOffset(chain, atmRow.strike, +2);
+    build: ({ chain, spot, T, q, atmRow, atmSigma }) => {
+      // Wider wings than condor's longs (~10Δ) since the short legs are now
+      // ATM (50Δ) — keeps net debit on the wings sane while protecting tail.
+      // Anchor wings off the ATM strike so they can never collapse onto ATM.
+      const longPutR  = pickStrikeFartherOtm(chain, atmRow.strike, -2, 0.10, "PE", spot, T, q, atmSigma);
+      const longCallR = pickStrikeFartherOtm(chain, atmRow.strike, +2, 0.10, "CE", spot, T, q, atmSigma);
       if (!atmRow.ce || !atmRow.pe || !longPutR?.pe || !longCallR?.ce) {
         return { error: "Butterfly wings not all quoted" };
+      }
+      // Belt-and-braces — reject if either wing somehow landed on ATM (e.g.
+      // chain only has the ATM strike quoted on one side).
+      if (longPutR.strike >= atmRow.strike || longCallR.strike <= atmRow.strike) {
+        return { error: "Chain too thin to seat butterfly wings outside ATM" };
       }
       const sp = buildLeg({ row: atmRow,    side: atmRow.pe,    type: "PE" }, "SELL", 1, spot, T, q);
       const sc = buildLeg({ row: atmRow,    side: atmRow.ce,    type: "CE" }, "SELL", 1, spot, T, q);
@@ -826,10 +1085,10 @@ const TEMPLATES: Template[] = [
     kind: "COVERED_CALL",
     name: "Covered Call",
     category: "STOCK_PLUS",
-    outlook: "Own the underlying, sell upside above OTM call strike for income.",
-    description: "Long 1 lot of stock + short 1 OTM call (2 strikes above ATM). Reduces basis.",
+    outlook: "Own the underlying, sell ~30Δ upside call for income while keeping participation.",
+    description: "Long 1 lot of stock + short ~30Δ OTM call. Reduces basis, caps upside above strike.",
     suitability: { ivContext: "ANY", biasFit: ["NEUTRAL", "BULLISH"] },
-    build: ({ chain, spot, T, q, atmRow }) => {
+    build: ({ chain, spot, T, q, atmRow, atmSigma }) => {
       // Indices (NIFTY/BANKNIFTY/FINNIFTY/MIDCPNIFTY/NIFTYNXT50/SENSEX) are
       // cash-settled — there is no deliverable "share" you can buy and hold.
       // The classic Covered Call (long stock + short OTM call) is meaningless
@@ -839,15 +1098,17 @@ const TEMPLATES: Template[] = [
       if (chain.kind === "INDEX") {
         return { error: "Covered Call needs ownership of the underlying — indices are cash-settled, so this strategy doesn't apply. (Use a futures-based covered call separately if you want similar exposure.)" };
       }
-      const otmCall = strikeOffset(chain, atmRow.strike, +2);
+      const otmCall = pickStrike(chain, atmRow.strike, +2, 0.30, "CE", spot, T, q, atmSigma);
       if (!otmCall?.ce) return { error: "OTM call leg not quoted" };
       const short = buildLeg({ row: otmCall, side: otmCall.ce, type: "CE" }, "SELL", 1, spot, T, q);
       if (!short) return { error: "Cannot price OTM call" };
       // Synthesize a "long stock" leg as a deep ITM call with strike=0, premium=spot.
       // (For payoff math, long stock at S₀ behaves identically: payoff = S_T - S₀.)
+      // Liquidity fields marked nullable since "stock" isn't an option contract.
       const stockLeg: StrategyLeg = {
         action: "BUY", optionType: "CE", strike: 0, premium: spot,
         iv: 0, delta: 1, gamma: 0, vega: 0, theta: 0, qty: 1, source: "bs",
+        bid: null, ask: null, spreadPct: null, oi: null, volume: null, quoted: true,
       };
       return { legs: [stockLeg, short] };
     },
@@ -928,9 +1189,21 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     const { edges: legEdges, netEdge: netEdgeRaw } = computeLegEdges(legs, spot, T, atmSigma, RISK_FREE, q);
     const netEdge = +(netEdgeRaw * lotSize).toFixed(2);
 
-    const marginRequired = estimateMargin(debit, maxLoss, spot, lotSize);
+    const marginRequired = estimateMargin(debit, maxLoss, spot, lotSize, chain.kind);
     const recommended = isRecommended(tpl, ivContext, analytics.bias);
     const rationale = recommended ? buildRationale(tpl, ivContext, analytics.bias) : undefined;
+
+    // ── Execution-quality + characteristic IV + short-leg liquidity ─────
+    const legQuality = classifyLegQuality(legs);
+    const optLegs = legs.filter(l => l.strike > 0);
+    const avgLegIv = optLegs.length
+      ? +(optLegs.reduce((acc, l) => acc + l.iv, 0) / optLegs.length).toFixed(4)
+      : 0;
+    const shortLegs = optLegs.filter(l => l.action === "SELL");
+    const shortLegOiVals = shortLegs.map(l => l.oi).filter((v): v is number => v != null && v > 0);
+    const shortLegOi = shortLegOiVals.length
+      ? Math.min(...shortLegOiVals)   // bottleneck on the thinnest short leg
+      : null;
 
     // Display R:R now uses **±2σ realistic** numbers. For a Long Put on
     // NIFTY this turns the old chart-range "1:25" (and the absurd theoretical
@@ -986,6 +1259,9 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
       suitability: tpl.suitability,
       recommended,
       rationale,
+      legQuality,
+      avgLegIv,
+      shortLegOi,
     });
   }
 

@@ -26,6 +26,12 @@ interface StrategyLeg {
   theta: number;
   qty: number;
   source: "chain" | "bs";
+  bid: number | null;
+  ask: number | null;
+  spreadPct: number | null;
+  oi: number | null;
+  volume: number | null;
+  quoted: boolean;
 }
 
 type StrategyKind =
@@ -94,6 +100,9 @@ interface StrategySnapshot {
   suitability: { ivContext: "LOW" | "HIGH" | "ANY"; biasFit: ("BULLISH" | "BEARISH" | "NEUTRAL")[] };
   recommended: boolean;
   rationale?: string;
+  legQuality: "TIGHT" | "WIDE" | "POOR";
+  avgLegIv: number;
+  shortLegOi: number | null;
 }
 
 interface StrategyBundle {
@@ -397,6 +406,28 @@ function StrategyCard({
   const probRr = s.dist?.probabilisticRr ?? null;
   const ev = s.dist?.expectedValue ?? 0;
 
+  // Compact strike summary so the user sees what's actually being traded
+  // without expanding. Format: "−24,300P / +24,200P / −24,800C / +24,900C"
+  // (sign = action, letter = side). Skips the synthetic stock leg used for
+  // Covered Call (strike=0).
+  const strikeSummary = s.legs
+    .filter(l => l.strike > 0)
+    .map(l => `${l.action === "BUY" ? "+" : "−"}${fmt(l.strike, 0)}${l.optionType === "CE" ? "C" : "P"}`)
+    .join(" / ");
+
+  // Execution-quality badge styling. TIGHT = green (every leg has tight
+  // bid/ask), WIDE = amber (workable but expect slip), POOR = red (one or
+  // more legs have no real quote OR spread > 15% — sized down or skipped).
+  const QUALITY_BADGE = {
+    TIGHT: { cls: "bg-signal-strong-buy/15 text-signal-strong-buy border-signal-strong-buy/30",
+             label: "Tight quotes" },
+    WIDE:  { cls: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+             label: "Wide spread" },
+    POOR:  { cls: "bg-signal-strong-sell/15 text-signal-strong-sell border-signal-strong-sell/30",
+             label: "Poor liquidity" },
+  } as const;
+  const qb = QUALITY_BADGE[s.legQuality];
+
   return (
     <Card className={`border-border ${highlight ? "ring-1 ring-amber-500/30" : ""}`}>
       <CardHeader className="pb-2">
@@ -408,8 +439,21 @@ function StrategyCard({
                 {s.category}
               </Badge>
               {highlight && <Badge variant="outline" className="font-mono text-[9px] uppercase bg-amber-500/10 text-amber-300 border-amber-500/30">Suggested</Badge>}
+              <Badge variant="outline" className={`font-mono text-[9px] uppercase ${qb.cls}`} title={qb.label}>
+                {qb.label}
+              </Badge>
+              {s.avgLegIv > 0 && (
+                <Badge variant="outline" className="font-mono text-[9px] uppercase bg-card text-muted-foreground border-border">
+                  IV {(s.avgLegIv * 100).toFixed(1)}%
+                </Badge>
+              )}
             </div>
             <p className="text-[11px] text-muted-foreground">{s.outlook}</p>
+            {strikeSummary && (
+              <p className="text-[11px] font-mono text-foreground/90 truncate" title={strikeSummary}>
+                <span className="text-muted-foreground uppercase mr-1">Legs:</span>{strikeSummary}
+              </p>
+            )}
             {s.rationale && (
               <p className="text-[11px] font-mono text-amber-300/90">↳ {s.rationale}</p>
             )}
@@ -534,6 +578,8 @@ function StrategyCard({
                     <th className="text-left py-1">Type</th>
                     <th className="text-right py-1">Strike</th>
                     <th className="text-right py-1">Premium</th>
+                    <th className="text-right py-1" title="(ask−bid)/mid — wider = harder to fill at the listed price.">Spr%</th>
+                    <th className="text-right py-1">OI</th>
                     <th className="text-right py-1">Theo</th>
                     <th className="text-right py-1">Edge</th>
                     <th className="text-right py-1">IV</th>
@@ -554,6 +600,18 @@ function StrategyCard({
                         <td className="py-1">{l.optionType === "CE" ? "CALL" : "PUT"}</td>
                         <td className="text-right py-1 tabular-nums">{l.strike === 0 ? "Stock" : fmt(l.strike, 0)}</td>
                         <td className="text-right py-1 tabular-nums">₹{fmt(l.premium)}</td>
+                        <td
+                          className={`text-right py-1 tabular-nums ${
+                            l.spreadPct == null ? "text-muted-foreground/60"
+                            : l.spreadPct > 0.15 ? "text-signal-strong-sell"
+                            : l.spreadPct > 0.04 ? "text-amber-300"
+                            : "text-muted-foreground"
+                          }`}
+                          title={l.bid != null && l.ask != null ? `bid ₹${fmt(l.bid)} / ask ₹${fmt(l.ask)}` : "no two-sided quote — fell back to LTP"}
+                        >
+                          {l.spreadPct == null ? (l.quoted ? "—" : "LTP") : `${(l.spreadPct * 100).toFixed(1)}%`}
+                        </td>
+                        <td className="text-right py-1 tabular-nums text-muted-foreground">{l.oi == null ? "—" : l.oi.toLocaleString("en-IN")}</td>
                         <td className="text-right py-1 tabular-nums text-muted-foreground">{edge ? `₹${fmt(edge.theoretical)}` : "—"}</td>
                         <td className={`text-right py-1 tabular-nums font-bold ${edge ? (edge.edge > 0 ? "text-signal-strong-buy" : edge.edge < 0 ? "text-signal-strong-sell" : "") : ""}`}>
                           {edge ? `${edge.edge >= 0 ? "+" : ""}₹${fmt(edge.edge)}` : "—"}
