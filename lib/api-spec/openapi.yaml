@@ -15,6 +15,11 @@ tags:
   - name: scan
   - name: options
   - name: news
+  - name: global-auth
+  - name: global-data
+  - name: global-watchlist
+  - name: global-screener
+  - name: global-status
 paths:
   /healthz:
     get:
@@ -571,6 +576,233 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/IndicesBoardSnapshot" }
+
+  # ---------------------------------------------------------------------
+  # Global Multi-Asset Scanner (Phase 1 — Crypto / Commodities / Forex)
+  # All endpoints below are gated by the new GLOBAL_APP_ACCESS_PASSWORD
+  # cookie ("global_session"); independent from the NSE scanner gate.
+  # ---------------------------------------------------------------------
+
+  /global/auth/status:
+    get:
+      operationId: getGlobalAuthStatus
+      tags: [global-auth]
+      summary: Whether the global-scanner session cookie is present and the password is configured
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalAuthStatus" }
+
+  /global/auth/login:
+    post:
+      operationId: globalLogin
+      tags: [global-auth]
+      summary: Log into the global scanner with the configured access password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GlobalLoginBody" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalLoginResponse" }
+
+  /global/auth/logout:
+    post:
+      operationId: globalLogout
+      tags: [global-auth]
+      summary: Clear the global scanner session cookie
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalLogoutResponse" }
+
+  /global/instruments:
+    get:
+      operationId: listGlobalInstruments
+      tags: [global-data]
+      summary: Full instrument universe (crypto + commodities + forex)
+      parameters:
+        - in: query
+          name: assetClass
+          required: false
+          schema: { type: string, enum: [crypto, commodity, forex] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/GlobalInstrument" }
+
+  /global/dashboard:
+    get:
+      operationId: getGlobalDashboard
+      tags: [global-data]
+      summary: Live snapshot rows for an asset class (or watchlist) with freshness metadata
+      parameters:
+        - in: query
+          name: asset
+          required: true
+          schema: { type: string, enum: [crypto, commodities, forex, watchlist] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalDashboardResponse" }
+
+  /global/instruments/{symbol}:
+    get:
+      operationId: getGlobalInstrumentDetail
+      tags: [global-data]
+      summary: Per-instrument quote, day stats and supported timeframes
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalInstrumentDetail" }
+
+  /global/instruments/{symbol}/candles:
+    get:
+      operationId: getGlobalCandles
+      tags: [global-data]
+      summary: OHLCV candles for an instrument and timeframe (real source data)
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+        - in: query
+          name: timeframe
+          required: true
+          schema: { type: string, enum: ["1m","5m","15m","1h","4h","1d"] }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 10, maximum: 1000 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalCandlesResponse" }
+
+  /global/instruments/{symbol}/indicators:
+    get:
+      operationId: getGlobalInstrumentIndicators
+      tags: [global-data]
+      summary: Indicator series (SMA/EMA/RSI/MACD/BB/ATR/VWAP/Supertrend) for an instrument
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+        - in: query
+          name: timeframe
+          required: true
+          schema: { type: string, enum: ["1m","5m","15m","1h","4h","1d"] }
+        - in: query
+          name: list
+          required: false
+          schema: { type: string, description: "CSV of indicator ids (sma20,sma50,sma200,ema20,ema50,rsi14,macd,bb20,atr14,vwap,supertrend)" }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 20, maximum: 1000 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalIndicatorsResponse" }
+
+  /global/screen:
+    post:
+      operationId: runGlobalScreener
+      tags: [global-screener]
+      summary: Run a screener against the universe using cached candles + indicator filters
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GlobalScreenerBody" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerResponse" }
+
+  /global/watchlist:
+    get:
+      operationId: getGlobalWatchlist
+      tags: [global-watchlist]
+      summary: Current user's personal global-scanner watchlist
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalWatchlistResponse" }
+    post:
+      operationId: addGlobalWatchlist
+      tags: [global-watchlist]
+      summary: Add an instrument to the personal global watchlist (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GlobalWatchlistAddBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalWatchlistAddResponse" }
+
+  /global/watchlist/{symbol}:
+    delete:
+      operationId: deleteGlobalWatchlist
+      tags: [global-watchlist]
+      summary: Remove an instrument from the personal global watchlist
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalWatchlistDeleteResponse" }
+
+  /global/status:
+    get:
+      operationId: getGlobalSourceStatus
+      tags: [global-status]
+      summary: Per-data-source freshness / last-error for the dashboard health strip
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalSourceStatusResponse" }
 
 components:
   schemas:
@@ -2346,3 +2578,307 @@ components:
           type: array
           items: { $ref: "#/components/schemas/PaperReportMonthBucket" }
         generatedAt: { type: string, format: date-time }
+
+    # ----- Global Multi-Asset Scanner schemas (Phase 1) -----
+
+    GlobalAuthStatus:
+      type: object
+      required: [authenticated, passwordConfigured]
+      properties:
+        authenticated: { type: boolean }
+        passwordConfigured: { type: boolean }
+
+    GlobalLoginBody:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string }
+
+    GlobalLoginResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        error: { type: string }
+
+    GlobalLogoutResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+
+    GlobalAssetClass:
+      type: string
+      enum: [crypto, commodity, forex]
+
+    GlobalDataSource:
+      type: string
+      enum: [binance, yahoo, yahoo-fx]
+      description: Where the row's quote/candles come from. Tagged on every persisted row.
+
+    GlobalTimeframe:
+      type: string
+      enum: ["1m", "5m", "15m", "1h", "4h", "1d"]
+
+    GlobalInstrument:
+      type: object
+      required: [symbol, displayName, assetClass, source, sourceSymbol, supportedTimeframes]
+      properties:
+        symbol: { type: string, description: "Canonical scanner symbol e.g. BTCUSDT, GOLD, EURUSD" }
+        displayName: { type: string }
+        assetClass: { $ref: "#/components/schemas/GlobalAssetClass" }
+        source: { $ref: "#/components/schemas/GlobalDataSource" }
+        sourceSymbol: { type: string, description: "Symbol as used at the data source (e.g. GC=F, EURUSD=X)" }
+        currency: { type: string, description: "Quote currency / unit" }
+        supportedTimeframes:
+          type: array
+          items: { $ref: "#/components/schemas/GlobalTimeframe" }
+          description: Only timeframes the data source can actually back with real OHLCV.
+        notes: { type: string, description: "Provider caveats e.g. 'Yahoo intraday FX is delayed/snapshot'" }
+
+    GlobalDashboardRow:
+      type: object
+      required: [symbol, displayName, assetClass, source, stale]
+      properties:
+        symbol: { type: string }
+        displayName: { type: string }
+        assetClass: { $ref: "#/components/schemas/GlobalAssetClass" }
+        source: { $ref: "#/components/schemas/GlobalDataSource" }
+        currency: { type: ["string", "null"] }
+        price: { type: ["number", "null"] }
+        prevClose: { type: ["number", "null"] }
+        changeAbs: { type: ["number", "null"] }
+        changePct: { type: ["number", "null"] }
+        dayHigh: { type: ["number", "null"] }
+        dayLow: { type: ["number", "null"] }
+        volume: { type: ["number", "null"] }
+        updatedAt: { type: ["string", "null"], format: date-time }
+        ageMs:
+          type: ["integer", "null"]
+          description: "Milliseconds since updatedAt; null if never updated."
+        stale:
+          type: boolean
+          description: |
+            True when this row's last successful update is older than the
+            per-source freshness budget OR when the upstream source is
+            currently failing (sourceHealthy=false). The UI must visibly
+            mark stale rows so users never mistake a frozen value for live.
+        sourceHealthy:
+          type: boolean
+          description: "Roll-up health of the upstream source (from /global/status)."
+        lastError: { type: ["string", "null"] }
+
+    GlobalSourceStatus:
+      type: object
+      required: [source, healthy]
+      properties:
+        source: { $ref: "#/components/schemas/GlobalDataSource" }
+        healthy: { type: boolean }
+        lastOkAt: { type: ["string", "null"], format: date-time }
+        lastErrorAt: { type: ["string", "null"], format: date-time }
+        lastError: { type: ["string", "null"] }
+        ageMs: { type: ["integer", "null"], description: "Milliseconds since lastOkAt" }
+        notes: { type: ["string", "null"] }
+
+    GlobalDashboardResponse:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/GlobalDashboardRow" }
+
+    GlobalQuote:
+      type: object
+      properties:
+        price: { type: ["number", "null"] }
+        prevClose: { type: ["number", "null"] }
+        changeAbs: { type: ["number", "null"] }
+        changePct: { type: ["number", "null"] }
+        dayHigh: { type: ["number", "null"] }
+        dayLow: { type: ["number", "null"] }
+        volume: { type: ["number", "null"] }
+        updatedAt: { type: string, format: date-time }
+        lastError: { type: ["string", "null"] }
+
+    GlobalInstrumentDetail:
+      type: object
+      required: [instrument]
+      properties:
+        instrument: { $ref: "#/components/schemas/GlobalInstrument" }
+        quote:
+          oneOf:
+            - { $ref: "#/components/schemas/GlobalQuote" }
+            - { type: "null" }
+
+    GlobalCandle:
+      type: object
+      required: [t, open, high, low, close]
+      properties:
+        t: { type: integer, format: int64, description: "Open time in ms since epoch" }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        close: { type: number }
+        volume: { type: ["number", "null"] }
+
+    GlobalCandlesResponse:
+      type: object
+      required: [symbol, timeframe, source, candles]
+      properties:
+        symbol: { type: string }
+        timeframe: { $ref: "#/components/schemas/GlobalTimeframe" }
+        source: { $ref: "#/components/schemas/GlobalDataSource" }
+        candles:
+          type: array
+          items: { $ref: "#/components/schemas/GlobalCandle" }
+
+    GlobalIndicatorPoint:
+      type: object
+      required: [t]
+      properties:
+        t: { type: integer, format: int64 }
+        v: { type: ["number", "null"] }
+
+    GlobalIndicatorsResponse:
+      type: object
+      required: [symbol, timeframe, indicators]
+      properties:
+        symbol: { type: string }
+        timeframe: { $ref: "#/components/schemas/GlobalTimeframe" }
+        indicators:
+          type: object
+          description: "Map of indicator key (sma20, ema50, rsi14, macd, macdSignal, macdHist, bbUpper, bbMiddle, bbLower, atr14, vwap, supertrend, supertrendDir) to its time-series."
+          additionalProperties:
+            type: array
+            items: { $ref: "#/components/schemas/GlobalIndicatorPoint" }
+
+    GlobalScreenerFilters:
+      type: object
+      properties:
+        minChangePct:
+          type: number
+          description: "Minimum % change vs previous close (live snapshot)."
+        maxChangePct: { type: number }
+        minVolume:
+          type: number
+          description: "Minimum 24h / day volume (live snapshot units)."
+        minRsi14: { type: number, minimum: 0, maximum: 100 }
+        maxRsi14: { type: number, minimum: 0, maximum: 100 }
+        breakoutLookback: { type: integer, minimum: 2, maximum: 500 }
+        breakdownLookback: { type: integer, minimum: 2, maximum: 500 }
+        min1dChangePct:
+          type: number
+          description: "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe."
+        min1wChangePct:
+          type: number
+          description: "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe."
+        priceAboveSma50:
+          type: boolean
+          description: "Require last close > SMA(50) — classic intermediate-term trend filter."
+        priceBelowSma50:
+          type: boolean
+          description: "Require last close < SMA(50)."
+        priceAboveSma200:
+          type: boolean
+          description: "Require last close > SMA(200) — long-term trend filter."
+        priceBelowSma200:
+          type: boolean
+          description: "Require last close < SMA(200)."
+        trendUp:
+          type: boolean
+          description: "EMA20 > EMA50 > EMA200 cascade (bullish stack)."
+        trendDown: { type: boolean }
+        requireSupertrendUp: { type: boolean }
+        requireSupertrendDown: { type: boolean }
+
+    GlobalScreenerBody:
+      type: object
+      required: [assetClasses]
+      properties:
+        assetClasses:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/GlobalAssetClass" }
+        timeframe: { $ref: "#/components/schemas/GlobalTimeframe" }
+        filters: { $ref: "#/components/schemas/GlobalScreenerFilters" }
+        limit: { type: integer, minimum: 1, maximum: 50 }
+
+    GlobalScreenerTrend:
+      type: string
+      enum: [up, down, mixed]
+
+    GlobalScreenerHit:
+      type: object
+      required: [symbol, displayName, assetClass, matched]
+      properties:
+        symbol: { type: string }
+        displayName: { type: string }
+        assetClass: { $ref: "#/components/schemas/GlobalAssetClass" }
+        price: { type: ["number", "null"] }
+        changePct: { type: ["number", "null"] }
+        volume: { type: ["number", "null"] }
+        rsi14: { type: ["number", "null"] }
+        trend:
+          oneOf:
+            - { $ref: "#/components/schemas/GlobalScreenerTrend" }
+            - { type: "null" }
+        matched:
+          type: array
+          items: { type: string }
+
+    GlobalScreenerResponse:
+      type: object
+      required: [hits, evaluatedCandidates, indicatorEvaluated]
+      properties:
+        hits:
+          type: array
+          items: { $ref: "#/components/schemas/GlobalScreenerHit" }
+        evaluatedCandidates: { type: integer }
+        indicatorEvaluated: { type: boolean }
+
+    GlobalWatchlistItem:
+      type: object
+      required: [symbol, addedAt]
+      properties:
+        symbol: { type: string }
+        addedAt: { type: string, format: date-time }
+
+    GlobalWatchlistResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/GlobalWatchlistItem" }
+
+    GlobalWatchlistAddBody:
+      type: object
+      required: [symbol]
+      properties:
+        symbol: { type: string }
+
+    GlobalWatchlistAddResponse:
+      type: object
+      required: [ok, symbol]
+      properties:
+        ok: { type: boolean }
+        symbol: { type: string }
+
+    GlobalWatchlistDeleteResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+
+    GlobalSourceStatusResponse:
+      type: object
+      required: [sources, universeCounts]
+      properties:
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/GlobalSourceStatus" }
+        universeCounts:
+          type: object
+          additionalProperties: { type: integer }
+          description: "Counts of instruments per asset class (crypto, commodity, forex)"

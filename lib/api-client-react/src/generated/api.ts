@@ -19,6 +19,9 @@ import type {
 import type {
   FiiDiiResponse,
   GetFiiDiiParams,
+  GetGlobalCandlesParams,
+  GetGlobalDashboardParams,
+  GetGlobalInstrumentIndicatorsParams,
   GetNewsParams,
   GetOptionAnalyticsParams,
   GetOptionChainParams,
@@ -32,9 +35,26 @@ import type {
   GetPaperTradesFOParams,
   GetParticipantOiParams,
   GetStockHistoryParams,
+  GlobalAuthStatus,
+  GlobalCandlesResponse,
+  GlobalDashboardResponse,
+  GlobalIndicatorsResponse,
+  GlobalInstrument,
+  GlobalInstrumentDetail,
+  GlobalLoginBody,
+  GlobalLoginResponse,
+  GlobalLogoutResponse,
   GlobalMarket,
+  GlobalScreenerBody,
+  GlobalScreenerResponse,
+  GlobalSourceStatusResponse,
+  GlobalWatchlistAddBody,
+  GlobalWatchlistAddResponse,
+  GlobalWatchlistDeleteResponse,
+  GlobalWatchlistResponse,
   HealthStatus,
   IndicesBoardSnapshot,
+  ListGlobalInstrumentsParams,
   ListStocksParams,
   MarketEventsResponse,
   MarketSummary,
@@ -70,7 +90,7 @@ import type {
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -3228,6 +3248,1195 @@ export function useGetIndicesBoard<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetIndicesBoardQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Whether the global-scanner session cookie is present and the password is configured
+ */
+export const getGetGlobalAuthStatusUrl = () => {
+  return `/api/global/auth/status`;
+};
+
+export const getGlobalAuthStatus = async (
+  options?: RequestInit,
+): Promise<GlobalAuthStatus> => {
+  return customFetch<GlobalAuthStatus>(getGetGlobalAuthStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetGlobalAuthStatusQueryKey = () => {
+  return [`/api/global/auth/status`] as const;
+};
+
+export const getGetGlobalAuthStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGlobalAuthStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalAuthStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGlobalAuthStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGlobalAuthStatus>>
+  > = ({ signal }) => getGlobalAuthStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalAuthStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGlobalAuthStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGlobalAuthStatus>>
+>;
+export type GetGlobalAuthStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Whether the global-scanner session cookie is present and the password is configured
+ */
+
+export function useGetGlobalAuthStatus<
+  TData = Awaited<ReturnType<typeof getGlobalAuthStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalAuthStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGlobalAuthStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Log into the global scanner with the configured access password
+ */
+export const getGlobalLoginUrl = () => {
+  return `/api/global/auth/login`;
+};
+
+export const globalLogin = async (
+  globalLoginBody: GlobalLoginBody,
+  options?: RequestInit,
+): Promise<GlobalLoginResponse> => {
+  return customFetch<GlobalLoginResponse>(getGlobalLoginUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(globalLoginBody),
+  });
+};
+
+export const getGlobalLoginMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof globalLogin>>,
+    TError,
+    { data: BodyType<GlobalLoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof globalLogin>>,
+  TError,
+  { data: BodyType<GlobalLoginBody> },
+  TContext
+> => {
+  const mutationKey = ["globalLogin"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof globalLogin>>,
+    { data: BodyType<GlobalLoginBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return globalLogin(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GlobalLoginMutationResult = NonNullable<
+  Awaited<ReturnType<typeof globalLogin>>
+>;
+export type GlobalLoginMutationBody = BodyType<GlobalLoginBody>;
+export type GlobalLoginMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Log into the global scanner with the configured access password
+ */
+export const useGlobalLogin = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof globalLogin>>,
+    TError,
+    { data: BodyType<GlobalLoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof globalLogin>>,
+  TError,
+  { data: BodyType<GlobalLoginBody> },
+  TContext
+> => {
+  return useMutation(getGlobalLoginMutationOptions(options));
+};
+
+/**
+ * @summary Clear the global scanner session cookie
+ */
+export const getGlobalLogoutUrl = () => {
+  return `/api/global/auth/logout`;
+};
+
+export const globalLogout = async (
+  options?: RequestInit,
+): Promise<GlobalLogoutResponse> => {
+  return customFetch<GlobalLogoutResponse>(getGlobalLogoutUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getGlobalLogoutMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof globalLogout>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof globalLogout>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["globalLogout"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof globalLogout>>,
+    void
+  > = () => {
+    return globalLogout(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GlobalLogoutMutationResult = NonNullable<
+  Awaited<ReturnType<typeof globalLogout>>
+>;
+
+export type GlobalLogoutMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Clear the global scanner session cookie
+ */
+export const useGlobalLogout = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof globalLogout>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof globalLogout>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getGlobalLogoutMutationOptions(options));
+};
+
+/**
+ * @summary Full instrument universe (crypto + commodities + forex)
+ */
+export const getListGlobalInstrumentsUrl = (
+  params?: ListGlobalInstrumentsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/global/instruments?${stringifiedParams}`
+    : `/api/global/instruments`;
+};
+
+export const listGlobalInstruments = async (
+  params?: ListGlobalInstrumentsParams,
+  options?: RequestInit,
+): Promise<GlobalInstrument[]> => {
+  return customFetch<GlobalInstrument[]>(getListGlobalInstrumentsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListGlobalInstrumentsQueryKey = (
+  params?: ListGlobalInstrumentsParams,
+) => {
+  return [`/api/global/instruments`, ...(params ? [params] : [])] as const;
+};
+
+export const getListGlobalInstrumentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listGlobalInstruments>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListGlobalInstrumentsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listGlobalInstruments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListGlobalInstrumentsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listGlobalInstruments>>
+  > = ({ signal }) =>
+    listGlobalInstruments(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalInstruments>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListGlobalInstrumentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listGlobalInstruments>>
+>;
+export type ListGlobalInstrumentsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Full instrument universe (crypto + commodities + forex)
+ */
+
+export function useListGlobalInstruments<
+  TData = Awaited<ReturnType<typeof listGlobalInstruments>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListGlobalInstrumentsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listGlobalInstruments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListGlobalInstrumentsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Live snapshot rows for an asset class (or watchlist) with freshness metadata
+ */
+export const getGetGlobalDashboardUrl = (params: GetGlobalDashboardParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/global/dashboard?${stringifiedParams}`
+    : `/api/global/dashboard`;
+};
+
+export const getGlobalDashboard = async (
+  params: GetGlobalDashboardParams,
+  options?: RequestInit,
+): Promise<GlobalDashboardResponse> => {
+  return customFetch<GlobalDashboardResponse>(
+    getGetGlobalDashboardUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetGlobalDashboardQueryKey = (
+  params?: GetGlobalDashboardParams,
+) => {
+  return [`/api/global/dashboard`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetGlobalDashboardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGlobalDashboard>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGlobalDashboardParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalDashboard>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetGlobalDashboardQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGlobalDashboard>>
+  > = ({ signal }) => getGlobalDashboard(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalDashboard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGlobalDashboardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGlobalDashboard>>
+>;
+export type GetGlobalDashboardQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Live snapshot rows for an asset class (or watchlist) with freshness metadata
+ */
+
+export function useGetGlobalDashboard<
+  TData = Awaited<ReturnType<typeof getGlobalDashboard>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGlobalDashboardParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalDashboard>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGlobalDashboardQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Per-instrument quote, day stats and supported timeframes
+ */
+export const getGetGlobalInstrumentDetailUrl = (symbol: string) => {
+  return `/api/global/instruments/${symbol}`;
+};
+
+export const getGlobalInstrumentDetail = async (
+  symbol: string,
+  options?: RequestInit,
+): Promise<GlobalInstrumentDetail> => {
+  return customFetch<GlobalInstrumentDetail>(
+    getGetGlobalInstrumentDetailUrl(symbol),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetGlobalInstrumentDetailQueryKey = (symbol: string) => {
+  return [`/api/global/instruments/${symbol}`] as const;
+};
+
+export const getGetGlobalInstrumentDetailQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGlobalInstrumentDetail>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalInstrumentDetail>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetGlobalInstrumentDetailQueryKey(symbol);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGlobalInstrumentDetail>>
+  > = ({ signal }) =>
+    getGlobalInstrumentDetail(symbol, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!symbol,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalInstrumentDetail>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGlobalInstrumentDetailQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGlobalInstrumentDetail>>
+>;
+export type GetGlobalInstrumentDetailQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Per-instrument quote, day stats and supported timeframes
+ */
+
+export function useGetGlobalInstrumentDetail<
+  TData = Awaited<ReturnType<typeof getGlobalInstrumentDetail>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalInstrumentDetail>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGlobalInstrumentDetailQueryOptions(
+    symbol,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary OHLCV candles for an instrument and timeframe (real source data)
+ */
+export const getGetGlobalCandlesUrl = (
+  symbol: string,
+  params: GetGlobalCandlesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/global/instruments/${symbol}/candles?${stringifiedParams}`
+    : `/api/global/instruments/${symbol}/candles`;
+};
+
+export const getGlobalCandles = async (
+  symbol: string,
+  params: GetGlobalCandlesParams,
+  options?: RequestInit,
+): Promise<GlobalCandlesResponse> => {
+  return customFetch<GlobalCandlesResponse>(
+    getGetGlobalCandlesUrl(symbol, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetGlobalCandlesQueryKey = (
+  symbol: string,
+  params?: GetGlobalCandlesParams,
+) => {
+  return [
+    `/api/global/instruments/${symbol}/candles`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetGlobalCandlesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGlobalCandles>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  params: GetGlobalCandlesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalCandles>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetGlobalCandlesQueryKey(symbol, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGlobalCandles>>
+  > = ({ signal }) =>
+    getGlobalCandles(symbol, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!symbol,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalCandles>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGlobalCandlesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGlobalCandles>>
+>;
+export type GetGlobalCandlesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary OHLCV candles for an instrument and timeframe (real source data)
+ */
+
+export function useGetGlobalCandles<
+  TData = Awaited<ReturnType<typeof getGlobalCandles>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  params: GetGlobalCandlesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalCandles>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGlobalCandlesQueryOptions(symbol, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Indicator series (SMA/EMA/RSI/MACD/BB/ATR/VWAP/Supertrend) for an instrument
+ */
+export const getGetGlobalInstrumentIndicatorsUrl = (
+  symbol: string,
+  params: GetGlobalInstrumentIndicatorsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/global/instruments/${symbol}/indicators?${stringifiedParams}`
+    : `/api/global/instruments/${symbol}/indicators`;
+};
+
+export const getGlobalInstrumentIndicators = async (
+  symbol: string,
+  params: GetGlobalInstrumentIndicatorsParams,
+  options?: RequestInit,
+): Promise<GlobalIndicatorsResponse> => {
+  return customFetch<GlobalIndicatorsResponse>(
+    getGetGlobalInstrumentIndicatorsUrl(symbol, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetGlobalInstrumentIndicatorsQueryKey = (
+  symbol: string,
+  params?: GetGlobalInstrumentIndicatorsParams,
+) => {
+  return [
+    `/api/global/instruments/${symbol}/indicators`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetGlobalInstrumentIndicatorsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGlobalInstrumentIndicators>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  params: GetGlobalInstrumentIndicatorsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalInstrumentIndicators>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetGlobalInstrumentIndicatorsQueryKey(symbol, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGlobalInstrumentIndicators>>
+  > = ({ signal }) =>
+    getGlobalInstrumentIndicators(symbol, params, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!symbol,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalInstrumentIndicators>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGlobalInstrumentIndicatorsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGlobalInstrumentIndicators>>
+>;
+export type GetGlobalInstrumentIndicatorsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Indicator series (SMA/EMA/RSI/MACD/BB/ATR/VWAP/Supertrend) for an instrument
+ */
+
+export function useGetGlobalInstrumentIndicators<
+  TData = Awaited<ReturnType<typeof getGlobalInstrumentIndicators>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  params: GetGlobalInstrumentIndicatorsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalInstrumentIndicators>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGlobalInstrumentIndicatorsQueryOptions(
+    symbol,
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Run a screener against the universe using cached candles + indicator filters
+ */
+export const getRunGlobalScreenerUrl = () => {
+  return `/api/global/screen`;
+};
+
+export const runGlobalScreener = async (
+  globalScreenerBody: GlobalScreenerBody,
+  options?: RequestInit,
+): Promise<GlobalScreenerResponse> => {
+  return customFetch<GlobalScreenerResponse>(getRunGlobalScreenerUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(globalScreenerBody),
+  });
+};
+
+export const getRunGlobalScreenerMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runGlobalScreener>>,
+    TError,
+    { data: BodyType<GlobalScreenerBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runGlobalScreener>>,
+  TError,
+  { data: BodyType<GlobalScreenerBody> },
+  TContext
+> => {
+  const mutationKey = ["runGlobalScreener"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runGlobalScreener>>,
+    { data: BodyType<GlobalScreenerBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return runGlobalScreener(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunGlobalScreenerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runGlobalScreener>>
+>;
+export type RunGlobalScreenerMutationBody = BodyType<GlobalScreenerBody>;
+export type RunGlobalScreenerMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Run a screener against the universe using cached candles + indicator filters
+ */
+export const useRunGlobalScreener = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runGlobalScreener>>,
+    TError,
+    { data: BodyType<GlobalScreenerBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runGlobalScreener>>,
+  TError,
+  { data: BodyType<GlobalScreenerBody> },
+  TContext
+> => {
+  return useMutation(getRunGlobalScreenerMutationOptions(options));
+};
+
+/**
+ * @summary Current user's personal global-scanner watchlist
+ */
+export const getGetGlobalWatchlistUrl = () => {
+  return `/api/global/watchlist`;
+};
+
+export const getGlobalWatchlist = async (
+  options?: RequestInit,
+): Promise<GlobalWatchlistResponse> => {
+  return customFetch<GlobalWatchlistResponse>(getGetGlobalWatchlistUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetGlobalWatchlistQueryKey = () => {
+  return [`/api/global/watchlist`] as const;
+};
+
+export const getGetGlobalWatchlistQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGlobalWatchlist>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalWatchlist>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGlobalWatchlistQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGlobalWatchlist>>
+  > = ({ signal }) => getGlobalWatchlist({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalWatchlist>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGlobalWatchlistQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGlobalWatchlist>>
+>;
+export type GetGlobalWatchlistQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Current user's personal global-scanner watchlist
+ */
+
+export function useGetGlobalWatchlist<
+  TData = Awaited<ReturnType<typeof getGlobalWatchlist>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalWatchlist>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGlobalWatchlistQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Add an instrument to the personal global watchlist (idempotent)
+ */
+export const getAddGlobalWatchlistUrl = () => {
+  return `/api/global/watchlist`;
+};
+
+export const addGlobalWatchlist = async (
+  globalWatchlistAddBody: GlobalWatchlistAddBody,
+  options?: RequestInit,
+): Promise<GlobalWatchlistAddResponse> => {
+  return customFetch<GlobalWatchlistAddResponse>(getAddGlobalWatchlistUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(globalWatchlistAddBody),
+  });
+};
+
+export const getAddGlobalWatchlistMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addGlobalWatchlist>>,
+    TError,
+    { data: BodyType<GlobalWatchlistAddBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addGlobalWatchlist>>,
+  TError,
+  { data: BodyType<GlobalWatchlistAddBody> },
+  TContext
+> => {
+  const mutationKey = ["addGlobalWatchlist"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addGlobalWatchlist>>,
+    { data: BodyType<GlobalWatchlistAddBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return addGlobalWatchlist(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddGlobalWatchlistMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addGlobalWatchlist>>
+>;
+export type AddGlobalWatchlistMutationBody = BodyType<GlobalWatchlistAddBody>;
+export type AddGlobalWatchlistMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Add an instrument to the personal global watchlist (idempotent)
+ */
+export const useAddGlobalWatchlist = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addGlobalWatchlist>>,
+    TError,
+    { data: BodyType<GlobalWatchlistAddBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof addGlobalWatchlist>>,
+  TError,
+  { data: BodyType<GlobalWatchlistAddBody> },
+  TContext
+> => {
+  return useMutation(getAddGlobalWatchlistMutationOptions(options));
+};
+
+/**
+ * @summary Remove an instrument from the personal global watchlist
+ */
+export const getDeleteGlobalWatchlistUrl = (symbol: string) => {
+  return `/api/global/watchlist/${symbol}`;
+};
+
+export const deleteGlobalWatchlist = async (
+  symbol: string,
+  options?: RequestInit,
+): Promise<GlobalWatchlistDeleteResponse> => {
+  return customFetch<GlobalWatchlistDeleteResponse>(
+    getDeleteGlobalWatchlistUrl(symbol),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDeleteGlobalWatchlistMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteGlobalWatchlist>>,
+    TError,
+    { symbol: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteGlobalWatchlist>>,
+  TError,
+  { symbol: string },
+  TContext
+> => {
+  const mutationKey = ["deleteGlobalWatchlist"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteGlobalWatchlist>>,
+    { symbol: string }
+  > = (props) => {
+    const { symbol } = props ?? {};
+
+    return deleteGlobalWatchlist(symbol, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteGlobalWatchlistMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteGlobalWatchlist>>
+>;
+
+export type DeleteGlobalWatchlistMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Remove an instrument from the personal global watchlist
+ */
+export const useDeleteGlobalWatchlist = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteGlobalWatchlist>>,
+    TError,
+    { symbol: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteGlobalWatchlist>>,
+  TError,
+  { symbol: string },
+  TContext
+> => {
+  return useMutation(getDeleteGlobalWatchlistMutationOptions(options));
+};
+
+/**
+ * @summary Per-data-source freshness / last-error for the dashboard health strip
+ */
+export const getGetGlobalSourceStatusUrl = () => {
+  return `/api/global/status`;
+};
+
+export const getGlobalSourceStatus = async (
+  options?: RequestInit,
+): Promise<GlobalSourceStatusResponse> => {
+  return customFetch<GlobalSourceStatusResponse>(
+    getGetGlobalSourceStatusUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetGlobalSourceStatusQueryKey = () => {
+  return [`/api/global/status`] as const;
+};
+
+export const getGetGlobalSourceStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGlobalSourceStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalSourceStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGlobalSourceStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGlobalSourceStatus>>
+  > = ({ signal }) => getGlobalSourceStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalSourceStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGlobalSourceStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGlobalSourceStatus>>
+>;
+export type GetGlobalSourceStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Per-data-source freshness / last-error for the dashboard health strip
+ */
+
+export function useGetGlobalSourceStatus<
+  TData = Awaited<ReturnType<typeof getGlobalSourceStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalSourceStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGlobalSourceStatusQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

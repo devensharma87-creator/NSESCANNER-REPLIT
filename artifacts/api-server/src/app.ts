@@ -6,8 +6,11 @@ import pinoHttp from "pino-http";
 import rateLimit from "express-rate-limit";
 import router from "./routes";
 import authRouter from "./routes/auth";
+import globalRouter from "./routes/global";
 import { logger } from "./lib/logger";
 import { requireAuth, logAuthBootState } from "./lib/auth";
+import { logGlobalAuthBootState } from "./lib/global/auth";
+import { startGlobalDataPump } from "./lib/global/dataLayer";
 
 const app: Express = express();
 
@@ -164,8 +167,28 @@ const apiLimiter = rateLimit({
 });
 
 app.use("/api/auth/login", loginLimiter);
+// Strict bucket for the *global* scanner login. Same posture as the legacy
+// /api/auth/login limiter: a single shared password gate is the entire
+// access control for the global scanner, so brute-force resilience here
+// matters even though /api/* already has the broader 300/min apiLimiter.
+const globalLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: "too_many_login_attempts" },
+});
+app.use("/api/global/auth/login", globalLoginLimiter);
 app.use("/api/webhooks/", webhookLimiter);
 app.use("/api/", apiLimiter);
+
+// Global Multi-Asset Scanner routes — mounted BEFORE the legacy NSE gate
+// so that /api/global/* uses its own independent password gate (defined
+// inside `globalRouter`) and never sees the NSE `requireAuth`. This is a
+// hard separation per the Phase-1 spec: global users must not gain NSE
+// access (or vice-versa) by holding either cookie.
+app.use("/api", globalRouter);
 
 // Auth routes are mounted BEFORE the gate so login/logout/status are reachable
 // while logged out. The gate then guards everything else under /api.
@@ -181,5 +204,12 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction): void =
 });
 
 logAuthBootState();
+logGlobalAuthBootState();
+// Start the background data refresher for the global scanner. Best-effort —
+// pump errors are logged into `global_sync_logs` and surfaced via
+// /api/global/status, never thrown out of boot.
+void startGlobalDataPump().catch((err: unknown) => {
+  logger.error({ err: (err as Error).message }, "startGlobalDataPump failed at boot");
+});
 
 export default app;

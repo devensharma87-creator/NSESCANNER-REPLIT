@@ -3064,3 +3064,413 @@ export const GetIndicesBoardResponse = zod.object({
       "True when Indian-index LTPs were sourced from a live Kite session",
     ),
 });
+
+/**
+ * @summary Whether the global-scanner session cookie is present and the password is configured
+ */
+export const GetGlobalAuthStatusResponse = zod.object({
+  authenticated: zod.boolean(),
+  passwordConfigured: zod.boolean(),
+});
+
+/**
+ * @summary Log into the global scanner with the configured access password
+ */
+export const GlobalLoginBody = zod.object({
+  password: zod.string(),
+});
+
+export const GlobalLoginResponse = zod.object({
+  ok: zod.boolean(),
+  error: zod.string().optional(),
+});
+
+/**
+ * @summary Clear the global scanner session cookie
+ */
+export const GlobalLogoutResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Full instrument universe (crypto + commodities + forex)
+ */
+export const ListGlobalInstrumentsQueryParams = zod.object({
+  assetClass: zod.enum(["crypto", "commodity", "forex"]).optional(),
+});
+
+export const ListGlobalInstrumentsResponseItem = zod.object({
+  symbol: zod
+    .string()
+    .describe("Canonical scanner symbol e.g. BTCUSDT, GOLD, EURUSD"),
+  displayName: zod.string(),
+  assetClass: zod.enum(["crypto", "commodity", "forex"]),
+  source: zod
+    .enum(["binance", "yahoo", "yahoo-fx"])
+    .describe(
+      "Where the row's quote\/candles come from. Tagged on every persisted row.",
+    ),
+  sourceSymbol: zod
+    .string()
+    .describe("Symbol as used at the data source (e.g. GC=F, EURUSD=X)"),
+  currency: zod.string().optional().describe("Quote currency \/ unit"),
+  supportedTimeframes: zod
+    .array(zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]))
+    .describe(
+      "Only timeframes the data source can actually back with real OHLCV.",
+    ),
+  notes: zod
+    .string()
+    .optional()
+    .describe("Provider caveats e.g. 'Yahoo intraday FX is delayed\/snapshot'"),
+});
+export const ListGlobalInstrumentsResponse = zod.array(
+  ListGlobalInstrumentsResponseItem,
+);
+
+/**
+ * @summary Live snapshot rows for an asset class (or watchlist) with freshness metadata
+ */
+export const GetGlobalDashboardQueryParams = zod.object({
+  asset: zod.enum(["crypto", "commodities", "forex", "watchlist"]),
+});
+
+export const GetGlobalDashboardResponse = zod.object({
+  rows: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      displayName: zod.string(),
+      assetClass: zod.enum(["crypto", "commodity", "forex"]),
+      source: zod
+        .enum(["binance", "yahoo", "yahoo-fx"])
+        .describe(
+          "Where the row's quote\/candles come from. Tagged on every persisted row.",
+        ),
+      currency: zod.string().nullish(),
+      price: zod.number().nullish(),
+      prevClose: zod.number().nullish(),
+      changeAbs: zod.number().nullish(),
+      changePct: zod.number().nullish(),
+      dayHigh: zod.number().nullish(),
+      dayLow: zod.number().nullish(),
+      volume: zod.number().nullish(),
+      updatedAt: zod.coerce.date().nullish(),
+      ageMs: zod
+        .number()
+        .nullish()
+        .describe("Milliseconds since updatedAt; null if never updated."),
+      stale: zod
+        .boolean()
+        .describe(
+          "True when this row's last successful update is older than the\nper-source freshness budget OR when the upstream source is\ncurrently failing (sourceHealthy=false). The UI must visibly\nmark stale rows so users never mistake a frozen value for live.\n",
+        ),
+      sourceHealthy: zod
+        .boolean()
+        .optional()
+        .describe(
+          "Roll-up health of the upstream source (from \/global\/status).",
+        ),
+      lastError: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Per-instrument quote, day stats and supported timeframes
+ */
+export const GetGlobalInstrumentDetailParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const GetGlobalInstrumentDetailResponse = zod.object({
+  instrument: zod.object({
+    symbol: zod
+      .string()
+      .describe("Canonical scanner symbol e.g. BTCUSDT, GOLD, EURUSD"),
+    displayName: zod.string(),
+    assetClass: zod.enum(["crypto", "commodity", "forex"]),
+    source: zod
+      .enum(["binance", "yahoo", "yahoo-fx"])
+      .describe(
+        "Where the row's quote\/candles come from. Tagged on every persisted row.",
+      ),
+    sourceSymbol: zod
+      .string()
+      .describe("Symbol as used at the data source (e.g. GC=F, EURUSD=X)"),
+    currency: zod.string().optional().describe("Quote currency \/ unit"),
+    supportedTimeframes: zod
+      .array(zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]))
+      .describe(
+        "Only timeframes the data source can actually back with real OHLCV.",
+      ),
+    notes: zod
+      .string()
+      .optional()
+      .describe(
+        "Provider caveats e.g. 'Yahoo intraday FX is delayed\/snapshot'",
+      ),
+  }),
+  quote: zod
+    .union([
+      zod.object({
+        price: zod.number().nullish(),
+        prevClose: zod.number().nullish(),
+        changeAbs: zod.number().nullish(),
+        changePct: zod.number().nullish(),
+        dayHigh: zod.number().nullish(),
+        dayLow: zod.number().nullish(),
+        volume: zod.number().nullish(),
+        updatedAt: zod.coerce.date().optional(),
+        lastError: zod.string().nullish(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+});
+
+/**
+ * @summary OHLCV candles for an instrument and timeframe (real source data)
+ */
+export const GetGlobalCandlesParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const getGlobalCandlesQueryLimitMin = 10;
+export const getGlobalCandlesQueryLimitMax = 1000;
+
+export const GetGlobalCandlesQueryParams = zod.object({
+  timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]),
+  limit: zod.coerce
+    .number()
+    .min(getGlobalCandlesQueryLimitMin)
+    .max(getGlobalCandlesQueryLimitMax)
+    .optional(),
+});
+
+export const GetGlobalCandlesResponse = zod.object({
+  symbol: zod.string(),
+  timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]),
+  source: zod
+    .enum(["binance", "yahoo", "yahoo-fx"])
+    .describe(
+      "Where the row's quote\/candles come from. Tagged on every persisted row.",
+    ),
+  candles: zod.array(
+    zod.object({
+      t: zod.number().describe("Open time in ms since epoch"),
+      open: zod.number(),
+      high: zod.number(),
+      low: zod.number(),
+      close: zod.number(),
+      volume: zod.number().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Indicator series (SMA/EMA/RSI/MACD/BB/ATR/VWAP/Supertrend) for an instrument
+ */
+export const GetGlobalInstrumentIndicatorsParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const getGlobalInstrumentIndicatorsQueryLimitMin = 20;
+export const getGlobalInstrumentIndicatorsQueryLimitMax = 1000;
+
+export const GetGlobalInstrumentIndicatorsQueryParams = zod.object({
+  timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]),
+  list: zod.coerce.string().optional(),
+  limit: zod.coerce
+    .number()
+    .min(getGlobalInstrumentIndicatorsQueryLimitMin)
+    .max(getGlobalInstrumentIndicatorsQueryLimitMax)
+    .optional(),
+});
+
+export const GetGlobalInstrumentIndicatorsResponse = zod.object({
+  symbol: zod.string(),
+  timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]),
+  indicators: zod
+    .record(
+      zod.string(),
+      zod.array(
+        zod.object({
+          t: zod.number(),
+          v: zod.number().nullish(),
+        }),
+      ),
+    )
+    .describe(
+      "Map of indicator key (sma20, ema50, rsi14, macd, macdSignal, macdHist, bbUpper, bbMiddle, bbLower, atr14, vwap, supertrend, supertrendDir) to its time-series.",
+    ),
+});
+
+/**
+ * @summary Run a screener against the universe using cached candles + indicator filters
+ */
+
+export const runGlobalScreenerBodyFiltersMinRsi14Min = 0;
+export const runGlobalScreenerBodyFiltersMinRsi14Max = 100;
+
+export const runGlobalScreenerBodyFiltersMaxRsi14Min = 0;
+export const runGlobalScreenerBodyFiltersMaxRsi14Max = 100;
+
+export const runGlobalScreenerBodyFiltersBreakoutLookbackMin = 2;
+export const runGlobalScreenerBodyFiltersBreakoutLookbackMax = 500;
+
+export const runGlobalScreenerBodyFiltersBreakdownLookbackMin = 2;
+export const runGlobalScreenerBodyFiltersBreakdownLookbackMax = 500;
+
+export const runGlobalScreenerBodyLimitMax = 50;
+
+export const RunGlobalScreenerBody = zod.object({
+  assetClasses: zod.array(zod.enum(["crypto", "commodity", "forex"])).min(1),
+  timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
+  filters: zod
+    .object({
+      minChangePct: zod
+        .number()
+        .optional()
+        .describe("Minimum % change vs previous close (live snapshot)."),
+      maxChangePct: zod.number().optional(),
+      minVolume: zod
+        .number()
+        .optional()
+        .describe("Minimum 24h \/ day volume (live snapshot units)."),
+      minRsi14: zod
+        .number()
+        .min(runGlobalScreenerBodyFiltersMinRsi14Min)
+        .max(runGlobalScreenerBodyFiltersMinRsi14Max)
+        .optional(),
+      maxRsi14: zod
+        .number()
+        .min(runGlobalScreenerBodyFiltersMaxRsi14Min)
+        .max(runGlobalScreenerBodyFiltersMaxRsi14Max)
+        .optional(),
+      breakoutLookback: zod
+        .number()
+        .min(runGlobalScreenerBodyFiltersBreakoutLookbackMin)
+        .max(runGlobalScreenerBodyFiltersBreakoutLookbackMax)
+        .optional(),
+      breakdownLookback: zod
+        .number()
+        .min(runGlobalScreenerBodyFiltersBreakdownLookbackMin)
+        .max(runGlobalScreenerBodyFiltersBreakdownLookbackMax)
+        .optional(),
+      min1dChangePct: zod
+        .number()
+        .optional()
+        .describe(
+          "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe.",
+        ),
+      min1wChangePct: zod
+        .number()
+        .optional()
+        .describe(
+          "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe.",
+        ),
+      priceAboveSma50: zod
+        .boolean()
+        .optional()
+        .describe(
+          "Require last close > SMA(50) — classic intermediate-term trend filter.",
+        ),
+      priceBelowSma50: zod
+        .boolean()
+        .optional()
+        .describe("Require last close < SMA(50)."),
+      priceAboveSma200: zod
+        .boolean()
+        .optional()
+        .describe("Require last close > SMA(200) — long-term trend filter."),
+      priceBelowSma200: zod
+        .boolean()
+        .optional()
+        .describe("Require last close < SMA(200)."),
+      trendUp: zod
+        .boolean()
+        .optional()
+        .describe("EMA20 > EMA50 > EMA200 cascade (bullish stack)."),
+      trendDown: zod.boolean().optional(),
+      requireSupertrendUp: zod.boolean().optional(),
+      requireSupertrendDown: zod.boolean().optional(),
+    })
+    .optional(),
+  limit: zod.number().min(1).max(runGlobalScreenerBodyLimitMax).optional(),
+});
+
+export const RunGlobalScreenerResponse = zod.object({
+  hits: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      displayName: zod.string(),
+      assetClass: zod.enum(["crypto", "commodity", "forex"]),
+      price: zod.number().nullish(),
+      changePct: zod.number().nullish(),
+      volume: zod.number().nullish(),
+      rsi14: zod.number().nullish(),
+      trend: zod
+        .union([zod.enum(["up", "down", "mixed"]), zod.null()])
+        .optional(),
+      matched: zod.array(zod.string()),
+    }),
+  ),
+  evaluatedCandidates: zod.number(),
+  indicatorEvaluated: zod.boolean(),
+});
+
+/**
+ * @summary Current user's personal global-scanner watchlist
+ */
+export const GetGlobalWatchlistResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      addedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Add an instrument to the personal global watchlist (idempotent)
+ */
+export const AddGlobalWatchlistBody = zod.object({
+  symbol: zod.string(),
+});
+
+/**
+ * @summary Remove an instrument from the personal global watchlist
+ */
+export const DeleteGlobalWatchlistParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const DeleteGlobalWatchlistResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Per-data-source freshness / last-error for the dashboard health strip
+ */
+export const GetGlobalSourceStatusResponse = zod.object({
+  sources: zod.array(
+    zod.object({
+      source: zod
+        .enum(["binance", "yahoo", "yahoo-fx"])
+        .describe(
+          "Where the row's quote\/candles come from. Tagged on every persisted row.",
+        ),
+      healthy: zod.boolean(),
+      lastOkAt: zod.coerce.date().nullish(),
+      lastErrorAt: zod.coerce.date().nullish(),
+      lastError: zod.string().nullish(),
+      ageMs: zod.number().nullish().describe("Milliseconds since lastOkAt"),
+      notes: zod.string().nullish(),
+    }),
+  ),
+  universeCounts: zod
+    .record(zod.string(), zod.number())
+    .describe(
+      "Counts of instruments per asset class (crypto, commodity, forex)",
+    ),
+});

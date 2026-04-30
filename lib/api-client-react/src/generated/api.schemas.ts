@@ -2012,6 +2012,321 @@ export interface PaperReportEqYearly {
   generatedAt: string;
 }
 
+export interface GlobalAuthStatus {
+  authenticated: boolean;
+  passwordConfigured: boolean;
+}
+
+export interface GlobalLoginBody {
+  password: string;
+}
+
+export interface GlobalLoginResponse {
+  ok: boolean;
+  error?: string;
+}
+
+export interface GlobalLogoutResponse {
+  ok: boolean;
+}
+
+export type GlobalAssetClass =
+  (typeof GlobalAssetClass)[keyof typeof GlobalAssetClass];
+
+export const GlobalAssetClass = {
+  crypto: "crypto",
+  commodity: "commodity",
+  forex: "forex",
+} as const;
+
+/**
+ * Where the row's quote/candles come from. Tagged on every persisted row.
+ */
+export type GlobalDataSource =
+  (typeof GlobalDataSource)[keyof typeof GlobalDataSource];
+
+export const GlobalDataSource = {
+  binance: "binance",
+  yahoo: "yahoo",
+  "yahoo-fx": "yahoo-fx",
+} as const;
+
+export type GlobalTimeframe =
+  (typeof GlobalTimeframe)[keyof typeof GlobalTimeframe];
+
+export const GlobalTimeframe = {
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
+  "1h": "1h",
+  "4h": "4h",
+  "1d": "1d",
+} as const;
+
+export interface GlobalInstrument {
+  /** Canonical scanner symbol e.g. BTCUSDT, GOLD, EURUSD */
+  symbol: string;
+  displayName: string;
+  assetClass: GlobalAssetClass;
+  source: GlobalDataSource;
+  /** Symbol as used at the data source (e.g. GC=F, EURUSD=X) */
+  sourceSymbol: string;
+  /** Quote currency / unit */
+  currency?: string;
+  /** Only timeframes the data source can actually back with real OHLCV. */
+  supportedTimeframes: GlobalTimeframe[];
+  /** Provider caveats e.g. 'Yahoo intraday FX is delayed/snapshot' */
+  notes?: string;
+}
+
+export interface GlobalDashboardRow {
+  symbol: string;
+  displayName: string;
+  assetClass: GlobalAssetClass;
+  source: GlobalDataSource;
+  /** @nullable */
+  currency?: string | null;
+  /** @nullable */
+  price?: number | null;
+  /** @nullable */
+  prevClose?: number | null;
+  /** @nullable */
+  changeAbs?: number | null;
+  /** @nullable */
+  changePct?: number | null;
+  /** @nullable */
+  dayHigh?: number | null;
+  /** @nullable */
+  dayLow?: number | null;
+  /** @nullable */
+  volume?: number | null;
+  /** @nullable */
+  updatedAt?: string | null;
+  /**
+   * Milliseconds since updatedAt; null if never updated.
+   * @nullable
+   */
+  ageMs?: number | null;
+  /** True when this row's last successful update is older than the
+per-source freshness budget OR when the upstream source is
+currently failing (sourceHealthy=false). The UI must visibly
+mark stale rows so users never mistake a frozen value for live.
+ */
+  stale: boolean;
+  /** Roll-up health of the upstream source (from /global/status). */
+  sourceHealthy?: boolean;
+  /** @nullable */
+  lastError?: string | null;
+}
+
+export interface GlobalSourceStatus {
+  source: GlobalDataSource;
+  healthy: boolean;
+  /** @nullable */
+  lastOkAt?: string | null;
+  /** @nullable */
+  lastErrorAt?: string | null;
+  /** @nullable */
+  lastError?: string | null;
+  /**
+   * Milliseconds since lastOkAt
+   * @nullable
+   */
+  ageMs?: number | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface GlobalDashboardResponse {
+  rows: GlobalDashboardRow[];
+}
+
+export interface GlobalQuote {
+  /** @nullable */
+  price?: number | null;
+  /** @nullable */
+  prevClose?: number | null;
+  /** @nullable */
+  changeAbs?: number | null;
+  /** @nullable */
+  changePct?: number | null;
+  /** @nullable */
+  dayHigh?: number | null;
+  /** @nullable */
+  dayLow?: number | null;
+  /** @nullable */
+  volume?: number | null;
+  updatedAt?: string;
+  /** @nullable */
+  lastError?: string | null;
+}
+
+export interface GlobalInstrumentDetail {
+  instrument: GlobalInstrument;
+  quote?: GlobalQuote | null;
+}
+
+export interface GlobalCandle {
+  /** Open time in ms since epoch */
+  t: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** @nullable */
+  volume?: number | null;
+}
+
+export interface GlobalCandlesResponse {
+  symbol: string;
+  timeframe: GlobalTimeframe;
+  source: GlobalDataSource;
+  candles: GlobalCandle[];
+}
+
+export interface GlobalIndicatorPoint {
+  t: number;
+  /** @nullable */
+  v?: number | null;
+}
+
+/**
+ * Map of indicator key (sma20, ema50, rsi14, macd, macdSignal, macdHist, bbUpper, bbMiddle, bbLower, atr14, vwap, supertrend, supertrendDir) to its time-series.
+ */
+export type GlobalIndicatorsResponseIndicators = {
+  [key: string]: GlobalIndicatorPoint[];
+};
+
+export interface GlobalIndicatorsResponse {
+  symbol: string;
+  timeframe: GlobalTimeframe;
+  /** Map of indicator key (sma20, ema50, rsi14, macd, macdSignal, macdHist, bbUpper, bbMiddle, bbLower, atr14, vwap, supertrend, supertrendDir) to its time-series. */
+  indicators: GlobalIndicatorsResponseIndicators;
+}
+
+export interface GlobalScreenerFilters {
+  /** Minimum % change vs previous close (live snapshot). */
+  minChangePct?: number;
+  maxChangePct?: number;
+  /** Minimum 24h / day volume (live snapshot units). */
+  minVolume?: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  minRsi14?: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  maxRsi14?: number;
+  /**
+   * @minimum 2
+   * @maximum 500
+   */
+  breakoutLookback?: number;
+  /**
+   * @minimum 2
+   * @maximum 500
+   */
+  breakdownLookback?: number;
+  /** Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe. */
+  min1dChangePct?: number;
+  /** Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe. */
+  min1wChangePct?: number;
+  /** Require last close > SMA(50) — classic intermediate-term trend filter. */
+  priceAboveSma50?: boolean;
+  /** Require last close < SMA(50). */
+  priceBelowSma50?: boolean;
+  /** Require last close > SMA(200) — long-term trend filter. */
+  priceAboveSma200?: boolean;
+  /** Require last close < SMA(200). */
+  priceBelowSma200?: boolean;
+  /** EMA20 > EMA50 > EMA200 cascade (bullish stack). */
+  trendUp?: boolean;
+  trendDown?: boolean;
+  requireSupertrendUp?: boolean;
+  requireSupertrendDown?: boolean;
+}
+
+export interface GlobalScreenerBody {
+  /** @minItems 1 */
+  assetClasses: GlobalAssetClass[];
+  timeframe?: GlobalTimeframe;
+  filters?: GlobalScreenerFilters;
+  /**
+   * @minimum 1
+   * @maximum 50
+   */
+  limit?: number;
+}
+
+export type GlobalScreenerTrend =
+  (typeof GlobalScreenerTrend)[keyof typeof GlobalScreenerTrend];
+
+export const GlobalScreenerTrend = {
+  up: "up",
+  down: "down",
+  mixed: "mixed",
+} as const;
+
+export interface GlobalScreenerHit {
+  symbol: string;
+  displayName: string;
+  assetClass: GlobalAssetClass;
+  /** @nullable */
+  price?: number | null;
+  /** @nullable */
+  changePct?: number | null;
+  /** @nullable */
+  volume?: number | null;
+  /** @nullable */
+  rsi14?: number | null;
+  trend?: GlobalScreenerTrend | null;
+  matched: string[];
+}
+
+export interface GlobalScreenerResponse {
+  hits: GlobalScreenerHit[];
+  evaluatedCandidates: number;
+  indicatorEvaluated: boolean;
+}
+
+export interface GlobalWatchlistItem {
+  symbol: string;
+  addedAt: string;
+}
+
+export interface GlobalWatchlistResponse {
+  items: GlobalWatchlistItem[];
+}
+
+export interface GlobalWatchlistAddBody {
+  symbol: string;
+}
+
+export interface GlobalWatchlistAddResponse {
+  ok: boolean;
+  symbol: string;
+}
+
+export interface GlobalWatchlistDeleteResponse {
+  ok: boolean;
+}
+
+/**
+ * Counts of instruments per asset class (crypto, commodity, forex)
+ */
+export type GlobalSourceStatusResponseUniverseCounts = {
+  [key: string]: number;
+};
+
+export interface GlobalSourceStatusResponse {
+  sources: GlobalSourceStatus[];
+  /** Counts of instruments per asset class (crypto, commodity, forex) */
+  universeCounts: GlobalSourceStatusResponseUniverseCounts;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;
@@ -2133,3 +2448,76 @@ export type RefreshInstFlows200 = { [key: string]: unknown };
 export type GetNewsParams = {
   symbol?: string;
 };
+
+export type ListGlobalInstrumentsParams = {
+  assetClass?: ListGlobalInstrumentsAssetClass;
+};
+
+export type ListGlobalInstrumentsAssetClass =
+  (typeof ListGlobalInstrumentsAssetClass)[keyof typeof ListGlobalInstrumentsAssetClass];
+
+export const ListGlobalInstrumentsAssetClass = {
+  crypto: "crypto",
+  commodity: "commodity",
+  forex: "forex",
+} as const;
+
+export type GetGlobalDashboardParams = {
+  asset: GetGlobalDashboardAsset;
+};
+
+export type GetGlobalDashboardAsset =
+  (typeof GetGlobalDashboardAsset)[keyof typeof GetGlobalDashboardAsset];
+
+export const GetGlobalDashboardAsset = {
+  crypto: "crypto",
+  commodities: "commodities",
+  forex: "forex",
+  watchlist: "watchlist",
+} as const;
+
+export type GetGlobalCandlesParams = {
+  timeframe: GetGlobalCandlesTimeframe;
+  /**
+   * @minimum 10
+   * @maximum 1000
+   */
+  limit?: number;
+};
+
+export type GetGlobalCandlesTimeframe =
+  (typeof GetGlobalCandlesTimeframe)[keyof typeof GetGlobalCandlesTimeframe];
+
+export const GetGlobalCandlesTimeframe = {
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
+  "1h": "1h",
+  "4h": "4h",
+  "1d": "1d",
+} as const;
+
+export type GetGlobalInstrumentIndicatorsParams = {
+  timeframe: GetGlobalInstrumentIndicatorsTimeframe;
+  /**
+   * CSV of indicator ids (sma20,sma50,sma200,ema20,ema50,rsi14,macd,bb20,atr14,vwap,supertrend)
+   */
+  list?: string;
+  /**
+   * @minimum 20
+   * @maximum 1000
+   */
+  limit?: number;
+};
+
+export type GetGlobalInstrumentIndicatorsTimeframe =
+  (typeof GetGlobalInstrumentIndicatorsTimeframe)[keyof typeof GetGlobalInstrumentIndicatorsTimeframe];
+
+export const GetGlobalInstrumentIndicatorsTimeframe = {
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
+  "1h": "1h",
+  "4h": "4h",
+  "1d": "1d",
+} as const;
