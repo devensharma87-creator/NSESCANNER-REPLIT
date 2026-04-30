@@ -75,6 +75,15 @@ export const globalLivePricesTable = pgTable("global_live_prices", {
   source: text("source").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   lastError: text("last_error"),
+  /**
+   * Number of consecutive refresh cycles where the per-symbol fetch failed
+   * (counted by the dataLayer refreshers). Reset to 0 on every successful
+   * upsert. Used by `/global/status` to surface "candidate dead symbols"
+   * (e.g. delisted Binance pairs, retired Yahoo continuous-future codes)
+   * so operators know which entries in `universe.ts` to prune.
+   */
+  failureStreak: integer("failure_streak").notNull().default(0),
+  lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
 });
 
 export const globalWatchlistTable = pgTable(

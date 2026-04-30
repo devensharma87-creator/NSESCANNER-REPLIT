@@ -2319,6 +2319,22 @@ export interface GlobalWatchlistDeleteResponse {
 }
 
 /**
+ * An instrument that has failed >= threshold consecutive refresh cycles — likely delisted upstream and a candidate for pruning from `universe.ts`.
+ */
+export interface GlobalDeadCandidate {
+  symbol: string;
+  displayName: string;
+  assetClass: GlobalAssetClass;
+  source: GlobalDataSource;
+  /** Consecutive refresh cycles where the per-symbol fetch failed (reset on the next successful refresh). */
+  failureStreak: number;
+  /** @nullable */
+  lastFailureAt?: string | null;
+  /** @nullable */
+  lastError?: string | null;
+}
+
+/**
  * Counts of instruments per asset class (crypto, commodity, forex, equity, index)
  */
 export type GlobalSourceStatusResponseUniverseCounts = {
@@ -2329,6 +2345,10 @@ export interface GlobalSourceStatusResponse {
   sources: GlobalSourceStatus[];
   /** Counts of instruments per asset class (crypto, commodity, forex, equity, index) */
   universeCounts: GlobalSourceStatusResponseUniverseCounts;
+  /** Instruments whose per-symbol failure streak has crossed `deadCandidateThreshold`. Sorted worst-first. */
+  deadCandidates: GlobalDeadCandidate[];
+  /** Number of consecutive failed refresh cycles after which a symbol is flagged as a dead candidate. */
+  deadCandidateThreshold: number;
 }
 
 export interface GlobalScreenerPreset {

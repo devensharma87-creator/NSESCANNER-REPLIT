@@ -53,6 +53,7 @@ export * from "./globalCandlesResponse";
 export * from "./globalDashboardResponse";
 export * from "./globalDashboardRow";
 export * from "./globalDataSource";
+export * from "./globalDeadCandidate";
 export * from "./globalIndicatorPoint";
 export * from "./globalIndicatorsResponse";
 export * from "./globalIndicatorsResponseIndicators";

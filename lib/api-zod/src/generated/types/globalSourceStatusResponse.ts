@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { GlobalDeadCandidate } from "./globalDeadCandidate";
 import type { GlobalSourceStatus } from "./globalSourceStatus";
 import type { GlobalSourceStatusResponseUniverseCounts } from "./globalSourceStatusResponseUniverseCounts";
 
@@ -12,4 +13,8 @@ export interface GlobalSourceStatusResponse {
   sources: GlobalSourceStatus[];
   /** Counts of instruments per asset class (crypto, commodity, forex, equity, index) */
   universeCounts: GlobalSourceStatusResponseUniverseCounts;
+  /** Instruments whose per-symbol failure streak has crossed `deadCandidateThreshold`. Sorted worst-first. */
+  deadCandidates: GlobalDeadCandidate[];
+  /** Number of consecutive failed refresh cycles after which a symbol is flagged as a dead candidate. */
+  deadCandidateThreshold: number;
 }

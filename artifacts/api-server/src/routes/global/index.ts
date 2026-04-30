@@ -43,7 +43,9 @@ import {
   getCandlesFresh,
   getLivePrices,
   getSyncStatuses,
+  getDeadCandidates,
   buildDashboardRows,
+  DEAD_SYMBOL_STREAK_THRESHOLD,
 } from "../../lib/global/dataLayer";
 import {
   sma, ema, rsi, macd, bollinger, atr, vwap, supertrend,
@@ -688,7 +690,10 @@ router.delete("/global/screener-presets/:id", async (req, res) => {
 
 // ── Status (data freshness) ─────────────────────────────────────────
 router.get("/global/status", async (_req, res) => {
-  const rows = await getSyncStatuses();
+  const [rows, deadCandidates] = await Promise.all([
+    getSyncStatuses(),
+    getDeadCandidates(),
+  ]);
   const now = Date.now();
   const sources: Array<"binance" | "yahoo" | "yahoo-fx" | "yahoo-equity" | "yahoo-index"> = [
     "binance", "yahoo", "yahoo-fx", "yahoo-equity", "yahoo-index",
@@ -715,7 +720,16 @@ router.get("/global/status", async (_req, res) => {
     equity:    EQUITIES.length,
     index:     INDICES.length,
   };
-  res.json({ sources: out, universeCounts: counts });
+  res.json({
+    sources: out,
+    universeCounts: counts,
+    // `deadCandidates` are symbols that have failed >= threshold consecutive
+    // refresh cycles and are likely delisted upstream — see
+    // DEAD_SYMBOL_STREAK_THRESHOLD in dataLayer.ts. The UI surfaces these
+    // so an operator knows what to prune from `universe.ts`.
+    deadCandidates,
+    deadCandidateThreshold: DEAD_SYMBOL_STREAK_THRESHOLD,
+  });
 });
 
 export default router;

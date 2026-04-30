@@ -2935,9 +2935,24 @@ components:
       properties:
         ok: { type: boolean }
 
+    GlobalDeadCandidate:
+      type: object
+      required: [symbol, displayName, assetClass, source, failureStreak]
+      description: "An instrument that has failed >= threshold consecutive refresh cycles — likely delisted upstream and a candidate for pruning from `universe.ts`."
+      properties:
+        symbol: { type: string }
+        displayName: { type: string }
+        assetClass: { $ref: "#/components/schemas/GlobalAssetClass" }
+        source: { $ref: "#/components/schemas/GlobalDataSource" }
+        failureStreak:
+          type: integer
+          description: "Consecutive refresh cycles where the per-symbol fetch failed (reset on the next successful refresh)."
+        lastFailureAt: { type: ["string", "null"], format: date-time }
+        lastError: { type: ["string", "null"] }
+
     GlobalSourceStatusResponse:
       type: object
-      required: [sources, universeCounts]
+      required: [sources, universeCounts, deadCandidates, deadCandidateThreshold]
       properties:
         sources:
           type: array
@@ -2946,6 +2961,13 @@ components:
           type: object
           additionalProperties: { type: integer }
           description: "Counts of instruments per asset class (crypto, commodity, forex, equity, index)"
+        deadCandidates:
+          type: array
+          description: "Instruments whose per-symbol failure streak has crossed `deadCandidateThreshold`. Sorted worst-first."
+          items: { $ref: "#/components/schemas/GlobalDeadCandidate" }
+        deadCandidateThreshold:
+          type: integer
+          description: "Number of consecutive failed refresh cycles after which a symbol is flagged as a dead candidate."
 
     GlobalScreenerPreset:
       type: object

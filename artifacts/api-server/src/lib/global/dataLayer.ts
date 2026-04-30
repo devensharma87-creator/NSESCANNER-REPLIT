@@ -21,7 +21,7 @@ import {
   globalLivePricesTable,
   globalSyncLogsTable,
 } from "@workspace/db/schema";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, gte, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import {
   CRYPTO,
@@ -39,6 +39,20 @@ import { fetchBinanceTickers, fetchBinanceKlines } from "./binance";
 import { fetchYahooCandles, fetchYahooQuoteSnapshot, type YfCandle } from "./yahoo";
 
 let booted = false;
+
+/**
+ * Number of consecutive refresh-cycle failures after which a symbol is
+ * flagged as a "candidate dead symbol" — i.e. likely delisted on the
+ * upstream (Binance pair retired, Yahoo continuous-future code changed)
+ * rather than experiencing a transient network blip.
+ *
+ * The crypto refresher runs every 30s and the Yahoo refreshers every
+ * 60–90s, so 5 consecutive misses ≈ 2.5–7.5 minutes of sustained failure
+ * before we surface the symbol — long enough to filter out normal
+ * upstream hiccups but short enough to catch real delistings the same
+ * trading session.
+ */
+export const DEAD_SYMBOL_STREAK_THRESHOLD = 5;
 
 export async function seedGlobalUniverse(): Promise<void> {
   // Insert any missing rows; never delete (a row removed from code shouldn't
@@ -89,16 +103,18 @@ async function recordSyncErr(source: GlobalDataSource, err: unknown): Promise<vo
 }
 
 /**
- * Refresh failed for `symbol` — preserve the last-known price/quote (so the
- * dashboard keeps showing it) but stamp the upstream error onto the row
- * for the UI tooltip. Crucially we DO NOT touch `updatedAt`; the row's age
- * grows naturally and the per-source freshness budget marks it `stale`.
+ * Stamp an upstream error onto the row WITHOUT bumping the per-symbol
+ * `failureStreak`. Used for upstream-wide failures (e.g. a Binance chunk
+ * HTTP request throwing) where the *batch* is broken, not necessarily
+ * any individual ticker — penalising every symbol in the chunk would
+ * drown the dead-candidate signal in false positives whenever Binance
+ * has a brief outage.
  *
- * If the row doesn't exist yet (brand-new symbol that has never had a
- * successful refresh) we no-op — `buildDashboardRows` will still surface
- * the symbol with nulls and `stale: true` because there is no live row.
+ * If no row exists yet we no-op: a transient upstream blip on a brand-new
+ * symbol shouldn't materialise a row that masquerades as something
+ * "we know about".
  */
-async function recordLivePriceError(
+async function recordTransientUpstreamError(
   symbol: string,
   source: GlobalDataSource,
   message: string,
@@ -106,6 +122,66 @@ async function recordLivePriceError(
   await db.update(globalLivePricesTable)
     .set({ lastError: message, source })
     .where(eq(globalLivePricesTable.symbol, symbol));
+}
+
+/**
+ * Refresh failed for `symbol` because the upstream returned a definitive
+ * per-symbol negative signal (missing from batch response, 404, "no quote",
+ * etc.) — preserve the last-known price/quote (so the dashboard keeps
+ * showing it) but stamp the upstream error onto the row for the UI
+ * tooltip. Crucially we DO NOT touch `updatedAt`; the row's age grows
+ * naturally and the per-source freshness budget marks it `stale`.
+ *
+ * Side effect: bump `failureStreak`. If no row exists yet (brand-new symbol
+ * that has never had a successful refresh) we still insert one — with a
+ * sentinel `updatedAt` of epoch 0 so `buildDashboardRows` continues to
+ * mark it `stale` — so the streak counter starts from the very first miss.
+ *
+ * Logs a structured warning the *first* time a symbol crosses the
+ * `DEAD_SYMBOL_STREAK_THRESHOLD` so ops dashboards can catch the
+ * transition without spamming every cycle.
+ */
+async function recordLivePriceError(
+  symbol: string,
+  source: GlobalDataSource,
+  message: string,
+): Promise<void> {
+  // Sentinel for "never had a successful refresh" — far in the past so the
+  // freshness budget always marks it stale and `buildDashboardRows` shows
+  // nulls for the price columns.
+  const NEVER_OK = new Date(0);
+  const result = await db
+    .insert(globalLivePricesTable)
+    .values({
+      symbol,
+      source,
+      price: null,
+      lastError: message,
+      failureStreak: 1,
+      lastFailureAt: new Date(),
+      updatedAt: NEVER_OK,
+    })
+    .onConflictDoUpdate({
+      target: globalLivePricesTable.symbol,
+      set: {
+        lastError: message,
+        source,
+        lastFailureAt: new Date(),
+        // Increment atomically so concurrent chunks/workers don't race.
+        failureStreak: sql`${globalLivePricesTable.failureStreak} + 1`,
+        // DO NOT touch updatedAt — the freshness budget needs the existing
+        // (possibly old) value to compute `ageMs` / `stale` correctly.
+      },
+    })
+    .returning({ failureStreak: globalLivePricesTable.failureStreak });
+
+  const newStreak = result[0]?.failureStreak ?? 0;
+  if (newStreak === DEAD_SYMBOL_STREAK_THRESHOLD) {
+    logger.warn(
+      { symbol, source, failureStreak: newStreak, message, threshold: DEAD_SYMBOL_STREAK_THRESHOLD },
+      "global instrument crossed dead-symbol threshold — candidate for pruning from universe.ts",
+    );
+  }
 }
 
 async function upsertLivePrice(
@@ -135,6 +211,7 @@ async function upsertLivePrice(
     volume: patch.volume ?? null,
     updatedAt: now,
     lastError: patch.lastError ?? null,
+    failureStreak: 0,
   }).onConflictDoUpdate({
     target: globalLivePricesTable.symbol,
     set: {
@@ -148,6 +225,9 @@ async function upsertLivePrice(
       source,
       updatedAt: now,
       lastError: patch.lastError ?? null,
+      // Reset the failure streak — a successful refresh ends any prior run
+      // of misses. `lastFailureAt` is preserved as historical context.
+      failureStreak: 0,
     },
   });
 }
@@ -198,12 +278,14 @@ export async function refreshBinance(): Promise<void> {
       lastErr = err instanceof Error ? err : new Error(String(err));
       fail += chunk.length;
       logger.warn({ err: lastErr.message, chunkSize: chunk.length }, "Binance chunk refresh failed");
-      // Stamp the upstream error onto each row in the chunk WITHOUT touching
-      // its `updatedAt` — that lets the freshness budget (FRESHNESS_BUDGET_MS)
-      // flip the row to `stale` after a couple of consecutive misses while
-      // the dashboard keeps showing the last-known price.
+      // The whole HTTP request threw — we cannot tell which (if any) symbol
+      // is at fault, so stamp the upstream error onto each row WITHOUT
+      // bumping `failureStreak`. The per-source freshness budget will still
+      // surface the rows as `stale`; we just refuse to flag healthy symbols
+      // in the same chunk as "dead candidates" because Binance had a
+      // transient blip.
       for (const inst of chunk) {
-        await recordLivePriceError(inst.symbol, "binance", lastErr.message);
+        await recordTransientUpstreamError(inst.symbol, "binance", lastErr.message);
       }
     }
   }
@@ -362,6 +444,53 @@ export async function getLivePrices(symbols: string[]): Promise<Map<string, type
 
 export async function getSyncStatuses(): Promise<typeof globalSyncLogsTable.$inferSelect[]> {
   return db.select().from(globalSyncLogsTable);
+}
+
+export interface DeadCandidate {
+  symbol: string;
+  displayName: string;
+  assetClass: GlobalInstrumentDef["assetClass"];
+  source: GlobalDataSource;
+  failureStreak: number;
+  lastFailureAt: string | null;
+  lastError: string | null;
+}
+
+/**
+ * List candidate dead symbols — instruments whose `failureStreak` has
+ * reached `DEAD_SYMBOL_STREAK_THRESHOLD`. The result is enriched with
+ * universe metadata (display name, asset class) so the UI can render
+ * a copy-pasteable list directly.
+ *
+ * Sorted by `failureStreak` desc so the worst offenders surface first.
+ */
+export async function getDeadCandidates(
+  threshold: number = DEAD_SYMBOL_STREAK_THRESHOLD,
+): Promise<DeadCandidate[]> {
+  const rows = await db
+    .select({
+      symbol: globalLivePricesTable.symbol,
+      source: globalLivePricesTable.source,
+      failureStreak: globalLivePricesTable.failureStreak,
+      lastFailureAt: globalLivePricesTable.lastFailureAt,
+      lastError: globalLivePricesTable.lastError,
+    })
+    .from(globalLivePricesTable)
+    .where(gte(globalLivePricesTable.failureStreak, threshold));
+  return rows
+    .map((r): DeadCandidate => {
+      const inst = findInstrument(r.symbol);
+      return {
+        symbol: r.symbol,
+        displayName: inst?.displayName ?? r.symbol,
+        assetClass: inst?.assetClass ?? "crypto",
+        source: r.source as GlobalDataSource,
+        failureStreak: r.failureStreak,
+        lastFailureAt: r.lastFailureAt ? r.lastFailureAt.toISOString() : null,
+        lastError: r.lastError,
+      };
+    })
+    .sort((a, b) => b.failureStreak - a.failureStreak);
 }
 
 /**

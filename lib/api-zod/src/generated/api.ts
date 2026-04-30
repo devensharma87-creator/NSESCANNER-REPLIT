@@ -3957,4 +3957,48 @@ export const GetGlobalSourceStatusResponse = zod.object({
     .describe(
       "Counts of instruments per asset class (crypto, commodity, forex, equity, index)",
     ),
+  deadCandidates: zod
+    .array(
+      zod
+        .object({
+          symbol: zod.string(),
+          displayName: zod.string(),
+          assetClass: zod.enum([
+            "crypto",
+            "commodity",
+            "forex",
+            "equity",
+            "index",
+          ]),
+          source: zod
+            .enum([
+              "binance",
+              "yahoo",
+              "yahoo-fx",
+              "yahoo-equity",
+              "yahoo-index",
+            ])
+            .describe(
+              "Where the row's quote\/candles come from. Tagged on every persisted row.",
+            ),
+          failureStreak: zod
+            .number()
+            .describe(
+              "Consecutive refresh cycles where the per-symbol fetch failed (reset on the next successful refresh).",
+            ),
+          lastFailureAt: zod.coerce.date().nullish(),
+          lastError: zod.string().nullish(),
+        })
+        .describe(
+          "An instrument that has failed >= threshold consecutive refresh cycles — likely delisted upstream and a candidate for pruning from `universe.ts`.",
+        ),
+    )
+    .describe(
+      "Instruments whose per-symbol failure streak has crossed `deadCandidateThreshold`. Sorted worst-first.",
+    ),
+  deadCandidateThreshold: zod
+    .number()
+    .describe(
+      "Number of consecutive failed refresh cycles after which a symbol is flagged as a dead candidate.",
+    ),
 });
