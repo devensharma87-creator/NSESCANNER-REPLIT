@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   useRunGlobalScreener,
   useListGlobalScreenerPresets,
@@ -9,8 +9,13 @@ import {
   useDeleteGlobalScreenerPreset,
   useAcknowledgeGlobalScreenerPresetAlerts,
   useRunGlobalScreenerPresetNow,
+  useCreateGlobalScreenerPresetShareLink,
+  useRevokeGlobalScreenerPresetShareLink,
+  useGetGlobalScreenerPresetShare,
+  useImportGlobalScreenerPresetShare,
   getListGlobalScreenerPresetsQueryKey,
   getListGlobalScreenerPresetLibraryQueryKey,
+  getGetGlobalScreenerPresetShareQueryKey,
   type GlobalAssetClass,
   type GlobalTimeframe,
   type GlobalScreenerBody,
@@ -35,6 +40,7 @@ import {
   Loader2, Filter as FilterIcon, ArrowUpRight, ArrowDownRight,
   ArrowUp, ArrowDown, Save, Trash2, Pencil, BookmarkCheck,
   Bell, BellOff, Play, AlertCircle, Sparkles, GitFork,
+  Share2, Copy, Check, X, Link2Off, Download,
 } from "lucide-react";
 
 const ASSET_CLASSES: { id: GlobalAssetClass; label: string }[] = [
@@ -131,6 +137,24 @@ export function ScreenerPage() {
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  // Tracks which preset row most recently had its share link copied so
+  // the row can flip its icon to a checkmark for ~2s.
+  const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
+
+  // Read ?share=<token> from the URL. When present, the recipient sees a
+  // banner offering to import the shared preset into their library.
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const shareTokenFromUrl = useMemo(() => {
+    const sp = new URLSearchParams(search);
+    return sp.get("share");
+  }, [search]);
+  function clearShareParam() {
+    const sp = new URLSearchParams(search);
+    sp.delete("share");
+    const qs = sp.toString();
+    navigate(qs ? `/screener?${qs}` : "/screener", { replace: true });
+  }
 
   const screener = useRunGlobalScreener();
 
@@ -219,6 +243,152 @@ export function ScreenerPage() {
       },
     },
   });
+
+  // ── Share link minting / revocation / import ─────────────────────
+  // The owner clicks "Copy share link" → POST .../share returns a token
+  // and a relative shareUrl. We resolve it against window.location.origin
+  // and write it to the clipboard. Once minted the same token is reused
+  // until the owner explicitly revokes it.
+  const createShareLink = useCreateGlobalScreenerPresetShareLink({
+    mutation: {
+      onError: (err: unknown) => {
+        toast({
+          title: "Could not generate share link",
+          description: (err as Error)?.message ?? "Please try again.",
+          variant: "destructive",
+        });
+      },
+    },
+  });
+  const revokeShareLink = useRevokeGlobalScreenerPresetShareLink({
+    mutation: {
+      onSuccess: () => {
+        invalidatePresets();
+        toast({ title: "Share link revoked", description: "Old links no longer work." });
+      },
+      onError: (err: unknown) => {
+        toast({
+          title: "Revoke failed",
+          description: (err as Error)?.message ?? "Please try again.",
+          variant: "destructive",
+        });
+      },
+    },
+  });
+
+  // Build a shareable absolute URL. Prefer a server-provided relative
+  // path (the mint endpoint returns one) so the artifact's base path lives
+  // in exactly one place; fall back to BASE_URL + screener?share=… for
+  // tokens that were already minted before this session loaded.
+  function buildShareUrl(token: string, serverPath?: string | null): string {
+    const path = serverPath && serverPath.length > 0
+      ? serverPath
+      : `${import.meta.env.BASE_URL}screener?share=${encodeURIComponent(token)}`;
+    return new URL(path, window.location.origin).toString();
+  }
+
+  async function copyToClipboard(text: string): Promise<boolean> {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      // fall through to legacy path
+    }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async function onCopyShareLink(p: GlobalScreenerPreset) {
+    // If the owner has already minted a token, skip the round-trip.
+    let token = p.shareToken;
+    let serverPath: string | null = null;
+    if (!token) {
+      try {
+        const result = await createShareLink.mutateAsync({ id: p.id });
+        token = result.token;
+        serverPath = result.shareUrl ?? null;
+        // Refresh so PresetRow flips into "shared" mode (icon + revoke).
+        await invalidatePresets();
+      } catch {
+        return; // toast already shown by mutation onError
+      }
+    }
+    if (!token) return;
+    const url = buildShareUrl(token, serverPath);
+    const ok = await copyToClipboard(url);
+    if (ok) {
+      setCopiedShareId(p.id);
+      toast({
+        title: "Share link copied",
+        description: "Anyone with this link can save the preset to their library.",
+      });
+      window.setTimeout(() => {
+        setCopiedShareId((prev) => (prev === p.id ? null : prev));
+      }, 2000);
+    } else {
+      toast({
+        title: "Could not copy automatically",
+        description: url,
+      });
+    }
+  }
+
+  function onRevokeShareLink(p: GlobalScreenerPreset) {
+    revokeShareLink.mutate({ id: p.id });
+  }
+
+  // Recipient side: load the shared preview when ?share=<token> is in URL.
+  const sharePreviewQuery = useGetGlobalScreenerPresetShare(shareTokenFromUrl ?? "", {
+    query: {
+      queryKey: getGetGlobalScreenerPresetShareQueryKey(shareTokenFromUrl ?? ""),
+      enabled: shareTokenFromUrl != null && shareTokenFromUrl.length > 0,
+      retry: false,
+      staleTime: Infinity,
+    },
+  });
+
+  const importShare = useImportGlobalScreenerPresetShare({
+    mutation: {
+      onSuccess: (row) => {
+        invalidatePresets();
+        setActivePresetId(row.id);
+        applyBody(row.body, row.id);
+        clearShareParam();
+        toast({
+          title: "Preset saved to your library",
+          description: `"${row.name}" is ready to one-click.`,
+        });
+      },
+      onError: (err: unknown) => {
+        toast({
+          title: "Could not save shared preset",
+          description: (err as Error)?.message ?? "The link may have been revoked.",
+          variant: "destructive",
+        });
+      },
+    },
+  });
+
+  function onImportShare() {
+    if (!shareTokenFromUrl) return;
+    importShare.mutate({ token: shareTokenFromUrl });
+  }
+  function onDismissShare() {
+    clearShareParam();
+  }
 
   function buildBody(): GlobalScreenerBody {
     return {
@@ -472,6 +642,10 @@ export function ScreenerPage() {
                   onIntervalChange={(min) => updatePreset.mutate({ id: p.id, data: { autoRunIntervalMin: min } })}
                   onAcknowledge={() => acknowledgeAlerts.mutate({ id: p.id })}
                   onRunNow={() => runPresetNow.mutate({ id: p.id })}
+                  onCopyShare={() => onCopyShareLink(p)}
+                  onRevokeShare={() => onRevokeShareLink(p)}
+                  shareCopied={copiedShareId === p.id}
+                  sharePending={createShareLink.isPending || revokeShareLink.isPending}
                   intervalUpdating={updatePreset.isPending}
                   runNowPending={runPresetNow.isPending}
                 />
@@ -507,6 +681,96 @@ export function ScreenerPage() {
 
         {/* Filter form + results */}
         <div className="space-y-4 min-w-0">
+          {shareTokenFromUrl && (
+            <Card
+              className="p-3 border-primary/40 bg-primary/5"
+              data-testid="banner-shared-preset"
+            >
+              {sharePreviewQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading shared preset…
+                </div>
+              ) : sharePreviewQuery.error ? (
+                <div className="flex items-start gap-2 text-sm">
+                  <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <div className="font-medium">Share link not found</div>
+                    <div className="text-xs text-muted-foreground">
+                      The link may have been revoked or it never existed.
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2"
+                    onClick={onDismissShare}
+                    data-testid="button-dismiss-share-error"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : sharePreviewQuery.data ? (
+                <div className="flex items-start gap-3 flex-wrap">
+                  <div className="flex-1 min-w-[12rem]">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1">
+                      <Share2 className="h-3 w-3" /> Shared preset
+                    </div>
+                    <div className="font-medium" data-testid="text-shared-preset-name">
+                      {sharePreviewQuery.data.name}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-1">
+                      <Badge variant="outline" className="text-[10px] py-0 h-4 px-1">
+                        {sharePreviewQuery.data.body.assetClasses.length === 1
+                          ? (ASSET_CLASSES.find((c) => c.id === sharePreviewQuery.data!.body.assetClasses[0])?.label ?? sharePreviewQuery.data.body.assetClasses[0])
+                          : `${sharePreviewQuery.data.body.assetClasses.length} classes`}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px] py-0 h-4 px-1">
+                        {sharePreviewQuery.data.body.timeframe ?? "1h"}
+                      </Badge>
+                      <span>Save to your library to one-click it later.</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={() => {
+                        if (sharePreviewQuery.data) applyBody(sharePreviewQuery.data.body, null);
+                      }}
+                      data-testid="button-preview-shared-preset"
+                    >
+                      <Play className="h-3.5 w-3.5 mr-1" /> Preview
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={onImportShare}
+                      disabled={importShare.isPending}
+                      className="h-8"
+                      data-testid="button-save-shared-preset"
+                    >
+                      {importShare.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      Save preset
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 px-2"
+                      onClick={onDismissShare}
+                      data-testid="button-dismiss-share"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </Card>
+          )}
           <Card className="p-4 space-y-4">
             <div className="flex items-center gap-3 flex-wrap">
               <div>
@@ -721,6 +985,10 @@ function PresetRow(props: {
   onIntervalChange: (min: number | null) => void;
   onAcknowledge: () => void;
   onRunNow: () => void;
+  onCopyShare: () => void;
+  onRevokeShare: () => void;
+  shareCopied: boolean;
+  sharePending: boolean;
   intervalUpdating: boolean;
   runNowPending: boolean;
 }) {
@@ -728,6 +996,7 @@ function PresetRow(props: {
   const newHitCount = p.lastNewHits.length;
   const hasAlerts = newHitCount > 0;
   const autoOn = p.autoRunIntervalMin != null;
+  const isShared = p.shareToken != null;
   return (
     <li
       className={`group rounded border px-2 py-1.5 text-sm space-y-1 ${
@@ -809,6 +1078,40 @@ function PresetRow(props: {
                   </Button>
                 </PopoverContent>
               </Popover>
+            )}
+            <button
+              type="button"
+              onClick={props.onCopyShare}
+              disabled={props.sharePending}
+              className={`shrink-0 ${
+                isShared
+                  ? "text-primary hover:text-primary/80"
+                  : "opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
+              } disabled:opacity-50`}
+              title={isShared ? "Copy share link (already generated)" : "Copy share link"}
+              data-testid={`button-share-preset-${p.id}`}
+            >
+              {props.shareCopied ? (
+                <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              ) : props.sharePending && !isShared ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : isShared ? (
+                <Copy className="h-3.5 w-3.5" />
+              ) : (
+                <Share2 className="h-3.5 w-3.5" />
+              )}
+            </button>
+            {isShared && (
+              <button
+                type="button"
+                onClick={props.onRevokeShare}
+                disabled={props.sharePending}
+                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive disabled:opacity-50"
+                title="Revoke share link (existing links stop working)"
+                data-testid={`button-revoke-share-${p.id}`}
+              >
+                <Link2Off className="h-3.5 w-3.5" />
+              </button>
             )}
             <button
               type="button"

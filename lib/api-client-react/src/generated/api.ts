@@ -50,6 +50,8 @@ import type {
   GlobalScreenerPresetCreateBody,
   GlobalScreenerPresetDeleteResponse,
   GlobalScreenerPresetLibraryResponse,
+  GlobalScreenerPresetSharePreview,
+  GlobalScreenerPresetShareResponse,
   GlobalScreenerPresetUpdateBody,
   GlobalScreenerPresetsResponse,
   GlobalScreenerResponse,
@@ -4973,6 +4975,373 @@ export const useRunGlobalScreenerPresetNow = <
   TContext
 > => {
   return useMutation(getRunGlobalScreenerPresetNowMutationOptions(options));
+};
+
+/**
+ * Lazily mints an opaque share token for the preset on first call, then always returns the same token until it is revoked. Recipients open `<artifact base path>screener?share=<token>` (e.g. `/global/screener?share=<token>`) to preview and import a personal copy via `POST /global/screener-presets/import/{token}`.
+ * @summary Generate (or return the existing) share token for a preset
+ */
+export const getCreateGlobalScreenerPresetShareLinkUrl = (id: string) => {
+  return `/api/global/screener-presets/${id}/share`;
+};
+
+export const createGlobalScreenerPresetShareLink = async (
+  id: string,
+  options?: RequestInit,
+): Promise<GlobalScreenerPresetShareResponse> => {
+  return customFetch<GlobalScreenerPresetShareResponse>(
+    getCreateGlobalScreenerPresetShareLinkUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getCreateGlobalScreenerPresetShareLinkMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createGlobalScreenerPresetShareLink>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createGlobalScreenerPresetShareLink>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["createGlobalScreenerPresetShareLink"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createGlobalScreenerPresetShareLink>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return createGlobalScreenerPresetShareLink(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateGlobalScreenerPresetShareLinkMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createGlobalScreenerPresetShareLink>>
+>;
+
+export type CreateGlobalScreenerPresetShareLinkMutationError =
+  ErrorType<unknown>;
+
+/**
+ * @summary Generate (or return the existing) share token for a preset
+ */
+export const useCreateGlobalScreenerPresetShareLink = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createGlobalScreenerPresetShareLink>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createGlobalScreenerPresetShareLink>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(
+    getCreateGlobalScreenerPresetShareLinkMutationOptions(options),
+  );
+};
+
+/**
+ * @summary Revoke the share token so existing share URLs stop resolving
+ */
+export const getRevokeGlobalScreenerPresetShareLinkUrl = (id: string) => {
+  return `/api/global/screener-presets/${id}/share`;
+};
+
+export const revokeGlobalScreenerPresetShareLink = async (
+  id: string,
+  options?: RequestInit,
+): Promise<GlobalScreenerPresetDeleteResponse> => {
+  return customFetch<GlobalScreenerPresetDeleteResponse>(
+    getRevokeGlobalScreenerPresetShareLinkUrl(id),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getRevokeGlobalScreenerPresetShareLinkMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeGlobalScreenerPresetShareLink>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeGlobalScreenerPresetShareLink>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["revokeGlobalScreenerPresetShareLink"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeGlobalScreenerPresetShareLink>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return revokeGlobalScreenerPresetShareLink(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeGlobalScreenerPresetShareLinkMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeGlobalScreenerPresetShareLink>>
+>;
+
+export type RevokeGlobalScreenerPresetShareLinkMutationError =
+  ErrorType<unknown>;
+
+/**
+ * @summary Revoke the share token so existing share URLs stop resolving
+ */
+export const useRevokeGlobalScreenerPresetShareLink = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeGlobalScreenerPresetShareLink>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokeGlobalScreenerPresetShareLink>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(
+    getRevokeGlobalScreenerPresetShareLinkMutationOptions(options),
+  );
+};
+
+/**
+ * Returns only `name` and `body` — never the owner's session key, timestamps, alert state, or other identifying details. Used by the recipient's UI to render a "Save this preset" prompt.
+ * @summary Resolve a share token to a sanitized preset preview
+ */
+export const getGetGlobalScreenerPresetShareUrl = (token: string) => {
+  return `/api/global/screener-presets/share/${token}`;
+};
+
+export const getGlobalScreenerPresetShare = async (
+  token: string,
+  options?: RequestInit,
+): Promise<GlobalScreenerPresetSharePreview> => {
+  return customFetch<GlobalScreenerPresetSharePreview>(
+    getGetGlobalScreenerPresetShareUrl(token),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetGlobalScreenerPresetShareQueryKey = (token: string) => {
+  return [`/api/global/screener-presets/share/${token}`] as const;
+};
+
+export const getGetGlobalScreenerPresetShareQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGlobalScreenerPresetShare>>,
+  TError = ErrorType<unknown>,
+>(
+  token: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalScreenerPresetShare>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetGlobalScreenerPresetShareQueryKey(token);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGlobalScreenerPresetShare>>
+  > = ({ signal }) =>
+    getGlobalScreenerPresetShare(token, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!token,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGlobalScreenerPresetShare>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetGlobalScreenerPresetShareQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGlobalScreenerPresetShare>>
+>;
+export type GetGlobalScreenerPresetShareQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Resolve a share token to a sanitized preset preview
+ */
+
+export function useGetGlobalScreenerPresetShare<
+  TData = Awaited<ReturnType<typeof getGlobalScreenerPresetShare>>,
+  TError = ErrorType<unknown>,
+>(
+  token: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getGlobalScreenerPresetShare>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetGlobalScreenerPresetShareQueryOptions(
+    token,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Creates a personal, editable copy of the shared preset for the current session. If the recipient already has a preset with the same name, the import is suffixed with " (2)", " (3)", … to keep the per-session unique-name invariant.
+ * @summary Import a shared preset into the recipient's library
+ */
+export const getImportGlobalScreenerPresetShareUrl = (token: string) => {
+  return `/api/global/screener-presets/import/${token}`;
+};
+
+export const importGlobalScreenerPresetShare = async (
+  token: string,
+  options?: RequestInit,
+): Promise<GlobalScreenerPreset> => {
+  return customFetch<GlobalScreenerPreset>(
+    getImportGlobalScreenerPresetShareUrl(token),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getImportGlobalScreenerPresetShareMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof importGlobalScreenerPresetShare>>,
+    TError,
+    { token: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof importGlobalScreenerPresetShare>>,
+  TError,
+  { token: string },
+  TContext
+> => {
+  const mutationKey = ["importGlobalScreenerPresetShare"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof importGlobalScreenerPresetShare>>,
+    { token: string }
+  > = (props) => {
+    const { token } = props ?? {};
+
+    return importGlobalScreenerPresetShare(token, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ImportGlobalScreenerPresetShareMutationResult = NonNullable<
+  Awaited<ReturnType<typeof importGlobalScreenerPresetShare>>
+>;
+
+export type ImportGlobalScreenerPresetShareMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Import a shared preset into the recipient's library
+ */
+export const useImportGlobalScreenerPresetShare = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof importGlobalScreenerPresetShare>>,
+    TError,
+    { token: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof importGlobalScreenerPresetShare>>,
+  TError,
+  { token: string },
+  TContext
+> => {
+  return useMutation(
+    getImportGlobalScreenerPresetShareMutationOptions(options),
+  );
 };
 
 /**

@@ -3622,6 +3622,12 @@ export const ListGlobalScreenerPresetsResponse = zod.object({
           "Pending alert hits accumulated since the last `acknowledge`.",
         ),
       lastNewHitsAt: zod.coerce.date().nullable(),
+      shareToken: zod
+        .string()
+        .nullable()
+        .describe(
+          'Opaque share token. Null until the owner generates a share link. Exposed only to the preset owner (the list endpoint is scoped to their session) so the UI can show whether a link is already active and offer a \"Revoke\" action.',
+        ),
     }),
   ),
 });
@@ -4140,6 +4146,12 @@ export const UpdateGlobalScreenerPresetResponse = zod.object({
     )
     .describe("Pending alert hits accumulated since the last `acknowledge`."),
   lastNewHitsAt: zod.coerce.date().nullable(),
+  shareToken: zod
+    .string()
+    .nullable()
+    .describe(
+      'Opaque share token. Null until the owner generates a share link. Exposed only to the preset owner (the list endpoint is scoped to their session) so the UI can show whether a link is already active and offer a \"Revoke\" action.',
+    ),
 });
 
 /**
@@ -4306,6 +4318,12 @@ export const AcknowledgeGlobalScreenerPresetAlertsResponse = zod.object({
     )
     .describe("Pending alert hits accumulated since the last `acknowledge`."),
   lastNewHitsAt: zod.coerce.date().nullable(),
+  shareToken: zod
+    .string()
+    .nullable()
+    .describe(
+      'Opaque share token. Null until the owner generates a share link. Exposed only to the preset owner (the list endpoint is scoped to their session) so the UI can show whether a link is already active and offer a \"Revoke\" action.',
+    ),
 });
 
 /**
@@ -4449,6 +4467,173 @@ export const RunGlobalScreenerPresetNowResponse = zod.object({
     )
     .describe("Pending alert hits accumulated since the last `acknowledge`."),
   lastNewHitsAt: zod.coerce.date().nullable(),
+  shareToken: zod
+    .string()
+    .nullable()
+    .describe(
+      'Opaque share token. Null until the owner generates a share link. Exposed only to the preset owner (the list endpoint is scoped to their session) so the UI can show whether a link is already active and offer a \"Revoke\" action.',
+    ),
+});
+
+/**
+ * Lazily mints an opaque share token for the preset on first call, then always returns the same token until it is revoked. Recipients open `<artifact base path>screener?share=<token>` (e.g. `/global/screener?share=<token>`) to preview and import a personal copy via `POST /global/screener-presets/import/{token}`.
+ * @summary Generate (or return the existing) share token for a preset
+ */
+export const CreateGlobalScreenerPresetShareLinkParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const CreateGlobalScreenerPresetShareLinkResponse = zod
+  .object({
+    token: zod.string(),
+    shareUrl: zod
+      .string()
+      .describe(
+        "Path with `?share=<token>` query suitable for `new URL(value, window.location.origin)`.",
+      ),
+  })
+  .describe(
+    "Returned by `POST \/global\/screener-presets\/{id}\/share`. Contains the (possibly newly-generated) share token and a relative URL the UI can resolve against the artifact origin to copy to clipboard.",
+  );
+
+/**
+ * @summary Revoke the share token so existing share URLs stop resolving
+ */
+export const RevokeGlobalScreenerPresetShareLinkParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const RevokeGlobalScreenerPresetShareLinkResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * Returns only `name` and `body` — never the owner's session key, timestamps, alert state, or other identifying details. Used by the recipient's UI to render a "Save this preset" prompt.
+ * @summary Resolve a share token to a sanitized preset preview
+ */
+export const GetGlobalScreenerPresetShareParams = zod.object({
+  token: zod.coerce.string(),
+});
+
+export const getGlobalScreenerPresetShareResponseBodyFiltersMinRsi14Min = 0;
+export const getGlobalScreenerPresetShareResponseBodyFiltersMinRsi14Max = 100;
+
+export const getGlobalScreenerPresetShareResponseBodyFiltersMaxRsi14Min = 0;
+export const getGlobalScreenerPresetShareResponseBodyFiltersMaxRsi14Max = 100;
+
+export const getGlobalScreenerPresetShareResponseBodyFiltersBreakoutLookbackMin = 2;
+export const getGlobalScreenerPresetShareResponseBodyFiltersBreakoutLookbackMax = 500;
+
+export const getGlobalScreenerPresetShareResponseBodyFiltersBreakdownLookbackMin = 2;
+export const getGlobalScreenerPresetShareResponseBodyFiltersBreakdownLookbackMax = 500;
+
+export const getGlobalScreenerPresetShareResponseBodyLimitMax = 50;
+
+export const GetGlobalScreenerPresetShareResponse = zod
+  .object({
+    name: zod.string(),
+    body: zod.object({
+      assetClasses: zod
+        .array(zod.enum(["crypto", "commodity", "forex", "equity", "index"]))
+        .min(1),
+      timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
+      filters: zod
+        .object({
+          minChangePct: zod
+            .number()
+            .optional()
+            .describe("Minimum % change vs previous close (live snapshot)."),
+          maxChangePct: zod.number().optional(),
+          minVolume: zod
+            .number()
+            .optional()
+            .describe("Minimum 24h \/ day volume (live snapshot units)."),
+          minRsi14: zod
+            .number()
+            .min(getGlobalScreenerPresetShareResponseBodyFiltersMinRsi14Min)
+            .max(getGlobalScreenerPresetShareResponseBodyFiltersMinRsi14Max)
+            .optional(),
+          maxRsi14: zod
+            .number()
+            .min(getGlobalScreenerPresetShareResponseBodyFiltersMaxRsi14Min)
+            .max(getGlobalScreenerPresetShareResponseBodyFiltersMaxRsi14Max)
+            .optional(),
+          breakoutLookback: zod
+            .number()
+            .min(
+              getGlobalScreenerPresetShareResponseBodyFiltersBreakoutLookbackMin,
+            )
+            .max(
+              getGlobalScreenerPresetShareResponseBodyFiltersBreakoutLookbackMax,
+            )
+            .optional(),
+          breakdownLookback: zod
+            .number()
+            .min(
+              getGlobalScreenerPresetShareResponseBodyFiltersBreakdownLookbackMin,
+            )
+            .max(
+              getGlobalScreenerPresetShareResponseBodyFiltersBreakdownLookbackMax,
+            )
+            .optional(),
+          min1dChangePct: zod
+            .number()
+            .optional()
+            .describe(
+              "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe.",
+            ),
+          min1wChangePct: zod
+            .number()
+            .optional()
+            .describe(
+              "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe.",
+            ),
+          priceAboveSma50: zod
+            .boolean()
+            .optional()
+            .describe(
+              "Require last close > SMA(50) — classic intermediate-term trend filter.",
+            ),
+          priceBelowSma50: zod
+            .boolean()
+            .optional()
+            .describe("Require last close < SMA(50)."),
+          priceAboveSma200: zod
+            .boolean()
+            .optional()
+            .describe(
+              "Require last close > SMA(200) — long-term trend filter.",
+            ),
+          priceBelowSma200: zod
+            .boolean()
+            .optional()
+            .describe("Require last close < SMA(200)."),
+          trendUp: zod
+            .boolean()
+            .optional()
+            .describe("EMA20 > EMA50 > EMA200 cascade (bullish stack)."),
+          trendDown: zod.boolean().optional(),
+          requireSupertrendUp: zod.boolean().optional(),
+          requireSupertrendDown: zod.boolean().optional(),
+        })
+        .optional(),
+      limit: zod
+        .number()
+        .min(1)
+        .max(getGlobalScreenerPresetShareResponseBodyLimitMax)
+        .optional(),
+    }),
+  })
+  .describe(
+    "Sanitized public view of a shared preset. Deliberately omits the owner's session key, timestamps, alert state, and database id so nothing identifying about the original author leaks.",
+  );
+
+/**
+ * Creates a personal, editable copy of the shared preset for the current session. If the recipient already has a preset with the same name, the import is suffixed with " (2)", " (3)", … to keep the per-session unique-name invariant.
+ * @summary Import a shared preset into the recipient's library
+ */
+export const ImportGlobalScreenerPresetShareParams = zod.object({
+  token: zod.coerce.string(),
 });
 
 /**

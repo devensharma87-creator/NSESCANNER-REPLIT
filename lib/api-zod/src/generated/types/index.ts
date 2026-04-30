@@ -73,6 +73,8 @@ export * from "./globalScreenerPresetCreateBody";
 export * from "./globalScreenerPresetDeleteResponse";
 export * from "./globalScreenerPresetLibraryResponse";
 export * from "./globalScreenerPresetNewHit";
+export * from "./globalScreenerPresetSharePreview";
+export * from "./globalScreenerPresetShareResponse";
 export * from "./globalScreenerPresetsResponse";
 export * from "./globalScreenerPresetUpdateBody";
 export * from "./globalScreenerResponse";

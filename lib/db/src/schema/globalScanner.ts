@@ -151,12 +151,28 @@ export const globalScreenerPresetsTable = pgTable(
      */
     lastNewHits: jsonb("last_new_hits").notNull().default([]),
     lastNewHitsAt: timestamp("last_new_hits_at", { withTimezone: true }),
+    /**
+     * Opaque, lazily-generated share token. Null until the owner clicks
+     * "Copy share link" the first time. Recipients open the share URL,
+     * which calls `GET /global/screener-presets/share/:token` to preview
+     * the preset (only `name` and `body` are returned — no session key,
+     * timestamps, or alert state — so nothing about the original owner
+     * leaks). They then call `POST /global/screener-presets/import/:token`
+     * to fork it into their own library.
+     *
+     * The owner can revoke the link by deleting the token; existing share
+     * URLs immediately stop resolving.
+     */
+    shareToken: text("share_token"),
   },
   (t) => ({
     bySession: index("global_screener_presets_session_idx").on(t.sessionKey),
     uniqNamePerSession: uniqueIndex("global_screener_presets_session_name_uniq").on(
       t.sessionKey,
       t.name,
+    ),
+    uniqShareToken: uniqueIndex("global_screener_presets_share_token_uniq").on(
+      t.shareToken,
     ),
   }),
 );

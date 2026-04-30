@@ -26,4 +26,6 @@ export interface GlobalScreenerPreset {
   /** Pending alert hits accumulated since the last `acknowledge`. */
   lastNewHits: GlobalScreenerPresetNewHit[];
   lastNewHitsAt: Date | null;
+  /** Opaque share token. Null until the owner generates a share link. Exposed only to the preset owner (the list endpoint is scoped to their session) so the UI can show whether a link is already active and offer a "Revoke" action. */
+  shareToken: string | null;
 }

@@ -2387,6 +2387,8 @@ export interface GlobalScreenerPreset {
   /** Pending alert hits accumulated since the last `acknowledge`. */
   lastNewHits: GlobalScreenerPresetNewHit[];
   lastNewHitsAt: string | null;
+  /** Opaque share token. Null until the owner generates a share link. Exposed only to the preset owner (the list endpoint is scoped to their session) so the UI can show whether a link is already active and offer a "Revoke" action. */
+  shareToken: string | null;
 }
 
 export interface GlobalScreenerPresetsResponse {
@@ -2441,6 +2443,23 @@ export interface GlobalCuratedScreenerPreset {
 
 export interface GlobalScreenerPresetLibraryResponse {
   items: GlobalCuratedScreenerPreset[];
+}
+
+/**
+ * Returned by `POST /global/screener-presets/{id}/share`. Contains the (possibly newly-generated) share token and a relative URL the UI can resolve against the artifact origin to copy to clipboard.
+ */
+export interface GlobalScreenerPresetShareResponse {
+  token: string;
+  /** Path with `?share=<token>` query suitable for `new URL(value, window.location.origin)`. */
+  shareUrl: string;
+}
+
+/**
+ * Sanitized public view of a shared preset. Deliberately omits the owner's session key, timestamps, alert state, and database id so nothing identifying about the original author leaks.
+ */
+export interface GlobalScreenerPresetSharePreview {
+  name: string;
+  body: GlobalScreenerBody;
 }
 
 export type ListStocksParams = {

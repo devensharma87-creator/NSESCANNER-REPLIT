@@ -8,6 +8,7 @@
  *   3. Legacy /api/auth router + requireAuth for the NSE namespace.
  */
 
+import crypto from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "@workspace/db";
@@ -16,7 +17,7 @@ import {
   globalWatchlistTable,
   globalScreenerPresetsTable,
 } from "@workspace/db/schema";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { logger } from "../../lib/logger";
 import {
   requireGlobalAuth,
@@ -428,6 +429,7 @@ function serializePreset(row: typeof globalScreenerPresetsTable.$inferSelect) {
     lastRunError: row.lastRunError ?? null,
     lastNewHits: (row.lastNewHits as PresetNewHit[] | null) ?? [],
     lastNewHitsAt: row.lastNewHitsAt?.toISOString() ?? null,
+    shareToken: row.shareToken ?? null,
   };
 }
 
@@ -577,6 +579,169 @@ router.post("/global/screener-presets/:id/run-now", async (req, res) => {
   const [row] = await db.select().from(globalScreenerPresetsTable)
     .where(eq(globalScreenerPresetsTable.id, idParsed.data));
   res.json(serializePreset(row!));
+});
+
+// ── Preset sharing ──────────────────────────────────────────────────
+// Share tokens are opaque, base64url-encoded random bytes (24 bytes →
+// 32 chars). They are minted lazily on the owner's first "Copy share
+// link" click and reused thereafter so the same URL keeps resolving
+// across page reloads. The owner can revoke at any time, which sets the
+// column back to null and immediately invalidates outstanding URLs.
+//
+// IMPORTANT: the public preview/import endpoints intentionally never
+// echo the original owner's session key, ids, timestamps, or alert
+// state — only the preset's `name` and `body`. This keeps the share
+// payload free of any identifying information about the original author.
+
+const SHARE_TOKEN_BYTES = 24;
+
+function generateShareToken(): string {
+  return crypto.randomBytes(SHARE_TOKEN_BYTES).toString("base64url");
+}
+
+// Path-segment-safe token: base64url alphabet, length tied to 24-byte
+// payload (32 chars). Keep validation strict so a stray UUID or random
+// junk can never accidentally hit the public lookup handler.
+const ShareTokenParam = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/);
+
+router.post("/global/screener-presets/:id/share", async (req, res) => {
+  const sk = requireSessionKey(req, res); if (sk == null) return;
+  const idParsed = UuidParam.safeParse(req.params["id"]);
+  if (!idParsed.success) { res.status(400).json({ error: "invalid id" }); return; }
+  const [existing] = await db.select({
+    id: globalScreenerPresetsTable.id,
+    shareToken: globalScreenerPresetsTable.shareToken,
+  }).from(globalScreenerPresetsTable).where(and(
+    eq(globalScreenerPresetsTable.id, idParsed.data),
+    eq(globalScreenerPresetsTable.sessionKey, sk),
+  ));
+  if (!existing) { res.status(404).json({ error: "preset not found" }); return; }
+  let token = existing.shareToken ?? null;
+  if (!token) {
+    // Atomic: only the request that flips share_token from NULL→candidate
+    // wins, so two concurrent first-time mints can't overwrite each other
+    // and invalidate an already-copied URL. Retry on the (vanishingly
+    // unlikely) collision with another preset's existing token.
+    for (let attempt = 0; attempt < 4 && !token; attempt++) {
+      const candidate = generateShareToken();
+      try {
+        const updated = await db.update(globalScreenerPresetsTable)
+          .set({ shareToken: candidate, updatedAt: new Date() })
+          .where(and(
+            eq(globalScreenerPresetsTable.id, idParsed.data),
+            eq(globalScreenerPresetsTable.sessionKey, sk),
+            isNull(globalScreenerPresetsTable.shareToken),
+          ))
+          .returning({ shareToken: globalScreenerPresetsTable.shareToken });
+        if (updated.length > 0 && updated[0]?.shareToken) {
+          token = updated[0].shareToken;
+        } else {
+          // Another concurrent request beat us to it — adopt the token it
+          // wrote so both clients see the same URL.
+          const [refetched] = await db.select({
+            shareToken: globalScreenerPresetsTable.shareToken,
+          }).from(globalScreenerPresetsTable).where(and(
+            eq(globalScreenerPresetsTable.id, idParsed.data),
+            eq(globalScreenerPresetsTable.sessionKey, sk),
+          ));
+          if (refetched?.shareToken) { token = refetched.shareToken; break; }
+          // Row vanished (deleted between the read and the update). Bail.
+          res.status(404).json({ error: "preset not found" });
+          return;
+        }
+      } catch (err) {
+        if (!isUniqueViolation(err)) {
+          logger.warn({ err: (err as Error).message }, "failed to mint share token");
+          res.status(500).json({ error: "failed to mint share token" });
+          return;
+        }
+      }
+    }
+    if (!token) {
+      res.status(500).json({ error: "failed to mint share token" });
+      return;
+    }
+  }
+  // Path is relative to the global artifact's origin so the client can
+  // resolve it against `window.location.origin` and copy to clipboard.
+  res.json({ token, shareUrl: `/global/screener?share=${encodeURIComponent(token)}` });
+});
+
+router.delete("/global/screener-presets/:id/share", async (req, res) => {
+  const sk = requireSessionKey(req, res); if (sk == null) return;
+  const idParsed = UuidParam.safeParse(req.params["id"]);
+  if (!idParsed.success) { res.status(400).json({ error: "invalid id" }); return; }
+  const result = await db.update(globalScreenerPresetsTable)
+    .set({ shareToken: null, updatedAt: new Date() })
+    .where(and(
+      eq(globalScreenerPresetsTable.id, idParsed.data),
+      eq(globalScreenerPresetsTable.sessionKey, sk),
+    ))
+    .returning({ id: globalScreenerPresetsTable.id });
+  if (result.length === 0) { res.status(404).json({ error: "preset not found" }); return; }
+  res.json({ ok: true });
+});
+
+router.get("/global/screener-presets/share/:token", async (req, res) => {
+  const tokParsed = ShareTokenParam.safeParse(req.params["token"]);
+  if (!tokParsed.success) { res.status(404).json({ error: "share link not found" }); return; }
+  const [row] = await db.select({
+    name: globalScreenerPresetsTable.name,
+    body: globalScreenerPresetsTable.body,
+  })
+    .from(globalScreenerPresetsTable)
+    .where(and(
+      eq(globalScreenerPresetsTable.shareToken, tokParsed.data),
+      isNotNull(globalScreenerPresetsTable.shareToken),
+    ));
+  if (!row) { res.status(404).json({ error: "share link not found" }); return; }
+  // Deliberately strip everything except name + filter body so nothing
+  // identifying about the original author leaks through the link.
+  res.json({
+    name: row.name,
+    body: row.body as z.infer<typeof ScreenerBody>,
+  });
+});
+
+router.post("/global/screener-presets/import/:token", async (req, res) => {
+  const sk = requireSessionKey(req, res); if (sk == null) return;
+  const tokParsed = ShareTokenParam.safeParse(req.params["token"]);
+  if (!tokParsed.success) { res.status(404).json({ error: "share link not found" }); return; }
+  const [src] = await db.select({
+    name: globalScreenerPresetsTable.name,
+    body: globalScreenerPresetsTable.body,
+  })
+    .from(globalScreenerPresetsTable)
+    .where(and(
+      eq(globalScreenerPresetsTable.shareToken, tokParsed.data),
+      isNotNull(globalScreenerPresetsTable.shareToken),
+    ));
+  if (!src) { res.status(404).json({ error: "share link not found" }); return; }
+  // Collide-safe insert: if the recipient already has a preset with the
+  // same name, append " (2)", " (3)", … until the unique-name invariant
+  // holds. Capped to keep us from spinning forever in pathological cases.
+  const baseName = src.name.slice(0, 70);
+  for (let attempt = 1; attempt <= 50; attempt++) {
+    const candidate = attempt === 1 ? baseName : `${baseName} (${attempt})`;
+    try {
+      const [row] = await db.insert(globalScreenerPresetsTable).values({
+        sessionKey: sk,
+        name: candidate.slice(0, 80),
+        body: src.body as z.infer<typeof ScreenerBody>,
+        autoRunIntervalMin: null,
+      }).returning();
+      res.status(201).json(serializePreset(row!));
+      return;
+    } catch (err) {
+      if (!isUniqueViolation(err)) {
+        logger.warn({ err: (err as Error).message }, "failed to import shared preset");
+        res.status(500).json({ error: "failed to import preset" });
+        return;
+      }
+      // try next suffix
+    }
+  }
+  res.status(409).json({ error: "could not find a free name to import the preset under" });
 });
 
 // ── Status (data freshness) ─────────────────────────────────────────

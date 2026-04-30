@@ -908,6 +908,87 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GlobalScreenerPreset" }
 
+  /global/screener-presets/{id}/share:
+    post:
+      operationId: createGlobalScreenerPresetShareLink
+      tags: [global-screener]
+      summary: Generate (or return the existing) share token for a preset
+      description: >-
+        Lazily mints an opaque share token for the preset on first call,
+        then always returns the same token until it is revoked. Recipients
+        open `<artifact base path>screener?share=<token>` (e.g.
+        `/global/screener?share=<token>`) to preview and import a personal
+        copy via `POST /global/screener-presets/import/{token}`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPresetShareResponse" }
+    delete:
+      operationId: revokeGlobalScreenerPresetShareLink
+      tags: [global-screener]
+      summary: Revoke the share token so existing share URLs stop resolving
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPresetDeleteResponse" }
+
+  /global/screener-presets/share/{token}:
+    get:
+      operationId: getGlobalScreenerPresetShare
+      tags: [global-screener]
+      summary: Resolve a share token to a sanitized preset preview
+      description: >-
+        Returns only `name` and `body` — never the owner's session key,
+        timestamps, alert state, or other identifying details. Used by the
+        recipient's UI to render a "Save this preset" prompt.
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPresetSharePreview" }
+
+  /global/screener-presets/import/{token}:
+    post:
+      operationId: importGlobalScreenerPresetShare
+      tags: [global-screener]
+      summary: Import a shared preset into the recipient's library
+      description: >-
+        Creates a personal, editable copy of the shared preset for the
+        current session. If the recipient already has a preset with the
+        same name, the import is suffixed with " (2)", " (3)", … to keep
+        the per-session unique-name invariant.
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPreset" }
+
   /global/status:
     get:
       operationId: getGlobalSourceStatus
@@ -3049,7 +3130,7 @@ components:
       type: object
       required:
         [id, name, body, createdAt, updatedAt, autoRunIntervalMin,
-         lastRunAt, lastRunError, lastNewHits, lastNewHitsAt]
+         lastRunAt, lastRunError, lastNewHits, lastNewHitsAt, shareToken]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -3078,6 +3159,14 @@ components:
           type: string
           format: date-time
           nullable: true
+        shareToken:
+          type: string
+          nullable: true
+          description: >-
+            Opaque share token. Null until the owner generates a share link.
+            Exposed only to the preset owner (the list endpoint is scoped to
+            their session) so the UI can show whether a link is already
+            active and offer a "Revoke" action.
 
     GlobalScreenerPresetsResponse:
       type: object
@@ -3139,3 +3228,27 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/GlobalCuratedScreenerPreset" }
+
+    GlobalScreenerPresetShareResponse:
+      type: object
+      description: >-
+        Returned by `POST /global/screener-presets/{id}/share`. Contains
+        the (possibly newly-generated) share token and a relative URL the
+        UI can resolve against the artifact origin to copy to clipboard.
+      required: [token, shareUrl]
+      properties:
+        token: { type: string }
+        shareUrl:
+          type: string
+          description: "Path with `?share=<token>` query suitable for `new URL(value, window.location.origin)`."
+
+    GlobalScreenerPresetSharePreview:
+      type: object
+      description: >-
+        Sanitized public view of a shared preset. Deliberately omits the
+        owner's session key, timestamps, alert state, and database id so
+        nothing identifying about the original author leaks.
+      required: [name, body]
+      properties:
+        name: { type: string }
+        body: { $ref: "#/components/schemas/GlobalScreenerBody" }
