@@ -15,10 +15,11 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 import { StatusStrip } from "@/components/StatusStrip";
 import {
   Star, StarOff, ArrowUpRight, ArrowDownRight, Loader2,
-  ArrowUp, ArrowDown, AlertTriangle,
+  ArrowUp, ArrowDown, AlertTriangle, Search, X,
 } from "lucide-react";
 
 type AssetTab = "crypto" | "commodities" | "forex" | "equities" | "indices" | "watchlist";
@@ -67,8 +68,20 @@ function fmtAge(ms: number | null | undefined): string {
 type SortKey = "symbol" | "changePct" | "volume" | "updatedAt" | "price";
 type SortDir = "asc" | "desc";
 
+const EMPTY_FILTERS: Record<AssetTab, string> = {
+  crypto: "",
+  commodities: "",
+  forex: "",
+  equities: "",
+  indices: "",
+  watchlist: "",
+};
+
 export function DashboardPage() {
   const [tab, setTab] = useState<AssetTab>("crypto");
+  const [filters, setFilters] = useState<Record<AssetTab, string>>(EMPTY_FILTERS);
+  const setFilterFor = (asset: AssetTab) => (value: string) =>
+    setFilters((prev) => ({ ...prev, [asset]: value }));
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -93,7 +106,11 @@ export function DashboardPage() {
         </TabsList>
         {TABS.map((t) => (
           <TabsContent key={t.value} value={t.value} className="mt-4">
-            <DashboardTable asset={t.value} />
+            <DashboardTable
+              asset={t.value}
+              filter={filters[t.value]}
+              onFilterChange={setFilterFor(t.value)}
+            />
           </TabsContent>
         ))}
       </Tabs>
@@ -143,7 +160,15 @@ function SortHeader(props: {
   );
 }
 
-function DashboardTable({ asset }: { asset: AssetTab }) {
+function DashboardTable({
+  asset,
+  filter,
+  onFilterChange,
+}: {
+  asset: AssetTab;
+  filter: string;
+  onFilterChange: (value: string) => void;
+}) {
   const qc = useQueryClient();
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "changePct", dir: "desc" });
   const { data, isLoading } = useGetGlobalDashboard(
@@ -176,24 +201,87 @@ function DashboardTable({ asset }: { asset: AssetTab }) {
     return rows;
   }, [data, sort]);
 
+  const trimmedFilter = filter.trim();
+  const visible = useMemo(() => {
+    if (!trimmedFilter) return sorted;
+    const needle = trimmedFilter.toLowerCase();
+    return sorted.filter(
+      (r) =>
+        r.symbol.toLowerCase().includes(needle) ||
+        (r.displayName ?? "").toLowerCase().includes(needle),
+    );
+  }, [sorted, trimmedFilter]);
+
   function onSort(k: SortKey) {
     setSort(prev => prev.key === k ? { key: k, dir: prev.dir === "asc" ? "desc" : "asc" } : { key: k, dir: k === "symbol" ? "asc" : "desc" });
   }
 
-  if (isLoading) return <Skeleton className="h-72 w-full" />;
+  const filterInput = (
+    <div className="relative w-full max-w-sm">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        type="search"
+        value={filter}
+        onChange={(e) => onFilterChange(e.target.value)}
+        placeholder="Filter by symbol or name…"
+        className="pl-8 pr-8"
+        data-testid={`filter-${asset}`}
+        aria-label="Filter instruments"
+      />
+      {filter && (
+        <button
+          type="button"
+          onClick={() => onFilterChange("")}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+          data-testid={`filter-clear-${asset}`}
+          aria-label="Clear filter"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {filterInput}
+        <Skeleton className="h-72 w-full" />
+      </div>
+    );
+  }
 
   if (sorted.length === 0) {
     return (
-      <Card className="p-8 text-center text-muted-foreground">
-        {asset === "watchlist"
-          ? "Your watchlist is empty. Star instruments from any asset tab to track them here."
-          : "No data yet — the live feed is warming up. Refresh in a few seconds."}
-      </Card>
+      <div className="space-y-3">
+        {filterInput}
+        <Card className="p-8 text-center text-muted-foreground">
+          {asset === "watchlist"
+            ? "Your watchlist is empty. Star instruments from any asset tab to track them here."
+            : "No data yet — the live feed is warming up. Refresh in a few seconds."}
+        </Card>
+      </div>
+    );
+  }
+
+  if (visible.length === 0) {
+    return (
+      <div className="space-y-3">
+        {filterInput}
+        <Card
+          className="p-8 text-center text-muted-foreground"
+          data-testid={`empty-filter-${asset}`}
+        >
+          No instruments match “{trimmedFilter}”.
+        </Card>
+      </div>
     );
   }
 
   return (
-    <Card className="overflow-hidden">
+    <div className="space-y-3">
+      {filterInput}
+      <Card className="overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
@@ -209,7 +297,7 @@ function DashboardTable({ asset }: { asset: AssetTab }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r) => {
+            {visible.map((r) => {
               const up = (r.changePct ?? 0) >= 0;
               const isWatched = watched.has(r.symbol);
               const isStale = r.stale === true;
@@ -291,6 +379,7 @@ function DashboardTable({ asset }: { asset: AssetTab }) {
           </tbody>
         </table>
       </div>
-    </Card>
+      </Card>
+    </div>
   );
 }
