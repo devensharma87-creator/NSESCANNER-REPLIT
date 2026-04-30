@@ -3484,6 +3484,8 @@ export const listGlobalScreenerPresetsResponseItemsItemBodyFiltersBreakdownLookb
 
 export const listGlobalScreenerPresetsResponseItemsItemBodyLimitMax = 50;
 
+export const listGlobalScreenerPresetsResponseItemsItemAutoRunIntervalMinMax = 1440;
+
 export const ListGlobalScreenerPresetsResponse = zod.object({
   items: zod.array(
     zod.object({
@@ -3590,6 +3592,36 @@ export const ListGlobalScreenerPresetsResponse = zod.object({
       }),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
+      autoRunIntervalMin: zod
+        .number()
+        .min(1)
+        .max(listGlobalScreenerPresetsResponseItemsItemAutoRunIntervalMinMax)
+        .nullable()
+        .describe(
+          "When set, the preset auto-runs every N minutes server-side and any new hits become alerts.",
+        ),
+      lastRunAt: zod.coerce
+        .date()
+        .nullable()
+        .describe(
+          "Timestamp of the most recent scheduled run, or null if it has never run.",
+        ),
+      lastRunError: zod.string().nullable(),
+      lastNewHits: zod
+        .array(
+          zod.object({
+            symbol: zod.string(),
+            displayName: zod.string(),
+            assetClass: zod.string(),
+            price: zod.number().nullable(),
+            changePct: zod.number().nullable(),
+            matched: zod.array(zod.string()),
+          }),
+        )
+        .describe(
+          "Pending alert hits accumulated since the last `acknowledge`.",
+        ),
+      lastNewHitsAt: zod.coerce.date().nullable(),
     }),
   ),
 });
@@ -3612,6 +3644,8 @@ export const createGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMin = 2;
 export const createGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMax = 500;
 
 export const createGlobalScreenerPresetBodyBodyLimitMax = 50;
+
+export const createGlobalScreenerPresetBodyAutoRunIntervalMinMax = 1440;
 
 export const CreateGlobalScreenerPresetBody = zod.object({
   name: zod.string().min(1).max(createGlobalScreenerPresetBodyNameMax),
@@ -3696,6 +3730,11 @@ export const CreateGlobalScreenerPresetBody = zod.object({
       .max(createGlobalScreenerPresetBodyBodyLimitMax)
       .optional(),
   }),
+  autoRunIntervalMin: zod
+    .number()
+    .min(1)
+    .max(createGlobalScreenerPresetBodyAutoRunIntervalMinMax)
+    .nullish(),
 });
 
 /**
@@ -3720,6 +3759,8 @@ export const updateGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMin = 2;
 export const updateGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMax = 500;
 
 export const updateGlobalScreenerPresetBodyBodyLimitMax = 50;
+
+export const updateGlobalScreenerPresetBodyAutoRunIntervalMinMax = 1440;
 
 export const UpdateGlobalScreenerPresetBody = zod
   .object({
@@ -3817,9 +3858,14 @@ export const UpdateGlobalScreenerPresetBody = zod
           .optional(),
       })
       .optional(),
+    autoRunIntervalMin: zod
+      .number()
+      .min(1)
+      .max(updateGlobalScreenerPresetBodyAutoRunIntervalMinMax)
+      .nullish(),
   })
   .describe(
-    "Provide `name` to rename and\/or `body` to replace the preset's filter payload.",
+    "Provide `name` to rename, `body` to replace the preset's filter payload, and\/or `autoRunIntervalMin` to toggle background scheduling.",
   );
 
 export const updateGlobalScreenerPresetResponseBodyFiltersMinRsi14Min = 0;
@@ -3835,6 +3881,8 @@ export const updateGlobalScreenerPresetResponseBodyFiltersBreakdownLookbackMin =
 export const updateGlobalScreenerPresetResponseBodyFiltersBreakdownLookbackMax = 500;
 
 export const updateGlobalScreenerPresetResponseBodyLimitMax = 50;
+
+export const updateGlobalScreenerPresetResponseAutoRunIntervalMinMax = 1440;
 
 export const UpdateGlobalScreenerPresetResponse = zod.object({
   id: zod.string().uuid(),
@@ -3926,6 +3974,34 @@ export const UpdateGlobalScreenerPresetResponse = zod.object({
   }),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
+  autoRunIntervalMin: zod
+    .number()
+    .min(1)
+    .max(updateGlobalScreenerPresetResponseAutoRunIntervalMinMax)
+    .nullable()
+    .describe(
+      "When set, the preset auto-runs every N minutes server-side and any new hits become alerts.",
+    ),
+  lastRunAt: zod.coerce
+    .date()
+    .nullable()
+    .describe(
+      "Timestamp of the most recent scheduled run, or null if it has never run.",
+    ),
+  lastRunError: zod.string().nullable(),
+  lastNewHits: zod
+    .array(
+      zod.object({
+        symbol: zod.string(),
+        displayName: zod.string(),
+        assetClass: zod.string(),
+        price: zod.number().nullable(),
+        changePct: zod.number().nullable(),
+        matched: zod.array(zod.string()),
+      }),
+    )
+    .describe("Pending alert hits accumulated since the last `acknowledge`."),
+  lastNewHitsAt: zod.coerce.date().nullable(),
 });
 
 /**
@@ -3937,6 +4013,304 @@ export const DeleteGlobalScreenerPresetParams = zod.object({
 
 export const DeleteGlobalScreenerPresetResponse = zod.object({
   ok: zod.boolean(),
+});
+
+/**
+ * @summary Clear pending new-hit alerts for a preset
+ */
+export const AcknowledgeGlobalScreenerPresetAlertsParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersMinRsi14Min = 0;
+export const acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersMinRsi14Max = 100;
+
+export const acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersMaxRsi14Min = 0;
+export const acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersMaxRsi14Max = 100;
+
+export const acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersBreakoutLookbackMin = 2;
+export const acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersBreakoutLookbackMax = 500;
+
+export const acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersBreakdownLookbackMin = 2;
+export const acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersBreakdownLookbackMax = 500;
+
+export const acknowledgeGlobalScreenerPresetAlertsResponseBodyLimitMax = 50;
+
+export const acknowledgeGlobalScreenerPresetAlertsResponseAutoRunIntervalMinMax = 1440;
+
+export const AcknowledgeGlobalScreenerPresetAlertsResponse = zod.object({
+  id: zod.string().uuid(),
+  name: zod.string(),
+  body: zod.object({
+    assetClasses: zod
+      .array(zod.enum(["crypto", "commodity", "forex", "equity", "index"]))
+      .min(1),
+    timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
+    filters: zod
+      .object({
+        minChangePct: zod
+          .number()
+          .optional()
+          .describe("Minimum % change vs previous close (live snapshot)."),
+        maxChangePct: zod.number().optional(),
+        minVolume: zod
+          .number()
+          .optional()
+          .describe("Minimum 24h \/ day volume (live snapshot units)."),
+        minRsi14: zod
+          .number()
+          .min(
+            acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersMinRsi14Min,
+          )
+          .max(
+            acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersMinRsi14Max,
+          )
+          .optional(),
+        maxRsi14: zod
+          .number()
+          .min(
+            acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersMaxRsi14Min,
+          )
+          .max(
+            acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersMaxRsi14Max,
+          )
+          .optional(),
+        breakoutLookback: zod
+          .number()
+          .min(
+            acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersBreakoutLookbackMin,
+          )
+          .max(
+            acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersBreakoutLookbackMax,
+          )
+          .optional(),
+        breakdownLookback: zod
+          .number()
+          .min(
+            acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersBreakdownLookbackMin,
+          )
+          .max(
+            acknowledgeGlobalScreenerPresetAlertsResponseBodyFiltersBreakdownLookbackMax,
+          )
+          .optional(),
+        min1dChangePct: zod
+          .number()
+          .optional()
+          .describe(
+            "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe.",
+          ),
+        min1wChangePct: zod
+          .number()
+          .optional()
+          .describe(
+            "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe.",
+          ),
+        priceAboveSma50: zod
+          .boolean()
+          .optional()
+          .describe(
+            "Require last close > SMA(50) — classic intermediate-term trend filter.",
+          ),
+        priceBelowSma50: zod
+          .boolean()
+          .optional()
+          .describe("Require last close < SMA(50)."),
+        priceAboveSma200: zod
+          .boolean()
+          .optional()
+          .describe("Require last close > SMA(200) — long-term trend filter."),
+        priceBelowSma200: zod
+          .boolean()
+          .optional()
+          .describe("Require last close < SMA(200)."),
+        trendUp: zod
+          .boolean()
+          .optional()
+          .describe("EMA20 > EMA50 > EMA200 cascade (bullish stack)."),
+        trendDown: zod.boolean().optional(),
+        requireSupertrendUp: zod.boolean().optional(),
+        requireSupertrendDown: zod.boolean().optional(),
+      })
+      .optional(),
+    limit: zod
+      .number()
+      .min(1)
+      .max(acknowledgeGlobalScreenerPresetAlertsResponseBodyLimitMax)
+      .optional(),
+  }),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  autoRunIntervalMin: zod
+    .number()
+    .min(1)
+    .max(acknowledgeGlobalScreenerPresetAlertsResponseAutoRunIntervalMinMax)
+    .nullable()
+    .describe(
+      "When set, the preset auto-runs every N minutes server-side and any new hits become alerts.",
+    ),
+  lastRunAt: zod.coerce
+    .date()
+    .nullable()
+    .describe(
+      "Timestamp of the most recent scheduled run, or null if it has never run.",
+    ),
+  lastRunError: zod.string().nullable(),
+  lastNewHits: zod
+    .array(
+      zod.object({
+        symbol: zod.string(),
+        displayName: zod.string(),
+        assetClass: zod.string(),
+        price: zod.number().nullable(),
+        changePct: zod.number().nullable(),
+        matched: zod.array(zod.string()),
+      }),
+    )
+    .describe("Pending alert hits accumulated since the last `acknowledge`."),
+  lastNewHitsAt: zod.coerce.date().nullable(),
+});
+
+/**
+ * @summary Force the preset's scheduler-style run immediately
+ */
+export const RunGlobalScreenerPresetNowParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const runGlobalScreenerPresetNowResponseBodyFiltersMinRsi14Min = 0;
+export const runGlobalScreenerPresetNowResponseBodyFiltersMinRsi14Max = 100;
+
+export const runGlobalScreenerPresetNowResponseBodyFiltersMaxRsi14Min = 0;
+export const runGlobalScreenerPresetNowResponseBodyFiltersMaxRsi14Max = 100;
+
+export const runGlobalScreenerPresetNowResponseBodyFiltersBreakoutLookbackMin = 2;
+export const runGlobalScreenerPresetNowResponseBodyFiltersBreakoutLookbackMax = 500;
+
+export const runGlobalScreenerPresetNowResponseBodyFiltersBreakdownLookbackMin = 2;
+export const runGlobalScreenerPresetNowResponseBodyFiltersBreakdownLookbackMax = 500;
+
+export const runGlobalScreenerPresetNowResponseBodyLimitMax = 50;
+
+export const runGlobalScreenerPresetNowResponseAutoRunIntervalMinMax = 1440;
+
+export const RunGlobalScreenerPresetNowResponse = zod.object({
+  id: zod.string().uuid(),
+  name: zod.string(),
+  body: zod.object({
+    assetClasses: zod
+      .array(zod.enum(["crypto", "commodity", "forex", "equity", "index"]))
+      .min(1),
+    timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
+    filters: zod
+      .object({
+        minChangePct: zod
+          .number()
+          .optional()
+          .describe("Minimum % change vs previous close (live snapshot)."),
+        maxChangePct: zod.number().optional(),
+        minVolume: zod
+          .number()
+          .optional()
+          .describe("Minimum 24h \/ day volume (live snapshot units)."),
+        minRsi14: zod
+          .number()
+          .min(runGlobalScreenerPresetNowResponseBodyFiltersMinRsi14Min)
+          .max(runGlobalScreenerPresetNowResponseBodyFiltersMinRsi14Max)
+          .optional(),
+        maxRsi14: zod
+          .number()
+          .min(runGlobalScreenerPresetNowResponseBodyFiltersMaxRsi14Min)
+          .max(runGlobalScreenerPresetNowResponseBodyFiltersMaxRsi14Max)
+          .optional(),
+        breakoutLookback: zod
+          .number()
+          .min(runGlobalScreenerPresetNowResponseBodyFiltersBreakoutLookbackMin)
+          .max(runGlobalScreenerPresetNowResponseBodyFiltersBreakoutLookbackMax)
+          .optional(),
+        breakdownLookback: zod
+          .number()
+          .min(
+            runGlobalScreenerPresetNowResponseBodyFiltersBreakdownLookbackMin,
+          )
+          .max(
+            runGlobalScreenerPresetNowResponseBodyFiltersBreakdownLookbackMax,
+          )
+          .optional(),
+        min1dChangePct: zod
+          .number()
+          .optional()
+          .describe(
+            "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe.",
+          ),
+        min1wChangePct: zod
+          .number()
+          .optional()
+          .describe(
+            "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe.",
+          ),
+        priceAboveSma50: zod
+          .boolean()
+          .optional()
+          .describe(
+            "Require last close > SMA(50) — classic intermediate-term trend filter.",
+          ),
+        priceBelowSma50: zod
+          .boolean()
+          .optional()
+          .describe("Require last close < SMA(50)."),
+        priceAboveSma200: zod
+          .boolean()
+          .optional()
+          .describe("Require last close > SMA(200) — long-term trend filter."),
+        priceBelowSma200: zod
+          .boolean()
+          .optional()
+          .describe("Require last close < SMA(200)."),
+        trendUp: zod
+          .boolean()
+          .optional()
+          .describe("EMA20 > EMA50 > EMA200 cascade (bullish stack)."),
+        trendDown: zod.boolean().optional(),
+        requireSupertrendUp: zod.boolean().optional(),
+        requireSupertrendDown: zod.boolean().optional(),
+      })
+      .optional(),
+    limit: zod
+      .number()
+      .min(1)
+      .max(runGlobalScreenerPresetNowResponseBodyLimitMax)
+      .optional(),
+  }),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  autoRunIntervalMin: zod
+    .number()
+    .min(1)
+    .max(runGlobalScreenerPresetNowResponseAutoRunIntervalMinMax)
+    .nullable()
+    .describe(
+      "When set, the preset auto-runs every N minutes server-side and any new hits become alerts.",
+    ),
+  lastRunAt: zod.coerce
+    .date()
+    .nullable()
+    .describe(
+      "Timestamp of the most recent scheduled run, or null if it has never run.",
+    ),
+  lastRunError: zod.string().nullable(),
+  lastNewHits: zod
+    .array(
+      zod.object({
+        symbol: zod.string(),
+        displayName: zod.string(),
+        assetClass: zod.string(),
+        price: zod.number().nullable(),
+        changePct: zod.number().nullable(),
+        matched: zod.array(zod.string()),
+      }),
+    )
+    .describe("Pending alert hits accumulated since the last `acknowledge`."),
+  lastNewHitsAt: zod.coerce.date().nullable(),
 });
 
 /**

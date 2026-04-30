@@ -70,6 +70,7 @@ export * from "./globalScreenerHit";
 export * from "./globalScreenerPreset";
 export * from "./globalScreenerPresetCreateBody";
 export * from "./globalScreenerPresetDeleteResponse";
+export * from "./globalScreenerPresetNewHit";
 export * from "./globalScreenerPresetsResponse";
 export * from "./globalScreenerPresetUpdateBody";
 export * from "./globalScreenerResponse";

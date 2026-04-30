@@ -49,8 +49,10 @@ import {
 } from "../../lib/global/dataLayer";
 import {
   sma, ema, rsi, macd, bollinger, atr, vwap, supertrend,
-  highestHigh, lowestLow, lastNonNull, type OHLCV,
+  type OHLCV,
 } from "../../lib/global/indicators";
+import { runGlobalScreener, ScreenerBody } from "../../lib/global/screener";
+import { runPresetNow } from "../../lib/global/presetScheduler";
 
 const router: IRouter = Router();
 
@@ -298,55 +300,9 @@ router.get("/global/instruments/:symbol/indicators", async (req, res) => {
 });
 
 // ── Screener ────────────────────────────────────────────────────────
-const ScreenerBody = z.object({
-  assetClasses: z.array(z.enum(["crypto", "commodity", "forex", "equity", "index"])).min(1),
-  timeframe: z.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).default("1h"),
-  filters: z.object({
-    minChangePct: z.number().optional(),
-    maxChangePct: z.number().optional(),
-    minVolume: z.number().optional(),
-    minRsi14: z.number().min(0).max(100).optional(),
-    maxRsi14: z.number().min(0).max(100).optional(),
-    breakoutLookback: z.number().int().min(2).max(500).optional(),  // close > highestHigh(N)
-    breakdownLookback: z.number().int().min(2).max(500).optional(), // close < lowestLow(N)
-    // Windowed % change filters — bar count derived from the chosen timeframe
-    // (see barsForWindow). Useful for "give me crypto up >5% on the day" or
-    // "FX pairs down >2% on the week" without restricting timeframe choice.
-    min1dChangePct: z.number().optional(),
-    min1wChangePct: z.number().optional(),
-    // Price vs SMA50 / SMA200 — classic intermediate / long-term trend filters
-    // (separate from the EMA20/50/200 cascade below).
-    priceAboveSma50: z.boolean().optional(),
-    priceBelowSma50: z.boolean().optional(),
-    priceAboveSma200: z.boolean().optional(),
-    priceBelowSma200: z.boolean().optional(),
-    trendUp: z.boolean().optional(),                                 // EMA20>EMA50>EMA200
-    trendDown: z.boolean().optional(),                               // EMA20<EMA50<EMA200
-    requireSupertrendUp: z.boolean().optional(),
-    requireSupertrendDown: z.boolean().optional(),
-  }).default({}),
-  limit: z.number().int().min(1).max(50).optional(),
-});
-
-/**
- * How many bars in `tf` represent a 1d / 1w lookback window. We assume
- * 24×7 markets (true for crypto; close enough for FX/commodity continuous
- * futures). Returns null if the requested window cannot be resolved in
- * the chosen timeframe (e.g. 1w on a 1m timeframe needs 10080 bars and
- * we only fetch up to 500 — the filter naturally rejects everything).
- */
-function barsForWindow(tf: GlobalTimeframe, win: "1d" | "1w"): number {
-  const map: Record<GlobalTimeframe, [number, number]> = {
-    "1m":  [1440, 10080],
-    "5m":  [288,  2016],
-    "15m": [96,   672],
-    "1h":  [24,   168],
-    "4h":  [6,    42],
-    "1d":  [1,    5],
-  };
-  const [d, w] = map[tf];
-  return win === "1d" ? d : w;
-}
+// Body schema and evaluator live in `lib/global/screener.ts` so the
+// background preset scheduler can run the exact same logic without
+// re-implementing it here.
 
 router.post("/global/screen", async (req, res) => {
   const parsed = ScreenerBody.safeParse(req.body ?? {});
@@ -354,164 +310,8 @@ router.post("/global/screen", async (req, res) => {
     res.status(400).json({ error: "invalid body", detail: parsed.error.flatten() });
     return;
   }
-  const body = parsed.data;
-  const candidates = UNIVERSE.filter(u => body.assetClasses.includes(u.assetClass))
-    .filter(u => u.supportedTimeframes.includes(body.timeframe));
-
-  const live = await getLivePrices(candidates.map(c => c.symbol));
-  const limit = body.limit ?? 25;
-  const f = body.filters;
-
-  // Up-front prefilter using live prices (avoids fetching candles for every
-  // single instrument on every screen request).
-  const prefiltered = candidates.filter(c => {
-    const p = live.get(c.symbol);
-    if (!p || p.price == null) return false;
-    if (f.minChangePct != null && (p.changePct == null || p.changePct < f.minChangePct)) return false;
-    if (f.maxChangePct != null && (p.changePct == null || p.changePct > f.maxChangePct)) return false;
-    if (f.minVolume != null && (p.volume == null || p.volume < f.minVolume)) return false;
-    return true;
-  });
-
-  // Indicators only required if at least one indicator-driven filter is set.
-  const needsCandles =
-    f.minRsi14 != null || f.maxRsi14 != null ||
-    f.breakoutLookback != null || f.breakdownLookback != null ||
-    f.trendUp || f.trendDown ||
-    f.requireSupertrendUp || f.requireSupertrendDown ||
-    f.min1dChangePct != null || f.min1wChangePct != null ||
-    f.priceAboveSma50 || f.priceBelowSma50 ||
-    f.priceAboveSma200 || f.priceBelowSma200;
-
-  const hits: Array<{
-    symbol: string;
-    displayName: string;
-    assetClass: string;
-    price: number | null;
-    changePct: number | null;
-    volume: number | null;
-    rsi14: number | null;
-    trend: "up" | "down" | "mixed" | null;
-    matched: string[];
-  }> = [];
-
-  // Cap how many we evaluate for indicators on a single request to keep p95
-  // bounded; the prefilter usually does most of the trimming already.
-  const EVAL_BUDGET = 60;
-
-  for (const inst of prefiltered.slice(0, needsCandles ? EVAL_BUDGET : prefiltered.length)) {
-    const p = live.get(inst.symbol)!;
-    const matched: string[] = [];
-    let rsi14: number | null = null;
-    let trend: "up" | "down" | "mixed" | null = null;
-
-    if (f.minChangePct != null) matched.push(`Δ% ≥ ${f.minChangePct}`);
-    if (f.maxChangePct != null) matched.push(`Δ% ≤ ${f.maxChangePct}`);
-    if (f.minVolume != null) matched.push(`vol ≥ ${f.minVolume}`);
-
-    if (needsCandles) {
-      try {
-        const candles = await getCandlesFresh(inst.symbol, body.timeframe, 250);
-        if (candles.length < 30) continue;
-        const ohlcv = asOhlcv(candles);
-        const closes = ohlcv.map(c => c.close);
-        const last = closes[closes.length - 1]!;
-
-        if (f.minRsi14 != null || f.maxRsi14 != null) {
-          rsi14 = lastNonNull(rsi(closes, 14));
-          if (rsi14 == null) continue;
-          if (f.minRsi14 != null && rsi14 < f.minRsi14) continue;
-          if (f.maxRsi14 != null && rsi14 > f.maxRsi14) continue;
-          matched.push(`RSI14 ${rsi14.toFixed(1)}`);
-        }
-        if (f.breakoutLookback) {
-          const hh = highestHigh(ohlcv.slice(0, -1), f.breakoutLookback);
-          if (hh == null || last <= hh) continue;
-          matched.push(`breakout/${f.breakoutLookback}`);
-        }
-        if (f.breakdownLookback) {
-          const ll = lowestLow(ohlcv.slice(0, -1), f.breakdownLookback);
-          if (ll == null || last >= ll) continue;
-          matched.push(`breakdown/${f.breakdownLookback}`);
-        }
-        if (f.trendUp || f.trendDown) {
-          const e20 = lastNonNull(ema(closes, 20));
-          const e50 = lastNonNull(ema(closes, 50));
-          const e200 = lastNonNull(ema(closes, 200));
-          if (e20 == null || e50 == null || e200 == null) continue;
-          if (e20 > e50 && e50 > e200) trend = "up";
-          else if (e20 < e50 && e50 < e200) trend = "down";
-          else trend = "mixed";
-          if (f.trendUp && trend !== "up") continue;
-          if (f.trendDown && trend !== "down") continue;
-          matched.push(`trend ${trend}`);
-        }
-        if (f.requireSupertrendUp || f.requireSupertrendDown) {
-          const st = supertrend(ohlcv, 10, 3);
-          const dir = lastNonNull(st.direction as Array<-1 | 1 | null>);
-          if (dir == null) continue;
-          if (f.requireSupertrendUp && dir !== 1) continue;
-          if (f.requireSupertrendDown && dir !== -1) continue;
-          matched.push(`supertrend ${dir === 1 ? "up" : "down"}`);
-        }
-        // 1d / 1w window % change — bar count derived from selected timeframe
-        // (see barsForWindow). Filter is one-sided (>= threshold) so callers
-        // pass a negative number to screen for sell-offs (e.g. -5 for "down ≥5%").
-        if (f.min1dChangePct != null) {
-          const bars = barsForWindow(body.timeframe, "1d");
-          if (closes.length <= bars) continue;
-          const ref = closes[closes.length - 1 - bars]!;
-          const chg = ((last - ref) / ref) * 100;
-          if (chg < f.min1dChangePct) continue;
-          matched.push(`1d ${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`);
-        }
-        if (f.min1wChangePct != null) {
-          const bars = barsForWindow(body.timeframe, "1w");
-          if (closes.length <= bars) continue;
-          const ref = closes[closes.length - 1 - bars]!;
-          const chg = ((last - ref) / ref) * 100;
-          if (chg < f.min1wChangePct) continue;
-          matched.push(`1w ${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`);
-        }
-        // Price vs SMA50 / SMA200 — require sufficient history; otherwise reject
-        // rather than silently passing an instrument that has no SMA200 yet.
-        if (f.priceAboveSma50 || f.priceBelowSma50) {
-          const s50 = lastNonNull(sma(closes, 50));
-          if (s50 == null) continue;
-          if (f.priceAboveSma50 && !(last > s50)) continue;
-          if (f.priceBelowSma50 && !(last < s50)) continue;
-          matched.push(`px ${last > s50 ? ">" : "<"} SMA50`);
-        }
-        if (f.priceAboveSma200 || f.priceBelowSma200) {
-          const s200 = lastNonNull(sma(closes, 200));
-          if (s200 == null) continue;
-          if (f.priceAboveSma200 && !(last > s200)) continue;
-          if (f.priceBelowSma200 && !(last < s200)) continue;
-          matched.push(`px ${last > s200 ? ">" : "<"} SMA200`);
-        }
-      } catch (err) {
-        logger.debug({ err: (err as Error).message, symbol: inst.symbol }, "screener candle fetch failed");
-        continue;
-      }
-    }
-
-    hits.push({
-      symbol: inst.symbol,
-      displayName: inst.displayName,
-      assetClass: inst.assetClass,
-      price: p.price,
-      changePct: p.changePct,
-      volume: p.volume,
-      rsi14,
-      trend,
-      matched,
-    });
-    if (hits.length >= limit) break;
-  }
-
-  // Rank by absolute % change so the strongest movers float to the top.
-  hits.sort((a, b) => Math.abs(b.changePct ?? 0) - Math.abs(a.changePct ?? 0));
-  res.json({ hits, evaluatedCandidates: prefiltered.length, indicatorEvaluated: needsCandles });
+  const result = await runGlobalScreener(parsed.data);
+  res.json(result);
 });
 
 // ── Watchlist ───────────────────────────────────────────────────────
@@ -563,17 +363,25 @@ router.delete("/global/watchlist/:symbol", async (req, res) => {
 // `body` is exactly the payload accepted by POST /global/screen, so the
 // frontend can hydrate UI state from a preset and POST it back unchanged.
 
+// Auto-run interval is in minutes. Use `null` to disable scheduling for
+// a preset (the legacy "manual only" behaviour). Capped at 24h since
+// anything longer is meaningless next to the underlying live-price cycle.
+const AutoRunIntervalSchema = z.number().int().min(1).max(1440).nullable();
+
 const PresetCreateBody = z.object({
   name: z.string().trim().min(1).max(80),
   body: ScreenerBody,
+  autoRunIntervalMin: AutoRunIntervalSchema.optional(),
 });
 
 const PresetUpdateBody = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   body: ScreenerBody.optional(),
-}).refine((v) => v.name !== undefined || v.body !== undefined, {
-  message: "must include `name` and/or `body`",
-});
+  autoRunIntervalMin: AutoRunIntervalSchema.optional(),
+}).refine(
+  (v) => v.name !== undefined || v.body !== undefined || v.autoRunIntervalMin !== undefined,
+  { message: "must include `name`, `body`, and/or `autoRunIntervalMin`" },
+);
 
 // uuid path param — keep validation strict so a stray watchlist symbol
 // can never reach this handler by accident.
@@ -598,6 +406,15 @@ function isUniqueViolation(err: unknown): boolean {
   return /unique|duplicate/i.test((err as Error)?.message ?? "");
 }
 
+type PresetNewHit = {
+  symbol: string;
+  displayName: string;
+  assetClass: string;
+  price: number | null;
+  changePct: number | null;
+  matched: string[];
+};
+
 function serializePreset(row: typeof globalScreenerPresetsTable.$inferSelect) {
   return {
     id: row.id,
@@ -605,6 +422,11 @@ function serializePreset(row: typeof globalScreenerPresetsTable.$inferSelect) {
     body: row.body as z.infer<typeof ScreenerBody>,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    autoRunIntervalMin: row.autoRunIntervalMin,
+    lastRunAt: row.lastRunAt?.toISOString() ?? null,
+    lastRunError: row.lastRunError ?? null,
+    lastNewHits: (row.lastNewHits as PresetNewHit[] | null) ?? [],
+    lastNewHitsAt: row.lastNewHitsAt?.toISOString() ?? null,
   };
 }
 
@@ -628,6 +450,7 @@ router.post("/global/screener-presets", async (req, res) => {
       sessionKey: sk,
       name: parsed.data.name,
       body: parsed.data.body,
+      autoRunIntervalMin: parsed.data.autoRunIntervalMin ?? null,
     }).returning();
     res.status(201).json(serializePreset(row!));
   } catch (err) {
@@ -655,7 +478,19 @@ router.patch("/global/screener-presets/:id", async (req, res) => {
     updatedAt: new Date(),
   };
   if (parsed.data.name !== undefined) updates.name = parsed.data.name;
-  if (parsed.data.body !== undefined) updates.body = parsed.data.body;
+  if (parsed.data.body !== undefined) {
+    updates.body = parsed.data.body;
+    // The filter body changed — reset dedup state so the next scheduled
+    // run treats every hit as new (otherwise old "lastHitSymbols" from a
+    // different filter set would silently mask hits the user is now
+    // looking for).
+    updates.lastHitSymbols = [];
+    updates.lastNewHits = [];
+    updates.lastNewHitsAt = null;
+  }
+  if (parsed.data.autoRunIntervalMin !== undefined) {
+    updates.autoRunIntervalMin = parsed.data.autoRunIntervalMin;
+  }
   try {
     const [row] = await db.update(globalScreenerPresetsTable)
       .set(updates)
@@ -686,6 +521,52 @@ router.delete("/global/screener-presets/:id", async (req, res) => {
   )).returning({ id: globalScreenerPresetsTable.id });
   if (result.length === 0) { res.status(404).json({ error: "preset not found" }); return; }
   res.json({ ok: true });
+});
+
+/**
+ * Clear pending alert hits once the user has seen them in the UI. The
+ * dedup baseline (`lastHitSymbols`) is intentionally NOT touched here,
+ * so a symbol that is still matching the filter does NOT re-alert on
+ * the next cycle until it actually drops out and reappears.
+ */
+router.post("/global/screener-presets/:id/acknowledge", async (req, res) => {
+  const sk = requireSessionKey(req, res); if (sk == null) return;
+  const idParsed = UuidParam.safeParse(req.params["id"]);
+  if (!idParsed.success) { res.status(400).json({ error: "invalid id" }); return; }
+  const [row] = await db.update(globalScreenerPresetsTable)
+    .set({ lastNewHits: [], lastNewHitsAt: null })
+    .where(and(
+      eq(globalScreenerPresetsTable.id, idParsed.data),
+      eq(globalScreenerPresetsTable.sessionKey, sk),
+    ))
+    .returning();
+  if (!row) { res.status(404).json({ error: "preset not found" }); return; }
+  res.json(serializePreset(row));
+});
+
+/**
+ * Manually trigger a scheduler-style run for the preset (without waiting
+ * for the next 30s tick). Useful for "test alert" / "force refresh now"
+ * UX flows.
+ */
+router.post("/global/screener-presets/:id/run-now", async (req, res) => {
+  const sk = requireSessionKey(req, res); if (sk == null) return;
+  const idParsed = UuidParam.safeParse(req.params["id"]);
+  if (!idParsed.success) { res.status(400).json({ error: "invalid id" }); return; }
+  // Verify ownership before kicking off the run so a session can't probe
+  // for other users' preset ids.
+  const [exists] = await db.select({ id: globalScreenerPresetsTable.id })
+    .from(globalScreenerPresetsTable)
+    .where(and(
+      eq(globalScreenerPresetsTable.id, idParsed.data),
+      eq(globalScreenerPresetsTable.sessionKey, sk),
+    ));
+  if (!exists) { res.status(404).json({ error: "preset not found" }); return; }
+  const result = await runPresetNow(idParsed.data);
+  if (!result.ok) { res.status(500).json({ error: result.error }); return; }
+  const [row] = await db.select().from(globalScreenerPresetsTable)
+    .where(eq(globalScreenerPresetsTable.id, idParsed.data));
+  res.json(serializePreset(row!));
 });
 
 // ── Status (data freshness) ─────────────────────────────────────────

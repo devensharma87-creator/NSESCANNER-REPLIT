@@ -8,7 +8,7 @@
 import type { GlobalScreenerBody } from "./globalScreenerBody";
 
 /**
- * Provide `name` to rename and/or `body` to replace the preset's filter payload.
+ * Provide `name` to rename, `body` to replace the preset's filter payload, and/or `autoRunIntervalMin` to toggle background scheduling.
  */
 export interface GlobalScreenerPresetUpdateBody {
   /**
@@ -17,4 +17,9 @@ export interface GlobalScreenerPresetUpdateBody {
    */
   name?: string;
   body?: GlobalScreenerBody;
+  /**
+   * @minimum 1
+   * @maximum 1440
+   */
+  autoRunIntervalMin?: number | null;
 }

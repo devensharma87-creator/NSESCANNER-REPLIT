@@ -2360,12 +2360,33 @@ export interface GlobalSourceStatusResponse {
   deadCandidateThreshold: number;
 }
 
+export interface GlobalScreenerPresetNewHit {
+  symbol: string;
+  displayName: string;
+  assetClass: string;
+  price: number | null;
+  changePct: number | null;
+  matched: string[];
+}
+
 export interface GlobalScreenerPreset {
   id: string;
   name: string;
   body: GlobalScreenerBody;
   createdAt: string;
   updatedAt: string;
+  /**
+   * When set, the preset auto-runs every N minutes server-side and any new hits become alerts.
+   * @minimum 1
+   * @maximum 1440
+   */
+  autoRunIntervalMin: number | null;
+  /** Timestamp of the most recent scheduled run, or null if it has never run. */
+  lastRunAt: string | null;
+  lastRunError: string | null;
+  /** Pending alert hits accumulated since the last `acknowledge`. */
+  lastNewHits: GlobalScreenerPresetNewHit[];
+  lastNewHitsAt: string | null;
 }
 
 export interface GlobalScreenerPresetsResponse {
@@ -2379,10 +2400,15 @@ export interface GlobalScreenerPresetCreateBody {
    */
   name: string;
   body: GlobalScreenerBody;
+  /**
+   * @minimum 1
+   * @maximum 1440
+   */
+  autoRunIntervalMin?: number | null;
 }
 
 /**
- * Provide `name` to rename and/or `body` to replace the preset's filter payload.
+ * Provide `name` to rename, `body` to replace the preset's filter payload, and/or `autoRunIntervalMin` to toggle background scheduling.
  */
 export interface GlobalScreenerPresetUpdateBody {
   /**
@@ -2391,6 +2417,11 @@ export interface GlobalScreenerPresetUpdateBody {
    */
   name?: string;
   body?: GlobalScreenerBody;
+  /**
+   * @minimum 1
+   * @maximum 1440
+   */
+  autoRunIntervalMin?: number | null;
 }
 
 export interface GlobalScreenerPresetDeleteResponse {

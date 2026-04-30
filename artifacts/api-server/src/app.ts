@@ -11,6 +11,7 @@ import { logger } from "./lib/logger";
 import { requireAuth, logAuthBootState } from "./lib/auth";
 import { logGlobalAuthBootState } from "./lib/global/auth";
 import { startGlobalDataPump } from "./lib/global/dataLayer";
+import { startScreenerPresetScheduler } from "./lib/global/presetScheduler";
 
 const app: Express = express();
 
@@ -211,5 +212,9 @@ logGlobalAuthBootState();
 void startGlobalDataPump().catch((err: unknown) => {
   logger.error({ err: (err as Error).message }, "startGlobalDataPump failed at boot");
 });
+// Background scheduler for "auto-run every N minutes" presets. Independent
+// from the data pump — it reads cached live prices / candles so it never
+// directly hits upstream sources itself.
+startScreenerPresetScheduler();
 
 export default app;

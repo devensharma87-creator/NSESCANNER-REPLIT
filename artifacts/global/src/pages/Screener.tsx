@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import {
   useRunGlobalScreener,
@@ -6,6 +6,8 @@ import {
   useCreateGlobalScreenerPreset,
   useUpdateGlobalScreenerPreset,
   useDeleteGlobalScreenerPreset,
+  useAcknowledgeGlobalScreenerPresetAlerts,
+  useRunGlobalScreenerPresetNow,
   getListGlobalScreenerPresetsQueryKey,
   type GlobalAssetClass,
   type GlobalTimeframe,
@@ -19,10 +21,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover, PopoverContent, PopoverTrigger,
+} from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, Filter as FilterIcon, ArrowUpRight, ArrowDownRight,
   ArrowUp, ArrowDown, Save, Trash2, Pencil, BookmarkCheck,
+  Bell, BellOff, Play, AlertCircle,
 } from "lucide-react";
 
 const ASSET_CLASSES: { id: GlobalAssetClass; label: string }[] = [
@@ -34,6 +43,34 @@ const ASSET_CLASSES: { id: GlobalAssetClass; label: string }[] = [
 ];
 
 const TIMEFRAMES: GlobalTimeframe[] = ["15m", "1h", "4h", "1d"];
+
+const AUTO_RUN_OPTIONS: Array<{ value: string; label: string; min: number | null }> = [
+  { value: "off", label: "Off",      min: null },
+  { value: "1",   label: "1 min",    min: 1 },
+  { value: "5",   label: "5 min",    min: 5 },
+  { value: "15",  label: "15 min",   min: 15 },
+  { value: "30",  label: "30 min",   min: 30 },
+  { value: "60",  label: "1 hour",   min: 60 },
+];
+
+function intervalToOption(min: number | null | undefined): string {
+  if (min == null) return "off";
+  const exact = AUTO_RUN_OPTIONS.find((o) => o.min === min);
+  return exact ? exact.value : "off";
+}
+
+function formatRelative(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return "just now";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 
 type Hit = {
   symbol: string;
@@ -94,10 +131,12 @@ export function ScreenerPage() {
 
   const screener = useRunGlobalScreener();
 
+  // Poll so background-scheduler alerts surface without a manual reload.
   const presetsQuery = useListGlobalScreenerPresets({
     query: {
       queryKey: getListGlobalScreenerPresetsQueryKey(),
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true,
+      refetchInterval: 20_000,
     },
   });
 
@@ -144,6 +183,26 @@ export function ScreenerPage() {
       onSuccess: (_data, vars) => {
         invalidatePresets();
         if (activePresetId === vars.id) setActivePresetId(null);
+      },
+    },
+  });
+
+  const acknowledgeAlerts = useAcknowledgeGlobalScreenerPresetAlerts({
+    mutation: { onSuccess: () => invalidatePresets() },
+  });
+
+  const runPresetNow = useRunGlobalScreenerPresetNow({
+    mutation: {
+      onSuccess: () => {
+        invalidatePresets();
+        toast({ title: "Preset run triggered", description: "Refreshing in a moment…" });
+      },
+      onError: (err: unknown) => {
+        toast({
+          title: "Run failed",
+          description: (err as Error)?.message ?? "Could not run preset.",
+          variant: "destructive",
+        });
       },
     },
   });
@@ -231,6 +290,36 @@ export function ScreenerPage() {
     if (!next) { setRenamingId(null); return; }
     updatePreset.mutate({ id, data: { name: next } });
   }
+
+  // Toast once per (presetId, lastNewHitsAt) pair. Prime on first load so
+  // pre-existing alerts don't blast toasts on mount.
+  const seenAlertKeysRef = useRef<Set<string>>(new Set());
+  const primedRef = useRef(false);
+  useEffect(() => {
+    if (presetsQuery.data == null) return;
+    const items = presetsQuery.data.items;
+    if (!primedRef.current) {
+      for (const p of items) {
+        if (p.lastNewHitsAt && p.lastNewHits.length > 0) {
+          seenAlertKeysRef.current.add(`${p.id}:${p.lastNewHitsAt}`);
+        }
+      }
+      primedRef.current = true;
+      return;
+    }
+    for (const p of items) {
+      if (!p.lastNewHitsAt || p.lastNewHits.length === 0) continue;
+      const key = `${p.id}:${p.lastNewHitsAt}`;
+      if (seenAlertKeysRef.current.has(key)) continue;
+      seenAlertKeysRef.current.add(key);
+      const symbols = p.lastNewHits.map((h) => h.symbol).slice(0, 4).join(", ");
+      const more = p.lastNewHits.length > 4 ? ` (+${p.lastNewHits.length - 4} more)` : "";
+      toast({
+        title: `${p.lastNewHits.length} new hit${p.lastNewHits.length === 1 ? "" : "s"}: ${p.name}`,
+        description: `${symbols}${more}`,
+      });
+    }
+  }, [presetsQuery.data, toast]);
 
   // Clear "active preset" highlight whenever the user edits filter inputs so
   // the indicator reflects whether the form still matches the saved version.
@@ -335,66 +424,27 @@ export function ScreenerPage() {
               No saved presets yet. Configure your filters and hit <span className="font-medium">Save</span> to build a one-click library.
             </div>
           ) : (
-            <ul className="space-y-1" data-testid="list-presets">
-              {presets.map((p) => {
-                const active = activePresetId === p.id;
-                const isRenaming = renamingId === p.id;
-                return (
-                  <li
-                    key={p.id}
-                    className={`group rounded border px-2 py-1.5 text-sm flex items-center gap-1.5 ${
-                      active ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent/50"
-                    }`}
-                    data-testid={`preset-${p.id}`}
-                  >
-                    {isRenaming ? (
-                      <Input
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") onCommitRename(p.id);
-                          if (e.key === "Escape") { setRenamingId(null); setRenameValue(""); }
-                        }}
-                        onBlur={() => onCommitRename(p.id)}
-                        autoFocus
-                        className="h-6 text-xs"
-                        data-testid={`input-rename-${p.id}`}
-                      />
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => applyPreset(p)}
-                          className="flex-1 text-left truncate flex items-center gap-1.5"
-                          title={`${p.body.assetClasses.join(", ")} · ${p.body.timeframe ?? "1h"}`}
-                          data-testid={`button-load-preset-${p.id}`}
-                        >
-                          {active && <BookmarkCheck className="h-3.5 w-3.5 text-primary shrink-0" />}
-                          <span className="truncate">{p.name}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setRenamingId(p.id); setRenameValue(p.name); }}
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
-                          title="Rename"
-                          data-testid={`button-rename-preset-${p.id}`}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deletePreset.mutate({ id: p.id })}
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                          title="Delete"
-                          data-testid={`button-delete-preset-${p.id}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </>
-                    )}
-                  </li>
-                );
-              })}
+            <ul className="space-y-1.5" data-testid="list-presets">
+              {presets.map((p) => (
+                <PresetRow
+                  key={p.id}
+                  preset={p}
+                  active={activePresetId === p.id}
+                  isRenaming={renamingId === p.id}
+                  renameValue={renameValue}
+                  setRenameValue={setRenameValue}
+                  onStartRename={() => { setRenamingId(p.id); setRenameValue(p.name); }}
+                  onCancelRename={() => { setRenamingId(null); setRenameValue(""); }}
+                  onCommitRename={() => onCommitRename(p.id)}
+                  onApply={() => applyPreset(p)}
+                  onDelete={() => deletePreset.mutate({ id: p.id })}
+                  onIntervalChange={(min) => updatePreset.mutate({ id: p.id, data: { autoRunIntervalMin: min } })}
+                  onAcknowledge={() => acknowledgeAlerts.mutate({ id: p.id })}
+                  onRunNow={() => runPresetNow.mutate({ id: p.id })}
+                  intervalUpdating={updatePreset.isPending}
+                  runNowPending={runPresetNow.isPending}
+                />
+              ))}
             </ul>
           )}
         </Card>
@@ -598,6 +648,180 @@ function SortHeader(props: {
         {Icon && <Icon className="h-3 w-3" />}
       </button>
     </th>
+  );
+}
+
+function PresetRow(props: {
+  preset: GlobalScreenerPreset;
+  active: boolean;
+  isRenaming: boolean;
+  renameValue: string;
+  setRenameValue: (v: string) => void;
+  onStartRename: () => void;
+  onCancelRename: () => void;
+  onCommitRename: () => void;
+  onApply: () => void;
+  onDelete: () => void;
+  onIntervalChange: (min: number | null) => void;
+  onAcknowledge: () => void;
+  onRunNow: () => void;
+  intervalUpdating: boolean;
+  runNowPending: boolean;
+}) {
+  const { preset: p, active, isRenaming } = props;
+  const newHitCount = p.lastNewHits.length;
+  const hasAlerts = newHitCount > 0;
+  const autoOn = p.autoRunIntervalMin != null;
+  return (
+    <li
+      className={`group rounded border px-2 py-1.5 text-sm space-y-1 ${
+        active ? "border-primary bg-primary/5" : hasAlerts ? "border-amber-500/40 bg-amber-50/40 dark:bg-amber-950/20" : "border-transparent hover:bg-accent/50"
+      }`}
+      data-testid={`preset-${p.id}`}
+    >
+      <div className="flex items-center gap-1.5 min-w-0">
+        {isRenaming ? (
+          <Input
+            value={props.renameValue}
+            onChange={(e) => props.setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") props.onCommitRename();
+              if (e.key === "Escape") props.onCancelRename();
+            }}
+            onBlur={props.onCommitRename}
+            autoFocus
+            className="h-6 text-xs"
+            data-testid={`input-rename-${p.id}`}
+          />
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={props.onApply}
+              className="flex-1 min-w-0 text-left truncate flex items-center gap-1.5"
+              title={`${p.body.assetClasses.join(", ")} · ${p.body.timeframe ?? "1h"}`}
+              data-testid={`button-load-preset-${p.id}`}
+            >
+              {active && <BookmarkCheck className="h-3.5 w-3.5 text-primary shrink-0" />}
+              <span className="truncate">{p.name}</span>
+            </button>
+            {hasAlerts && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="shrink-0 inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25"
+                    title={`${newHitCount} new hit${newHitCount === 1 ? "" : "s"} since last check`}
+                    data-testid={`button-alerts-${p.id}`}
+                  >
+                    <Bell className="h-3 w-3" />
+                    {newHitCount}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-72 p-2 space-y-1.5" data-testid={`popover-alerts-${p.id}`}>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                      New hits
+                    </span>
+                    <span className="text-muted-foreground">{formatRelative(p.lastNewHitsAt)}</span>
+                  </div>
+                  <ul className="space-y-1 max-h-64 overflow-auto">
+                    {p.lastNewHits.map((h) => {
+                      const up = (h.changePct ?? 0) >= 0;
+                      return (
+                        <li key={h.symbol} className="flex items-center justify-between gap-2 text-xs">
+                          <Link href={`/i/${h.symbol}`} className="font-mono text-primary hover:underline truncate" data-testid={`alert-symbol-${p.id}-${h.symbol}`}>
+                            {h.symbol}
+                          </Link>
+                          <span className="text-muted-foreground truncate flex-1">{h.displayName}</span>
+                          <span className={`font-mono tabular-nums ${up ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                            {h.changePct != null ? `${h.changePct >= 0 ? "+" : ""}${h.changePct.toFixed(2)}%` : "—"}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full h-7 text-xs"
+                    onClick={props.onAcknowledge}
+                    data-testid={`button-ack-${p.id}`}
+                  >
+                    Mark as seen
+                  </Button>
+                </PopoverContent>
+              </Popover>
+            )}
+            <button
+              type="button"
+              onClick={props.onStartRename}
+              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
+              title="Rename"
+              data-testid={`button-rename-preset-${p.id}`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={props.onDelete}
+              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+              title="Delete"
+              data-testid={`button-delete-preset-${p.id}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+      </div>
+      {!isRenaming && (
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Select
+            value={intervalToOption(p.autoRunIntervalMin)}
+            onValueChange={(v) => {
+              const opt = AUTO_RUN_OPTIONS.find((o) => o.value === v);
+              if (opt) props.onIntervalChange(opt.min);
+            }}
+            disabled={props.intervalUpdating}
+          >
+            <SelectTrigger
+              className="h-6 px-1.5 text-[11px] w-[88px] gap-1"
+              data-testid={`select-autorun-${p.id}`}
+            >
+              <span className="inline-flex items-center gap-1">
+                {autoOn ? <Bell className="h-3 w-3 text-primary" /> : <BellOff className="h-3 w-3" />}
+                <SelectValue />
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              {AUTO_RUN_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value} className="text-xs" data-testid={`autorun-option-${p.id}-${o.value}`}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="truncate" title={p.lastRunError ?? undefined}>
+            {p.lastRunError ? (
+              <span className="text-destructive">err · {formatRelative(p.lastRunAt)}</span>
+            ) : (
+              <>last: {formatRelative(p.lastRunAt)}</>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={props.onRunNow}
+            disabled={props.runNowPending}
+            className="ml-auto p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
+            title="Run now"
+            data-testid={`button-run-now-${p.id}`}
+          >
+            {props.runNowPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+          </button>
+        </div>
+      )}
+    </li>
   );
 }
 

@@ -856,6 +856,40 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GlobalScreenerPresetDeleteResponse" }
 
+  /global/screener-presets/{id}/acknowledge:
+    post:
+      operationId: acknowledgeGlobalScreenerPresetAlerts
+      tags: [global-screener]
+      summary: Clear pending new-hit alerts for a preset
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPreset" }
+
+  /global/screener-presets/{id}/run-now:
+    post:
+      operationId: runGlobalScreenerPresetNow
+      tags: [global-screener]
+      summary: Force the preset's scheduler-style run immediately
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPreset" }
+
   /global/status:
     get:
       operationId: getGlobalSourceStatus
@@ -2976,15 +3010,56 @@ components:
           type: integer
           description: "Number of consecutive failed refresh cycles after which a symbol is flagged as a dead candidate."
 
+    GlobalScreenerPresetNewHit:
+      type: object
+      required: [symbol, displayName, assetClass, price, changePct, matched]
+      properties:
+        symbol: { type: string }
+        displayName: { type: string }
+        assetClass: { type: string }
+        price:
+          type: number
+          nullable: true
+        changePct:
+          type: number
+          nullable: true
+        matched:
+          type: array
+          items: { type: string }
+
     GlobalScreenerPreset:
       type: object
-      required: [id, name, body, createdAt, updatedAt]
+      required:
+        [id, name, body, createdAt, updatedAt, autoRunIntervalMin,
+         lastRunAt, lastRunError, lastNewHits, lastNewHitsAt]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         body: { $ref: "#/components/schemas/GlobalScreenerBody" }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        autoRunIntervalMin:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 1440
+          description: "When set, the preset auto-runs every N minutes server-side and any new hits become alerts."
+        lastRunAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Timestamp of the most recent scheduled run, or null if it has never run."
+        lastRunError:
+          type: string
+          nullable: true
+        lastNewHits:
+          type: array
+          description: "Pending alert hits accumulated since the last `acknowledge`."
+          items: { $ref: "#/components/schemas/GlobalScreenerPresetNewHit" }
+        lastNewHitsAt:
+          type: string
+          format: date-time
+          nullable: true
 
     GlobalScreenerPresetsResponse:
       type: object
@@ -3000,13 +3075,23 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
         body: { $ref: "#/components/schemas/GlobalScreenerBody" }
+        autoRunIntervalMin:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 1440
 
     GlobalScreenerPresetUpdateBody:
       type: object
-      description: "Provide `name` to rename and/or `body` to replace the preset's filter payload."
+      description: "Provide `name` to rename, `body` to replace the preset's filter payload, and/or `autoRunIntervalMin` to toggle background scheduling."
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
         body: { $ref: "#/components/schemas/GlobalScreenerBody" }
+        autoRunIntervalMin:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 1440
 
     GlobalScreenerPresetDeleteResponse:
       type: object

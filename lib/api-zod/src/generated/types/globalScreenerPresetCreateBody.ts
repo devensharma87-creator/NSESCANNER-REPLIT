@@ -14,4 +14,9 @@ export interface GlobalScreenerPresetCreateBody {
    */
   name: string;
   body: GlobalScreenerBody;
+  /**
+   * @minimum 1
+   * @maximum 1440
+   */
+  autoRunIntervalMin?: number | null;
 }

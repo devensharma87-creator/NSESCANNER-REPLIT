@@ -4717,6 +4717,183 @@ export const useDeleteGlobalScreenerPreset = <
 };
 
 /**
+ * @summary Clear pending new-hit alerts for a preset
+ */
+export const getAcknowledgeGlobalScreenerPresetAlertsUrl = (id: string) => {
+  return `/api/global/screener-presets/${id}/acknowledge`;
+};
+
+export const acknowledgeGlobalScreenerPresetAlerts = async (
+  id: string,
+  options?: RequestInit,
+): Promise<GlobalScreenerPreset> => {
+  return customFetch<GlobalScreenerPreset>(
+    getAcknowledgeGlobalScreenerPresetAlertsUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getAcknowledgeGlobalScreenerPresetAlertsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acknowledgeGlobalScreenerPresetAlerts>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof acknowledgeGlobalScreenerPresetAlerts>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["acknowledgeGlobalScreenerPresetAlerts"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof acknowledgeGlobalScreenerPresetAlerts>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return acknowledgeGlobalScreenerPresetAlerts(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AcknowledgeGlobalScreenerPresetAlertsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof acknowledgeGlobalScreenerPresetAlerts>>
+>;
+
+export type AcknowledgeGlobalScreenerPresetAlertsMutationError =
+  ErrorType<unknown>;
+
+/**
+ * @summary Clear pending new-hit alerts for a preset
+ */
+export const useAcknowledgeGlobalScreenerPresetAlerts = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acknowledgeGlobalScreenerPresetAlerts>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof acknowledgeGlobalScreenerPresetAlerts>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(
+    getAcknowledgeGlobalScreenerPresetAlertsMutationOptions(options),
+  );
+};
+
+/**
+ * @summary Force the preset's scheduler-style run immediately
+ */
+export const getRunGlobalScreenerPresetNowUrl = (id: string) => {
+  return `/api/global/screener-presets/${id}/run-now`;
+};
+
+export const runGlobalScreenerPresetNow = async (
+  id: string,
+  options?: RequestInit,
+): Promise<GlobalScreenerPreset> => {
+  return customFetch<GlobalScreenerPreset>(
+    getRunGlobalScreenerPresetNowUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getRunGlobalScreenerPresetNowMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runGlobalScreenerPresetNow>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runGlobalScreenerPresetNow>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["runGlobalScreenerPresetNow"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runGlobalScreenerPresetNow>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return runGlobalScreenerPresetNow(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunGlobalScreenerPresetNowMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runGlobalScreenerPresetNow>>
+>;
+
+export type RunGlobalScreenerPresetNowMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Force the preset's scheduler-style run immediately
+ */
+export const useRunGlobalScreenerPresetNow = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runGlobalScreenerPresetNow>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runGlobalScreenerPresetNow>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getRunGlobalScreenerPresetNowMutationOptions(options));
+};
+
+/**
  * @summary Per-data-source freshness / last-error for the dashboard health strip
  */
 export const getGetGlobalSourceStatusUrl = () => {

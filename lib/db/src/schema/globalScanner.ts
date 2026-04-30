@@ -128,6 +128,29 @@ export const globalScreenerPresetsTable = pgTable(
     body: jsonb("body").notNull(),                         // GlobalScreenerBody payload
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * When non-null, the preset auto-runs every N minutes (clamped to
+     * 1..1440 by the API). Null means manual-only (the legacy behaviour).
+     * The background scheduler in `presetScheduler.ts` polls this column.
+     */
+    autoRunIntervalMin: integer("auto_run_interval_min"),
+    /** Last time the scheduler executed this preset (success or failure). */
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    /** Last error message if the most recent scheduled run threw. */
+    lastRunError: text("last_run_error"),
+    /**
+     * Symbols returned by the most recent successful scheduled run. Used
+     * to dedupe — only symbols absent from this list become new "alert"
+     * hits on the next cycle.
+     */
+    lastHitSymbols: jsonb("last_hit_symbols").notNull().default([]),
+    /**
+     * Symbols that appeared as fresh hits in the most recent scheduled
+     * run (i.e. were not present in the prior `lastHitSymbols`). The UI
+     * surfaces these as alerts and POSTs `…/acknowledge` to clear them.
+     */
+    lastNewHits: jsonb("last_new_hits").notNull().default([]),
+    lastNewHitsAt: timestamp("last_new_hits_at", { withTimezone: true }),
   },
   (t) => ({
     bySession: index("global_screener_presets_session_idx").on(t.sessionKey),

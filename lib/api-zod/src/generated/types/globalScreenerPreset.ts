@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GlobalScreenerBody } from "./globalScreenerBody";
+import type { GlobalScreenerPresetNewHit } from "./globalScreenerPresetNewHit";
 
 export interface GlobalScreenerPreset {
   id: string;
@@ -13,4 +14,16 @@ export interface GlobalScreenerPreset {
   body: GlobalScreenerBody;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * When set, the preset auto-runs every N minutes server-side and any new hits become alerts.
+   * @minimum 1
+   * @maximum 1440
+   */
+  autoRunIntervalMin: number | null;
+  /** Timestamp of the most recent scheduled run, or null if it has never run. */
+  lastRunAt: Date | null;
+  lastRunError: string | null;
+  /** Pending alert hits accumulated since the last `acknowledge`. */
+  lastNewHits: GlobalScreenerPresetNewHit[];
+  lastNewHitsAt: Date | null;
 }
