@@ -14,8 +14,9 @@ import { db } from "@workspace/db";
 import {
   globalInstrumentsTable,
   globalWatchlistTable,
+  globalScreenerPresetsTable,
 } from "@workspace/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { logger } from "../../lib/logger";
 import {
   requireGlobalAuth,
@@ -551,6 +552,137 @@ router.delete("/global/watchlist/:symbol", async (req, res) => {
   await db.delete(globalWatchlistTable).where(
     and(eq(globalWatchlistTable.sessionKey, sk), eq(globalWatchlistTable.symbol, symbol)),
   );
+  res.json({ ok: true });
+});
+
+// ── Screener presets ────────────────────────────────────────────────
+// Persist named filter combinations per session so the user can re-run
+// "Crypto oversold 1h" / "FX trend-up 4h" with one click. The stored
+// `body` is exactly the payload accepted by POST /global/screen, so the
+// frontend can hydrate UI state from a preset and POST it back unchanged.
+
+const PresetCreateBody = z.object({
+  name: z.string().trim().min(1).max(80),
+  body: ScreenerBody,
+});
+
+const PresetUpdateBody = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  body: ScreenerBody.optional(),
+}).refine((v) => v.name !== undefined || v.body !== undefined, {
+  message: "must include `name` and/or `body`",
+});
+
+// uuid path param — keep validation strict so a stray watchlist symbol
+// can never reach this handler by accident.
+const UuidParam = z.string().uuid();
+
+/**
+ * Detect a Postgres unique-constraint violation regardless of whether the
+ * error bubbles up as a raw `pg` error (with `.code === "23505"`) or wrapped
+ * inside a drizzle `Failed query: …` error whose `.cause` carries the code.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  const candidates: unknown[] = [err];
+  if (err && typeof err === "object" && "cause" in err) {
+    candidates.push((err as { cause?: unknown }).cause);
+  }
+  for (const c of candidates) {
+    if (c && typeof c === "object" && "code" in c) {
+      const code = (c as { code?: unknown }).code;
+      if (code === "23505") return true;
+    }
+  }
+  return /unique|duplicate/i.test((err as Error)?.message ?? "");
+}
+
+function serializePreset(row: typeof globalScreenerPresetsTable.$inferSelect) {
+  return {
+    id: row.id,
+    name: row.name,
+    body: row.body as z.infer<typeof ScreenerBody>,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+router.get("/global/screener-presets", async (req, res) => {
+  const sk = requireSessionKey(req, res); if (sk == null) return;
+  const rows = await db.select().from(globalScreenerPresetsTable)
+    .where(eq(globalScreenerPresetsTable.sessionKey, sk))
+    .orderBy(asc(globalScreenerPresetsTable.name));
+  res.json({ items: rows.map(serializePreset) });
+});
+
+router.post("/global/screener-presets", async (req, res) => {
+  const sk = requireSessionKey(req, res); if (sk == null) return;
+  const parsed = PresetCreateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid body", detail: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const [row] = await db.insert(globalScreenerPresetsTable).values({
+      sessionKey: sk,
+      name: parsed.data.name,
+      body: parsed.data.body,
+    }).returning();
+    res.status(201).json(serializePreset(row!));
+  } catch (err) {
+    // Unique (session_key, name) collision — surface a 409 so the UI can
+    // prompt the user to pick another name rather than silently overwriting.
+    if (isUniqueViolation(err)) {
+      res.status(409).json({ error: "preset name already exists" });
+      return;
+    }
+    logger.warn({ err: (err as Error).message }, "failed to create screener preset");
+    res.status(500).json({ error: "failed to create preset" });
+  }
+});
+
+router.patch("/global/screener-presets/:id", async (req, res) => {
+  const sk = requireSessionKey(req, res); if (sk == null) return;
+  const idParsed = UuidParam.safeParse(req.params["id"]);
+  if (!idParsed.success) { res.status(400).json({ error: "invalid id" }); return; }
+  const parsed = PresetUpdateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid body", detail: parsed.error.flatten() });
+    return;
+  }
+  const updates: Partial<typeof globalScreenerPresetsTable.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+  if (parsed.data.name !== undefined) updates.name = parsed.data.name;
+  if (parsed.data.body !== undefined) updates.body = parsed.data.body;
+  try {
+    const [row] = await db.update(globalScreenerPresetsTable)
+      .set(updates)
+      .where(and(
+        eq(globalScreenerPresetsTable.id, idParsed.data),
+        eq(globalScreenerPresetsTable.sessionKey, sk),
+      ))
+      .returning();
+    if (!row) { res.status(404).json({ error: "preset not found" }); return; }
+    res.json(serializePreset(row));
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      res.status(409).json({ error: "preset name already exists" });
+      return;
+    }
+    logger.warn({ err: (err as Error).message }, "failed to update screener preset");
+    res.status(500).json({ error: "failed to update preset" });
+  }
+});
+
+router.delete("/global/screener-presets/:id", async (req, res) => {
+  const sk = requireSessionKey(req, res); if (sk == null) return;
+  const idParsed = UuidParam.safeParse(req.params["id"]);
+  if (!idParsed.success) { res.status(400).json({ error: "invalid id" }); return; }
+  const result = await db.delete(globalScreenerPresetsTable).where(and(
+    eq(globalScreenerPresetsTable.id, idParsed.data),
+    eq(globalScreenerPresetsTable.sessionKey, sk),
+  )).returning({ id: globalScreenerPresetsTable.id });
+  if (result.length === 0) { res.status(404).json({ error: "preset not found" }); return; }
   res.json({ ok: true });
 });
 

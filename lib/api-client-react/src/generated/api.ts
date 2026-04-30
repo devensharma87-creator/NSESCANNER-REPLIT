@@ -46,6 +46,11 @@ import type {
   GlobalLogoutResponse,
   GlobalMarket,
   GlobalScreenerBody,
+  GlobalScreenerPreset,
+  GlobalScreenerPresetCreateBody,
+  GlobalScreenerPresetDeleteResponse,
+  GlobalScreenerPresetUpdateBody,
+  GlobalScreenerPresetsResponse,
   GlobalScreenerResponse,
   GlobalSourceStatusResponse,
   GlobalWatchlistAddBody,
@@ -4365,6 +4370,350 @@ export const useDeleteGlobalWatchlist = <
   TContext
 > => {
   return useMutation(getDeleteGlobalWatchlistMutationOptions(options));
+};
+
+/**
+ * @summary List the current user's saved screener presets
+ */
+export const getListGlobalScreenerPresetsUrl = () => {
+  return `/api/global/screener-presets`;
+};
+
+export const listGlobalScreenerPresets = async (
+  options?: RequestInit,
+): Promise<GlobalScreenerPresetsResponse> => {
+  return customFetch<GlobalScreenerPresetsResponse>(
+    getListGlobalScreenerPresetsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListGlobalScreenerPresetsQueryKey = () => {
+  return [`/api/global/screener-presets`] as const;
+};
+
+export const getListGlobalScreenerPresetsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listGlobalScreenerPresets>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalScreenerPresets>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListGlobalScreenerPresetsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listGlobalScreenerPresets>>
+  > = ({ signal }) => listGlobalScreenerPresets({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalScreenerPresets>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListGlobalScreenerPresetsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listGlobalScreenerPresets>>
+>;
+export type ListGlobalScreenerPresetsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the current user's saved screener presets
+ */
+
+export function useListGlobalScreenerPresets<
+  TData = Awaited<ReturnType<typeof listGlobalScreenerPresets>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalScreenerPresets>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListGlobalScreenerPresetsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Save a new named screener preset for the current user
+ */
+export const getCreateGlobalScreenerPresetUrl = () => {
+  return `/api/global/screener-presets`;
+};
+
+export const createGlobalScreenerPreset = async (
+  globalScreenerPresetCreateBody: GlobalScreenerPresetCreateBody,
+  options?: RequestInit,
+): Promise<GlobalScreenerPreset> => {
+  return customFetch<GlobalScreenerPreset>(getCreateGlobalScreenerPresetUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(globalScreenerPresetCreateBody),
+  });
+};
+
+export const getCreateGlobalScreenerPresetMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createGlobalScreenerPreset>>,
+    TError,
+    { data: BodyType<GlobalScreenerPresetCreateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createGlobalScreenerPreset>>,
+  TError,
+  { data: BodyType<GlobalScreenerPresetCreateBody> },
+  TContext
+> => {
+  const mutationKey = ["createGlobalScreenerPreset"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createGlobalScreenerPreset>>,
+    { data: BodyType<GlobalScreenerPresetCreateBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createGlobalScreenerPreset(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateGlobalScreenerPresetMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createGlobalScreenerPreset>>
+>;
+export type CreateGlobalScreenerPresetMutationBody =
+  BodyType<GlobalScreenerPresetCreateBody>;
+export type CreateGlobalScreenerPresetMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Save a new named screener preset for the current user
+ */
+export const useCreateGlobalScreenerPreset = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createGlobalScreenerPreset>>,
+    TError,
+    { data: BodyType<GlobalScreenerPresetCreateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createGlobalScreenerPreset>>,
+  TError,
+  { data: BodyType<GlobalScreenerPresetCreateBody> },
+  TContext
+> => {
+  return useMutation(getCreateGlobalScreenerPresetMutationOptions(options));
+};
+
+/**
+ * @summary Rename a saved preset and/or replace its filter body
+ */
+export const getUpdateGlobalScreenerPresetUrl = (id: string) => {
+  return `/api/global/screener-presets/${id}`;
+};
+
+export const updateGlobalScreenerPreset = async (
+  id: string,
+  globalScreenerPresetUpdateBody: GlobalScreenerPresetUpdateBody,
+  options?: RequestInit,
+): Promise<GlobalScreenerPreset> => {
+  return customFetch<GlobalScreenerPreset>(
+    getUpdateGlobalScreenerPresetUrl(id),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(globalScreenerPresetUpdateBody),
+    },
+  );
+};
+
+export const getUpdateGlobalScreenerPresetMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateGlobalScreenerPreset>>,
+    TError,
+    { id: string; data: BodyType<GlobalScreenerPresetUpdateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateGlobalScreenerPreset>>,
+  TError,
+  { id: string; data: BodyType<GlobalScreenerPresetUpdateBody> },
+  TContext
+> => {
+  const mutationKey = ["updateGlobalScreenerPreset"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateGlobalScreenerPreset>>,
+    { id: string; data: BodyType<GlobalScreenerPresetUpdateBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateGlobalScreenerPreset(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateGlobalScreenerPresetMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateGlobalScreenerPreset>>
+>;
+export type UpdateGlobalScreenerPresetMutationBody =
+  BodyType<GlobalScreenerPresetUpdateBody>;
+export type UpdateGlobalScreenerPresetMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Rename a saved preset and/or replace its filter body
+ */
+export const useUpdateGlobalScreenerPreset = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateGlobalScreenerPreset>>,
+    TError,
+    { id: string; data: BodyType<GlobalScreenerPresetUpdateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateGlobalScreenerPreset>>,
+  TError,
+  { id: string; data: BodyType<GlobalScreenerPresetUpdateBody> },
+  TContext
+> => {
+  return useMutation(getUpdateGlobalScreenerPresetMutationOptions(options));
+};
+
+/**
+ * @summary Delete a saved preset
+ */
+export const getDeleteGlobalScreenerPresetUrl = (id: string) => {
+  return `/api/global/screener-presets/${id}`;
+};
+
+export const deleteGlobalScreenerPreset = async (
+  id: string,
+  options?: RequestInit,
+): Promise<GlobalScreenerPresetDeleteResponse> => {
+  return customFetch<GlobalScreenerPresetDeleteResponse>(
+    getDeleteGlobalScreenerPresetUrl(id),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDeleteGlobalScreenerPresetMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteGlobalScreenerPreset>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteGlobalScreenerPreset>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteGlobalScreenerPreset"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteGlobalScreenerPreset>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteGlobalScreenerPreset(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteGlobalScreenerPresetMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteGlobalScreenerPreset>>
+>;
+
+export type DeleteGlobalScreenerPresetMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a saved preset
+ */
+export const useDeleteGlobalScreenerPreset = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteGlobalScreenerPreset>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteGlobalScreenerPreset>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteGlobalScreenerPresetMutationOptions(options));
 };
 
 /**

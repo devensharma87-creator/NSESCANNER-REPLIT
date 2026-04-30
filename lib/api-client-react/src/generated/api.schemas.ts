@@ -2331,6 +2331,43 @@ export interface GlobalSourceStatusResponse {
   universeCounts: GlobalSourceStatusResponseUniverseCounts;
 }
 
+export interface GlobalScreenerPreset {
+  id: string;
+  name: string;
+  body: GlobalScreenerBody;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GlobalScreenerPresetsResponse {
+  items: GlobalScreenerPreset[];
+}
+
+export interface GlobalScreenerPresetCreateBody {
+  /**
+   * @minLength 1
+   * @maxLength 80
+   */
+  name: string;
+  body: GlobalScreenerBody;
+}
+
+/**
+ * Provide `name` to rename and/or `body` to replace the preset's filter payload.
+ */
+export interface GlobalScreenerPresetUpdateBody {
+  /**
+   * @minLength 1
+   * @maxLength 80
+   */
+  name?: string;
+  body?: GlobalScreenerBody;
+}
+
+export interface GlobalScreenerPresetDeleteResponse {
+  ok: boolean;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;

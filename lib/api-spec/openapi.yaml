@@ -792,6 +792,70 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GlobalWatchlistDeleteResponse" }
 
+  /global/screener-presets:
+    get:
+      operationId: listGlobalScreenerPresets
+      tags: [global-screener]
+      summary: List the current user's saved screener presets
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPresetsResponse" }
+    post:
+      operationId: createGlobalScreenerPreset
+      tags: [global-screener]
+      summary: Save a new named screener preset for the current user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GlobalScreenerPresetCreateBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPreset" }
+
+  /global/screener-presets/{id}:
+    patch:
+      operationId: updateGlobalScreenerPreset
+      tags: [global-screener]
+      summary: Rename a saved preset and/or replace its filter body
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GlobalScreenerPresetUpdateBody" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPreset" }
+    delete:
+      operationId: deleteGlobalScreenerPreset
+      tags: [global-screener]
+      summary: Delete a saved preset
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPresetDeleteResponse" }
+
   /global/status:
     get:
       operationId: getGlobalSourceStatus
@@ -2882,3 +2946,41 @@ components:
           type: object
           additionalProperties: { type: integer }
           description: "Counts of instruments per asset class (crypto, commodity, forex, equity, index)"
+
+    GlobalScreenerPreset:
+      type: object
+      required: [id, name, body, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        body: { $ref: "#/components/schemas/GlobalScreenerBody" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    GlobalScreenerPresetsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/GlobalScreenerPreset" }
+
+    GlobalScreenerPresetCreateBody:
+      type: object
+      required: [name, body]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        body: { $ref: "#/components/schemas/GlobalScreenerBody" }
+
+    GlobalScreenerPresetUpdateBody:
+      type: object
+      description: "Provide `name` to rename and/or `body` to replace the preset's filter payload."
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        body: { $ref: "#/components/schemas/GlobalScreenerBody" }
+
+    GlobalScreenerPresetDeleteResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }

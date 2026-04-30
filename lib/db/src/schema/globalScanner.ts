@@ -27,6 +27,9 @@ import {
   integer,
   primaryKey,
   index,
+  uniqueIndex,
+  jsonb,
+  uuid,
 } from "drizzle-orm/pg-core";
 
 export const globalInstrumentsTable = pgTable("global_instruments", {
@@ -98,8 +101,37 @@ export const globalSyncLogsTable = pgTable("global_sync_logs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * `globalScreenerPresetsTable` — per-session named filter presets for the
+ * Screener page. The preset `body` mirrors the request body accepted by
+ * `POST /api/global/screen` (assetClasses, timeframe, filters, optional
+ * limit) so loading a preset can be implemented as a simple replay.
+ *
+ * Preset names are unique per `sessionKey` so the UI can use the name as a
+ * stable client-side identifier when listing presets in a sidebar.
+ */
+export const globalScreenerPresetsTable = pgTable(
+  "global_screener_presets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionKey: text("session_key").notNull(),
+    name: text("name").notNull(),
+    body: jsonb("body").notNull(),                         // GlobalScreenerBody payload
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    bySession: index("global_screener_presets_session_idx").on(t.sessionKey),
+    uniqNamePerSession: uniqueIndex("global_screener_presets_session_name_uniq").on(
+      t.sessionKey,
+      t.name,
+    ),
+  }),
+);
+
 export type GlobalInstrumentRow = typeof globalInstrumentsTable.$inferSelect;
 export type GlobalCandleRow = typeof globalCandlesTable.$inferSelect;
 export type GlobalLivePriceRow = typeof globalLivePricesTable.$inferSelect;
 export type GlobalWatchlistRow = typeof globalWatchlistTable.$inferSelect;
 export type GlobalSyncLogRow = typeof globalSyncLogsTable.$inferSelect;
+export type GlobalScreenerPresetRow = typeof globalScreenerPresetsTable.$inferSelect;

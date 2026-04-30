@@ -3461,6 +3461,479 @@ export const DeleteGlobalWatchlistResponse = zod.object({
 });
 
 /**
+ * @summary List the current user's saved screener presets
+ */
+
+export const listGlobalScreenerPresetsResponseItemsItemBodyFiltersMinRsi14Min = 0;
+export const listGlobalScreenerPresetsResponseItemsItemBodyFiltersMinRsi14Max = 100;
+
+export const listGlobalScreenerPresetsResponseItemsItemBodyFiltersMaxRsi14Min = 0;
+export const listGlobalScreenerPresetsResponseItemsItemBodyFiltersMaxRsi14Max = 100;
+
+export const listGlobalScreenerPresetsResponseItemsItemBodyFiltersBreakoutLookbackMin = 2;
+export const listGlobalScreenerPresetsResponseItemsItemBodyFiltersBreakoutLookbackMax = 500;
+
+export const listGlobalScreenerPresetsResponseItemsItemBodyFiltersBreakdownLookbackMin = 2;
+export const listGlobalScreenerPresetsResponseItemsItemBodyFiltersBreakdownLookbackMax = 500;
+
+export const listGlobalScreenerPresetsResponseItemsItemBodyLimitMax = 50;
+
+export const ListGlobalScreenerPresetsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      name: zod.string(),
+      body: zod.object({
+        assetClasses: zod
+          .array(zod.enum(["crypto", "commodity", "forex", "equity", "index"]))
+          .min(1),
+        timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
+        filters: zod
+          .object({
+            minChangePct: zod
+              .number()
+              .optional()
+              .describe("Minimum % change vs previous close (live snapshot)."),
+            maxChangePct: zod.number().optional(),
+            minVolume: zod
+              .number()
+              .optional()
+              .describe("Minimum 24h \/ day volume (live snapshot units)."),
+            minRsi14: zod
+              .number()
+              .min(
+                listGlobalScreenerPresetsResponseItemsItemBodyFiltersMinRsi14Min,
+              )
+              .max(
+                listGlobalScreenerPresetsResponseItemsItemBodyFiltersMinRsi14Max,
+              )
+              .optional(),
+            maxRsi14: zod
+              .number()
+              .min(
+                listGlobalScreenerPresetsResponseItemsItemBodyFiltersMaxRsi14Min,
+              )
+              .max(
+                listGlobalScreenerPresetsResponseItemsItemBodyFiltersMaxRsi14Max,
+              )
+              .optional(),
+            breakoutLookback: zod
+              .number()
+              .min(
+                listGlobalScreenerPresetsResponseItemsItemBodyFiltersBreakoutLookbackMin,
+              )
+              .max(
+                listGlobalScreenerPresetsResponseItemsItemBodyFiltersBreakoutLookbackMax,
+              )
+              .optional(),
+            breakdownLookback: zod
+              .number()
+              .min(
+                listGlobalScreenerPresetsResponseItemsItemBodyFiltersBreakdownLookbackMin,
+              )
+              .max(
+                listGlobalScreenerPresetsResponseItemsItemBodyFiltersBreakdownLookbackMax,
+              )
+              .optional(),
+            min1dChangePct: zod
+              .number()
+              .optional()
+              .describe(
+                "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe.",
+              ),
+            min1wChangePct: zod
+              .number()
+              .optional()
+              .describe(
+                "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe.",
+              ),
+            priceAboveSma50: zod
+              .boolean()
+              .optional()
+              .describe(
+                "Require last close > SMA(50) — classic intermediate-term trend filter.",
+              ),
+            priceBelowSma50: zod
+              .boolean()
+              .optional()
+              .describe("Require last close < SMA(50)."),
+            priceAboveSma200: zod
+              .boolean()
+              .optional()
+              .describe(
+                "Require last close > SMA(200) — long-term trend filter.",
+              ),
+            priceBelowSma200: zod
+              .boolean()
+              .optional()
+              .describe("Require last close < SMA(200)."),
+            trendUp: zod
+              .boolean()
+              .optional()
+              .describe("EMA20 > EMA50 > EMA200 cascade (bullish stack)."),
+            trendDown: zod.boolean().optional(),
+            requireSupertrendUp: zod.boolean().optional(),
+            requireSupertrendDown: zod.boolean().optional(),
+          })
+          .optional(),
+        limit: zod
+          .number()
+          .min(1)
+          .max(listGlobalScreenerPresetsResponseItemsItemBodyLimitMax)
+          .optional(),
+      }),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Save a new named screener preset for the current user
+ */
+export const createGlobalScreenerPresetBodyNameMax = 80;
+
+export const createGlobalScreenerPresetBodyBodyFiltersMinRsi14Min = 0;
+export const createGlobalScreenerPresetBodyBodyFiltersMinRsi14Max = 100;
+
+export const createGlobalScreenerPresetBodyBodyFiltersMaxRsi14Min = 0;
+export const createGlobalScreenerPresetBodyBodyFiltersMaxRsi14Max = 100;
+
+export const createGlobalScreenerPresetBodyBodyFiltersBreakoutLookbackMin = 2;
+export const createGlobalScreenerPresetBodyBodyFiltersBreakoutLookbackMax = 500;
+
+export const createGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMin = 2;
+export const createGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMax = 500;
+
+export const createGlobalScreenerPresetBodyBodyLimitMax = 50;
+
+export const CreateGlobalScreenerPresetBody = zod.object({
+  name: zod.string().min(1).max(createGlobalScreenerPresetBodyNameMax),
+  body: zod.object({
+    assetClasses: zod
+      .array(zod.enum(["crypto", "commodity", "forex", "equity", "index"]))
+      .min(1),
+    timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
+    filters: zod
+      .object({
+        minChangePct: zod
+          .number()
+          .optional()
+          .describe("Minimum % change vs previous close (live snapshot)."),
+        maxChangePct: zod.number().optional(),
+        minVolume: zod
+          .number()
+          .optional()
+          .describe("Minimum 24h \/ day volume (live snapshot units)."),
+        minRsi14: zod
+          .number()
+          .min(createGlobalScreenerPresetBodyBodyFiltersMinRsi14Min)
+          .max(createGlobalScreenerPresetBodyBodyFiltersMinRsi14Max)
+          .optional(),
+        maxRsi14: zod
+          .number()
+          .min(createGlobalScreenerPresetBodyBodyFiltersMaxRsi14Min)
+          .max(createGlobalScreenerPresetBodyBodyFiltersMaxRsi14Max)
+          .optional(),
+        breakoutLookback: zod
+          .number()
+          .min(createGlobalScreenerPresetBodyBodyFiltersBreakoutLookbackMin)
+          .max(createGlobalScreenerPresetBodyBodyFiltersBreakoutLookbackMax)
+          .optional(),
+        breakdownLookback: zod
+          .number()
+          .min(createGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMin)
+          .max(createGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMax)
+          .optional(),
+        min1dChangePct: zod
+          .number()
+          .optional()
+          .describe(
+            "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe.",
+          ),
+        min1wChangePct: zod
+          .number()
+          .optional()
+          .describe(
+            "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe.",
+          ),
+        priceAboveSma50: zod
+          .boolean()
+          .optional()
+          .describe(
+            "Require last close > SMA(50) — classic intermediate-term trend filter.",
+          ),
+        priceBelowSma50: zod
+          .boolean()
+          .optional()
+          .describe("Require last close < SMA(50)."),
+        priceAboveSma200: zod
+          .boolean()
+          .optional()
+          .describe("Require last close > SMA(200) — long-term trend filter."),
+        priceBelowSma200: zod
+          .boolean()
+          .optional()
+          .describe("Require last close < SMA(200)."),
+        trendUp: zod
+          .boolean()
+          .optional()
+          .describe("EMA20 > EMA50 > EMA200 cascade (bullish stack)."),
+        trendDown: zod.boolean().optional(),
+        requireSupertrendUp: zod.boolean().optional(),
+        requireSupertrendDown: zod.boolean().optional(),
+      })
+      .optional(),
+    limit: zod
+      .number()
+      .min(1)
+      .max(createGlobalScreenerPresetBodyBodyLimitMax)
+      .optional(),
+  }),
+});
+
+/**
+ * @summary Rename a saved preset and/or replace its filter body
+ */
+export const UpdateGlobalScreenerPresetParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const updateGlobalScreenerPresetBodyNameMax = 80;
+
+export const updateGlobalScreenerPresetBodyBodyFiltersMinRsi14Min = 0;
+export const updateGlobalScreenerPresetBodyBodyFiltersMinRsi14Max = 100;
+
+export const updateGlobalScreenerPresetBodyBodyFiltersMaxRsi14Min = 0;
+export const updateGlobalScreenerPresetBodyBodyFiltersMaxRsi14Max = 100;
+
+export const updateGlobalScreenerPresetBodyBodyFiltersBreakoutLookbackMin = 2;
+export const updateGlobalScreenerPresetBodyBodyFiltersBreakoutLookbackMax = 500;
+
+export const updateGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMin = 2;
+export const updateGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMax = 500;
+
+export const updateGlobalScreenerPresetBodyBodyLimitMax = 50;
+
+export const UpdateGlobalScreenerPresetBody = zod
+  .object({
+    name: zod
+      .string()
+      .min(1)
+      .max(updateGlobalScreenerPresetBodyNameMax)
+      .optional(),
+    body: zod
+      .object({
+        assetClasses: zod
+          .array(zod.enum(["crypto", "commodity", "forex", "equity", "index"]))
+          .min(1),
+        timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
+        filters: zod
+          .object({
+            minChangePct: zod
+              .number()
+              .optional()
+              .describe("Minimum % change vs previous close (live snapshot)."),
+            maxChangePct: zod.number().optional(),
+            minVolume: zod
+              .number()
+              .optional()
+              .describe("Minimum 24h \/ day volume (live snapshot units)."),
+            minRsi14: zod
+              .number()
+              .min(updateGlobalScreenerPresetBodyBodyFiltersMinRsi14Min)
+              .max(updateGlobalScreenerPresetBodyBodyFiltersMinRsi14Max)
+              .optional(),
+            maxRsi14: zod
+              .number()
+              .min(updateGlobalScreenerPresetBodyBodyFiltersMaxRsi14Min)
+              .max(updateGlobalScreenerPresetBodyBodyFiltersMaxRsi14Max)
+              .optional(),
+            breakoutLookback: zod
+              .number()
+              .min(updateGlobalScreenerPresetBodyBodyFiltersBreakoutLookbackMin)
+              .max(updateGlobalScreenerPresetBodyBodyFiltersBreakoutLookbackMax)
+              .optional(),
+            breakdownLookback: zod
+              .number()
+              .min(
+                updateGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMin,
+              )
+              .max(
+                updateGlobalScreenerPresetBodyBodyFiltersBreakdownLookbackMax,
+              )
+              .optional(),
+            min1dChangePct: zod
+              .number()
+              .optional()
+              .describe(
+                "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe.",
+              ),
+            min1wChangePct: zod
+              .number()
+              .optional()
+              .describe(
+                "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe.",
+              ),
+            priceAboveSma50: zod
+              .boolean()
+              .optional()
+              .describe(
+                "Require last close > SMA(50) — classic intermediate-term trend filter.",
+              ),
+            priceBelowSma50: zod
+              .boolean()
+              .optional()
+              .describe("Require last close < SMA(50)."),
+            priceAboveSma200: zod
+              .boolean()
+              .optional()
+              .describe(
+                "Require last close > SMA(200) — long-term trend filter.",
+              ),
+            priceBelowSma200: zod
+              .boolean()
+              .optional()
+              .describe("Require last close < SMA(200)."),
+            trendUp: zod
+              .boolean()
+              .optional()
+              .describe("EMA20 > EMA50 > EMA200 cascade (bullish stack)."),
+            trendDown: zod.boolean().optional(),
+            requireSupertrendUp: zod.boolean().optional(),
+            requireSupertrendDown: zod.boolean().optional(),
+          })
+          .optional(),
+        limit: zod
+          .number()
+          .min(1)
+          .max(updateGlobalScreenerPresetBodyBodyLimitMax)
+          .optional(),
+      })
+      .optional(),
+  })
+  .describe(
+    "Provide `name` to rename and\/or `body` to replace the preset's filter payload.",
+  );
+
+export const updateGlobalScreenerPresetResponseBodyFiltersMinRsi14Min = 0;
+export const updateGlobalScreenerPresetResponseBodyFiltersMinRsi14Max = 100;
+
+export const updateGlobalScreenerPresetResponseBodyFiltersMaxRsi14Min = 0;
+export const updateGlobalScreenerPresetResponseBodyFiltersMaxRsi14Max = 100;
+
+export const updateGlobalScreenerPresetResponseBodyFiltersBreakoutLookbackMin = 2;
+export const updateGlobalScreenerPresetResponseBodyFiltersBreakoutLookbackMax = 500;
+
+export const updateGlobalScreenerPresetResponseBodyFiltersBreakdownLookbackMin = 2;
+export const updateGlobalScreenerPresetResponseBodyFiltersBreakdownLookbackMax = 500;
+
+export const updateGlobalScreenerPresetResponseBodyLimitMax = 50;
+
+export const UpdateGlobalScreenerPresetResponse = zod.object({
+  id: zod.string().uuid(),
+  name: zod.string(),
+  body: zod.object({
+    assetClasses: zod
+      .array(zod.enum(["crypto", "commodity", "forex", "equity", "index"]))
+      .min(1),
+    timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
+    filters: zod
+      .object({
+        minChangePct: zod
+          .number()
+          .optional()
+          .describe("Minimum % change vs previous close (live snapshot)."),
+        maxChangePct: zod.number().optional(),
+        minVolume: zod
+          .number()
+          .optional()
+          .describe("Minimum 24h \/ day volume (live snapshot units)."),
+        minRsi14: zod
+          .number()
+          .min(updateGlobalScreenerPresetResponseBodyFiltersMinRsi14Min)
+          .max(updateGlobalScreenerPresetResponseBodyFiltersMinRsi14Max)
+          .optional(),
+        maxRsi14: zod
+          .number()
+          .min(updateGlobalScreenerPresetResponseBodyFiltersMaxRsi14Min)
+          .max(updateGlobalScreenerPresetResponseBodyFiltersMaxRsi14Max)
+          .optional(),
+        breakoutLookback: zod
+          .number()
+          .min(updateGlobalScreenerPresetResponseBodyFiltersBreakoutLookbackMin)
+          .max(updateGlobalScreenerPresetResponseBodyFiltersBreakoutLookbackMax)
+          .optional(),
+        breakdownLookback: zod
+          .number()
+          .min(
+            updateGlobalScreenerPresetResponseBodyFiltersBreakdownLookbackMin,
+          )
+          .max(
+            updateGlobalScreenerPresetResponseBodyFiltersBreakdownLookbackMax,
+          )
+          .optional(),
+        min1dChangePct: zod
+          .number()
+          .optional()
+          .describe(
+            "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe.",
+          ),
+        min1wChangePct: zod
+          .number()
+          .optional()
+          .describe(
+            "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe.",
+          ),
+        priceAboveSma50: zod
+          .boolean()
+          .optional()
+          .describe(
+            "Require last close > SMA(50) — classic intermediate-term trend filter.",
+          ),
+        priceBelowSma50: zod
+          .boolean()
+          .optional()
+          .describe("Require last close < SMA(50)."),
+        priceAboveSma200: zod
+          .boolean()
+          .optional()
+          .describe("Require last close > SMA(200) — long-term trend filter."),
+        priceBelowSma200: zod
+          .boolean()
+          .optional()
+          .describe("Require last close < SMA(200)."),
+        trendUp: zod
+          .boolean()
+          .optional()
+          .describe("EMA20 > EMA50 > EMA200 cascade (bullish stack)."),
+        trendDown: zod.boolean().optional(),
+        requireSupertrendUp: zod.boolean().optional(),
+        requireSupertrendDown: zod.boolean().optional(),
+      })
+      .optional(),
+    limit: zod
+      .number()
+      .min(1)
+      .max(updateGlobalScreenerPresetResponseBodyLimitMax)
+      .optional(),
+  }),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a saved preset
+ */
+export const DeleteGlobalScreenerPresetParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const DeleteGlobalScreenerPresetResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
  * @summary Per-data-source freshness / last-error for the dashboard health strip
  */
 export const GetGlobalSourceStatusResponse = zod.object({
