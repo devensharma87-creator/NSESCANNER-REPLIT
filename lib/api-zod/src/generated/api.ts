@@ -3738,6 +3738,144 @@ export const CreateGlobalScreenerPresetBody = zod.object({
 });
 
 /**
+ * Returns a small set of expert-curated example presets that ship in code (so they evolve in lockstep with new filter capabilities). The UI renders these alongside the user's own list, clearly tagged as read-only. A "Fork" action calls `POST /global/screener-presets` with the body to create an editable personal copy.
+ * @summary List the curated, read-only library of starter screener presets
+ */
+
+export const listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersMinRsi14Min = 0;
+export const listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersMinRsi14Max = 100;
+
+export const listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersMaxRsi14Min = 0;
+export const listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersMaxRsi14Max = 100;
+
+export const listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersBreakoutLookbackMin = 2;
+export const listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersBreakoutLookbackMax = 500;
+
+export const listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersBreakdownLookbackMin = 2;
+export const listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersBreakdownLookbackMax = 500;
+
+export const listGlobalScreenerPresetLibraryResponseItemsItemBodyLimitMax = 50;
+
+export const ListGlobalScreenerPresetLibraryResponse = zod.object({
+  items: zod.array(
+    zod
+      .object({
+        slug: zod
+          .string()
+          .describe("Stable in-code identifier, e.g. `crypto-oversold-1h`."),
+        name: zod.string(),
+        description: zod.string(),
+        body: zod.object({
+          assetClasses: zod
+            .array(
+              zod.enum(["crypto", "commodity", "forex", "equity", "index"]),
+            )
+            .min(1),
+          timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
+          filters: zod
+            .object({
+              minChangePct: zod
+                .number()
+                .optional()
+                .describe(
+                  "Minimum % change vs previous close (live snapshot).",
+                ),
+              maxChangePct: zod.number().optional(),
+              minVolume: zod
+                .number()
+                .optional()
+                .describe("Minimum 24h \/ day volume (live snapshot units)."),
+              minRsi14: zod
+                .number()
+                .min(
+                  listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersMinRsi14Min,
+                )
+                .max(
+                  listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersMinRsi14Max,
+                )
+                .optional(),
+              maxRsi14: zod
+                .number()
+                .min(
+                  listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersMaxRsi14Min,
+                )
+                .max(
+                  listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersMaxRsi14Max,
+                )
+                .optional(),
+              breakoutLookback: zod
+                .number()
+                .min(
+                  listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersBreakoutLookbackMin,
+                )
+                .max(
+                  listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersBreakoutLookbackMax,
+                )
+                .optional(),
+              breakdownLookback: zod
+                .number()
+                .min(
+                  listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersBreakdownLookbackMin,
+                )
+                .max(
+                  listGlobalScreenerPresetLibraryResponseItemsItemBodyFiltersBreakdownLookbackMax,
+                )
+                .optional(),
+              min1dChangePct: zod
+                .number()
+                .optional()
+                .describe(
+                  "Minimum % change over the trailing 1-day window, computed from candles in the chosen timeframe.",
+                ),
+              min1wChangePct: zod
+                .number()
+                .optional()
+                .describe(
+                  "Minimum % change over the trailing 1-week (5-day) window, computed from candles in the chosen timeframe.",
+                ),
+              priceAboveSma50: zod
+                .boolean()
+                .optional()
+                .describe(
+                  "Require last close > SMA(50) — classic intermediate-term trend filter.",
+                ),
+              priceBelowSma50: zod
+                .boolean()
+                .optional()
+                .describe("Require last close < SMA(50)."),
+              priceAboveSma200: zod
+                .boolean()
+                .optional()
+                .describe(
+                  "Require last close > SMA(200) — long-term trend filter.",
+                ),
+              priceBelowSma200: zod
+                .boolean()
+                .optional()
+                .describe("Require last close < SMA(200)."),
+              trendUp: zod
+                .boolean()
+                .optional()
+                .describe("EMA20 > EMA50 > EMA200 cascade (bullish stack)."),
+              trendDown: zod.boolean().optional(),
+              requireSupertrendUp: zod.boolean().optional(),
+              requireSupertrendDown: zod.boolean().optional(),
+            })
+            .optional(),
+          limit: zod
+            .number()
+            .min(1)
+            .max(listGlobalScreenerPresetLibraryResponseItemsItemBodyLimitMax)
+            .optional(),
+        }),
+      })
+      .describe(
+        'A read-only entry from the curated starter library. The UI renders these as \"Examples\" and offers a \"Fork\" action that creates an editable personal copy via `POST \/global\/screener-presets`.',
+      ),
+  ),
+});
+
+/**
  * @summary Rename a saved preset and/or replace its filter body
  */
 export const UpdateGlobalScreenerPresetParams = zod.object({

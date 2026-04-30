@@ -819,6 +819,24 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GlobalScreenerPreset" }
 
+  /global/screener-presets/library:
+    get:
+      operationId: listGlobalScreenerPresetLibrary
+      tags: [global-screener]
+      summary: List the curated, read-only library of starter screener presets
+      description: >-
+        Returns a small set of expert-curated example presets that ship in
+        code (so they evolve in lockstep with new filter capabilities). The
+        UI renders these alongside the user's own list, clearly tagged as
+        read-only. A "Fork" action calls `POST /global/screener-presets`
+        with the body to create an editable personal copy.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalScreenerPresetLibraryResponse" }
+
   /global/screener-presets/{id}:
     patch:
       operationId: updateGlobalScreenerPreset
@@ -3098,3 +3116,26 @@ components:
       required: [ok]
       properties:
         ok: { type: boolean }
+
+    GlobalCuratedScreenerPreset:
+      type: object
+      description: >-
+        A read-only entry from the curated starter library. The UI renders
+        these as "Examples" and offers a "Fork" action that creates an
+        editable personal copy via `POST /global/screener-presets`.
+      required: [slug, name, description, body]
+      properties:
+        slug:
+          type: string
+          description: "Stable in-code identifier, e.g. `crypto-oversold-1h`."
+        name: { type: string }
+        description: { type: string }
+        body: { $ref: "#/components/schemas/GlobalScreenerBody" }
+
+    GlobalScreenerPresetLibraryResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/GlobalCuratedScreenerPreset" }

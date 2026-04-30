@@ -3,16 +3,19 @@ import { Link } from "wouter";
 import {
   useRunGlobalScreener,
   useListGlobalScreenerPresets,
+  useListGlobalScreenerPresetLibrary,
   useCreateGlobalScreenerPreset,
   useUpdateGlobalScreenerPreset,
   useDeleteGlobalScreenerPreset,
   useAcknowledgeGlobalScreenerPresetAlerts,
   useRunGlobalScreenerPresetNow,
   getListGlobalScreenerPresetsQueryKey,
+  getListGlobalScreenerPresetLibraryQueryKey,
   type GlobalAssetClass,
   type GlobalTimeframe,
   type GlobalScreenerBody,
   type GlobalScreenerPreset,
+  type GlobalCuratedScreenerPreset,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -31,7 +34,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, Filter as FilterIcon, ArrowUpRight, ArrowDownRight,
   ArrowUp, ArrowDown, Save, Trash2, Pencil, BookmarkCheck,
-  Bell, BellOff, Play, AlertCircle,
+  Bell, BellOff, Play, AlertCircle, Sparkles, GitFork,
 } from "lucide-react";
 
 const ASSET_CLASSES: { id: GlobalAssetClass; label: string }[] = [
@@ -140,6 +143,16 @@ export function ScreenerPage() {
     },
   });
 
+  // Curated, read-only "Examples" library. Static server-side, so fetch
+  // once and never refetch.
+  const libraryQuery = useListGlobalScreenerPresetLibrary({
+    query: {
+      queryKey: getListGlobalScreenerPresetLibraryQueryKey(),
+      staleTime: Infinity,
+      refetchOnWindowFocus: false,
+    },
+  });
+
   const invalidatePresets = () =>
     qc.invalidateQueries({ queryKey: getListGlobalScreenerPresetsQueryKey() });
 
@@ -238,10 +251,10 @@ export function ScreenerPage() {
     screener.mutate({ data: buildBody() });
   }
 
-  // Replay a saved preset into the form state, then re-run automatically so
-  // "click preset → see results" is a single user gesture.
-  function applyPreset(preset: GlobalScreenerPreset) {
-    const body = preset.body;
+  // Replay a screener body (saved preset or curated example) into the form
+  // and re-run. Pass null for activeId when the body shouldn't highlight a
+  // sidebar row (e.g. curated apply, ad-hoc edits).
+  function applyBody(body: GlobalScreenerBody, activeId: string | null) {
     setClasses(new Set(body.assetClasses));
     setTimeframe(body.timeframe ?? "1h");
     const f = body.filters ?? {};
@@ -262,8 +275,25 @@ export function ScreenerPage() {
     setSma50Below(!!f.priceBelowSma50);
     setSma200Above(!!f.priceAboveSma200);
     setSma200Below(!!f.priceBelowSma200);
-    setActivePresetId(preset.id);
+    setActivePresetId(activeId);
     screener.mutate({ data: body });
+  }
+
+  function applyPreset(preset: GlobalScreenerPreset) {
+    applyBody(preset.body, preset.id);
+  }
+
+  // Fork = create a personal, editable copy of a curated example. Apply
+  // the body first so once the create succeeds and onSuccess marks the
+  // new row active, the form actually matches it (otherwise Update would
+  // overwrite the new preset with whatever filters were on screen).
+  function onForkCuratedPreset(p: GlobalCuratedScreenerPreset) {
+    applyBody(p.body, null);
+    createPreset.mutate({ data: { name: p.name, body: p.body } });
+  }
+
+  function onApplyCuratedPreset(p: GlobalCuratedScreenerPreset) {
+    applyBody(p.body, null);
   }
 
   function onSavePreset() {
@@ -360,6 +390,7 @@ export function ScreenerPage() {
   }
 
   const presets = presetsQuery.data?.items ?? [];
+  const library = libraryQuery.data?.items ?? [];
 
   return (
     <div className="space-y-4">
@@ -421,7 +452,7 @@ export function ScreenerPage() {
             <div className="text-xs text-muted-foreground py-2">Loading…</div>
           ) : presets.length === 0 ? (
             <div className="text-xs text-muted-foreground py-2 leading-snug">
-              No saved presets yet. Configure your filters and hit <span className="font-medium">Save</span> to build a one-click library.
+              No saved presets yet. Configure your filters and hit <span className="font-medium">Save</span> to build a one-click library — or fork an example below to get started.
             </div>
           ) : (
             <ul className="space-y-1.5" data-testid="list-presets">
@@ -443,6 +474,31 @@ export function ScreenerPage() {
                   onRunNow={() => runPresetNow.mutate({ id: p.id })}
                   intervalUpdating={updatePreset.isPending}
                   runNowPending={runPresetNow.isPending}
+                />
+              ))}
+            </ul>
+          )}
+
+          {/* Examples — read-only curated starter library. Fork creates an
+              editable personal copy in "My presets". */}
+          <div className="border-t -mx-3" />
+          <div className="flex items-center justify-between">
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1">
+              <Sparkles className="h-3 w-3" /> Examples
+            </Label>
+            <Badge variant="outline" className="text-[10px]">{library.length}</Badge>
+          </div>
+          {libraryQuery.isLoading ? (
+            <div className="text-xs text-muted-foreground py-2">Loading…</div>
+          ) : library.length === 0 ? null : (
+            <ul className="space-y-1.5" data-testid="list-curated-presets">
+              {library.map((p) => (
+                <CuratedPresetRow
+                  key={p.slug}
+                  preset={p}
+                  onApply={() => onApplyCuratedPreset(p)}
+                  onFork={() => onForkCuratedPreset(p)}
+                  forkPending={createPreset.isPending}
                 />
               ))}
             </ul>
@@ -821,6 +877,54 @@ function PresetRow(props: {
           </button>
         </div>
       )}
+    </li>
+  );
+}
+
+function CuratedPresetRow(props: {
+  preset: GlobalCuratedScreenerPreset;
+  onApply: () => void;
+  onFork: () => void;
+  forkPending: boolean;
+}) {
+  const { preset: p } = props;
+  const classChip =
+    p.body.assetClasses.length === 1
+      ? (ASSET_CLASSES.find((c) => c.id === p.body.assetClasses[0])?.label ?? p.body.assetClasses[0])
+      : `${p.body.assetClasses.length} classes`;
+  const tf = p.body.timeframe ?? "1h";
+  return (
+    <li
+      className="group rounded border border-dashed border-muted-foreground/30 px-2 py-1.5 text-sm space-y-1 hover:bg-accent/30"
+      data-testid={`curated-preset-${p.slug}`}
+    >
+      <div className="flex items-center gap-1.5 min-w-0">
+        <button
+          type="button"
+          onClick={props.onApply}
+          className="flex-1 min-w-0 text-left truncate"
+          title={p.description}
+          data-testid={`button-load-curated-${p.slug}`}
+        >
+          <span className="truncate">{p.name}</span>
+        </button>
+        <button
+          type="button"
+          onClick={props.onFork}
+          disabled={props.forkPending}
+          className="opacity-0 group-hover:opacity-100 inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
+          title="Fork into My presets (editable copy)"
+          data-testid={`button-fork-curated-${p.slug}`}
+        >
+          {props.forkPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitFork className="h-3 w-3" />}
+          Fork
+        </button>
+      </div>
+      <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+        <Badge variant="outline" className="text-[10px] py-0 h-4 px-1">{classChip}</Badge>
+        <Badge variant="outline" className="text-[10px] py-0 h-4 px-1">{tf}</Badge>
+        <span className="ml-1 truncate" title={p.description}>{p.description}</span>
+      </div>
     </li>
   );
 }

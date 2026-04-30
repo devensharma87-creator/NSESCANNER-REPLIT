@@ -49,6 +49,7 @@ import type {
   GlobalScreenerPreset,
   GlobalScreenerPresetCreateBody,
   GlobalScreenerPresetDeleteResponse,
+  GlobalScreenerPresetLibraryResponse,
   GlobalScreenerPresetUpdateBody,
   GlobalScreenerPresetsResponse,
   GlobalScreenerResponse,
@@ -4537,6 +4538,87 @@ export const useCreateGlobalScreenerPreset = <
 > => {
   return useMutation(getCreateGlobalScreenerPresetMutationOptions(options));
 };
+
+/**
+ * Returns a small set of expert-curated example presets that ship in code (so they evolve in lockstep with new filter capabilities). The UI renders these alongside the user's own list, clearly tagged as read-only. A "Fork" action calls `POST /global/screener-presets` with the body to create an editable personal copy.
+ * @summary List the curated, read-only library of starter screener presets
+ */
+export const getListGlobalScreenerPresetLibraryUrl = () => {
+  return `/api/global/screener-presets/library`;
+};
+
+export const listGlobalScreenerPresetLibrary = async (
+  options?: RequestInit,
+): Promise<GlobalScreenerPresetLibraryResponse> => {
+  return customFetch<GlobalScreenerPresetLibraryResponse>(
+    getListGlobalScreenerPresetLibraryUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListGlobalScreenerPresetLibraryQueryKey = () => {
+  return [`/api/global/screener-presets/library`] as const;
+};
+
+export const getListGlobalScreenerPresetLibraryQueryOptions = <
+  TData = Awaited<ReturnType<typeof listGlobalScreenerPresetLibrary>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalScreenerPresetLibrary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListGlobalScreenerPresetLibraryQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listGlobalScreenerPresetLibrary>>
+  > = ({ signal }) =>
+    listGlobalScreenerPresetLibrary({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalScreenerPresetLibrary>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListGlobalScreenerPresetLibraryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listGlobalScreenerPresetLibrary>>
+>;
+export type ListGlobalScreenerPresetLibraryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the curated, read-only library of starter screener presets
+ */
+
+export function useListGlobalScreenerPresetLibrary<
+  TData = Awaited<ReturnType<typeof listGlobalScreenerPresetLibrary>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalScreenerPresetLibrary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListGlobalScreenerPresetLibraryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Rename a saved preset and/or replace its filter body

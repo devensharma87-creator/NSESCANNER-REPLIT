@@ -2428,6 +2428,21 @@ export interface GlobalScreenerPresetDeleteResponse {
   ok: boolean;
 }
 
+/**
+ * A read-only entry from the curated starter library. The UI renders these as "Examples" and offers a "Fork" action that creates an editable personal copy via `POST /global/screener-presets`.
+ */
+export interface GlobalCuratedScreenerPreset {
+  /** Stable in-code identifier, e.g. `crypto-oversold-1h`. */
+  slug: string;
+  name: string;
+  description: string;
+  body: GlobalScreenerBody;
+}
+
+export interface GlobalScreenerPresetLibraryResponse {
+  items: GlobalCuratedScreenerPreset[];
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;

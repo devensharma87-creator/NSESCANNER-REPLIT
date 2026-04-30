@@ -53,6 +53,7 @@ import {
 } from "../../lib/global/indicators";
 import { runGlobalScreener, ScreenerBody } from "../../lib/global/screener";
 import { runPresetNow } from "../../lib/global/presetScheduler";
+import { CURATED_PRESETS } from "../../lib/global/curatedPresets";
 
 const router: IRouter = Router();
 
@@ -436,6 +437,15 @@ router.get("/global/screener-presets", async (req, res) => {
     .where(eq(globalScreenerPresetsTable.sessionKey, sk))
     .orderBy(asc(globalScreenerPresetsTable.name));
   res.json({ items: rows.map(serializePreset) });
+});
+
+/**
+ * Curated, read-only starter library. Source of truth lives in
+ * `lib/global/curatedPresets.ts`. The UI Fork action POSTs the body back
+ * to /global/screener-presets to create a personal copy.
+ */
+router.get("/global/screener-presets/library", (_req, res) => {
+  res.json({ items: CURATED_PRESETS });
 });
 
 router.post("/global/screener-presets", async (req, res) => {
