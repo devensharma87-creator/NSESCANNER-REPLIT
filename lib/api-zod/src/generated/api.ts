@@ -3093,10 +3093,12 @@ export const GlobalLogoutResponse = zod.object({
 });
 
 /**
- * @summary Full instrument universe (crypto + commodities + forex)
+ * @summary Full instrument universe (crypto + commodities + forex + equities + indices)
  */
 export const ListGlobalInstrumentsQueryParams = zod.object({
-  assetClass: zod.enum(["crypto", "commodity", "forex"]).optional(),
+  assetClass: zod
+    .enum(["crypto", "commodity", "forex", "equity", "index"])
+    .optional(),
 });
 
 export const ListGlobalInstrumentsResponseItem = zod.object({
@@ -3104,9 +3106,9 @@ export const ListGlobalInstrumentsResponseItem = zod.object({
     .string()
     .describe("Canonical scanner symbol e.g. BTCUSDT, GOLD, EURUSD"),
   displayName: zod.string(),
-  assetClass: zod.enum(["crypto", "commodity", "forex"]),
+  assetClass: zod.enum(["crypto", "commodity", "forex", "equity", "index"]),
   source: zod
-    .enum(["binance", "yahoo", "yahoo-fx"])
+    .enum(["binance", "yahoo", "yahoo-fx", "yahoo-equity", "yahoo-index"])
     .describe(
       "Where the row's quote\/candles come from. Tagged on every persisted row.",
     ),
@@ -3132,7 +3134,14 @@ export const ListGlobalInstrumentsResponse = zod.array(
  * @summary Live snapshot rows for an asset class (or watchlist) with freshness metadata
  */
 export const GetGlobalDashboardQueryParams = zod.object({
-  asset: zod.enum(["crypto", "commodities", "forex", "watchlist"]),
+  asset: zod.enum([
+    "crypto",
+    "commodities",
+    "forex",
+    "equities",
+    "indices",
+    "watchlist",
+  ]),
 });
 
 export const GetGlobalDashboardResponse = zod.object({
@@ -3140,9 +3149,9 @@ export const GetGlobalDashboardResponse = zod.object({
     zod.object({
       symbol: zod.string(),
       displayName: zod.string(),
-      assetClass: zod.enum(["crypto", "commodity", "forex"]),
+      assetClass: zod.enum(["crypto", "commodity", "forex", "equity", "index"]),
       source: zod
-        .enum(["binance", "yahoo", "yahoo-fx"])
+        .enum(["binance", "yahoo", "yahoo-fx", "yahoo-equity", "yahoo-index"])
         .describe(
           "Where the row's quote\/candles come from. Tagged on every persisted row.",
         ),
@@ -3188,9 +3197,9 @@ export const GetGlobalInstrumentDetailResponse = zod.object({
       .string()
       .describe("Canonical scanner symbol e.g. BTCUSDT, GOLD, EURUSD"),
     displayName: zod.string(),
-    assetClass: zod.enum(["crypto", "commodity", "forex"]),
+    assetClass: zod.enum(["crypto", "commodity", "forex", "equity", "index"]),
     source: zod
-      .enum(["binance", "yahoo", "yahoo-fx"])
+      .enum(["binance", "yahoo", "yahoo-fx", "yahoo-equity", "yahoo-index"])
       .describe(
         "Where the row's quote\/candles come from. Tagged on every persisted row.",
       ),
@@ -3251,7 +3260,7 @@ export const GetGlobalCandlesResponse = zod.object({
   symbol: zod.string(),
   timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]),
   source: zod
-    .enum(["binance", "yahoo", "yahoo-fx"])
+    .enum(["binance", "yahoo", "yahoo-fx", "yahoo-equity", "yahoo-index"])
     .describe(
       "Where the row's quote\/candles come from. Tagged on every persisted row.",
     ),
@@ -3324,7 +3333,9 @@ export const runGlobalScreenerBodyFiltersBreakdownLookbackMax = 500;
 export const runGlobalScreenerBodyLimitMax = 50;
 
 export const RunGlobalScreenerBody = zod.object({
-  assetClasses: zod.array(zod.enum(["crypto", "commodity", "forex"])).min(1),
+  assetClasses: zod
+    .array(zod.enum(["crypto", "commodity", "forex", "equity", "index"]))
+    .min(1),
   timeframe: zod.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).optional(),
   filters: zod
     .object({
@@ -3404,7 +3415,7 @@ export const RunGlobalScreenerResponse = zod.object({
     zod.object({
       symbol: zod.string(),
       displayName: zod.string(),
-      assetClass: zod.enum(["crypto", "commodity", "forex"]),
+      assetClass: zod.enum(["crypto", "commodity", "forex", "equity", "index"]),
       price: zod.number().nullish(),
       changePct: zod.number().nullish(),
       volume: zod.number().nullish(),
@@ -3456,7 +3467,7 @@ export const GetGlobalSourceStatusResponse = zod.object({
   sources: zod.array(
     zod.object({
       source: zod
-        .enum(["binance", "yahoo", "yahoo-fx"])
+        .enum(["binance", "yahoo", "yahoo-fx", "yahoo-equity", "yahoo-index"])
         .describe(
           "Where the row's quote\/candles come from. Tagged on every persisted row.",
         ),
@@ -3471,6 +3482,6 @@ export const GetGlobalSourceStatusResponse = zod.object({
   universeCounts: zod
     .record(zod.string(), zod.number())
     .describe(
-      "Counts of instruments per asset class (crypto, commodity, forex)",
+      "Counts of instruments per asset class (crypto, commodity, forex, equity, index)",
     ),
 });

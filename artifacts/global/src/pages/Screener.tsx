@@ -17,9 +17,11 @@ import {
 } from "lucide-react";
 
 const ASSET_CLASSES: { id: GlobalAssetClass; label: string }[] = [
-  { id: "crypto", label: "Crypto" },
+  { id: "crypto",    label: "Crypto" },
   { id: "commodity", label: "Commodities" },
-  { id: "forex", label: "Forex" },
+  { id: "forex",     label: "Forex" },
+  { id: "equity",    label: "Equities" },
+  { id: "index",     label: "Indices" },
 ];
 
 const TIMEFRAMES: GlobalTimeframe[] = ["15m", "1h", "4h", "1d"];
@@ -45,7 +47,9 @@ function num(s: string): number | undefined {
 }
 
 export function ScreenerPage() {
-  const [classes, setClasses] = useState<Set<GlobalAssetClass>>(new Set(["crypto", "commodity", "forex"]));
+  const [classes, setClasses] = useState<Set<GlobalAssetClass>>(
+    new Set(["crypto", "commodity", "forex", "equity", "index"]),
+  );
   const [timeframe, setTimeframe] = useState<GlobalTimeframe>("1h");
   const [minChange, setMinChange] = useState<string>("");
   const [maxChange, setMaxChange] = useState<string>("");

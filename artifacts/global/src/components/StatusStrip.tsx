@@ -7,6 +7,8 @@ const SOURCE_LABEL: Record<string, string> = {
   binance: "Binance (Crypto)",
   yahoo: "Yahoo (Commodities)",
   "yahoo-fx": "Yahoo (Forex)",
+  "yahoo-equity": "Yahoo (Equities)",
+  "yahoo-index": "Yahoo (Indices)",
 };
 
 function fmtAge(ms: number | null | undefined): string {
@@ -54,7 +56,7 @@ export function StatusStrip() {
         );
       })}
       <span className="text-muted-foreground ml-2">
-        Universe: {data.universeCounts.crypto} crypto · {data.universeCounts.commodity} commodities · {data.universeCounts.forex} forex
+        Universe: {data.universeCounts.crypto} crypto · {data.universeCounts.commodity} commodities · {data.universeCounts.forex} forex · {data.universeCounts.equity ?? 0} equities · {data.universeCounts.index ?? 0} indices
       </span>
     </div>
   );

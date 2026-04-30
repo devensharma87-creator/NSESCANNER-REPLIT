@@ -7,7 +7,7 @@
  */
 
 /**
- * Counts of instruments per asset class (crypto, commodity, forex)
+ * Counts of instruments per asset class (crypto, commodity, forex, equity, index)
  */
 export type GlobalSourceStatusResponseUniverseCounts = {
   [key: string]: number;

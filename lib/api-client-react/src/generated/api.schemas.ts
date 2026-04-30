@@ -2037,6 +2037,8 @@ export const GlobalAssetClass = {
   crypto: "crypto",
   commodity: "commodity",
   forex: "forex",
+  equity: "equity",
+  index: "index",
 } as const;
 
 /**
@@ -2049,6 +2051,8 @@ export const GlobalDataSource = {
   binance: "binance",
   yahoo: "yahoo",
   "yahoo-fx": "yahoo-fx",
+  "yahoo-equity": "yahoo-equity",
+  "yahoo-index": "yahoo-index",
 } as const;
 
 export type GlobalTimeframe =
@@ -2315,7 +2319,7 @@ export interface GlobalWatchlistDeleteResponse {
 }
 
 /**
- * Counts of instruments per asset class (crypto, commodity, forex)
+ * Counts of instruments per asset class (crypto, commodity, forex, equity, index)
  */
 export type GlobalSourceStatusResponseUniverseCounts = {
   [key: string]: number;
@@ -2323,7 +2327,7 @@ export type GlobalSourceStatusResponseUniverseCounts = {
 
 export interface GlobalSourceStatusResponse {
   sources: GlobalSourceStatus[];
-  /** Counts of instruments per asset class (crypto, commodity, forex) */
+  /** Counts of instruments per asset class (crypto, commodity, forex, equity, index) */
   universeCounts: GlobalSourceStatusResponseUniverseCounts;
 }
 
@@ -2460,6 +2464,8 @@ export const ListGlobalInstrumentsAssetClass = {
   crypto: "crypto",
   commodity: "commodity",
   forex: "forex",
+  equity: "equity",
+  index: "index",
 } as const;
 
 export type GetGlobalDashboardParams = {
@@ -2473,6 +2479,8 @@ export const GetGlobalDashboardAsset = {
   crypto: "crypto",
   commodities: "commodities",
   forex: "forex",
+  equities: "equities",
+  indices: "indices",
   watchlist: "watchlist",
 } as const;
 

@@ -27,6 +27,8 @@ import {
   CRYPTO,
   COMMODITIES,
   FOREX,
+  EQUITIES,
+  INDICES,
   UNIVERSE,
   findInstrument,
   type GlobalDataSource,
@@ -278,6 +280,8 @@ async function refreshYahooBatch(
 
 export async function refreshCommodities(): Promise<void> { await refreshYahooBatch(COMMODITIES, "yahoo"); }
 export async function refreshForex(): Promise<void> { await refreshYahooBatch(FOREX, "yahoo-fx"); }
+export async function refreshEquities(): Promise<void> { await refreshYahooBatch(EQUITIES, "yahoo-equity"); }
+export async function refreshIndices(): Promise<void> { await refreshYahooBatch(INDICES, "yahoo-index"); }
 
 // ── Candle fetch / cache ─────────────────────────────────────────────
 
@@ -368,9 +372,11 @@ export async function getSyncStatuses(): Promise<typeof globalSyncLogsTable.$inf
  * do. Centralised here so UI never has to guess.
  */
 export const FRESHNESS_BUDGET_MS: Record<GlobalDataSource, number> = {
-  binance:    90_000,   // refresh 30s, budget 90s
-  yahoo:      180_000,  // refresh 60s, budget 180s
-  "yahoo-fx": 240_000,  // refresh 90s, budget 240s
+  binance:        90_000,   // refresh 30s, budget 90s
+  yahoo:          180_000,  // refresh 60s, budget 180s
+  "yahoo-fx":     240_000,  // refresh 90s, budget 240s
+  "yahoo-equity": 240_000,  // refresh 90s, budget 240s — session-bound; we never blank the row
+  "yahoo-index":  240_000,  // refresh 90s, budget 240s
 };
 
 export interface SourceHealth {
@@ -487,10 +493,16 @@ export async function startGlobalDataPump(): Promise<void> {
   void refreshBinance();
   void refreshCommodities();
   void refreshForex();
+  void refreshEquities();
+  void refreshIndices();
 
   TIMERS.push(setInterval(() => { void refreshBinance(); },     30_000));
   TIMERS.push(setInterval(() => { void refreshCommodities(); }, 60_000));
   TIMERS.push(setInterval(() => { void refreshForex(); },       90_000));
+  TIMERS.push(setInterval(() => { void refreshEquities(); },    90_000));
+  TIMERS.push(setInterval(() => { void refreshIndices(); },     90_000));
 
-  logger.info("Global scanner data pump started (binance 30s, commodities 60s, forex 90s)");
+  logger.info(
+    "Global scanner data pump started (binance 30s, commodities 60s, forex/equities/indices 90s)",
+  );
 }

@@ -628,12 +628,12 @@ paths:
     get:
       operationId: listGlobalInstruments
       tags: [global-data]
-      summary: Full instrument universe (crypto + commodities + forex)
+      summary: Full instrument universe (crypto + commodities + forex + equities + indices)
       parameters:
         - in: query
           name: assetClass
           required: false
-          schema: { type: string, enum: [crypto, commodity, forex] }
+          schema: { type: string, enum: [crypto, commodity, forex, equity, index] }
       responses:
         "200":
           description: OK
@@ -652,7 +652,7 @@ paths:
         - in: query
           name: asset
           required: true
-          schema: { type: string, enum: [crypto, commodities, forex, watchlist] }
+          schema: { type: string, enum: [crypto, commodities, forex, equities, indices, watchlist] }
       responses:
         "200":
           description: OK
@@ -2609,11 +2609,11 @@ components:
 
     GlobalAssetClass:
       type: string
-      enum: [crypto, commodity, forex]
+      enum: [crypto, commodity, forex, equity, index]
 
     GlobalDataSource:
       type: string
-      enum: [binance, yahoo, yahoo-fx]
+      enum: [binance, yahoo, yahoo-fx, yahoo-equity, yahoo-index]
       description: Where the row's quote/candles come from. Tagged on every persisted row.
 
     GlobalTimeframe:
@@ -2881,4 +2881,4 @@ components:
         universeCounts:
           type: object
           additionalProperties: { type: integer }
-          description: "Counts of instruments per asset class (crypto, commodity, forex)"
+          description: "Counts of instruments per asset class (crypto, commodity, forex, equity, index)"

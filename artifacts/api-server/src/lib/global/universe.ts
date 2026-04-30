@@ -19,8 +19,13 @@
  * budgets.
  */
 
-export type GlobalAssetClass = "crypto" | "commodity" | "forex";
-export type GlobalDataSource = "binance" | "yahoo" | "yahoo-fx";
+export type GlobalAssetClass = "crypto" | "commodity" | "forex" | "equity" | "index";
+export type GlobalDataSource =
+  | "binance"
+  | "yahoo"
+  | "yahoo-fx"
+  | "yahoo-equity"
+  | "yahoo-index";
 export type GlobalTimeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
 
 export interface GlobalInstrumentDef {
@@ -40,6 +45,12 @@ const ALL_CRYPTO_TFS: GlobalTimeframe[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 const COMMODITY_TFS: GlobalTimeframe[] = ["5m", "15m", "1h", "1d"];
 // Yahoo forex is delayed/snapshot intraday — only `1d` is reliably backed.
 const FOREX_TFS: GlobalTimeframe[] = ["1h", "1d"];
+// Yahoo equities expose intraday from 1m-1h; we mirror the commodity set so
+// the UI gets a consistent intraday/swing toolkit.
+const EQUITY_TFS: GlobalTimeframe[] = ["5m", "15m", "1h", "1d"];
+// Indices on Yahoo expose the same intraday set as equities but liquidity
+// gaps make 1m/5m noisy outside cash hours; we keep the swing-friendly set.
+const INDEX_TFS: GlobalTimeframe[] = ["15m", "1h", "1d"];
 
 /**
  * Compact helper for crypto rows — every entry has identical shape (Binance
@@ -242,10 +253,145 @@ export const FOREX: GlobalInstrumentDef[] = [
   { symbol: "JPYINR", displayName: "JPY / INR", assetClass: "forex", source: "yahoo-fx", sourceSymbol: "JPYINR=X", currency: "INR", notes: FX_NOTE, supportedTimeframes: FOREX_TFS },
 ];
 
+// ── Global equities (Phase 2) ───────────────────────────────────────
+//
+// Scanner symbols are URL-friendly ASCII (no `.` or `-`) so they can be
+// safely embedded in routes like `/i/:symbol`. For non-US listings we use
+// the Yahoo suffix as an underscore-joined tag (e.g. `ASML_AS`) which keeps
+// the canonical scanner symbol stable across UI/DB/watchlist while letting
+// the Yahoo adapter use the native `ASML.AS`.
+const EQ_NOTE_NON_US =
+  "Yahoo non-US equity quote may be delayed up to 15 minutes during local market hours.";
+
+interface EqDef {
+  scannerSym: string;
+  yahooSym: string;
+  name: string;
+  ccy: string;
+  notes?: string;
+}
+
+const EQUITY_DEFS: ReadonlyArray<EqDef> = [
+  // ── US large caps (mega + sector leaders) ───────────────────────
+  { scannerSym: "AAPL",  yahooSym: "AAPL",  name: "Apple",            ccy: "USD" },
+  { scannerSym: "MSFT",  yahooSym: "MSFT",  name: "Microsoft",        ccy: "USD" },
+  { scannerSym: "GOOGL", yahooSym: "GOOGL", name: "Alphabet (A)",     ccy: "USD" },
+  { scannerSym: "AMZN",  yahooSym: "AMZN",  name: "Amazon",           ccy: "USD" },
+  { scannerSym: "META",  yahooSym: "META",  name: "Meta Platforms",   ccy: "USD" },
+  { scannerSym: "NVDA",  yahooSym: "NVDA",  name: "NVIDIA",           ccy: "USD" },
+  { scannerSym: "TSLA",  yahooSym: "TSLA",  name: "Tesla",            ccy: "USD" },
+  { scannerSym: "AVGO",  yahooSym: "AVGO",  name: "Broadcom",         ccy: "USD" },
+  { scannerSym: "AMD",   yahooSym: "AMD",   name: "AMD",              ccy: "USD" },
+  { scannerSym: "ORCL",  yahooSym: "ORCL",  name: "Oracle",           ccy: "USD" },
+  { scannerSym: "ADBE",  yahooSym: "ADBE",  name: "Adobe",            ccy: "USD" },
+  { scannerSym: "CRM",   yahooSym: "CRM",   name: "Salesforce",       ccy: "USD" },
+  { scannerSym: "NFLX",  yahooSym: "NFLX",  name: "Netflix",          ccy: "USD" },
+  { scannerSym: "INTC",  yahooSym: "INTC",  name: "Intel",            ccy: "USD" },
+  { scannerSym: "CSCO",  yahooSym: "CSCO",  name: "Cisco",            ccy: "USD" },
+  { scannerSym: "JPM",   yahooSym: "JPM",   name: "JPMorgan Chase",   ccy: "USD" },
+  { scannerSym: "BAC",   yahooSym: "BAC",   name: "Bank of America",  ccy: "USD" },
+  { scannerSym: "V",     yahooSym: "V",     name: "Visa",             ccy: "USD" },
+  { scannerSym: "MA",    yahooSym: "MA",    name: "Mastercard",       ccy: "USD" },
+  { scannerSym: "WMT",   yahooSym: "WMT",   name: "Walmart",          ccy: "USD" },
+  { scannerSym: "HD",    yahooSym: "HD",    name: "Home Depot",       ccy: "USD" },
+  { scannerSym: "COST",  yahooSym: "COST",  name: "Costco",           ccy: "USD" },
+  { scannerSym: "PG",    yahooSym: "PG",    name: "Procter & Gamble", ccy: "USD" },
+  { scannerSym: "KO",    yahooSym: "KO",    name: "Coca-Cola",        ccy: "USD" },
+  { scannerSym: "PEP",   yahooSym: "PEP",   name: "PepsiCo",          ccy: "USD" },
+  { scannerSym: "MCD",   yahooSym: "MCD",   name: "McDonald's",       ccy: "USD" },
+  { scannerSym: "NKE",   yahooSym: "NKE",   name: "Nike",             ccy: "USD" },
+  { scannerSym: "DIS",   yahooSym: "DIS",   name: "Walt Disney",      ccy: "USD" },
+  { scannerSym: "JNJ",   yahooSym: "JNJ",   name: "Johnson & Johnson",ccy: "USD" },
+  { scannerSym: "MRK",   yahooSym: "MRK",   name: "Merck",            ccy: "USD" },
+  { scannerSym: "LLY",   yahooSym: "LLY",   name: "Eli Lilly",        ccy: "USD" },
+  { scannerSym: "ABBV",  yahooSym: "ABBV",  name: "AbbVie",           ccy: "USD" },
+  { scannerSym: "XOM",   yahooSym: "XOM",   name: "Exxon Mobil",      ccy: "USD" },
+  { scannerSym: "CVX",   yahooSym: "CVX",   name: "Chevron",          ccy: "USD" },
+  // ── EU large caps ───────────────────────────────────────────────
+  { scannerSym: "ASML_AS",   yahooSym: "ASML.AS",   name: "ASML Holding",          ccy: "EUR", notes: EQ_NOTE_NON_US },
+  { scannerSym: "SAP_DE",    yahooSym: "SAP.DE",    name: "SAP",                   ccy: "EUR", notes: EQ_NOTE_NON_US },
+  { scannerSym: "SIE_DE",    yahooSym: "SIE.DE",    name: "Siemens",               ccy: "EUR", notes: EQ_NOTE_NON_US },
+  { scannerSym: "BAS_DE",    yahooSym: "BAS.DE",    name: "BASF",                  ccy: "EUR", notes: EQ_NOTE_NON_US },
+  { scannerSym: "MC_PA",     yahooSym: "MC.PA",     name: "LVMH",                  ccy: "EUR", notes: EQ_NOTE_NON_US },
+  { scannerSym: "OR_PA",     yahooSym: "OR.PA",     name: "L'Oréal",               ccy: "EUR", notes: EQ_NOTE_NON_US },
+  { scannerSym: "NESN_SW",   yahooSym: "NESN.SW",   name: "Nestlé",                ccy: "CHF", notes: EQ_NOTE_NON_US },
+  { scannerSym: "NOVN_SW",   yahooSym: "NOVN.SW",   name: "Novartis",              ccy: "CHF", notes: EQ_NOTE_NON_US },
+  { scannerSym: "ROG_SW",    yahooSym: "ROG.SW",    name: "Roche",                 ccy: "CHF", notes: EQ_NOTE_NON_US },
+  { scannerSym: "AZN_L",     yahooSym: "AZN.L",     name: "AstraZeneca",           ccy: "GBP", notes: EQ_NOTE_NON_US },
+  { scannerSym: "SHEL_L",    yahooSym: "SHEL.L",    name: "Shell",                 ccy: "GBP", notes: EQ_NOTE_NON_US },
+  { scannerSym: "HSBA_L",    yahooSym: "HSBA.L",    name: "HSBC Holdings",         ccy: "GBP", notes: EQ_NOTE_NON_US },
+  // ── Japan large caps ────────────────────────────────────────────
+  { scannerSym: "TYO_7203", yahooSym: "7203.T", name: "Toyota Motor",         ccy: "JPY", notes: EQ_NOTE_NON_US },
+  { scannerSym: "TYO_6758", yahooSym: "6758.T", name: "Sony Group",           ccy: "JPY", notes: EQ_NOTE_NON_US },
+  { scannerSym: "TYO_9984", yahooSym: "9984.T", name: "SoftBank Group",       ccy: "JPY", notes: EQ_NOTE_NON_US },
+  { scannerSym: "TYO_8306", yahooSym: "8306.T", name: "Mitsubishi UFJ FG",    ccy: "JPY", notes: EQ_NOTE_NON_US },
+  { scannerSym: "TYO_6861", yahooSym: "6861.T", name: "Keyence",              ccy: "JPY", notes: EQ_NOTE_NON_US },
+  { scannerSym: "TYO_7974", yahooSym: "7974.T", name: "Nintendo",             ccy: "JPY", notes: EQ_NOTE_NON_US },
+];
+
+export const EQUITIES: GlobalInstrumentDef[] = EQUITY_DEFS.map((d) => ({
+  symbol: d.scannerSym,
+  displayName: d.name,
+  assetClass: "equity",
+  source: "yahoo-equity",
+  sourceSymbol: d.yahooSym,
+  currency: d.ccy,
+  notes: d.notes,
+  supportedTimeframes: EQUITY_TFS,
+}));
+
+// ── Global indices (Phase 2) ────────────────────────────────────────
+//
+// Scanner symbols mirror common-press names (SPX, NDX, DAX, N225, …) so
+// they're stable in URLs and recognisable in the watchlist; the Yahoo
+// `^…` form is preserved on `sourceSymbol` for the adapter.
+const IDX_NOTE = "Index quotes follow the underlying cash session; outside session hours the value is the last close.";
+
+interface IdxDef {
+  scannerSym: string;
+  yahooSym: string;
+  name: string;
+  ccy: string;
+}
+
+const INDEX_DEFS: ReadonlyArray<IdxDef> = [
+  // ── US ──────────────────────────────────────────────────────────
+  { scannerSym: "SPX",    yahooSym: "^GSPC",     name: "S&P 500",          ccy: "USD" },
+  { scannerSym: "NDX",    yahooSym: "^NDX",      name: "Nasdaq 100",       ccy: "USD" },
+  { scannerSym: "DJI",    yahooSym: "^DJI",      name: "Dow Jones IA",     ccy: "USD" },
+  { scannerSym: "RUT",    yahooSym: "^RUT",      name: "Russell 2000",     ccy: "USD" },
+  { scannerSym: "VIX",    yahooSym: "^VIX",      name: "CBOE VIX",         ccy: "USD" },
+  // ── Europe ──────────────────────────────────────────────────────
+  { scannerSym: "DAX",    yahooSym: "^GDAXI",    name: "DAX 40",           ccy: "EUR" },
+  { scannerSym: "FTSE",   yahooSym: "^FTSE",     name: "FTSE 100",         ccy: "GBP" },
+  { scannerSym: "CAC",    yahooSym: "^FCHI",     name: "CAC 40",           ccy: "EUR" },
+  { scannerSym: "SX5E",   yahooSym: "^STOXX50E", name: "Euro Stoxx 50",    ccy: "EUR" },
+  { scannerSym: "IBEX",   yahooSym: "^IBEX",     name: "IBEX 35",          ccy: "EUR" },
+  // ── Asia ────────────────────────────────────────────────────────
+  { scannerSym: "N225",   yahooSym: "^N225",     name: "Nikkei 225",       ccy: "JPY" },
+  { scannerSym: "HSI",    yahooSym: "^HSI",      name: "Hang Seng",        ccy: "HKD" },
+  { scannerSym: "SSEC",   yahooSym: "000001.SS", name: "SSE Composite",    ccy: "CNY" },
+  { scannerSym: "AXJO",   yahooSym: "^AXJO",     name: "S&P/ASX 200",      ccy: "AUD" },
+  { scannerSym: "KOSPI",  yahooSym: "^KS11",     name: "KOSPI Composite",  ccy: "KRW" },
+];
+
+export const INDICES: GlobalInstrumentDef[] = INDEX_DEFS.map((d) => ({
+  symbol: d.scannerSym,
+  displayName: d.name,
+  assetClass: "index",
+  source: "yahoo-index",
+  sourceSymbol: d.yahooSym,
+  currency: d.ccy,
+  notes: IDX_NOTE,
+  supportedTimeframes: INDEX_TFS,
+}));
+
 export const UNIVERSE: GlobalInstrumentDef[] = [
   ...CRYPTO,
   ...COMMODITIES,
   ...FOREX,
+  ...EQUITIES,
+  ...INDICES,
 ];
 
 const BY_SYMBOL = new Map(UNIVERSE.map(i => [i.symbol, i] as const));
@@ -260,7 +406,9 @@ export function listByAssetClass(cls: GlobalAssetClass): GlobalInstrumentDef[] {
 
 /** Per-source freshness budget (seconds). Older than this → row is "stale". */
 export const SOURCE_FRESHNESS_S: Record<GlobalDataSource, number> = {
-  binance: 60,    // we poll every ~30s; >60s old → flag
-  yahoo: 300,     // commodity quotes via yahoo refresh on a 60s cadence
-  "yahoo-fx": 600,
+  binance: 60,            // pump every 30s; >60s old → flag
+  yahoo: 300,             // commodity quotes pump every 60s
+  "yahoo-fx": 600,        // forex quotes pump every 90s
+  "yahoo-equity": 300,    // equities pump every 90s; session-bound but we still heartbeat
+  "yahoo-index": 300,     // indices pump every 90s; cash-session drives liveness
 };

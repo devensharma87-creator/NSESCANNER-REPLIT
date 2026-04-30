@@ -13,5 +13,7 @@ export const GetGlobalDashboardAsset = {
   crypto: "crypto",
   commodities: "commodities",
   forex: "forex",
+  equities: "equities",
+  indices: "indices",
   watchlist: "watchlist",
 } as const;

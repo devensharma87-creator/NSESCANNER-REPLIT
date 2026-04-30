@@ -71,7 +71,7 @@ function LoginForm({ onLoggedIn }: { onLoggedIn: () => void }) {
             <CardTitle>Global Multi-Asset Scanner</CardTitle>
           </div>
           <CardDescription>
-            Crypto · Commodities · Forex — Phase 1. Enter the access password to continue.
+            Crypto · Commodities · Forex · Equities · Indices. Enter the access password to continue.
           </CardDescription>
         </CardHeader>
         <CardContent>

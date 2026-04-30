@@ -10,6 +10,6 @@ import type { GlobalSourceStatusResponseUniverseCounts } from "./globalSourceSta
 
 export interface GlobalSourceStatusResponse {
   sources: GlobalSourceStatus[];
-  /** Counts of instruments per asset class (crypto, commodity, forex) */
+  /** Counts of instruments per asset class (crypto, commodity, forex, equity, index) */
   universeCounts: GlobalSourceStatusResponseUniverseCounts;
 }

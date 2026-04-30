@@ -1,5 +1,6 @@
 /**
- * Global Multi-Asset Scanner (Phase 1) — Crypto / Commodities / Forex.
+ * Global Multi-Asset Scanner — Crypto / Commodities / Forex (Phase 1) plus
+ * Global Equities and Indices (Phase 2).
  *
  * All tables are prefixed `global_*` so they never collide with the existing
  * NSE Stock Scanner schema. They are populated by the new
@@ -9,11 +10,13 @@
  * Storage model:
  *  - `globalInstrumentsTable`   — master list of every supported symbol
  *    (canonical scanner symbol → data-source-specific symbol mapping).
+ *    `assetClass` is `crypto | commodity | forex | equity | index` and
+ *    `source` is `binance | yahoo | yahoo-fx | yahoo-equity | yahoo-index`.
  *  - `globalCandlesTable`       — cached OHLCV per (symbol, timeframe, ts).
  *  - `globalLivePricesTable`    — most-recent ticker snapshot per symbol.
  *  - `globalWatchlistTable`     — per-session personal watchlist.
  *  - `globalSyncLogsTable`      — last-success / last-error per data source
- *    so the UI can render a freshness strip.
+ *    so the UI can render a per-source freshness strip.
  */
 
 import {
@@ -29,9 +32,9 @@ import {
 export const globalInstrumentsTable = pgTable("global_instruments", {
   symbol: text("symbol").primaryKey(),                 // BTCUSDT, GOLD, EURUSD, …
   displayName: text("display_name").notNull(),
-  assetClass: text("asset_class").notNull(),           // crypto | commodity | forex
-  source: text("source").notNull(),                    // binance | yahoo | yahoo-fx
-  sourceSymbol: text("source_symbol").notNull(),       // BTCUSDT, GC=F, EURUSD=X, …
+  assetClass: text("asset_class").notNull(),           // crypto | commodity | forex | equity | index
+  source: text("source").notNull(),                    // binance | yahoo | yahoo-fx | yahoo-equity | yahoo-index
+  sourceSymbol: text("source_symbol").notNull(),       // BTCUSDT, GC=F, EURUSD=X, AAPL, ASML.AS, ^GSPC, …
   currency: text("currency"),                          // USD, INR, oz, bbl, …
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -85,7 +88,7 @@ export const globalWatchlistTable = pgTable(
 );
 
 export const globalSyncLogsTable = pgTable("global_sync_logs", {
-  source: text("source").primaryKey(),                 // binance | yahoo | yahoo-fx
+  source: text("source").primaryKey(),                 // binance | yahoo | yahoo-fx | yahoo-equity | yahoo-index
   lastOkAt: timestamp("last_ok_at", { withTimezone: true }),
   lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
   lastError: text("last_error"),

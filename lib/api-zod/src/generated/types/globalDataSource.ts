@@ -16,4 +16,6 @@ export const GlobalDataSource = {
   binance: "binance",
   yahoo: "yahoo",
   "yahoo-fx": "yahoo-fx",
+  "yahoo-equity": "yahoo-equity",
+  "yahoo-index": "yahoo-index",
 } as const;

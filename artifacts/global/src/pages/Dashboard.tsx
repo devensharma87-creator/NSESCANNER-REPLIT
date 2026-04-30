@@ -21,13 +21,15 @@ import {
   ArrowUp, ArrowDown, AlertTriangle,
 } from "lucide-react";
 
-type AssetTab = "crypto" | "commodities" | "forex" | "watchlist";
+type AssetTab = "crypto" | "commodities" | "forex" | "equities" | "indices" | "watchlist";
 
 const TABS: { value: AssetTab; label: string }[] = [
-  { value: "crypto",     label: "Crypto" },
+  { value: "crypto",      label: "Crypto" },
   { value: "commodities", label: "Commodities" },
-  { value: "forex",      label: "Forex" },
-  { value: "watchlist",  label: "Watchlist" },
+  { value: "forex",       label: "Forex" },
+  { value: "equities",    label: "Equities" },
+  { value: "indices",     label: "Indices" },
+  { value: "watchlist",   label: "Watchlist" },
 ];
 
 function fmtPrice(v: number | null | undefined): string {

@@ -13,4 +13,6 @@ export const ListGlobalInstrumentsAssetClass = {
   crypto: "crypto",
   commodity: "commodity",
   forex: "forex",
+  equity: "equity",
+  index: "index",
 } as const;

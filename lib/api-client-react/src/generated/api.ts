@@ -3499,7 +3499,7 @@ export const useGlobalLogout = <
 };
 
 /**
- * @summary Full instrument universe (crypto + commodities + forex)
+ * @summary Full instrument universe (crypto + commodities + forex + equities + indices)
  */
 export const getListGlobalInstrumentsUrl = (
   params?: ListGlobalInstrumentsParams,
@@ -3572,7 +3572,7 @@ export type ListGlobalInstrumentsQueryResult = NonNullable<
 export type ListGlobalInstrumentsQueryError = ErrorType<unknown>;
 
 /**
- * @summary Full instrument universe (crypto + commodities + forex)
+ * @summary Full instrument universe (crypto + commodities + forex + equities + indices)
  */
 
 export function useListGlobalInstruments<

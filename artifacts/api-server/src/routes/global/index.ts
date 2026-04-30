@@ -31,6 +31,8 @@ import {
   CRYPTO,
   COMMODITIES,
   FOREX,
+  EQUITIES,
+  INDICES,
   UNIVERSE,
   findInstrument,
   type GlobalAssetClass,
@@ -88,7 +90,7 @@ router.use("/global", requireGlobalAuth);
 
 // ── Universe ─────────────────────────────────────────────────────────
 const InstrumentsQuery = z.object({
-  assetClass: z.enum(["crypto", "commodity", "forex"]).optional(),
+  assetClass: z.enum(["crypto", "commodity", "forex", "equity", "index"]).optional(),
 });
 
 router.get("/global/instruments", async (req, res) => {
@@ -116,13 +118,19 @@ router.get("/global/instruments", async (req, res) => {
 
 // ── Dashboard ────────────────────────────────────────────────────────
 const DashboardQuery = z.object({
-  asset: z.enum(["crypto", "commodities", "forex", "watchlist"]),
+  asset: z.enum(["crypto", "commodities", "forex", "equities", "indices", "watchlist"]),
 });
 
-function classToList(cls: "crypto" | "commodities" | "forex"): GlobalAssetClass {
-  if (cls === "commodities") return "commodity";
-  if (cls === "forex") return "forex";
-  return "crypto";
+type DashboardClassTab = "crypto" | "commodities" | "forex" | "equities" | "indices";
+
+function classToList(cls: DashboardClassTab): GlobalAssetClass {
+  switch (cls) {
+    case "commodities": return "commodity";
+    case "forex":       return "forex";
+    case "equities":    return "equity";
+    case "indices":     return "index";
+    case "crypto":      return "crypto";
+  }
 }
 
 router.get("/global/dashboard", async (req, res) => {
@@ -288,7 +296,7 @@ router.get("/global/instruments/:symbol/indicators", async (req, res) => {
 
 // ── Screener ────────────────────────────────────────────────────────
 const ScreenerBody = z.object({
-  assetClasses: z.array(z.enum(["crypto", "commodity", "forex"])).min(1),
+  assetClasses: z.array(z.enum(["crypto", "commodity", "forex", "equity", "index"])).min(1),
   timeframe: z.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).default("1h"),
   filters: z.object({
     minChangePct: z.number().optional(),
@@ -550,7 +558,9 @@ router.delete("/global/watchlist/:symbol", async (req, res) => {
 router.get("/global/status", async (_req, res) => {
   const rows = await getSyncStatuses();
   const now = Date.now();
-  const sources: Array<"binance" | "yahoo" | "yahoo-fx"> = ["binance", "yahoo", "yahoo-fx"];
+  const sources: Array<"binance" | "yahoo" | "yahoo-fx" | "yahoo-equity" | "yahoo-index"> = [
+    "binance", "yahoo", "yahoo-fx", "yahoo-equity", "yahoo-index",
+  ];
   const out = sources.map(src => {
     const r = rows.find(x => x.source === src);
     const lastOk = r?.lastOkAt ? r.lastOkAt.getTime() : null;
@@ -565,8 +575,14 @@ router.get("/global/status", async (_req, res) => {
       notes: r?.notes ?? null,
     };
   });
-  // Counts by asset class so the strip can show "15 / 14 / 15".
-  const counts: Record<string, number> = { crypto: CRYPTO.length, commodity: COMMODITIES.length, forex: FOREX.length };
+  // Counts by asset class so the strip can show "15 / 14 / 15 / 50 / 15".
+  const counts: Record<string, number> = {
+    crypto:    CRYPTO.length,
+    commodity: COMMODITIES.length,
+    forex:     FOREX.length,
+    equity:    EQUITIES.length,
+    index:     INDICES.length,
+  };
   res.json({ sources: out, universeCounts: counts });
 });
 
