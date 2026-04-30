@@ -2,6 +2,11 @@ import { Link, useLocation } from "wouter";
 import { useGlobalLogout, useGetGlobalAuthStatus } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Globe, LayoutDashboard, Filter, Star, LogOut } from "lucide-react";
+import {
+  CommandPalette,
+  CommandPaletteTrigger,
+  useCommandPalette,
+} from "@/components/CommandPalette";
 
 const NAV = [
   { to: "/", label: "Dashboard",  icon: LayoutDashboard },
@@ -15,9 +20,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const logout = useGlobalLogout({
     mutation: { onSuccess: () => { window.location.reload(); } },
   });
+  // Cmd/Ctrl+K is wired up globally via this hook; the trigger button in
+  // the header just opens the same overlay for users who don't know the
+  // shortcut.
+  const palette = useCommandPalette();
 
   return (
     <div className="min-h-screen bg-background">
+      <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />
       <header className="border-b sticky top-0 z-10 bg-background/80 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <Link
@@ -46,6 +56,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
           <div className="flex items-center gap-2">
+            <CommandPaletteTrigger onClick={() => palette.setOpen(true)} />
             {status.data?.authenticated && (
               <Button
                 variant="ghost"
