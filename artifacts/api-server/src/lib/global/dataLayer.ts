@@ -298,13 +298,27 @@ export async function refreshBinance(): Promise<void> {
   }
 }
 
-// ── Yahoo per-symbol refresh (commodities + fx) ──────────────────────
+// ── Yahoo per-symbol refresh (commodities + fx + equities + indices) ─
 //
-// Yahoo's chart() endpoint is per-symbol, so a 30-FX + 30-commodity universe
-// would take ~60 sequential round-trips per cycle. We use a bounded worker
-// pool (small concurrency to stay well under per-IP throttling) so a full
-// refresh comfortably finishes inside the cycle budget while still being
-// gentle on the upstream.
+// Yahoo's chart() endpoint is per-symbol, so the Phase-2 Yahoo universe
+// (30 commodities + 35 FX + 206 equities + 30 indices = 301 symbols)
+// would take that many sequential round-trips per cycle. We use a bounded
+// worker pool (small concurrency to stay well under per-IP throttling)
+// so a full refresh comfortably finishes inside the 90s cycle budget while
+// still being gentle on the upstream. Sizing math: at 206 equities / 4
+// workers ≈ 52 sequential calls per worker; at ~500 ms per call that's
+// ~26 s — well below the 90 s refresh interval.
+//
+// All four Yahoo refreshers (commodities/FX/equities/indices) share the
+// upstream IP budget; they run on staggered intervals (60 s / 90 s / 90 s
+// / 90 s) and the boot kickoffs are also staggered (see
+// `startGlobalDataPump`) so the larger Phase-2 universe doesn't slam
+// Yahoo at startup. After boot they can still briefly peak at 4×4=16
+// in-flight requests when intervals align. Empirically that stays under
+// Yahoo's per-IP throttle for the global pump in isolation; bump this
+// down (not up) if the sync logs ever show 429 floods directly caused by
+// these refreshers (i.e. tripping mid-cycle, not from another caller
+// such as the full NSE Yahoo fallback).
 const YAHOO_REFRESH_CONCURRENCY = 4;
 
 async function refreshYahooBatch(
@@ -619,19 +633,34 @@ export async function startGlobalDataPump(): Promise<void> {
   await seedGlobalUniverse();
 
   // Kick off an immediate refresh (don't await — keep boot fast).
+  // Binance fires immediately; the four Yahoo refreshers are staggered
+  // (~0.5s / 3.5s / 7s / 11s) so the larger Phase-2 universe (301
+  // Yahoo symbols total: 30 commodities + 35 FX + 206 equities + 30
+  // indices) doesn't slam Yahoo's per-IP throttle in a single boot
+  // burst — that tripped the shared rate-limit breaker in `yahoo.ts`
+  // reliably when they all fired simultaneously.
   void refreshBinance();
-  void refreshCommodities();
-  void refreshForex();
-  void refreshEquities();
-  void refreshIndices();
+  TIMERS.push(setInterval(() => { void refreshBinance(); }, 30_000));
 
-  TIMERS.push(setInterval(() => { void refreshBinance(); },     30_000));
-  TIMERS.push(setInterval(() => { void refreshCommodities(); }, 60_000));
-  TIMERS.push(setInterval(() => { void refreshForex(); },       90_000));
-  TIMERS.push(setInterval(() => { void refreshEquities(); },    90_000));
-  TIMERS.push(setInterval(() => { void refreshIndices(); },     90_000));
+  // Each Yahoo refresher's recurring interval is started from inside its
+  // staggered boot kickoff, so the steady-state cycles stay phase-shifted
+  // (not just the first one) and never all align on the same 90s tick.
+  const startStaggered = (
+    boot: number,
+    intervalMs: number,
+    fn: () => Promise<void>,
+  ): void => {
+    setTimeout(() => {
+      void fn();
+      TIMERS.push(setInterval(() => { void fn(); }, intervalMs));
+    }, boot);
+  };
+  startStaggered(   500, 60_000, refreshCommodities);
+  startStaggered( 3_500, 90_000, refreshForex);
+  startStaggered( 7_000, 90_000, refreshEquities);
+  startStaggered(11_000, 90_000, refreshIndices);
 
   logger.info(
-    "Global scanner data pump started (binance 30s, commodities 60s, forex/equities/indices 90s)",
+    "Global scanner data pump started (binance 30s, commodities 60s, forex/equities/indices 90s; Yahoo cycles permanently staggered)",
   );
 }
