@@ -565,6 +565,12 @@ export interface DashboardRow {
   stale: boolean;
   sourceHealthy: boolean;
   lastError: string | null;
+  /**
+   * Exchange code for equity / index rows (e.g. "NYSE", "TSE"); null for
+   * crypto / commodity / FX rows. Drives the client-side market-session
+   * badge — see `artifacts/global/src/lib/marketSessions.ts`.
+   */
+  exchange: string | null;
 }
 
 /**
@@ -614,6 +620,7 @@ export async function buildDashboardRows(symbols: string[]): Promise<DashboardRo
       stale,
       sourceHealthy,
       lastError: p?.lastError ?? null,
+      exchange: inst?.exchange ?? null,
     };
   });
 }

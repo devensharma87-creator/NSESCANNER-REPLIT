@@ -2731,6 +2731,13 @@ components:
           type: boolean
           description: "Roll-up health of the upstream source (from /global/status)."
         lastError: { type: ["string", "null"] }
+        exchange:
+          type: ["string", "null"]
+          description: |
+            Exchange code (e.g. NYSE, LSE, XETR, TSE) for equity / index rows;
+            null for crypto / commodity / FX rows that trade ~24×7. The dashboard
+            uses this to render a market-session badge (Open / Closed / Pre / Post)
+            and to suppress "stale" styling when the underlying market is closed.
 
     GlobalSourceStatus:
       type: object

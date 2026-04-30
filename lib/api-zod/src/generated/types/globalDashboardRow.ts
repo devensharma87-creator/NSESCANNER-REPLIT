@@ -46,4 +46,13 @@ mark stale rows so users never mistake a frozen value for live.
   sourceHealthy?: boolean;
   /** @nullable */
   lastError?: string | null;
+  /**
+   * Exchange code (e.g. NYSE, LSE, XETR, TSE) for equity / index rows;
+null for crypto / commodity / FX rows that trade ~24×7. The dashboard
+uses this to render a market-session badge (Open / Closed / Pre / Post)
+and to suppress "stale" styling when the underlying market is closed.
+
+   * @nullable
+   */
+  exchange?: string | null;
 }

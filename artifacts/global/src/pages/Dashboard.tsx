@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import {
   useGetGlobalDashboard,
@@ -16,11 +16,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StatusStrip } from "@/components/StatusStrip";
 import {
   Star, StarOff, ArrowUpRight, ArrowDownRight, Loader2,
   ArrowUp, ArrowDown, AlertTriangle, Search, X,
+  Circle, Moon, Sunrise, Sunset,
 } from "lucide-react";
+import {
+  getMarketStatus, fmtDurationShort, fmtLocal,
+  type MarketStatus, type MarketState,
+} from "@/lib/marketSessions";
 
 type AssetTab = "crypto" | "commodities" | "forex" | "equities" | "indices" | "watchlist";
 
@@ -160,6 +166,90 @@ function SortHeader(props: {
   );
 }
 
+/**
+ * Re-render once per minute so market-session badges flip from
+ * "Closed (next open in 3h)" → "2h" → "1h" → "Open" without needing a
+ * full page refresh.
+ */
+function useNow(intervalMs = 60_000): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+const STATE_STYLES: Record<MarketState, {
+  Icon: typeof Circle;
+  label: string;
+  className: string;
+}> = {
+  open: {
+    Icon: Circle,
+    label: "Open",
+    className: "text-emerald-700 border-emerald-400 dark:text-emerald-300 dark:border-emerald-700",
+  },
+  pre: {
+    Icon: Sunrise,
+    label: "Pre",
+    className: "text-sky-700 border-sky-400 dark:text-sky-300 dark:border-sky-700",
+  },
+  post: {
+    Icon: Sunset,
+    label: "Post",
+    className: "text-violet-700 border-violet-400 dark:text-violet-300 dark:border-violet-700",
+  },
+  closed: {
+    Icon: Moon,
+    label: "Closed",
+    className: "text-slate-600 border-slate-300 dark:text-slate-400 dark:border-slate-700",
+  },
+};
+
+function MarketBadge({ symbol, status }: { symbol: string; status: MarketStatus }) {
+  const style = STATE_STYLES[status.state];
+  const { Icon } = style;
+  const tillOpen = status.nextOpenUtc.getTime() - Date.now();
+  // Only suffix the duration on "closed" — "open" doesn't need it and
+  // pre/post have their own implicit "until cash open" / "until end" cadence.
+  const suffix = status.state === "closed" && tillOpen > 0
+    ? ` · ${fmtDurationShort(tillOpen)}`
+    : "";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={`h-4 px-1 text-[10px] gap-0.5 cursor-help ${style.className}`}
+          data-testid={`badge-market-${symbol}`}
+          data-market-state={status.state}
+        >
+          <Icon
+            className={`h-2.5 w-2.5 ${status.state === "open" ? "fill-current" : ""}`}
+          />
+          <span>{style.label}{suffix}</span>
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">
+        <div className="text-xs space-y-0.5">
+          <div><b>{status.label}</b></div>
+          <div>
+            Status: <span className="capitalize">{status.state}</span>
+            {status.weekend && status.state === "closed" && " (weekend)"}
+          </div>
+          <div>Next open: {fmtLocal(status.nextOpenUtc)}</div>
+          {tillOpen > 0 && (
+            <div className="text-muted-foreground">
+              in {fmtDurationShort(tillOpen)}
+            </div>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function DashboardTable({
   asset,
   filter,
@@ -170,6 +260,7 @@ function DashboardTable({
   onFilterChange: (value: string) => void;
 }) {
   const qc = useQueryClient();
+  const now = useNow();
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "changePct", dir: "desc" });
   const { data, isLoading } = useGetGlobalDashboard(
     { asset },
@@ -300,16 +391,34 @@ function DashboardTable({
             {visible.map((r) => {
               const up = (r.changePct ?? 0) >= 0;
               const isWatched = watched.has(r.symbol);
-              const isStale = r.stale === true;
+              // Market-status badge is derived client-side from the
+              // exchange code the API attaches to equity / index rows.
+              const marketStatus = getMarketStatus(r.exchange ?? null, now);
+              // Suppress the "stale" badge + amber row tint when the
+              // market is closed AND the row still looks healthy:
+              //   - we actually have a price (not null)
+              //   - the quote isn't absurdly old (a NYSE row > 4 days
+              //     stale is a real feed bug even on a long weekend)
+              // Pre/post markets still pump quotes, so we never suppress
+              // there. This guard prevents hiding genuine outages
+              // behind "market is shut".
+              const STALE_HARD_CAP_MS = 4 * 24 * 60 * 60 * 1000;
+              const ageMs = r.ageMs ?? Number.POSITIVE_INFINITY;
+              const closedSuppressionApplies =
+                marketStatus?.state === "closed" &&
+                r.price != null &&
+                ageMs < STALE_HARD_CAP_MS;
+              const isStale = r.stale === true && !closedSuppressionApplies;
               return (
                 <tr
                   key={r.symbol}
                   className={`border-t hover:bg-accent/30 ${isStale ? "bg-amber-50/40 dark:bg-amber-950/10" : ""}`}
                   data-testid={`row-${r.symbol}`}
                   data-stale={isStale ? "true" : "false"}
+                  data-market-state={marketStatus?.state ?? "n/a"}
                 >
                   <td className="px-3 py-2 font-mono">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <Link
                         href={`/i/${r.symbol}`}
                         className="text-primary hover:underline"
@@ -317,6 +426,9 @@ function DashboardTable({
                       >
                         {r.symbol}
                       </Link>
+                      {marketStatus && (
+                        <MarketBadge symbol={r.symbol} status={marketStatus} />
+                      )}
                       {isStale && (
                         <Badge
                           variant="outline"

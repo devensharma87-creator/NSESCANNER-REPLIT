@@ -3180,6 +3180,12 @@ export const GetGlobalDashboardResponse = zod.object({
           "Roll-up health of the upstream source (from \/global\/status).",
         ),
       lastError: zod.string().nullish(),
+      exchange: zod
+        .string()
+        .nullish()
+        .describe(
+          'Exchange code (e.g. NYSE, LSE, XETR, TSE) for equity \/ index rows;\nnull for crypto \/ commodity \/ FX rows that trade ~24×7. The dashboard\nuses this to render a market-session badge (Open \/ Closed \/ Pre \/ Post)\nand to suppress \"stale\" styling when the underlying market is closed.\n',
+        ),
     }),
   ),
 });

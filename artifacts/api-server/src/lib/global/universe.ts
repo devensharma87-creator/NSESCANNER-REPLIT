@@ -31,6 +31,22 @@ export type GlobalDataSource =
   | "yahoo-index";
 export type GlobalTimeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
 
+/**
+ * Exchange codes used for market-session badges. Equity / index instruments
+ * carry one of these so the dashboard can show "Open" / "Closed (next open
+ * in 3h)" badges and suppress stale styling outside trading hours.
+ *
+ * Hours for each code live in `artifacts/global/src/lib/marketSessions.ts`.
+ * Add a code here AND a session entry there; otherwise the badge silently
+ * falls back to "no badge" for unknown codes.
+ */
+export type GlobalExchange =
+  // Task-specified primaries
+  | "NYSE" | "LSE" | "XETR" | "EPA" | "SWX" | "TSE" | "HKEX" | "SSE" | "ASX" | "KRX"
+  // Additional venues required to cover the rest of the equity/index universe
+  | "AMS" | "BME" | "BIT" | "STO" | "TWSE" | "SGX" | "MYX" | "IDX" | "NZX"
+  | "NSE" | "B3" | "BMV" | "MOEX";
+
 export interface GlobalInstrumentDef {
   symbol: string;
   displayName: string;
@@ -40,6 +56,13 @@ export interface GlobalInstrumentDef {
   currency?: string;
   notes?: string;
   supportedTimeframes: GlobalTimeframe[];
+  /**
+   * Exchange code for equity / index instruments. Used by the dashboard
+   * to derive a market-session badge (Open / Closed / Pre / Post). Crypto,
+   * commodity continuous futures, and FX rows leave this undefined since
+   * those markets are effectively 24×7 and don't carry a session badge.
+   */
+  exchange?: GlobalExchange;
 }
 
 const ALL_CRYPTO_TFS: GlobalTimeframe[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
@@ -272,6 +295,40 @@ interface EqDef {
   name: string;
   ccy: string;
   notes?: string;
+}
+
+/**
+ * Helper for the Yahoo-suffix → exchange-code mapping. Centralised so the
+ * tag is derived from the Yahoo symbol the adapter already uses, instead of
+ * hand-typing a code on every row (which would drift). Returns NYSE for
+ * suffix-less US tickers (the only suffix-less case in our universe).
+ */
+function exchangeForYahooSym(yahooSym: string): GlobalExchange {
+  const dot = yahooSym.lastIndexOf(".");
+  if (dot < 0) return "NYSE"; // US-listed (NYSE/NASDAQ share session hours)
+  switch (yahooSym.slice(dot + 1)) {
+    case "DE": return "XETR"; // Frankfurt / Xetra
+    case "AS": return "AMS";  // Euronext Amsterdam
+    case "PA": return "EPA";  // Euronext Paris
+    case "SW": return "SWX";  // SIX Swiss
+    case "L":  return "LSE";  // London
+    case "T":  return "TSE";  // Tokyo
+    case "HK": return "HKEX"; // Hong Kong
+    case "MI": return "BIT";  // Borsa Italiana
+    case "MC": return "BME";  // BME Madrid
+    case "ST": return "STO";  // Nasdaq Stockholm
+    case "SS": return "SSE";  // Shanghai
+    case "TW": return "TWSE"; // Taiwan
+    case "SI": return "SGX";  // Singapore
+    case "KS": return "KRX";  // KRX (Korea)
+    case "AX": return "ASX";  // Australian Securities Exchange
+    case "BO": return "NSE";  // BSE — share NSE session hours
+    case "NS": return "NSE";  // NSE India
+    case "SA": return "B3";   // B3 Brasil
+    case "MX": return "BMV";  // Bolsa Mexicana
+    case "ME": return "MOEX"; // MOEX Russia
+    default:   return "NYSE"; // unknown suffix → reasonable fallback
+  }
 }
 
 const EQUITY_DEFS: ReadonlyArray<EqDef> = [
@@ -508,6 +565,7 @@ export const EQUITIES: GlobalInstrumentDef[] = EQUITY_DEFS.map((d) => ({
   currency: d.ccy,
   notes: d.notes,
   supportedTimeframes: EQUITY_TFS,
+  exchange: exchangeForYahooSym(d.yahooSym),
 }));
 
 // ── Global indices (Phase 2) ────────────────────────────────────────
@@ -522,43 +580,49 @@ interface IdxDef {
   yahooSym: string;
   name: string;
   ccy: string;
+  /**
+   * Exchange whose cash session drives this index. Stoxx 50 and other
+   * pan-European composites have no single home venue but publish during
+   * Eurozone hours, so we tag them to a representative Euronext exchange.
+   */
+  exchange: GlobalExchange;
 }
 
 const INDEX_DEFS: ReadonlyArray<IdxDef> = [
   // ── US ──────────────────────────────────────────────────────────
-  { scannerSym: "SPX",     yahooSym: "^GSPC",     name: "S&P 500",          ccy: "USD" },
-  { scannerSym: "NDX",     yahooSym: "^NDX",      name: "Nasdaq 100",       ccy: "USD" },
-  { scannerSym: "DJI",     yahooSym: "^DJI",      name: "Dow Jones IA",     ccy: "USD" },
-  { scannerSym: "RUT",     yahooSym: "^RUT",      name: "Russell 2000",     ccy: "USD" },
-  { scannerSym: "VIX",     yahooSym: "^VIX",      name: "CBOE VIX",         ccy: "USD" },
+  { scannerSym: "SPX",     yahooSym: "^GSPC",     name: "S&P 500",          ccy: "USD", exchange: "NYSE" },
+  { scannerSym: "NDX",     yahooSym: "^NDX",      name: "Nasdaq 100",       ccy: "USD", exchange: "NYSE" },
+  { scannerSym: "DJI",     yahooSym: "^DJI",      name: "Dow Jones IA",     ccy: "USD", exchange: "NYSE" },
+  { scannerSym: "RUT",     yahooSym: "^RUT",      name: "Russell 2000",     ccy: "USD", exchange: "NYSE" },
+  { scannerSym: "VIX",     yahooSym: "^VIX",      name: "CBOE VIX",         ccy: "USD", exchange: "NYSE" },
   // ── Europe ──────────────────────────────────────────────────────
-  { scannerSym: "DAX",     yahooSym: "^GDAXI",    name: "DAX 40",           ccy: "EUR" },
-  { scannerSym: "FTSE",    yahooSym: "^FTSE",     name: "FTSE 100",         ccy: "GBP" },
-  { scannerSym: "FTSE250", yahooSym: "^FTMC",     name: "FTSE 250",         ccy: "GBP" },
-  { scannerSym: "CAC",     yahooSym: "^FCHI",     name: "CAC 40",           ccy: "EUR" },
-  { scannerSym: "SX5E",    yahooSym: "^STOXX50E", name: "Euro Stoxx 50",    ccy: "EUR" },
-  { scannerSym: "IBEX",    yahooSym: "^IBEX",     name: "IBEX 35",          ccy: "EUR" },
-  { scannerSym: "MIB",     yahooSym: "FTSEMIB.MI",name: "FTSE MIB",         ccy: "EUR" },
-  { scannerSym: "AEX",     yahooSym: "^AEX",      name: "AEX",              ccy: "EUR" },
-  { scannerSym: "SMI",     yahooSym: "^SSMI",     name: "Swiss Market Index",ccy: "CHF" },
-  { scannerSym: "OMXS30",  yahooSym: "^OMX",      name: "OMX Stockholm 30", ccy: "SEK" },
+  { scannerSym: "DAX",     yahooSym: "^GDAXI",    name: "DAX 40",           ccy: "EUR", exchange: "XETR" },
+  { scannerSym: "FTSE",    yahooSym: "^FTSE",     name: "FTSE 100",         ccy: "GBP", exchange: "LSE" },
+  { scannerSym: "FTSE250", yahooSym: "^FTMC",     name: "FTSE 250",         ccy: "GBP", exchange: "LSE" },
+  { scannerSym: "CAC",     yahooSym: "^FCHI",     name: "CAC 40",           ccy: "EUR", exchange: "EPA" },
+  { scannerSym: "SX5E",    yahooSym: "^STOXX50E", name: "Euro Stoxx 50",    ccy: "EUR", exchange: "EPA" },
+  { scannerSym: "IBEX",    yahooSym: "^IBEX",     name: "IBEX 35",          ccy: "EUR", exchange: "BME" },
+  { scannerSym: "MIB",     yahooSym: "FTSEMIB.MI",name: "FTSE MIB",         ccy: "EUR", exchange: "BIT" },
+  { scannerSym: "AEX",     yahooSym: "^AEX",      name: "AEX",              ccy: "EUR", exchange: "AMS" },
+  { scannerSym: "SMI",     yahooSym: "^SSMI",     name: "Swiss Market Index",ccy: "CHF", exchange: "SWX" },
+  { scannerSym: "OMXS30",  yahooSym: "^OMX",      name: "OMX Stockholm 30", ccy: "SEK", exchange: "STO" },
   // ── Asia / Pacific ──────────────────────────────────────────────
-  { scannerSym: "N225",    yahooSym: "^N225",     name: "Nikkei 225",       ccy: "JPY" },
-  { scannerSym: "HSI",     yahooSym: "^HSI",      name: "Hang Seng",        ccy: "HKD" },
-  { scannerSym: "SSEC",    yahooSym: "000001.SS", name: "SSE Composite",    ccy: "CNY" },
-  { scannerSym: "AXJO",    yahooSym: "^AXJO",     name: "S&P/ASX 200",      ccy: "AUD" },
-  { scannerSym: "KOSPI",   yahooSym: "^KS11",     name: "KOSPI Composite",  ccy: "KRW" },
-  { scannerSym: "TWII",    yahooSym: "^TWII",     name: "Taiwan Weighted",  ccy: "TWD" },
-  { scannerSym: "STI",     yahooSym: "^STI",      name: "Straits Times",    ccy: "SGD" },
-  { scannerSym: "KLSE",    yahooSym: "^KLSE",     name: "FTSE Bursa Malaysia KLCI", ccy: "MYR" },
-  { scannerSym: "JKSE",    yahooSym: "^JKSE",     name: "Jakarta Composite",ccy: "IDR" },
-  { scannerSym: "NZ50",    yahooSym: "^NZ50",     name: "S&P/NZX 50",       ccy: "NZD" },
+  { scannerSym: "N225",    yahooSym: "^N225",     name: "Nikkei 225",       ccy: "JPY", exchange: "TSE" },
+  { scannerSym: "HSI",     yahooSym: "^HSI",      name: "Hang Seng",        ccy: "HKD", exchange: "HKEX" },
+  { scannerSym: "SSEC",    yahooSym: "000001.SS", name: "SSE Composite",    ccy: "CNY", exchange: "SSE" },
+  { scannerSym: "AXJO",    yahooSym: "^AXJO",     name: "S&P/ASX 200",      ccy: "AUD", exchange: "ASX" },
+  { scannerSym: "KOSPI",   yahooSym: "^KS11",     name: "KOSPI Composite",  ccy: "KRW", exchange: "KRX" },
+  { scannerSym: "TWII",    yahooSym: "^TWII",     name: "Taiwan Weighted",  ccy: "TWD", exchange: "TWSE" },
+  { scannerSym: "STI",     yahooSym: "^STI",      name: "Straits Times",    ccy: "SGD", exchange: "SGX" },
+  { scannerSym: "KLSE",    yahooSym: "^KLSE",     name: "FTSE Bursa Malaysia KLCI", ccy: "MYR", exchange: "MYX" },
+  { scannerSym: "JKSE",    yahooSym: "^JKSE",     name: "Jakarta Composite",ccy: "IDR", exchange: "IDX" },
+  { scannerSym: "NZ50",    yahooSym: "^NZ50",     name: "S&P/NZX 50",       ccy: "NZD", exchange: "NZX" },
   // ── Emerging markets ───────────────────────────────────────────
-  { scannerSym: "NIFTY",   yahooSym: "^NSEI",     name: "Nifty 50",         ccy: "INR" },
-  { scannerSym: "SENSEX",  yahooSym: "^BSESN",    name: "BSE Sensex",       ccy: "INR" },
-  { scannerSym: "BVSP",    yahooSym: "^BVSP",     name: "Bovespa",          ccy: "BRL" },
-  { scannerSym: "MXX",     yahooSym: "^MXX",      name: "S&P/BMV IPC",      ccy: "MXN" },
-  { scannerSym: "IMOEX",   yahooSym: "IMOEX.ME",  name: "MOEX Russia",      ccy: "RUB" },
+  { scannerSym: "NIFTY",   yahooSym: "^NSEI",     name: "Nifty 50",         ccy: "INR", exchange: "NSE" },
+  { scannerSym: "SENSEX",  yahooSym: "^BSESN",    name: "BSE Sensex",       ccy: "INR", exchange: "NSE" },
+  { scannerSym: "BVSP",    yahooSym: "^BVSP",     name: "Bovespa",          ccy: "BRL", exchange: "B3" },
+  { scannerSym: "MXX",     yahooSym: "^MXX",      name: "S&P/BMV IPC",      ccy: "MXN", exchange: "BMV" },
+  { scannerSym: "IMOEX",   yahooSym: "IMOEX.ME",  name: "MOEX Russia",      ccy: "RUB", exchange: "MOEX" },
 ];
 
 export const INDICES: GlobalInstrumentDef[] = INDEX_DEFS.map((d) => ({
@@ -570,6 +634,7 @@ export const INDICES: GlobalInstrumentDef[] = INDEX_DEFS.map((d) => ({
   currency: d.ccy,
   notes: IDX_NOTE,
   supportedTimeframes: INDEX_TFS,
+  exchange: d.exchange,
 }));
 
 export const UNIVERSE: GlobalInstrumentDef[] = [
