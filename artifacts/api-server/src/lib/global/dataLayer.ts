@@ -86,6 +86,26 @@ async function recordSyncErr(source: GlobalDataSource, err: unknown): Promise<vo
   });
 }
 
+/**
+ * Refresh failed for `symbol` — preserve the last-known price/quote (so the
+ * dashboard keeps showing it) but stamp the upstream error onto the row
+ * for the UI tooltip. Crucially we DO NOT touch `updatedAt`; the row's age
+ * grows naturally and the per-source freshness budget marks it `stale`.
+ *
+ * If the row doesn't exist yet (brand-new symbol that has never had a
+ * successful refresh) we no-op — `buildDashboardRows` will still surface
+ * the symbol with nulls and `stale: true` because there is no live row.
+ */
+async function recordLivePriceError(
+  symbol: string,
+  source: GlobalDataSource,
+  message: string,
+): Promise<void> {
+  await db.update(globalLivePricesTable)
+    .set({ lastError: message, source })
+    .where(eq(globalLivePricesTable.symbol, symbol));
+}
+
 async function upsertLivePrice(
   symbol: string,
   source: GlobalDataSource,
@@ -131,62 +151,127 @@ async function upsertLivePrice(
 }
 
 // ── Binance batch refresh ────────────────────────────────────────────
+//
+// Binance's `/api/v3/ticker/24hr` accepts a JSON-array `symbols=` query, but
+// (a) the URL gets long and (b) ANY invalid symbol in the list fails the
+// whole call. We chunk into 40-symbol batches so a single bad ticker only
+// blanks its own chunk, and the rest of the universe still refreshes.
+const BINANCE_CHUNK_SIZE = 40;
+
 export async function refreshBinance(): Promise<void> {
-  try {
-    const tickers = await fetchBinanceTickers(CRYPTO.map(c => c.sourceSymbol));
-    const bySymbol = new Map(tickers.map(t => [t.symbol, t] as const));
-    for (const inst of CRYPTO) {
-      const t = bySymbol.get(inst.sourceSymbol);
-      if (!t) continue;
-      await upsertLivePrice(inst.symbol, "binance", {
-        price: t.lastPrice,
-        prevClose: t.prevClosePrice,
-        changeAbs: t.priceChange,
-        changePct: t.priceChangePercent,
-        dayHigh: t.highPrice,
-        dayLow: t.lowPrice,
-        volume: t.volume,
-        lastError: null,
-      });
+  let ok = 0;
+  let fail = 0;
+  let lastErr: Error | null = null;
+  const chunks: GlobalInstrumentDef[][] = [];
+  for (let i = 0; i < CRYPTO.length; i += BINANCE_CHUNK_SIZE) {
+    chunks.push(CRYPTO.slice(i, i + BINANCE_CHUNK_SIZE));
+  }
+  for (const chunk of chunks) {
+    try {
+      const tickers = await fetchBinanceTickers(chunk.map(c => c.sourceSymbol));
+      const bySymbol = new Map(tickers.map(t => [t.symbol, t] as const));
+      for (const inst of chunk) {
+        const t = bySymbol.get(inst.sourceSymbol);
+        if (!t) {
+          // Symbol missing from a successful batch response — almost always a
+          // delisted ticker. Preserve the last-known row but flag the error;
+          // the freshness budget will eventually mark it stale.
+          fail++;
+          await recordLivePriceError(inst.symbol, "binance", "not in batch response");
+          continue;
+        }
+        await upsertLivePrice(inst.symbol, "binance", {
+          price: t.lastPrice,
+          prevClose: t.prevClosePrice,
+          changeAbs: t.priceChange,
+          changePct: t.priceChangePercent,
+          dayHigh: t.highPrice,
+          dayLow: t.lowPrice,
+          volume: t.volume,
+          lastError: null,
+        });
+        ok++;
+      }
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      fail += chunk.length;
+      logger.warn({ err: lastErr.message, chunkSize: chunk.length }, "Binance chunk refresh failed");
+      // Stamp the upstream error onto each row in the chunk WITHOUT touching
+      // its `updatedAt` — that lets the freshness budget (FRESHNESS_BUDGET_MS)
+      // flip the row to `stale` after a couple of consecutive misses while
+      // the dashboard keeps showing the last-known price.
+      for (const inst of chunk) {
+        await recordLivePriceError(inst.symbol, "binance", lastErr.message);
+      }
     }
-    await recordSyncOk("binance", `${tickers.length}/${CRYPTO.length} symbols`);
-  } catch (err) {
-    logger.warn({ err: (err as Error).message }, "Binance refresh failed");
-    await recordSyncErr("binance", err);
+  }
+  if (ok > 0) {
+    await recordSyncOk("binance", `${ok}/${CRYPTO.length} symbols (${fail} fail)`);
+  } else if (lastErr) {
+    await recordSyncErr("binance", lastErr);
+  } else if (fail > 0) {
+    await recordSyncErr("binance", new Error(`${fail}/${CRYPTO.length} symbols failed`));
   }
 }
 
 // ── Yahoo per-symbol refresh (commodities + fx) ──────────────────────
+//
+// Yahoo's chart() endpoint is per-symbol, so a 30-FX + 30-commodity universe
+// would take ~60 sequential round-trips per cycle. We use a bounded worker
+// pool (small concurrency to stay well under per-IP throttling) so a full
+// refresh comfortably finishes inside the cycle budget while still being
+// gentle on the upstream.
+const YAHOO_REFRESH_CONCURRENCY = 4;
+
 async function refreshYahooBatch(
   defs: GlobalInstrumentDef[],
   source: GlobalDataSource,
 ): Promise<void> {
-  let ok = 0; let fail = 0;
-  for (const inst of defs) {
-    try {
-      const q = await fetchYahooQuoteSnapshot(inst.sourceSymbol);
-      if (!q || !Number.isFinite(q.price)) {
+  if (defs.length === 0) return;
+  let ok = 0;
+  let fail = 0;
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    while (cursor < defs.length) {
+      const idx = cursor++;
+      const inst = defs[idx]!;
+      try {
+        const q = await fetchYahooQuoteSnapshot(inst.sourceSymbol);
+        if (!q || !Number.isFinite(q.price)) {
+          // Upstream answered but with no usable quote — keep last-known price
+          // visible and let the freshness budget age it into `stale`.
+          fail++;
+          await recordLivePriceError(inst.symbol, source, "no quote");
+          continue;
+        }
+        await upsertLivePrice(inst.symbol, source, {
+          price: q.price,
+          prevClose: q.prevClose,
+          changeAbs: q.changeAbs,
+          changePct: q.changePct,
+          dayHigh: q.dayHigh,
+          dayLow: q.dayLow,
+          volume: q.volume,
+          lastError: null,
+        });
+        ok++;
+      } catch (err) {
         fail++;
-        await upsertLivePrice(inst.symbol, source, { price: null, lastError: "no quote" });
-        continue;
+        const msg = err instanceof Error ? err.message : String(err);
+        // Same intent as the Binance path: preserve last-known price; the
+        // freshness budget surfaces multi-cycle failures as `stale`.
+        await recordLivePriceError(inst.symbol, source, msg);
       }
-      await upsertLivePrice(inst.symbol, source, {
-        price: q.price,
-        prevClose: q.prevClose,
-        changeAbs: q.changeAbs,
-        changePct: q.changePct,
-        dayHigh: q.dayHigh,
-        dayLow: q.dayLow,
-        volume: q.volume,
-        lastError: null,
-      });
-      ok++;
-    } catch (err) {
-      fail++;
-      const msg = err instanceof Error ? err.message : String(err);
-      await upsertLivePrice(inst.symbol, source, { price: null, lastError: msg });
     }
   }
+
+  const workers = Array.from(
+    { length: Math.min(YAHOO_REFRESH_CONCURRENCY, defs.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+
   if (ok > 0) await recordSyncOk(source, `${ok} ok / ${fail} fail`);
   if (ok === 0 && fail > 0) await recordSyncErr(source, new Error(`${fail}/${defs.length} symbols failed`));
 }
