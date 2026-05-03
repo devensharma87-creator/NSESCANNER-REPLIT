@@ -91,3 +91,15 @@ When the Kite session is offline, `performFullScan` no longer attempts per-symbo
 4. **Row-assembly batch tier** — after the existing `kq+ind` / `kq` / chart-fallback tiers, a new tier builds a `KiteScannerQuote` from `yahooBatch.get(sym)` when ALL of `regularMarketDayHigh/DayLow/Open/PreviousClose/Volume/Time` are present, then calls `rowFromKiteOnly`. Hard-gates on every field (no synthetic zeros for missing volume, no `Date.now()` for missing market time — honest absence over fabrication, per the strict no-mock-data rule). Same `|changePct| ≤ 35` sanity guard as the chart-fallback tier so corp-action glitches drop.
 
 Bumped `DISK_CACHE_VERSION` 15→16 to invalidate caches written during the broken window. Verified: 2,422 of 2,455 rows in ~6s with `enrichTimedOut: false`, breaker not tripping.
+
+## Watchlist batch-quote safety net (2026-05)
+
+The Watchlist tab (`/api/watchlist/:key`, `lib/watchlist.ts`) was returning `rows: []` whenever Yahoo's chart endpoint was unhealthy — `buildRow` required a successful per-symbol `fetchChart("3mo","1d")` call for *everything* (price, OHLC, volume, change, indicators), so a tripped breaker or rate limit on charts collapsed the entire basket and the UI showed "0 stocks / 0 advancers / 0 decliners". Cache-on-empty rule made it worse: nothing to fall back to on subsequent requests.
+
+Fix mirrors the scanner two-tier pattern:
+1. `getWatchlist` now fans out `scanAll()` and `fetchYahooBatchQuotes(symbols, "NS")` in parallel (the quote endpoint is independent of the chart endpoint and one HTTP call covers ~150 symbols).
+2. `buildRow(sym, signal, batchQuote)` first tries the chart for the rich path (OHLC + EMA20/EMA50/RSI14 + system signal). If chart fails, it falls back to the batch quote — emitting a row with real OHLC/volume/change from the quote and indicators set to `undefined` (NEVER zero). `mcTrend` falls back to `trendFromHeuristic` with undefined EMAs/RSI, which honestly degrades to "Neutral" unless `|chgPct| > 1.5`.
+3. Hard-gates on `regularMarketPrice > 0`, `regularMarketPreviousClose > 0`, plus presence of Open/DayHigh/DayLow/Volume — no fabricated fields.
+4. Build log now reports `fromBatchFallback` and `batchPoolSize` so chart-endpoint trouble is visible at a glance.
+
+Verified: NIFTY50 returns 50/50 rows with full indicators when Yahoo is healthy; on chart failure the batch path keeps the table populated with real prices and a degraded (but honest) trend label.
