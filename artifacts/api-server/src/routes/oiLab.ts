@@ -61,6 +61,24 @@ router.get("/options/oi-lab/insights/:underlying", async (req, res) => {
     strikesParam === "all" ? 999
     : strikesParam === "atm" ? 0
     : Math.max(0, Math.min(Number(strikesParam) || 20, 50));
+  // Optional finite Δ window (e.g. "?window=5m"). The server keeps a
+  // per-(underlying|expiry) snapshot history, so any window between the
+  // sampling cadence (~30s) and 3h works the moment the page loads —
+  // no client-side buffer warmup required. Unknown / malformed values
+  // are silently ignored so the client falls back to the broker
+  // since-open Δ rather than failing.
+  const WINDOW_MAP: Record<string, number> = {
+    "3m":  3 * 60_000,
+    "5m":  5 * 60_000,
+    "10m": 10 * 60_000,
+    "15m": 15 * 60_000,
+    "30m": 30 * 60_000,
+    "1h":  60 * 60_000,
+    "2h":  120 * 60_000,
+    "3h":  180 * 60_000,
+  };
+  const windowParam = typeof req.query.window === "string" ? req.query.window : undefined;
+  const windowMs = windowParam && WINDOW_MAP[windowParam] != null ? WINDOW_MAP[windowParam] : undefined;
 
   const session = await getActiveSession().catch(() => null);
   if (!session) {
@@ -72,7 +90,7 @@ router.get("/options/oi-lab/insights/:underlying", async (req, res) => {
     return;
   }
   try {
-    const insights = await fetchOiInsights(sym, expiry, strikesAround);
+    const insights = await fetchOiInsights(sym, expiry, strikesAround, windowMs);
     if (!insights) {
       res.status(404).json({
         error: "no_chain_data",

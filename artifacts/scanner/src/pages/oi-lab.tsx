@@ -895,6 +895,12 @@ interface InsightStrike {
   peDelta?: number; peGamma?: number; peTheta?: number; peVega?: number;
   pcr: number;
   painValue: number;
+  /** Server-supplied windowed Δ. Present only when the request included
+   *  `?window=`. `null` = server has no baseline old enough yet (different
+   *  from 0, which means the strike is genuinely unchanged). The client
+   *  must NEVER substitute another value when this is null. */
+  ceOiChgWindow?: number | null;
+  peOiChgWindow?: number | null;
 }
 type SentimentBand = "STRONGLY_BEARISH" | "MILDLY_BEARISH" | "NEUTRAL" | "MILDLY_BULLISH" | "STRONGLY_BULLISH";
 interface InsightResp {
@@ -929,6 +935,12 @@ interface InsightResp {
   marketInsight: string;
   analysis: string;
   strikes: InsightStrike[];
+  // Server-supplied finite-window Δ block (present only when ?window= sent)
+  windowMs?: number;
+  windowMode?: "exact" | "approx" | "none";
+  windowBaselineAt?: string | null;
+  windowBufferOldestAt?: string | null;
+  windowBufferCount?: number;
 }
 
 const SENTIMENT_TONE: Record<SentimentBand, { color: string; bg: string; border: string }> = {
@@ -1090,15 +1102,14 @@ function OiInsightsTooltip(props: {
 /**
  * Intraday timeframe selector for the main "OI by Strike" chart.
  *
- * "All" = use the broker's since-open Δ (the existing `ceOiChg` / `peOiChg`
- *  fields, which are intraday change since 9:15 AM).
+ * "All"           → no `?window=` sent. Server returns broker since-open Δ.
+ * Any finite pill → `?window=<v>` sent. Server returns per-strike Δ vs the
+ *                   snapshot it took ~N minutes ago (the snapshot history
+ *                   is server-owned — see `pushOiInsightsSnapshot` /
+ *                   `resolveWindowDelta` in api-server's oiLab.ts).
  *
- * Any finite window = recompute per-strike Δ as
- *  `currentOi - earliestOiInWindow` from the client-side rolling buffer of
- *  insights snapshots (see `oiHistoryRef` below). The buffer is keyed by
- *  underlying+expiry and grows by 1 entry every 30s (the existing poll
- *  cadence), so the 3-hour pill needs ~360 entries — well within any
- *  reasonable memory budget.
+ * The string `v` is the wire-format the server's WINDOW_MAP expects, so
+ * adding a new pill here only requires a matching entry on both sides.
  */
 type TimeFrame = "3m" | "5m" | "10m" | "15m" | "30m" | "1h" | "2h" | "3h" | "all";
 const TIMEFRAMES: { v: TimeFrame; l: string; ms: number | null }[] = [
@@ -1113,12 +1124,6 @@ const TIMEFRAMES: { v: TimeFrame; l: string; ms: number | null }[] = [
   { v: "all", l: "All",         ms: null },
 ];
 
-interface OiHistorySnap {
-  ts: number;                          // epoch ms
-  ce: Record<number, number>;          // strike -> ceOi
-  pe: Record<number, number>;          // strike -> peOi
-}
-
 function InsightsTab() {
   const [universe, setUniverse] = useState<{ indices: string[]; stocks: string[]; source?: string; count?: number; note?: string }>({ indices: [], stocks: [] });
   const [underlying, setUnderlying] = useState("NIFTY");
@@ -1131,16 +1136,13 @@ function InsightsTab() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [chartView, setChartView] = useState<"oi" | "oichg" | "pcr" | "pain">("oi");
   const [timeframe, setTimeframe] = useState<TimeFrame>("all");
-  // Per-(underlying|expiry) rolling buffer of OI snapshots so we can compute
-  // Δ over an arbitrary window (Last 5m / 1h / etc) on the client without
-  // additional server round-trips. Stored in a ref because we don't want
-  // every push to re-render the whole InsightsTab — only the oiBars memo
-  // needs the data, and it's gated behind `data` (which IS state) and
-  // `timeframe` (also state), so any meaningful change is already a render.
-  const oiHistoryRef = useRef<Record<string, OiHistorySnap[]>>({});
-  // Bumped on every successful fetch so the oiBars useMemo re-evaluates
-  // against the freshly-pushed snapshot (refs alone don't trigger memos).
-  const [historyTick, setHistoryTick] = useState(0);
+  // The Δ-window snapshot history is now owned by the SERVER (see
+  // `pushOiInsightsSnapshot` / `resolveWindowDelta` in api-server's
+  // oiLab.ts). The client just sends `?window=…` and reads the
+  // server-supplied per-strike `*OiChgWindow` plus the `windowMode` /
+  // `windowBaselineAt` block. This eliminates the prior bug where
+  // "Last 3 min" appeared broken until the user kept the page open
+  // for 3+ minutes — the server is already polling and buffering.
 
   // Load universe once
   useEffect(() => {
@@ -1151,12 +1153,15 @@ function InsightsTab() {
   }, []);
 
   // Monotonic request id — only the most-recently-issued fetch is allowed
-  // to commit `setData`/buffer-push, so a stale in-flight response from a
-  // previous symbol cannot overwrite the current one (the cross-symbol
-  // leakage path the reviewer flagged).
+  // to commit `setData`, so a stale in-flight response from a previous
+  // symbol/timeframe cannot overwrite the current one.
   const reqIdRef = useRef(0);
 
-  // Load insights — re-fetches on underlying / expiry / strikes change + every 30s
+  // Load insights — re-fetches on underlying / expiry / strikes / timeframe
+  // change + every 30s. Passing `?window=` to the server makes it return
+  // per-strike Δ vs the snapshot taken N minutes ago. We always re-fetch
+  // when the timeframe pill changes so the window block is freshly
+  // computed — there's no client-side cache that could serve stale Δ.
   const load = async () => {
     setError(null);
     const myId = ++reqIdRef.current;
@@ -1164,28 +1169,12 @@ function InsightsTab() {
       const qs = new URLSearchParams();
       qs.set("strikes", strikesAround);
       if (expiry) qs.set("expiry", expiry);
+      if (timeframe !== "all") qs.set("window", timeframe);
       const r = await fetch(`${base}api/options/oi-lab/insights/${encodeURIComponent(underlying)}?${qs}`, { credentials: "include" });
       const j: InsightResp = await r.json();
-      // Drop the response if a newer request has already been issued (or
-      // the buffer was reset by a symbol switch in the meantime).
       if (myId !== reqIdRef.current) return;
       if (!r.ok) throw new Error((j as unknown as { detail?: string; error?: string }).detail || (j as unknown as { error?: string }).error || r.statusText);
       setData(j);
-      // Push per-strike snapshot into the rolling buffer for THIS
-      // underlying+expiry. Trim to the longest configured window (3h) +
-      // a small slack so a fresh "Last 3h" pill always has its baseline.
-      const key = `${j.underlying}|${j.expiry}`;
-      const snap: OiHistorySnap = {
-        ts: new Date(j.generatedAt).getTime(),
-        ce: Object.fromEntries(j.strikes.map(s => [s.strike, s.ceOi])),
-        pe: Object.fromEntries(j.strikes.map(s => [s.strike, s.peOi])),
-      };
-      const buf = oiHistoryRef.current[key] ?? [];
-      buf.push(snap);
-      const cutoff = snap.ts - (3 * 60 + 5) * 60_000; // 3h + 5min slack
-      while (buf.length > 0 && buf[0]!.ts < cutoff) buf.shift();
-      oiHistoryRef.current[key] = buf;
-      setHistoryTick(t => t + 1);
     } catch (e) {
       if (myId !== reqIdRef.current) return;
       setError((e as Error).message);
@@ -1200,19 +1189,13 @@ function InsightsTab() {
     const t = setInterval(load, 30_000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [underlying, expiry, strikesAround]);
+  }, [underlying, expiry, strikesAround, timeframe]);
 
-  // Reset expiry AND drop any buffered history that no longer matches the
-  // new underlying so a "Last 30 min" pill can never compare strikes from
-  // two different symbols. Also reset the timeframe back to "All" — keeping
-  // a finite-window pill active across symbols would briefly render a
-  // misleading title until the buffer caught up (the silent-mismatch bug
-  // the reviewer flagged).
+  // Reset expiry on underlying change. We do NOT reset the timeframe — the
+  // server's snapshot history persists across symbol switches, so "Last
+  // 5 min" stays meaningful immediately.
   useEffect(() => {
     setExpiry(undefined);
-    oiHistoryRef.current = {};
-    setHistoryTick(0);
-    setTimeframe("all");
   }, [underlying]);
 
   const allUnderlyings = useMemo(
@@ -1252,85 +1235,83 @@ function InsightsTab() {
     tf: TimeFrame;
     mode: TfMode;
     windowMs: number | null;
-    baseline: OiHistorySnap | null;
     baselineUsedAt: number | null;
     bufferLen: number;
+    bufferOldestAt: number | null;
   }>(() => {
-    if (!data) return { tf: timeframe, mode: "all", windowMs: null, baseline: null, baselineUsedAt: null, bufferLen: 0 };
+    if (!data) return { tf: timeframe, mode: "all", windowMs: null, baselineUsedAt: null, bufferLen: 0, bufferOldestAt: null };
     const meta = TIMEFRAMES.find(t => t.v === timeframe)!;
-    const key = `${data.underlying}|${data.expiry}`;
-    const buf = oiHistoryRef.current[key] ?? [];
+    const bufLen = data.windowBufferCount ?? 0;
+    const bufOldest = data.windowBufferOldestAt ? new Date(data.windowBufferOldestAt).getTime() : null;
     if (meta.ms == null) {
-      return { tf: timeframe, mode: "all", windowMs: null, baseline: null, baselineUsedAt: null, bufferLen: buf.length };
+      return { tf: timeframe, mode: "all", windowMs: null, baselineUsedAt: null, bufferLen: bufLen, bufferOldestAt: bufOldest };
     }
-    if (buf.length < 2) {
-      // No usable baseline at all. Compute Δ via since-open fallback so the
-      // chart isn't blank, but flag the mode so the title and pill render
-      // honestly as "since open".
-      return { tf: timeframe, mode: "fallback_open", windowMs: meta.ms, baseline: null, baselineUsedAt: null, bufferLen: buf.length };
+    // Map server-supplied windowMode into our 4-state TfMode. "none" means
+    // the server has no usable baseline yet — we surface that as
+    // "fallback_open" so the title honestly reads "since open" and the
+    // chart falls back to the broker since-open Δ already in `ceOiChg`.
+    const serverMode = data.windowMode ?? "none";
+    if (serverMode === "none") {
+      return { tf: timeframe, mode: "fallback_open", windowMs: meta.ms, baselineUsedAt: null, bufferLen: bufLen, bufferOldestAt: bufOldest };
     }
-    const nowMs = new Date(data.generatedAt).getTime();
-    const cutoff = nowMs - meta.ms;
-    // Pick the snap whose ts is closest to `cutoff` AND is strictly older
-    // than `nowMs`. Closest-to-cutoff (rather than first-in-window) gives a
-    // baseline that best approximates "exactly N min ago" even when the
-    // sampling is sparse (tab throttled, network hiccup) — far better than
-    // the previous "first snap in window" rule which could pick a sample
-    // only ~1s old when the window was 5min.
-    const candidates = buf.filter(s => s.ts < nowMs);
-    if (candidates.length === 0) {
-      return { tf: timeframe, mode: "fallback_open", windowMs: meta.ms, baseline: null, baselineUsedAt: null, bufferLen: buf.length };
-    }
-    let best = candidates[0]!;
-    let bestDist = Math.abs(best.ts - cutoff);
-    for (const s of candidates) {
-      const d = Math.abs(s.ts - cutoff);
-      if (d < bestDist) { best = s; bestDist = d; }
-    }
-    // "Exact" only when the chosen baseline lies inside ±20% of the
-    // requested window (i.e. close enough that calling it "Last N min" is
-    // honest). Otherwise classify as "approx" and surface a warning.
-    const tolMs = meta.ms * 0.2;
-    const mode: TfMode = bestDist <= tolMs ? "exact" : "approx";
     return {
       tf: timeframe,
-      mode,
+      mode: serverMode === "exact" ? "exact" : "approx",
       windowMs: meta.ms,
-      baseline: best,
-      baselineUsedAt: best.ts,
-      bufferLen: buf.length,
+      baselineUsedAt: data.windowBaselineAt ? new Date(data.windowBaselineAt).getTime() : null,
+      bufferLen: bufLen,
+      bufferOldestAt: bufOldest,
     };
-    // historyTick re-evaluates this memo each time the buffer grows.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, timeframe, historyTick]);
+  }, [data, timeframe]);
 
   const oiBars = useMemo(() => {
     if (!data) return [];
-    const { baseline, mode } = tfResolved;
-    // mode === "fallback_open" or "all" → broker since-open Δ
-    // mode === "exact" or "approx"      → diff vs baseline snapshot
-    const useBaseline = (mode === "exact" || mode === "approx") && baseline != null;
+    const { mode } = tfResolved;
+    // mode === "fallback_open" or "all" → broker since-open Δ in s.ceOiChg
+    // mode === "exact" or "approx"      → server-supplied s.ceOiChgWindow
+    //                                     (null = strike has no baseline)
+    const useWindow = mode === "exact" || mode === "approx";
     return data.strikes.map(s => {
-      let ceOiChg = num(s.ceOiChg);
-      let peOiChg = num(s.peOiChg);
+      let ceOiChg: number;
+      let peOiChg: number;
       let missingBaseline = false;
-      if (useBaseline && baseline) {
-        const baseCe = baseline.ce[s.strike];
-        const basePe = baseline.pe[s.strike];
-        // Strict semantics: in a finite-window mode, EITHER both legs of
-        // the strike have a baseline (Δ is honest) OR neither does and Δ
-        // renders as 0 (no change attributable to this window). We never
-        // mix window-Δ and since-open Δ in the same chart — that mixing
-        // was the silent-mismatch bug the reviewer flagged.
-        if (baseCe != null && basePe != null) {
-          ceOiChg = num(s.ceOi) - num(baseCe);
-          peOiChg = num(s.peOi) - num(basePe);
-        } else {
+      if (useWindow) {
+        if (s.ceOiChgWindow == null || s.peOiChgWindow == null) {
+          // Strike was added mid-window or absent from the baseline snap.
+          // Render Δ as 0 and flag — never substitute since-open Δ
+          // (mixing window-Δ and since-open Δ in the same chart was the
+          // silent-mismatch bug the reviewer flagged).
           ceOiChg = 0;
           peOiChg = 0;
           missingBaseline = true;
+        } else {
+          ceOiChg = num(s.ceOiChgWindow);
+          peOiChg = num(s.peOiChgWindow);
         }
+      } else {
+        ceOiChg = num(s.ceOiChg);
+        peOiChg = num(s.peOiChg);
       }
+      // Stacked-bar geometry for the Sensibull-style "attached" Δ overlay
+      // on the OI Total view. Each leg becomes 3 stacked segments:
+      //   • base : OI minus the (positive) increase  → solid leg color
+      //   • inc  : max(0, +ΔOI)                      → brighter shade,
+      //                                                stacked ON TOP of
+      //                                                base so total
+      //                                                height = OI
+      //   • dec  : max(0, -ΔOI)                      → ghost outline above
+      //                                                base, indicating
+      //                                                "OI shrunk by this
+      //                                                much since baseline"
+      // All three legs are rendered as stackId="ce"/"pe" Bars so they
+      // visually attach instead of floating apart (the prior dotted-line
+      // approach made the per-strike Δ unreadable at a glance).
+      const ceOi = num(s.ceOi);
+      const peOi = num(s.peOi);
+      const ceInc = Math.max(0, ceOiChg);
+      const ceDec = Math.max(0, -ceOiChg);
+      const peInc = Math.max(0, peOiChg);
+      const peDec = Math.max(0, -peOiChg);
       return {
         strike: num(s.strike),
         // strikeLabel forces a stable string category on the X axis — Recharts'
@@ -1338,10 +1319,17 @@ function InsightsTab() {
         // like a continuous scale, which (combined with the Fragment-wrapped
         // Bars below) sometimes drops every bar from the plot.
         strikeLabel: String(s.strike),
-        ceOi: num(s.ceOi),
-        peOi: num(s.peOi),
+        ceOi,
+        peOi,
         ceOiChg,
         peOiChg,
+        // Stacked-bar segments (see geometry note above)
+        ceBase: Math.max(0, ceOi - ceInc),
+        ceInc,
+        ceDec,
+        peBase: Math.max(0, peOi - peInc),
+        peInc,
+        peDec,
         missingBaseline,
         pcr: num(s.pcr),
         // Per-strike PCR is unbounded above — at deep ITM-call strikes (well
@@ -1776,40 +1764,46 @@ function InsightsTab() {
               */}
               {(chartView === "oi" || chartView === "oichg") && (() => {
                 const nowMs = data ? new Date(data.generatedAt).getTime() : Date.now();
+                // Server-supplied buffer state — same numbers the server
+                // itself used to compute Δ, so the pill row can never lie
+                // about what the chart will show.
+                const bufLen = tfResolved.bufferLen;
+                const oldestAge = tfResolved.bufferOldestAt != null ? nowMs - tfResolved.bufferOldestAt : 0;
                 return (
                   <div className="mt-2 flex flex-wrap items-center gap-1">
                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono mr-1">
                       Δ window
                     </span>
                     {TIMEFRAMES.map(t => {
-                      const buf = data ? oiHistoryRef.current[`${data.underlying}|${data.expiry}`] ?? [] : [];
-                      const oldestAge = buf.length > 0 ? nowMs - buf[0]!.ts : 0;
                       // A finite window has a usable baseline only once the
-                      // buffer reaches back at least that far (otherwise we
-                      // fall back to the "since you opened" mode and the
-                      // pill renders as semi-active with a tooltip).
+                      // server buffer reaches back at least ~80% of that
+                      // distance. Otherwise the pill renders as semi-active
+                      // with an honest tooltip — never disabled outright,
+                      // because clicking it falls back to since-open Δ
+                      // (which is still useful, just not the requested
+                      // window) instead of leaving the user stuck.
                       const haveBaseline = t.ms == null ? true : oldestAge >= t.ms * 0.8;
                       const isActive = timeframe === t.v;
-                      const partial = !isActive && t.ms != null && !haveBaseline && buf.length >= 2;
-                      const empty = t.ms != null && buf.length < 2;
+                      const partial = !isActive && t.ms != null && !haveBaseline && bufLen >= 2;
+                      const empty = t.ms != null && bufLen < 2;
+                      const needMin = t.ms != null ? Math.max(0, Math.ceil((t.ms - oldestAge) / 60_000)) : 0;
                       const title = empty
-                        ? `Need at least 2 buffered snapshots — currently have ${buf.length}. Buffer fills at ~30s cadence.`
+                        ? `Server has ${bufLen} snapshot${bufLen === 1 ? "" : "s"} so far — buffer fills at ~30s cadence and is shared across all clients.`
                         : t.ms != null && !haveBaseline
-                        ? `Buffer only goes back ${(oldestAge / 60_000).toFixed(1)} min — comparison will use the oldest snapshot we have.`
+                        ? `Buffer only goes back ${(oldestAge / 60_000).toFixed(1)} min (need ${needMin} more for an exact ${t.l.toLowerCase().replace("last ", "")} window). Click anyway — Δ will be vs the oldest snapshot.`
                         : t.ms == null
                         ? "Use broker's intraday Δ since 9:15 AM"
-                        : `Compare current OI to a snapshot from ~${t.l.toLowerCase().replace("last ", "")} ago`;
+                        : `Compare current OI to the snapshot from ~${t.l.toLowerCase().replace("last ", "")} ago`;
                       return (
                         <button
                           key={t.v}
-                          onClick={() => !empty && setTimeframe(t.v)}
-                          disabled={empty}
+                          onClick={() => setTimeframe(t.v)}
                           title={title}
                           className={`px-2 py-0.5 text-[10px] font-mono rounded border transition ${
                             isActive
                               ? "border-amber-400 bg-amber-400/15 text-amber-300 font-bold"
                               : empty
-                              ? "border-border/50 bg-card/40 text-muted-foreground/50 cursor-not-allowed"
+                              ? "border-border/50 bg-card/40 text-muted-foreground/60 hover-row"
                               : partial
                               ? "border-border bg-card text-muted-foreground hover-row"
                               : "border-border bg-card text-foreground/80 hover-row"
@@ -2002,43 +1996,69 @@ function InsightsTab() {
                       still render. So every conditional below is a single
                       inline expression returning a series element or false.
                     */}
-                    {chartView === "oi" && <Bar dataKey="ceOi" fill="#dc2626" name="Call OI" />}
-                    {chartView === "oi" && <Bar dataKey="peOi" fill="#16a34a" name="Put OI" />}
-                    {/* Zero baseline so positive vs negative ΔOI is unambiguous */}
+                    {/*
+                      OI Total view — Sensibull-style "attached" Δ overlay.
+                      Each leg is rendered as a stack of three Bars sharing
+                      a stackId so the segments visually attach (no floating
+                      lines, no overlapping series):
+                        ceBase + ceInc = total Call OI (height matches Put
+                                         leg's peBase + peInc)
+                        ceDec          = ghost outline ABOVE the stack,
+                                         indicating "OI shrunk by this much
+                                         since baseline" — drawn as a
+                                         transparent fill with a dashed red
+                                         stroke so increase and decrease
+                                         read at a glance from across the
+                                         room.
+                      We use a brighter shade for the increase segment
+                      rather than an SVG <pattern> hatched fill — Safari
+                      has long-standing pattern-rendering bugs across
+                      multiple SVGs in the same document, and a solid
+                      shade differentiation is just as legible.
+                    */}
                     {chartView === "oi" && (
-                      <ReferenceLine y={0} stroke="#52525b" strokeWidth={1} />
+                      <Bar dataKey="ceBase" stackId="ce" fill="#dc2626" name="Call OI" isAnimationActive={false} />
                     )}
-                    {/* Dashed overlay: ΔOI on the same axis as Total OI.
-                        Visible dots on every strike + thicker stroke + brighter
-                        colors so the per-strike Δ values are individually
-                        readable instead of registering as a faint smear.
-                        `monotoneX` keeps the curve smooth horizontally without
-                        introducing fake vertical wiggles between adjacent
-                        strikes (a common Recharts artifact with type="monotone"
-                        on sparse Y values). */}
                     {chartView === "oi" && (
-                      <Line
-                        type="monotoneX"
-                        dataKey="ceOiChg"
-                        name="Δ Call OI"
+                      <Bar dataKey="ceInc"  stackId="ce" fill="#fca5a5" name="Δ Call OI (added)" isAnimationActive={false} />
+                    )}
+                    {/*
+                      Ghost (unwound) segment shares stackId="ce" with base+inc
+                      so Recharts stacks it ON TOP of the solid bar. Visual
+                      result: solid bar = current OI, dashed translucent box
+                      sitting on top = how much OI was unwound since the
+                      baseline (i.e. previous OI = current + ghost height).
+                      The earlier draft used a separate stackId which made
+                      the ghost render from y=0 and visually overlap the
+                      solid bar — fixed.
+                    */}
+                    {chartView === "oi" && (
+                      <Bar
+                        dataKey="ceDec"
+                        stackId="ce"
+                        fill="rgba(252,165,165,0.08)"
                         stroke="#f87171"
-                        strokeWidth={2.5}
-                        strokeDasharray="5 3"
-                        dot={{ r: 2.5, fill: "#f87171", stroke: "#0a0a0a", strokeWidth: 0.5 }}
-                        activeDot={{ r: 5, fill: "#fecaca", stroke: "#7f1d1d", strokeWidth: 1 }}
+                        strokeWidth={1.25}
+                        strokeDasharray="3 2"
+                        name="Δ Call OI (unwound)"
                         isAnimationActive={false}
                       />
                     )}
                     {chartView === "oi" && (
-                      <Line
-                        type="monotoneX"
-                        dataKey="peOiChg"
-                        name="Δ Put OI"
+                      <Bar dataKey="peBase" stackId="pe" fill="#16a34a" name="Put OI" isAnimationActive={false} />
+                    )}
+                    {chartView === "oi" && (
+                      <Bar dataKey="peInc"  stackId="pe" fill="#86efac" name="Δ Put OI (added)" isAnimationActive={false} />
+                    )}
+                    {chartView === "oi" && (
+                      <Bar
+                        dataKey="peDec"
+                        stackId="pe"
+                        fill="rgba(134,239,172,0.08)"
                         stroke="#4ade80"
-                        strokeWidth={2.5}
-                        strokeDasharray="5 3"
-                        dot={{ r: 2.5, fill: "#4ade80", stroke: "#0a0a0a", strokeWidth: 0.5 }}
-                        activeDot={{ r: 5, fill: "#bbf7d0", stroke: "#14532d", strokeWidth: 1 }}
+                        strokeWidth={1.25}
+                        strokeDasharray="3 2"
+                        name="Δ Put OI (unwound)"
                         isAnimationActive={false}
                       />
                     )}

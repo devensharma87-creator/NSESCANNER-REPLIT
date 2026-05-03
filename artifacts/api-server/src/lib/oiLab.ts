@@ -284,6 +284,12 @@ export interface OiStrikeRow {
   pcr: number;
   // Max-pain payout if expiry pinned at this strike (lower = more pain to writers AT this strike)
   painValue: number;
+  /** Per-strike Δ OI computed against a server-stored baseline taken
+   *  ~`windowMs` ago. `null` means the server doesn't yet have a snapshot
+   *  old enough for the requested window — the client must NOT substitute
+   *  any other delta (no synthetic since-open fallback at strike level). */
+  ceOiChgWindow?: number | null;
+  peOiChgWindow?: number | null;
 }
 
 export interface OiInsightsResponse {
@@ -329,6 +335,26 @@ export interface OiInsightsResponse {
   analysis: string;          // 1-2 sentence detail
   // Per-strike rows (sorted asc by strike, trimmed to ATM ± strikesAround)
   strikes: OiStrikeRow[];
+  /** When the client requested a finite Δ window (e.g. "?window=5m"), this
+   *  block describes how the server fulfilled it. Absent when the client
+   *  asked for the broker since-open Δ (default). */
+  windowMs?: number;
+  /** "exact"  — baseline within ±20% of requested window, Δ is honest.
+   *  "approx" — closest available baseline is OUTSIDE ±20% (oldest snap
+   *             we have is e.g. 90s old when 5min was requested).
+   *  "none"   — server has no usable baseline yet (just-restarted /
+   *             newly-tracked symbol). Per-strike `*OiChgWindow` will be
+   *             `null` and the client should render a "buffering" state. */
+  windowMode?: "exact" | "approx" | "none";
+  /** ISO timestamp of the snapshot used as baseline. Null for "none". */
+  windowBaselineAt?: string | null;
+  /** Oldest snapshot the server has for this (underlying|expiry) — useful
+   *  for telling the user "buffer fills in N more minutes" without making
+   *  them retry blindly. Null when no snapshot exists at all. */
+  windowBufferOldestAt?: string | null;
+  /** Total snapshot count the server holds for this (underlying|expiry).
+   *  Helps the client surface "Server has 4 snapshots, need 1 more" UX. */
+  windowBufferCount?: number;
 }
 
 /** Normalize the chain's per-leg `oiBuildup` (which is `undefined` for missing
@@ -614,19 +640,210 @@ export function computeOiInsights(chain: OcResponse, strikesAround = 20): OiInsi
   };
 }
 
+// ─── Per-strike OI snapshot history (server-owned) ────────────────────────
+// The OI Insights chart needs a "Δ over the last N minutes" view that
+// works the moment the page opens — not after the user has waited 3+ min
+// for a client-side rolling buffer to warm up. The server already polls
+// the chain every time a client refreshes (~30s), so we piggyback on
+// those calls: every successful `fetchOiInsights` pushes a per-strike
+// snapshot into a per-(underlying|expiry) ring buffer. A finite-window
+// request (`?window=5m`) then picks the snapshot closest to `now-5min`
+// and computes per-strike Δ on the spot.
+//
+// Buffer survives across server restarts (same-day only) via the existing
+// disk-cache infrastructure, so a restart at 14:00 doesn't reset every
+// strike's "Last 1 hr" Δ to "buffering".
+interface OiInsightsSnapshot {
+  ts: number;                          // epoch ms
+  ce: Record<number, number>;          // strike -> ceOi
+  pe: Record<number, number>;          // strike -> peOi
+}
+const OI_INSIGHTS_HISTORY = new Map<string, OiInsightsSnapshot[]>();
+// Hard cap per (underlying|expiry) — 3.5h at ~30s cadence ≈ 420 snapshots.
+// We compress to ~12 strikes effective cost per snapshot (~1KB), so 420
+// snapshots × 50 underlyings ≈ 20MB worst case. Comfortably bounded.
+const OI_INSIGHTS_HISTORY_MAX = 450;
+const OI_INSIGHTS_HISTORY_WINDOW_MS = (3 * 60 + 10) * 60_000; // 3h10m
+const OI_INSIGHTS_BLOB_NAME = "oi-insights-history";
+const OI_INSIGHTS_BLOB_VERSION = 1;
+let oiInsightsHydrated = false;
+
+interface OiInsightsDiskShape {
+  tradingDay: string;
+  entries: Array<[string, OiInsightsSnapshot[]]>;
+}
+
+function hydrateOiInsightsHistoryFromDisk(): void {
+  if (oiInsightsHydrated) return;
+  oiInsightsHydrated = true;
+  const blob = loadBlob<OiInsightsDiskShape>(OI_INSIGHTS_BLOB_NAME, OI_INSIGHTS_BLOB_VERSION);
+  if (!blob) return;
+  const today = istTradingDay();
+  if (blob.payload.tradingDay !== today) {
+    logger.info({ stored: blob.payload.tradingDay, today }, "OI insights history: discarding stale (different trading day)");
+    return;
+  }
+  for (const [k, snaps] of blob.payload.entries) {
+    OI_INSIGHTS_HISTORY.set(k, snaps);
+  }
+  logger.info({ keys: OI_INSIGHTS_HISTORY.size }, "OI insights history: warm-started from disk");
+}
+
+// Debounce disk writes — every fetchOiInsights call would otherwise
+// rewrite the entire blob (~20MB worst case), causing significant write
+// amplification when many symbols are being polled concurrently. A 15s
+// floor still survives a process restart with at most one missed
+// snapshot per symbol, which is acceptable (the next poll re-fills it).
+let lastPersistAt = 0;
+const PERSIST_MIN_INTERVAL_MS = 15_000;
+function persistOiInsightsHistoryToDisk(): void {
+  const now = Date.now();
+  if (now - lastPersistAt < PERSIST_MIN_INTERVAL_MS) return;
+  lastPersistAt = now;
+  try {
+    const payload: OiInsightsDiskShape = {
+      tradingDay: istTradingDay(),
+      entries: Array.from(OI_INSIGHTS_HISTORY.entries()),
+    };
+    saveBlob(OI_INSIGHTS_BLOB_NAME, OI_INSIGHTS_BLOB_VERSION, payload);
+  } catch { /* logged inside saveBlob */ }
+}
+
+function pushOiInsightsSnapshot(insights: OiInsightsResponse): void {
+  const key = `${insights.underlying}|${insights.expiry}`;
+  const ts = new Date(insights.generatedAt).getTime();
+  const snap: OiInsightsSnapshot = {
+    ts,
+    ce: Object.fromEntries(insights.strikes.map(s => [s.strike, s.ceOi])),
+    pe: Object.fromEntries(insights.strikes.map(s => [s.strike, s.peOi])),
+  };
+  const buf = OI_INSIGHTS_HISTORY.get(key) ?? [];
+  // De-dupe: if the most recent snapshot has the same `ts` (the chain
+  // generator emits the same `generatedAt` for very close concurrent
+  // callers) we replace rather than append, so the buffer measures real
+  // wall-clock progress, not call frequency.
+  if (buf.length > 0 && buf[buf.length - 1]!.ts === ts) {
+    buf[buf.length - 1] = snap;
+  } else {
+    buf.push(snap);
+  }
+  const cutoff = ts - OI_INSIGHTS_HISTORY_WINDOW_MS;
+  while (buf.length > 0 && buf[0]!.ts < cutoff) buf.shift();
+  while (buf.length > OI_INSIGHTS_HISTORY_MAX) buf.shift();
+  OI_INSIGHTS_HISTORY.set(key, buf);
+  persistOiInsightsHistoryToDisk();
+}
+
+/** Pure helper extracted so unit tests can pin behavior without going
+ *  through `fetchOiInsights`. Returns the windowed-Δ enrichment block. */
+function resolveWindowDelta(
+  insights: OiInsightsResponse,
+  windowMs: number,
+): {
+  windowMs: number;
+  windowMode: "exact" | "approx" | "none";
+  windowBaselineAt: string | null;
+  windowBufferOldestAt: string | null;
+  windowBufferCount: number;
+  strikes: OiStrikeRow[];
+} {
+  const key = `${insights.underlying}|${insights.expiry}`;
+  const buf = OI_INSIGHTS_HISTORY.get(key) ?? [];
+  const nowMs = new Date(insights.generatedAt).getTime();
+  const oldestAt = buf.length > 0 ? new Date(buf[0]!.ts).toISOString() : null;
+  // Need at least one snapshot strictly OLDER than `now` (the just-pushed
+  // one is at `now` itself and is useless as a baseline).
+  const candidates = buf.filter(s => s.ts < nowMs);
+  if (candidates.length === 0) {
+    const stripped = insights.strikes.map(s => ({ ...s, ceOiChgWindow: null, peOiChgWindow: null }));
+    return {
+      windowMs,
+      windowMode: "none",
+      windowBaselineAt: null,
+      windowBufferOldestAt: oldestAt,
+      windowBufferCount: buf.length,
+      strikes: stripped,
+    };
+  }
+  const cutoff = nowMs - windowMs;
+  // Closest-to-cutoff baseline: gives the best approximation of "exactly
+  // N minutes ago" even when sampling is sparse (network hiccup / tab
+  // throttled). Far better than picking first-in-window.
+  let best = candidates[0]!;
+  let bestDist = Math.abs(best.ts - cutoff);
+  for (const s of candidates) {
+    const d = Math.abs(s.ts - cutoff);
+    if (d < bestDist) { best = s; bestDist = d; }
+  }
+  // ±20% tolerance — outside that band, the chart caption flags "approx"
+  // so the user is never lied to about what window they're seeing.
+  const mode: "exact" | "approx" = bestDist <= windowMs * 0.2 ? "exact" : "approx";
+  const enriched = insights.strikes.map(s => {
+    const baseCe = best.ce[s.strike];
+    const basePe = best.pe[s.strike];
+    // Strict semantics: require BOTH legs to have a baseline before
+    // reporting a windowed Δ. A strike that wasn't in the chain when the
+    // baseline snap was taken (newly-listed / outside ATM±N at that time)
+    // gets `null` — never zero, never the broker since-open Δ.
+    if (baseCe == null || basePe == null) {
+      return { ...s, ceOiChgWindow: null, peOiChgWindow: null };
+    }
+    return {
+      ...s,
+      ceOiChgWindow: s.ceOi - baseCe,
+      peOiChgWindow: s.peOi - basePe,
+    };
+  });
+  return {
+    windowMs,
+    windowMode: mode,
+    windowBaselineAt: new Date(best.ts).toISOString(),
+    windowBufferOldestAt: oldestAt,
+    windowBufferCount: buf.length,
+    strikes: enriched,
+  };
+}
+
 /** Convenience wrapper used by the route handler — fetches Kite-only chain
- *  then computes insights, surfacing a clean error when Kite isn't connected. */
+ *  then computes insights, surfacing a clean error when Kite isn't connected.
+ *
+ *  When `windowMs` is provided, the returned response is enriched with
+ *  per-strike `ceOiChgWindow` / `peOiChgWindow` plus top-level
+ *  `windowMode` / `windowBaselineAt` describing how the Δ was computed.
+ *  The history buffer is pushed on every call regardless of `windowMs`,
+ *  so repeated polling at 30s steadily fills the buffer for future
+ *  finite-window requests. */
 export async function fetchOiInsights(
   underlying: string,
   expiry?: string,
   strikesAround = 20,
+  windowMs?: number,
 ): Promise<OiInsightsResponse | null> {
+  hydrateOiInsightsHistoryFromDisk();
   const sym = underlying.toUpperCase();
   const chain = expiry
     ? await fetchKiteOptionChain(sym, expiry)
     : await fetchKiteOnlyChain(sym);
   if (!chain) return null;
-  return computeOiInsights(chain, strikesAround);
+  const insights = computeOiInsights(chain, strikesAround);
+  // Push the snapshot AFTER computing insights so the snapshot's ts
+  // matches `insights.generatedAt` exactly (which the client uses for the
+  // "updated Ns ago" pulse) — keeps timestamps consistent across surfaces.
+  pushOiInsightsSnapshot(insights);
+  if (windowMs == null || windowMs <= 0) {
+    // No windowed Δ requested — return broker since-open Δ shape unchanged.
+    return insights;
+  }
+  const block = resolveWindowDelta(insights, windowMs);
+  return {
+    ...insights,
+    strikes: block.strikes,
+    windowMs: block.windowMs,
+    windowMode: block.windowMode,
+    windowBaselineAt: block.windowBaselineAt,
+    windowBufferOldestAt: block.windowBufferOldestAt,
+    windowBufferCount: block.windowBufferCount,
+  };
 }
 
 // ─── OI Heatmap (Futures) ────────────────────────────────────────────────────
