@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Layers, Users, Building2, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Layers, Users, Building2, RefreshCw, Minus } from "lucide-react";
 import {
   ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, Tooltip as RTooltip,
   CartesianGrid, ReferenceLine, Cell,
@@ -412,14 +412,16 @@ const SEGMENTS: { key: SegmentKey; label: string }[] = [
   { key: "stockFut", label: "Stock Futures" },
   { key: "stockOpt", label: "Stock Options" },
 ];
-// Display order matches the reference dashboard layout (FII, Pro, Client, DII).
+// Display order matches this tab's name (FII / DII first), then Pro, Client.
+// FII = foreign institutional (smart money, the most-watched), DII = domestic
+// institutional (counter-flow), Pro = proprietary brokers, Client = retail.
 // Excludes the synthetic "TOTAL" row from the segment view since each cell is
 // already a per-participant net.
 const PARTICIPANT_DISPLAY: { key: string; label: string }[] = [
   { key: "FII", label: "FII" },
+  { key: "DII", label: "DII" },
   { key: "Pro", label: "Pro" },
   { key: "Client", label: "Client" },
-  { key: "DII", label: "DII" },
 ];
 
 function netForSegment(r: ParticipantRow, seg: SegmentKey): number {
@@ -475,6 +477,115 @@ const TONE_CLASSES: Record<StanceTone, { text: string; bg: string; border: strin
   unknown: { text: "text-muted-foreground",   bg: "bg-muted/20",              border: "border-border/40",             dot: "bg-muted-foreground" },
 };
 
+/* ── Per-participant overall MARKET STANCE.
+   The single most-watched directional signal on Indian institutional desks
+   is the Index-Futures Long/Short ratio: a participant who is heavily
+   net-long Nifty/BankNifty futures is unambiguously betting on the market
+   to go up; net-short means betting on a fall. Stock futures are
+   bottom-up (stock-specific) so they say less about the overall market
+   view, and options are often hedges, not directional bets — so we lean
+   primarily on Index Futures and use Index Options as a confirmation.
+
+   Score construction (range -100 … +100):
+     • Index Futures: long%  (longs / (longs+shorts)) re-centered around
+       50 and amplified ×2  →  contributes up to ±100, weight 0.7
+     • Index Options: net delta-ish bias —
+         (CallLong + PutShort) − (CallShort + PutLong)
+       normalised by total option leg count ×100, weight 0.3
+     • Combined score = 0.7 × futures + 0.3 × options
+   Tags:
+     score ≥ +35 → "Bullish"
+     score ≥ +12 → "Mildly Bullish"
+     score ≤ -35 → "Bearish"
+     score ≤ -12 → "Mildly Bearish"
+     otherwise   → "Neutral"
+   When we have no Index Futures activity at all (e.g. Pro / Client edge
+   cases) we return tone="unknown" rather than a fabricated zero. Day-over-
+   day delta of the score is shown so a flip from bearish→bullish is
+   immediately visible. */
+type MarketStance = {
+  tag: string;
+  tone: StanceTone;
+  score: number | null;
+  scoreDelta: number | null;
+  futLongPct: number | null;
+  futNet: number;
+  optBias: number | null;
+  rationale: string;
+};
+
+function computeStanceScore(r: ParticipantRow): {
+  score: number | null;
+  futLongPct: number | null;
+  futNet: number;
+  optBias: number | null;
+} {
+  const fL = r.futureIndexLong;
+  const fS = r.futureIndexShort;
+  const futTotal = fL + fS;
+  const futNet = fL - fS;
+  const futLongPct = futTotal > 0 ? (fL / futTotal) * 100 : null;
+  // Re-center around 50, amplify so ±50 → ±100 (a 0% or 100% long ratio
+  // saturates at the extreme).
+  const futScore = futLongPct != null ? Math.max(-100, Math.min(100, (futLongPct - 50) * 2)) : null;
+
+  const cL = r.optionIndexCallLong;
+  const cS = r.optionIndexCallShort;
+  const pL = r.optionIndexPutLong;
+  const pS = r.optionIndexPutShort;
+  const optTotal = cL + cS + pL + pS;
+  // Long calls and short puts are bullish exposure; short calls and long
+  // puts are bearish exposure. The asymmetry vs total legs gives a
+  // -100 … +100 reading.
+  const optBias = optTotal > 0
+    ? (((cL + pS) - (cS + pL)) / optTotal) * 100
+    : null;
+
+  let score: number | null = null;
+  if (futScore != null && optBias != null) {
+    score = 0.7 * futScore + 0.3 * optBias;
+  } else if (futScore != null) {
+    score = futScore;
+  } else if (optBias != null) {
+    score = optBias;
+  }
+  return { score, futLongPct, futNet, optBias };
+}
+
+function participantMarketStance(today: ParticipantRow | undefined, prev: ParticipantRow | undefined): MarketStance {
+  if (!today) return { tag: "No data", tone: "unknown", score: null, scoreDelta: null, futLongPct: null, futNet: 0, optBias: null, rationale: "No participant data for this date." };
+  const cur = computeStanceScore(today);
+  const pr = prev ? computeStanceScore(prev) : null;
+  const score = cur.score;
+  if (score == null) {
+    return { tag: "No data", tone: "unknown", score: null, scoreDelta: null, futLongPct: null, futNet: 0, optBias: null, rationale: "No index futures or options activity on this date." };
+  }
+  const scoreDelta = (pr && pr.score != null) ? score - pr.score : null;
+
+  let tag: string;
+  let tone: StanceTone;
+  if (score >= 35)        { tag = "Bullish";         tone = "bull"; }
+  else if (score >= 12)   { tag = "Mildly Bullish";  tone = "bull"; }
+  else if (score <= -35)  { tag = "Bearish";         tone = "bear"; }
+  else if (score <= -12)  { tag = "Mildly Bearish";  tone = "bear"; }
+  else                    { tag = "Neutral";         tone = "neutral"; }
+
+  const futStr = cur.futLongPct != null
+    ? `Index Futures ${cur.futLongPct.toFixed(0)}% long (net ${cur.futNet >= 0 ? "+" : ""}${fmtLakh(cur.futNet)})`
+    : "No index-futures activity";
+  const optStr = cur.optBias != null
+    ? `Index Options bias ${cur.optBias >= 0 ? "+" : ""}${cur.optBias.toFixed(0)}`
+    : "No index-options activity";
+  const trendStr = scoreDelta == null
+    ? ""
+    : Math.abs(scoreDelta) < 3
+      ? " · stance unchanged from prev day"
+      : ` · ${scoreDelta > 0 ? "shifting more bullish" : "shifting more bearish"} vs prev day`;
+  const rationale = `${futStr}; ${optStr}${trendStr}.`;
+
+  return { tag, tone, score, scoreDelta, futLongPct: cur.futLongPct, futNet: cur.futNet, optBias: cur.optBias, rationale };
+}
+
 /* ── Centered diverging bar — left half fills red for shorts, right half
    fills green for longs. Width is proportional to |value| / max so all
    four participants in a card are visually comparable to each other but
@@ -496,15 +607,18 @@ function BarVis({ value, max }: { value: number | null; max: number }) {
   );
 }
 
-/* ── Top-of-section insight strip: 4 tiles, one per segment, FII-focused.
-   FII is the most-watched smart-money signal on Indian desks, so this gives
-   a single-glance read on institutional positioning across the whole F&O
-   complex. Each tile shows: stance label (Net Long / Short / Flat), the
-   absolute net contracts, the day-over-day change, and a one-word momentum
-   tag (longs added / shorts covered / steady). When previous-day data is
-   missing, the change line and momentum render as "—" / null rather than
-   fabricating zero. */
-function FiiInsightStrip({
+/* ── Top-of-section MARKET STANCE strip: 4 large tiles, one per
+   participant (FII / DII / Pro / Client). Each tile shows the
+   participant's overall directional view of the market — Bullish /
+   Mildly Bullish / Neutral / Mildly Bearish / Bearish — derived primarily
+   from the Index Futures Long/Short ratio (the textbook directional
+   signal on Indian desks) and confirmed by Index Options bias. Day-over-
+   day delta of the stance score is shown when previous-day data exists
+   so a regime flip is immediately visible. Below the tag we surface the
+   key supporting numbers (Index Futures long%, net contracts) and a
+   plain-English rationale so the trader doesn't have to reverse-engineer
+   the verdict. */
+function ParticipantStanceStrip({
   todayByParticipant,
   prevByParticipant,
   hasPrev,
@@ -513,36 +627,48 @@ function FiiInsightStrip({
   prevByParticipant: Map<string, ParticipantRow>;
   hasPrev: boolean;
 }) {
-  const today = todayByParticipant.get("FII");
-  if (!today) return null;
-  const prev = prevByParticipant.get("FII");
   return (
     <div className="px-4 pt-3 pb-1">
       <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
         <TrendingUp className="h-3 w-3" />
-        FII positioning {hasPrev ? "vs prev day" : "(no comparison — oldest record)"}
+        Market stance by participant {hasPrev ? "· change vs prev day" : "(no comparison — oldest record)"}
       </div>
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
-        {SEGMENTS.map(seg => {
-          const net = netForSegment(today, seg.key);
-          const netPrev = prev ? netForSegment(prev, seg.key) : null;
-          const change = netPrev != null ? net - netPrev : null;
-          const info = describeStance(net, change);
-          const tone = TONE_CLASSES[info.tone];
+        {PARTICIPANT_DISPLAY.map(p => {
+          const today = todayByParticipant.get(p.key);
+          const prev = prevByParticipant.get(p.key);
+          const stance = participantMarketStance(today, prev);
+          const tone = TONE_CLASSES[stance.tone];
+          const Icon = stance.tone === "bull" ? TrendingUp : stance.tone === "bear" ? TrendingDown : Minus;
           return (
-            <div key={seg.key} className={`border ${tone.border} ${tone.bg} rounded px-2.5 py-1.5`}>
+            <div key={p.key} className={`border ${tone.border} ${tone.bg} rounded px-3 py-2`}>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider truncate">{seg.label}</span>
-                <span className={`text-[10px] font-mono font-semibold ${tone.text} shrink-0`}>{info.stance}</span>
-              </div>
-              <div className="flex items-baseline justify-between gap-2 mt-1">
-                <span className={`font-mono text-sm font-bold ${tone.text}`}>{fmtLakh(net)}</span>
-                <span className={`font-mono text-[10px] ${change == null ? "text-muted-foreground" : netClass(change)}`}>
-                  {fmtLakhSigned(change)}
+                <span className="font-mono text-xs font-bold uppercase tracking-wider">{p.label}</span>
+                <span className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold ${tone.text} shrink-0`}>
+                  <Icon className="h-3 w-3" />
+                  {stance.tag}
                 </span>
               </div>
-              <div className={`text-[9px] font-mono mt-0.5 ${info.momentum ? tone.text : "text-muted-foreground/60"}`}>
-                {info.momentum ?? "—"}
+              <div className="flex items-baseline justify-between gap-2 mt-1.5">
+                <span className={`font-mono text-lg font-bold ${tone.text}`}>
+                  {stance.futLongPct != null ? `${stance.futLongPct.toFixed(0)}%` : "—"}
+                </span>
+                <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-wider">
+                  IdxFut Long
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-0.5">
+                <span className="text-[9px] font-mono text-muted-foreground">
+                  Score {stance.score != null ? `${stance.score >= 0 ? "+" : ""}${stance.score.toFixed(0)}` : "—"}
+                </span>
+                <span className={`text-[9px] font-mono ${stance.scoreDelta == null ? "text-muted-foreground/60" : netClass(stance.scoreDelta)}`}>
+                  {stance.scoreDelta == null
+                    ? "—"
+                    : `${stance.scoreDelta >= 0 ? "+" : ""}${stance.scoreDelta.toFixed(0)} d/d`}
+                </span>
+              </div>
+              <div className="text-[9px] font-mono text-muted-foreground/80 mt-1.5 leading-snug" title={stance.rationale}>
+                {stance.rationale}
               </div>
             </div>
           );
@@ -724,7 +850,7 @@ function ParticipantOiSection() {
              a sanity check that should net to ~0 in healthy data, since
              every long must have a matching short. */
           <div>
-            <FiiInsightStrip
+            <ParticipantStanceStrip
               todayByParticipant={todayByParticipant}
               prevByParticipant={prevByParticipant}
               hasPrev={previousDate != null}
@@ -741,16 +867,18 @@ function ParticipantOiSection() {
                 ))}
               </div>
               <div className="text-[9px] font-mono text-muted-foreground/70 mt-3 leading-relaxed">
-                Bar = relative position size within segment · Centerline marks zero · Green right = net long, red left = net short ·
-                Change badge & momentum compare today vs previous trading day · Σ row = sum across FII + Pro + Client + DII (≈ 0 means data is balanced)
+                <strong className="text-muted-foreground">How to read:</strong> Top strip = each participant's overall market stance, derived from Index Futures Long% (primary signal) + Index Options bias.
+                Bullish ≥ 35 score, Bearish ≤ −35, in-between is mildly directional or neutral. Cards below = position breakdown by segment ·
+                Bar = relative size within segment · Green right = net long, red left = net short · Σ row = sum across FII + Pro + Client + DII (≈ 0 in balanced data).
               </div>
             </div>
           </div>
         ) : (
-          <Table className="min-w-[1200px]">
+          <Table className="min-w-[1320px]">
             <TableHeader>
               <TableRow className="border-border/40">
                 <TableHead className="font-mono text-[10px] uppercase">Participant</TableHead>
+                <TableHead className="font-mono text-[10px] uppercase">Market Stance</TableHead>
                 <TableHead className="font-mono text-[10px] uppercase text-right">Fut Idx Long</TableHead>
                 <TableHead className="font-mono text-[10px] uppercase text-right">Fut Idx Short</TableHead>
                 <TableHead className="font-mono text-[10px] uppercase text-right">Fut Idx Net</TableHead>
@@ -765,12 +893,32 @@ function ParticipantOiSection() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map(r => (
+              {rows.map(r => {
+                const stance = participantMarketStance(
+                  todayByParticipant.get(r.clientType),
+                  prevByParticipant.get(r.clientType),
+                );
+                const stanceTone = TONE_CLASSES[stance.tone];
+                return (
                 <TableRow key={r.clientType} className="border-border/30 hover:bg-muted/30">
                   <TableCell className="font-mono font-semibold py-2">
                     <span className="inline-flex items-center gap-1.5">
                       <Layers className="h-3 w-3 text-muted-foreground" />
                       {r.clientType}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-2">
+                    <span
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${stanceTone.border} ${stanceTone.bg} ${stanceTone.text} font-mono text-[10px] font-semibold`}
+                      title={stance.rationale}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${stanceTone.dot}`} />
+                      {stance.tag}
+                      {stance.futLongPct != null && (
+                        <span className="text-muted-foreground/80 font-normal ml-1">
+                          ({stance.futLongPct.toFixed(0)}% long)
+                        </span>
+                      )}
                     </span>
                   </TableCell>
                   <TableCell className="font-mono text-xs text-right py-2">{fmtInt(r.futureIndexLong)}</TableCell>
@@ -793,7 +941,8 @@ function ParticipantOiSection() {
                   <TableCell className="font-mono text-xs text-right py-2">{fmtInt(r.totalShortContracts)}</TableCell>
                   <TableCell className={`text-xs text-right py-2 font-bold ${netClass(r.netContracts)}`}>{fmtSignedInt(r.netContracts)}</TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         )}

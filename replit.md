@@ -82,3 +82,23 @@ The project is structured as a pnpm workspace monorepo using TypeScript 5.9.
 - **Binance API**: For Crypto data in the Global Scanner.
 - **News Feeds**: Moneycontrol, Mint, Economic Times (ET), CNBC TV18, Business Standard, Investing.com.
 - **Google Fonts**: For typography.
+## FII/DII tab — per-participant Market Stance (2026-05)
+
+The FII/DII tab's Participant-wise OI section previously showed only an FII-only insight strip + per-segment cards with a generic "Net Long / Net Short" label and a momentum tag (longs added / shorts covered). It did not answer the question every trader actually asks first: **"Is this participant bullish or bearish on the market right now?"**
+
+Added per-participant Market Stance with a transparent scoring rule (`flows.tsx:481-606`):
+- **Score (range −100 … +100)**: 0.7 × Index-Futures-Long-score + 0.3 × Index-Options-bias-score.
+  - Index Futures score = `(longPct − 50) × 2` clamped to ±100. This is the textbook directional read on Indian institutional desks — net-long Nifty/BankNifty futures = bet that the market goes up; net-short = bet on a fall.
+  - Index Options bias = `((CallLong + PutShort) − (CallShort + PutLong)) / totalLegs × 100` — long-calls and short-puts are bullish exposure, long-puts and short-calls are bearish.
+  - Stock futures and stock options are excluded from the market-stance score because they reflect bottom-up single-stock views, not directional market positioning.
+- **Tag**: ≥+35 Bullish, ≥+12 Mildly Bullish, ≤−12 Mildly Bearish, ≤−35 Bearish, otherwise Neutral.
+- **Null-safe**: when one of futures/options has zero activity, the present component is used alone (no fabricated zero); when both are absent the row is "No data" with `tone: "unknown"` rather than a misleading neutral tag.
+- **Day-over-day delta**: stance score is computed for `previousRows` too and the delta is shown next to today's score (or "—" when no prior data exists). Deltas with `|Δ| < 3` are reported as "stance unchanged" so noise doesn't trigger spurious "shifting more bullish" labels.
+
+Presentation:
+- Replaced `FiiInsightStrip` (4 segment tiles for FII only) with `ParticipantStanceStrip` — 4 tiles, one per FII / DII / Pro / Client. Each tile shows: name, BULLISH/BEARISH/NEUTRAL tag with bull/bear icon, IndexFut Long%, score, d/d delta, and a plain-English rationale ("Index Futures 12% long (net −1.84 L); Index Options bias +5 · shifting more bullish vs prev day").
+- Reordered `PARTICIPANT_DISPLAY` to FII / DII / Pro / Client (matching the tab name) instead of FII / Pro / Client / DII.
+- Added a "Market Stance" column to the Long/Short Detail table — a colored stance pill with `(Long%)` annotation and the full rationale on hover.
+- Tightened the "How to read" footer to teach the new scoring thresholds.
+
+Verified live (2026-04-30 NSE archive): FII = Bearish (12% IdxFut Long, score −76, futures heavily net-short −1.84 L contracts); DII = Bullish (67% IdxFut Long, score +34); Client = Bullish (73%, score +47); Pro = Mildly Bullish (61%, score +22). Matches the well-known late-April 2026 setup of FIIs being defensive on Nifty futures while DIIs/retail buy the dip.
