@@ -38,6 +38,7 @@ import {
 import { fetchBinanceTickers, fetchBinanceKlines } from "./binance";
 import { fetchYahooCandles, fetchYahooQuoteSnapshot, type YfCandle } from "./yahoo";
 import { loadDisabledSet } from "./disabledSymbols";
+import { notifyDeadSymbol } from "../notifications/deadSymbolNotifier";
 
 let booted = false;
 
@@ -182,6 +183,18 @@ async function recordLivePriceError(
       { symbol, source, failureStreak: newStreak, message, threshold: DEAD_SYMBOL_STREAK_THRESHOLD },
       "global instrument crossed dead-symbol threshold — candidate for pruning from universe.ts",
     );
+    // Fan out to configured notification channels (webhook / email).
+    // Fire-and-forget: the notifier never throws, but we don't want to
+    // block the refresh worker on an outbound HTTP round-trip either.
+    const inst = findInstrument(symbol);
+    void notifyDeadSymbol({
+      symbol,
+      displayName: inst?.displayName ?? symbol,
+      source,
+      failureStreak: newStreak,
+      threshold: DEAD_SYMBOL_STREAK_THRESHOLD,
+      lastError: message,
+    });
   }
 }
 
