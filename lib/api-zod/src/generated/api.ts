@@ -4637,6 +4637,61 @@ export const ImportGlobalScreenerPresetShareParams = zod.object({
 });
 
 /**
+ * @summary List instruments operators have muted from the dashboard
+ */
+export const ListGlobalDisabledInstrumentsResponse = zod.object({
+  items: zod.array(
+    zod
+      .object({
+        symbol: zod.string(),
+        disabled: zod.boolean(),
+        disabledAt: zod.coerce.date().nullish(),
+        note: zod.string().nullish(),
+        updatedAt: zod.coerce.date(),
+      })
+      .describe(
+        "Operator-controlled runtime override for a universe instrument. Currently only `disabled` is supported.",
+      ),
+  ),
+});
+
+/**
+ * @summary Mute an instrument so refreshers skip it and the dashboard hides it
+ */
+export const DisableGlobalInstrumentParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const disableGlobalInstrumentBodyNoteMax = 500;
+
+export const DisableGlobalInstrumentBody = zod
+  .object({
+    note: zod.string().max(disableGlobalInstrumentBodyNoteMax).optional(),
+  })
+  .describe(
+    "Optional body for muting an instrument. `note` is shown to other operators in the disabled list.",
+  );
+
+/**
+ * @summary Re-enable a previously-muted instrument
+ */
+export const EnableGlobalInstrumentParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const EnableGlobalInstrumentResponse = zod
+  .object({
+    symbol: zod.string(),
+    disabled: zod.boolean(),
+    disabledAt: zod.coerce.date().nullish(),
+    note: zod.string().nullish(),
+    updatedAt: zod.coerce.date(),
+  })
+  .describe(
+    "Operator-controlled runtime override for a universe instrument. Currently only `disabled` is supported.",
+  );
+
+/**
  * @summary Per-data-source freshness / last-error for the dashboard health strip
  */
 export const GetGlobalSourceStatusResponse = zod.object({
@@ -4703,5 +4758,22 @@ export const GetGlobalSourceStatusResponse = zod.object({
     .number()
     .describe(
       "Number of consecutive failed refresh cycles after which a symbol is flagged as a dead candidate.",
+    ),
+  disabledInstruments: zod
+    .array(
+      zod
+        .object({
+          symbol: zod.string(),
+          disabled: zod.boolean(),
+          disabledAt: zod.coerce.date().nullish(),
+          note: zod.string().nullish(),
+          updatedAt: zod.coerce.date(),
+        })
+        .describe(
+          "Operator-controlled runtime override for a universe instrument. Currently only `disabled` is supported.",
+        ),
+    )
+    .describe(
+      "Instruments operators have muted via POST \/global\/instruments\/{symbol}\/disabled. Refreshers skip these and the dashboard hides them. Surfaced here so the StatusStrip popover can show a re-enable action.",
     ),
 });

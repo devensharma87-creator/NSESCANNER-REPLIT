@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GlobalDeadCandidate } from "./globalDeadCandidate";
+import type { GlobalInstrumentOverride } from "./globalInstrumentOverride";
 import type { GlobalSourceStatus } from "./globalSourceStatus";
 import type { GlobalSourceStatusResponseUniverseCounts } from "./globalSourceStatusResponseUniverseCounts";
 
@@ -17,4 +18,6 @@ export interface GlobalSourceStatusResponse {
   deadCandidates: GlobalDeadCandidate[];
   /** Number of consecutive failed refresh cycles after which a symbol is flagged as a dead candidate. */
   deadCandidateThreshold: number;
+  /** Instruments operators have muted via POST /global/instruments/{symbol}/disabled. Refreshers skip these and the dashboard hides them. Surfaced here so the StatusStrip popover can show a re-enable action. */
+  disabledInstruments: GlobalInstrumentOverride[];
 }

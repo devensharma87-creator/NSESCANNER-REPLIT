@@ -177,6 +177,29 @@ export const globalScreenerPresetsTable = pgTable(
   }),
 );
 
+/**
+ * `globalInstrumentOverridesTable` — runtime, DB-backed overrides for
+ * instruments listed in `universe.ts`. Currently used to "mute" a symbol
+ * (`disabled = true`) without a code change: the universe rotation skips
+ * it during refresh and the dashboard hides it. Operators reach for this
+ * when a symbol crosses the per-symbol failure-streak threshold (see
+ * `DEAD_SYMBOL_STREAK_THRESHOLD`) but pruning it from `universe.ts`
+ * requires a developer + redeploy.
+ *
+ * The override is intentionally additive — we never delete a row from
+ * `global_instruments` based on it, so re-enabling is a single boolean
+ * flip and the symbol's prior state (live price, watchlist references,
+ * screener history) is preserved.
+ */
+export const globalInstrumentOverridesTable = pgTable("global_instrument_overrides", {
+  symbol: text("symbol").primaryKey(),
+  disabled: integer("disabled").notNull().default(0), // 0/1 — kept as int to dodge driver-specific boolean coercion
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  /** Free-form operator note, e.g. "Binance delisted 2025-04-30". */
+  note: text("note"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type GlobalInstrumentRow = typeof globalInstrumentsTable.$inferSelect;
 export type GlobalCandleRow = typeof globalCandlesTable.$inferSelect;
 export type GlobalLivePriceRow = typeof globalLivePricesTable.$inferSelect;

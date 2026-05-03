@@ -38,9 +38,12 @@ import type {
   GlobalAuthStatus,
   GlobalCandlesResponse,
   GlobalDashboardResponse,
+  GlobalDisabledInstrumentsResponse,
   GlobalIndicatorsResponse,
   GlobalInstrument,
   GlobalInstrumentDetail,
+  GlobalInstrumentDisableBody,
+  GlobalInstrumentOverride,
   GlobalLoginBody,
   GlobalLoginResponse,
   GlobalLogoutResponse,
@@ -5342,6 +5345,264 @@ export const useImportGlobalScreenerPresetShare = <
   return useMutation(
     getImportGlobalScreenerPresetShareMutationOptions(options),
   );
+};
+
+/**
+ * @summary List instruments operators have muted from the dashboard
+ */
+export const getListGlobalDisabledInstrumentsUrl = () => {
+  return `/api/global/instruments/disabled`;
+};
+
+export const listGlobalDisabledInstruments = async (
+  options?: RequestInit,
+): Promise<GlobalDisabledInstrumentsResponse> => {
+  return customFetch<GlobalDisabledInstrumentsResponse>(
+    getListGlobalDisabledInstrumentsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListGlobalDisabledInstrumentsQueryKey = () => {
+  return [`/api/global/instruments/disabled`] as const;
+};
+
+export const getListGlobalDisabledInstrumentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listGlobalDisabledInstruments>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalDisabledInstruments>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListGlobalDisabledInstrumentsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listGlobalDisabledInstruments>>
+  > = ({ signal }) =>
+    listGlobalDisabledInstruments({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalDisabledInstruments>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListGlobalDisabledInstrumentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listGlobalDisabledInstruments>>
+>;
+export type ListGlobalDisabledInstrumentsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List instruments operators have muted from the dashboard
+ */
+
+export function useListGlobalDisabledInstruments<
+  TData = Awaited<ReturnType<typeof listGlobalDisabledInstruments>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGlobalDisabledInstruments>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListGlobalDisabledInstrumentsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Mute an instrument so refreshers skip it and the dashboard hides it
+ */
+export const getDisableGlobalInstrumentUrl = (symbol: string) => {
+  return `/api/global/instruments/${symbol}/disabled`;
+};
+
+export const disableGlobalInstrument = async (
+  symbol: string,
+  globalInstrumentDisableBody?: GlobalInstrumentDisableBody,
+  options?: RequestInit,
+): Promise<GlobalInstrumentOverride> => {
+  return customFetch<GlobalInstrumentOverride>(
+    getDisableGlobalInstrumentUrl(symbol),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(globalInstrumentDisableBody),
+    },
+  );
+};
+
+export const getDisableGlobalInstrumentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof disableGlobalInstrument>>,
+    TError,
+    { symbol: string; data: BodyType<GlobalInstrumentDisableBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof disableGlobalInstrument>>,
+  TError,
+  { symbol: string; data: BodyType<GlobalInstrumentDisableBody> },
+  TContext
+> => {
+  const mutationKey = ["disableGlobalInstrument"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof disableGlobalInstrument>>,
+    { symbol: string; data: BodyType<GlobalInstrumentDisableBody> }
+  > = (props) => {
+    const { symbol, data } = props ?? {};
+
+    return disableGlobalInstrument(symbol, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DisableGlobalInstrumentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof disableGlobalInstrument>>
+>;
+export type DisableGlobalInstrumentMutationBody =
+  BodyType<GlobalInstrumentDisableBody>;
+export type DisableGlobalInstrumentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mute an instrument so refreshers skip it and the dashboard hides it
+ */
+export const useDisableGlobalInstrument = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof disableGlobalInstrument>>,
+    TError,
+    { symbol: string; data: BodyType<GlobalInstrumentDisableBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof disableGlobalInstrument>>,
+  TError,
+  { symbol: string; data: BodyType<GlobalInstrumentDisableBody> },
+  TContext
+> => {
+  return useMutation(getDisableGlobalInstrumentMutationOptions(options));
+};
+
+/**
+ * @summary Re-enable a previously-muted instrument
+ */
+export const getEnableGlobalInstrumentUrl = (symbol: string) => {
+  return `/api/global/instruments/${symbol}/disabled`;
+};
+
+export const enableGlobalInstrument = async (
+  symbol: string,
+  options?: RequestInit,
+): Promise<GlobalInstrumentOverride> => {
+  return customFetch<GlobalInstrumentOverride>(
+    getEnableGlobalInstrumentUrl(symbol),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getEnableGlobalInstrumentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof enableGlobalInstrument>>,
+    TError,
+    { symbol: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof enableGlobalInstrument>>,
+  TError,
+  { symbol: string },
+  TContext
+> => {
+  const mutationKey = ["enableGlobalInstrument"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof enableGlobalInstrument>>,
+    { symbol: string }
+  > = (props) => {
+    const { symbol } = props ?? {};
+
+    return enableGlobalInstrument(symbol, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EnableGlobalInstrumentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof enableGlobalInstrument>>
+>;
+
+export type EnableGlobalInstrumentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Re-enable a previously-muted instrument
+ */
+export const useEnableGlobalInstrument = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof enableGlobalInstrument>>,
+    TError,
+    { symbol: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof enableGlobalInstrument>>,
+  TError,
+  { symbol: string },
+  TContext
+> => {
+  return useMutation(getEnableGlobalInstrumentMutationOptions(options));
 };
 
 /**

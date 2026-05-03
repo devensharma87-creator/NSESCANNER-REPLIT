@@ -49,6 +49,12 @@ import {
   DEAD_SYMBOL_STREAK_THRESHOLD,
 } from "../../lib/global/dataLayer";
 import {
+  loadDisabledSet,
+  listDisabled,
+  setDisabled,
+  clearDisabled,
+} from "../../lib/global/disabledSymbols";
+import {
   sma, ema, rsi, macd, bollinger, atr, vwap, supertrend,
   type OHLCV,
 } from "../../lib/global/indicators";
@@ -158,10 +164,56 @@ router.get("/global/dashboard", async (req, res) => {
     const cls = classToList(parsed.data.asset);
     symbols = UNIVERSE.filter(u => u.assetClass === cls).map(u => u.symbol);
   }
+  // Hide operator-muted instruments from the dashboard. They still exist
+  // in `universe.ts` and the watchlist, but until they're re-enabled
+  // the user shouldn't see (or be misled by) their last-known price.
+  const disabled = await loadDisabledSet();
+  symbols = symbols.filter(s => !disabled.has(s));
   // buildDashboardRows joins live prices with sync_logs health to compute
   // per-row `stale` against per-source freshness budgets — see dataLayer.ts.
   const rows = await buildDashboardRows(symbols);
   res.json({ rows });
+});
+
+// ── Instrument overrides (operator mute) ────────────────────────────
+//
+// Lets an on-call operator mute a candidate-dead symbol from the
+// dashboard popover with one click — no code change to `universe.ts`,
+// no redeploy. The override is DB-backed (`global_instrument_overrides`)
+// so it survives server restarts; refreshers and the dashboard read
+// from `loadDisabledSet()` each cycle / request.
+//
+// IMPORTANT: defined BEFORE `/global/instruments/:symbol` so the literal
+// `disabled` path can't be swallowed by the symbol-detail route.
+
+const DisableBody = z.object({
+  note: z.string().trim().max(500).optional(),
+});
+
+router.get("/global/instruments/disabled", async (_req, res) => {
+  res.json({ items: await listDisabled() });
+});
+
+router.post("/global/instruments/:symbol/disabled", async (req, res) => {
+  const symbol = String(req.params["symbol"] ?? "").toUpperCase();
+  if (!findInstrument(symbol)) { res.status(404).json({ error: "unknown symbol" }); return; }
+  const parsed = DisableBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid body", detail: parsed.error.flatten() });
+    return;
+  }
+  const row = await setDisabled(symbol, parsed.data.note ?? null);
+  logger.info({ symbol, note: parsed.data.note }, "operator muted global instrument");
+  res.status(201).json(row);
+});
+
+router.delete("/global/instruments/:symbol/disabled", async (req, res) => {
+  const symbol = String(req.params["symbol"] ?? "").toUpperCase();
+  if (!findInstrument(symbol)) { res.status(404).json({ error: "unknown symbol" }); return; }
+  const row = await clearDisabled(symbol);
+  if (!row) { res.status(404).json({ error: "symbol was not disabled" }); return; }
+  logger.info({ symbol }, "operator re-enabled global instrument");
+  res.json(row);
 });
 
 // ── Instrument detail ───────────────────────────────────────────────
@@ -746,9 +798,10 @@ router.post("/global/screener-presets/import/:token", async (req, res) => {
 
 // ── Status (data freshness) ─────────────────────────────────────────
 router.get("/global/status", async (_req, res) => {
-  const [rows, deadCandidates] = await Promise.all([
+  const [rows, deadCandidates, disabled] = await Promise.all([
     getSyncStatuses(),
     getDeadCandidates(),
+    listDisabled(),
   ]);
   const now = Date.now();
   const sources: Array<"binance" | "yahoo" | "yahoo-fx" | "yahoo-equity" | "yahoo-index"> = [
@@ -785,6 +838,11 @@ router.get("/global/status", async (_req, res) => {
     // so an operator knows what to prune from `universe.ts`.
     deadCandidates,
     deadCandidateThreshold: DEAD_SYMBOL_STREAK_THRESHOLD,
+    // Currently-muted instruments (operator-set via
+    // POST /global/instruments/:symbol/disabled). The dashboard popover
+    // shows these in a "Disabled" section with a re-enable action so
+    // muting can be undone in one click when the symbol comes back.
+    disabledInstruments: disabled,
   });
 });
 

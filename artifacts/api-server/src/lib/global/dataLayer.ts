@@ -37,6 +37,7 @@ import {
 } from "./universe";
 import { fetchBinanceTickers, fetchBinanceKlines } from "./binance";
 import { fetchYahooCandles, fetchYahooQuoteSnapshot, type YfCandle } from "./yahoo";
+import { loadDisabledSet } from "./disabledSymbols";
 
 let booted = false;
 
@@ -244,9 +245,15 @@ export async function refreshBinance(): Promise<void> {
   let ok = 0;
   let fail = 0;
   let lastErr: Error | null = null;
+  // Operator-muted symbols are skipped entirely — we don't fetch them, don't
+  // bump their failure streak, and don't surface them as `stale` since the
+  // operator has explicitly told us they should be ignored. See
+  // `disabledSymbols.ts`.
+  const disabled = await loadDisabledSet();
+  const active = CRYPTO.filter(c => !disabled.has(c.symbol));
   const chunks: GlobalInstrumentDef[][] = [];
-  for (let i = 0; i < CRYPTO.length; i += BINANCE_CHUNK_SIZE) {
-    chunks.push(CRYPTO.slice(i, i + BINANCE_CHUNK_SIZE));
+  for (let i = 0; i < active.length; i += BINANCE_CHUNK_SIZE) {
+    chunks.push(active.slice(i, i + BINANCE_CHUNK_SIZE));
   }
   for (const chunk of chunks) {
     try {
@@ -290,11 +297,11 @@ export async function refreshBinance(): Promise<void> {
     }
   }
   if (ok > 0) {
-    await recordSyncOk("binance", `${ok}/${CRYPTO.length} symbols (${fail} fail)`);
+    await recordSyncOk("binance", `${ok}/${active.length} symbols (${fail} fail)`);
   } else if (lastErr) {
     await recordSyncErr("binance", lastErr);
   } else if (fail > 0) {
-    await recordSyncErr("binance", new Error(`${fail}/${CRYPTO.length} symbols failed`));
+    await recordSyncErr("binance", new Error(`${fail}/${active.length} symbols failed`));
   }
 }
 
@@ -326,14 +333,19 @@ async function refreshYahooBatch(
   source: GlobalDataSource,
 ): Promise<void> {
   if (defs.length === 0) return;
+  // See `refreshBinance`: operator-muted symbols are dropped from this
+  // cycle's worker pool entirely.
+  const disabled = await loadDisabledSet();
+  const active = defs.filter(d => !disabled.has(d.symbol));
+  if (active.length === 0) return;
   let ok = 0;
   let fail = 0;
   let cursor = 0;
 
   async function worker(): Promise<void> {
-    while (cursor < defs.length) {
+    while (cursor < active.length) {
       const idx = cursor++;
-      const inst = defs[idx]!;
+      const inst = active[idx]!;
       try {
         const q = await fetchYahooQuoteSnapshot(inst.sourceSymbol);
         if (!q || !Number.isFinite(q.price)) {
@@ -365,13 +377,13 @@ async function refreshYahooBatch(
   }
 
   const workers = Array.from(
-    { length: Math.min(YAHOO_REFRESH_CONCURRENCY, defs.length) },
+    { length: Math.min(YAHOO_REFRESH_CONCURRENCY, active.length) },
     () => worker(),
   );
   await Promise.all(workers);
 
   if (ok > 0) await recordSyncOk(source, `${ok} ok / ${fail} fail`);
-  if (ok === 0 && fail > 0) await recordSyncErr(source, new Error(`${fail}/${defs.length} symbols failed`));
+  if (ok === 0 && fail > 0) await recordSyncErr(source, new Error(`${fail}/${active.length} symbols failed`));
 }
 
 export async function refreshCommodities(): Promise<void> { await refreshYahooBatch(COMMODITIES, "yahoo"); }
@@ -481,6 +493,13 @@ export interface DeadCandidate {
 export async function getDeadCandidates(
   threshold: number = DEAD_SYMBOL_STREAK_THRESHOLD,
 ): Promise<DeadCandidate[]> {
+  // Operator-muted symbols are excluded from this list. Once muted the
+  // refreshers stop fetching them, so their `failureStreak` would otherwise
+  // remain above the threshold forever — which would defeat the whole
+  // point of the "Disable" button (the row would never leave the dead
+  // candidates list). They reappear in the popover under "Disabled
+  // symbols" with a re-enable action instead.
+  const disabled = await loadDisabledSet();
   const rows = await db
     .select({
       symbol: globalLivePricesTable.symbol,
@@ -492,6 +511,7 @@ export async function getDeadCandidates(
     .from(globalLivePricesTable)
     .where(gte(globalLivePricesTable.failureStreak, threshold));
   return rows
+    .filter(r => !disabled.has(r.symbol.toUpperCase()))
     .map((r): DeadCandidate => {
       const inst = findInstrument(r.symbol);
       return {

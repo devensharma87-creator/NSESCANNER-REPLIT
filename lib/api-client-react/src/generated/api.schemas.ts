@@ -2350,6 +2350,19 @@ export type GlobalSourceStatusResponseUniverseCounts = {
   [key: string]: number;
 };
 
+/**
+ * Operator-controlled runtime override for a universe instrument. Currently only `disabled` is supported.
+ */
+export interface GlobalInstrumentOverride {
+  symbol: string;
+  disabled: boolean;
+  /** @nullable */
+  disabledAt?: string | null;
+  /** @nullable */
+  note?: string | null;
+  updatedAt: string;
+}
+
 export interface GlobalSourceStatusResponse {
   sources: GlobalSourceStatus[];
   /** Counts of instruments per asset class (crypto, commodity, forex, equity, index) */
@@ -2358,6 +2371,20 @@ export interface GlobalSourceStatusResponse {
   deadCandidates: GlobalDeadCandidate[];
   /** Number of consecutive failed refresh cycles after which a symbol is flagged as a dead candidate. */
   deadCandidateThreshold: number;
+  /** Instruments operators have muted via POST /global/instruments/{symbol}/disabled. Refreshers skip these and the dashboard hides them. Surfaced here so the StatusStrip popover can show a re-enable action. */
+  disabledInstruments: GlobalInstrumentOverride[];
+}
+
+/**
+ * Optional body for muting an instrument. `note` is shown to other operators in the disabled list.
+ */
+export interface GlobalInstrumentDisableBody {
+  /** @maxLength 500 */
+  note?: string;
+}
+
+export interface GlobalDisabledInstrumentsResponse {
+  items: GlobalInstrumentOverride[];
 }
 
 export interface GlobalScreenerPresetNewHit {

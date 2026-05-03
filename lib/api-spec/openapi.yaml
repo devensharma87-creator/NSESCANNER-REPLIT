@@ -989,6 +989,55 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GlobalScreenerPreset" }
 
+  /global/instruments/disabled:
+    get:
+      operationId: listGlobalDisabledInstruments
+      tags: [global-instruments]
+      summary: List instruments operators have muted from the dashboard
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalDisabledInstrumentsResponse" }
+
+  /global/instruments/{symbol}/disabled:
+    post:
+      operationId: disableGlobalInstrument
+      tags: [global-instruments]
+      summary: Mute an instrument so refreshers skip it and the dashboard hides it
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GlobalInstrumentDisableBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalInstrumentOverride" }
+    delete:
+      operationId: enableGlobalInstrument
+      tags: [global-instruments]
+      summary: Re-enable a previously-muted instrument
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalInstrumentOverride" }
+
   /global/status:
     get:
       operationId: getGlobalSourceStatus
@@ -3092,7 +3141,7 @@ components:
 
     GlobalSourceStatusResponse:
       type: object
-      required: [sources, universeCounts, deadCandidates, deadCandidateThreshold]
+      required: [sources, universeCounts, deadCandidates, deadCandidateThreshold, disabledInstruments]
       properties:
         sources:
           type: array
@@ -3108,6 +3157,37 @@ components:
         deadCandidateThreshold:
           type: integer
           description: "Number of consecutive failed refresh cycles after which a symbol is flagged as a dead candidate."
+        disabledInstruments:
+          type: array
+          description: "Instruments operators have muted via POST /global/instruments/{symbol}/disabled. Refreshers skip these and the dashboard hides them. Surfaced here so the StatusStrip popover can show a re-enable action."
+          items: { $ref: "#/components/schemas/GlobalInstrumentOverride" }
+
+    GlobalInstrumentOverride:
+      type: object
+      required: [symbol, disabled, updatedAt]
+      description: "Operator-controlled runtime override for a universe instrument. Currently only `disabled` is supported."
+      properties:
+        symbol: { type: string }
+        disabled: { type: boolean }
+        disabledAt: { type: ["string", "null"], format: date-time }
+        note: { type: ["string", "null"] }
+        updatedAt: { type: string, format: date-time }
+
+    GlobalInstrumentDisableBody:
+      type: object
+      description: "Optional body for muting an instrument. `note` is shown to other operators in the disabled list."
+      properties:
+        note:
+          type: string
+          maxLength: 500
+
+    GlobalDisabledInstrumentsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/GlobalInstrumentOverride" }
 
     GlobalScreenerPresetNewHit:
       type: object
