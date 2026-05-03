@@ -12,6 +12,7 @@
 import { logger } from "./logger";
 import { fetchChart } from "./yahoo";
 import { fetchKiteOptionChain } from "./kiteOptionChain";
+import { getKiteIndexQuotes } from "./kiteIndexQuotes";
 import { priceAndGreeks, yearsToExpiry } from "./blackScholes";
 import { computeMaxPainStrike } from "./optionAnalytics";
 
@@ -478,11 +479,37 @@ function inferEquityStep(rows: NseRow[], spot: number): number {
  *  warmup helper and for downstream analytics that still want a price. */
 export async function getSpotForUnderlying(symbol: string): Promise<number | null> {
   const sym = symbol.toUpperCase();
+
+  // Yahoo-style key the kiteIndexQuotes batch returns (single source of
+  // truth — kiteIndexQuotes uses NIFTY_FIN_SERVICE.NS for FINNIFTY, not
+  // the legacy ^CNXFIN that Yahoo's chart endpoint expects).
+  const KITE_LTP_KEY: Record<string, string> = {
+    NIFTY:      "^NSEI",
+    BANKNIFTY:  "^NSEBANK",
+    FINNIFTY:   "NIFTY_FIN_SERVICE.NS",
+    MIDCPNIFTY: "NIFTY_MID_SELECT.NS",
+    SENSEX:     "^BSESN",
+    BANKEX:     "BSE-BANK.BO",
+  };
+  const ltpKey = KITE_LTP_KEY[sym];
+  if (ltpKey) {
+    try {
+      const map = await getKiteIndexQuotes();
+      const live = map?.get(ltpKey);
+      if (live && Number.isFinite(live.price) && live.price > 0) return live.price;
+    } catch { /* fall through to Yahoo */ }
+  }
+
+  // Yahoo fallback — used when Kite is offline OR the underlying is a
+  // single stock (not in the index basket above). Yahoo chart endpoint
+  // still uses the legacy index keys for indices.
   const yahoo: Record<string, string> = {
     NIFTY: "^NSEI",
     BANKNIFTY: "^NSEBANK",
     FINNIFTY: "^CNXFIN",
     MIDCPNIFTY: "NIFTY_MID_SELECT.NS",
+    SENSEX: "^BSESN",
+    BANKEX: "BSE-BANK.BO",
   };
   const ticker = yahoo[sym];
   if (ticker) {

@@ -31,6 +31,7 @@
  */
 
 import { fetchChart, fetchIntraday, type YahooChart } from "./yahoo";
+import { fetchKiteIntraday, hasKiteIntradayCoverage } from "./kiteIntraday";
 import { ema, sessionVwap, volumeProfile } from "./indicators";
 import { getKiteIndexQuotes, type KiteIndexQuote } from "./kiteIndexQuotes";
 import { logger } from "./logger";
@@ -402,10 +403,20 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
   // dead ticker can't hold the whole board.
   const items = await Promise.all(INSTRUMENTS.map(async cfg => {
     const dailyTicker = cfg.yahooDaily ?? cfg.yahoo;
-    const [daily, intra] = await Promise.all([
+    // Intraday: prefer Kite when the symbol is in the Indian-index basket
+    // (zero delay vs Yahoo's ~15-min lag); otherwise Yahoo (covers global
+    // benchmarks and commodities Kite doesn't carry). Daily 1y stays on
+    // Yahoo for everyone — Kite's daily series only goes back ~60 days.
+    const intradayKite = hasKiteIntradayCoverage(cfg.yahoo)
+      ? fetchKiteIntraday(cfg.yahoo, "5minute", 1).catch(() => null)
+      : Promise.resolve(null);
+    const [daily, intraK] = await Promise.all([
       fetchChart(dailyTicker, "1y", "1d").catch(() => null),
-      fetchIntraday(cfg.yahoo, "5m", "1d").catch(() => null),
+      intradayKite,
     ]);
+    const intra = intraK && intraK.close.length >= 4
+      ? intraK
+      : await fetchIntraday(cfg.yahoo, "5m", "1d").catch(() => null);
     const kite = cfg.kiteYahooKey && kiteMap ? kiteMap.get(cfg.kiteYahooKey) : undefined;
     const row = buildItem(cfg, daily, intra, kite);
     if (cfg.proxyNote && cfg.yahooDaily && cfg.yahooDaily !== cfg.yahoo) {

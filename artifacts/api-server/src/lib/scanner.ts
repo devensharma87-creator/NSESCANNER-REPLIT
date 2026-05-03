@@ -6,6 +6,7 @@ import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
 import { getDeliveryPct } from "./nseBhavcopy";
 import { getLiveQuote } from "./kiteFeed";
+import { fetchKiteEquityIntraday } from "./kiteIntraday";
 
 interface CachedHistory {
   fetchedAt: number;
@@ -17,7 +18,12 @@ const SCAN_TTL_MS = 60 * 1000;
 
 const historyCache = new Map<string, CachedHistory>();
 const intradayVwapCache = new Map<string, { ts: number; vwap: number | null }>();
-const INTRADAY_TTL = 90 * 1000;
+// 30s — must stay strictly less than the underlying kiteIntraday cache
+// (60s) so the worst-case freshness for an equity VWAP is bounded by
+// `30s + max-age-of-current-kite-cache-entry`. Going looser (e.g. 90s)
+// compounds with the inner cache to ~150s of staleness — long enough
+// for a 15-minute bar to roll over and a VWAP-reclaim signal to misfire.
+const INTRADAY_TTL = 30 * 1000;
 
 let scanCache: { fetchedAt: number; rows: StockRow[] } | null = null;
 // We bind both the in-flight Promise *and* the shared accumulator together
@@ -41,11 +47,16 @@ async function getIntradayVwap(symbol: string): Promise<number | null> {
   const cached = intradayVwapCache.get(symbol);
   if (cached && Date.now() - cached.ts < INTRADAY_TTL) return cached.vwap;
   try {
-    // Use yahooTickerFor() so renamed NSE symbols (ZOMATO→ETERNAL,
-    // MCDOWELL-N→UNITDSPR, NIPPONLIFE→NAM-INDIA, GMRINFRA→GMRAIRPORT, …)
-    // get translated to the live Yahoo ticker. Without this we logged
-    // "No data found" warnings every scan cycle for these 4 names.
-    const intra = await fetchIntraday(yahooTickerFor(symbol), "15m", "1d");
+    // Kite-first: live 15-minute candles direct from the broker (no
+    // 15-min Yahoo delay, no rate limits during US overlap). When Kite
+    // is offline OR the symbol isn't an NSE EQ instrument, fall back to
+    // Yahoo via yahooTickerFor() so renamed tickers (ZOMATO→ETERNAL,
+    // MCDOWELL-N→UNITDSPR, NIPPONLIFE→NAM-INDIA, GMRINFRA→GMRAIRPORT)
+    // still resolve.
+    let intra = await fetchKiteEquityIntraday(symbol, "15minute", 1);
+    if (!intra || intra.close.length < 4) {
+      intra = await fetchIntraday(yahooTickerFor(symbol), "15m", "1d");
+    }
     if (!intra || intra.close.length < 4) {
       intradayVwapCache.set(symbol, { ts: Date.now(), vwap: null });
       return null;

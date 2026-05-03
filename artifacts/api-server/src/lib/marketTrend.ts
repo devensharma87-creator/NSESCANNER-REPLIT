@@ -1,6 +1,7 @@
 import type { MarketTrend, SignalReason, SectorSummary, StockRow } from "@workspace/api-zod";
 import { scanAll, getCachedScanRows, refreshScanInBackground } from "./scanner";
 import { fetchIntraday, fetchIndexChart } from "./yahoo";
+import { fetchKiteIntraday } from "./kiteIntraday";
 import { ema, rsi, sessionVwap } from "./indicators";
 import { SECTORS } from "./universe";
 
@@ -53,7 +54,11 @@ export async function getMarketTrend(): Promise<MarketTrend> {
     { sym: "^NSEBANK", name: "BANK NIFTY", w: 15 },
   ]) {
     try {
-      const intra = await fetchIntraday(idx.sym, "15m", "5d");
+      // Kite-first for live 15-min index candles (no Yahoo 15-min delay).
+      let intra = await fetchKiteIntraday(idx.sym, "15minute", 5);
+      if (!intra || intra.close.length < 6) {
+        intra = await fetchIntraday(idx.sym, "15m", "5d");
+      }
       if (!intra || intra.close.length < 6) continue;
       const last = intra.close[intra.close.length - 1]!;
       // VWAP / EMA9 / EMA21 / RSI must NOT silently fall back to `last` or 50.

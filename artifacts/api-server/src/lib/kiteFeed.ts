@@ -198,6 +198,19 @@ export function getLiveQuote(symbol: string): LiveTick | null {
   return liveQuotes.get(symbol) ?? null;
 }
 
+/**
+ * Resolve a single NSE EQ tradingsymbol to its Kite instrument_token.
+ * Triggers an instrument-dump load on first call (cached 24h). Returns
+ * null when no Kite session is active or the symbol is not in the EQ
+ * list (e.g. delisted, F&O-only, or a typo).
+ */
+export async function getInstrumentToken(symbol: string): Promise<number | null> {
+  const map = await loadInstruments();
+  if (!map) return null;
+  const ins = map.get(symbol);
+  return ins ? ins.instrument_token : null;
+}
+
 export function getAllLiveQuotes(): Record<string, LiveTick> {
   const out: Record<string, LiveTick> = {};
   for (const [k, v] of liveQuotes) out[k] = v;
