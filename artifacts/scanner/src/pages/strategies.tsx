@@ -105,6 +105,19 @@ interface StrategySnapshot {
   shortLegOi: number | null;
 }
 
+interface LiveBiasSnapshot {
+  source: "kite" | "yahoo";
+  fetchedAt: string;
+  last: number;
+  vwap: number;
+  ema9: number;
+  ema21: number;
+  rsi14: number;
+  bias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  ageMin: number;
+  reason: string;
+}
+
 interface StrategyBundle {
   underlying: string;
   spot: number;
@@ -112,6 +125,12 @@ interface StrategyBundle {
   daysToExpiry: number;
   ivContext: "LOW" | "HIGH" | "UNKNOWN";
   bias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  structuralBias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  liveBias: LiveBiasSnapshot | null;
+  blendedBias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  biasReason: string;
+  ivRegimeReason: string;
+  marketStatus: "open" | "pre_open" | "closed";
   strategies: StrategySnapshot[];
   unavailable: { kind: StrategyKind; reason: string }[];
   generatedAt: string;
@@ -298,6 +317,31 @@ export default function Strategies() {
   );
 }
 
+function MarketStatusBanner({ bundle }: { bundle: StrategyBundle }) {
+  const status = bundle.marketStatus;
+  // Banner colour reflects whether the data is live-tradeable or historical.
+  const cls =
+    status === "open"     ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
+    : status === "pre_open" ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
+    :                         "bg-slate-500/10 border-slate-500/40 text-slate-300";
+  const label =
+    status === "open"     ? "MARKET OPEN"
+    : status === "pre_open" ? "PRE-OPEN SESSION"
+    :                         "MARKET CLOSED";
+  const message =
+    status === "open"
+      ? "Live data, recommendations actionable now."
+      : status === "pre_open"
+      ? "Pre-open auction in progress — entries will execute at the 09:15 IST opening print."
+      : "Recommendations reflect last available data; entry deferred to next session open. Naked-credit unbounded plays are suppressed.";
+  return (
+    <div className={`flex flex-wrap items-center gap-3 rounded-md border px-3 py-2 text-[11px] font-mono ${cls}`}>
+      <span className="font-bold uppercase tracking-wider">{label}</span>
+      <span className="opacity-90">{message}</span>
+    </div>
+  );
+}
+
 function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
   const biasColor =
     bundle.bias === "BULLISH" ? "text-signal-strong-buy"
@@ -307,6 +351,10 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
     bundle.ivContext === "HIGH" ? "text-amber-300"
     : bundle.ivContext === "LOW" ? "text-blue-300"
     : "text-muted-foreground";
+  const liveBiasColor = (b: "BULLISH" | "BEARISH" | "NEUTRAL") =>
+    b === "BULLISH" ? "text-signal-strong-buy"
+    : b === "BEARISH" ? "text-signal-strong-sell"
+    : "text-muted-foreground";
 
   // Steal the expected-move bands from the first strategy that has them — they
   // depend only on (spot, T, ATM IV) so they're identical across strategies.
@@ -314,8 +362,10 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
   const sampleDist = bundle.strategies.find(s => s.dist?.expectedMove1Sigma > 0)?.dist;
 
   return (
-    <Card className="border-border">
-      <CardContent className="p-4 space-y-2">
+    <div className="space-y-3">
+      <MarketStatusBanner bundle={bundle} />
+      <Card className="border-border">
+        <CardContent className="p-4 space-y-2">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-baseline gap-2 flex-wrap">
@@ -329,8 +379,8 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
           </div>
           <div className="text-right space-y-1">
             <div className="text-2xl font-mono font-bold tabular-nums">{fmt(bundle.spot)}</div>
-            <div className="flex items-center justify-end gap-3 text-[11px] font-mono uppercase">
-              <span><span className="text-muted-foreground">Bias</span> <span className={`font-bold ${biasColor}`}>{bundle.bias}</span></span>
+            <div className="flex items-center justify-end gap-3 text-[11px] font-mono uppercase flex-wrap">
+              <span><span className="text-muted-foreground">Blended bias</span> <span className={`font-bold ${biasColor}`}>{bundle.bias}</span></span>
               <span>
                 <span className="text-muted-foreground">IV RANK</span>{" "}
                 <span className={`font-bold ${ivColor}`}>
@@ -342,6 +392,40 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
               )}
             </div>
           </div>
+        </div>
+
+        {/* ── Bias breakdown: structural vs live ──────────────────────── */}
+        {/* Surfaces *why* the recommendation engine landed on this bias.
+            When live and structural disagree, the user sees both reads
+            and knows the engine is treating this as a transition zone. */}
+        <div className="border-t border-border/50 pt-2 grid sm:grid-cols-2 gap-2 text-[10px] font-mono">
+          <div className="space-y-0.5">
+            <div className="uppercase tracking-wider text-muted-foreground">Live price action</div>
+            {bundle.liveBias ? (
+              <>
+                <div>
+                  <span className={`font-bold uppercase ${liveBiasColor(bundle.liveBias.bias)}`}>{bundle.liveBias.bias}</span>
+                  <span className="text-muted-foreground"> · {bundle.liveBias.source.toUpperCase()} · {bundle.liveBias.ageMin}m old</span>
+                </div>
+                <div className="text-muted-foreground">{bundle.liveBias.reason}</div>
+              </>
+            ) : (
+              <div className="text-muted-foreground">Intraday data unavailable — using positioning only.</div>
+            )}
+          </div>
+          <div className="space-y-0.5">
+            <div className="uppercase tracking-wider text-muted-foreground">Option positioning</div>
+            <div>
+              <span className={`font-bold uppercase ${liveBiasColor(bundle.structuralBias)}`}>{bundle.structuralBias}</span>
+              <span className="text-muted-foreground"> · PCR + max-pain</span>
+            </div>
+            <div className="text-muted-foreground">{bundle.biasReason}</div>
+          </div>
+        </div>
+
+        {/* IV regime explanation — the user sees exactly why HIGH/LOW/UNKNOWN. */}
+        <div className="text-[10px] font-mono text-muted-foreground border-t border-border/50 pt-2">
+          <span className="uppercase tracking-wider">IV regime</span> · {bundle.ivRegimeReason}
         </div>
         {sampleDist && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-mono uppercase border-t border-border/50 pt-2">
@@ -362,6 +446,7 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }
 

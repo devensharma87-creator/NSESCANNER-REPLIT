@@ -48,6 +48,12 @@ const INDEX_TABLE: IndexEntry[] = [
   // new Yahoo aliases in the wild.
   { yahoo: "NIFTY_FIN_SERVICE.NS", exchange: "NSE", tradingSymbol: "NIFTY FIN SERVICE", fallbackToken: 257801 },
   { yahoo: "NIFTY_MID_SELECT.NS",  exchange: "NSE", tradingSymbol: "NIFTY MID SELECT",  fallbackToken: 288009 },
+  // NIFTY NEXT 50 has no reliable Yahoo intraday symbol in 2026 (see
+  // preMarket.ts comment) — use a synthetic Yahoo key so this entry only
+  // resolves through the Kite path. Live bias for NIFTYNXT50 therefore
+  // depends on an active Kite session; absence is handled gracefully by
+  // computeLiveBias() (returns null → structural bias only).
+  { yahoo: "NIFTY_NEXT_50.NS",     exchange: "NSE", tradingSymbol: "NIFTY NEXT 50",     fallbackToken: 270857 },
   { yahoo: "^BSESN",               exchange: "BSE", tradingSymbol: "SENSEX",            fallbackToken: 265    },
   { yahoo: "BSE-BANK.BO",          exchange: "BSE", tradingSymbol: "BANKEX",            fallbackToken: 274441 },
 ];

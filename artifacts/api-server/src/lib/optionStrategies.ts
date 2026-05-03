@@ -15,7 +15,10 @@
 
 import type { OcResponse, OcRow, OcSide } from "./optionChain";
 import type { OptionAnalytics } from "./optionAnalytics";
+import type { LiveBiasSnapshot } from "./liveBias";
 import { priceAndGreeks, impliedVolatility, yearsToExpiry, type OptionType } from "./blackScholes";
+
+export type MarketStatus = "open" | "pre_open" | "closed";
 
 // India 10y G-Sec yield ~6.75% in Apr 2026; close enough for short-dated options.
 const RISK_FREE = 0.0675;
@@ -160,7 +163,27 @@ export interface StrategyBundle {
   expiry: string;
   daysToExpiry: number;
   ivContext: "LOW" | "HIGH" | "UNKNOWN";
+  /** Bias used to drive recommendations — see `blendedBias`. Kept for
+   *  backwards compatibility with the existing UI; identical to `blendedBias`. */
   bias: OptionAnalytics["bias"];
+  /** Bias derived purely from option-chain positioning (PCR + max-pain). */
+  structuralBias: OptionAnalytics["bias"];
+  /** Bias derived from live intraday VWAP/EMA9/EMA21/RSI on the underlying.
+   *  Null when intraday data couldn't be fetched (no Kite session AND Yahoo
+   *  intraday empty) — caller falls through to structural bias. */
+  liveBias: LiveBiasSnapshot | null;
+  /** Final bias used by the recommendation engine — agreement of structural
+   *  + live = high conviction; disagreement = NEUTRAL (transition zone);
+   *  only one available = use that one. */
+  blendedBias: OptionAnalytics["bias"];
+  /** Plain-English explanation of how the blend was reached. */
+  biasReason: string;
+  /** Plain-English explanation of how the IV regime was classified. */
+  ivRegimeReason: string;
+  /** Equity-session state at the moment this bundle was generated.
+   *  `closed` / `pre_open` flips the recommendation engine to demote
+   *  unbounded-loss naked-credit strategies and surface a UI banner. */
+  marketStatus: MarketStatus;
   strategies: StrategySnapshot[];
   unavailable: { kind: StrategyKind; reason: string }[];
   generatedAt: string;
@@ -1117,7 +1140,19 @@ const TEMPLATES: Template[] = [
 
 // ─── Public entry point ─────────────────────────────────────────────────────
 
-export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): StrategyBundle {
+export function buildStrategies(
+  chain: OcResponse,
+  analytics: OptionAnalytics,
+  opts?: {
+    /** Live intraday-derived bias for the underlying. Pass `null` (or omit)
+     *  when intraday isn't available — the engine then falls through to
+     *  structural bias only. */
+    liveBias?: LiveBiasSnapshot | null;
+    /** Equity-session state. Defaults to "closed" when omitted, which
+     *  conservatively suppresses unbounded-loss naked-credit plays. */
+    marketStatus?: MarketStatus;
+  },
+): StrategyBundle {
   const spot = chain.spot;
   const lotSize = chain.lotSize ?? 1;
   const T = yearsToExpiry(chain.expiry);
@@ -1129,21 +1164,77 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     ?? nearestRow(chain.rows, spot)
     ?? chain.rows[0];
 
-  // Determine IV context from chain analytics + IV percentile if available.
+  // ── IV regime ────────────────────────────────────────────────────────
+  // Per-kind absolute thresholds matter: NIFTY ATM IV typically prints
+  // 11–18%, while a single-stock F&O like RELIANCE prints 25–45%. A flat
+  // 12/25 cutoff (the old code) classifies almost every index reading as
+  // UNKNOWN — which then disqualifies 10 of 13 strategy templates from
+  // ever surfacing in the Recommended section.
   let ivContext: "LOW" | "HIGH" | "UNKNOWN" = "UNKNOWN";
+  let ivRegimeReason = "ATM IV unavailable on this chain — IV regime classified as UNKNOWN.";
   if (analytics.ivPercentile != null) {
-    if (analytics.ivPercentile >= 70) ivContext = "HIGH";
-    else if (analytics.ivPercentile <= 30) ivContext = "LOW";
-    else ivContext = "UNKNOWN";
+    if (analytics.ivPercentile >= 70) {
+      ivContext = "HIGH";
+      ivRegimeReason = `IV percentile ${analytics.ivPercentile} is in the top 30% of recent history — premium is rich.`;
+    } else if (analytics.ivPercentile <= 30) {
+      ivContext = "LOW";
+      ivRegimeReason = `IV percentile ${analytics.ivPercentile} is in the bottom 30% of recent history — premium is cheap.`;
+    } else {
+      ivRegimeReason = `IV percentile ${analytics.ivPercentile} is in the middle range — no edge from selling or buying vol.`;
+    }
   } else if (analytics.atmIv != null) {
-    // Heuristic absolute thresholds when no history exists yet
-    if (analytics.atmIv >= 25) ivContext = "HIGH";
-    else if (analytics.atmIv <= 12) ivContext = "LOW";
+    const isIndex = chain.kind === "INDEX";
+    const hi = isIndex ? 18 : 35;
+    const lo = isIndex ? 11 : 20;
+    const kindLabel = isIndex ? "index" : "equity";
+    if (analytics.atmIv >= hi) {
+      ivContext = "HIGH";
+      ivRegimeReason = `ATM IV ${analytics.atmIv.toFixed(1)}% is above the ${hi}% ${kindLabel} threshold — premium-selling has positive edge.`;
+    } else if (analytics.atmIv <= lo) {
+      ivContext = "LOW";
+      ivRegimeReason = `ATM IV ${analytics.atmIv.toFixed(1)}% is below the ${lo}% ${kindLabel} threshold — debit plays are cheap.`;
+    } else {
+      ivRegimeReason = `ATM IV ${analytics.atmIv.toFixed(1)}% sits between the ${lo}% and ${hi}% ${kindLabel} thresholds — neutral vol regime.`;
+    }
   }
+
+  // ── Blend live + structural bias ─────────────────────────────────────
+  // The structural bias from PCR + max-pain reflects accumulated option
+  // positioning (often carry-over from previous sessions). The live bias
+  // from VWAP/EMA9/EMA21/RSI on the underlying reflects the *current*
+  // intraday read. Recommendations should reflect both:
+  //   - both agree                 → use that bias (high conviction)
+  //   - live NEUTRAL, structural X → use X (no live signal to flip)
+  //   - structural NEUTRAL, live X → use X (live takes over)
+  //   - they disagree              → NEUTRAL (transition / mixed signals)
+  const structuralBias = analytics.bias;
+  const liveBias = opts?.liveBias ?? null;
+  let blendedBias: OptionAnalytics["bias"];
+  let biasReason: string;
+  if (liveBias) {
+    if (liveBias.bias === structuralBias) {
+      blendedBias = structuralBias;
+      biasReason = `Live price action and option positioning both ${blendedBias.toLowerCase()} (${liveBias.reason}).`;
+    } else if (liveBias.bias === "NEUTRAL") {
+      blendedBias = structuralBias;
+      biasReason = `Option positioning ${structuralBias.toLowerCase()}; live price action mixed (${liveBias.reason}).`;
+    } else if (structuralBias === "NEUTRAL") {
+      blendedBias = liveBias.bias;
+      biasReason = `Live price action ${liveBias.bias.toLowerCase()} (${liveBias.reason}); option positioning balanced.`;
+    } else {
+      blendedBias = "NEUTRAL";
+      biasReason = `Live price action ${liveBias.bias.toLowerCase()} (${liveBias.reason}) disagrees with ${structuralBias.toLowerCase()} option positioning — treat as transitional.`;
+    }
+  } else {
+    blendedBias = structuralBias;
+    biasReason = `Live intraday data unavailable — using option-positioning bias only (${structuralBias.toLowerCase()}).`;
+  }
+
+  const marketStatus: MarketStatus = opts?.marketStatus ?? "closed";
 
   const atmSigma = analytics.atmIv != null ? analytics.atmIv / 100 : 0.18;
 
-  const ctx: BuildContext = { chain, spot, T, q, lotSize, atmRow, ivContext, bias: analytics.bias, atmSigma };
+  const ctx: BuildContext = { chain, spot, T, q, lotSize, atmRow, ivContext, bias: blendedBias, atmSigma };
 
   const out: StrategySnapshot[] = [];
   const unavailable: { kind: StrategyKind; reason: string }[] = [];
@@ -1190,8 +1281,10 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     const netEdge = +(netEdgeRaw * lotSize).toFixed(2);
 
     const marginRequired = estimateMargin(debit, maxLoss, spot, lotSize, chain.kind);
-    const recommended = isRecommended(tpl, ivContext, analytics.bias);
-    const rationale = recommended ? buildRationale(tpl, ivContext, analytics.bias) : undefined;
+    const recommended = isRecommended(tpl, ivContext, blendedBias, marketStatus);
+    const rationale = recommended
+      ? buildRationale(tpl, ivContext, blendedBias, liveBias, marketStatus, ivRegimeReason)
+      : undefined;
 
     // ── Execution-quality + characteristic IV + short-leg liquidity ─────
     const legQuality = classifyLegQuality(legs);
@@ -1271,7 +1364,13 @@ export function buildStrategies(chain: OcResponse, analytics: OptionAnalytics): 
     expiry: chain.expiry,
     daysToExpiry: Math.max(0, Math.round(T * 365)),
     ivContext,
-    bias: analytics.bias,
+    bias: blendedBias,
+    structuralBias,
+    liveBias,
+    blendedBias,
+    biasReason,
+    ivRegimeReason,
+    marketStatus,
     strategies: out,
     unavailable,
     generatedAt: new Date().toISOString(),
@@ -1282,11 +1381,36 @@ function isRecommended(
   tpl: Template,
   ivContext: "LOW" | "HIGH" | "UNKNOWN",
   bias: OptionAnalytics["bias"],
+  marketStatus: MarketStatus,
 ): boolean {
-  const biasOk = tpl.suitability.biasFit.includes(bias);
-  if (!biasOk) return false;
+  // ── Bias hard gate ──────────────────────────────────────────────────
+  // No point recommending a bullish play when the live blended read is
+  // bearish (or vice versa). NEUTRAL bias matches NEUTRAL templates only.
+  if (!tpl.suitability.biasFit.includes(bias)) return false;
+
+  // ── Market-status guard ────────────────────────────────────────────
+  // Naked-credit strategies have unbounded loss and require active
+  // intraday management. When the session is closed (or pre-open), do
+  // NOT recommend them — a pre-open gap on a leveraged short straddle
+  // can blow up capital before you can even see the move. Defined-risk
+  // credit spreads (Iron Condor / Iron Butterfly / verticals) survive
+  // gaps because the long wing caps the loss, so they remain eligible.
+  if (marketStatus !== "open" && (tpl.kind === "SHORT_STRADDLE" || tpl.kind === "SHORT_STRANGLE")) {
+    return false;
+  }
+
+  // ── IV regime gate (with soft-fallback for UNKNOWN) ────────────────
   if (tpl.suitability.ivContext === "ANY") return true;
-  if (ivContext === "UNKNOWN") return false;
+  if (ivContext === "UNKNOWN") {
+    // Soft fallback: when we genuinely can't read the IV regime, still
+    // surface the bias-aligned plan so the Recommended section is never
+    // empty under a clear directional bias. The rationale string makes
+    // the IV uncertainty explicit so the user knows it's a softer pick.
+    // Naked-credit unbounded plays are excluded from the soft-fallback
+    // because their edge depends entirely on selling rich vol — without
+    // any IV read at all the trade has no thesis.
+    return tpl.kind !== "SHORT_STRADDLE" && tpl.kind !== "SHORT_STRANGLE";
+  }
   return tpl.suitability.ivContext === ivContext;
 }
 
@@ -1294,10 +1418,51 @@ function buildRationale(
   tpl: Template,
   ivContext: "LOW" | "HIGH" | "UNKNOWN",
   bias: OptionAnalytics["bias"],
+  liveBias: LiveBiasSnapshot | null,
+  marketStatus: MarketStatus,
+  ivRegimeReason: string,
 ): string {
-  const ivPart =
-    tpl.suitability.ivContext === "LOW"  ? "IV looks compressed → directional debit plays are cheap."
-    : tpl.suitability.ivContext === "HIGH" ? "IV is elevated → premium-selling has positive edge."
-    : "Works across IV regimes.";
-  return `Bias is ${bias} and ${ivPart}`;
+  const parts: string[] = [];
+
+  // 1. Live read first — that's what the user wants to see ("am I in
+  //    the right side of today's tape?").
+  if (liveBias) {
+    const liveTag = liveBias.bias === "NEUTRAL" ? "Live mixed" : `Live ${liveBias.bias.toLowerCase()}`;
+    parts.push(`${liveTag} (${liveBias.reason}).`);
+  }
+
+  // 2. IV-context narrative tuned to the template's suitability + the
+  //    actual regime. Surfaces the soft-fallback explicitly.
+  if (tpl.suitability.ivContext === "LOW") {
+    if (ivContext === "LOW") {
+      parts.push("IV is compressed — debit construction is cheap.");
+    } else if (ivContext === "UNKNOWN") {
+      parts.push("IV regime unclear — debit construction is the safer pick when bias is clear.");
+    } else {
+      parts.push("IV is elevated — debit is more expensive than ideal but bias still aligns.");
+    }
+  } else if (tpl.suitability.ivContext === "HIGH") {
+    if (ivContext === "HIGH") {
+      parts.push("IV is elevated — premium-selling has positive edge.");
+    } else if (ivContext === "UNKNOWN") {
+      parts.push("IV regime unclear — defined-risk credit play is a measured bet on stillness.");
+    } else {
+      parts.push("IV is compressed — credit narrower but bias still aligns.");
+    }
+  } else {
+    parts.push("Works across IV regimes.");
+  }
+
+  // 3. Market-status nudge so user knows whether to act now or wait.
+  if (marketStatus === "closed") {
+    parts.push("Market closed — recommendation reflects last available data; entry deferred to next session open.");
+  } else if (marketStatus === "pre_open") {
+    parts.push("Pre-open session — recommendation reflects pre-market positioning; entry at 09:15 IST open.");
+  }
+
+  // Append the IV regime reason as the closing context line so the
+  // user can see exactly why the IV regime was classified the way it was.
+  parts.push(ivRegimeReason);
+
+  return parts.join(" ");
 }

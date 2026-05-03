@@ -2,6 +2,8 @@ import { Router, type IRouter } from "express";
 import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics, type OptionAnalytics } from "../lib/optionAnalytics";
 import { buildStrategies, type StrategyBundle } from "../lib/optionStrategies";
+import { computeLiveBias } from "../lib/liveBias";
+import { computeMarketStatus } from "../lib/marketEvents";
 import { getActiveSession } from "../lib/kiteAuth";
 import { requireSubscriberOrOwner } from "../lib/userAuth";
 import { logger } from "../lib/logger";
@@ -64,7 +66,18 @@ router.get("/options/strategies/:underlying", async (req, res): Promise<void> =>
     }
 
     const analytics = computeAnalytics(chain);
-    const bundle = buildStrategies(chain, analytics);
+    // Live intraday read for the underlying — Kite-first 15-min candles
+    // (no Yahoo 15-min delay) for both indices and equity F&O. The blended
+    // bias inside `buildStrategies` combines this with the option-chain's
+    // structural bias so recommendations reflect *current* market action,
+    // not just carry-over option positioning. Returns null when intraday
+    // is unavailable; the builder falls through to structural-bias-only.
+    const liveBias = await computeLiveBias(underlying, chain.kind).catch(err => {
+      req.log.warn({ err: (err as Error).message, underlying }, "Live bias fetch failed — falling back to structural bias");
+      return null;
+    });
+    const marketStatus = computeMarketStatus(new Date());
+    const bundle = buildStrategies(chain, analytics, { liveBias, marketStatus });
     const payload = { ...bundle, analytics };
     bundleCache.set(cacheKey, { ts: Date.now(), chainTs, payload });
     res.json(payload);
