@@ -5,8 +5,21 @@
  */
 
 import type { OcResponse } from "./optionChain";
+import { computeMarketStatus } from "./marketEvents";
 
-export interface OiCluster { strike: number; oi: number }
+/** A single OI-clustered strike. The Option Chain UI ranks the top three
+ *  call-side clusters as R1/R2/R3 (resistance — call writers' positioning)
+ *  and the top three put-side clusters as S1/S2/S3 (support — put writers'
+ *  positioning). `chgOi` lets the UI show whether writers are *adding*
+ *  fresh positions today (active level) vs. holding stale legacy OI. */
+export interface OiCluster {
+  strike: number;
+  oi: number;
+  /** Net OI change today on this side at this strike. Positive = writers
+   *  adding (the level is being defended), negative = unwinding (level
+   *  weakening). Null when the upstream couldn't supply previous OI. */
+  chgOi: number | null;
+}
 
 /**
  * Max-Pain strike: the strike where the aggregate loss to all option WRITERS
@@ -49,6 +62,12 @@ export interface OptionAnalytics {
   topSupport: OiCluster[];
   interpretation: string;
   bias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  /** NSE session state at the time analytics were computed. Lets the
+   *  Option Chain client switch its poll cadence (15s during the live
+   *  session, 60s otherwise) using the *server's* holiday-aware logic
+   *  rather than a client-only weekday/clock check that would drift on
+   *  NSE-declared holidays. */
+  marketStatus: "open" | "closed" | "pre_open";
   generatedAt: string;
 }
 
@@ -64,13 +83,13 @@ export function computeAnalytics(chain: OcResponse): OptionAnalytics {
       totalCallOi += r.ce.oi ?? 0;
       callVol     += r.ce.volume ?? 0;
       callOiAdded += r.ce.chgOi ?? 0;
-      callByStrike.push({ strike: r.strike, oi: r.ce.oi ?? 0 });
+      callByStrike.push({ strike: r.strike, oi: r.ce.oi ?? 0, chgOi: r.ce.chgOi ?? null });
     }
     if (r.pe) {
       totalPutOi += r.pe.oi ?? 0;
       putVol     += r.pe.volume ?? 0;
       putOiAdded += r.pe.chgOi ?? 0;
-      putByStrike.push({ strike: r.strike, oi: r.pe.oi ?? 0 });
+      putByStrike.push({ strike: r.strike, oi: r.pe.oi ?? 0, chgOi: r.pe.chgOi ?? null });
     }
   }
 
@@ -130,6 +149,7 @@ export function computeAnalytics(chain: OcResponse): OptionAnalytics {
     topSupport,
     interpretation,
     bias,
+    marketStatus: computeMarketStatus(new Date()),
     generatedAt: new Date().toISOString(),
   };
 }

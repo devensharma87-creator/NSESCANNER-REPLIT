@@ -9,4 +9,6 @@
 export interface OiClusterStrike {
   strike: number;
   oi: number;
+  /** Today's net OI change on this side at this strike. Positive = writers adding (level being defended); negative = unwinding. Null when previous OI is unavailable. */
+  chgOi?: number | null;
 }

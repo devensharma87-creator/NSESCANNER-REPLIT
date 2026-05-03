@@ -1480,6 +1480,8 @@ export interface OptionChainResponse {
 export interface OiClusterStrike {
   strike: number;
   oi: number;
+  /** Today's net OI change on this side at this strike. Positive = writers adding (level being defended); negative = unwinding. Null when previous OI is unavailable. */
+  chgOi?: number | null;
 }
 
 export type OptionAnalyticsResponseBias =
@@ -1489,6 +1491,18 @@ export const OptionAnalyticsResponseBias = {
   BULLISH: "BULLISH",
   BEARISH: "BEARISH",
   NEUTRAL: "NEUTRAL",
+} as const;
+
+/**
+ * NSE session state at compute time. Holiday-aware on the server. Clients use this to switch poll cadence.
+ */
+export type OptionAnalyticsResponseMarketStatus =
+  (typeof OptionAnalyticsResponseMarketStatus)[keyof typeof OptionAnalyticsResponseMarketStatus];
+
+export const OptionAnalyticsResponseMarketStatus = {
+  open: "open",
+  closed: "closed",
+  pre_open: "pre_open",
 } as const;
 
 export interface OptionAnalyticsResponse {
@@ -1514,6 +1528,8 @@ export interface OptionAnalyticsResponse {
   /** Plain-English read on bias from PCR + OI flow + Max Pain */
   interpretation?: string;
   bias?: OptionAnalyticsResponseBias;
+  /** NSE session state at compute time. Holiday-aware on the server. Clients use this to switch poll cadence. */
+  marketStatus: OptionAnalyticsResponseMarketStatus;
   generatedAt: string;
 }
 

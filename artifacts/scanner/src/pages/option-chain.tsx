@@ -10,7 +10,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Activity, Target, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Target, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Radio } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
   FNO_ALL,
@@ -84,13 +84,39 @@ export default function OptionChainPage() {
   useEffect(() => { setExpiry(undefined); }, [underlying]);
 
   const chainParams = expiry ? { expiry } : undefined;
+
+  // ── Adaptive live cadence ─────────────────────────────────────────
+  // The market status comes from the *server* (`analytics.marketStatus`)
+  // so cadence selection is holiday-aware via NSE's published holiday
+  // list — a client-only weekday/clock check would falsely flip to OPEN
+  // on Diwali/Holi/etc. We default to the conservative 60s cadence
+  // until the first analytics response arrives, then re-poll at 15s
+  // whenever the server reports OPEN. React Query picks up
+  // `refetchInterval` changes on the next scheduled tick, so this
+  // converges within at most one poll cycle.
+  const analyticsQ = useGetOptionAnalytics(
+    underlying,
+    chainParams,
+    { query: {
+        // Refetch interval is read from the *previous* analytics response
+        // so it tracks the server's holiday-aware status without ever
+        // disagreeing with it. `query.data` is `undefined` on first load
+        // → we conservatively poll at 60s until we know better.
+        refetchInterval: (query) => (query.state.data?.marketStatus === "open" ? 15_000 : 60_000),
+        refetchIntervalInBackground: false,
+        retry: 0,
+        queryKey: getGetOptionAnalyticsQueryKey(underlying, chainParams),
+      } },
+  );
+  const analytics = analyticsQ.data;
+  const marketStatus = analytics?.marketStatus ?? null;
+  const refetchInterval = marketStatus === "open" ? 15_000 : 60_000;
+
   const chainQ = useGetOptionChain(
     underlying,
     chainParams,
     { query: {
-        // 60s (was 30s) — Greeks computation + IV solve adds CPU load on every
-        // tick, and the human eye can't read changes faster than this anyway.
-        refetchInterval: 60_000,
+        refetchInterval,
         // Pause polling while the user has switched to another browser tab so
         // we're not burning Kite quota and CPU on a hidden chart.
         refetchIntervalInBackground: false,
@@ -98,19 +124,17 @@ export default function OptionChainPage() {
         queryKey: getGetOptionChainQueryKey(underlying, chainParams),
       } },
   );
-  const analyticsQ = useGetOptionAnalytics(
-    underlying,
-    chainParams,
-    { query: {
-        refetchInterval: 60_000,
-        refetchIntervalInBackground: false,
-        retry: 0,
-        queryKey: getGetOptionAnalyticsQueryKey(underlying, chainParams),
-      } },
-  );
+
+  // Last successful fetch timestamp (for the "updated Ns ago" pulse).
+  // We tick a 1 s clock only while the page is mounted; React Query's
+  // own `dataUpdatedAt` is the source of truth.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(t => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const chain = chainQ.data;
-  const analytics = analyticsQ.data;
   const [showGreeks, setShowGreeks] = useState(false);
 
   // ── "Jump to ATM" floating button ─────────────────────────────────
@@ -176,6 +200,35 @@ export default function OptionChainPage() {
     return m;
   }, [chain]);
 
+  // ── R1/R2/R3 (call writing = resistance) and S1/S2/S3 (put writing =
+  //    support) tier maps. Built off the analytics endpoint's already-
+  //    sorted top-OI clusters so the ranking on the page matches the
+  //    bias card and updates automatically every refetch — i.e. as
+  //    writers add or unwind during the session, R1/S1 will drift
+  //    along with them. Keyed by strike → tier label for O(1) row
+  //    lookups inside the table render. */
+  const resistanceTiers = useMemo(() => {
+    const m = new Map<number, "R1" | "R2" | "R3">();
+    const top = analytics?.topResistance?.slice(0, 3) ?? [];
+    top.forEach((c, i) => {
+      const tier = (["R1", "R2", "R3"] as const)[i];
+      if (tier) m.set(c.strike, tier);
+    });
+    return m;
+  }, [analytics]);
+  const supportTiers = useMemo(() => {
+    const m = new Map<number, "S1" | "S2" | "S3">();
+    const top = analytics?.topSupport?.slice(0, 3) ?? [];
+    top.forEach((c, i) => {
+      const tier = (["S1", "S2", "S3"] as const)[i];
+      if (tier) m.set(c.strike, tier);
+    });
+    return m;
+  }, [analytics]);
+
+  const lastUpdate = chainQ.dataUpdatedAt;
+  const secondsSinceUpdate = lastUpdate ? Math.max(0, Math.floor((Date.now() - lastUpdate) / 1000)) : null;
+
   const status: "loading" | "error" | "ready" =
     chain ? "ready"
       : chainQ.isError || chainQ.isFetched ? "error"
@@ -227,8 +280,26 @@ export default function OptionChainPage() {
           <p className="text-xs text-muted-foreground mt-1">
             Live NSE OI for <b className="text-foreground/90 font-mono">{currentEntry?.label ?? underlying}</b>
             {currentEntry?.sector ? <> · <span className="text-foreground/70">{currentEntry.sector}</span></> : null}
-            {" · "}auto-refresh 30s · OI per strike (CE left, PE right) · ATM highlighted
+            {" · "}OI per strike (CE left, PE right) · ATM highlighted · R1-R3 = top call-writing strikes (resistance), S1-S3 = top put-writing strikes (support)
           </p>
+          <div className="mt-1.5 flex items-center gap-2 text-[10px] font-mono">
+            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${
+              marketStatus == null ? "border-border bg-secondary/40 text-muted-foreground" :
+              marketStatus === "open" ? "border-signal-strong-buy/40 bg-signal-strong-buy/15 text-signal-strong-buy" :
+              marketStatus === "pre_open" ? "border-amber-500/40 bg-amber-500/15 text-amber-500" :
+              "border-border bg-secondary/40 text-muted-foreground"
+            }`}>
+              <Radio className={`w-2.5 h-2.5 ${marketStatus === "open" ? "animate-pulse" : ""}`} />
+              {marketStatus == null ? "—" : marketStatus === "open" ? "MARKET OPEN" : marketStatus === "pre_open" ? "PRE-OPEN" : "MARKET CLOSED"}
+            </span>
+            <span className="text-muted-foreground">
+              live cadence {refetchInterval / 1000}s
+              {secondsSinceUpdate != null && (
+                <> · updated {secondsSinceUpdate < 5 ? "just now" : `${secondsSinceUpdate}s ago`}</>
+              )}
+              {chainQ.isFetching && lastUpdate ? " · refreshing…" : ""}
+            </span>
+          </div>
         </div>
 
         {/* Search picker trigger */}
@@ -420,7 +491,7 @@ export default function OptionChainPage() {
             {analytics?.topResistance?.[0] && (
               <div className="text-[11px] text-muted-foreground font-mono mt-1">
                 <Target className="w-3 h-3 inline mr-1" />
-                R {fmt(analytics.topResistance[0].strike, 0)} · S {fmt(analytics.topSupport?.[0]?.strike ?? 0, 0)}
+                R1 {fmt(analytics.topResistance[0].strike, 0)} · S1 {analytics.topSupport?.[0]?.strike != null ? fmt(analytics.topSupport[0].strike, 0) : "—"}
               </div>
             )}
           </CardContent>
@@ -435,6 +506,115 @@ export default function OptionChainPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Key Levels (R1-R3 / S1-S3) ──────────────────────────────────
+            R1/R2/R3 = top three call-writing strikes (highest CE OI):
+            where call writers have stacked positions, so price tends to
+            face supply on rallies. S1/S2/S3 = top three put-writing
+            strikes (highest PE OI): where put writers have committed
+            capital, providing demand on dips. The chgOi tag tells the
+            user whether writers are *adding* fresh OI today (active
+            level being defended) or unwinding (level weakening). The
+            ranking refreshes every chain poll, so the levels move
+            naturally with the live market. */}
+      {analytics && (analytics.topResistance?.length || analytics.topSupport?.length) ? (
+        <Card className="bg-card border-border">
+          <CardContent className="p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wider">Key Levels — option-writing clusters</div>
+              {chain && (
+                <div className="text-[10px] text-muted-foreground font-mono">
+                  Spot {fmt(chain.spot, chain.spot >= 1000 ? 0 : 2)}
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {/* RESISTANCE column (R1/R2/R3) */}
+              <div className="space-y-1">
+                <div className="text-[10px] font-mono uppercase text-signal-strong-sell flex items-center gap-1">
+                  <TrendingDown className="w-3 h-3" /> Resistance · top call writers
+                </div>
+                {(analytics.topResistance ?? []).slice(0, 3).map((c, i) => {
+                  const tier = (["R1", "R2", "R3"] as const)[i];
+                  const dist = chain ? ((c.strike - chain.spot) / chain.spot) * 100 : null;
+                  return (
+                    <div key={c.strike} className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-signal-strong-sell/[0.06] border border-signal-strong-sell/20 font-mono text-[11px]">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          i === 0 ? "bg-signal-strong-sell/30 text-signal-strong-sell" :
+                          i === 1 ? "bg-signal-strong-sell/20 text-signal-strong-sell" :
+                          "bg-signal-strong-sell/15 text-signal-strong-sell/80"
+                        }`}>{tier}</span>
+                        <span className="font-bold tabular-nums">{c.strike}</span>
+                        {dist != null && (
+                          <span className="text-[10px] text-muted-foreground tabular-nums">
+                            {dist >= 0 ? "+" : ""}{dist.toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="tabular-nums text-foreground/80" title="Total CE OI">OI {fmtKL(c.oi)}</span>
+                        {c.chgOi != null && (
+                          <span className={`tabular-nums text-[10px] ${c.chgOi > 0 ? "text-signal-strong-sell" : c.chgOi < 0 ? "text-signal-strong-buy" : "text-muted-foreground"}`}
+                                title={c.chgOi > 0 ? "Writers adding — level being defended" : c.chgOi < 0 ? "Writers unwinding — level weakening" : "No change"}>
+                            Δ {c.chgOi > 0 ? "+" : ""}{fmtKL(c.chgOi)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {(!analytics.topResistance || analytics.topResistance.length === 0) && (
+                  <div className="text-[10px] text-muted-foreground font-mono italic px-1">No call-side OI clusters in this chain.</div>
+                )}
+              </div>
+
+              {/* SUPPORT column (S1/S2/S3) */}
+              <div className="space-y-1">
+                <div className="text-[10px] font-mono uppercase text-signal-strong-buy flex items-center gap-1">
+                  <TrendingUp className="w-3 h-3" /> Support · top put writers
+                </div>
+                {(analytics.topSupport ?? []).slice(0, 3).map((c, i) => {
+                  const tier = (["S1", "S2", "S3"] as const)[i];
+                  const dist = chain ? ((c.strike - chain.spot) / chain.spot) * 100 : null;
+                  return (
+                    <div key={c.strike} className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-signal-strong-buy/[0.06] border border-signal-strong-buy/20 font-mono text-[11px]">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          i === 0 ? "bg-signal-strong-buy/30 text-signal-strong-buy" :
+                          i === 1 ? "bg-signal-strong-buy/20 text-signal-strong-buy" :
+                          "bg-signal-strong-buy/15 text-signal-strong-buy/80"
+                        }`}>{tier}</span>
+                        <span className="font-bold tabular-nums">{c.strike}</span>
+                        {dist != null && (
+                          <span className="text-[10px] text-muted-foreground tabular-nums">
+                            {dist >= 0 ? "+" : ""}{dist.toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="tabular-nums text-foreground/80" title="Total PE OI">OI {fmtKL(c.oi)}</span>
+                        {c.chgOi != null && (
+                          <span className={`tabular-nums text-[10px] ${c.chgOi > 0 ? "text-signal-strong-buy" : c.chgOi < 0 ? "text-signal-strong-sell" : "text-muted-foreground"}`}
+                                title={c.chgOi > 0 ? "Writers adding — level being defended" : c.chgOi < 0 ? "Writers unwinding — level weakening" : "No change"}>
+                            Δ {c.chgOi > 0 ? "+" : ""}{fmtKL(c.chgOi)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {(!analytics.topSupport || analytics.topSupport.length === 0) && (
+                  <div className="text-[10px] text-muted-foreground font-mono italic px-1">No put-side OI clusters in this chain.</div>
+                )}
+              </div>
+            </div>
+            <div className="text-[10px] text-muted-foreground font-mono">
+              Δ shows today's net OI change at that strike. Positive on the resistance side = call writers adding (level holding); positive on the support side = put writers adding (floor being built). Levels re-rank automatically as live OI shifts.
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Expiry selector */}
       {chain && chain.expiries.length > 0 && (
@@ -621,7 +801,18 @@ export default function OptionChainPage() {
                 </tr>
               </thead>
               <tbody>
-                {chain.rows.map((r) => <Row key={r.strike} row={r} atm={chain.atmStrike} spot={chain.spot} maxOi={maxOi} showGreeks={showGreeks} />)}
+                {chain.rows.map((r) => (
+                  <Row
+                    key={r.strike}
+                    row={r}
+                    atm={chain.atmStrike}
+                    spot={chain.spot}
+                    maxOi={maxOi}
+                    showGreeks={showGreeks}
+                    resistanceTier={resistanceTiers.get(r.strike) ?? null}
+                    supportTier={supportTiers.get(r.strike) ?? null}
+                  />
+                ))}
               </tbody>
             </table>
           </div>
@@ -673,7 +864,19 @@ export default function OptionChainPage() {
   );
 }
 
-function Row({ row, atm, spot, maxOi, showGreeks }: { row: OptionChainStrikeRow; atm: number; spot: number; maxOi: number; showGreeks: boolean }) {
+function Row({ row, atm, spot, maxOi, showGreeks, resistanceTier, supportTier }: {
+  row: OptionChainStrikeRow;
+  atm: number;
+  spot: number;
+  maxOi: number;
+  showGreeks: boolean;
+  /** R1/R2/R3 if this strike is one of the top three call-writing
+   *  clusters (resistance), else null. Updates every analytics refetch. */
+  resistanceTier: "R1" | "R2" | "R3" | null;
+  /** S1/S2/S3 if this strike is one of the top three put-writing
+   *  clusters (support), else null. Updates every analytics refetch. */
+  supportTier: "S1" | "S2" | "S3" | null;
+}) {
   const isAtm = row.strike === atm;
   const isMaxPain = !!row.isMaxPain;
   const ce = row.ce, pe = row.pe;
@@ -734,12 +937,39 @@ function Row({ row, atm, spot, maxOi, showGreeks }: { row: OptionChainStrikeRow;
         <span className={`px-1 rounded text-[9px] font-bold ${buildupTone(ce?.oiBuildup)}`}>{buildupShort(ce?.oiBuildup)}</span>
       </td>
 
-      {/* ── Strike — ATM, MaxPain, per-strike PCR ─────────────────── */}
-      <td className={`px-2 py-1 text-center tabular-nums ${isAtm ? "text-primary" : isMaxPain ? "text-amber-500" : "text-foreground"}`}>
+      {/* ── Strike — ATM, MaxPain, per-strike PCR, R/S tier ──────────
+            R-tier (red) marks one of the top-3 call-writing strikes →
+            resistance. S-tier (green) marks one of the top-3 put-writing
+            strikes → support. Tier intensity: 1 brightest, 3 dimmest. */}
+      <td className={`px-2 py-1 text-center tabular-nums ${
+        resistanceTier ? "bg-signal-strong-sell/[0.05]" :
+        supportTier ? "bg-signal-strong-buy/[0.05]" :
+        ""
+      } ${isAtm ? "text-primary" : isMaxPain ? "text-amber-500" : "text-foreground"}`}>
         <div className={`leading-tight font-bold ${isAtm || isMaxPain ? "text-[12px]" : ""}`}>{row.strike}</div>
-        <div className="flex items-center justify-center gap-1 leading-tight mt-0.5">
+        <div className="flex items-center justify-center gap-1 leading-tight mt-0.5 flex-wrap">
           {isAtm && <span className="text-[8px] px-1 rounded bg-primary/20 text-primary font-bold">ATM</span>}
           {isMaxPain && <span className="text-[8px] px-1 rounded bg-amber-500/25 text-amber-500 font-bold" title="Max-Pain strike">MP</span>}
+          {resistanceTier && (
+            <span
+              className={`text-[8px] px-1 rounded font-bold ${
+                resistanceTier === "R1" ? "bg-signal-strong-sell/35 text-signal-strong-sell" :
+                resistanceTier === "R2" ? "bg-signal-strong-sell/25 text-signal-strong-sell" :
+                "bg-signal-strong-sell/15 text-signal-strong-sell/85"
+              }`}
+              title={`${resistanceTier} — top call-writing cluster (resistance). Re-ranks live as OI shifts.`}
+            >{resistanceTier}</span>
+          )}
+          {supportTier && (
+            <span
+              className={`text-[8px] px-1 rounded font-bold ${
+                supportTier === "S1" ? "bg-signal-strong-buy/35 text-signal-strong-buy" :
+                supportTier === "S2" ? "bg-signal-strong-buy/25 text-signal-strong-buy" :
+                "bg-signal-strong-buy/15 text-signal-strong-buy/85"
+              }`}
+              title={`${supportTier} — top put-writing cluster (support). Re-ranks live as OI shifts.`}
+            >{supportTier}</span>
+          )}
           {row.pcrOi != null && (
             <span className={`text-[9px] font-mono ${
               row.pcrOi >= 1.3 ? "text-signal-strong-buy" :

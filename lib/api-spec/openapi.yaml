@@ -2295,10 +2295,11 @@ components:
       properties:
         strike: { type: number }
         oi:     { type: integer }
+        chgOi:  { type: integer, nullable: true, description: "Today's net OI change on this side at this strike. Positive = writers adding (level being defended); negative = unwinding. Null when previous OI is unavailable." }
 
     OptionAnalyticsResponse:
       type: object
-      required: [underlying, spot, expiry, pcrOi, pcrVolume, maxPain, totalCallOi, totalPutOi, generatedAt]
+      required: [underlying, spot, expiry, pcrOi, pcrVolume, maxPain, totalCallOi, totalPutOi, marketStatus, generatedAt]
       properties:
         underlying:    { type: string }
         spot:          { type: number }
@@ -2320,6 +2321,7 @@ components:
           items: { $ref: "#/components/schemas/OiClusterStrike" }
         interpretation: { type: string, description: "Plain-English read on bias from PCR + OI flow + Max Pain" }
         bias:           { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
+        marketStatus:   { type: string, enum: [open, closed, pre_open], description: "NSE session state at compute time. Holiday-aware on the server. Clients use this to switch poll cadence." }
         generatedAt:    { type: string, format: date-time }
 
     OptionStrategyLeg:

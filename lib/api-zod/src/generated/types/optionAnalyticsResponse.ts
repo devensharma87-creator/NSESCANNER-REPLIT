@@ -7,6 +7,7 @@
  */
 import type { OiClusterStrike } from "./oiClusterStrike";
 import type { OptionAnalyticsResponseBias } from "./optionAnalyticsResponseBias";
+import type { OptionAnalyticsResponseMarketStatus } from "./optionAnalyticsResponseMarketStatus";
 
 export interface OptionAnalyticsResponse {
   underlying: string;
@@ -31,5 +32,7 @@ export interface OptionAnalyticsResponse {
   /** Plain-English read on bias from PCR + OI flow + Max Pain */
   interpretation?: string;
   bias?: OptionAnalyticsResponseBias;
+  /** NSE session state at compute time. Holiday-aware on the server. Clients use this to switch poll cadence. */
+  marketStatus: OptionAnalyticsResponseMarketStatus;
   generatedAt: Date;
 }

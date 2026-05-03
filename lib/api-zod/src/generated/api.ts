@@ -2266,6 +2266,12 @@ export const GetOptionAnalyticsResponse = zod.object({
       zod.object({
         strike: zod.number(),
         oi: zod.number(),
+        chgOi: zod
+          .number()
+          .nullish()
+          .describe(
+            "Today's net OI change on this side at this strike. Positive = writers adding (level being defended); negative = unwinding. Null when previous OI is unavailable.",
+          ),
       }),
     )
     .optional(),
@@ -2274,6 +2280,12 @@ export const GetOptionAnalyticsResponse = zod.object({
       zod.object({
         strike: zod.number(),
         oi: zod.number(),
+        chgOi: zod
+          .number()
+          .nullish()
+          .describe(
+            "Today's net OI change on this side at this strike. Positive = writers adding (level being defended); negative = unwinding. Null when previous OI is unavailable.",
+          ),
       }),
     )
     .optional(),
@@ -2282,6 +2294,11 @@ export const GetOptionAnalyticsResponse = zod.object({
     .optional()
     .describe("Plain-English read on bias from PCR + OI flow + Max Pain"),
   bias: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]).optional(),
+  marketStatus: zod
+    .enum(["open", "closed", "pre_open"])
+    .describe(
+      "NSE session state at compute time. Holiday-aware on the server. Clients use this to switch poll cadence.",
+    ),
   generatedAt: zod.coerce.date(),
 });
 

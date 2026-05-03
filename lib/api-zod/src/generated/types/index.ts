@@ -124,6 +124,7 @@ export * from "./newsItemSentiment";
 export * from "./oiClusterStrike";
 export * from "./optionAnalyticsResponse";
 export * from "./optionAnalyticsResponseBias";
+export * from "./optionAnalyticsResponseMarketStatus";
 export * from "./optionChainResponse";
 export * from "./optionChainResponseKind";
 export * from "./optionChainSide";
