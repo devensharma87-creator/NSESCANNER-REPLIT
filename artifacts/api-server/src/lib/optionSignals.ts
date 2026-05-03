@@ -1,5 +1,7 @@
 import type { OptionSignal, SignalReason } from "@workspace/api-zod";
 import { fetchIntraday, type YahooChart } from "./yahoo";
+import { fetchKiteIntraday, hasKiteIntradayCoverage } from "./kiteIntraday";
+import { getKiteIndexQuotes } from "./kiteIndexQuotes";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
 import { logger } from "./logger";
 import { fetchOptionChain, type OcRow, type OcSide } from "./optionChain";
@@ -32,6 +34,22 @@ export const OPTION_INDICES: IndexCfg[] = [
   { symbol: "SENSEX",    yahoo: "^BSESN",             display: "SENSEX",        strikeStep: 100, expiryCadence: "weekly",  expiryWeekday: 2 /* Tue */ },
   { symbol: "BANKEX",    yahoo: "BSE-BANK.BO",        display: "BSE BANKEX",    strikeStep: 100, expiryCadence: "monthly", expiryWeekday: 2 /* last Tue */ },
 ];
+
+/**
+ * Single source of truth mapping OPTION_INDICES.symbol → the Yahoo-style
+ * key the live-LTP source (`getKiteIndexQuotes`) returns. The historical
+ * Yahoo intraday endpoint and the live Kite-LTP source disagree on which
+ * key to use for FINNIFTY (`^CNXFIN` vs `NIFTY_FIN_SERVICE.NS`), so we
+ * never derive one from the other — they are looked up explicitly here.
+ */
+const SIGNAL_INDEX_TO_LTP_KEY: Record<string, string> = {
+  NIFTY:      "^NSEI",
+  BANKNIFTY:  "^NSEBANK",
+  FINNIFTY:   "NIFTY_FIN_SERVICE.NS",
+  MIDCPNIFTY: "NIFTY_MID_SELECT.NS",
+  SENSEX:     "^BSESN",
+  BANKEX:     "BSE-BANK.BO",
+};
 
 // ---------- helpers ----------
 function lastVal(arr: (number | null)[]): number | null {
@@ -702,6 +720,46 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
  * traverses in a typical session. If the structural plan is already
  * tight, this is a no-op.
  */
+/**
+ * Translate the plan so the entry trigger sits at a price spot can
+ * actually reach in the remaining session, while preserving the entry→
+ * stop and entry→target distances (RR is unchanged).
+ *
+ * The OG geometry uses prevSwingHigh/Low or pivot levels for the entry
+ * trigger. On a stable trending day those are routinely 1.5–3% away from
+ * current spot, so the lifecycle marks the plan PENDING and the move
+ * never reaches the trigger before 15:30 — the "card stuck on Waiting
+ * trigger" complaint. We cap the gap at min(0.5% spot, 1.2 × ATR15).
+ *
+ * If the structural trigger is already within the cap, this is a no-op.
+ * We never push the trigger AWAY from spot (that would reduce edge) and
+ * we never invert the side (a BULLISH trigger always sits >= spot).
+ */
+function applyTriggerRealism(d: Detected, c: Ctx): Detected {
+  if (d.setupKey === "MEAN_REVERSION") return d; // by-design counter-trend
+  const dir = d.direction;
+  const gap = dir === "BULLISH" ? d.entryLevel - c.spot : c.spot - d.entryLevel;
+  if (!(gap > 0)) return d; // trigger already at-or-through spot
+  const maxGap = Math.max(0.005 * c.spot, 1.2 * c.atr15);
+  if (gap <= maxGap) return d;
+  // How far we need to pull the trigger toward spot.
+  const shift = gap - maxGap;
+  const newEntry = dir === "BULLISH" ? d.entryLevel - shift : d.entryLevel + shift;
+  // Translate stop and targets by the same shift (in the same direction)
+  // so risk and reward distances are preserved.
+  const sgn = dir === "BULLISH" ? -1 : +1;
+  return {
+    ...d,
+    entryLevel: newEntry,
+    stopLevel: d.stopLevel + sgn * shift,
+    targetLevel: d.targetLevel + sgn * shift,
+    target2Level: d.target2Level + sgn * shift,
+    entryTrigger: dir === "BULLISH"
+      ? `15-min close > ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`
+      : `15-min close < ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`,
+  };
+}
+
 function clampPlanForIntraday(d: Detected, c: Ctx): Detected | null {
   if (d.setupKey === "MEAN_REVERSION") return d;
 
@@ -869,12 +927,15 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
           suppressed.push(`${det.name}: conditions not met`);
           continue;
         }
-        // Tighten the structural plan into an INTRADAY-realistic envelope
-        // and reject if the post-clamp risk-reward is no longer worth the
-        // premium decay. This is what stops the system from shipping the
-        // "stop 1.5% wide, target 2% away" plans that produced 0% win rate
-        // in the user's scoreboard. Mean Reversion is exempt by design.
-        const clamped = clampPlanForIntraday(r, ctx);
+        // FIRST translate the plan inward when the structural trigger is
+        // unreachable (e.g. prevSwingHigh is 2% above spot — the trigger
+        // never fires before close). This preserves entry→stop and
+        // entry→T1 distances so RR is unchanged; only the absolute price
+        // levels shift. THEN clamp widths to an intraday-realistic
+        // envelope and reject if the post-clamp RR no longer justifies
+        // the premium decay. Mean Reversion is exempt from both.
+        const realistic = applyTriggerRealism(r, ctx);
+        const clamped = clampPlanForIntraday(realistic, ctx);
         if (!clamped) {
           suppressed.push(`${det.name}: post-clamp RR < ${MIN_RR_FOR_HC} — plan rejected as not worth premium decay`);
           continue;
@@ -1124,13 +1185,42 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   interface IdxBundle { signals: OptionSignal[]; snapshot?: SpotSnapshot; }
   const bundles: IdxBundle[] = [];
 
+  // Pre-fetch live Kite LTPs once per cycle. We use these to overlay
+  // snapshot.spot for the lifecycle evaluator below, so triggers fire on
+  // real-time ticks instead of the close of a (potentially 15-minute
+  // delayed) Yahoo bar — that single change is what unblocks the "every
+  // card stuck on Waiting trigger" bug.
+  let liveQuotes: Map<string, { price: number }> | null = null;
+  try {
+    const q = await getKiteIndexQuotes();
+    if (q) liveQuotes = q;
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "live Kite quote fetch failed; using bar close as spot");
+  }
+
   for (const cfg of OPTION_INDICES) {
     try {
-      const intra = await fetchIntraday(cfg.yahoo, "15m", "5d");
+      // Prefer Kite for intraday — fresh 15m candles with no Yahoo
+      // delay/rate-limit. Fall back to Yahoo when Kite is offline or
+      // doesn't cover the index. Daily history stays on Yahoo (works
+      // fine, no live-data sensitivity at end-of-day).
+      let intra: YahooChart | null = null;
+      let intraSrc: "kite" | "yahoo" | null = null;
+      if (hasKiteIntradayCoverage(cfg.yahoo)) {
+        intra = await fetchKiteIntraday(cfg.yahoo, "15minute", 5);
+        if (intra) intraSrc = "kite";
+      }
+      if (!intra) {
+        intra = await fetchIntraday(cfg.yahoo, "15m", "5d");
+        if (intra) intraSrc = "yahoo";
+      }
       const daily = await fetchIntraday(cfg.yahoo, "1d" as never, "3mo" as never);
       if (!intra || !daily) {
-        suppressed.push({ index: cfg.symbol, reasons: ["yahoo_data_unavailable"] });
+        suppressed.push({ index: cfg.symbol, reasons: [`intraday_unavailable (kite=${hasKiteIntradayCoverage(cfg.yahoo)}, yahoo=fallback)`] });
         continue;
+      }
+      if (intraSrc === "yahoo") {
+        logger.info({ idx: cfg.symbol }, "F&O intraday: Kite unavailable, using Yahoo (signals may lag up to 15m)");
       }
       const r = buildSignalsForIndex(cfg, intra, daily);
       if (r.hasBars) indicesWithBars++;
@@ -1160,9 +1250,28 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     // bar didn't yet have published extremes — leaving every PENDING plan
     // stuck at "Waiting trigger" while the market blew past the level.
     if (!b.snapshot) continue;
+    // Overlay live LTP from Kite onto snapshot.spot. The bar close in
+    // ctx.spot can be 5–15 minutes stale (whichever interval the source
+    // uses); the lifecycle evaluator triggers on `snapshot.spot` crossing
+    // the entry level, so a stale spot means the trigger fires late or
+    // never. Bar high/low remain from the latest closed bar so wick-based
+    // T1/T2/SL hits still work correctly.
+    let snapForLc: SpotSnapshot = b.snapshot;
+    if (liveQuotes && b.signals.length > 0) {
+      const ltpKey = SIGNAL_INDEX_TO_LTP_KEY[b.signals[0]!.index];
+      const live = ltpKey ? liveQuotes.get(ltpKey) : undefined;
+      if (live && Number.isFinite(live.price) && live.price > 0) {
+        // Expand bar h/l to envelope live spot so a tick that has already
+        // crossed the level (but isn't reflected in the closed-bar high
+        // yet) still registers as a hit. Never shrink the bar extremes.
+        const high = Math.max(b.snapshot.high ?? live.price, live.price);
+        const low  = Math.min(b.snapshot.low  ?? live.price, live.price);
+        snapForLc = { spot: live.price, high, low };
+      }
+    }
     for (const s of b.signals) {
       try {
-        const lc = await recordLifecycle({ signal: s, snapshot: b.snapshot });
+        const lc = await recordLifecycle({ signal: s, snapshot: snapForLc });
         if (!lc) continue;
         s.status = lc.status;
         s.firstSeenAt = lc.firstSeenAt;
