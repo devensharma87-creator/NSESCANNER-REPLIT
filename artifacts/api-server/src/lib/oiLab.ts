@@ -45,6 +45,8 @@ export const FNO_INDICES = [
   "FINNIFTY",
   "MIDCPNIFTY",
   "NIFTYNXT50",
+  "SENSEX",   // BSE — quoted via BFO segment
+  "BANKEX",   // BSE — quoted via BFO segment
 ] as const;
 
 /** Cache for dynamic F&O universe pulled from Kite NFO instruments dump.
@@ -69,10 +71,19 @@ export async function getDynamicFnoUniverse(): Promise<string[] | null> {
   const client = await getRestClient();
   if (!client) return null;
   try {
-    const all = (await client.kc.getInstruments("NFO")) as KiteInstrumentLite[];
+    // Pull NFO (NSE F&O equities + indices) AND BFO (BSE F&O — currently just
+    // SENSEX/BANKEX index futures). BSE has no equity F&O, so BFO contributes
+    // nothing to the equity universe — but we still fetch it so the same
+    // dump powers the index-FUT lookup downstream. Failure on either is
+    // treated as empty so a missing-entitlement account still works.
+    const [nfo, bfo] = await Promise.all([
+      (client.kc.getInstruments("NFO") as Promise<KiteInstrumentLite[]>).catch(() => [] as KiteInstrumentLite[]),
+      (client.kc.getInstruments("BFO") as Promise<KiteInstrumentLite[]>).catch(() => [] as KiteInstrumentLite[]),
+    ]);
+    const all = [...nfo, ...bfo];
     const todayIso = new Date().toISOString().slice(0, 10);
     // Pull names that have at least one non-expired FUT contract — that's the
-    // canonical NSE definition of "F&O underlying".
+    // canonical NSE/BSE definition of "F&O underlying".
     const names = new Set<string>();
     for (const i of all) {
       if (i.instrument_type !== "FUT") continue;
@@ -991,11 +1002,19 @@ async function fetchOiHeatmapInner(): Promise<OiHeatmapResponse | null> {
   if (!client) return null;
   const { kc } = client;
 
-  // Pull NFO instruments once and pick the front-month FUT for each F&O name.
-  const all = (await kc.getInstruments("NFO")) as KiteInstrumentLite[];
+  // Pull NFO + BFO instruments and pick the front-month FUT for each F&O
+  // name. SENSEX/BANKEX index futures live in BFO; without it the heatmap
+  // silently omits those underlyings.
+  const [nfo, bfo] = await Promise.all([
+    (kc.getInstruments("NFO") as Promise<KiteInstrumentLite[]>).catch(() => [] as KiteInstrumentLite[]),
+    (kc.getInstruments("BFO") as Promise<KiteInstrumentLite[]>).catch(() => [] as KiteInstrumentLite[]),
+  ]);
+  const all = [...nfo, ...bfo];
   const todayIso = new Date().toISOString().slice(0, 10);
 
   // Group FUT contracts by underlying name; pick nearest non-expired.
+  // Each entry remembers its source segment so the quote lookup below
+  // builds the right `EXCHANGE:tradingsymbol` key.
   const futByName = new Map<string, KiteInstrumentLite>();
   for (const i of all) {
     if (i.instrument_type !== "FUT") continue;
@@ -1010,8 +1029,10 @@ async function fetchOiHeatmapInner(): Promise<OiHeatmapResponse | null> {
   const futs = Array.from(futByName.values());
   if (futs.length === 0) return null;
 
-  // Batch quote calls (Kite caps ~500 instruments per call)
-  const symbols = futs.map(f => `NFO:${f.tradingsymbol}`);
+  // Batch quote calls (Kite caps ~500 instruments per call). Use the
+  // instrument's own `exchange` (NFO or BFO) so BSE-segment futures are
+  // queried on the right segment.
+  const symbols = futs.map(f => `${f.exchange}:${f.tradingsymbol}`);
   const quoteMap = new Map<string, KiteQuoteLite>();
   const BATCH = 400;
   for (let i = 0; i < symbols.length; i += BATCH) {
@@ -1026,7 +1047,7 @@ async function fetchOiHeatmapInner(): Promise<OiHeatmapResponse | null> {
   const now = Date.now();
   const rows: OiHeatmapRow[] = [];
   for (const f of futs) {
-    const q = quoteMap.get(`NFO:${f.tradingsymbol}`);
+    const q = quoteMap.get(`${f.exchange}:${f.tradingsymbol}`);
     if (!q || !q.last_price || q.oi == null) continue;
 
     // Establish/refresh OI baseline (first-of-session per instrument).

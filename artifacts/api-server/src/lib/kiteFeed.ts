@@ -121,6 +121,13 @@ export async function startTicker(session?: ActiveSession): Promise<boolean> {
   if (tickerStarted) return true;
   const sess = session ?? (await getActiveSession());
   if (!sess) return false;
+  // A successful startTicker call (whether triggered by the daily login
+  // callback or by the noreconnect-restart loop) means the broker is
+  // reachable and the session is good — reset the backoff so the *next*
+  // failure starts from the 60s base instead of inheriting a 10-min cap
+  // accumulated by the last outage.
+  restartBackoffMs = 60_000;
+  if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
 
   ticker = new KiteTicker({ api_key: sess.apiKey, access_token: sess.accessToken });
   ticker.autoReconnect(true, 50, 5);
@@ -137,23 +144,80 @@ export async function startTicker(session?: ActiveSession): Promise<boolean> {
 
   ticker.on("disconnect", (err: any) => {
     lastDisconnect = Date.now();
-    if (err) lastError = String(err?.message ?? err);
+    lastError = describeWsError(err);
     logger.warn({ err: lastError }, "Kite ticker disconnected");
   });
 
   ticker.on("error", (err: any) => {
-    lastError = String(err?.message ?? err);
+    lastError = describeWsError(err);
     logger.warn({ err: lastError }, "Kite ticker error");
   });
 
   ticker.on("noreconnect", () => {
-    lastError = "Auto-reconnect exhausted";
+    // Kite's auto-reconnect (50 retries × 5s ≈ 4 min) gave up. Without an
+    // outer-loop restart the ticker stays dead until a process restart —
+    // the user sees Connected=No, Subscribed=0, Live Quotes=0 with a valid
+    // session in the DB. Schedule a self-restart with exponential backoff
+    // that re-checks for a valid session each cycle so a 06:00 IST token
+    // expiry doesn't trigger an infinite reconnect storm.
+    lastError = "Auto-reconnect exhausted; scheduling restart";
+    logger.warn("Kite ticker auto-reconnect exhausted; scheduling restart in 60s");
     tickerStarted = false;
+    ticker = null;
+    subscribedTokens.clear();
+    tokenToSymbol.clear();
+    scheduleTickerRestart(60_000);
   });
 
   ticker.connect();
   tickerStarted = true;
   return true;
+}
+
+let restartTimer: NodeJS.Timeout | null = null;
+let restartBackoffMs = 60_000;
+const MAX_RESTART_BACKOFF = 10 * 60_000;
+
+function scheduleTickerRestart(initialDelayMs: number): void {
+  if (restartTimer) return; // already scheduled
+  restartBackoffMs = initialDelayMs;
+  const tick = async () => {
+    restartTimer = null;
+    const sess = await getActiveSession().catch(() => null);
+    if (!sess) {
+      // No session in DB → user has logged out or token expired. Stop the
+      // restart loop; a fresh login will call startTicker() on its own.
+      logger.info("Ticker restart skipped — no active Kite session");
+      return;
+    }
+    const ok = await startTicker(sess).catch(() => false);
+    if (!ok) {
+      restartBackoffMs = Math.min(restartBackoffMs * 2, MAX_RESTART_BACKOFF);
+      logger.warn({ nextDelayMs: restartBackoffMs }, "Ticker restart failed; backing off");
+      restartTimer = setTimeout(tick, restartBackoffMs);
+    } else {
+      logger.info("Ticker restart succeeded");
+      restartBackoffMs = 60_000;
+    }
+  };
+  restartTimer = setTimeout(tick, initialDelayMs);
+}
+
+function describeWsError(err: unknown): string {
+  if (err == null) return "unknown (null)";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message;
+  if (typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof e["code"] === "number" || typeof e["code"] === "string") parts.push(`code=${e["code"]}`);
+    if (typeof e["type"] === "string") parts.push(`type=${e["type"]}`);
+    if (typeof e["reason"] === "string") parts.push(`reason=${e["reason"]}`);
+    if (typeof e["message"] === "string") parts.push(`message=${e["message"]}`);
+    if (parts.length > 0) return parts.join(" ");
+    try { return JSON.stringify(err); } catch { return "unknown (unstringifiable)"; }
+  }
+  return String(err);
 }
 
 /** Stop the ticker and clear in-memory state. */

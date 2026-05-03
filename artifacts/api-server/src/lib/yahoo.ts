@@ -406,6 +406,24 @@ export async function fetchIndexChart(yahooSymbol: string): Promise<YahooChart |
   return chartCall(yahooSymbol, "5d", "1d");
 }
 
+/**
+ * Like `fetchChart`, but treats the symbol as an already-qualified Yahoo
+ * ticker — no `.NS` suffix appending, no rename map. Use this for global
+ * benchmarks (^GSPC, 000001.SS), commodities (GC=F, BZ=F), FX (INR=X,
+ * DX-Y.NYB) and US ADRs (HDB, IBN, MMYT) where appending `.NS` produces
+ * a non-existent symbol like `HDB.NS` and Yahoo logs a delisted error
+ * every poll. The Indian-EQ enrichment path keeps using `fetchChart`.
+ */
+export async function fetchChartRaw(
+  yahooSymbol: string,
+  range: "1d" | "5d" | "1mo" | "3mo" | "6mo" | "1y" | "2y" | "3y" | "5y" = "6mo",
+  interval: "1d" | "1wk" | "1mo" = "1d",
+): Promise<YahooChart | null> {
+  const r = await chartCall(yahooSymbol, range, interval);
+  if (r) return { ...r, symbol: yahooSymbol };
+  return null;
+}
+
 /** Fetch intraday bars (most recent session) for an index or stock symbol. */
 export async function fetchIntraday(
   yahooSymbol: string,

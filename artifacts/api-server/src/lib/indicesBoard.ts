@@ -30,7 +30,7 @@
  * refreshes feel real-time without hammering Yahoo.
  */
 
-import { fetchChart, fetchIntraday, type YahooChart } from "./yahoo";
+import { fetchChart, fetchChartRaw, fetchIntraday, type YahooChart } from "./yahoo";
 import { fetchKiteIntraday, hasKiteIntradayCoverage } from "./kiteIntraday";
 import { ema, sessionVwap, volumeProfile } from "./indicators";
 import { getKiteIndexQuotes, type KiteIndexQuote } from "./kiteIndexQuotes";
@@ -410,8 +410,18 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
     const intradayKite = hasKiteIntradayCoverage(cfg.yahoo)
       ? fetchKiteIntraday(cfg.yahoo, "5minute", 1).catch(() => null)
       : Promise.resolve(null);
+    // INDIA category cfg.yahoo entries are NSE-style bare symbols (or already
+    // fully-qualified ".NS") — `fetchChart` correctly applies the rename map +
+    // ".NS" suffix. Every other category (GLOBAL, COMMODITY, ADR, FX) ships
+    // an already-qualified Yahoo ticker (^GSPC, GC=F, INR=X, HDB, MMYT,
+    // 000001.SS, DX-Y.NYB). Routing those through `fetchChart` blindly
+    // appends ".NS" → "HDB.NS", "DX-Y.NYB.NS", etc., which Yahoo doesn't
+    // recognise and answers with "delisted". Use the raw path for them.
+    const dailyPromise = cfg.category === "INDIA"
+      ? fetchChart(dailyTicker, "1y", "1d").catch(() => null)
+      : fetchChartRaw(dailyTicker, "1y", "1d").catch(() => null);
     const [daily, intraK] = await Promise.all([
-      fetchChart(dailyTicker, "1y", "1d").catch(() => null),
+      dailyPromise,
       intradayKite,
     ]);
     const intra = intraK && intraK.close.length >= 4

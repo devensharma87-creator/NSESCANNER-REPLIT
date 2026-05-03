@@ -124,9 +124,24 @@ async function loadInstruments(kc: any): Promise<KiteInstrument[]> {
   if (instrumentsCache && Date.now() - instrumentsCache.ts < INSTRUMENTS_TTL) {
     return instrumentsCache.rows;
   }
-  const rows = (await kc.getInstruments("NFO")) as KiteInstrument[];
+  // NFO carries NSE F&O (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, NIFTYNXT50,
+  // and every NSE F&O equity). BFO carries BSE F&O (SENSEX, BANKEX). Without
+  // BFO, the SENSEX/BANKEX option chain returned `no F&O legs found` and the
+  // tab fell back to NSE-direct which doesn't carry BSE chains either —
+  // resulting in a permanently-empty chain even with a valid Kite session.
+  const [nfo, bfo] = await Promise.all([
+    (kc.getInstruments("NFO") as Promise<KiteInstrument[]>).catch(err => {
+      logger.warn({ err: (err as Error).message }, "Kite NFO instruments fetch failed");
+      return [] as KiteInstrument[];
+    }),
+    (kc.getInstruments("BFO") as Promise<KiteInstrument[]>).catch(err => {
+      logger.warn({ err: (err as Error).message }, "Kite BFO instruments fetch failed");
+      return [] as KiteInstrument[];
+    }),
+  ]);
+  const rows = [...nfo, ...bfo];
   instrumentsCache = { rows, ts: Date.now() };
-  logger.info({ count: rows.length }, "Kite NFO instruments dump refreshed");
+  logger.info({ nfo: nfo.length, bfo: bfo.length, total: rows.length }, "Kite F&O instruments dump refreshed");
   return rows;
 }
 
@@ -170,8 +185,11 @@ export async function fetchKiteOptionChain(
 
   // 3. Fetch live quote for the spot underlying + all legs.
   // Kite getQuote takes max ~500 instruments per call → batch.
+  // SENSEX/BANKEX legs sit on BFO segment; everything else on NFO. Use the
+  // segment that's actually present on the instrument row rather than
+  // hard-coding NFO so the BFO-served chains are quoted correctly.
   const spotSym = spotKey(sym);
-  const legSyms = activeLegs.map(l => `NFO:${l.tradingsymbol}`);
+  const legSyms = activeLegs.map(l => `${l.exchange}:${l.tradingsymbol}`);
   const allSyms = [spotSym, ...legSyms];
   const BATCH = 400;
   const quoteMap = new Map<string, KiteQuote>();
@@ -204,7 +222,7 @@ export async function fetchKiteOptionChain(
   const T = yearsToExpiry(activeExpiry);
   const strikeMap = new Map<number, OcRow>();
   for (const leg of activeLegs) {
-    const q = quoteMap.get(`NFO:${leg.tradingsymbol}`);
+    const q = quoteMap.get(`${leg.exchange}:${leg.tradingsymbol}`);
     if (!q) continue;
 
     // Defensive: a malformed broker payload could send NaN/Infinity for any of
