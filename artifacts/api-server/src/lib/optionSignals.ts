@@ -1140,13 +1140,38 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
         if (!chain) return;
         const row: OcRow | undefined = chain.rows.find((r) => r.strike === first.leg.strike);
         if (!row) return;
+        // Spot must be a real, finite number for the projection to mean
+        // anything; if upstream pushed NaN/Inf, skip enrichment for the
+        // whole bundle rather than emit garbage downstream.
+        if (!Number.isFinite(chain.spot)) {
+          logger.warn(
+            { idx: first.index, expiry, spot: chain.spot },
+            "Option-level enrichment skipped: chain.spot is not finite",
+          );
+          return;
+        }
+        const spotNow = chain.spot;
         for (const s of b.signals) {
           const side: OcSide | undefined = s.leg.type === "CALL" ? row.ce : row.pe;
           // Need at least an option LTP — without it we have no premium
           // anchor at all. (Strike is ATM by construction; see toSignal()
           // → nearestStrike(spot, step), so ltp here is the at-the-money
-          // option's last traded premium.)
-          if (!side || side.ltp == null) continue;
+          // option's last traded premium.) Reject non-finite values so
+          // a NaN/Inf from upstream never silently propagates into
+          // paper trades as an "invalid premium plan" much later.
+          if (!side || side.ltp == null || !Number.isFinite(side.ltp) || side.ltp <= 0) {
+            logger.info(
+              {
+                idx: s.index,
+                strike: s.leg.strike,
+                type: s.leg.type,
+                ltp: side?.ltp ?? null,
+                reason: !side ? "no_side" : side.ltp == null ? "ltp_null" : "ltp_non_finite_or_le_zero",
+              },
+              "Option-level enrichment skipped for signal",
+            );
+            continue;
+          }
           const ltp = side.ltp;
           // Always publish the LTP first so the lifecycle row gets a
           // premium reference even if downstream Greeks-based projection
@@ -1154,18 +1179,22 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
           s.optionLtp = round2(ltp);
 
           // Delta sourcing.
-          // Primary: broker-supplied delta (Black-Scholes from chain IV).
-          // Fallback: when IV is missing/zero the chain returns delta=null.
-          // Because the bundle strike is the ATM strike by construction
-          // (toSignal → nearestStrike), the analytical ATM delta is
-          // ±0.5 by definition (call: +0.5, put: −0.5) — this is NOT a
+          // Primary: broker-supplied delta (Black-Scholes from chain IV),
+          // but only when finite — a NaN/Inf delta would propagate into
+          // the projection and produce NaN levels that would later be
+          // rejected with no actionable log.
+          // Fallback: when IV is missing/zero (or returns non-finite)
+          // the chain effectively has no greeks. Because the bundle
+          // strike is the ATM strike by construction (toSignal →
+          // nearestStrike), the analytical ATM delta is ±0.5 by
+          // definition (call: +0.5, put: −0.5) — this is NOT a
           // synthetic guess, it is the closed-form Black-Scholes value
           // for K=S in the limit of small T·σ. Using it lets the paper
           // book take the trade instead of silently dropping it just
           // because the broker chain payload is missing greeks.
           let delta: number;
           let deltaIsFallback = false;
-          if (side.delta != null) {
+          if (side.delta != null && Number.isFinite(side.delta)) {
             delta = side.delta;
           } else {
             delta = s.leg.type === "CALL" ? 0.5 : -0.5;
@@ -1176,14 +1205,15 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
                 strike: s.leg.strike,
                 type: s.leg.type,
                 ltp,
+                source: "atm_closed_form_fallback",
               },
-              "Option delta missing on chain — using ATM closed-form delta (±0.5) so trade is not silently dropped",
+              "Option delta missing/non-finite on chain — using ATM closed-form delta (±0.5) so trade is not silently dropped",
             );
           }
 
           // Ground projection in current spot, not signal-time spot, so the
           // displayed entry adapts as price moves toward the trigger.
-          const spotNow = chain.spot;
+          // (spotNow validated as finite once per bundle above.)
           const optionEntry = Math.max(0.05, projectOptionLevel(ltp, delta, spotNow, s.leg.entry));
           const optionT1 = Math.max(0.05, projectOptionLevel(optionEntry, delta, s.leg.entry, s.leg.target1));
           const optionT2 = s.leg.target2 != null

@@ -34,7 +34,7 @@
  * aren't there — the symbol is rejected and logged.
  */
 import type { StockRow } from "@workspace/api-zod";
-import { atr, ema } from "./indicators";
+import { atr } from "./indicators";
 import { fetchChart } from "./yahoo";
 import { logger } from "./logger";
 
@@ -47,46 +47,12 @@ import { logger } from "./logger";
  */
 const VOL_CONFIRM_FLOOR = 1.3;
 
-/**
- * Broader-market trend gate. A swing-equity book that buys individual
- * names while NIFTY is in a confirmed downtrend gets chopped — sector
- * leaders fall with the index. We require the NIFTY 50 spot to sit
- * above its 50-day EMA (computed from daily closes) before opening
- * any new equity trade. Existing positions are unaffected.
- */
-const MARKET_TREND_TICKER = "^NSEI"; // NIFTY 50 daily
-
-/** Cached NIFTY trend snapshot. Refreshed at most once every 5 minutes
- *  to bound Yahoo calls during the per-minute scanner tick. */
-let marketTrendCache: { ts: number; bullish: boolean | null } | null = null;
-const MARKET_TREND_TTL_MS = 5 * 60 * 1000;
-
-async function isBroaderMarketBullish(): Promise<boolean | null> {
-  if (marketTrendCache && Date.now() - marketTrendCache.ts < MARKET_TREND_TTL_MS) {
-    return marketTrendCache.bullish;
-  }
-  const chart = await fetchChart(MARKET_TREND_TICKER, "6mo", "1d");
-  if (!chart) {
-    // Honest "unknown" — caller decides whether to skip.
-    marketTrendCache = { ts: Date.now(), bullish: null };
-    return null;
-  }
-  const closes = chart.close.filter((v): v is number => v != null);
-  if (closes.length < 50) {
-    marketTrendCache = { ts: Date.now(), bullish: null };
-    return null;
-  }
-  const ema50Series = ema(closes, 50);
-  const ema50 = ema50Series[ema50Series.length - 1];
-  const last  = closes[closes.length - 1];
-  if (ema50 == null || last == null) {
-    marketTrendCache = { ts: Date.now(), bullish: null };
-    return null;
-  }
-  const bullish = last > ema50;
-  marketTrendCache = { ts: Date.now(), bullish };
-  return bullish;
-}
+// Note: a NIFTY-vs-50-EMA macro-regime gate previously sat here and
+// vetoed every equity entry whenever the index was below its 50-EMA.
+// At the user's explicit direction (2026-05-04) equity entries are
+// now taken purely on per-stock technical analysis (STRONG_BUY +
+// MIN_SCORE + volume confirmation + ATR-based stop). The gate, its
+// cache and its supporting helper have been removed.
 
 /**
  * Curated NSE F&O underlyings (stocks that have derivative contracts
@@ -338,21 +304,15 @@ export async function buildAllSwingSignals(
   );
   if (candidates.length === 0) return [];
 
-  // Broader-market trend gate (NIFTY 50 vs 50-EMA) — checked ONCE per
-  // tick and cached. When the broader market is bearish we suppress new
-  // longs entirely; existing open positions are unaffected and continue
-  // to be evaluated by the executor. When the broader-market read is
-  // unknown (Yahoo unreachable for the index) we conservatively suppress
-  // new entries rather than buying blind.
-  const marketBullish = await isBroaderMarketBullish();
-  if (marketBullish !== true) {
-    logger.info(
-      { candidates: candidates.length, marketBullish },
-      "Swing suppression: NIFTY 50 not above its 50-day EMA — skipping new entries",
-    );
-    return [];
-  }
-
+  // No broader-market (NIFTY 50 vs 50-EMA) veto: equity entries are
+  // taken on per-stock technical analysis only. Each candidate has
+  // already cleared the STRONG_BUY scanner verdict and the MIN_SCORE
+  // floor; the per-symbol level computation below additionally
+  // enforces volume confirmation and a real ATR-based stop, so a
+  // legitimate setup is not blocked just because the index happens
+  // to be below its 50-EMA. Existing open positions remain managed
+  // by the executor regardless. (The earlier macro gate has been
+  // removed at the user's explicit direction, 2026-05-04.)
   const built = await Promise.all(
     candidates.map((r) => buildSwingSignalFromRow(r, minScore)),
   );
