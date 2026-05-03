@@ -1142,9 +1142,45 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
         if (!row) return;
         for (const s of b.signals) {
           const side: OcSide | undefined = s.leg.type === "CALL" ? row.ce : row.pe;
-          if (!side || side.ltp == null || side.delta == null) continue;
+          // Need at least an option LTP — without it we have no premium
+          // anchor at all. (Strike is ATM by construction; see toSignal()
+          // → nearestStrike(spot, step), so ltp here is the at-the-money
+          // option's last traded premium.)
+          if (!side || side.ltp == null) continue;
           const ltp = side.ltp;
-          const delta = side.delta;
+          // Always publish the LTP first so the lifecycle row gets a
+          // premium reference even if downstream Greeks-based projection
+          // falls back below.
+          s.optionLtp = round2(ltp);
+
+          // Delta sourcing.
+          // Primary: broker-supplied delta (Black-Scholes from chain IV).
+          // Fallback: when IV is missing/zero the chain returns delta=null.
+          // Because the bundle strike is the ATM strike by construction
+          // (toSignal → nearestStrike), the analytical ATM delta is
+          // ±0.5 by definition (call: +0.5, put: −0.5) — this is NOT a
+          // synthetic guess, it is the closed-form Black-Scholes value
+          // for K=S in the limit of small T·σ. Using it lets the paper
+          // book take the trade instead of silently dropping it just
+          // because the broker chain payload is missing greeks.
+          let delta: number;
+          let deltaIsFallback = false;
+          if (side.delta != null) {
+            delta = side.delta;
+          } else {
+            delta = s.leg.type === "CALL" ? 0.5 : -0.5;
+            deltaIsFallback = true;
+            logger.info(
+              {
+                idx: s.index,
+                strike: s.leg.strike,
+                type: s.leg.type,
+                ltp,
+              },
+              "Option delta missing on chain — using ATM closed-form delta (±0.5) so trade is not silently dropped",
+            );
+          }
+
           // Ground projection in current spot, not signal-time spot, so the
           // displayed entry adapts as price moves toward the trigger.
           const spotNow = chain.spot;
@@ -1154,12 +1190,15 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
             ? Math.max(0.05, projectOptionLevel(optionEntry, delta, s.leg.entry, s.leg.target2))
             : undefined;
           const optionSL = Math.max(0.05, projectOptionLevel(optionEntry, delta, s.leg.entry, s.leg.stopLoss));
-          s.optionLtp = round2(ltp);
           s.optionEntry = round2(optionEntry);
           s.optionTarget1 = round2(optionT1);
           s.optionTarget2 = optionT2 != null ? round2(optionT2) : undefined;
           s.optionStopLoss = round2(optionSL);
-          s.optionDelta = +delta.toFixed(4);
+          // Only publish optionDelta when it came from the chain (real
+          // greeks). When we used the ATM fallback we leave it unset so
+          // the UI does not falsely advertise a Black-Scholes delta we
+          // did not actually compute from market IV.
+          if (!deltaIsFallback) s.optionDelta = +delta.toFixed(4);
           if (side.theta != null) s.optionTheta = +side.theta.toFixed(4);
           if (side.vega != null) s.optionVega = +side.vega.toFixed(4);
         }
