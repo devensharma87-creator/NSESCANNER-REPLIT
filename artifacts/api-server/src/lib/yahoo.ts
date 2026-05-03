@@ -59,6 +59,12 @@ const yf = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] 
 // back to whatever data is already cached.
 const YF_CHART_TIMEOUT_MS = 6_000;        // per attempt
 const YF_QUOTE_SUMMARY_TIMEOUT_MS = 8_000; // per attempt — quoteSummary is heavier
+// Batch /v7/finance/quote — many symbols in one network call. The
+// upstream allows ~200 per request comfortably; we chunk at 150 for
+// headroom against URL-length limits and to keep one slow chunk from
+// dominating the entire pass.
+const YF_BATCH_QUOTE_TIMEOUT_MS = 12_000;
+const YF_BATCH_QUOTE_CHUNK = 150;
 
 class YahooTimeoutError extends Error {
   constructor(op: string, ms: number) { super(`Yahoo ${op} timed out after ${ms}ms`); this.name = "YahooTimeoutError"; }
@@ -143,6 +149,146 @@ export async function callYahoo<T>(op: string, ticker: string, fn: () => Promise
     logger.warn({ err: msg, op, ticker }, "Yahoo call failed");
     return null;
   }
+}
+
+/**
+ * Per-symbol snapshot returned by the Yahoo /v7/finance/quote batch endpoint.
+ * `symbol` is the canonical NSE/BSE symbol the caller passed in (e.g.
+ * "RELIANCE"); `ticker` is the suffixed Yahoo ticker actually requested
+ * (e.g. "RELIANCE.NS"). Every numeric field is `undefined` when Yahoo did
+ * not supply it — callers must NEVER substitute zeros (no synthetic data).
+ */
+export interface YahooBatchQuote {
+  symbol: string;
+  ticker: string;
+  shortName?: string;
+  longName?: string;
+  regularMarketPrice: number;
+  regularMarketOpen?: number;
+  regularMarketDayHigh?: number;
+  regularMarketDayLow?: number;
+  regularMarketPreviousClose?: number;
+  regularMarketVolume?: number;
+  regularMarketChange?: number;
+  regularMarketChangePercent?: number;
+  fiftyTwoWeekHigh?: number;
+  fiftyTwoWeekLow?: number;
+  /** Unix seconds. */
+  regularMarketTime?: number;
+}
+
+function numOrUndef(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return undefined;
+}
+/**
+ * yahoo-finance2 deserialises `regularMarketTime` (and most other epoch
+ * fields) into JavaScript `Date` instances rather than raw seconds. The
+ * underlying Yahoo wire format IS unix seconds, but the library's
+ * runtime hydrates them, so a `typeof === "number"` check rejects every
+ * single row. Accept both shapes and always emit unix SECONDS to keep
+ * the YahooBatchQuote contract stable for callers that downstream
+ * convert to ms (e.g. `bq.regularMarketTime * 1000`).
+ */
+function epochSecondsOrUndef(v: unknown): number | undefined {
+  if (v instanceof Date) {
+    const ms = v.getTime();
+    if (Number.isFinite(ms)) return Math.floor(ms / 1000);
+    return undefined;
+  }
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return undefined;
+}
+function strOrUndef(v: unknown): string | undefined {
+  if (typeof v === "string" && v.length > 0) return v;
+  return undefined;
+}
+
+/**
+ * Batch quote pass against Yahoo's /v7/finance/quote endpoint.
+ * One HTTP call returns up to ~150 symbols, so the entire NSE EQ
+ * universe (~2,500 names) is covered in ~17 calls instead of 2,500
+ * individual chart requests. This is the structural fix for the
+ * "Scanner shows only 199 of 2,455 stocks" production issue: when
+ * Kite is offline, looping per-symbol Yahoo chart calls cannot
+ * complete inside the 60s refresh window AND immediately trips the
+ * shared 429 breaker. The batch endpoint is one tenth the request
+ * count and Yahoo's own throttle treats it as a single request.
+ *
+ * Returns a Map keyed by the CANONICAL symbol the caller passed in
+ * (sans ".NS"/".BO"), so the caller doesn't need to re-derive
+ * tickers. Symbols Yahoo can't price are simply absent from the map
+ * — never inserted with synthetic / zero / null fields.
+ */
+export async function fetchYahooBatchQuotes(
+  symbols: string[],
+  exchange: "NS" | "BO" = "NS",
+): Promise<Map<string, YahooBatchQuote>> {
+  const out = new Map<string, YahooBatchQuote>();
+  if (symbols.length === 0) return out;
+  if (isYahooPaused()) return out;
+
+  // De-dupe ticker → canonical mapping. Yahoo's response uses the
+  // suffixed ticker; we re-attach the input symbol so callers stay
+  // ignorant of the exchange suffix.
+  const tickerToSymbol = new Map<string, string>();
+  const tickers: string[] = [];
+  for (const s of symbols) {
+    if (!s) continue;
+    const t = yahooTickerFor(s, exchange);
+    if (!tickerToSymbol.has(t)) {
+      tickerToSymbol.set(t, s);
+      tickers.push(t);
+    }
+  }
+
+  let chunkErrors = 0;
+  for (let i = 0; i < tickers.length; i += YF_BATCH_QUOTE_CHUNK) {
+    if (isYahooPaused()) break;
+    const chunk = tickers.slice(i, i + YF_BATCH_QUOTE_CHUNK);
+    const label = `${chunk[0]}+${chunk.length}`;
+    const batch = await callYahoo("quote(batch)", label, () =>
+      withTimeout(
+        "quote(batch)",
+        YF_BATCH_QUOTE_TIMEOUT_MS,
+        // yahoo-finance2's `quote()` overloads to (string[]) → Quote[]
+        // but the lib's typings narrow oddly when the array form is
+        // used through dynamic dispatch, so cast through `unknown`.
+        yf.quote(chunk) as unknown as Promise<unknown>,
+      ),
+    );
+    if (!Array.isArray(batch)) { chunkErrors++; continue; }
+    for (const r of batch as Array<Record<string, unknown>>) {
+      const ticker = String(r["symbol"] ?? "");
+      const sym = tickerToSymbol.get(ticker);
+      if (!sym) continue;
+      const price = numOrUndef(r["regularMarketPrice"]);
+      // Hard-gate on a real, positive price. A symbol with no price
+      // is not a row — never emit a synthetic placeholder.
+      if (price == null || price <= 0) continue;
+      out.set(sym, {
+        symbol: sym,
+        ticker,
+        shortName: strOrUndef(r["shortName"]),
+        longName: strOrUndef(r["longName"]),
+        regularMarketPrice: price,
+        regularMarketOpen: numOrUndef(r["regularMarketOpen"]),
+        regularMarketDayHigh: numOrUndef(r["regularMarketDayHigh"]),
+        regularMarketDayLow: numOrUndef(r["regularMarketDayLow"]),
+        regularMarketPreviousClose: numOrUndef(r["regularMarketPreviousClose"]),
+        regularMarketVolume: numOrUndef(r["regularMarketVolume"]),
+        regularMarketChange: numOrUndef(r["regularMarketChange"]),
+        regularMarketChangePercent: numOrUndef(r["regularMarketChangePercent"]),
+        fiftyTwoWeekHigh: numOrUndef(r["fiftyTwoWeekHigh"]),
+        fiftyTwoWeekLow: numOrUndef(r["fiftyTwoWeekLow"]),
+        regularMarketTime: epochSecondsOrUndef(r["regularMarketTime"]),
+      });
+    }
+  }
+  if (chunkErrors > 0) {
+    logger.warn({ chunkErrors, totalChunks: Math.ceil(tickers.length / YF_BATCH_QUOTE_CHUNK), ok: out.size }, "Yahoo batch-quote: some chunks returned no data");
+  }
+  return out;
 }
 
 async function chartCall(ticker: string, range: string, interval: Interval): Promise<YahooChart | null> {

@@ -81,3 +81,13 @@ The project is structured as a pnpm workspace monorepo, utilizing TypeScript 5.9
 - **TradingView**: Webhook integration.
 - **News Feeds**: Moneycontrol, Mint, Economic Times (ET), CNBC TV18, Business Standard, Investing.com.
 - **Google Fonts**: For typography.
+
+## Scanner Kite-offline fallback (2026-05)
+
+When the Kite session is offline, `performFullScan` no longer attempts per-symbol Yahoo chart calls for the entire ~2,455 NSE EQ universe — that path could not fit in the 60s refresh window and tripped Yahoo's 429 breaker, leaving the UI stuck at ~199 rows. The Kite-offline path now does:
+1. **Yahoo batch quote pass** (`fetchYahooBatchQuotes` in `lib/yahoo.ts`) — `yf.quote(arrayOfTickers)` in chunks of 150, ~17 calls covers 2,455 names in ~3–7s. Returns `Map<canonicalSymbol, YahooBatchQuote>`. Note: `yahoo-finance2` deserialises `regularMarketTime` as a `Date` object, so the helper uses `epochSecondsOrUndef` (handles both `Date` and `number`) — a plain `typeof === "number"` check rejects every row.
+2. **Delivery map pre-fetch** (`getDeliveryMap`) — replaces the 2,455 sequential `await getDeliveryPct` calls in the row loop with a single `lookupDelivery(sym)` synchronous lookup.
+3. **Curated-subset chart enrichment** — only the F&O/curated `UNIVERSE` subset (≤`ENRICH_CAP_KITE_ONLINE`) gets per-symbol indicator chart calls; this is what RSI/EMA/MACD/etc. actually need, and trying to enrich all 2,455 was the breaker trigger.
+4. **Row-assembly batch tier** — after the existing `kq+ind` / `kq` / chart-fallback tiers, a new tier builds a `KiteScannerQuote` from `yahooBatch.get(sym)` when ALL of `regularMarketDayHigh/DayLow/Open/PreviousClose/Volume/Time` are present, then calls `rowFromKiteOnly`. Hard-gates on every field (no synthetic zeros for missing volume, no `Date.now()` for missing market time — honest absence over fabrication, per the strict no-mock-data rule). Same `|changePct| ≤ 35` sanity guard as the chart-fallback tier so corp-action glitches drop.
+
+Bumped `DISK_CACHE_VERSION` 15→16 to invalidate caches written during the broken window. Verified: 2,422 of 2,455 rows in ~6s with `enrichTimedOut: false`, breaker not tripping.

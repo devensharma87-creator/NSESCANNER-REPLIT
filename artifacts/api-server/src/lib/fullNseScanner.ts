@@ -33,9 +33,9 @@
  */
 
 import type { Quote, StockRow, Recommendation } from "@workspace/api-zod";
-import { fetchIntraday, fetchChart, yahooTickerFor, isYahooPaused, yahooPausedForMs } from "./yahoo";
+import { fetchIntraday, fetchChart, yahooTickerFor, isYahooPaused, yahooPausedForMs, fetchYahooBatchQuotes, type YahooBatchQuote } from "./yahoo";
 import { ema, rsi, atr, sessionVwap, macd as macdSeries } from "./indicators";
-import { getAllSymbols, getDeliveryPct, getDeliveryMap } from "./nseBhavcopy";
+import { getAllSymbols, getDeliveryMap } from "./nseBhavcopy";
 import { UNIVERSE, INACTIVE_SYMBOLS } from "./universe";
 import { logger } from "./logger";
 import { loadBlob, saveBlob } from "./diskCache";
@@ -125,7 +125,12 @@ const DISK_CACHE_NAME = "full-nse-scan";
 // supportLevel/resistanceLevel are missing. Old v14 cached
 // recommendations carry scores and target/SL/RR derived from the
 // 20-bar synthesised band — bump to force a clean recompute.
-const DISK_CACHE_VERSION = 15;
+// v16 (2026-05-03): added Yahoo batch-quote tier as the primary
+// price source when Kite is offline. Old v15 caches were built when
+// Kite-offline scans returned 0–4 rows out of 2,455; v16 caches
+// instead carry the full universe priced from /v7/finance/quote.
+// Bump invalidates the broken empties saved on disk.
+const DISK_CACHE_VERSION = 16;
 const DISK_CACHE_MAX_AGE_MS = 60 * 60_000;
 
 interface Cache {
@@ -532,8 +537,46 @@ async function performFullScan(): Promise<Cache> {
   if (kiteQuotes && kiteQuotes.size > 0) {
     logger.info({ requested: symbolList.length, returned: kiteQuotes.size }, "Kite scanner: quote pass complete");
   } else if (!kiteQuotes) {
-    logger.warn("Kite scanner: no active session — falling back to Yahoo-only enrichment");
+    logger.warn("Kite scanner: no active session — falling back to Yahoo batch-quote + per-symbol enrichment");
   }
+
+  // ── 2b. YAHOO BATCH QUOTES (primary price source when Kite is offline) ─
+  // Single batched call against /v7/finance/quote covers ~150 symbols
+  // each, so the entire ~2,455-symbol universe is priced in ~17 calls.
+  // This is the fix for the production "Scanner shows only 199 of 2,455"
+  // issue: when Kite is logged out and per-symbol Yahoo chart calls
+  // can't finish inside the 60s refresh window (and trip the 429
+  // breaker), the batch endpoint still returns OHLC + price + change
+  // for the entire universe in seconds. We only run it when Kite is
+  // unavailable — Kite quotes are already authoritative when present.
+  let yahooBatch: Map<string, YahooBatchQuote> | null = null;
+  if (!kiteQuotes && !isYahooPaused()) {
+    const t0 = Date.now();
+    try {
+      yahooBatch = await fetchYahooBatchQuotes(symbolList, "NS");
+      logger.info(
+        { requested: symbolList.length, returned: yahooBatch.size, ms: Date.now() - t0 },
+        "Yahoo batch-quote pass complete (Kite-offline fallback)",
+      );
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, "Yahoo batch-quote pass failed");
+    }
+  }
+
+  // ── 2c. DELIVERY MAP (pre-fetched ONCE, looked up synchronously) ────
+  // Previously the row assembly loop did `await getDeliveryPct(sym)`
+  // for every one of ~2,455 symbols, each call re-awaiting the same
+  // shared promise. With markets closed and the in-flight enrichment
+  // workers holding the event loop, this serialised tail was
+  // contributing measurable wall-clock time to scanMs. Pre-fetching
+  // the map once and looking up synchronously eliminates 2,455
+  // sequential awaits.
+  const deliveryMap = await getDeliveryMap().catch(() => null);
+  const lookupDelivery = (sym: string): number | null => {
+    if (!deliveryMap) return null;
+    const v = deliveryMap.map.get(sym.toUpperCase());
+    return typeof v === "number" ? v : null;
+  };
 
   // ── 3. INDICATOR ENRICHMENT (best effort, optional) ────────────────
   // Pick the enrichment target list based on whether Kite is serving
@@ -560,7 +603,23 @@ async function performFullScan(): Promise<Cache> {
     enrichConcurrency = ENRICH_CONCURRENCY_KITE;
     enrichTimeoutMs = ENRICH_TIMEOUT_KITE_MS;
   } else {
-    enrichList = symbolList;
+    // Kite offline: price/OHLC for the entire universe now comes from
+    // the batch-quote pass above. The per-symbol Yahoo chart pass is
+    // only useful for INDICATORS (RSI/EMA/MACD/etc.), and we only
+    // care about indicators for the curated F&O subset that traders
+    // actually act on. Trying to enrich all 2,455 names here was what
+    // tripped the 429 breaker and produced the "0–4 rows of 2,455"
+    // outage. Cap to the curated subset like the Kite-online path,
+    // and only keep symbols the batch quote actually priced (no
+    // point spending a chart call on a symbol we won't emit a row
+    // for anyway).
+    const enrichTargets: string[] = [];
+    for (const s of symbolList) {
+      if (yahooBatch && !yahooBatch.has(s)) continue;
+      if (universeSet.has(s)) enrichTargets.push(s);
+      if (enrichTargets.length >= ENRICH_CAP_KITE_ONLINE) break;
+    }
+    enrichList = enrichTargets;
     enrichConcurrency = ENRICH_CONCURRENCY_NO_KITE;
     enrichTimeoutMs = ENRICH_TIMEOUT_NO_KITE_MS;
   }
@@ -613,14 +672,16 @@ async function performFullScan(): Promise<Cache> {
   let kiteOnlyCount = 0;
   let enrichedCount = 0;
   let yahooFallbackCount = 0;
+  let yahooBatchCount = 0;
 
   for (const sym of symbolList) {
     const kq = kiteQuotes?.get(sym) ?? null;
     const ind = yahooByScopedSymbol.get(sym) ?? null;
-    const realDelv = await getDeliveryPct(sym).catch(() => null);
+    const bq = yahooBatch?.get(sym) ?? null;
+    // Synchronous lookup against the pre-fetched delivery map (see §2c).
     // null when bhavcopy hasn't loaded yet OR symbol isn't in today's
     // bhavcopy. Propagate null down the row builders — never invent "0%".
-    const deliveryPct: number | null = realDelv?.pct ?? null;
+    const deliveryPct: number | null = lookupDelivery(sym);
     if (kq && ind) {
       rows.push(rowFromKitePlusIndicators(kq, ind, deliveryPct));
       enrichedCount++;
@@ -661,6 +722,50 @@ async function performFullScan(): Promise<Cache> {
         rows.push(rowFromKitePlusIndicators(yQuote, ind, deliveryPct));
         yahooFallbackCount++;
       }
+    } else if (
+      bq &&
+      bq.regularMarketDayHigh != null && bq.regularMarketDayLow != null &&
+      bq.regularMarketOpen != null && bq.regularMarketPreviousClose != null &&
+      bq.regularMarketPreviousClose > 0 &&
+      // Honest-absence hard-gate: if Yahoo's batch quote omitted
+      // volume or the market timestamp for this symbol, do NOT
+      // substitute zero or `Date.now()` — the row would then claim
+      // "0 shares traded just now" which is a fabricated data point.
+      // Skip the symbol entirely; a missing row is the truthful
+      // representation. KiteScannerQuote requires both fields to be
+      // numeric, so we cannot represent "unknown" inline without a
+      // schema change. Yahoo's batch endpoint returns volume + time
+      // for essentially every NSE EQ name on a normal trading day;
+      // dropping the rare omission is the correct tradeoff here.
+      bq.regularMarketVolume != null &&
+      bq.regularMarketTime != null
+    ) {
+      // No Kite quote, no per-symbol indicator chart, but the BATCH
+      // quote endpoint priced this symbol with a complete OHLC bar.
+      // Emit a Kite-only-shaped row (price/change/OHLC/volume real,
+      // indicators undefined). Same hard-gate as the chart-fallback
+      // tier above so support/resistance/pivot/r1/s1 are derived from
+      // genuine bar high/low — never collapsed to the live price.
+      const prev = bq.regularMarketPreviousClose;
+      const change = bq.regularMarketChange ?? (bq.regularMarketPrice - prev);
+      const changePct = bq.regularMarketChangePercent ?? ((bq.regularMarketPrice - prev) / prev) * 100;
+      const yQuote: KiteScannerQuote = {
+        symbol: sym,
+        name: bq.longName ?? bq.shortName ?? sym,
+        lastPrice: bq.regularMarketPrice,
+        open: bq.regularMarketOpen,
+        high: bq.regularMarketDayHigh,
+        low: bq.regularMarketDayLow,
+        close: prev,
+        volume: bq.regularMarketVolume,
+        change,
+        changePercent: changePct,
+        ts: bq.regularMarketTime * 1000,
+      };
+      if (Math.abs(yQuote.changePercent) <= 35) {
+        rows.push(rowFromKiteOnly(yQuote, deliveryPct));
+        yahooBatchCount++;
+      }
     }
     progress.scanned++;
   }
@@ -686,6 +791,8 @@ async function performFullScan(): Promise<Cache> {
     kiteOnly: kiteOnlyCount,
     enriched: enrichedCount,
     yahooFallback: yahooFallbackCount,
+    yahooBatch: yahooBatchCount,
+    yahooBatchSize: yahooBatch?.size ?? 0,
     enrichTimedOut,
     scanMs: result.scanMs,
     sourceDate,
