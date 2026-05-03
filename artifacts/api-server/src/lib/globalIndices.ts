@@ -1,6 +1,7 @@
 import type { IndexQuote } from "@workspace/api-zod";
 import { fetchIntraday, fetchIndexChart } from "./yahoo";
 import { ema, rsi, sessionVwap } from "./indicators";
+import { getGiftNifty } from "./giftNifty";
 import { logger } from "./logger";
 
 export interface GlobalCfg {
@@ -10,11 +11,14 @@ export interface GlobalCfg {
   intraday?: boolean;
 }
 
-// GIFT NIFTY trades on NSE-IX nearly 24/5 — Yahoo carries the Nifty futures
-// continuous contract under "NIFTY_F1.NS" / index proxy "^NSEI". We surface
-// a curated set of regional benchmarks plus the GIFT-NIFTY proxy.
+// Curated set of regional benchmarks. GIFT NIFTY is NOT in this Yahoo-backed
+// list because Yahoo does not carry it — it is fetched from TradingView's
+// NSEIX feed via giftNifty.ts and merged into the result below. Substituting
+// ^NSEI (NIFTY cash spot) for GIFT NIFTY is forbidden — the two prints can
+// have opposite signs on the same overnight session and that mis-attribution
+// was the root cause of the "Pre-Market shows -0.74% but GIFT NIFTY is +0.34%"
+// bug.
 export const GLOBAL_INDICES: GlobalCfg[] = [
-  { yahoo: "^NSEI", name: "GIFT NIFTY (proxy)", region: "India / SGX" },
   { yahoo: "^GSPC", name: "S&P 500", region: "US" },
   { yahoo: "^DJI", name: "Dow Jones", region: "US" },
   { yahoo: "^IXIC", name: "Nasdaq", region: "US" },
@@ -46,8 +50,32 @@ function round(n: number, p = 2): number {
 export async function getGlobalIndices(): Promise<IndexQuote[]> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
   const results: IndexQuote[] = [];
-  await Promise.all(
-    GLOBAL_INDICES.map(async cfg => {
+
+  // GIFT NIFTY — fetched from TradingView (NSEIX:NIFTY1!), in parallel with
+  // the Yahoo benchmarks below. Returns null if the source is unavailable;
+  // in that case we OMIT the entry rather than fall back to ^NSEI cash spot.
+  const giftPromise = getGiftNifty().then(g => {
+    if (!g) return;
+    const trend: "bullish" | "bearish" | "neutral" =
+      g.changePercent > 0.05 ? "bullish" : g.changePercent < -0.05 ? "bearish" : "neutral";
+    results.push({
+      symbol: "NSEIX:NIFTY1!",
+      name: "GIFT NIFTY",
+      region: "India / NSE-IX",
+      price: g.price,
+      change: g.change,
+      changePercent: g.changePercent,
+      previousClose: g.previousClose,
+      volume: g.volume ?? undefined,
+      asOf: g.asOf,
+      sparkline: [],
+      trend,
+    });
+  }).catch(err => {
+    logger.warn({ err: (err as Error).message }, "GIFT NIFTY fetch failed");
+  });
+
+  await Promise.all([giftPromise, ...GLOBAL_INDICES.map(async cfg => {
       try {
         const intra = await fetchIntraday(cfg.yahoo, "15m", "5d");
         const daily = await fetchIndexChart(cfg.yahoo);
@@ -103,10 +131,14 @@ export async function getGlobalIndices(): Promise<IndexQuote[]> {
       } catch (err) {
         logger.warn({ err: (err as Error).message, sym: cfg.yahoo }, "Global index failed");
       }
-    }),
-  );
-  // Preserve declared order
-  results.sort((a, b) => GLOBAL_INDICES.findIndex(x => x.yahoo === a.symbol) - GLOBAL_INDICES.findIndex(x => x.yahoo === b.symbol));
+    })]);
+  // Preserve declared order — GIFT NIFTY first (most direct pre-open signal),
+  // then the Yahoo benchmarks in their original list order.
+  const cfgIdx = (sym: string) => {
+    if (sym === "NSEIX:NIFTY1!") return -1;
+    return GLOBAL_INDICES.findIndex(x => x.yahoo === sym);
+  };
+  results.sort((a, b) => cfgIdx(a.symbol) - cfgIdx(b.symbol));
   cache = { ts: Date.now(), data: results };
   return results;
 }

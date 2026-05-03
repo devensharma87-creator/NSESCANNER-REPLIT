@@ -1,6 +1,6 @@
 # Overview
 
-This project is a pnpm monorepo using TypeScript to develop a comprehensive stock market scanner and analysis platform for the Indian market. It features an Express API backend and a React + Vite frontend, aiming to provide real-time market insights for traders and investors. Key capabilities include market scanning (NSE/BSE), options chain analysis, F&O intraday signals, stock-specific catalyst tracking, system monitoring, and secure user authentication with role-based access.
+This project is a pnpm monorepo using TypeScript, designed as a comprehensive stock market scanner and analysis platform specifically for the Indian market. It leverages an Express API backend and a React + Vite frontend to deliver real-time market insights. The platform aims to serve traders and investors with capabilities such as market scanning (NSE/BSE), advanced options chain analysis, F&O intraday signals, stock-specific catalyst tracking, system monitoring, and secure user authentication with role-based access. The business vision is to provide a robust, all-in-one solution for navigating the complexities of the Indian stock market.
 
 # User Preferences
 
@@ -8,41 +8,41 @@ I prefer clear and concise communication. For coding, I favor functional program
 
 # System Architecture
 
-The project is structured as a pnpm workspace monorepo, utilizing TypeScript 5.9.
+The project is structured as a pnpm workspace monorepo using TypeScript 5.9.
 
 ## UI/UX Decisions
 
 - **Theming**: Supports Dark, Light, and Ocean themes with `localStorage` persistence.
 - **Typography**: Uses JetBrains Mono for monospaced elements.
-- **Design Elements**: Softened card corners and theme-safe hover states.
-- **Layout**: Dynamic header navigation, responsive search bar, full-width layouts, and dynamic grid layouts.
+- **Design Elements**: Features softened card corners and theme-safe hover states.
+- **Layout**: Implements dynamic header navigation, a responsive search bar, full-width layouts, and dynamic grid layouts.
 - **Accessibility**: Includes `sr-only` inputs and `autoComplete` attributes.
-- **Error Handling**: Top-level `ErrorBoundary` for robust UI error management.
+- **Error Handling**: Utilizes a top-level `ErrorBoundary` for robust UI error management.
 - **Page Titles**: Dynamic `document.title` updates based on the current route.
 
 ## Technical Implementations
 
-- **API Framework**: Express 5 for backend services.
+- **API Framework**: Express 5 is used for backend services.
 - **Database**: PostgreSQL with Drizzle ORM.
 - **Validation**: Zod (v4) for schema validation, integrated with `drizzle-zod`.
 - **API Codegen**: Orval generates API hooks and Zod schemas from OpenAPI specifications.
-- **Build System**: esbuild for bundling packages.
+- **Build System**: esbuild is used for bundling packages.
 - **Authentication**: HMAC-SHA256 signed HttpOnly session cookies with rate limiting and role-based access control.
 - **Security Headers**: Helmet applies a tight production CSP, Cross-Origin-Opener-Policy, and Referrer-Policy.
 - **CORS**: Environment-configured allowlist with strict production defaults.
-- **Frontend API Client**: TanStack-Query custom fetcher with `credentials: "include"`.
-- **Scoring Robustness**: Recommendation scorer avoids synthetic defaults and ensures deterministic tie-breaking.
-- **Market Data**: Primary reliance on Yahoo, with `lib/dataProvider.ts` designed for switching to Zerodha Kite.
-- **Option Chain**: Orchestrates data from Kite Connect (primary) and NSE direct (fallback) with a 15s response cache, including Black-Scholes model and Greeks. Includes per-strike data points, PCRs, and max-pain analysis.
+- **Frontend API Client**: TanStack-Query with a custom fetcher including `credentials: "include"`.
+- **Scoring Robustness**: The recommendation scorer avoids synthetic defaults and ensures deterministic tie-breaking.
+- **Market Data**: Primarily relies on Yahoo, with `lib/dataProvider.ts` designed for switching to Zerodha Kite.
+- **Option Chain**: Orchestrates data from Kite Connect (primary) and NSE direct (fallback) with a 15s response cache, including Black-Scholes model, Greeks, per-strike data points, PCRs, and max-pain analysis.
 - **Participant-wise OI Segment View**: Provides FII positioning insights and per-segment participant data, including Net OI, change, and diverging magnitude bars.
 - **Option Strategies**: Builds 13 strategy templates against the live chain, using target delta for strike picking and pair-aware picker for protective long wings. Each leg surfaces bid/ask/spreadPct/oi/volume/quoted with liquidity badges.
-- **F&O Intraday Signals**: Uses 4 detectors (Trend Continuation, VWAP Reclaim, Volume Breakout, EMA Pullback) with a Baseline Outlook fallback and persists lifecycle tracking. Includes option-premium projection and real-time trigger notifications. Intraday OHLCV is sourced **Kite-first** via `kc.getHistoricalData(token, "15minute", …)` (real-time, no Yahoo 15-min delay or rate limits) with Yahoo as the offline fallback; index instrument tokens are revalidated daily against `kc.getInstruments(NSE/BSE)`. Lifecycle trigger evaluation overlays **live Kite LTP** onto `snapshot.spot` (bar h/l preserved from the latest closed bar) so triggers fire on real ticks instead of a stale bar close — this is what unblocks "Waiting trigger" cards. A **trigger-realism clamp** (`applyTriggerRealism`) translates the entire plan inward when the structural entry sits more than `max(0.5% spot, 1.2 × ATR15)` away — preserving entry→stop and entry→target distances (RR unchanged), only shifting the absolute price level so the trigger is achievable in the remaining session.
-- **Site-wide live data via Kite**: `kiteIntraday.ts` exposes a generic `fetchKiteHistoricalByToken(token, label, interval, daysBack)` core, plus `fetchKiteIntraday(yahooSymbol, …)` for indices and `fetchKiteEquityIntraday(nseSymbol, …)` for NSE EQ stocks (token resolved via `kiteFeed.getInstrumentToken`). Consumers wired Kite-first: `scanner.getIntradayVwap` (per-stock 15m VWAP), `marketTrend` (^NSEI/^NSEBANK 15m), `indicesBoard` (5m for any index in the basket), `optionChain.getSpotForUnderlying` (live LTP via `getKiteIndexQuotes`). Yahoo remains the fallback on every path. INDEX_TABLE carries both `^CNXFIN` and `NIFTY_FIN_SERVICE.NS` aliases for FINNIFTY so coverage is symmetric across callers. Scanner's per-symbol VWAP cache is 30s (strictly under the 60s `kiteIntraday` cache) so worst-case staleness can't compound past one bar boundary.
+- **F&O Intraday Signals**: Uses 4 detectors (Trend Continuation, VWAP Reclaim, Volume Breakout, EMA Pullback) with a Baseline Outlook fallback and persists lifecycle tracking. Includes option-premium projection and real-time trigger notifications.
+- **Site-wide live data via Kite**: `kiteIntraday.ts` exposes a generic core for fetching historical data from Kite, utilized by various components like `scanner.getIntradayVwap`, `marketTrend`, `indicesBoard`, and `optionChain.getSpotForUnderlying`. Yahoo remains the fallback.
 - **Home Tab**: Merged Dashboard and Indices functionality into a single "Home" tab with a comprehensive market fact-pack, trend overview, top gainers/losers, and setups.
 - **Indices Board**: Displays 27 instruments across 5 categories with live LTP, OHLC, range bars, EMAs, VWAP, market profile, and pivot ladders.
-- **GIFT NIFTY and MIDCPNIFTY Proxy**: Uses `^NSEI` for GIFT NIFTY and `^NSEMDCP50` for Nifty Midcap 50's historical data.
+- **GIFT NIFTY and MIDCPNIFTY Proxy**: Uses `^NSEI` for GIFT NIFTY and `^NSEMDCP50` for Nifty Midcap 50's historical data, with a dedicated `lib/giftNifty.ts` for accurate GIFT NIFTY data from TradingView.
 - **Yahoo `yahooTickerFor`**: Supports Yahoo futures and FX symbols without `.NS` suffix.
-- **Strategies - Long Put "Unbounded"**: Overrides `maxProfit = null` for Long Put to align with trader conventions.
+- **Strategies - Long Put "Unbounded"**: Overrides `maxProfit = null` for Long Put.
 - **Yahoo Hard Timeouts**: Implements `Promise.race` for Yahoo API calls with a 429-only retry policy.
 - **Curated Scan Hard Cap**: `scanAll()` is bounded by a `SCAN_HARD_TIMEOUT_MS`, returning partial results.
 - **Full NSE Stale-While-Revalidate**: `scanFullNse()` returns cached data immediately and triggers background refresh.
@@ -58,8 +58,8 @@ The project is structured as a pnpm workspace monorepo, utilizing TypeScript 5.9
 - **Mirror Kite Session**: Allows secure mirroring of Kite sessions from production to dev.
 - **Learn Tab Expansion**: Expanded content on futures, options, derivatives, trading psychology, and risk management, including 50 patterns (candlestick and chart) and 16 additional trading psychology key concepts.
 - **Pre/Post-Market Additions**: The `/premarket` page includes Today's Game Plan, Key Index Levels, Option Snapshot, Sector Heatmap, and FII / DII Snapshot.
-- **Paper Trading (owner-only)**: Auto-traded F&O paper account with seeded balance, risk management rules, and lifecycle hooks for opens and closes. Includes equity paper trading for multi-day swing positions with specific stop-loss and target calculations, position sizing, and charges.
-- **Global Multi-Asset Scanner (`/global/`)**: Standalone react-vite artifact at `/global/`, completely separate from the NSE Stock Scanner at `/`. Covers Crypto (Binance via `data-api.binance.vision`), Commodities and Forex (Yahoo Finance), plus Phase 2 Global Equities and Indices (Yahoo Finance via dedicated `yahoo-equity` and `yahoo-index` source channels). The equities universe is curated US large caps + EU/UK/CH/JP names; indices cover the major US/EU/Asia benchmarks (SPX, NDX, DAX, FTSE, N225, …). All scanner symbols are URL-safe ASCII (e.g. `ASML_AS` → Yahoo `ASML.AS`, `TYO_7203` → `7203.T`, `SPX` → `^GSPC`) so they embed safely in `/i/:symbol` routes; the Yahoo native form lives on `sourceSymbol`. Has its own password gate using the `GLOBAL_APP_ACCESS_PASSWORD` env var and a separate `global_session` cookie scoped to `Path=/api/global` (so it never bleeds into NSE routes). The login endpoint is protected by a strict brute-force limiter (`globalLoginLimiter`: 5 failed attempts per 15 min, skipSuccessful). Backend tables are prefixed `global_*` (`global_instruments`, `global_candles`, `global_live_prices`, `global_watchlist`, `global_sync_logs`, `global_screener_presets`); the `asset_class` column is `crypto | commodity | forex | equity | index` and `source` is `binance | yahoo | yahoo-fx | yahoo-equity | yahoo-index`. API routes at `/api/global/*` are mounted before the NSE auth gate. Features: dashboard with Crypto/Commodities/Forex/Equities/Indices/Watchlist tabs, source-health strip showing per-source freshness for all 5 channels with universe counts, sortable rows, per-row staleness UX (rows where the upstream feed is overdue or failing get a `stale` badge and muted styling — staleness is computed against per-source freshness budgets defined in `FRESHNESS_BUDGET_MS` in `dataLayer.ts`; the stale signal is suppressed for equities/indices when their exchange is currently closed, so a flat 8-hour-old NYSE quote at 3am IST is not flagged as a feed bug), an "Updated" column showing relative age, per-row market-session badges (Open / Closed / Pre / Post) for equities and indices derived client-side from a static session-hours table per exchange in `artifacts/global/src/lib/marketSessions.ts` (NYSE has full pre/post; other venues have cash session only; holidays are not modeled), with hover tooltip showing the next open in the user's local timezone, instrument detail with `lightweight-charts` candlestick + indicator overlays (SMA/EMA/RSI/MACD/BB/ATR/VWAP/Supertrend), and a screener with multi-asset-class filters (all 5 classes) including Min volume, 1d/1w window % change, and price-vs-SMA50/SMA200 trend filters, with sortable result table and per-session named **Screener Presets** (CRUD via `/api/global/screener-presets`) that persist filter combos so users can re-run "Crypto oversold 1h" / "FX trend-up 4h" with one click; preset names are unique per session, the stored body is exactly the `POST /api/global/screen` payload, and the UI sidebar supports save / load / rename / overwrite / delete. Alongside the user's own presets, the sidebar also renders a read-only **Examples** section sourced from `GET /api/global/screener-presets/library` (a small expert-curated starter library declared in code at `artifacts/api-server/src/lib/global/curatedPresets.ts` so it stays in sync with new filter capabilities) — clicking an example loads it into the form and runs it; the **Fork** action creates an editable personal copy in "My presets" via the standard `POST` endpoint. Each saved preset can also be **shared** via a short link: `POST /api/global/screener-presets/:id/share` lazily mints an opaque base64url token persisted in `global_screener_presets.share_token` (unique-indexed), `GET /api/global/screener-presets/share/:token` returns a sanitized public preview (only `name` + filter `body` — no session/owner/timestamps/alert state leaks), and `POST /api/global/screener-presets/import/:token` imports the preset into the recipient's session library (auto-suffixing the name with " (2)", " (3)", … if it collides with an existing one). The Screener UI shows a Share button per row that copies a `<origin>/global/screener?share=<token>` URL to the clipboard, and a Revoke action that immediately invalidates outstanding links by clearing the column. Opening a share URL in a new browser surfaces a "Save this preset" banner above the filter form.
+- **Paper Trading (owner-only)**: Auto-traded F&O and equity paper accounts with seeded balance, risk management rules, and lifecycle hooks.
+- **Global Multi-Asset Scanner (`/global/`)**: A standalone React-Vite artifact covering Crypto (Binance), Commodities and Forex (Yahoo Finance), and Global Equities/Indices (Yahoo Finance). It includes a dashboard, source-health monitoring, instrument details with `lightweight-charts`, and a screener with multi-asset-class filters and sharable presets.
 
 # External Dependencies
 
@@ -78,28 +78,7 @@ The project is structured as a pnpm workspace monorepo, utilizing TypeScript 5.9
 - **Yahoo Finance API**: Primary source for live market data.
 - **Zerodha Kite Connect API**: Used for option chain data and F&O universe.
 - **NSE India**: Direct data for option chains (fallback) and bhavcopy.
-- **TradingView**: Webhook integration.
+- **TradingView**: Webhook integration and source for GIFT NIFTY data.
+- **Binance API**: For Crypto data in the Global Scanner.
 - **News Feeds**: Moneycontrol, Mint, Economic Times (ET), CNBC TV18, Business Standard, Investing.com.
 - **Google Fonts**: For typography.
-
-## Scanner Kite-offline fallback (2026-05)
-
-When the Kite session is offline, `performFullScan` no longer attempts per-symbol Yahoo chart calls for the entire ~2,455 NSE EQ universe — that path could not fit in the 60s refresh window and tripped Yahoo's 429 breaker, leaving the UI stuck at ~199 rows. The Kite-offline path now does:
-1. **Yahoo batch quote pass** (`fetchYahooBatchQuotes` in `lib/yahoo.ts`) — `yf.quote(arrayOfTickers)` in chunks of 150, ~17 calls covers 2,455 names in ~3–7s. Returns `Map<canonicalSymbol, YahooBatchQuote>`. Note: `yahoo-finance2` deserialises `regularMarketTime` as a `Date` object, so the helper uses `epochSecondsOrUndef` (handles both `Date` and `number`) — a plain `typeof === "number"` check rejects every row.
-2. **Delivery map pre-fetch** (`getDeliveryMap`) — replaces the 2,455 sequential `await getDeliveryPct` calls in the row loop with a single `lookupDelivery(sym)` synchronous lookup.
-3. **Curated-subset chart enrichment** — only the F&O/curated `UNIVERSE` subset (≤`ENRICH_CAP_KITE_ONLINE`) gets per-symbol indicator chart calls; this is what RSI/EMA/MACD/etc. actually need, and trying to enrich all 2,455 was the breaker trigger.
-4. **Row-assembly batch tier** — after the existing `kq+ind` / `kq` / chart-fallback tiers, a new tier builds a `KiteScannerQuote` from `yahooBatch.get(sym)` when ALL of `regularMarketDayHigh/DayLow/Open/PreviousClose/Volume/Time` are present, then calls `rowFromKiteOnly`. Hard-gates on every field (no synthetic zeros for missing volume, no `Date.now()` for missing market time — honest absence over fabrication, per the strict no-mock-data rule). Same `|changePct| ≤ 35` sanity guard as the chart-fallback tier so corp-action glitches drop.
-
-Bumped `DISK_CACHE_VERSION` 15→16 to invalidate caches written during the broken window. Verified: 2,422 of 2,455 rows in ~6s with `enrichTimedOut: false`, breaker not tripping.
-
-## Watchlist batch-quote safety net (2026-05)
-
-The Watchlist tab (`/api/watchlist/:key`, `lib/watchlist.ts`) was returning `rows: []` whenever Yahoo's chart endpoint was unhealthy — `buildRow` required a successful per-symbol `fetchChart("3mo","1d")` call for *everything* (price, OHLC, volume, change, indicators), so a tripped breaker or rate limit on charts collapsed the entire basket and the UI showed "0 stocks / 0 advancers / 0 decliners". Cache-on-empty rule made it worse: nothing to fall back to on subsequent requests.
-
-Fix mirrors the scanner two-tier pattern:
-1. `getWatchlist` now fans out `scanAll()` and `fetchYahooBatchQuotes(symbols, "NS")` in parallel (the quote endpoint is independent of the chart endpoint and one HTTP call covers ~150 symbols).
-2. `buildRow(sym, signal, batchQuote)` first tries the chart for the rich path (OHLC + EMA20/EMA50/RSI14 + system signal). If chart fails, it falls back to the batch quote — emitting a row with real OHLC/volume/change from the quote and indicators set to `undefined` (NEVER zero). `mcTrend` falls back to `trendFromHeuristic` with undefined EMAs/RSI, which honestly degrades to "Neutral" unless `|chgPct| > 1.5`.
-3. Hard-gates on `regularMarketPrice > 0`, `regularMarketPreviousClose > 0`, plus presence of Open/DayHigh/DayLow/Volume — no fabricated fields.
-4. Build log now reports `fromBatchFallback` and `batchPoolSize` so chart-endpoint trouble is visible at a glance.
-
-Verified: NIFTY50 returns 50/50 rows with full indicators when Yahoo is healthy; on chart failure the batch path keeps the table populated with real prices and a degraded (but honest) trend label.

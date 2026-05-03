@@ -90,7 +90,7 @@ async function buildOvernightCues(): Promise<{ cues: Cue[]; score: number }> {
 
   // Map global → cue with weight + category
   const cueMap: Record<string, { category: Cue["category"]; weight: number; inverted?: boolean; label?: string }> = {
-    "GIFT NIFTY (proxy)": { category: "proxy", weight: 3.0 },
+    "GIFT NIFTY": { category: "proxy", weight: 3.0 },
     "Nikkei 225":         { category: "asia",  weight: 1.0 },
     "Hang Seng":          { category: "asia",  weight: 1.0 },
     "Shanghai":           { category: "asia",  weight: 1.0 },
@@ -178,7 +178,7 @@ async function buildIndexPreviews() {
   ];
   let global: Awaited<ReturnType<typeof getGlobalIndices>> = [];
   try { global = await getGlobalIndices(); } catch { /* ignore */ }
-  const giftPct = global.find(g => g.name === "GIFT NIFTY (proxy)")?.changePercent;
+  const giftPct = global.find(g => g.name === "GIFT NIFTY")?.changePercent;
 
   const out = [];
   for (const cfg of cfgs) {
@@ -874,14 +874,22 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
   }));
 
   // Build narrative & takeaways
-  const giftCue = cues.find(c => c.label === "GIFT NIFTY (proxy)");
+  const giftCue = cues.find(c => c.label === "GIFT NIFTY");
   const usCue = cues.find(c => c.label === "S&P 500");
   const asiaCues = cues.filter(c => c.category === "asia");
   const asiaAvg = asiaCues.length > 0 ? asiaCues.reduce((a, c) => a + c.changePercent, 0) / asiaCues.length : 0;
   const vixCue = cues.find(c => c.label === "India VIX");
 
   const takeaways: string[] = [];
-  if (giftCue) takeaways.push(`GIFT NIFTY ${giftCue.changePercent >= 0 ? "+" : ""}${giftCue.changePercent.toFixed(2)}% — indicates a ${giftCue.changePercent > 0.3 ? "gap-up" : giftCue.changePercent < -0.3 ? "gap-down" : "flat"} opening for Nifty 50.`);
+  if (giftCue) {
+    takeaways.push(`GIFT NIFTY ${giftCue.changePercent >= 0 ? "+" : ""}${giftCue.changePercent.toFixed(2)}% (last ${giftCue.value.toLocaleString("en-IN", { maximumFractionDigits: 2 })}) — indicates a ${giftCue.changePercent > 0.3 ? "gap-up" : giftCue.changePercent < -0.3 ? "gap-down" : "flat"} opening for Nifty 50.`);
+  } else {
+    // GIFT NIFTY is the single most-important pre-open cue. If the live
+    // TradingView feed is unavailable, surface that explicitly rather than
+    // silently dropping the row — the user needs to know why the read is
+    // missing its strongest input.
+    takeaways.push("GIFT NIFTY (NSE-IX) live feed unavailable — pre-open gap signal is missing this cycle.");
+  }
   if (usCue) takeaways.push(`Wall Street closed ${usCue.changePercent >= 0 ? "higher" : "lower"} (S&P ${usCue.changePercent >= 0 ? "+" : ""}${usCue.changePercent.toFixed(2)}%) — ${usCue.changePercent >= 0 ? "supportive" : "negative"} cue overnight.`);
   if (asiaCues.length > 0) takeaways.push(`Asian markets average ${asiaAvg >= 0 ? "+" : ""}${asiaAvg.toFixed(2)}% — ${asiaAvg > 0.3 ? "broadly positive" : asiaAvg < -0.3 ? "broadly weak" : "mixed"}.`);
   if (vixCue) takeaways.push(`India VIX ${vixCue.value.toFixed(2)} (${vixCue.changePercent >= 0 ? "+" : ""}${vixCue.changePercent.toFixed(2)}%) — ${vixCue.value > 18 ? "elevated; expect volatility" : vixCue.value < 12 ? "complacent; risk of surprise moves" : "moderate"}.`);
@@ -889,18 +897,28 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
   if (earningsToday.length > 0) takeaways.push(`Earnings today: ${earningsToday.slice(0, 5).map(e => e.symbol).join(", ")}${earningsToday.length > 5 ? "…" : ""}.`);
 
   let narrative: string;
+  // Build narrative from the actually-present cues. Each fragment is only
+  // appended when the underlying cue is non-null, so we never describe a
+  // signal we could not fetch.
+  const giftFrag = giftCue
+    ? `GIFT NIFTY (NSE-IX front-month future) is at ${giftCue.value.toLocaleString("en-IN", { maximumFractionDigits: 2 })}, ${giftCue.changePercent >= 0 ? "up" : "down"} ${Math.abs(giftCue.changePercent).toFixed(2)}% vs prior settlement — pointing to a ${giftCue.changePercent > 0.3 ? "gap-up" : giftCue.changePercent < -0.3 ? "gap-down" : "broadly flat"} opening for Nifty 50.`
+    : "GIFT NIFTY live feed is unavailable this cycle, so the most direct pre-open signal is missing — read the global cues with extra caution.";
+  const usFrag = usCue
+    ? ` Wall Street finished ${usCue.changePercent >= 0 ? "higher" : "lower"} (S&P 500 ${usCue.changePercent >= 0 ? "+" : ""}${usCue.changePercent.toFixed(2)}%), a ${usCue.changePercent > 0 ? "supportive" : "negative"} overnight tape.`
+    : "";
+  const asiaFrag = asiaCues.length > 0
+    ? ` Asia is ${asiaAvg > 0.3 ? "broadly positive" : asiaAvg < -0.3 ? "broadly weak" : "mixed"} (avg ${asiaAvg >= 0 ? "+" : ""}${asiaAvg.toFixed(2)}% across ${asiaCues.length} benchmarks).`
+    : "";
+  const vixFrag = vixCue
+    ? ` India VIX is at ${vixCue.value.toFixed(2)} (${vixCue.changePercent >= 0 ? "+" : ""}${vixCue.changePercent.toFixed(2)}%) — ${vixCue.value > 18 ? "elevated, expect wider intraday swings" : vixCue.value < 12 ? "complacent, surprise moves are possible" : "moderate"}.`
+    : "";
+
   if (mode === "PRE_MARKET") {
-    narrative = `Pre-market read is ${sentiment.toLowerCase().replace("_", " ")}. ${
-      giftCue ? `GIFT NIFTY ${giftCue.changePercent >= 0 ? "+" : ""}${giftCue.changePercent.toFixed(2)}% suggests a ${giftCue.changePercent > 0.3 ? "gap-up" : giftCue.changePercent < -0.3 ? "gap-down" : "flat"} open. ` : ""
-    }${
-      usCue && asiaCues.length > 0
-        ? `Overnight cues: US ${usCue.changePercent >= 0 ? "+" : ""}${usCue.changePercent.toFixed(2)}%, Asia avg ${asiaAvg >= 0 ? "+" : ""}${asiaAvg.toFixed(2)}%.`
-        : ""
-    }`;
+    narrative = `Pre-market read is ${sentiment.toLowerCase().replace("_", " ")}. ${giftFrag}${usFrag}${asiaFrag}${vixFrag}`;
   } else if (mode === "POST_MARKET") {
-    narrative = `Markets have closed for the day. Composite overnight setup is ${sentiment.toLowerCase().replace("_", " ")} for the next session.`;
+    narrative = `Markets have closed for the day. Composite overnight setup for the next session is ${sentiment.toLowerCase().replace("_", " ")}. ${giftFrag}${usFrag}${asiaFrag}${vixFrag}`;
   } else {
-    narrative = `Markets are live. This view shows the overnight setup that established today's open. Sentiment going into the session was ${sentiment.toLowerCase().replace("_", " ")}.`;
+    narrative = `Markets are live. The overnight setup that shaped today's open was ${sentiment.toLowerCase().replace("_", " ")}. ${giftFrag}${usFrag}${asiaFrag}${vixFrag}`;
   }
 
   // Sector heatmap derives from the same scan rows we already pulled for movers.

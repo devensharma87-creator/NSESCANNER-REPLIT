@@ -34,6 +34,7 @@ import { fetchChart, fetchIntraday, type YahooChart } from "./yahoo";
 import { fetchKiteIntraday, hasKiteIntradayCoverage } from "./kiteIntraday";
 import { ema, sessionVwap, volumeProfile } from "./indicators";
 import { getKiteIndexQuotes, type KiteIndexQuote } from "./kiteIndexQuotes";
+import { getGiftNifty } from "./giftNifty";
 import { logger } from "./logger";
 
 export type IndicesCategory = "INDIA" | "GLOBAL" | "COMMODITY" | "ADR" | "FX";
@@ -80,14 +81,13 @@ export const INSTRUMENTS: InstrumentCfg[] = [
   { key: "SENSEX",      name: "SENSEX",           category: "INDIA",     yahoo: "^BSESN",                kiteYahooKey: "^BSESN",               currency: "₹" },
 
   // ── Global indices ───────────────────────────────────────────────
-  // GIFT NIFTY trades on NSE IFSC and isn't carried under any public Yahoo
-  // ticker; we use NIFTY 50 spot (^NSEI) as the closest available proxy and
-  // disclose that explicitly in the card notes — same convention as the
-  // legacy Markets tab. Once a paid IFSC feed is wired up we'll swap this.
-  { key: "GIFTNIFTY",   name: "GIFT NIFTY (proxy)", category: "GLOBAL",
-    yahoo: "^NSEI",
-    proxyNote: "GIFT NIFTY isn't on Yahoo; using NIFTY 50 spot as the closest available proxy",
-    currency: "₹" },
+  // GIFT NIFTY (NSE IFSC) is sourced live from TradingView (NSEIX:NIFTY1!)
+  // by the Markets-board builder via a dedicated branch — see giftNifty.ts.
+  // It is intentionally NOT in this Yahoo-backed list because Yahoo doesn't
+  // carry it and substituting ^NSEI cash spot was the source of a sign-
+  // inversion bug in the pre-market read. The board builder injects the
+  // GIFT entry separately when the TradingView fetch succeeds; if it fails,
+  // the entry is omitted rather than fabricated.
   { key: "SP500",       name: "S&P 500",          category: "GLOBAL",    yahoo: "^GSPC",                 currency: "$" },
   { key: "NASDAQ",      name: "NASDAQ",           category: "GLOBAL",    yahoo: "^IXIC",                 currency: "$" },
   { key: "DOWJONES",    name: "Dow Jones",        category: "GLOBAL",    yahoo: "^DJI",                  currency: "$" },
@@ -424,6 +424,41 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
     }
     return row;
   }));
+
+  // GIFT NIFTY — fetched from TradingView (NSEIX:NIFTY1!) since Yahoo
+  // does not carry it. Injected here as a regular GLOBAL row so the
+  // Markets-board UI shows it identically to the Yahoo-backed entries.
+  // If the source is unavailable the row is OMITTED — never substituted
+  // with NIFTY 50 cash spot, which would mislabel a Friday-cash close as
+  // an overnight pre-open print and invert the sign.
+  try {
+    const g = await getGiftNifty();
+    if (g) {
+      const giftItem: IndexBoardItem = {
+        key: "GIFTNIFTY",
+        name: "GIFT NIFTY",
+        category: "GLOBAL",
+        yahooSymbol: "NSEIX:NIFTY1!",
+        currency: "₹",
+        source: "yahoo", // not Yahoo — but the source enum has only kite|yahoo|null;
+                         // the diagnostic note records the true provenance.
+        asOf: g.asOf,
+        ltp: g.price,
+        prevClose: g.previousClose,
+        change: g.change,
+        changePercent: g.changePercent,
+        support: [],
+        resistance: [],
+        notes: ["Source: TradingView · NSEIX:NIFTY1! (NSE-IX front-month future)"],
+      };
+      // Place GIFT NIFTY as the FIRST GLOBAL entry (most direct pre-open signal).
+      const firstGlobalIdx = items.findIndex(i => i.category === "GLOBAL");
+      if (firstGlobalIdx >= 0) items.splice(firstGlobalIdx, 0, giftItem);
+      else items.push(giftItem);
+    }
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "indicesBoard: GIFT NIFTY fetch failed; row omitted");
+  }
 
   const snap: IndicesBoardSnapshot = {
     items,
