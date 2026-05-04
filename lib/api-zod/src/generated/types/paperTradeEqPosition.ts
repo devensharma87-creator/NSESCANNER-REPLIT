@@ -26,8 +26,16 @@ export interface PaperTradeEqPosition {
   capitalDeployed: number;
   /** Most recent observed LTP for MTM. */
   lastPrice: number;
+  /** Previous trading day close price from scanner cache. */
+  prevClose?: number;
   /** (lastPrice − entryPrice) × qty. */
   unrealizedPnl: number;
+  /** Unrealised P&L as % of capital deployed. */
+  unrealizedPnlPct?: number;
+  /** (lastPrice − prevClose) × qty. Day's P&L. */
+  dayPnl?: number;
+  /** ((lastPrice − prevClose) / prevClose) × 100. */
+  dayPnlPct?: number;
   /** Highest unrealized P&L observed for this position. */
   maxRunup?: number;
   /** Lowest unrealized P&L observed for this position (≤ 0). */

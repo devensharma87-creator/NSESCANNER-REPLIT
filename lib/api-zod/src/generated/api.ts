@@ -1830,7 +1830,23 @@ export const GetPaperPositionsEqResponse = zod.object({
         .describe("True once price touched T1 and the stop was trailed up."),
       capitalDeployed: zod.number().describe("INR cost (qty × entryPrice)."),
       lastPrice: zod.number().describe("Most recent observed LTP for MTM."),
+      prevClose: zod
+        .number()
+        .optional()
+        .describe("Previous trading day close price from scanner cache."),
       unrealizedPnl: zod.number().describe("(lastPrice − entryPrice) × qty."),
+      unrealizedPnlPct: zod
+        .number()
+        .optional()
+        .describe("Unrealised P&L as % of capital deployed."),
+      dayPnl: zod
+        .number()
+        .optional()
+        .describe("(lastPrice − prevClose) × qty. Day's P&L."),
+      dayPnlPct: zod
+        .number()
+        .optional()
+        .describe("((lastPrice − prevClose) \/ prevClose) × 100."),
       maxRunup: zod
         .number()
         .optional()

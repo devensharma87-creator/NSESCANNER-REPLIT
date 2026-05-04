@@ -42,6 +42,7 @@ import {
   getYearlyReport as getEqYearlyReport,
 } from "../lib/paperReportsEq";
 import { forceClosePaperEquityTrade } from "../lib/paperTradingEq";
+import { getAllScannedRows } from "../lib/fullNseScanner";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -275,10 +276,18 @@ router.get("/paper/reports/fo/yearly", requireOwner, async (req, res, next) => {
 
 // ─── EQUITY paper-trading routes ────────────────────────────────────────
 
-function toEqOpenPosition(r: PaperTradeEqRow) {
+function toEqOpenPosition(r: PaperTradeEqRow, prevClose?: number) {
   const entry = num(r.entryPrice);
   const last = num(r.lastPrice);
   const upnl = (last - entry) * r.qty;
+  const capital = num(r.capitalDeployed);
+  const upnlPct = capital > 0 ? (upnl / capital) * 100 : 0;
+  let dayPnl: number | undefined;
+  let dayPnlPct: number | undefined;
+  if (prevClose != null && prevClose > 0) {
+    dayPnl = (last - prevClose) * r.qty;
+    dayPnlPct = ((last - prevClose) / prevClose) * 100;
+  }
   return {
     id: r.id,
     symbol: r.symbol,
@@ -292,9 +301,13 @@ function toEqOpenPosition(r: PaperTradeEqRow) {
     target1Price: num(r.target1Price),
     target2Price: num(r.target2Price),
     trailedToT1: (r.trailedToT1 ?? 0) > 0,
-    capitalDeployed: num(r.capitalDeployed),
+    capitalDeployed: capital,
     lastPrice: last,
+    prevClose,
     unrealizedPnl: upnl,
+    unrealizedPnlPct: +upnlPct.toFixed(2),
+    dayPnl,
+    dayPnlPct: dayPnlPct != null ? +dayPnlPct.toFixed(2) : undefined,
     maxRunup: num(r.maxRunup),
     maxDrawdown: num(r.maxDrawdown),
     openedAt: r.openedAt.toISOString(),
@@ -351,8 +364,15 @@ router.get("/paper/positions/eq", requireOwner, async (_req, res, next) => {
       .from(paperTradeEqTable)
       .where(eq(paperTradeEqTable.status, "OPEN"))
       .orderBy(desc(paperTradeEqTable.openedAt));
+    const { rows: scanRows } = getAllScannedRows();
+    const prevCloseMap = new Map<string, number>();
+    for (const sr of scanRows) {
+      if (sr.quote?.previousClose > 0) {
+        prevCloseMap.set(sr.symbol, sr.quote.previousClose);
+      }
+    }
     const data = GetPaperPositionsEqResponse.parse({
-      positions: rows.map(toEqOpenPosition),
+      positions: rows.map(r => toEqOpenPosition(r, prevCloseMap.get(r.symbol))),
       generatedAt: new Date().toISOString(),
     });
     return res.json(data);

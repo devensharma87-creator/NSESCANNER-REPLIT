@@ -2692,7 +2692,11 @@ components:
         trailedToT1:       { type: boolean, description: "True once price touched T1 and the stop was trailed up." }
         capitalDeployed:   { type: number, description: "INR cost (qty × entryPrice)." }
         lastPrice:         { type: number, description: "Most recent observed LTP for MTM." }
+        prevClose:         { type: number, description: "Previous trading day close price from scanner cache." }
         unrealizedPnl:     { type: number, description: "(lastPrice − entryPrice) × qty." }
+        unrealizedPnlPct:  { type: number, description: "Unrealised P&L as % of capital deployed." }
+        dayPnl:            { type: number, description: "(lastPrice − prevClose) × qty. Day's P&L." }
+        dayPnlPct:         { type: number, description: "((lastPrice − prevClose) / prevClose) × 100." }
         maxRunup:          { type: number, description: "Highest unrealized P&L observed for this position." }
         maxDrawdown:       { type: number, description: "Lowest unrealized P&L observed for this position (≤ 0)." }
         openedAt:          { type: string, format: date-time }

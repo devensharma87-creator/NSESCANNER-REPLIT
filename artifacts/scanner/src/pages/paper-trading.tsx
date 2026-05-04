@@ -149,7 +149,11 @@ interface OpenEqPosition {
   trailedToT1: boolean;
   capitalDeployed: number;
   lastPrice: number;
+  prevClose?: number;
   unrealizedPnl: number;
+  unrealizedPnlPct?: number;
+  dayPnl?: number;
+  dayPnlPct?: number;
   maxRunup?: number;
   maxDrawdown?: number;
   openedAt: string;
@@ -329,7 +333,7 @@ function EqPositionsCard({ positions, loading, error }: {
   if (error) {
     return (
       <Card>
-        <CardHeader><CardTitle>Open positions</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Portfolio</CardTitle></CardHeader>
         <CardContent><ErrorBlock message={error} /></CardContent>
       </Card>
     );
@@ -337,7 +341,7 @@ function EqPositionsCard({ positions, loading, error }: {
   if (loading) {
     return (
       <Card>
-        <CardHeader><CardTitle>Open positions</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Portfolio</CardTitle></CardHeader>
         <CardContent><Skeleton className="h-32 w-full" /></CardContent>
       </Card>
     );
@@ -345,7 +349,7 @@ function EqPositionsCard({ positions, loading, error }: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Open positions</CardTitle>
+        <CardTitle>Portfolio</CardTitle>
         <CardDescription>
           Live mark-to-market using the most recent LTP from the scanner
           cache. Stop trails up to T1 once price prints T1. Use Close to
@@ -365,13 +369,16 @@ function EqPositionsCard({ positions, loading, error }: {
                 <tr>
                   <th className="py-2 pr-3">Symbol</th>
                   <th className="py-2 pr-3 text-right">Qty</th>
+                  <th className="py-2 pr-3 text-right">LTP</th>
                   <th className="py-2 pr-3 text-right">Entry</th>
                   <th className="py-2 pr-3 text-right">SL</th>
                   <th className="py-2 pr-3 text-right">T1</th>
                   <th className="py-2 pr-3 text-right">T2</th>
-                  <th className="py-2 pr-3 text-right">Last</th>
                   <th className="py-2 pr-3 text-right">Capital</th>
                   <th className="py-2 pr-3 text-right">U.P&amp;L</th>
+                  <th className="py-2 pr-3 text-right">U.P&amp;L %</th>
+                  <th className="py-2 pr-3 text-right">Day P&amp;L</th>
+                  <th className="py-2 pr-3 text-right">Day %</th>
                   <th className="py-2 pr-3">Opened</th>
                   <th className="py-2 pr-3"></th>
                 </tr>
@@ -408,6 +415,12 @@ function EqPositionRow({ p }: { p: OpenEqPosition }) {
   const upnlTone =
     p.unrealizedPnl > 0 ? "text-emerald-300" :
     p.unrealizedPnl < 0 ? "text-rose-300" : "text-foreground";
+  const upnlPct = p.unrealizedPnlPct ?? (p.capitalDeployed > 0 ? (p.unrealizedPnl / p.capitalDeployed) * 100 : 0);
+  const dayPnl = p.dayPnl ?? 0;
+  const dayPnlPct = p.dayPnlPct ?? 0;
+  const dayTone =
+    dayPnl > 0 ? "text-emerald-300" :
+    dayPnl < 0 ? "text-rose-300" : "text-foreground";
   return (
     <tr className="border-b border-border/40">
       <td className="py-2 pr-3">
@@ -420,14 +433,23 @@ function EqPositionRow({ p }: { p: OpenEqPosition }) {
         </div>
       </td>
       <td className="py-2 pr-3 text-right tabular-nums">{p.qty}</td>
+      <td className="py-2 pr-3 text-right tabular-nums font-medium">{p.lastPrice.toFixed(2)}</td>
       <td className="py-2 pr-3 text-right tabular-nums">{p.entryPrice.toFixed(2)}</td>
       <td className="py-2 pr-3 text-right tabular-nums text-rose-300">{p.stopPrice.toFixed(2)}</td>
       <td className="py-2 pr-3 text-right tabular-nums text-emerald-300">{p.target1Price.toFixed(2)}</td>
       <td className="py-2 pr-3 text-right tabular-nums text-emerald-300">{p.target2Price.toFixed(2)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums">{p.lastPrice.toFixed(2)}</td>
       <td className="py-2 pr-3 text-right tabular-nums">{inr(p.capitalDeployed)}</td>
       <td className={`py-2 pr-3 text-right tabular-nums font-medium ${upnlTone}`}>
         {inrDec(p.unrealizedPnl)}
+      </td>
+      <td className={`py-2 pr-3 text-right tabular-nums ${upnlTone}`}>
+        {upnlPct >= 0 ? "+" : ""}{upnlPct.toFixed(2)}%
+      </td>
+      <td className={`py-2 pr-3 text-right tabular-nums font-medium ${dayTone}`}>
+        {inrDec(dayPnl)}
+      </td>
+      <td className={`py-2 pr-3 text-right tabular-nums ${dayTone}`}>
+        {dayPnlPct >= 0 ? "+" : ""}{dayPnlPct.toFixed(2)}%
       </td>
       <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtDate(p.openedAt)}</td>
       <td className="py-2 pr-3 text-right">
@@ -681,7 +703,7 @@ function PositionsCard({
   if (error) {
     return (
       <Card>
-        <CardHeader><CardTitle>Open positions</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Portfolio</CardTitle></CardHeader>
         <CardContent><ErrorBlock message={error} /></CardContent>
       </Card>
     );
@@ -689,7 +711,7 @@ function PositionsCard({
   if (loading) {
     return (
       <Card>
-        <CardHeader><CardTitle>Open positions</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Portfolio</CardTitle></CardHeader>
         <CardContent><Skeleton className="h-32 w-full" /></CardContent>
       </Card>
     );
@@ -697,7 +719,7 @@ function PositionsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Open positions</CardTitle>
+        <CardTitle>Portfolio</CardTitle>
         <CardDescription>
           Live mark-to-market using the most recently observed option premium
           from the signal lifecycle. Use the close button to force-exit at the
