@@ -10,7 +10,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Activity, Target, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Radio } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Target, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Radio, Shield, AlertTriangle, ChevronRight, Info, Filter, Database } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
   FNO_ALL,
@@ -19,6 +19,8 @@ import {
   findFno,
   type FnoEntry,
 } from "@/data/fnoUniverse";
+
+type StrikeFilter = "all" | "atm5" | "atm10" | "highOi" | "unusual";
 
 function fmt(n: number | null | undefined, dp = 2): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -136,6 +138,10 @@ export default function OptionChainPage() {
 
   const chain = chainQ.data;
   const [showGreeks, setShowGreeks] = useState(false);
+  const [strikeFilter, setStrikeFilter] = useState<StrikeFilter>("atm10");
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [marketReadOpen, setMarketReadOpen] = useState(true);
 
   // ── "Jump to ATM" floating button ─────────────────────────────────
   // The chain table has 30+ strikes and the scroll container is clamped to
@@ -150,7 +156,7 @@ export default function OptionChainPage() {
     const scroller = tableScrollRef.current;
     if (!scroller) return;
     const atmRow = scroller.querySelector<HTMLTableRowElement>('tr[data-atm-row="true"]');
-    if (!atmRow) return;
+    if (!atmRow) { setAtmDirection("visible"); return; }
     const sRect = scroller.getBoundingClientRect();
     const rRect = atmRow.getBoundingClientRect();
     // The thead is `position: sticky` so the top portion of the scroll
@@ -226,6 +232,71 @@ export default function OptionChainPage() {
     return m;
   }, [analytics]);
 
+  const filteredRows = useMemo(() => {
+    if (!chain) return [];
+    const rows = chain.rows;
+    const atmIdx = rows.findIndex(r => r.strike === chain.atmStrike);
+    switch (strikeFilter) {
+      case "atm5": {
+        const lo = Math.max(0, atmIdx - 5);
+        const hi = Math.min(rows.length, atmIdx + 6);
+        return rows.slice(lo, hi);
+      }
+      case "atm10": {
+        const lo = Math.max(0, atmIdx - 10);
+        const hi = Math.min(rows.length, atmIdx + 11);
+        return rows.slice(lo, hi);
+      }
+      case "highOi": {
+        const threshold = maxOi * 0.3;
+        return rows.filter(r => (r.ce?.oi ?? 0) >= threshold || (r.pe?.oi ?? 0) >= threshold);
+      }
+      case "unusual": {
+        return rows.filter(r => {
+          const ceVol = r.ce?.volOiRatio ?? 0;
+          const peVol = r.pe?.volOiRatio ?? 0;
+          return ceVol >= 1.5 || peVol >= 1.5;
+        });
+      }
+      default:
+        return rows;
+    }
+  }, [chain, strikeFilter, maxOi]);
+
+  const sortedRows = useMemo(() => {
+    if (!sortCol || !filteredRows.length) return filteredRows;
+    const sorted = [...filteredRows];
+    sorted.sort((a, b) => {
+      let va = 0, vb = 0;
+      switch (sortCol) {
+        case "ce_oi": va = a.ce?.oi ?? 0; vb = b.ce?.oi ?? 0; break;
+        case "ce_chgOi": va = a.ce?.chgOi ?? 0; vb = b.ce?.chgOi ?? 0; break;
+        case "ce_vol": va = a.ce?.volume ?? 0; vb = b.ce?.volume ?? 0; break;
+        case "ce_iv": va = a.ce?.iv ?? 0; vb = b.ce?.iv ?? 0; break;
+        case "ce_ltp": va = a.ce?.ltp ?? 0; vb = b.ce?.ltp ?? 0; break;
+        case "pe_oi": va = a.pe?.oi ?? 0; vb = b.pe?.oi ?? 0; break;
+        case "pe_chgOi": va = a.pe?.chgOi ?? 0; vb = b.pe?.chgOi ?? 0; break;
+        case "pe_vol": va = a.pe?.volume ?? 0; vb = b.pe?.volume ?? 0; break;
+        case "pe_iv": va = a.pe?.iv ?? 0; vb = b.pe?.iv ?? 0; break;
+        case "pe_ltp": va = a.pe?.ltp ?? 0; vb = b.pe?.ltp ?? 0; break;
+        case "strike": va = a.strike; vb = b.strike; break;
+        default: return 0;
+      }
+      return sortDir === "asc" ? va - vb : vb - va;
+    });
+    return sorted;
+  }, [filteredRows, sortCol, sortDir]);
+
+  const handleSort = useCallback((col: string) => {
+    if (sortCol === col) {
+      if (sortDir === "desc") setSortDir("asc");
+      else { setSortCol(null); setSortDir("desc"); }
+    } else {
+      setSortCol(col);
+      setSortDir("desc");
+    }
+  }, [sortCol, sortDir]);
+
   const lastUpdate = chainQ.dataUpdatedAt;
   const secondsSinceUpdate = lastUpdate ? Math.max(0, Math.floor((Date.now() - lastUpdate) / 1000)) : null;
 
@@ -282,7 +353,7 @@ export default function OptionChainPage() {
             {currentEntry?.sector ? <> · <span className="text-foreground/70">{currentEntry.sector}</span></> : null}
             {" · "}OI per strike (CE left, PE right) · ATM highlighted · R1-R3 = top call-writing strikes (resistance), S1-S3 = top put-writing strikes (support)
           </p>
-          <div className="mt-1.5 flex items-center gap-2 text-[10px] font-mono">
+          <div className="mt-1.5 flex items-center gap-2 text-[10px] font-mono flex-wrap">
             <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${
               marketStatus == null ? "border-border bg-secondary/40 text-muted-foreground" :
               marketStatus === "open" ? "border-signal-strong-buy/40 bg-signal-strong-buy/15 text-signal-strong-buy" :
@@ -292,13 +363,35 @@ export default function OptionChainPage() {
               <Radio className={`w-2.5 h-2.5 ${marketStatus === "open" ? "animate-pulse" : ""}`} />
               {marketStatus == null ? "—" : marketStatus === "open" ? "MARKET OPEN" : marketStatus === "pre_open" ? "PRE-OPEN" : "MARKET CLOSED"}
             </span>
+            {chain && (
+              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${
+                chain.source === "kite"
+                  ? "border-signal-strong-buy/30 bg-signal-strong-buy/10 text-signal-strong-buy"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-400"
+              }`}>
+                <Database className="w-2.5 h-2.5" />
+                {chain.source === "kite" ? "KITE LIVE" : chain.source === "NSE" ? "NSE DIRECT" : chain.source?.toUpperCase() ?? "UNKNOWN"}
+              </span>
+            )}
             <span className="text-muted-foreground">
-              live cadence {refetchInterval / 1000}s
+              {refetchInterval / 1000}s cadence
               {secondsSinceUpdate != null && (
-                <> · updated {secondsSinceUpdate < 5 ? "just now" : `${secondsSinceUpdate}s ago`}</>
+                <> · {secondsSinceUpdate < 5 ? (
+                  <span className="text-signal-strong-buy">just now</span>
+                ) : secondsSinceUpdate > 30 ? (
+                  <span className="text-amber-400">{secondsSinceUpdate}s ago</span>
+                ) : (
+                  <>{secondsSinceUpdate}s ago</>
+                )}</>
               )}
               {chainQ.isFetching && lastUpdate ? " · refreshing…" : ""}
             </span>
+            {chain?.source !== "kite" && chain?.source !== undefined && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                <AlertTriangle className="w-2.5 h-2.5" />
+                Fallback data — Kite not connected
+              </span>
+            )}
           </div>
         </div>
 
@@ -498,11 +591,92 @@ export default function OptionChainPage() {
         </Card>
       </div>
 
-      {/* Interpretation */}
-      {analytics?.interpretation && (
-        <Card className="bg-card/50 border-border">
-          <CardContent className="p-3 text-xs font-mono text-foreground/80">
-            {analytics.interpretation}
+      {/* Market Read — structured bias card with confidence + reasons + invalidation */}
+      {analytics && (
+        <Card className={`border ${
+          analytics.bias === "BULLISH" ? "border-signal-strong-buy/30 bg-signal-strong-buy/[0.03]" :
+          analytics.bias === "BEARISH" ? "border-signal-strong-sell/30 bg-signal-strong-sell/[0.03]" :
+          "border-border bg-card/50"
+        }`}>
+          <CardContent className="p-4 space-y-3">
+            <button
+              onClick={() => setMarketReadOpen(o => !o)}
+              className="w-full flex items-center justify-between gap-2"
+            >
+              <div className="flex items-center gap-3">
+                <Shield className={`w-4 h-4 ${
+                  analytics.bias === "BULLISH" ? "text-signal-strong-buy" :
+                  analytics.bias === "BEARISH" ? "text-signal-strong-sell" :
+                  "text-muted-foreground"
+                }`} />
+                <span className="text-xs uppercase font-mono tracking-wider text-muted-foreground">Market Read</span>
+                <Badge className={
+                  analytics.bias === "BULLISH" ? "bg-signal-strong-buy/20 text-signal-strong-buy border-signal-strong-buy/40" :
+                  analytics.bias === "BEARISH" ? "bg-signal-strong-sell/20 text-signal-strong-sell border-signal-strong-sell/40" :
+                  "bg-secondary/40 text-muted-foreground border-border/40"
+                }>
+                  {analytics.bias === "BULLISH" && <TrendingUp className="w-3 h-3 mr-1 inline" />}
+                  {analytics.bias === "BEARISH" && <TrendingDown className="w-3 h-3 mr-1 inline" />}
+                  {analytics.bias === "NEUTRAL" && <Activity className="w-3 h-3 mr-1 inline" />}
+                  {analytics.bias}
+                </Badge>
+                {analytics.confidenceScore != null && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-16 h-1.5 rounded-full bg-secondary/60 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          analytics.confidenceScore >= 70 ? "bg-signal-strong-buy" :
+                          analytics.confidenceScore >= 40 ? "bg-amber-500" :
+                          "bg-signal-strong-sell"
+                        }`}
+                        style={{ width: `${analytics.confidenceScore}%` }}
+                      />
+                    </div>
+                    <span className={`text-[10px] font-mono font-bold ${
+                      analytics.confidenceScore >= 70 ? "text-signal-strong-buy" :
+                      analytics.confidenceScore >= 40 ? "text-amber-500" :
+                      "text-signal-strong-sell"
+                    }`}>
+                      {analytics.confidenceScore}%
+                    </span>
+                  </div>
+                )}
+              </div>
+              <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${marketReadOpen ? "rotate-90" : ""}`} />
+            </button>
+
+            {marketReadOpen && (
+              <div className="space-y-2.5 pt-1">
+                {analytics.marketReadReasons && analytics.marketReadReasons.length > 0 && (
+                  <div className="space-y-1.5">
+                    {analytics.marketReadReasons.map((r, i) => (
+                      <div key={i} className="flex items-start gap-2 text-xs font-mono">
+                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                          r.impact === "BULLISH" ? "bg-signal-strong-buy" :
+                          r.impact === "BEARISH" ? "bg-signal-strong-sell" :
+                          "bg-muted-foreground"
+                        }`} />
+                        <div>
+                          <span className="text-foreground/60 text-[10px] uppercase">{r.signal}: </span>
+                          <span className="text-foreground/85">{r.detail}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {analytics.invalidation && (
+                  <div className="flex items-start gap-2 pt-1 border-t border-border/50 text-[11px] font-mono text-amber-400/80">
+                    <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                    <span>{analytics.invalidation}</span>
+                  </div>
+                )}
+                {analytics.interpretation && (
+                  <div className="text-[10px] font-mono text-muted-foreground pt-1 border-t border-border/50">
+                    {analytics.interpretation}
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -538,7 +712,7 @@ export default function OptionChainPage() {
                   const tier = (["R1", "R2", "R3"] as const)[i];
                   const dist = chain ? ((c.strike - chain.spot) / chain.spot) * 100 : null;
                   return (
-                    <div key={c.strike} className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-signal-strong-sell/[0.06] border border-signal-strong-sell/20 font-mono text-[11px]">
+                    <div key={c.strike} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-signal-strong-sell/[0.06] border border-signal-strong-sell/20 font-mono text-[11px]">
                       <div className="flex items-center gap-2">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                           i === 0 ? "bg-signal-strong-sell/30 text-signal-strong-sell" :
@@ -549,6 +723,15 @@ export default function OptionChainPage() {
                         {dist != null && (
                           <span className="text-[10px] text-muted-foreground tabular-nums">
                             {dist >= 0 ? "+" : ""}{dist.toFixed(2)}%
+                          </span>
+                        )}
+                        {(c as { strength?: string }).strength && (
+                          <span className={`text-[9px] px-1 py-0.5 rounded font-bold ${
+                            (c as { strength?: string }).strength === "STRONG" ? "bg-signal-strong-sell/25 text-signal-strong-sell" :
+                            (c as { strength?: string }).strength === "MEDIUM" ? "bg-amber-500/20 text-amber-400" :
+                            "bg-secondary/40 text-muted-foreground"
+                          }`}>
+                            {(c as { strength?: string }).strength}
                           </span>
                         )}
                       </div>
@@ -578,7 +761,7 @@ export default function OptionChainPage() {
                   const tier = (["S1", "S2", "S3"] as const)[i];
                   const dist = chain ? ((c.strike - chain.spot) / chain.spot) * 100 : null;
                   return (
-                    <div key={c.strike} className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-signal-strong-buy/[0.06] border border-signal-strong-buy/20 font-mono text-[11px]">
+                    <div key={c.strike} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-signal-strong-buy/[0.06] border border-signal-strong-buy/20 font-mono text-[11px]">
                       <div className="flex items-center gap-2">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                           i === 0 ? "bg-signal-strong-buy/30 text-signal-strong-buy" :
@@ -589,6 +772,15 @@ export default function OptionChainPage() {
                         {dist != null && (
                           <span className="text-[10px] text-muted-foreground tabular-nums">
                             {dist >= 0 ? "+" : ""}{dist.toFixed(2)}%
+                          </span>
+                        )}
+                        {(c as { strength?: string }).strength && (
+                          <span className={`text-[9px] px-1 py-0.5 rounded font-bold ${
+                            (c as { strength?: string }).strength === "STRONG" ? "bg-signal-strong-buy/25 text-signal-strong-buy" :
+                            (c as { strength?: string }).strength === "MEDIUM" ? "bg-amber-500/20 text-amber-400" :
+                            "bg-secondary/40 text-muted-foreground"
+                          }`}>
+                            {(c as { strength?: string }).strength}
                           </span>
                         )}
                       </div>
@@ -677,7 +869,40 @@ export default function OptionChainPage() {
 
       {chain && (
         <>
-          {/* Greeks toggle + summary */}
+          {/* Strike filter + Greeks toggle + summary */}
+          <div className="flex flex-wrap items-center gap-2 -mb-1">
+            <div className="flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-[10px] uppercase font-mono text-muted-foreground">Strikes:</span>
+              {([
+                { v: "atm5" as const, l: "ATM±5" },
+                { v: "atm10" as const, l: "ATM±10" },
+                { v: "all" as const, l: "All" },
+                { v: "highOi" as const, l: "High OI" },
+                { v: "unusual" as const, l: "Unusual" },
+              ]).map(f => (
+                <button
+                  key={f.v}
+                  onClick={() => setStrikeFilter(f.v)}
+                  className={`px-2 py-0.5 text-[10px] font-mono rounded border transition-colors ${
+                    strikeFilter === f.v
+                      ? "border-primary bg-primary/15 text-primary font-bold"
+                      : "border-border bg-card hover-row text-foreground/70"
+                  }`}
+                  title={
+                    f.v === "highOi" ? "Show strikes with OI ≥ 30% of max" :
+                    f.v === "unusual" ? "Show strikes with Vol/OI ratio ≥ 1.5 (unusual activity)" :
+                    undefined
+                  }
+                >
+                  {f.l}
+                </button>
+              ))}
+              <span className="text-[10px] text-muted-foreground font-mono ml-1">
+                {sortedRows.length}{chain ? `/${chain.rows.length}` : ""} strikes
+              </span>
+            </div>
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-2 -mb-1">
             <div className="flex items-center gap-2 text-[11px] font-mono">
               <button
@@ -748,7 +973,7 @@ export default function OptionChainPage() {
           */}
           <div className="relative">
           <div ref={tableScrollRef} className="overflow-auto rounded border border-border max-h-[calc(100vh-260px)]">
-            <table className="w-full text-[11px] font-mono">
+            <table className="w-full text-xs font-mono">
               <thead className="bg-card sticky top-0 z-20 shadow-[0_1px_0_0_hsl(var(--border))]">
                 {(() => {
                   // Column count per side — keep both halves balanced so the
@@ -768,40 +993,58 @@ export default function OptionChainPage() {
                     </tr>
                   );
                 })()}
-                <tr className="text-muted-foreground border-b border-border bg-card/50 text-[10px]">
-                  <th className="px-2 py-1 text-right">OI</th>
-                  <th className="px-2 py-1 text-right" title="Day-over-day OI change (absolute) and OI % below">Δ OI</th>
-                  <th className="px-2 py-1 text-right">Vol</th>
-                  <th className="px-2 py-1 text-right" title="Volume / OI — fresh activity proxy">V/O</th>
-                  <th className="px-2 py-1 text-right">IV</th>
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Gamma">Γ</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Theta per day">Θ</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Vega per 1% IV">V</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Intrinsic premium">Int</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Time value (LTP − Intrinsic)">TV</th>}
-                  <th className="px-2 py-1 text-right">LTP</th>
-                  <th className="px-2 py-1 text-right" title="LTP day-over-day % change vs prev close (Kite-only)">%Δ</th>
-                  <th className="px-2 py-1 text-center border-r border-border">B</th>
-                  <th className="px-3 py-1 text-center">Strike</th>
-                  <th className="px-2 py-1 text-center border-l border-border">B</th>
-                  <th className="px-2 py-1 text-right">%Δ</th>
-                  <th className="px-2 py-1 text-right">LTP</th>
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Time value">TV</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Intrinsic">Int</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Vega">V</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Theta">Θ</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Gamma">Γ</th>}
-                  {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
-                  <th className="px-2 py-1 text-right">IV</th>
-                  <th className="px-2 py-1 text-right" title="Volume / OI">V/O</th>
-                  <th className="px-2 py-1 text-right">Vol</th>
-                  <th className="px-2 py-1 text-right">Δ OI</th>
-                  <th className="px-2 py-1 text-right">OI</th>
+                <tr className="text-muted-foreground border-b border-border bg-card/50 text-[11px]">
+                  {(() => {
+                    const SortTh = ({ col, children, title: t, className: cls = "text-right" }: { col: string; children: React.ReactNode; title?: string; className?: string }) => (
+                      <th
+                        className={`px-2 py-1.5 cursor-pointer hover:text-foreground select-none ${cls}`}
+                        title={t}
+                        onClick={() => handleSort(col)}
+                      >
+                        <span className="inline-flex items-center gap-0.5">
+                          {children}
+                          {sortCol === col && <span className="text-primary">{sortDir === "desc" ? "▼" : "▲"}</span>}
+                        </span>
+                      </th>
+                    );
+                    return (
+                      <>
+                        <SortTh col="ce_oi" title="Call-side Open Interest — total outstanding contracts">OI</SortTh>
+                        <SortTh col="ce_chgOi" title="Day-over-day OI change (absolute) and OI % below. Positive = new contracts written, negative = unwinding">Δ OI</SortTh>
+                        <SortTh col="ce_vol" title="Call-side volume — contracts traded today">Vol</SortTh>
+                        <th className="px-2 py-1 text-right" title="Volume / OI — values > 1.0 indicate unusual fresh activity relative to outstanding positions">V/O</th>
+                        <SortTh col="ce_iv" title="Implied Volatility — market's expectation of annualised price movement, solved from option premium via Black-Scholes">IV</SortTh>
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Delta (Δ) — option price change per ₹1 spot move. CE: 0→1, PE: -1→0. ATM ≈ ±0.5">Δ</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Gamma (Γ) — rate of delta change per ₹1 spot move. Highest at ATM, near-zero deep ITM/OTM">Γ</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Theta (Θ) — premium decay per calendar day. Always negative for long options. Accelerates near expiry">Θ</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Vega (V) — premium change per 1% rise in IV. Higher at ATM and longer-dated options">V</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Intrinsic value — max(0, Spot−Strike) for CE, max(0, Strike−Spot) for PE">Int</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Time value = LTP − Intrinsic. Pure optionality premium that decays to zero at expiry">TV</th>}
+                        <SortTh col="ce_ltp" title="Last Traded Price — most recent trade price for this CE option">LTP</SortTh>
+                        <th className="px-2 py-1 text-right" title="LTP day-over-day % change vs prev close (Kite-only)">%Δ</th>
+                        <th className="px-2 py-1 text-center border-r border-border" title="OI Buildup — LB=Long Buildup, SB=Short Buildup, SC=Short Covering, LU=Long Unwinding. Based on price+OI change direction">B</th>
+                        <SortTh col="strike" className="text-center" title="Strike price — exercise price of the option contract">Strike</SortTh>
+                        <th className="px-2 py-1 text-center border-l border-border" title="OI Buildup — LB=Long Buildup, SB=Short Buildup, SC=Short Covering, LU=Long Unwinding">B</th>
+                        <th className="px-2 py-1 text-right" title="LTP day-over-day % change vs prev close (Kite-only)">%Δ</th>
+                        <SortTh col="pe_ltp" title="Last Traded Price — most recent trade price for this PE option">LTP</SortTh>
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Time value">TV</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Intrinsic">Int</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Vega">V</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Theta">Θ</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Gamma">Γ</th>}
+                        {showGreeks && <th className="px-2 py-1 text-right" title="Delta">Δ</th>}
+                        <SortTh col="pe_iv" title="Implied Volatility — market's expectation of annualised price movement">IV</SortTh>
+                        <th className="px-2 py-1 text-right" title="Volume / OI — unusual activity proxy">V/O</th>
+                        <SortTh col="pe_vol" title="Put-side volume — contracts traded today">Vol</SortTh>
+                        <SortTh col="pe_chgOi" title="Day-over-day OI change">Δ OI</SortTh>
+                        <SortTh col="pe_oi" title="Put-side Open Interest">OI</SortTh>
+                      </>
+                    );
+                  })()}
                 </tr>
               </thead>
               <tbody>
-                {chain.rows.map((r) => (
+                {sortedRows.map((r) => (
                   <Row
                     key={r.strike}
                     row={r}
@@ -899,13 +1142,13 @@ function Row({ row, atm, spot, maxOi, showGreeks, resistanceTier, supportTier }:
   // Strike row tint: ATM > MaxPain (so when both coincide ATM wins). MaxPain
   // gets a distinct amber accent so it never reads as another "buy" tint.
   const rowTint = isAtm
-    ? "bg-primary/[0.07] font-bold"
+    ? "bg-primary/[0.12] font-bold ring-1 ring-inset ring-primary/20"
     : isMaxPain ? "bg-amber-500/[0.06]" : "";
 
   return (
     <tr data-atm-row={isAtm ? "true" : undefined} className={`border-b border-border/30 hover-row ${rowTint}`}>
       {/* ── CALL side ─────────────────────────── */}
-      <td className={`px-2 py-1 text-right tabular-nums relative ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>
+      <td className={`px-2 py-1.5 text-right tabular-nums relative ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>
         <div
           className="absolute right-0 top-0 bottom-0 bg-signal-strong-buy/15"
           style={{ width: `${ceBar}%` }}
@@ -913,27 +1156,27 @@ function Row({ row, atm, spot, maxOi, showGreeks, resistanceTier, supportTier }:
         />
         <span className="relative">{fmtKL(ce?.oi)}</span>
       </td>
-      <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""} ${(ce?.chgOi ?? 0) > 0 ? "text-signal-strong-buy" : (ce?.chgOi ?? 0) < 0 ? "text-signal-strong-sell" : ""}`}>
+      <td className={`px-2 py-1.5 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""} ${(ce?.chgOi ?? 0) > 0 ? "text-signal-strong-buy" : (ce?.chgOi ?? 0) < 0 ? "text-signal-strong-sell" : ""}`}>
         <div className="leading-tight">{ce?.chgOi != null && ce.chgOi > 0 ? "+" : ""}{fmtKL(ce?.chgOi)}</div>
         <div className="text-[9px] opacity-70 leading-tight">{fmtPct(ce?.oiChgPct, 1)}</div>
       </td>
-      <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtKL(ce?.volume)}</td>
-      <td className={`px-2 py-1 text-right tabular-nums text-foreground/70 ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`} title="Volume / OI">{fmtRatio(ce?.volOiRatio)}</td>
-      <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{ce?.iv ? ce.iv.toFixed(1) : "—"}</td>
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.delta, 3)}</td>}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.gamma, 5)}</td>}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-signal-strong-sell ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.theta, 2)}</td>}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.vega, 2)}</td>}
+      <td className={`px-2 py-1.5 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtKL(ce?.volume)}</td>
+      <td className={`px-2 py-1.5 text-right tabular-nums text-foreground/70 ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`} title="Volume / OI">{fmtRatio(ce?.volOiRatio)}</td>
+      <td className={`px-2 py-1.5 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{ce?.iv ? ce.iv.toFixed(1) : "—"}</td>
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.delta, 3)}</td>}
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.gamma, 5)}</td>}
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums text-signal-strong-sell ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.theta, 2)}</td>}
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtGreek(ce?.vega, 2)}</td>}
       {showGreeks && (
-        <td className={`px-2 py-1 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`} title={ce?.intrinsicPct != null ? `${ce.intrinsicPct.toFixed(0)}% of LTP is intrinsic` : undefined}>
+        <td className={`px-2 py-1.5 text-right tabular-nums ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`} title={ce?.intrinsicPct != null ? `${ce.intrinsicPct.toFixed(0)}% of LTP is intrinsic` : undefined}>
           <div className="leading-tight">{fmt(ce?.intrinsic)}</div>
           {ce?.intrinsicPct != null && <div className="text-[9px] opacity-70 leading-tight">{ce.intrinsicPct.toFixed(0)}%</div>}
         </td>
       )}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-foreground/80 ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmt(ce?.timeValue)}</td>}
-      <td className={`px-2 py-1 text-right tabular-nums font-bold ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmt(ce?.ltp)}</td>
-      <td className={`px-2 py-1 text-right tabular-nums ${pctTone(ce?.ltpChgPct)} ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtPct(ce?.ltpChgPct, 1)}</td>
-      <td className={`px-2 py-1 text-center border-r border-border ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums text-foreground/80 ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmt(ce?.timeValue)}</td>}
+      <td className={`px-2 py-1.5 text-right tabular-nums font-bold ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmt(ce?.ltp)}</td>
+      <td className={`px-2 py-1.5 text-right tabular-nums ${pctTone(ce?.ltpChgPct)} ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>{fmtPct(ce?.ltpChgPct, 1)}</td>
+      <td className={`px-2 py-1.5 text-center border-r border-border ${ceItm ? "bg-signal-strong-buy/[0.04]" : ""}`}>
         <span className={`px-1 rounded text-[9px] font-bold ${buildupTone(ce?.oiBuildup)}`}>{buildupShort(ce?.oiBuildup)}</span>
       </td>
 
@@ -941,7 +1184,7 @@ function Row({ row, atm, spot, maxOi, showGreeks, resistanceTier, supportTier }:
             R-tier (red) marks one of the top-3 call-writing strikes →
             resistance. S-tier (green) marks one of the top-3 put-writing
             strikes → support. Tier intensity: 1 brightest, 3 dimmest. */}
-      <td className={`px-2 py-1 text-center tabular-nums ${
+      <td className={`px-2 py-1.5 text-center tabular-nums ${
         resistanceTier ? "bg-signal-strong-sell/[0.05]" :
         supportTier ? "bg-signal-strong-buy/[0.05]" :
         ""
@@ -982,30 +1225,30 @@ function Row({ row, atm, spot, maxOi, showGreeks, resistanceTier, supportTier }:
       </td>
 
       {/* ── PUT side ─────────────────────────── */}
-      <td className={`px-2 py-1 text-center border-l border-border ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>
+      <td className={`px-2 py-1.5 text-center border-l border-border ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>
         <span className={`px-1 rounded text-[9px] font-bold ${buildupTone(pe?.oiBuildup)}`}>{buildupShort(pe?.oiBuildup)}</span>
       </td>
-      <td className={`px-2 py-1 text-right tabular-nums ${pctTone(pe?.ltpChgPct)} ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtPct(pe?.ltpChgPct, 1)}</td>
-      <td className={`px-2 py-1 text-right tabular-nums font-bold ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmt(pe?.ltp)}</td>
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-foreground/80 ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmt(pe?.timeValue)}</td>}
+      <td className={`px-2 py-1.5 text-right tabular-nums ${pctTone(pe?.ltpChgPct)} ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtPct(pe?.ltpChgPct, 1)}</td>
+      <td className={`px-2 py-1.5 text-right tabular-nums font-bold ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmt(pe?.ltp)}</td>
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums text-foreground/80 ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmt(pe?.timeValue)}</td>}
       {showGreeks && (
-        <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`} title={pe?.intrinsicPct != null ? `${pe.intrinsicPct.toFixed(0)}% of LTP is intrinsic` : undefined}>
+        <td className={`px-2 py-1.5 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`} title={pe?.intrinsicPct != null ? `${pe.intrinsicPct.toFixed(0)}% of LTP is intrinsic` : undefined}>
           <div className="leading-tight">{fmt(pe?.intrinsic)}</div>
           {pe?.intrinsicPct != null && <div className="text-[9px] opacity-70 leading-tight">{pe.intrinsicPct.toFixed(0)}%</div>}
         </td>
       )}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.vega, 2)}</td>}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums text-signal-strong-sell ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.theta, 2)}</td>}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.gamma, 5)}</td>}
-      {showGreeks && <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.delta, 3)}</td>}
-      <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{pe?.iv ? pe.iv.toFixed(1) : "—"}</td>
-      <td className={`px-2 py-1 text-right tabular-nums text-foreground/70 ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`} title="Volume / OI">{fmtRatio(pe?.volOiRatio)}</td>
-      <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtKL(pe?.volume)}</td>
-      <td className={`px-2 py-1 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""} ${(pe?.chgOi ?? 0) > 0 ? "text-signal-strong-buy" : (pe?.chgOi ?? 0) < 0 ? "text-signal-strong-sell" : ""}`}>
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.vega, 2)}</td>}
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums text-signal-strong-sell ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.theta, 2)}</td>}
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.gamma, 5)}</td>}
+      {showGreeks && <td className={`px-2 py-1.5 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtGreek(pe?.delta, 3)}</td>}
+      <td className={`px-2 py-1.5 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{pe?.iv ? pe.iv.toFixed(1) : "—"}</td>
+      <td className={`px-2 py-1.5 text-right tabular-nums text-foreground/70 ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`} title="Volume / OI">{fmtRatio(pe?.volOiRatio)}</td>
+      <td className={`px-2 py-1.5 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>{fmtKL(pe?.volume)}</td>
+      <td className={`px-2 py-1.5 text-right tabular-nums ${peItm ? "bg-signal-strong-sell/[0.04]" : ""} ${(pe?.chgOi ?? 0) > 0 ? "text-signal-strong-buy" : (pe?.chgOi ?? 0) < 0 ? "text-signal-strong-sell" : ""}`}>
         <div className="leading-tight">{pe?.chgOi != null && pe.chgOi > 0 ? "+" : ""}{fmtKL(pe?.chgOi)}</div>
         <div className="text-[9px] opacity-70 leading-tight">{fmtPct(pe?.oiChgPct, 1)}</div>
       </td>
-      <td className={`px-2 py-1 text-right tabular-nums relative ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>
+      <td className={`px-2 py-1.5 text-right tabular-nums relative ${peItm ? "bg-signal-strong-sell/[0.04]" : ""}`}>
         <div
           className="absolute left-0 top-0 bottom-0 bg-signal-strong-sell/15"
           style={{ width: `${peBar}%` }}

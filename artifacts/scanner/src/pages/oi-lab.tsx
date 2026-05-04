@@ -9,9 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Legend, ReferenceLine,
-  BarChart, Bar, Cell, PieChart, Pie, ComposedChart,
+  BarChart, Bar, Cell, PieChart, Pie, ComposedChart, AreaChart, Area,
 } from "recharts";
-import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, Target } from "lucide-react";
+import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, Target, ChevronRight, Info } from "lucide-react";
 
 const base = (import.meta as { env: { BASE_URL: string } }).env.BASE_URL;
 
@@ -1376,6 +1376,22 @@ function InsightsTab() {
     ];
   }, [data]);
 
+  const ivSkewData = useMemo(() => {
+    if (!data) return [];
+    return data.strikes
+      .filter(s => (s.ceIv != null && s.ceIv > 0) || (s.peIv != null && s.peIv > 0))
+      .map(s => ({
+        strike: s.strike,
+        strikeLabel: String(s.strike),
+        ceIv: s.ceIv ?? null,
+        peIv: s.peIv ?? null,
+        ivDiff: s.ceIv != null && s.peIv != null ? +(s.peIv - s.ceIv).toFixed(2) : null,
+        isAtm: s.isAtm,
+      }));
+  }, [data]);
+
+  const [sentimentExpanded, setSentimentExpanded] = useState(false);
+
   const sentTone = data ? SENTIMENT_TONE[data.sentiment] : SENTIMENT_TONE.NEUTRAL;
 
   return (
@@ -1620,10 +1636,46 @@ function InsightsTab() {
           {data && (
             <Card className={`${sentTone.bg} ${sentTone.border}`}>
               <CardContent className="p-3 space-y-2">
-                <div className="flex items-center gap-2 text-xs uppercase font-mono tracking-wider" style={{ color: sentTone.color }}>
-                  <Sparkles className="w-3.5 h-3.5" /> Market Insight
-                </div>
+                <button
+                  onClick={() => setSentimentExpanded(o => !o)}
+                  className="w-full flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2 text-xs uppercase font-mono tracking-wider" style={{ color: sentTone.color }}>
+                    <Sparkles className="w-3.5 h-3.5" /> Market Insight
+                  </div>
+                  <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${sentimentExpanded ? "rotate-90" : ""}`} />
+                </button>
                 <p className="text-xs text-foreground/90 leading-relaxed">{data.marketInsight}</p>
+                {sentimentExpanded && (
+                  <div className="pt-2 border-t border-border/50 space-y-2">
+                    <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono text-muted-foreground">
+                      <Info className="w-3 h-3" /> Why {data.sentiment.replace("_", " ")}?
+                    </div>
+                    <div className="space-y-1.5 text-[11px] font-mono">
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${data.pcrOi >= 1.3 ? "bg-green-400" : data.pcrOi <= 0.7 ? "bg-red-400" : "bg-zinc-400"}`} />
+                        <span className="text-foreground/80">PCR {data.pcrOi.toFixed(2)} — {data.pcrOi >= 1.3 ? "heavy put writing = bullish" : data.pcrOi <= 0.7 ? "heavy call writing = bearish" : "balanced positioning"}</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${data.intradayFlow >= 0.2 ? "bg-green-400" : data.intradayFlow <= -0.2 ? "bg-red-400" : "bg-zinc-400"}`} />
+                        <span className="text-foreground/80">Intraday flow {data.intradayFlow >= 0 ? "+" : ""}{data.intradayFlow.toFixed(2)} — {data.intradayFlow >= 0.2 ? "put accumulation (bullish)" : data.intradayFlow <= -0.2 ? "call accumulation (bearish)" : "neutral flow"}</span>
+                      </div>
+                      {(() => {
+                        const painDist = ((data.spot - data.maxPain) / data.spot) * 100;
+                        return (
+                          <div className="flex items-start gap-2">
+                            <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${Math.abs(painDist) < 0.5 ? "bg-amber-400" : painDist > 0 ? "bg-red-400" : "bg-green-400"}`} />
+                            <span className="text-foreground/80">Max Pain {data.maxPain} ({painDist >= 0 ? "+" : ""}{painDist.toFixed(1)}% from spot) — {Math.abs(painDist) < 0.5 ? "at convergence" : painDist > 0 ? "pullback magnet" : "lift tendency"}</span>
+                          </div>
+                        );
+                      })()}
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${data.putOiAdded > data.callOiAdded ? "bg-green-400" : data.callOiAdded > data.putOiAdded ? "bg-red-400" : "bg-zinc-400"}`} />
+                        <span className="text-foreground/80">OI flow: CE Δ {fmtNum(data.callOiAdded)} vs PE Δ {fmtNum(data.putOiAdded)} — {data.putOiAdded > data.callOiAdded * 1.2 ? "more puts = cushion" : data.callOiAdded > data.putOiAdded * 1.2 ? "more calls = cap" : "balanced"}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -2276,6 +2328,66 @@ function InsightsTab() {
               </CardContent>
             </Card>
           </div>
+
+          {ivSkewData.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-xs uppercase font-mono tracking-wider flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5" /> IV Skew — CE vs PE
+                  </CardTitle>
+                  <span className="text-[9px] font-mono text-muted-foreground">across strikes</span>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={220}>
+                  <ComposedChart data={ivSkewData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis
+                      dataKey="strikeLabel"
+                      tick={{ fontSize: 9 }}
+                      interval={ivSkewData.length > 25 ? 1 : 0}
+                    />
+                    <YAxis
+                      width={48}
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={(v) => `${v}%`}
+                      domain={["auto", "auto"]}
+                    />
+                    <RTooltip
+                      contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: 4, fontSize: 11, padding: "6px 10px" }}
+                      labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
+                      formatter={(v: number, name: string) => [`${v.toFixed(1)}%`, name]}
+                      labelFormatter={(l) => `Strike ${l}`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 10 }} />
+                    {data && (() => {
+                      const closestIv = ivSkewData.reduce((c, r) =>
+                        Math.abs(r.strike - data.spot) < Math.abs(c - data.spot) ? r.strike : c,
+                        ivSkewData[0]!.strike,
+                      );
+                      return (
+                        <ReferenceLine
+                          x={String(closestIv)}
+                          stroke="#22c55e"
+                          strokeDasharray="2 2"
+                          label={{ value: "ATM", position: "top", fill: "#22c55e", fontSize: 9 }}
+                        />
+                      );
+                    })()}
+                    <Line type="monotone" dataKey="ceIv" name="CE IV" stroke="#ef4444" strokeWidth={1.5} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="peIv" name="PE IV" stroke="#22c55e" strokeWidth={1.5} dot={false} connectNulls />
+                    <Area type="monotone" dataKey="ivDiff" name="PE−CE Skew" fill="#3b82f6" fillOpacity={0.1} stroke="#3b82f6" strokeWidth={0.5} strokeDasharray="3 2" connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <div className="flex items-center gap-3 mt-2 text-[10px] font-mono text-muted-foreground">
+                  <span>PE IV &gt; CE IV = put premium / fear elevated</span>
+                  <span className="text-border">|</span>
+                  <span>Symmetric = balanced expectations</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Top R / S strip */}
           {data && (

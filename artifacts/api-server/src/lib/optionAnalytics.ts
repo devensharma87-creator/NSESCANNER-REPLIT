@@ -1,36 +1,21 @@
 /**
  * Higher-level analytics computed off a fetched option chain:
  * PCR (OI + Volume), Max Pain, total OI, top OI clusters (support/resistance),
- * ATM IV (avg of nearest CE+PE IV), and a plain-English bias interpretation.
+ * ATM IV (avg of nearest CE+PE IV), confidence-scored market read, and
+ * structured reasons array for the Option Chain "Market Read" card.
  */
 
 import type { OcResponse } from "./optionChain";
 import { computeMarketStatus } from "./marketEvents";
 
-/** A single OI-clustered strike. The Option Chain UI ranks the top three
- *  call-side clusters as R1/R2/R3 (resistance — call writers' positioning)
- *  and the top three put-side clusters as S1/S2/S3 (support — put writers'
- *  positioning). `chgOi` lets the UI show whether writers are *adding*
- *  fresh positions today (active level) vs. holding stale legacy OI. */
 export interface OiCluster {
   strike: number;
   oi: number;
-  /** Net OI change today on this side at this strike. Positive = writers
-   *  adding (the level is being defended), negative = unwinding (level
-   *  weakening). Null when the upstream couldn't supply previous OI. */
   chgOi: number | null;
+  volume?: number;
+  strength?: "STRONG" | "MEDIUM" | "WEAK";
 }
 
-/**
- * Max-Pain strike: the strike where the aggregate loss to all option WRITERS
- * is minimised, i.e. where most options would expire worthless. Iterate every
- * strike; for each candidate `target` sum (target − K)·CE_OI for K<target and
- * (K − target)·PE_OI for K>target. The candidate with the smallest sum wins.
- *
- * Extracted so both the chain finaliser (per-row `isMaxPain` flag + top-level
- * `maxPainStrike`) and the analytics endpoint use the same algorithm and can
- * never drift out of sync.
- */
 export function computeMaxPainStrike(chain: OcResponse): number {
   let maxPain = chain.atmStrike;
   let minPain = Infinity;
@@ -43,6 +28,12 @@ export function computeMaxPainStrike(chain: OcResponse): number {
     if (pain < minPain) { minPain = pain; maxPain = target.strike; }
   }
   return maxPain;
+}
+
+export interface MarketReadReason {
+  signal: string;
+  detail: string;
+  impact: "BULLISH" | "BEARISH" | "NEUTRAL";
 }
 
 export interface OptionAnalytics {
@@ -62,13 +53,40 @@ export interface OptionAnalytics {
   topSupport: OiCluster[];
   interpretation: string;
   bias: "BULLISH" | "BEARISH" | "NEUTRAL";
-  /** NSE session state at the time analytics were computed. Lets the
-   *  Option Chain client switch its poll cadence (15s during the live
-   *  session, 60s otherwise) using the *server's* holiday-aware logic
-   *  rather than a client-only weekday/clock check that would drift on
-   *  NSE-declared holidays. */
+  confidenceScore: number;
+  marketReadReasons: MarketReadReason[];
+  invalidation: string;
   marketStatus: "open" | "closed" | "pre_open";
   generatedAt: string;
+}
+
+function computeStrength(
+  cluster: { oi: number; chgOi: number | null; volume?: number },
+  maxOi: number,
+  spot: number,
+  strike: number,
+): "STRONG" | "MEDIUM" | "WEAK" {
+  let score = 0;
+  if (maxOi > 0) {
+    const oiPct = cluster.oi / maxOi;
+    if (oiPct >= 0.8) score += 3;
+    else if (oiPct >= 0.5) score += 2;
+    else score += 1;
+  }
+  if (cluster.chgOi != null && cluster.chgOi > 0) score += 2;
+  else if (cluster.chgOi != null && cluster.chgOi < 0) score -= 1;
+
+  if (cluster.volume && cluster.volume > 0) {
+    const volOi = cluster.oi > 0 ? cluster.volume / cluster.oi : 0;
+    if (volOi >= 0.5) score += 1;
+  }
+  const proximity = Math.abs((strike - spot) / spot) * 100;
+  if (proximity <= 2) score += 2;
+  else if (proximity <= 5) score += 1;
+
+  if (score >= 6) return "STRONG";
+  if (score >= 3) return "MEDIUM";
+  return "WEAK";
 }
 
 export function computeAnalytics(chain: OcResponse): OptionAnalytics {
@@ -83,26 +101,21 @@ export function computeAnalytics(chain: OcResponse): OptionAnalytics {
       totalCallOi += r.ce.oi ?? 0;
       callVol     += r.ce.volume ?? 0;
       callOiAdded += r.ce.chgOi ?? 0;
-      callByStrike.push({ strike: r.strike, oi: r.ce.oi ?? 0, chgOi: r.ce.chgOi ?? null });
+      callByStrike.push({ strike: r.strike, oi: r.ce.oi ?? 0, chgOi: r.ce.chgOi ?? null, volume: r.ce.volume ?? 0 });
     }
     if (r.pe) {
       totalPutOi += r.pe.oi ?? 0;
       putVol     += r.pe.volume ?? 0;
       putOiAdded += r.pe.chgOi ?? 0;
-      putByStrike.push({ strike: r.strike, oi: r.pe.oi ?? 0, chgOi: r.pe.chgOi ?? null });
+      putByStrike.push({ strike: r.strike, oi: r.pe.oi ?? 0, chgOi: r.pe.chgOi ?? null, volume: r.pe.volume ?? 0 });
     }
   }
 
   const pcrOi     = totalCallOi > 0 ? +(totalPutOi / totalCallOi).toFixed(3) : 0;
   const pcrVolume = callVol     > 0 ? +(putVol     / callVol).toFixed(3)     : 0;
 
-  // Max-pain — same algorithm as the chain finaliser. If the chain already
-  // carries it (set by `finalizeChain`) reuse it; otherwise compute. Both
-  // surfaces always agree because they share `computeMaxPainStrike`.
   const maxPain = chain.maxPainStrike ?? computeMaxPainStrike(chain);
 
-  // ATM IV — pick the row whose strike == atmStrike (or closest) and avg
-  // CE & PE implied vols.
   const atmRow = chain.rows.find(r => r.strike === chain.atmStrike)
     ?? chain.rows.slice().sort((a, b) => Math.abs(a.strike - chain.spot) - Math.abs(b.strike - chain.spot))[0];
   let atmIv: number | null = null;
@@ -114,16 +127,34 @@ export function computeAnalytics(chain: OcResponse): OptionAnalytics {
     else if (pe) atmIv = +pe.toFixed(2);
   }
 
-  // Top OI clusters (calls = resistance, puts = support)
-  const topResistance = callByStrike.sort((a, b) => b.oi - a.oi).slice(0, 5);
-  const topSupport    = putByStrike.sort((a, b) => b.oi - a.oi).slice(0, 5);
+  const topResistanceSorted = callByStrike.sort((a, b) => b.oi - a.oi).slice(0, 5);
+  const topSupportSorted    = putByStrike.sort((a, b) => b.oi - a.oi).slice(0, 5);
 
-  // Bias
+  const maxCallOi = topResistanceSorted[0]?.oi ?? 0;
+  const maxPutOi  = topSupportSorted[0]?.oi ?? 0;
+
+  const topResistance: OiCluster[] = topResistanceSorted.map(c => ({
+    ...c,
+    strength: computeStrength(c, maxCallOi, chain.spot, c.strike),
+  }));
+  const topSupport: OiCluster[] = topSupportSorted.map(c => ({
+    ...c,
+    strength: computeStrength(c, maxPutOi, chain.spot, c.strike),
+  }));
+
   let bias: OptionAnalytics["bias"] = "NEUTRAL";
   if (pcrOi >= 1.3 && putOiAdded > callOiAdded) bias = "BULLISH";
   else if (pcrOi <= 0.7 && callOiAdded > putOiAdded) bias = "BEARISH";
   else if (chain.spot > maxPain * 1.005) bias = "BULLISH";
   else if (chain.spot < maxPain * 0.995) bias = "BEARISH";
+
+  const { reasons, confidence, invalidation } = buildMarketRead({
+    pcrOi, pcrVolume, maxPain, spot: chain.spot,
+    callOiAdded, putOiAdded,
+    totalCallOi, totalPutOi,
+    topResistance, topSupport,
+    bias, atmIv,
+  });
 
   const interpretation = buildInterpretation({
     pcrOi, maxPain, spot: chain.spot,
@@ -140,7 +171,7 @@ export function computeAnalytics(chain: OcResponse): OptionAnalytics {
     pcrVolume,
     maxPain,
     atmIv,
-    ivPercentile: null, // Filled in once we collect IV history
+    ivPercentile: null,
     totalCallOi,
     totalPutOi,
     callOiAdded,
@@ -149,9 +180,114 @@ export function computeAnalytics(chain: OcResponse): OptionAnalytics {
     topSupport,
     interpretation,
     bias,
+    confidenceScore: confidence,
+    marketReadReasons: reasons,
+    invalidation,
     marketStatus: computeMarketStatus(new Date()),
     generatedAt: new Date().toISOString(),
   };
+}
+
+function buildMarketRead(args: {
+  pcrOi: number; pcrVolume: number; maxPain: number; spot: number;
+  callOiAdded: number; putOiAdded: number;
+  totalCallOi: number; totalPutOi: number;
+  topResistance: OiCluster[]; topSupport: OiCluster[];
+  bias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  atmIv: number | null;
+}): { reasons: MarketReadReason[]; confidence: number; invalidation: string } {
+  const reasons: MarketReadReason[] = [];
+  let confidencePoints = 0;
+  const maxPoints = 5;
+
+  if (args.pcrOi >= 1.3) {
+    reasons.push({ signal: "PCR", detail: `PCR ${args.pcrOi.toFixed(2)} — heavy put writing indicates bullish undertone`, impact: "BULLISH" });
+    confidencePoints += args.bias === "BULLISH" ? 1 : 0.5;
+  } else if (args.pcrOi <= 0.7) {
+    reasons.push({ signal: "PCR", detail: `PCR ${args.pcrOi.toFixed(2)} — heavy call writing indicates bearish pressure`, impact: "BEARISH" });
+    confidencePoints += args.bias === "BEARISH" ? 1 : 0.5;
+  } else {
+    reasons.push({ signal: "PCR", detail: `PCR ${args.pcrOi.toFixed(2)} — balanced positioning, no clear directional bias`, impact: "NEUTRAL" });
+    confidencePoints += args.bias === "NEUTRAL" ? 0.5 : 0;
+  }
+
+  const mpDiff = ((args.spot - args.maxPain) / args.maxPain) * 100;
+  if (Math.abs(mpDiff) > 1) {
+    const above = mpDiff > 0;
+    reasons.push({
+      signal: "Max Pain",
+      detail: `Spot ${above ? "above" : "below"} max-pain by ${Math.abs(mpDiff).toFixed(1)}% — ${above ? "pullback towards max-pain likely" : "magnet effect may lift price"}`,
+      impact: above ? "BEARISH" : "BULLISH",
+    });
+    confidencePoints += 0.5;
+  } else {
+    reasons.push({ signal: "Max Pain", detail: `Spot near max-pain (${mpDiff >= 0 ? "+" : ""}${mpDiff.toFixed(1)}%) — range-bound tendency`, impact: "NEUTRAL" });
+    confidencePoints += 0.3;
+  }
+
+  if (args.putOiAdded > args.callOiAdded * 1.2) {
+    reasons.push({ signal: "OI Flow", detail: `Put writers adding faster than calls (${fmtKLServer(args.putOiAdded)} vs ${fmtKLServer(args.callOiAdded)}) — downside cushion building`, impact: "BULLISH" });
+    confidencePoints += args.bias === "BULLISH" ? 1 : 0.5;
+  } else if (args.callOiAdded > args.putOiAdded * 1.2) {
+    reasons.push({ signal: "OI Flow", detail: `Call writers adding faster than puts (${fmtKLServer(args.callOiAdded)} vs ${fmtKLServer(args.putOiAdded)}) — upside capped`, impact: "BEARISH" });
+    confidencePoints += args.bias === "BEARISH" ? 1 : 0.5;
+  } else {
+    reasons.push({ signal: "OI Flow", detail: "Call and put OI additions roughly balanced", impact: "NEUTRAL" });
+  }
+
+  const r1 = args.topResistance[0];
+  const s1 = args.topSupport[0];
+  if (r1 && s1) {
+    const range = r1.strike - s1.strike;
+    const spotInRange = args.spot >= s1.strike && args.spot <= r1.strike;
+    if (spotInRange && range > 0) {
+      const posInRange = ((args.spot - s1.strike) / range) * 100;
+      reasons.push({
+        signal: "Key Levels",
+        detail: `Trading in ${s1.strike}–${r1.strike} range, ${posInRange.toFixed(0)}% from support — ${posInRange > 70 ? "near resistance ceiling" : posInRange < 30 ? "near support floor" : "mid-range"}`,
+        impact: posInRange > 70 ? "BEARISH" : posInRange < 30 ? "BULLISH" : "NEUTRAL",
+      });
+      confidencePoints += 0.7;
+    } else if (!spotInRange) {
+      reasons.push({
+        signal: "Key Levels",
+        detail: `Spot ${args.spot > r1.strike ? "above R1" : "below S1"} — ${args.spot > r1.strike ? "breakout territory, call writers under pressure" : "breakdown zone, put writers tested"}`,
+        impact: args.spot > r1.strike ? "BULLISH" : "BEARISH",
+      });
+      confidencePoints += 0.5;
+    }
+  }
+
+  if (args.pcrVolume > 0) {
+    const volPcrAligned = (args.pcrVolume >= 1.2 && args.pcrOi >= 1.2) || (args.pcrVolume <= 0.8 && args.pcrOi <= 0.8);
+    if (volPcrAligned) {
+      reasons.push({ signal: "Volume", detail: `Volume PCR (${args.pcrVolume.toFixed(2)}) confirms OI PCR direction — higher conviction`, impact: args.pcrVolume >= 1.2 ? "BULLISH" : "BEARISH" });
+      confidencePoints += 1;
+    }
+  }
+
+  const confidence = Math.min(100, Math.round((confidencePoints / maxPoints) * 100));
+
+  let invalidation: string;
+  if (args.bias === "BULLISH") {
+    const support = s1 ? s1.strike : args.maxPain;
+    invalidation = `Bullish view invalidated if spot breaks below ${support} with rising call OI`;
+  } else if (args.bias === "BEARISH") {
+    const resist = r1 ? r1.strike : args.maxPain;
+    invalidation = `Bearish view invalidated if spot breaks above ${resist} with rising put OI`;
+  } else {
+    invalidation = `Range breaks above ${r1?.strike ?? "R1"} or below ${s1?.strike ?? "S1"} would shift bias`;
+  }
+
+  return { reasons, confidence, invalidation };
+}
+
+function fmtKLServer(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1e7) return `${(n / 1e7).toFixed(1)}Cr`;
+  if (abs >= 1e5) return `${(n / 1e5).toFixed(1)}L`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return String(Math.round(n));
 }
 
 function buildInterpretation(args: {

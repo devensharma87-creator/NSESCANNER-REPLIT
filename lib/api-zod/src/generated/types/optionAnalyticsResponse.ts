@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { MarketReadReason } from "./marketReadReason";
 import type { OiClusterStrike } from "./oiClusterStrike";
 import type { OptionAnalyticsResponseBias } from "./optionAnalyticsResponseBias";
 import type { OptionAnalyticsResponseMarketStatus } from "./optionAnalyticsResponseMarketStatus";
@@ -32,6 +33,12 @@ export interface OptionAnalyticsResponse {
   /** Plain-English read on bias from PCR + OI flow + Max Pain */
   interpretation?: string;
   bias?: OptionAnalyticsResponseBias;
+  /** 0-100 confidence score for the market read, based on signal alignment */
+  confidenceScore?: number;
+  /** Structured reasons supporting the bias call */
+  marketReadReasons?: MarketReadReason[];
+  /** Condition that would invalidate the current bias */
+  invalidation?: string;
   /** NSE session state at compute time. Holiday-aware on the server. Clients use this to switch poll cadence. */
   marketStatus: OptionAnalyticsResponseMarketStatus;
   generatedAt: Date;

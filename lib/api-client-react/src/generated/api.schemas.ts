@@ -1493,11 +1493,44 @@ export interface OptionChainResponse {
   generatedAt: string;
 }
 
+/**
+ * Computed strength of this level based on OI magnitude, OI change direction, volume activity, and proximity to spot
+ */
+export type OiClusterStrikeStrength =
+  (typeof OiClusterStrikeStrength)[keyof typeof OiClusterStrikeStrength];
+
+export const OiClusterStrikeStrength = {
+  STRONG: "STRONG",
+  MEDIUM: "MEDIUM",
+  WEAK: "WEAK",
+} as const;
+
 export interface OiClusterStrike {
   strike: number;
   oi: number;
   /** Today's net OI change on this side at this strike. Positive = writers adding (level being defended); negative = unwinding. Null when previous OI is unavailable. */
   chgOi?: number | null;
+  /** Volume at this strike on this side */
+  volume?: number;
+  /** Computed strength of this level based on OI magnitude, OI change direction, volume activity, and proximity to spot */
+  strength?: OiClusterStrikeStrength;
+}
+
+export type MarketReadReasonImpact =
+  (typeof MarketReadReasonImpact)[keyof typeof MarketReadReasonImpact];
+
+export const MarketReadReasonImpact = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+export interface MarketReadReason {
+  /** Short label for this signal (e.g. PCR, Max Pain, OI Flow) */
+  signal: string;
+  /** Human-readable explanation */
+  detail: string;
+  impact: MarketReadReasonImpact;
 }
 
 export type OptionAnalyticsResponseBias =
@@ -1544,6 +1577,12 @@ export interface OptionAnalyticsResponse {
   /** Plain-English read on bias from PCR + OI flow + Max Pain */
   interpretation?: string;
   bias?: OptionAnalyticsResponseBias;
+  /** 0-100 confidence score for the market read, based on signal alignment */
+  confidenceScore?: number;
+  /** Structured reasons supporting the bias call */
+  marketReadReasons?: MarketReadReason[];
+  /** Condition that would invalidate the current bias */
+  invalidation?: string;
   /** NSE session state at compute time. Holiday-aware on the server. Clients use this to switch poll cadence. */
   marketStatus: OptionAnalyticsResponseMarketStatus;
   generatedAt: string;

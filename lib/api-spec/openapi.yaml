@@ -2367,6 +2367,16 @@ components:
         strike: { type: number }
         oi:     { type: integer }
         chgOi:  { type: integer, nullable: true, description: "Today's net OI change on this side at this strike. Positive = writers adding (level being defended); negative = unwinding. Null when previous OI is unavailable." }
+        volume: { type: integer, description: "Volume at this strike on this side" }
+        strength: { type: string, enum: [STRONG, MEDIUM, WEAK], description: "Computed strength of this level based on OI magnitude, OI change direction, volume activity, and proximity to spot" }
+
+    MarketReadReason:
+      type: object
+      required: [signal, detail, impact]
+      properties:
+        signal: { type: string, description: "Short label for this signal (e.g. PCR, Max Pain, OI Flow)" }
+        detail: { type: string, description: "Human-readable explanation" }
+        impact: { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
 
     OptionAnalyticsResponse:
       type: object
@@ -2392,6 +2402,12 @@ components:
           items: { $ref: "#/components/schemas/OiClusterStrike" }
         interpretation: { type: string, description: "Plain-English read on bias from PCR + OI flow + Max Pain" }
         bias:           { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
+        confidenceScore: { type: integer, description: "0-100 confidence score for the market read, based on signal alignment" }
+        marketReadReasons:
+          type: array
+          items: { $ref: "#/components/schemas/MarketReadReason" }
+          description: "Structured reasons supporting the bias call"
+        invalidation: { type: string, description: "Condition that would invalidate the current bias" }
         marketStatus:   { type: string, enum: [open, closed, pre_open], description: "NSE session state at compute time. Holiday-aware on the server. Clients use this to switch poll cadence." }
         generatedAt:    { type: string, format: date-time }
 

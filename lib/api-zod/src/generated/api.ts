@@ -2375,6 +2375,16 @@ export const GetOptionAnalyticsResponse = zod.object({
           .describe(
             "Today's net OI change on this side at this strike. Positive = writers adding (level being defended); negative = unwinding. Null when previous OI is unavailable.",
           ),
+        volume: zod
+          .number()
+          .optional()
+          .describe("Volume at this strike on this side"),
+        strength: zod
+          .enum(["STRONG", "MEDIUM", "WEAK"])
+          .optional()
+          .describe(
+            "Computed strength of this level based on OI magnitude, OI change direction, volume activity, and proximity to spot",
+          ),
       }),
     )
     .optional(),
@@ -2389,6 +2399,16 @@ export const GetOptionAnalyticsResponse = zod.object({
           .describe(
             "Today's net OI change on this side at this strike. Positive = writers adding (level being defended); negative = unwinding. Null when previous OI is unavailable.",
           ),
+        volume: zod
+          .number()
+          .optional()
+          .describe("Volume at this strike on this side"),
+        strength: zod
+          .enum(["STRONG", "MEDIUM", "WEAK"])
+          .optional()
+          .describe(
+            "Computed strength of this level based on OI magnitude, OI change direction, volume activity, and proximity to spot",
+          ),
       }),
     )
     .optional(),
@@ -2397,6 +2417,30 @@ export const GetOptionAnalyticsResponse = zod.object({
     .optional()
     .describe("Plain-English read on bias from PCR + OI flow + Max Pain"),
   bias: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]).optional(),
+  confidenceScore: zod
+    .number()
+    .optional()
+    .describe(
+      "0-100 confidence score for the market read, based on signal alignment",
+    ),
+  marketReadReasons: zod
+    .array(
+      zod.object({
+        signal: zod
+          .string()
+          .describe(
+            "Short label for this signal (e.g. PCR, Max Pain, OI Flow)",
+          ),
+        detail: zod.string().describe("Human-readable explanation"),
+        impact: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]),
+      }),
+    )
+    .optional()
+    .describe("Structured reasons supporting the bias call"),
+  invalidation: zod
+    .string()
+    .optional()
+    .describe("Condition that would invalidate the current bias"),
   marketStatus: zod
     .enum(["open", "closed", "pre_open"])
     .describe(
