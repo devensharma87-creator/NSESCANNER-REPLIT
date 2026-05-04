@@ -225,6 +225,7 @@ export interface ReportTotals {
   worstTrade: number;
   avgRMultiple: number;
   profitFactor: number;
+  expectancy: number;
 }
 
 function emptyTotals(): ReportTotals {
@@ -242,6 +243,7 @@ function emptyTotals(): ReportTotals {
     worstTrade: 0,
     avgRMultiple: 0,
     profitFactor: 0,
+    expectancy: 0,
   };
 }
 
@@ -286,6 +288,11 @@ function aggregateTotals(rows: EquityTradeDetailRow[]): ReportTotals {
     worstTrade: worst === Infinity ? 0 : worst,
     avgRMultiple: rSum / rows.length,
     profitFactor: lossSum > 0 ? winSum / lossSum : winSum > 0 ? Infinity : 0,
+    expectancy:
+      rows.length > 0
+        ? ((wins / rows.length) * (wins > 0 ? winSum / wins : 0)) -
+          ((losses / rows.length) * (losses > 0 ? lossSum / losses : 0))
+        : 0,
   };
 }
 

@@ -5,3 +5,4 @@ export * from "./optionSignals";
 export * from "./users";
 export * from "./paperTrading";
 export * from "./globalScanner";
+export * from "./ivHistory";

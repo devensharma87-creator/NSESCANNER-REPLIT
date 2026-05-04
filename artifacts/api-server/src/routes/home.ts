@@ -75,7 +75,14 @@ async function fetchIndexEnrichment(idx: typeof INDICES[number]): Promise<IndexE
     (async () => {
       const chain = await fetchOptionChain(idx.underlying).catch(() => null);
       if (!chain) return null;
-      return computeAnalytics(chain);
+      const a = computeAnalytics(chain);
+      try {
+        const { enrichAnalyticsWithIv } = await import("../lib/ivHistory");
+        const ivMetrics = await enrichAnalyticsWithIv(a);
+        a.ivRank = ivMetrics.ivRank;
+        a.ivPercentile = ivMetrics.ivPercentile;
+      } catch { /* non-critical */ }
+      return a;
     })(),
   ]);
 

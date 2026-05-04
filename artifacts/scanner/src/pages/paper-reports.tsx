@@ -68,6 +68,7 @@ interface ReportTotals {
   worstTrade: number;
   avgRMultiple: number;
   profitFactor: number;
+  expectancy: number;
 }
 interface DayBucket {
   date: string;
@@ -244,7 +245,7 @@ function shiftFY(fy: string, delta: number): string {
 
 // ---------- main ----------
 export default function PaperReports() {
-  const [tab, setTab] = useState<"INTRADAY" | "EQUITY" | "FNO">("FNO");
+  const [tab, setTab] = useState<"INTRADAY" | "EQUITY" | "FNO" | "JOURNAL">("FNO");
   return (
     <div className="container mx-auto px-4 py-6 max-w-6xl">
       <div className="mb-6">
@@ -255,10 +256,11 @@ export default function PaperReports() {
         </p>
       </div>
       <Tabs value={tab} onValueChange={v => setTab(v as typeof tab)}>
-        <TabsList className="mb-4 grid grid-cols-3 max-w-lg">
+        <TabsList className="mb-4 grid grid-cols-4 max-w-lg">
           <TabsTrigger value="INTRADAY">Intraday</TabsTrigger>
           <TabsTrigger value="EQUITY">Equity</TabsTrigger>
           <TabsTrigger value="FNO">F&amp;O</TabsTrigger>
+          <TabsTrigger value="JOURNAL">Journal</TabsTrigger>
         </TabsList>
         <TabsContent value="INTRADAY">
           <ComingSoon
@@ -271,6 +273,9 @@ export default function PaperReports() {
         </TabsContent>
         <TabsContent value="FNO">
           <FOReport />
+        </TabsContent>
+        <TabsContent value="JOURNAL">
+          <JournalAnalytics />
         </TabsContent>
       </Tabs>
     </div>
@@ -457,7 +462,7 @@ function TotalsCard({ totals }: { totals: ReportTotals }) {
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-800 text-sm">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-3 border-t border-slate-800 text-sm">
           <Stat label="Trades" value={String(totals.tradeCount)} />
           <Stat label="Win rate" value={`${totals.winRatePct.toFixed(1)}%`} />
           <Stat
@@ -469,6 +474,11 @@ function TotalsCard({ totals }: { totals: ReportTotals }) {
             label="Profit factor"
             value={Number.isFinite(totals.profitFactor) ? totals.profitFactor.toFixed(2) : "∞"}
             tone={totals.profitFactor >= 1 ? "good" : totals.profitFactor > 0 ? "bad" : undefined}
+          />
+          <Stat
+            label="Expectancy"
+            value={inr0(totals.expectancy)}
+            tone={totals.expectancy > 0 ? "good" : totals.expectancy < 0 ? "bad" : undefined}
           />
           <Stat label="Best trade" value={inr0(totals.bestTrade)} tone="good" />
           <Stat label="Worst trade" value={inr0(totals.worstTrade)} tone="bad" />
@@ -985,5 +995,209 @@ function EqTradeRow({ t }: { t: EqTradeDetailRow }) {
       </Td>
       <Td align="right">{t.daysHeld}</Td>
     </tr>
+  );
+}
+
+// ---------- Journal Analytics ----------
+interface JSetupStats {
+  setupKey: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalPnl: number;
+  avgPnl: number;
+}
+interface JExitReasonStats { reason: string; count: number; pct: number }
+interface JHourBucket { hour: number; trades: number; wins: number; winRate: number; totalPnl: number }
+interface JTagStats { tag: string; count: number; winRate: number; avgPnl: number }
+interface JournalData {
+  segment: "FNO" | "EQUITY";
+  totalTrades: number;
+  setupStats: JSetupStats[];
+  exitReasonStats: JExitReasonStats[];
+  hourBuckets: JHourBucket[];
+  tagStats: JTagStats[];
+}
+
+function JournalAnalytics() {
+  const [seg, setSeg] = useState<"FNO" | "EQUITY">("FNO");
+  const q = useQuery({
+    queryKey: ["journal-analytics", seg],
+    queryFn: () => api<JournalData>(`/paper/journal-analytics?segment=${seg}`),
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Select value={seg} onValueChange={v => setSeg(v as "FNO" | "EQUITY")}>
+          <SelectTrigger className="w-[140px] border-sky-500/60 text-sky-300 hover:text-sky-200">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="FNO">F&amp;O</SelectItem>
+            <SelectItem value="EQUITY">Equity</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="text-sm text-muted-foreground">
+          {q.data ? `${q.data.totalTrades} closed trades` : ""}
+        </span>
+      </div>
+
+      {q.isLoading && <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)}</div>}
+      {q.isError && <ErrorBlock message={(q.error as Error).message} />}
+      {q.data && q.data.totalTrades === 0 && (
+        <Card><CardContent className="py-8 text-center text-muted-foreground">No closed trades yet for {seg}.</CardContent></Card>
+      )}
+      {q.data && q.data.totalTrades > 0 && (
+        <div className="space-y-6">
+          <JSetupTable stats={q.data.setupStats} />
+          <div className="grid md:grid-cols-2 gap-6">
+            <JExitReasons stats={q.data.exitReasonStats} />
+            <JHourPerformance buckets={q.data.hourBuckets} />
+          </div>
+          {q.data.tagStats.length > 0 && <JTagTable stats={q.data.tagStats} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JSetupTable({ stats }: { stats: JSetupStats[] }) {
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Setup Performance</CardTitle>
+        <CardDescription>Win rate and P&amp;L by strategy setup type</CardDescription>
+      </CardHeader>
+      <CardContent className="px-0 pb-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm font-mono">
+            <thead>
+              <tr className="border-b border-slate-700/60 text-muted-foreground text-[11px] uppercase">
+                <Th>Setup</Th>
+                <Th align="right">Trades</Th>
+                <Th align="right">W / L</Th>
+                <Th align="right">Win %</Th>
+                <Th align="right">Avg P&amp;L</Th>
+                <Th align="right">Total P&amp;L</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.map(s => (
+                <tr key={s.setupKey} className="border-t border-slate-800/60">
+                  <Td><span className="font-medium">{s.setupKey.replace(/_/g, " ")}</span></Td>
+                  <Td align="right">{s.trades}</Td>
+                  <Td align="right">{s.wins} / {s.losses}</Td>
+                  <Td align="right" tone={s.winRate >= 50 ? "good" : "bad"}>{s.winRate}%</Td>
+                  <Td align="right" tone={s.avgPnl > 0 ? "good" : s.avgPnl < 0 ? "bad" : undefined}>{inr0(s.avgPnl)}</Td>
+                  <Td align="right" tone={s.totalPnl > 0 ? "good" : s.totalPnl < 0 ? "bad" : undefined}>{inr0(s.totalPnl)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function JExitReasons({ stats }: { stats: JExitReasonStats[] }) {
+  const maxCount = Math.max(...stats.map(s => s.count), 1);
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Exit Reasons</CardTitle>
+        <CardDescription>How trades ended</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {stats.map(s => (
+          <div key={s.reason} className="space-y-1">
+            <div className="flex justify-between text-xs font-mono">
+              <span className="text-muted-foreground">{s.reason.replace(/_/g, " ")}</span>
+              <span>{s.count} <span className="text-muted-foreground">({s.pct}%)</span></span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-800">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  s.reason === "STOPPED" || s.reason === "STOP_HIT" ? "bg-rose-500/70" :
+                  s.reason === "TARGET_HIT" || s.reason === "TARGET1_HIT" || s.reason === "TARGET2_HIT" ? "bg-emerald-500/70" :
+                  "bg-sky-500/70"
+                )}
+                style={{ width: `${(s.count / maxCount) * 100}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function JHourPerformance({ buckets }: { buckets: JHourBucket[] }) {
+  const maxTrades = Math.max(...buckets.map(b => b.trades), 1);
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Time of Day</CardTitle>
+        <CardDescription>Win rate by entry hour (IST)</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        {buckets.map(b => (
+          <div key={b.hour} className="flex items-center gap-2 text-xs font-mono">
+            <span className="w-12 text-muted-foreground text-right">{String(b.hour).padStart(2, "0")}:00</span>
+            <div className="flex-1 h-4 rounded bg-slate-800 relative overflow-hidden">
+              <div
+                className="h-full rounded transition-all"
+                style={{
+                  width: `${(b.trades / maxTrades) * 100}%`,
+                  backgroundColor: b.winRate >= 60 ? "#10b981" : b.winRate >= 40 ? "#f59e0b" : "#ef4444",
+                  opacity: 0.7,
+                }}
+              />
+            </div>
+            <span className="w-8 text-right">{b.trades}</span>
+            <span className={cn("w-12 text-right", b.winRate >= 50 ? "text-emerald-400" : "text-rose-400")}>{b.winRate}%</span>
+          </div>
+        ))}
+        {buckets.length === 0 && <div className="text-center text-muted-foreground py-4 text-sm">No data</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function JTagTable({ stats }: { stats: JTagStats[] }) {
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Tag Analysis</CardTitle>
+        <CardDescription>Performance by trade tags</CardDescription>
+      </CardHeader>
+      <CardContent className="px-0 pb-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm font-mono">
+            <thead>
+              <tr className="border-b border-slate-700/60 text-muted-foreground text-[11px] uppercase">
+                <Th>Tag</Th>
+                <Th align="right">Trades</Th>
+                <Th align="right">Win %</Th>
+                <Th align="right">Avg P&amp;L</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.map(s => (
+                <tr key={s.tag} className="border-t border-slate-800/60">
+                  <Td><Badge variant="outline" className="text-xs">{s.tag}</Badge></Td>
+                  <Td align="right">{s.count}</Td>
+                  <Td align="right" tone={s.winRate >= 50 ? "good" : "bad"}>{s.winRate}%</Td>
+                  <Td align="right" tone={s.avgPnl > 0 ? "good" : s.avgPnl < 0 ? "bad" : undefined}>{inr0(s.avgPnl)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

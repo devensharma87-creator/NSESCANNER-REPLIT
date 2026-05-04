@@ -537,8 +537,9 @@ export default function OptionChainPage() {
             <div className="text-xl font-bold font-mono tabular-nums">
               {analytics?.atmIv != null ? `${analytics.atmIv.toFixed(2)}%` : (analytics ? "—" : <Skeleton className="h-6 w-12" />)}
             </div>
-            <div className="text-[11px] text-muted-foreground font-mono">
-              {analytics?.ivPercentile != null ? `IV%ile ${analytics.ivPercentile}` : "Building IV history…"}
+            <div className="text-[11px] text-muted-foreground font-mono space-y-0.5">
+              <div>{analytics?.ivPercentile != null ? `IV%ile ${analytics.ivPercentile}` : "Building IV history…"}</div>
+              {analytics?.ivRank != null && <div>IV Rank {analytics.ivRank}</div>}
             </div>
           </CardContent>
         </Card>

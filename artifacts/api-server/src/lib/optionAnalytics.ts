@@ -45,6 +45,7 @@ export interface OptionAnalytics {
   maxPain: number;
   atmIv: number | null;
   ivPercentile: number | null;
+  ivRank: number | null;
   totalCallOi: number;
   totalPutOi: number;
   callOiAdded: number;
@@ -172,6 +173,7 @@ export function computeAnalytics(chain: OcResponse): OptionAnalytics {
     maxPain,
     atmIv,
     ivPercentile: null,
+    ivRank: null,
     totalCallOi,
     totalPutOi,
     callOiAdded,

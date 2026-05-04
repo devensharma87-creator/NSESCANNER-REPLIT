@@ -135,7 +135,7 @@ interface StrategyBundle {
   unavailable: { kind: StrategyKind; reason: string }[];
   generatedAt: string;
   analytics?: {
-    pcrOi: number; maxPain: number; atmIv: number | null; ivPercentile: number | null;
+    pcrOi: number; maxPain: number; atmIv: number | null; ivPercentile: number | null; ivRank: number | null;
     interpretation: string;
   };
 }
@@ -384,9 +384,12 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
               <span>
                 <span className="text-muted-foreground">IV RANK</span>{" "}
                 <span className={`font-bold ${ivColor}`}>
-                  {bundle.ivContext === "UNKNOWN" ? "n/a" : bundle.ivContext}
+                  {bundle.analytics?.ivRank != null ? bundle.analytics.ivRank : bundle.ivContext === "UNKNOWN" ? "n/a" : bundle.ivContext}
                 </span>
               </span>
+              {bundle.analytics?.ivPercentile != null && (
+                <span><span className="text-muted-foreground">IV%ile</span> <span className="font-bold text-foreground">{bundle.analytics.ivPercentile}</span></span>
+              )}
               {bundle.analytics?.atmIv != null && (
                 <span><span className="text-muted-foreground">ATM IV</span> <span className="font-bold text-foreground">{bundle.analytics.atmIv.toFixed(1)}%</span></span>
               )}

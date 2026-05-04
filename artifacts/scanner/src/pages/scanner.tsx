@@ -107,7 +107,7 @@ function useFullNseStatus() {
   return q.data ?? null;
 }
 
-type SortKey = "symbol" | "price" | "change" | "changePct" | "open" | "high" | "low" | "prev" | "vwap" | "ema20" | "ema50" | "ema100" | "ema200" | "rsi" | "yrHi" | "yrLo" | "vol" | "score";
+type SortKey = "symbol" | "price" | "change" | "changePct" | "open" | "high" | "low" | "prev" | "vwap" | "ema20" | "ema50" | "ema100" | "ema200" | "rsi" | "yrHi" | "yrLo" | "vol" | "score" | "futOi";
 type SortDir = "asc" | "desc";
 
 function getSortValue(s: StockRow, key: SortKey): number | string {
@@ -129,6 +129,7 @@ function getSortValue(s: StockRow, key: SortKey): number | string {
     case "yrHi": return s.quote.fiftyTwoWeekHigh ?? -Infinity;
     case "yrLo": return s.quote.fiftyTwoWeekLow ?? -Infinity;
     case "vol": return s.indicators?.volumeRatio ?? -Infinity;
+    case "futOi": { const b = (s.indicators as Record<string, unknown> | undefined)?.futOiBuildup as string | undefined; return b === "LONG_BUILDUP" ? 4 : b === "SHORT_COVERING" ? 3 : b === "NEUTRAL" ? 2 : b === "LONG_UNWINDING" ? 1 : b === "SHORT_BUILDUP" ? 0 : -1; }
     case "score": return s.recommendation.score;
   }
 }
@@ -217,15 +218,27 @@ const GRID_TEMPLATE = [
   "minmax(64px, 1.1fr)",    // 52W H
   "minmax(64px, 1.1fr)",    // 52W L
   "minmax(52px, 0.9fr)",    // VOL×
+  "minmax(80px, 1fr)",      // FUT OI    — buildup classification
   "minmax(112px, 1.6fr)",   // SCORE     — visualisation bar (ScoreBar inner min-w-[90px] + cell px-2 ≈ 106 px), rounded up
   "minmax(100px, 110px)",   // SIGNAL    — pill, capped; min sized to clear "STRONG SELL" label at the badge's text-[10px] font-mono
 ].join(" ");
-// Sum of all `min` values — the breakpoint below which the table starts
-// horizontally scrolling instead of squashing.
-const TOTAL_WIDTH = 110 + 74 + 60 + 64 + 60*5 + 60*4 + 46 + 64*2 + 52 + 112 + 100;
+const TOTAL_WIDTH = 110 + 74 + 60 + 64 + 60*5 + 60*4 + 46 + 64*2 + 52 + 80 + 112 + 100;
 
 const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
 const fmt = (n: number | undefined | null, dp = 2) => n == null ? "—" : n.toFixed(dp);
+
+const OI_BUILDUP_STYLE: Record<string, { label: string; cls: string }> = {
+  LONG_BUILDUP:   { label: "Long",   cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+  SHORT_BUILDUP:  { label: "Short",  cls: "bg-rose-500/15 text-rose-300 border-rose-500/30" },
+  SHORT_COVERING: { label: "SC",     cls: "bg-sky-500/15 text-sky-300 border-sky-500/30" },
+  LONG_UNWINDING: { label: "LU",     cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+  NEUTRAL:        { label: "Flat",   cls: "bg-slate-500/10 text-slate-400 border-slate-500/20" },
+};
+function OiBuildupBadge({ buildup }: { buildup: string | undefined }) {
+  if (!buildup) return <span className="text-xs text-muted-foreground">—</span>;
+  const s = OI_BUILDUP_STYLE[buildup] ?? { label: buildup, cls: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+  return <span className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${s.cls}`}>{s.label}</span>;
+}
 
 /**
  * Memoized row component — referentially stable so the virtualizer can skip
@@ -267,6 +280,7 @@ const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) 
       <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2">{fmt(q.fiftyTwoWeekHigh)}</div>
       <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2">{fmt(q.fiftyTwoWeekLow)}</div>
       <div className="text-right font-mono text-xs tabular-nums px-2">{ind?.volumeRatio != null ? `${ind.volumeRatio.toFixed(1)}×` : '—'}</div>
+      <div className="px-2"><OiBuildupBadge buildup={(ind as Record<string, unknown> | undefined)?.futOiBuildup as string | undefined} /></div>
       <div className="px-2 min-w-0"><ScoreBar score={stock.recommendation.score} /></div>
       <div className="px-2 flex items-center justify-end"><SignalBadge signal={stock.recommendation.signal} /></div>
     </div>
@@ -542,6 +556,7 @@ export default function ScannerPage() {
                 <div className="text-right px-2"><SortHead k="yrHi" label="52W H" sort={sort} setSort={setSort} /></div>
                 <div className="text-right px-2"><SortHead k="yrLo" label="52W L" sort={sort} setSort={setSort} /></div>
                 <div className="text-right px-2"><SortHead k="vol" label="VOL×" sort={sort} setSort={setSort} /></div>
+                <div className="px-2"><SortHead k="futOi" label="FUT OI" sort={sort} setSort={setSort} align="left" /></div>
                 <div className="px-2"><SortHead k="score" label="SCORE" sort={sort} setSort={setSort} align="left" /></div>
                 <div className="text-right px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">SIGNAL</div>
               </div>

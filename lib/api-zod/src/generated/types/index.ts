@@ -108,6 +108,7 @@ export * from "./indexQuote";
 export * from "./indexQuoteBreadth";
 export * from "./indexQuoteTrend";
 export * from "./indicators";
+export * from "./indicatorsFutOiBuildup";
 export * from "./indicesBoardSnapshot";
 export * from "./institutionalHolder";
 export * from "./keyIndexLevels";

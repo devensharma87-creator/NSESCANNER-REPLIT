@@ -145,6 +145,31 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     );
     return null;
   }
+
+  const recentClosed = await db
+    .select({
+      exitReason: paperTradeFoTable.exitReason,
+      exitedAt: paperTradeFoTable.exitedAt,
+    })
+    .from(paperTradeFoTable)
+    .where(
+      and(
+        eq(paperTradeFoTable.signalDate, signalDate),
+        eq(paperTradeFoTable.status, "CLOSED"),
+      ),
+    )
+    .orderBy(sql`${paperTradeFoTable.exitedAt} DESC`)
+    .limit(FNO_RISK.MAX_CONSECUTIVE_STOPS_PER_DAY);
+  if (recentClosed.length >= FNO_RISK.MAX_CONSECUTIVE_STOPS_PER_DAY) {
+    const allStopped = recentClosed.every(r => r.exitReason === "STOPPED");
+    if (allStopped) {
+      logger.info(
+        { indexSymbol, setupKey, consecutiveStops: recentClosed.length },
+        `Paper FO skip: ${FNO_RISK.MAX_CONSECUTIVE_STOPS_PER_DAY} consecutive stops today — pausing`,
+      );
+      return null;
+    }
+  }
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const istMin = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
   if (istMin >= 15 * 60 + 25) {

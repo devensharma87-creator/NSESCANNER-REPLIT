@@ -228,6 +228,8 @@ export interface ReportTotals {
   /** Average R multiple actually achieved across all trades. */
   avgRMultiple: number;
   profitFactor: number;
+  /** Expectancy = (winRate × avgWin) - (lossRate × avgLoss). Per-trade expected value. */
+  expectancy: number;
 }
 
 function emptyTotals(): ReportTotals {
@@ -245,6 +247,7 @@ function emptyTotals(): ReportTotals {
     worstTrade: 0,
     avgRMultiple: 0,
     profitFactor: 0,
+    expectancy: 0,
   };
 }
 
@@ -289,6 +292,11 @@ function aggregateTotals(rows: TradeDetailRow[]): ReportTotals {
     worstTrade: worst === Infinity ? 0 : worst,
     avgRMultiple: rSum / rows.length,
     profitFactor: lossSum > 0 ? winSum / lossSum : winSum > 0 ? Infinity : 0,
+    expectancy:
+      rows.length > 0
+        ? ((wins / rows.length) * (wins > 0 ? winSum / wins : 0)) -
+          ((losses / rows.length) * (losses > 0 ? lossSum / losses : 0))
+        : 0,
   };
 }
 

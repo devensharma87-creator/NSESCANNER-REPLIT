@@ -66,6 +66,12 @@ router.get("/options/strategies/:underlying", async (req, res): Promise<void> =>
     }
 
     const analytics = computeAnalytics(chain);
+    {
+      const { enrichAnalyticsWithIv } = await import("../lib/ivHistory");
+      const ivMetrics = await enrichAnalyticsWithIv(analytics);
+      analytics.ivRank = ivMetrics.ivRank;
+      analytics.ivPercentile = ivMetrics.ivPercentile;
+    }
     // Live intraday read for the underlying — Kite-first 15-min candles
     // (no Yahoo 15-min delay) for both indices and equity F&O. The blended
     // bias inside `buildStrategies` combines this with the option-chain's

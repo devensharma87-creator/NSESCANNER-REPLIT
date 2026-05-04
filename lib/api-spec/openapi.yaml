@@ -1189,6 +1189,10 @@ components:
         valueAreaHigh: { type: number }
         valueAreaLow: { type: number }
         pointOfControl: { type: number }
+        futOiBuildup:
+          type: string
+          enum: [LONG_BUILDUP, SHORT_BUILDUP, SHORT_COVERING, LONG_UNWINDING, NEUTRAL]
+          description: "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)"
 
     SignalReason:
       type: object
@@ -2405,7 +2409,8 @@ components:
         pcrVolume:     { type: number, description: "Put/Call ratio by Volume" }
         maxPain:       { type: number, description: "Max-pain strike — where most options expire worthless" }
         atmIv:         { type: number, nullable: true, description: "ATM straddle IV (avg of CE+PE)" }
-        ivPercentile:  { type: number, nullable: true, description: "30-day IV percentile (null until history is built)" }
+        ivPercentile:  { type: number, nullable: true, description: "IV percentile — % of days in the lookback where ATM IV was below current (null until history is built)" }
+        ivRank:        { type: number, nullable: true, description: "IV Rank — (current - min) / (max - min) over lookback window, 0-100 (null until history is built)" }
         totalCallOi:   { type: integer }
         totalPutOi:    { type: integer }
         callOiAdded:   { type: integer }
@@ -2641,6 +2646,7 @@ components:
         - worstTrade
         - avgRMultiple
         - profitFactor
+        - expectancy
       properties:
         realizedPnl:    { type: number, description: "Sum of gross realized P&L across all trades in the window" }
         netPnl:         { type: number, description: "realizedPnl minus estimated taxes & charges" }
@@ -2655,6 +2661,7 @@ components:
         worstTrade:     { type: number }
         avgRMultiple:   { type: number, description: "Average achieved R multiple across all trades" }
         profitFactor:   { type: number, description: "Sum of winning net P&L divided by absolute sum of losing net P&L" }
+        expectancy:     { type: number, description: "Per-trade expected value = (winRate × avgWin) - (lossRate × avgLoss)" }
 
     PaperReportDayBucket:
       type: object

@@ -22,8 +22,10 @@ export interface OptionAnalyticsResponse {
   maxPain: number;
   /** ATM straddle IV (avg of CE+PE) */
   atmIv?: number | null;
-  /** 30-day IV percentile (null until history is built) */
+  /** IV percentile — % of days in the lookback where ATM IV was below current (null until history is built) */
   ivPercentile?: number | null;
+  /** IV Rank — (current - min) / (max - min) over lookback window, 0-100 (null until history is built) */
+  ivRank?: number | null;
   totalCallOi: number;
   totalPutOi: number;
   callOiAdded?: number;

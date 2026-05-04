@@ -1122,6 +1122,12 @@ export async function getOiHeatmapForExport(): Promise<OiHeatmapResponse | null>
   return fetchOiHeatmap();
 }
 
+export function getLatestHeatmapCache(): OiHeatmapResponse | null {
+  if (!heatmapCache) return null;
+  if (Date.now() - heatmapCache.ts > 5 * 60 * 1000) return null;
+  return heatmapCache.data;
+}
+
 // ─── Intraday Tracker ────────────────────────────────────────────────────────
 
 export interface TrackerSnapshot {

@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { IndicatorsFutOiBuildup } from "./indicatorsFutOiBuildup";
 
 export interface Indicators {
   ema9?: number;
@@ -35,4 +36,6 @@ export interface Indicators {
   valueAreaHigh?: number;
   valueAreaLow?: number;
   pointOfControl?: number;
+  /** Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O) */
+  futOiBuildup?: IndicatorsFutOiBuildup;
 }

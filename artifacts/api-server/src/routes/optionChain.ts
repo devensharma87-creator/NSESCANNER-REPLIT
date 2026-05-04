@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics } from "../lib/optionAnalytics";
+import { enrichAnalyticsWithIv } from "../lib/ivHistory";
 import { getActiveSession } from "../lib/kiteAuth";
 import { logger } from "../lib/logger";
 import { sendExport } from "../lib/csvExport";
@@ -45,7 +46,11 @@ router.get("/options/analytics/:underlying", async (req, res): Promise<void> => 
       res.status(503).json({ error: "Option chain unavailable", underlying });
       return;
     }
-    res.json(computeAnalytics(chain));
+    const analytics = computeAnalytics(chain);
+    const ivMetrics = await enrichAnalyticsWithIv(analytics);
+    analytics.ivRank = ivMetrics.ivRank;
+    analytics.ivPercentile = ivMetrics.ivPercentile;
+    res.json(analytics);
   } catch (err) {
     logger.error({ err: (err as Error).message, underlying }, "Option analytics handler crashed");
     res.status(500).json({ error: "Internal error computing analytics" });

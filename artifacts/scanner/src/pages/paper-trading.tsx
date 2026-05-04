@@ -324,6 +324,7 @@ function EqAccountCard({ data, openPositions, loading, error }: {
           tone={data.dayTradeCount >= data.dailyTradeCap ? "neg" : undefined}
         />
         <Stat label="Seed capital" value={inr(data.seedCapital)} />
+        <HeatIndicator deployed={bookValue} total={accountValue > 0 ? accountValue : data.seedCapital} />
       </CardContent>
     </Card>
   );
@@ -681,6 +682,7 @@ function AccountCard({ data, loading, error }: {
           value={inrDec(netVsSeed)}
           tone={netVsSeed > 0 ? "pos" : netVsSeed < 0 ? "neg" : undefined}
         />
+        <HeatIndicator deployed={data.seedCapital - data.balance} total={data.seedCapital} />
       </CardContent>
     </Card>
   );
@@ -697,6 +699,34 @@ function Stat({
     <div className="flex flex-col gap-1">
       <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className={`text-lg font-semibold tabular-nums ${color}`}>{value}</span>
+    </div>
+  );
+}
+
+function HeatIndicator({ deployed, total }: { deployed: number; total: number }) {
+  const pctVal = total > 0 ? (deployed / total) * 100 : 0;
+  const clamped = Math.min(100, Math.max(0, pctVal));
+  const heatColor =
+    clamped >= 80 ? "bg-rose-500" :
+    clamped >= 60 ? "bg-amber-500" :
+    clamped >= 40 ? "bg-yellow-500" :
+    "bg-emerald-500";
+  const textColor =
+    clamped >= 80 ? "text-rose-300" :
+    clamped >= 60 ? "text-amber-300" :
+    clamped >= 40 ? "text-yellow-300" :
+    "text-emerald-300";
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Portfolio Heat</span>
+      <div className="flex items-center gap-2">
+        <span className={`text-lg font-semibold tabular-nums ${textColor}`}>
+          {clamped.toFixed(1)}%
+        </span>
+      </div>
+      <div className="w-full h-1.5 rounded-full bg-muted/40 overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${heatColor}`} style={{ width: `${clamped}%` }} />
+      </div>
     </div>
   );
 }

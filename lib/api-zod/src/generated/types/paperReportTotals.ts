@@ -27,4 +27,6 @@ export interface PaperReportTotals {
   avgRMultiple: number;
   /** Sum of winning net P&L divided by absolute sum of losing net P&L */
   profitFactor: number;
+  /** Per-trade expected value = (winRate × avgWin) - (lossRate × avgLoss) */
+  expectancy: number;
 }

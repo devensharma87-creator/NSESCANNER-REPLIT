@@ -44,6 +44,7 @@ import {
 import { forceClosePaperEquityTrade } from "../lib/paperTradingEq";
 import { getAllScannedRows } from "../lib/fullNseScanner";
 import { logger } from "../lib/logger";
+import { getJournalAnalytics } from "../lib/journalAnalytics";
 
 const router: IRouter = Router();
 
@@ -543,6 +544,19 @@ router.patch("/paper/trades/eq/:id/journal", requireOwner, async (req, res, next
       journal: r.journal ?? null,
       tags: r.tags ?? [],
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get("/paper/journal-analytics", requireOwner, async (req, res, next) => {
+  try {
+    const segment = String(req.query.segment ?? "FNO").toUpperCase();
+    if (segment !== "FNO" && segment !== "EQUITY") {
+      return res.status(400).json({ error: "segment must be FNO or EQUITY" });
+    }
+    const data = await getJournalAnalytics(segment as "FNO" | "EQUITY");
+    return res.json(data);
   } catch (err) {
     return next(err);
   }

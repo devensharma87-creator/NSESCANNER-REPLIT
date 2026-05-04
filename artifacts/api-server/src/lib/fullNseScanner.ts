@@ -43,6 +43,7 @@ import { loadKiteNseEqInstruments, loadKiteQuotes, type KiteScannerQuote } from 
 import { buildAllSwingSignals } from "./swingSignals";
 import { runEquityPaperTradingTick } from "./paperTradingEq";
 import { EQUITY_RISK } from "./paperAccount";
+import { getLatestHeatmapCache } from "./oiLab";
 
 /**
  * Bridge between the scanner cycle and the equity paper-trading
@@ -772,6 +773,20 @@ async function performFullScan(): Promise<Cache> {
 
   rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
   progress.running = false;
+
+  try {
+    const heatmap = getLatestHeatmapCache();
+    if (heatmap && heatmap.rows.length > 0) {
+      const bucketBySymbol = new Map<string, string>();
+      for (const hr of heatmap.rows) bucketBySymbol.set(hr.symbol, hr.bucket);
+      for (const row of rows) {
+        const bucket = bucketBySymbol.get(row.symbol);
+        if (bucket && row.indicators) {
+          (row.indicators as Record<string, unknown>).futOiBuildup = bucket;
+        }
+      }
+    }
+  } catch { /* non-critical */ }
 
   const result: Cache = {
     rows,

@@ -40,6 +40,8 @@ export const FNO_RISK = {
   MAX_TRADES_PER_DAY: 4,
   /** Minimum signal confidence to auto-trade (wired from central tradingConfig). */
   MIN_CONFIDENCE: CONFIDENCE_THRESHOLDS.MIN_FNO_TRADE,
+  /** Pause after this many consecutive stopped-out trades in a single IST day. */
+  MAX_CONSECUTIVE_STOPS_PER_DAY: 2,
 } as const;
 
 /** Equity (swing-cash) specific allocation rules. User-decided. */

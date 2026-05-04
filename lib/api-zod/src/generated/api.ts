@@ -217,6 +217,18 @@ export const GetMarketTrendResponse = zod.object({
               valueAreaHigh: zod.number().optional(),
               valueAreaLow: zod.number().optional(),
               pointOfControl: zod.number().optional(),
+              futOiBuildup: zod
+                .enum([
+                  "LONG_BUILDUP",
+                  "SHORT_BUILDUP",
+                  "SHORT_COVERING",
+                  "LONG_UNWINDING",
+                  "NEUTRAL",
+                ])
+                .optional()
+                .describe(
+                  "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
+                ),
             })
             .optional(),
           recommendation: zod.object({
@@ -319,6 +331,18 @@ export const GetMarketTrendResponse = zod.object({
               valueAreaHigh: zod.number().optional(),
               valueAreaLow: zod.number().optional(),
               pointOfControl: zod.number().optional(),
+              futOiBuildup: zod
+                .enum([
+                  "LONG_BUILDUP",
+                  "SHORT_BUILDUP",
+                  "SHORT_COVERING",
+                  "LONG_UNWINDING",
+                  "NEUTRAL",
+                ])
+                .optional()
+                .describe(
+                  "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
+                ),
             })
             .optional(),
           recommendation: zod.object({
@@ -423,6 +447,18 @@ export const ListSectorsResponseItem = zod.object({
         valueAreaHigh: zod.number().optional(),
         valueAreaLow: zod.number().optional(),
         pointOfControl: zod.number().optional(),
+        futOiBuildup: zod
+          .enum([
+            "LONG_BUILDUP",
+            "SHORT_BUILDUP",
+            "SHORT_COVERING",
+            "LONG_UNWINDING",
+            "NEUTRAL",
+          ])
+          .optional()
+          .describe(
+            "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
+          ),
       })
       .optional(),
     recommendation: zod.object({
@@ -524,6 +560,18 @@ export const GetSectorResponse = zod.object({
           valueAreaHigh: zod.number().optional(),
           valueAreaLow: zod.number().optional(),
           pointOfControl: zod.number().optional(),
+          futOiBuildup: zod
+            .enum([
+              "LONG_BUILDUP",
+              "SHORT_BUILDUP",
+              "SHORT_COVERING",
+              "LONG_UNWINDING",
+              "NEUTRAL",
+            ])
+            .optional()
+            .describe(
+              "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
+            ),
         })
         .optional(),
       recommendation: zod.object({
@@ -614,6 +662,18 @@ export const GetSectorResponse = zod.object({
           valueAreaHigh: zod.number().optional(),
           valueAreaLow: zod.number().optional(),
           pointOfControl: zod.number().optional(),
+          futOiBuildup: zod
+            .enum([
+              "LONG_BUILDUP",
+              "SHORT_BUILDUP",
+              "SHORT_COVERING",
+              "LONG_UNWINDING",
+              "NEUTRAL",
+            ])
+            .optional()
+            .describe(
+              "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
+            ),
         })
         .optional(),
       recommendation: zod.object({
@@ -716,6 +776,18 @@ export const ListStocksResponseItem = zod.object({
       valueAreaHigh: zod.number().optional(),
       valueAreaLow: zod.number().optional(),
       pointOfControl: zod.number().optional(),
+      futOiBuildup: zod
+        .enum([
+          "LONG_BUILDUP",
+          "SHORT_BUILDUP",
+          "SHORT_COVERING",
+          "LONG_UNWINDING",
+          "NEUTRAL",
+        ])
+        .optional()
+        .describe(
+          "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
+        ),
     })
     .optional(),
   recommendation: zod.object({
@@ -850,6 +922,18 @@ export const GetStockDetailResponse = zod.object({
     valueAreaHigh: zod.number().optional(),
     valueAreaLow: zod.number().optional(),
     pointOfControl: zod.number().optional(),
+    futOiBuildup: zod
+      .enum([
+        "LONG_BUILDUP",
+        "SHORT_BUILDUP",
+        "SHORT_COVERING",
+        "LONG_UNWINDING",
+        "NEUTRAL",
+      ])
+      .optional()
+      .describe(
+        "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
+      ),
   }),
   recommendation: zod.object({
     signal: zod.enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"]),
@@ -1113,6 +1197,18 @@ export const GetTopScansResponse = zod.object({
           valueAreaHigh: zod.number().optional(),
           valueAreaLow: zod.number().optional(),
           pointOfControl: zod.number().optional(),
+          futOiBuildup: zod
+            .enum([
+              "LONG_BUILDUP",
+              "SHORT_BUILDUP",
+              "SHORT_COVERING",
+              "LONG_UNWINDING",
+              "NEUTRAL",
+            ])
+            .optional()
+            .describe(
+              "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
+            ),
         })
         .optional(),
       recommendation: zod.object({
@@ -1203,6 +1299,18 @@ export const GetTopScansResponse = zod.object({
           valueAreaHigh: zod.number().optional(),
           valueAreaLow: zod.number().optional(),
           pointOfControl: zod.number().optional(),
+          futOiBuildup: zod
+            .enum([
+              "LONG_BUILDUP",
+              "SHORT_BUILDUP",
+              "SHORT_COVERING",
+              "LONG_UNWINDING",
+              "NEUTRAL",
+            ])
+            .optional()
+            .describe(
+              "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
+            ),
         })
         .optional(),
       recommendation: zod.object({
@@ -1797,6 +1905,11 @@ export const GetPaperReportFoMonthlyResponse = zod.object({
       .describe(
         "Sum of winning net P&L divided by absolute sum of losing net P&L",
       ),
+    expectancy: zod
+      .number()
+      .describe(
+        "Per-trade expected value = (winRate × avgWin) - (lossRate × avgLoss)",
+      ),
   }),
   days: zod.array(
     zod.object({
@@ -1889,6 +2002,11 @@ export const GetPaperReportFoYearlyResponse = zod.object({
       .number()
       .describe(
         "Sum of winning net P&L divided by absolute sum of losing net P&L",
+      ),
+    expectancy: zod
+      .number()
+      .describe(
+        "Per-trade expected value = (winRate × avgWin) - (lossRate × avgLoss)",
       ),
   }),
   months: zod.array(
@@ -2073,6 +2191,11 @@ export const GetPaperReportEqMonthlyResponse = zod.object({
       .describe(
         "Sum of winning net P&L divided by absolute sum of losing net P&L",
       ),
+    expectancy: zod
+      .number()
+      .describe(
+        "Per-trade expected value = (winRate × avgWin) - (lossRate × avgLoss)",
+      ),
   }),
   days: zod.array(
     zod.object({
@@ -2169,6 +2292,11 @@ export const GetPaperReportEqYearlyResponse = zod.object({
       .number()
       .describe(
         "Sum of winning net P&L divided by absolute sum of losing net P&L",
+      ),
+    expectancy: zod
+      .number()
+      .describe(
+        "Per-trade expected value = (winRate × avgWin) - (lossRate × avgLoss)",
       ),
   }),
   months: zod.array(
@@ -2377,7 +2505,15 @@ export const GetOptionAnalyticsResponse = zod.object({
   ivPercentile: zod
     .number()
     .nullish()
-    .describe("30-day IV percentile (null until history is built)"),
+    .describe(
+      "IV percentile — % of days in the lookback where ATM IV was below current (null until history is built)",
+    ),
+  ivRank: zod
+    .number()
+    .nullish()
+    .describe(
+      "IV Rank — (current - min) \/ (max - min) over lookback window, 0-100 (null until history is built)",
+    ),
   totalCallOi: zod.number(),
   totalPutOi: zod.number(),
   callOiAdded: zod.number().optional(),

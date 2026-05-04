@@ -40,6 +40,20 @@ export interface Quote {
   updatedAt: string;
 }
 
+/**
+ * Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)
+ */
+export type IndicatorsFutOiBuildup =
+  (typeof IndicatorsFutOiBuildup)[keyof typeof IndicatorsFutOiBuildup];
+
+export const IndicatorsFutOiBuildup = {
+  LONG_BUILDUP: "LONG_BUILDUP",
+  SHORT_BUILDUP: "SHORT_BUILDUP",
+  SHORT_COVERING: "SHORT_COVERING",
+  LONG_UNWINDING: "LONG_UNWINDING",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
 export interface Indicators {
   ema9?: number;
   ema21?: number;
@@ -69,6 +83,8 @@ export interface Indicators {
   valueAreaHigh?: number;
   valueAreaLow?: number;
   pointOfControl?: number;
+  /** Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O) */
+  futOiBuildup?: IndicatorsFutOiBuildup;
 }
 
 export interface SignalReason {
@@ -1581,8 +1597,10 @@ export interface OptionAnalyticsResponse {
   maxPain: number;
   /** ATM straddle IV (avg of CE+PE) */
   atmIv?: number | null;
-  /** 30-day IV percentile (null until history is built) */
+  /** IV percentile — % of days in the lookback where ATM IV was below current (null until history is built) */
   ivPercentile?: number | null;
+  /** IV Rank — (current - min) / (max - min) over lookback window, 0-100 (null until history is built) */
+  ivRank?: number | null;
   totalCallOi: number;
   totalPutOi: number;
   callOiAdded?: number;
@@ -1860,6 +1878,8 @@ export interface PaperReportTotals {
   avgRMultiple: number;
   /** Sum of winning net P&L divided by absolute sum of losing net P&L */
   profitFactor: number;
+  /** Per-trade expected value = (winRate × avgWin) - (lossRate × avgLoss) */
+  expectancy: number;
 }
 
 export interface PaperReportDayBucket {
