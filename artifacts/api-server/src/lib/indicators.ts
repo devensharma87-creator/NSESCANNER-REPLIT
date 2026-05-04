@@ -90,11 +90,16 @@ export function adx(high: number[], low: number[], close: number[], period = 14)
     const sum = pdi + mdi;
     dx[i] = sum === 0 ? 0 : (Math.abs(pdi - mdi) / sum) * 100;
   }
-  // ADX = SMA of DX over period
+  // ADX = Wilder's RMA (running moving average) of DX over period.
+  // Canonical Wilder smoothing: ADX[i] = (ADX[i-1] * (period-1) + DX[i]) / period
+  // The initial ADX seed is the SMA of the first `period` DX values.
+  let seedSum = 0;
+  for (let j = period; j < period * 2; j++) seedSum += dx[j] ?? 0;
+  let prevAdx = seedSum / period;
+  out[period * 2 - 1] = prevAdx;
   for (let i = period * 2; i < len; i++) {
-    let sum = 0;
-    for (let j = i - period + 1; j <= i; j++) sum += dx[j] ?? 0;
-    out[i] = sum / period;
+    prevAdx = (prevAdx * (period - 1) + (dx[i] ?? 0)) / period;
+    out[i] = prevAdx;
   }
   return out;
 }

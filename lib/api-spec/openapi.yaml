@@ -1763,6 +1763,10 @@ components:
         optionVega:
           type: number
           description: "Vega (₹/share per 1 vol point) of the chosen strike."
+        dataQuality:
+          type: string
+          enum: [LIVE_KITE_FULL, LIVE_KITE_PARTIAL, DELAYED_YAHOO, STALE]
+          description: "Data quality label indicating the source and freshness of intraday data used to generate this signal."
 
     OptionSignalDiagnostics:
       type: object
@@ -2596,6 +2600,11 @@ components:
         exitReason:      { type: string, enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED, MANUAL_OVERRIDE] }
         openedAt:        { type: string, format: date-time }
         exitedAt:        { type: string, format: date-time }
+        journal:         { type: string, nullable: true }
+        tags:
+          type: array
+          nullable: true
+          items: { type: string }
 
     PaperPositionsFOResponse:
       type: object
@@ -2725,6 +2734,11 @@ components:
         rMultiple:           { type: number, description: "Achieved R = (exit-entry) / |entry-stop| per share" }
         exitReason:          { type: string, enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED, MANUAL_OVERRIDE] }
         durationSec:         { type: integer }
+        journal:             { type: string, nullable: true }
+        tags:
+          type: array
+          nullable: true
+          items: { type: string }
 
     PaperReportFoMonthly:
       type: object
@@ -2832,6 +2846,11 @@ components:
         exitReason:      { type: string, enum: [TARGET2_HIT, STOPPED, TRAIL_STOP_HIT, TIME_STOP, SIGNAL_FLIP, MANUAL_OVERRIDE] }
         openedAt:        { type: string, format: date-time }
         exitedAt:        { type: string, format: date-time }
+        journal:         { type: string, nullable: true }
+        tags:
+          type: array
+          nullable: true
+          items: { type: string }
 
     PaperPositionsEqResponse:
       type: object
@@ -2900,6 +2919,11 @@ components:
         exitReason:          { type: string, enum: [TARGET2_HIT, STOPPED, TRAIL_STOP_HIT, TIME_STOP, SIGNAL_FLIP, MANUAL_OVERRIDE] }
         daysHeld:            { type: integer, description: "Calendar days the trade was held (rounded)." }
         trailedToT1:         { type: boolean, description: "True if the stop had been trailed to T1 before the exit." }
+        journal:             { type: string, nullable: true }
+        tags:
+          type: array
+          nullable: true
+          items: { type: string }
 
     PaperReportEqMonthly:
       type: object

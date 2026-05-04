@@ -622,6 +622,19 @@ export const OptionSignalExitReason = {
   EXPIRED_PENDING: "EXPIRED_PENDING",
 } as const;
 
+/**
+ * Data quality label indicating the source and freshness of intraday data used to generate this signal.
+ */
+export type OptionSignalDataQuality =
+  (typeof OptionSignalDataQuality)[keyof typeof OptionSignalDataQuality];
+
+export const OptionSignalDataQuality = {
+  LIVE_KITE_FULL: "LIVE_KITE_FULL",
+  LIVE_KITE_PARTIAL: "LIVE_KITE_PARTIAL",
+  DELAYED_YAHOO: "DELAYED_YAHOO",
+  STALE: "STALE",
+} as const;
+
 export interface OptionSignal {
   index: string;
   indexName: string;
@@ -694,6 +707,8 @@ export interface OptionSignal {
   optionTheta?: number;
   /** Vega (₹/share per 1 vol point) of the chosen strike. */
   optionVega?: number;
+  /** Data quality label indicating the source and freshness of intraday data used to generate this signal. */
+  dataQuality?: OptionSignalDataQuality;
 }
 
 export type OptionSignalDiagnosticsSuppressedItem = {
@@ -1808,6 +1823,8 @@ export interface PaperTradeFOClosed {
   exitReason: PaperTradeFOClosedExitReason;
   openedAt: string;
   exitedAt: string;
+  journal?: string | null;
+  tags?: string[] | null;
 }
 
 export interface PaperPositionsFOResponse {
@@ -1921,6 +1938,8 @@ export interface PaperTradeFODetail {
   rMultiple: number;
   exitReason: PaperTradeFODetailExitReason;
   durationSec: number;
+  journal?: string | null;
+  tags?: string[] | null;
 }
 
 export interface PaperReportFoMonthly {
@@ -2015,6 +2034,8 @@ export interface PaperTradeEqClosed {
   exitReason: PaperTradeEqClosedExitReason;
   openedAt: string;
   exitedAt: string;
+  journal?: string | null;
+  tags?: string[] | null;
 }
 
 export interface PaperPositionsEqResponse {
@@ -2068,6 +2089,8 @@ export interface PaperTradeEqDetail {
   daysHeld: number;
   /** True if the stop had been trailed to T1 before the exit. */
   trailedToT1: boolean;
+  journal?: string | null;
+  tags?: string[] | null;
 }
 
 export interface PaperReportEqMonthly {

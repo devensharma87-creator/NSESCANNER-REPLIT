@@ -34,4 +34,6 @@ export interface PaperTradeEqDetail {
   daysHeld: number;
   /** True if the stop had been trailed to T1 before the exit. */
   trailedToT1: boolean;
+  journal?: string | null;
+  tags?: string[] | null;
 }

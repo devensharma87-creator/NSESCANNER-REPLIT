@@ -27,4 +27,6 @@ export interface PaperTradeFOClosed {
   exitReason: PaperTradeFOClosedExitReason;
   openedAt: Date;
   exitedAt: Date;
+  journal?: string | null;
+  tags?: string[] | null;
 }

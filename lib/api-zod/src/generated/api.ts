@@ -1430,6 +1430,12 @@ export const GetOptionSignalsResponse = zod.object({
         .number()
         .optional()
         .describe("Vega (₹\/share per 1 vol point) of the chosen strike."),
+      dataQuality: zod
+        .enum(["LIVE_KITE_FULL", "LIVE_KITE_PARTIAL", "DELAYED_YAHOO", "STALE"])
+        .optional()
+        .describe(
+          "Data quality label indicating the source and freshness of intraday data used to generate this signal.",
+        ),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -1710,6 +1716,8 @@ export const GetPaperTradesFOResponse = zod.object({
       ]),
       openedAt: zod.coerce.date(),
       exitedAt: zod.coerce.date(),
+      journal: zod.string().nullish(),
+      tags: zod.array(zod.string()).nullish(),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -1746,6 +1754,8 @@ export const ClosePaperPositionFOResponse = zod.object({
   ]),
   openedAt: zod.coerce.date(),
   exitedAt: zod.coerce.date(),
+  journal: zod.string().nullish(),
+  tags: zod.array(zod.string()).nullish(),
 });
 
 /**
@@ -1834,6 +1844,8 @@ export const GetPaperReportFoMonthlyResponse = zod.object({
         "MANUAL_OVERRIDE",
       ]),
       durationSec: zod.number(),
+      journal: zod.string().nullish(),
+      tags: zod.array(zod.string()).nullish(),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -1983,6 +1995,8 @@ export const GetPaperTradesEqResponse = zod.object({
       ]),
       openedAt: zod.coerce.date(),
       exitedAt: zod.coerce.date(),
+      journal: zod.string().nullish(),
+      tags: zod.array(zod.string()).nullish(),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -2016,6 +2030,8 @@ export const ClosePaperPositionEqResponse = zod.object({
   ]),
   openedAt: zod.coerce.date(),
   exitedAt: zod.coerce.date(),
+  journal: zod.string().nullish(),
+  tags: zod.array(zod.string()).nullish(),
 });
 
 /**
@@ -2108,6 +2124,8 @@ export const GetPaperReportEqMonthlyResponse = zod.object({
       trailedToT1: zod
         .boolean()
         .describe("True if the stop had been trailed to T1 before the exit."),
+      journal: zod.string().nullish(),
+      tags: zod.array(zod.string()).nullish(),
     }),
   ),
   generatedAt: zod.coerce.date(),

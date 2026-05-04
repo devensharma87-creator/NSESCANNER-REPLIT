@@ -148,6 +148,7 @@ export * from "./optionLegInstrument";
 export * from "./optionLegType";
 export * from "./optionSignal";
 export * from "./optionSignalBias";
+export * from "./optionSignalDataQuality";
 export * from "./optionSignalDiagnostics";
 export * from "./optionSignalDiagnosticsSuppressedItem";
 export * from "./optionSignalExitReason";

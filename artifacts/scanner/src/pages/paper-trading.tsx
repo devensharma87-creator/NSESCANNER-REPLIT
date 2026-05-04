@@ -8,7 +8,7 @@
  * three sub-views: account state, open positions with live MTM, and
  * the day's closed trades.
  */
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
@@ -102,6 +102,8 @@ interface ClosedTrade {
   exitReason: "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE";
   openedAt: string;
   exitedAt: string;
+  journal?: string | null;
+  tags?: string[];
 }
 
 const inr = (n: number) =>
@@ -174,6 +176,8 @@ interface ClosedEqTrade {
   exitReason: EqExitReason;
   openedAt: string;
   exitedAt: string;
+  journal?: string | null;
+  tags?: string[];
 }
 
 const EQ_REASON_TONE: Record<EqExitReason, string> = {
@@ -529,6 +533,7 @@ function EqTradesCard({ trades, loading, error }: {
                   <th className="py-2 pr-3">Reason</th>
                   <th className="py-2 pr-3">Opened</th>
                   <th className="py-2 pr-3">Closed</th>
+                  <th className="py-2 pr-3">Journal</th>
                 </tr>
               </thead>
               <tbody>
@@ -556,6 +561,9 @@ function EqTradesCard({ trades, loading, error }: {
                       </td>
                       <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtDate(t.openedAt)}</td>
                       <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtTime(t.exitedAt)}</td>
+                      <td className="py-2 pr-3">
+                        <JournalPanel tradeId={t.id} segment="eq" initial={{ journal: t.journal, tags: t.tags }} />
+                      </td>
                     </tr>
                   );
                 })}
@@ -820,6 +828,95 @@ function PositionRow({ p }: { p: OpenPosition }) {
   );
 }
 
+const JOURNAL_TAGS = [
+  "FOLLOWED_PLAN", "DEVIATED", "EARLY_EXIT", "LATE_ENTRY",
+  "SIZE_TOO_BIG", "SIZE_TOO_SMALL", "GOOD_RR", "BAD_RR",
+  "MOMENTUM_TRADE", "MEAN_REVERSION", "NEWS_DRIVEN",
+] as const;
+
+function JournalPanel({ tradeId, segment, initial }: {
+  tradeId: string;
+  segment: "fo" | "eq";
+  initial: { journal?: string | null; tags?: string[] };
+}) {
+  const [text, setText] = useState(initial.journal ?? "");
+  const [tags, setTags] = useState<string[]>(initial.tags ?? []);
+  const [open, setOpen] = useState(false);
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const save = useMutation({
+    mutationFn: () =>
+      api<{ id: string }>(`/paper/trades/${segment}/${encodeURIComponent(tradeId)}/journal`, {
+        method: "PATCH",
+        body: JSON.stringify({ journal: text || null, tags }),
+      }),
+    onSuccess: () => {
+      toast({ title: "Journal saved" });
+      if (segment === "fo") {
+        void qc.invalidateQueries({ queryKey: QK_TRADES });
+      } else {
+        void qc.invalidateQueries({ queryKey: QK_TRADES_EQ });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleTag = useCallback((tag: string) => {
+    setTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
+  }, []);
+
+  const hasContent = !!(initial.journal || (initial.tags && initial.tags.length > 0));
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className={`text-[11px] ${hasContent ? "text-sky-400 hover:text-sky-300" : "text-muted-foreground hover:text-foreground"} transition-colors`}
+      >
+        {hasContent ? "Edit journal" : "Add journal"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 p-3 rounded-md border border-border/60 bg-card/50 space-y-2">
+      <textarea
+        className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm resize-y min-h-[60px] focus:outline-none focus:ring-1 focus:ring-ring"
+        placeholder="What did you learn from this trade?"
+        value={text}
+        onChange={e => setText(e.target.value)}
+        rows={3}
+      />
+      <div className="flex flex-wrap gap-1.5">
+        {JOURNAL_TAGS.map(tag => (
+          <button
+            key={tag}
+            onClick={() => toggleTag(tag)}
+            className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
+              tags.includes(tag)
+                ? "bg-sky-500/20 text-sky-200 border-sky-500/40"
+                : "bg-muted/30 text-muted-foreground border-border/40 hover:border-border"
+            }`}
+          >
+            {tag.replace(/_/g, " ")}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function TradesCard({ trades, loading, error }: {
   trades: ClosedTrade[];
   loading: boolean;
@@ -884,6 +981,7 @@ function TradesCard({ trades, loading, error }: {
                   <th className="py-2 pr-3">Reason</th>
                   <th className="py-2 pr-3">Opened</th>
                   <th className="py-2 pr-3">Closed</th>
+                  <th className="py-2 pr-3">Journal</th>
                 </tr>
               </thead>
               <tbody>
@@ -918,6 +1016,9 @@ function TradesCard({ trades, loading, error }: {
                       </td>
                       <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtTime(t.openedAt)}</td>
                       <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtTime(t.exitedAt)}</td>
+                      <td className="py-2 pr-3">
+                        <JournalPanel tradeId={t.id} segment="fo" initial={{ journal: t.journal, tags: t.tags }} />
+                      </td>
                     </tr>
                   );
                 })}

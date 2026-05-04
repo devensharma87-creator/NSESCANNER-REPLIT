@@ -1,0 +1,532 @@
+Stock Scanner Pro — Required Improvements for F&O + Swing Trading Tool
+
+Hi,
+
+I have reviewed the current Stock Scanner Pro project from the perspective of a full-time Indian market trader using it for F&O and swing trading. The tool has a strong foundation, but before it can be trusted for serious trading decisions, we need to improve data reliability, signal quality, option execution modelling, risk controls, and backtesting.
+
+Please treat the below items as a development roadmap.
+
+1. Highest Priority Fixes
+1. Remove all hardcoded lot sizes
+
+Currently, some F&O lot sizes appear to be hardcoded in backend/frontend logic. This is risky because NSE/BSE lot sizes change over time.
+
+Required change
+
+Lot size should be fetched dynamically from:
+
+Zerodha Kite instruments master
+NSE/BSE contract master
+Current tradable instrument data
+
+Every option signal and paper trade should store:
+
+Symbol
+Exchange
+Expiry
+Strike
+Option type: CE/PE
+Lot size
+Lot-size source
+Instrument token
+Instrument master date
+Acceptance criteria
+
+No trade, signal, paper trade, or P&L calculation should depend on hardcoded lot sizes.
+
+2. Remove hardcoded expiry-day logic
+
+Expiry rules should not be manually assumed. NSE/BSE expiry schedules can change.
+
+Required change
+
+Valid expiries should come from the live instrument master, not from fixed weekday rules.
+
+The system should display:
+
+Available expiries
+Weekly/monthly expiry
+Whether the contract is currently tradable
+Expiry source
+Instrument master updated time
+Acceptance criteria
+
+The scanner should only recommend options that exist in the current tradable instrument list.
+
+3. Block actionable F&O signals when data is delayed or fallback
+
+For F&O trading, delayed data is dangerous. Yahoo/NSE fallback data may be useful for analysis, but not for actionable option trading.
+
+Required change
+
+Add a strict data-quality gate.
+
+Only allow actionable F&O signals when:
+
+dataSource === "KITE_LIVE"
+quoteFreshness <= allowedThreshold
+optionChainAvailable === true
+underlyingQuoteAvailable === true
+
+If data is delayed/fallback/stale, show:
+
+Live data unavailable. Analysis only. Do not trade.
+
+Acceptance criteria
+
+No paper trade or live trade should be generated from delayed, fallback, stale, or partial data.
+
+4. Make baseline signals informational only
+
+The system currently has baseline/broad outlook signals. These should not trigger trades.
+
+Required change
+
+Only high-conviction signals should be allowed for paper/live trade entry.
+
+Example rule:
+
+signal.tier === "HIGH_CONVICTION"
+confidence >= 70
+dataQuality === "LIVE_KITE_FULL"
+spreadPct <= maxAllowedSpread
+liquidityCheckPassed === true
+
+Baseline signals should be shown only as market outlook.
+
+Acceptance criteria
+
+Baseline signals must never auto-create paper trades or live trade recommendations.
+
+5. Fix confidence threshold mismatch
+
+There appears to be inconsistency between confidence thresholds. Some logic seems to use 50, while the intended trading threshold should be around 70.
+
+Required change
+
+Create one central config:
+
+MIN_FNO_TRADE_CONFIDENCE = 70
+MIN_SWING_TRADE_CONFIDENCE = 65
+MIN_BASELINE_DISPLAY_CONFIDENCE = 50
+Acceptance criteria
+
+All backend, frontend, paper-trading, and alert logic should use the same central threshold config.
+
+2. F&O Trading Improvements
+6. Use actual option bid/ask prices for paper trading
+
+Current option premium projection is too simplified. For realistic F&O testing,Current option premium projection is too simplified. we should not rely only on projected option premium from spot movement.
+
+Required change
+
+Paper trading should use actual option quotes.
+
+For buy trades:
+
+Entry should use ask price or LTP + slippage.
+Exit should use bid price or LTP - slippage.
+
+Track:
+
+Entry bid/ask/LTP
+Exit bid/ask/LTP
+Spread at entry
+Spread at exit
+Slippage
+Quantity
+Brokerage/charges estimate
+Acceptance criteria
+
+Paper-trade P&L should be calculated using realistic option execution prices, not ideal LTP only.
+
+7. Add option liquidity filter
+
+Not every option contract should be tradable.
+
+Required filter
+
+Before giving any actionable option trade:
+
+Minimum option volume
+Minimum OI
+Maximum bid-ask spread %
+Avoid illiquid far OTM options
+Avoid contracts with stale quotes
+Avoid options with abnormal premium gaps
+
+Example:
+
+liquidityPassed =
+  optionVolume >= minVolume &&
+  openInterest >= minOI &&
+  spreadPct <= maxSpreadPct &&
+  quoteFreshness <= maxQuoteAge
+Acceptance criteria
+
+Signals should clearly show whether the selected option is liquid enough to trade.
+
+8. Add expiry-day mode
+
+Expiry day trading behaves differently because theta, gamma, and premium decay are very aggressive.
+
+Required change
+
+Create special rules for expiry day:
+
+Smaller position size
+Stricter spread filter
+No far OTM buying
+No new trades after cutoff time
+Faster invalidation
+Option premium-based SL preferred
+Warning label: “Expiry-day risk active”
+Acceptance criteria
+
+The tool should automatically detect expiry-day conditions and adjust trade rules.
+
+9. Add Tradeability Score
+
+The scanner should not only show signal confidence. It should show whether the trade is practically executable.
+
+Suggested formula
+tradeabilityScore =
+  setupScore +
+  trendScore +
+  liquidityScore +
+  oiConfirmationScore +
+  spreadScore +
+  timeOfDayScore -
+  thetaRiskPenalty -
+  eventRiskPenalty
+
+Show score as:
+
+80–100: High quality
+65–79: Tradable but selective
+50–64: Watch only
+Below 50: Avoid
+Acceptance criteria
+
+Every F&O signal should show both:
+
+Signal confidence
+Tradeability score
+10. Add OI wall conflict detection
+
+Before recommending CE/PE trades, check if price is near major call/put OI resistance/support.
+
+Required change
+
+For CE signal:
+
+Warn if spot is near heavy call OI wall.
+
+For PE signal:
+
+Warn if spot is near heavy put OI wall.
+
+Show:
+
+Major call OI levels
+Major put OI levels
+PCR
+OI buildup type
+Conflict warning
+Acceptance criteria
+
+The signal card should explain whether OI supports or conflicts with the trade.
+
+3. Swing Trading Improvements
+11. Fix swing entry modelling
+
+Swing trades should not be filled at the day’s open if the signal is generated later.
+
+Required change
+
+Use realistic swing entries:
+
+Option 1: EOD swing model
+
+signalGeneratedAfterClose = true
+entry = nextDayTriggerAboveHigh
+
+Option 2: Intraday swing model
+
+entry = currentLTP + slippage
+
+Option 3: Breakout model
+
+entry = signalCandleHigh + buffer
+Acceptance criteria
+
+No paper trade should use an unavailable historical open price as entry.
+
+12. Add sector and market confirmation
+
+Swing trades should be filtered using broader market context.
+
+Required factors
+NIFTY trend
+Sector index trend
+Stock vs sector relative strength
+Stock vs NIFTY relative strength
+Market breadth
+Volume confirmation
+Delivery volume if available
+Acceptance criteria
+
+Swing signal card should show whether the stock is aligned with market and sector trend.
+
+13. Add event filters
+
+Swing trades should avoid high-risk event periods.
+
+Required filters
+Earnings/results date
+Board meetings
+Corporate actions
+F&O ban list
+ASM/GSM surveillance if available
+Major macro event days
+Acceptance criteria
+
+Signal should show an event-risk warning before generating a swing recommendation.
+
+4. Risk Management Improvements
+14. Add position sizing engine
+
+Every signal should include risk-based quantity.
+
+Required inputs
+Account capital
+Max risk per trade
+Stop-loss distance
+Lot size
+Max daily loss
+Max open positions
+Max F&O exposure
+
+Example:
+
+riskPerTrade = accountCapital * 0.01
+quantity = Math.floor(riskPerTrade / stopLossAmount)
+
+For F&O, quantity must be rounded to lot size.
+
+Acceptance criteria
+
+Every signal should show recommended quantity based on risk, not only technical setup.
+
+15. Add kill-switch rules
+
+The system should stop giving actionable trades after predefined risk limits.
+
+Required rules
+Stop trading after max daily loss
+Stop trading after 3 consecutive losses
+Stop trading after data feed failure
+Stop trading if Kite connection fails
+Stop trading during extreme spread/volatility
+Manual emergency disable button
+Acceptance criteria
+
+When kill switch is active, no paper/live trade should be allowed.
+
+5. Data Quality and Transparency
+16. Add Data Quality Badge to every signal
+
+Every signal should clearly show whether it is based on live or delayed data.
+
+Required labels
+LIVE_KITE_FULL
+LIVE_KITE_PARTIAL
+DELAYED_YAHOO
+NSE_FALLBACK
+STALE
+SIMULATED
+DERIVED
+Acceptance criteria
+
+Every F&O and swing signal must display data source, quote time, and freshness.
+
+17. Add signal explanation
+
+Each signal should explain why it was generated.
+
+Required display
+Why bullish/bearish?
+Which indicators confirmed?
+Which indicators are missing?
+What invalidates the setup?
+What is the risk?
+What can go wrong?
+Is this trade aligned with market regime?
+Acceptance criteria
+
+Signal should be understandable to a trader without checking raw code.
+
+6. Backtesting and Validation
+18. Build setup-wise backtesting dashboard
+
+This is a major requirement. Confidence score is not enough unless it is backed by historical performance.
+
+Required metrics
+
+For each strategy/setup:
+
+Number of signals
+Win rate
+Average profit
+Average loss
+Average R multiple
+Expectancy
+Max drawdown
+Max losing streak
+Best time of day
+Worst time of day
+Expiry-day performance
+Non-expiry-day performance
+Index-wise performance
+Sector-wise performance
+MFE/MAE
+False trigger rate
+Acceptance criteria
+
+The tool should show historical performance before a signal is trusted.
+
+19. Add walk-forward testing
+
+Avoid overfitting.
+
+Required split
+Training period
+Testing period
+Out-of-sample period
+Recent forward-test period
+Acceptance criteria
+
+No strategy should be marked “high conviction” unless it has acceptable out-of-sample performance.
+
+7. UI/UX Improvements
+20. Create Pro Trader Signal Card
+
+Each signal card should include:
+
+Bias
+Setup type
+Entry trigger
+Stop loss
+Target 1
+Target 2
+Risk-reward
+Selected option contract
+Premium entry range
+Max acceptable spread
+Lot size
+Required capital
+Suggested quantity
+Signal confidence
+Tradeability score
+Data quality
+OI support/conflict
+Market regime
+Invalidation reason
+Warning messages
+21. Add Daily Trading Plan page
+
+Create a page that shows:
+
+Market regime
+NIFTY/BANKNIFTY key levels
+Major support/resistance
+Major OI levels
+Sector strength
+Top F&O watchlist
+Top swing watchlist
+Avoid list
+Event risks
+Max trades allowed today
+Current daily P&L status
+22. Add Post-Market Review page
+
+Create a review dashboard:
+
+Signals generated
+Trades taken
+Trades skipped
+Winning trades
+Losing trades
+MFE/MAE
+Rule violations
+Best setup of the day
+Worst setup of the day
+Tomorrow’s watchlist
+8. Security and Production Readiness
+23. Strengthen broker/security handling
+
+Required:
+
+Encrypt Kite access tokens
+Never expose tokens to frontend
+Add token refresh handling
+Add audit log for trade actions
+Add CSRF protection for state-changing routes
+Add role-based access if multi-user
+Add admin-only config changes
+Add production error monitoring
+Add database backup process
+9. Final Development Priority
+
+Please implement in this order:
+
+Phase 1 — Safety and correctness
+Dynamic lot sizes
+Dynamic expiry handling
+Data-quality gate
+Block fallback data from actionable F&O trades
+Baseline signals informational only
+Unified confidence thresholds
+Realistic paper-trade pricing
+Phase 2 — F&O quality
+Liquidity filter
+Tradeability score
+OI wall conflict detection
+Expiry-day mode
+Option premium bid/ask tracking
+Phase 3 — Swing quality
+Realistic swing entry model
+Sector confirmation
+Market breadth confirmation
+Event-risk filters
+Better stop/target logic
+Phase 4 — Validation
+Backtesting dashboard
+Walk-forward testing
+Setup-wise performance report
+Paper-trading analytics
+Phase 5 — UI and production polish
+Pro Trader Signal Card
+Daily Trading Plan page
+Post-Market Review page
+Security hardening
+Alerting system
+Final Goal
+
+The goal is not just to create a scanner that shows BUY/SELL.
+
+The goal is to build a professional India-market decision-support system that answers:
+
+Is this signal based on live data?
+Is the selected option actually tradable?
+Is the lot size correct?
+Is expiry correct?
+Is liquidity good enough?
+Is the market regime supportive?
+Is OI supporting or blocking the trade?
+What is the exact entry, stop, target, and invalidation?
+What is the risk per trade?
+Has this setup worked historically?
+Should this be traded, watched, or avoided?
+
+Until these changes are completed, the tool should be used for analysis, scanning, and paper trading only — not for blind live execution.

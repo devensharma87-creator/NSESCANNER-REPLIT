@@ -111,6 +111,8 @@ function toClosedTrade(r: PaperTradeFoRow) {
       | "MANUAL_OVERRIDE",
     openedAt: r.openedAt.toISOString(),
     exitedAt: (r.exitedAt ?? r.openedAt).toISOString(),
+    journal: r.journal ?? null,
+    tags: r.tags ?? [],
   };
 }
 
@@ -337,6 +339,8 @@ function toEqClosedTrade(r: PaperTradeEqRow) {
       | "MANUAL_OVERRIDE",
     openedAt: r.openedAt.toISOString(),
     exitedAt: (r.exitedAt ?? r.openedAt).toISOString(),
+    journal: r.journal ?? null,
+    tags: r.tags ?? [],
   };
 }
 
@@ -488,8 +492,62 @@ router.get("/paper/reports/eq/yearly", requireOwner, async (req, res, next) => {
   }
 });
 
-// `sql` is imported so future raw bound-query helpers can land here
-// without re-touching the import block. Suppress unused-vars on it.
+router.patch("/paper/trades/fo/:id/journal", requireOwner, async (req, res, next) => {
+  try {
+    const id = String(req.params.id ?? "").trim();
+    if (!id) return res.status(400).json({ error: "id required" });
+    const body = req.body as { journal?: string | null; tags?: string[] | null };
+    const updates: Record<string, unknown> = {};
+    if ("journal" in body) updates.journal = body.journal ?? null;
+    if ("tags" in body) updates.tags = body.tags ?? null;
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "Nothing to update — send journal and/or tags" });
+    }
+    const rows = await db
+      .update(paperTradeFoTable)
+      .set(updates)
+      .where(eq(paperTradeFoTable.id, id))
+      .returning();
+    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+    const r = rows[0]!;
+    return res.json({
+      id: r.id,
+      journal: r.journal ?? null,
+      tags: r.tags ?? [],
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch("/paper/trades/eq/:id/journal", requireOwner, async (req, res, next) => {
+  try {
+    const id = String(req.params.id ?? "").trim();
+    if (!id) return res.status(400).json({ error: "id required" });
+    const body = req.body as { journal?: string | null; tags?: string[] | null };
+    const updates: Record<string, unknown> = {};
+    if ("journal" in body) updates.journal = body.journal ?? null;
+    if ("tags" in body) updates.tags = body.tags ?? null;
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "Nothing to update — send journal and/or tags" });
+    }
+    const rows = await db
+      .update(paperTradeEqTable)
+      .set(updates)
+      .where(eq(paperTradeEqTable.id, id))
+      .returning();
+    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+    const r = rows[0]!;
+    return res.json({
+      id: r.id,
+      journal: r.journal ?? null,
+      tags: r.tags ?? [],
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 void sql;
 
 export default router;

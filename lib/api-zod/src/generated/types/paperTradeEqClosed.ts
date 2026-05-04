@@ -21,4 +21,6 @@ export interface PaperTradeEqClosed {
   exitReason: PaperTradeEqClosedExitReason;
   openedAt: Date;
   exitedAt: Date;
+  journal?: string | null;
+  tags?: string[] | null;
 }

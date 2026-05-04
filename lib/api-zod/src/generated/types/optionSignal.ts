@@ -7,6 +7,7 @@
  */
 import type { OptionLeg } from "./optionLeg";
 import type { OptionSignalBias } from "./optionSignalBias";
+import type { OptionSignalDataQuality } from "./optionSignalDataQuality";
 import type { OptionSignalExitReason } from "./optionSignalExitReason";
 import type { OptionSignalHtfBias } from "./optionSignalHtfBias";
 import type { OptionSignalSetupKey } from "./optionSignalSetupKey";
@@ -86,4 +87,6 @@ export interface OptionSignal {
   optionTheta?: number;
   /** Vega (₹/share per 1 vol point) of the chosen strike. */
   optionVega?: number;
+  /** Data quality label indicating the source and freshness of intraday data used to generate this signal. */
+  dataQuality?: OptionSignalDataQuality;
 }

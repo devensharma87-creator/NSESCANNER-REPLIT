@@ -125,6 +125,9 @@ export const paperTradeFoTable = pgTable(
     maxRunup: numeric("max_runup", { precision: 18, scale: 2 }).notNull().default("0"),
     /** Worst unrealised P&L observed while the trade was open. */
     maxDrawdown: numeric("max_drawdown", { precision: 18, scale: 2 }).notNull().default("0"),
+
+    journal: text("journal"),
+    tags: text("tags").array(),
   },
   (t) => ({
     // 1:1 with the underlying signal — prevents the lifecycle hook from
@@ -216,6 +219,9 @@ export const paperTradeEqTable = pgTable(
     maxRunup: numeric("max_runup", { precision: 18, scale: 2 }).notNull().default("0"),
     /** Worst unrealised P&L observed while the trade was open (₹). */
     maxDrawdown: numeric("max_drawdown", { precision: 18, scale: 2 }).notNull().default("0"),
+
+    journal: text("journal"),
+    tags: text("tags").array(),
   },
   (t) => ({
     // One open trade per symbol per IST day.

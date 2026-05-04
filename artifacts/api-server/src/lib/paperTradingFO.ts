@@ -35,6 +35,8 @@ import { ensureDailyReset, FNO_RISK } from "./paperAccount";
 import { LOT_SIZES } from "./optionChain";
 import { logger } from "./logger";
 import { computeMarketStatus } from "./marketEvents";
+import { activeProvider } from "./dataProvider";
+import { isActionableForFno, type DataQualityLabel } from "./tradingConfig";
 
 type LifecycleStatus =
   | "PENDING"
@@ -542,6 +544,15 @@ function pickExitPremium(r: PaperTradeFoRow, reason: CloseReason): number {
  * never silently drops trades.
  */
 export async function reconcileMissingPaperTrades(): Promise<number> {
+  const provider = activeProvider();
+  if (provider !== "kite") {
+    logger.info(
+      { provider },
+      "reconcileMissingPaperTrades: skipped — data provider is not live Kite",
+    );
+    return 0;
+  }
+
   const now = new Date();
   const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
   const today = ist.toISOString().slice(0, 10);
@@ -560,6 +571,7 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
      WHERE h.signal_date   = ${today}
        AND h.triggered_at IS NOT NULL
        AND p.id IS NULL
+       AND h.setup_key != 'BASELINE'
   `);
   const rows = (result as unknown as {
     rows: Array<{
@@ -715,7 +727,33 @@ export async function tryOpenPaperTrades(
     }
   }
 
+  const provider = activeProvider();
+  if (provider !== "kite") {
+    logger.info(
+      { provider, signalCount: signals.length },
+      "Paper FO skip ALL: data provider is not live Kite — analysis only, no trades",
+    );
+    return;
+  }
+
   for (const signal of signals) {
+    if (signal.tier === "BASELINE") {
+      logger.info(
+        { index: signal.index, setupKey: signal.setupKey },
+        "Paper FO skip: BASELINE signals are informational only — not actionable",
+      );
+      continue;
+    }
+
+    const quality = signal.dataQuality as DataQualityLabel | undefined;
+    if (quality && !isActionableForFno(quality)) {
+      logger.info(
+        { index: signal.index, setupKey: signal.setupKey, dataQuality: quality },
+        "Paper FO skip: signal data quality is not actionable (delayed/stale source)",
+      );
+      continue;
+    }
+
     const direction: "BULLISH" | "BEARISH" =
       signal.bias === "BEARISH" ? "BEARISH" : "BULLISH";
     const status = signal.status as LifecycleStatus | undefined;

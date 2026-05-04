@@ -12,6 +12,8 @@ import {
   type SpotSnapshot,
 } from "./optionSignalLifecycle";
 import { computeMarketStatus } from "./marketEvents";
+import { fetchOiInsights, type OiInsightsResponse } from "./oiLab";
+import { classifyVolRegime, resolveDataQuality, isActionableForFno, type VolRegime, type DataQualityLabel } from "./tradingConfig";
 
 export interface IndexCfg {
   symbol: string;
@@ -140,6 +142,7 @@ function lastSessionBars(chart: YahooChart): YahooChart {
 }
 
 // ---------- shared market context ----------
+
 interface Ctx {
   cfg: IndexCfg;
   spot: number;
@@ -165,6 +168,8 @@ interface Ctx {
   prevSwingLow: number;
   bars: { o: number[]; h: number[]; l: number[]; c: number[]; v: number[] };
   fullIndicators: boolean;
+  realizedVol14: number | null;
+  volRegime: VolRegime;
 }
 
 const MIN_BARS_FOR_CONTEXT = 2;
@@ -242,6 +247,22 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     : spot < effectiveDailyEma * 0.996 ? "BEARISH"
     : "NEUTRAL";
 
+  let realizedVol14: number | null = null;
+  if (dn >= 15) {
+    const dailyCloses = daily.close.slice(-15);
+    const logReturns: number[] = [];
+    for (let i = 1; i < dailyCloses.length; i++) {
+      const prev = dailyCloses[i - 1]!, curr = dailyCloses[i]!;
+      if (prev > 0 && curr > 0) logReturns.push(Math.log(curr / prev));
+    }
+    if (logReturns.length >= 10) {
+      const mean = logReturns.reduce((a, b) => a + b, 0) / logReturns.length;
+      const variance = logReturns.reduce((a, r) => a + (r - mean) ** 2, 0) / (logReturns.length - 1);
+      realizedVol14 = Math.sqrt(variance) * Math.sqrt(252) * 100;
+    }
+  }
+  const volRegime = classifyVolRegime(realizedVol14);
+
   return {
     cfg, spot, open0,
     sessionChangePct: ((spot - open0) / open0) * 100,
@@ -257,6 +278,8 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     prevSwingHigh, prevSwingLow,
     bars: { o: today.open, h: highs, l: lows, c: closes, v: vols },
     fullIndicators,
+    realizedVol14,
+    volRegime,
   };
 }
 
@@ -951,6 +974,11 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
   } else if (!ctx.fullIndicators) {
     suppressed.push("partial_indicators: not enough bars for full EMA21/RSI14/ATR14 — baseline only");
   } else {
+    if (ctx.volRegime === "EXTREME") {
+      suppressed.push(`vol_regime: EXTREME (realized vol ${ctx.realizedVol14?.toFixed(1)}%) — confidence haircut -8 applied to all setups`);
+    } else if (ctx.volRegime === "HIGH") {
+      suppressed.push(`vol_regime: HIGH (realized vol ${ctx.realizedVol14?.toFixed(1)}%) — confidence haircut -4 applied`);
+    }
     for (const det of detectors) {
       if (det.trendClass && !trendEntryAllowed) {
         suppressed.push(`${det.name}: late-session entry gate (after 14:30 IST — insufficient runway for trend target)`);
@@ -961,6 +989,13 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
         if (!r) {
           suppressed.push(`${det.name}: conditions not met`);
           continue;
+        }
+        if (ctx.volRegime === "EXTREME") {
+          r.confidence -= 8;
+          r.drivers.push({ label: "VOL_REGIME", weight: -8, bullish: false, detail: `Extreme realized vol (${ctx.realizedVol14?.toFixed(1)}%) — reduced confidence, wider expected ranges` });
+        } else if (ctx.volRegime === "HIGH") {
+          r.confidence -= 4;
+          r.drivers.push({ label: "VOL_REGIME", weight: -4, bullish: false, detail: `High realized vol (${ctx.realizedVol14?.toFixed(1)}%) — mild confidence haircut` });
         }
         // FIRST translate the plan inward when the structural trigger is
         // unreachable (e.g. prevSwingHigh is 2% above spot — the trigger
@@ -1308,6 +1343,81 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
   );
 }
 
+async function applyOiConfirmation(signals: OptionSignal[]): Promise<void> {
+  const byIndex = new Map<string, OptionSignal[]>();
+  for (const s of signals) {
+    if (s.tier === "BASELINE") continue;
+    const list = byIndex.get(s.index) ?? [];
+    list.push(s);
+    byIndex.set(s.index, list);
+  }
+  if (byIndex.size === 0) return;
+
+  const indexToYahoo: Record<string, string> = {};
+  for (const cfg of OPTION_INDICES) indexToYahoo[cfg.symbol] = cfg.yahoo;
+
+  await Promise.all(
+    [...byIndex.entries()].map(async ([idx, sigs]) => {
+      try {
+        const yahoo = indexToYahoo[idx];
+        if (!yahoo) return;
+        const oi: OiInsightsResponse | null = await fetchOiInsights(idx);
+        if (!oi) return;
+
+        for (const s of sigs) {
+          const isBullish = s.bias === "BULLISH";
+          const oiBullish =
+            oi.sentimentScore > 20 ||
+            (oi.pcrOi > 1.2 && oi.intradayFlow > 0.2);
+          const oiBearish =
+            oi.sentimentScore < -20 ||
+            (oi.pcrOi < 0.7 && oi.intradayFlow < -0.2);
+
+          const oiAligned =
+            (isBullish && oiBullish) || (!isBullish && oiBearish);
+          const oiConflict =
+            (isBullish && oiBearish) || (!isBullish && oiBullish);
+
+          if (oiAligned) {
+            s.confidence = Math.min(100, (s.confidence ?? 0) + 7);
+            s.drivers = [
+              ...(s.drivers ?? []),
+              {
+                label: "OI_CONFIRMATION",
+                weight: 7,
+                bullish: isBullish,
+                detail: `OI supports ${s.bias} bias (PCR ${oi.pcrOi}, sentiment ${oi.sentimentScore > 0 ? "+" : ""}${oi.sentimentScore})`,
+              },
+            ];
+            if (!s.tags?.includes("OI_CONFIRMED")) {
+              s.tags = [...(s.tags ?? []), "OI_CONFIRMED"];
+            }
+          } else if (oiConflict) {
+            s.confidence = Math.max(0, (s.confidence ?? 0) - 5);
+            s.drivers = [
+              ...(s.drivers ?? []),
+              {
+                label: "OI_CONFLICT",
+                weight: -5,
+                bullish: !isBullish,
+                detail: `OI opposes ${s.bias} bias (PCR ${oi.pcrOi}, sentiment ${oi.sentimentScore > 0 ? "+" : ""}${oi.sentimentScore})`,
+              },
+            ];
+            if (!s.tags?.includes("OI_CONFLICT")) {
+              s.tags = [...(s.tags ?? []), "OI_CONFLICT"];
+            }
+          }
+        }
+      } catch (err) {
+        logger.info(
+          { err: (err as Error).message, idx },
+          "OI confirmation: skipped (data unavailable)",
+        );
+      }
+    }),
+  );
+}
+
 export async function getOptionSignals(): Promise<OptionSignalsResult> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
   const out: OptionSignal[] = [];
@@ -1359,6 +1469,10 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       }
       const r = buildSignalsForIndex(cfg, intra, daily);
       if (r.hasBars) indicesWithBars++;
+      const quality = resolveDataQuality(intraSrc);
+      for (const s of r.signals) {
+        s.dataQuality = quality;
+      }
       out.push(...r.signals);
       bundles.push({ signals: r.signals, snapshot: r.snapshot });
       for (const s of r.signals) {
@@ -1457,9 +1571,12 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // (with an inline notice on the card so the absence isn't mistaken for a bug).
   await enrichBundlesWithOptionLevels(bundles);
 
+  const allSignals = bundles.flatMap((b) => b.signals);
+
+  await applyOiConfirmation(allSignals);
+
   // Back-fill option premiums into lifecycle rows — they were null at
   // insert/trigger time because enrichment hadn't run yet.
-  const allSignals = bundles.flatMap((b) => b.signals);
   await persistOptionPremiums(allSignals).catch((err) =>
     logger.warn({ err: (err as Error).message }, "persistOptionPremiums failed"),
   );

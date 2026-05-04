@@ -37,6 +37,44 @@ import type { StockRow } from "@workspace/api-zod";
 import { atr } from "./indicators";
 import { fetchChart } from "./yahoo";
 import { logger } from "./logger";
+import { getEntry } from "./universe";
+
+interface SectorStrength {
+  avgChangePercent: number;
+  rank: number;
+  totalSectors: number;
+  isBottomQuartile: boolean;
+}
+
+function buildSectorStrengthMap(rows: readonly StockRow[]): Map<string, SectorStrength> {
+  const bySector = new Map<string, number[]>();
+  for (const r of rows) {
+    if (!r.sector) continue;
+    const arr = bySector.get(r.sector) ?? [];
+    arr.push(r.quote.changePercent);
+    bySector.set(r.sector, arr);
+  }
+  const sectorAvgs: Array<{ sector: string; avg: number }> = [];
+  for (const [sector, changes] of bySector) {
+    if (changes.length === 0) continue;
+    const avg = changes.reduce((a, b) => a + b, 0) / changes.length;
+    sectorAvgs.push({ sector, avg });
+  }
+  sectorAvgs.sort((a, b) => b.avg - a.avg);
+  const total = sectorAvgs.length;
+  const bottomQuartileCutoff = Math.ceil(total * 0.75);
+  const result = new Map<string, SectorStrength>();
+  for (let i = 0; i < sectorAvgs.length; i++) {
+    const s = sectorAvgs[i]!;
+    result.set(s.sector, {
+      avgChangePercent: +s.avg.toFixed(2),
+      rank: i + 1,
+      totalSectors: total,
+      isBottomQuartile: i + 1 > bottomQuartileCutoff,
+    });
+  }
+  return result;
+}
 
 /**
  * Volume confirmation floor for a swing entry. The signal-bar volume must
@@ -217,10 +255,23 @@ export async function buildSwingSignalFromRow(
   row: StockRow,
   /** Optional minimum scanner score floor (defensive, atop STRONG_BUY). */
   minScore: number,
+  sectorMap?: Map<string, SectorStrength>,
 ): Promise<SwingSignal | null> {
   if (!FNO_EQUITY_UNIVERSE.has(row.symbol)) return null;
   if (row.recommendation.signal !== "STRONG_BUY") return null;
   if ((row.recommendation.score ?? 0) < minScore) return null;
+
+  const sector = row.sector || getEntry(row.symbol)?.sector;
+  if (sector && sectorMap) {
+    const strength = sectorMap.get(sector);
+    if (strength && strength.isBottomQuartile) {
+      logger.info(
+        { symbol: row.symbol, sector, sectorRank: strength.rank, totalSectors: strength.totalSectors, sectorAvgChg: strength.avgChangePercent },
+        "Swing skip: sector in bottom quartile — not entering longs in weak sectors",
+      );
+      return null;
+    }
+  }
 
   const ltp = row.quote.price;
   if (!(ltp > 0)) {
@@ -318,17 +369,20 @@ export async function buildAllSwingSignals(
   );
   if (candidates.length === 0) return [];
 
-  // No broader-market (NIFTY 50 vs 50-EMA) veto: equity entries are
-  // taken on per-stock technical analysis only. Each candidate has
-  // already cleared the STRONG_BUY scanner verdict and the MIN_SCORE
-  // floor; the per-symbol level computation below additionally
-  // enforces volume confirmation and a real ATR-based stop, so a
-  // legitimate setup is not blocked just because the index happens
-  // to be below its 50-EMA. Existing open positions remain managed
-  // by the executor regardless. (The earlier macro gate has been
-  // removed at the user's explicit direction, 2026-05-04.)
+  const sectorMap = buildSectorStrengthMap(rows);
+  if (sectorMap.size > 0) {
+    const bottomQuartile = [...sectorMap.entries()]
+      .filter(([, s]) => s.isBottomQuartile)
+      .map(([sec, s]) => `${sec}(${s.avgChangePercent}%)`);
+    if (bottomQuartile.length > 0) {
+      logger.info(
+        { bottomQuartileSectors: bottomQuartile },
+        "Swing: sector-strength gate active — bottom-quartile sectors will be skipped",
+      );
+    }
+  }
   const built = await Promise.all(
-    candidates.map((r) => buildSwingSignalFromRow(r, minScore)),
+    candidates.map((r) => buildSwingSignalFromRow(r, minScore, sectorMap)),
   );
   return built.filter((s): s is SwingSignal => s != null);
 }

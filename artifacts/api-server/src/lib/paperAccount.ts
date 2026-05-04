@@ -22,6 +22,7 @@ import { db, paperAccountTable, paperTradeFoTable } from "@workspace/db";
 import type { PaperAccountRow } from "@workspace/db";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { logger } from "./logger";
+import { CONFIDENCE_THRESHOLDS } from "./tradingConfig";
 
 export type Segment = "FNO" | "EQUITY";
 
@@ -37,8 +38,8 @@ export const FNO_RISK = {
   MAX_LOSS_PCT_PER_TRADE: 0.02, // 2%
   /** Max paper trades opened per IST trading day. */
   MAX_TRADES_PER_DAY: 4,
-  /** Minimum signal confidence to auto-trade. */
-  MIN_CONFIDENCE: 50,
+  /** Minimum signal confidence to auto-trade (wired from central tradingConfig). */
+  MIN_CONFIDENCE: CONFIDENCE_THRESHOLDS.MIN_FNO_TRADE,
 } as const;
 
 /** Equity (swing-cash) specific allocation rules. User-decided. */

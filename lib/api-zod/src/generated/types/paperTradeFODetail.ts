@@ -36,4 +36,6 @@ export interface PaperTradeFODetail {
   rMultiple: number;
   exitReason: PaperTradeFODetailExitReason;
   durationSec: number;
+  journal?: string | null;
+  tags?: string[] | null;
 }
