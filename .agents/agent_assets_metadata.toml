@@ -24,3 +24,9 @@ id = "4EzH67EPbgi5w_HDxQsyt"
 uri = "file://exports/stock_scanner_pro_project_data.md"
 type = "text"
 title = "Stock Scanner Pro — Complete Project Data File"
+
+[[outputs]]
+id = "O3oZA1bO2a4rbgL13lven"
+uri = "file://exports/stock_scanner_pro_project_data.txt"
+type = "text"
+title = "Stock Scanner Pro — Complete Project Data (Downloadable)"
