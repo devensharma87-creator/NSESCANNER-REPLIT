@@ -30,3 +30,9 @@ id = "O3oZA1bO2a4rbgL13lven"
 uri = "file://exports/stock_scanner_pro_project_data.txt"
 type = "text"
 title = "Stock Scanner Pro — Complete Project Data (Downloadable)"
+
+[[outputs]]
+id = "i3aDn2S1Ovcq87RcHWX6w"
+uri = "file://exports/stock_scanner_pro_full_backup_20260504_125308.tar.gz"
+type = "unspecified"
+title = "Stock Scanner Pro — Full Source Code Backup (991KB)"
