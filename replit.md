@@ -64,7 +64,7 @@ The project is structured as a pnpm workspace monorepo using TypeScript 5.9.
 - **Mirror Kite Session**: Allows secure mirroring of Kite sessions from production to dev.
 - **Learn Tab Expansion**: Expanded content on futures, options, derivatives, trading psychology, and risk management, including patterns and trading psychology key concepts.
 - **Pre/Post-Market Additions**: The `/premarket` page includes Today's Game Plan, Key Index Levels, Option Snapshot, Sector Heatmap, and FII / DII Snapshot.
-- **Paper Trading (owner-only)**: Auto-traded F&O and equity paper accounts with seeded balance, risk management rules, and lifecycle hooks.
+- **Paper Trading (owner-only)**: Auto-traded F&O and equity paper accounts with seeded balance, risk management rules, and lifecycle hooks. F&O paper trade opens run AFTER option-premium enrichment (not inside the lifecycle hook) so premiums are always available. Option premiums are back-filled to lifecycle DB rows post-enrichment via `persistOptionPremiums()`. Startup reconciliation catches signals that triggered+exited while the server was down.
 - **Global Multi-Asset Scanner (`/global/`)**: A standalone React-Vite artifact covering Crypto (Binance), Commodities and Forex (Yahoo Finance), and Global Equities/Indices (Yahoo Finance). It includes a dashboard, source-health monitoring, instrument details with `lightweight-charts`, and a screener with multi-asset-class filters and sharable presets.
 
 # External Dependencies

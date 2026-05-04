@@ -506,20 +506,135 @@ function pickExitPremium(r: PaperTradeFoRow, reason: CloseReason): number {
 }
 
 /**
+ * Catch-up reconciliation: find today's triggered lifecycle rows that
+ * have NO matching paper_trade_fo row, and retroactively open (and,
+ * if the lifecycle already exited, close) them. Runs once per server
+ * instance on the first lifecycle hook call, so a restart mid-day
+ * never silently drops trades.
+ */
+export async function reconcileMissingPaperTrades(): Promise<number> {
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const today = ist.toISOString().slice(0, 10);
+
+  const result = await db.execute(sql`
+    SELECT h.signal_date, h.index_symbol, h.index_name, h.setup_key, h.direction,
+           h.option_type, h.strike, h.entry, h.stop_loss, h.target1, h.target2,
+           h.option_entry, h.option_stop_loss, h.option_target1, h.option_target2,
+           h.confidence, h.status AS lifecycle_status, h.exited_at
+      FROM option_signal_history h
+      LEFT JOIN paper_trade_fo p
+        ON p.signal_date = h.signal_date
+       AND p.index_symbol = h.index_symbol
+       AND p.setup_key    = h.setup_key
+       AND p.direction     = h.direction
+     WHERE h.signal_date   = ${today}
+       AND h.triggered_at IS NOT NULL
+       AND p.id IS NULL
+  `);
+  const rows = (result as unknown as {
+    rows: Array<{
+      signal_date: string;
+      index_symbol: string;
+      index_name: string;
+      setup_key: string;
+      direction: string;
+      option_type: string;
+      strike: string;
+      entry: string;
+      stop_loss: string;
+      target1: string;
+      target2: string;
+      option_entry: string | null;
+      option_stop_loss: string | null;
+      option_target1: string | null;
+      option_target2: string | null;
+      confidence: number;
+      lifecycle_status: string;
+      exited_at: Date | null;
+    }>;
+  }).rows;
+  if (rows.length === 0) return 0;
+
+  let opened = 0;
+  for (const r of rows) {
+    const optEntry = num(r.option_entry);
+    const optStop = num(r.option_stop_loss);
+    if (!optEntry || !optStop) continue;
+
+    const dir: "BULLISH" | "BEARISH" =
+      r.direction === "BEARISH" ? "BEARISH" : "BULLISH";
+    const syntheticSignal = {
+      index: r.index_symbol,
+      indexName: r.index_name,
+      setupKey: r.setup_key,
+      confidence: r.confidence,
+      optionEntry: optEntry,
+      optionLtp: optEntry,
+      optionStopLoss: optStop,
+      optionTarget1: num(r.option_target1) || optEntry,
+      optionTarget2: num(r.option_target2) || num(r.option_target1) || optEntry,
+      bias: r.direction,
+      leg: {
+        type: r.option_type,
+        strike: num(r.strike),
+        entry: num(r.entry),
+        stopLoss: num(r.stop_loss),
+        target1: num(r.target1),
+        target2: num(r.target2),
+      },
+    } as unknown as OptionSignal;
+
+    try {
+      const trade = await openPaperTrade({
+        prev: null,
+        next: "TRIGGERED",
+        exited: false,
+        signal: syntheticSignal,
+        signalDate: r.signal_date,
+        direction: dir,
+      });
+      if (trade) {
+        opened++;
+        if (r.exited_at) {
+          const reason: CloseReason =
+            r.lifecycle_status === "TARGET2_HIT" ? "TARGET2_HIT" :
+            r.lifecycle_status === "STOPPED" ? "STOPPED" :
+            r.lifecycle_status === "TARGET1_HIT" ? "TARGET1_HIT" :
+            "EXPIRED";
+          await closePaperTradeForSignal(
+            r.signal_date, r.index_symbol, r.setup_key, dir, reason,
+          );
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message, idx: r.index_symbol, setup: r.setup_key },
+        "reconcileMissingPaperTrades: open failed for one row, continuing",
+      );
+    }
+  }
+  if (opened > 0) {
+    logger.info({ opened, checked: rows.length }, "Reconciled missing paper F&O trades");
+  }
+  return opened;
+}
+
+let didStartupReconcile = false;
+
+/**
  * Single entry point invoked by the option signal lifecycle library
  * after every successful upsert. Quiet on failure — never throws.
+ *
+ * IMPORTANT: this hook fires BEFORE option-premium enrichment, so
+ * signal.optionEntry etc. are still undefined here. It must NOT
+ * attempt to open paper trades (which need premiums). Opens are
+ * handled by `tryOpenPaperTrades()` which runs AFTER enrichment
+ * in the signal cycle.  This hook only does MTM + close.
  */
 export async function onLifecycleUpsert(input: LifecycleHookInput): Promise<void> {
   try {
-    const { prev, next, exited } = input;
-
-    // Did we just trigger? OPEN if we never had this row before, or it
-    // was PENDING last time AND is now past the trigger.
-    const wasPreTrigger = prev === null || prev === "PENDING";
-    const isPostTrigger = PAST_TRIGGER.includes(next);
-    if (wasPreTrigger && isPostTrigger) {
-      await openPaperTrade(input);
-    }
+    const { next, exited } = input;
 
     // Always mark-to-market — this also records max_runup / max_drawdown.
     await markToMarket(input);
@@ -544,5 +659,68 @@ export async function onLifecycleUpsert(input: LifecycleHookInput): Promise<void
       { err: (err as Error).message, idx: input.signal.index, setup: input.signal.setupKey },
       "Paper FO lifecycle hook failed",
     );
+  }
+}
+
+/**
+ * Post-enrichment paper trade opener.  Called from the signal cycle
+ * AFTER `enrichBundlesWithOptionLevels()` has populated option
+ * premiums on every signal.  For each signal that is past trigger,
+ * idempotently opens a paper trade (existing-row short-circuit makes
+ * repeated calls harmless).
+ *
+ * Also runs the one-time startup reconciliation on first invocation
+ * so any signals that triggered AND exited while the server was down
+ * get retroactively created + closed.
+ */
+export async function tryOpenPaperTrades(
+  signals: OptionSignal[],
+  signalDate: string,
+): Promise<void> {
+  if (!didStartupReconcile) {
+    didStartupReconcile = true;
+    try {
+      await reconcileMissingPaperTrades();
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, "Startup paper trade reconciliation failed");
+    }
+  }
+
+  for (const signal of signals) {
+    const direction: "BULLISH" | "BEARISH" =
+      signal.bias === "BEARISH" ? "BEARISH" : "BULLISH";
+    const status = signal.status as LifecycleStatus | undefined;
+    if (!status || !PAST_TRIGGER.includes(status)) continue;
+
+    try {
+      const trade = await openPaperTrade({
+        prev: null,
+        next: status,
+        exited: !!signal.exitedAt,
+        signal,
+        signalDate,
+        direction,
+      });
+
+      if (trade && signal.exitedAt) {
+        const reason: CloseReason =
+          status === "TARGET2_HIT" ? "TARGET2_HIT" :
+          status === "STOPPED" ? "STOPPED" :
+          status === "TARGET1_HIT" ? "TARGET1_HIT" :
+          "EXPIRED";
+        await closePaperTradeForSignal(
+          signalDate,
+          signal.index,
+          signal.setupKey ?? "",
+          direction,
+          reason,
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message, idx: signal.index, setup: signal.setupKey },
+        "Paper FO post-enrichment open failed",
+      );
+    }
   }
 }

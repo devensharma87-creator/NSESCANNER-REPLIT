@@ -603,6 +603,11 @@ export async function recordOrUpdate(
     // the row (CAS update returned a row above). The "fall-through to
     // re-read" branch intentionally does NOT call the hook because
     // the concurrent writer that won the CAS already invoked it.
+    //
+    // NOTE: the hook does MTM + close only.  Paper-trade OPENS are
+    // handled by tryOpenPaperTrades() which runs AFTER option-premium
+    // enrichment in the signal cycle (premiums are not yet available
+    // at this point).
     await onLifecycleUpsert({
       prev: currentStatus,
       next: trans.next,
@@ -833,6 +838,52 @@ export async function getRecentHistory(days = 7): Promise<HistoryRow[]> {
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "getRecentHistory failed");
     return [];
+  }
+}
+
+/**
+ * Batch-update lifecycle rows with option premiums computed by
+ * enrichBundlesWithOptionLevels().  The lifecycle INSERT and the
+ * PENDING→TRIGGERED refresh both run BEFORE enrichment, so premiums
+ * are always null at write time.  This back-fill runs AFTER enrichment
+ * and patches every row that still has null optionEntry.
+ *
+ * Only updates rows for the current IST date (today's signals).
+ */
+export async function persistOptionPremiums(
+  signals: OptionSignal[],
+): Promise<void> {
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const today = ist.toISOString().slice(0, 10);
+
+  for (const s of signals) {
+    if (s.optionEntry == null) continue;
+    const direction: "BULLISH" | "BEARISH" =
+      s.bias === "BEARISH" ? "BEARISH" : "BULLISH";
+    try {
+      await db
+        .update(optionSignalHistoryTable)
+        .set({
+          optionEntry: toDbNumeric(s.optionEntry),
+          optionStopLoss: s.optionStopLoss != null ? toDbNumeric(s.optionStopLoss) : null,
+          optionTarget1: s.optionTarget1 != null ? toDbNumeric(s.optionTarget1) : null,
+          optionTarget2: s.optionTarget2 != null ? toDbNumeric(s.optionTarget2) : null,
+        })
+        .where(
+          and(
+            eq(optionSignalHistoryTable.signalDate, today),
+            eq(optionSignalHistoryTable.indexSymbol, s.index),
+            eq(optionSignalHistoryTable.setupKey, s.setupKey ?? ""),
+            eq(optionSignalHistoryTable.direction, direction),
+            sql`${optionSignalHistoryTable.optionEntry} IS NULL`,
+          ),
+        );
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message, idx: s.index, setup: s.setupKey },
+        "persistOptionPremiums: failed for one row",
+      );
+    }
   }
 }
 

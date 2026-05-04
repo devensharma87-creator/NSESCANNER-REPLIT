@@ -8,6 +8,7 @@ import { fetchOptionChain, type OcRow, type OcSide } from "./optionChain";
 import {
   recordOrUpdate as recordLifecycle,
   expireOpenSignalsForToday,
+  persistOptionPremiums,
   type SpotSnapshot,
 } from "./optionSignalLifecycle";
 import { computeMarketStatus } from "./marketEvents";
@@ -1425,6 +1426,23 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // we silently skip and the card just falls back to spot-only display
   // (with an inline notice on the card so the absence isn't mistaken for a bug).
   await enrichBundlesWithOptionLevels(bundles);
+
+  // Back-fill option premiums into lifecycle rows — they were null at
+  // insert/trigger time because enrichment hadn't run yet.
+  const allSignals = bundles.flatMap((b) => b.signals);
+  await persistOptionPremiums(allSignals).catch((err) =>
+    logger.warn({ err: (err as Error).message }, "persistOptionPremiums failed"),
+  );
+
+  // Paper-trade opens MUST run AFTER enrichment so that signal.optionEntry
+  // etc. are populated.  The lifecycle hook (recordLifecycle → onLifecycleUpsert)
+  // only handles MTM + close; opens are deferred here.
+  const { tryOpenPaperTrades } = await import("./paperTradingFO");
+  const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const signalDate = istNow.toISOString().slice(0, 10);
+  await tryOpenPaperTrades(allSignals, signalDate).catch((err) =>
+    logger.warn({ err: (err as Error).message }, "tryOpenPaperTrades failed"),
+  );
 
   // Sweep open rows to EXPIRED after market close (no-op intra-session).
   await expireOpenSignalsForToday().catch(() => 0);
