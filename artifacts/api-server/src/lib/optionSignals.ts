@@ -95,17 +95,41 @@ function expiryFor(cfg: IndexCfg): string {
     ? nextWeeklyExpiry(cfg.expiryWeekday)
     : nextMonthlyExpiry(cfg.expiryWeekday);
 }
-function todayBarsOnly(chart: YahooChart): YahooChart {
-  const lastTs = chart.timestamps[chart.timestamps.length - 1];
-  if (lastTs == null) return chart;
-  const lastIstDay = new Date((lastTs + 19800) * 1000).toISOString().slice(0, 10);
-  const idxs: number[] = [];
+const MIN_REAL_SESSION_BARS = 15;
+
+function lastSessionBars(chart: YahooChart): YahooChart {
+  if (chart.timestamps.length === 0) return chart;
+
+  const dayMap = new Map<string, number[]>();
   for (let i = 0; i < chart.timestamps.length; i++) {
     const day = new Date((chart.timestamps[i]! + 19800) * 1000).toISOString().slice(0, 10);
-    if (day === lastIstDay) idxs.push(i);
+    let arr = dayMap.get(day);
+    if (!arr) { arr = []; dayMap.set(day, arr); }
+    arr.push(i);
   }
-  if (idxs.length === 0) return chart;
-  const pick = <T,>(a: T[]) => idxs.map(i => a[i]!);
+
+  const days = [...dayMap.keys()].sort().reverse();
+  if (days.length === 0) return chart;
+
+  const latestDay = days[0]!;
+  const latestBars = dayMap.get(latestDay)!;
+
+  const mktStatus = computeMarketStatus(new Date());
+  const isLiveSession = mktStatus === "open" || mktStatus === "pre_open";
+
+  let selectedIdxs = latestBars;
+  if (!isLiveSession && latestBars.length < MIN_REAL_SESSION_BARS) {
+    for (let d = 1; d < days.length; d++) {
+      const candidate = dayMap.get(days[d]!)!;
+      if (candidate.length >= MIN_REAL_SESSION_BARS) {
+        selectedIdxs = candidate;
+        break;
+      }
+    }
+  }
+
+  if (selectedIdxs.length === 0) return chart;
+  const pick = <T,>(a: T[]) => selectedIdxs.map(i => a[i]!);
   return {
     symbol: chart.symbol, meta: chart.meta,
     timestamps: pick(chart.timestamps),
@@ -131,28 +155,36 @@ interface Ctx {
   vp: { pointOfControl: number; valueAreaHigh: number; valueAreaLow: number } | null;
   piv: { pivot: number; r1: number; s1: number; r2: number; s2: number };
   atr15: number;
-  atrDaily: number;        // ATR(14) on daily bars — used for stop placement
-  dailyEma50: number;      // higher-timeframe trend filter
+  atrDaily: number;
+  dailyEma50: number;
   htfBias: "BULLISH" | "BEARISH" | "NEUTRAL";
   avgVol20: number;
-  /** Most recent intraday-bar volume. `null` when Yahoo returned no
-   *  volume for the latest bar (rare, but happens at the very first
-   *  pre-open print). Detectors that consume this MUST gate on
-   *  `null` rather than treating it as zero — coercing `null → 0`
-   *  silently fails every "volume confirmation" check and biases
-   *  detector confidence. */
   lastVol: number | null;
   prevSwingHigh: number;
   prevSwingLow: number;
   bars: { o: number[]; h: number[]; l: number[]; c: number[]; v: number[] };
+  fullIndicators: boolean;
+}
+
+const MIN_BARS_FOR_CONTEXT = 2;
+
+function simpleAvgRange(highs: number[], lows: number[]): number {
+  let sum = 0;
+  for (let i = 0; i < highs.length; i++) sum += highs[i]! - lows[i]!;
+  return highs.length > 0 ? sum / highs.length : 0;
+}
+
+function sma(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
 function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx | null {
-  const today = todayBarsOnly(intra);
-  // Require enough intraday bars for EMA21 + RSI14 + ATR14 + VWAP to be real,
-  // not approximations. Earlier in the session we simply emit no high-conviction
-  // signals — Baseline Outlook still renders so the UI is never blank.
-  if (today.close.length < 21) return null;
+  const today = lastSessionBars(intra);
+  if (today.close.length < MIN_BARS_FOR_CONTEXT) {
+    logger.warn({ idx: cfg.symbol, sessionBars: today.close.length }, "F&O buildContext: insufficient bars (<2)");
+    return null;
+  }
   const closes = today.close, highs = today.high, lows = today.low, vols = today.volume;
   const spot = closes.at(-1)!, open0 = today.open[0]!;
   const vwapSeries = sessionVwap(highs, lows, closes, vols);
@@ -160,14 +192,41 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const ema21Series = ema(closes, 21);
   const rsiSeries = rsi(closes, 14);
   const atrSeries = atr(highs, lows, closes, 14);
+
+  const vwapRaw    = lastVal(vwapSeries);
+  const ema9Raw    = lastVal(ema9Series);
+  const ema21Raw   = lastVal(ema21Series);
+  const rsi14Raw   = lastVal(rsiSeries);
+  const atr15Raw   = lastVal(atrSeries);
+
   const dn = daily.close.length;
-  if (dn < 50) return null;  // dailyEma50 + meaningful pivots need history
-  const piv = pivots(
-    dn >= 2 ? daily.high[dn - 2]! : daily.high[dn - 1]!,
-    dn >= 2 ? daily.low[dn - 2]! : daily.low[dn - 1]!,
-    dn >= 2 ? daily.close[dn - 2]! : daily.close[dn - 1]!,
-  );
-  const vp = volumeProfile(daily.high, daily.low, daily.close, daily.volume, 30, 60);
+  const dailyEma50Series = dn >= 50 ? ema(daily.close, 50) : [];
+  const dailyAtrSeries   = dn >= 14 ? atr(daily.high, daily.low, daily.close, 14) : [];
+  const dailyEma50Raw = lastVal(dailyEma50Series);
+  const atrDailyRaw   = lastVal(dailyAtrSeries);
+
+  const fullIndicators = vwapRaw != null && ema9Raw != null && ema21Raw != null
+    && rsi14Raw != null && atr15Raw != null && dailyEma50Raw != null && atrDailyRaw != null
+    && dn >= 50;
+
+  const effectiveVwap      = vwapRaw ?? spot;
+  const effectiveEma9      = ema9Raw ?? sma(closes);
+  const effectiveEma21     = ema21Raw ?? ema9Raw ?? sma(closes);
+  const effectiveRsi       = rsi14Raw ?? 50;
+  const effectiveAtr15     = atr15Raw ?? simpleAvgRange(highs, lows);
+  const effectiveDailyEma  = dailyEma50Raw ?? spot;
+  const effectiveAtrDaily  = atrDailyRaw ?? effectiveAtr15;
+
+  const piv = dn >= 2
+    ? pivots(daily.high[dn - 2]!, daily.low[dn - 2]!, daily.close[dn - 2]!)
+    : pivots(
+        Math.max(...highs),
+        Math.min(...lows),
+        closes.at(-1)!,
+      );
+  const vp = dn >= 30
+    ? volumeProfile(daily.high, daily.low, daily.close, daily.volume, 30, 60)
+    : null;
   const last10Vol = vols.slice(-20);
   const avgVol20 = last10Vol.length > 0 ? last10Vol.reduce((a, b) => a + b, 0) / last10Vol.length : 0;
   const lookback = closes.slice(0, -1);
@@ -176,54 +235,27 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const swingWin = Math.min(20, lookback.length);
   const prevSwingHigh = swingWin > 0 ? Math.max(...lookbackH.slice(-swingWin)) : spot;
   const prevSwingLow = swingWin > 0 ? Math.min(...lookbackL.slice(-swingWin)) : spot;
-  // Higher-timeframe filter: daily EMA50 + daily ATR for stop placement.
-  // ZERO synthetic fallbacks here — every value below must be a real series tail.
-  const dailyEma50Series = ema(daily.close, 50);
-  const dailyAtrSeries = atr(daily.high, daily.low, daily.close, 14);
 
-  const vwap     = lastVal(vwapSeries);
-  const ema9Last = lastVal(ema9Series);
-  const ema21Last= lastVal(ema21Series);
-  const rsi14    = lastVal(rsiSeries);
-  const atr15    = lastVal(atrSeries);
-  const dailyEma50 = lastVal(dailyEma50Series);
-  const atrDaily = lastVal(dailyAtrSeries);
-
-  // If ANY core indicator is unknown we refuse to build a context. The
-  // detectors that follow assume real values; we will not invent neutral
-  // defaults to make a "signal" appear.
-  if (vwap == null || ema9Last == null || ema21Last == null
-      || rsi14 == null || atr15 == null || dailyEma50 == null || atrDaily == null) {
-    return null;
-  }
-
-  // Deadband around daily EMA50. The previous ±0.1% threshold was too tight:
-  // when an index oscillates within ~50 bps of its 50-day mean (which is the
-  // norm in non-trending sessions), every micro-cross flipped htfBias and the
-  // BEARISH tag silently haircut every long setup by 12 confidence pts —
-  // producing the systemic short bias seen in the scoreboard (6 shorts vs 1
-  // long across the indices). Widening to ±0.4% requires a meaningfully
-  // displaced spot before tagging trend, leaving routine wobbles NEUTRAL
-  // (which carries no bullish/bearish penalty).
   const htfBias: "BULLISH" | "BEARISH" | "NEUTRAL" =
-    spot > dailyEma50 * 1.004 ? "BULLISH"
-    : spot < dailyEma50 * 0.996 ? "BEARISH"
+    spot > effectiveDailyEma * 1.004 ? "BULLISH"
+    : spot < effectiveDailyEma * 0.996 ? "BEARISH"
     : "NEUTRAL";
 
   return {
     cfg, spot, open0,
     sessionChangePct: ((spot - open0) / open0) * 100,
-    vwap, vwapSeries,
-    ema9: ema9Last, ema21: ema21Last,
+    vwap: effectiveVwap, vwapSeries,
+    ema9: effectiveEma9, ema21: effectiveEma21,
     ema9Series, ema21Series,
-    rsi14, rsiSeries,
+    rsi14: effectiveRsi, rsiSeries,
     vp, piv,
-    atr15, atrDaily, dailyEma50,
+    atr15: effectiveAtr15, atrDaily: effectiveAtrDaily, dailyEma50: effectiveDailyEma,
     htfBias,
     avgVol20,
     lastVol: vols.at(-1) ?? null,
     prevSwingHigh, prevSwingLow,
     bars: { o: today.open, h: highs, l: lows, c: closes, v: vols },
+    fullIndicators,
   };
 }
 
@@ -915,6 +947,8 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
   const suppressed: string[] = [];
   if (!isMarketOpen) {
     suppressed.push(`market_closed: ${marketStatus} (high-conviction setups gated to 09:15–15:30 IST)`);
+  } else if (!ctx.fullIndicators) {
+    suppressed.push("partial_indicators: not enough bars for full EMA21/RSI14/ATR14 — baseline only");
   } else {
     for (const det of detectors) {
       if (det.trendClass && !trendEntryAllowed) {
@@ -1092,6 +1126,7 @@ setInterval(() => {
 // effectively nothing on weekends / overnight.
 let triggerSweepRunning = false;
 const TRIGGER_SWEEP_INTERVAL_MS = 60 * 1000;
+
 setInterval(() => {
   if (triggerSweepRunning) return; // skip if previous tick still in flight
   if (computeMarketStatus(new Date()) !== "open") return;
@@ -1394,6 +1429,11 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // Sweep open rows to EXPIRED after market close (no-op intra-session).
   await expireOpenSignalsForToday().catch(() => 0);
 
+  logger.info(
+    { signalCount: out.length, indicesWithBars, highConvictionCount, baselineCount,
+      suppressedSummary: suppressed.map(s => `${s.index}:[${s.reasons.join("; ")}]`).join(" | ") },
+    "F&O getOptionSignals: cycle complete",
+  );
   const result: OptionSignalsResult = {
     signals: out,
     diagnostics: {
