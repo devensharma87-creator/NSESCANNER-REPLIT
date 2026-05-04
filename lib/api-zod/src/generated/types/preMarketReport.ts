@@ -18,6 +18,7 @@ import type { PreMarketReportEarningsTodayItem } from "./preMarketReportEarnings
 import type { PreMarketReportMode } from "./preMarketReportMode";
 import type { PreMarketSentiment } from "./preMarketSentiment";
 import type { SectorHeatmapEntry } from "./sectorHeatmapEntry";
+import type { TomorrowSetup } from "./tomorrowSetup";
 import type { TradingScenario } from "./tradingScenario";
 
 export interface PreMarketReport {
@@ -48,5 +49,6 @@ export interface PreMarketReport {
   eventsToday?: EconomicEvent[];
   earningsToday?: PreMarketReportEarningsTodayItem[];
   postMarketDigest?: PostMarketDigest;
+  tomorrowSetup?: TomorrowSetup;
   generatedAt: Date;
 }

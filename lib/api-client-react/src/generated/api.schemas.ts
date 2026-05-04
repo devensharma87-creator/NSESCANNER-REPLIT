@@ -1350,6 +1350,43 @@ export type PreMarketReportEarningsTodayItem = {
   date?: string;
 };
 
+export interface OiBuildupStockRow {
+  symbol?: string;
+  priceChgPct?: number;
+  oiChgPct?: number;
+}
+
+/**
+ * F&O OI buildup summary — count of stocks in each buildup bucket plus top movers per bucket
+ */
+export interface OiBuildupSummary {
+  longBuildup?: number;
+  shortBuildup?: number;
+  shortCovering?: number;
+  longUnwinding?: number;
+  neutral?: number;
+  topLongBuildup?: OiBuildupStockRow[];
+  topShortBuildup?: OiBuildupStockRow[];
+  topShortCovering?: OiBuildupStockRow[];
+  topLongUnwinding?: OiBuildupStockRow[];
+}
+
+export interface HighDeliveryStock {
+  symbol?: string;
+  /** Delivery percentage from NSE bhavcopy (50%+ is considered high) */
+  deliveryPct?: number;
+}
+
+/**
+ * Condensed 'Setup for Tomorrow' data — Moneycontrol-style '15 things to know'. OI buildup summary, high-delivery stocks, and F&O ban list. Other items (PCR, VIX, key levels, FII/DII) are in sibling fields.
+ */
+export interface TomorrowSetup {
+  oiBuildupSummary?: OiBuildupSummary | null;
+  highDeliveryStocks?: HighDeliveryStock[];
+  /** Symbols currently under F&O ban (MWPL > 95%) */
+  foBanStocks?: string[];
+}
+
 export interface PreMarketReport {
   /** Auto-detected based on IST time */
   mode: PreMarketReportMode;
@@ -1378,6 +1415,7 @@ export interface PreMarketReport {
   eventsToday?: EconomicEvent[];
   earningsToday?: PreMarketReportEarningsTodayItem[];
   postMarketDigest?: PostMarketDigest;
+  tomorrowSetup?: TomorrowSetup;
   generatedAt: string;
 }
 

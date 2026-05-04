@@ -3299,6 +3299,78 @@ export const GetPreMarketResponse = zod.object({
       narrative: zod.string().describe("One-line market summary"),
     })
     .optional(),
+  tomorrowSetup: zod
+    .object({
+      oiBuildupSummary: zod
+        .object({
+          longBuildup: zod.number().optional(),
+          shortBuildup: zod.number().optional(),
+          shortCovering: zod.number().optional(),
+          longUnwinding: zod.number().optional(),
+          neutral: zod.number().optional(),
+          topLongBuildup: zod
+            .array(
+              zod.object({
+                symbol: zod.string().optional(),
+                priceChgPct: zod.number().optional(),
+                oiChgPct: zod.number().optional(),
+              }),
+            )
+            .optional(),
+          topShortBuildup: zod
+            .array(
+              zod.object({
+                symbol: zod.string().optional(),
+                priceChgPct: zod.number().optional(),
+                oiChgPct: zod.number().optional(),
+              }),
+            )
+            .optional(),
+          topShortCovering: zod
+            .array(
+              zod.object({
+                symbol: zod.string().optional(),
+                priceChgPct: zod.number().optional(),
+                oiChgPct: zod.number().optional(),
+              }),
+            )
+            .optional(),
+          topLongUnwinding: zod
+            .array(
+              zod.object({
+                symbol: zod.string().optional(),
+                priceChgPct: zod.number().optional(),
+                oiChgPct: zod.number().optional(),
+              }),
+            )
+            .optional(),
+        })
+        .describe(
+          "F&O OI buildup summary — count of stocks in each buildup bucket plus top movers per bucket",
+        )
+        .nullish(),
+      highDeliveryStocks: zod
+        .array(
+          zod.object({
+            symbol: zod.string().optional(),
+            deliveryPct: zod
+              .number()
+              .optional()
+              .describe(
+                "Delivery percentage from NSE bhavcopy (50%+ is considered high)",
+              ),
+          }),
+        )
+        .optional(),
+      foBanStocks: zod
+        .array(zod.string())
+        .optional()
+        .describe("Symbols currently under F&O ban (MWPL > 95%)"),
+    })
+    .optional()
+    .describe(
+      "Condensed 'Setup for Tomorrow' data — Moneycontrol-style '15 things to know'. OI buildup summary, high-delivery stocks, and F&O ban list. Other items (PCR, VIX, key levels, FII\/DII) are in sibling fields.",
+    ),
   generatedAt: zod.coerce.date(),
 });
 

@@ -20,12 +20,14 @@ import { fetchIntraday, fetchIndexChart, fetchChart } from "./yahoo";
 import { getGlobalIndices } from "./globalIndices";
 import { scanAll, getCachedScanRows, refreshScanInBackground } from "./scanner";
 import { getMarketEvents } from "./marketEvents";
-import { INDEX_CONSTITUENTS, SECTORS } from "./universe";
+import { INDEX_CONSTITUENTS, SECTORS, UNIVERSE } from "./universe";
 import { logger } from "./logger";
 import { pivots } from "./indicators";
 import { fetchOptionChain } from "./optionChain";
 import { computeAnalytics } from "./optionAnalytics";
 import { getFiiDiiMonthly } from "./instFlows";
+import { getLatestHeatmapCache, fetchOiHeatmap, type OiHeatmapRow } from "./oiLab";
+import { getDeliveryMap } from "./nseBhavcopy";
 
 export type Mode = "PRE_MARKET" | "POST_MARKET" | "LIVE";
 export type Sentiment = "STRONG_BULLISH" | "BULLISH" | "NEUTRAL" | "BEARISH" | "STRONG_BEARISH";
@@ -797,6 +799,84 @@ function buildPostMarketDigest(rows: Awaited<ReturnType<typeof scanAll>>) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────
+// "Setup for Tomorrow" — condensed Moneycontrol-style "15 things
+// to know before the opening bell". Aggregates OI buildup summary
+// from the F&O heatmap, high-delivery stocks from NSE bhavcopy,
+// and F&O ban list. The remaining 15-things items (PCR, VIX, key
+// levels, FII/DII, breadth) are already present in other fields
+// of the report and are surfaced by the frontend panel directly.
+// ─────────────────────────────────────────────────────────────────
+
+interface OiBuildupStockRow {
+  symbol: string;
+  priceChgPct: number;
+  oiChgPct: number;
+}
+
+interface TomorrowSetupData {
+  oiBuildupSummary: {
+    longBuildup: number;
+    shortBuildup: number;
+    shortCovering: number;
+    longUnwinding: number;
+    neutral: number;
+    topLongBuildup: OiBuildupStockRow[];
+    topShortBuildup: OiBuildupStockRow[];
+    topShortCovering: OiBuildupStockRow[];
+    topLongUnwinding: OiBuildupStockRow[];
+  } | null;
+  highDeliveryStocks: Array<{ symbol: string; deliveryPct: number }>;
+  foBanStocks: string[];
+}
+
+async function buildTomorrowSetup(): Promise<TomorrowSetupData> {
+  let oiBuildupSummary: TomorrowSetupData["oiBuildupSummary"] = null;
+  try {
+    const heatmap = getLatestHeatmapCache() ?? await fetchOiHeatmap();
+    if (heatmap && heatmap.rows.length > 0) {
+      const byBucket = (b: string) => heatmap.rows.filter(r => r.bucket === b);
+      const topN = (rows: OiHeatmapRow[], n = 5): OiBuildupStockRow[] => rows
+        .slice()
+        .sort((a, b) => Math.abs(b.oiChgPct) - Math.abs(a.oiChgPct))
+        .slice(0, n)
+        .map(r => ({ symbol: r.symbol, priceChgPct: +r.priceChgPct.toFixed(2), oiChgPct: +r.oiChgPct.toFixed(2) }));
+
+      oiBuildupSummary = {
+        longBuildup: heatmap.buckets.LONG_BUILDUP ?? 0,
+        shortBuildup: heatmap.buckets.SHORT_BUILDUP ?? 0,
+        shortCovering: heatmap.buckets.SHORT_COVERING ?? 0,
+        longUnwinding: heatmap.buckets.LONG_UNWINDING ?? 0,
+        neutral: heatmap.buckets.NEUTRAL ?? 0,
+        topLongBuildup: topN(byBucket("LONG_BUILDUP")),
+        topShortBuildup: topN(byBucket("SHORT_BUILDUP")),
+        topShortCovering: topN(byBucket("SHORT_COVERING")),
+        topLongUnwinding: topN(byBucket("LONG_UNWINDING")),
+      };
+    }
+  } catch (e) { logger.warn({ e }, "preMarket: OI heatmap for tomorrow setup failed"); }
+
+  let highDeliveryStocks: TomorrowSetupData["highDeliveryStocks"] = [];
+  try {
+    const deliveryMap = await getDeliveryMap();
+    if (deliveryMap) {
+      const universeSyms = new Set<string>(UNIVERSE.map(u => u.symbol.toUpperCase()));
+      highDeliveryStocks = Array.from(deliveryMap.map.entries())
+        .filter(([symbol]) => universeSyms.has(symbol.toUpperCase()))
+        .map(([symbol, pct]) => ({ symbol, deliveryPct: +pct.toFixed(2) }))
+        .filter(e => e.deliveryPct >= 50)
+        .sort((a, b) => b.deliveryPct - a.deliveryPct)
+        .slice(0, 15);
+    }
+  } catch (e) { logger.warn({ e }, "preMarket: delivery data for tomorrow setup failed"); }
+
+  return {
+    oiBuildupSummary,
+    highDeliveryStocks,
+    foBanStocks: [],
+  };
+}
+
 function todayISO(): string { return istParts().dateISO; }
 
 interface Cached { ts: number; data: PreMarketReportData; }
@@ -823,6 +903,7 @@ export interface PreMarketReportData {
   eventsToday: Array<{ date: string; name: string; region?: string; category?: string; impact?: string; description?: string }>;
   earningsToday: Array<{ symbol: string; name: string; date: string }>;
   postMarketDigest?: ReturnType<typeof buildPostMarketDigest>;
+  tomorrowSetup?: TomorrowSetupData;
   generatedAt: Date;
 }
 
@@ -846,6 +927,7 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
     indexLevels,
     optionSnapshots,
     fiiDii,
+    tomorrowSetup,
   ] = await Promise.all([
     buildOvernightCues().catch(e => { logger.warn({ e }, "preMarket: overnightCues failed"); return { cues: [] as Cue[], score: 0 }; }),
     buildIndexPreviews().catch(e => { logger.warn({ e }, "preMarket: indexPreviews failed"); return [] as Awaited<ReturnType<typeof buildIndexPreviews>>; }),
@@ -854,6 +936,7 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
     buildIndexLevels().catch(e => { logger.warn({ e }, "preMarket: indexLevels failed"); return [] as KeyIndexLevels[]; }),
     buildOptionSnapshots().catch(e => { logger.warn({ e }, "preMarket: optionSnapshots failed"); return [] as OptionSnapshot[]; }),
     buildFiiDiiSnapshot().catch(e => { logger.warn({ e }, "preMarket: fiiDii failed"); return null; }),
+    buildTomorrowSetup().catch(e => { logger.warn({ e }, "preMarket: tomorrowSetup failed"); return { oiBuildupSummary: null, highDeliveryStocks: [], foBanStocks: [] } as TomorrowSetupData; }),
   ]);
   const { cues, score } = cuesResult;
 
@@ -959,6 +1042,7 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
     eventsToday,
     earningsToday,
     postMarketDigest: movers.allRows.length > 0 ? buildPostMarketDigest(movers.allRows) : undefined,
+    tomorrowSetup,
     generatedAt: new Date(),
   };
 

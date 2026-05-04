@@ -2284,7 +2284,59 @@ components:
               name: { type: string }
               date: { type: string, format: date }
         postMarketDigest: { $ref: "#/components/schemas/PostMarketDigest" }
+        tomorrowSetup: { $ref: "#/components/schemas/TomorrowSetup" }
         generatedAt: { type: string, format: date-time }
+
+    OiBuildupStockRow:
+      type: object
+      properties:
+        symbol: { type: string }
+        priceChgPct: { type: number }
+        oiChgPct: { type: number }
+
+    OiBuildupSummary:
+      type: object
+      description: "F&O OI buildup summary — count of stocks in each buildup bucket plus top movers per bucket"
+      properties:
+        longBuildup: { type: integer }
+        shortBuildup: { type: integer }
+        shortCovering: { type: integer }
+        longUnwinding: { type: integer }
+        neutral: { type: integer }
+        topLongBuildup:
+          type: array
+          items: { $ref: "#/components/schemas/OiBuildupStockRow" }
+        topShortBuildup:
+          type: array
+          items: { $ref: "#/components/schemas/OiBuildupStockRow" }
+        topShortCovering:
+          type: array
+          items: { $ref: "#/components/schemas/OiBuildupStockRow" }
+        topLongUnwinding:
+          type: array
+          items: { $ref: "#/components/schemas/OiBuildupStockRow" }
+
+    HighDeliveryStock:
+      type: object
+      properties:
+        symbol: { type: string }
+        deliveryPct: { type: number, description: "Delivery percentage from NSE bhavcopy (50%+ is considered high)" }
+
+    TomorrowSetup:
+      type: object
+      description: "Condensed 'Setup for Tomorrow' data — Moneycontrol-style '15 things to know'. OI buildup summary, high-delivery stocks, and F&O ban list. Other items (PCR, VIX, key levels, FII/DII) are in sibling fields."
+      properties:
+        oiBuildupSummary:
+          nullable: true
+          allOf:
+            - { $ref: "#/components/schemas/OiBuildupSummary" }
+        highDeliveryStocks:
+          type: array
+          items: { $ref: "#/components/schemas/HighDeliveryStock" }
+        foBanStocks:
+          type: array
+          items: { type: string }
+          description: "Symbols currently under F&O ban (MWPL > 95%)"
 
     WatchlistTrend:
       type: string

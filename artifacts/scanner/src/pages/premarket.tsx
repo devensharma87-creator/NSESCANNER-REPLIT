@@ -1,4 +1,5 @@
 import { useGetPreMarket, getGetPreMarketQueryKey } from "@workspace/api-client-react";
+import type { PreMarketReport } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -6,8 +7,10 @@ import { Link } from "wouter";
 import {
   Sun, Moon, TrendingUp, TrendingDown, Globe2, Activity, AlertCircle, Calendar,
   ArrowUpRight, ArrowDownRight, Gauge, BarChart3, Layers, Target, Building2, Crosshair,
+  ClipboardList, Shield, Package, Zap, Eye, Ban, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { useState } from "react";
 
 function pct(n: number | null | undefined, dp = 2) {
   if (n == null) return "—";
@@ -75,7 +78,11 @@ export default function PreMarket() {
   }
 
   return (
-    <div className="w-full px-4 py-6 space-y-6">
+    <div className="w-full px-4 py-6">
+      <div className="flex gap-6">
+        {/* Main content */}
+        <div className="flex-1 min-w-0 space-y-6">
+
       {/* Hero */}
       <Card className={`border ${bgTone(data.sentimentScore)}`}>
         <CardContent className="p-6">
@@ -333,6 +340,21 @@ export default function PreMarket() {
       <p className="text-[10px] text-muted-foreground/70 font-mono text-center pt-4">
         Data refreshes every 60s · Auto-detects pre/post mode by IST clock · Last updated {dataUpdatedAt ? formatDistanceToNow(dataUpdatedAt, { addSuffix: true }) : "—"}
       </p>
+
+        </div>
+
+        {/* Right sidebar — Setup for Tomorrow */}
+        <div className="hidden xl:block w-[340px] shrink-0">
+          <div className="sticky top-4">
+            <SetupForTomorrow data={data} />
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile: Setup for Tomorrow below main content */}
+      <div className="xl:hidden mt-6">
+        <SetupForTomorrow data={data} />
+      </div>
     </div>
   );
 }
@@ -671,6 +693,424 @@ function FlowStat({ label, value }: { label: string; value: number }) {
       <div className={`font-mono tabular-nums text-sm font-bold ${tone(value)}`}>
         {value >= 0 ? "+" : ""}{value.toLocaleString("en-IN", { maximumFractionDigits: 0 })} <span className="text-[9px] text-muted-foreground font-normal">Cr</span>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Setup for Tomorrow — right-side panel (Moneycontrol-style
+//  "15 things to know before the opening bell")
+// ═══════════════════════════════════════════════════════════════
+
+function SetupForTomorrow({ data }: { data: PreMarketReport }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggle = (k: string) => setExpanded(p => ({ ...p, [k]: !p[k] }));
+
+  const niftyLevels = data.indexLevels?.find((l: { symbol: string }) => l.symbol === "^NSEI");
+  const bnLevels = data.indexLevels?.find((l: { symbol: string }) => l.symbol === "^NSEBANK");
+  const niftyOpt = data.optionSnapshots?.find((o: { underlying: string }) => o.underlying === "NIFTY");
+  const bnOpt = data.optionSnapshots?.find((o: { underlying: string }) => o.underlying === "BANKNIFTY");
+  const vixCue = data.overnightCues?.find((c: { label?: string }) => c.label === "India VIX");
+  const setup = data.tomorrowSetup;
+  const oi = setup?.oiBuildupSummary;
+
+  const items: Array<{
+    num: number;
+    icon: React.ReactNode;
+    title: string;
+    content: React.ReactNode;
+    expandKey?: string;
+    available: boolean;
+  }> = [
+    {
+      num: 1,
+      icon: <Target className="w-3.5 h-3.5 text-blue-400" />,
+      title: "Nifty 50 Key Levels",
+      available: !!niftyLevels,
+      content: niftyLevels ? (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Pivot</span>
+            <span className="font-mono tabular-nums font-bold">{fmt(niftyLevels.pivot)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-signal-strong-sell/80">R1 / R2</span>
+            <span className="font-mono tabular-nums">{fmt(niftyLevels.r1)} / {fmt(niftyLevels.r2)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-signal-strong-buy/80">S1 / S2</span>
+            <span className="font-mono tabular-nums">{fmt(niftyLevels.s1)} / {fmt(niftyLevels.s2)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">CPR</span>
+            <span className="font-mono tabular-nums text-[11px]">{fmt(niftyLevels.cprBottom)}–{fmt(niftyLevels.cprTop)} <span className="text-muted-foreground/70">({niftyLevels.cprWidthLabel})</span></span>
+          </div>
+        </div>
+      ) : null,
+    },
+    {
+      num: 2,
+      icon: <Target className="w-3.5 h-3.5 text-purple-400" />,
+      title: "Bank Nifty Key Levels",
+      available: !!bnLevels,
+      content: bnLevels ? (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Pivot</span>
+            <span className="font-mono tabular-nums font-bold">{fmt(bnLevels.pivot)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-signal-strong-sell/80">R1 / R2</span>
+            <span className="font-mono tabular-nums">{fmt(bnLevels.r1)} / {fmt(bnLevels.r2)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-signal-strong-buy/80">S1 / S2</span>
+            <span className="font-mono tabular-nums">{fmt(bnLevels.s1)} / {fmt(bnLevels.s2)}</span>
+          </div>
+        </div>
+      ) : null,
+    },
+    {
+      num: 3,
+      icon: <Crosshair className="w-3.5 h-3.5 text-red-400" />,
+      title: "Nifty Call OI",
+      available: !!niftyOpt?.maxCallOiStrike,
+      content: niftyOpt ? (
+        <div className="text-xs space-y-0.5">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Max CE OI (Resistance)</span>
+            <span className="font-mono tabular-nums text-signal-strong-sell font-bold">{fmt(niftyOpt.maxCallOiStrike, 0)}</span>
+          </div>
+        </div>
+      ) : null,
+    },
+    {
+      num: 4,
+      icon: <Crosshair className="w-3.5 h-3.5 text-green-400" />,
+      title: "Nifty Put OI",
+      available: !!niftyOpt?.maxPutOiStrike,
+      content: niftyOpt ? (
+        <div className="text-xs space-y-0.5">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Max PE OI (Support)</span>
+            <span className="font-mono tabular-nums text-signal-strong-buy font-bold">{fmt(niftyOpt.maxPutOiStrike, 0)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Expected Move</span>
+            <span className="font-mono tabular-nums">±{niftyOpt.expectedMovePct?.toFixed(2)}%</span>
+          </div>
+        </div>
+      ) : null,
+    },
+    {
+      num: 5,
+      icon: <Crosshair className="w-3.5 h-3.5 text-red-300" />,
+      title: "Bank Nifty Call OI",
+      available: !!bnOpt?.maxCallOiStrike,
+      content: bnOpt ? (
+        <div className="text-xs">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Max CE OI (Resistance)</span>
+            <span className="font-mono tabular-nums text-signal-strong-sell font-bold">{fmt(bnOpt.maxCallOiStrike, 0)}</span>
+          </div>
+        </div>
+      ) : null,
+    },
+    {
+      num: 6,
+      icon: <Crosshair className="w-3.5 h-3.5 text-green-300" />,
+      title: "Bank Nifty Put OI",
+      available: !!bnOpt?.maxPutOiStrike,
+      content: bnOpt ? (
+        <div className="text-xs">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Max PE OI (Support)</span>
+            <span className="font-mono tabular-nums text-signal-strong-buy font-bold">{fmt(bnOpt.maxPutOiStrike, 0)}</span>
+          </div>
+        </div>
+      ) : null,
+    },
+    {
+      num: 7,
+      icon: <Building2 className="w-3.5 h-3.5 text-amber-400" />,
+      title: "FII / DII Flows",
+      available: !!data.fiiDii,
+      content: data.fiiDii ? (
+        <div className="text-xs space-y-1">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">FII Net</span>
+            <span className={`font-mono tabular-nums font-bold ${tone(data.fiiDii.fiiCashCr)}`}>
+              {data.fiiDii.fiiCashCr >= 0 ? "+" : ""}{data.fiiDii.fiiCashCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">DII Net</span>
+            <span className={`font-mono tabular-nums font-bold ${tone(data.fiiDii.diiCashCr)}`}>
+              {data.fiiDii.diiCashCr >= 0 ? "+" : ""}{data.fiiDii.diiCashCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr
+            </span>
+          </div>
+          <div className="text-[10px] text-muted-foreground/80">
+            5d FII: {data.fiiDii.fiveDayFiiCr >= 0 ? "+" : ""}{data.fiiDii.fiveDayFiiCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} · DII: {data.fiiDii.fiveDayDiiCr >= 0 ? "+" : ""}{data.fiiDii.fiveDayDiiCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+          </div>
+        </div>
+      ) : null,
+    },
+    {
+      num: 8,
+      icon: <Gauge className="w-3.5 h-3.5 text-cyan-400" />,
+      title: "Put-Call Ratio",
+      available: !!niftyOpt,
+      content: niftyOpt ? (
+        <div className="text-xs space-y-1">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Nifty PCR (OI)</span>
+            <span className={`font-mono tabular-nums font-bold ${(niftyOpt.pcrOi ?? 0) > 1.2 ? "text-signal-strong-buy" : (niftyOpt.pcrOi ?? 0) < 0.8 ? "text-signal-strong-sell" : "text-foreground"}`}>
+              {niftyOpt.pcrOi?.toFixed(2)}
+            </span>
+          </div>
+          {bnOpt && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">BN PCR (OI)</span>
+              <span className="font-mono tabular-nums">{bnOpt.pcrOi?.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="text-[10px] text-muted-foreground/80">
+            {(niftyOpt.pcrOi ?? 0) > 1.0 ? "PCR > 1 → more puts written → bullish bias" :
+             (niftyOpt.pcrOi ?? 0) < 0.7 ? "PCR < 0.7 → call-heavy → bearish bias" :
+             "PCR near parity → neutral positioning"}
+          </div>
+        </div>
+      ) : null,
+    },
+    {
+      num: 9,
+      icon: <Zap className="w-3.5 h-3.5 text-yellow-400" />,
+      title: "India VIX",
+      available: !!vixCue,
+      content: vixCue ? (
+        <div className="text-xs space-y-1">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Level</span>
+            <span className="font-mono tabular-nums font-bold">{vixCue.value?.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Change</span>
+            <span className={`font-mono tabular-nums ${tone(-(vixCue.changePercent ?? 0))}`}>
+              {pct(vixCue.changePercent)}
+            </span>
+          </div>
+          <div className="text-[10px] text-muted-foreground/80">
+            {(vixCue.value ?? 0) > 18 ? "Elevated — expect wider swings, option premiums rich" :
+             (vixCue.value ?? 0) < 12 ? "Complacent — surprise moves possible" :
+             "Moderate — normal volatility environment"}
+          </div>
+        </div>
+      ) : null,
+    },
+    {
+      num: 10,
+      icon: <TrendingUp className="w-3.5 h-3.5 text-signal-strong-buy" />,
+      title: `Long Buildup (${oi?.longBuildup ?? 0})`,
+      available: !!oi,
+      expandKey: "longBuildup",
+      content: oi ? (
+        <div className="text-xs space-y-1">
+          <div className="text-[10px] text-muted-foreground/80 mb-1">Price ↑ + OI ↑ — fresh longs being added</div>
+          {expanded["longBuildup"] && oi.topLongBuildup && oi.topLongBuildup.length > 0 && (
+            <div className="space-y-0.5">
+              {oi.topLongBuildup.map(s => (
+                <div key={s.symbol} className="flex justify-between">
+                  <Link href={`/stock/${encodeURIComponent(s.symbol ?? "")}`} className="font-mono text-signal-strong-buy hover:underline">{s.symbol}</Link>
+                  <span className="font-mono tabular-nums text-muted-foreground">OI {pct(s.oiChgPct)} · Price {pct(s.priceChgPct)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null,
+    },
+    {
+      num: 11,
+      icon: <TrendingDown className="w-3.5 h-3.5 text-muted-foreground" />,
+      title: `Long Unwinding (${oi?.longUnwinding ?? 0})`,
+      available: !!oi,
+      expandKey: "longUnwinding",
+      content: oi ? (
+        <div className="text-xs space-y-1">
+          <div className="text-[10px] text-muted-foreground/80 mb-1">Price ↓ + OI ↓ — longs exiting</div>
+          {expanded["longUnwinding"] && oi.topLongUnwinding && oi.topLongUnwinding.length > 0 && (
+            <div className="space-y-0.5">
+              {oi.topLongUnwinding.map(s => (
+                <div key={s.symbol} className="flex justify-between">
+                  <Link href={`/stock/${encodeURIComponent(s.symbol ?? "")}`} className="font-mono text-muted-foreground hover:underline">{s.symbol}</Link>
+                  <span className="font-mono tabular-nums text-muted-foreground">OI {pct(s.oiChgPct)} · Price {pct(s.priceChgPct)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null,
+    },
+    {
+      num: 12,
+      icon: <TrendingDown className="w-3.5 h-3.5 text-signal-strong-sell" />,
+      title: `Short Buildup (${oi?.shortBuildup ?? 0})`,
+      available: !!oi,
+      expandKey: "shortBuildup",
+      content: oi ? (
+        <div className="text-xs space-y-1">
+          <div className="text-[10px] text-muted-foreground/80 mb-1">Price ↓ + OI ↑ — fresh shorts being added</div>
+          {expanded["shortBuildup"] && oi.topShortBuildup && oi.topShortBuildup.length > 0 && (
+            <div className="space-y-0.5">
+              {oi.topShortBuildup.map(s => (
+                <div key={s.symbol} className="flex justify-between">
+                  <Link href={`/stock/${encodeURIComponent(s.symbol ?? "")}`} className="font-mono text-signal-strong-sell hover:underline">{s.symbol}</Link>
+                  <span className="font-mono tabular-nums text-muted-foreground">OI {pct(s.oiChgPct)} · Price {pct(s.priceChgPct)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null,
+    },
+    {
+      num: 13,
+      icon: <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />,
+      title: `Short Covering (${oi?.shortCovering ?? 0})`,
+      available: !!oi,
+      expandKey: "shortCovering",
+      content: oi ? (
+        <div className="text-xs space-y-1">
+          <div className="text-[10px] text-muted-foreground/80 mb-1">Price ↑ + OI ↓ — shorts exiting</div>
+          {expanded["shortCovering"] && oi.topShortCovering && oi.topShortCovering.length > 0 && (
+            <div className="space-y-0.5">
+              {oi.topShortCovering.map(s => (
+                <div key={s.symbol} className="flex justify-between">
+                  <Link href={`/stock/${encodeURIComponent(s.symbol ?? "")}`} className="font-mono text-emerald-400 hover:underline">{s.symbol}</Link>
+                  <span className="font-mono tabular-nums text-muted-foreground">OI {pct(s.oiChgPct)} · Price {pct(s.priceChgPct)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null,
+    },
+    {
+      num: 14,
+      icon: <Package className="w-3.5 h-3.5 text-sky-400" />,
+      title: `High Delivery (${setup?.highDeliveryStocks?.length ?? 0})`,
+      available: (setup?.highDeliveryStocks?.length ?? 0) > 0,
+      expandKey: "delivery",
+      content: setup?.highDeliveryStocks && setup.highDeliveryStocks.length > 0 ? (
+        <div className="text-xs space-y-1">
+          <div className="text-[10px] text-muted-foreground/80 mb-1">50%+ delivery — investing (not trading) interest</div>
+          {expanded["delivery"] && (
+            <div className="space-y-0.5">
+              {setup.highDeliveryStocks.slice(0, 10).map(s => (
+                <div key={s.symbol} className="flex justify-between">
+                  <Link href={`/stock/${encodeURIComponent(s.symbol ?? "")}`} className="font-mono text-sky-400 hover:underline">{s.symbol}</Link>
+                  <span className="font-mono tabular-nums text-muted-foreground">{s.deliveryPct?.toFixed(1)}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null,
+    },
+    {
+      num: 15,
+      icon: <Ban className="w-3.5 h-3.5 text-orange-400" />,
+      title: "F&O Ban",
+      available: !!setup,
+      content: (
+        <div className="text-xs">
+          {!setup ? (
+            <span className="text-muted-foreground/70">Ban data unavailable</span>
+          ) : setup.foBanStocks && setup.foBanStocks.length > 0 ? (
+            <div className="space-y-0.5">
+              {setup.foBanStocks.map(s => (
+                <Link key={s} href={`/stock/${encodeURIComponent(s)}`} className="font-mono text-orange-400 hover:underline block">{s}</Link>
+              ))}
+            </div>
+          ) : (
+            <span className="text-signal-strong-buy/70">No stocks under F&O ban</span>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <Card className="border border-border/50 bg-card/80 backdrop-blur-sm">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <ClipboardList className="w-4 h-4 text-amber-400" />
+          <h2 className="text-sm font-bold tracking-tight">Setup for Tomorrow</h2>
+          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400 ml-auto">
+            15 pts
+          </span>
+        </div>
+
+        <div className="space-y-0">
+          {items.map((item) => (
+            <SetupItem
+              key={item.num}
+              num={item.num}
+              icon={item.icon}
+              title={item.title}
+              available={item.available}
+              expandable={!!item.expandKey}
+              isExpanded={!!item.expandKey && !!expanded[item.expandKey]}
+              onToggle={item.expandKey ? () => toggle(item.expandKey!) : undefined}
+            >
+              {item.content}
+            </SetupItem>
+          ))}
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-border/40">
+          <div className="text-[10px] text-muted-foreground/70 font-mono text-center">
+            Data populates post-market · Global cues update overnight
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SetupItem({
+  num, icon, title, available, expandable, isExpanded, onToggle, children,
+}: {
+  num: number;
+  icon: React.ReactNode;
+  title: string;
+  available: boolean;
+  expandable?: boolean;
+  isExpanded?: boolean;
+  onToggle?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`border-b border-border/30 last:border-b-0 py-2.5 ${!available ? "opacity-40" : ""}`}>
+      <button
+        type="button"
+        className={`flex items-center gap-2 w-full text-left ${expandable && available ? "cursor-pointer hover:bg-secondary/30 -mx-1 px-1 rounded" : "cursor-default"}`}
+        onClick={expandable && available ? onToggle : undefined}
+        disabled={!expandable || !available}
+      >
+        <span className="text-[9px] font-mono text-muted-foreground/60 w-4 text-right shrink-0">{num}</span>
+        {icon}
+        <span className="text-xs font-medium flex-1 truncate">{title}</span>
+        {expandable && available && (
+          isExpanded ? <ChevronUp className="w-3 h-3 text-muted-foreground" /> : <ChevronDown className="w-3 h-3 text-muted-foreground" />
+        )}
+        {!available && <span className="text-[9px] text-muted-foreground/50 font-mono">—</span>}
+      </button>
+      {available && children && (
+        <div className="mt-1.5 ml-6 pl-2 border-l border-border/30">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
