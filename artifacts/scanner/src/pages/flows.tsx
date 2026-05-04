@@ -170,7 +170,7 @@ function FiiDiiCashMarketView({
                       <YAxis tick={{ fontSize: 12, fontFamily: "monospace", fill: "#cbd5e1" }} width={62} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
                       <RTooltip contentStyle={{ background: "#0f172a", border: "1px solid #64748b", fontSize: 14, color: "#ffffff", fontFamily: "monospace", padding: "8px 12px", borderRadius: 6 }} labelStyle={{ color: "#e2e8f0", fontWeight: 600, fontSize: 14, marginBottom: 4 }} itemStyle={{ color: "#ffffff", fontSize: 14 }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
                       <ReferenceLine y={0} stroke="#475569" />
-                      <Bar dataKey="fii">
+                      <Bar dataKey="fii" name="FII">
                         {chartData.map((d, i) => (
                           <Cell key={i} fill={d.fii >= 0 ? "#22c55e" : "#ef4444"} />
                         ))}
@@ -193,7 +193,7 @@ function FiiDiiCashMarketView({
                       <YAxis tick={{ fontSize: 12, fontFamily: "monospace", fill: "#cbd5e1" }} width={62} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
                       <RTooltip contentStyle={{ background: "#0f172a", border: "1px solid #64748b", fontSize: 14, color: "#ffffff", fontFamily: "monospace", padding: "8px 12px", borderRadius: 6 }} labelStyle={{ color: "#e2e8f0", fontWeight: 600, fontSize: 14, marginBottom: 4 }} itemStyle={{ color: "#ffffff", fontSize: 14 }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
                       <ReferenceLine y={0} stroke="#475569" />
-                      <Bar dataKey="dii">
+                      <Bar dataKey="dii" name="DII">
                         {chartData.map((d, i) => (
                           <Cell key={i} fill={d.dii >= 0 ? "#22c55e" : "#ef4444"} />
                         ))}
