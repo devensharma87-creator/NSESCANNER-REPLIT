@@ -51,6 +51,7 @@ const INDEX_MAP: Array<{ yahoo: string; kite: string; name: string }> = [
   { yahoo: "^CNXPHARMA",            kite: "NSE:NIFTY PHARMA",      name: "NIFTY PHARMA" },
   { yahoo: "^CNXFMCG",              kite: "NSE:NIFTY FMCG",        name: "NIFTY FMCG" },
   { yahoo: "^BSESN",                kite: "BSE:SENSEX",            name: "SENSEX" },
+  { yahoo: "BSE-BANK.BO",           kite: "BSE:BANKEX",            name: "BANKEX" },
   { yahoo: "NIFTY_FIN_SERVICE.NS",  kite: "NSE:NIFTY FIN SERVICE", name: "FINNIFTY" },
   { yahoo: "NIFTY_MID_SELECT.NS",   kite: "NSE:NIFTY MID SELECT",  name: "MIDCPNIFTY" },
   { yahoo: "^INDIAVIX",             kite: "NSE:INDIA VIX",         name: "INDIA VIX" },

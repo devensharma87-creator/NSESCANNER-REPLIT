@@ -28,6 +28,7 @@ import { fetchKiteOptionChain } from "./kiteOptionChain";
 import { computeAnalytics, type OptionAnalytics } from "./optionAnalytics";
 import { getRestClient, getActiveSession } from "./kiteAuth";
 import { loadBlob, saveBlob, istTradingDay } from "./diskCache";
+import { loadFnoInstruments, type FnoInstrument } from "./kiteFnoInstruments";
 
 /**
  * OI Lab is strictly Kite-only — we do NOT use the NSE fallback that
@@ -71,30 +72,22 @@ export async function getDynamicFnoUniverse(): Promise<string[] | null> {
   const client = await getRestClient();
   if (!client) return null;
   try {
-    // Pull NFO (NSE F&O equities + indices) AND BFO (BSE F&O — currently just
-    // SENSEX/BANKEX index futures). BSE has no equity F&O, so BFO contributes
-    // nothing to the equity universe — but we still fetch it so the same
-    // dump powers the index-FUT lookup downstream. Failure on either is
-    // treated as empty so a missing-entitlement account still works.
-    const [nfo, bfo] = await Promise.all([
-      (client.kc.getInstruments("NFO") as Promise<KiteInstrumentLite[]>).catch(() => [] as KiteInstrumentLite[]),
-      (client.kc.getInstruments("BFO") as Promise<KiteInstrumentLite[]>).catch(() => [] as KiteInstrumentLite[]),
-    ]);
-    const all = [...nfo, ...bfo];
+    const all = await loadFnoInstruments(client.kc);
     const todayIso = new Date().toISOString().slice(0, 10);
-    // Pull names that have at least one non-expired FUT contract — that's the
-    // canonical NSE/BSE definition of "F&O underlying".
     const names = new Set<string>();
     for (const i of all) {
       if (i.instrument_type !== "FUT") continue;
       const expIso = (typeof i.expiry === "string" ? i.expiry : i.expiry.toISOString()).slice(0, 10);
       if (expIso < todayIso) continue;
-      // Skip indices — they live in FNO_INDICES already.
       if ((FNO_INDICES as readonly string[]).includes(i.name)) continue;
       names.add(i.name);
     }
     const stocks = Array.from(names).sort((a, b) => a.localeCompare(b));
-    dynamicUniverseCache = { stocks, ts: Date.now() };
+    if (stocks.length > 0) {
+      dynamicUniverseCache = { stocks, ts: Date.now() };
+    } else if (dynamicUniverseCache) {
+      return dynamicUniverseCache.stocks;
+    }
     logger.info({ count: stocks.length }, "OI Lab: dynamic F&O universe refreshed from Kite");
     return stocks;
   } catch (err) {
@@ -1002,20 +995,10 @@ async function fetchOiHeatmapInner(): Promise<OiHeatmapResponse | null> {
   if (!client) return null;
   const { kc } = client;
 
-  // Pull NFO + BFO instruments and pick the front-month FUT for each F&O
-  // name. SENSEX/BANKEX index futures live in BFO; without it the heatmap
-  // silently omits those underlyings.
-  const [nfo, bfo] = await Promise.all([
-    (kc.getInstruments("NFO") as Promise<KiteInstrumentLite[]>).catch(() => [] as KiteInstrumentLite[]),
-    (kc.getInstruments("BFO") as Promise<KiteInstrumentLite[]>).catch(() => [] as KiteInstrumentLite[]),
-  ]);
-  const all = [...nfo, ...bfo];
+  const all = await loadFnoInstruments(kc);
   const todayIso = new Date().toISOString().slice(0, 10);
 
-  // Group FUT contracts by underlying name; pick nearest non-expired.
-  // Each entry remembers its source segment so the quote lookup below
-  // builds the right `EXCHANGE:tradingsymbol` key.
-  const futByName = new Map<string, KiteInstrumentLite>();
+  const futByName = new Map<string, FnoInstrument>();
   for (const i of all) {
     if (i.instrument_type !== "FUT") continue;
     const expIso = (typeof i.expiry === "string" ? i.expiry : i.expiry.toISOString()).slice(0, 10);

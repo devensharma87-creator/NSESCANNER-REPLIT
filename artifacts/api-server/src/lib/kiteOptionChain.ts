@@ -17,23 +17,11 @@ import { getRestClient } from "./kiteAuth";
 import type { OcResponse, OcRow, OcSide } from "./optionChain";
 import { deriveSideMetrics, finalizeChain } from "./optionChain";
 import { priceAndGreeks, impliedVolatility, yearsToExpiry } from "./blackScholes";
+import { loadFnoInstruments, isFnoInstrumentsCacheReady, type FnoInstrument } from "./kiteFnoInstruments";
 
 const RISK_FREE_RATE = 0.0675;
 
-interface KiteInstrument {
-  instrument_token: number;
-  exchange_token: number;
-  tradingsymbol: string;
-  name: string;
-  last_price: number;
-  expiry: Date | string;
-  strike: number;
-  tick_size: number;
-  lot_size: number;
-  instrument_type: "CE" | "PE" | "FUT" | "EQ";
-  segment: string;
-  exchange: string;
-}
+type KiteInstrument = FnoInstrument & { instrument_type: "CE" | "PE" | "FUT" | "EQ" };
 
 interface KiteQuote {
   instrument_token: number;
@@ -51,12 +39,6 @@ interface KiteQuote {
   // Kite quote includes oi but NOT IV — we approximate IV from premium below
 }
 
-// Cache the F&O instruments dump (it's huge — 30k+ rows — and changes only
-// once per day at ~07:30 IST when the new daily dump is published).
-interface InstrumentsCache { rows: KiteInstrument[]; ts: number }
-let instrumentsCache: InstrumentsCache | null = null;
-const INSTRUMENTS_TTL = 6 * 60 * 60 * 1000; // 6 hours
-
 // Per-underlying chain cache (15 seconds — same as NSE-side cache)
 interface ChainCache { data: OcResponse; ts: number }
 const chainCache = new Map<string, ChainCache>();
@@ -64,6 +46,7 @@ const CHAIN_TTL = 15_000;
 
 const STRIKE_STEPS: Record<string, number> = {
   NIFTY: 50, BANKNIFTY: 100, FINNIFTY: 50, MIDCPNIFTY: 25, NIFTYNXT50: 100,
+  SENSEX: 100, BANKEX: 100,
 };
 
 function inferStrikeStep(strikes: number[]): number {
@@ -106,7 +89,8 @@ function expiryISO(d: Date | string): string {
 }
 
 // Underlying → Kite spot tradingsymbol mapping.
-// Indices use the index name on `NSE` (e.g. NSE:NIFTY 50 / NSE:NIFTY BANK).
+// NSE indices use the index name on `NSE` (e.g. NSE:NIFTY 50 / NSE:NIFTY BANK).
+// BSE indices use the index name on `BSE` (e.g. BSE:SENSEX / BSE:BANKEX).
 // Equities use the regular tradingsymbol on `NSE`.
 const INDEX_SPOT_MAP: Record<string, string> = {
   NIFTY:      "NSE:NIFTY 50",
@@ -114,6 +98,8 @@ const INDEX_SPOT_MAP: Record<string, string> = {
   FINNIFTY:   "NSE:NIFTY FIN SERVICE",
   MIDCPNIFTY: "NSE:NIFTY MID SELECT",
   NIFTYNXT50: "NSE:NIFTY NEXT 50",
+  SENSEX:     "BSE:SENSEX",
+  BANKEX:     "BSE:BANKEX",
 };
 
 function spotKey(underlying: string): string {
@@ -121,28 +107,7 @@ function spotKey(underlying: string): string {
 }
 
 async function loadInstruments(kc: any): Promise<KiteInstrument[]> {
-  if (instrumentsCache && Date.now() - instrumentsCache.ts < INSTRUMENTS_TTL) {
-    return instrumentsCache.rows;
-  }
-  // NFO carries NSE F&O (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, NIFTYNXT50,
-  // and every NSE F&O equity). BFO carries BSE F&O (SENSEX, BANKEX). Without
-  // BFO, the SENSEX/BANKEX option chain returned `no F&O legs found` and the
-  // tab fell back to NSE-direct which doesn't carry BSE chains either —
-  // resulting in a permanently-empty chain even with a valid Kite session.
-  const [nfo, bfo] = await Promise.all([
-    (kc.getInstruments("NFO") as Promise<KiteInstrument[]>).catch(err => {
-      logger.warn({ err: (err as Error).message }, "Kite NFO instruments fetch failed");
-      return [] as KiteInstrument[];
-    }),
-    (kc.getInstruments("BFO") as Promise<KiteInstrument[]>).catch(err => {
-      logger.warn({ err: (err as Error).message }, "Kite BFO instruments fetch failed");
-      return [] as KiteInstrument[];
-    }),
-  ]);
-  const rows = [...nfo, ...bfo];
-  instrumentsCache = { rows, ts: Date.now() };
-  logger.info({ nfo: nfo.length, bfo: bfo.length, total: rows.length }, "Kite F&O instruments dump refreshed");
-  return rows;
+  return await loadFnoInstruments(kc) as KiteInstrument[];
 }
 
 /**
@@ -357,7 +322,7 @@ export async function fetchKiteOptionChain(
   const isIndex = sym in INDEX_SPOT_MAP;
   const out: OcResponse = {
     underlying: sym,
-    underlyingName: isIndex ? INDEX_SPOT_MAP[sym]!.replace("NSE:", "") : sym,
+    underlyingName: isIndex ? INDEX_SPOT_MAP[sym]!.replace(/^[A-Z]+:/, "") : sym,
     kind: isIndex ? "INDEX" : "EQUITY",
     spot,
     prevClose,
@@ -383,8 +348,5 @@ export async function fetchKiteOptionChain(
 }
 
 export function isKiteOptionChainReady(): boolean {
-  // Cheap synchronous probe used by the route handler to decide which message
-  // to surface when both NSE and Kite return null. We just check whether the
-  // user has previously authenticated by looking at the instruments cache age.
-  return instrumentsCache != null && Date.now() - instrumentsCache.ts < INSTRUMENTS_TTL;
+  return isFnoInstrumentsCacheReady();
 }

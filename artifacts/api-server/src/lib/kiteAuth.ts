@@ -17,6 +17,7 @@ import { db, kiteSessionTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 import { KiteConnect } from "kiteconnect";
+import { loadBlob, saveBlob } from "./diskCache";
 
 const ACTIVE_ID = "active";
 const KITE_LOGIN_BASE = "https://kite.zerodha.com/connect/login";
@@ -209,12 +210,77 @@ export async function storeImportedSession(s: ExportedSession): Promise<ActiveSe
   };
 }
 
+const INSTR_CACHE_TTL = 6 * 60 * 60 * 1000;
+const FAIL_COOLDOWN_MS = 5 * 60 * 1000;
+const DISK_PREFIX = "kite_instruments_";
+const DISK_VERSION = 1;
+
+interface ExchangeCache { rows: any[]; ts: number }
+const instrCacheByExchange = new Map<string, ExchangeCache>();
+const instrInflight = new Map<string, Promise<any[]>>();
+const instrFailTs = new Map<string, number>();
+
+function hydrateExchangeFromDisk(ex: string): void {
+  if (instrCacheByExchange.has(ex)) return;
+  const blob = loadBlob<any[]>(`${DISK_PREFIX}${ex}`, DISK_VERSION);
+  if (blob && Array.isArray(blob.payload) && blob.payload.length > 0 && Date.now() - blob.ts < INSTR_CACHE_TTL) {
+    instrCacheByExchange.set(ex, { rows: blob.payload, ts: blob.ts });
+    logger.info(
+      { exchange: ex, count: blob.payload.length, ageMin: Math.round((Date.now() - blob.ts) / 60_000) },
+      "Kite instruments: warm-started from disk",
+    );
+  }
+}
+
+function wrapGetInstruments(kc: any): void {
+  const original = kc.getInstruments.bind(kc);
+  kc.getInstruments = async (exchange: string | string[]): Promise<any[]> => {
+    const ex = (Array.isArray(exchange) ? exchange[0] : exchange) as string;
+    hydrateExchangeFromDisk(ex);
+
+    const cached = instrCacheByExchange.get(ex);
+    if (cached && Date.now() - cached.ts < INSTR_CACHE_TTL) return cached.rows;
+
+    const lastFail = instrFailTs.get(ex);
+    if (lastFail && Date.now() - lastFail < FAIL_COOLDOWN_MS) {
+      return cached?.rows ?? [];
+    }
+
+    const existing = instrInflight.get(ex);
+    if (existing) return existing;
+
+    const promise = (async () => {
+      try {
+        const rows = await original(exchange);
+        if (Array.isArray(rows) && rows.length > 0) {
+          instrCacheByExchange.set(ex, { rows, ts: Date.now() });
+          instrFailTs.delete(ex);
+          saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, rows);
+        }
+        return rows;
+      } catch (err) {
+        instrFailTs.set(ex, Date.now());
+        if (cached) {
+          logger.warn({ exchange: ex, err: (err as Error).message }, "Kite getInstruments failed; using stale cache");
+          return cached.rows;
+        }
+        throw err;
+      } finally {
+        instrInflight.delete(ex);
+      }
+    })();
+    instrInflight.set(ex, promise);
+    return promise;
+  };
+}
+
 /** Build a KiteConnect REST client from the active session, or return null. */
 export async function getRestClient(): Promise<{ kc: any; session: ActiveSession } | null> {
   const session = await getActiveSession();
   if (!session) return null;
   const kc = new KiteConnect({ api_key: session.apiKey });
   kc.setAccessToken(session.accessToken);
+  wrapGetInstruments(kc);
   return { kc, session };
 }
 

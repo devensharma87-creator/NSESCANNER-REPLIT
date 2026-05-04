@@ -79,6 +79,7 @@ export const INSTRUMENTS: InstrumentCfg[] = [
     kiteYahooKey: "NIFTY_MID_SELECT.NS",
     currency: "₹" },
   { key: "SENSEX",      name: "SENSEX",           category: "INDIA",     yahoo: "^BSESN",                kiteYahooKey: "^BSESN",               currency: "₹" },
+  { key: "BANKEX",      name: "BANKEX",           category: "INDIA",     yahoo: "BSE-BANK.BO",           kiteYahooKey: "BSE-BANK.BO",          currency: "₹" },
 
   // ── Global indices ───────────────────────────────────────────────
   // GIFT NIFTY (NSE IFSC) is sourced live from TradingView (NSEIX:NIFTY1!)
