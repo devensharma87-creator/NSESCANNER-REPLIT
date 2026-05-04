@@ -18,3 +18,9 @@ id = "q5r49PMDoSPoeCtPsJ_sP"
 uri = "file://exports/stock_scanner_pro_source.tar.gz"
 type = "unspecified"
 title = "Stock Scanner Pro — Full Source Code Bundle"
+
+[[outputs]]
+id = "4EzH67EPbgi5w_HDxQsyt"
+uri = "file://exports/stock_scanner_pro_project_data.md"
+type = "text"
+title = "Stock Scanner Pro — Complete Project Data File"
