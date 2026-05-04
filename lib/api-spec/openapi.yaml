@@ -219,6 +219,66 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/OptionSignalHistorySet" }
 
+  /options/signal-report:
+    get:
+      operationId: getOptionSignalReport
+      tags: [options]
+      summary: "Signal history report — daily or monthly."
+      parameters:
+        - in: query
+          name: date
+          schema: { type: string }
+          description: "Single date YYYY-MM-DD (daily report). Mutually exclusive with month."
+        - in: query
+          name: month
+          schema: { type: string }
+          description: "Month YYYY-MM (monthly report). Mutually exclusive with date."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OptionSignalReportResponse" }
+
+  /options/signal-report/export:
+    get:
+      operationId: exportOptionSignalReport
+      tags: [options]
+      summary: "Export signal history report as CSV (opens in Excel)."
+      parameters:
+        - in: query
+          name: date
+          schema: { type: string }
+          description: "Single date YYYY-MM-DD."
+        - in: query
+          name: month
+          schema: { type: string }
+          description: "Month YYYY-MM."
+      responses:
+        "200":
+          description: CSV file download
+          content:
+            text/csv:
+              schema: { type: string }
+
+  /options/signal-report/dates:
+    get:
+      operationId: getOptionSignalReportDates
+      tags: [options]
+      summary: "Available signal dates for the date picker."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [dates]
+                properties:
+                  dates:
+                    type: array
+                    items: { type: string }
+
   /paper/account:
     get:
       operationId: getPaperAccount
@@ -1793,6 +1853,17 @@ components:
       required: [signalDate, generatedAt, signals]
       properties:
         signalDate:  { type: string, description: "IST trading date YYYY-MM-DD" }
+        generatedAt: { type: string, format: date-time }
+        signals:
+          type: array
+          items: { $ref: "#/components/schemas/OptionSignalHistoryItem" }
+
+    OptionSignalReportResponse:
+      type: object
+      required: [mode, label, generatedAt, signals]
+      properties:
+        mode:  { type: string, enum: [daily, monthly] }
+        label: { type: string, description: "Human-readable label, e.g. 2026-05-04 or May 2026" }
         generatedAt: { type: string, format: date-time }
         signals:
           type: array

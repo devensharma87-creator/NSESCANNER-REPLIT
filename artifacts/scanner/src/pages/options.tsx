@@ -3,6 +3,11 @@ import {
   getGetOptionSignalsQueryKey,
   useGetOptionSignalHistory,
   getGetOptionSignalHistoryQueryKey,
+  useGetOptionSignalReport,
+  getGetOptionSignalReportQueryKey,
+  useGetOptionSignalReportDates,
+  getGetOptionSignalReportDatesQueryKey,
+  getExportOptionSignalReportUrl,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,9 +17,10 @@ import { useToast } from "@/hooks/use-toast";
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Crosshair, Zap, Activity, Layers, Repeat, RotateCcw,
   Clock, CheckCircle2, XCircle, Hourglass, BarChart3, IndianRupee, Eye,
+  Download, FileSpreadsheet, CalendarDays, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   OptionSignal,
   OptionSignalHistoryItem,
@@ -335,7 +341,7 @@ function Cell({ label, value, icon, bold }: { label: string; value?: string; ico
   );
 }
 
-type Tab = "live" | "scoreboard";
+type Tab = "live" | "report";
 
 // Composite identity for a signal — same key the backend uses to dedupe in
 // option_signal_history (date + index + setupKey + bias). This keeps a single
@@ -478,7 +484,7 @@ export default function OptionsPage() {
 
       <TradingViewAlerts />
 
-      {/* Tab toggle: live setups vs today's scoreboard */}
+      {/* Tab toggle: live setups vs report */}
       <div className="inline-flex rounded-md border border-border bg-secondary/30 p-0.5 text-xs font-mono">
         <button
           onClick={() => setTab("live")}
@@ -492,20 +498,33 @@ export default function OptionsPage() {
           <Crosshair className="w-3 h-3" /> Live setups
         </button>
         <button
-          onClick={() => setTab("scoreboard")}
+          onClick={() => setTab("report")}
           className={`px-3 py-1.5 rounded inline-flex items-center gap-1.5 transition-colors ${
-            tab === "scoreboard"
+            tab === "report"
               ? "bg-primary text-primary-foreground"
               : "text-muted-foreground hover:text-foreground"
           }`}
-          aria-pressed={tab === "scoreboard"}
+          aria-pressed={tab === "report"}
         >
-          <BarChart3 className="w-3 h-3" /> Today&apos;s scoreboard
+          <FileSpreadsheet className="w-3 h-3" /> Report
         </button>
       </div>
 
-      {tab === "scoreboard" ? (
-        <ScoreboardTab />
+      {tab === "report" ? (
+        <ReportTab />
+      ) : (data?.marketState !== "open" && !isLoading) ? (
+        <Card>
+          <CardContent className="py-12 text-center space-y-2">
+            <Clock className="w-8 h-8 text-muted-foreground mx-auto" />
+            <div className="text-muted-foreground font-mono text-sm">
+              Market is {data?.marketState === "pre_open" ? "in pre-open" : "closed"}
+            </div>
+            <div className="text-xs text-muted-foreground/70">
+              Live signals are only generated during market hours (09:15 — 15:30 IST).
+              Check the <button onClick={() => setTab("report")} className="underline text-primary hover:text-primary/80">Report</button> tab for historical performance.
+            </div>
+          </CardContent>
+        </Card>
       ) : isLoading ? (
         <div className="space-y-6">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-96 w-full" />)}
@@ -702,15 +721,48 @@ function avgMae(b: KpiBucket): number {
   return b.total > 0 ? b.totalMae / b.total : 0;
 }
 
-function ScoreboardTab() {
-  const { data, isLoading } = useGetOptionSignalHistory({
+function todayIST(): string {
+  return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+}
+function currentMonthIST(): string {
+  return todayIST().slice(0, 7);
+}
+
+type ReportMode = "daily" | "monthly";
+
+type StatusFilter = "triggered" | "all";
+
+function ReportTab() {
+  const [mode, setMode] = useState<ReportMode>("daily");
+  const [selectedDate, setSelectedDate] = useState(todayIST);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthIST);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("triggered");
+
+  const { data: datesData } = useGetOptionSignalReportDates({
+    query: { queryKey: getGetOptionSignalReportDatesQueryKey(), staleTime: 60_000 },
+  });
+  const availableDates = datesData?.dates ?? [];
+
+  const reportParams = mode === "daily" ? { date: selectedDate } : { month: selectedMonth };
+  const { data, isLoading } = useGetOptionSignalReport(reportParams, {
     query: {
-      refetchInterval: 30000,
-      queryKey: getGetOptionSignalHistoryQueryKey(),
+      queryKey: getGetOptionSignalReportQueryKey(reportParams),
+      staleTime: 30_000,
     },
   });
 
-  const items = data?.signals ?? [];
+  const allItems = data?.signals ?? [];
+  const items = useMemo(
+    () =>
+      statusFilter === "triggered"
+        ? allItems.filter((s) => {
+            if (s.status === "PENDING") return false;
+            if (s.status === "EXPIRED" && !s.triggeredAt) return false;
+            return true;
+          })
+        : allItems,
+    [allItems, statusFilter],
+  );
 
   const overall = useMemo(() => items.reduce(addToBucket, EMPTY_KPI), [items]);
   const bySetup = useMemo(() => {
@@ -729,164 +781,316 @@ function ScoreboardTab() {
     return Array.from(m.entries()).sort((a, b) => b[1].total - a[1].total);
   }, [items]);
 
-  if (isLoading) {
-    return <Skeleton className="h-72 w-full" />;
-  }
-  if (items.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center">
-          <div className="text-muted-foreground font-mono text-sm">
-            No signals recorded for today yet.
-          </div>
-          <div className="text-xs text-muted-foreground/70 mt-1">
-            As setups fire on the Live tab, they&apos;ll appear here with
-            triggered / target / stop status and a running win-rate.
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const handleExport = useCallback(() => {
+    const url = getExportOptionSignalReportUrl(reportParams);
+    window.open(url, "_blank");
+  }, [mode, selectedDate, selectedMonth]);
 
-  const overallWin = winRate(overall);
+  const navigateDate = useCallback(
+    (dir: -1 | 1) => {
+      if (availableDates.length === 0) return;
+      const idx = availableDates.indexOf(selectedDate);
+      if (dir === -1) {
+        const next = idx === -1 ? availableDates[0] : availableDates[Math.min(idx + 1, availableDates.length - 1)];
+        if (next) setSelectedDate(next);
+      } else {
+        const next = idx <= 0 ? availableDates[0] : availableDates[idx - 1];
+        if (next) setSelectedDate(next);
+      }
+    },
+    [availableDates, selectedDate],
+  );
+
+  const navigateMonth = useCallback(
+    (dir: -1 | 1) => {
+      const [y, m] = selectedMonth.split("-").map(Number) as [number, number];
+      const nm = m + dir;
+      const newY = nm < 1 ? y - 1 : nm > 12 ? y + 1 : y;
+      const newM = nm < 1 ? 12 : nm > 12 ? 1 : nm;
+      setSelectedMonth(`${newY}-${String(newM).padStart(2, "0")}`);
+    },
+    [selectedMonth],
+  );
+
+  const monthLabel = useMemo(() => {
+    const [y, m] = selectedMonth.split("-").map(Number) as [number, number];
+    const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${names[m - 1]} ${y}`;
+  }, [selectedMonth]);
 
   return (
-    <div className="space-y-6">
-      {/* Headline KPIs */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
-            Today&apos;s scoreboard · {data?.signalDate}
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-xs font-mono">
-            <KpiCell label="Signals" value={overall.total.toString()} />
-            <KpiCell label="Triggered" value={overall.triggered.toString()} />
-            <KpiCell label="T1 hit" value={overall.t1Hit.toString()} tone="text-signal-strong-buy" />
-            <KpiCell label="T2 hit" value={overall.t2Hit.toString()} tone="text-signal-strong-buy" />
-            <KpiCell label="Stopped" value={overall.stopped.toString()} tone="text-signal-strong-sell" />
-            <KpiCell
-              label="Expired (open)"
-              value={(overall.expiredWin + overall.expiredLoss + overall.expiredScratch).toString()}
-              sub={`${overall.expiredWin}W / ${overall.expiredLoss}L${overall.expiredScratch > 0 ? ` / ${overall.expiredScratch}≈` : ""}`}
-            />
-            <KpiCell
-              label="Win rate"
-              value={overallWin == null ? "—" : `${overallWin}%`}
-              tone={
-                overallWin == null
-                  ? undefined
-                  : overallWin >= 50
-                  ? "text-signal-strong-buy"
-                  : "text-signal-strong-sell"
-              }
-              sub={
-                overallWin == null
-                  ? "no decided trades"
-                  : `${overall.t1Hit + overall.t2Hit + overall.expiredWin}W / ${overall.stopped + overall.expiredLoss}L`
-              }
-            />
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono mt-3 pt-3 border-t border-border/40">
-            <KpiCell label="Avg MFE / signal" value={`+${avgMfe(overall).toFixed(2)} pts`} tone="text-signal-strong-buy" />
-            <KpiCell label="Avg MAE / signal" value={`-${avgMae(overall).toFixed(2)} pts`} tone="text-signal-strong-sell" />
-            <KpiCell
-              label="Realised P&L"
-              value={`${overall.realisedPts >= 0 ? "+" : ""}${overall.realisedPts.toFixed(2)} pts`}
-              tone={overall.realisedPts >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}
-              sub="sum across decided trades"
-            />
-            <KpiCell label="Pending" value={overall.pending.toString()} sub="awaiting trigger" />
-          </div>
-        </CardContent>
-      </Card>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-md border border-border bg-secondary/30 p-0.5 text-xs font-mono">
+          <button
+            onClick={() => setMode("daily")}
+            className={`px-3 py-1.5 rounded transition-colors ${
+              mode === "daily" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Daily
+          </button>
+          <button
+            onClick={() => setMode("monthly")}
+            className={`px-3 py-1.5 rounded transition-colors ${
+              mode === "monthly" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Monthly
+          </button>
+        </div>
 
-      {/* By setup */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
-            Performance by setup
+        {mode === "daily" ? (
+          <div className="inline-flex items-center gap-1 text-xs font-mono">
+            <button
+              onClick={() => navigateDate(-1)}
+              className="p-1 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground"
+              title="Previous date"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <div className="relative">
+              <CalendarDays className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="bg-secondary/40 border border-border rounded px-2 py-1.5 pl-7 text-xs font-mono text-foreground w-[150px]"
+              />
+            </div>
+            <button
+              onClick={() => navigateDate(1)}
+              className="p-1 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground"
+              title="Next date"
+              disabled={selectedDate >= todayIST()}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setSelectedDate(todayIST())}
+              className="ml-1 px-2 py-1 rounded text-[10px] bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/40"
+            >
+              Today
+            </button>
           </div>
-          <BucketTable rows={bySetup} keyLabel="Setup" />
-        </CardContent>
-      </Card>
+        ) : (
+          <div className="inline-flex items-center gap-1 text-xs font-mono">
+            <button
+              onClick={() => navigateMonth(-1)}
+              className="p-1 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground"
+              title="Previous month"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="bg-secondary/40 border border-border rounded px-2 py-1.5 text-xs font-mono text-foreground w-[150px]"
+            />
+            <button
+              onClick={() => navigateMonth(1)}
+              className="p-1 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground"
+              title="Next month"
+              disabled={selectedMonth >= currentMonthIST()}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
-      {/* By index */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
-            Performance by index
-          </div>
-          <BucketTable rows={byIndex} keyLabel="Index" />
-        </CardContent>
-      </Card>
+        <div className="inline-flex rounded-md border border-border bg-secondary/30 p-0.5 text-xs font-mono">
+          <button
+            onClick={() => setStatusFilter("triggered")}
+            className={`px-3 py-1.5 rounded transition-colors ${
+              statusFilter === "triggered" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Triggered only
+          </button>
+          <button
+            onClick={() => setStatusFilter("all")}
+            className={`px-3 py-1.5 rounded transition-colors ${
+              statusFilter === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            All signals
+          </button>
+        </div>
 
-      {/* Detailed signal log */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
-            Signal log ({items.length})
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs font-mono">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/40">
-                  <th className="text-left py-1.5 px-2">Status</th>
-                  <th className="text-left py-1.5 px-2">Index</th>
-                  <th className="text-left py-1.5 px-2">Setup</th>
-                  <th className="text-left py-1.5 px-2">Side</th>
-                  <th className="text-right py-1.5 px-2">Strike</th>
-                  <th className="text-right py-1.5 px-2">Entry</th>
-                  <th className="text-right py-1.5 px-2">Stop</th>
-                  <th className="text-right py-1.5 px-2">T1</th>
-                  <th className="text-right py-1.5 px-2">T2</th>
-                  <th className="text-left py-1.5 px-2">Signaled</th>
-                  <th className="text-left py-1.5 px-2">Triggered</th>
-                  <th className="text-left py-1.5 px-2">Exit</th>
-                  <th className="text-right py-1.5 px-2">MFE</th>
-                  <th className="text-right py-1.5 px-2">MAE</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it) => (
-                  <tr
-                    key={`${it.indexSymbol}-${it.setupKey}-${it.direction}`}
-                    className="border-b border-border/20 hover:bg-secondary/20"
-                  >
-                    <td className="py-1.5 px-2"><StatusPill status={it.status} /></td>
-                    <td className="py-1.5 px-2">{it.indexName}</td>
-                    <td className="py-1.5 px-2">{it.setupName ?? it.setupKey}</td>
-                    <td className={`py-1.5 px-2 ${it.direction === "BULLISH" ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
-                      {it.optionType} {it.direction === "BULLISH" ? "↑" : "↓"}
-                    </td>
-                    <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.strike)}</td>
-                    <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.entry)}</td>
-                    <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.stopLoss)}</td>
-                    <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.target1)}</td>
-                    <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.target2)}</td>
-                    <td className="py-1.5 px-2 text-muted-foreground">{fmtIstTime(it.generatedAt)}</td>
-                    <td className="py-1.5 px-2 text-muted-foreground">{it.triggeredAt ? fmtIstTime(it.triggeredAt) : "—"}</td>
-                    <td className="py-1.5 px-2 text-muted-foreground">
-                      {it.exitedAt
-                        ? `${fmtIstTime(it.exitedAt)} (${exitReasonLabel(it.exitReason)})`
-                        : "—"}
-                    </td>
-                    <td className="py-1.5 px-2 text-right text-signal-strong-buy tabular-nums">
-                      +{(it.maxFavorableExcursionPts ?? 0).toFixed(2)}
-                    </td>
-                    <td className="py-1.5 px-2 text-right text-signal-strong-sell tabular-nums">
-                      -{(it.maxAdverseExcursionPts ?? 0).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
-            Win rate counts only decided trades (T1/T2 hit vs stopped). Signals that ran past 15:30 IST without resolving are tagged EXPIRED and excluded from the rate. MFE / MAE are the maximum points the underlying moved in your favour / against you from the locked entry, observed during today&apos;s session.
-          </p>
-        </CardContent>
-      </Card>
+        <button
+          onClick={handleExport}
+          disabled={items.length === 0}
+          className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono border border-border bg-secondary/40 hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export CSV
+        </button>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-72 w-full" />
+      ) : items.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <div className="text-muted-foreground font-mono text-sm">
+              No signals recorded for {mode === "daily" ? selectedDate : monthLabel}.
+            </div>
+            <div className="text-xs text-muted-foreground/70 mt-1">
+              {mode === "daily"
+                ? "Try selecting a different date, or switch to monthly view for a broader overview."
+                : "Try selecting a different month, or switch to daily view."}
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <ReportKpiCards
+            overall={overall}
+            label={mode === "daily" ? selectedDate : monthLabel}
+            mode={mode}
+          />
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
+                Performance by setup
+              </div>
+              <BucketTable rows={bySetup} keyLabel="Setup" />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
+                Performance by index
+              </div>
+              <BucketTable rows={byIndex} keyLabel="Index" />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
+                Signal log ({items.length})
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs font-mono">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/40">
+                      {mode === "monthly" && <th className="text-left py-1.5 px-2">Date</th>}
+                      <th className="text-left py-1.5 px-2">Status</th>
+                      <th className="text-left py-1.5 px-2">Index</th>
+                      <th className="text-left py-1.5 px-2">Setup</th>
+                      <th className="text-left py-1.5 px-2">Side</th>
+                      <th className="text-right py-1.5 px-2">Strike</th>
+                      <th className="text-right py-1.5 px-2">Entry</th>
+                      <th className="text-right py-1.5 px-2">Stop</th>
+                      <th className="text-right py-1.5 px-2">T1</th>
+                      <th className="text-right py-1.5 px-2">T2</th>
+                      <th className="text-left py-1.5 px-2">Signaled</th>
+                      <th className="text-left py-1.5 px-2">Triggered</th>
+                      <th className="text-left py-1.5 px-2">Exit</th>
+                      <th className="text-right py-1.5 px-2">MFE</th>
+                      <th className="text-right py-1.5 px-2">MAE</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it) => (
+                      <tr
+                        key={`${it.signalDate}-${it.indexSymbol}-${it.setupKey}-${it.direction}`}
+                        className="border-b border-border/20 hover:bg-secondary/20"
+                      >
+                        {mode === "monthly" && <td className="py-1.5 px-2 text-muted-foreground tabular-nums">{it.signalDate}</td>}
+                        <td className="py-1.5 px-2"><StatusPill status={it.status} /></td>
+                        <td className="py-1.5 px-2">{it.indexName}</td>
+                        <td className="py-1.5 px-2">{it.setupName ?? it.setupKey}</td>
+                        <td className={`py-1.5 px-2 ${it.direction === "BULLISH" ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
+                          {it.optionType} {it.direction === "BULLISH" ? "↑" : "↓"}
+                        </td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.strike)}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.entry)}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.stopLoss)}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.target1)}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{fmt(it.target2)}</td>
+                        <td className="py-1.5 px-2 text-muted-foreground">{fmtIstTime(it.generatedAt)}</td>
+                        <td className="py-1.5 px-2 text-muted-foreground">{it.triggeredAt ? fmtIstTime(it.triggeredAt) : "—"}</td>
+                        <td className="py-1.5 px-2 text-muted-foreground">
+                          {it.exitedAt
+                            ? `${fmtIstTime(it.exitedAt)} (${exitReasonLabel(it.exitReason)})`
+                            : "—"}
+                        </td>
+                        <td className="py-1.5 px-2 text-right text-signal-strong-buy tabular-nums">
+                          +{(it.maxFavorableExcursionPts ?? 0).toFixed(2)}
+                        </td>
+                        <td className="py-1.5 px-2 text-right text-signal-strong-sell tabular-nums">
+                          -{(it.maxAdverseExcursionPts ?? 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+                Win rate counts only decided trades (T1/T2 hit vs stopped). Signals that ran past 15:30 IST without resolving are tagged EXPIRED and excluded from the rate. MFE / MAE are the maximum points the underlying moved in your favour / against you from the locked entry.
+              </p>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
+  );
+}
+
+function ReportKpiCards({ overall, label, mode }: { overall: KpiBucket; label: string; mode: ReportMode }) {
+  const overallWin = winRate(overall);
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
+          {mode === "daily" ? "Daily" : "Monthly"} report · {label}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-xs font-mono">
+          <KpiCell label="Signals" value={overall.total.toString()} />
+          <KpiCell label="Triggered" value={overall.triggered.toString()} />
+          <KpiCell label="T1 hit" value={overall.t1Hit.toString()} tone="text-signal-strong-buy" />
+          <KpiCell label="T2 hit" value={overall.t2Hit.toString()} tone="text-signal-strong-buy" />
+          <KpiCell label="Stopped" value={overall.stopped.toString()} tone="text-signal-strong-sell" />
+          <KpiCell
+            label="Expired (open)"
+            value={(overall.expiredWin + overall.expiredLoss + overall.expiredScratch).toString()}
+            sub={`${overall.expiredWin}W / ${overall.expiredLoss}L${overall.expiredScratch > 0 ? ` / ${overall.expiredScratch}≈` : ""}`}
+          />
+          <KpiCell
+            label="Win rate"
+            value={overallWin == null ? "—" : `${overallWin}%`}
+            tone={
+              overallWin == null
+                ? undefined
+                : overallWin >= 50
+                ? "text-signal-strong-buy"
+                : "text-signal-strong-sell"
+            }
+            sub={
+              overallWin == null
+                ? "no decided trades"
+                : `${overall.t1Hit + overall.t2Hit + overall.expiredWin}W / ${overall.stopped + overall.expiredLoss}L`
+            }
+          />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono mt-3 pt-3 border-t border-border/40">
+          <KpiCell label="Avg MFE / signal" value={`+${avgMfe(overall).toFixed(2)} pts`} tone="text-signal-strong-buy" />
+          <KpiCell label="Avg MAE / signal" value={`-${avgMae(overall).toFixed(2)} pts`} tone="text-signal-strong-sell" />
+          <KpiCell
+            label="Realised P&L"
+            value={`${overall.realisedPts >= 0 ? "+" : ""}${overall.realisedPts.toFixed(2)} pts`}
+            tone={overall.realisedPts >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}
+            sub="sum across decided trades"
+          />
+          <KpiCell label="Pending" value={overall.pending.toString()} sub="awaiting trigger" />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

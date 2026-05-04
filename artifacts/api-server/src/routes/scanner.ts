@@ -5,6 +5,7 @@ import {
   GetMarketTrendResponse,
   GetNewsResponse,
   GetOptionSignalHistoryResponse,
+  GetOptionSignalReportResponse,
   GetOptionSignalsResponse,
   GetSectorResponse,
   GetStockDetailResponse,
@@ -18,7 +19,6 @@ import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground } from "../lib/scanner";
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
 import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
-import { sendExport } from "../lib/csvExport";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
 import { getMarketEvents, computeMarketStatus } from "../lib/marketEvents";
@@ -28,8 +28,12 @@ import { getMarketNewsLive } from "../lib/newsRss";
 import { getOptionSignals } from "../lib/optionSignals";
 import {
   getTodayHistory as getTodayOptionSignalHistory,
+  getHistoryByDate,
+  getHistoryByMonth,
+  getAvailableSignalDates,
   expireOpenSignalsForToday,
 } from "../lib/optionSignalLifecycle";
+import { sendExport as sendCsvExport } from "../lib/csvExport";
 import { getGlobalIndices } from "../lib/globalIndices";
 import { getMarketTrend } from "../lib/marketTrend";
 import { providerStatus } from "../lib/dataProvider";
@@ -224,6 +228,90 @@ router.get("/options/signal-history", requireSubscriberOrOwner("FNO"), async (_r
       signals: rows,
     });
     res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/options/signal-report", requireSubscriberOrOwner("FNO"), async (req, res, next) => {
+  try {
+    const dateParam = req.query.date as string | undefined;
+    const monthParam = req.query.month as string | undefined;
+    let rows;
+    let mode: "daily" | "monthly";
+    let label: string;
+    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      rows = await getHistoryByMonth(monthParam);
+      mode = "monthly";
+      const [y, m] = monthParam.split("-");
+      const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      label = `${monthNames[parseInt(m!, 10) - 1]} ${y}`;
+    } else {
+      const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+        ? dateParam
+        : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+      rows = await getHistoryByDate(date);
+      mode = "daily";
+      label = date;
+    }
+    const data = GetOptionSignalReportResponse.parse({
+      mode,
+      label,
+      generatedAt: new Date(),
+      signals: rows,
+    });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/options/signal-report/dates", requireSubscriberOrOwner("FNO"), async (_req, res, next) => {
+  try {
+    const dates = await getAvailableSignalDates();
+    res.json({ dates });
+  } catch (err) { next(err); }
+});
+
+router.get("/options/signal-report/export", requireSubscriberOrOwner("FNO"), async (req, res, next) => {
+  try {
+    const dateParam = req.query.date as string | undefined;
+    const monthParam = req.query.month as string | undefined;
+    let rows;
+    let filenameBase: string;
+    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      rows = await getHistoryByMonth(monthParam);
+      filenameBase = `fno-signal-report-${monthParam}`;
+    } else {
+      const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+        ? dateParam
+        : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+      rows = await getHistoryByDate(date);
+      filenameBase = `fno-signal-report-${date}`;
+    }
+    const flat = rows.map((r) => ({
+      Date: r.signalDate,
+      Index: r.indexName,
+      Setup: r.setupName ?? r.setupKey,
+      Direction: r.direction,
+      "Option Type": r.optionType,
+      Strike: r.strike,
+      "Spot Entry": r.entry,
+      "Spot SL": r.stopLoss,
+      "Spot T1": r.target1,
+      "Spot T2": r.target2,
+      "Opt Entry": r.optionEntry ?? "",
+      "Opt SL": r.optionStopLoss ?? "",
+      "Opt T1": r.optionTarget1 ?? "",
+      "Opt T2": r.optionTarget2 ?? "",
+      Confidence: r.confidence,
+      Status: r.status,
+      "Generated At": r.generatedAt.toISOString(),
+      "Triggered At": r.triggeredAt?.toISOString() ?? "",
+      "Exited At": r.exitedAt?.toISOString() ?? "",
+      "Exit Reason": r.exitReason ?? "",
+      "Exit Price": r.exitPrice ?? "",
+      "MFE (pts)": r.maxFavorableExcursionPts,
+      "MAE (pts)": r.maxAdverseExcursionPts,
+      "Last Spot": r.lastSpot,
+    }));
+    sendCsvExport(res, filenameBase, "csv", flat);
   } catch (err) { next(err); }
 });
 
@@ -613,7 +701,7 @@ router.get("/scan/full-nse/export", async (req, res, next) => {
       sourceDate: sourceDate ?? "",
       asOf: lastUpdated ? new Date(lastUpdated).toISOString() : "",
     }));
-    sendExport(res, "nse-scan", format, flat);
+    sendCsvExport(res, "nse-scan", format, flat);
   } catch (err) { next(err); }
 });
 

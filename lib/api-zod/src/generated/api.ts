@@ -1516,6 +1516,93 @@ export const GetOptionSignalHistoryResponse = zod.object({
 });
 
 /**
+ * @summary Signal history report — daily or monthly.
+ */
+export const GetOptionSignalReportQueryParams = zod.object({
+  date: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Single date YYYY-MM-DD (daily report). Mutually exclusive with month.",
+    ),
+  month: zod.coerce
+    .string()
+    .optional()
+    .describe("Month YYYY-MM (monthly report). Mutually exclusive with date."),
+});
+
+export const GetOptionSignalReportResponse = zod.object({
+  mode: zod.enum(["daily", "monthly"]),
+  label: zod
+    .string()
+    .describe("Human-readable label, e.g. 2026-05-04 or May 2026"),
+  generatedAt: zod.coerce.date(),
+  signals: zod.array(
+    zod.object({
+      signalDate: zod.string().describe("IST trading date YYYY-MM-DD"),
+      indexSymbol: zod.string(),
+      indexName: zod.string(),
+      setupKey: zod.string(),
+      setupName: zod.string().nullish(),
+      direction: zod.enum(["BULLISH", "BEARISH"]),
+      optionType: zod.enum(["CALL", "PUT"]),
+      strike: zod.number(),
+      entry: zod.number(),
+      stopLoss: zod.number(),
+      target1: zod.number(),
+      target2: zod.number(),
+      entryTrigger: zod.string().nullish(),
+      optionEntry: zod.number().nullish(),
+      optionStopLoss: zod.number().nullish(),
+      optionTarget1: zod.number().nullish(),
+      optionTarget2: zod.number().nullish(),
+      confidence: zod.number(),
+      tier: zod.string().nullish(),
+      status: zod.enum([
+        "PENDING",
+        "TRIGGERED",
+        "TARGET1_HIT",
+        "TARGET2_HIT",
+        "STOPPED",
+        "EXPIRED",
+      ]),
+      generatedAt: zod.coerce.date(),
+      triggeredAt: zod.coerce.date().nullish(),
+      exitedAt: zod.coerce.date().nullish(),
+      exitReason: zod
+        .enum([
+          "TARGET1_HIT",
+          "TARGET2_HIT",
+          "STOPPED",
+          "EXPIRED_TRIGGERED",
+          "EXPIRED_PENDING",
+        ])
+        .nullish(),
+      exitPrice: zod.number().nullish(),
+      maxFavorableExcursionPts: zod.number(),
+      maxAdverseExcursionPts: zod.number(),
+      lastSpot: zod.number(),
+      lastEvaluatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Export signal history report as CSV (opens in Excel).
+ */
+export const ExportOptionSignalReportQueryParams = zod.object({
+  date: zod.coerce.string().optional().describe("Single date YYYY-MM-DD."),
+  month: zod.coerce.string().optional().describe("Month YYYY-MM."),
+});
+
+/**
+ * @summary Available signal dates for the date picker.
+ */
+export const GetOptionSignalReportDatesResponse = zod.object({
+  dates: zod.array(zod.string()),
+});
+
+/**
  * @summary Owner-only paper trading account state for one segment.
  */
 export const GetPaperAccountQueryParams = zod.object({

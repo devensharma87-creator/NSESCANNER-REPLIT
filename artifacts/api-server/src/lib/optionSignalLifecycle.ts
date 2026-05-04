@@ -841,6 +841,62 @@ export async function getRecentHistory(days = 7): Promise<HistoryRow[]> {
   }
 }
 
+/** History for a specific IST trading date, sorted newest first. */
+export async function getHistoryByDate(date: string): Promise<HistoryRow[]> {
+  try {
+    const rows = await db
+      .select()
+      .from(optionSignalHistoryTable)
+      .where(eq(optionSignalHistoryTable.signalDate, date));
+    return rows
+      .map(toHistoryRow)
+      .sort((a, b) => b.generatedAt.getTime() - a.generatedAt.getTime());
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, date }, "getHistoryByDate failed");
+    return [];
+  }
+}
+
+/** History for a month (YYYY-MM), sorted newest first. */
+export async function getHistoryByMonth(month: string): Promise<HistoryRow[]> {
+  const startDate = `${month}-01`;
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+  const endDate = `${nextMonth}-01`;
+  try {
+    const rows = await db
+      .select()
+      .from(optionSignalHistoryTable)
+      .where(
+        and(
+          gte(optionSignalHistoryTable.signalDate, startDate),
+          sql`${optionSignalHistoryTable.signalDate} < ${endDate}`,
+        ),
+      );
+    return rows
+      .map(toHistoryRow)
+      .sort((a, b) => b.generatedAt.getTime() - a.generatedAt.getTime());
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, month }, "getHistoryByMonth failed");
+    return [];
+  }
+}
+
+/** Get all distinct signal dates that have data, sorted descending. */
+export async function getAvailableSignalDates(): Promise<string[]> {
+  try {
+    const rows = await db
+      .selectDistinct({ signalDate: optionSignalHistoryTable.signalDate })
+      .from(optionSignalHistoryTable)
+      .orderBy(sql`${optionSignalHistoryTable.signalDate} DESC`)
+      .limit(365);
+    return rows.map((r) => r.signalDate);
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "getAvailableSignalDates failed");
+    return [];
+  }
+}
+
 /**
  * Batch-update lifecycle rows with option premiums computed by
  * enrichBundlesWithOptionLevels().  The lifecycle INSERT and the

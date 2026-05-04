@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  ExportOptionSignalReportParams,
   FiiDiiResponse,
   GetFiiDiiParams,
   GetGlobalCandlesParams,
@@ -25,6 +26,8 @@ import type {
   GetNewsParams,
   GetOptionAnalyticsParams,
   GetOptionChainParams,
+  GetOptionSignalReportDates200,
+  GetOptionSignalReportParams,
   GetOptionStrategiesParams,
   GetPaperAccountParams,
   GetPaperReportEqMonthlyParams,
@@ -74,6 +77,7 @@ import type {
   OptionAnalyticsResponse,
   OptionChainResponse,
   OptionSignalHistorySet,
+  OptionSignalReportResponse,
   OptionSignalSet,
   OptionStrategiesResponse,
   PaperAccountState,
@@ -1166,6 +1170,291 @@ export function useGetOptionSignalHistory<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetOptionSignalHistoryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Signal history report — daily or monthly.
+ */
+export const getGetOptionSignalReportUrl = (
+  params?: GetOptionSignalReportParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/options/signal-report?${stringifiedParams}`
+    : `/api/options/signal-report`;
+};
+
+export const getOptionSignalReport = async (
+  params?: GetOptionSignalReportParams,
+  options?: RequestInit,
+): Promise<OptionSignalReportResponse> => {
+  return customFetch<OptionSignalReportResponse>(
+    getGetOptionSignalReportUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOptionSignalReportQueryKey = (
+  params?: GetOptionSignalReportParams,
+) => {
+  return [`/api/options/signal-report`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOptionSignalReportQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOptionSignalReport>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOptionSignalReportParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOptionSignalReport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOptionSignalReportQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOptionSignalReport>>
+  > = ({ signal }) =>
+    getOptionSignalReport(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignalReport>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOptionSignalReportQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOptionSignalReport>>
+>;
+export type GetOptionSignalReportQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Signal history report — daily or monthly.
+ */
+
+export function useGetOptionSignalReport<
+  TData = Awaited<ReturnType<typeof getOptionSignalReport>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOptionSignalReportParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOptionSignalReport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOptionSignalReportQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Export signal history report as CSV (opens in Excel).
+ */
+export const getExportOptionSignalReportUrl = (
+  params?: ExportOptionSignalReportParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/options/signal-report/export?${stringifiedParams}`
+    : `/api/options/signal-report/export`;
+};
+
+export const exportOptionSignalReport = async (
+  params?: ExportOptionSignalReportParams,
+  options?: RequestInit,
+): Promise<string> => {
+  return customFetch<string>(getExportOptionSignalReportUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getExportOptionSignalReportQueryKey = (
+  params?: ExportOptionSignalReportParams,
+) => {
+  return [
+    `/api/options/signal-report/export`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getExportOptionSignalReportQueryOptions = <
+  TData = Awaited<ReturnType<typeof exportOptionSignalReport>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ExportOptionSignalReportParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportOptionSignalReport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getExportOptionSignalReportQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof exportOptionSignalReport>>
+  > = ({ signal }) =>
+    exportOptionSignalReport(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof exportOptionSignalReport>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ExportOptionSignalReportQueryResult = NonNullable<
+  Awaited<ReturnType<typeof exportOptionSignalReport>>
+>;
+export type ExportOptionSignalReportQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Export signal history report as CSV (opens in Excel).
+ */
+
+export function useExportOptionSignalReport<
+  TData = Awaited<ReturnType<typeof exportOptionSignalReport>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ExportOptionSignalReportParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportOptionSignalReport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getExportOptionSignalReportQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Available signal dates for the date picker.
+ */
+export const getGetOptionSignalReportDatesUrl = () => {
+  return `/api/options/signal-report/dates`;
+};
+
+export const getOptionSignalReportDates = async (
+  options?: RequestInit,
+): Promise<GetOptionSignalReportDates200> => {
+  return customFetch<GetOptionSignalReportDates200>(
+    getGetOptionSignalReportDatesUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOptionSignalReportDatesQueryKey = () => {
+  return [`/api/options/signal-report/dates`] as const;
+};
+
+export const getGetOptionSignalReportDatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOptionSignalReportDates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignalReportDates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOptionSignalReportDatesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOptionSignalReportDates>>
+  > = ({ signal }) => getOptionSignalReportDates({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignalReportDates>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOptionSignalReportDatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOptionSignalReportDates>>
+>;
+export type GetOptionSignalReportDatesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Available signal dates for the date picker.
+ */
+
+export function useGetOptionSignalReportDates<
+  TData = Awaited<ReturnType<typeof getOptionSignalReportDates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOptionSignalReportDates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOptionSignalReportDatesQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

@@ -812,6 +812,22 @@ export interface OptionSignalHistorySet {
   signals: OptionSignalHistoryItem[];
 }
 
+export type OptionSignalReportResponseMode =
+  (typeof OptionSignalReportResponseMode)[keyof typeof OptionSignalReportResponseMode];
+
+export const OptionSignalReportResponseMode = {
+  daily: "daily",
+  monthly: "monthly",
+} as const;
+
+export interface OptionSignalReportResponse {
+  mode: OptionSignalReportResponseMode;
+  /** Human-readable label, e.g. 2026-05-04 or May 2026 */
+  label: string;
+  generatedAt: string;
+  signals: OptionSignalHistoryItem[];
+}
+
 export interface TopScans {
   topBuys: StockRow[];
   topSells: StockRow[];
@@ -2544,6 +2560,32 @@ export const GetStockHistoryRange = {
   "1y": "1y",
   "2y": "2y",
 } as const;
+
+export type GetOptionSignalReportParams = {
+  /**
+   * Single date YYYY-MM-DD (daily report). Mutually exclusive with month.
+   */
+  date?: string;
+  /**
+   * Month YYYY-MM (monthly report). Mutually exclusive with date.
+   */
+  month?: string;
+};
+
+export type ExportOptionSignalReportParams = {
+  /**
+   * Single date YYYY-MM-DD.
+   */
+  date?: string;
+  /**
+   * Month YYYY-MM.
+   */
+  month?: string;
+};
+
+export type GetOptionSignalReportDates200 = {
+  dates: string[];
+};
 
 export type GetPaperAccountParams = {
   segment: GetPaperAccountSegment;
