@@ -98,11 +98,11 @@ function FiiDiiCashMarketView({
               <Table>
                 <TableHeader className="sticky top-0 bg-card z-10">
                   <TableRow className="border-border/40">
-                    <TableHead className="font-mono text-[10px] uppercase">Date</TableHead>
-                    <TableHead className="font-mono text-[10px] uppercase text-right">FII Net Cr.</TableHead>
-                    <TableHead className="font-mono text-[10px] uppercase text-right">DII Net Cr.</TableHead>
-                    <TableHead className="font-mono text-[10px] uppercase text-right">Net (FII+DII)</TableHead>
-                    <TableHead className="font-mono text-[10px] uppercase text-right">Nifty</TableHead>
+                    <TableHead className="font-mono text-xs uppercase">Date</TableHead>
+                    <TableHead className="font-mono text-xs uppercase text-right">FII Net Cr.</TableHead>
+                    <TableHead className="font-mono text-xs uppercase text-right">DII Net Cr.</TableHead>
+                    <TableHead className="font-mono text-xs uppercase text-right">Net (FII+DII)</TableHead>
+                    <TableHead className="font-mono text-xs uppercase text-right">Nifty</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -141,16 +141,16 @@ function FiiDiiCashMarketView({
             <div className="lg:col-span-8 p-3 space-y-2">
               {/* NIFTY price */}
               <div>
-                <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground px-1 mb-0.5">
+                <div className="text-sm font-mono uppercase tracking-wider text-foreground px-1 mb-1">
                   NIFTY 50 — Daily Close
                 </div>
                 <div style={{ height: 220 }}>
                   <ResponsiveContainer>
                     <ComposedChart data={chartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                       <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="2 4" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 9, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" minTickGap={28} />
-                      <YAxis domain={["auto", "auto"]} tick={{ fontSize: 9, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} width={52} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
-                      <RTooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 11 }} formatter={(v) => (v == null ? "—" : (v as number).toLocaleString("en-IN"))} />
+                      <XAxis dataKey="date" tick={{ fontSize: 12, fontFamily: "monospace", fill: "hsl(var(--foreground))" }} interval="preserveStartEnd" minTickGap={36} />
+                      <YAxis domain={["auto", "auto"]} tick={{ fontSize: 12, fontFamily: "monospace", fill: "hsl(var(--foreground))" }} width={62} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
+                      <RTooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 13 }} formatter={(v) => (v == null ? "—" : (v as number).toLocaleString("en-IN"))} />
                       <Line type="monotone" dataKey="nifty" stroke="hsl(45 93% 58%)" strokeWidth={1.5} dot={false} connectNulls />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -159,16 +159,16 @@ function FiiDiiCashMarketView({
 
               {/* FII Net */}
               <div>
-                <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground px-1 mb-0.5">
+                <div className="text-sm font-mono uppercase tracking-wider text-foreground px-1 mb-1">
                   FII Net (₹ Cr)
                 </div>
                 <div style={{ height: 160 }}>
                   <ResponsiveContainer>
                     <ComposedChart data={chartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                       <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="2 4" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 9, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" minTickGap={28} />
-                      <YAxis tick={{ fontSize: 9, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} width={52} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
-                      <RTooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 11 }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
+                      <XAxis dataKey="date" tick={{ fontSize: 12, fontFamily: "monospace", fill: "hsl(var(--foreground))" }} interval="preserveStartEnd" minTickGap={36} />
+                      <YAxis tick={{ fontSize: 12, fontFamily: "monospace", fill: "hsl(var(--foreground))" }} width={62} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
+                      <RTooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 13 }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
                       <ReferenceLine y={0} stroke="hsl(var(--border))" />
                       <Bar dataKey="fii">
                         {chartData.map((d, i) => (
@@ -182,16 +182,16 @@ function FiiDiiCashMarketView({
 
               {/* DII Net */}
               <div>
-                <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground px-1 mb-0.5">
+                <div className="text-sm font-mono uppercase tracking-wider text-foreground px-1 mb-1">
                   DII Net (₹ Cr)
                 </div>
                 <div style={{ height: 160 }}>
                   <ResponsiveContainer>
                     <ComposedChart data={chartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                       <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="2 4" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 9, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" minTickGap={28} />
-                      <YAxis tick={{ fontSize: 9, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} width={52} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
-                      <RTooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 11 }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
+                      <XAxis dataKey="date" tick={{ fontSize: 12, fontFamily: "monospace", fill: "hsl(var(--foreground))" }} interval="preserveStartEnd" minTickGap={36} />
+                      <YAxis tick={{ fontSize: 12, fontFamily: "monospace", fill: "hsl(var(--foreground))" }} width={62} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
+                      <RTooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 13 }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
                       <ReferenceLine y={0} stroke="hsl(var(--border))" />
                       <Bar dataKey="dii">
                         {chartData.map((d, i) => (
