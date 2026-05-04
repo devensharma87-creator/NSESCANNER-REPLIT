@@ -14,6 +14,7 @@ import indicesRouter from "./indices";
 import userAuthRouter from "./userAuth";
 import adminRouter from "./admin";
 import paperRouter from "./paper";
+import homeRouter from "./home";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
 
@@ -34,6 +35,7 @@ router.use(indicesRouter);
 router.use(userAuthRouter);   // /auth/signup, /auth/user-login, /auth/me, /personal-watchlist/*
 router.use(adminRouter);      // /admin/users[/:id] — owner-only via router-level requireOwner
 router.use(paperRouter);      // /paper/* — owner-only paper trading (per-route requireOwner)
+router.use(homeRouter);       // /home/enrichment — aggregated home dashboard data
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 startInstFlowsRefresher();

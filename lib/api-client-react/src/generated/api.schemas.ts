@@ -2568,6 +2568,57 @@ export interface GlobalScreenerPresetSharePreview {
   body: GlobalScreenerBody;
 }
 
+export type HomeIndexEnrichmentOptionsBias =
+  | (typeof HomeIndexEnrichmentOptionsBias)[keyof typeof HomeIndexEnrichmentOptionsBias]
+  | null;
+
+export const HomeIndexEnrichmentOptionsBias = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+export type HomeIndexEnrichmentTopCeWallsItem = {
+  strike: number;
+  oi: number;
+};
+
+export type HomeIndexEnrichmentTopPeWallsItem = {
+  strike: number;
+  oi: number;
+};
+
+export interface HomeIndexEnrichment {
+  /** Index key matching IndicesBoardItem.key (NIFTY50, BANKNIFTY, etc.) */
+  key: string;
+  /** Intraday close prices (~78 points for 5-min bars) */
+  sparkline: number[];
+  /** RSI(14) from intraday closes */
+  rsi14?: number | null;
+  /** MACD histogram (12,26,9) last value */
+  macdHist?: number | null;
+  /** ADX(14) trend strength */
+  adx14?: number | null;
+  /** Session volume / 20-period average */
+  volumeRatio?: number | null;
+  /** Put-Call Ratio by Open Interest */
+  pcrOi?: number | null;
+  /** Put-Call Ratio by Volume */
+  pcrVolume?: number | null;
+  /** Max pain strike for current expiry */
+  maxPain?: number | null;
+  /** ATM straddle implied volatility */
+  atmIv?: number | null;
+  optionsBias?: HomeIndexEnrichmentOptionsBias;
+  topCeWalls: HomeIndexEnrichmentTopCeWallsItem[];
+  topPeWalls: HomeIndexEnrichmentTopPeWallsItem[];
+}
+
+export interface HomeEnrichmentResponse {
+  indices: HomeIndexEnrichment[];
+  generatedAt: string;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;

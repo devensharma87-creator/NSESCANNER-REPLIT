@@ -67,6 +67,7 @@ import type {
   GlobalWatchlistDeleteResponse,
   GlobalWatchlistResponse,
   HealthStatus,
+  HomeEnrichmentResponse,
   IndicesBoardSnapshot,
   ListGlobalInstrumentsParams,
   ListStocksParams,
@@ -3272,6 +3273,81 @@ export function useGetMarketEvents<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetMarketEventsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Aggregated home dashboard enrichment — sparklines, momentum, options summary per Indian index
+ */
+export const getGetHomeEnrichmentUrl = () => {
+  return `/api/home/enrichment`;
+};
+
+export const getHomeEnrichment = async (
+  options?: RequestInit,
+): Promise<HomeEnrichmentResponse> => {
+  return customFetch<HomeEnrichmentResponse>(getGetHomeEnrichmentUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetHomeEnrichmentQueryKey = () => {
+  return [`/api/home/enrichment`] as const;
+};
+
+export const getGetHomeEnrichmentQueryOptions = <
+  TData = Awaited<ReturnType<typeof getHomeEnrichment>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getHomeEnrichment>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetHomeEnrichmentQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getHomeEnrichment>>
+  > = ({ signal }) => getHomeEnrichment({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getHomeEnrichment>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetHomeEnrichmentQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getHomeEnrichment>>
+>;
+export type GetHomeEnrichmentQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Aggregated home dashboard enrichment — sparklines, momentum, options summary per Indian index
+ */
+
+export function useGetHomeEnrichment<
+  TData = Awaited<ReturnType<typeof getHomeEnrichment>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getHomeEnrichment>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetHomeEnrichmentQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

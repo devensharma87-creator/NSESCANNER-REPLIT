@@ -2701,6 +2701,55 @@ export const GetMarketEventsResponse = zod.object({
 });
 
 /**
+ * @summary Aggregated home dashboard enrichment — sparklines, momentum, options summary per Indian index
+ */
+export const GetHomeEnrichmentResponse = zod.object({
+  indices: zod.array(
+    zod.object({
+      key: zod
+        .string()
+        .describe(
+          "Index key matching IndicesBoardItem.key (NIFTY50, BANKNIFTY, etc.)",
+        ),
+      sparkline: zod
+        .array(zod.number())
+        .describe("Intraday close prices (~78 points for 5-min bars)"),
+      rsi14: zod.number().nullish().describe("RSI(14) from intraday closes"),
+      macdHist: zod
+        .number()
+        .nullish()
+        .describe("MACD histogram (12,26,9) last value"),
+      adx14: zod.number().nullish().describe("ADX(14) trend strength"),
+      volumeRatio: zod
+        .number()
+        .nullish()
+        .describe("Session volume \/ 20-period average"),
+      pcrOi: zod.number().nullish().describe("Put-Call Ratio by Open Interest"),
+      pcrVolume: zod.number().nullish().describe("Put-Call Ratio by Volume"),
+      maxPain: zod
+        .number()
+        .nullish()
+        .describe("Max pain strike for current expiry"),
+      atmIv: zod.number().nullish().describe("ATM straddle implied volatility"),
+      optionsBias: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]).nullish(),
+      topCeWalls: zod.array(
+        zod.object({
+          strike: zod.number(),
+          oi: zod.number(),
+        }),
+      ),
+      topPeWalls: zod.array(
+        zod.object({
+          strike: zod.number(),
+          oi: zod.number(),
+        }),
+      ),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
  * @summary Pre/Post-market deep analysis — overnight cues, GIFT NIFTY, gainers/losers, gappers, market internals
  */
 export const GetPreMarketResponse = zod.object({

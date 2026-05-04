@@ -595,6 +595,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MarketEventsResponse" }
 
+  /home/enrichment:
+    get:
+      operationId: getHomeEnrichment
+      tags: [market]
+      summary: Aggregated home dashboard enrichment — sparklines, momentum, options summary per Indian index
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HomeEnrichmentResponse" }
+
   /market/premarket:
     get:
       operationId: getPreMarket
@@ -3425,3 +3437,47 @@ components:
       properties:
         name: { type: string }
         body: { $ref: "#/components/schemas/GlobalScreenerBody" }
+
+    HomeIndexEnrichment:
+      type: object
+      required: [key, sparkline, topCeWalls, topPeWalls]
+      properties:
+        key:          { type: string, description: "Index key matching IndicesBoardItem.key (NIFTY50, BANKNIFTY, etc.)" }
+        sparkline:
+          type: array
+          items: { type: number }
+          description: "Intraday close prices (~78 points for 5-min bars)"
+        rsi14:        { type: number, nullable: true, description: "RSI(14) from intraday closes" }
+        macdHist:     { type: number, nullable: true, description: "MACD histogram (12,26,9) last value" }
+        adx14:        { type: number, nullable: true, description: "ADX(14) trend strength" }
+        volumeRatio:  { type: number, nullable: true, description: "Session volume / 20-period average" }
+        pcrOi:        { type: number, nullable: true, description: "Put-Call Ratio by Open Interest" }
+        pcrVolume:    { type: number, nullable: true, description: "Put-Call Ratio by Volume" }
+        maxPain:      { type: number, nullable: true, description: "Max pain strike for current expiry" }
+        atmIv:        { type: number, nullable: true, description: "ATM straddle implied volatility" }
+        optionsBias:  { type: string, nullable: true, enum: [BULLISH, BEARISH, NEUTRAL] }
+        topCeWalls:
+          type: array
+          items:
+            type: object
+            required: [strike, oi]
+            properties:
+              strike: { type: number }
+              oi:     { type: integer }
+        topPeWalls:
+          type: array
+          items:
+            type: object
+            required: [strike, oi]
+            properties:
+              strike: { type: number }
+              oi:     { type: integer }
+
+    HomeEnrichmentResponse:
+      type: object
+      required: [indices, generatedAt]
+      properties:
+        indices:
+          type: array
+          items: { $ref: "#/components/schemas/HomeIndexEnrichment" }
+        generatedAt: { type: string, format: date-time }
