@@ -6,6 +6,7 @@
  */
 
 import { Router, type IRouter } from "express";
+import path from "path";
 import {
   requireOwner,
   listAllUsers,
@@ -169,6 +170,11 @@ router.delete("/admin/users/:id", async (req, res) => {
     logger.error({ err, id }, "admin delete failed");
     res.status(500).json({ error: "delete_failed" });
   }
+});
+
+router.get("/admin/download/codebase-summary", (_req, res) => {
+  const filePath = path.resolve(__dirname, "../../project-codebase-summary.md");
+  res.download(filePath, "project-codebase-summary.md");
 });
 
 export default router;
