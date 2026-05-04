@@ -34,6 +34,7 @@ const INDICES = [
   { key: "BANKNIFTY", yahoo: "^NSEBANK", underlying: "BANKNIFTY" },
   { key: "FINNIFTY", yahoo: "NIFTY_FIN_SERVICE.NS", underlying: "FINNIFTY" },
   { key: "MIDCPNIFTY", yahoo: "NIFTY_MID_SELECT.NS", underlying: "MIDCPNIFTY" },
+  { key: "SENSEX", yahoo: "^BSESN", underlying: "SENSEX" },
 ];
 
 let cache: { ts: number; data: HomeEnrichmentResponse } | null = null;

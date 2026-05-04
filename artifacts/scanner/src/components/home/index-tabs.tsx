@@ -7,7 +7,7 @@ import type { IndexBoardItem, HomeIndexEnrichment } from "@workspace/api-client-
 import IndexExpandedPanel from "./index-expanded-panel";
 import { Activity } from "lucide-react";
 
-const INDIAN_KEYS = ["NIFTY50", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"];
+const INDIAN_KEYS = ["NIFTY50", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"];
 
 function Sparkline({ data, width = 80, height = 24, color }: { data: number[]; width?: number; height?: number; color: string }) {
   if (data.length < 2) return null;
@@ -189,7 +189,7 @@ export default function IndexTabs() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
         {indianIndices.map(item => (
           <MiniCard
             key={item.key}
