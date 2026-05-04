@@ -11,7 +11,7 @@
  * - Pushes every tick to registered SSE listeners.
  */
 import { logger } from "./logger";
-import { getActiveSession, getRestClient, autoMirrorSession, type ActiveSession } from "./kiteAuth";
+import { getActiveSession, getRestClient, autoMirrorSession, autoMirrorInstruments, type ActiveSession } from "./kiteAuth";
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
 import { KiteTicker } from "kiteconnect";
 
@@ -326,5 +326,7 @@ export async function bootstrapKite(): Promise<void> {
     logger.info("Kite not connected (no active session). User must complete daily login.");
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "Kite bootstrap failed");
+  } finally {
+    autoMirrorInstruments().catch(() => {});
   }
 }

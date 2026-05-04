@@ -379,13 +379,7 @@ export async function fetchOptionChain(underlying: string, expiryFilter?: string
     if (d.PE) row.pe = mapLeg(d.PE, d.strikePrice, spot, step, "PE", T);
     byStrike.set(d.strikePrice, row);
   }
-  // Sort ascending and trim to ±20 strikes from ATM (40 rows is plenty for UI)
   const allRows = Array.from(byStrike.values()).sort((a, b) => a.strike - b.strike);
-  const atmIdx = allRows.findIndex(r => r.strike === atmStrike);
-  const window = 20;
-  const slice = atmIdx >= 0
-    ? allRows.slice(Math.max(0, atmIdx - window), Math.min(allRows.length, atmIdx + window + 1))
-    : allRows;
 
   const prevClose = spot / (1 + 0); // NSE doesn't return prev close on this endpoint; default to spot
   const changePercent = 0;
@@ -402,7 +396,7 @@ export async function fetchOptionChain(underlying: string, expiryFilter?: string
     atmStrike,
     strikeStep: step,
     lotSize: LOT_SIZES[sym],
-    rows: slice,
+    rows: allRows,
     source: "NSE",
     generatedAt: new Date().toISOString(),
   };

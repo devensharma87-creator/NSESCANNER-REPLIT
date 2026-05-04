@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import crypto from "node:crypto";
-import { buildLoginUrl, clearSession, completeLogin, getActiveSession, getKiteCreds, storeImportedSession, type ExportedSession } from "../lib/kiteAuth";
+import { buildLoginUrl, clearSession, completeLogin, getActiveSession, getKiteCreds, storeImportedSession, exportInstrumentsCache, type ExportedSession } from "../lib/kiteAuth";
 import { addTickListener, feedStatus, getAllLiveQuotes, getLiveQuote, startTicker, stopTicker, subscribe } from "../lib/kiteFeed";
 import { requireOwner } from "../lib/userAuth";
 import { logger } from "../lib/logger";
@@ -28,7 +28,7 @@ const router: IRouter = Router();
 router.use("/kite", (req, res, next) => {
   // req.path here is RELATIVE to the "/kite" mount, so /kite/callback => "/callback".
   const p = req.path;
-  if (p === "/callback" || p === "/export-session" || p === "/import-session") {
+  if (p === "/callback" || p === "/export-session" || p === "/import-session" || p === "/export-instruments") {
     return next();
   }
   return requireOwner(req, res, next);
@@ -129,9 +129,26 @@ router.get("/kite/export-session", async (req, res) => {
   res.json(payload);
 });
 
-/** Mirror the active Kite session from a peer server (typically production)
- *  into this environment. Server-to-server fetch — the browser never sees the
- *  access_token. Body: { sourceUrl, password }. */
+router.get("/kite/export-instruments", async (req, res) => {
+  const expected = getAppPassword();
+  if (!expected) {
+    res.status(503).json({ error: "APP_ACCESS_PASSWORD not configured" });
+    return;
+  }
+  const supplied = String(req.header("x-app-password") ?? "");
+  if (!supplied || !safeStrEq(supplied, expected)) {
+    res.status(401).json({ error: "Invalid or missing X-App-Password header" });
+    return;
+  }
+  const data = exportInstrumentsCache();
+  if (!data) {
+    res.status(404).json({ error: "No instruments cached on this server" });
+    return;
+  }
+  logger.info({ requestIp: req.ip }, "Kite instruments exported to peer");
+  res.json(data);
+});
+
 router.post("/kite/import-session", async (req, res) => {
   const sourceUrlRaw = String(req.body?.sourceUrl ?? "").trim();
   const password = String(req.body?.password ?? "");

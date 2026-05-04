@@ -315,10 +315,6 @@ export async function fetchKiteOptionChain(
   );
   const lotSize = activeLegs[0]?.lot_size;
 
-  // Trim to ±25 strikes around ATM for UI sanity (50-row chain max)
-  const atmIdx = rows.findIndex(r => r.strike === atmStrike);
-  const trimmed = rows.slice(Math.max(0, atmIdx - 25), atmIdx + 26);
-
   const isIndex = sym in INDEX_SPOT_MAP;
   const out: OcResponse = {
     underlying: sym,
@@ -332,7 +328,7 @@ export async function fetchKiteOptionChain(
     atmStrike,
     strikeStep,
     lotSize,
-    rows: trimmed,
+    rows,
     source: "kite",
     generatedAt: new Date().toISOString(),
   };

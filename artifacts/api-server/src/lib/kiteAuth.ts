@@ -211,17 +211,56 @@ export async function storeImportedSession(s: ExportedSession): Promise<ActiveSe
 }
 
 const INSTR_CACHE_TTL = 6 * 60 * 60 * 1000;
-const FAIL_COOLDOWN_MS = 5 * 60 * 1000;
+const BASE_COOLDOWN_MS = 5 * 60 * 1000;
+const MAX_COOLDOWN_MS = 30 * 60 * 1000;
 const DISK_PREFIX = "kite_instruments_";
 const DISK_VERSION = 1;
+const FAIL_DISK_KEY = "kite_instruments_fail";
 
 interface ExchangeCache { rows: any[]; ts: number }
 const instrCacheByExchange = new Map<string, ExchangeCache>();
 const instrInflight = new Map<string, Promise<any[]>>();
 const instrFailTs = new Map<string, number>();
+const instrFailCount = new Map<string, number>();
+
+let failCooldownHydrated = false;
+
+interface FailEntry { ts: number; count: number }
+function persistFailCooldown(): void {
+  const entries: [string, FailEntry][] = [];
+  for (const [ex, ts] of instrFailTs) {
+    entries.push([ex, { ts, count: instrFailCount.get(ex) ?? 1 }]);
+  }
+  saveBlob(FAIL_DISK_KEY, DISK_VERSION, { entries });
+}
+
+function cooldownForCount(count: number): number {
+  return Math.min(BASE_COOLDOWN_MS * Math.pow(2, Math.max(0, count - 1)), MAX_COOLDOWN_MS);
+}
 
 function hydrateExchangeFromDisk(ex: string): void {
   if (instrCacheByExchange.has(ex)) return;
+  if (!failCooldownHydrated) {
+    failCooldownHydrated = true;
+    const blob = loadBlob<{ entries: [string, FailEntry][] }>(FAIL_DISK_KEY, DISK_VERSION);
+    if (blob) {
+      for (const [k, entry] of blob.payload.entries) {
+        const cd = cooldownForCount(entry.count);
+        if (Date.now() - entry.ts < cd) {
+          instrFailTs.set(k, entry.ts);
+          instrFailCount.set(k, entry.count);
+        }
+      }
+      if (instrFailTs.size > 0) {
+        const info: Record<string, string> = {};
+        for (const [k] of instrFailTs) {
+          const c = instrFailCount.get(k) ?? 1;
+          info[k] = `attempt=${c}, cooldown=${Math.round(cooldownForCount(c) / 60_000)}min`;
+        }
+        logger.info({ exchanges: info }, "Kite instruments: cooldown restored from disk");
+      }
+    }
+  }
   const blob = loadBlob<any[]>(`${DISK_PREFIX}${ex}`, DISK_VERSION);
   if (blob && Array.isArray(blob.payload) && blob.payload.length > 0 && Date.now() - blob.ts < INSTR_CACHE_TTL) {
     instrCacheByExchange.set(ex, { rows: blob.payload, ts: blob.ts });
@@ -242,7 +281,9 @@ function wrapGetInstruments(kc: any): void {
     if (cached && Date.now() - cached.ts < INSTR_CACHE_TTL) return cached.rows;
 
     const lastFail = instrFailTs.get(ex);
-    if (lastFail && Date.now() - lastFail < FAIL_COOLDOWN_MS) {
+    const failCount = instrFailCount.get(ex) ?? 0;
+    const activeCooldown = cooldownForCount(failCount);
+    if (lastFail && Date.now() - lastFail < activeCooldown) {
       return cached?.rows ?? [];
     }
 
@@ -255,16 +296,23 @@ function wrapGetInstruments(kc: any): void {
         if (Array.isArray(rows) && rows.length > 0) {
           instrCacheByExchange.set(ex, { rows, ts: Date.now() });
           instrFailTs.delete(ex);
+          instrFailCount.delete(ex);
           saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, rows);
+          persistFailCooldown();
         }
         return rows;
       } catch (err) {
+        const newCount = (instrFailCount.get(ex) ?? 0) + 1;
         instrFailTs.set(ex, Date.now());
-        if (cached) {
-          logger.warn({ exchange: ex, err: (err as Error).message }, "Kite getInstruments failed; using stale cache");
-          return cached.rows;
-        }
-        throw err;
+        instrFailCount.set(ex, newCount);
+        persistFailCooldown();
+        const nextCd = cooldownForCount(newCount);
+        logger.warn(
+          { exchange: ex, err: (err as Error).message, attempt: newCount, nextCooldownMin: Math.round(nextCd / 60_000) },
+          "Kite getInstruments failed",
+        );
+        if (cached) return cached.rows;
+        return [];
       } finally {
         instrInflight.delete(ex);
       }
@@ -360,5 +408,81 @@ export async function autoMirrorSession(): Promise<ActiveSession | null> {
       "Auto-mirror: could not reach production (expected if offline or no session)",
     );
     return null;
+  }
+}
+
+export function exportInstrumentsCache(): { exchanges: Record<string, any[]>; ts: number } | null {
+  const exchanges: Record<string, any[]> = {};
+  let latestTs = 0;
+  for (const [ex, cached] of instrCacheByExchange) {
+    if (cached.rows.length > 0) {
+      exchanges[ex] = cached.rows;
+      if (cached.ts > latestTs) latestTs = cached.ts;
+    }
+  }
+  if (Object.keys(exchanges).length === 0) return null;
+  return { exchanges, ts: latestTs };
+}
+
+export function seedInstrumentsCache(exchanges: Record<string, any[]>): number {
+  let total = 0;
+  for (const [ex, rows] of Object.entries(exchanges)) {
+    if (!Array.isArray(rows) || rows.length === 0) continue;
+    instrCacheByExchange.set(ex, { rows, ts: Date.now() });
+    instrFailTs.delete(ex);
+    instrFailCount.delete(ex);
+    saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, rows);
+    total += rows.length;
+  }
+  if (total > 0) persistFailCooldown();
+  return total;
+}
+
+export async function autoMirrorInstruments(): Promise<boolean> {
+  const hasData = Array.from(instrCacheByExchange.values()).some((c) => c.rows.length > 0);
+  if (hasData) return false;
+
+  const mirrorUrl = (process.env["KITE_MIRROR_URL"] ?? "").trim();
+  const password = (process.env["APP_ACCESS_PASSWORD"] ?? "").trim();
+  if (!mirrorUrl || !password) return false;
+
+  let base: URL;
+  try {
+    base = new URL(mirrorUrl);
+  } catch {
+    return false;
+  }
+
+  const url = new URL("/api/kite/export-instruments", base).toString();
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15_000);
+    let resp: Response;
+    try {
+      resp = await fetch(url, {
+        method: "GET",
+        headers: { "x-app-password": password, accept: "application/json" },
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) {
+      logger.info({ status: resp.status }, "Auto-mirror instruments: production returned non-200");
+      return false;
+    }
+    const payload = (await resp.json()) as { exchanges: Record<string, any[]> };
+    const total = seedInstrumentsCache(payload.exchanges);
+    if (total > 0) {
+      logger.info({ total }, "Auto-mirror: instruments imported from production");
+      return true;
+    }
+    return false;
+  } catch (err) {
+    logger.info(
+      { err: (err as Error).message },
+      "Auto-mirror instruments: could not reach production (expected if endpoint missing)",
+    );
+    return false;
   }
 }
