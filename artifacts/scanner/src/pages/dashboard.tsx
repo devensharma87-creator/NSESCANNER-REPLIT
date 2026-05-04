@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import {
   TrendingUp, TrendingDown, ArrowRight, Flame, Snowflake,
-  Home as HomeIcon, ChevronDown, ChevronUp,
+  Home as HomeIcon,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import TrendCard from "@/components/trend-card";
@@ -21,7 +21,7 @@ import SectoralHeatmap from "@/components/home/sectoral-heatmap";
 import BreadthBar from "@/components/home/breadth-bar";
 import IndexTabs from "@/components/home/index-tabs";
 import MarketTake from "@/components/home/market-take";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { StockRow } from "@workspace/api-client-react";
 
 function fmtIN(n: number) {
@@ -63,8 +63,6 @@ function MoverRow({ s, kind }: { s: StockRow; kind: "gain" | "loss" }) {
 }
 
 export default function Home() {
-  const [showFullBoard, setShowFullBoard] = useState(false);
-
   const { data: topScans, isLoading: scansLoading } = useGetTopScans({
     query: { refetchInterval: 30000, queryKey: getGetTopScansQueryKey() },
   });
@@ -84,14 +82,12 @@ export default function Home() {
   }, [allStocks]);
 
   return (
-    <div className="w-full max-w-none px-4 lg:px-6 2xl:px-8 py-6 space-y-4">
+    <div className="w-full max-w-none px-4 lg:px-6 2xl:px-8 py-6 space-y-8">
       <header className="flex items-center gap-3">
         <HomeIcon className="h-6 w-6 text-primary" />
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Home</h1>
-          <p className="text-sm text-muted-foreground">
-            Live market overview — indices, derivatives, breadth, global cues and top setups.
-          </p>
+          <p className="text-sm text-muted-foreground">Live market overview, indices fact-pack, top movers and setups.</p>
         </div>
       </header>
 
@@ -109,14 +105,18 @@ export default function Home() {
         <IndexTabs />
       </section>
 
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <section data-testid="home-markets">
+        <IndicesBoard embedded />
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2"><TrendCard /></div>
         <MarketMoodGauge />
       </section>
 
       <MarketTake />
 
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="border-signal-strong-buy/20 bg-gradient-to-b from-signal-strong-buy/5 to-transparent">
           <CardHeader className="pb-2 flex-row items-center justify-between">
             <CardTitle className="text-base font-mono flex items-center gap-2">
@@ -162,7 +162,7 @@ export default function Home() {
         </Card>
       </section>
 
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="border-signal-strong-buy/20 bg-gradient-to-b from-signal-strong-buy/5 to-transparent">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-mono flex items-center gap-2">
@@ -214,23 +214,6 @@ export default function Home() {
             )}
           </CardContent>
         </Card>
-      </section>
-
-      <section>
-        <button
-          type="button"
-          onClick={() => setShowFullBoard(v => !v)}
-          className="w-full flex items-center justify-center gap-2 text-sm font-mono font-semibold text-muted-foreground hover:text-foreground py-3 border border-border rounded-lg bg-card/50 hover:bg-card transition-colors"
-        >
-          {showFullBoard ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          {showFullBoard ? "Hide" : "Show"} Global Indices, Commodities, ADRs & FX
-          {showFullBoard ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
-        {showFullBoard && (
-          <div className="mt-3">
-            <IndicesBoard embedded />
-          </div>
-        )}
       </section>
 
       <div className="text-center pt-2">
