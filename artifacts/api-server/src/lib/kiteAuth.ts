@@ -217,3 +217,82 @@ export async function getRestClient(): Promise<{ kc: any; session: ActiveSession
   kc.setAccessToken(session.accessToken);
   return { kc, session };
 }
+
+/**
+ * Auto-mirror the Kite session from a production peer on startup.
+ *
+ * Called by bootstrapKite() when no local session exists and
+ * KITE_MIRROR_URL is configured (e.g. "https://marketscannerbydev.in").
+ * Uses the same server-to-server export/import flow as the manual
+ * /api/kite/import-session route, but fires automatically so the dev
+ * environment picks up the daily login without any user intervention.
+ *
+ * Returns the imported session on success, null on any failure (logged).
+ */
+export async function autoMirrorSession(): Promise<ActiveSession | null> {
+  const mirrorUrl = (process.env["KITE_MIRROR_URL"] ?? "").trim();
+  const password  = (process.env["APP_ACCESS_PASSWORD"] ?? "").trim();
+  if (!mirrorUrl || !password) return null;
+
+  let base: URL;
+  try {
+    base = new URL(mirrorUrl);
+  } catch {
+    logger.info({ mirrorUrl }, "Auto-mirror: KITE_MIRROR_URL is not a valid URL");
+    return null;
+  }
+  const host = base.hostname.toLowerCase();
+  const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
+  if (base.protocol === "http:" && !isLoopback) {
+    logger.info({ mirrorUrl }, "Auto-mirror: refusing http for non-loopback host (use https)");
+    return null;
+  }
+  const ALLOWED_PEER_HOSTS = (process.env["KITE_MIRROR_ALLOWED_HOSTS"] ?? "marketscannerbydev.in,localhost,127.0.0.1")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  if (!ALLOWED_PEER_HOSTS.includes(host)) {
+    logger.info(
+      { host, allowed: ALLOWED_PEER_HOSTS },
+      "Auto-mirror: host not in allowed peer list (set KITE_MIRROR_ALLOWED_HOSTS to override)",
+    );
+    return null;
+  }
+
+  const exportUrl = new URL("/api/kite/export-session", base).toString();
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    let resp: Response;
+    try {
+      resp = await fetch(exportUrl, {
+        method: "GET",
+        headers: { "x-app-password": password, accept: "application/json" },
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      logger.info(
+        { status: resp.status, body: body.slice(0, 200) },
+        "Auto-mirror: production has no exportable session (or auth mismatch)",
+      );
+      return null;
+    }
+    const payload = (await resp.json()) as ExportedSession;
+    const stored = await storeImportedSession(payload);
+    logger.info(
+      { userId: stored.userId, expiresAt: stored.expiresAt.toISOString() },
+      "Auto-mirror: Kite session imported from production on startup",
+    );
+    return stored;
+  } catch (err) {
+    logger.info(
+      { err: (err as Error).message, url: exportUrl },
+      "Auto-mirror: could not reach production (expected if offline or no session)",
+    );
+    return null;
+  }
+}

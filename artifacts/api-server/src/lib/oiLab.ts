@@ -1057,19 +1057,23 @@ async function fetchOiHeatmapInner(): Promise<OiHeatmapResponse | null> {
     // contracts show 0% change → everything bucketed as Neutral, which is
     // exactly what the user reported ("Heatmap shows all 0/Neutral 218").
     //
-    // Mitigation: when establishing a fresh baseline, prefer a session-range
-    // proxy derived from oi_day_high/oi_day_low. The midpoint is a defensible
-    // session-mean estimate; a single tick later, the true ∆ between current
-    // OI and the session-mean is already informative (longs/shorts have
-    // moved into or out of the contract relative to today's mean position).
+    // Mitigation: when establishing a fresh baseline, infer session-open OI
+    // from oi_day_high/oi_day_low. At market open (09:15 IST) the first OI
+    // tick equals previous close OI — no trades yet. For buildup days
+    // (current OI near day high), oi_day_low ≈ prevCloseOI. For unwinding
+    // days (current OI near day low), oi_day_high ≈ prevCloseOI.
     let baseline = oiBaselineMap.get(f.instrument_token);
     if (!baseline) {
       const dayHigh = q.oi_day_high;
       const dayLow  = q.oi_day_low;
       let baselineOi = q.oi;
       if (typeof dayHigh === "number" && typeof dayLow === "number" && dayHigh > 0 && dayLow > 0 && dayHigh >= dayLow) {
-        // Midpoint of the session OI range — a stable proxy for "morning OI".
-        baselineOi = Math.round((dayHigh + dayLow) / 2);
+        const midpoint = Math.round((dayHigh + dayLow) / 2);
+        if (q.oi >= midpoint) {
+          baselineOi = dayLow;
+        } else {
+          baselineOi = dayHigh;
+        }
       }
       baseline = { oi: baselineOi, ts: now, symbol: f.name };
       oiBaselineMap.set(f.instrument_token, baseline);

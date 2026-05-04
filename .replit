@@ -67,5 +67,8 @@ externalPort = 3000
 
 [userenv.shared]
 
+[userenv.development]
+KITE_MIRROR_URL = "https://marketscannerbydev.in"
+
 [nix]
 channel = "stable-25_05"

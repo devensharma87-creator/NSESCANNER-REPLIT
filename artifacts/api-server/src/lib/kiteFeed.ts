@@ -11,7 +11,7 @@
  * - Pushes every tick to registered SSE listeners.
  */
 import { logger } from "./logger";
-import { getActiveSession, getRestClient, type ActiveSession } from "./kiteAuth";
+import { getActiveSession, getRestClient, autoMirrorSession, type ActiveSession } from "./kiteAuth";
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
 import { KiteTicker } from "kiteconnect";
 
@@ -306,12 +306,24 @@ export function addTickListener(fn: (tick: LiveTick) => void): () => void {
   return () => sseListeners.delete(fn);
 }
 
-/** Called from server bootstrap. Tries to resume the ticker if a valid token is in DB. */
+/** Called from server bootstrap. Tries to resume the ticker if a valid token is in DB.
+ *  If no local session exists, attempts to auto-mirror from production. */
 export async function bootstrapKite(): Promise<void> {
   try {
-    const ok = await startTicker();
-    if (ok) logger.info("Kite live feed started from saved session");
-    else logger.info("Kite not connected (no active session). User must complete daily login.");
+    let ok = await startTicker();
+    if (ok) {
+      logger.info("Kite live feed started from saved session");
+      return;
+    }
+    const mirrored = await autoMirrorSession();
+    if (mirrored) {
+      ok = await startTicker(mirrored);
+      if (ok) {
+        logger.info("Kite live feed started from auto-mirrored production session");
+        return;
+      }
+    }
+    logger.info("Kite not connected (no active session). User must complete daily login.");
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "Kite bootstrap failed");
   }

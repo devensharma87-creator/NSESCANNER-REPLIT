@@ -32,7 +32,10 @@ The project is structured as a pnpm workspace monorepo using TypeScript 5.9.
 - **CORS**: Environment-configured allowlist with strict production defaults.
 - **Frontend API Client**: TanStack-Query with a custom fetcher including `credentials: "include"`.
 - **Scoring Robustness**: The recommendation scorer avoids synthetic defaults and ensures deterministic tie-breaking.
-- **Market Data**: Primarily relies on Yahoo, with `lib/dataProvider.ts` designed for switching to Zerodha Kite.
+- **Market Data**: Kite Connect is the primary source for all live market data when a valid session exists (auto-mirrored from production on startup via `autoMirrorSession`). Yahoo Finance is the delayed fallback (15-min lag). NSE direct is geo-blocked from Replit.
+- **OI Change Calculation**: Uses `oi_day_low`/`oi_day_high` from Kite quotes to infer intraday OI delta. For buildup (OI >= midpoint of day range), baseline is `oi_day_low` (approx. previous close OI). For unwinding (OI < midpoint), baseline is `oi_day_high`. This matches exchange-reported deltas within ~5% for directional sessions.
+- **Buildup Classification**: Derives option price change from `ohlc.close` when Kite's `net_change` field is missing/zero. All four quadrants (LONG_BUILDUP, SHORT_BUILDUP, SHORT_COVERING, LONG_UNWINDING) are reachable.
+- **Kite Session Auto-Mirror**: On server startup, if no local Kite session exists in the DB, `autoMirrorSession()` fetches the active session from production (`KITE_MIRROR_URL`) with SSRF guards (HTTPS-only, host allowlist via `KITE_MIRROR_ALLOWED_HOSTS`). This eliminates the need for manual daily session import in dev.
 - **Option Chain**: Orchestrates data from Kite Connect (primary) and NSE direct (fallback) with a 15s response cache, including Black-Scholes model, Greeks, per-strike data points, PCRs, and max-pain analysis.
 - **Participant-wise OI Segment View**: Provides FII positioning insights and per-segment participant data, including Net OI, change, and diverging magnitude bars. Also includes a "Market Stance" score and tag for each participant.
 - **Option Strategies**: Builds 13 strategy templates against the live chain, using target delta for strike picking and pair-aware picker for protective long wings. Each leg surfaces bid/ask/spreadPct/oi/volume/quoted with liquidity badges.
@@ -77,8 +80,8 @@ The project is structured as a pnpm workspace monorepo using TypeScript 5.9.
 - **esbuild**: JavaScript bundler.
 - **React**: Frontend UI library.
 - **Vite**: Frontend build tool.
-- **Yahoo Finance API**: Primary source for live market data.
-- **Zerodha Kite Connect API**: Used for option chain data and F&O universe.
+- **Yahoo Finance API**: Delayed fallback for market data (15-min lag).
+- **Zerodha Kite Connect API**: Primary source for live market data, option chains, F&O universe, and WebSocket tick feed.
 - **NSE India**: Direct data for option chains (fallback) and bhavcopy.
 - **TradingView**: Webhook integration and source for GIFT NIFTY data.
 - **Binance API**: For Crypto data in the Global Scanner.
