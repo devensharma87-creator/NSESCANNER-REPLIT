@@ -150,7 +150,7 @@ function FiiDiiCashMarketView({
                       <CartesianGrid stroke="#334155" strokeDasharray="2 4" vertical={false} />
                       <XAxis dataKey="date" tick={{ fontSize: 12, fontFamily: "monospace", fill: "#cbd5e1" }} interval="preserveStartEnd" minTickGap={36} />
                       <YAxis domain={["auto", "auto"]} tick={{ fontSize: 12, fontFamily: "monospace", fill: "#cbd5e1" }} width={62} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
-                      <RTooltip contentStyle={{ background: "#1e293b", border: "1px solid #475569", fontSize: 13, color: "#f1f5f9" }} labelStyle={{ color: "#94a3b8" }} formatter={(v) => (v == null ? "—" : (v as number).toLocaleString("en-IN"))} />
+                      <RTooltip contentStyle={{ background: "#0f172a", border: "1px solid #64748b", fontSize: 14, color: "#ffffff", fontFamily: "monospace", padding: "8px 12px", borderRadius: 6 }} labelStyle={{ color: "#e2e8f0", fontWeight: 600, fontSize: 14, marginBottom: 4 }} itemStyle={{ color: "#ffffff", fontSize: 14 }} formatter={(v) => (v == null ? "—" : (v as number).toLocaleString("en-IN"))} />
                       <Line type="monotone" dataKey="nifty" stroke="hsl(45 93% 58%)" strokeWidth={1.5} dot={false} connectNulls />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -168,7 +168,7 @@ function FiiDiiCashMarketView({
                       <CartesianGrid stroke="#334155" strokeDasharray="2 4" vertical={false} />
                       <XAxis dataKey="date" tick={{ fontSize: 12, fontFamily: "monospace", fill: "#cbd5e1" }} interval="preserveStartEnd" minTickGap={36} />
                       <YAxis tick={{ fontSize: 12, fontFamily: "monospace", fill: "#cbd5e1" }} width={62} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
-                      <RTooltip contentStyle={{ background: "#1e293b", border: "1px solid #475569", fontSize: 13, color: "#f1f5f9" }} labelStyle={{ color: "#94a3b8" }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
+                      <RTooltip contentStyle={{ background: "#0f172a", border: "1px solid #64748b", fontSize: 14, color: "#ffffff", fontFamily: "monospace", padding: "8px 12px", borderRadius: 6 }} labelStyle={{ color: "#e2e8f0", fontWeight: 600, fontSize: 14, marginBottom: 4 }} itemStyle={{ color: "#ffffff", fontSize: 14 }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
                       <ReferenceLine y={0} stroke="#475569" />
                       <Bar dataKey="fii">
                         {chartData.map((d, i) => (
@@ -191,7 +191,7 @@ function FiiDiiCashMarketView({
                       <CartesianGrid stroke="#334155" strokeDasharray="2 4" vertical={false} />
                       <XAxis dataKey="date" tick={{ fontSize: 12, fontFamily: "monospace", fill: "#cbd5e1" }} interval="preserveStartEnd" minTickGap={36} />
                       <YAxis tick={{ fontSize: 12, fontFamily: "monospace", fill: "#cbd5e1" }} width={62} tickFormatter={v => (v as number).toLocaleString("en-IN")} />
-                      <RTooltip contentStyle={{ background: "#1e293b", border: "1px solid #475569", fontSize: 13, color: "#f1f5f9" }} labelStyle={{ color: "#94a3b8" }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
+                      <RTooltip contentStyle={{ background: "#0f172a", border: "1px solid #64748b", fontSize: 14, color: "#ffffff", fontFamily: "monospace", padding: "8px 12px", borderRadius: 6 }} labelStyle={{ color: "#e2e8f0", fontWeight: 600, fontSize: 14, marginBottom: 4 }} itemStyle={{ color: "#ffffff", fontSize: 14 }} formatter={(v) => `₹${(v as number).toLocaleString("en-IN")} Cr`} />
                       <ReferenceLine y={0} stroke="#475569" />
                       <Bar dataKey="dii">
                         {chartData.map((d, i) => (
