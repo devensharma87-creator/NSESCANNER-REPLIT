@@ -228,6 +228,9 @@ export async function buildSwingSignalFromRow(
     return null;
   }
 
+  const openPrice = row.quote.open;
+  const entryPrice = (openPrice != null && openPrice > 0) ? openPrice : ltp;
+
   // Volume confirmation: require the signal-bar volume to be ≥ 1.3× the
   // 20-day average. We never paper-trade a STRONG_BUY that fired on weak
   // participation — institutional buying leaves a volume footprint, and
@@ -254,20 +257,31 @@ export async function buildSwingSignalFromRow(
   // smaller per-share risk). Reject if even the tighter stop is at or
   // above entry — that means the bar pattern is degenerate (flat-day
   // + tiny ATR on a stock that's already stretched).
-  const atrStop = ltp - 1.5 * atr14;
+  //
+  // Use the open-price-based entry (not LTP) so the stop distance and
+  // R-multiples are measured from the realistic fill, matching how a
+  // swing trader would size risk from a market-open order.
+  const atrStop = entryPrice - 1.5 * atr14;
   const stopPrice = Math.max(atrStop, swing20Low);
-  if (!(stopPrice > 0) || stopPrice >= ltp) {
+  if (!(stopPrice > 0) || stopPrice >= entryPrice) {
     logger.info(
-      { symbol: row.symbol, ltp, atrStop, swing20Low, stopPrice },
+      { symbol: row.symbol, entryPrice, ltp, atrStop, swing20Low, stopPrice },
       "Swing skip: degenerate stop (>= entry)",
     );
     return null;
   }
 
-  const r = ltp - stopPrice;
-  const target1Price = ltp + 2 * r;
-  const target2Price = ltp + 3 * r;
+  const r = entryPrice - stopPrice;
+  const target1Price = entryPrice + 2 * r;
+  const target2Price = entryPrice + 3 * r;
   const now = new Date();
+
+  if (entryPrice !== ltp) {
+    logger.info(
+      { symbol: row.symbol, openEntry: entryPrice, ltp, diff: +(ltp - entryPrice).toFixed(2) },
+      "Swing entry: using day open price instead of current LTP",
+    );
+  }
 
   return {
     symbol: row.symbol,
@@ -276,7 +290,7 @@ export async function buildSwingSignalFromRow(
     triggeredAt: now,
     signalDate: istDateKey(now),
     score: row.recommendation.score,
-    entryPrice: ltp,
+    entryPrice,
     stopPrice,
     target1Price,
     target2Price,

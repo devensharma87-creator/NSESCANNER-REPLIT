@@ -34,6 +34,7 @@ import type { OptionSignal } from "@workspace/api-zod";
 import { ensureDailyReset, FNO_RISK } from "./paperAccount";
 import { LOT_SIZES } from "./optionChain";
 import { logger } from "./logger";
+import { computeMarketStatus } from "./marketEvents";
 
 type LifecycleStatus =
   | "PENDING"
@@ -135,11 +136,39 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     .limit(1);
   if (existing.length > 0) return existing[0]!;
 
+  if (computeMarketStatus(new Date()) !== "open") {
+    logger.info(
+      { indexSymbol, setupKey },
+      "Paper FO skip: market not open (weekend/holiday/outside hours) — intraday only",
+    );
+    return null;
+  }
+  const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const istMin = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+  if (istMin >= 15 * 60 + 25) {
+    logger.info(
+      { indexSymbol, setupKey, istMin },
+      "Paper FO skip: past 15:25 IST late-session cutoff — not enough runway",
+    );
+    return null;
+  }
+
   // Validate premium plan.
   const optionEntry = signal.optionEntry ?? signal.optionLtp ?? 0;
-  const optionStop = signal.optionStopLoss ?? 0;
+  let optionStop = signal.optionStopLoss ?? 0;
   const optionT1 = signal.optionTarget1 ?? optionEntry;
   const optionT2 = signal.optionTarget2 ?? optionT1;
+
+  const PAPER_MAX_PREMIUM_LOSS_PCT = 0.30;
+  const minStop = optionEntry * (1 - PAPER_MAX_PREMIUM_LOSS_PCT);
+  if (optionStop > 0 && optionStop < minStop) {
+    logger.info(
+      { indexSymbol, setupKey, rawStop: optionStop, cappedStop: +minStop.toFixed(2), entry: optionEntry },
+      "Paper FO: tightening premium stop to 30% max loss cap",
+    );
+    optionStop = minStop;
+  }
+
   const perShareLoss = optionEntry - optionStop;
   if (!(optionEntry > 0) || !(perShareLoss > 0)) {
     logger.info(

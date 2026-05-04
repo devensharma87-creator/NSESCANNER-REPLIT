@@ -793,7 +793,7 @@ function applyTriggerRealism(d: Detected, c: Ctx): Detected {
   };
 }
 
-function clampPlanForIntraday(d: Detected, c: Ctx): Detected | null {
+function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR_FOR_HC): Detected | null {
   if (d.setupKey === "MEAN_REVERSION") return d;
 
   const dir = d.direction;
@@ -837,7 +837,7 @@ function clampPlanForIntraday(d: Detected, c: Ctx): Detected | null {
   // (entry == structural stop), in which case the trade is meaningless.
   if (newStopDist <= 0) return null;
   const rr = newT1Dist / newStopDist;
-  if (rr < MIN_RR_FOR_HC) return null;
+  if (rr < minRr) return null;
 
   return {
     ...d,
@@ -990,6 +990,18 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
     baseline = detectBaselineOutlook(ctx);
   } catch (err) {
     logger.warn({ err: (err as Error).message, idx: cfg.symbol }, "Baseline outlook failed");
+  }
+
+  // Apply the same intraday stop/target clamp to the baseline so its
+  // option-premium stop loss stays within a realistic intraday envelope.
+  // Use a softer RR gate (1.0 instead of 1.4) since baseline is lower
+  // conviction by design — we still want the directional read, just with
+  // a tighter stop that won't burn 50%+ of the option premium.
+  const MIN_RR_FOR_BASELINE = 1.0;
+  if (baseline) {
+    const realisticBL = applyTriggerRealism(baseline, ctx);
+    const clampedBL = clampPlanForIntraday(realisticBL, ctx, MIN_RR_FOR_BASELINE);
+    baseline = clampedBL ?? realisticBL;
   }
 
   // Sort high-conviction by confidence; keep top 3. Then append the baseline.
@@ -1255,7 +1267,25 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
           const optionT2 = s.leg.target2 != null
             ? Math.max(0.05, projectOptionLevel(optionEntry, delta, s.leg.entry, s.leg.target2))
             : undefined;
-          const optionSL = Math.max(0.05, projectOptionLevel(optionEntry, delta, s.leg.entry, s.leg.stopLoss));
+          let optionSL = Math.max(0.05, projectOptionLevel(optionEntry, delta, s.leg.entry, s.leg.stopLoss));
+
+          const MAX_PREMIUM_LOSS_PCT = 0.30;
+          const minSL = optionEntry * (1 - MAX_PREMIUM_LOSS_PCT);
+          if (optionSL < minSL) {
+            logger.info(
+              {
+                idx: s.index,
+                setup: s.setupKey,
+                rawSL: round2(optionSL),
+                cappedSL: round2(minSL),
+                entry: round2(optionEntry),
+                maxLossPct: MAX_PREMIUM_LOSS_PCT * 100,
+              },
+              "Option premium SL tightened: raw SL would exceed max premium loss cap",
+            );
+            optionSL = minSL;
+          }
+
           s.optionEntry = round2(optionEntry);
           s.optionTarget1 = round2(optionT1);
           s.optionTarget2 = optionT2 != null ? round2(optionT2) : undefined;
