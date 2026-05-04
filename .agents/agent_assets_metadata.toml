@@ -36,3 +36,9 @@ id = "i3aDn2S1Ovcq87RcHWX6w"
 uri = "file://exports/stock_scanner_pro_full_backup_20260504_125308.tar.gz"
 type = "unspecified"
 title = "Stock Scanner Pro — Full Source Code Backup (991KB)"
+
+[[outputs]]
+id = "7MFmmAqONDdyGtOy9SNBw"
+uri = "file://project-codebase-summary.md"
+type = "text"
+title = "Stock Scanner Pro - Full Codebase Summary"
