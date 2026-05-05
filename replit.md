@@ -13,10 +13,10 @@ The project is structured as a pnpm workspace monorepo using TypeScript 5.9.
 ## UI/UX Decisions
 
 - **Theming**: Supports Dark, Light, and Ocean themes with `localStorage` persistence.
-- **Typography**: Uses JetBrains Mono for monospaced elements.
+- **Typography**: Inter for body/UI, JetBrains Mono for tabular numbers, prices, and dense chrome. Body baseline scoped to `<p>` only (`line-height: 1.6`, `letter-spacing: -0.005em` on non-mono prose) so dashboard density (`text-[9px]/[10px]/[11px]` on badges, KPI tiles, axis ticks, table cells) is preserved. Real paragraph copy uses `text-xs` minimum; micro sizes are reserved for chrome only.
 - **Design Elements**: Features softened card corners and theme-safe hover states.
 - **Layout**: Implements dynamic header navigation, a responsive search bar, full-width layouts, and dynamic grid layouts.
-- **Accessibility**: Includes `sr-only` inputs and `autoComplete` attributes.
+- **Accessibility**: `sr-only` inputs, `autoComplete` attributes, and a 200% zoom audit — fixed-pixel containers either gated by responsive breakpoints, given `max-w-[calc(100vw-2rem)]` clamps, or wrapped in `overflow-x-auto` (e.g. wide tables).
 - **Error Handling**: Utilizes a top-level `ErrorBoundary` for robust UI error management.
 - **Page Titles**: Dynamic `document.title` updates based on the current route.
 

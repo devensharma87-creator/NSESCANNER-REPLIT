@@ -278,9 +278,13 @@
   /* See scanner/src/index.css for the rationale — keep both apps in sync. */
   body {
     @apply font-sans antialiased bg-background text-foreground;
-    line-height: 1.6;
-    letter-spacing: -0.005em;
     text-rendering: optimizeLegibility;
+  }
+  p {
+    line-height: 1.6;
+  }
+  p:not([class*="font-mono"]) {
+    letter-spacing: -0.005em;
   }
 }
 
