@@ -19,6 +19,7 @@ import type {
 import type {
   ExportOptionSignalReportParams,
   FiiDiiResponse,
+  FnoBanListResponse,
   GetFiiDiiParams,
   GetGlobalCandlesParams,
   GetGlobalDashboardParams,
@@ -3031,6 +3032,81 @@ export function useGetParticipantOi<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetParticipantOiQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary NSE F&O Ban List — stocks restricted to square-off-only trades (MWPL breach)
+ */
+export const getGetFnoBanListUrl = () => {
+  return `/api/inst/fno-ban`;
+};
+
+export const getFnoBanList = async (
+  options?: RequestInit,
+): Promise<FnoBanListResponse> => {
+  return customFetch<FnoBanListResponse>(getGetFnoBanListUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetFnoBanListQueryKey = () => {
+  return [`/api/inst/fno-ban`] as const;
+};
+
+export const getGetFnoBanListQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFnoBanList>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getFnoBanList>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetFnoBanListQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getFnoBanList>>> = ({
+    signal,
+  }) => getFnoBanList({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFnoBanList>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFnoBanListQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFnoBanList>>
+>;
+export type GetFnoBanListQueryError = ErrorType<unknown>;
+
+/**
+ * @summary NSE F&O Ban List — stocks restricted to square-off-only trades (MWPL breach)
+ */
+
+export function useGetFnoBanList<
+  TData = Awaited<ReturnType<typeof getFnoBanList>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getFnoBanList>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFnoBanListQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

@@ -22,6 +22,7 @@ export * from "./fiiDiiDay";
 export * from "./fiiDiiMonth";
 export * from "./fiiDiiResponse";
 export * from "./fiiDiiSnapshot";
+export * from "./fnoBanListResponse";
 export * from "./gapStock";
 export * from "./gapStockGapDirection";
 export * from "./gapStockSignal";

@@ -3,8 +3,10 @@ import { useParams, useLocation } from "wouter";
 import {
   useGetOptionChain,
   useGetOptionAnalytics,
+  useGetFnoBanList,
   getGetOptionChainQueryKey,
   getGetOptionAnalyticsQueryKey,
+  getGetFnoBanListQueryKey,
   type OptionChainStrikeRow,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -74,6 +76,73 @@ function buildupShort(b: string | undefined): string {
 function fmtGreek(n: number | null | undefined, dp = 2): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return n.toFixed(dp);
+}
+
+/**
+ * Renders an inline warning when the underlying is on NSE's F&O ban list
+ * (MWPL breached → fresh F&O positions are blocked, square-off only).
+ * The warning is critical to surface here because traders open the option
+ * chain specifically to evaluate fresh entries — that decision changes
+ * entirely if the symbol is banned.
+ *
+ * Indices (NIFTY/BANKNIFTY/etc.) can never be banned, but the API will
+ * simply not contain them in the list, so a single membership check works
+ * for all underlyings without special-casing.
+ */
+function FnoBanBanner({ underlying }: { underlying: string }) {
+  const { data, isLoading } = useGetFnoBanList({
+    query: {
+      refetchInterval: 15 * 60 * 1000,
+      refetchIntervalInBackground: false,
+      queryKey: getGetFnoBanListQueryKey(),
+      staleTime: 5 * 60 * 1000,
+    },
+  });
+  // While the very first request is in flight there's nothing useful to
+  // say — the data may arrive in <1s. Suppressing during loading avoids
+  // a flicker between three banner states on every chain switch.
+  if (isLoading || !data) return null;
+
+  // Indices (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, NIFTYNXT50…) are
+  // never restricted by the F&O ban mechanism, so neither the "banned"
+  // nor the "status unknown" notice is meaningful for them.
+  const u = underlying.toUpperCase();
+  const isIndex = /^(NIFTY|BANKNIFTY|FINNIFTY|MIDCPNIFTY|NIFTYNXT50|BANKEX|SENSEX)$/.test(u);
+  if (isIndex) return null;
+
+  // Upstream NSE archive is unreachable. We must not silently say
+  // "no ban" because we genuinely do not know — surface that fact.
+  if (data.available === false) {
+    return (
+      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+        <div className="text-[11px] font-mono text-amber-200/90 leading-relaxed">
+          <span className="font-bold uppercase tracking-wider text-amber-400">Ban status unavailable</span>
+          {" — "}NSE archive unreachable; cannot verify whether {u} is restricted right now. Treat with caution and check your broker terminal before placing fresh F&amp;O positions.
+        </div>
+      </div>
+    );
+  }
+
+  const banned = data.symbols.includes(u);
+  if (!banned) return null;
+  return (
+    <div className="rounded-md border-2 border-signal-strong-sell bg-signal-strong-sell/10 px-4 py-3 flex items-start gap-3">
+      <AlertTriangle className="w-5 h-5 text-signal-strong-sell shrink-0 mt-0.5" />
+      <div className="text-xs font-mono">
+        <div className="font-bold uppercase tracking-wider text-signal-strong-sell mb-1">
+          {u} is on the F&amp;O ban list
+        </div>
+        <div className="text-foreground/80 leading-relaxed">
+          Market-Wide Position Limit breached. Fresh F&amp;O positions are
+          <span className="font-bold text-signal-strong-sell"> blocked </span>
+          by the exchange — only square-off / reduction trades are allowed
+          until the breach is cured. Opening a new position will incur a
+          penalty.
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function OptionChainPage() {
@@ -465,6 +534,8 @@ export default function OptionChainPage() {
           )}
         </div>
       </div>
+
+      <FnoBanBanner underlying={underlying} />
 
       {/* Quick presets row */}
       <div className="flex flex-wrap items-center gap-1.5">

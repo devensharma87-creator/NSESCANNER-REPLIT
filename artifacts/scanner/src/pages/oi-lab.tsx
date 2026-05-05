@@ -29,6 +29,11 @@ interface SnapshotItem {
   pcrVolume?: number;
   maxPain?: number;
   atmIv?: number | null;
+  /** IV Percentile over the rolling 1Y ATM-IV history. null until ≥5
+   *  daily snapshots have accumulated for this underlying. */
+  ivPercentile?: number | null;
+  /** IV Rank — (current − min)/(max − min) × 100 over 1Y window. */
+  ivRank?: number | null;
   bias?: "BULLISH" | "BEARISH" | "NEUTRAL";
   totalCallOi?: number;
   totalPutOi?: number;
@@ -305,7 +310,9 @@ function SnapshotTab() {
                   <th className="py-2 pr-3 text-right">ATM</th>
                   <th className="py-2 pr-3 text-right">Max Pain</th>
                   <th className="py-2 pr-3 text-right">PCR (OI)</th>
-                  <th className="py-2 pr-3 text-right">ATM IV</th>
+                  <th className="py-2 pr-3 text-right" title="ATM straddle IV (avg of CE+PE)">ATM IV</th>
+                  <th className="py-2 pr-3 text-right" title="IV Percentile over rolling 1Y — % of past sessions where ATM IV was below today's. >75 = elevated vol regime; <25 = compressed.">IV %ile</th>
+                  <th className="py-2 pr-3 text-right" title="IV Rank — (current − 1Y low)/(1Y high − 1Y low) × 100. Where today sits inside the year's IV range.">IV Rank</th>
                   <th className="py-2 pr-3 text-right">Call OI</th>
                   <th className="py-2 pr-3 text-right">Put OI</th>
                   <th className="py-2 pr-3 text-right">Δ Call</th>
@@ -319,7 +326,7 @@ function SnapshotTab() {
                   <tr key={it.underlying} className={!it.ok ? "opacity-50" : ""}>
                     <td className="py-2 pr-3 font-medium">{it.underlying}</td>
                     {!it.ok ? (
-                      <td colSpan={12} className="py-2 text-red-400">{it.error}</td>
+                      <td colSpan={14} className="py-2 text-red-400">{it.error}</td>
                     ) : (
                       <>
                         <td className="py-2 pr-3 text-right">{it.spot != null ? it.spot.toFixed(2) : "—"}</td>
@@ -328,6 +335,18 @@ function SnapshotTab() {
                         <td className="py-2 pr-3 text-right">{it.maxPain ?? "—"}</td>
                         <td className="py-2 pr-3 text-right font-medium">{it.pcrOi != null ? it.pcrOi.toFixed(2) : "—"}</td>
                         <td className="py-2 pr-3 text-right">{it.atmIv != null ? it.atmIv.toFixed(1) : "—"}</td>
+                        <td className={`py-2 pr-3 text-right tabular-nums ${
+                          it.ivPercentile == null ? "text-muted-foreground"
+                          : it.ivPercentile >= 75 ? "text-amber-400 font-semibold"
+                          : it.ivPercentile <= 25 ? "text-sky-400 font-semibold"
+                          : ""
+                        }`}>{it.ivPercentile ?? "—"}</td>
+                        <td className={`py-2 pr-3 text-right tabular-nums ${
+                          it.ivRank == null ? "text-muted-foreground"
+                          : it.ivRank >= 75 ? "text-amber-400 font-semibold"
+                          : it.ivRank <= 25 ? "text-sky-400 font-semibold"
+                          : ""
+                        }`}>{it.ivRank ?? "—"}</td>
                         <td className="py-2 pr-3 text-right">{fmtNum(it.totalCallOi)}</td>
                         <td className="py-2 pr-3 text-right">{fmtNum(it.totalPutOi)}</td>
                         <td className={`py-2 pr-3 text-right ${(it.callOiAdded ?? 0) >= 0 ? "text-amber-400" : "text-green-400"}`}>{fmtNum(it.callOiAdded)}</td>

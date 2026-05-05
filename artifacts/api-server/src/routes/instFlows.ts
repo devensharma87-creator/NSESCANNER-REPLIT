@@ -5,6 +5,7 @@ import {
   refreshFiiDii,
   refreshParticipantOi,
 } from "../lib/instFlows";
+import { getFnoBanList } from "../lib/fnoBanList";
 
 const router: IRouter = Router();
 
@@ -27,6 +28,26 @@ router.get("/inst/participant-oi", async (req, res, next) => {
       return;
     }
     res.json({ ...data, generatedAt: new Date().toISOString() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/inst/fno-ban", async (_req, res, next) => {
+  try {
+    const list = await getFnoBanList();
+    if (!list) {
+      res.json({
+        symbols: [],
+        count: 0,
+        sourceUrl: null,
+        fetchedAt: null,
+        cached: false,
+        available: false,
+      });
+      return;
+    }
+    res.json({ ...list, available: true });
   } catch (err) {
     next(err);
   }

@@ -67,6 +67,30 @@ function FiiDiiCashMarketView({
     [days],
   );
 
+  // 5-day moving averages of the daily net flows. Trader rule of thumb:
+  // a single day's print is noise — direction is set by the 5D average.
+  // The `days` array arrives latest-first, so the 5-day window for index i
+  // is `days[i .. i+4]` (today + previous 4 sessions). When fewer than 5
+  // sessions are available (start of the dataset, weekends, holidays) we
+  // return null so the UI renders an em-dash instead of a partial average
+  // that would understate the smoothing.
+  const ma5 = useMemo(() => {
+    const out = new Map<string, { fii: number | null; dii: number | null }>();
+    for (let i = 0; i < days.length; i++) {
+      if (i + 5 > days.length) {
+        out.set(days[i].date, { fii: null, dii: null });
+        continue;
+      }
+      let f = 0, d = 0;
+      for (let k = 0; k < 5; k++) {
+        f += days[i + k].fiiNet;
+        d += days[i + k].diiNet;
+      }
+      out.set(days[i].date, { fii: f / 5, dii: d / 5 });
+    }
+    return out;
+  }, [days]);
+
   return (
     <Card>
       <CardHeader className="pb-3 flex-row items-center justify-between">
@@ -100,7 +124,15 @@ function FiiDiiCashMarketView({
                   <TableRow className="border-border/40">
                     <TableHead className="font-mono text-xs uppercase">Date</TableHead>
                     <TableHead className="font-mono text-xs uppercase text-right">FII Net Cr.</TableHead>
+                    <TableHead
+                      className="font-mono text-xs uppercase text-right"
+                      title="FII 5-day moving average (₹ Cr) — smooths daily noise to reveal underlying foreign-flow direction. Sustained negative = persistent FII selling pressure."
+                    >FII 5D MA</TableHead>
                     <TableHead className="font-mono text-xs uppercase text-right">DII Net Cr.</TableHead>
+                    <TableHead
+                      className="font-mono text-xs uppercase text-right"
+                      title="DII 5-day moving average (₹ Cr) — domestic mutual-fund + insurance flows smoothed over a week."
+                    >DII 5D MA</TableHead>
                     <TableHead className="font-mono text-xs uppercase text-right">Net (FII+DII)</TableHead>
                     <TableHead className="font-mono text-xs uppercase text-right">Nifty</TableHead>
                   </TableRow>
@@ -108,6 +140,7 @@ function FiiDiiCashMarketView({
                 <TableBody>
                   {days.map(d => {
                     const net = d.fiiNet + d.diiNet;
+                    const m = ma5.get(d.date);
                     return (
                     <TableRow key={d.date} className="border-border/20 hover:bg-muted/20">
                       <TableCell className="font-mono text-[11px] py-1.5 whitespace-nowrap">
@@ -116,8 +149,14 @@ function FiiDiiCashMarketView({
                       <TableCell className={`font-mono text-[11px] text-right py-1.5 tabular-nums ${netClass(d.fiiNet)}`}>
                         {d.fiiNet.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
                       </TableCell>
+                      <TableCell className={`font-mono text-[11px] text-right py-1.5 tabular-nums italic ${m?.fii != null ? netClass(m.fii) : "text-muted-foreground/50"}`}>
+                        {m?.fii != null ? m.fii.toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "—"}
+                      </TableCell>
                       <TableCell className={`font-mono text-[11px] text-right py-1.5 tabular-nums ${netClass(d.diiNet)}`}>
                         {d.diiNet.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell className={`font-mono text-[11px] text-right py-1.5 tabular-nums italic ${m?.dii != null ? netClass(m.dii) : "text-muted-foreground/50"}`}>
+                        {m?.dii != null ? m.dii.toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "—"}
                       </TableCell>
                       <TableCell className={`font-mono text-[11px] text-right py-1.5 tabular-nums font-semibold ${netClass(net)}`}>
                         {net >= 0 ? "+" : ""}{net.toLocaleString("en-IN", { maximumFractionDigits: 2 })}

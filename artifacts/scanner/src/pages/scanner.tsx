@@ -107,7 +107,7 @@ function useFullNseStatus() {
   return q.data ?? null;
 }
 
-type SortKey = "symbol" | "price" | "change" | "changePct" | "open" | "high" | "low" | "prev" | "vwap" | "ema20" | "ema50" | "ema100" | "ema200" | "rsi" | "yrHi" | "yrLo" | "vol" | "score" | "futOi";
+type SortKey = "symbol" | "price" | "change" | "changePct" | "open" | "high" | "low" | "prev" | "vwap" | "ema20" | "ema50" | "ema100" | "ema200" | "rsi" | "yrHi" | "yrLo" | "fromYrHi" | "fromYrLo" | "vol" | "delivery" | "score" | "futOi";
 type SortDir = "asc" | "desc";
 
 function getSortValue(s: StockRow, key: SortKey): number | string {
@@ -128,7 +128,16 @@ function getSortValue(s: StockRow, key: SortKey): number | string {
     case "rsi": return s.indicators?.rsi14 ?? -Infinity;
     case "yrHi": return s.quote.fiftyTwoWeekHigh ?? -Infinity;
     case "yrLo": return s.quote.fiftyTwoWeekLow ?? -Infinity;
+    case "fromYrHi": {
+      const hi = s.quote.fiftyTwoWeekHigh;
+      return hi != null && hi > 0 ? ((s.quote.price - hi) / hi) * 100 : -Infinity;
+    }
+    case "fromYrLo": {
+      const lo = s.quote.fiftyTwoWeekLow;
+      return lo != null && lo > 0 ? ((s.quote.price - lo) / lo) * 100 : -Infinity;
+    }
     case "vol": return s.indicators?.volumeRatio ?? -Infinity;
+    case "delivery": return s.indicators?.deliveryPct ?? -Infinity;
     case "futOi": { const b = (s.indicators as Record<string, unknown> | undefined)?.futOiBuildup as string | undefined; return b === "LONG_BUILDUP" ? 4 : b === "SHORT_COVERING" ? 3 : b === "NEUTRAL" ? 2 : b === "LONG_UNWINDING" ? 1 : b === "SHORT_BUILDUP" ? 0 : -1; }
     case "score": return s.recommendation.score;
   }
@@ -215,14 +224,15 @@ const GRID_TEMPLATE = [
   "minmax(60px, 1fr)",      // EMA100
   "minmax(60px, 1fr)",      // EMA200
   "minmax(46px, 0.8fr)",    // RSI       — 2-digit decimal, narrowest
-  "minmax(64px, 1.1fr)",    // 52W H
-  "minmax(64px, 1.1fr)",    // 52W L
+  "minmax(76px, 1.2fr)",    // 52W H + distance below
+  "minmax(76px, 1.2fr)",    // 52W L + distance below
   "minmax(52px, 0.9fr)",    // VOL×
+  "minmax(60px, 1fr)",      // DEL%      — delivery % (cash-market conviction)
   "minmax(80px, 1fr)",      // FUT OI    — buildup classification
   "minmax(112px, 1.6fr)",   // SCORE     — visualisation bar (ScoreBar inner min-w-[90px] + cell px-2 ≈ 106 px), rounded up
   "minmax(100px, 110px)",   // SIGNAL    — pill, capped; min sized to clear "STRONG SELL" label at the badge's text-[10px] font-mono
 ].join(" ");
-const TOTAL_WIDTH = 110 + 74 + 60 + 64 + 60*5 + 60*4 + 46 + 64*2 + 52 + 80 + 112 + 100;
+const TOTAL_WIDTH = 110 + 74 + 60 + 64 + 60*5 + 60*4 + 46 + 76*2 + 52 + 60 + 80 + 112 + 100;
 
 const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
 const fmt = (n: number | undefined | null, dp = 2) => n == null ? "—" : n.toFixed(dp);
@@ -277,9 +287,39 @@ const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) 
       <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(ind?.ema100)}</div>
       <div className="text-right font-mono text-xs tabular-nums px-2">{fmt(ind?.ema200)}</div>
       <div className={`text-right font-mono text-xs tabular-nums px-2 ${ind?.rsi14 != null && ind.rsi14 > 70 ? 'text-signal-strong-sell' : ind?.rsi14 != null && ind.rsi14 < 30 ? 'text-signal-strong-buy' : ''}`}>{fmt(ind?.rsi14, 1)}</div>
-      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2">{fmt(q.fiftyTwoWeekHigh)}</div>
-      <div className="text-right font-mono text-xs text-muted-foreground tabular-nums px-2">{fmt(q.fiftyTwoWeekLow)}</div>
+      <div className="text-right font-mono px-2 leading-tight" title={q.fiftyTwoWeekHigh != null ? `52-week high: ₹${q.fiftyTwoWeekHigh.toFixed(2)}` : undefined}>
+        <div className="text-xs text-muted-foreground tabular-nums">{fmt(q.fiftyTwoWeekHigh)}</div>
+        {q.fiftyTwoWeekHigh != null && q.fiftyTwoWeekHigh > 0 && (() => {
+          const d = ((q.price - q.fiftyTwoWeekHigh) / q.fiftyTwoWeekHigh) * 100;
+          // <-3% = comfortably below high; >-1% = "near high" (potential breakout); 0/+ = at/above (rare).
+          const tone = d >= -1 ? 'text-signal-strong-buy font-bold' : d >= -10 ? 'text-amber-400' : 'text-muted-foreground';
+          return <div className={`text-[10px] tabular-nums ${tone}`}>{d > 0 ? '+' : ''}{d.toFixed(1)}%</div>;
+        })()}
+      </div>
+      <div className="text-right font-mono px-2 leading-tight" title={q.fiftyTwoWeekLow != null ? `52-week low: ₹${q.fiftyTwoWeekLow.toFixed(2)}` : undefined}>
+        <div className="text-xs text-muted-foreground tabular-nums">{fmt(q.fiftyTwoWeekLow)}</div>
+        {q.fiftyTwoWeekLow != null && q.fiftyTwoWeekLow > 0 && (() => {
+          const d = ((q.price - q.fiftyTwoWeekLow) / q.fiftyTwoWeekLow) * 100;
+          // Distance from the 52-week low. Normally ≥0 since price > low,
+          // but stale highs/lows during corporate actions can briefly push
+          // price below the recorded low — must render a signed value
+          // ("-1.2%") in that case rather than a malformed "+-1.2%".
+          const tone = d <= 5 ? 'text-signal-strong-sell font-bold' : d <= 25 ? 'text-amber-400' : 'text-muted-foreground';
+          const sign = d > 0 ? '+' : '';
+          return <div className={`text-[10px] tabular-nums ${tone}`}>{sign}{d.toFixed(1)}%</div>;
+        })()}
+      </div>
       <div className="text-right font-mono text-xs tabular-nums px-2">{ind?.volumeRatio != null ? `${ind.volumeRatio.toFixed(1)}×` : '—'}</div>
+      <div
+        className={`text-right font-mono text-xs tabular-nums px-2 ${
+          ind?.deliveryPct == null ? 'text-muted-foreground'
+          : ind.deliveryPct >= 60 ? 'text-signal-strong-buy font-bold'
+          : ind.deliveryPct >= 45 ? 'text-emerald-300'
+          : ind.deliveryPct < 25 ? 'text-amber-400'
+          : ''
+        }`}
+        title="Delivery % from NSE bhavcopy — share of today's volume that resulted in actual delivery to demat (vs. intraday churn). High = conviction-led move, low = speculative."
+      >{ind?.deliveryPct != null ? `${ind.deliveryPct.toFixed(0)}%` : '—'}</div>
       <div className="px-2"><OiBuildupBadge buildup={(ind as Record<string, unknown> | undefined)?.futOiBuildup as string | undefined} /></div>
       <div className="px-2 min-w-0"><ScoreBar score={stock.recommendation.score} /></div>
       <div className="px-2 flex items-center justify-end"><SignalBadge signal={stock.recommendation.signal} /></div>
@@ -553,9 +593,10 @@ export default function ScannerPage() {
                 <div className="text-right px-2"><SortHead k="ema100" label="EMA100" sort={sort} setSort={setSort} /></div>
                 <div className="text-right px-2"><SortHead k="ema200" label="EMA200" sort={sort} setSort={setSort} /></div>
                 <div className="text-right px-2"><SortHead k="rsi" label="RSI" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2"><SortHead k="yrHi" label="52W H" sort={sort} setSort={setSort} /></div>
-                <div className="text-right px-2"><SortHead k="yrLo" label="52W L" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" title="52-week high; bottom value = current price's distance from that high"><SortHead k="fromYrHi" label="52W H" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" title="52-week low; bottom value = current price's distance above that low"><SortHead k="fromYrLo" label="52W L" sort={sort} setSort={setSort} /></div>
                 <div className="text-right px-2"><SortHead k="vol" label="VOL×" sort={sort} setSort={setSort} /></div>
+                <div className="text-right px-2" title="Delivery % — share of today's traded volume that took actual delivery (NSE bhavcopy). Above 60% = strong conviction; below 25% = mostly intraday churn."><SortHead k="delivery" label="DEL%" sort={sort} setSort={setSort} /></div>
                 <div className="px-2"><SortHead k="futOi" label="FUT OI" sort={sort} setSort={setSort} align="left" /></div>
                 <div className="px-2"><SortHead k="score" label="SCORE" sort={sort} setSort={setSort} align="left" /></div>
                 <div className="text-right px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">SIGNAL</div>

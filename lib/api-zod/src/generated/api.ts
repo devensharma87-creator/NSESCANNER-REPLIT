@@ -2869,6 +2869,30 @@ export const GetParticipantOiResponse = zod.object({
 });
 
 /**
+ * @summary NSE F&O Ban List — stocks restricted to square-off-only trades (MWPL breach)
+ */
+export const GetFnoBanListResponse = zod.object({
+  symbols: zod
+    .array(zod.string())
+    .describe("F&O underlyings restricted to square-off-only trades today"),
+  count: zod.number(),
+  sourceUrl: zod
+    .string()
+    .nullish()
+    .describe("Upstream NSE archive URL the list was loaded from"),
+  fetchedAt: zod.coerce.date().nullish(),
+  cached: zod
+    .boolean()
+    .optional()
+    .describe("true when served from in-process cache (≤30 min old)"),
+  available: zod
+    .boolean()
+    .describe(
+      "false when all NSE upstreams were unreachable; treat as 'unknown' rather than 'no bans'",
+    ),
+});
+
+/**
  * @summary Force-refresh FII/DII and participant OI from upstream sources
  */
 export const RefreshInstFlowsResponse = zod.record(zod.string(), zod.unknown());

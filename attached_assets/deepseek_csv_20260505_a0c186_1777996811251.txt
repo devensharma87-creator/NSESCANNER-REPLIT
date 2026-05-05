@@ -1,0 +1,6 @@
+Page,Required Content,Placement
+Disclaimer,"Data from licensed vendor; no advice; risk warning",Footer + options pages
+Privacy Policy,"Email, localStorage, IP usage; no selling",Footer
+Terms of Use,"No scraping/redistribution; liability limit",Footer
+Methodology,"Explain Market Mood, Max Pain, OI Flow, Sentiment Score",/methodology
+Risk Warning,"Options losses can exceed investment",Yellow box on all options pages

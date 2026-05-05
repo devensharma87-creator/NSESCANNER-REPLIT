@@ -941,6 +941,19 @@ export interface FiiDiiResponse {
   generatedAt: string;
 }
 
+export interface FnoBanListResponse {
+  /** F&O underlyings restricted to square-off-only trades today */
+  symbols: string[];
+  count: number;
+  /** Upstream NSE archive URL the list was loaded from */
+  sourceUrl?: string | null;
+  fetchedAt?: string | null;
+  /** true when served from in-process cache (≤30 min old) */
+  cached?: boolean;
+  /** false when all NSE upstreams were unreachable; treat as 'unknown' rather than 'no bans' */
+  available: boolean;
+}
+
 export interface ParticipantOiRow {
   clientType: string;
   futureIndexLong: number;

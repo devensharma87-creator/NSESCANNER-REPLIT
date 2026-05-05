@@ -21,6 +21,7 @@ import SectoralHeatmap from "@/components/home/sectoral-heatmap";
 import BreadthBar from "@/components/home/breadth-bar";
 import IndexTabs from "@/components/home/index-tabs";
 import MarketTake from "@/components/home/market-take";
+import FnoBanWidget from "@/components/fno-ban-widget";
 import { useMemo } from "react";
 import type { StockRow } from "@workspace/api-client-react";
 
@@ -115,6 +116,8 @@ export default function Home() {
       </section>
 
       <MarketTake />
+
+      <FnoBanWidget />
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="border-signal-strong-buy/20 bg-gradient-to-b from-signal-strong-buy/5 to-transparent">

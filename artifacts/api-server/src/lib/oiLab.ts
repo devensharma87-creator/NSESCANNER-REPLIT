@@ -26,6 +26,7 @@ import { isFnoUnderlying } from "./optionChain";
 import type { OcResponse, OcSide } from "./optionChain";
 import { fetchKiteOptionChain } from "./kiteOptionChain";
 import { computeAnalytics, type OptionAnalytics } from "./optionAnalytics";
+import { enrichAnalyticsWithIv } from "./ivHistory";
 import { getRestClient, getActiveSession } from "./kiteAuth";
 import { loadBlob, saveBlob, istTradingDay } from "./diskCache";
 import { loadFnoInstruments, type FnoInstrument } from "./kiteFnoInstruments";
@@ -114,6 +115,11 @@ export interface BulkSnapshotItem {
   pcrVolume?: number;
   maxPain?: number;
   atmIv?: number | null;
+  /** IV Percentile over 1Y rolling history — % of days where ATM IV was
+   *  below today's. null when fewer than 5 history rows exist. */
+  ivPercentile?: number | null;
+  /** IV Rank — (current - min) / (max - min) × 100 over 1Y window. */
+  ivRank?: number | null;
   bias?: OptionAnalytics["bias"];
   totalCallOi?: number;
   totalPutOi?: number;
@@ -186,6 +192,15 @@ export async function bulkSnapshot(
       const chain = await fetchKiteOnlyChain(sym);
       if (!chain) return { underlying: sym, ok: false, error: "No Kite chain data (session expired or instrument unavailable)" };
       const a = computeAnalytics(chain);
+      // Persist today's ATM IV + read back rank/percentile over 1Y rolling
+      // window. Failures here never break the snapshot — IV history is a
+      // best-effort enrichment, not a hard dependency.
+      const ivMetrics = await enrichAnalyticsWithIv({
+        underlying: sym,
+        atmIv: a.atmIv,
+        ivPercentile: a.ivPercentile,
+        ivRank: a.ivRank,
+      }).catch(() => ({ ivRank: null as number | null, ivPercentile: null as number | null }));
       if (opts.includeChain) chains[sym] = chain;
       return {
         underlying: sym,
@@ -198,6 +213,8 @@ export async function bulkSnapshot(
         pcrVolume: a.pcrVolume,
         maxPain: a.maxPain,
         atmIv: a.atmIv,
+        ivPercentile: ivMetrics.ivPercentile,
+        ivRank: ivMetrics.ivRank,
         bias: a.bias,
         totalCallOi: a.totalCallOi,
         totalPutOi: a.totalPutOi,
@@ -1402,6 +1419,8 @@ export interface TrackerSnapshot {
   pcrVolume: number;
   maxPain: number;
   atmIv: number | null;
+  ivPercentile: number | null;
+  ivRank: number | null;
   totalCallOi: number;
   totalPutOi: number;
   callOiAdded: number;
@@ -1532,6 +1551,16 @@ async function trackerTick(token: number): Promise<void> {
           return;
         }
         const a = computeAnalytics(chain);
+        // Tracker writes one ATM IV row per (underlying, day) → after a
+        // few days of intraday ticks we have a full 1Y rolling window
+        // and rank/percentile become meaningful. Best-effort: on any
+        // DB hiccup we just log null and continue collecting.
+        const ivMetrics = await enrichAnalyticsWithIv({
+          underlying: sym,
+          atmIv: a.atmIv,
+          ivPercentile: a.ivPercentile,
+          ivRank: a.ivRank,
+        }).catch(() => ({ ivRank: null as number | null, ivPercentile: null as number | null }));
         const snap: TrackerSnapshot = {
           ts,
           underlying: sym,
@@ -1542,6 +1571,8 @@ async function trackerTick(token: number): Promise<void> {
           pcrVolume: a.pcrVolume,
           maxPain: a.maxPain,
           atmIv: a.atmIv,
+          ivPercentile: ivMetrics.ivPercentile,
+          ivRank: ivMetrics.ivRank,
           totalCallOi: a.totalCallOi,
           totalPutOi: a.totalPutOi,
           callOiAdded: a.callOiAdded,

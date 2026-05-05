@@ -1,0 +1,7 @@
+Module,Data Point,Format
+Watchlist,"52W High/Low","2520 / 1800"
+Scanner,"Delivery %",">50% highlight"
+Option Chain,"5-day PCR trend","Arrow or sparkline"
+Option Chain,"IV percentile","0-100"
+Flows,"FII 5D MA","Column"
+"Stocks to Watch","Add to watchlist","localStorage button"

@@ -1,0 +1,8 @@
+#,Module,Problem,Fix
+1,FULL SCANNER,"Scanning 0 of 8,662","Debug API; add Retry button"
+2,"Top Gainers/Losers","Shows (0)","Fix data fetch"
+3,"Market Mood Index","All zeros","Recalculate Trend/Breadth/VIX"
+4,"Option Strategies","Unauthorized error","Fix permissions or demo data"
+5,"Legal pages","Missing Privacy/Terms/Disclaimer","Publish footer links"
+6,"Kite API risk","Public mentions","Remove all; use licensed vendor"
+7,"Pre/Post Market","Placeholder text","Real SGX Nifty / global futures"
