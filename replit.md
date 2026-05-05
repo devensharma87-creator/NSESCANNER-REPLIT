@@ -1,79 +1,64 @@
-# Overview
+# Indian Stock Market Scanner
 
-This project is a pnpm monorepo using TypeScript, designed as a comprehensive stock market scanner and analysis platform specifically for the Indian market. It leverages an Express API backend and a React + Vite frontend to deliver real-time market insights. The platform aims to serve traders and investors with capabilities such as market scanning (NSE/BSE), advanced options chain analysis, F&O intraday signals, stock-specific catalyst tracking, system monitoring, and secure user authentication with role-based access. The business vision is to provide a robust, all-in-one solution for navigating the complexities of the Indian stock market, with ambitions to expand to global multi-asset scanning.
+A comprehensive platform for scanning and analyzing the Indian stock market, providing real-time insights for traders and investors.
 
-# User Preferences
+## Run & Operate
+
+_Populate as you build_
+
+## Stack
+
+- **Frameworks**: Express 5 (backend), React (frontend)
+- **Runtime**: Node.js
+- **Language**: TypeScript 5.9
+- **ORM**: Drizzle ORM
+- **Validation**: Zod v4, drizzle-zod
+- **Build Tool**: Vite, esbuild
+- **Monorepo**: pnpm
+
+## Where things live
+
+- `api-server/`: Express API backend
+- `scanner/`: React + Vite frontend
+- `global-scanner/`: Global multi-asset React + Vite frontend
+- `api-server/src/db/schema.ts`: Database schema definition (Drizzle)
+- `artifacts/api-server/src/openapi.yaml`: OpenAPI specifications for API
+- `scanner/src/theme/`: UI theme configurations
+
+## Architecture decisions
+
+- **HMAC-SHA256 HttpOnly session cookies**: For secure authentication with role-based access control.
+- **Public Access Mode**: Owner-toggleable feature to share the entire site via URL, allowing read-only access for unauthenticated visitors.
+- **Kite Connect primary, Yahoo Finance fallback**: Prioritizes real-time data from Kite Connect with Yahoo Finance as a delayed alternative.
+- **Windowed OI Delta Correctness**: Implemented four invariants (snapshot merging, baseline selection, market-hours guard, session/day guard) to ensure accurate per-strike Δ calculations.
+- **F&O Signal Quality Hardening**: Incorporated ATR-aware minimum stop-loss floors, opening-noise gates for trend-class detectors, and raised high-conviction emission floors to improve signal reliability.
+
+## Product
+
+- Market scanning (NSE/BSE)
+- Advanced options chain analysis (Black-Scholes, Greeks, PCR, Max Pain)
+- F&O intraday signals (Trend Continuation, VWAP Reclaim, Volume Breakout, EMA Pullback)
+- Stock-specific catalyst tracking
+- Secure user authentication with role-based access
+- Paper trading for F&O and equities
+- P&L reports and journal analytics
+- Global multi-asset scanning (Crypto, Commodities, Forex, Global Equities/Indices)
+
+## User preferences
 
 I prefer clear and concise communication. For coding, I favor functional programming paradigms where applicable. I expect an iterative development approach with regular updates on progress. Please ask for confirmation before implementing any major architectural changes or feature deprecations. Ensure that all new features are accompanied by appropriate tests and documentation. I prefer detailed explanations for complex logic or design decisions.
 
-# System Architecture
+## Gotchas
 
-The project is structured as a pnpm workspace monorepo using TypeScript 5.9.
+- **Kite API Rate Limiting**: Kite Connect API calls are rate-limited and managed with exponential backoff; excessive concurrent requests can lead to throttling.
+- **OI Change Calculation**: Relies on `oi_day_low`/`oi_day_high` from Kite quotes; discrepancies may arise if these values are not consistently provided.
+- **Paper Trading Anti-phantom-trade rules**: Be aware of `tryOpenPaperTrades` routing to `closePaperTradeForSignal` for already-exited signals and `reconcileMissingPaperTrades` only backfilling LIVE lifecycle rows.
 
-## UI/UX Decisions
+## Pointers
 
-- **Theming**: Supports Dark, Light, and Ocean themes with `localStorage` persistence.
-- **Typography**: Inter for body/UI, JetBrains Mono for tabular numbers, prices, and dense chrome. Body baseline scoped to `<p>` only (`line-height: 1.6`, `letter-spacing: -0.005em` on non-mono prose) so dashboard density (`text-[9px]/[10px]/[11px]` on badges, KPI tiles, axis ticks, table cells) is preserved. Real paragraph copy uses `text-xs` minimum; micro sizes are reserved for chrome only.
-- **Design Elements**: Features softened card corners and theme-safe hover states.
-- **Layout**: Implements dynamic header navigation, a responsive search bar, full-width layouts, and dynamic grid layouts.
-- **Accessibility**: `sr-only` inputs, `autoComplete` attributes, and a 200% zoom audit — fixed-pixel containers either gated by responsive breakpoints, given `max-w-[calc(100vw-2rem)]` clamps, or wrapped in `overflow-x-auto` (e.g. wide tables).
-- **Error Handling**: Utilizes a top-level `ErrorBoundary` for robust UI error management.
-- **Page Titles**: Dynamic `document.title` updates based on the current route.
-
-## Technical Implementations
-
-- **API Framework**: Express 5 is used for backend services.
-- **Database**: PostgreSQL with Drizzle ORM.
-- **Validation**: Zod (v4) for schema validation, integrated with `drizzle-zod`.
-- **API Codegen**: Orval generates API hooks and Zod schemas from OpenAPI specifications.
-- **Build System**: esbuild is used for bundling packages.
-- **Authentication**: HMAC-SHA256 signed HttpOnly session cookies with rate limiting and role-based access control. Owner-toggleable **Public Access Mode** (`api-server/src/lib/publicAccess.ts`, disk-persisted at `.cache/public-access.json` v1, module-cached) lets the owner share the entire site with anyone via URL — when ON, `requireAuth` short-circuits to `next()` for all `/api/*`, `isAuthenticated()` returns true unconditionally, and `/api/auth/me` returns synthetic owner identity (`role: "owner"` + all `ALLOWED_TAB_KEYS`) so any cookie-less visitor renders the full UI. Toggle endpoints `GET /api/auth/public-mode` (unauthenticated read) and `POST /api/auth/public-mode` (requires owner cookie OR `password` body, body `{enabled, password}`); state changes are logged at WARN with `logPublicAccessBootState()` re-warning on every startup. **Route-level guards are public-mode-aware so audit visitors actually see data, not 401s**: `requireSubscriberOrOwner` (DEEP_SCAN/FNO/STRATEGIES/SECTORS tab gates + personal-watchlist) bypasses entirely in public mode; `requireOwner` (admin/users CRUD, Kite admin, paper trading) bypasses **GET/HEAD only** in public mode and rejects POST/PUT/PATCH/DELETE with `403 PUBLIC_MODE_READ_ONLY` — so paper positions, journal analytics, admin user roster, and every other owner-only data tab are browseable on a shared link, while admin writes, paper trade closes, journal edits, and Kite session writes remain locked even when public; `requireGlobalAuth` (separate `/api/global/*` gate with its own `GLOBAL_APP_ACCESS_PASSWORD`) also bypasses in public mode. `personal-watchlist` GET returns `{items:[]}` (not 401) for cookieless visitors so the Watchlist tab renders cleanly during a public audit; POST/DELETE return `403 PUBLIC_MODE_READ_ONLY`. Client surfaces a collapsible "Owner: temporarily make this site public" form on `LoginGate` (login-gate.tsx) and a fixed-top amber banner (`PublicModeBanner` in `public-mode-banner.tsx`) with inline relock password form whenever `useAuth().publicMode` is true; `Layout` adds `pt-9` and shifts its sticky chrome to `top-9` to reserve space.
-- **Security Headers**: Helmet applies a tight production CSP, Cross-Origin-Opener-Policy, and Referrer-Policy.
-- **CORS**: Environment-configured allowlist with strict production defaults.
-- **Frontend API Client**: TanStack-Query with a custom fetcher including `credentials: "include"`.
-- **Market Data**: Kite Connect is the primary source for live market data; Yahoo Finance is the delayed fallback. Kite session and instrument data are auto-mirrored from production on startup. Rate limiting for Kite API calls is managed with exponential backoff.
-- **OI Change Calculation**: Infers intraday OI delta using `oi_day_low`/`oi_day_high` from Kite quotes for buildup and unwinding classification.
-- **Option Chain Analysis**: Orchestrates data from Kite Connect and NSE direct (fallback) with caching. Includes Black-Scholes, Greeks, PCRs, max-pain analysis, sentiment scoring, sortable columns, strike filters, support/resistance scoring, and data freshness indicators.
-- **Participant-wise OI Segment View**: Provides FII positioning insights and per-segment participant data, including Net OI, change, and "Market Stance" score.
-- **Option Strategies**: Builds 13 strategy templates against the live chain, with target delta for strike picking and liquidity badges for each leg.
-- **F&O Intraday Signals**: Uses 4 detectors (Trend Continuation, VWAP Reclaim, Volume Breakout, EMA Pullback) with a Baseline Outlook fallback, persisting lifecycle tracking and providing real-time trigger notifications. Includes signal history, KPIs, and CSV export. Indicator warm-up in `buildContext`: EMA9 / EMA21 / RSI14 are computed on the full 5-day intraday window and then sliced to the session tail before being exposed as `*Series` — this preserves positional indexing semantics (`c.rsiSeries[n - 4]` still means "4 today-bars ago") while keeping the values properly seeded with prior days, so `c.rsi14`/`c.ema9`/`c.ema21` scalars match the corresponding series tail and detector slope checks (e.g. `c.rsi14 < rsiPrev` in VWAP Reclaim) compare like-for-like. Without warm-up, EMA21 on a 15-min frame can only become non-null after 5h15m of session bars (≈ 14:30 IST), which collides with the 14:30 IST late-entry gate on trend-class detectors and silently collapses every signal to BASELINE every day. ATR is split deliberately: full-window ATR drives the `fullIndicators` warm-up gate, but the `effectiveAtr15` scalar used for stop/target geometry prefers session-only ATR (≥ 14 session bars) and falls back to a 14-intra-bar high–low simple range — both paths avoid the overnight-gap inflation that pure full-window TR-based ATR produces, since gap risk is not a stop-relevant move on an intraday options trade.
-- **Equity Swing Paper Book**: Filters `STRONG_BUY` scanner rows from the NSE F&O equity universe, attaching ATR-based stop and targets based on technical analysis.
-- **Home Tab**: Data-rich layout featuring Global Cues, FII/DII sentiment, Sectoral Heatmap, Market Breadth, Tabbed Indian Indices with detailed analytics (OHLC, EMAs, VWAP, Market Profile, CPR+PDH/PDL, Momentum Cluster, Options Layer, Floor Pivots), Market Take auto-narrative, TrendCard, Market Mood gauge, Top Gainers/Losers, Top Bullish/Bearish Setups, and scanner CTA. Backend enrichment provides index sparklines, momentum indicators, and options summary.
-- **Indices Board**: Displays 28 instruments across 5 categories (India / Global / Commodity / ADR / FX) with live LTP, OHLC, range bars, EMAs, VWAP, and pivot ladders. Live data sourcing: 6 Indian indices use Kite Connect (real-time tick), and 22 non-Indian rows use a generalised TradingView batch quote fetcher (`artifacts/api-server/src/lib/tvQuotes.ts`, `https://scanner.tradingview.com/global/scan`, 10s cache, inflight dedup keyed by ticker-set fingerprint). Yahoo Finance still drives historical analytics (EMAs, pivots, 52w hi/lo, intraday VWAP, value area) but no longer drives the headline LTP. Each TV row carries its real `update_mode` from the response (`streaming`, `delayed_streaming_600`, `delayed_streaming_900`) so the UI pill is honest: green "LIVE" only for true real-time, amber "LIVE 10m"/"LIVE 15m" for live-streaming-but-delayed, never substituting one symbol for another. Gold/Silver carry an explicit basis-disclosure note since the LTP is TV spot while the EMAs/pivots are derived from Yahoo CME-futures history.
-- **Kite Universe Hygiene**: Filters Kite's instrument dump to active, bona-fide instruments.
-- **OI Lab**: Provides bulk snapshot download, OI heatmap, intraday tracker, IV Skew chart, and sentiment explanation. Heatmap buildup classifications are merged into the scanner table as a sortable "FUT OI" column (Long Buildup, Short Buildup, Short Covering, Long Unwinding, Neutral).
-  - **Sentiment scoring** (`api-server/src/lib/oiLab.ts` `scoreSentiment`): weighted sum on -100..+100. PCR(OI) is the heaviest leg at ±35 (saturates at PCR 0.7 / 1.3), max-pain ±20, intraday flow ±20, top-cluster ±25. NEUTRAL band is ±12 (was ±20). The `OiInsightsResponse` exposes `sentimentStrengthPct` (0-100) so the UI can render "Mildly Bearish 70%" alongside the band label, matching the convention every commercial chain platform uses.
-  - **Insights tab layout** (`scanner/src/pages/oi-lab.tsx` `InsightsTab`): top KPI strip is 6 tiles (PCR, Max Pain, ATM IV, Sentiment, Total Call OI, Total Put OI). Sidebar is 240px (was 280). Market Insight + Analysis are folded into one card to avoid the 70px of vertical chrome the separate Analysis card used to take. Bottom strip charts are 120px tall (was 140).
-  - **Sensibull-style premium polish** (`scanner/src/pages/oi-lab.tsx`, May 2026): chart title now appends "on <Tue, 5 May>" date subtitle (IST) + a small Info icon with multi-line "How to read this:" tooltip. Δ-window pills are `rounded-full` with amber ring/glow on active state; "All" renders as "Full Day" (label-only). NEW horizontal SESSION TIMELINE bar (only on `oi`/`oichg` views) renders 9:15 → 15:30 IST with two markers — amber dot for baseline pick, zinc dot for "now" — and an amber-gradient fill spanning the active Δ window; markers use `transform: translateX(-50%)` for clean placement at extremes; fill collapses to 0 width when baseline ≈ now (no phantom sliver). The OI Change card now shows a two-column "{UNDERLYING} at HH:MM AM" + "{UNDERLYING} now" spot-price readout with signed Δ + Δ% when the server returns `windowBaselineSpot`, falling back to a "Spot anchor not captured for this baseline yet" hint when the baseline pick predates the spot-capture upgrade. Below the bottom card strip a permanent footer reads "OI last refreshed: <time> IST · Server polls every ~30s · OI is published by the exchange every ~3 min". All additions are pure layering — no existing information was removed.
-  - **OI snapshot spot capture** (`api-server/src/lib/oiLab.ts`): `OiInsightsSnapshot` now carries an optional `spot?: number` (backwards-compat — older disk blobs without it surface as `windowBaselineSpot: null` cleanly). `pushOiInsightsSnapshot` captures `chain.spot` when finite; same-`ts` merge preserves the freshest spot via `snap.spot ?? prev.spot`. `resolveWindowDelta` returns a new `windowBaselineSpot: number | null` and `OiInsightsResponse` exposes the same field; `fetchOiInsights` passes it through unchanged.
-  - **Windowed OI Δ correctness** (`api-server/src/lib/oiLab.ts`): the timeframe pills (3m/5m/15m/30m/1h/2h/3h) ride on a per-`underlying|expiry` ring buffer (`OI_INSIGHTS_HISTORY`, max 450 entries, ~3h10m window) of `{ts, ce, pe}` snapshots. Four correctness invariants protect the per-strike Δ math: (a) `pushOiInsightsSnapshot` MERGES `ce`/`pe` strike maps when the latest buffer entry has the same `ts` as the new push (which happens whenever a `strikes=5` poll lands on the same chain-cache hit as an earlier `strikes=20` poll within `CHAIN_TTL=15s`) — replacing would shrink coverage to the smaller strike subset; (b) `resolveWindowDelta` picks the LATEST snapshot OLDER than `(now - windowMs)` when one exists (Tier 1) and falls back to the oldest available snap when the buffer doesn't reach back that far (Tier 2); (c) **write-path market-hours guard** — `pushOiInsightsSnapshot` silently drops any snap whose `ts` falls outside `[09:15, 15:35]` IST via `isInIstMarketHours()`, so off-hours / overnight polls never poison the buffer; (d) **read-path session/day guard** — `resolveWindowDelta` filters the candidate buffer to only snaps whose `ts` is BOTH in-session AND on today's IST trading day before picking a baseline, preventing yesterday's residue from being used as "approx" baseline at next-day open (returns `windowMode: "none"` when no usable in-session snap exists). The Insights tab's OI Change card (`scanner/src/pages/oi-lab.tsx`) renders value labels above the bars via Recharts `LabelList` (Cr/L formatting), shows the actual baseline timestamp + minutes-ago + approx flag below the title, and surfaces two new windowed-only rows: "PCR Change" (`pcrStart → pcrEnd`, signed Δ in 4dp) and "PCR OI Δ" (Put OI Δ ÷ Call OI Δ, null on div-by-zero). The wire response carries two new optional blocks for spec-mandated card↔chart parity: `windowTotals` (`callOiStart/End/Change` + `putOiStart/End/Change` in raw + Cr, plus `strikesIncluded` count — totals accumulate ONLY over strikes with both CE & PE baseline legs, guaranteeing the card value equals the sum of per-strike bar Δ exactly) and `windowPcr` (derived from those totals). All windowed PCR/totals math uses `safeDiv` → null instead of Infinity / NaN. Per-strike `*Cr` fields and totals' `*Cr` fields are PRESENTATION-only (4dp rounded) — clients must never sum them; the raw fields are authoritative for any aggregation. Every windowed insights request emits a `req.log.info("OI insights windowed Δ resolved", {...})` audit line carrying sym, expiry, windowParam, windowMs, windowMode, baselineAt, bufferCount, bufferOldestAt, strikesIncluded, callOiChangeCr, putOiChangeCr, pcrEnd, pcrChange, pcrOiChange.
-- **Paper Trading (owner-only)**: Auto-traded F&O and equity paper accounts with seeded balance, risk management rules, and lifecycle hooks. Includes premium stop-loss caps, volatility regime adjustments, consecutive loss protection (pauses after 2 stops/day), and portfolio exposure heat indicator. F&O auto-trade has two lanes that share the same `MAX_TRADES_PER_DAY` cap: STANDARD (high-conviction detectors, 2% per-trade loss cap, confidence floor from `tradingConfig.MIN_FNO_TRADE`) and BASELINE (always-on directional outlook fallback, 1% per-trade loss cap, confidence floor 55) — defined in `paperAccount.ts` as `FNO_RISK` / `FNO_BASELINE_RISK`. Trade opens are gated per-signal on `dataQuality` (`isActionableForFno`) rather than the global `activeProvider()`, so a slow Kite WebSocket tick at open no longer suppresses every trade for the day. Kite `getHistoricalData` is throttled globally in `kiteIntraday.ts` (~2.5 req/sec via single-counter `nextSlotAt`) with per-cacheKey inflight dedup and `MAX_QUEUE=30` fail-fast — protects the 3 req/s budget when the equity scanner bursts in parallel and prevents starving the F&O index calls of the bars needed for full EMA21/RSI14/ATR14. Anti-phantom-trade rules: (a) `tryOpenPaperTrades` never opens already-exited signals; instead it routes them to `closePaperTradeForSignal`, which is a safe no-op when no OPEN paper_trade_fo row matches but closes any orphaned OPEN row when a lifecycle close was missed during a server crash/restart — this prevents a phantom loss for a slot we never held while still healing orphans we did hold (see the `closedExistingOpenRow` log field for which case fired); (b) `reconcileMissingPaperTrades` only backfills LIVE (`exited_at IS NULL`) lifecycle rows, for both STANDARD and BASELINE setups, so a mid-day deploy catches up open positions without retroactively booking phantom losses on the day's already-stopped signals.
-- **P&L Reports**: Monthly/yearly calendar views with per-trade detail. Includes Expectancy and Profit Factor metrics. Journal Analytics tab aggregates closed trades by setup type, exit reason, time-of-day, and tags.
-- **IV History**: DB-backed daily ATM IV snapshots (`iv_history` table) powering IV Rank and IV Percentile on option chain, strategies, and home pages. Values are clamped to 0-100.
-- **Trading Config**: Centralizes confidence thresholds, data quality labels, and volatility regime classification.
-- **Setup for Tomorrow Panel**: A sticky right-sidebar on the Pre/Post Market page inspired by Moneycontrol's "Trade Setup" article. Displays 15 key items: Nifty/BankNifty key levels (pivot, R1/R2, S1/S2, CPR), Call/Put OI walls for both indices, FII/DII flows, Put-Call Ratio, India VIX, OI buildup summary (Long Buildup, Long Unwinding, Short Buildup, Short Covering with top 5 stocks each), high delivery stocks (50%+ from bhavcopy, filtered to scanner universe), and F&O ban list. Items 10-14 are expandable with stock-level detail. Desktop renders as `xl:block w-[340px]` sticky sidebar; mobile shows below main content. Backend aggregates from OI heatmap cache, NSE bhavcopy delivery data, and existing premarket report fields. F&O ban is placeholder (NSE API limitation).
-- **Audit-Driven Improvements**: Incorporates canonical Wilder's RMA smoothing for ADX, informational-only BASELINE signals, data quality gates for paper trades, sector-strength gates for swing entries, volatility regime awareness for F&O detectors, and OI confirmation for signal confidence.
-- **Phase-1 F&O Quality Gates** (`api-server/src/lib/optionSignalGates.ts`): Session-wide circuit breakers layered ON TOP of per-detector logic to address the empirical loss pattern (1 win in 53 outcomes over 14 days). Seven gates run in `getOptionSignals` before lifecycle persistence so vetoed signals never get a DB row: (1) **Stale-trigger sweep** — PENDING rows older than 45m are expired with reason `STALE_TRIGGER` (race-safe via `expireStalePendingSignals` in `optionSignalLifecycle.ts`); (2) **Daily circuit breaker** — after 2 STOPPED outcomes today, all new high-conviction emission is suspended (baseline outlooks pass through); (3) **Bias-flip cooldown** — 45m lockout against opposite-direction signals on an index that just stopped, checked inside `buildSignalsForIndex`'s detector loop; (4) **VWAP_RECLAIM late cutoff** — 13:30 IST instead of the generic 14:30 trend cutoff (reclaim setups need 2+ hours of runway to reach pivot R1/R2); (5) **OI hard veto** — `applyOiConfirmation` now returns `Set<OptionSignal>` of signals to drop when `|sentimentScore| ≥ 30` opposes the trade direction; (6) **Correlated-exposure cap** — buckets `BROAD={NIFTY,SENSEX,MIDCPNIFTY}` and `BANK={BANKNIFTY,BANKEX,FINNIFTY}` keep only the highest-confidence HC card per (bucket × direction); (7) **India VIX spike** — intraday +5% from open OR day +7% vs prior close suspends new HC emission. State surfaces in `OptionSignalsResult.diagnostics.gates` (counters + `notes[]`) and renders in the UI via `signal-gate-banner.tsx` (red palette for hard suppression, amber otherwise, hidden when no gate is active). New `STALE_TRIGGER` exit reason is added to OpenAPI enums for both `OptionSignal` and `OptionSignalHistoryItem`.
-- **Phase-2 F&O Signal Quality Hardening** (`api-server/src/lib/optionSignals.ts`): Three further changes that harden *what each signal looks like when it does fire*, layered inside `buildSignalsForIndex` and `clampPlanForIntraday` after the Phase-1 outer gates. (a) **ATR-aware MIN stop-loss floor** — every clamped plan must have `stopDist ≥ max(MIN_STOP_PCT_OF_SPOT × spot, MIN_STOP_ATR_MULT × ATR15)` = `max(0.30% spot, 1.0 × ATR15)`; the existing `MAX_STOP_PCT_OF_SPOT` cap (0.45% spot / 0.6 × ATR15) still shrinks too-wide structural stops, but a too-tight pivot-snapped stop is now widened to survive at least one bar of realised noise. The MIN floor wins on volatile days where it would exceed the cap (intentional — a stop must always survive realised noise). T1/T2 are NOT pushed outward when SL widens; instead the existing RR floor (`MIN_RR_FOR_HC = 1.4`) drops signals whose realistic risk no longer justifies the structural target. Per-trade rupee risk stays constant because `paperTradingFO.openPaperTrade` sizes via `lots = Math.floor((balance × maxLossPctPerTrade) / (perShareLoss × lotSize))` — wider stop → smaller qty → same rupees. MEAN_REVERSION exempt by construction. (b) **Opening-noise gate** — trend-class detectors (Trend Continuation / VWAP Reclaim / Volume Breakout / EMA Pullback) are blocked before 09:30 IST via `OPENING_NOISE_CUTOFF_IST_MIN`, mirroring the shape of the Phase-1 14:30 late-entry and 13:30 VWAP-reclaim cutoffs; Mean Reversion is exempt because fading the opening extreme is a valid setup. (c) **HC emission floor raised** — `HC_EMISSION_FLOOR = 65` enforced in TWO places: first inside the detector loop AFTER the vol-regime haircut and BEFORE `applyTriggerRealism` / `clampPlanForIntraday` (admission gate), and AGAIN inside `getOptionSignals` immediately after `applyOiConfirmation` (post-OI recheck — necessary because the OI conflict path haircuts confidence by -5 after admission, so a card admitted at exactly the floor would otherwise ship at floor-5). Closes the UX gap where conf 50-69 cards displayed as HIGH_CONVICTION but never auto-traded (paper-trade floor `MIN_FNO_TRADE = 70`); demoted setups still surface their directional read via the always-on Baseline Outlook. All three changes report through the existing `suppressed[]` diagnostic stream; no new OpenAPI surface area.
-- **Global Multi-Asset Scanner (`/global/`)**: A standalone React-Vite artifact covering Crypto (Binance), Commodities and Forex (Yahoo Finance), and Global Equities/Indices (Yahoo Finance). Features a dashboard, source-health monitoring, instrument details with `lightweight-charts`, and a screener with multi-asset-class filters and sharable presets.
-
-# External Dependencies
-
-- **pnpm**: Monorepo management.
-- **Node.js**: Runtime environment.
-- **TypeScript**: Programming language.
-- **Express**: Web application framework.
-- **PostgreSQL**: Relational database.
-- **Drizzle ORM**: TypeScript ORM.
-- **Zod**: Schema validation library.
-- **drizzle-zod**: Drizzle ORM and Zod integration.
-- **Orval**: OpenAPI code generator.
-- **esbuild**: JavaScript bundler.
-- **React**: Frontend UI library.
-- **Vite**: Frontend build tool.
-- **Yahoo Finance API**: Delayed fallback for market data and source for global assets.
-- **Zerodha Kite Connect API**: Primary source for live market data, option chains, and F&O data.
-- **NSE India**: Direct data for option chains (fallback) and bhavcopy.
-- **TradingView**: Webhook integration and source for GIFT NIFTY data.
-- **Binance API**: For Crypto data in the Global Scanner.
-- **News Feeds**: Moneycontrol, Mint, Economic Times (ET), CNBC TV18, Business Standard, Investing.com (for catalyst tracking).
+- **Kite Connect API Documentation**: _Populate as you build_
+- **Zerodha Kite Connect**: [https://kite.trade/docs/connect/v3/](https://kite.trade/docs/connect/v3/)
+- **Drizzle ORM Documentation**: [https://orm.drizzle.team/docs/overview](https://orm.drizzle.team/docs/overview)
+- **Zod Documentation**: [https://zod.dev/](https://zod.dev/)
+- **TanStack Query Documentation**: [https://tanstack.com/query/latest](https://tanstack.com/query/latest)
+- **OpenAPI Specification**: [https://swagger.io/specification/](https://swagger.io/specification/)
