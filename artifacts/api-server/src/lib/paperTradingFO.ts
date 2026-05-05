@@ -609,7 +609,7 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
     SELECT h.signal_date, h.index_symbol, h.index_name, h.setup_key, h.direction,
            h.option_type, h.strike, h.entry, h.stop_loss, h.target1, h.target2,
            h.option_entry, h.option_stop_loss, h.option_target1, h.option_target2,
-           h.confidence, h.status AS lifecycle_status, h.exited_at
+           h.confidence, h.status AS lifecycle_status
       FROM option_signal_history h
       LEFT JOIN paper_trade_fo p
         ON p.signal_date = h.signal_date
@@ -619,8 +619,18 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
      WHERE h.signal_date   = ${today}
        AND h.triggered_at IS NOT NULL
        AND p.id IS NULL
-       AND h.setup_key != 'BASELINE'
+       AND h.exited_at IS NULL
   `);
+  // Reconcile is intentionally restricted to LIVE (not-yet-exited)
+  // lifecycle rows. Backfilling already-stopped signals would record
+  // phantom losses for trades we never actually had a chance to take —
+  // and on a deploy mid-day right after a market reversal, that can
+  // produce a misleading "every trade is a stop" picture on the paper
+  // book. We DO catch up live triggers (so a deploy doesn't drop them)
+  // for both STANDARD and BASELINE setups; the previous BASELINE
+  // exclusion was an artefact of the old "BASELINE = informational
+  // only" model and is no longer correct now that BASELINE is an
+  // actual auto-trade lane.
   const rows = (result as unknown as {
     rows: Array<{
       signal_date: string;
@@ -640,7 +650,6 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
       option_target2: string | null;
       confidence: number;
       lifecycle_status: string;
-      exited_at: Date | null;
     }>;
   }).rows;
   if (rows.length === 0) return 0;
@@ -675,6 +684,10 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
     } as unknown as OptionSignal;
 
     try {
+      // Tier the synthetic open the same way the in-cycle path does:
+      // BASELINE setups go through the conservative lane (1% loss cap,
+      // 55 conf floor); everything else uses STANDARD.
+      const tier: TradeTier = r.setup_key === "BASELINE" ? "BASELINE" : "STANDARD";
       const trade = await openPaperTrade({
         prev: null,
         next: "TRIGGERED",
@@ -682,20 +695,12 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
         signal: syntheticSignal,
         signalDate: r.signal_date,
         direction: dir,
+        tier,
       });
-      if (trade) {
-        opened++;
-        if (r.exited_at) {
-          const reason: CloseReason =
-            r.lifecycle_status === "TARGET2_HIT" ? "TARGET2_HIT" :
-            r.lifecycle_status === "STOPPED" ? "STOPPED" :
-            r.lifecycle_status === "TARGET1_HIT" ? "TARGET1_HIT" :
-            "EXPIRED";
-          await closePaperTradeForSignal(
-            r.signal_date, r.index_symbol, r.setup_key, dir, reason,
-          );
-        }
-      }
+      if (trade) opened++;
+      // No close branch here: we filter to exited_at IS NULL above, so
+      // every reconciled row is a still-live trigger that the running
+      // lifecycle hook will close naturally when its target/stop hits.
     } catch (err) {
       logger.warn(
         { err: (err as Error).message, idx: r.index_symbol, setup: r.setup_key },
@@ -808,31 +813,63 @@ export async function tryOpenPaperTrades(
     const status = signal.status as LifecycleStatus | undefined;
     if (!status || !PAST_TRIGGER.includes(status)) continue;
 
+    // Already-exited signal handling. Two cases:
+    //
+    //   (a) We DID open this trade earlier in this session, but the
+    //       lifecycle close hook never fired (server restart / crash
+    //       between TRIGGERED and the exit-bar evaluation). In that
+    //       case there's still an OPEN paper_trade_fo row that needs
+    //       to be CLOSED so the day's KPIs and the heat indicator stay
+    //       honest. closePaperTradeForSignal() short-circuits to null
+    //       when no OPEN row matches, so it's safe to call
+    //       unconditionally.
+    //
+    //   (b) We never opened it (deploy mid-day right after the stop
+    //       hit). The close call above is a no-op, and we MUST NOT
+    //       open + immediately close — that would record a phantom
+    //       loss for a slot we never actually held and consume one of
+    //       the 4 daily-cap slots that the running server still has
+    //       left to use on real opportunities.
+    //
+    // Either way: never fall through to openPaperTrade for an
+    // already-exited signal.
+    if (signal.exitedAt) {
+      const reason: CloseReason =
+        status === "TARGET2_HIT" ? "TARGET2_HIT" :
+        status === "STOPPED" ? "STOPPED" :
+        status === "TARGET1_HIT" ? "TARGET1_HIT" :
+        "EXPIRED";
+      const closed = await closePaperTradeForSignal(
+        signalDate,
+        signal.index,
+        signal.setupKey ?? "",
+        direction,
+        reason,
+      );
+      logger.info(
+        {
+          index: signal.index,
+          setupKey: signal.setupKey,
+          status,
+          closedExistingOpenRow: closed != null,
+        },
+        closed != null
+          ? "Paper FO: closed orphaned OPEN row for already-exited signal (lifecycle missed during downtime)"
+          : "Paper FO skip: signal already exited and we never opened it (missed entry window)",
+      );
+      continue;
+    }
+
     try {
-      const trade = await openPaperTrade({
+      await openPaperTrade({
         prev: null,
         next: status,
-        exited: !!signal.exitedAt,
+        exited: false,
         signal,
         signalDate,
         direction,
         tier,
       });
-
-      if (trade && signal.exitedAt) {
-        const reason: CloseReason =
-          status === "TARGET2_HIT" ? "TARGET2_HIT" :
-          status === "STOPPED" ? "STOPPED" :
-          status === "TARGET1_HIT" ? "TARGET1_HIT" :
-          "EXPIRED";
-        await closePaperTradeForSignal(
-          signalDate,
-          signal.index,
-          signal.setupKey ?? "",
-          direction,
-          reason,
-        );
-      }
     } catch (err) {
       logger.warn(
         { err: (err as Error).message, idx: signal.index, setup: signal.setupKey },

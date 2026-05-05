@@ -194,16 +194,58 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const closes = today.close, highs = today.high, lows = today.low, vols = today.volume;
   const spot = closes.at(-1)!, open0 = today.open[0]!;
   const vwapSeries = sessionVwap(highs, lows, closes, vols);
-  const ema9Series = ema(closes, 9);
-  const ema21Series = ema(closes, 21);
-  const rsiSeries = rsi(closes, 14);
-  const atrSeries = atr(highs, lows, closes, 14);
+
+  // EMA9 / EMA21 / RSI14 are computed on the FULL intra window
+  // (5 calendar days of 15-min bars) and then sliced to the session
+  // tail. Two reasons to do this rather than session-only:
+  //
+  //   (1) Warm-up: session-only EMA21 only becomes non-null after
+  //       21 today-bars = 21 × 15min = 5h15m of session = 14:30 IST,
+  //       which collides with the 14:30 IST late-entry gate on trend
+  //       detectors and silently collapses every signal to BASELINE.
+  //
+  //   (2) Scalar/series consistency: detectors mix scalar reads
+  //       (`c.rsi14`) with positional reads (`c.rsiSeries[n - 4]`).
+  //       If the scalar comes from full-window seeding and the series
+  //       stays session-only, slope checks compare differently-seeded
+  //       values and misclassify momentum mid-session. By slicing the
+  //       full-window series to length today.close.length, indexing
+  //       semantics are preserved (`[-1]` is the latest bar, `[n-4]`
+  //       is 4 today-bars ago) AND the values match c.ema9/c.rsi14.
+  const intraCloses = intra.close, intraHighs = intra.high, intraLows = intra.low;
+  const sessionLen = closes.length;
+  const sliceTail = <T>(arr: T[]): T[] =>
+    arr.length >= sessionLen ? arr.slice(arr.length - sessionLen) : arr;
+  const ema9Series  = sliceTail(ema(intraCloses, 9));
+  const ema21Series = sliceTail(ema(intraCloses, 21));
+  const rsiSeries   = sliceTail(rsi(intraCloses, 14));
 
   const vwapRaw    = lastVal(vwapSeries);
   const ema9Raw    = lastVal(ema9Series);
   const ema21Raw   = lastVal(ema21Series);
   const rsi14Raw   = lastVal(rsiSeries);
-  const atr15Raw   = lastVal(atrSeries);
+
+  // ATR is intentionally split:
+  //   - `atr15Raw` (full-window) drives the `fullIndicators` warm-up
+  //     gate so high-conviction detectors can fire from the open.
+  //   - `effectiveAtr15` (used downstream for stop / target geometry)
+  //     prefers session-only ATR once we have 14 session bars; before
+  //     then it falls back to the trailing 14-intra-bar high-low
+  //     simple range. The session-only and simple-range paths both
+  //     avoid the overnight-gap inflation that pure full-window TR
+  //     ATR produces (TR(first-bar-of-day) includes the prior-day
+  //     close-to-today-open jump, which is not a stop-relevant move).
+  const atrSeriesSession = atr(highs, lows, closes, 14);
+  const atr15Raw = lastVal(atr(intraHighs, intraLows, intraCloses, 14));
+  const sessionAtr15 = closes.length >= 14 ? lastVal(atrSeriesSession) : null;
+  const intraTailLen = Math.min(14, intraHighs.length);
+  const intraTailHL =
+    intraTailLen > 0
+      ? simpleAvgRange(
+          intraHighs.slice(intraHighs.length - intraTailLen),
+          intraLows.slice(intraLows.length - intraTailLen),
+        )
+      : 0;
 
   const dn = daily.close.length;
   const dailyEma50Series = dn >= 50 ? ema(daily.close, 50) : [];
@@ -219,7 +261,10 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const effectiveEma9      = ema9Raw ?? sma(closes);
   const effectiveEma21     = ema21Raw ?? ema9Raw ?? sma(closes);
   const effectiveRsi       = rsi14Raw ?? 50;
-  const effectiveAtr15     = atr15Raw ?? simpleAvgRange(highs, lows);
+  // Stop / target ATR: session-only when warm, else gap-free intra-tail
+  // simple range, else session simple range. Never the raw full-window
+  // TR ATR — see the comment above for why overnight gaps distort it.
+  const effectiveAtr15     = sessionAtr15 ?? (intraTailHL > 0 ? intraTailHL : simpleAvgRange(highs, lows));
   const effectiveDailyEma  = dailyEma50Raw ?? spot;
   const effectiveAtrDaily  = atrDailyRaw ?? effectiveAtr15;
 
