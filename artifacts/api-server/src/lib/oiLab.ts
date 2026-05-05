@@ -335,6 +335,11 @@ export interface OiInsightsResponse {
   sentiment: SentimentBand;
   sentimentScore: number;    // -100 (extreme bear) … +100 (extreme bull)
   sentimentLabel: string;    // "Strongly Bearish", etc.
+  /** Conviction strength on the active side, 0-100. Mirrors the
+   *  "Bearish 70%" / "Bullish 80%" reading commercial chains surface.
+   *  Computed as |sentimentScore| capped at 100. For NEUTRAL bands this
+   *  reads how *close to neutral* the chain is (small number = balanced). */
+  sentimentStrengthPct: number;
   marketInsight: string;     // 1-line summary
   analysis: string;          // 1-2 sentence detail
   // Per-strike rows (sorted asc by strike, trimmed to ATM ± strikesAround)
@@ -370,22 +375,34 @@ function legBuildupTag(b: OcSide["oiBuildup"] | undefined): OiStrikeRow["ceBuild
 }
 
 function bandFromScore(score: number): { band: SentimentBand; label: string } {
-  if (score <= -60) return { band: "STRONGLY_BEARISH",  label: "Strongly Bearish" };
-  if (score <= -20) return { band: "MILDLY_BEARISH",    label: "Mildly Bearish" };
-  if (score <   20) return { band: "NEUTRAL",           label: "Neutral" };
-  if (score <   60) return { band: "MILDLY_BULLISH",    label: "Mildly Bullish" };
+  // Tightened bands (was ±20 / ±60) so a clearly directional PCR can no
+  // longer be swallowed by NEUTRAL. With the rebalanced scoreSentiment()
+  // below, PCR alone of 0.76 contributes ≈-28, which now correctly lands
+  // in MILDLY_BEARISH instead of getting cancelled out by a +3 max-pain
+  // tilt and reading "NEUTRAL -6".
+  if (score <= -55) return { band: "STRONGLY_BEARISH",  label: "Strongly Bearish" };
+  if (score <= -12) return { band: "MILDLY_BEARISH",    label: "Mildly Bearish" };
+  if (score <   12) return { band: "NEUTRAL",           label: "Neutral" };
+  if (score <   55) return { band: "MILDLY_BULLISH",    label: "Mildly Bullish" };
   return                   { band: "STRONGLY_BULLISH",  label: "Strongly Bullish" };
 }
 
 /**
- * Score sentiment on a -100 .. +100 scale combining four signals.
- * Each signal is scored -25..+25 then summed.
+ * Score sentiment on a -100 .. +100 scale combining four weighted signals.
  *
- *   1. Static PCR(OI)          — positioning weight (puts vs calls written)
- *   2. Spot vs Max-pain        — where option writers want price to land
- *   3. Intraday flow polarity  — direction of fresh OI accumulation today
- *   4. Top-cluster confirmation — does flow agree with where the heavy
- *                                 OI walls are (resistance vs support)?
+ *   1. Static PCR(OI)          ±35 — positioning weight (heaviest signal)
+ *   2. Spot vs Max-pain        ±20 — where option writers want price to land
+ *   3. Intraday flow polarity  ±20 — direction of fresh OI today
+ *   4. Top-cluster confirmation ±25 — does flow agree with where the heavy
+ *                                     OI walls are (resistance vs support)?
+ *
+ * Why PCR is now the heaviest leg (was ±25, now ±35 with a steeper slope):
+ * the prior ±25 weight with a 0.4..1.6 clamp meant a clearly-bearish
+ * PCR=0.76 contributed only -10. Combined with a +3 max-pain tilt that
+ * landed in NEUTRAL (-6), even though every commercial option-chain
+ * platform (StockMojo / Sensibull / Opstra) reads the same chain as
+ * "Bearish ~70%". PCR(OI) is the most directly informative single number
+ * in an Indian option chain — the rebalance reflects that.
  *
  * Note: signals 3 & 4 use the chain's session-range OI proxy (Kite REST
  * does not expose tick-level Δ OI). This is the same proxy the Heatmap tab
@@ -399,27 +416,31 @@ function scoreSentiment(args: {
   topResistanceOi: number;
   topSupportOi: number;
 }): number {
-  // 1. Static PCR — pivot at 1.0, cap at 0.4..1.6.
-  const pcrClamped = Math.max(0.4, Math.min(1.6, args.pcrOi));
-  const pcrScore = ((pcrClamped - 1) / 0.6) * 25;
+  // 1. Static PCR — pivot at 1.0, saturate at 0.7 / 1.3 (was 0.4 / 1.6).
+  //    NSE convention: PCR < 0.7 = bearish saturation, > 1.3 = bullish
+  //    saturation. Clamping there means the score reads bearish *enough*
+  //    to escape NEUTRAL the moment PCR drops below ~0.85.
+  const pcrClamped = Math.max(0.7, Math.min(1.3, args.pcrOi));
+  const pcrScore = ((pcrClamped - 1) / 0.3) * 35;
 
   // 2. Spot vs Max-pain — spot above max-pain = market biased upward.
   const mpDev = args.maxPain > 0 ? ((args.spot - args.maxPain) / args.maxPain) * 100 : 0;
   const mpClamped = Math.max(-2, Math.min(2, mpDev));
-  const mpScore = (mpClamped / 2) * 25;
+  const mpScore = (mpClamped / 2) * 20;
 
   // 3. Flow polarity — already in [-1, +1].
-  const flowScore = args.intradayFlow * 25;
+  const flowScore = args.intradayFlow * 20;
 
   // 4. Cluster confirmation — heavier put cluster (support) vs call cluster
   //    (resistance) means writers are anchoring price ABOVE the put strike,
-  //    i.e. bullish. Bounded the same way as flow.
+  //    i.e. bullish.
   const clusterMag = args.topSupportOi + args.topResistanceOi;
   const clusterRatio = clusterMag > 0
     ? (args.topSupportOi - args.topResistanceOi) / clusterMag
     : 0;
   const clusterScore = clusterRatio * 25;
 
+  // Sum saturates at ±100 (35 + 20 + 20 + 25).
   return Math.round(pcrScore + mpScore + flowScore + clusterScore);
 }
 
@@ -637,6 +658,7 @@ export function computeOiInsights(chain: OcResponse, strikesAround = 20): OiInsi
     topResistance, topSupport,
     sentiment: band,
     sentimentScore: score,
+    sentimentStrengthPct: Math.min(100, Math.abs(score)),
     sentimentLabel: label,
     marketInsight: insight,
     analysis,

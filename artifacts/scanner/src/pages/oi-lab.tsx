@@ -11,7 +11,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Legend, ReferenceLine,
   BarChart, Bar, Cell, PieChart, Pie, ComposedChart, AreaChart, Area,
 } from "recharts";
-import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, Target, ChevronRight, Info } from "lucide-react";
+import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, ChevronRight, Info } from "lucide-react";
 
 const base = (import.meta as { env: { BASE_URL: string } }).env.BASE_URL;
 
@@ -932,6 +932,10 @@ interface InsightResp {
   sentiment: SentimentBand;
   sentimentScore: number;
   sentimentLabel: string;
+  /** 0-100 conviction strength on the active side. Optional for forward
+   *  compatibility (server may be older than client) — gauge falls back
+   *  to |sentimentScore| when absent. */
+  sentimentStrengthPct?: number;
   marketInsight: string;
   analysis: string;
   strikes: InsightStrike[];
@@ -1395,10 +1399,10 @@ function InsightsTab() {
   const sentTone = data ? SENTIMENT_TONE[data.sentiment] : SENTIMENT_TONE.NEUTRAL;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Top bar — underlying + spot + meta */}
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-3">
           <div className="flex flex-wrap items-center gap-4">
             {/* Underlying picker */}
             <div className="relative">
@@ -1525,7 +1529,7 @@ function InsightsTab() {
         signal.
       */}
       {data && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {(() => {
             const pcrTone = data.pcrOi >= 1.3 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
               : data.pcrOi <= 0.7 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
@@ -1538,11 +1542,21 @@ function InsightsTab() {
               : data.atmIv != null && data.atmIv < 12 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
               : "text-foreground border-border bg-card";
             const sentClass = `${sentTone.bg} ${sentTone.border}`;
+            // Tinted Δ for the Total OI tiles — green = OI added today
+            // (writers committing capital), red = OI shed (positions
+            // unwinding). Same coloring convention used in the Total OI
+            // card at the bottom of the page.
+            const callDeltaTone = data.callOiAdded > 0 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
+              : data.callOiAdded < 0 ? "text-zinc-400 border-border bg-card"
+              : "text-foreground border-border bg-card";
+            const putDeltaTone = data.putOiAdded > 0 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
+              : data.putOiAdded < 0 ? "text-zinc-400 border-border bg-card"
+              : "text-foreground border-border bg-card";
             const Tile = ({ label, value, sub, cls }: { label: string; value: string; sub?: string; cls: string }) => (
-              <div className={`rounded border px-3 py-2 ${cls}`}>
+              <div className={`rounded border px-2.5 py-1.5 ${cls}`}>
                 <div className="text-[9px] uppercase tracking-wider font-mono opacity-80">{label}</div>
-                <div className="text-lg font-bold tabular-nums">{value}</div>
-                {sub && <div className="text-[10px] font-mono opacity-80">{sub}</div>}
+                <div className="text-base font-bold tabular-nums leading-tight">{value}</div>
+                {sub && <div className="text-[10px] font-mono opacity-80 leading-tight">{sub}</div>}
               </div>
             );
             return (
@@ -1556,7 +1570,7 @@ function InsightsTab() {
                 <Tile
                   label="Max Pain"
                   value={String(data.maxPain)}
-                  sub={`${painDist >= 0 ? "+" : ""}${painDist.toFixed(0)} from spot (${painPct >= 0 ? "+" : ""}${painPct.toFixed(2)}%)`}
+                  sub={`${painDist >= 0 ? "+" : ""}${painDist.toFixed(0)} (${painPct >= 0 ? "+" : ""}${painPct.toFixed(2)}%)`}
                   cls={painTone}
                 />
                 <Tile
@@ -1568,8 +1582,24 @@ function InsightsTab() {
                 <Tile
                   label="Sentiment"
                   value={data.sentiment.replace("_", " ")}
-                  sub={`${data.sentimentScore >= 0 ? "+" : ""}${data.sentimentScore.toFixed(0)} score`}
+                  sub={(() => {
+                    const pct = data.sentimentStrengthPct ?? Math.min(100, Math.abs(data.sentimentScore));
+                    if (data.sentiment === "NEUTRAL") return `${data.sentimentScore >= 0 ? "+" : ""}${data.sentimentScore.toFixed(0)} score`;
+                    return `${pct.toFixed(0)}% conviction`;
+                  })()}
                   cls={sentClass}
+                />
+                <Tile
+                  label="Total Call OI"
+                  value={fmtNum(data.totalCallOi)}
+                  sub={`Δ ${data.callOiAdded > 0 ? "+" : ""}${fmtNum(data.callOiAdded)}`}
+                  cls={callDeltaTone}
+                />
+                <Tile
+                  label="Total Put OI"
+                  value={fmtNum(data.totalPutOi)}
+                  sub={`Δ ${data.putOiAdded > 0 ? "+" : ""}${fmtNum(data.putOiAdded)}`}
+                  cls={putDeltaTone}
                 />
               </>
             );
@@ -1577,9 +1607,9 @@ function InsightsTab() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-3">
         {/* ── LEFT: Sentiment + Insight ─────────────────────────────────────── */}
-        <div className="space-y-4">
+        <div className="space-y-3">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-xs uppercase font-mono tracking-wider flex items-center gap-2">
@@ -1591,7 +1621,12 @@ function InsightsTab() {
               {!data ? (
                 <Skeleton className="h-44 w-full" />
               ) : (
-                <SentimentGauge band={data.sentiment} score={data.sentimentScore} label={data.sentimentLabel} />
+                <SentimentGauge
+                  band={data.sentiment}
+                  score={data.sentimentScore}
+                  label={data.sentimentLabel}
+                  strengthPct={data.sentimentStrengthPct ?? Math.min(100, Math.abs(data.sentimentScore))}
+                />
               )}
               {data && (
                 <div className="mt-3 pt-3 border-t border-border space-y-1.5">
@@ -1646,6 +1681,13 @@ function InsightsTab() {
                   <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${sentimentExpanded ? "rotate-90" : ""}`} />
                 </button>
                 <p className="text-xs text-foreground/90 leading-relaxed">{data.marketInsight}</p>
+                {/* Inline analysis sentence — was its own card below, but the
+                    extra wrapper added 40px of vertical chrome (header +
+                    padding) for a single sentence. Folding it in keeps the
+                    sidebar dense without losing the context. */}
+                <p className="text-[11px] text-foreground/75 leading-relaxed pt-1.5 border-t border-border/40">
+                  {data.analysis}
+                </p>
                 {sentimentExpanded && (
                   <div className="pt-2 border-t border-border/50 space-y-2">
                     <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono text-muted-foreground">
@@ -1680,16 +1722,9 @@ function InsightsTab() {
             </Card>
           )}
 
-          {data && (
-            <Card>
-              <CardContent className="p-3 space-y-2">
-                <div className="flex items-center gap-2 text-xs uppercase font-mono tracking-wider text-muted-foreground">
-                  <Target className="w-3.5 h-3.5" /> Analysis
-                </div>
-                <p className="text-xs text-foreground/85 leading-relaxed">{data.analysis}</p>
-              </CardContent>
-            </Card>
-          )}
+          {/* Standalone Analysis card removed — its single sentence is now
+              folded into the Market Insight card above to keep the sidebar
+              dense (was eating ~70px of vertical space for one sentence). */}
 
           {(() => {
             const atm = data?.strikes.find(s => s.isAtm);
@@ -1740,7 +1775,7 @@ function InsightsTab() {
         </div>
 
         {/* ── RIGHT: Charts ────────────────────────────────────────────────── */}
-        <div className="space-y-4">
+        <div className="space-y-3">
           {/* Big chart card with view switcher */}
           <Card>
             <CardHeader className="pb-2">
@@ -2182,9 +2217,9 @@ function InsightsTab() {
                   )}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                {!data ? <Skeleton className="h-32" /> : (
-                  <ResponsiveContainer width="100%" height={140}>
+              <CardContent className="p-3 pt-0">
+                {!data ? <Skeleton className="h-28" /> : (
+                  <ResponsiveContainer width="100%" height={120}>
                     {/*
                       Two separate Bar series (one Call, one Put) keyed off the
                       same single-row dataset so the tooltip naturally shows
@@ -2237,9 +2272,9 @@ function InsightsTab() {
                   <Layers className="w-3.5 h-3.5" /> Total Open Interest
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                {!data ? <Skeleton className="h-32" /> : (
-                  <ResponsiveContainer width="100%" height={140}>
+              <CardContent className="p-3 pt-0">
+                {!data ? <Skeleton className="h-28" /> : (
+                  <ResponsiveContainer width="100%" height={120}>
                     <BarChart data={[{ name: "Total OI", call: data.totalCallOi, put: data.totalPutOi }]}>
                       <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                       <YAxis hide />
@@ -2294,9 +2329,9 @@ function InsightsTab() {
                   <Activity className="w-3.5 h-3.5" /> Put/Call Ratio
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                {!data || pcrPie.length === 0 ? <Skeleton className="h-32" /> : (
-                  <div className="relative h-[140px]">
+              <CardContent className="p-3 pt-0">
+                {!data || pcrPie.length === 0 ? <Skeleton className="h-28" /> : (
+                  <div className="relative h-[120px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
@@ -2423,7 +2458,7 @@ function InsightsTab() {
 }
 
 // Half-donut sentiment gauge — pure SVG, no extra deps.
-function SentimentGauge({ band, score, label }: { band: SentimentBand; score: number; label: string }) {
+function SentimentGauge({ band, score, label, strengthPct }: { band: SentimentBand; score: number; label: string; strengthPct: number }) {
   const tone = SENTIMENT_TONE[band];
   // Map score (-100..+100) to angle (180..0)
   const angle = 180 - ((score + 100) / 200) * 180;
@@ -2447,9 +2482,14 @@ function SentimentGauge({ band, score, label }: { band: SentimentBand; score: nu
     const large = Math.abs(fromDeg - toDeg) > 180 ? 1 : 0;
     return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
   }
+  // For directional bands surface a "Bearish 70%" / "Bullish 80%" reading
+  // alongside the label, matching the convention every commercial option-
+  // chain platform uses. NEUTRAL keeps the raw score so the user can see
+  // how close to a directional break the chain is sitting.
+  const showPct = band !== "NEUTRAL";
   return (
     <div className="flex flex-col items-center">
-      <svg viewBox="0 0 180 110" className="w-full max-w-[220px]">
+      <svg viewBox="0 0 180 110" className="w-full max-w-[200px]">
         {bands.map((b, i) => (
           <path key={i} d={arcPath(b.from, b.to)} stroke={b.color} strokeWidth="14" fill="none" strokeLinecap="butt" opacity={band === ["STRONGLY_BEARISH", "MILDLY_BEARISH", "NEUTRAL", "MILDLY_BULLISH", "STRONGLY_BULLISH"][i] ? 1 : 0.35} />
         ))}
@@ -2457,7 +2497,10 @@ function SentimentGauge({ band, score, label }: { band: SentimentBand; score: nu
         <circle cx={cx} cy={cy} r="4" fill={tone.color} />
       </svg>
       <div className="text-center -mt-2">
-        <div className="text-base font-bold" style={{ color: tone.color }}>{label}</div>
+        <div className="text-base font-bold flex items-baseline justify-center gap-1.5" style={{ color: tone.color }}>
+          <span>{label}</span>
+          {showPct && <span className="text-xs font-mono opacity-90">{strengthPct.toFixed(0)}%</span>}
+        </div>
         <div className="text-[10px] text-muted-foreground font-mono">
           score {score >= 0 ? "+" : ""}{score} / ±100
         </div>
