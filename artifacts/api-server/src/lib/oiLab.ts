@@ -357,6 +357,12 @@ export interface OiInsightsResponse {
   windowMode?: "exact" | "approx" | "none";
   /** ISO timestamp of the snapshot used as baseline. Null for "none". */
   windowBaselineAt?: string | null;
+  /** Underlying spot price captured AT the baseline snapshot. Lets the
+   *  client render Sensibull's two-anchor "NIFTY at HH:MM → NIFTY now"
+   *  readout without inferring spot history client-side. Null when the
+   *  baseline snap predates spot capture (legacy disk blob) or when the
+   *  chain didn't publish a finite spot for that snap. */
+  windowBaselineSpot?: number | null;
   /** Oldest snapshot the server has for this (underlying|expiry) — useful
    *  for telling the user "buffer fills in N more minutes" without making
    *  them retry blindly. Null when no snapshot exists at all. */
@@ -683,6 +689,10 @@ interface OiInsightsSnapshot {
   ts: number;                          // epoch ms
   ce: Record<number, number>;          // strike -> ceOi
   pe: Record<number, number>;          // strike -> peOi
+  /** Underlying spot at snapshot time. Optional for backwards-compat with
+   *  blobs persisted before this field existed — old snaps load with
+   *  `undefined` and the windowed-Δ block surfaces baseline spot as null. */
+  spot?: number;
 }
 const OI_INSIGHTS_HISTORY = new Map<string, OiInsightsSnapshot[]>();
 // Hard cap per (underlying|expiry) — 3.5h at ~30s cadence ≈ 420 snapshots.
@@ -742,6 +752,10 @@ function pushOiInsightsSnapshot(insights: OiInsightsResponse): void {
     ts,
     ce: Object.fromEntries(insights.strikes.map(s => [s.strike, s.ceOi])),
     pe: Object.fromEntries(insights.strikes.map(s => [s.strike, s.peOi])),
+    // Capture spot at snapshot time so the windowed-Δ block can surface
+    // a "NIFTY at HH:MM ➜ NIFTY now" two-anchor readout, mirroring the
+    // Sensibull "Change on <date>" panel.
+    spot: Number.isFinite(insights.spot) ? insights.spot : undefined,
   };
   const buf = OI_INSIGHTS_HISTORY.get(key) ?? [];
   // Order-preserving insert. `resolveWindowDelta` relies on the buffer
@@ -768,6 +782,10 @@ function pushOiInsightsSnapshot(insights: OiInsightsResponse): void {
       ts,
       ce: { ...prev.ce, ...snap.ce },
       pe: { ...prev.pe, ...snap.pe },
+      // Prefer the freshest spot (snap.spot from the just-arrived poll)
+      // but keep prev.spot as a fallback when the new poll didn't carry
+      // a finite spot for some reason.
+      spot: snap.spot ?? prev.spot,
     };
   } else if (insertIdx === buf.length) {
     buf.push(snap);
@@ -790,6 +808,7 @@ function resolveWindowDelta(
   windowMs: number;
   windowMode: "exact" | "approx" | "none";
   windowBaselineAt: string | null;
+  windowBaselineSpot: number | null;
   windowBufferOldestAt: string | null;
   windowBufferCount: number;
   strikes: OiStrikeRow[];
@@ -807,6 +826,7 @@ function resolveWindowDelta(
       windowMs,
       windowMode: "none",
       windowBaselineAt: null,
+      windowBaselineSpot: null,
       windowBufferOldestAt: oldestAt,
       windowBufferCount: buf.length,
       strikes: stripped,
@@ -865,6 +885,11 @@ function resolveWindowDelta(
     windowMs,
     windowMode: mode,
     windowBaselineAt: new Date(best.ts).toISOString(),
+    // Old snaps persisted before the spot field was added carry
+    // `undefined` — surface those as `null` so the wire shape stays
+    // strict (number | null) and the client's optional-chain reads
+    // cleanly. Same goes for any rare snap where chain.spot was NaN.
+    windowBaselineSpot: typeof best.spot === "number" && Number.isFinite(best.spot) ? best.spot : null,
     windowBufferOldestAt: oldestAt,
     windowBufferCount: buf.length,
     strikes: enriched,
@@ -908,6 +933,7 @@ export async function fetchOiInsights(
     windowMs: block.windowMs,
     windowMode: block.windowMode,
     windowBaselineAt: block.windowBaselineAt,
+    windowBaselineSpot: block.windowBaselineSpot,
     windowBufferOldestAt: block.windowBufferOldestAt,
     windowBufferCount: block.windowBufferCount,
   };

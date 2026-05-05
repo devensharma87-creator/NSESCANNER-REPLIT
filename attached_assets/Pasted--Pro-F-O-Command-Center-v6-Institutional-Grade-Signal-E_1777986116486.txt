@@ -1,0 +1,512 @@
+// Pro F&O Command Center v6 — Institutional-Grade Signal Engine
+// Nifty 50 / BankNifty / Sensex | All Timeframes
+//@version=5
+indicator("⚡ Pro F&O v6", overlay=true, max_lines_count=200, max_boxes_count=200, max_labels_count=100, max_bars_back=500)
+
+// ── INPUTS ──────────────────────────────────────────────────────────────────
+grpEMA   = "EMA"
+showEMA  = input.bool(true, "EMAs", group=grpEMA)
+showCloud= input.bool(true, "Cloud", group=grpEMA)
+
+grpVWAP  = "VWAP"
+showVWAP = input.bool(true, "VWAP", group=grpVWAP)
+
+grpVP    = "Volume Profile"
+showVP   = input.bool(true, "POC/VAH/VAL", group=grpVP)
+vpLB     = input.int(100, "Lookback", minval=20, maxval=500, group=grpVP)
+vpRows   = input.int(24, "Rows", minval=10, maxval=50, group=grpVP)
+
+grpFVG   = "FVG"
+showFVG  = input.bool(true, "FVGs", group=grpFVG)
+fvgFilt  = input.float(0.0, "Min Size", minval=0, group=grpFVG)
+fvgMax   = input.int(5, "Max", minval=1, maxval=20, group=grpFVG)
+
+grpSMC   = "SMC"
+showSMC  = input.bool(true, "SMC", group=grpSMC)
+swLen    = input.int(5, "Swing Len", minval=2, maxval=20, group=grpSMC)
+showOB   = input.bool(true, "Order Blocks", group=grpSMC)
+showBOS  = input.bool(true, "BOS/CHoCH", group=grpSMC)
+obMax    = input.int(4, "Max OBs", minval=1, maxval=10, group=grpSMC)
+
+grpSig   = "Signals"
+atrMul   = input.float(1.5, "SL ATR Multiple", minval=0.5, maxval=5, step=0.5, group=grpSig)
+tgtMul   = input.float(2.0, "Target ATR Multiple", minval=1, maxval=6, step=0.5, group=grpSig)
+
+grpDash  = "Dashboard"
+showDash = input.bool(true, "Dashboard", group=grpDash)
+
+// ── 1. EMAs ─────────────────────────────────────────────────────────────────
+ema9  = ta.ema(close, 9)
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+
+pE9  = plot(showEMA ? ema9  : na, "EMA 9",  color=#00B8D4, linewidth=1)
+pE20 = plot(showEMA ? ema20 : na, "EMA 20", color=#FFC107, linewidth=1)
+plot(showEMA ? ema50 : na, "EMA 50", color=#FF6D00, linewidth=2)
+fill(pE9, pE20, color=showCloud and showEMA ? (ema9 > ema20 ? color.new(#00E676, 92) : color.new(#FF1744, 92)) : na)
+
+// EMA line labels (persistent — update position each bar)
+var label lE9  = label.new(na, na, "9",  style=label.style_none, textcolor=#00B8D4, size=size.tiny)
+var label lE20 = label.new(na, na, "20", style=label.style_none, textcolor=#FFC107, size=size.tiny)
+var label lE50 = label.new(na, na, "50", style=label.style_none, textcolor=#FF6D00, size=size.tiny)
+if showEMA and barstate.islast
+    label.set_xy(lE9,  bar_index + 2, ema9)
+    label.set_xy(lE20, bar_index + 2, ema20)
+    label.set_xy(lE50, bar_index + 2, ema50)
+
+// ── 2. VWAP ─────────────────────────────────────────────────────────────────
+isNewDay = ta.change(time("D")) != 0
+var float cV = 0.0, var float cVS = 0.0
+if isNewDay
+    cV := 0.0
+    cVS := 0.0
+cV  += nz(volume)
+cVS += nz(volume) * hlc3
+vwapVal = cV != 0 ? cVS / cV : hlc3
+plot(showVWAP ? vwapVal : na, "VWAP", color=#AB47BC, linewidth=2)
+var label lVWAP = label.new(na, na, "VWAP", style=label.style_none, textcolor=#AB47BC, size=size.tiny)
+if showVWAP and barstate.islast
+    label.set_xy(lVWAP, bar_index + 2, vwapVal)
+
+// ── 3. RSI + ATR (for signals & dashboard) ──────────────────────────────────
+rsiVal = ta.rsi(close, 14)
+atrVal = ta.atr(14)
+
+// ── 4. Session High / Low ───────────────────────────────────────────────────
+var float sessHi = na, var float sessLo = na
+var float prevDayHi = na, var float prevDayLo = na
+if isNewDay
+    prevDayHi := sessHi
+    prevDayLo := sessLo
+    sessHi := high
+    sessLo := low
+sessHi := math.max(nz(sessHi, high), high)
+sessLo := math.min(nz(sessLo, low), low)
+
+// PDH / PDL lines
+var line lnPDH = line.new(na, na, na, na, color=color.new(#00BCD4, 30), width=1, style=line.style_dashed, extend=extend.right)
+var line lnPDL = line.new(na, na, na, na, color=color.new(#FF9800, 30), width=1, style=line.style_dashed, extend=extend.right)
+var label lPDH = label.new(na, na, "", style=label.style_none, textcolor=#00BCD4, size=size.tiny)
+var label lPDL = label.new(na, na, "", style=label.style_none, textcolor=#FF9800, size=size.tiny)
+if barstate.islast and not na(prevDayHi)
+    line.set_xy1(lnPDH, bar_index - 50, prevDayHi)
+    line.set_xy2(lnPDH, bar_index, prevDayHi)
+    line.set_xy1(lnPDL, bar_index - 50, prevDayLo)
+    line.set_xy2(lnPDL, bar_index, prevDayLo)
+    label.set_xy(lPDH, bar_index + 2, prevDayHi)
+    label.set_text(lPDH, "PDH")
+    label.set_xy(lPDL, bar_index + 2, prevDayLo)
+    label.set_text(lPDL, "PDL")
+
+// Opening Range (first 15 min)
+var float orHi = na, var float orLo = na
+var bool orDone = false
+if isNewDay
+    orHi := high
+    orLo := low
+    orDone := false
+if not orDone
+    orHi := math.max(nz(orHi, high), high)
+    orLo := math.min(nz(orLo, low), low)
+    if (hour * 60 + minute) >= (9 * 60 + 30)  // 9:30 AM IST = 15 min after open
+        orDone := true
+var line lnORH = line.new(na, na, na, na, color=color.new(#7C4DFF, 40), width=1, style=line.style_dotted, extend=extend.right)
+var line lnORL = line.new(na, na, na, na, color=color.new(#7C4DFF, 40), width=1, style=line.style_dotted, extend=extend.right)
+var label lORH = label.new(na, na, "", style=label.style_none, textcolor=#7C4DFF, size=size.tiny)
+var label lORL = label.new(na, na, "", style=label.style_none, textcolor=#7C4DFF, size=size.tiny)
+if barstate.islast and orDone and not na(orHi)
+    line.set_xy1(lnORH, bar_index - 30, orHi)
+    line.set_xy2(lnORH, bar_index, orHi)
+    line.set_xy1(lnORL, bar_index - 30, orLo)
+    line.set_xy2(lnORL, bar_index, orLo)
+    label.set_xy(lORH, bar_index + 2, orHi)
+    label.set_text(lORH, "ORH")
+    label.set_xy(lORL, bar_index + 2, orLo)
+    label.set_text(lORL, "ORL")
+
+// ── 5. Volume Profile — POC / VAH / VAL ────────────────────────────────────
+var float pocLvl = na, var float vahLvl = na, var float valLvl = na
+
+if showVP and barstate.islast
+    float hiR = high, float loR = low
+    for i = 1 to vpLB - 1
+        hiR := math.max(hiR, high[i])
+        loR := math.min(loR, low[i])
+    float rH = (hiR - loR) / vpRows
+    if rH > 0
+        varip float[] vap = array.new_float(0)
+        array.clear(vap)
+        for r = 0 to vpRows - 1
+            array.push(vap, 0.0)
+        for i = 0 to vpLB - 1
+            int ri = math.min(int((close[i] - loR) / rH), vpRows - 1)
+            if ri >= 0 and ri < vpRows
+                array.set(vap, ri, array.get(vap, ri) + volume[i])
+        float maxV = 0.0, int pIdx = 0
+        for r = 0 to vpRows - 1
+            if array.get(vap, r) > maxV
+                maxV := array.get(vap, r)
+                pIdx := r
+        pocLvl := loR + (pIdx + 0.5) * rH
+        float totV = 0.0
+        for r = 0 to vpRows - 1
+            totV += array.get(vap, r)
+        float vaT = totV * 0.70, float vaV = array.get(vap, pIdx)
+        int vLo = pIdx, int vHi = pIdx
+        while vaV < vaT and (vLo > 0 or vHi < vpRows - 1)
+            float aL = vLo > 0 ? array.get(vap, vLo - 1) : 0.0
+            float aH = vHi < vpRows - 1 ? array.get(vap, vHi + 1) : 0.0
+            if aH >= aL and vHi < vpRows - 1
+                vHi += 1
+                vaV += aH
+            else if vLo > 0
+                vLo -= 1
+                vaV += aL
+            else
+                vHi += 1
+                vaV += aH
+        vahLvl := loR + (vHi + 1) * rH
+        valLvl := loR + vLo * rH
+
+// Draw visible horizontal lines for POC / VAH / VAL
+var line lnPOC = line.new(na, na, na, na, color=#FFD600, width=2, style=line.style_solid)
+var line lnVAH = line.new(na, na, na, na, color=color.new(#00E676, 20), width=1, style=line.style_dashed)
+var line lnVAL = line.new(na, na, na, na, color=color.new(#FF1744, 20), width=1, style=line.style_dashed)
+var label lPOC = label.new(na, na, "", style=label.style_label_left, textcolor=#FFD600, color=color.new(#FFD600, 85), size=size.tiny)
+var label lVAH = label.new(na, na, "", style=label.style_label_left, textcolor=#00E676, color=color.new(#00E676, 85), size=size.tiny)
+var label lVAL = label.new(na, na, "", style=label.style_label_left, textcolor=#FF1744, color=color.new(#FF1744, 85), size=size.tiny)
+
+if showVP and barstate.islast and not na(pocLvl)
+    int startBar = bar_index - vpLB
+    // POC line
+    line.set_xy1(lnPOC, startBar, pocLvl)
+    line.set_xy2(lnPOC, bar_index + 5, pocLvl)
+    // VAH line
+    line.set_xy1(lnVAH, startBar, vahLvl)
+    line.set_xy2(lnVAH, bar_index + 5, vahLvl)
+    // VAL line
+    line.set_xy1(lnVAL, startBar, valLvl)
+    line.set_xy2(lnVAL, bar_index + 5, valLvl)
+    // Labels with price
+    label.set_xy(lPOC, bar_index + 6, pocLvl)
+    label.set_text(lPOC, "POC " + str.tostring(pocLvl, "#.#"))
+    label.set_xy(lVAH, bar_index + 6, vahLvl)
+    label.set_text(lVAH, "VAH " + str.tostring(vahLvl, "#.#"))
+    label.set_xy(lVAL, bar_index + 6, valLvl)
+    label.set_text(lVAL, "VAL " + str.tostring(valLvl, "#.#"))
+
+// ── 6. FVG ──────────────────────────────────────────────────────────────────
+var box[] fB = array.new_box(0), var int[] fD = array.new_int(0)
+var float[] fT = array.new_float(0), var float[] fBt = array.new_float(0)
+var int[] fBar = array.new_int(0)  // track creation bar
+
+if showFVG
+    if low > high[2] and (low - high[2]) > fvgFilt
+        array.push(fB, box.new(bar_index-2, low, bar_index, high[2], bgcolor=color.new(#00E676,88), border_color=color.new(#00E676,60), border_width=1, text="FVG", text_color=color.new(#00E676, 50), text_size=size.tiny))
+        array.push(fD, 1), array.push(fT, low), array.push(fBt, high[2]), array.push(fBar, bar_index)
+        if array.size(fB) > fvgMax
+            box.delete(array.shift(fB)), array.shift(fD), array.shift(fT), array.shift(fBt), array.shift(fBar)
+    if high < low[2] and (low[2] - high) > fvgFilt
+        array.push(fB, box.new(bar_index-2, low[2], bar_index, high, bgcolor=color.new(#FF1744,88), border_color=color.new(#FF1744,60), border_width=1, text="FVG", text_color=color.new(#FF1744, 50), text_size=size.tiny))
+        array.push(fD, -1), array.push(fT, low[2]), array.push(fBt, high), array.push(fBar, bar_index)
+        if array.size(fB) > fvgMax
+            box.delete(array.shift(fB)), array.shift(fD), array.shift(fT), array.shift(fBt), array.shift(fBar)
+    // Extend, mitigate, or expire FVGs
+    if array.size(fB) > 0
+        for i = array.size(fB) - 1 to 0
+            if i < array.size(fB)
+                d = array.get(fD, i)
+                age = bar_index - array.get(fBar, i)
+                mit = d == 1 ? low <= array.get(fBt, i) : high >= array.get(fT, i)
+                if mit or age > 30
+                    box.delete(array.get(fB, i))
+                    array.remove(fB, i), array.remove(fD, i), array.remove(fT, i), array.remove(fBt, i), array.remove(fBar, i)
+                else
+                    box.set_right(array.get(fB, i), bar_index)
+
+// ── 7. SMC — BOS / CHoCH / Order Blocks ─────────────────────────────────────
+sHi = ta.pivothigh(high, swLen, swLen)
+sLo = ta.pivotlow(low, swLen, swLen)
+var float pSH = na, var float pSL = na, var int mTrend = 0
+var box[] obB = array.new_box(0)
+var int[] obBar = array.new_int(0)     // creation bar
+var int[] obDir = array.new_int(0)     // 1=bullish OB, -1=bearish OB
+var float[] obHi = array.new_float(0)  // OB top
+var float[] obLo = array.new_float(0)  // OB bottom
+
+if showSMC
+    if not na(sHi)
+        if not na(pSH) and showBOS
+            if sHi > pSH
+                lbl = mTrend != 1 ? "CHoCH▲" : "BOS"
+                clr = mTrend != 1 ? #00B8D4 : color.new(#00E676, 40)
+                line.new(bar_index-swLen, sHi, bar_index, sHi, color=clr, width=mTrend!=1?2:1, style=line.style_dashed)
+                label.new(bar_index-int(swLen/2), sHi, lbl, style=label.style_none, textcolor=clr, size=size.tiny)
+                mTrend := 1
+        pSH := sHi
+        if showOB
+            int ob = bar_index - swLen
+            if close[swLen] > open[swLen]
+                array.push(obB, box.new(ob, high[swLen], ob + 20, open[swLen], bgcolor=color.new(#FF1744,90), border_color=color.new(#FF1744,60), border_width=1))
+                array.push(obBar, bar_index), array.push(obDir, -1), array.push(obHi, high[swLen]), array.push(obLo, open[swLen])
+                if array.size(obB) > obMax*2
+                    box.delete(array.shift(obB)), array.shift(obBar), array.shift(obDir), array.shift(obHi), array.shift(obLo)
+    if not na(sLo)
+        if not na(pSL) and showBOS
+            if sLo < pSL
+                lbl = mTrend != -1 ? "CHoCH▼" : "BOS"
+                clr = mTrend != -1 ? #FF6D00 : color.new(#FF1744, 40)
+                line.new(bar_index-swLen, sLo, bar_index, sLo, color=clr, width=mTrend!=-1?2:1, style=line.style_dashed)
+                label.new(bar_index-int(swLen/2), sLo, lbl, style=label.style_none, textcolor=clr, size=size.tiny)
+                mTrend := -1
+        pSL := sLo
+        if showOB
+            int ob = bar_index - swLen
+            if close[swLen] < open[swLen]
+                array.push(obB, box.new(ob, close[swLen], ob + 20, low[swLen], bgcolor=color.new(#00E676,90), border_color=color.new(#00E676,60), border_width=1))
+                array.push(obBar, bar_index), array.push(obDir, 1), array.push(obHi, close[swLen]), array.push(obLo, low[swLen])
+                if array.size(obB) > obMax*2
+                    box.delete(array.shift(obB)), array.shift(obBar), array.shift(obDir), array.shift(obHi), array.shift(obLo)
+    // Auto-remove OBs that are breached or expired (>30 bars)
+    if array.size(obB) > 0
+        for i = array.size(obB) - 1 to 0
+            if i < array.size(obB)
+                age = bar_index - array.get(obBar, i)
+                breached = array.get(obDir, i) == 1 ? close < array.get(obLo, i) : close > array.get(obHi, i)
+                if breached or age > 30
+                    box.delete(array.get(obB, i))
+                    array.remove(obB, i), array.remove(obBar, i), array.remove(obDir, i), array.remove(obHi, i), array.remove(obLo, i)
+
+// ── 8. PROFESSIONAL SIGNAL ENGINE v6 ────────────────────────────────────────
+
+// --- Supertrend (ATR-based trend filter) ---
+stFactor = 2.0
+stPeriod = 10
+[stValue, stDir] = ta.supertrend(stFactor, stPeriod)
+stBull = stDir < 0   // price above supertrend = bullish
+stBear = stDir > 0   // price below supertrend = bearish
+
+// Plot Supertrend
+plot(stValue, "Supertrend", color=stBull ? color.new(#00E676, 60) : color.new(#FF1744, 60), linewidth=2, style=plot.style_linebr)
+
+// --- Trend Indicators ---
+emaBull = ema9 > ema20 and ema20 > ema50
+emaBear = ema9 < ema20 and ema20 < ema50
+abvVWAP = close > vwapVal
+blwVWAP = close < vwapVal
+rsiOB   = rsiVal > 65
+rsiOS   = rsiVal < 35
+rsiMid  = rsiVal > 50
+
+// MACD for momentum confirmation
+[macdLine, sigLine, histLine] = ta.macd(close, 12, 26, 9)
+macdBull = macdLine > sigLine
+macdBear = macdLine < sigLine
+
+// EMA 50 slope — larger trend direction
+ema50slope = ema50 - ema50[3]
+ema50rising  = ema50slope > 0
+ema50falling = ema50slope < 0
+
+// --- Higher Timeframe Bias (1H EMA 9/20) ---
+htfEma9  = request.security(syminfo.tickerid, "60", ta.ema(close, 9))
+htfEma20 = request.security(syminfo.tickerid, "60", ta.ema(close, 20))
+htfBull  = htfEma9 > htfEma20
+htfBear  = htfEma9 < htfEma20
+
+// --- 8-Factor Confluence Score (added Supertrend) ---
+bullScore = (emaBull?1:0) + (abvVWAP?1:0) + (rsiMid?1:0) + (macdBull?1:0) + (ema50rising?1:0) + (mTrend==1?1:0) + (stBull?1:0) + (not na(pocLvl) and close>pocLvl?1:0)
+bearScore = (emaBear?1:0) + (blwVWAP?1:0) + (not rsiMid?1:0) + (macdBear?1:0) + (ema50falling?1:0) + (mTrend==-1?1:0) + (stBear?1:0) + (not na(pocLvl) and close<pocLvl?1:0)
+
+// --- Crossover Events ---
+bX = ta.crossover(ema9, ema20)
+sX = ta.crossunder(ema9, ema20)
+
+// --- Filters ---
+volSMA = ta.sma(volume, 20)
+volOK  = volume > volSMA * 0.8
+bodyPct = math.abs(close - open) / (high - low + 0.01)
+bodyOK  = bodyPct > 0.3
+var int lastSigBar = 0
+coolOK = (bar_index - lastSigBar) >= 10
+
+// Candle direction: BUY only on green, SELL only on red
+candleBull = close > open
+candleBear = close < open
+
+// ADX chop filter
+adxLen = 14
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+trendOK = adxVal > 18
+
+// Anti-extreme
+notOB = not rsiOB
+notOS = not rsiOS
+
+// HTF: "not against"
+htfNotAgainstBull = not htfBear
+htfNotAgainstBear = not htfBull
+
+// --- Trigger Events ---
+// T1: EMA 9/20 Crossover
+trig1Bull = bX
+trig1Bear = sX
+
+// T2: VWAP Reclaim + EMA alignment
+trig2Bull = ta.crossover(close, vwapVal) and ema9 > ema20
+trig2Bear = ta.crossunder(close, vwapVal) and ema9 < ema20
+
+// T3: Trend Continuation — pullback to EMA 9 bounce
+pullbackBull = emaBull and low <= ema9 * 1.001 and close > ema9 and close > open and close[1] < open[1]
+pullbackBear = emaBear and high >= ema9 * 0.999 and close < ema9 and close < open and close[1] > open[1]
+trig3Bull = pullbackBull
+trig3Bear = pullbackBear
+
+// T4: Supertrend flip — catches trend reversals
+trig4Bull = ta.crossover(close, stValue) and stBull
+trig4Bear = ta.crossunder(close, stValue) and stBear
+
+// Any trigger fired?
+anyBullTrig = trig1Bull or trig2Bull or trig3Bull or trig4Bull
+anyBearTrig = trig1Bear or trig2Bear or trig3Bear or trig4Bear
+
+// --- Time filter ---
+minsFromOpen = (hour * 60 + minute) - (9 * 60 + 15)
+timeOK = minsFromOpen >= 5 and minsFromOpen <= (6 * 60 - 15)
+
+// --- Final Signal: Trigger + Score + Candle Direction + HTF + Filters ---
+// T1/T4 (crossovers/flips): 4/8 score
+// T2/T3 (reclaim/pullback): 5/8 score
+rawBull = ((trig1Bull or trig4Bull) and bullScore >= 4 or ((trig2Bull or trig3Bull) and bullScore >= 5)) and candleBull and htfNotAgainstBull and volOK and bodyOK and coolOK and notOB and timeOK and trendOK
+rawBear = ((trig1Bear or trig4Bear) and bearScore >= 4 or ((trig2Bear or trig3Bear) and bearScore >= 5)) and candleBear and htfNotAgainstBear and volOK and bodyOK and coolOK and notOS and timeOK and trendOK
+
+strongBull = rawBull
+strongBear = rawBear
+if strongBull or strongBear
+    lastSigBar := bar_index
+
+plotshape(strongBull, "BUY", shape.labelup, location.belowbar, color=#00E676, size=size.small, text="BUY", textcolor=color.white)
+plotshape(strongBear, "SELL", shape.labeldown, location.abovebar, color=#FF1744, size=size.small, text="SELL", textcolor=color.white)
+
+// --- Volume Spike Marker (2x+ avg = institutional activity) ---
+volSpike = volume > volSMA * 2
+plotshape(volSpike and not strongBull and not strongBear, "VolSpike", shape.triangleup, location.bottom, color=color.new(#FFC107, 40), size=size.tiny)
+
+// --- SL & Target with Swing-Based Dynamic SL ---
+var float entryPrice = na, var float slPrice = na, var float tgtPrice = na, var int sigDir = 0
+
+// Recent swing low/high for smarter SL
+recentSwLo = ta.lowest(low, 5)
+recentSwHi = ta.highest(high, 5)
+
+if strongBull
+    entryPrice := close
+    // SL = max(swing low, ATR-based) — use the tighter one but ensure minimum distance
+    atrSL = close - atrVal * atrMul
+    swingSL = recentSwLo - atrVal * 0.2  // small buffer below swing low
+    slPrice := math.max(atrSL, swingSL)
+    tgtPrice := close + (close - slPrice) * (tgtMul / atrMul)  // R:R based on actual SL distance
+    sigDir := 1
+
+if strongBear
+    entryPrice := close
+    atrSL = close + atrVal * atrMul
+    swingSL = recentSwHi + atrVal * 0.2
+    slPrice := math.min(atrSL, swingSL)
+    tgtPrice := close - (slPrice - close) * (tgtMul / atrMul)
+    sigDir := -1
+
+// Auto-clear when SL or Target is hit, OR opposite signal fires
+if sigDir == 1 and (low <= slPrice or high >= tgtPrice)
+    sigDir := 0
+if sigDir == -1 and (high >= slPrice or low <= tgtPrice)
+    sigDir := 0
+
+// Plot SL/Target
+plot(sigDir != 0 ? slPrice  : na, "SL",     color=color.new(#FF1744, 50), linewidth=1, style=plot.style_linebr)
+plot(sigDir != 0 ? tgtPrice : na, "Target", color=color.new(#00E676, 50), linewidth=1, style=plot.style_linebr)
+
+// Bar coloring — only when 6+ factors strongly align
+barcolor(bullScore >= 6 ? color.new(#00E676, 30) : bearScore >= 6 ? color.new(#FF1744, 30) : na)
+
+// Alerts
+alertcondition(strongBull, "🟢 BUY Signal", "Bullish confluence signal fired")
+alertcondition(strongBear, "🔴 SELL Signal", "Bearish confluence signal fired")
+alertcondition(bX, "EMA 9/20 Bull Cross", "9 EMA crossed above 20 EMA")
+alertcondition(sX, "EMA 9/20 Bear Cross", "9 EMA crossed below 20 EMA")
+alertcondition(rsiOB, "RSI Overbought", "RSI > 65")
+alertcondition(rsiOS, "RSI Oversold", "RSI < 35")
+
+// ── 9. DATA-RICH DASHBOARD ──────────────────────────────────────────────────
+cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#9E9EB8, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+var table dash = table.new(position.top_right, 2, 18, bgcolor=color.new(#0D0E14, 0), border_width=1, border_color=color.new(#1E2030, 0), frame_width=1, frame_color=color.new(#3A3D4E, 0))
+
+if showDash and barstate.islast
+    // Header
+    table.cell(dash, 0, 0, "⚡ F&O", text_color=#AB47BC, text_size=size.tiny, bgcolor=color.new(#12131A, 0))
+    table.cell(dash, 1, 0, "COMMAND", text_color=#AB47BC, text_size=size.tiny, bgcolor=color.new(#12131A, 0))
+
+    // EMA Trend (15m)
+    tC = emaBull ? #00E676 : emaBear ? #FF1744 : #FFC107
+    cell(dash, 1, "15m", emaBull ? "▲ BULL" : emaBear ? "▼ BEAR" : "◆ RANGE", tC)
+
+    // HTF Trend (1H)
+    hC = htfBull ? #00E676 : htfBear ? #FF1744 : #FFC107
+    cell(dash, 2, "1H Bias", htfBull ? "▲ BULL" : htfBear ? "▼ BEAR" : "◆ FLAT", hC)
+
+    // VWAP
+    cell(dash, 3, "VWAP", str.tostring(vwapVal, "#.#"), abvVWAP ? #00E676 : #FF1744)
+
+    // RSI
+    rC = rsiOB ? #FF1744 : rsiOS ? #00E676 : #FFC107
+    cell(dash, 4, "RSI(14)", str.tostring(rsiVal, "#.#"), rC)
+
+    // MACD
+    mC = macdBull ? #00E676 : #FF1744
+    cell(dash, 5, "MACD", macdBull ? "▲ BULL" : "▼ BEAR", mC)
+
+    // ATR
+    cell(dash, 6, "ATR(14)", str.tostring(atrVal, "#.#"), #00B8D4)
+
+    // ADX — trend strength
+    adxC = adxVal > 25 ? #00E676 : adxVal > 18 ? #FFC107 : #FF1744
+    cell(dash, 7, "ADX", str.tostring(adxVal, "#.#") + (trendOK ? " ✓TREND" : " ✗CHOP"), adxC)
+
+    // POC
+    cell(dash, 8, "POC", str.tostring(pocLvl, "#.#"), #FFD600)
+
+    // VAH / VAL
+    cell(dash, 9, "VAH/VAL", str.tostring(vahLvl, "#.#") + "/" + str.tostring(valLvl, "#.#"), #78909C)
+
+    // PDH / PDL
+    cell(dash, 10, "PDH/PDL", str.tostring(prevDayHi, "#.#") + "/" + str.tostring(prevDayLo, "#.#"), #00BCD4)
+
+    // Opening Range
+    cell(dash, 11, "OR H/L", str.tostring(orHi, "#.#") + "/" + str.tostring(orLo, "#.#"), #7C4DFF)
+
+    // Day H/L
+    cell(dash, 12, "Day H/L", str.tostring(sessHi, "#.#") + "/" + str.tostring(sessLo, "#.#"), #00B8D4)
+
+    // SMC + Score
+    sC = mTrend==1 ? #00E676 : mTrend==-1 ? #FF1744 : #78909C
+    cell(dash, 13, "SMC", mTrend==1 ? "▲ BULL" : mTrend==-1 ? "▼ BEAR" : "—", sC)
+    cell(dash, 14, "Score", "B:" + str.tostring(bullScore) + "/8  S:" + str.tostring(bearScore) + "/8", bullScore>bearScore ? #00E676 : bearScore>bullScore ? #FF1744 : #FFC107)
+
+    // Entry / SL / Tgt / R:R
+    if sigDir == 1
+        rr = tgtMul / atrMul
+        cell(dash, 15, "Entry", str.tostring(entryPrice, "#.#") + " (R:R " + str.tostring(rr, "#.#") + ")", #00E676)
+        cell(dash, 16, "SL→TGT", str.tostring(slPrice, "#.#") + "→" + str.tostring(tgtPrice, "#.#"), #00E676)
+    else if sigDir == -1
+        rr = tgtMul / atrMul
+        cell(dash, 15, "Entry", str.tostring(entryPrice, "#.#") + " (R:R " + str.tostring(rr, "#.#") + ")", #FF1744)
+        cell(dash, 16, "SL→TGT", str.tostring(slPrice, "#.#") + "→" + str.tostring(tgtPrice, "#.#"), #FF1744)
+    else
+        cell(dash, 15, "Entry", "—", #78909C)
+        cell(dash, 16, "SL→TGT", "—", #78909C)
+    
+    // Market Status
+    cell(dash, 17, "Market", trendOK ? "✓ TRADEABLE" : "✗ CHOPPY", trendOK ? #00E676 : #FF1744)

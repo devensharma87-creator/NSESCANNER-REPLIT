@@ -943,6 +943,11 @@ interface InsightResp {
   windowMs?: number;
   windowMode?: "exact" | "approx" | "none";
   windowBaselineAt?: string | null;
+  /** Underlying spot AT the baseline snapshot — drives the Sensibull
+   *  "NIFTY at HH:MM ➜ NIFTY now" two-anchor readout in the OI Change
+   *  card. Null when server has no spot for the baseline (legacy blob /
+   *  unfinite chain.spot). Older servers may omit this field entirely. */
+  windowBaselineSpot?: number | null;
   windowBufferOldestAt?: string | null;
   windowBufferCount?: number;
 }
@@ -1791,6 +1796,12 @@ function InsightsTab() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Layers className="w-4 h-4" />
+                  {/*
+                    Sensibull-style date subtitle: "OI Change on Tue, 5 May".
+                    Rendered AFTER the dynamic chart-view title so the date
+                    sits inline with the heading, premium-feel without
+                    eating vertical space.
+                  */}
                   {(() => {
                     // Title text reads from tfResolved.mode (the same source
                     // the chart computes its bars from), so the title and
@@ -1829,6 +1840,32 @@ function InsightsTab() {
                     if (chartView === "pcr") return "Put/Call Ratio by Strike";
                     return "Max Pain Curve";
                   })()}
+                  {data && (
+                    <span className="text-[10px] font-mono font-normal text-muted-foreground/80 ml-1.5 tracking-wide">
+                      on {new Date(data.generatedAt).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" })}
+                    </span>
+                  )}
+                  {/*
+                    "How to read this?" affordance — Sensibull surfaces the same
+                    hint inline next to the title. We use a native tooltip
+                    (title attr) on a small Info icon so we don't have to wire
+                    a popover for a one-line explanation.
+                  */}
+                  <button
+                    type="button"
+                    className="ml-0.5 text-muted-foreground/60 hover:text-zinc-300 transition"
+                    title={
+                      "How to read this:\n" +
+                      "• Filled bar (Δ + overlay) = OI ADDED since the chosen baseline (writers stepping in).\n" +
+                      "• Bar shrinking below total = OI REDUCED (writers covering / unwinding).\n" +
+                      "• Green = Put OI (typically supports). Red = Call OI (typically resistance).\n" +
+                      "• Δ window pills below set the baseline (3 min … 3 hr, or full day).\n" +
+                      "• Vertical green dashed line = spot. Orange dashed = max-pain strike."
+                    }
+                    aria-label="How to read this chart"
+                  >
+                    <Info className="w-3 h-3" />
+                  </button>
                 </CardTitle>
                 <div className="flex items-center gap-1">
                   {([
@@ -1901,22 +1938,30 @@ function InsightsTab() {
                         : t.ms == null
                         ? "Use broker's intraday Δ since 9:15 AM"
                         : `Compare current OI to the snapshot from ~${t.l.toLowerCase().replace("last ", "")} ago`;
+                      // Sensibull-style premium pill: rounded-full with
+                      // generous padding, slightly larger type, distinctive
+                      // active state (amber ring + glow). Empty/partial
+                      // states keep their honest dashed border so the user
+                      // can tell at a glance which windows have data.
                       return (
                         <button
                           key={t.v}
                           onClick={() => setTimeframe(t.v)}
                           title={title}
-                          className={`px-2 py-0.5 text-[10px] font-mono rounded border transition ${
+                          className={`px-2.5 py-1 text-[11px] font-mono rounded-full border transition tabular-nums ${
                             isActive
-                              ? "border-amber-400 bg-amber-400/15 text-amber-300 font-bold"
+                              ? "border-amber-400 bg-amber-400/20 text-amber-200 font-semibold shadow-[0_0_0_1px_rgba(251,191,36,0.25)]"
                               : empty
-                              ? "border-dashed border-border bg-card/70 text-foreground/70 hover-row"
+                              ? "border-dashed border-border bg-card/70 text-foreground/70 hover:border-amber-400/40 hover:text-foreground"
                               : partial
-                              ? "border-dashed border-border bg-card text-foreground/80 hover-row"
-                              : "border-border bg-card text-foreground/90 hover-row"
+                              ? "border-dashed border-border bg-card text-foreground/80 hover:border-amber-400/60 hover:text-foreground"
+                              : "border-border bg-card text-foreground/90 hover:border-amber-400/60 hover:bg-card/60"
                           }`}
                         >
-                          {t.l.replace("Last ", "")}
+                          {/* Compact in-pill label keeps the row scannable;
+                              full "Last X" is in the title tooltip + the
+                              card subtitle below the pills. */}
+                          {t.v === "all" ? "Full Day" : t.l.replace("Last ", "")}
                         </button>
                       );
                     })}
@@ -1968,6 +2013,92 @@ function InsightsTab() {
                         </>
                       ) : null}
                     </span>
+                    {/*
+                      ── Sensibull-style session timeline ──────────────────
+                      Visualises WHERE in the trading day (9:15 → 15:30 IST)
+                      the Δ window sits. Two markers:
+                        • amber  = baseline snapshot the chart is comparing
+                                   against (only when `exact`/`approx`)
+                        • zinc   = "now" (latest poll)
+                      The amber-tinted span between them is the active Δ
+                      window — visually expressive context for the pills
+                      and a great match for the Sensibull horizontal-bar
+                      reference design. Read-only (not draggable) so we
+                      don't have to wire a custom-window endpoint.
+
+                      Time math is in IST minute-of-day so it's correct
+                      regardless of the browser's local timezone.
+                    */}
+                    {(() => {
+                      const SESSION_START_MIN = 9 * 60 + 15; // 555
+                      const SESSION_END_MIN   = 15 * 60 + 30; // 930
+                      const SPAN_MIN          = SESSION_END_MIN - SESSION_START_MIN; // 375
+                      const istMinOfDay = (ms: number) => {
+                        const utcMin = Math.floor(ms / 60_000);
+                        return ((utcMin + 330) % 1440 + 1440) % 1440;
+                      };
+                      const pctOf = (ms: number) => {
+                        const m = istMinOfDay(ms) - SESSION_START_MIN;
+                        return Math.max(0, Math.min(100, (m / SPAN_MIN) * 100));
+                      };
+                      const fmtIst = (ms: number) =>
+                        new Date(ms).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+                      const baselineMs = tfResolved.baselineUsedAt;
+                      const nowPct = pctOf(nowMs);
+                      const basePct = baselineMs != null ? pctOf(baselineMs) : nowPct;
+                      const lo = Math.min(basePct, nowPct);
+                      // Width is the literal gap — no artificial minimum.
+                      // When baseline ≈ now (post-market / stalled feed)
+                      // the fill collapses to 0 so the bar honestly reads
+                      // "no Δ window" instead of showing a phantom sliver.
+                      const wd = Math.abs(nowPct - basePct);
+                      return (
+                        <div className="w-full mt-3 px-1 select-none">
+                          <div className="relative h-1.5 rounded-full bg-zinc-800/80 ring-1 ring-zinc-700/60">
+                            {/* Active window fill — only when baseline and
+                                now are actually distinct (>=0.05% apart) */}
+                            {baselineMs != null && wd >= 0.05 && (
+                              <div
+                                className="absolute top-0 bottom-0 rounded-full bg-gradient-to-r from-amber-500/30 via-amber-400/55 to-amber-300/70"
+                                style={{ left: `${lo}%`, width: `${wd}%` }}
+                              />
+                            )}
+                            {/*
+                              Markers use `transform: translateX(-50%)` so the
+                              dot is centred on its `left:%` regardless of
+                              size — at 0% the marker sits flush with the
+                              start, at 100% flush with the end, and at any
+                              point in between it stays centred. The prior
+                              `calc(X% - 6px)` overflowed the bar at 0% (dot
+                              hung off the left) and 100% (dot hung off the
+                              right) — fixed by pure-percent positioning.
+                            */}
+                            {baselineMs != null && (
+                              <div
+                                className="absolute -top-[5px] w-3 h-3 rounded-full bg-amber-400 border-2 border-background shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+                                style={{ left: `${basePct}%`, transform: "translateX(-50%)" }}
+                                title={`Baseline ${fmtIst(baselineMs)}`}
+                              />
+                            )}
+                            <div
+                              className="absolute -top-[5px] w-3 h-3 rounded-full bg-zinc-100 border-2 border-background shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+                              style={{ left: `${nowPct}%`, transform: "translateX(-50%)" }}
+                              title={`Now ${fmtIst(nowMs)}`}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[9px] font-mono text-muted-foreground mt-1.5 tabular-nums">
+                            <span>9:15 AM</span>
+                            <span className="flex items-center gap-2">
+                              {baselineMs != null && (
+                                <span className="text-amber-300/90">● baseline {fmtIst(baselineMs)}</span>
+                              )}
+                              <span className="text-zinc-300">○ now {fmtIst(nowMs)}</span>
+                            </span>
+                            <span>3:30 PM</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -2287,6 +2418,59 @@ function InsightsTab() {
                           {tfResolved.mode === "approx" && <span className="text-amber-400/70"> · approx</span>}
                         </div>
                       )}
+                      {/*
+                        ── Sensibull-style two-anchor spot readout ─────────
+                        Shows the underlying price AT the baseline timestamp
+                        AND at "now" so the user can see whether the OI Δ
+                        coincided with a price move. Only renders when:
+                          (a) we're in a windowed mode (`exact` / `approx`)
+                          (b) the server returned a baseline spot (newer
+                              snapshots — older blobs predate spot capture)
+                          (c) `data.spot` is finite (always true in practice)
+                        Premium typography: tabular-nums, larger price font
+                        on the right column for at-a-glance scanning.
+                      */}
+                      {isWindowed && baselineDate && data.windowBaselineSpot != null && Number.isFinite(data.spot) && (() => {
+                        const baseSpot = data.windowBaselineSpot;
+                        const nowSpot = data.spot;
+                        const dSpot = nowSpot - baseSpot;
+                        const dPct = baseSpot !== 0 ? (dSpot / baseSpot) * 100 : 0;
+                        const dCls = dSpot > 0 ? "text-emerald-400" : dSpot < 0 ? "text-rose-400" : "text-zinc-500";
+                        const sign = dSpot > 0 ? "+" : "";
+                        const fmtT = (d: Date) => d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+                        return (
+                          <div className="grid grid-cols-2 gap-2 mb-1.5 pb-1.5 border-b border-border/60 font-mono">
+                            <div className="flex flex-col">
+                              <span className="text-[8.5px] uppercase tracking-wider text-muted-foreground/80">
+                                {underlying} at {fmtT(baselineDate)}
+                              </span>
+                              <span className="text-[13px] text-zinc-200 tabular-nums leading-tight">
+                                {baseSpot.toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="flex flex-col items-end">
+                              <span className="text-[8.5px] uppercase tracking-wider text-muted-foreground/80">
+                                {underlying} now
+                              </span>
+                              <span className="text-[13px] text-zinc-200 tabular-nums leading-tight flex items-baseline gap-1">
+                                {nowSpot.toFixed(2)}
+                                <span className={`text-[9px] ${dCls}`}>
+                                  {sign}{dSpot.toFixed(2)} ({sign}{dPct.toFixed(2)}%)
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      {/* Buffer-warming hint when windowed but baseline spot
+                          isn't available yet (legacy blob or first 30s after
+                          server start). Tells the user the dual-anchor
+                          readout will appear shortly. */}
+                      {isWindowed && baselineDate && data.windowBaselineSpot == null && (
+                        <div className="mb-1.5 pb-1.5 border-b border-border/60 text-[9px] font-mono text-muted-foreground/80 leading-tight">
+                          Spot anchor not captured for this baseline yet — appears on the next poll.
+                        </div>
+                      )}
                       {showPhantom ? (
                         <div className="h-[100px] flex items-center justify-center text-[11px] text-muted-foreground text-center px-2 leading-snug">
                           No OI movement vs baseline yet.<br />
@@ -2487,6 +2671,31 @@ function InsightsTab() {
               </CardContent>
             </Card>
           </div>
+
+          {/*
+            ── Sensibull-style "OI last refreshed" footer ──────────────────
+            Mirrors the "OI last refreshed time - 05 May, 3:30 PM" footer
+            from the reference. Shown beneath the bottom card strip so the
+            user always knows how fresh the chart is and why it doesn't
+            tick faster than every ~3 min (exchange-side cadence on OI).
+          */}
+          {data && (
+            <div className="text-[10px] font-mono text-muted-foreground/80 px-1 leading-snug flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span>
+                <span className="text-muted-foreground/60">OI last refreshed:</span>{" "}
+                <span className="text-zinc-300 tabular-nums">
+                  {new Date(data.generatedAt).toLocaleString("en-IN", {
+                    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit",
+                    hour12: true, timeZone: "Asia/Kolkata",
+                  })} IST
+                </span>
+              </span>
+              <span className="text-border">·</span>
+              <span>Server polls every ~30s</span>
+              <span className="text-border">·</span>
+              <span>OI is published by the exchange every ~3 min — values may pause briefly between ticks.</span>
+            </div>
+          )}
 
           {ivSkewData.length > 0 && (
             <Card>
