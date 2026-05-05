@@ -371,6 +371,26 @@ const T1_ATR_MULT = 1.6;
 const T2_FROM_T1_MULT = 1.7;
 const MIN_RR_FOR_HC = 1.4;
 
+// PHASE-2 SL FLOOR. Empirically the loss sample showed many stops hit by
+// a single 15-min wick on otherwise-correct directional reads. The shrink
+// cap above can pull the stop in to ~25-30 pts on NIFTY when the structural
+// pivot stop is tight, which is well inside one bar of realised noise.
+// We now enforce a MINIMUM stop distance of max(0.30% × spot, 1.0 × ATR15)
+// so every stop has at least one bar of breathing room. Per-trade rupee
+// risk is preserved automatically by paperTradingFO sizing
+// (`lots = budget / perLotLoss` — wider stop → smaller qty → same rupees).
+// MEAN_REVERSION is exempt by construction (its targets ARE the mean).
+const MIN_STOP_PCT_OF_SPOT = 0.0030;
+const MIN_STOP_ATR_MULT = 1.0;
+
+// PHASE-2 HC EMISSION FLOOR. Detectors return signals at any conf ≥ 50
+// (their internal floor) but the paper-trading auto-trade floor is 70.
+// Cards in the 50-69 range therefore display as "HIGH_CONVICTION" but
+// never get auto-traded — a UX bug that also pollutes the lifecycle
+// outcome ledger with low-edge plans. We now demote anything below 65
+// out of the HC pool. Baseline outlook still carries the directional read.
+const HC_EMISSION_FLOOR = 65;
+
 // IST minute-of-day after which fresh high-conviction TREND-style entries
 // are blocked. Trend Continuation / VWAP Reclaim / Volume Breakout / EMA
 // Pullback all target a pivot R1/R2-class move that historically takes
@@ -379,6 +399,15 @@ const MIN_RR_FOR_HC = 1.4;
 // is exactly what the scoreboard shows. Mean Reversion is exempt because
 // its target is the *nearest* mean (close, fast).
 const LATE_ENTRY_CUTOFF_IST_MIN = 14 * 60 + 30; // 14:30 IST
+
+// PHASE-2 OPENING-NOISE FLOOR. Block fresh HC TREND-style emission in the
+// first 15 minutes (09:15-09:30 IST). Open-auction order flow in this
+// window is dominated by overnight gap-fills and pre-market positioning,
+// not the intraday continuation/reclaim/breakout patterns the detectors
+// are calibrated for — signals fired here whipsawed out within an hour
+// in the loss sample. Mean Reversion is exempt (a fade of the opening
+// extreme is a valid setup).
+const OPENING_NOISE_CUTOFF_IST_MIN = 9 * 60 + 30; // 09:30 IST
 
 function nowIstMinutes(d: Date = new Date()): number {
   const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
@@ -877,11 +906,20 @@ function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR_FOR_HC
   const dir = d.direction;
   const entry = d.entryLevel;
 
-  // Stop: clamp distance to max(0.45% spot, 0.6 × ATR15). If the structural
-  // stop is already tighter than this envelope, keep it (we never widen).
+  // Stop: clamp distance to [minStopDist, maxStopDist].
+  //   - maxStopDist (Phase-1) = max(0.45% spot, 0.6 × ATR15) — shrinks
+  //     a too-wide structural plan back to a realistic intraday envelope.
+  //   - minStopDist (Phase-2) = max(0.30% spot, 1.0 × ATR15) — widens a
+  //     too-tight structural plan so the stop survives one bar of noise.
+  // The MIN floor wins on volatile days where it would exceed the cap;
+  // that is intentional — a stop must always survive realised noise even
+  // if it pushes the rupee-budget past the structural ceiling. The paper
+  // book auto-shrinks lots so per-trade rupee risk stays constant.
+  // Final stop sits at clamp(struct, min, max), enforcing min last.
+  const minStopDist = Math.max(MIN_STOP_PCT_OF_SPOT * c.spot, MIN_STOP_ATR_MULT * c.atr15);
   const maxStopDist = Math.max(MAX_STOP_PCT_OF_SPOT * c.spot, STOP_ATR_MULT * c.atr15);
   const structStopDist = Math.abs(entry - d.stopLevel);
-  const newStopDist = Math.min(structStopDist, maxStopDist);
+  const newStopDist = Math.max(Math.min(structStopDist, maxStopDist), minStopDist);
   const stopLevel = dir === "BULLISH" ? entry - newStopDist : entry + newStopDist;
 
   // T1: clamp distance to min(structural T1, max(1.0% spot, 1.6 × ATR15)).
@@ -1025,6 +1063,10 @@ function buildSignalsForIndex(
   const istMin = nowIstMinutes(new Date());
   const trendEntryAllowed = istMin < LATE_ENTRY_CUTOFF_IST_MIN;
   const vwapReclaimAllowed = istMin < VWAP_RECLAIM_LATE_CUTOFF_IST_MIN;
+  // Phase-2 opening-noise gate: trend-class detectors are blocked in the
+  // first 15 minutes of session. Mean Reversion (trendClass:false) is
+  // exempt because fading the opening extreme is a valid setup.
+  const openingAllowed = istMin >= OPENING_NOISE_CUTOFF_IST_MIN;
 
   const detectors: Array<{ name: string; fn: (c: Ctx) => Detected | null; trendClass: boolean; lateCutoff?: number }> = [
     { name: "trend_continuation", fn: detectTrendContinuation, trendClass: true  },
@@ -1046,6 +1088,11 @@ function buildSignalsForIndex(
       suppressed.push(`vol_regime: HIGH (realized vol ${ctx.realizedVol14?.toFixed(1)}%) — confidence haircut -4 applied`);
     }
     for (const det of detectors) {
+      // Phase-2 opening-noise gate (trend-class only, before 09:30 IST).
+      if (det.trendClass && !openingAllowed) {
+        suppressed.push(`${det.name}: opening-noise gate (before 09:30 IST — first 15min order-flow chaos)`);
+        continue;
+      }
       if (det.trendClass && !trendEntryAllowed) {
         suppressed.push(`${det.name}: late-session entry gate (after 14:30 IST — insufficient runway for trend target)`);
         continue;
@@ -1081,6 +1128,13 @@ function buildSignalsForIndex(
         } else if (ctx.volRegime === "HIGH") {
           r.confidence -= 4;
           r.drivers.push({ label: "VOL_REGIME", weight: -4, bullish: false, detail: `High realized vol (${ctx.realizedVol14?.toFixed(1)}%) — mild confidence haircut` });
+        }
+        // Phase-2 HC emission floor — applied AFTER vol-regime haircut so
+        // it acts on the final shipped confidence. Demoted setups don't
+        // appear in the HC pool; baseline outlook still carries the read.
+        if (r.confidence < HC_EMISSION_FLOOR) {
+          suppressed.push(`${det.name}: confidence ${r.confidence} < HC emission floor ${HC_EMISSION_FLOOR} — demoted (baseline still carries the read)`);
+          continue;
         }
         // FIRST translate the plan inward when the structural trigger is
         // unreachable (e.g. prevSwingHigh is 2% above spot — the trigger
@@ -1660,8 +1714,29 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
 
   const oiVetoed = await applyOiConfirmation(allSignalsPreFilter);
 
+  // Phase-2 post-OI HC emission floor recheck. The in-detector
+  // HC_EMISSION_FLOOR gate inside buildSignalsForIndex runs BEFORE
+  // applyOiConfirmation, but applyOiConfirmation can shave 5 points off
+  // the confidence on the OI_CONFLICT branch (s.confidence -= 5 above
+  // the OI_VETO_THRESHOLD veto path). A signal admitted at exactly the
+  // floor would therefore ship at floor-5 with HIGH_CONVICTION tier —
+  // exactly the UX gap this floor was meant to close. Re-apply the
+  // floor here on the FINAL post-OI confidence and route demoted cards
+  // to suppressed[] so the diagnostics stream stays honest.
+  const oiPostFloorDropped = new Set<OptionSignal>();
+  for (const s of allSignalsPreFilter) {
+    if (oiVetoed.has(s) || globallyVetoed.has(s)) continue;
+    if (s.tier !== "HIGH_CONVICTION") continue;
+    if ((s.confidence ?? 0) < HC_EMISSION_FLOOR) {
+      oiPostFloorDropped.add(s);
+    }
+  }
+
   const survivedSoFar = allSignalsPreFilter.filter(
-    (s) => !globallyVetoed.has(s) && !oiVetoed.has(s),
+    (s) =>
+      !globallyVetoed.has(s) &&
+      !oiVetoed.has(s) &&
+      !oiPostFloorDropped.has(s),
   );
   const corr = applyCorrelationCap(survivedSoFar);
   const correlationDropped = new Set(corr.dropped.map((d) => d.signal));
@@ -1669,6 +1744,7 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   const droppedAll = new Set<OptionSignal>([
     ...globallyVetoed,
     ...oiVetoed,
+    ...oiPostFloorDropped,
     ...correlationDropped,
   ]);
 
@@ -1685,6 +1761,12 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     suppressed.push({
       index: s.index,
       reasons: [`${s.setupKey}: OI hard-veto on ${s.bias} bias (|sentiment|≥${OI_VETO_THRESHOLD})`],
+    });
+  }
+  for (const s of oiPostFloorDropped) {
+    suppressed.push({
+      index: s.index,
+      reasons: [`${s.setupKey}: post-OI confidence ${s.confidence} < HC emission floor ${HC_EMISSION_FLOOR} — demoted (OI conflict ate the buffer)`],
     });
   }
   for (const d of corr.dropped) {
