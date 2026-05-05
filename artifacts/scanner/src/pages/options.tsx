@@ -12,6 +12,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import { TradingViewAlerts } from "@/components/tradingview-alerts";
 import { SignalGateBanner } from "@/components/signal-gate-banner";
 import { useToast } from "@/hooks/use-toast";
@@ -465,10 +466,20 @@ export default function OptionsPage() {
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold font-mono tracking-tight flex items-center gap-2">
-          <Crosshair className="w-6 h-6 text-primary" />
-          INTRADAY F&O TRADE
-        </h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-2xl font-bold font-mono tracking-tight flex items-center gap-2">
+            <Crosshair className="w-6 h-6 text-primary" />
+            INTRADAY F&O TRADE
+          </h1>
+          <DataSourceBadge
+            source="kite"
+            status="live"
+            lastUpdated={generatedAt}
+            refreshMs={30_000}
+            note="F&O setups derived from live Kite ticks"
+            compact
+          />
+        </div>
         <p className="text-muted-foreground text-sm max-w-3xl mt-1">
           Up to 3 high-conviction CALL/PUT setups per index — built from <span className="text-foreground">Price Action · RSI · Fixed Volume Profile · VWAP · EMA 9/21</span>.
           Higher-conviction setups (≥50% with multi-indicator confluence) appear first; an always-on baseline directional read is also shown for every index.

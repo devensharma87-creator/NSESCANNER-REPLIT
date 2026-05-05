@@ -28,10 +28,12 @@ _Populate as you build_
 ## Architecture decisions
 
 - **HMAC-SHA256 HttpOnly session cookies**: For secure authentication with role-based access control.
-- **Public Access Mode**: Owner-toggleable feature to share the entire site via URL, allowing read-only access for unauthenticated visitors.
+- **Public Access Mode**: Owner-toggleable feature to share the entire site via URL, allowing read-only access for unauthenticated visitors. Non-owners see a "Shared view" badge but no relock form.
 - **Kite Connect primary, Yahoo Finance fallback**: Prioritizes real-time data from Kite Connect with Yahoo Finance as a delayed alternative.
 - **Windowed OI Delta Correctness**: Implemented four invariants (snapshot merging, baseline selection, market-hours guard, session/day guard) to ensure accurate per-strike Δ calculations.
 - **F&O Signal Quality Hardening**: Incorporated ATR-aware minimum stop-loss floors, opening-noise gates for trend-class detectors, and raised high-conviction emission floors to improve signal reliability.
+- **Signal labels are classifications, not instructions**: DB / API enums remain `STRONG_BUY / BUY / NEUTRAL / SELL / STRONG_SELL` (do NOT rename — drizzle migration + paper-trade history depend on them). Only the user-facing display strings render as `STRONG BULLISH / BULLISH / NEUTRAL / BEARISH / STRONG BEARISH` (see `signal-badge.tsx`). Compliance-driven, not cosmetic.
+- **Public legal pages bypass LoginGate**: `/legal/disclaimer`, `/legal/methodology`, `/legal/terms`, `/legal/privacy` are reachable without auth via a path-based short-circuit in `login-gate.tsx` so disclaimers stay readable from a shared link.
 
 ## Product
 
@@ -50,9 +52,11 @@ I prefer clear and concise communication. For coding, I favor functional program
 
 ## Gotchas
 
-- **Kite API Rate Limiting**: Kite Connect API calls are rate-limited and managed with exponential backoff; excessive concurrent requests can lead to throttling.
+- **Kite API Rate Limiting**: Kite Connect API calls are rate-limited and managed with exponential backoff; excessive concurrent requests can lead to throttling. **Never** poll faster than 15s for the F&O Top-50 — Kite's per-second cap will trip a temporary blacklist.
 - **OI Change Calculation**: Relies on `oi_day_low`/`oi_day_high` from Kite quotes; discrepancies may arise if these values are not consistently provided.
 - **Paper Trading Anti-phantom-trade rules**: Be aware of `tryOpenPaperTrades` routing to `closePaperTradeForSignal` for already-exited signals and `reconcileMissingPaperTrades` only backfilling LIVE lifecycle rows.
+- **Signal-display rename**: When changing copy, DO NOT touch the `Signal` enum strings used by API/DB/paper-trade history. Only display-layer text in `signal-badge.tsx` and any hard-coded "Strong Buy"/"Strong Sell" page strings should change.
+- **Outstanding audit backlog (next session)**: (1) `DataSourceBadge` shared component on every data page (AUD-005). (2) Blank-panel diagnosis on `deep-scan`, `flows`, `options` charts (AUD-007/008). (3) Pivots on `index-detail` (needs prev-OHLC piped through index-detail endpoint). (4) 5-day mini-sparklines for VIX/DXY/Crude (needs new `/api/market/macroHistory` endpoint). (5) Yahoo-fallback gating for F&O Top-50 (T012, server-side). (6) 15-second opening-window polling for F&O Top-50 (T013). (7) FVG / Liquidity Sweep / Volume-Δ engines (T014–T016, blocked by T012). All five SMC items must ship behind feature flags so any single one can be disabled by env var.
 
 ## Pointers
 

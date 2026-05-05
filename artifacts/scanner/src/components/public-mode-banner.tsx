@@ -23,7 +23,12 @@ import { setPublicMode } from "@/lib/auth-api";
 import { useAuth } from "@/hooks/use-auth";
 
 export function PublicModeBanner() {
-  const { refresh } = useAuth();
+  const { role, refresh } = useAuth();
+  // Only the owner sees the relock affordance. Everyone else sees a thin
+  // amber strip noting the site is in public-access mode (so visiting
+  // analysts know they're looking at a publicly-shared snapshot), but
+  // without the password form which is meaningless to non-owners.
+  const isOwner = role === "owner";
   const [showForm, setShowForm] = useState(false);
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -56,12 +61,14 @@ export function PublicModeBanner() {
     >
       <div className="max-w-screen-2xl mx-auto px-3 py-1.5 flex items-center gap-2 text-xs">
         <Globe className="h-3.5 w-3.5 shrink-0" />
-        <span className="font-semibold">Public access ON</span>
+        <span className="font-semibold">{isOwner ? "Public access ON" : "Shared view"}</span>
         <span className="hidden sm:inline opacity-80">
-          — anyone with the URL can browse this site without logging in.
+          {isOwner
+            ? "— anyone with the URL can browse this site without logging in."
+            : "— you are viewing a publicly-shared snapshot of this dashboard."}
         </span>
         <div className="flex-1" />
-        {showForm ? (
+        {!isOwner ? null : showForm ? (
           <form onSubmit={relock} className="flex items-center gap-1.5">
             <Input
               type="password"

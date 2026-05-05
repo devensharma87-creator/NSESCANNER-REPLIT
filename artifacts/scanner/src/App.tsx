@@ -35,6 +35,10 @@ import Manifesto from "@/pages/manifesto";
 import AdminPage from "@/pages/admin";
 import PaperTrading from "@/pages/paper-trading";
 import PaperReports from "@/pages/paper-reports";
+import DisclaimerPage from "@/pages/legal/disclaimer";
+import MethodologyPage from "@/pages/legal/methodology";
+import TermsPage from "@/pages/legal/terms";
+import PrivacyPage from "@/pages/legal/privacy";
 
 const queryClient = new QueryClient();
 
@@ -95,6 +99,14 @@ function Router() {
 
       {/* Legacy redirect — no guard needed, just bounces to / */}
       <Route path="/indices" component={IndicesRedirect} />
+
+      {/* Legal pages — public, no AccessGuard. LoginGate also short-circuits
+          for these paths so an unauthenticated visitor can read them from
+          a shared link or the login-screen footer. */}
+      <Route path="/legal/disclaimer" component={DisclaimerPage} />
+      <Route path="/legal/methodology" component={MethodologyPage} />
+      <Route path="/legal/terms" component={TermsPage} />
+      <Route path="/legal/privacy" component={PrivacyPage} />
 
       <Route component={NotFound} />
     </Switch>

@@ -39,6 +39,23 @@ function buildReasonsTitle(s: StockRow): string {
   ).join("\n");
 }
 
+/**
+ * Tiny pill flagging a stock that's within 1% of its 52W extremes — useful
+ * context for the gainers / losers cards because near-extreme moves carry
+ * very different conviction than mid-range moves of the same magnitude.
+ * Rendered only when the underlying Quote actually has fiftyTwoWeekHigh /
+ * Low populated and the price is within the threshold.
+ */
+function FiftyTwoWeekChip({ price, hi, lo }: { price: number; hi?: number | null; lo?: number | null }) {
+  if (Number.isFinite(hi) && hi! > 0 && price >= hi! * 0.99) {
+    return <span className="px-1 py-0 rounded text-[9px] font-mono font-bold tracking-wide bg-signal-strong-buy/15 text-signal-strong-buy border border-signal-strong-buy/30" title={`Within 1% of 52-week high (${hi!.toFixed(2)})`}>↑ 52W</span>;
+  }
+  if (Number.isFinite(lo) && lo! > 0 && price <= lo! * 1.01) {
+    return <span className="px-1 py-0 rounded text-[9px] font-mono font-bold tracking-wide bg-signal-strong-sell/15 text-signal-strong-sell border border-signal-strong-sell/30" title={`Within 1% of 52-week low (${lo!.toFixed(2)})`}>↓ 52W</span>;
+  }
+  return null;
+}
+
 function MoverRow({ s, kind }: { s: StockRow; kind: "gain" | "loss" }) {
   const tone = kind === "gain" ? "text-signal-strong-buy" : "text-signal-strong-sell";
   return (
@@ -47,7 +64,10 @@ function MoverRow({ s, kind }: { s: StockRow; kind: "gain" | "loss" }) {
       className="grid grid-cols-[1fr_auto_auto] items-center gap-3 p-2.5 rounded hover-row cursor-pointer border border-transparent hover:border-border"
     >
       <div className="min-w-0">
-        <div className="font-bold font-mono text-sm truncate">{s.symbol}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-bold font-mono text-sm truncate">{s.symbol}</span>
+          <FiftyTwoWeekChip price={s.quote.price} hi={s.quote.fiftyTwoWeekHigh} lo={s.quote.fiftyTwoWeekLow} />
+        </div>
         <div className="text-[11px] text-muted-foreground truncate">{s.name}</div>
       </div>
       <div className="text-right font-mono tabular-nums">

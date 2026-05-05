@@ -364,14 +364,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      <footer className="border-t border-border bg-card py-6 md:py-0">
-        <div className="w-full px-4 flex flex-col items-center justify-between gap-4 md:h-16 md:flex-row">
-          <p className="text-center text-sm leading-loose text-muted-foreground md:text-left">
-            Built for active traders · Yahoo Finance fallback (~15 min delayed). Set <code className="font-mono text-foreground">KITE_API_KEY</code> + <code className="font-mono text-foreground">KITE_API_SECRET</code> + <code className="font-mono text-foreground">KITE_ACCESS_TOKEN</code> to upgrade to live ticks.
-          </p>
-          <p className="text-center text-xs text-muted-foreground md:text-left">
-            Indicators computed server-side · Educational only — not financial advice
-          </p>
+      <footer className="border-t border-border bg-card">
+        <div className="w-full px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:py-3">
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+            <p>
+              Hrishi Associates · Market Scanner by Dev — built for active Indian traders.
+            </p>
+            <p>
+              Data: Zerodha Kite (live, when broker session active) with chart-provider /
+              Yahoo Finance fallback (~15 min delayed). Indicators are computed server-side.
+            </p>
+          </div>
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <Link href="/legal/disclaimer" className="text-muted-foreground hover:text-foreground transition-colors">Disclaimer</Link>
+            <Link href="/legal/methodology" className="text-muted-foreground hover:text-foreground transition-colors">Methodology &amp; Sources</Link>
+            <Link href="/legal/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
+            <Link href="/legal/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
+            <span className="text-muted-foreground/60">·</span>
+            <span className="text-muted-foreground italic">Educational only — not financial advice</span>
+          </nav>
         </div>
       </footer>
     </div>

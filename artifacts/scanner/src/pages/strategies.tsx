@@ -274,11 +274,13 @@ export default function Strategies() {
         <>
           <ContextHeader bundle={bundleQ.data} />
 
+          <StrategyAssumptionsCard />
+
           {recommended.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm font-mono uppercase tracking-wider text-amber-300">
                 <Sparkles className="w-4 h-4" />
-                Recommended for current regime ({recommended.length})
+                Matching Current Regime ({recommended.length})
               </div>
               <div className="grid lg:grid-cols-2 gap-4">
                 {recommended.map(s => (
@@ -314,6 +316,37 @@ export default function Strategies() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Per-page disclosure of every assumption baked into the payoff numbers.
+ * Surfaced once at the top of the strategy list (not per card) so the
+ * caveat reads like a methodology note rather than a scary warning. Audit
+ * AUD-009: real broker fills will diverge from these numbers because of
+ * slippage, taxes and intraday IV moves — be explicit, not legalistic.
+ */
+function StrategyAssumptionsCard() {
+  return (
+    <Card className="border-amber-500/25 bg-amber-500/[0.03]">
+      <CardContent className="p-3 text-[11px] leading-relaxed text-muted-foreground space-y-1">
+        <div className="flex items-center gap-1.5 text-amber-400 font-mono uppercase tracking-wider text-[10px] font-semibold mb-1">
+          <Sparkles className="w-3 h-3" />
+          Strategy assumptions &amp; what these payoffs do (and don't) include
+        </div>
+        <ul className="grid sm:grid-cols-2 gap-x-4 gap-y-0.5 list-disc pl-4">
+          <li><strong className="text-foreground/80">Fill price:</strong> mid of latest quoted bid/ask. Real fills will skew toward the side you're crossing.</li>
+          <li><strong className="text-foreground/80">Slippage:</strong> not modelled. Wider spreads on far-OTM legs can erode 5-15 % of net credit.</li>
+          <li><strong className="text-foreground/80">Brokerage / STT / GST:</strong> not deducted. Multi-leg trades incur 4 charges per leg, both ways.</li>
+          <li><strong className="text-foreground/80">IV model:</strong> Black-Scholes-Merton with the chain's quoted IVs. Held-to-expiry payoffs assume IV → 0 at expiry.</li>
+          <li><strong className="text-foreground/80">Payoff curves:</strong> are <em>expiry</em> diagrams. Mark-to-market intraday differs because time-value &amp; vega are still in play.</li>
+          <li><strong className="text-foreground/80">Probability of profit:</strong> derived from the option-implied terminal distribution, not a directional forecast.</li>
+        </ul>
+        <p className="pt-1 text-[10.5px] text-muted-foreground/80 italic">
+          Educational only — not a recommendation. Always confirm strikes, premiums and margin requirements on your broker terminal before placing an order.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

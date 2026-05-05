@@ -135,7 +135,7 @@ function ColumnHeader({ side, count }: { side: "watch" | "avoid"; count: number 
       }`}
     >
       {isWatch ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-      {isWatch ? "Green — Stocks to Watch" : "Red — Stocks to Avoid"}
+      {isWatch ? "Green — Stocks to Watch" : "Red — Negative Catalyst Watchlist"}
       <span className="ml-auto text-xs opacity-80 font-mono">{count}</span>
     </div>
   );

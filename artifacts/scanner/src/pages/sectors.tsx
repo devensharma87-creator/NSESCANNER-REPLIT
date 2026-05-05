@@ -71,7 +71,7 @@ export default function Sectors() {
 
                   {sector.topPick && (
                     <div className="pt-3 border-t border-border/50">
-                      <p className="text-[10px] uppercase text-muted-foreground font-mono mb-1.5">Top Pick</p>
+                      <p className="text-[10px] uppercase text-muted-foreground font-mono mb-1.5">Best Match</p>
                       <div className="flex items-center justify-between">
                         <span className="font-mono font-bold text-sm">{sector.topPick.symbol}</span>
                         <SignalBadge signal={sector.topPick.recommendation.signal} />

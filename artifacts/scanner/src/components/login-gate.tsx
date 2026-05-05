@@ -316,8 +316,31 @@ function AuthForm() {
   );
 }
 
+/**
+ * Routes that must remain readable without authentication — the legal
+ * pages must be linkable from the footer of the unauthenticated login
+ * screen and must answer to crawlers / users sharing a link.
+ */
+const PUBLIC_ROUTES = ["/legal/disclaimer", "/legal/methodology", "/legal/terms", "/legal/privacy"];
+
+function isPublicRoute(): boolean {
+  if (typeof window === "undefined") return false;
+  // BASE_URL is "/" in dev and "/<artifact>/" in prod — strip it before
+  // matching so the same check works in both environments.
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  let path = window.location.pathname;
+  if (base && path.startsWith(base)) path = path.slice(base.length) || "/";
+  return PUBLIC_ROUTES.includes(path);
+}
+
 export function LoginGate({ children }: { children: ReactNode }) {
   const { state } = useAuth();
+
+  // Legal pages always render, regardless of auth — wrapped in the same
+  // layout chrome by virtue of falling through to children.
+  if (isPublicRoute()) {
+    return <>{children}</>;
+  }
 
   if (state.kind === "loading") {
     return (

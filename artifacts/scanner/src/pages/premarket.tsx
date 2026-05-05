@@ -125,7 +125,7 @@ export default function PreMarket() {
       {data.scenarios && data.scenarios.length > 0 && (
         <section>
           <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-            <Target className="w-4 h-4" /> Today's 3 Scenarios — Trade Plan
+            <Target className="w-4 h-4" /> Today's 3 Scenarios — Setup Plan
           </h2>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             {data.scenarios.map(s => (

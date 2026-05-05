@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useState, useMemo, useEffect, useDeferredValue, useRef, memo } from "react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import type { StockRow } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -196,8 +197,8 @@ const SCREENS = [
   { id: "near52wLow", label: "Near 52W Low" },
   { id: "goldenCross", label: "Golden Stack" },
   { id: "deathCross", label: "Death Stack" },
-  { id: "topBuys", label: "Strong Buy" },
-  { id: "topSells", label: "Strong Sell" },
+  { id: "topBuys", label: "Strong Bullish" },
+  { id: "topSells", label: "Strong Bearish" },
 ];
 
 const ROW_HEIGHT = 48;
@@ -230,7 +231,7 @@ const GRID_TEMPLATE = [
   "minmax(60px, 1fr)",      // DEL%      — delivery % (cash-market conviction)
   "minmax(80px, 1fr)",      // FUT OI    — buildup classification
   "minmax(112px, 1.6fr)",   // SCORE     — visualisation bar (ScoreBar inner min-w-[90px] + cell px-2 ≈ 106 px), rounded up
-  "minmax(100px, 110px)",   // SIGNAL    — pill, capped; min sized to clear "STRONG SELL" label at the badge's text-[10px] font-mono
+  "minmax(118px, 130px)",   // SIGNAL    — pill, capped; min sized to clear "STRONG BEARISH" label at the badge's text-[10px] font-mono
 ].join(" ");
 const TOTAL_WIDTH = 110 + 74 + 60 + 64 + 60*5 + 60*4 + 46 + 76*2 + 52 + 60 + 80 + 112 + 100;
 
@@ -461,9 +462,36 @@ export default function ScannerPage() {
     <div className="w-full max-w-none px-4 py-6 space-y-4">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="space-y-1">
-          <h1 className="text-2xl font-bold font-mono tracking-tight">FULL SCANNER</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl font-bold font-mono tracking-tight">FULL SCANNER</h1>
+            <DataSourceBadge
+              source={fullMeta?.kiteOffline ? "yahoo" : "kite"}
+              status={fullMeta?.kiteOffline ? "delayed" : "live"}
+              fallbackActive={!!fullMeta?.kiteOffline}
+              lastUpdated={fullMeta?.sourceDate}
+              refreshMs={60_000}
+              note={fullMeta?.kiteOffline ? "Kite session offline — Yahoo backup active" : undefined}
+              compact
+            />
+          </div>
           <p className="text-sm text-muted-foreground">
-            Every NSE-listed stock tracked live ({fullMeta?.universeSize ?? "…"} from the official bhavcopy + curated F&amp;O depth) · click any column header to sort · use screen presets to narrow · hover any row for the top reasons behind its signal.
+            {(() => {
+              // Honest universe / coverage breakdown — addresses the audit
+              // finding that the old copy ("All NSE stocks tracked live")
+              // overstates reality whenever the broker session is offline
+              // or upstream rate-limits cull a portion of each cycle.
+              const universe = fullMeta?.universeSize ?? 0;
+              const failures = fullMeta?.failures ?? 0;
+              const live = Math.max(0, universe - failures);
+              return (
+                <>
+                  Universe <span className="font-mono text-foreground">{universe ? universe.toLocaleString("en-IN") : "…"}</span>
+                  {" · "}live feed <span className="font-mono text-foreground">{universe ? live.toLocaleString("en-IN") : "…"}</span>
+                  {" · "}no feed this cycle <span className="font-mono text-foreground">{failures.toLocaleString("en-IN")}</span>
+                  {" · "}sortable column headers · screen presets narrow the view · hover any row for the top reasons behind its signal.
+                </>
+              );
+            })()}
             {fullMeta && <span className="block mt-0.5 text-[11px]">Last full scan: <span className="font-mono">{(fullMeta.scanMs / 1000).toFixed(1)}s</span> · {fullMeta.failures} no-feed · {fullMeta.rested} rested · source {fullMeta.sourceDate}.</span>}
           </p>
           {fullMeta?.kiteOffline && (
@@ -558,11 +586,11 @@ export default function ScannerPage() {
                 <SelectTrigger className="w-[150px] h-9 bg-background"><SelectValue placeholder="Signal" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Signals</SelectItem>
-                  <SelectItem value="STRONG_BUY">Strong Buy</SelectItem>
-                  <SelectItem value="BUY">Buy</SelectItem>
+                  <SelectItem value="STRONG_BUY">Strong Bullish</SelectItem>
+                  <SelectItem value="BUY">Bullish</SelectItem>
                   <SelectItem value="NEUTRAL">Neutral</SelectItem>
-                  <SelectItem value="SELL">Sell</SelectItem>
-                  <SelectItem value="STRONG_SELL">Strong Sell</SelectItem>
+                  <SelectItem value="SELL">Bearish</SelectItem>
+                  <SelectItem value="STRONG_SELL">Strong Bearish</SelectItem>
                 </SelectContent>
               </Select>
             </div>
