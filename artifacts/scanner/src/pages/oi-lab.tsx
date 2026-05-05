@@ -1865,6 +1865,14 @@ function InsightsTab() {
                 // about what the chart will show.
                 const bufLen = tfResolved.bufferLen;
                 const oldestAge = tfResolved.bufferOldestAt != null ? nowMs - tfResolved.bufferOldestAt : 0;
+                const bufSpanMin = oldestAge > 0 ? Math.round(oldestAge / 60_000) : 0;
+                // Detect the post-market / sparse-buffer "every window
+                // resolves to the same near-now baseline" state — when this
+                // happens, every finite pill produces ΔCall ≈ ΔPut ≈ 0,
+                // which previously made the pills look broken. We surface
+                // an honest one-line note instead so the user knows why.
+                const baselineNearNow = tfResolved.baselineUsedAt != null
+                  && (nowMs - tfResolved.baselineUsedAt) < 60_000;
                 return (
                   <div className="mt-2 flex flex-wrap items-center gap-1">
                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono mr-1">
@@ -1873,11 +1881,14 @@ function InsightsTab() {
                     {TIMEFRAMES.map(t => {
                       // A finite window has a usable baseline only once the
                       // server buffer reaches back at least ~80% of that
-                      // distance. Otherwise the pill renders as semi-active
-                      // with an honest tooltip — never disabled outright,
-                      // because clicking it falls back to since-open Δ
-                      // (which is still useful, just not the requested
-                      // window) instead of leaving the user stuck.
+                      // distance. Otherwise the pill renders with a subtle
+                      // dashed border + honest tooltip — never the prior
+                      // ultra-faded bg-card/40 + text-muted-foreground/60
+                      // double-fade that made the entire row look disabled
+                      // (and that the user repeatedly flagged as "the
+                      // pills don't work"). All pills stay readable; the
+                      // tooltip + helper line below explain when Δ may be
+                      // approximate or zero.
                       const haveBaseline = t.ms == null ? true : oldestAge >= t.ms * 0.8;
                       const isActive = timeframe === t.v;
                       const partial = !isActive && t.ms != null && !haveBaseline && bufLen >= 2;
@@ -1899,45 +1910,64 @@ function InsightsTab() {
                             isActive
                               ? "border-amber-400 bg-amber-400/15 text-amber-300 font-bold"
                               : empty
-                              ? "border-border/50 bg-card/40 text-muted-foreground/60 hover-row"
+                              ? "border-dashed border-border bg-card/70 text-foreground/70 hover-row"
                               : partial
-                              ? "border-border bg-card text-muted-foreground hover-row"
-                              : "border-border bg-card text-foreground/80 hover-row"
+                              ? "border-dashed border-border bg-card text-foreground/80 hover-row"
+                              : "border-border bg-card text-foreground/90 hover-row"
                           }`}
                         >
                           {t.l.replace("Last ", "")}
                         </button>
                       );
                     })}
-                    {timeframe !== "all" && (
-                      <span className="ml-2 text-[10px] font-mono">
-                        {tfResolved.mode === "fallback_open" ? (
-                          <span className="text-amber-400/90">
-                            buffer warming up — falling back to broker since-open Δ
+                    {/*
+                      Helper line — ALWAYS rendered (even in "All" mode and
+                      even when no baseline is computed) so the pill row
+                      never looks like a row of dead controls. Each branch
+                      tells the user one specific thing:
+                        - "All"                : where the Δ comes from
+                        - fallback_open        : buffer too thin, falling back
+                        - exact / approx + ≈0  : windowed Δ rounds to ~0
+                                                 (post-market or stalled feed)
+                        - exact / approx       : show baseline + warning bits
+                    */}
+                    <span className="ml-2 text-[10px] font-mono">
+                      {timeframe === "all" ? (
+                        <span className="text-muted-foreground">
+                          showing broker since-open Δ (vs 9:15 IST) ·
+                          <span className="text-zinc-400"> server buffer: {bufLen} snap{bufLen === 1 ? "" : "s"}{bufSpanMin > 0 ? ` · ${bufSpanMin} min span` : ""}</span>
+                        </span>
+                      ) : tfResolved.mode === "fallback_open" ? (
+                        <span className="text-amber-400/90">
+                          buffer warming up ({bufLen} snap{bufLen === 1 ? "" : "s"}) — falling back to broker since-open Δ
+                        </span>
+                      ) : tfResolved.baselineUsedAt ? (
+                        <>
+                          <span className="text-muted-foreground">
+                            baseline: {new Date(tfResolved.baselineUsedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
                           </span>
-                        ) : tfResolved.baselineUsedAt ? (
-                          <>
-                            <span className="text-muted-foreground">
-                              baseline: {new Date(tfResolved.baselineUsedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                          {tfResolved.mode === "approx" && (
+                            <span className="ml-1 text-amber-400/90">
+                              (Δ vs nearest available, not exactly {TIMEFRAMES.find(t => t.v === timeframe)!.l.toLowerCase()})
                             </span>
-                            {tfResolved.mode === "approx" && (
+                          )}
+                          {baselineNearNow && (
+                            <span className="ml-1 text-amber-400/90">
+                              · feed appears stalled (baseline ≈ now) — Δ will read as 0
+                            </span>
+                          )}
+                          {(() => {
+                            const missing = oiBars.filter(r => r.missingBaseline).length;
+                            if (missing === 0) return null;
+                            return (
                               <span className="ml-1 text-amber-400/90">
-                                (Δ vs nearest available, not exactly {TIMEFRAMES.find(t => t.v === timeframe)!.l.toLowerCase()})
+                                · {missing} strike{missing === 1 ? "" : "s"} added mid-window (Δ shown as 0)
                               </span>
-                            )}
-                            {(() => {
-                              const missing = oiBars.filter(r => r.missingBaseline).length;
-                              if (missing === 0) return null;
-                              return (
-                                <span className="ml-1 text-amber-400/90">
-                                  · {missing} strike{missing === 1 ? "" : "s"} added mid-window (Δ shown as 0)
-                                </span>
-                              );
-                            })()}
-                          </>
-                        ) : null}
-                      </span>
-                    )}
+                            );
+                          })()}
+                        </>
+                      ) : null}
+                    </span>
                   </div>
                 );
               })()}
@@ -2262,20 +2292,40 @@ function InsightsTab() {
                           No OI movement vs baseline yet.<br />
                           Pick a longer window or wait a tick.
                         </div>
-                      ) : (
-                        <ResponsiveContainer width="100%" height={110}>
+                      ) : (() => {
+                        // Pad the YAxis domain so labels at the value-end of
+                        // each bar always have visible headroom — without
+                        // padding, recharts auto-scales the most-extreme bar
+                        // to fill 100% of the plot area, which crushes the
+                        // `position` label into the chart margin and (when
+                        // both bars are the same sign) lets recharts'
+                        // collision detection hide the larger bar's label
+                        // entirely. The fixed 18% pad on the dominant side
+                        // and the always-included opposing zero stop keep
+                        // the chart visually balanced even when one side
+                        // is zero, and guarantees a label gap.
+                        const c = windowedTotals.call;
+                        const p = windowedTotals.put;
+                        const lo = Math.min(0, c, p);
+                        const hi = Math.max(0, c, p);
+                        const span = Math.max(hi - lo, 1);
+                        const padHi = hi > 0 ? hi + span * 0.18 : span * 0.05;
+                        const padLo = lo < 0 ? lo - span * 0.18 : -span * 0.05;
+                        return (
+                        <ResponsiveContainer width="100%" height={130}>
                           {/*
                             Single-row dataset with two Bar series (Call, Put)
                             so the tooltip shows both values labeled and the
-                            LabelList renders the magnitude above each bar
-                            (StockMojo-style readable Δ at a glance).
+                            LabelList renders the magnitude at the value-end
+                            of each bar — sign-aware `position` keeps the
+                            label visible whether the bar grows up or down.
                           */}
                           <BarChart
-                            data={[{ name: "OI Δ", call: windowedTotals.call, put: windowedTotals.put }]}
-                            margin={{ top: 22, right: 12, left: 12, bottom: 0 }}
+                            data={[{ name: "OI Δ", call: c, put: p }]}
+                            margin={{ top: 18, right: 12, left: 12, bottom: 18 }}
                           >
                             <XAxis dataKey="name" hide />
-                            <YAxis hide domain={["auto", "auto"]} />
+                            <YAxis hide domain={[padLo, padHi]} />
                             <RTooltip
                               contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: 4, fontSize: 11, padding: "6px 10px" }}
                               labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
@@ -2289,26 +2339,27 @@ function InsightsTab() {
                               }
                             />
                             <Bar dataKey="call" name="Call ΔOI" radius={[3, 3, 0, 0]}
-                              fill={windowedTotals.call >= 0 ? "#dc2626" : "#fca5a5"}>
+                              fill={c >= 0 ? "#dc2626" : "#fca5a5"}>
                               <LabelList
                                 dataKey="call"
-                                position="top"
+                                position={c >= 0 ? "top" : "bottom"}
                                 formatter={labelFmt}
-                                style={{ fontSize: 11, fontWeight: 600, fill: "#fafafa" }}
+                                style={{ fontSize: 11, fontWeight: 700, fill: c >= 0 ? "#fecaca" : "#7f1d1d" }}
                               />
                             </Bar>
                             <Bar dataKey="put" name="Put ΔOI" radius={[3, 3, 0, 0]}
-                              fill={windowedTotals.put >= 0 ? "#16a34a" : "#86efac"}>
+                              fill={p >= 0 ? "#16a34a" : "#86efac"}>
                               <LabelList
                                 dataKey="put"
-                                position="top"
+                                position={p >= 0 ? "top" : "bottom"}
                                 formatter={labelFmt}
-                                style={{ fontSize: 11, fontWeight: 600, fill: "#fafafa" }}
+                                style={{ fontSize: 11, fontWeight: 700, fill: p >= 0 ? "#bbf7d0" : "#14532d" }}
                               />
                             </Bar>
                           </BarChart>
                         </ResponsiveContainer>
-                      )}
+                        );
+                      })()}
                       {/* CALL/PUT magnitude readout — bumped from text-[10px]
                           to text-xs and given its own row per side so the
                           numbers are actually legible (the user's chief
@@ -2581,3 +2632,4 @@ function SentimentGauge({ band, score, label, strengthPct }: { band: SentimentBa
     </div>
   );
 }
+
