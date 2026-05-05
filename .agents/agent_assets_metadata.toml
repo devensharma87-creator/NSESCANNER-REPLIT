@@ -42,3 +42,9 @@ id = "7MFmmAqONDdyGtOy9SNBw"
 uri = "file://project-codebase-summary.md"
 type = "text"
 title = "Stock Scanner Pro - Full Codebase Summary"
+
+[[outputs]]
+id = "5e3_9_C-iY9dbublZCq0R"
+uri = "file://exports/stock-scanner-pro-20260505-1227.tar.gz"
+type = "unspecified"
+title = "Stock Scanner Pro — full source backup (May 5, 2026)"
