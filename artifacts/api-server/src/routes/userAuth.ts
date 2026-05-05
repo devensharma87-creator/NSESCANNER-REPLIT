@@ -218,6 +218,15 @@ const SYMBOL_RE = /^[A-Z0-9.\-_&^]{1,32}$/;
 router.get("/personal-watchlist", requireSubscriberOrOwner(), async (req, res) => {
   const owner = ownerKeyFor(req);
   if (!owner) {
+    // Public-access mode: cookieless visitors have no per-user identity
+    // to attribute a watchlist to. Return an empty list (rather than
+    // 401) so the Watchlist tab renders cleanly during a public audit
+    // instead of looking broken. Mutations below still 401 — visitors
+    // can browse, but cannot persist watchlist changes anonymously.
+    if (isPublicAccessEnabled()) {
+      res.json({ items: [] });
+      return;
+    }
     res.status(401).json({ error: "unauthorized" });
     return;
   }
@@ -238,7 +247,13 @@ router.get("/personal-watchlist", requireSubscriberOrOwner(), async (req, res) =
 router.post("/personal-watchlist", requireSubscriberOrOwner(), async (req, res) => {
   const owner = ownerKeyFor(req);
   if (!owner) {
-    res.status(401).json({ error: "unauthorized" });
+    // Reach here only when public-mode bypassed the gate AND the visitor
+    // has no real session cookie to attribute a watchlist row to.
+    res.status(403).json({
+      error: "owner_only_write",
+      code: "PUBLIC_MODE_READ_ONLY",
+      message: "Sign in to save personal watchlist entries.",
+    });
     return;
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
@@ -263,7 +278,11 @@ router.post("/personal-watchlist", requireSubscriberOrOwner(), async (req, res) 
 router.delete("/personal-watchlist/:symbol", requireSubscriberOrOwner(), async (req, res) => {
   const owner = ownerKeyFor(req);
   if (!owner) {
-    res.status(401).json({ error: "unauthorized" });
+    res.status(403).json({
+      error: "owner_only_write",
+      code: "PUBLIC_MODE_READ_ONLY",
+      message: "Sign in to remove personal watchlist entries.",
+    });
     return;
   }
   const raw = req.params["symbol"];

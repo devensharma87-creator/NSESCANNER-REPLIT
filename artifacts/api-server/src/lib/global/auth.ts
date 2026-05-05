@@ -14,6 +14,7 @@
 import type { Request, Response, NextFunction } from "express";
 import crypto from "node:crypto";
 import { logger } from "../logger";
+import { isPublicAccessEnabled } from "../publicAccess";
 
 export const GLOBAL_COOKIE_NAME = "global_session";
 /**
@@ -90,6 +91,14 @@ export function isGloballyAuthenticated(req: Request): boolean {
  * show a clear "set GLOBAL_APP_ACCESS_PASSWORD in Secrets" message.
  */
 export function requireGlobalAuth(req: Request, res: Response, next: NextFunction): void {
+  // Site-wide public-access mode (NSE scanner toggle) covers /api/global
+  // too, so a publicly-shared site renders the Global Multi-Asset
+  // dashboard for any visitor. Writes to global-scoped state (e.g.
+  // per-session watchlists) are not exposed via this middleware in a
+  // way that depends on identity — the global router uses sessionKey
+  // derived from the cookie value, which is simply absent for public
+  // visitors and degrades gracefully in those handlers.
+  if (isPublicAccessEnabled()) return next();
   if (!isGlobalPasswordConfigured()) {
     res.status(503).json({
       error: "global_password_not_configured",

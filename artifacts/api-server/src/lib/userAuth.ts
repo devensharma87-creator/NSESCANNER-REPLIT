@@ -32,6 +32,7 @@ import {
   type UserStatus,
 } from "@workspace/db/schema";
 import { logger } from "./logger";
+import { isPublicAccessEnabled } from "./publicAccess";
 
 // ---------- password hashing ----------
 
@@ -204,8 +205,31 @@ export function isOwner(req: Request): boolean {
 
 // ---------- middleware ----------
 
-/** Allow only the site owner. Blocks subscribers with 403. */
+/**
+ * Allow only the site owner. Blocks subscribers with 403.
+ *
+ * Public-access mode: bypasses GET requests (so visitors can browse
+ * owner-only data tabs like paper trading positions/reports during a
+ * shared-site audit), but still requires a real owner cookie for any
+ * write method (POST/PUT/PATCH/DELETE). This protects admin user CRUD
+ * (`/admin/users*`), Kite session writes (`/kite/*`), paper-trade
+ * close/journal mutations, and any other state-changing endpoint —
+ * even on a publicly-shared link, anonymous visitors can only LOOK,
+ * never MUTATE.
+ */
 export function requireOwner(req: Request, res: Response, next: NextFunction): void {
+  if (isPublicAccessEnabled()) {
+    if (req.method === "GET" || req.method === "HEAD") return next();
+    // Writes still require a real owner cookie even in public mode.
+    const s = getSession(req);
+    if (s?.role === "owner") return next();
+    res.status(403).json({
+      error: "owner_only_write",
+      code: "PUBLIC_MODE_READ_ONLY",
+      message: "Writes are disabled while public-access mode is on. Sign in as owner.",
+    });
+    return;
+  }
   const s = getSession(req);
   if (!s) {
     res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
@@ -227,6 +251,15 @@ export function requireOwner(req: Request, res: Response, next: NextFunction): v
  */
 export function requireSubscriberOrOwner(...tabs: AllowedTabKey[]) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // Public-access mode: every visitor is treated as having full
+    // owner-equivalent access for tab-gated reads (DEEP_SCAN, FNO,
+    // STRATEGIES, SECTORS, etc.). Writes that USE this gate (e.g.
+    // personal-watchlist mutations) are handled inside the route — they
+    // bail out cleanly when there's no real session identity to attach
+    // a row to. This is safe because every callsite of this middleware
+    // is either a read or a per-user-state mutation that already needs
+    // a real session to be meaningful.
+    if (isPublicAccessEnabled()) return next();
     const s = getSession(req);
     if (!s) {
       res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
