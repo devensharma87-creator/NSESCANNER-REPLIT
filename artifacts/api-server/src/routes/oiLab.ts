@@ -99,6 +99,29 @@ router.get("/options/oi-lab/insights/:underlying", async (req, res) => {
       });
       return;
     }
+    // Per spec §12 "Debugging and Validation" — log every windowed Δ
+    // resolution with the exact baseline pick, mode, and computed totals
+    // so server-side log inspection can verify the math without round-
+    // tripping through the client. Only logged for windowed requests
+    // (since-open / "All" mode doesn't have a baseline pick to audit).
+    if (windowMs != null) {
+      req.log.info({
+        sym,
+        expiry: insights.expiry,
+        windowParam,
+        windowMs,
+        windowMode: insights.windowMode,
+        windowBaselineAt: insights.windowBaselineAt,
+        bufferCount: insights.windowBufferCount,
+        bufferOldestAt: insights.windowBufferOldestAt,
+        strikesIncluded: insights.windowTotals?.strikesIncluded,
+        callOiChangeCr: insights.windowTotals?.callOiChangeCr,
+        putOiChangeCr:  insights.windowTotals?.putOiChangeCr,
+        pcrEnd:         insights.windowPcr?.pcrEnd,
+        pcrChange:      insights.windowPcr?.pcrChange,
+        pcrOiChange:    insights.windowPcr?.pcrOiChange,
+      }, "OI insights windowed Δ resolved");
+    }
     res.json(insights);
   } catch (err) {
     logger.error({ err: (err as Error).message, sym }, "fetchOiInsights failed");

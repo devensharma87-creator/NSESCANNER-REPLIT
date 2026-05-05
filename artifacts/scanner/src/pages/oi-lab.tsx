@@ -901,6 +901,11 @@ interface InsightStrike {
    *  must NEVER substitute another value when this is null. */
   ceOiChgWindow?: number | null;
   peOiChgWindow?: number | null;
+  /** Same Δ in crores (raw / 1e7), pre-rounded by the server to 4dp.
+   *  Optional for backwards-compat — older servers omit. Falls back to
+   *  raw/1e7 when absent so the UI keeps working across deploys. */
+  ceOiChgWindowCr?: number | null;
+  peOiChgWindowCr?: number | null;
 }
 type SentimentBand = "STRONGLY_BEARISH" | "MILDLY_BEARISH" | "NEUTRAL" | "MILDLY_BULLISH" | "STRONGLY_BULLISH";
 interface InsightResp {
@@ -950,6 +955,34 @@ interface InsightResp {
   windowBaselineSpot?: number | null;
   windowBufferOldestAt?: string | null;
   windowBufferCount?: number;
+  /** Server-supplied Time-Based OI Change totals over the visible strike
+   *  set (sum of strike-level Δ for strikes with both legs baselined).
+   *  Always equals the client's locally-summed `windowedTotals` when both
+   *  are present — server provides this as the canonical source so card
+   *  values can never disagree across UI surfaces. Null when no baseline
+   *  matched any strike (windowMode === "none"). */
+  windowTotals?: {
+    callOiStart: number;
+    callOiEnd: number;
+    putOiStart: number;
+    putOiEnd: number;
+    callOiChange: number;
+    putOiChange: number;
+    callOiChangeCr: number;
+    putOiChangeCr: number;
+    strikesIncluded: number;
+  } | null;
+  /** Windowed PCR readouts: snapshot PCR at start vs end of the window,
+   *  the change between them, and the PCR-OI-Change ratio (Put Δ / Call Δ).
+   *  All four fields are nullable — divisions by zero return null instead
+   *  of Infinity / NaN. Absent when windowMode === "none". */
+  windowPcr?: {
+    pcrStart: number | null;
+    pcrEnd: number | null;
+    pcrChange: number | null;
+    pcrOiChange: number | null;
+    pcrOiChangeAbs: number | null;
+  } | null;
 }
 
 const SENTIMENT_TONE: Record<SentimentBand, { color: string; bg: string; border: string }> = {
@@ -2565,6 +2598,68 @@ function InsightsTab() {
                       {isWindowed && windowedTotals.missing > 0 && (
                         <div className="text-[9px] font-mono mt-0.5 text-amber-300/80 leading-tight">
                           {windowedTotals.missing} strike{windowedTotals.missing === 1 ? "" : "s"} excluded (no baseline yet)
+                        </div>
+                      )}
+                      {/* ── Windowed PCR readouts ─────────────────────────
+                          Surfaces TWO distinct put/call ratios that only
+                          make sense in the windowed mode (the existing
+                          PCR donut card below shows snapshot PCR — it is
+                          NOT touched, so users still get the full-day
+                          ratio they're used to):
+
+                            • PCR Change   = pcrEnd - pcrStart
+                              "Did the snapshot ratio shift toward puts
+                               (positive) or calls (negative) over the
+                               window?"
+
+                            • PCR OI Δ     = ΔPut OI / ΔCall OI
+                              "Of the fresh OI added (or removed) in this
+                               window, what fraction was puts vs calls?"
+                              Sign carries direction — +0.81 with both
+                               sides shrinking means puts were unwound
+                               81% as much as calls.
+
+                          Server-supplied (data.windowPcr) so the math
+                          can never drift between client/server. Hidden
+                          when not windowed or when the server returned
+                          a null block (no usable baseline). */}
+                      {isWindowed && data.windowPcr && (
+                        <div className="grid grid-cols-2 gap-2 mt-1.5 pt-1.5 border-t border-border/60 font-mono">
+                          {(() => {
+                            const wp = data.windowPcr!;
+                            const fmt = (n: number | null, dp = 2): string =>
+                              n == null || !Number.isFinite(n) ? "—" : n.toFixed(dp);
+                            const fmtSigned = (n: number | null, dp = 2): string => {
+                              if (n == null || !Number.isFinite(n)) return "—";
+                              return (n > 0 ? "+" : "") + n.toFixed(dp);
+                            };
+                            const cls = (n: number | null, neutral = "text-zinc-300"): string => {
+                              if (n == null || !Number.isFinite(n) || n === 0) return neutral;
+                              return n > 0 ? "text-emerald-300" : "text-rose-300";
+                            };
+                            return (
+                              <>
+                                <div className="flex flex-col items-start" title="Snapshot PCR (Put OI / Call OI) at the baseline timestamp vs now, and the change between them.">
+                                  <span className="text-[8.5px] uppercase tracking-wider text-muted-foreground/80">PCR Change</span>
+                                  <span className="text-[11px] text-zinc-200 tabular-nums leading-tight">
+                                    {fmt(wp.pcrStart)} <span className="text-muted-foreground">→</span> {fmt(wp.pcrEnd)}
+                                  </span>
+                                  <span className={`text-[10px] tabular-nums leading-tight ${cls(wp.pcrChange)}`}>
+                                    Δ {fmtSigned(wp.pcrChange)}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col items-end" title="Put OI Change ÷ Call OI Change. Positive = puts moved more in the same direction as calls; negative = puts moved opposite.">
+                                  <span className="text-[8.5px] uppercase tracking-wider text-muted-foreground/80">PCR OI Δ</span>
+                                  <span className={`text-[11px] tabular-nums leading-tight ${cls(wp.pcrOiChange, "text-zinc-200")}`}>
+                                    {fmtSigned(wp.pcrOiChange)}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground tabular-nums leading-tight">
+                                    ΔPut/ΔCall
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
                     </>

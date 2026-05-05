@@ -294,6 +294,12 @@ export interface OiStrikeRow {
    *  any other delta (no synthetic since-open fallback at strike level). */
   ceOiChgWindow?: number | null;
   peOiChgWindow?: number | null;
+  /** Same Δ in crores (raw / 1e7), pre-rounded to 4 decimals so the client
+   *  doesn't have to do its own /1e7 conversion (and risk drift between
+   *  card / chart / tooltip — the spec's #14 accuracy rule). Null when
+   *  the corresponding raw Δ field is null (no baseline for this strike). */
+  ceOiChgWindowCr?: number | null;
+  peOiChgWindowCr?: number | null;
 }
 
 export interface OiInsightsResponse {
@@ -370,6 +376,49 @@ export interface OiInsightsResponse {
   /** Total snapshot count the server holds for this (underlying|expiry).
    *  Helps the client surface "Server has 4 snapshots, need 1 more" UX. */
   windowBufferCount?: number;
+  /** ── Time-Based OI Change totals (windowed) ─────────────────────────
+   *  Sums of CE/PE OI at the START snap and the END snap, plus the deltas
+   *  in raw and Cr units. ONLY includes strikes that had BOTH a baseline
+   *  CE leg AND a baseline PE leg (i.e. strikes whose `ceOiChgWindow` and
+   *  `peOiChgWindow` are non-null) — guarantees the totals exactly equal
+   *  the sum of strike-level deltas the client renders (spec acceptance
+   *  criterion #4). Absent when `windowMode === "none"`. */
+  windowTotals?: {
+    callOiStart: number;
+    callOiEnd: number;
+    putOiStart: number;
+    putOiEnd: number;
+    callOiChange: number;
+    putOiChange: number;
+    callOiChangeCr: number;
+    putOiChangeCr: number;
+    /** Number of strikes that contributed to the sums (both legs had a
+     *  baseline). Lets the client say "based on N strikes". */
+    strikesIncluded: number;
+  } | null;
+  /** ── Windowed PCR readouts ──────────────────────────────────────────
+   *  • `pcrStart`     : Put OI at start / Call OI at start (snapshot PCR
+   *                     at the baseline timestamp)
+   *  • `pcrEnd`       : Put OI at end   / Call OI at end   (snapshot PCR
+   *                     right now — same as `pcrOi` when strike sets match)
+   *  • `pcrChange`    : pcrEnd - pcrStart (signed, +ve = put-heavier
+   *                     bias built up over the window)
+   *  • `pcrOiChange`  : Put OI Δ / Call OI Δ over the window. The sign
+   *                     follows the writers' direction: +0.81 means puts
+   *                     were unwound 0.81× as much as calls when both
+   *                     sides shrank. Null when |callOiChange| ≈ 0 to
+   *                     avoid Infinity / NaN.
+   *  • `pcrOiChangeAbs`: |Put OI Δ| / |Call OI Δ| — ratio of magnitudes,
+   *                     used when the user wants to compare absolute
+   *                     activity regardless of direction.
+   *  Absent when `windowMode === "none"`. */
+  windowPcr?: {
+    pcrStart: number | null;
+    pcrEnd: number | null;
+    pcrChange: number | null;
+    pcrOiChange: number | null;
+    pcrOiChangeAbs: number | null;
+  } | null;
 }
 
 /** Normalize the chain's per-leg `oiBuildup` (which is `undefined` for missing
@@ -745,9 +794,33 @@ function persistOiInsightsHistoryToDisk(): void {
   } catch { /* logged inside saveBlob */ }
 }
 
+/** Returns true when `ts` (epoch ms) falls inside the IST trading session
+ *  window [09:15, 15:35]. We add 5 min of post-close grace so the closing
+ *  bell snap (which sometimes lands 15:30:0X due to broker latency) is still
+ *  captured for end-of-day analysis. Pre-market snaps are STRICTLY rejected
+ *  per spec §1: "Snapshot capture must run only during market hours" —
+ *  pre-9:15 OI values are stale carryover from yesterday's close and would
+ *  poison the "All / Full Day" baseline pick. Timezone-safe via the
+ *  IST minute-of-day trick (UTC+5:30 = +330 min). */
+function isInIstMarketHours(ts: number): boolean {
+  const istMin = ((Math.floor(ts / 60_000) + 330) % 1440 + 1440) % 1440;
+  const OPEN_MIN = 9 * 60 + 15;   // 555  → 09:15 IST
+  const CLOSE_MIN = 15 * 60 + 35; // 935  → 15:35 IST (5min post-close grace)
+  return istMin >= OPEN_MIN && istMin <= CLOSE_MIN;
+}
+
 function pushOiInsightsSnapshot(insights: OiInsightsResponse): void {
   const key = `${insights.underlying}|${insights.expiry}`;
   const ts = new Date(insights.generatedAt).getTime();
+  // Pre-market / post-market guard. Out-of-hours snaps are silently
+  // dropped — they would otherwise contaminate the "All / Full Day"
+  // baseline pick (which expects the first valid snap at/after 09:15 IST)
+  // and the rolling buffer (which would surface yesterday's stale OI as
+  // "10 hr ago" baseline for the first morning poll). The ring-buffer
+  // ALREADY-stored snaps are NOT touched — only the new push is gated.
+  if (!isInIstMarketHours(ts)) {
+    return;
+  }
   const snap: OiInsightsSnapshot = {
     ts,
     ce: Object.fromEntries(insights.strikes.map(s => [s.strike, s.ceOi])),
@@ -812,26 +885,58 @@ function resolveWindowDelta(
   windowBufferOldestAt: string | null;
   windowBufferCount: number;
   strikes: OiStrikeRow[];
+  windowTotals: NonNullable<OiInsightsResponse["windowTotals"]> | null;
+  windowPcr: NonNullable<OiInsightsResponse["windowPcr"]> | null;
 } {
   const key = `${insights.underlying}|${insights.expiry}`;
-  const buf = OI_INSIGHTS_HISTORY.get(key) ?? [];
+  const rawBuf = OI_INSIGHTS_HISTORY.get(key) ?? [];
   const nowMs = new Date(insights.generatedAt).getTime();
+  // ── Read-path session/day guard ────────────────────────────────────
+  // The write-path `pushOiInsightsSnapshot` already drops out-of-hours
+  // snaps, but if the server stays up across a market-close → next-open
+  // boundary, the buffer can still contain YESTERDAY's snaps as in-memory
+  // residue (the disk-hydrate path discards cross-day blobs only on cold
+  // start). A windowed request at 08:30 IST tomorrow would otherwise pick
+  // a 17h-stale snap as baseline → wildly inflated "approx" Δ.
+  //
+  // Defence-in-depth: filter the candidate set to ONLY snaps whose ts
+  // (a) lands inside today's IST trading day AND (b) inside the IST
+  // market window. The original buffer is left intact (so post-close
+  // analysis at e.g. 16:00 IST still works against in-session snaps),
+  // we just refuse to USE pre-market / cross-day snaps as baselines.
+  const todayIst = istTradingDay(new Date(nowMs));
+  const buf = rawBuf.filter(s =>
+    isInIstMarketHours(s.ts) && istTradingDay(new Date(s.ts)) === todayIst
+  );
   const oldestAt = buf.length > 0 ? new Date(buf[0]!.ts).toISOString() : null;
   // Need at least one snapshot strictly OLDER than `now` (the just-pushed
   // one is at `now` itself and is useless as a baseline).
   const candidates = buf.filter(s => s.ts < nowMs);
   if (candidates.length === 0) {
-    const stripped = insights.strikes.map(s => ({ ...s, ceOiChgWindow: null, peOiChgWindow: null }));
+    const stripped = insights.strikes.map(s => ({
+      ...s,
+      ceOiChgWindow: null,
+      peOiChgWindow: null,
+      ceOiChgWindowCr: null,
+      peOiChgWindowCr: null,
+    }));
     return {
       windowMs,
       windowMode: "none",
       windowBaselineAt: null,
       windowBaselineSpot: null,
-      windowBufferOldestAt: oldestAt,
-      windowBufferCount: buf.length,
+      windowBufferOldestAt: rawBuf.length > 0 ? new Date(rawBuf[0]!.ts).toISOString() : null,
+      windowBufferCount: rawBuf.length,
       strikes: stripped,
+      windowTotals: null,
+      windowPcr: null,
     };
   }
+  // `windowBufferCount` / `windowBufferOldestAt` reflect the IN-SESSION
+  // snaps only (post-filter). Surfacing the unfiltered raw count would
+  // mislead the client into "I have 50 snaps!" while only 2 are usable
+  // for windowed Δ this morning.
+  const usableBufLen = buf.length;
   const cutoff = nowMs - windowMs;
   // Baseline picker — two-tier policy that fixes the prior "0 Δ on 1hr
   // pill" bug:
@@ -865,6 +970,19 @@ function resolveWindowDelta(
   // ±20% tolerance — outside that band, the chart caption flags "approx"
   // so the user is never lied to about what window they're seeing.
   const mode: "exact" | "approx" = bestDist <= windowMs * 0.2 ? "exact" : "approx";
+  // Round to 4 decimals (worth ~0.0001 Cr ≈ ₹1000) — visible Cr displays
+  // typically round to 2dp at render time, so 4dp here gives the client
+  // headroom for tooltip-level precision without leaking float noise.
+  const toCr = (n: number): number => Math.round((n / 1e7) * 10_000) / 10_000;
+  // Accumulators for the Time-Based OI Change totals + PCR block. We
+  // sum ONLY strikes where BOTH legs have a baseline so the totals
+  // exactly equal the sum of strike-level deltas the client renders
+  // (spec acceptance criterion #4: "Open Interest Change summary card
+  // values exactly match the sum of strike-level deltas returned by
+  // the API"). Strikes with a missing baseline contribute zero to
+  // both the chart bars AND these totals — single source of truth.
+  let callOiStart = 0, callOiEnd = 0, putOiStart = 0, putOiEnd = 0;
+  let strikesIncluded = 0;
   const enriched = insights.strikes.map(s => {
     const baseCe = best.ce[s.strike];
     const basePe = best.pe[s.strike];
@@ -873,14 +991,65 @@ function resolveWindowDelta(
     // baseline snap was taken (newly-listed / outside ATM±N at that time)
     // gets `null` — never zero, never the broker since-open Δ.
     if (baseCe == null || basePe == null) {
-      return { ...s, ceOiChgWindow: null, peOiChgWindow: null };
+      return { ...s, ceOiChgWindow: null, peOiChgWindow: null, ceOiChgWindowCr: null, peOiChgWindowCr: null };
     }
+    const ceChg = s.ceOi - baseCe;
+    const peChg = s.peOi - basePe;
+    callOiStart += baseCe;
+    callOiEnd   += s.ceOi;
+    putOiStart  += basePe;
+    putOiEnd    += s.peOi;
+    strikesIncluded++;
     return {
       ...s,
-      ceOiChgWindow: s.ceOi - baseCe,
-      peOiChgWindow: s.peOi - basePe,
+      ceOiChgWindow: ceChg,
+      peOiChgWindow: peChg,
+      ceOiChgWindowCr: toCr(ceChg),
+      peOiChgWindowCr: toCr(peChg),
     };
   });
+  // Build the windowTotals block. Empty (zero strikes matched) → null
+  // instead of all-zero so the client can render "No OI snapshot data
+  // available for this time window." (spec §8 friendly empty state).
+  const windowTotals = strikesIncluded > 0 ? {
+    callOiStart,
+    callOiEnd,
+    putOiStart,
+    putOiEnd,
+    callOiChange: callOiEnd - callOiStart,
+    putOiChange:  putOiEnd  - putOiStart,
+    // NOTE: *Cr fields are PRESENTATION-only (4dp rounded). Do NOT sum
+    // these client-side to derive aggregates — additive rounding drift
+    // can accumulate. Always sum the RAW *Change fields then divide by
+    // 1e7 at render time when an aggregate Cr value is needed.
+    callOiChangeCr: toCr(callOiEnd - callOiStart),
+    putOiChangeCr:  toCr(putOiEnd  - putOiStart),
+    strikesIncluded,
+  } : null;
+  // Windowed PCR block. All four fields use safe-divide → null instead
+  // of Infinity / NaN per spec §4 ("Handle division by zero safely").
+  const safeDiv = (num: number, den: number): number | null =>
+    den !== 0 && Number.isFinite(num) && Number.isFinite(den)
+      ? Math.round((num / den) * 10_000) / 10_000
+      : null;
+  // pcrStart / pcrEnd are computed once and reused — pcrChange derives
+  // from those two values rather than re-running safeDiv (architect
+  // review feedback: single source so future safeDiv tweaks can't
+  // create a tiny start/end vs change rounding mismatch).
+  const pcrStart = windowTotals ? safeDiv(windowTotals.putOiStart, windowTotals.callOiStart) : null;
+  const pcrEnd   = windowTotals ? safeDiv(windowTotals.putOiEnd,   windowTotals.callOiEnd)   : null;
+  const windowPcr = windowTotals ? {
+    pcrStart,
+    pcrEnd,
+    pcrChange: pcrStart != null && pcrEnd != null
+      ? Math.round((pcrEnd - pcrStart) * 10_000) / 10_000
+      : null,
+    // PCR OI Change = Put OI Δ / Call OI Δ. Sign carries directionality
+    // (spec §4: "Put OI Change divided by Call OI Change, not Call
+    // divided by Put"). Null when |callOiChange| is zero.
+    pcrOiChange:    safeDiv(windowTotals.putOiChange, windowTotals.callOiChange),
+    pcrOiChangeAbs: safeDiv(Math.abs(windowTotals.putOiChange), Math.abs(windowTotals.callOiChange)),
+  } : null;
   return {
     windowMs,
     windowMode: mode,
@@ -891,8 +1060,10 @@ function resolveWindowDelta(
     // cleanly. Same goes for any rare snap where chain.spot was NaN.
     windowBaselineSpot: typeof best.spot === "number" && Number.isFinite(best.spot) ? best.spot : null,
     windowBufferOldestAt: oldestAt,
-    windowBufferCount: buf.length,
+    windowBufferCount: usableBufLen,
     strikes: enriched,
+    windowTotals,
+    windowPcr,
   };
 }
 
@@ -936,6 +1107,8 @@ export async function fetchOiInsights(
     windowBaselineSpot: block.windowBaselineSpot,
     windowBufferOldestAt: block.windowBufferOldestAt,
     windowBufferCount: block.windowBufferCount,
+    windowTotals: block.windowTotals,
+    windowPcr: block.windowPcr,
   };
 }
 
