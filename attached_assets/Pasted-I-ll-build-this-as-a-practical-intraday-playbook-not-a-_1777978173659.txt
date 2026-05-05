@@ -1,0 +1,184 @@
+I’ll build this as a practical intraday playbook, not a “guaranteed signal.” I’ll verify current Nifty/Bank Nifty F&O mechanics first, then give you rule-based entries, exits, SL, targets, filters, and risk controls.
+Thought for 1m 30s
+Below is a professional-style intraday F&O signal framework for Nifty and Bank Nifty. It is not a guaranteed call system; it is a rule-based trading playbook. F&O is high-risk: SEBI reported that 93% of individual traders incurred losses in equity F&O between FY22 and FY24, so risk control is more important than entry logic. 
+NSE equity derivatives trade from 09:15 to 15:30, so this is built for same-day entries and exits only. As per current NSE contract structure, Nifty has weekly and monthly options, while Bank Nifty has monthly option expiries, and expiry is Tuesday unless it is a holiday. NSE’s revised market lot circular shows Nifty lot size 65 and Bank Nifty lot size 30 for revised contracts, but always verify in your broker terminal before trading. 
+Pro intraday setup: trade only when score is 7/10 or higher
+Before entry, check these 10 parameters:
+Parameter	Bullish Signal	Bearish Signal
+15-min trend	Higher high, higher low	Lower high, lower low
+VWAP	Price above VWAP	Price below VWAP
+20 EMA on 5/15 min	Price holding above	Price rejecting below
+Opening range	Breaks OR high	Breaks OR low
+Futures OI	Price up + OI up	Price down + OI up
+Option chain	PE writing below spot, CE unwinding	CE writing above spot, PE unwinding
+PCR	Rising	Falling
+India VIX	Stable or mildly supportive	Sudden spike against trade
+Market breadth	Most index heavyweights positive	Most index heavyweights negative
+Volume	Breakout with strong volume	Breakdown with strong volume
+India VIX matters because it is calculated from Nifty option prices and reflects expected 30-day volatility; rising VIX usually means higher option premiums and more violent movement. 
+________________________________________
+Strategy 1: Opening Range Breakout — best for trend days
+Use this when market has direction and institutional flow is visible.
+Timeframe
+Use 15-min candle for bias and 5-min candle for entry.
+Opening range
+Mark high and low from 09:15 to 09:30.
+Bullish CE Buy Signal
+Enter Nifty CE / Bank Nifty CE only when:
+1.	Spot is above VWAP. 
+2.	5-min candle closes above opening range high. 
+3.	15-min trend is bullish. 
+4.	Futures price and OI both rise. 
+5.	Option chain shows PE writing below spot and CE unwinding above spot. 
+6.	Buy only ATM or 1-step ITM CE, not far OTM lottery options. 
+Entry
+Enter after 5-min candle close above OR high, or on retest of OR high.
+Stop loss
+Use the tighter of:
+•	Index SL below breakout candle low, or below VWAP. 
+•	Option premium SL: 20–25% from entry. 
+•	Never widen SL. 
+Target
+Book like a pro:
+•	Target 1: 1R, book 50%. 
+•	Target 2: 2R or next resistance / pivot / previous day high. 
+•	Trail remaining position with 9 EMA or VWAP. 
+Exit
+Exit fully if:
+•	5-min candle closes below VWAP. 
+•	Option premium loses momentum. 
+•	Opposite OI writing appears. 
+•	Time is after 15:10 and trend is weakening. 
+________________________________________
+Bearish PE Buy Signal
+Enter Nifty PE / Bank Nifty PE only when:
+1.	Spot is below VWAP. 
+2.	5-min candle closes below opening range low. 
+3.	15-min trend is bearish. 
+4.	Futures price falls and OI rises. 
+5.	Option chain shows CE writing above spot and PE unwinding below spot. 
+6.	Buy ATM or 1-step ITM PE. 
+Entry
+Enter after 5-min close below OR low, or on retest rejection.
+Stop loss
+•	Index SL above breakdown candle high or VWAP. 
+•	Option SL: 20–25% premium loss. 
+Target
+•	Target 1: 1R. 
+•	Target 2: 2R or previous day low / next support. 
+•	Trail with 9 EMA. 
+________________________________________
+Strategy 2: VWAP Pullback Continuation — best “pro” intraday setup
+This is safer than chasing breakout candles.
+Bullish Pullback CE Setup
+Conditions:
+1.	Index is above VWAP. 
+2.	Price made higher high and higher low. 
+3.	Pullback comes to VWAP / 20 EMA with low selling volume. 
+4.	No heavy CE writing near current spot. 
+5.	Reversal candle forms near VWAP. 
+Entry
+Buy CE when price crosses the high of the reversal candle.
+Stop loss
+Below VWAP or below pullback swing low.
+Target
+•	First target: previous intraday high. 
+•	Second target: 1.5R to 2R. 
+•	Trail after first target. 
+Bearish Pullback PE Setup
+Conditions:
+1.	Index below VWAP. 
+2.	Price makes lower low and lower high. 
+3.	Pullback to VWAP / 20 EMA gets rejected. 
+4.	CE writing increases above spot. 
+Entry
+Buy PE below the rejection candle low.
+Stop loss
+Above VWAP or above pullback swing high.
+Target
+Previous intraday low, then 1.5R to 2R.
+________________________________________
+Strategy 3: Failed Breakout Reversal — advanced but powerful
+Use this only when market traps breakout traders.
+Bearish reversal after false breakout
+Conditions:
+1.	Price breaks day high but fails to sustain. 
+2.	5-min candle closes back inside range. 
+3.	CE premium fails to make new high. 
+4.	Heavy CE writing appears above spot. 
+5.	VIX spikes or market breadth weakens. 
+Entry
+Buy PE below failed breakout candle low.
+Stop loss
+Above failed breakout high.
+Target
+VWAP first, then CPR / day midpoint.
+Bullish reversal after false breakdown
+Mirror setup:
+1.	Price breaks day low but closes back inside range. 
+2.	PE premium fails to continue. 
+3.	PE unwinding or fresh PE writing appears below spot. 
+4.	Buy CE above reversal candle high. 
+________________________________________
+Nifty vs Bank Nifty execution rules
+Index	Best style	SL style	Target style
+Nifty	Cleaner trend, better for beginners	20–25% option SL or VWAP break	1R, 2R, previous high/low
+Bank Nifty	Faster, more volatile, more fakeouts	Smaller quantity, wider index SL	Quick partial booking at 1R
+Nifty	Use ATM / ITM options	Avoid far OTM	Hold longer if trend is clean
+Bank Nifty	Use ATM / ITM only	Do not overtrade	Book faster because reversals are sharp
+For Bank Nifty, reduce quantity. A Bank Nifty 60-point option SL with lot size 30 means ₹1,800 risk per lot. For Nifty, a 15-point option SL with lot size 65 means ₹975 risk per lot.
+________________________________________
+Position sizing formula
+Use this every time:
+Risk per trade = 0.5% of trading capital
+Example:
+•	Capital: ₹2,00,000 
+•	Max risk per trade: ₹1,000 
+•	Nifty option SL: ₹15 
+•	Lot size: 65 
+•	Risk per lot = ₹15 × 65 = ₹975 
+•	Trade size = 1 lot 
+For Bank Nifty:
+•	Capital: ₹2,00,000 
+•	Max risk: ₹1,000 
+•	Bank Nifty option SL: ₹40 
+•	Lot size: 30 
+•	Risk per lot = ₹1,200 
+•	This trade should be skipped or SL/quantity adjusted. 
+That is how a pro survives.
+________________________________________
+No-trade conditions
+Do not trade when:
+1.	Price is between VWAP and CPR with no direction. 
+2.	Option chain is mixed. 
+3.	India VIX is spiking randomly. 
+4.	Opening range is too wide. 
+5.	First candle is huge and you are late. 
+6.	You already had two losing trades. 
+7.	You are trading only because premium looks “cheap.” 
+8.	There is RBI policy, Budget, major election result, Fed event, or big gap day without confirmation. 
+________________________________________
+Pro daily routine
+09:00–09:15
+Mark previous day high, low, close, CPR, major support/resistance, global cues, VIX, and option chain zones.
+09:15–09:30
+No trade. Build opening range.
+09:30–11:30
+Best time for breakout and trend trades.
+11:30–13:45
+Avoid random trades. Take only VWAP pullback or range rejection.
+14:00–15:10
+Trade only if trend resumes strongly.
+After 15:10
+No fresh option buying unless there is a very strong breakout. Intraday positions should be closed before end of session.
+________________________________________
+Final pro rule
+Your signal should look like this:
+Buy CE only if:
+Trend bullish + price above VWAP + OR high breakout + futures long build-up + PE writing support + volume confirmation.
+Buy PE only if:
+Trend bearish + price below VWAP + OR low breakdown + futures short build-up + CE writing resistance + volume confirmation.
+Skip trade if:
+Any two major parameters conflict.
+The real edge is not prediction. The real edge is: wait for confirmation, risk small, book partials, trail winners, and stop after max loss.
+
