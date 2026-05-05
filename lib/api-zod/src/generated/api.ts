@@ -3443,9 +3443,17 @@ export const GetIndicesBoardResponse = zod.object({
       yahooSymbol: zod.string(),
       currency: zod.string(),
       source: zod
-        .enum(["kite", "yahoo"])
+        .enum(["kite", "tv", "yahoo"])
         .nullish()
-        .describe("Origin of LTP\/OHLC. kite = live, yahoo = ~15min delayed."),
+        .describe(
+          "Origin of LTP\/OHLC. kite = live Zerodha tick (Indian indices), tv = TradingView scanner quote, yahoo = Yahoo Finance fallback.",
+        ),
+      tvUpdateMode: zod
+        .string()
+        .nullish()
+        .describe(
+          "When source = tv, the TradingView update_mode for this row: 'streaming' (real-time), 'delayed_streaming_600' (~10min delayed but live-updating), 'delayed_streaming_900' (~15min delayed but live-updating), 'endofday'\/'delayed' (snapshot). Used by the UI to render an accurate freshness pill.",
+        ),
       asOf: zod.number().optional().describe("Last update unix seconds"),
       ltp: zod.number().optional(),
       open: zod.number().optional(),

@@ -46,6 +46,14 @@ export interface GiftNiftyQuote {
    *  scanner endpoint does not expose a per-quote timestamp on this
    *  response shape, so we record the fetch time. */
   asOf: number;
+  /**
+   * Raw TradingView `update_mode` for this row — surfaced so the UI
+   * pill can be honest about freshness instead of hardcoding "LIVE".
+   * Common values: "streaming" (real-time), "delayed_streaming_900"
+   * (~15min delayed but live-updating), "endofday" (snapshot). May be
+   * null if the column was missing in the response.
+   */
+  updateMode: string | null;
   /** Fixed source attribution — surfaced in the UI as a "source: ..."
    *  caption so the user always knows the provenance. */
   source: "TradingView · NSEIX:NIFTY1!";
@@ -113,6 +121,7 @@ async function fetchOnce(): Promise<GiftNiftyQuote | null> {
   const changePct = typeof d[1] === "number" ? (d[1] as number) : NaN;
   const changeAbs = typeof d[2] === "number" ? (d[2] as number) : NaN;
   const volume = typeof d[3] === "number" ? (d[3] as number) : null;
+  const updateMode = typeof d[4] === "string" ? (d[4] as string) : null;
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(changePct) || !Number.isFinite(changeAbs)) {
     logger.warn({ d }, "giftNifty: missing or invalid numeric fields");
     return null;
@@ -129,6 +138,7 @@ async function fetchOnce(): Promise<GiftNiftyQuote | null> {
     previousClose: round(previousClose, 2),
     volume,
     asOf: Math.floor(Date.now() / 1000),
+    updateMode,
     source: "TradingView · NSEIX:NIFTY1!",
   };
 }

@@ -7,7 +7,7 @@
  */
 
 /**
- * Origin of LTP/OHLC. kite = live, yahoo = ~15min delayed.
+ * Origin of LTP/OHLC. kite = live Zerodha tick (Indian indices), tv = TradingView scanner quote, yahoo = Yahoo Finance fallback.
  */
 export type IndexBoardItemSource =
   | (typeof IndexBoardItemSource)[keyof typeof IndexBoardItemSource]
@@ -15,5 +15,6 @@ export type IndexBoardItemSource =
 
 export const IndexBoardItemSource = {
   kite: "kite",
+  tv: "tv",
   yahoo: "yahoo",
 } as const;

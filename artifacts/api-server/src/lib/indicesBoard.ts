@@ -35,6 +35,7 @@ import { fetchKiteIntraday, hasKiteIntradayCoverage } from "./kiteIntraday";
 import { ema, sessionVwap, volumeProfile } from "./indicators";
 import { getKiteIndexQuotes, type KiteIndexQuote } from "./kiteIndexQuotes";
 import { getGiftNifty } from "./giftNifty";
+import { getTvQuotes, type TvQuote } from "./tvQuotes";
 import { logger } from "./logger";
 
 export type IndicesCategory = "INDIA" | "GLOBAL" | "COMMODITY" | "ADR" | "FX";
@@ -58,6 +59,15 @@ export interface InstrumentCfg {
   proxyNote?: string;
   /** Optional yahoo-symbol used by getKiteIndexQuotes when overriding LTP/OHLC. */
   kiteYahooKey?: string;
+  /**
+   * Optional TradingView ticker (e.g. "TVC:SPX", "NYSE:INFY", "FX_IDC:USDINR")
+   * used to override Yahoo's ~15-min-delayed LTP/change/percent with a
+   * near-real-time TradingView scanner quote. When set and the TV fetch
+   * succeeds, `item.source` flips to "tv" (rendered as a green LIVE pill);
+   * on failure the row falls back to Yahoo with no behaviour change.
+   * Indian indices intentionally don't set this — they prefer Kite.
+   */
+  tvSymbol?: string;
   /** Hint for the UI — e.g. "USD", "₹". */
   currency: string;
 }
@@ -89,36 +99,58 @@ export const INSTRUMENTS: InstrumentCfg[] = [
   // inversion bug in the pre-market read. The board builder injects the
   // GIFT entry separately when the TradingView fetch succeeds; if it fails,
   // the entry is omitted rather than fabricated.
-  { key: "SP500",       name: "S&P 500",          category: "GLOBAL",    yahoo: "^GSPC",                 currency: "$" },
-  { key: "NASDAQ",      name: "NASDAQ",           category: "GLOBAL",    yahoo: "^IXIC",                 currency: "$" },
-  { key: "DOWJONES",    name: "Dow Jones",        category: "GLOBAL",    yahoo: "^DJI",                  currency: "$" },
-  { key: "FTSE100",     name: "FTSE 100",         category: "GLOBAL",    yahoo: "^FTSE",                 currency: "£" },
-  { key: "DAX",         name: "DAX",              category: "GLOBAL",    yahoo: "^GDAXI",                currency: "€" },
-  { key: "NIKKEI225",   name: "Nikkei 225",       category: "GLOBAL",    yahoo: "^N225",                 currency: "¥" },
-  { key: "HANGSENG",    name: "Hang Seng",        category: "GLOBAL",    yahoo: "^HSI",                  currency: "HK$" },
-  { key: "SHANGHAI",    name: "Shanghai Comp.",   category: "GLOBAL",    yahoo: "000001.SS",             currency: "¥" },
-  { key: "VIX",         name: "VIX (Volatility)", category: "GLOBAL",    yahoo: "^VIX",                  currency: "" },
+  // tvSymbol picks the TradingView ticker that the scanner endpoint streams
+  // near-real-time quotes for. TVC:* are TradingView's own continuous index
+  // feeds (real-time on free tier). Index-name tickers like NASDAQ:IXIC and
+  // SSE:000001 use the exchange's own real-time index quote. ADRs use the
+  // NYSE/NASDAQ listing directly; US equities are real-time on TV's free tier.
+  { key: "SP500",       name: "S&P 500",          category: "GLOBAL",    yahoo: "^GSPC",                 tvSymbol: "SP:SPX",         currency: "$" },
+  { key: "NASDAQ",      name: "NASDAQ",           category: "GLOBAL",    yahoo: "^IXIC",                 tvSymbol: "NASDAQ:IXIC",    currency: "$" },
+  { key: "DOWJONES",    name: "Dow Jones",        category: "GLOBAL",    yahoo: "^DJI",                  tvSymbol: "DJ:DJI",         currency: "$" },
+  { key: "FTSE100",     name: "FTSE 100",         category: "GLOBAL",    yahoo: "^FTSE",                 tvSymbol: "TVC:UKX",        currency: "£" },
+  { key: "DAX",         name: "DAX",              category: "GLOBAL",    yahoo: "^GDAXI",                tvSymbol: "XETR:DAX",       currency: "€" },
+  { key: "NIKKEI225",   name: "Nikkei 225",       category: "GLOBAL",    yahoo: "^N225",                 tvSymbol: "TVC:NI225",      currency: "¥" },
+  { key: "HANGSENG",    name: "Hang Seng",        category: "GLOBAL",    yahoo: "^HSI",                  tvSymbol: "HSI:HSI",        currency: "HK$" },
+  { key: "SHANGHAI",    name: "Shanghai Comp.",   category: "GLOBAL",    yahoo: "000001.SS",             tvSymbol: "SSE:000001",     currency: "¥" },
+  { key: "VIX",         name: "VIX (Volatility)", category: "GLOBAL",    yahoo: "^VIX",                  tvSymbol: "TVC:VIX",        currency: "" },
 
-  // ── Commodities (CME futures continuous contracts on Yahoo) ───────
-  { key: "GOLD",        name: "Gold",             category: "COMMODITY", yahoo: "GC=F",                  currency: "$" },
-  { key: "SILVER",      name: "Silver",           category: "COMMODITY", yahoo: "SI=F",                  currency: "$" },
-  { key: "CRUDE_WTI",   name: "Crude Oil (WTI)",  category: "COMMODITY", yahoo: "CL=F",                  currency: "$" },
-  { key: "CRUDE_BRENT", name: "Brent Oil",        category: "COMMODITY", yahoo: "BZ=F",                  currency: "$" },
+  // ── Commodities (CME futures continuous on Yahoo, TVC spot on TV) ──
+  // TVC:GOLD / TVC:SILVER are TradingView's continuous spot feeds (XAU/USD,
+  // XAG/USD style). They print on a slightly different scale than the CME
+  // front-month futures (Yahoo's GC=F / SI=F), so the LTP shown on the
+  // card and the EMA/pivot levels (which are still derived from Yahoo
+  // futures history) live on slightly different bases. The gap is usually
+  // small (~0.3-1% basis), but during contango/backwardation dislocations
+  // or rolls it can widen — we surface that disclosure as a per-row note
+  // (see `proxyNote` propagation in getIndicesBoard) rather than fabricate
+  // a false equivalence.
+  { key: "GOLD",        name: "Gold",             category: "COMMODITY", yahoo: "GC=F",                  tvSymbol: "TVC:GOLD",       currency: "$" },
+  { key: "SILVER",      name: "Silver",           category: "COMMODITY", yahoo: "SI=F",                  tvSymbol: "TVC:SILVER",     currency: "$" },
+  // NYMEX:CL1! and ICEEUR:BRN1! are the front-month futures contracts —
+  // same series Yahoo's CL=F / BZ=F track (continuous front-month roll),
+  // so the EMAs/pivots derived from Yahoo daily history line up cleanly
+  // with the TV LTP. TVC:USOIL / TVC:UKOIL are spot CFDs that don't return
+  // a row from the scanner endpoint at all (verified empty), so the
+  // futures tickers are the only working option for the spot-style label.
+  { key: "CRUDE_WTI",   name: "Crude Oil (WTI)",  category: "COMMODITY", yahoo: "CL=F",                  tvSymbol: "NYMEX:CL1!",     currency: "$" },
+  { key: "CRUDE_BRENT", name: "Brent Oil",        category: "COMMODITY", yahoo: "BZ=F",                  tvSymbol: "ICEEUR:BRN1!",   currency: "$" },
 
   // ── Indian ADRs (NYSE / NASDAQ listings of Indian companies) ──────
   // Quoted in USD. Useful as an after-hours sentiment read on India once
   // the cash session has closed. All confirmed live on Yahoo (251 daily
   // bars / yr). VEDL is delisted (Vedanta went private 2023); skipped.
-  { key: "ADR_INFY",  name: "Infosys (INFY)",          category: "ADR", yahoo: "INFY", currency: "$" },
-  { key: "ADR_HDB",   name: "HDFC Bank (HDB)",         category: "ADR", yahoo: "HDB",  currency: "$" },
-  { key: "ADR_IBN",   name: "ICICI Bank (IBN)",        category: "ADR", yahoo: "IBN",  currency: "$" },
-  { key: "ADR_WIT",   name: "Wipro (WIT)",             category: "ADR", yahoo: "WIT",  currency: "$" },
-  { key: "ADR_RDY",   name: "Dr. Reddy's (RDY)",       category: "ADR", yahoo: "RDY",  currency: "$" },
-  { key: "ADR_MMYT",  name: "MakeMyTrip (MMYT)",       category: "ADR", yahoo: "MMYT", currency: "$" },
+  { key: "ADR_INFY",  name: "Infosys (INFY)",          category: "ADR", yahoo: "INFY", tvSymbol: "NYSE:INFY",    currency: "$" },
+  { key: "ADR_HDB",   name: "HDFC Bank (HDB)",         category: "ADR", yahoo: "HDB",  tvSymbol: "NYSE:HDB",     currency: "$" },
+  { key: "ADR_IBN",   name: "ICICI Bank (IBN)",        category: "ADR", yahoo: "IBN",  tvSymbol: "NYSE:IBN",     currency: "$" },
+  { key: "ADR_WIT",   name: "Wipro (WIT)",             category: "ADR", yahoo: "WIT",  tvSymbol: "NYSE:WIT",     currency: "$" },
+  { key: "ADR_RDY",   name: "Dr. Reddy's (RDY)",       category: "ADR", yahoo: "RDY",  tvSymbol: "NYSE:RDY",     currency: "$" },
+  { key: "ADR_MMYT",  name: "MakeMyTrip (MMYT)",       category: "ADR", yahoo: "MMYT", tvSymbol: "NASDAQ:MMYT",  currency: "$" },
 
   // ── FX / Macro (currency pair + dollar index) ─────────────────────
-  { key: "USDINR",      name: "USD / INR",        category: "FX",        yahoo: "INR=X",                 currency: "₹" },
-  { key: "DXY",         name: "Dollar Index",     category: "FX",        yahoo: "DX-Y.NYB",              currency: "$" },
+  // FX_IDC:USDINR is TradingView's interbank (24×5) USD/INR feed.
+  // TVC:DXY is TradingView's continuous Dollar Index quote.
+  { key: "USDINR",      name: "USD / INR",        category: "FX",        yahoo: "INR=X",                 tvSymbol: "FX_IDC:USDINR",  currency: "₹" },
+  { key: "DXY",         name: "Dollar Index",     category: "FX",        yahoo: "DX-Y.NYB",              tvSymbol: "TVC:DXY",        currency: "$" },
 ];
 
 export interface IndexBoardItem {
@@ -127,8 +159,27 @@ export interface IndexBoardItem {
   category: IndicesCategory;
   yahooSymbol: string;
   currency: string;
-  /** "kite" → live Kite tick, "yahoo" → ~15min delayed, null → no data. */
-  source: "kite" | "yahoo" | null;
+  /**
+   * Origin of the LTP/change values:
+   *   - "kite" → live Zerodha tick (Indian indices)
+   *   - "tv"   → TradingView scanner quote (global / commodities / ADRs / FX).
+   *             The actual freshness is reported separately in `tvUpdateMode`
+   *             so the UI can distinguish true real-time ("streaming") from
+   *             exchange-imposed 10/15-min delays ("delayed_streaming_*").
+   *   - "yahoo" → Yahoo Finance fallback (when TV is unavailable). Yahoo's
+   *               chart endpoint typically lags ~15min for major markets.
+   *   - null   → no data
+   */
+  source: "kite" | "tv" | "yahoo" | null;
+  /**
+   * TradingView `update_mode` for the row, when source = "tv".
+   *   - "streaming"             → true real-time tick
+   *   - "delayed_streaming_600" → ~10-min delayed but still live-updating
+   *   - "delayed_streaming_900" → ~15-min delayed but still live-updating
+   *   - other (e.g. "endofday") → snapshot, treated as stale
+   * The frontend uses this to render an accurate pill ("LIVE" vs "LIVE 15m").
+   */
+  tvUpdateMode?: string | null;
   asOf?: number;
 
   // Live snapshot
@@ -239,12 +290,22 @@ function isSameDayLocal(a: number, b: number): boolean {
       && da.getDate()     === db.getDate();
 }
 
-/** Build one row by combining a daily chart, an intraday chart and an
- *  optional live Kite quote. Side-effect free; returns the row. */
+/** Build one row by combining a daily chart, an intraday chart and the
+ *  optional live overrides (TradingView for global / commodities / ADRs /
+ *  FX, Kite for Indian indices). Side-effect free; returns the row.
+ *
+ *  Override precedence (lowest → highest):
+ *    Yahoo daily-meta  →  Yahoo intraday-meta  →  TradingView  →  Kite
+ *
+ *  TradingView wins over Yahoo because it's near-real-time vs ~15min
+ *  delayed; Kite wins over TradingView because it's an actual exchange
+ *  tick. Indian indices intentionally skip TV (their Kite path is
+ *  already live + the TV symbol would just duplicate the Kite price). */
 function buildItem(
   cfg: InstrumentCfg,
   daily: YahooChart | null,
   intra: YahooChart | null,
+  tv: TvQuote | undefined,
   kite: KiteIndexQuote | undefined,
 ): IndexBoardItem {
   const item: IndexBoardItem = {
@@ -362,6 +423,29 @@ function buildItem(
     item.notes.push("Intraday chart unavailable from Yahoo");
   }
 
+  // ── Live TradingView override (Global / Commodities / ADRs / FX) ──
+  // Replace Yahoo's ~15-min-delayed LTP with TV's near-real-time quote.
+  // We only override the LIVE fields (ltp / change / changePercent /
+  // prevClose / asOf) — the historical analytics (EMAs, 52w hi/lo,
+  // pivots, OHLC for the day, VWAP, value area) all stay on Yahoo so
+  // they remain on the same scale and reference frame as before.
+  // change/changePercent get recomputed below from the TV-overridden
+  // ltp + prevClose so they're internally consistent with the headline.
+  if (tv) {
+    item.ltp = round(tv.price, 4) ?? item.ltp;
+    item.prevClose = round(tv.previousClose, 4) ?? item.prevClose;
+    item.source = "tv";
+    item.tvUpdateMode = tv.updateMode;
+    item.asOf = tv.asOf;
+    // Spot-vs-futures basis disclosure: when the TV ticker is a spot/CFD
+    // feed (TVC:GOLD, TVC:SILVER) but Yahoo's history is the CME futures
+    // contract, the LTP and the EMA/pivot levels live on slightly
+    // different price bases. Tell the user honestly.
+    if (cfg.tvSymbol === "TVC:GOLD" || cfg.tvSymbol === "TVC:SILVER") {
+      item.notes.push("LTP is TradingView spot; EMAs / pivots are Yahoo futures (small basis gap)");
+    }
+  }
+
   // ── Live Kite override (Indian indices) ───────────────────────────
   if (kite) {
     item.ltp           = round(kite.price, 4);
@@ -394,10 +478,22 @@ const TTL_MS = 10_000;
 export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<IndicesBoardSnapshot> {
   if (!opts.force && cache && Date.now() - cache.ts < TTL_MS) return cache.snap;
 
-  const kiteMap = await getKiteIndexQuotes().catch(err => {
-    logger.warn({ err: (err as Error).message }, "indicesBoard: Kite batch failed; falling back to Yahoo");
-    return null;
-  });
+  // Fetch the live overlays in parallel:
+  //   - Kite batch (Indian indices, when a session is alive)
+  //   - TradingView batch (everything else with a tvSymbol set)
+  // Both are best-effort: a failure leaves the corresponding rows on
+  // Yahoo with the "DELAYED" label rather than poisoning the whole board.
+  const tvTickers = INSTRUMENTS.map(c => c.tvSymbol).filter((s): s is string => !!s);
+  const [kiteMap, tvMap] = await Promise.all([
+    getKiteIndexQuotes().catch(err => {
+      logger.warn({ err: (err as Error).message }, "indicesBoard: Kite batch failed; falling back to Yahoo");
+      return null;
+    }),
+    getTvQuotes(tvTickers).catch(err => {
+      logger.warn({ err: (err as Error).message }, "indicesBoard: TradingView batch failed; falling back to Yahoo");
+      return new Map();
+    }),
+  ]);
 
   // Fan out one daily + one intraday call per instrument in parallel. The
   // Yahoo helpers are already wrapped in 6s hard timeouts, so a single
@@ -429,7 +525,8 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
       ? intraK
       : await fetchIntraday(cfg.yahoo, "5m", "1d").catch(() => null);
     const kite = cfg.kiteYahooKey && kiteMap ? kiteMap.get(cfg.kiteYahooKey) : undefined;
-    const row = buildItem(cfg, daily, intra, kite);
+    const tv = cfg.tvSymbol ? tvMap.get(cfg.tvSymbol) : undefined;
+    const row = buildItem(cfg, daily, intra, tv, kite);
     if (cfg.proxyNote && cfg.yahooDaily && cfg.yahooDaily !== cfg.yahoo) {
       row.notes.push(cfg.proxyNote);
     }
@@ -451,8 +548,10 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
         category: "GLOBAL",
         yahooSymbol: "NSEIX:NIFTY1!",
         currency: "₹",
-        source: "yahoo", // not Yahoo — but the source enum has only kite|yahoo|null;
-                         // the diagnostic note records the true provenance.
+        source: "tv", // TradingView · NSEIX:NIFTY1! — same provenance as the
+                      // generalised tvQuotes path; pill freshness is driven
+                      // by the real update_mode below, never hardcoded.
+        tvUpdateMode: g.updateMode,
         asOf: g.asOf,
         ltp: g.price,
         prevClose: g.previousClose,

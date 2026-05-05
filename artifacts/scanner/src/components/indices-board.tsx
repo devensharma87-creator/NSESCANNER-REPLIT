@@ -280,8 +280,21 @@ function InstrumentCard({ item }: { item: IndexBoardItem }) {
           <div className="font-semibold text-base leading-tight truncate">{item.name}</div>
           <div className="text-[11px] font-mono text-muted-foreground/80 mt-1 flex items-center gap-1.5 flex-wrap">
             <span>{item.yahooSymbol}</span>
-            {item.source === "kite"  && <span className="px-1 rounded bg-emerald-500/15 text-emerald-500 text-[10px] font-bold tracking-wide">LIVE</span>}
-            {item.source === "yahoo" && <span className="px-1 rounded bg-muted text-muted-foreground text-[10px] font-bold tracking-wide">DELAYED</span>}
+            {item.source === "kite"  && <span className="px-1 rounded bg-emerald-500/15 text-emerald-500 text-[10px] font-bold tracking-wide" title="Live Zerodha tick">LIVE</span>}
+            {item.source === "tv"    && (() => {
+              // TradingView freshness honesty: render based on update_mode.
+              //   streaming             → green "LIVE"     (true real-time)
+              //   delayed_streaming_600 → amber "LIVE 10m" (live-ticking, ~10min behind)
+              //   delayed_streaming_900 → amber "LIVE 15m" (live-ticking, ~15min behind)
+              //   anything else         → amber "TV"       (unknown delay, but TV-sourced)
+              const m = item.tvUpdateMode ?? "";
+              if (m === "streaming") {
+                return <span className="px-1 rounded bg-emerald-500/15 text-emerald-500 text-[10px] font-bold tracking-wide" title="Real-time TradingView tick">LIVE</span>;
+              }
+              const mins = m === "delayed_streaming_600" ? "10m" : m === "delayed_streaming_900" ? "15m" : "";
+              return <span className="px-1 rounded bg-amber-500/15 text-amber-500 text-[10px] font-bold tracking-wide" title={`TradingView live-streaming, ${mins ? `~${mins} delayed by exchange policy` : "delay unknown"}`}>{mins ? `LIVE ${mins}` : "TV"}</span>;
+            })()}
+            {item.source === "yahoo" && <span className="px-1 rounded bg-muted text-muted-foreground text-[10px] font-bold tracking-wide" title="Yahoo Finance fallback (~15min delayed)">DELAYED</span>}
             {item.source === null    && <span className="px-1 rounded bg-rose-500/15 text-rose-500 text-[10px] font-bold tracking-wide">NO DATA</span>}
           </div>
         </div>

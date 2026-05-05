@@ -16,8 +16,10 @@ export interface IndexBoardItem {
   category: IndexBoardItemCategory;
   yahooSymbol: string;
   currency: string;
-  /** Origin of LTP/OHLC. kite = live, yahoo = ~15min delayed. */
+  /** Origin of LTP/OHLC. kite = live Zerodha tick (Indian indices), tv = TradingView scanner quote, yahoo = Yahoo Finance fallback. */
   source?: IndexBoardItemSource;
+  /** When source = tv, the TradingView update_mode for this row: 'streaming' (real-time), 'delayed_streaming_600' (~10min delayed but live-updating), 'delayed_streaming_900' (~15min delayed but live-updating), 'endofday'/'delayed' (snapshot). Used by the UI to render an accurate freshness pill. */
+  tvUpdateMode?: string | null;
   /** Last update unix seconds */
   asOf?: number;
   ltp?: number;
