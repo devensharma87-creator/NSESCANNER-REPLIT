@@ -13,9 +13,9 @@ import { fetchMe, type MeResponse, type AllowedTabKey, type SubscriberInfo, type
 
 type AuthState =
   | { kind: "loading" }
-  | { kind: "guest" }
-  | { kind: "owner"; allowedTabs: AllowedTabKey[] }
-  | { kind: "subscriber"; subscriber: SubscriberInfo }
+  | { kind: "guest"; publicMode: boolean }
+  | { kind: "owner"; allowedTabs: AllowedTabKey[]; publicMode: boolean }
+  | { kind: "subscriber"; subscriber: SubscriberInfo; publicMode: boolean }
   | { kind: "error"; message: string };
 
 interface AuthCtx {
@@ -24,6 +24,10 @@ interface AuthCtx {
   status: UserStatus | null;
   allowedTabs: AllowedTabKey[];
   subscriber: SubscriberInfo | null;
+  /** True iff owner has flipped on public-access mode. When true the
+   *  whole site renders for any visitor (no cookie required) and the
+   *  amber relock banner is shown. */
+  publicMode: boolean;
   refresh: () => Promise<void>;
 }
 
@@ -35,15 +39,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const me: MeResponse = await fetchMe();
+      const publicMode = me.publicMode === true;
       if (!me.authenticated) {
-        setState({ kind: "guest" });
+        setState({ kind: "guest", publicMode });
         return;
       }
       if (me.role === "owner") {
-        setState({ kind: "owner", allowedTabs: me.allowedTabs });
+        setState({ kind: "owner", allowedTabs: me.allowedTabs, publicMode });
         return;
       }
-      setState({ kind: "subscriber", subscriber: me.user });
+      setState({ kind: "subscriber", subscriber: me.user, publicMode });
     } catch (err) {
       setState({ kind: "error", message: err instanceof Error ? err.message : "Cannot reach server" });
     }
@@ -62,7 +67,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       state.kind === "owner" ? [...ALLOWED_TAB_KEYS] :
       state.kind === "subscriber" ? state.subscriber.allowedTabs : [];
     const subscriber = state.kind === "subscriber" ? state.subscriber : null;
-    return { state, role, status, allowedTabs, subscriber, refresh };
+    const publicMode =
+      state.kind === "guest" || state.kind === "owner" || state.kind === "subscriber"
+        ? state.publicMode
+        : false;
+    return { state, role, status, allowedTabs, subscriber, publicMode, refresh };
   }, [state, refresh]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

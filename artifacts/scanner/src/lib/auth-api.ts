@@ -75,9 +75,9 @@ export interface SubscriberInfo {
 }
 
 export type MeResponse =
-  | { authenticated: false; error?: string }
-  | { authenticated: true; role: "owner"; allowedTabs: AllowedTabKey[] }
-  | { authenticated: true; role: "subscriber"; user: SubscriberInfo };
+  | { authenticated: false; error?: string; publicMode?: boolean }
+  | { authenticated: true; role: "owner"; allowedTabs: AllowedTabKey[]; publicMode?: boolean }
+  | { authenticated: true; role: "subscriber"; user: SubscriberInfo; publicMode?: boolean };
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(apiUrl(path), {
@@ -124,6 +124,19 @@ export const userSignup = (input: { email: string; password: string; fullName: s
 
 export const logout = () =>
   jsonFetch<{ ok: true }>("/auth/logout", { method: "POST" });
+
+// ----- public-access toggle -----
+// Read is unauthenticated. Write requires owner password (or existing
+// owner cookie) — the server enforces this; the client just supplies
+// whatever password the user typed into the toggle modal.
+export const fetchPublicMode = () =>
+  jsonFetch<{ enabled: boolean }>("/auth/public-mode");
+
+export const setPublicMode = (enabled: boolean, password: string) =>
+  jsonFetch<{ ok: true; enabled: boolean }>("/auth/public-mode", {
+    method: "POST",
+    body: JSON.stringify({ enabled, password }),
+  });
 
 // ----- admin (owner-only) -----
 

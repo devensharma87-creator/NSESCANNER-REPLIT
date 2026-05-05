@@ -10,13 +10,14 @@ import { SignalBadge } from "@/components/ui/signal-badge";
 import { ThemeSwitcher, applyTheme, loadInitialTheme } from "@/components/theme-switcher";
 import { useAuth } from "@/hooks/use-auth";
 import { logout, type AllowedTabKey } from "@/lib/auth-api";
+import { PublicModeBanner } from "@/components/public-mode-banner";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { role, allowedTabs, subscriber, refresh: refreshAuth } = useAuth();
+  const { role, allowedTabs, subscriber, publicMode, refresh: refreshAuth } = useAuth();
 
   const { data: allStocks } = useListStocks(undefined, {
     query: { staleTime: 30_000, queryKey: getListStocksQueryKey() },
@@ -147,8 +148,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, [location]);
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary">
-      <div className="sticky top-0 z-50 w-full bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/65 border-b border-border">
+    <div className={`min-h-[100dvh] flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary ${publicMode ? "pt-9" : ""}`}>
+      {publicMode && <PublicModeBanner />}
+      <div className={`sticky ${publicMode ? "top-9" : "top-0"} z-40 w-full bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/65 border-b border-border`}>
       <header className="w-full border-b border-border">
         <div className="w-full px-4 flex h-20 items-center gap-4 min-w-0">
           <Link

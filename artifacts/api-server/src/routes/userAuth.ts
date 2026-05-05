@@ -28,6 +28,7 @@ import {
   getSession,
   requireSubscriberOrOwner,
 } from "../lib/userAuth";
+import { isPublicAccessEnabled } from "../lib/publicAccess";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -158,9 +159,22 @@ router.post("/auth/user-login", userLoginLimiter, async (req, res) => {
 // gate here. Returns 200 with `{authenticated:false}` rather than 401 so the
 // frontend can render the LoginGate without treating it as an error.
 router.get("/auth/me", async (req, res) => {
+  // Public-access mode short-circuits identity: every visitor (even
+  // without a cookie) is treated as the owner so the full UI renders.
+  // We surface `publicMode: true` so the client can render the amber
+  // "site is publicly accessible" banner with a relock control.
+  if (isPublicAccessEnabled()) {
+    res.json({
+      authenticated: true,
+      role: "owner",
+      allowedTabs: [...ALLOWED_TAB_KEYS],
+      publicMode: true,
+    });
+    return;
+  }
   const s = getSession(req);
   if (!s) {
-    res.json({ authenticated: false });
+    res.json({ authenticated: false, publicMode: false });
     return;
   }
   if (s.role === "owner") {
@@ -169,6 +183,7 @@ router.get("/auth/me", async (req, res) => {
       role: "owner",
       // Owner has access to every tab (UI uses this to skip filtering).
       allowedTabs: [...ALLOWED_TAB_KEYS],
+      publicMode: false,
     });
     return;
   }
@@ -192,6 +207,7 @@ router.get("/auth/me", async (req, res) => {
       subscriptionExpiresAt: user.subscriptionExpiresAt?.toISOString() ?? null,
       amountPaise: user.amountPaise ?? null,
     },
+    publicMode: false,
   });
 });
 

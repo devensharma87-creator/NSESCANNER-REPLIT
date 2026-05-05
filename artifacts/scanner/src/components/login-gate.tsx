@@ -16,9 +16,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Activity, Lock, AlertTriangle, UserPlus, LogIn, Shield, Clock, Ban } from "lucide-react";
+import { Activity, Lock, AlertTriangle, UserPlus, LogIn, Shield, Clock, Ban, Globe } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { ownerLogin, userLogin, userSignup, logout } from "@/lib/auth-api";
+import { ownerLogin, userLogin, userSignup, logout, setPublicMode } from "@/lib/auth-api";
 
 type Mode = "signin" | "signup" | "admin";
 
@@ -98,6 +98,36 @@ function AuthForm() {
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
+
+  // ── Public-access toggle (collapsible owner-only control) ──────────
+  // Tucked at the bottom of the form behind a "Make site public" link.
+  // Expands into a small password field + Enable button. On success the
+  // server flips the disk-persisted flag and refresh() makes /auth/me
+  // return synthetic owner identity → the LoginGate renders children.
+  const [publicShowForm, setPublicShowForm] = useState(false);
+  const [publicPassword, setPublicPassword] = useState("");
+  const [publicSubmitting, setPublicSubmitting] = useState(false);
+  const [publicError, setPublicError] = useState<string | null>(null);
+
+  async function enablePublicMode(e: FormEvent) {
+    e.preventDefault();
+    if (!publicPassword) {
+      setPublicError("Owner password required");
+      return;
+    }
+    setPublicSubmitting(true);
+    setPublicError(null);
+    try {
+      await setPublicMode(true, publicPassword);
+      setPublicPassword("");
+      setPublicShowForm(false);
+      await refresh();
+    } catch (err) {
+      setPublicError(err instanceof Error ? err.message : "Failed to enable public access");
+    } finally {
+      setPublicSubmitting(false);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -221,6 +251,65 @@ function AuthForm() {
               Annual subscription is Rs. 5,500/-. New accounts start in <span className="font-semibold text-amber-500">pending</span> state until the administrator verifies your payment.
             </p>
           )}
+
+          {/* Owner-only public-access toggle. Collapsed by default — only
+              the owner (knowing the password) can expand and submit. */}
+          <div className="border-t pt-3">
+            {publicShowForm ? (
+              <form onSubmit={enablePublicMode} className="space-y-2">
+                <Label htmlFor="publicPassword" className="flex items-center gap-1.5 text-xs">
+                  <Globe className="h-3.5 w-3.5 text-amber-500" />
+                  Owner password to enable public access
+                </Label>
+                <Input
+                  id="publicPassword"
+                  type="password"
+                  autoFocus
+                  value={publicPassword}
+                  onChange={e => setPublicPassword(e.target.value)}
+                  placeholder="Same as Admin password"
+                  data-testid="input-public-password"
+                />
+                <p className="text-[11px] text-amber-600 dark:text-amber-500 leading-snug">
+                  Anyone with the URL will be able to browse the site without logging in until you click "Lock again" in the banner.
+                </p>
+                {publicError && (
+                  <div className="flex items-start gap-2 text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded p-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{publicError}</span>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    className="flex-1 border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                    disabled={publicSubmitting}
+                    data-testid="button-public-enable"
+                  >
+                    {publicSubmitting ? "Please wait…" : "Make site public"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => { setPublicShowForm(false); setPublicPassword(""); setPublicError(null); }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setPublicShowForm(true)}
+                className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-amber-600 transition-colors"
+                data-testid="button-public-toggle-open"
+              >
+                <Globe className="h-3.5 w-3.5" />
+                Owner: temporarily make this site public
+              </button>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

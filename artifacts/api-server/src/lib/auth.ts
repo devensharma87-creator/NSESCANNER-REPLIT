@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import crypto from "node:crypto";
 import { logger } from "./logger";
 import { getSession, getUserById, getEffectiveStatus } from "./userAuth";
+import { isPublicAccessEnabled } from "./publicAccess";
 
 const COOKIE_NAME = "scanner_session";
 const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -44,6 +45,10 @@ export function clearSessionCookie(res: Response): void {
  * guaranteed by cookie-parser using SESSION_SECRET.
  */
 export function isAuthenticated(req: Request): boolean {
+  // Public-access mode treats every request as authenticated, so the
+  // /auth/status endpoint correctly tells the client to render the app
+  // shell instead of the login form.
+  if (isPublicAccessEnabled()) return true;
   const v = (req.signedCookies as Record<string, unknown> | undefined)?.[COOKIE_NAME];
   return typeof v === "string" && v.length > 0;
 }
@@ -104,6 +109,11 @@ export async function requireAuth(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
+  // Owner-toggled public-access mode short-circuits the gate entirely.
+  // When ON, every /api/* request passes regardless of cookie. The
+  // toggle endpoint itself is in PUBLIC_ROUTES (under /api/auth/) so
+  // the owner can always relock by hitting it with the password.
+  if (isPublicAccessEnabled()) return next();
   if (isPublicRoute(req.originalUrl, req.method)) return next();
   const sess = getSession(req);
   if (!sess) {
@@ -141,5 +151,12 @@ export function logAuthBootState(): void {
     );
   } else {
     logger.info("Auth gate enabled (APP_ACCESS_PASSWORD configured)");
+  }
+  if (isPublicAccessEnabled()) {
+    logger.warn(
+      "Boot state: PUBLIC ACCESS MODE is ON — auth gate is bypassed for /api/*. " +
+        "Disable via the in-app banner (owner password) or " +
+        "POST /api/auth/public-mode { enabled: false, password }.",
+    );
   }
 }
