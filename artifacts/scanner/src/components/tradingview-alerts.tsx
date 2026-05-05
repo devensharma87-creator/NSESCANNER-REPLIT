@@ -250,7 +250,7 @@ export function TradingViewAlerts() {
                   {copied === "url" ? <Check className="w-3 h-3 text-signal-strong-buy" /> : <Copy className="w-3 h-3" />}
                 </Button>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-1 leading-snug">
                 Webhook alerts require TradingView <span className="text-foreground">Premium / Pro+</span>. The engine accepts the canonical fields plus extended ones —
                 <code className="font-mono"> side, symbol, price, sl, t1, t2, rr, urgency, tags, rationale, setupKey, strategy, timeframe, note</code>.
               </p>
@@ -279,7 +279,7 @@ export function TradingViewAlerts() {
               </div>
             </div>
 
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground leading-snug">
               Alerts appear here within ~10 seconds. Last 100 alerts kept in memory; older ones live in the database.
             </p>
           </div>

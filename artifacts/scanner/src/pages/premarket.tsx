@@ -132,7 +132,7 @@ export default function PreMarket() {
               <ScenarioCard key={s.kind} scenario={s} />
             ))}
           </div>
-          <p className="text-[10px] text-muted-foreground/70 mt-2 italic">
+          <p className="text-xs text-muted-foreground/70 mt-2 italic leading-snug">
             Pros prepare all three plans, then trade the one the market actually picks. Probability is a heuristic from overnight cues + CPR width — never a forecast.
           </p>
         </section>
@@ -171,7 +171,7 @@ export default function PreMarket() {
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
             {data.indexLevels.map(lv => <IndexLevelsCard key={lv.symbol} lv={lv} />)}
           </div>
-          <p className="text-[10px] text-muted-foreground/70 mt-2 italic">
+          <p className="text-xs text-muted-foreground/70 mt-2 italic leading-snug">
             Pivots from previous-session OHLC. CPR width — narrow (&lt;0.4%) tends to precede a trending day, wide (&gt;1.0%) precedes range/chop.
           </p>
         </section>
@@ -186,7 +186,7 @@ export default function PreMarket() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {data.optionSnapshots.map(o => <OptionSnapshotCard key={o.underlying} snap={o} />)}
           </div>
-          <p className="text-[10px] text-muted-foreground/70 mt-2 italic">
+          <p className="text-xs text-muted-foreground/70 mt-2 italic leading-snug">
             Expected move = ATM straddle ÷ spot. Max-pain = strike where option writers lose least. Highest CE-OI is intraday resistance, highest PE-OI is intraday support.
           </p>
         </section>
@@ -337,7 +337,7 @@ export default function PreMarket() {
         </section>
       ) : null}
 
-      <p className="text-[10px] text-muted-foreground/70 font-mono text-center pt-4">
+      <p className="text-xs text-muted-foreground/70 font-mono text-center pt-4">
         Data refreshes every 60s · Auto-detects pre/post mode by IST clock · Last updated {dataUpdatedAt ? formatDistanceToNow(dataUpdatedAt, { addSuffix: true }) : "—"}
       </p>
 
@@ -620,7 +620,7 @@ function OptionSnapshotCard({ snap }: { snap: OptSnap }) {
         </div>
 
         {snap.interpretation && (
-          <p className="text-[11px] text-foreground/80 mt-3 pt-3 border-t border-border/40 leading-relaxed">
+          <p className="text-xs text-foreground/80 mt-3 pt-3 border-t border-border/40 leading-relaxed">
             {snap.interpretation}
           </p>
         )}

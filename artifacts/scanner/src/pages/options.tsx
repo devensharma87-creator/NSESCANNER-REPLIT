@@ -1031,7 +1031,7 @@ function ReportTab() {
                   </tbody>
                 </table>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+              <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
                 Win rate counts only decided trades (T1/T2 hit vs stopped). Signals that ran past 15:30 IST without resolving are tagged EXPIRED and excluded from the rate. MFE / MAE are the maximum points the underlying moved in your favour / against you from the locked entry.
               </p>
             </CardContent>

@@ -244,7 +244,7 @@ export default function IndicesBoard({ embedded = false }: { embedded?: boolean 
         </section>
       )}
 
-      <p className="text-[11px] text-muted-foreground mt-6 leading-relaxed">
+      <p className="text-xs text-muted-foreground mt-6 leading-relaxed">
         Pivots / supports / resistances are classic floor-trader levels derived from the previous session's OHLC.
         VAH / VAL / POC come from a 24-bin volume profile over the most recent ~6.5 hours of intraday bars.
         Daily EMAs are computed on closing prices and require ≥ 200 daily bars for EMA200 to populate.

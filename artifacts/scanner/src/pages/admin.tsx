@@ -387,7 +387,7 @@ function EditUserDialog({ user, onClose, onSaved }: {
                 );
               })}
             </div>
-            <p className="text-[11px] text-muted-foreground">Only the tabs ticked above will appear in this subscriber's navigation. Anything else returns 403 even via direct URL.</p>
+            <p className="text-xs text-muted-foreground leading-snug">Only the tabs ticked above will appear in this subscriber's navigation. Anything else returns 403 even via direct URL.</p>
           </div>
 
           {error && <div className="col-span-2 text-sm text-red-500">{error}</div>}

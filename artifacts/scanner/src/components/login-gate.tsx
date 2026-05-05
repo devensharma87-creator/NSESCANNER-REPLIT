@@ -195,7 +195,7 @@ function AuthForm() {
               <div className="space-y-1">
                 <Label htmlFor="adminPassword" className="flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" /> Admin access password</Label>
                 <Input id="adminPassword" type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} autoFocus data-testid="input-admin-password" />
-                <p className="text-[11px] text-muted-foreground mt-1">Owner-only. This is the master site password, not a user account.</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-snug">Owner-only. This is the master site password, not a user account.</p>
               </div>
             )}
 
@@ -217,7 +217,7 @@ function AuthForm() {
           </form>
 
           {mode === "signup" && (
-            <p className="text-[11px] text-muted-foreground leading-relaxed border-t pt-3">
+            <p className="text-xs text-muted-foreground leading-relaxed border-t pt-3">
               Annual subscription is Rs. 5,500/-. New accounts start in <span className="font-semibold text-amber-500">pending</span> state until the administrator verifies your payment.
             </p>
           )}

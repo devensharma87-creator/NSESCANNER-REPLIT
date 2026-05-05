@@ -872,7 +872,7 @@ function TrackerTab() {
                     <Line type="monotone" dataKey="netFlow"     stroke="#a855f7" strokeWidth={2.5} dot={{ r: 2.5 }} name="Net flow (PE−CE)" />
                   </LineChart>
                 </ResponsiveContainer>
-                <p className="text-[10px] text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground mt-1 leading-snug">
                   Positive net flow = put writers stepping in (bullish). Negative = call writers in control (bearish).
                 </p>
               </div>
@@ -1426,7 +1426,7 @@ function InsightsTab() {
                 </span>
               </button>
               {pickerOpen && (
-                <div className="absolute z-50 left-0 mt-1.5 w-[320px] max-h-[60vh] overflow-y-auto rounded-md border border-border bg-popover shadow-2xl">
+                <div className="absolute z-50 left-0 mt-1.5 w-[320px] max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-md border border-border bg-popover shadow-2xl">
                   <div className="sticky top-0 bg-popover border-b border-border p-2">
                     <Input
                       autoFocus
@@ -1694,7 +1694,7 @@ function InsightsTab() {
                     extra wrapper added 40px of vertical chrome (header +
                     padding) for a single sentence. Folding it in keeps the
                     sidebar dense without losing the context. */}
-                <p className="text-[11px] text-foreground/75 leading-relaxed pt-1.5 border-t border-border/40">
+                <p className="text-xs text-foreground/75 leading-relaxed pt-1.5 border-t border-border/40">
                   {data.analysis}
                 </p>
                 {sentimentExpanded && (
@@ -1774,7 +1774,7 @@ function InsightsTab() {
                     <div className="text-right">{fmt(atm.ceVega, 2)}</div>
                     <div className="text-right">{fmt(atm.peVega, 2)}</div>
                   </div>
-                  <p className="text-[10px] text-muted-foreground leading-snug pt-1 border-t border-border">
+                  <p className="text-xs text-muted-foreground leading-snug pt-1 border-t border-border">
                     Theta is the rupee value lost per day (long options bleed time).
                   </p>
                 </CardContent>

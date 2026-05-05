@@ -387,8 +387,26 @@ html.theme-ocean {
   * {
     @apply border-border;
   }
+  /*
+   * Typography baseline (WCAG-friendly, density-preserving).
+   *   - line-height: 1.6  → comfortable for any actual paragraph copy
+   *     (modal bodies, descriptions, error states, narrative blocks)
+   *     while leaving dashboard chrome that explicitly opts into
+   *     `leading-tight` / `leading-none` unaffected.
+   *   - letter-spacing: -0.005em  → Inter looks slightly tight at small
+   *     sizes; this nudges body text to feel less compressed without
+   *     touching tabular-nums / mono blocks.
+   *   - text-rendering: optimizeLegibility → enables ligatures & kerning
+   *     for Inter on body copy.
+   * Trading-dashboard density (text-[9px]/[10px]/[11px] on labels,
+   * pills, axis ticks) is preserved — those elements set their own
+   * leading-tight / leading-none and aren't paragraph copy.
+   */
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    line-height: 1.6;
+    letter-spacing: -0.005em;
+    text-rendering: optimizeLegibility;
   }
 }
 

@@ -374,7 +374,7 @@ function ContextHeader({ bundle }: { bundle: StrategyBundle }) {
               <Badge variant="outline" className="font-mono text-[10px]">{bundle.daysToExpiry} days to expiry</Badge>
             </div>
             {bundle.analytics?.interpretation && (
-              <p className="text-[11px] text-muted-foreground font-mono max-w-3xl">{bundle.analytics.interpretation}</p>
+              <p className="text-xs text-muted-foreground font-mono max-w-3xl leading-snug">{bundle.analytics.interpretation}</p>
             )}
           </div>
           <div className="text-right space-y-1">
@@ -536,14 +536,14 @@ function StrategyCard({
                 </Badge>
               )}
             </div>
-            <p className="text-[11px] text-muted-foreground">{s.outlook}</p>
+            <p className="text-xs text-muted-foreground leading-snug">{s.outlook}</p>
             {strikeSummary && (
               <p className="text-[11px] font-mono text-foreground/90 truncate" title={strikeSummary}>
                 <span className="text-muted-foreground uppercase mr-1">Legs:</span>{strikeSummary}
               </p>
             )}
             {s.rationale && (
-              <p className="text-[11px] font-mono text-amber-300/90">↳ {s.rationale}</p>
+              <p className="text-xs font-mono text-amber-300/90 leading-snug">↳ {s.rationale}</p>
             )}
           </div>
           <Button size="sm" variant="ghost" onClick={onToggle} className="h-7 px-2 -mr-2 -mt-1">
