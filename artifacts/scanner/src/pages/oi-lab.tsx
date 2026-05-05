@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Legend, ReferenceLine,
-  BarChart, Bar, Cell, PieChart, Pie, ComposedChart, AreaChart, Area,
+  BarChart, Bar, Cell, PieChart, Pie, ComposedChart, AreaChart, Area, LabelList,
 } from "recharts";
 import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, ChevronRight, Info } from "lucide-react";
 
@@ -1361,13 +1361,22 @@ function InsightsTab() {
   // contributing 0, exactly as the chart shows them). Single source of
   // truth — no possibility of card and chart disagreeing.
   const windowedTotals = useMemo(() => {
-    let call = 0, put = 0, missing = 0;
+    let call = 0, put = 0, missing = 0, movedStrikes = 0;
     for (const r of oiBars) {
       call += r.ceOiChg;
       put  += r.peOiChg;
       if (r.missingBaseline) missing++;
+      else if (r.ceOiChg !== 0 || r.peOiChg !== 0) movedStrikes++;
     }
-    return { call, put, missing };
+    // `phantom` flags the pathological case where every per-strike Δ is
+    // exactly zero (not "balanced offsetting writes" — literally nothing
+    // changed). On a live market this only happens when the picked
+    // baseline snapshot was taken from the same chain-cache hit as the
+    // current poll. The card uses this to swap the empty bars for an
+    // informative "no movement vs baseline" state instead of two
+    // confusing zero-height bars labeled "0".
+    const phantom = oiBars.length > 0 && movedStrikes === 0 && missing === 0;
+    return { call, put, missing, movedStrikes, phantom };
   }, [oiBars]);
 
   const pcrPie = useMemo(() => {
@@ -2218,50 +2227,114 @@ function InsightsTab() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-0">
-                {!data ? <Skeleton className="h-28" /> : (
-                  <ResponsiveContainer width="100%" height={120}>
-                    {/*
-                      Two separate Bar series (one Call, one Put) keyed off the
-                      same single-row dataset so the tooltip naturally shows
-                      BOTH values together on hover with proper "Call ΔOI" /
-                      "Put ΔOI" labels — instead of a generic "value : N" entry
-                      that doesn't tell you which side the number belongs to.
-                    */}
-                    <BarChart data={[{ name: "OI Δ", call: windowedTotals.call, put: windowedTotals.put }]}>
-                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                      <YAxis hide />
-                      <RTooltip
-                        contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: 4, fontSize: 11, padding: "6px 10px" }}
-                        labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
-                        itemStyle={{ color: "#e4e4e7", padding: 0, lineHeight: 1.6 }}
-                        cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                        formatter={(v: number, name: string) => [fmtNum(v), name]}
-                        labelFormatter={() =>
-                          tfResolved.mode === "all" || tfResolved.mode === "fallback_open"
-                            ? "Intraday change (since 9:15)"
-                            : `Change in last ${TIMEFRAMES.find(t => t.v === timeframe)!.l.replace(/^Last\s+/i, "")}`
-                        }
-                      />
-                      <Bar dataKey="call" name="Call ΔOI" radius={[4, 4, 0, 0]}
-                        fill={windowedTotals.call >= 0 ? "#dc2626" : "#fca5a5"} />
-                      <Bar dataKey="put" name="Put ΔOI" radius={[4, 4, 0, 0]}
-                        fill={windowedTotals.put >= 0 ? "#16a34a" : "#86efac"} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-                {data && (
-                  <>
-                    <div className="flex justify-between text-[10px] font-mono mt-1">
-                      <span className={windowedTotals.call >= 0 ? "text-red-400" : "text-red-300"}>CALL {fmtNum(windowedTotals.call)}</span>
-                      <span className={windowedTotals.put  >= 0 ? "text-green-400" : "text-green-300"}>PUT {fmtNum(windowedTotals.put)}</span>
-                    </div>
-                    {(tfResolved.mode === "exact" || tfResolved.mode === "approx") && windowedTotals.missing > 0 && (
-                      <div className="text-[9px] font-mono mt-0.5 text-amber-300/80 leading-tight">
-                        {windowedTotals.missing} strike{windowedTotals.missing === 1 ? "" : "s"} excluded (no baseline yet)
+                {!data ? <Skeleton className="h-28" /> : (() => {
+                  // Compact value formatter for bar labels — Cr at >=1Cr,
+                  // Lakhs at >=1L, raw otherwise. Includes explicit + sign on
+                  // positive values so the user can read direction at a glance.
+                  const labelFmt = (v: number): string => {
+                    if (!Number.isFinite(v) || v === 0) return "0";
+                    const abs = Math.abs(v);
+                    const sign = v > 0 ? "+" : "-";
+                    if (abs >= 1e7) return `${sign}${(abs / 1e7).toFixed(2)}Cr`;
+                    if (abs >= 1e5) return `${sign}${(abs / 1e5).toFixed(2)}L`;
+                    return `${sign}${fmtNum(abs)}`;
+                  };
+                  const isWindowed = tfResolved.mode === "exact" || tfResolved.mode === "approx";
+                  const baselineDate = tfResolved.baselineUsedAt ? new Date(tfResolved.baselineUsedAt) : null;
+                  const minutesAgo = baselineDate
+                    ? Math.max(0, Math.round((Date.now() - baselineDate.getTime()) / 60_000))
+                    : null;
+                  // "Phantom" baseline = picked snap is so close to "now" that
+                  // every per-strike Δ rounds to literal zero. Show an
+                  // informative state instead of two empty bars labeled "0".
+                  const showPhantom = isWindowed && windowedTotals.phantom;
+                  return (
+                    <>
+                      {isWindowed && baselineDate && (
+                        <div className="text-[10px] font-mono text-muted-foreground mb-1 leading-tight">
+                          vs <span className="text-zinc-300">{baselineDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</span>
+                          {minutesAgo != null && ` · ${minutesAgo}m ago`}
+                          {tfResolved.mode === "approx" && <span className="text-amber-400/70"> · approx</span>}
+                        </div>
+                      )}
+                      {showPhantom ? (
+                        <div className="h-[100px] flex items-center justify-center text-[11px] text-muted-foreground text-center px-2 leading-snug">
+                          No OI movement vs baseline yet.<br />
+                          Pick a longer window or wait a tick.
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={110}>
+                          {/*
+                            Single-row dataset with two Bar series (Call, Put)
+                            so the tooltip shows both values labeled and the
+                            LabelList renders the magnitude above each bar
+                            (StockMojo-style readable Δ at a glance).
+                          */}
+                          <BarChart
+                            data={[{ name: "OI Δ", call: windowedTotals.call, put: windowedTotals.put }]}
+                            margin={{ top: 22, right: 12, left: 12, bottom: 0 }}
+                          >
+                            <XAxis dataKey="name" hide />
+                            <YAxis hide domain={["auto", "auto"]} />
+                            <RTooltip
+                              contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: 4, fontSize: 11, padding: "6px 10px" }}
+                              labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
+                              itemStyle={{ color: "#e4e4e7", padding: 0, lineHeight: 1.6 }}
+                              cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                              formatter={(v: number, name: string) => [fmtNum(v), name]}
+                              labelFormatter={() =>
+                                isWindowed
+                                  ? `Change vs ${baselineDate?.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false }) ?? "baseline"}`
+                                  : "Intraday change (since 9:15)"
+                              }
+                            />
+                            <Bar dataKey="call" name="Call ΔOI" radius={[3, 3, 0, 0]}
+                              fill={windowedTotals.call >= 0 ? "#dc2626" : "#fca5a5"}>
+                              <LabelList
+                                dataKey="call"
+                                position="top"
+                                formatter={labelFmt}
+                                style={{ fontSize: 11, fontWeight: 600, fill: "#fafafa" }}
+                              />
+                            </Bar>
+                            <Bar dataKey="put" name="Put ΔOI" radius={[3, 3, 0, 0]}
+                              fill={windowedTotals.put >= 0 ? "#16a34a" : "#86efac"}>
+                              <LabelList
+                                dataKey="put"
+                                position="top"
+                                formatter={labelFmt}
+                                style={{ fontSize: 11, fontWeight: 600, fill: "#fafafa" }}
+                              />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                      {/* CALL/PUT magnitude readout — bumped from text-[10px]
+                          to text-xs and given its own row per side so the
+                          numbers are actually legible (the user's chief
+                          complaint about the prior tiny single-line layout). */}
+                      <div className="grid grid-cols-2 gap-2 mt-1">
+                        <div className="flex flex-col items-start font-mono">
+                          <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Call</span>
+                          <span className={`text-xs ${windowedTotals.call > 0 ? "text-red-400" : windowedTotals.call < 0 ? "text-red-300" : "text-zinc-500"}`}>
+                            {labelFmt(windowedTotals.call)}
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-end font-mono">
+                          <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Put</span>
+                          <span className={`text-xs ${windowedTotals.put > 0 ? "text-green-400" : windowedTotals.put < 0 ? "text-green-300" : "text-zinc-500"}`}>
+                            {labelFmt(windowedTotals.put)}
+                          </span>
+                        </div>
                       </div>
-                    )}
-                  </>
-                )}
+                      {isWindowed && windowedTotals.missing > 0 && (
+                        <div className="text-[9px] font-mono mt-0.5 text-amber-300/80 leading-tight">
+                          {windowedTotals.missing} strike{windowedTotals.missing === 1 ? "" : "s"} excluded (no baseline yet)
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </CardContent>
             </Card>
 

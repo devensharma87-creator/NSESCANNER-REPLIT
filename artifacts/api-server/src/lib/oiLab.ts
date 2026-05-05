@@ -744,14 +744,35 @@ function pushOiInsightsSnapshot(insights: OiInsightsResponse): void {
     pe: Object.fromEntries(insights.strikes.map(s => [s.strike, s.peOi])),
   };
   const buf = OI_INSIGHTS_HISTORY.get(key) ?? [];
-  // De-dupe: if the most recent snapshot has the same `ts` (the chain
-  // generator emits the same `generatedAt` for very close concurrent
-  // callers) we replace rather than append, so the buffer measures real
-  // wall-clock progress, not call frequency.
-  if (buf.length > 0 && buf[buf.length - 1]!.ts === ts) {
-    buf[buf.length - 1] = snap;
-  } else {
+  // Order-preserving insert. `resolveWindowDelta` relies on the buffer
+  // being sorted by `ts` ascending (so `candidates[0]` is oldest and the
+  // last-older-than-cutoff search via filter+pop returns the true
+  // latest-≤-cutoff baseline). A naive `buf.push(snap)` would break that
+  // invariant under concurrent requests: if the chain fetch for an older
+  // poll resolves AFTER a newer one (out-of-order async resolution, no
+  // in-flight dedup at fetchKiteOptionChain), the older `ts` would land
+  // at the end of the array and corrupt baseline picking.
+  //
+  // The buffer is bounded to OI_INSIGHTS_HISTORY_MAX (450), and the
+  // common case is "new ts >= every existing ts", so we walk from the
+  // tail and bail at the first older entry — O(1) amortised on the hot
+  // path, O(n) worst case when stale ticks land. Same-ts entries get
+  // MERGED (strike-map union) anywhere in the buffer, not just at the
+  // tail — this protects against the strikes=20 → strikes=5 shrink bug
+  // even when the duplicate ts isn't the most-recent slot.
+  let insertIdx = buf.length;
+  while (insertIdx > 0 && buf[insertIdx - 1]!.ts > ts) insertIdx--;
+  if (insertIdx > 0 && buf[insertIdx - 1]!.ts === ts) {
+    const prev = buf[insertIdx - 1]!;
+    buf[insertIdx - 1] = {
+      ts,
+      ce: { ...prev.ce, ...snap.ce },
+      pe: { ...prev.pe, ...snap.pe },
+    };
+  } else if (insertIdx === buf.length) {
     buf.push(snap);
+  } else {
+    buf.splice(insertIdx, 0, snap);
   }
   const cutoff = ts - OI_INSIGHTS_HISTORY_WINDOW_MS;
   while (buf.length > 0 && buf[0]!.ts < cutoff) buf.shift();
@@ -792,15 +813,35 @@ function resolveWindowDelta(
     };
   }
   const cutoff = nowMs - windowMs;
-  // Closest-to-cutoff baseline: gives the best approximation of "exactly
-  // N minutes ago" even when sampling is sparse (network hiccup / tab
-  // throttled). Far better than picking first-in-window.
-  let best = candidates[0]!;
-  let bestDist = Math.abs(best.ts - cutoff);
-  for (const s of candidates) {
-    const d = Math.abs(s.ts - cutoff);
-    if (d < bestDist) { best = s; bestDist = d; }
+  // Baseline picker — two-tier policy that fixes the prior "0 Δ on 1hr
+  // pill" bug:
+  //
+  //   Tier 1 (preferred): pick the LATEST snapshot that is OLDER than
+  //                       the cutoff. This guarantees AT LEAST `windowMs`
+  //                       of true windowed Δ, so "Last 1 hr" never
+  //                       silently shrinks to "Last 2 min" just because
+  //                       the buffer happens to have a recent snapshot.
+  //   Tier 2 (fallback):  no snapshot is old enough → use the OLDEST
+  //                       available snap. Δ under-shoots the requested
+  //                       window but is still better than mode=none.
+  //
+  // The previous algorithm picked closest-to-cutoff in absolute distance,
+  // which favored newer-than-cutoff snapshots when the buffer was sparse
+  // → microscopic Δ that rounded to exactly zero against a chain-cache
+  // hit. Always preferring older-than-cutoff snapshots eliminates that
+  // failure mode and keeps the windowed Δ consistent with what the
+  // user pill is asking for.
+  const olderCandidates = candidates.filter(s => s.ts <= cutoff);
+  let best: OiInsightsSnapshot;
+  if (olderCandidates.length > 0) {
+    best = olderCandidates[olderCandidates.length - 1]!;
+  } else {
+    // No snapshot reaches back to `cutoff` — use the oldest we have.
+    // candidates is `buf.filter(s => s.ts < nowMs)` and `buf` is kept
+    // chronological by push order, so candidates[0] is the oldest.
+    best = candidates[0]!;
   }
+  const bestDist = Math.abs(best.ts - cutoff);
   // ±20% tolerance — outside that band, the chart caption flags "approx"
   // so the user is never lied to about what window they're seeing.
   const mode: "exact" | "approx" = bestDist <= windowMs * 0.2 ? "exact" : "approx";
