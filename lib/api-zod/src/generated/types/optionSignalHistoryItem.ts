@@ -35,6 +35,7 @@ export interface OptionSignalHistoryItem {
   generatedAt: Date;
   triggeredAt?: Date | null;
   exitedAt?: Date | null;
+  /** Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes. */
   exitReason?: OptionSignalHistoryItemExitReason;
   exitPrice?: number | null;
   maxFavorableExcursionPts: number;

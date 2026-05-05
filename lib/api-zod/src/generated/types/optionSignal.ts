@@ -61,6 +61,7 @@ export interface OptionSignal {
   triggeredAt?: Date;
   /** Time the trade was closed by stop, target, or session end. */
   exitedAt?: Date;
+  /** Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes — the level is no longer relevant to the live tape. */
   exitReason?: OptionSignalExitReason;
   exitPrice?: number;
   /** Maximum points moved in trade's favour from entry, observed today. */

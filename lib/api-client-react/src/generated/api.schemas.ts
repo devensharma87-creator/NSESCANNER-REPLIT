@@ -630,6 +630,9 @@ export const OptionSignalStatus = {
   EXPIRED: "EXPIRED",
 } as const;
 
+/**
+ * Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes — the level is no longer relevant to the live tape.
+ */
 export type OptionSignalExitReason =
   (typeof OptionSignalExitReason)[keyof typeof OptionSignalExitReason];
 
@@ -639,6 +642,7 @@ export const OptionSignalExitReason = {
   STOPPED: "STOPPED",
   EXPIRED_TRIGGERED: "EXPIRED_TRIGGERED",
   EXPIRED_PENDING: "EXPIRED_PENDING",
+  STALE_TRIGGER: "STALE_TRIGGER",
 } as const;
 
 /**
@@ -700,6 +704,7 @@ export interface OptionSignal {
   triggeredAt?: string;
   /** Time the trade was closed by stop, target, or session end. */
   exitedAt?: string;
+  /** Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes — the level is no longer relevant to the live tape. */
   exitReason?: OptionSignalExitReason;
   exitPrice?: number;
   /** Maximum points moved in trade's favour from entry, observed today. */
@@ -735,6 +740,34 @@ export type OptionSignalDiagnosticsSuppressedItem = {
   reasons: string[];
 };
 
+/**
+ * Phase-1 quality-gate state for the current cycle. Surfaced so the UI banner can show why live cards are missing on a given session (circuit breaker after consecutive stops, VIX spike, correlated-exposure dedupe, OI veto, etc.).
+ */
+export type OptionSignalDiagnosticsGates = {
+  /** True when stoppedToday >= stopLimit. New high-conviction emission is suspended for the rest of the session. */
+  circuitBreakerActive: boolean;
+  /** Number of STOPPED outcomes recorded for today (IST date). */
+  stoppedToday: number;
+  /** Daily stop limit that triggers the circuit breaker. */
+  stopLimit: number;
+  /** True when India VIX has tripped either the intraday or day-over-day spike threshold. */
+  vixSpike: boolean;
+  /** India VIX percent move from session open. Null when intraday VIX data is unavailable. */
+  vixIntradayPct?: number | null;
+  /** India VIX percent move vs prior daily close. Null when daily VIX data is unavailable. */
+  vixDayPct?: number | null;
+  /** Human-readable description of which VIX threshold tripped, if any. */
+  vixSpikeReason?: string | null;
+  /** How many high-conviction signals were suppressed in this cycle by the correlated-exposure cap (BROAD / BANK buckets keep only the highest-confidence card per direction). */
+  correlationDroppedCount: number;
+  /** How many high-conviction signals were hard-vetoed this cycle because OI sentiment opposed the trade direction with magnitude above the veto threshold. */
+  oiVetoCount: number;
+  /** How many PENDING lifecycle rows were expired this cycle by the stale-trigger sweep. */
+  staleExpiredCount: number;
+  /** Plain-English lines describing every active gate. UI banner reads these verbatim. */
+  notes: string[];
+};
+
 export interface OptionSignalDiagnostics {
   indicesConfigured: number;
   indicesWithBars: number;
@@ -742,6 +775,8 @@ export interface OptionSignalDiagnostics {
   baselineCount: number;
   /** Per-index report of why no high-conviction setup fired. */
   suppressed: OptionSignalDiagnosticsSuppressedItem[];
+  /** Phase-1 quality-gate state for the current cycle. Surfaced so the UI banner can show why live cards are missing on a given session (circuit breaker after consecutive stops, VIX spike, correlated-exposure dedupe, OI veto, etc.). */
+  gates?: OptionSignalDiagnosticsGates;
 }
 
 /**
@@ -794,6 +829,9 @@ export const OptionSignalHistoryItemStatus = {
   EXPIRED: "EXPIRED",
 } as const;
 
+/**
+ * Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes.
+ */
 export type OptionSignalHistoryItemExitReason =
   | (typeof OptionSignalHistoryItemExitReason)[keyof typeof OptionSignalHistoryItemExitReason]
   | null;
@@ -804,6 +842,7 @@ export const OptionSignalHistoryItemExitReason = {
   STOPPED: "STOPPED",
   EXPIRED_TRIGGERED: "EXPIRED_TRIGGERED",
   EXPIRED_PENDING: "EXPIRED_PENDING",
+  STALE_TRIGGER: "STALE_TRIGGER",
 } as const;
 
 export interface OptionSignalHistoryItem {
@@ -831,6 +870,7 @@ export interface OptionSignalHistoryItem {
   generatedAt: string;
   triggeredAt?: string | null;
   exitedAt?: string | null;
+  /** Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes. */
   exitReason?: OptionSignalHistoryItemExitReason;
   exitPrice?: number | null;
   maxFavorableExcursionPts: number;

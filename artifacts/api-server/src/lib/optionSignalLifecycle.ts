@@ -44,7 +44,15 @@ export type LifecycleExitReason =
   | "TARGET2_HIT"
   | "STOPPED"
   | "EXPIRED_TRIGGERED"
-  | "EXPIRED_PENDING";
+  | "EXPIRED_PENDING"
+  /**
+   * Phase-1 quality gate: a PENDING row that has not been triggered
+   * within `STALE_PENDING_MAX_MIN` minutes of generation is expired
+   * intra-session. The level the trigger was drawn against is no
+   * longer the level the market is trading around — keeping it open
+   * just produces late entries that lose to drift.
+   */
+  | "STALE_TRIGGER";
 
 export interface LifecycleFields {
   status: LifecycleStatus;
@@ -640,6 +648,80 @@ export async function recordOrUpdate(
       "Lifecycle recordOrUpdate failed",
     );
     return null;
+  }
+}
+
+/**
+ * Mark PENDING rows for today as EXPIRED with reason `STALE_TRIGGER` once
+ * they have been waiting `maxAgeMin` minutes without a trigger fire.
+ *
+ * This runs intra-session (every signal cycle) and is the Phase-1 quality
+ * gate against the dominant failure mode in the empirical loss sample:
+ * a level drawn at 09:30 firing at 11:04 on a market that has long since
+ * moved on. The trigger is "true" mechanically but no longer carries the
+ * setup that justified it.
+ *
+ * Only PENDING rows are touched — anything that triggered already gets
+ * resolved by the live spot evaluator and (eventually) the EOD sweep.
+ */
+export async function expireStalePendingSignals(
+  maxAgeMin: number,
+): Promise<number> {
+  const date = istDateKey();
+  const cutoff = new Date(Date.now() - maxAgeMin * 60 * 1000);
+  try {
+    const stale = await db
+      .select()
+      .from(optionSignalHistoryTable)
+      .where(
+        and(
+          eq(optionSignalHistoryTable.signalDate, date),
+          eq(optionSignalHistoryTable.status, "PENDING"),
+          sql`${optionSignalHistoryTable.generatedAt} < ${cutoff}`,
+        ),
+      );
+    if (stale.length === 0) return 0;
+    const now = new Date();
+    let settled = 0;
+    for (const row of stale) {
+      // Race-safe: only settle rows still PENDING with no exit recorded.
+      // A trigger that fires between SELECT and UPDATE would change
+      // status to TRIGGERED and the WHERE clause excludes it correctly.
+      const updated = await db
+        .update(optionSignalHistoryTable)
+        .set({
+          status: "EXPIRED",
+          exitedAt: now,
+          exitReason: "STALE_TRIGGER",
+          // exitPrice intentionally null — no trade was opened.
+          lastEvaluatedAt: now,
+        })
+        .where(
+          and(
+            eq(optionSignalHistoryTable.signalDate, row.signalDate),
+            eq(optionSignalHistoryTable.indexSymbol, row.indexSymbol),
+            eq(optionSignalHistoryTable.setupKey, row.setupKey),
+            eq(optionSignalHistoryTable.direction, row.direction),
+            eq(optionSignalHistoryTable.status, "PENDING"),
+            sql`${optionSignalHistoryTable.exitedAt} IS NULL`,
+          ),
+        )
+        .returning();
+      if (updated.length > 0) settled++;
+    }
+    if (settled > 0) {
+      logger.info(
+        { settled, maxAgeMin },
+        "expireStalePendingSignals: stale PENDING rows expired",
+      );
+    }
+    return settled;
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "expireStalePendingSignals failed",
+    );
+    return 0;
   }
 }
 

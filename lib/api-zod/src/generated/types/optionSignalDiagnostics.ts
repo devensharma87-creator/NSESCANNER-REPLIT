@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { OptionSignalDiagnosticsGates } from "./optionSignalDiagnosticsGates";
 import type { OptionSignalDiagnosticsSuppressedItem } from "./optionSignalDiagnosticsSuppressedItem";
 
 export interface OptionSignalDiagnostics {
@@ -14,4 +15,6 @@ export interface OptionSignalDiagnostics {
   baselineCount: number;
   /** Per-index report of why no high-conviction setup fired. */
   suppressed: OptionSignalDiagnosticsSuppressedItem[];
+  /** Phase-1 quality-gate state for the current cycle. Surfaced so the UI banner can show why live cards are missing on a given session (circuit breaker after consecutive stops, VIX spike, correlated-exposure dedupe, OI veto, etc.). */
+  gates?: OptionSignalDiagnosticsGates;
 }

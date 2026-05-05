@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes — the level is no longer relevant to the live tape.
+ */
 export type OptionSignalExitReason =
   (typeof OptionSignalExitReason)[keyof typeof OptionSignalExitReason];
 
@@ -15,4 +18,5 @@ export const OptionSignalExitReason = {
   STOPPED: "STOPPED",
   EXPIRED_TRIGGERED: "EXPIRED_TRIGGERED",
   EXPIRED_PENDING: "EXPIRED_PENDING",
+  STALE_TRIGGER: "STALE_TRIGGER",
 } as const;

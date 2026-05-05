@@ -1471,8 +1471,12 @@ export const GetOptionSignalsResponse = zod.object({
           "STOPPED",
           "EXPIRED_TRIGGERED",
           "EXPIRED_PENDING",
+          "STALE_TRIGGER",
         ])
-        .optional(),
+        .optional()
+        .describe(
+          "Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes — the level is no longer relevant to the live tape.",
+        ),
       exitPrice: zod.number().optional(),
       maxFavorableExcursionPts: zod
         .number()
@@ -1569,6 +1573,69 @@ export const GetOptionSignalsResponse = zod.object({
           }),
         )
         .describe("Per-index report of why no high-conviction setup fired."),
+      gates: zod
+        .object({
+          circuitBreakerActive: zod
+            .boolean()
+            .describe(
+              "True when stoppedToday >= stopLimit. New high-conviction emission is suspended for the rest of the session.",
+            ),
+          stoppedToday: zod
+            .number()
+            .describe(
+              "Number of STOPPED outcomes recorded for today (IST date).",
+            ),
+          stopLimit: zod
+            .number()
+            .describe("Daily stop limit that triggers the circuit breaker."),
+          vixSpike: zod
+            .boolean()
+            .describe(
+              "True when India VIX has tripped either the intraday or day-over-day spike threshold.",
+            ),
+          vixIntradayPct: zod
+            .number()
+            .nullish()
+            .describe(
+              "India VIX percent move from session open. Null when intraday VIX data is unavailable.",
+            ),
+          vixDayPct: zod
+            .number()
+            .nullish()
+            .describe(
+              "India VIX percent move vs prior daily close. Null when daily VIX data is unavailable.",
+            ),
+          vixSpikeReason: zod
+            .string()
+            .nullish()
+            .describe(
+              "Human-readable description of which VIX threshold tripped, if any.",
+            ),
+          correlationDroppedCount: zod
+            .number()
+            .describe(
+              "How many high-conviction signals were suppressed in this cycle by the correlated-exposure cap (BROAD \/ BANK buckets keep only the highest-confidence card per direction).",
+            ),
+          oiVetoCount: zod
+            .number()
+            .describe(
+              "How many high-conviction signals were hard-vetoed this cycle because OI sentiment opposed the trade direction with magnitude above the veto threshold.",
+            ),
+          staleExpiredCount: zod
+            .number()
+            .describe(
+              "How many PENDING lifecycle rows were expired this cycle by the stale-trigger sweep.",
+            ),
+          notes: zod
+            .array(zod.string())
+            .describe(
+              "Plain-English lines describing every active gate. UI banner reads these verbatim.",
+            ),
+        })
+        .optional()
+        .describe(
+          "Phase-1 quality-gate state for the current cycle. Surfaced so the UI banner can show why live cards are missing on a given session (circuit breaker after consecutive stops, VIX spike, correlated-exposure dedupe, OI veto, etc.).",
+        ),
     })
     .optional(),
 });
@@ -1618,8 +1685,12 @@ export const GetOptionSignalHistoryResponse = zod.object({
           "STOPPED",
           "EXPIRED_TRIGGERED",
           "EXPIRED_PENDING",
+          "STALE_TRIGGER",
         ])
-        .nullish(),
+        .nullish()
+        .describe(
+          "Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes.",
+        ),
       exitPrice: zod.number().nullish(),
       maxFavorableExcursionPts: zod.number(),
       maxAdverseExcursionPts: zod.number(),
@@ -1690,8 +1761,12 @@ export const GetOptionSignalReportResponse = zod.object({
           "STOPPED",
           "EXPIRED_TRIGGERED",
           "EXPIRED_PENDING",
+          "STALE_TRIGGER",
         ])
-        .nullish(),
+        .nullish()
+        .describe(
+          "Reason the lifecycle row exited. STALE_TRIGGER is a Phase-1 quality gate for PENDING rows whose trigger has not fired within ~45 minutes.",
+        ),
       exitPrice: zod.number().nullish(),
       maxFavorableExcursionPts: zod.number(),
       maxAdverseExcursionPts: zod.number(),

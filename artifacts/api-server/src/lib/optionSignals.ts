@@ -8,12 +8,22 @@ import { fetchOptionChain, type OcRow, type OcSide } from "./optionChain";
 import {
   recordOrUpdate as recordLifecycle,
   expireOpenSignalsForToday,
+  expireStalePendingSignals,
   persistOptionPremiums,
   type SpotSnapshot,
 } from "./optionSignalLifecycle";
 import { computeMarketStatus } from "./marketEvents";
 import { fetchOiInsights, type OiInsightsResponse } from "./oiLab";
 import { classifyVolRegime, resolveDataQuality, isActionableForFno, type VolRegime, type DataQualityLabel } from "./tradingConfig";
+import {
+  loadGateContext,
+  isBiasFlipSuppressed,
+  applyCorrelationCap,
+  STALE_PENDING_MAX_MIN,
+  VWAP_RECLAIM_LATE_CUTOFF_IST_MIN,
+  OI_VETO_THRESHOLD,
+  type GateContext,
+} from "./optionSignalGates";
 
 export interface IndexCfg {
   symbol: string;
@@ -984,7 +994,12 @@ export interface IndexBuildResult {
   snapshot?: SpotSnapshot;
 }
 
-function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): IndexBuildResult {
+function buildSignalsForIndex(
+  cfg: IndexCfg,
+  intra: YahooChart,
+  daily: YahooChart,
+  gateCtx?: GateContext,
+): IndexBuildResult {
   const ctx = buildContext(cfg, intra, daily);
   if (!ctx) return { signals: [], suppressed: ["NO_BARS_OR_INSUFFICIENT_DATA"], hasBars: false };
 
@@ -1002,12 +1017,18 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
   // afternoon to play out; gate them off after 14:30 IST so we don't ship a
   // signal that geometrically cannot resolve before the 15:30 close. Mean
   // Reversion targets the proximate VWAP/EMA21 mean and remains eligible.
+  //
+  // VWAP_RECLAIM has an EARLIER cutoff (13:30 IST) than the rest of the
+  // trend class — it specifically targets the *next* pivot R1/R2 move
+  // after the reclaim, which empirically takes 2+ hours. Every reclaim
+  // in the loss sample fired after 13:30 and timed out.
   const istMin = nowIstMinutes(new Date());
   const trendEntryAllowed = istMin < LATE_ENTRY_CUTOFF_IST_MIN;
+  const vwapReclaimAllowed = istMin < VWAP_RECLAIM_LATE_CUTOFF_IST_MIN;
 
-  const detectors: Array<{ name: string; fn: (c: Ctx) => Detected | null; trendClass: boolean }> = [
+  const detectors: Array<{ name: string; fn: (c: Ctx) => Detected | null; trendClass: boolean; lateCutoff?: number }> = [
     { name: "trend_continuation", fn: detectTrendContinuation, trendClass: true  },
-    { name: "vwap_reclaim",       fn: detectVwapReclaim,       trendClass: true  },
+    { name: "vwap_reclaim",       fn: detectVwapReclaim,       trendClass: true,  lateCutoff: VWAP_RECLAIM_LATE_CUTOFF_IST_MIN },
     { name: "volume_breakout",    fn: detectVolumeBreakout,    trendClass: true  },
     { name: "ema_pullback",       fn: detectEmaPullback,       trendClass: true  },
     { name: "mean_reversion",     fn: detectMeanReversion,     trendClass: false },
@@ -1029,11 +1050,30 @@ function buildSignalsForIndex(cfg: IndexCfg, intra: YahooChart, daily: YahooChar
         suppressed.push(`${det.name}: late-session entry gate (after 14:30 IST — insufficient runway for trend target)`);
         continue;
       }
+      // Per-detector late cutoff: VWAP_RECLAIM gates earlier than the
+      // generic trend window because its target is a pivot move that
+      // historically takes >2 hours to materialise.
+      if (det.name === "vwap_reclaim" && !vwapReclaimAllowed) {
+        suppressed.push(`${det.name}: late-session VWAP-reclaim gate (after 13:30 IST — reclaim setup needs 2+ hours of runway)`);
+        continue;
+      }
       try {
         const r = det.fn(ctx);
         if (!r) {
           suppressed.push(`${det.name}: conditions not met`);
           continue;
+        }
+        // Bias-flip cooldown: if this index just stopped on the OPPOSITE
+        // direction within BIAS_FLIP_COOLDOWN_MIN, suppress the new
+        // signal. Stops the empirical "stop on PUT then immediately fire
+        // CALL" whipsaw that produced multiple back-to-back losses in
+        // the sample.
+        if (gateCtx) {
+          const flip = isBiasFlipSuppressed(gateCtx, cfg.symbol, r.direction);
+          if (flip.suppressed) {
+            suppressed.push(`${det.name}: ${flip.reason}`);
+            continue;
+          }
         }
         if (ctx.volRegime === "EXTREME") {
           r.confidence -= 8;
@@ -1130,6 +1170,26 @@ export interface OptionSignalsResult {
     highConvictionCount: number;
     baselineCount: number;
     suppressed: { index: string; reasons: string[] }[];
+    /**
+     * Phase-1 quality-gate state. Surfaced to the UI so the user can
+     * see *why* the live signals tab is empty (or thinned out) on a
+     * given session — circuit breaker after consecutive stops, VIX
+     * shock, correlated exposure dedupe, etc. Without this the UI
+     * would just show fewer cards with no honest explanation.
+     */
+    gates: {
+      circuitBreakerActive: boolean;
+      stoppedToday: number;
+      stopLimit: number;
+      vixSpike: boolean;
+      vixIntradayPct: number | null;
+      vixDayPct: number | null;
+      vixSpikeReason: string | null;
+      correlationDroppedCount: number;
+      oiVetoCount: number;
+      staleExpiredCount: number;
+      notes: string[];
+    };
   };
 }
 interface CachedSignals { ts: number; data: OptionSignalsResult; }
@@ -1388,7 +1448,19 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
   );
 }
 
-async function applyOiConfirmation(signals: OptionSignal[]): Promise<void> {
+/**
+ * Apply OI-derived alignment / conflict adjustments. Returns the set of
+ * signals to DROP (hard veto) so the caller can filter them out before
+ * they reach the lifecycle. Aligned signals are mutated in place with a
+ * confidence bump and a tag; mild conflicts get a haircut + tag; HARD
+ * conflicts (|sentimentScore| ≥ OI_VETO_THRESHOLD) are vetoed entirely
+ * — this is the Phase-1 gate against trades that fight a well-formed
+ * institutional positioning bias.
+ */
+async function applyOiConfirmation(
+  signals: OptionSignal[],
+): Promise<Set<OptionSignal>> {
+  const vetoed = new Set<OptionSignal>();
   const byIndex = new Map<string, OptionSignal[]>();
   for (const s of signals) {
     if (s.tier === "BASELINE") continue;
@@ -1396,7 +1468,7 @@ async function applyOiConfirmation(signals: OptionSignal[]): Promise<void> {
     list.push(s);
     byIndex.set(s.index, list);
   }
-  if (byIndex.size === 0) return;
+  if (byIndex.size === 0) return vetoed;
 
   const indexToYahoo: Record<string, string> = {};
   for (const cfg of OPTION_INDICES) indexToYahoo[cfg.symbol] = cfg.yahoo;
@@ -1438,6 +1510,24 @@ async function applyOiConfirmation(signals: OptionSignal[]): Promise<void> {
               s.tags = [...(s.tags ?? []), "OI_CONFIRMED"];
             }
           } else if (oiConflict) {
+            // HARD VETO when the conflict is structurally large. The
+            // empirical loss sample showed |sentimentScore|≥30 against
+            // the trade direction was a near-certain expiration / stop.
+            // A -5 confidence haircut was not enough to keep these out.
+            if (Math.abs(oi.sentimentScore) >= OI_VETO_THRESHOLD) {
+              vetoed.add(s);
+              s.tags = [...(s.tags ?? []), "OI_VETO"];
+              s.drivers = [
+                ...(s.drivers ?? []),
+                {
+                  label: "OI_VETO",
+                  weight: -100,
+                  bullish: !isBullish,
+                  detail: `OI hard-veto: sentiment ${oi.sentimentScore > 0 ? "+" : ""}${oi.sentimentScore} (|score|≥${OI_VETO_THRESHOLD}) opposes ${s.bias} bias — signal suppressed`,
+                },
+              ];
+              continue;
+            }
             s.confidence = Math.max(0, (s.confidence ?? 0) - 5);
             s.drivers = [
               ...(s.drivers ?? []),
@@ -1461,6 +1551,7 @@ async function applyOiConfirmation(signals: OptionSignal[]): Promise<void> {
       }
     }),
   );
+  return vetoed;
 }
 
 export async function getOptionSignals(): Promise<OptionSignalsResult> {
@@ -1470,6 +1561,18 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   let indicesWithBars = 0;
   let highConvictionCount = 0;
   let baselineCount = 0;
+
+  // Sweep stale PENDING rows BEFORE loading gate context so the circuit
+  // breaker / bias-flip queries see today's most up-to-date counts.
+  // Idempotent and cheap when there are no stale rows.
+  const staleExpiredCount = await expireStalePendingSignals(
+    STALE_PENDING_MAX_MIN,
+  ).catch(() => 0);
+
+  // Load session-wide gate context once per cycle. All per-index
+  // decisions made below see the same snapshot of consecutive losses,
+  // recent stops, and India VIX.
+  const gateCtx = await loadGateContext();
 
   // Per-index bundle so we can run lifecycle persistence with the right snapshot.
   interface IdxBundle { signals: OptionSignal[]; snapshot?: SpotSnapshot; }
@@ -1512,18 +1615,13 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       if (intraSrc === "yahoo") {
         logger.info({ idx: cfg.symbol }, "F&O intraday: Kite unavailable, using Yahoo (signals may lag up to 15m)");
       }
-      const r = buildSignalsForIndex(cfg, intra, daily);
+      const r = buildSignalsForIndex(cfg, intra, daily, gateCtx);
       if (r.hasBars) indicesWithBars++;
       const quality = resolveDataQuality(intraSrc);
       for (const s of r.signals) {
         s.dataQuality = quality;
       }
-      out.push(...r.signals);
       bundles.push({ signals: r.signals, snapshot: r.snapshot });
-      for (const s of r.signals) {
-        if (s.tier === "BASELINE") baselineCount++;
-        else highConvictionCount++;
-      }
       // Only record suppression detail when no high-conviction setup fired —
       // otherwise the dashboard noise outweighs the value.
       const hcForIdx = r.signals.filter(s => s.tier === "HIGH_CONVICTION").length;
@@ -1533,6 +1631,80 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       logger.warn({ err: msg, idx: cfg.symbol }, "Option signal failed");
       suppressed.push({ index: cfg.symbol, reasons: [`exception: ${msg}`] });
     }
+  }
+
+  // ---------------- Phase-1 post-detection gates ----------------
+  //
+  // These run BEFORE lifecycle persistence so vetoed / suppressed
+  // signals never get a DB row written for them — keeping the
+  // history table free of "phantom" entries for trades that the
+  // engine itself rejected.
+  //
+  // Order:
+  //   1. Global suppression (circuit breaker / VIX spike) — drops
+  //      every HIGH_CONVICTION signal across every index. Baseline
+  //      outlooks pass through (read-only, never an actionable plan).
+  //   2. OI hard veto (|sentiment| ≥ OI_VETO_THRESHOLD opposing).
+  //   3. Correlated-exposure cap (BROAD / BANK buckets).
+  //
+  // Each step records dropped signals in `suppressed[]` so the UI
+  // gate banner has an honest explanation for the missing cards.
+  const allSignalsPreFilter = bundles.flatMap((b) => b.signals);
+
+  const globallyVetoed = new Set<OptionSignal>();
+  if (gateCtx.globalSuppress) {
+    for (const s of allSignalsPreFilter) {
+      if (s.tier === "HIGH_CONVICTION") globallyVetoed.add(s);
+    }
+  }
+
+  const oiVetoed = await applyOiConfirmation(allSignalsPreFilter);
+
+  const survivedSoFar = allSignalsPreFilter.filter(
+    (s) => !globallyVetoed.has(s) && !oiVetoed.has(s),
+  );
+  const corr = applyCorrelationCap(survivedSoFar);
+  const correlationDropped = new Set(corr.dropped.map((d) => d.signal));
+
+  const droppedAll = new Set<OptionSignal>([
+    ...globallyVetoed,
+    ...oiVetoed,
+    ...correlationDropped,
+  ]);
+
+  // Record dropped reasons so the UI banner / diagnostics dump is honest.
+  if (globallyVetoed.size > 0) {
+    const reason = gateCtx.circuitBreakerActive
+      ? `circuit-breaker veto: ${gateCtx.stoppedToday} stops today (limit ${2}) — new high-conviction emission suspended`
+      : (gateCtx.vix.reason ?? "global suppression active");
+    for (const s of globallyVetoed) {
+      suppressed.push({ index: s.index, reasons: [`${s.setupKey}: ${reason}`] });
+    }
+  }
+  for (const s of oiVetoed) {
+    suppressed.push({
+      index: s.index,
+      reasons: [`${s.setupKey}: OI hard-veto on ${s.bias} bias (|sentiment|≥${OI_VETO_THRESHOLD})`],
+    });
+  }
+  for (const d of corr.dropped) {
+    suppressed.push({ index: d.signal.index, reasons: [d.reason] });
+  }
+
+  // Filter bundles to KEPT signals only.  After this point, the rest
+  // of the pipeline (lifecycle persistence, enrichment, paper trades)
+  // sees only signals that survived every gate.
+  for (const b of bundles) {
+    b.signals = b.signals.filter((s) => !droppedAll.has(s));
+  }
+
+  // Compute final counts now that gates have been applied.
+  for (const b of bundles) {
+    for (const s of b.signals) {
+      if (s.tier === "BASELINE") baselineCount++;
+      else highConvictionCount++;
+    }
+    out.push(...b.signals);
   }
 
   // Persist + evaluate lifecycle for every signal (best-effort; mutates each
@@ -1618,8 +1790,6 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
 
   const allSignals = bundles.flatMap((b) => b.signals);
 
-  await applyOiConfirmation(allSignals);
-
   // Back-fill option premiums into lifecycle rows — they were null at
   // insert/trigger time because enrichment hadn't run yet.
   await persistOptionPremiums(allSignals).catch((err) =>
@@ -1652,6 +1822,19 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       highConvictionCount,
       baselineCount,
       suppressed,
+      gates: {
+        circuitBreakerActive: gateCtx.circuitBreakerActive,
+        stoppedToday: gateCtx.stoppedToday,
+        stopLimit: 2,
+        vixSpike: gateCtx.vix.spike,
+        vixIntradayPct: gateCtx.vix.intradayPct,
+        vixDayPct: gateCtx.vix.dayPct,
+        vixSpikeReason: gateCtx.vix.reason,
+        correlationDroppedCount: corr.dropped.length,
+        oiVetoCount: oiVetoed.size,
+        staleExpiredCount,
+        notes: gateCtx.notes,
+      },
     },
   };
   cache = { ts: Date.now(), data: result };

@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { TradingViewAlerts } from "@/components/tradingview-alerts";
+import { SignalGateBanner } from "@/components/signal-gate-banner";
 import { useToast } from "@/hooks/use-toast";
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Crosshair, Zap, Activity, Layers, Repeat, RotateCcw,
@@ -96,6 +97,7 @@ function exitReasonLabel(r?: string | null): string {
     case "STOPPED":          return "stop hit";
     case "EXPIRED_TRIGGERED": return "session ended (trade open)";
     case "EXPIRED_PENDING":  return "session ended (never triggered)";
+    case "STALE_TRIGGER":    return "stale (45m flat — trigger expired)";
     default:                 return r ?? "—";
   }
 }
@@ -483,6 +485,15 @@ export default function OptionsPage() {
       </div>
 
       <TradingViewAlerts />
+
+      {/* Phase-1 quality-gate status banner. Honest explanation for why
+          the live tab may be empty (or thinned out) on the current
+          session: circuit breaker after consecutive stops, India VIX
+          spike, correlated-exposure dedupe, OI hard veto. Hidden when
+          no gate is active so the UI doesn't get noisy on a normal day. */}
+      {data?.diagnostics?.gates && (
+        <SignalGateBanner gates={data.diagnostics.gates} />
+      )}
 
       {/* Tab toggle: live setups vs report */}
       <div className="inline-flex rounded-md border border-border bg-secondary/30 p-0.5 text-xs font-mono">
