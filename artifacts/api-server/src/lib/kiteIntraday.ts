@@ -133,6 +133,51 @@ function cacheKey(yahoo: string, interval: string, daysBack: number): string {
   return `${yahoo}|${interval}|${daysBack}`;
 }
 
+// ---- Global throttle for Kite getHistoricalData ----
+//
+// Kite's documented historical-data budget is ~3 requests/sec. Without
+// throttling, the parallel equity scanner (one call per stock symbol on
+// a cold cache) and the F&O signal cycle (6 indices) collectively burst
+// past the limit and the API returns "Too many requests" — which then
+// (a) forces every caller to fall back to Yahoo, downgrading signal
+// data quality, and (b) starves the F&O index calls of the bars needed
+// to compute EMA21/RSI14/ATR14, leaving every signal stuck on BASELINE.
+//
+// Two primitives:
+//   1) `nextSlotAt` — atomic single-counter token bucket. Each caller
+//      reserves the next available slot (at most one slot per
+//      HISTORICAL_MIN_INTERVAL_MS), so concurrent callers serialise
+//      cleanly without any explicit lock.
+//   2) `inflight` — per-cacheKey promise dedup. If three parallel
+//      callers ask for the same (token, interval, daysBack) on a cold
+//      cache, only one network round-trip fires; the other two await
+//      the same promise.
+//
+// MAX_QUEUE bounds the queue depth so a Kite outage cannot pile up
+// dozens of waiting callers — over the cap we fail fast and the caller
+// falls back to Yahoo immediately rather than waiting tens of seconds.
+const HISTORICAL_MIN_INTERVAL_MS = 400; // ≈ 2.5 req/sec, headroom under Kite's 3/sec limit.
+const HISTORICAL_MAX_QUEUE = 30;
+
+let nextSlotAt = 0;
+let pendingCount = 0;
+const inflight = new Map<string, Promise<YahooChart | null>>();
+
+async function reserveHistoricalSlot(): Promise<boolean> {
+  if (pendingCount >= HISTORICAL_MAX_QUEUE) return false;
+  pendingCount++;
+  try {
+    const now = Date.now();
+    const slot = Math.max(now, nextSlotAt);
+    nextSlotAt = slot + HISTORICAL_MIN_INTERVAL_MS;
+    const wait = slot - now;
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    return true;
+  } finally {
+    pendingCount--;
+  }
+}
+
 type KiteInterval = "minute" | "3minute" | "5minute" | "10minute" | "15minute" | "30minute" | "60minute" | "day";
 
 // Kite's getHistoricalData expects either a Date or "yyyy-mm-dd HH:MM:SS"
@@ -176,69 +221,93 @@ export async function fetchKiteHistoricalByToken(
   const cached = cache.get(k);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
 
-  const client = await getRestClient();
-  if (!client) return null;
-  const { kc } = client;
+  // Inflight dedup: if a parallel caller already triggered the network
+  // round-trip for this exact key, just await theirs. Otherwise create
+  // the work and register it so the next concurrent caller piggy-backs.
+  const existing = inflight.get(k);
+  if (existing) return existing;
 
-  const now = new Date();
-  const toStr = fmtIst(now);
-  const fromStr = fmtIst(new Date(now.getTime() - daysBack * 24 * 3600 * 1000));
+  const work = (async (): Promise<YahooChart | null> => {
+    const slotOk = await reserveHistoricalSlot();
+    if (!slotOk) {
+      logger.warn(
+        { cacheLabel, interval, token, queueDepth: pendingCount },
+        "Kite historical-data throttle queue full; falling back to Yahoo",
+      );
+      return null;
+    }
 
-  let raw: RawCandle[];
-  try {
-    raw = (await kc.getHistoricalData(token, interval, fromStr, toStr, false, false)) as RawCandle[];
-  } catch (err) {
-    logger.warn(
-      { err: (err as Error).message, cacheLabel, interval, token },
-      "Kite getHistoricalData failed; caller will fall back to Yahoo",
-    );
-    return null;
-  }
+    const client = await getRestClient();
+    if (!client) return null;
+    const { kc } = client;
 
-  if (!Array.isArray(raw) || raw.length === 0) return null;
+    const now = new Date();
+    const toStr = fmtIst(now);
+    const fromStr = fmtIst(new Date(now.getTime() - daysBack * 24 * 3600 * 1000));
 
-  const timestamps: number[] = [];
-  const open: number[] = [];
-  const high: number[] = [];
-  const low: number[] = [];
-  const close: number[] = [];
-  const volume: number[] = [];
-  for (const c of raw) {
-    const tsMs = c.date instanceof Date ? c.date.getTime() : new Date(c.date).getTime();
-    if (!Number.isFinite(tsMs)) continue;
-    if (![c.open, c.high, c.low, c.close].every(v => Number.isFinite(v) && v > 0)) continue;
-    timestamps.push(Math.floor(tsMs / 1000));
-    open.push(c.open);
-    high.push(c.high);
-    low.push(c.low);
-    close.push(c.close);
-    // Cash-index volume from Kite is 0 for NIFTY/BANKNIFTY/etc — the
-    // detectors that consume volume already gate on null vs zero, so
-    // emit zero (downstream filters reject zero before treating it as
-    // a real reading).
-    volume.push(c.volume > 0 ? c.volume : 0);
-  }
+    let raw: RawCandle[];
+    try {
+      raw = (await kc.getHistoricalData(token, interval, fromStr, toStr, false, false)) as RawCandle[];
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message, cacheLabel, interval, token },
+        "Kite getHistoricalData failed; caller will fall back to Yahoo",
+      );
+      return null;
+    }
 
-  if (close.length === 0) return null;
+    if (!Array.isArray(raw) || raw.length === 0) return null;
 
-  const lastClose = close[close.length - 1]!;
-  const meta: YahooMeta = {
-    symbol: cacheLabel,
-    regularMarketPrice: lastClose,
-    regularMarketDayHigh: Math.max(...high),
-    regularMarketDayLow: Math.min(...low),
-    regularMarketTime: timestamps[timestamps.length - 1],
-    chartPreviousClose: close[0],
-  };
+    const timestamps: number[] = [];
+    const open: number[] = [];
+    const high: number[] = [];
+    const low: number[] = [];
+    const close: number[] = [];
+    const volume: number[] = [];
+    for (const c of raw) {
+      const tsMs = c.date instanceof Date ? c.date.getTime() : new Date(c.date).getTime();
+      if (!Number.isFinite(tsMs)) continue;
+      if (![c.open, c.high, c.low, c.close].every(v => Number.isFinite(v) && v > 0)) continue;
+      timestamps.push(Math.floor(tsMs / 1000));
+      open.push(c.open);
+      high.push(c.high);
+      low.push(c.low);
+      close.push(c.close);
+      // Cash-index volume from Kite is 0 for NIFTY/BANKNIFTY/etc — the
+      // detectors that consume volume already gate on null vs zero, so
+      // emit zero (downstream filters reject zero before treating it as
+      // a real reading).
+      volume.push(c.volume > 0 ? c.volume : 0);
+    }
 
-  const chart: YahooChart = {
-    symbol: cacheLabel,
-    meta,
-    timestamps,
-    open, high, low, close, volume,
-  };
-  cache.set(k, { ts: Date.now(), data: chart });
-  return chart;
+    if (close.length === 0) return null;
+
+    const lastClose = close[close.length - 1]!;
+    const meta: YahooMeta = {
+      symbol: cacheLabel,
+      regularMarketPrice: lastClose,
+      regularMarketDayHigh: Math.max(...high),
+      regularMarketDayLow: Math.min(...low),
+      regularMarketTime: timestamps[timestamps.length - 1],
+      chartPreviousClose: close[0],
+    };
+
+    const chart: YahooChart = {
+      symbol: cacheLabel,
+      meta,
+      timestamps,
+      open, high, low, close, volume,
+    };
+    cache.set(k, { ts: Date.now(), data: chart });
+    return chart;
+  })().finally(() => {
+    // Always clear inflight, even on error/null, so the next call can
+    // retry rather than perpetually returning the failed promise.
+    inflight.delete(k);
+  });
+
+  inflight.set(k, work);
+  return work;
 }
 
 /**

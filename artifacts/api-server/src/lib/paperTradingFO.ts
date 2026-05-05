@@ -31,12 +31,23 @@ import {
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import type { OptionSignal } from "@workspace/api-zod";
-import { ensureDailyReset, FNO_RISK } from "./paperAccount";
+import { ensureDailyReset, FNO_RISK, FNO_BASELINE_RISK } from "./paperAccount";
 import { LOT_SIZES } from "./optionChain";
 import { logger } from "./logger";
 import { computeMarketStatus } from "./marketEvents";
-import { activeProvider } from "./dataProvider";
 import { isActionableForFno, type DataQualityLabel } from "./tradingConfig";
+
+/**
+ * Risk tier for an auto-opened paper trade.
+ *   STANDARD — high-conviction detector (trend_continuation, vwap_reclaim,
+ *              volume_breakout, ema_pullback, mean_reversion). Uses
+ *              FNO_RISK budgets (2% loss cap, 70 conf floor).
+ *   BASELINE — always-on directional outlook (tier="BASELINE"). Uses
+ *              FNO_BASELINE_RISK budgets (1% loss cap, 55 conf floor).
+ *              Shares the same MAX_TRADES_PER_DAY cap so overall daily
+ *              exposure is unchanged regardless of mix.
+ */
+export type TradeTier = "STANDARD" | "BASELINE";
 
 type LifecycleStatus =
   | "PENDING"
@@ -66,6 +77,8 @@ export interface LifecycleHookInput {
   signalDate: string;
   /** Direction stored on the lifecycle row (BULLISH | BEARISH). */
   direction: "BULLISH" | "BEARISH";
+  /** Risk tier — controls per-trade loss cap and confidence floor. Defaults to STANDARD. */
+  tier?: TradeTier;
 }
 
 function num(v: string | number | null | undefined): number {
@@ -104,16 +117,24 @@ function lotSizeFor(indexSymbol: string): number | null {
  */
 async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRow | null> {
   const { signal, signalDate, direction } = input;
+  const tier: TradeTier = input.tier ?? "STANDARD";
+  const minConfidence =
+    tier === "BASELINE" ? FNO_BASELINE_RISK.MIN_CONFIDENCE : FNO_RISK.MIN_CONFIDENCE;
+  const maxLossPctPerTrade =
+    tier === "BASELINE"
+      ? FNO_BASELINE_RISK.MAX_LOSS_PCT_PER_TRADE
+      : FNO_RISK.MAX_LOSS_PCT_PER_TRADE;
+
   const indexSymbol = signal.index;
   const setupKey = signal.setupKey;
   if (!setupKey) return null;
 
   // Pre-checks that do NOT touch the account.
   const confidence = Math.round(signal.confidence ?? 0);
-  if (confidence < FNO_RISK.MIN_CONFIDENCE) {
+  if (confidence < minConfidence) {
     logger.info(
-      { indexSymbol, setupKey, confidence, floor: FNO_RISK.MIN_CONFIDENCE },
-      `Paper FO skip: confidence < ${FNO_RISK.MIN_CONFIDENCE}`,
+      { indexSymbol, setupKey, tier, confidence, floor: minConfidence },
+      `Paper FO skip: ${tier} confidence < ${minConfidence}`,
     );
     return null;
   }
@@ -233,12 +254,12 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         return null;
       }
 
-      const budget = balance * FNO_RISK.MAX_LOSS_PCT_PER_TRADE;
+      const budget = balance * maxLossPctPerTrade;
       const perLotLoss = perShareLoss * lotSize;
       const lots = Math.floor(budget / perLotLoss);
       if (lots < 1) {
         logger.info(
-          { indexSymbol, setupKey, budget, perLotLoss },
+          { indexSymbol, setupKey, tier, budget, perLotLoss, maxLossPctPerTrade },
           "Paper FO skip: position too risky for budget (lots < 1)",
         );
         return null;
@@ -314,6 +335,7 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         {
           indexSymbol,
           setupKey,
+          tier,
           direction,
           lots,
           lotSize,
@@ -323,9 +345,10 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
           target1Premium: optionT1,
           target2Premium: optionT2,
           confidence,
+          maxLossPctPerTrade,
           newBalance: num(debited[0]!.balance),
         },
-        "Paper FO OPENED",
+        `Paper FO OPENED (${tier})`,
       );
       return inserted[0]!;
     });
@@ -569,14 +592,14 @@ function pickExitPremium(r: PaperTradeFoRow, reason: CloseReason): number {
  * never silently drops trades.
  */
 export async function reconcileMissingPaperTrades(): Promise<number> {
-  const provider = activeProvider();
-  if (provider !== "kite") {
-    logger.info(
-      { provider },
-      "reconcileMissingPaperTrades: skipped — data provider is not live Kite",
-    );
-    return 0;
-  }
+  // No global activeProvider() gate. The previous version short-circuited
+  // here whenever the Kite WebSocket had not yet received its first tick
+  // (liveQuotes === 0), which silently skipped backfill on a mid-day
+  // restart. The lifecycle rows we're reconciling were created by an
+  // earlier cycle that already verified data quality at write time, and
+  // openPaperTrade still enforces premium validation, market-open, the
+  // daily cap, and consecutive-stops checks — so removing this top-level
+  // gate cannot introduce trades against bad data.
 
   const now = new Date();
   const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
@@ -752,32 +775,33 @@ export async function tryOpenPaperTrades(
     }
   }
 
-  const provider = activeProvider();
-  if (provider !== "kite") {
-    logger.info(
-      { provider, signalCount: signals.length },
-      "Paper FO skip ALL: data provider is not live Kite — analysis only, no trades",
-    );
-    return;
-  }
+  // No global activeProvider() short-circuit here. The previous check
+  // — "skip ALL unless activeProvider() === 'kite'" — gated on whether
+  // the Kite WebSocket had received at least one tick (liveQuotes > 0).
+  // That conflated "no live ticks yet" with "no Kite data available",
+  // so a slow tick burst at open suppressed every trade for the day
+  // even when getHistoricalData was returning fresh bars and signals
+  // had dataQuality === LIVE_KITE_PARTIAL.
+  //
+  // Per-signal `dataQuality` is the accurate gate (and is already
+  // checked below via isActionableForFno) — it reflects whether THIS
+  // signal's intraday bar source was actually live Kite vs Yahoo.
 
   for (const signal of signals) {
-    if (signal.tier === "BASELINE") {
-      logger.info(
-        { index: signal.index, setupKey: signal.setupKey },
-        "Paper FO skip: BASELINE signals are informational only — not actionable",
-      );
-      continue;
-    }
-
     const quality = signal.dataQuality as DataQualityLabel | undefined;
-    if (quality && !isActionableForFno(quality)) {
+    if (!quality || !isActionableForFno(quality)) {
       logger.info(
-        { index: signal.index, setupKey: signal.setupKey, dataQuality: quality },
+        { index: signal.index, setupKey: signal.setupKey, dataQuality: quality ?? "UNKNOWN" },
         "Paper FO skip: signal data quality is not actionable (delayed/stale source)",
       );
       continue;
     }
+
+    // BASELINE signals get the conservative auto-trade lane (1% loss
+    // cap, 55 conf floor) instead of being silently dropped. They share
+    // the same daily cap as STANDARD trades so total exposure is
+    // unchanged regardless of mix.
+    const tier: TradeTier = signal.tier === "BASELINE" ? "BASELINE" : "STANDARD";
 
     const direction: "BULLISH" | "BEARISH" =
       signal.bias === "BEARISH" ? "BEARISH" : "BULLISH";
@@ -792,6 +816,7 @@ export async function tryOpenPaperTrades(
         signal,
         signalDate,
         direction,
+        tier,
       });
 
       if (trade && signal.exitedAt) {

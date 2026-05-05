@@ -44,6 +44,21 @@ export const FNO_RISK = {
   MAX_CONSECUTIVE_STOPS_PER_DAY: 2,
 } as const;
 
+/**
+ * BASELINE auto-trade lane. Conservative fallback so the F&O book still
+ * ticks when the high-conviction detectors are suppressed (e.g. partial
+ * indicators because intraday bar history is thin). Half the per-trade
+ * risk (1% vs 2%), a lower but still meaningful confidence floor, and
+ * shares the same MAX_TRADES_PER_DAY / MAX_CONSECUTIVE_STOPS_PER_DAY
+ * caps as the standard lane so overall daily exposure is unchanged.
+ */
+export const FNO_BASELINE_RISK = {
+  /** Max loss per BASELINE trade as a fraction of segment balance — half of the standard lane. */
+  MAX_LOSS_PCT_PER_TRADE: 0.01, // 1%
+  /** Confidence floor for BASELINE auto-trade. Lower than standard but still gates out the weakest reads. */
+  MIN_CONFIDENCE: 55,
+} as const;
+
 /** Equity (swing-cash) specific allocation rules. User-decided. */
 export const EQUITY_RISK = {
   /**
