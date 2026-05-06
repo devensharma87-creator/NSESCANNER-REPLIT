@@ -36,6 +36,15 @@ export interface DataSourceBadgeProps {
   note?: string;
   /** Visually shrink the pill for use inside dense headers. */
   compact?: boolean;
+  /**
+   * When `lastUpdated` is older than this many ms, automatically
+   * downgrade the pill from `live` → `delayed` (and from `delayed` →
+   * `stale` at 4× this value). Defaults to 90 seconds — appropriate
+   * for sub-minute polling pages. Pages that legitimately update less
+   * often (e.g. the macro 5-minute cache) should pass a larger value.
+   * Set to `0` to disable auto-degradation entirely.
+   */
+  autoStaleAfterMs?: number;
   className?: string;
 }
 
@@ -87,21 +96,41 @@ export function DataSourceBadge({
   fallbackActive = false,
   note,
   compact = false,
+  autoStaleAfterMs = 90_000,
   className,
 }: DataSourceBadgeProps) {
-  // If the caller explicitly flagged a fallback and didn't downgrade
-  // the status itself, push status to "delayed" so the pill colour
-  // matches the message — otherwise users see a green dot next to
-  // "Yahoo fallback" which is the exact mismatch the audit flagged.
-  const effectiveStatus: FeedStatus =
-    fallbackActive && status === "live" ? "delayed" : status;
-  const tone = STATUS_TONE[effectiveStatus];
-
   const lastTs =
     lastUpdated == null ? null
     : typeof lastUpdated === "number" ? lastUpdated
     : Date.parse(lastUpdated);
   const tsValid = lastTs != null && Number.isFinite(lastTs);
+
+  // Re-tick once a second so the auto-degradation kicks in even when
+  // no other state in the badge is changing — without this the pill
+  // would remain "live" forever after the first paint, no matter how
+  // old the underlying data became.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!tsValid || autoStaleAfterMs <= 0) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [tsValid, autoStaleAfterMs]);
+
+  // Status resolution priority (most-trusted signal wins):
+  //   1. Explicit `down` from the caller — never auto-promote.
+  //   2. Caller-supplied `fallbackActive` downgrades a green pill to amber.
+  //   3. Age-based auto-degrade: live → delayed → stale based on
+  //      `autoStaleAfterMs`. This is what stops "kite (live)" from
+  //      lying when a scan is actually 16 hours old (market closed,
+  //      stale cache from yesterday).
+  let effectiveStatus: FeedStatus = status;
+  if (fallbackActive && effectiveStatus === "live") effectiveStatus = "delayed";
+  if (tsValid && autoStaleAfterMs > 0 && effectiveStatus !== "down") {
+    const age = Math.max(0, now - lastTs!);
+    if (age > autoStaleAfterMs * 4) effectiveStatus = "stale";
+    else if (age > autoStaleAfterMs && effectiveStatus === "live") effectiveStatus = "delayed";
+  }
+  const tone = STATUS_TONE[effectiveStatus];
 
   const StatusIcon =
     effectiveStatus === "down" ? CircleSlash :

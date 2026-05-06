@@ -21,6 +21,8 @@ interface FullNseResponse {
   total: number;
   universeSize: number;
   sourceDate: string;
+  /** ISO timestamp of when the cached rows were produced — drives the freshness pill. */
+  lastUpdated?: string;
   scanMs: number;
   failures: number;
   rested: number;
@@ -71,6 +73,7 @@ function useFullNseStocks() {
     meta: q.data ? {
       universeSize: q.data.universeSize,
       sourceDate: q.data.sourceDate,
+      lastUpdated: q.data.lastUpdated,
       scanMs: q.data.scanMs,
       failures: q.data.failures,
       rested: q.data.rested,
@@ -468,8 +471,14 @@ export default function ScannerPage() {
               source={fullMeta?.kiteOffline ? "yahoo" : "kite"}
               status={fullMeta?.kiteOffline ? "delayed" : "live"}
               fallbackActive={!!fullMeta?.kiteOffline}
-              lastUpdated={fullMeta?.sourceDate}
+              // Real wall-clock of the last successful scan (ISO from
+              // server). Previously we were passing `sourceDate` which is
+              // the bhavcopy date (no time component) — that always
+              // parsed to midnight UTC and made the pill read "15h ago"
+              // even on a fresh scan.
+              lastUpdated={fullMeta?.lastUpdated}
               refreshMs={60_000}
+              autoStaleAfterMs={120_000}
               note={fullMeta?.kiteOffline ? "Kite session offline — Yahoo backup active" : undefined}
               compact
             />
