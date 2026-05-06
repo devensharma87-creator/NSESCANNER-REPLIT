@@ -1647,27 +1647,32 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
 
   for (const cfg of OPTION_INDICES) {
     try {
-      // Prefer Kite for intraday — fresh 15m candles with no Yahoo
-      // delay/rate-limit. Fall back to Yahoo when Kite is offline or
-      // doesn't cover the index. Daily history stays on Yahoo (works
-      // fine, no live-data sensitivity at end-of-day).
+      // STRICT KITE-ONLY for intraday F&O signal emission (2026-05-06).
+      // Yahoo's 15-min delay produced phantom triggers, wrong entries,
+      // and broker/signal mismatch that the user explicitly demanded
+      // be eliminated. Skip emission when Kite intraday is unavailable
+      // — the MissedSignals card surfaces every skip with a clear
+      // reason so the audit trail is preserved. Daily history still
+      // uses Yahoo (EOD bars, no live-data sensitivity).
       let intra: YahooChart | null = null;
-      let intraSrc: "kite" | "yahoo" | null = null;
+      let intraSrc: "kite" | null = null;
       if (hasKiteIntradayCoverage(cfg.yahoo)) {
         intra = await fetchKiteIntraday(cfg.yahoo, "15minute", 5);
         if (intra) intraSrc = "kite";
       }
       if (!intra) {
-        intra = await fetchIntraday(cfg.yahoo, "15m", "5d");
-        if (intra) intraSrc = "yahoo";
-      }
-      const daily = await fetchIntraday(cfg.yahoo, "1d" as never, "3mo" as never);
-      if (!intra || !daily) {
-        suppressed.push({ index: cfg.symbol, reasons: [`intraday_unavailable (kite=${hasKiteIntradayCoverage(cfg.yahoo)}, yahoo=fallback)`] });
+        suppressed.push({
+          index: cfg.symbol,
+          reasons: [
+            `no_live_kite_intraday (Kite session expired / throttled / index uncovered) — Yahoo fallback disabled to prevent stale-data signals`,
+          ],
+        });
         continue;
       }
-      if (intraSrc === "yahoo") {
-        logger.info({ idx: cfg.symbol }, "F&O intraday: Kite unavailable, using Yahoo (signals may lag up to 15m)");
+      const daily = await fetchIntraday(cfg.yahoo, "1d" as never, "3mo" as never);
+      if (!daily) {
+        suppressed.push({ index: cfg.symbol, reasons: [`daily_history_unavailable`] });
+        continue;
       }
       const r = buildSignalsForIndex(cfg, intra, daily, gateCtx);
       if (r.hasBars) indicesWithBars++;

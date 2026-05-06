@@ -18,12 +18,11 @@
  */
 
 import { fetchKiteIntraday, fetchKiteEquityIntraday } from "./kiteIntraday";
-import { fetchIntraday } from "./yahoo";
 import { ema, rsi, sessionVwap } from "./indicators";
 
 export interface LiveBiasSnapshot {
   /** Where the candles came from on this fetch. */
-  source: "kite" | "yahoo";
+  source: "kite";
   /** ISO timestamp of when this snapshot was computed. */
   fetchedAt: string;
   /** Last 15-min close. */
@@ -104,27 +103,21 @@ export async function computeLiveBias(
 ): Promise<LiveBiasSnapshot | null> {
   const sym = underlying.toUpperCase();
 
+  // STRICT KITE-ONLY (2026-05-06). The live-bias card drives F&O entry
+  // decisions; a 15-min-stale Yahoo bias is worse than no bias because
+  // it looks fresh in the UI. When Kite intraday is unavailable we
+  // return null and the UI surfaces "Live data unavailable".
   let intra: { high: number[]; low: number[]; close: number[]; volume: number[]; timestamps: number[] } | null = null;
-  let source: "kite" | "yahoo" = "kite";
+  const source: "kite" = "kite";
 
   if (kind === "INDEX") {
     const yh = INDEX_TO_YAHOO[sym];
     if (!yh) return null;
     const k = await fetchKiteIntraday(yh, "15minute", 5).catch(() => null);
-    if (k && k.close.length >= 6) {
-      intra = k;
-    } else {
-      const y = await fetchIntraday(yh, "15m", "5d").catch(() => null);
-      if (y && y.close.length >= 6) { intra = y; source = "yahoo"; }
-    }
+    if (k && k.close.length >= 6) intra = k;
   } else {
     const k = await fetchKiteEquityIntraday(sym, "15minute", 5).catch(() => null);
-    if (k && k.close.length >= 6) {
-      intra = k;
-    } else {
-      const y = await fetchIntraday(`${sym}.NS`, "15m", "5d").catch(() => null);
-      if (y && y.close.length >= 6) { intra = y; source = "yahoo"; }
-    }
+    if (k && k.close.length >= 6) intra = k;
   }
 
   if (!intra || intra.close.length < 6) return null;
