@@ -767,6 +767,61 @@ export async function onLifecycleUpsert(input: LifecycleHookInput): Promise<void
  * so any signals that triggered AND exited while the server was down
  * get retroactively created + closed.
  */
+/**
+ * In-memory ring buffer of signals we observed AFTER they had already
+ * terminated (exitedAt set on first sight, no OPEN row to close).
+ *
+ * We deliberately do NOT auto-open these as paper trades — that would
+ * create phantom same-cycle open+close rows and consume daily-cap slots
+ * for opportunities the system never actually had a chance to take.
+ * But we DO need visibility into them so the owner can see how many
+ * signals slip through due to system-side latency (signal cycles every
+ * 30s; a fast-moving setup like a small-cap CE on a gap-up day can
+ * trigger and hit T2 in the same bar).
+ *
+ * Capped to MAX_MISSED so a runaway day cannot grow this unbounded.
+ */
+export interface MissedSignal {
+  signalDate: string;
+  indexSymbol: string;
+  indexName: string;
+  setupKey: string;
+  direction: "BULLISH" | "BEARISH";
+  confidence: number;
+  tier: TradeTier;
+  status: LifecycleStatus;
+  reason: CloseReason;
+  optionEntry: number | null;
+  optionStop: number | null;
+  optionTarget1: number | null;
+  optionTarget2: number | null;
+  observedAt: Date;
+}
+
+const MAX_MISSED = 200;
+const missedRing: MissedSignal[] = [];
+const missedSeen = new Set<string>();
+
+function missedKey(m: Pick<MissedSignal, "signalDate" | "indexSymbol" | "setupKey" | "direction">): string {
+  return `${m.signalDate}|${m.indexSymbol}|${m.setupKey}|${m.direction}`;
+}
+
+function recordMissedSignal(m: MissedSignal): void {
+  const k = missedKey(m);
+  if (missedSeen.has(k)) return;
+  missedSeen.add(k);
+  missedRing.push(m);
+  if (missedRing.length > MAX_MISSED) {
+    const dropped = missedRing.shift();
+    if (dropped) missedSeen.delete(missedKey(dropped));
+  }
+}
+
+/** Newest-first list of missed signals (read-only copy). */
+export function getMissedSignals(): MissedSignal[] {
+  return [...missedRing].reverse();
+}
+
 export async function tryOpenPaperTrades(
   signals: OptionSignal[],
   signalDate: string,
@@ -846,6 +901,30 @@ export async function tryOpenPaperTrades(
         direction,
         reason,
       );
+      if (closed == null) {
+        // We genuinely never opened this. Record it in the missed-
+        // trades ring buffer so the owner can see what slipped through
+        // due to system-side latency (signal observed for the first
+        // time AFTER it had already terminated). Anti-phantom rule
+        // still applies — we don't open + immediately close — but the
+        // owner now has visibility into "would-be" P&L.
+        recordMissedSignal({
+          signalDate,
+          indexSymbol: signal.index,
+          indexName: signal.indexName ?? signal.index,
+          setupKey: signal.setupKey ?? "",
+          direction,
+          confidence: Math.round(signal.confidence ?? 0),
+          tier,
+          status,
+          reason,
+          optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
+          optionStop: signal.optionStopLoss ?? null,
+          optionTarget1: signal.optionTarget1 ?? null,
+          optionTarget2: signal.optionTarget2 ?? null,
+          observedAt: new Date(),
+        });
+      }
       logger.info(
         {
           index: signal.index,

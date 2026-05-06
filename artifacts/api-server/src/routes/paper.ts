@@ -31,11 +31,13 @@ import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { requireOwner } from "../lib/userAuth";
 import {
   ensureDailyReset,
+  topupAccount,
   FNO_RISK,
   EQUITY_RISK,
   type Segment,
 } from "../lib/paperAccount";
-import { closePaperTradeForSignal } from "../lib/paperTradingFO";
+import { closePaperTradeForSignal, getMissedSignals } from "../lib/paperTradingFO";
+import { getFoAnalytics } from "../lib/paperAnalyticsFO";
 import { getMonthlyReport, getYearlyReport } from "../lib/paperReportsFO";
 import {
   getMonthlyReport as getEqMonthlyReport,
@@ -234,6 +236,74 @@ router.post("/paper/positions/fo/:id/close", requireOwner, async (req, res, next
     }
     logger.info({ id, indexSymbol: row.indexSymbol, setupKey: row.setupKey }, "Manual paper FO close");
     const data = ClosePaperPositionFOResponse.parse(toClosedTrade(closed));
+    return res.json(data);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post("/paper/account/topup", requireOwner, async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as { segment?: string; amount?: number };
+    const segment = String(body.segment ?? "").toUpperCase();
+    if (segment !== "FNO" && segment !== "EQUITY") {
+      return res.status(400).json({ error: "segment must be FNO or EQUITY" });
+    }
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: "amount must be a positive number" });
+    }
+    if (amount > 10_00_00_000) {
+      // Sanity cap at ₹10 crore per top-up so a fat-finger keystroke can't
+      // distort analytics by orders of magnitude.
+      return res.status(400).json({ error: "amount exceeds ₹10,00,00,000 cap" });
+    }
+    const result = await topupAccount(segment as Segment, amount);
+    if (!result.ok) {
+      return res.status(500).json({ error: "Top-up failed" });
+    }
+    return res.json({ segment, amount, newBalance: result.newBalance });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get("/paper/missed/fo", requireOwner, async (_req, res, next) => {
+  try {
+    const missed = getMissedSignals().map(m => ({
+      signalDate: m.signalDate,
+      indexSymbol: m.indexSymbol,
+      indexName: m.indexName,
+      setupKey: m.setupKey,
+      direction: m.direction,
+      confidence: m.confidence,
+      tier: m.tier,
+      status: m.status,
+      reason: m.reason,
+      optionEntry: m.optionEntry,
+      optionStop: m.optionStop,
+      optionTarget1: m.optionTarget1,
+      optionTarget2: m.optionTarget2,
+      observedAt: m.observedAt.toISOString(),
+    }));
+    return res.json({ missed, generatedAt: new Date().toISOString() });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get("/paper/analytics/fo", requireOwner, async (req, res, next) => {
+  try {
+    const from = String(req.query.from ?? "").trim() || undefined;
+    const to = String(req.query.to ?? "").trim() || undefined;
+    const re = /^\d{4}-\d{2}-\d{2}$/;
+    if (from && !re.test(from)) {
+      return res.status(400).json({ error: "from must be YYYY-MM-DD" });
+    }
+    if (to && !re.test(to)) {
+      return res.status(400).json({ error: "to must be YYYY-MM-DD" });
+    }
+    const data = await getFoAnalytics({ from, to });
     return res.json(data);
   } catch (err) {
     return next(err);

@@ -3,16 +3,19 @@
  *
  * One row per segment ("FNO" | "EQUITY"), owner-only.
  *
- *   - FNO is intraday by design: balance auto-refills to seed_capital
- *     at the start of every IST trading day so each day's signals can
- *     be tested with the full bankroll. Cumulative P&L lives on
- *     individual paper_trade_fo rows, so the refill never erases
- *     history.
+ *   - FNO and EQUITY both treat the balance as a persistent bankroll.
+ *     The daily rollover only zeroes day_trade_count, day_open_count
+ *     and day_realized_pnl; the cash balance carries over so cumulative
+ *     P&L is visible directly on the account row instead of being
+ *     erased every IST midnight. Use `topupAccount()` to add capital
+ *     manually when the bankroll is depleted.
  *
- *   - EQUITY is a multi-day swing book: the daily reset MUST NOT touch
- *     balance, because capital is locked in OPEN swing positions across
- *     days. We only zero the day_trade_count + day_open_count counters
- *     and bump last_reset_date.
+ *     (Until 2026-05 the FNO segment auto-refilled to seed_capital
+ *     every IST day — that wiped real losses and made the dashboard
+ *     misleading. Removed at owner request.)
+ *
+ *   - EQUITY balance has always been preserved across days because
+ *     capital is locked in OPEN swing positions overnight.
  *
  * All state mutations run through SQL conditional updates on the
  * account row, so concurrent handlers cannot oversize a position or
@@ -158,16 +161,18 @@ export async function ensureDailyReset(segment: Segment): Promise<PaperAccountRo
     }
   }
 
-  // FNO refills balance back to seed_capital each IST day.
-  // EQUITY MUST NOT touch balance — capital is locked in OPEN swing
-  // positions across days; resetting would orphan that capital and
-  // double-count when the position closes. We only zero the day
-  // counters (number of new entries today, number currently open
-  // counter) and bump last_reset_date.
+  // Both segments preserve `balance` across the day-rollover. FNO used
+  // to auto-refill to seed_capital here, but that erased real losses
+  // every IST midnight and made cumulative P&L invisible. The owner
+  // now tops up manually via `topupAccount()` (POST /paper/account/topup).
+  //
+  // EQUITY also preserves dayOpenCount because OPEN swing positions
+  // carry over the night and must keep being counted; FNO clears
+  // dayOpenCount because the F&O lifecycle terminates intraday so any
+  // count carrying over would be stale.
   const setClause =
     segment === "FNO"
       ? {
-          balance: sql`${paperAccountTable.seedCapital}`,
           dayRealizedPnl: "0",
           dayTradeCount: 0,
           dayOpenCount: 0,
@@ -175,9 +180,6 @@ export async function ensureDailyReset(segment: Segment): Promise<PaperAccountRo
           updatedAt: new Date(),
         }
       : {
-          // EQUITY: balance is preserved as-is. dayOpenCount is also
-          // NOT reset because OPEN equity positions carry over the
-          // night and must continue to be reflected in the counter.
           dayRealizedPnl: "0",
           dayTradeCount: 0,
           lastResetDate: today,
@@ -332,6 +334,38 @@ export async function recordOpen(segment: Segment): Promise<void> {
       updatedAt: new Date(),
     })
     .where(eq(paperAccountTable.segment, segment));
+}
+
+/**
+ * Manual top-up. Adds `amount` (₹) to the segment cash balance. Used
+ * by the owner via POST /paper/account/topup when the bankroll is
+ * depleted. Does NOT bump seed_capital — seed remains the original
+ * starting bankroll for "net vs seed" reporting; topups are tracked
+ * via the cumulative balance + closed-trade ledger.
+ *
+ * Returns { ok, newBalance }. ok=false only when amount <= 0 or the
+ * row update fails.
+ */
+export async function topupAccount(
+  segment: Segment,
+  amount: number,
+): Promise<{ ok: boolean; newBalance: number }> {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, newBalance: 0 };
+  }
+  await ensureDailyReset(segment);
+  const updated = await db
+    .update(paperAccountTable)
+    .set({
+      balance: sql`${paperAccountTable.balance} + ${toMoney(amount)}::numeric`,
+      updatedAt: new Date(),
+    })
+    .where(eq(paperAccountTable.segment, segment))
+    .returning();
+  if (updated.length === 0) return { ok: false, newBalance: 0 };
+  const next = num(updated[0]!.balance);
+  logger.info({ segment, amount, newBalance: next }, "Manual paper top-up");
+  return { ok: true, newBalance: next };
 }
 
 /**

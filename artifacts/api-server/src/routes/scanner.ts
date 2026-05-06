@@ -20,6 +20,7 @@ import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBac
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
 import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
+import { pivots } from "../lib/indicators";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
 import { getMarketEvents, computeMarketStatus } from "../lib/marketEvents";
 import { getPreMarketReport } from "../lib/preMarket";
@@ -465,6 +466,27 @@ router.get("/index/:slug", async (req, res, next) => {
     const prev = c?.meta.chartPreviousClose ?? price;
     const change = price - prev;
     const pct = prev > 0 ? (change / prev) * 100 : 0;
+    // Previous-session H/L are needed for classical floor pivots (R1/R2/S1/S2).
+    // The 5d daily chart's last bar is today (or last trading session if
+    // closed), so the prior session's H/L sits at index `len - 2`. Guard
+    // strictly: if either is missing or non-finite we omit `pivots` rather
+    // than emit a degenerate pivot at today's price.
+    const dn = c?.high?.length ?? 0;
+    const prevHigh = dn >= 2 ? c!.high[dn - 2] : undefined;
+    const prevLow  = dn >= 2 ? c!.low[dn - 2]  : undefined;
+    let pivotBlock: { pivot: number; r1: number; r2: number; s1: number; s2: number } | undefined;
+    if (
+      prevHigh != null && prevLow != null &&
+      Number.isFinite(prevHigh) && Number.isFinite(prevLow) &&
+      Number.isFinite(prev) && prev > 0
+    ) {
+      const p = pivots(prevHigh, prevLow, prev);
+      pivotBlock = {
+        pivot: round2(p.pivot),
+        r1: round2(p.r1), r2: round2(p.r2),
+        s1: round2(p.s1), s2: round2(p.s2),
+      };
+    }
     res.json({
       slug,
       name: cfg.display,
@@ -476,6 +498,9 @@ router.get("/index/:slug", async (req, res, next) => {
       high: c?.meta.regularMarketDayHigh != null ? round2(c.meta.regularMarketDayHigh) : undefined,
       low: c?.meta.regularMarketDayLow != null ? round2(c.meta.regularMarketDayLow) : undefined,
       previousClose: round2(prev),
+      previousHigh: prevHigh != null ? round2(prevHigh) : undefined,
+      previousLow:  prevLow  != null ? round2(prevLow)  : undefined,
+      pivots: pivotBlock,
       breadth: { advancers: a, decliners: d, unchanged: u, adRatio: d === 0 ? (a > 0 ? null : 0) : +(a / d).toFixed(2) },
       constituents: constituents.slice().sort((x, y) => y.quote.changePercent - x.quote.changePercent),
     });

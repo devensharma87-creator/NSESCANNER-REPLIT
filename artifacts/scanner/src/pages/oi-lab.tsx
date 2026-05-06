@@ -12,6 +12,7 @@ import {
   BarChart, Bar, Cell, PieChart, Pie, ComposedChart, AreaChart, Area, LabelList,
 } from "recharts";
 import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, ChevronRight, Info } from "lucide-react";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 
 const base = (import.meta as { env: { BASE_URL: string } }).env.BASE_URL;
 
@@ -129,12 +130,15 @@ function fmtPct(n: number | undefined | null): string {
 export default function OiLab() {
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">OI Lab</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Bulk option-chain snapshots, futures OI buildup heatmap, and intraday OI delta tracking.
-          All live from Kite — no caching beyond a few seconds.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">OI Lab</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Bulk option-chain snapshots, futures OI buildup heatmap, and intraday OI delta tracking.
+            All live from Kite — no caching beyond a few seconds.
+          </p>
+        </div>
+        <DataSourceBadge source="kite" status="live" refreshMs={30_000} note="option chain + futures OI" />
       </div>
 
       <Tabs defaultValue="insights" className="space-y-4">

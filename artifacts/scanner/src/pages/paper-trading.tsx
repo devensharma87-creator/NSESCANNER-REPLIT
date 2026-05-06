@@ -577,7 +577,64 @@ function EqTradesCard({ trades, loading, error }: {
   );
 }
 
+interface MissedSignalRow {
+  signalDate: string;
+  indexSymbol: string;
+  indexName: string;
+  setupKey: string;
+  direction: "BULLISH" | "BEARISH";
+  confidence: number;
+  tier: "BASELINE" | "STANDARD";
+  status: string;
+  reason: "TARGET2_HIT" | "TARGET1_HIT" | "STOPPED" | "EXPIRED";
+  optionEntry: number | null;
+  optionStop: number | null;
+  optionTarget1: number | null;
+  optionTarget2: number | null;
+  observedAt: string;
+}
+
+interface FoAnalytics {
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  scratches: number;
+  winRate: number;
+  totalRealizedPnl: number;
+  avgWin: number;
+  avgLoss: number;
+  largestWin: number;
+  largestLoss: number;
+  profitFactor: number;
+  expectancy: number;
+  avgRMultiple: number | null;
+  rMultipleSamples: number;
+  maxDrawdown: number;
+  currentDrawdown: number;
+  peakEquity: number;
+  exitReasonCounts: Record<string, number>;
+  bySetup: Array<{
+    setupKey: string;
+    trades: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+    totalPnl: number;
+    avgPnl: number;
+    bestTrade: number;
+    worstTrade: number;
+  }>;
+  equityCurve: Array<{
+    date: string;
+    dailyPnl: number;
+    cumulativePnl: number;
+    drawdown: number;
+  }>;
+  generatedAt: string;
+}
+
 function FOSegment() {
+  const qc = useQueryClient();
   const account = useQuery({
     queryKey: QK_ACCOUNT,
     queryFn: () => api<PaperAccount>(`/paper/account?segment=FNO`),
@@ -593,6 +650,20 @@ function FOSegment() {
     queryFn: () => api<{ date: string; trades: ClosedTrade[]; generatedAt: string }>(`/paper/trades/fo`),
     refetchInterval: 30_000,
   });
+  const missed = useQuery({
+    queryKey: ["paper", "missed", "FNO"] as const,
+    queryFn: () => api<{ missed: MissedSignalRow[]; generatedAt: string }>(`/paper/missed/fo`),
+    refetchInterval: 30_000,
+  });
+  const analytics = useQuery({
+    queryKey: ["paper", "analytics", "FNO"] as const,
+    queryFn: () => api<FoAnalytics>(`/paper/analytics/fo`),
+    refetchInterval: 60_000,
+  });
+
+  const handleTopupSuccess = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: QK_ACCOUNT });
+  }, [qc]);
 
   return (
     <div className="space-y-6">
@@ -600,11 +671,22 @@ function FOSegment() {
         data={account.data}
         loading={account.isLoading}
         error={account.error instanceof Error ? account.error.message : null}
+        onTopupSuccess={handleTopupSuccess}
+      />
+      <AnalyticsCard
+        data={analytics.data}
+        loading={analytics.isLoading}
+        error={analytics.error instanceof Error ? analytics.error.message : null}
       />
       <PositionsCard
         positions={positions.data?.positions ?? []}
         loading={positions.isLoading}
         error={positions.error instanceof Error ? positions.error.message : null}
+      />
+      <MissedSignalsCard
+        missed={missed.data?.missed ?? []}
+        loading={missed.isLoading}
+        error={missed.error instanceof Error ? missed.error.message : null}
       />
       <TradesCard
         trades={trades.data?.trades ?? []}
@@ -624,11 +706,13 @@ function ErrorBlock({ message }: { message: string }) {
   );
 }
 
-function AccountCard({ data, loading, error }: {
+function AccountCard({ data, loading, error, onTopupSuccess }: {
   data?: PaperAccount;
   loading: boolean;
   error: string | null;
+  onTopupSuccess: () => void;
 }) {
+  const [topupOpen, setTopupOpen] = useState(false);
   if (error) {
     return (
       <Card>
@@ -645,17 +729,31 @@ function AccountCard({ data, loading, error }: {
       </Card>
     );
   }
+  // Persistent bankroll: cumulative running equity = balance + day P&L
+  // (the day's realised P&L hasn't been folded into balance yet for any
+  // still-OPEN positions). "Net vs seed" is now the lifetime delta from
+  // the original starting bankroll — meaningful again now that the
+  // daily auto-refill is gone.
   const netVsSeed = data.balance + data.dayRealizedPnl - data.seedCapital;
-  // Note: balance already reflects debits for OPEN positions, so the
-  // "true" running equity line includes day P&L. We show both.
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>F&amp;O Account</CardTitle>
-        <CardDescription>
-          Reset each IST trading day to {inr(data.seedCapital)} seed capital.
-          Last reset: {data.lastResetDate}.
-        </CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle>F&amp;O Account</CardTitle>
+          <CardDescription>
+            Persistent bankroll — losses and gains carry over across days.
+            Day counters last rolled over: {data.lastResetDate}. Use Add capital
+            to top up.
+          </CardDescription>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setTopupOpen(true)}
+          data-testid="button-topup-fno"
+        >
+          Add capital
+        </Button>
       </CardHeader>
       <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Stat label="Cash balance" value={inr(data.balance)} />
@@ -678,11 +776,416 @@ function AccountCard({ data, loading, error }: {
           value={pct(data.maxLossPctPerTrade)}
         />
         <Stat
-          label="Net vs. seed (today)"
+          label="Net vs. seed (lifetime)"
           value={inrDec(netVsSeed)}
           tone={netVsSeed > 0 ? "pos" : netVsSeed < 0 ? "neg" : undefined}
         />
-        <HeatIndicator deployed={data.seedCapital - data.balance} total={data.seedCapital} />
+        <Stat label="Seed capital" value={inr(data.seedCapital)} />
+      </CardContent>
+      <TopupDialog
+        open={topupOpen}
+        onClose={() => setTopupOpen(false)}
+        onSuccess={onTopupSuccess}
+        segment="FNO"
+        currentBalance={data.balance}
+      />
+    </Card>
+  );
+}
+
+function TopupDialog({
+  open, onClose, onSuccess, segment, currentBalance,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  segment: Segment;
+  currentBalance: number;
+}) {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState("");
+  const mutation = useMutation({
+    mutationFn: async (amt: number) => {
+      return api<{ segment: string; amount: number; newBalance: number }>(
+        `/paper/account/topup`,
+        { method: "POST", body: JSON.stringify({ segment, amount: amt }) },
+      );
+    },
+    onSuccess: (result) => {
+      toast({
+        title: "Capital added",
+        description: `+${inr(result.amount)} → new balance ${inr(result.newBalance)}`,
+      });
+      setAmount("");
+      onSuccess();
+      onClose();
+    },
+    onError: (err: unknown) => {
+      toast({
+        title: "Top-up failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+  if (!open) return null;
+  const parsed = Number(amount);
+  const valid = Number.isFinite(parsed) && parsed > 0;
+  const presets = segment === "FNO" ? [50_000, 100_000, 200_000, 500_000] : [200_000, 500_000, 1_000_000, 2_000_000];
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-label="Add capital"
+      >
+        <h2 className="text-lg font-semibold mb-1">Add capital ({segment})</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          Current balance: <span className="font-medium text-foreground">{inr(currentBalance)}</span>.
+          The amount you enter is added to the running cash balance — seed capital stays unchanged.
+        </p>
+        <div className="space-y-3">
+          <input
+            type="number"
+            inputMode="decimal"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            placeholder="Amount in ₹"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            data-testid="input-topup-amount"
+            min="1"
+            step="1"
+          />
+          <div className="flex flex-wrap gap-2">
+            {presets.map(p => (
+              <Button
+                key={p}
+                variant="secondary"
+                size="sm"
+                onClick={() => setAmount(String(p))}
+                type="button"
+              >
+                +{inr(p)}
+              </Button>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={onClose} disabled={mutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => valid && mutation.mutate(parsed)}
+              disabled={!valid || mutation.isPending}
+              data-testid="button-topup-confirm"
+            >
+              {mutation.isPending ? "Adding…" : `Add ${valid ? inr(parsed) : "capital"}`}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsCard({ data, loading, error }: {
+  data?: FoAnalytics;
+  loading: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>Strategy analytics</CardTitle></CardHeader>
+        <CardContent><ErrorBlock message={error} /></CardContent>
+      </Card>
+    );
+  }
+  if (loading || !data) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>Strategy analytics</CardTitle></CardHeader>
+        <CardContent><Skeleton className="h-32 w-full" /></CardContent>
+      </Card>
+    );
+  }
+  if (data.totalTrades === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Strategy analytics</CardTitle>
+          <CardDescription>
+            P&L, win-rate, expectancy and drawdown computed from every closed
+            paper trade.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            No closed paper trades yet. Once trades start closing this section
+            will fill with cumulative P&L, win-rate, expectancy and an equity
+            curve.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Strategy analytics</CardTitle>
+        <CardDescription>
+          Computed from {data.totalTrades} closed trade{data.totalTrades === 1 ? "" : "s"}.
+          Updated {fmtTime(data.generatedAt)}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          <Stat
+            label="Cumulative P&L"
+            value={inrDec(data.totalRealizedPnl)}
+            tone={data.totalRealizedPnl > 0 ? "pos" : data.totalRealizedPnl < 0 ? "neg" : undefined}
+          />
+          <Stat
+            label="Win rate"
+            value={`${(data.winRate * 100).toFixed(1)}%`}
+            tone={data.winRate >= 0.5 ? "pos" : data.winRate > 0 ? "neg" : undefined}
+          />
+          <Stat
+            label="Expectancy / trade"
+            value={inrDec(data.expectancy)}
+            tone={data.expectancy > 0 ? "pos" : data.expectancy < 0 ? "neg" : undefined}
+          />
+          <Stat
+            label="Profit factor"
+            value={data.profitFactor >= 99 ? "∞" : data.profitFactor.toFixed(2)}
+            tone={data.profitFactor >= 1.5 ? "pos" : data.profitFactor < 1 ? "neg" : undefined}
+          />
+          <Stat
+            label="Avg R-multiple"
+            value={data.avgRMultiple == null ? "—" : `${data.avgRMultiple.toFixed(2)}R`}
+            tone={data.avgRMultiple != null && data.avgRMultiple > 0 ? "pos" : data.avgRMultiple != null && data.avgRMultiple < 0 ? "neg" : undefined}
+          />
+          <Stat
+            label="Max drawdown"
+            value={inrDec(data.maxDrawdown)}
+            tone={data.maxDrawdown < 0 ? "neg" : undefined}
+          />
+          <Stat label="Wins / Losses" value={`${data.wins} / ${data.losses}`} />
+          <Stat
+            label="Avg win"
+            value={inrDec(data.avgWin)}
+            tone={data.avgWin > 0 ? "pos" : undefined}
+          />
+          <Stat
+            label="Avg loss"
+            value={inrDec(data.avgLoss)}
+            tone={data.avgLoss < 0 ? "neg" : undefined}
+          />
+          <Stat
+            label="Largest win"
+            value={inrDec(data.largestWin)}
+            tone={data.largestWin > 0 ? "pos" : undefined}
+          />
+          <Stat
+            label="Largest loss"
+            value={inrDec(data.largestLoss)}
+            tone={data.largestLoss < 0 ? "neg" : undefined}
+          />
+          <Stat
+            label="Current drawdown"
+            value={inrDec(data.currentDrawdown)}
+            tone={data.currentDrawdown < 0 ? "neg" : undefined}
+          />
+        </div>
+        <EquityCurveSparkline points={data.equityCurve} />
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+            By setup
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                <tr>
+                  <th className="py-2 pr-3">Setup</th>
+                  <th className="py-2 pr-3 text-right">Trades</th>
+                  <th className="py-2 pr-3 text-right">Win rate</th>
+                  <th className="py-2 pr-3 text-right">Total P&amp;L</th>
+                  <th className="py-2 pr-3 text-right">Avg P&amp;L</th>
+                  <th className="py-2 pr-3 text-right">Best</th>
+                  <th className="py-2 pr-3 text-right">Worst</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.bySetup.map(s => (
+                  <tr key={s.setupKey} className="border-b border-border/40">
+                    <td className="py-2 pr-3 font-medium">{s.setupKey}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{s.trades}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{(s.winRate * 100).toFixed(1)}%</td>
+                    <td className={`py-2 pr-3 text-right tabular-nums font-medium ${s.totalPnl > 0 ? "text-emerald-300" : s.totalPnl < 0 ? "text-rose-300" : ""}`}>
+                      {inrDec(s.totalPnl)}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{inrDec(s.avgPnl)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-emerald-300/80">{inrDec(s.bestTrade)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-rose-300/80">{inrDec(s.worstTrade)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EquityCurveSparkline({ points }: {
+  points: FoAnalytics["equityCurve"];
+}) {
+  if (points.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-6 text-center">
+        Equity curve will appear after the first closed paper trade.
+      </p>
+    );
+  }
+  const W = 800;
+  const H = 160;
+  const PAD = 8;
+  const xs = points.map((_, i) => i);
+  const ys = points.map(p => p.cumulativePnl);
+  const minY = Math.min(0, ...ys);
+  const maxY = Math.max(0, ...ys);
+  const xRange = Math.max(1, xs.length - 1);
+  const yRange = Math.max(1, maxY - minY);
+  const sx = (i: number) => PAD + (i / xRange) * (W - 2 * PAD);
+  const sy = (v: number) => H - PAD - ((v - minY) / yRange) * (H - 2 * PAD);
+  const baselineY = sy(0);
+  const path = points
+    .map((p, i) => `${i === 0 ? "M" : "L"}${sx(i).toFixed(1)},${sy(p.cumulativePnl).toFixed(1)}`)
+    .join(" ");
+  const last = points[points.length - 1]!;
+  const lastTone = last.cumulativePnl >= 0 ? "stroke-emerald-400" : "stroke-rose-400";
+  const fillTone = last.cumulativePnl >= 0 ? "fill-emerald-400/20" : "fill-rose-400/20";
+  const areaPath =
+    `${path} L${sx(points.length - 1).toFixed(1)},${baselineY.toFixed(1)} ` +
+    `L${sx(0).toFixed(1)},${baselineY.toFixed(1)} Z`;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          Equity curve · {points.length} trading day{points.length === 1 ? "" : "s"}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          Peak {inrDec(Math.max(...ys))} · Trough {inrDec(Math.min(...ys))}
+        </div>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="w-full h-40 rounded border border-border bg-muted/20"
+        role="img"
+        aria-label="Cumulative P&L equity curve"
+      >
+        <line x1={PAD} y1={baselineY} x2={W - PAD} y2={baselineY} className="stroke-border" strokeDasharray="2 4" />
+        <path d={areaPath} className={fillTone} />
+        <path d={path} fill="none" strokeWidth="1.5" className={lastTone} />
+      </svg>
+    </div>
+  );
+}
+
+function MissedSignalsCard({ missed, loading, error }: {
+  missed: MissedSignalRow[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>Missed signals</CardTitle></CardHeader>
+        <CardContent><ErrorBlock message={error} /></CardContent>
+      </Card>
+    );
+  }
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>Missed signals</CardTitle></CardHeader>
+        <CardContent><Skeleton className="h-20 w-full" /></CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Missed signals</CardTitle>
+        <CardDescription>
+          Signals the system observed for the first time AFTER they had already
+          terminated (triggered + hit T1/T2/SL inside one polling cycle). The
+          paper trade is intentionally NOT opened — that would create a phantom
+          same-cycle open+close and consume a daily slot. Listed here so you
+          can see what slipped through.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {missed.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No missed signals tracked since server start.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                <tr>
+                  <th className="py-2 pr-3">When</th>
+                  <th className="py-2 pr-3">Index</th>
+                  <th className="py-2 pr-3">Setup</th>
+                  <th className="py-2 pr-3">Side</th>
+                  <th className="py-2 pr-3">Outcome</th>
+                  <th className="py-2 pr-3 text-right">Conf</th>
+                  <th className="py-2 pr-3 text-right">Entry</th>
+                  <th className="py-2 pr-3 text-right">Would-be exit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {missed.map((m, idx) => {
+                  const wouldBeExit =
+                    m.reason === "TARGET2_HIT" ? m.optionTarget2 :
+                    m.reason === "TARGET1_HIT" ? m.optionTarget1 :
+                    m.reason === "STOPPED" ? m.optionStop :
+                    null;
+                  const tone = REASON_TONE[m.reason] ?? "bg-slate-500/15 text-slate-200 border-slate-500/30";
+                  return (
+                    <tr key={`${m.signalDate}-${m.indexSymbol}-${m.setupKey}-${m.direction}-${idx}`} className="border-b border-border/40">
+                      <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtTime(m.observedAt)}</td>
+                      <td className="py-2 pr-3 font-medium">{m.indexName || m.indexSymbol}</td>
+                      <td className="py-2 pr-3 text-[12px]">{m.setupKey}</td>
+                      <td className="py-2 pr-3">
+                        <span className={m.direction === "BULLISH" ? "text-emerald-300" : "text-rose-300"}>
+                          {m.direction === "BULLISH" ? "Bullish" : "Bearish"}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <span className={`px-2 py-0.5 rounded border text-[11px] ${tone}`}>{m.reason}</span>
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{m.confidence}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {m.optionEntry != null ? `₹${m.optionEntry.toFixed(2)}` : "—"}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {wouldBeExit != null ? `₹${wouldBeExit.toFixed(2)}` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, Minus, Search, Star, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SignalBadge } from "@/components/ui/signal-badge";
 import {
   getPersonalWatchlist,
   addToPersonalWatchlist,
@@ -510,9 +511,7 @@ function PersonalWatchlistView({ tabs, currentTab, onChangeTab }: PersonalViewPr
                         <TableCell className="text-right font-mono tabular-nums text-xs">{live ? formatVolume(live.quote.volume) : "—"}</TableCell>
                         <TableCell>
                           {live ? (
-                            <span className="text-[10px] font-mono font-semibold">
-                              {live.recommendation.signal}
-                            </span>
+                            <SignalBadge signal={live.recommendation.signal} />
                           ) : (
                             <span className="text-[10px] text-muted-foreground">not in current universe</span>
                           )}

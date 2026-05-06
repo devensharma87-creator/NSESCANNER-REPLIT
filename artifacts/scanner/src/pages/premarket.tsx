@@ -1,4 +1,5 @@
 import { useGetPreMarket, getGetPreMarketQueryKey } from "@workspace/api-client-react";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import type { PreMarketReport } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -105,6 +106,14 @@ export default function PreMarket() {
                 <Gauge className="w-3 h-3 text-muted-foreground" />
                 <span className={tone(data.sentimentScore)}>Score {data.sentimentScore >= 0 ? "+" : ""}{data.sentimentScore.toFixed(1)}</span>
               </div>
+              <DataSourceBadge
+                source="mixed"
+                status="delayed"
+                lastUpdated={dataUpdatedAt}
+                refreshMs={60_000}
+                note="overnight cues · global proxies"
+                compact
+              />
             </div>
           </div>
 

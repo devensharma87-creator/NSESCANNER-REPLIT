@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { ExternalLink, TrendingUp, TrendingDown, RefreshCw, Calendar, Newspaper } from "lucide-react";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
 
 interface WatchSignal {
@@ -171,14 +172,23 @@ export default function StocksToWatchPage() {
           </p>
           <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">{dateLabel}</p>
         </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-md border border-border bg-card hover:bg-accent font-mono text-xs uppercase tracking-wider disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <DataSourceBadge
+            source="mixed"
+            status="delayed"
+            lastUpdated={data?.asOf}
+            refreshMs={5 * 60 * 1000}
+            note="news feeds · 30m cache"
+          />
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-md border border-border bg-card hover:bg-accent font-mono text-xs uppercase tracking-wider disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (

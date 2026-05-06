@@ -8,6 +8,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Layers, Users, Building2, RefreshCw, Minus } from "lucide-react";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import {
   ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, Tooltip as RTooltip,
   CartesianGrid, ReferenceLine, Cell,
@@ -995,14 +996,17 @@ function ParticipantOiSection() {
 export default function FlowsPage() {
   return (
     <div className="space-y-4 px-4 py-3">
-      <div>
-        <h1 className="text-lg font-bold font-mono uppercase tracking-wider flex items-center gap-2">
-          <Building2 className="h-5 w-5 text-signal-strong-buy" />
-          Institutional Flows
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1 font-mono">
-          FII / DII cash market activity (₹ Cr) and participant-wise derivative open interest. Sourced from NSE archives + niftytrader history; refreshed every 15 minutes.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-lg font-bold font-mono uppercase tracking-wider flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-signal-strong-buy" />
+            Institutional Flows
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1 font-mono">
+            FII / DII cash market activity (₹ Cr) and participant-wise derivative open interest. Sourced from NSE archives + niftytrader history; refreshed every 15 minutes.
+          </p>
+        </div>
+        <DataSourceBadge source="mixed" status="delayed" refreshMs={15 * 60 * 1000} note="EOD bhavcopy · NSE + niftytrader" />
       </div>
 
       <FiiDiiSection />
