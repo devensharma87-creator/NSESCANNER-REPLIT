@@ -26,27 +26,18 @@ export function resolveDataQuality(intraSrc: "kite" | "yahoo" | null): DataQuali
  * Whether a signal with this data-quality label is actionable for paper
  * F&O trading.
  *
- * Policy (PERMANENTLY KITE-ONLY as of 2026-05-06):
+ * Policy (PERMANENTLY KITE-ONLY as of 2026-05-06 — hard cut, no override):
  *   - LIVE_KITE_*  → always actionable.
- *   - DELAYED_YAHOO → NEVER actionable. Yahoo's 15-min delay caused
- *                    phantom stop hits, wrong entry prices, and the
- *                    "signal triggered but broker says different" gap
- *                    that dominated the audit backlog. F&O signal
- *                    emission itself is now Kite-gated upstream
- *                    (optionSignals.ts skips emission on Yahoo bars),
- *                    so this label should rarely appear at the trade
- *                    gate — but if it does, we refuse the entry.
+ *   - DELAYED_YAHOO → NEVER actionable. The previous PAPER_TRADE_ALLOW_YAHOO
+ *                    escape hatch was REMOVED — the user explicitly
+ *                    demanded Yahoo never touch F&O. Emission is also
+ *                    Kite-gated upstream (optionSignals.ts), so this
+ *                    label should not even appear at the trade gate;
+ *                    if it does, refuse the entry.
  *   - STALE        → never actionable.
- *
- * Escape hatch: `PAPER_TRADE_ALLOW_YAHOO=1` re-permits Yahoo-quality
- * signals if you ever need to trade on the delayed feed (e.g. a known
- * Kite outage where you accept the lag). Default is OFF.
  */
 export function isActionableForFno(quality: DataQualityLabel): boolean {
-  if (quality === "LIVE_KITE_FULL" || quality === "LIVE_KITE_PARTIAL") return true;
-  if (quality === "STALE") return false;
-  // DELAYED_YAHOO: refuse by default; allow only with explicit override.
-  return process.env.PAPER_TRADE_ALLOW_YAHOO === "1";
+  return quality === "LIVE_KITE_FULL" || quality === "LIVE_KITE_PARTIAL";
 }
 
 export const VOL_REGIME_THRESHOLDS = {

@@ -1715,10 +1715,18 @@ components:
         vwap: { type: number }
         ema9: { type: number }
         ema21: { type: number }
+        ema20: { type: number, description: "Phase-2: intraday EMA20 — confluence-engine input alongside EMA9/EMA50." }
+        ema50: { type: number, description: "Phase-2: intraday EMA50 — slower trend filter for the confluence engine." }
         rsi: { type: number }
-        valueAreaHigh: { type: number }
-        valueAreaLow: { type: number }
-        pointOfControl: { type: number }
+        valueAreaHigh: { type: number, description: "DAILY-bar volume profile VAH (legacy)." }
+        valueAreaLow: { type: number, description: "DAILY-bar volume profile VAL (legacy)." }
+        pointOfControl: { type: number, description: "DAILY-bar volume profile POC (legacy)." }
+        intradayValueAreaHigh: { type: number, description: "Phase-2: INTRADAY fixed volume profile VAH (last 60 15-min bars). Null for cash-index spots whose intraday volume is 0." }
+        intradayValueAreaLow:  { type: number, description: "Phase-2: INTRADAY fixed volume profile VAL." }
+        intradayPointOfControl: { type: number, description: "Phase-2: INTRADAY fixed volume profile POC." }
+        confluenceScore:
+          type: number
+          description: "Phase-3 confluence-engine score (sum of EMA-stack/VWAP/VolumeProfile/Regime/IVR factor weights, roughly -30..+20). Added to the detector's raw confidence before the HC emission floor; positive = confluence supports the bias, negative = opposed."
         dailyEma50: { type: number, description: "Higher-timeframe EMA50 used for HTF bias." }
         htfBias:
           type: string

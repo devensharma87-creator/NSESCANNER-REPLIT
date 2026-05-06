@@ -874,12 +874,11 @@ export async function onLifecycleUpsert(input: LifecycleHookInput): Promise<void
  *                         cycle), so opening + immediately closing
  *                         would be a phantom trade.
  *   DATA_QUALITY_DELAYED — Signal carried DELAYED_YAHOO data quality
- *                         (refused by default since 2026-05-06; can be
- *                         re-permitted with PAPER_TRADE_ALLOW_YAHOO=1
- *                         for known Kite-outage scenarios). With the
- *                         upstream optionSignals.ts now Kite-gated,
- *                         this skip should rarely fire.
- *   DATA_QUALITY_STALE  — bars older than the Yahoo 15-min floor.
+ *                         (HARD-REFUSED since 2026-05-06: PAPER_TRADE_ALLOW_YAHOO
+ *                         override removed entirely. With the upstream
+ *                         optionSignals.ts now strictly Kite-gated this
+ *                         skip should never fire on the F&O hot path.)
+ *   DATA_QUALITY_STALE  — bars older than the Kite 15-min freshness floor.
  *   CONFIDENCE_FLOOR    — confidence was below the tier's MIN floor
  *                         (BASELINE 55 / STANDARD 70).
  */

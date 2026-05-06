@@ -1,6 +1,7 @@
 import type { OptionSignal, SignalReason } from "@workspace/api-zod";
-import { fetchIntraday, type YahooChart } from "./yahoo";
+import type { YahooChart } from "./yahoo";
 import { fetchKiteIntraday, hasKiteIntradayCoverage } from "./kiteIntraday";
+import { scoreConfluence, type ConfluenceInputs } from "./confluenceEngine";
 import { getKiteIndexQuotes } from "./kiteIndexQuotes";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
 import { classifyRegime, type RegimeResult } from "./regimeClassifier";
@@ -164,11 +165,19 @@ interface Ctx {
   vwapSeries: (number | null)[];
   ema9: number;
   ema21: number;
+  /** Phase-2: EMA20 / EMA50 of intraday closes — fed to confluence engine. */
+  ema20: number;
+  ema50: number;
   ema9Series: (number | null)[];
   ema21Series: (number | null)[];
   rsi14: number;
   rsiSeries: (number | null)[];
+  /** Daily-bar volume profile (legacy). Used for daily HVN/LVN context. */
   vp: { pointOfControl: number; valueAreaHigh: number; valueAreaLow: number } | null;
+  /** Phase-2: INTRADAY volume profile (last 60 15-min bars across the
+   *  current Kite intraday window). Fed to the confluence engine to
+   *  identify out-of-balance vs in-value tape. Nullable during warm-up. */
+  vpIntraday: { pointOfControl: number; valueAreaHigh: number; valueAreaLow: number } | null;
   piv: { pivot: number; r1: number; s1: number; r2: number; s2: number };
   atr15: number;
   atrDaily: number;
@@ -233,11 +242,19 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     arr.length >= sessionLen ? arr.slice(arr.length - sessionLen) : arr;
   const ema9Series  = sliceTail(ema(intraCloses, 9));
   const ema21Series = sliceTail(ema(intraCloses, 21));
+  // Phase-2 confluence-engine inputs. EMA20 sits between the existing
+  // EMA9/EMA21 stack so detectors keyed on EMA21 don't shift; EMA50 is
+  // a slower trend filter computed on the full intra window so it warms
+  // up by mid-morning rather than late-session.
+  const ema20Series = sliceTail(ema(intraCloses, 20));
+  const ema50Series = sliceTail(ema(intraCloses, 50));
   const rsiSeries   = sliceTail(rsi(intraCloses, 14));
 
   const vwapRaw    = lastVal(vwapSeries);
   const ema9Raw    = lastVal(ema9Series);
   const ema21Raw   = lastVal(ema21Series);
+  const ema20Raw   = lastVal(ema20Series);
+  const ema50Raw   = lastVal(ema50Series);
   const rsi14Raw   = lastVal(rsiSeries);
 
   // ATR is intentionally split:
@@ -275,6 +292,11 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const effectiveVwap      = vwapRaw ?? spot;
   const effectiveEma9      = ema9Raw ?? sma(closes);
   const effectiveEma21     = ema21Raw ?? ema9Raw ?? sma(closes);
+  // Phase-2: EMA20 falls back to EMA21 (≈same timeframe), EMA50 to
+  // dailyEma50 once available, else to spot. Confluence engine is
+  // resilient to flat-stack readings (returns weight 0).
+  const effectiveEma20     = ema20Raw ?? ema21Raw ?? sma(closes);
+  const effectiveEma50     = ema50Raw ?? sma(closes);
   const effectiveRsi       = rsi14Raw ?? 50;
   // Stop / target ATR: session-only when warm, else gap-free intra-tail
   // simple range, else session simple range. Never the raw full-window
@@ -292,6 +314,14 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
       );
   const vp = dn >= 30
     ? volumeProfile(daily.high, daily.low, daily.close, daily.volume, 30, 60)
+    : null;
+  // Phase-2: INTRADAY fixed volume profile over the last 60 15-min bars
+  // (~3 trading days of context). Cash-index volume from Kite is 0 for
+  // NIFTY/BANKNIFTY/etc — `volumeProfile` returns null when total volume
+  // is zero, so this is naturally null for those indices and the
+  // confluence engine treats it as a no-op factor.
+  const vpIntraday = intraCloses.length >= 30
+    ? volumeProfile(intraHighs, intraLows, intraCloses, intra.volume, 24, 60)
     : null;
   const last10Vol = vols.slice(-20);
   const avgVol20 = last10Vol.length > 0 ? last10Vol.reduce((a, b) => a + b, 0) / last10Vol.length : 0;
@@ -342,9 +372,10 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     sessionChangePct: ((spot - open0) / open0) * 100,
     vwap: effectiveVwap, vwapSeries,
     ema9: effectiveEma9, ema21: effectiveEma21,
+    ema20: effectiveEma20, ema50: effectiveEma50,
     ema9Series, ema21Series,
     rsi14: effectiveRsi, rsiSeries,
-    vp, piv,
+    vp, vpIntraday, piv,
     atr15: effectiveAtr15, atrDaily: effectiveAtrDaily, dailyEma50: effectiveDailyEma,
     htfBias,
     avgVol20,
@@ -1013,9 +1044,15 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
     ema9: round2(c.ema9),
     ema21: round2(c.ema21),
     rsi: round2(c.rsi14),
+    ema20: round2(c.ema20),
+    ema50: round2(c.ema50),
     valueAreaHigh: c.vp ? round2(c.vp.valueAreaHigh) : undefined,
     valueAreaLow: c.vp ? round2(c.vp.valueAreaLow) : undefined,
     pointOfControl: c.vp ? round2(c.vp.pointOfControl) : undefined,
+    intradayValueAreaHigh: c.vpIntraday ? round2(c.vpIntraday.valueAreaHigh) : undefined,
+    intradayValueAreaLow:  c.vpIntraday ? round2(c.vpIntraday.valueAreaLow)  : undefined,
+    intradayPointOfControl: c.vpIntraday ? round2(c.vpIntraday.pointOfControl) : undefined,
+    confluenceScore: (d as Detected & { confluenceScore?: number }).confluenceScore,
     dailyEma50: round2(c.dailyEma50),
     htfBias: c.htfBias,
     htfConflict,
@@ -1151,6 +1188,60 @@ function buildSignalsForIndex(
           r.confidence -= 4;
           r.drivers.push({ label: "VOL_REGIME", weight: -4, bullish: false, detail: `High realized vol (${ctx.realizedVol14?.toFixed(1)}%) — mild confidence haircut` });
         }
+        // ── Phase-3 CONFLUENCE ENGINE (replaces 2026-05-06) ─────────────
+        // The detector returns a raw "edge" reading; we now combine it
+        // with the trader's full confluence stack (EMA 9/20/50 alignment,
+        // VWAP relation, intraday Volume Profile zone, regime, IV Rank)
+        // into a unified score. ivRank is null at emission time — the
+        // bundle enricher attaches it later for the UI display, but the
+        // engine treats null as a no-op factor (weight 0). Pre-Phase-3
+        // emission policy is preserved verbatim in
+        // optionSignals.legacyEmit.bak.ts for rollback reference.
+        const confluenceInputs: ConfluenceInputs = {
+          direction: r.direction,
+          setupTrendClass: det.trendClass,
+          spot: ctx.spot,
+          ema9: ctx.ema9,
+          ema20: ctx.ema20,
+          ema50: ctx.ema50,
+          vwap: ctx.vwap,
+          vp: ctx.vpIntraday,
+          regime: ctx.regime.regime,
+          ivRank: null,
+          rawConfidence: r.confidence,
+        };
+        const confluence = scoreConfluence(confluenceInputs);
+        r.confidence = confluence.adjustedConfidence;
+        for (const f of confluence.factors) {
+          if (f.weight === 0 || f.polarity === "neutral") continue;
+          // Map confluence polarity → SignalReason.bullish (chip colour).
+          //   supports → agrees with the trade direction (green for BULL,
+          //              red for BEAR — NOT the same as "bullish=true")
+          //   opposes  → disagrees with the trade direction
+          //   risk     → direction-agnostic warning, always rendered as
+          //              a negative chip regardless of trade direction
+          //              (fixes pre-fix bug where -5 RISK on a BEARISH
+          //              signal showed as bullish=true / green)
+          let bullish: boolean;
+          if (f.polarity === "risk") {
+            bullish = false;
+          } else if (f.polarity === "supports") {
+            bullish = r.direction === "BULLISH";
+          } else {
+            bullish = r.direction !== "BULLISH";
+          }
+          r.drivers.push({
+            label: f.label,
+            weight: f.weight,
+            bullish,
+            detail: f.detail,
+          });
+        }
+        // Stash the confluence score on the detected setup so toSignal
+        // can surface it on the card (read by exposing as a top-level
+        // OptionSignal field below). Using a dedicated property keeps the
+        // detector's raw confidence accessible separately if ever needed.
+        (r as Detected & { confluenceScore?: number }).confluenceScore = confluence.confluenceScore;
         // Phase-2 HC emission floor — applied AFTER vol-regime haircut so
         // it acts on the final shipped confidence. Demoted setups don't
         // appear in the HC pool; baseline outlook still carries the read.
@@ -1700,9 +1791,13 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
         });
         continue;
       }
-      const daily = await fetchIntraday(cfg.yahoo, "1d" as never, "3mo" as never);
+      // KITE-ONLY daily history (2026-05-06): Yahoo is no longer permitted
+      // anywhere in the F&O pipeline, EOD bars included. If Kite cannot
+      // serve the daily series we skip the index entirely rather than
+      // degrade — surfaced via MissedSignals so the audit trail is honest.
+      const daily = await fetchKiteIntraday(cfg.yahoo, "day", 180);
       if (!daily) {
-        suppressed.push({ index: cfg.symbol, reasons: [`daily_history_unavailable`] });
+        suppressed.push({ index: cfg.symbol, reasons: [`daily_history_unavailable_kite (Yahoo fallback disabled — F&O is Kite-only)`] });
         continue;
       }
       const r = buildSignalsForIndex(cfg, intra, daily, gateCtx);

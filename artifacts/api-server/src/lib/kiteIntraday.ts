@@ -56,6 +56,14 @@ const INDEX_TABLE: IndexEntry[] = [
   { yahoo: "NIFTY_NEXT_50.NS",     exchange: "NSE", tradingSymbol: "NIFTY NEXT 50",     fallbackToken: 270857 },
   { yahoo: "^BSESN",               exchange: "BSE", tradingSymbol: "SENSEX",            fallbackToken: 265    },
   { yahoo: "BSE-BANK.BO",          exchange: "BSE", tradingSymbol: "BANKEX",            fallbackToken: 274441 },
+  // Phase-4 (2026-05-06): INDIA VIX must be in this table so kiteFeed
+  // subscribeIndices() includes it in the WS subscription. Without it,
+  // kiteIndexQuotes.allFresh check will permanently fail (because the
+  // homepage strip's INDEX_MAP includes ^INDIAVIX) and the function
+  // would always fall back to the REST batch path — defeating the
+  // purpose of Phase-4. Token 264969 is the publicly-documented VIX
+  // instrument_token; revalidated via the live dump on first use.
+  { yahoo: "^INDIAVIX",            exchange: "NSE", tradingSymbol: "INDIA VIX",         fallbackToken: 264969 },
 ];
 
 interface RawInstrument {
@@ -73,6 +81,22 @@ let tokenMapDate: string | null = null;
 function istDayKey(): string {
   const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Public accessor for the resolved index→token map. Returns null when
+ * no Kite session is active. Used by kiteFeed.ts to subscribe the
+ * KiteTicker WebSocket to live index spot ticks (Phase-4 2026-05-06).
+ */
+export async function getIndexTokenMap(): Promise<Map<string, number> | null> {
+  const client = await getRestClient();
+  if (!client) return null;
+  try {
+    return await ensureTokenMap(client.kc);
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "getIndexTokenMap failed");
+    return null;
+  }
 }
 
 async function ensureTokenMap(kc: { getInstruments: (e: string) => Promise<unknown> }): Promise<Map<string, number>> {

@@ -30,10 +30,25 @@ export interface OptionSignal {
   vwap?: number;
   ema9?: number;
   ema21?: number;
+  /** Phase-2: intraday EMA20 — confluence-engine input alongside EMA9/EMA50. */
+  ema20?: number;
+  /** Phase-2: intraday EMA50 — slower trend filter for the confluence engine. */
+  ema50?: number;
   rsi?: number;
+  /** DAILY-bar volume profile VAH (legacy). */
   valueAreaHigh?: number;
+  /** DAILY-bar volume profile VAL (legacy). */
   valueAreaLow?: number;
+  /** DAILY-bar volume profile POC (legacy). */
   pointOfControl?: number;
+  /** Phase-2: INTRADAY fixed volume profile VAH (last 60 15-min bars). Null for cash-index spots whose intraday volume is 0. */
+  intradayValueAreaHigh?: number;
+  /** Phase-2: INTRADAY fixed volume profile VAL. */
+  intradayValueAreaLow?: number;
+  /** Phase-2: INTRADAY fixed volume profile POC. */
+  intradayPointOfControl?: number;
+  /** Phase-3 confluence-engine score (sum of EMA-stack/VWAP/VolumeProfile/Regime/IVR factor weights, roughly -30..+20). Added to the detector's raw confidence before the HC emission floor; positive = confluence supports the bias, negative = opposed. */
+  confluenceScore?: number;
   /** Higher-timeframe EMA50 used for HTF bias. */
   dailyEma50?: number;
   /** Daily-timeframe bias derived from spot vs daily EMA50. */

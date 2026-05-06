@@ -138,6 +138,15 @@ export async function startTicker(session?: ActiveSession): Promise<boolean> {
     logger.info("Kite ticker connected");
     // Subscribe to NIFTY 50 by default. F&O / sector lists can call subscribe() too.
     await subscribe(NIFTY50_SYMBOLS);
+    // Phase-4 (2026-05-06): also subscribe to every Indian index spot
+    // we care about so getKiteIndexQuotes() can serve from the in-memory
+    // tick cache instead of polling Kite's REST `getQuote` every 10s.
+    // This eliminates the homepage-strip and F&O-sweep REST roundtrips
+    // during regular session hours. REST is still the fallback when no
+    // tick has arrived yet (cold start) or the ticker is disconnected.
+    await subscribeIndices().catch(err =>
+      logger.warn({ err: (err as Error).message }, "subscribeIndices failed"),
+    );
   });
 
   ticker.on("ticks", handleTicks);
@@ -260,6 +269,42 @@ export async function subscribe(symbols: string[]): Promise<number> {
 /** O(1) lookup of last tick for a symbol. */
 export function getLiveQuote(symbol: string): LiveTick | null {
   return liveQuotes.get(symbol) ?? null;
+}
+
+/**
+ * Phase-4 (2026-05-06): subscribe the WebSocket to every Indian index
+ * spot we surface (NIFTY 50 / BANK NIFTY / SENSEX / sectorals etc).
+ * Tokens are resolved via kiteIntraday's INDEX_TABLE — keyed by their
+ * yahoo-style alias so existing yahoo-keyed callers (`getKiteIndexQuotes`,
+ * `optionSignals` overlay) can read tick data via `getLiveQuote(yahoo)`
+ * without restructuring. Idempotent: skips already-subscribed tokens.
+ */
+export async function subscribeIndices(): Promise<number> {
+  if (!ticker || !tickerStarted) return 0;
+  // Lazy import to avoid an init-time circular reference between
+  // kiteFeed and kiteIntraday (kiteIntraday already imports
+  // getInstrumentToken from this module).
+  const { getIndexTokenMap } = await import("./kiteIntraday");
+  const map = await getIndexTokenMap();
+  if (!map) return 0;
+  const newTokens: number[] = [];
+  for (const [yahoo, token] of map) {
+    if (subscribedTokens.has(token)) continue;
+    subscribedTokens.add(token);
+    tokenToSymbol.set(token, yahoo);
+    newTokens.push(token);
+  }
+  if (newTokens.length > 0) {
+    try {
+      ticker.subscribe(newTokens);
+      ticker.setMode(ticker.modeQuote, newTokens);
+      logger.info({ added: newTokens.length, kind: "indices" }, "Kite indices subscribed");
+    } catch (err) {
+      lastError = (err as Error).message;
+      logger.warn({ err: lastError }, "Kite index subscribe failed");
+    }
+  }
+  return newTokens.length;
 }
 
 /**

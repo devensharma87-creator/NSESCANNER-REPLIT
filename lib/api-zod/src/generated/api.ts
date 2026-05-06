@@ -1407,10 +1407,51 @@ export const GetOptionSignalsResponse = zod.object({
       vwap: zod.number().optional(),
       ema9: zod.number().optional(),
       ema21: zod.number().optional(),
+      ema20: zod
+        .number()
+        .optional()
+        .describe(
+          "Phase-2: intraday EMA20 — confluence-engine input alongside EMA9\/EMA50.",
+        ),
+      ema50: zod
+        .number()
+        .optional()
+        .describe(
+          "Phase-2: intraday EMA50 — slower trend filter for the confluence engine.",
+        ),
       rsi: zod.number().optional(),
-      valueAreaHigh: zod.number().optional(),
-      valueAreaLow: zod.number().optional(),
-      pointOfControl: zod.number().optional(),
+      valueAreaHigh: zod
+        .number()
+        .optional()
+        .describe("DAILY-bar volume profile VAH (legacy)."),
+      valueAreaLow: zod
+        .number()
+        .optional()
+        .describe("DAILY-bar volume profile VAL (legacy)."),
+      pointOfControl: zod
+        .number()
+        .optional()
+        .describe("DAILY-bar volume profile POC (legacy)."),
+      intradayValueAreaHigh: zod
+        .number()
+        .optional()
+        .describe(
+          "Phase-2: INTRADAY fixed volume profile VAH (last 60 15-min bars). Null for cash-index spots whose intraday volume is 0.",
+        ),
+      intradayValueAreaLow: zod
+        .number()
+        .optional()
+        .describe("Phase-2: INTRADAY fixed volume profile VAL."),
+      intradayPointOfControl: zod
+        .number()
+        .optional()
+        .describe("Phase-2: INTRADAY fixed volume profile POC."),
+      confluenceScore: zod
+        .number()
+        .optional()
+        .describe(
+          "Phase-3 confluence-engine score (sum of EMA-stack\/VWAP\/VolumeProfile\/Regime\/IVR factor weights, roughly -30..+20). Added to the detector's raw confidence before the HC emission floor; positive = confluence supports the bias, negative = opposed.",
+        ),
       dailyEma50: zod
         .number()
         .optional()

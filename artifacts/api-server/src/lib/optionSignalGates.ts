@@ -2,7 +2,6 @@ import { db, optionSignalHistoryTable } from "@workspace/db";
 import { and, eq, sql, gte } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchKiteIntraday } from "./kiteIntraday";
-import { fetchIntraday, fetchIndexChart } from "./yahoo";
 import type { OptionSignal } from "@workspace/api-zod";
 
 /**
@@ -200,9 +199,11 @@ async function loadRecentStopsByIndex(
 // --- VIX ---
 
 async function loadVixSnapshot(): Promise<VixSnapshot> {
-  // Try Kite intraday first (15-min, real-time). Fall back to Yahoo
-  // intraday, and finally to a daily-only snapshot. If everything fails
-  // we return spike:false — better to skip the gate than fabricate one.
+  // KITE-ONLY (2026-05-06): Yahoo no longer permitted anywhere in F&O.
+  // Try Kite intraday first (15-min real-time) for the intraday move,
+  // and Kite daily for the cross-session move. If Kite cannot serve VIX
+  // we return spike:false — the gate becomes a no-op rather than a
+  // false trip; never fabricate.
   const empty: VixSnapshot = {
     intradayPct: null,
     dayPct: null,
@@ -212,9 +213,7 @@ async function loadVixSnapshot(): Promise<VixSnapshot> {
 
   let intradayPct: number | null = null;
   try {
-    const bars =
-      (await fetchKiteIntraday("^INDIAVIX", "15minute", 2)) ??
-      (await fetchIntraday("^INDIAVIX", "15m", "5d"));
+    const bars = await fetchKiteIntraday("^INDIAVIX", "15minute", 2);
     if (bars && bars.timestamps.length >= 2) {
       // Restrict to the most recent IST trading day's bars. The "5d"
       // Yahoo response stitches ~125 bars across 5 sessions, so a naive
@@ -262,16 +261,16 @@ async function loadVixSnapshot(): Promise<VixSnapshot> {
 
   let dayPct: number | null = null;
   try {
-    const vix = await fetchIndexChart("^INDIAVIX");
-    if (vix && vix.close.length >= 2) {
-      const c = vix.meta.regularMarketPrice ?? vix.close[vix.close.length - 1]!;
-      const p = vix.close[vix.close.length - 2]!;
+    const vixDaily = await fetchKiteIntraday("^INDIAVIX", "day", 5);
+    if (vixDaily && vixDaily.close.length >= 2) {
+      const c = vixDaily.meta.regularMarketPrice ?? vixDaily.close[vixDaily.close.length - 1]!;
+      const p = vixDaily.close[vixDaily.close.length - 2]!;
       if (p > 0) dayPct = ((c - p) / p) * 100;
     }
   } catch (err) {
     logger.info(
       { err: (err as Error).message },
-      "VIX daily fetch failed; day-spike gate disabled",
+      "VIX daily fetch failed (Kite); day-spike gate disabled",
     );
   }
 

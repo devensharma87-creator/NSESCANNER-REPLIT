@@ -4,7 +4,11 @@ A comprehensive platform for scanning and analyzing the Indian stock market, pro
 
 ## Run & Operate
 
-_Populate as you build_
+- **Run (per-artifact)**: Workflows handle this — do not `pnpm dev` at root. Use `restart_workflow "artifacts/api-server: API Server"` etc.
+- **Codegen**: `pnpm --filter @workspace/api-spec run codegen` (regenerates `lib/api-client-react/src/generated/*` and `lib/api-zod/src/generated/*` from `lib/api-spec/openapi.yaml`).
+- **Typecheck**: `pnpm run typecheck` (canonical full check; runs `typecheck:libs` + every leaf workspace's `tsc --noEmit`).
+- **DB push**: `pnpm --filter @workspace/api-server exec drizzle-kit push` (applies `src/db/schema.ts` to the dev database).
+- **Required env**: `DATABASE_URL`, `APP_ACCESS_PASSWORD`, `SESSION_SECRET`, `TRADINGVIEW_WEBHOOK_SECRET` (all already provisioned).
 
 ## Stack
 
@@ -39,6 +43,9 @@ _Populate as you build_
     2.  **IVR / IVP** (`lib/ivHistory.ts`): trailing-252 ATM-IV rank/percentile. **Snapshot is per-index, NOT per-bundle** — `recordAtmIv` + `computeIvMetrics` run inside the per-index sweep loop in `optionSignals.ts` (right after `bundles.push`), so quiet indices like BANKEX/MIDCPNIFTY accumulate IV history even on cycles with zero emitted signals. Bundle-side enricher only reads existing metrics.
     3.  **Daily/Weekly Portfolio DD Caps** (`lib/paperAccount.ts`): `MAX_DAILY_LOSS_PCT=0.025` / `MAX_WEEKLY_LOSS_PCT=0.05` of seed. `getDailyRealizedDrawdown()` / `getWeeklyRealizedDrawdown()` sum CLOSED `realizedPnl` over IST-day / IST-week windows. **Caps are STICKY** via in-process `dailyDdLatch` / `weeklyDdLatch` — once `capReached`, stays true for the rest of the window even if a later winner pulls realised P&L back below the cap. Latches reset implicitly on IST window rollover; `_resetDdLatchesForTest()` clears them in tests. `paperTradingFO.openPaperTrade` gates after the consecutive-stops gate; on cap-hit logs `MissedSignal` with skipReason `DAILY_DD_CAP` / `WEEKLY_DD_CAP`. `/paper/account?segment=FNO` returns `dailyDrawdownPct` / `dailyDrawdownCapPct` / `weeklyDrawdownPct` / `weeklyDrawdownCapPct` (omitted for EQUITY).
 - **Macro 5D Sparklines**: Dedicated endpoint `/api/market/macroHistory` provides 5-day daily closes for key global indices, cached for 5 minutes.
+- **F&O Phase-2 — EMA20/50 + Intraday Volume Profile** (2026-05-06): `Ctx` extended with `ema20`/`ema50` series + scalars and `vpIntraday` (60-bar fixed VP from `volumeProfile.ts`, computed alongside the existing daily VP). `toSignal` exposes `ema20`, `ema50`, `intradayValueAreaHigh`, `intradayValueAreaLow`, `intradayPointOfControl`, and `confluenceScore` on `OptionSignal`. Note: `vpIntraday` is null for cash-index spots (NIFTY/BANKNIFTY etc. report 0 cash volume); the confluence engine treats this as a 0-weight factor.
+- **F&O Phase-3 — Confluence Engine REPLACES per-detector confidence** (2026-05-06, additive to driver list, replaces final confidence): `lib/confluenceEngine.ts` `scoreConfluence()` returns `{adjustedConfidence, confluenceScore, factors[]}`. Factor weights: EMA stack +5/-8 (9>20>50 vs 9<20<50 vs disordered), VWAP +3/-6 (spot side), VP zone ±3 (inside VAH/VAL = +3 if mean-reversion-aligned, outside = -3 for trend-continuation), regime +5 (trend-aligned) / -10 (counter-trend) / -3 (RANGING for trend-continuation) / -5 (VOLATILE) / -2 (EXPIRY_DAY for new trends), IVR ±2. Wired into `buildSignalsForIndex` AFTER vol-regime haircut, BEFORE `HC_EMISSION_FLOOR`. Pushes `ConfluenceFactor` entries to `r.drivers`, stashes `confluenceScore` on `Detected` so `toSignal` can surface it. **`ivRank` passed null at emission time** (IV metrics are computed at the bundle level after `buildSignalsForIndex`); the IV factor is a UI-only display via the existing `ivRank` field. Pre-Phase-3 emission policy preserved verbatim in `lib/optionSignals.legacyEmit.bak.ts` for rollback. Signal counts will change post-deploy (user-approved).
+- **F&O Phase-4 — KiteTicker WebSocket for Index Spots** (2026-05-06): `kiteFeed.subscribeIndices()` (called from the existing `"connect"` handler, idempotent) lazy-imports `getIndexTokenMap` from `kiteIntraday.ts` to avoid the kiteFeed↔kiteIntraday cycle, then subscribes the existing `KiteTicker` singleton to every index token in `INDEX_TABLE`. `kiteIndexQuotes.getKiteIndexQuotes()` consults `getLiveQuote(yahoo)` first with a 3s freshness gate and ALL-or-nothing fall-through (never serves a partial strip); REST `kc.getQuote` batch is the cold-start/disconnect fallback unchanged. No new vendor dep; reuses the singleton ticker, autoReconnect, and token-expiry handling already in place.
 
 ## Product
 
@@ -60,7 +67,7 @@ I prefer clear and concise communication. For coding, I favor functional program
 - **Kite API Rate Limiting**: Be mindful of rate limits and use exponential backoff; avoid polling F&O Top-50 faster than 15s.
 - **OI Change Calculation**: Dependent on `oi_day_low`/`oi_day_high` from Kite quotes, which may have inconsistencies.
 - **Paper Trading Anti-phantom-trade rules**: Logic for closing already-exited signals and backfilling missing trades.
-- **F&O Signal Pipeline**: Strictly uses Kite data for intraday signals; Yahoo is only for daily history and non-F&O segments. `PAPER_TRADE_ALLOW_YAHOO=1` allows Yahoo-quality paper trades (default OFF).
+- **F&O Signal Pipeline (HARD-CUT 2026-05-06)**: F&O code paths NEVER touch Yahoo. `optionSignals.ts` daily history → Kite `day` interval; `optionSignalGates.ts` VIX → Kite-only (intraday + day); when VIX missing the gate becomes a no-op rather than emit-block so signals still flow. `tradingConfig.isActionableForFno` returns false for `DELAYED_YAHOO` unconditionally; the `PAPER_TRADE_ALLOW_YAHOO` env override has been removed entirely (was a known footgun). Yahoo remains only for non-F&O segments (equity scanner, global multi-asset).
 - **MissedSignal Log Dedup**: `recordMissedSignal()` returns a boolean to prevent log spam for repeatedly missed signals.
 - **Signal Display vs. Enum**: When changing display text for signals, only modify the display layer (e.g., `signal-badge.tsx`), not the underlying `Signal` enum strings used by API/DB.
 - **F&O Signal Sweep Cadence**: The `TRIGGER_SWEEP_INTERVAL_MS` is 30s. Do not set below 15s to avoid Kite throttling.

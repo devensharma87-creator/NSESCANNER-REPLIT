@@ -15,6 +15,7 @@
  */
 
 import { getRestClient } from "./kiteAuth";
+import { getLiveQuote } from "./kiteFeed";
 import { logger } from "./logger";
 
 export interface KiteIndexQuote {
@@ -68,6 +69,43 @@ const TTL_MS = 10_000; // 10s — strip refresh cadence
  * when no Kite session is active (caller should fall back to Yahoo).
  */
 export async function getKiteIndexQuotes(): Promise<Map<string, KiteIndexQuote> | null> {
+  // Phase-4 (2026-05-06): consult the KiteTicker WebSocket cache first.
+  // The ticker subscribes to every INDEX_MAP yahoo key on connect (via
+  // kiteFeed.subscribeIndices), so during regular session hours we have
+  // a sub-second tick available without any REST roundtrip. Build the
+  // KiteIndexQuote map from ticks when ALL symbols have a tick fresher
+  // than 3s; otherwise fall through to the cached/REST batch path so
+  // we never serve a partial strip.
+  const TICK_FRESH_MS = 3_000;
+  const now = Date.now();
+  const tickMap = new Map<string, KiteIndexQuote>();
+  let allFresh = true;
+  for (const m of INDEX_MAP) {
+    const t = getLiveQuote(m.yahoo);
+    if (!t || (now - t.ts) > TICK_FRESH_MS || !(t.ltp > 0)) { allFresh = false; break; }
+    const prev = t.close ?? t.ltp;
+    const change = prev > 0 ? t.ltp - prev : 0;
+    const pct = prev > 0 ? (change / prev) * 100 : 0;
+    tickMap.set(m.yahoo, {
+      yahooSymbol: m.yahoo,
+      name: m.name,
+      price: t.ltp,
+      open: t.open,
+      high: t.high,
+      low: t.low,
+      previousClose: prev,
+      change,
+      changePercent: pct,
+      asOf: t.ts,
+    });
+  }
+  if (allFresh && tickMap.size === INDEX_MAP.length) {
+    // Refresh the REST cache too so a subsequent disconnect serves a
+    // recent strip rather than minute-old data.
+    cache = { ts: now, data: tickMap };
+    return tickMap;
+  }
+
   if (cache && Date.now() - cache.ts < TTL_MS) return cache.data;
 
   const client = await getRestClient();
