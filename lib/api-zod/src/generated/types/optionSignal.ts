@@ -10,6 +10,7 @@ import type { OptionSignalBias } from "./optionSignalBias";
 import type { OptionSignalDataQuality } from "./optionSignalDataQuality";
 import type { OptionSignalExitReason } from "./optionSignalExitReason";
 import type { OptionSignalHtfBias } from "./optionSignalHtfBias";
+import type { OptionSignalRegime } from "./optionSignalRegime";
 import type { OptionSignalSetupKey } from "./optionSignalSetupKey";
 import type { OptionSignalStatus } from "./optionSignalStatus";
 import type { OptionSignalTier } from "./optionSignalTier";
@@ -90,4 +91,20 @@ export interface OptionSignal {
   optionVega?: number;
   /** Data quality label indicating the source and freshness of intraday data used to generate this signal. */
   dataQuality?: OptionSignalDataQuality;
+  /** Phase-1 regime classification for the index at signal time. Read-only label — does not gate setup emission yet (Phase-2 will use it to route setup eligibility). */
+  regime?: OptionSignalRegime;
+  /** Plain-English explanation for the regime label. UI surfaces verbatim under the regime badge. */
+  regimeReason?: string;
+  /**
+   * ATM IV-rank over the trailing 252 sessions (0-100). 0 = today's IV is the lowest; 100 = highest. Null when sample <5 days.
+   * @minimum 0
+   * @maximum 100
+   */
+  ivRank?: number;
+  /**
+   * Fraction of trailing-252 sessions whose ATM IV was strictly below today's, expressed 0-100. Null when sample <5 days.
+   * @minimum 0
+   * @maximum 100
+   */
+  ivPercentile?: number;
 }

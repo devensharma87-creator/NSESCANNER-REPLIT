@@ -658,6 +658,20 @@ export const OptionSignalDataQuality = {
   STALE: "STALE",
 } as const;
 
+/**
+ * Phase-1 regime classification for the index at signal time. Read-only label — does not gate setup emission yet (Phase-2 will use it to route setup eligibility).
+ */
+export type OptionSignalRegime =
+  (typeof OptionSignalRegime)[keyof typeof OptionSignalRegime];
+
+export const OptionSignalRegime = {
+  TRENDING_BULL: "TRENDING_BULL",
+  TRENDING_BEAR: "TRENDING_BEAR",
+  RANGING: "RANGING",
+  VOLATILE: "VOLATILE",
+  EXPIRY_DAY: "EXPIRY_DAY",
+} as const;
+
 export interface OptionSignal {
   index: string;
   indexName: string;
@@ -733,6 +747,22 @@ export interface OptionSignal {
   optionVega?: number;
   /** Data quality label indicating the source and freshness of intraday data used to generate this signal. */
   dataQuality?: OptionSignalDataQuality;
+  /** Phase-1 regime classification for the index at signal time. Read-only label — does not gate setup emission yet (Phase-2 will use it to route setup eligibility). */
+  regime?: OptionSignalRegime;
+  /** Plain-English explanation for the regime label. UI surfaces verbatim under the regime badge. */
+  regimeReason?: string;
+  /**
+   * ATM IV-rank over the trailing 252 sessions (0-100). 0 = today's IV is the lowest; 100 = highest. Null when sample <5 days.
+   * @minimum 0
+   * @maximum 100
+   */
+  ivRank?: number;
+  /**
+   * Fraction of trailing-252 sessions whose ATM IV was strictly below today's, expressed 0-100. Null when sample <5 days.
+   * @minimum 0
+   * @maximum 100
+   */
+  ivPercentile?: number;
 }
 
 export type OptionSignalDiagnosticsSuppressedItem = {
@@ -1835,6 +1865,14 @@ export interface PaperAccountState {
   dailyTradeCap: number;
   /** Max % of balance risked per trade (e.g. 0.02 = 2%). */
   maxLossPctPerTrade: number;
+  /** Phase-1 realised loss today as fraction of seed (0-1). FNO only. */
+  dailyDrawdownPct?: number;
+  /** Configured daily DD cap fraction (0-1). New entries blocked at/above this. */
+  dailyDrawdownCapPct?: number;
+  /** Phase-1 realised loss for IST week-to-date as fraction of seed (0-1). FNO only. */
+  weeklyDrawdownPct?: number;
+  /** Configured weekly DD cap fraction (0-1). */
+  weeklyDrawdownCapPct?: number;
 }
 
 export type PaperTradeFOPositionDirection =

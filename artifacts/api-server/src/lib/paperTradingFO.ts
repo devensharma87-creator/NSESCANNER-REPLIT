@@ -31,7 +31,13 @@ import {
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import type { OptionSignal } from "@workspace/api-zod";
-import { ensureDailyReset, FNO_RISK, FNO_BASELINE_RISK } from "./paperAccount";
+import {
+  ensureDailyReset,
+  FNO_RISK,
+  FNO_BASELINE_RISK,
+  getDailyRealizedDrawdown,
+  getWeeklyRealizedDrawdown,
+} from "./paperAccount";
 import { LOT_SIZES } from "./optionChain";
 import { logger } from "./logger";
 import { computeMarketStatus } from "./marketEvents";
@@ -214,6 +220,61 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
       );
       return null;
     }
+  }
+
+  // Phase-1 portfolio drawdown caps. Even if every other gate passes,
+  // we never open a new trade once today's realised loss has touched
+  // 2.5 % of seed (or this week's has touched 5 %). Counted from
+  // CLOSED paperTradeFo rows only — open MTM doesn't gate.
+  const [dailyDD, weeklyDD] = await Promise.all([
+    getDailyRealizedDrawdown(),
+    getWeeklyRealizedDrawdown(),
+  ]);
+  if (dailyDD.capReached) {
+    const newlyRecorded = recordMissedSignal({
+      signalDate, indexSymbol,
+      indexName: signal.indexName ?? indexSymbol,
+      setupKey, direction, confidence, tier,
+      status: (signal.status as LifecycleStatus | undefined) ?? "TRIGGERED",
+      reason: null,
+      skipReason: "DAILY_DD_CAP",
+      dataQuality: (signal.dataQuality as string | undefined) ?? "UNKNOWN",
+      optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
+      optionStop: signal.optionStopLoss ?? null,
+      optionTarget1: signal.optionTarget1 ?? null,
+      optionTarget2: signal.optionTarget2 ?? null,
+      observedAt: new Date(),
+    });
+    if (newlyRecorded) {
+      logger.info(
+        { indexSymbol, setupKey, drawdownPct: dailyDD.drawdownPct, capPct: dailyDD.capPct },
+        `Paper FO skip: daily DD cap hit (${(dailyDD.drawdownPct * 100).toFixed(2)}% ≥ ${(dailyDD.capPct * 100).toFixed(2)}%)`,
+      );
+    }
+    return null;
+  }
+  if (weeklyDD.capReached) {
+    const newlyRecorded = recordMissedSignal({
+      signalDate, indexSymbol,
+      indexName: signal.indexName ?? indexSymbol,
+      setupKey, direction, confidence, tier,
+      status: (signal.status as LifecycleStatus | undefined) ?? "TRIGGERED",
+      reason: null,
+      skipReason: "WEEKLY_DD_CAP",
+      dataQuality: (signal.dataQuality as string | undefined) ?? "UNKNOWN",
+      optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
+      optionStop: signal.optionStopLoss ?? null,
+      optionTarget1: signal.optionTarget1 ?? null,
+      optionTarget2: signal.optionTarget2 ?? null,
+      observedAt: new Date(),
+    });
+    if (newlyRecorded) {
+      logger.info(
+        { indexSymbol, setupKey, drawdownPct: weeklyDD.drawdownPct, capPct: weeklyDD.capPct },
+        `Paper FO skip: weekly DD cap hit (${(weeklyDD.drawdownPct * 100).toFixed(2)}% ≥ ${(weeklyDD.capPct * 100).toFixed(2)}%)`,
+      );
+    }
+    return null;
   }
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const istMin = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
@@ -826,7 +887,9 @@ export type SkipReason =
   | "MISSED_WINDOW"
   | "DATA_QUALITY_DELAYED"
   | "DATA_QUALITY_STALE"
-  | "CONFIDENCE_FLOOR";
+  | "CONFIDENCE_FLOOR"
+  | "DAILY_DD_CAP"
+  | "WEEKLY_DD_CAP";
 
 export interface MissedSignal {
   signalDate: string;

@@ -58,6 +58,10 @@ interface PaperAccount {
   lastResetDate: string;
   dailyTradeCap: number;
   maxLossPctPerTrade: number;
+  dailyDrawdownPct?: number | null;
+  dailyDrawdownCapPct?: number | null;
+  weeklyDrawdownPct?: number | null;
+  weeklyDrawdownCapPct?: number | null;
 }
 
 interface OpenPosition {
@@ -325,6 +329,82 @@ function EqAccountCard({ data, openPositions, loading, error }: {
         />
         <Stat label="Seed capital" value={inr(data.seedCapital)} />
         <HeatIndicator deployed={bookValue} total={accountValue > 0 ? accountValue : data.seedCapital} />
+      </CardContent>
+    </Card>
+  );
+}
+
+// Phase-1 portfolio drawdown meters. Render only when the API supplied
+// the FNO-only fields (omitted on the equity account). Tints red once
+// usage hits 80 % of cap so the trader sees the wall before the gate
+// blocks the next trade.
+function DrawdownMeter({
+  label,
+  drawdownPct,
+  capPct,
+}: {
+  label: string;
+  drawdownPct: number;
+  capPct: number;
+}) {
+  const usage = capPct > 0 ? Math.min(1, drawdownPct / capPct) : 0;
+  const widthPct = Math.round(usage * 100);
+  const tone =
+    usage >= 0.8 ? "bg-rose-500" :
+    usage >= 0.5 ? "bg-amber-500" :
+                   "bg-emerald-500";
+  const labelTone =
+    usage >= 0.8 ? "text-rose-300" :
+    usage >= 0.5 ? "text-amber-300" :
+                   "text-muted-foreground";
+  return (
+    <div
+      className="flex flex-col gap-1"
+      title={`Realised loss in window as % of seed capital. Cap = ${(capPct * 100).toFixed(2)}%; new entries blocked at cap.`}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className={`text-[10px] font-mono uppercase tracking-wider ${labelTone}`}>
+          {label}
+        </span>
+        <span className="text-xs font-mono tabular-nums">
+          {(drawdownPct * 100).toFixed(2)}% / {(capPct * 100).toFixed(2)}%
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-secondary/40 overflow-hidden">
+        <div className={`h-full ${tone} transition-all`} style={{ width: `${widthPct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function FnoDrawdownCard({ data }: { data: PaperAccount }) {
+  if (
+    data.dailyDrawdownPct == null ||
+    data.dailyDrawdownCapPct == null ||
+    data.weeklyDrawdownPct == null ||
+    data.weeklyDrawdownCapPct == null
+  ) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Portfolio drawdown caps</CardTitle>
+        <CardDescription>
+          Realised loss as % of seed capital. New paper entries are
+          automatically blocked once either cap is reached. Counts only
+          CLOSED trades (open MTM does not gate).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <DrawdownMeter
+          label="Daily DD (today, IST)"
+          drawdownPct={data.dailyDrawdownPct}
+          capPct={data.dailyDrawdownCapPct}
+        />
+        <DrawdownMeter
+          label="Weekly DD (Mon→today, IST)"
+          drawdownPct={data.weeklyDrawdownPct}
+          capPct={data.weeklyDrawdownCapPct}
+        />
       </CardContent>
     </Card>
   );
@@ -695,6 +775,7 @@ function FOSegment() {
         error={account.error instanceof Error ? account.error.message : null}
         onTopupSuccess={handleTopupSuccess}
       />
+      {account.data && <FnoDrawdownCard data={account.data} />}
       <AnalyticsCard
         data={analytics.data}
         loading={analytics.isLoading}

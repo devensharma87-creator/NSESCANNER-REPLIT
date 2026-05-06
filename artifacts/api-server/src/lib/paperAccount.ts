@@ -23,7 +23,7 @@
  */
 import { db, paperAccountTable, paperTradeFoTable } from "@workspace/db";
 import type { PaperAccountRow } from "@workspace/db";
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { CONFIDENCE_THRESHOLDS } from "./tradingConfig";
 
@@ -45,6 +45,15 @@ export const FNO_RISK = {
   MIN_CONFIDENCE: CONFIDENCE_THRESHOLDS.MIN_FNO_TRADE,
   /** Pause after this many consecutive stopped-out trades in a single IST day. */
   MAX_CONSECUTIVE_STOPS_PER_DAY: 2,
+  /** Phase-1 daily/weekly portfolio drawdown caps. New entries are blocked
+   *  once the cumulative realised loss for the IST day reaches this fraction
+   *  of the seed capital. Prevents the "4 trades × 2% = 8% in a single day"
+   *  failure mode the per-trade cap alone allows. */
+  MAX_DAILY_LOSS_PCT: 0.025,  // 2.5%
+  /** Same as above but over the trailing IST week (Mon-Sun). 5% weekly is the
+   *  framework's bankroll-survival ceiling — at 5% per week, a 4-week drawdown
+   *  caps total bleed at ~20% which is still recoverable. */
+  MAX_WEEKLY_LOSS_PCT: 0.05,  // 5%
 } as const;
 
 /**
@@ -376,4 +385,110 @@ export async function topupAccount(
 export async function getDayTradeCount(segment: Segment): Promise<number> {
   const row = await ensureDailyReset(segment);
   return row.dayTradeCount;
+}
+
+// ─── Phase-1 portfolio drawdown caps ─────────────────────────────────────
+//
+// Per-trade caps alone allow up to MAX_TRADES_PER_DAY × MAX_LOSS_PCT_PER_TRADE
+// of bankroll to bleed in a single session. These helpers compute realised
+// loss as a fraction of seed capital across the IST day / IST week and let
+// the trade-open path block new entries once the cap is reached.
+//
+// Realised P&L is summed from `paperTradeFoTable.realizedPnl` for CLOSED
+// rows only — open MTM doesn't count (the trade may still recover).
+
+/** Monday of the current IST calendar week (Mon-Sun, ISO convention). */
+function istWeekStartKey(d: Date = new Date()): string {
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  const day = ist.getUTCDay(); // 0=Sun..6=Sat
+  const diffToMon = day === 0 ? 6 : day - 1;
+  ist.setUTCDate(ist.getUTCDate() - diffToMon);
+  return ist.toISOString().slice(0, 10);
+}
+
+async function sumRealisedPnlSince(sinceDateKey: string): Promise<number> {
+  const result = await db
+    .select({ s: sql<string | null>`COALESCE(SUM(${paperTradeFoTable.realizedPnl}), 0)` })
+    .from(paperTradeFoTable)
+    .where(
+      and(
+        eq(paperTradeFoTable.status, "CLOSED"),
+        gte(paperTradeFoTable.signalDate, sinceDateKey),
+      ),
+    );
+  return num(result[0]?.s ?? 0);
+}
+
+export interface DrawdownReading {
+  /** Realised P&L for the window (₹). Positive = net profit. */
+  realisedPnl: number;
+  /** Loss as a fraction of seed capital (positive). 0 when net profit. */
+  drawdownPct: number;
+  /** True iff drawdownPct >= the configured cap. */
+  capReached: boolean;
+  /** The configured cap fraction (e.g. 0.025). */
+  capPct: number;
+  /** Window start (IST date YYYY-MM-DD). */
+  windowStart: string;
+}
+
+// Sticky DD latches. Once a cap is reached during an IST day / week, it
+// stays reached for the remainder of that window even if a subsequent
+// CLOSED winner pulls realised P&L back below the cap. This matches the
+// trader-protection intent: "we hit the loss line today — stop, even if
+// we partially recover" — and removes a small race where a stop-close
+// pushing DD over cap between check and commit could let one extra
+// trade slip through.
+//   Latch is in-process only (single-process Node, intraday horizon).
+//   Reset implicitly when the window key (date/week) advances.
+let dailyDdLatch: { windowStart: string; reachedAt: Date } | null = null;
+let weeklyDdLatch: { windowStart: string; reachedAt: Date } | null = null;
+
+/** Daily realised drawdown for the FNO segment (today, IST). Sticky once cap hit. */
+export async function getDailyRealizedDrawdown(): Promise<DrawdownReading> {
+  const start = istDateKey();
+  const realisedPnl = await sumRealisedPnlSince(start);
+  const seed = SEED_CAPITAL.FNO;
+  const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
+  // Window-rollover invalidates a stale latch.
+  if (dailyDdLatch && dailyDdLatch.windowStart !== start) dailyDdLatch = null;
+  const liveHit = lossPct >= FNO_RISK.MAX_DAILY_LOSS_PCT;
+  if (liveHit && !dailyDdLatch) {
+    dailyDdLatch = { windowStart: start, reachedAt: new Date() };
+  }
+  const capReached = liveHit || dailyDdLatch !== null;
+  return {
+    realisedPnl,
+    drawdownPct: lossPct,
+    capReached,
+    capPct: FNO_RISK.MAX_DAILY_LOSS_PCT,
+    windowStart: start,
+  };
+}
+
+/** Trailing-week (Mon→today, IST) realised drawdown for the FNO segment. Sticky once cap hit. */
+export async function getWeeklyRealizedDrawdown(): Promise<DrawdownReading> {
+  const start = istWeekStartKey();
+  const realisedPnl = await sumRealisedPnlSince(start);
+  const seed = SEED_CAPITAL.FNO;
+  const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
+  if (weeklyDdLatch && weeklyDdLatch.windowStart !== start) weeklyDdLatch = null;
+  const liveHit = lossPct >= FNO_RISK.MAX_WEEKLY_LOSS_PCT;
+  if (liveHit && !weeklyDdLatch) {
+    weeklyDdLatch = { windowStart: start, reachedAt: new Date() };
+  }
+  const capReached = liveHit || weeklyDdLatch !== null;
+  return {
+    realisedPnl,
+    drawdownPct: lossPct,
+    capReached,
+    capPct: FNO_RISK.MAX_WEEKLY_LOSS_PCT,
+    windowStart: start,
+  };
+}
+
+/** Test/admin only — clear the in-process DD latches without waiting for the IST rollover. */
+export function _resetDdLatchesForTest(): void {
+  dailyDdLatch = null;
+  weeklyDdLatch = null;
 }

@@ -3,6 +3,8 @@ import { fetchIntraday, type YahooChart } from "./yahoo";
 import { fetchKiteIntraday, hasKiteIntradayCoverage } from "./kiteIntraday";
 import { getKiteIndexQuotes } from "./kiteIndexQuotes";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
+import { classifyRegime, type RegimeResult } from "./regimeClassifier";
+import { recordAtmIv, computeIvMetrics } from "./ivHistory";
 import { logger } from "./logger";
 import { fetchOptionChain, type OcRow, type OcSide } from "./optionChain";
 import {
@@ -180,6 +182,9 @@ interface Ctx {
   fullIndicators: boolean;
   realizedVol14: number | null;
   volRegime: VolRegime;
+  /** Phase-1 regime classification (TRENDING_BULL/BEAR | RANGING | VOLATILE | EXPIRY_DAY).
+   *  Read-only label attached to every emitted signal — does NOT gate any setup yet. */
+  regime: RegimeResult;
 }
 
 const MIN_BARS_FOR_CONTEXT = 2;
@@ -318,6 +323,20 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   }
   const volRegime = classifyVolRegime(realizedVol14);
 
+  // Phase-1 regime classifier. Pure label — does not gate any setup
+  // emission. Surfaced on the API so the UI can show a chip and the
+  // owner can spot "all my recent losses came from RANGING days".
+  const regime = classifyRegime({
+    bars: { h: highs, l: lows, c: closes },
+    spot,
+    vwap: effectiveVwap,
+    ema9: effectiveEma9,
+    ema21: effectiveEma21,
+    atr15: effectiveAtr15,
+    expiryWeekday: cfg.expiryWeekday,
+    expiryCadence: cfg.expiryCadence,
+  });
+
   return {
     cfg, spot, open0,
     sessionChangePct: ((spot - open0) / open0) * 100,
@@ -335,6 +354,7 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     fullIndicators,
     realizedVol14,
     volRegime,
+    regime,
   };
 }
 
@@ -1019,6 +1039,8 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
     drivers: d.drivers,
     invalidation: d.invalidation,
     generatedAt: new Date(),
+    regime: c.regime.regime,
+    regimeReason: c.regime.reason,
   };
 }
 
@@ -1690,6 +1712,41 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
         s.dataQuality = quality;
       }
       bundles.push({ signals: r.signals, snapshot: r.snapshot });
+      // Phase-1 IVR/IVP — snapshot ATM IV for THIS index regardless of
+      // whether any signal emitted (so BANKEX/MIDCPNIFTY accumulate IV
+      // history even on quiet days). Best-effort: any failure (chain
+      // fetch, missing IV on both legs, DB write) is logged and skipped
+      // — never propagates to the signal pipeline.
+      try {
+        const expiry = cfg.expiryCadence === "weekly"
+          ? nextWeeklyExpiry(cfg.expiryWeekday)
+          : nextMonthlyExpiry(cfg.expiryWeekday);
+        const chain = await fetchOptionChain(cfg.symbol, expiry);
+        if (chain && Number.isFinite(chain.spot)) {
+          const atmStrike = nearestStrike(chain.spot, cfg.strikeStep);
+          const atmRow = chain.rows.find((rr) => rr.strike === atmStrike);
+          const ceIv = atmRow?.ce?.iv ?? null;
+          const peIv = atmRow?.pe?.iv ?? null;
+          const atmIvCandidates = [ceIv, peIv].filter(
+            (v): v is number => v != null && Number.isFinite(v) && v > 0,
+          );
+          if (atmIvCandidates.length > 0) {
+            const atmIv = atmIvCandidates.reduce((a, c) => a + c, 0) / atmIvCandidates.length;
+            await recordAtmIv(cfg.symbol, atmIv);
+            const metrics = await computeIvMetrics(cfg.symbol, atmIv);
+            // Only attach to signals if any were emitted for this index.
+            for (const s of r.signals) {
+              if (metrics.ivRank != null) s.ivRank = metrics.ivRank;
+              if (metrics.ivPercentile != null) s.ivPercentile = metrics.ivPercentile;
+            }
+          }
+        }
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error).message, idx: cfg.symbol },
+          "IV history snapshot/metrics failed (per-index)",
+        );
+      }
       // Only record suppression detail when no high-conviction setup fired —
       // otherwise the dashboard noise outweighs the value.
       const hcForIdx = r.signals.filter(s => s.tier === "HIGH_CONVICTION").length;

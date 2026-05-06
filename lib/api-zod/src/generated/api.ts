@@ -1382,6 +1382,12 @@ export const GetTopScansResponse = zod.object({
 /**
  * @summary Index option (CALL/PUT) buy/sell setups with entry/SL/target
  */
+export const getOptionSignalsResponseSignalsItemIvRankMin = 0;
+export const getOptionSignalsResponseSignalsItemIvRankMax = 100;
+
+export const getOptionSignalsResponseSignalsItemIvPercentileMin = 0;
+export const getOptionSignalsResponseSignalsItemIvPercentileMax = 100;
+
 export const GetOptionSignalsResponse = zod.object({
   signals: zod.array(
     zod.object({
@@ -1582,6 +1588,40 @@ export const GetOptionSignalsResponse = zod.object({
         .optional()
         .describe(
           "Data quality label indicating the source and freshness of intraday data used to generate this signal.",
+        ),
+      regime: zod
+        .enum([
+          "TRENDING_BULL",
+          "TRENDING_BEAR",
+          "RANGING",
+          "VOLATILE",
+          "EXPIRY_DAY",
+        ])
+        .optional()
+        .describe(
+          "Phase-1 regime classification for the index at signal time. Read-only label — does not gate setup emission yet (Phase-2 will use it to route setup eligibility).",
+        ),
+      regimeReason: zod
+        .string()
+        .optional()
+        .describe(
+          "Plain-English explanation for the regime label. UI surfaces verbatim under the regime badge.",
+        ),
+      ivRank: zod
+        .number()
+        .min(getOptionSignalsResponseSignalsItemIvRankMin)
+        .max(getOptionSignalsResponseSignalsItemIvRankMax)
+        .optional()
+        .describe(
+          "ATM IV-rank over the trailing 252 sessions (0-100). 0 = today's IV is the lowest; 100 = highest. Null when sample <5 days.",
+        ),
+      ivPercentile: zod
+        .number()
+        .min(getOptionSignalsResponseSignalsItemIvPercentileMin)
+        .max(getOptionSignalsResponseSignalsItemIvPercentileMax)
+        .optional()
+        .describe(
+          "Fraction of trailing-252 sessions whose ATM IV was strictly below today's, expressed 0-100. Null when sample <5 days.",
         ),
     }),
   ),
@@ -1853,6 +1893,28 @@ export const GetPaperAccountResponse = zod.object({
   maxLossPctPerTrade: zod
     .number()
     .describe("Max % of balance risked per trade (e.g. 0.02 = 2%)."),
+  dailyDrawdownPct: zod
+    .number()
+    .optional()
+    .describe(
+      "Phase-1 realised loss today as fraction of seed (0-1). FNO only.",
+    ),
+  dailyDrawdownCapPct: zod
+    .number()
+    .optional()
+    .describe(
+      "Configured daily DD cap fraction (0-1). New entries blocked at\/above this.",
+    ),
+  weeklyDrawdownPct: zod
+    .number()
+    .optional()
+    .describe(
+      "Phase-1 realised loss for IST week-to-date as fraction of seed (0-1). FNO only.",
+    ),
+  weeklyDrawdownCapPct: zod
+    .number()
+    .optional()
+    .describe("Configured weekly DD cap fraction (0-1)."),
 });
 
 /**

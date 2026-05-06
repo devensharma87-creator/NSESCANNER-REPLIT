@@ -25,4 +25,12 @@ export interface PaperAccountState {
   dailyTradeCap: number;
   /** Max % of balance risked per trade (e.g. 0.02 = 2%). */
   maxLossPctPerTrade: number;
+  /** Phase-1 realised loss today as fraction of seed (0-1). FNO only. */
+  dailyDrawdownPct?: number;
+  /** Configured daily DD cap fraction (0-1). New entries blocked at/above this. */
+  dailyDrawdownCapPct?: number;
+  /** Phase-1 realised loss for IST week-to-date as fraction of seed (0-1). FNO only. */
+  weeklyDrawdownPct?: number;
+  /** Configured weekly DD cap fraction (0-1). */
+  weeklyDrawdownCapPct?: number;
 }

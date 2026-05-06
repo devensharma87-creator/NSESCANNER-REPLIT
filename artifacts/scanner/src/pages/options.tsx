@@ -103,6 +103,60 @@ function exitReasonLabel(r?: string | null): string {
   }
 }
 
+// Phase-1 chips. Pure read-only labels — no behaviour change to setup
+// emission, just visibility for the trader. Tooltips carry the full
+// regimeReason / IVR explanation so the chip stays compact.
+const REGIME_TONE: Record<string, string> = {
+  TRENDING_BULL: "bg-emerald-500/15 text-emerald-200 border-emerald-500/30",
+  TRENDING_BEAR: "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  RANGING:       "bg-slate-500/15 text-slate-200 border-slate-500/30",
+  VOLATILE:      "bg-amber-500/15 text-amber-200 border-amber-500/30",
+  EXPIRY_DAY:    "bg-violet-500/15 text-violet-200 border-violet-500/30",
+};
+const REGIME_LABEL: Record<string, string> = {
+  TRENDING_BULL: "Trending↑",
+  TRENDING_BEAR: "Trending↓",
+  RANGING:       "Ranging",
+  VOLATILE:      "Volatile",
+  EXPIRY_DAY:    "Expiry",
+};
+function RegimeChip({ regime, reason }: { regime: string; reason?: string | null }) {
+  const tone = REGIME_TONE[regime] ?? "bg-slate-500/15 text-slate-200 border-slate-500/30";
+  const label = REGIME_LABEL[regime] ?? regime;
+  return (
+    <span
+      className={`text-[10px] font-mono uppercase tracking-wider rounded px-1.5 py-0.5 border ${tone}`}
+      title={reason ?? `Regime: ${regime}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function IvChip({ ivRank, ivPercentile }: { ivRank?: number | null; ivPercentile?: number | null }) {
+  // Single chip surfaces both IVR and IVP when available. Colour ramps:
+  //   ≥75 → red (rich premiums; long-options bias is expensive),
+  //   ≤25 → green (cheap premiums; long-options friendly),
+  //   else neutral.
+  const primary = ivRank ?? ivPercentile;
+  if (primary == null) return null;
+  const tone =
+    primary >= 75 ? "bg-rose-500/15 text-rose-200 border-rose-500/30" :
+    primary <= 25 ? "bg-emerald-500/15 text-emerald-200 border-emerald-500/30" :
+                    "bg-slate-500/15 text-slate-200 border-slate-500/30";
+  const parts: string[] = [];
+  if (ivRank != null) parts.push(`IVR ${Math.round(ivRank)}`);
+  if (ivPercentile != null) parts.push(`IVP ${Math.round(ivPercentile)}`);
+  return (
+    <span
+      className={`text-[10px] font-mono uppercase tracking-wider rounded px-1.5 py-0.5 border ${tone}`}
+      title={`Trailing-252 ATM IV: rank ${ivRank ?? "—"}, percentile ${ivPercentile ?? "—"}. ≥75 = expensive premium; ≤25 = cheap.`}
+    >
+      {parts.join(" · ")}
+    </span>
+  );
+}
+
 function SetupCard({ sig, planNumber, totalPlans }: { sig: OptionSignal; planNumber: number; totalPlans: number }) {
   const isCall = sig.leg.type === "CALL";
   const tone = isCall ? "border-signal-strong-buy/30 bg-signal-strong-buy/[0.04]" : "border-signal-strong-sell/30 bg-signal-strong-sell/[0.04]";
@@ -149,6 +203,10 @@ function SetupCard({ sig, planNumber, totalPlans }: { sig: OptionSignal; planNum
           <StatusPill status={sig.status} />
           {sig.leg.riskRewardRatio != null && (
             <span className="text-[10px] font-mono text-muted-foreground">RR {sig.leg.riskRewardRatio}:1</span>
+          )}
+          {sig.regime && <RegimeChip regime={sig.regime} reason={sig.regimeReason} />}
+          {(sig.ivRank != null || sig.ivPercentile != null) && (
+            <IvChip ivRank={sig.ivRank} ivPercentile={sig.ivPercentile} />
           )}
         </div>
       </div>

@@ -241,6 +241,34 @@ export function supportResistance(
 }
 
 /** Classic floor pivots from previous session. */
+/**
+ * Bollinger-band width series. Returns ((upper - lower) / middle) × 100,
+ * i.e. width as a percentage of the SMA. NaN-safe for short windows.
+ *
+ *   middle = SMA(close, period)
+ *   upper  = middle + stdDev × stddev(close, period)
+ *   lower  = middle − stdDev × stddev(close, period)
+ *
+ * Used by the regime classifier to flag VOLATILE sessions where
+ * directional setups get whipsawed by single bars.
+ */
+export function bbWidth(values: number[], period = 20, stdDev = 2): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  if (values.length < period) return out;
+  for (let i = period - 1; i < values.length; i++) {
+    const window = values.slice(i - period + 1, i + 1);
+    const mean = window.reduce((a, b) => a + b, 0) / period;
+    let varSum = 0;
+    for (const v of window) varSum += (v - mean) ** 2;
+    const sd = Math.sqrt(varSum / period);
+    if (mean === 0) continue;
+    const upper = mean + stdDev * sd;
+    const lower = mean - stdDev * sd;
+    out[i] = ((upper - lower) / mean) * 100;
+  }
+  return out;
+}
+
 export function pivots(prevHigh: number, prevLow: number, prevClose: number): {
   pivot: number; r1: number; s1: number; r2: number; s2: number;
 } {

@@ -168,6 +168,7 @@ export * from "./optionSignalHistoryItemOptionType";
 export * from "./optionSignalHistoryItemStatus";
 export * from "./optionSignalHistorySet";
 export * from "./optionSignalHtfBias";
+export * from "./optionSignalRegime";
 export * from "./optionSignalReportResponse";
 export * from "./optionSignalReportResponseMode";
 export * from "./optionSignalSet";

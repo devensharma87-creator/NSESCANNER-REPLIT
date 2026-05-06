@@ -38,6 +38,8 @@ import {
   topupAccount,
   FNO_RISK,
   EQUITY_RISK,
+  getDailyRealizedDrawdown,
+  getWeeklyRealizedDrawdown,
   type Segment,
 } from "../lib/paperAccount";
 import { closePaperTradeForSignal, getMissedSignals } from "../lib/paperTradingFO";
@@ -209,6 +211,16 @@ router.get("/paper/account", requireOwner, async (req, res, next) => {
         : EQUITY_RISK.MAX_NEW_PER_DAY;
     const maxLossPctPerTrade =
       segment === "FNO" ? FNO_RISK.MAX_LOSS_PCT_PER_TRADE : 0;
+    // Phase-1 portfolio drawdown reading. FNO only — equity book has no
+    // intraday DD-cap concept, so we leave the fields undefined for it.
+    let dailyDD: { drawdownPct: number; capPct: number } | null = null;
+    let weeklyDD: { drawdownPct: number; capPct: number } | null = null;
+    if (segment === "FNO") {
+      [dailyDD, weeklyDD] = await Promise.all([
+        getDailyRealizedDrawdown(),
+        getWeeklyRealizedDrawdown(),
+      ]);
+    }
     const data = GetPaperAccountResponse.parse({
       segment,
       seedCapital: num(acct.seedCapital),
@@ -219,6 +231,10 @@ router.get("/paper/account", requireOwner, async (req, res, next) => {
       lastResetDate: acct.lastResetDate ?? istDateKey(),
       dailyTradeCap,
       maxLossPctPerTrade,
+      dailyDrawdownPct: dailyDD?.drawdownPct,
+      dailyDrawdownCapPct: dailyDD?.capPct,
+      weeklyDrawdownPct: weeklyDD?.drawdownPct,
+      weeklyDrawdownCapPct: weeklyDD?.capPct,
     });
     return res.json(data);
   } catch (err) {
