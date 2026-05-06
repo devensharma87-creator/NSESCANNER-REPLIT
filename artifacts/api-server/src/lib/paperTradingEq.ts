@@ -182,9 +182,25 @@ export async function openPaperEquityTrade(
       }
       const qty = Math.floor(deploy / signal.entryPrice);
       if (qty < 1) {
+        // Surface the depleted-account case explicitly. When deploy is
+        // tiny (a few rupees) the issue is almost never "price too high"
+        // — it's that the EQ account balance was drained by losing
+        // trades / never seeded. Logging accountValue + balance here
+        // makes that obvious without having to query the DB.
+        const accountDepleted = accountValue < signal.entryPrice;
         logger.info(
-          { symbol: signal.symbol, deploy, entry: signal.entryPrice },
-          "Paper EQ skip: qty < 1 (price too high for slot)",
+          {
+            symbol: signal.symbol,
+            deploy: +deploy.toFixed(2),
+            entry: signal.entryPrice,
+            balance: +balance.toFixed(2),
+            accountValue: +accountValue.toFixed(2),
+            slots,
+            hint: accountDepleted
+              ? "EQ account is depleted relative to entry price — top up via /api/paper/topup or wait for daily reset"
+              : "perPosition allocation < 1 share at this entry; consider widening BASE_SLOTS or trimming open count",
+          },
+          "Paper EQ skip: qty < 1 (capital per slot insufficient for entry price)",
         );
         return null;
       }

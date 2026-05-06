@@ -280,6 +280,8 @@ router.get("/paper/missed/fo", requireOwner, async (_req, res, next) => {
       tier: m.tier,
       status: m.status,
       reason: m.reason,
+      skipReason: m.skipReason,
+      dataQuality: m.dataQuality,
       optionEntry: m.optionEntry,
       optionStop: m.optionStop,
       optionTarget1: m.optionTarget1,

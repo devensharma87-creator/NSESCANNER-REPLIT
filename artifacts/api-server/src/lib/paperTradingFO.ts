@@ -132,10 +132,34 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
   // Pre-checks that do NOT touch the account.
   const confidence = Math.round(signal.confidence ?? 0);
   if (confidence < minConfidence) {
-    logger.info(
-      { indexSymbol, setupKey, tier, confidence, floor: minConfidence },
-      `Paper FO skip: ${tier} confidence < ${minConfidence}`,
-    );
+    // Surface confidence-floor drops in the MissedSignals ring buffer so
+    // the owner sees EVERY trigger the engine declined — previously
+    // these vanished into the log and the UI showed nothing, which is
+    // exactly the "signal vs trade decoupling" symptom the owner hit.
+    const newlyRecorded = recordMissedSignal({
+      signalDate,
+      indexSymbol,
+      indexName: signal.indexName ?? indexSymbol,
+      setupKey,
+      direction,
+      confidence,
+      tier,
+      status: (signal.status as LifecycleStatus | undefined) ?? "TRIGGERED",
+      reason: null,
+      skipReason: "CONFIDENCE_FLOOR",
+      dataQuality: (signal.dataQuality as string | undefined) ?? "UNKNOWN",
+      optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
+      optionStop: signal.optionStopLoss ?? null,
+      optionTarget1: signal.optionTarget1 ?? null,
+      optionTarget2: signal.optionTarget2 ?? null,
+      observedAt: new Date(),
+    });
+    if (newlyRecorded) {
+      logger.info(
+        { indexSymbol, setupKey, tier, confidence, floor: minConfidence },
+        `Paper FO skip: ${tier} confidence < ${minConfidence}`,
+      );
+    }
     return null;
   }
   const lotSize = lotSizeFor(indexSymbol);
@@ -781,6 +805,26 @@ export async function onLifecycleUpsert(input: LifecycleHookInput): Promise<void
  *
  * Capped to MAX_MISSED so a runaway day cannot grow this unbounded.
  */
+/**
+ * Why the engine declined to open this trade.
+ *
+ *   MISSED_WINDOW       — signal was already exited when first observed
+ *                         (terminal status arrived inside one polling
+ *                         cycle), so opening + immediately closing
+ *                         would be a phantom trade.
+ *   DATA_QUALITY_DELAYED — Kite live feed unavailable, signal was on
+ *                         Yahoo, AND the engine is in strict
+ *                         Kite-only mode (PAPER_TRADE_KITE_ONLY=1).
+ *   DATA_QUALITY_STALE  — bars older than the Yahoo 15-min floor.
+ *   CONFIDENCE_FLOOR    — confidence was below the tier's MIN floor
+ *                         (BASELINE 55 / STANDARD 70).
+ */
+export type SkipReason =
+  | "MISSED_WINDOW"
+  | "DATA_QUALITY_DELAYED"
+  | "DATA_QUALITY_STALE"
+  | "CONFIDENCE_FLOOR";
+
 export interface MissedSignal {
   signalDate: string;
   indexSymbol: string;
@@ -790,7 +834,15 @@ export interface MissedSignal {
   confidence: number;
   tier: TradeTier;
   status: LifecycleStatus;
-  reason: CloseReason;
+  /** Lifecycle terminal reason (TARGET2_HIT/STOPPED/etc) when known. Null
+   *  when the signal was skipped pre-execution (e.g. confidence floor). */
+  reason: CloseReason | null;
+  /** Why the engine declined to open. See SkipReason. */
+  skipReason: SkipReason;
+  /** Data-quality label at the moment of skip (LIVE_KITE_*, DELAYED_YAHOO,
+   *  STALE, UNKNOWN). Surfaced in the UI so the owner can correlate
+   *  Kite-outage windows with would-be trades. */
+  dataQuality: string;
   optionEntry: number | null;
   optionStop: number | null;
   optionTarget1: number | null;
@@ -802,19 +854,26 @@ const MAX_MISSED = 200;
 const missedRing: MissedSignal[] = [];
 const missedSeen = new Set<string>();
 
-function missedKey(m: Pick<MissedSignal, "signalDate" | "indexSymbol" | "setupKey" | "direction">): string {
-  return `${m.signalDate}|${m.indexSymbol}|${m.setupKey}|${m.direction}`;
+function missedKey(
+  m: Pick<MissedSignal, "signalDate" | "indexSymbol" | "setupKey" | "direction" | "skipReason">,
+): string {
+  // Include skipReason so a signal that first hit the confidence floor
+  // and later hit the missed-window race shows up as two distinct rows
+  // (different operational stories for the owner).
+  return `${m.signalDate}|${m.indexSymbol}|${m.setupKey}|${m.direction}|${m.skipReason}`;
 }
 
-function recordMissedSignal(m: MissedSignal): void {
+/** Returns true iff this is the first time we've recorded this key. */
+function recordMissedSignal(m: MissedSignal): boolean {
   const k = missedKey(m);
-  if (missedSeen.has(k)) return;
+  if (missedSeen.has(k)) return false;
   missedSeen.add(k);
   missedRing.push(m);
   if (missedRing.length > MAX_MISSED) {
     const dropped = missedRing.shift();
     if (dropped) missedSeen.delete(missedKey(dropped));
   }
+  return true;
 }
 
 /** Newest-first list of missed signals (read-only copy). */
@@ -850,10 +909,36 @@ export async function tryOpenPaperTrades(
   for (const signal of signals) {
     const quality = signal.dataQuality as DataQualityLabel | undefined;
     if (!quality || !isActionableForFno(quality)) {
-      logger.info(
-        { index: signal.index, setupKey: signal.setupKey, dataQuality: quality ?? "UNKNOWN" },
-        "Paper FO skip: signal data quality is not actionable (delayed/stale source)",
-      );
+      const skipReason: SkipReason =
+        quality === "STALE" ? "DATA_QUALITY_STALE" : "DATA_QUALITY_DELAYED";
+      const dir: "BULLISH" | "BEARISH" =
+        signal.bias === "BEARISH" ? "BEARISH" : "BULLISH";
+      const tierForSkip: TradeTier =
+        signal.tier === "BASELINE" ? "BASELINE" : "STANDARD";
+      const newlyRecorded = recordMissedSignal({
+        signalDate,
+        indexSymbol: signal.index,
+        indexName: signal.indexName ?? signal.index,
+        setupKey: signal.setupKey ?? "",
+        direction: dir,
+        confidence: Math.round(signal.confidence ?? 0),
+        tier: tierForSkip,
+        status: (signal.status as LifecycleStatus | undefined) ?? "TRIGGERED",
+        reason: null,
+        skipReason,
+        dataQuality: quality ?? "UNKNOWN",
+        optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
+        optionStop: signal.optionStopLoss ?? null,
+        optionTarget1: signal.optionTarget1 ?? null,
+        optionTarget2: signal.optionTarget2 ?? null,
+        observedAt: new Date(),
+      });
+      if (newlyRecorded) {
+        logger.info(
+          { index: signal.index, setupKey: signal.setupKey, dataQuality: quality ?? "UNKNOWN", skipReason },
+          "Paper FO skip: signal data quality is not actionable (delayed/stale source)",
+        );
+      }
       continue;
     }
 
@@ -901,14 +986,23 @@ export async function tryOpenPaperTrades(
         direction,
         reason,
       );
-      if (closed == null) {
-        // We genuinely never opened this. Record it in the missed-
+      if (closed != null) {
+        // We HAD an OPEN row and just closed it (lifecycle missed
+        // during downtime). Always log this — it's a real
+        // state-reconciliation event, not a high-frequency miss.
+        logger.info(
+          { index: signal.index, setupKey: signal.setupKey, status, closedExistingOpenRow: true },
+          "Paper FO: closed orphaned OPEN row for already-exited signal (lifecycle missed during downtime)",
+        );
+      } else {
+        // We genuinely never opened this. Record once in the missed-
         // trades ring buffer so the owner can see what slipped through
-        // due to system-side latency (signal observed for the first
-        // time AFTER it had already terminated). Anti-phantom rule
-        // still applies — we don't open + immediately close — but the
-        // owner now has visibility into "would-be" P&L.
-        recordMissedSignal({
+        // due to system-side latency. Anti-phantom rule still applies —
+        // we don't open + immediately close — but the owner now has
+        // visibility into "would-be" P&L. Gate the INFO log on the
+        // first record so the same MIDCPNIFTY missed-window doesn't
+        // spam the log every poll cycle for the rest of the session.
+        const newlyRecorded = recordMissedSignal({
           signalDate,
           indexSymbol: signal.index,
           indexName: signal.indexName ?? signal.index,
@@ -918,24 +1012,21 @@ export async function tryOpenPaperTrades(
           tier,
           status,
           reason,
+          skipReason: "MISSED_WINDOW",
+          dataQuality: (signal.dataQuality as string | undefined) ?? "UNKNOWN",
           optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
           optionStop: signal.optionStopLoss ?? null,
           optionTarget1: signal.optionTarget1 ?? null,
           optionTarget2: signal.optionTarget2 ?? null,
           observedAt: new Date(),
         });
+        if (newlyRecorded) {
+          logger.info(
+            { index: signal.index, setupKey: signal.setupKey, status, closedExistingOpenRow: false },
+            "Paper FO skip: signal already exited and we never opened it (missed entry window)",
+          );
+        }
       }
-      logger.info(
-        {
-          index: signal.index,
-          setupKey: signal.setupKey,
-          status,
-          closedExistingOpenRow: closed != null,
-        },
-        closed != null
-          ? "Paper FO: closed orphaned OPEN row for already-exited signal (lifecycle missed during downtime)"
-          : "Paper FO skip: signal already exited and we never opened it (missed entry window)",
-      );
       continue;
     }
 

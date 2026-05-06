@@ -577,6 +577,12 @@ function EqTradesCard({ trades, loading, error }: {
   );
 }
 
+type SkipReason =
+  | "MISSED_WINDOW"
+  | "DATA_QUALITY_DELAYED"
+  | "DATA_QUALITY_STALE"
+  | "CONFIDENCE_FLOOR";
+
 interface MissedSignalRow {
   signalDate: string;
   indexSymbol: string;
@@ -586,13 +592,29 @@ interface MissedSignalRow {
   confidence: number;
   tier: "BASELINE" | "STANDARD";
   status: string;
-  reason: "TARGET2_HIT" | "TARGET1_HIT" | "STOPPED" | "EXPIRED";
+  reason: "TARGET2_HIT" | "TARGET1_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE" | null;
+  skipReason: SkipReason;
+  dataQuality: string;
   optionEntry: number | null;
   optionStop: number | null;
   optionTarget1: number | null;
   optionTarget2: number | null;
   observedAt: string;
 }
+
+const SKIP_REASON_LABEL: Record<SkipReason, string> = {
+  MISSED_WINDOW: "Missed window",
+  DATA_QUALITY_DELAYED: "Yahoo-delayed (Kite off)",
+  DATA_QUALITY_STALE: "Stale data",
+  CONFIDENCE_FLOOR: "Below conf. floor",
+};
+
+const SKIP_REASON_TONE: Record<SkipReason, string> = {
+  MISSED_WINDOW: "bg-amber-500/15 text-amber-200 border-amber-500/30",
+  DATA_QUALITY_DELAYED: "bg-sky-500/15 text-sky-200 border-sky-500/30",
+  DATA_QUALITY_STALE: "bg-slate-500/15 text-slate-200 border-slate-500/30",
+  CONFIDENCE_FLOOR: "bg-violet-500/15 text-violet-200 border-violet-500/30",
+};
 
 interface FoAnalytics {
   totalTrades: number;
@@ -1122,19 +1144,28 @@ function MissedSignalsCard({ missed, loading, error }: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Missed signals</CardTitle>
+        <CardTitle>Skipped &amp; missed signals</CardTitle>
         <CardDescription>
-          Signals the system observed for the first time AFTER they had already
-          terminated (triggered + hit T1/T2/SL inside one polling cycle). The
-          paper trade is intentionally NOT opened — that would create a phantom
-          same-cycle open+close and consume a daily slot. Listed here so you
-          can see what slipped through.
+          Every trigger the F&amp;O paper-trade engine declined this session,
+          with the precise reason. Use this to understand the gap between
+          what the scanner shows and what the engine actually executed:
+          <br />
+          <span className="text-amber-300">Missed window</span> — signal
+          triggered &amp; hit T1/T2/SL inside one polling cycle (anti-phantom
+          rule prevents same-cycle open+close).{" "}
+          <span className="text-sky-300">Yahoo-delayed (Kite off)</span> — Kite
+          live feed unavailable; rejected only when{" "}
+          <code>PAPER_TRADE_KITE_ONLY=1</code> is set.{" "}
+          <span className="text-violet-300">Below conf. floor</span> —
+          STANDARD &lt; 70 / BASELINE &lt; 55.{" "}
+          <span className="text-slate-300">Stale data</span> — bars older
+          than the Yahoo 15-min floor.
         </CardDescription>
       </CardHeader>
       <CardContent>
         {missed.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No missed signals tracked since server start.
+            No skipped signals tracked since server start.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -1145,6 +1176,7 @@ function MissedSignalsCard({ missed, loading, error }: {
                   <th className="py-2 pr-3">Index</th>
                   <th className="py-2 pr-3">Setup</th>
                   <th className="py-2 pr-3">Side</th>
+                  <th className="py-2 pr-3">Why skipped</th>
                   <th className="py-2 pr-3">Outcome</th>
                   <th className="py-2 pr-3 text-right">Conf</th>
                   <th className="py-2 pr-3 text-right">Entry</th>
@@ -1158,9 +1190,11 @@ function MissedSignalsCard({ missed, loading, error }: {
                     m.reason === "TARGET1_HIT" ? m.optionTarget1 :
                     m.reason === "STOPPED" ? m.optionStop :
                     null;
-                  const tone = REASON_TONE[m.reason] ?? "bg-slate-500/15 text-slate-200 border-slate-500/30";
+                  const outcomeTone = m.reason ? REASON_TONE[m.reason] ?? "bg-slate-500/15 text-slate-200 border-slate-500/30" : "bg-slate-500/15 text-slate-200 border-slate-500/30";
+                  const skipTone = SKIP_REASON_TONE[m.skipReason] ?? "bg-slate-500/15 text-slate-200 border-slate-500/30";
+                  const skipLabel = SKIP_REASON_LABEL[m.skipReason] ?? m.skipReason;
                   return (
-                    <tr key={`${m.signalDate}-${m.indexSymbol}-${m.setupKey}-${m.direction}-${idx}`} className="border-b border-border/40">
+                    <tr key={`${m.signalDate}-${m.indexSymbol}-${m.setupKey}-${m.direction}-${m.skipReason}-${idx}`} className="border-b border-border/40">
                       <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtTime(m.observedAt)}</td>
                       <td className="py-2 pr-3 font-medium">{m.indexName || m.indexSymbol}</td>
                       <td className="py-2 pr-3 text-[12px]">{m.setupKey}</td>
@@ -1170,7 +1204,14 @@ function MissedSignalsCard({ missed, loading, error }: {
                         </span>
                       </td>
                       <td className="py-2 pr-3">
-                        <span className={`px-2 py-0.5 rounded border text-[11px] ${tone}`}>{m.reason}</span>
+                        <span className={`px-2 py-0.5 rounded border text-[11px] ${skipTone}`} title={`dataQuality=${m.dataQuality}`}>{skipLabel}</span>
+                      </td>
+                      <td className="py-2 pr-3">
+                        {m.reason ? (
+                          <span className={`px-2 py-0.5 rounded border text-[11px] ${outcomeTone}`}>{m.reason}</span>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">—</span>
+                        )}
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">{m.confidence}</td>
                       <td className="py-2 pr-3 text-right tabular-nums">
