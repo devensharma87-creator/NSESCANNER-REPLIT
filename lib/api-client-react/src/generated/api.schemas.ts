@@ -2756,6 +2756,27 @@ export interface HomeEnrichmentResponse {
   generatedAt: string;
 }
 
+export type MacroSparklinePointsItem = {
+  t: string;
+  c: number;
+};
+
+export interface MacroSparkline {
+  /** Yahoo ticker (e.g. ^VIX, DX-Y.NYB, CL=F, ^INDIAVIX) */
+  symbol: string;
+  /** UI label (VIX, DXY, Crude, India VIX) */
+  label: string;
+  /** When true, rising = bearish for equities (used by UI to flip the colour scale) */
+  invert?: boolean;
+  /** Daily closes oldest → newest (~5 trading days) */
+  points: MacroSparklinePointsItem[];
+}
+
+export interface MacroHistoryResponse {
+  series: MacroSparkline[];
+  generatedAt: string;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;

@@ -4,6 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Newspaper, ExternalLink, CalendarDays, Briefcase, Landmark, Flag, Globe } from "lucide-react";
 import { formatDistanceToNow, format, parseISO, isToday, isTomorrow, differenceInCalendarDays } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 
 const sentimentBadge: Record<string, string> = {
   positive: "text-signal-strong-buy border-signal-strong-buy/40 bg-signal-strong-buy/10",
@@ -211,9 +212,12 @@ export default function MarketInfo() {
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-6">
       <div>
-        <div className="flex items-center gap-2">
-          <Newspaper className="w-5 h-5 text-signal-strong-buy" />
-          <h1 className="text-2xl font-bold font-mono tracking-tight">MARKET INFO</h1>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Newspaper className="w-5 h-5 text-signal-strong-buy" />
+            <h1 className="text-2xl font-bold font-mono tracking-tight">MARKET INFO</h1>
+          </div>
+          <DataSourceBadge source="yahoo" status="delayed" refreshMs={60_000} note="Moneycontrol · Mint · ET · Yahoo Finance RSS" />
         </div>
         <p className="text-sm text-muted-foreground mt-1">
           Headlines, exchange holidays, earnings calendar, and central-bank &amp; macro events — domestic and global.

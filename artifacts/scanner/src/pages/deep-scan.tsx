@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import { TrendlyneInsights } from "@/components/trendlyne-widget";
 import {
   useGetStockDetail,
@@ -211,6 +212,9 @@ export default function DeepScan() {
         <div className="text-center">
           <h1 className="text-2xl font-bold font-mono tracking-tight">DEEP SCAN</h1>
           <p className="text-xs text-muted-foreground font-mono">Search any NSE stock or Indian index — full chart, EMAs, VWAP, returns, fundamentals.</p>
+          <div className="mt-2 flex justify-center">
+            <DataSourceBadge source="mixed" status="live" refreshMs={30_000} note="Kite quote · Yahoo daily history · server-computed indicators" />
+          </div>
         </div>
 
         <div ref={containerRef} className="relative w-full max-w-2xl">

@@ -72,6 +72,7 @@ import type {
   IndicesBoardSnapshot,
   ListGlobalInstrumentsParams,
   ListStocksParams,
+  MacroHistoryResponse,
   MarketEventsResponse,
   MarketSummary,
   MarketTrend,
@@ -407,6 +408,87 @@ export function useGetMarketTrend<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetMarketTrendQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Powers the macro mini-sparklines beside the Mood gauge. Backed by
+Yahoo Finance 5d/1d charts; cached server-side for 5 minutes (these
+readings barely move intraday compared to spot quotes). Empty array
+is returned when every upstream fetch fails — the UI must degrade
+gracefully.
+
+ * @summary 5-day daily-close sparklines for VIX, India VIX, DXY and Crude
+ */
+export const getGetMarketMacroHistoryUrl = () => {
+  return `/api/market/macroHistory`;
+};
+
+export const getMarketMacroHistory = async (
+  options?: RequestInit,
+): Promise<MacroHistoryResponse> => {
+  return customFetch<MacroHistoryResponse>(getGetMarketMacroHistoryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMarketMacroHistoryQueryKey = () => {
+  return [`/api/market/macroHistory`] as const;
+};
+
+export const getGetMarketMacroHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMarketMacroHistory>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketMacroHistory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMarketMacroHistoryQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMarketMacroHistory>>
+  > = ({ signal }) => getMarketMacroHistory({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketMacroHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMarketMacroHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMarketMacroHistory>>
+>;
+export type GetMarketMacroHistoryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary 5-day daily-close sparklines for VIX, India VIX, DXY and Crude
+ */
+
+export function useGetMarketMacroHistory<
+  TData = Awaited<ReturnType<typeof getMarketMacroHistory>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketMacroHistory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMarketMacroHistoryQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

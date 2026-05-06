@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { SignalBadge } from "@/components/ui/signal-badge";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 
 export default function Sectors() {
   const { data: sectors, isLoading } = useListSectors({
@@ -20,10 +21,13 @@ export default function Sectors() {
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-8">
       <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold font-mono tracking-tight flex items-center gap-2">
-          <Layers className="w-6 h-6 text-primary" />
-          SECTOR ROTATION
-        </h1>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <h1 className="text-2xl font-bold font-mono tracking-tight flex items-center gap-2">
+            <Layers className="w-6 h-6 text-primary" />
+            SECTOR ROTATION
+          </h1>
+          <DataSourceBadge source="mixed" status="live" refreshMs={60_000} note="constituent quotes + sectoral indices" />
+        </div>
         <p className="text-muted-foreground text-sm max-w-2xl">
           Analyze money flow across industry groups. Sectors with higher average scores exhibit stronger collective technical momentum.
         </p>

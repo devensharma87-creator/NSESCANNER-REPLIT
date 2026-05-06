@@ -147,6 +147,40 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     document.title = label ? `${label} · NSE Scanner` : "NSE Scanner";
   }, [location]);
 
+  // Legal pages render with stripped-down chrome — no nav, no live data
+  // strips, no admin search/login surface, no public-mode banner.
+  // The disclaimer/terms/privacy/methodology pages are reachable
+  // without auth (see login-gate.tsx PUBLIC_ROUTES) so we keep the
+  // header surface deliberately minimal: brand-only header + a thin
+  // legal-only footer. Owner controls (Kite reauth, paper-trade
+  // toggles, public-mode banner) are intentionally suppressed here.
+  if (location.startsWith("/legal/")) {
+    return (
+      <div className="min-h-[100dvh] flex flex-col bg-background text-foreground">
+        <header className="border-b border-border bg-card">
+          <div className="w-full px-4 py-3 flex items-center justify-between">
+            <Link href="/" className="font-mono font-bold text-sm tracking-tight hover:text-primary transition-colors">
+              Hrishi Associates · Market Scanner
+            </Link>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Legal</span>
+          </div>
+        </header>
+        <main className="flex-1">{children}</main>
+        <footer className="border-t border-border bg-card">
+          <div className="w-full px-4 py-3 flex flex-col gap-1 md:flex-row md:items-center md:justify-between text-xs text-muted-foreground">
+            <span className="italic">Educational only — not financial advice. Hrishi Associates is not a SEBI-registered investment adviser.</span>
+            <nav className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <Link href="/legal/disclaimer" className="hover:text-foreground transition-colors">Disclaimer</Link>
+              <Link href="/legal/methodology" className="hover:text-foreground transition-colors">Methodology &amp; Sources</Link>
+              <Link href="/legal/terms" className="hover:text-foreground transition-colors">Terms</Link>
+              <Link href="/legal/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
+            </nav>
+          </div>
+        </footer>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-[100dvh] flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary ${publicMode ? "pt-9" : ""}`}>
       {publicMode && <PublicModeBanner />}

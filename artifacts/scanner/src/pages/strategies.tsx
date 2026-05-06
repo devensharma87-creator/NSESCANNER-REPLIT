@@ -207,9 +207,30 @@ export default function Strategies() {
           <h1 className="text-2xl font-bold font-mono tracking-tight">OPTION STRATEGIES</h1>
           <p className="text-xs text-muted-foreground font-mono">
             13 multi-leg strategies built from live option chains. Greeks via Black-Scholes.
-            Recommendations filter by current bias + IV regime.
+            Bias + IV-regime filtering ranks ideas; nothing here is an order ticket.
           </p>
         </div>
+
+        {/* Assumptions / disclosure card — keeps the page honest. Without
+            this, the Greeks panel reads like trade signals; with it, the
+            user is reminded that everything below is a model output, not
+            a live order surface. */}
+        <Card className="w-full max-w-3xl bg-secondary/20 border-border/60">
+          <CardContent className="p-3 space-y-1.5 text-[11px] font-mono text-muted-foreground leading-relaxed">
+            <div className="flex items-center gap-1.5 text-amber-400 font-semibold uppercase tracking-wider text-[10px]">
+              <AlertCircle className="w-3 h-3" /> Model assumptions &amp; disclosures
+            </div>
+            <ul className="list-disc pl-4 space-y-0.5">
+              <li>Greeks computed via <b>Black-Scholes</b> (European-style) — NSE options are American but early-exercise premium is small for index options.</li>
+              <li>Risk-free rate fixed at <b>6.5% (RBI repo proxy)</b>; dividend yield = 0 for indices.</li>
+              <li>Implied vol pulled from <b>chain mid</b>; switches to ATM-IV when bid/ask spread {">"} 8%.</li>
+              <li>Probability of profit estimated from <b>terminal-distribution Monte Carlo (10k paths)</b> using realised vol blended with IV.</li>
+              <li>Quoted bid/ask shown when chain has them — otherwise theoretical mid is used and the leg is marked <code>theoretical</code>.</li>
+              <li>This page <b>does not place orders</b>, does not paper-trade, and is not a recommendation. Educational illustration only.</li>
+            </ul>
+          </CardContent>
+        </Card>
+
 
         <div ref={containerRef} className="relative w-full max-w-2xl">
           <div className="relative">

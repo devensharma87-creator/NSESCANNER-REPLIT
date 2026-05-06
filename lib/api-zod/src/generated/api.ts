@@ -379,6 +379,41 @@ export const GetMarketTrendResponse = zod.object({
 });
 
 /**
+ * Powers the macro mini-sparklines beside the Mood gauge. Backed by
+Yahoo Finance 5d/1d charts; cached server-side for 5 minutes (these
+readings barely move intraday compared to spot quotes). Empty array
+is returned when every upstream fetch fails — the UI must degrade
+gracefully.
+
+ * @summary 5-day daily-close sparklines for VIX, India VIX, DXY and Crude
+ */
+export const GetMarketMacroHistoryResponse = zod.object({
+  series: zod.array(
+    zod.object({
+      symbol: zod
+        .string()
+        .describe("Yahoo ticker (e.g. ^VIX, DX-Y.NYB, CL=F, ^INDIAVIX)"),
+      label: zod.string().describe("UI label (VIX, DXY, Crude, India VIX)"),
+      invert: zod
+        .boolean()
+        .optional()
+        .describe(
+          "When true, rising = bearish for equities (used by UI to flip the colour scale)",
+        ),
+      points: zod
+        .array(
+          zod.object({
+            t: zod.coerce.date(),
+            c: zod.number(),
+          }),
+        )
+        .describe("Daily closes oldest → newest (~5 trading days)"),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
  * @summary All sectors with aggregate stats
  */
 export const ListSectorsResponseItem = zod.object({

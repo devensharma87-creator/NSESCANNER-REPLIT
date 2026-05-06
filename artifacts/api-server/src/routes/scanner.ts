@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import {
   GetGlobalIndicesResponse,
   GetMarketSummaryResponse,
+  GetMarketMacroHistoryResponse,
   GetMarketTrendResponse,
   GetNewsResponse,
   GetOptionSignalHistoryResponse,
@@ -37,6 +38,7 @@ import {
 import { sendExport as sendCsvExport } from "../lib/csvExport";
 import { getGlobalIndices } from "../lib/globalIndices";
 import { getMarketTrend } from "../lib/marketTrend";
+import { getMacroHistory } from "../lib/macroHistory";
 import { providerStatus } from "../lib/dataProvider";
 
 const router: IRouter = Router();
@@ -194,6 +196,14 @@ router.get("/market/trend", async (_req, res, next) => {
   try {
     const trend = await getMarketTrend();
     const data = GetMarketTrendResponse.parse(trend);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/market/macroHistory", async (_req, res, next) => {
+  try {
+    const snap = await getMacroHistory();
+    const data = GetMarketMacroHistoryResponse.parse(snap);
     res.json(data);
   } catch (err) { next(err); }
 });

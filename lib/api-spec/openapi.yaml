@@ -69,6 +69,24 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MarketTrend" }
 
+  /market/macroHistory:
+    get:
+      operationId: getMarketMacroHistory
+      tags: [market]
+      summary: 5-day daily-close sparklines for VIX, India VIX, DXY and Crude
+      description: |
+        Powers the macro mini-sparklines beside the Mood gauge. Backed by
+        Yahoo Finance 5d/1d charts; cached server-side for 5 minutes (these
+        readings barely move intraday compared to spot quotes). Empty array
+        is returned when every upstream fetch fails — the UI must degrade
+        gracefully.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MacroHistoryResponse" }
+
   /sectors:
     get:
       operationId: listSectors
@@ -3651,4 +3669,30 @@ components:
         indices:
           type: array
           items: { $ref: "#/components/schemas/HomeIndexEnrichment" }
+        generatedAt: { type: string, format: date-time }
+
+    MacroSparkline:
+      type: object
+      required: [symbol, label, points]
+      properties:
+        symbol: { type: string, description: "Yahoo ticker (e.g. ^VIX, DX-Y.NYB, CL=F, ^INDIAVIX)" }
+        label:  { type: string, description: "UI label (VIX, DXY, Crude, India VIX)" }
+        invert: { type: boolean, description: "When true, rising = bearish for equities (used by UI to flip the colour scale)" }
+        points:
+          type: array
+          description: "Daily closes oldest → newest (~5 trading days)"
+          items:
+            type: object
+            required: [t, c]
+            properties:
+              t: { type: string, format: date-time }
+              c: { type: number }
+
+    MacroHistoryResponse:
+      type: object
+      required: [series, generatedAt]
+      properties:
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/MacroSparkline" }
         generatedAt: { type: string, format: date-time }

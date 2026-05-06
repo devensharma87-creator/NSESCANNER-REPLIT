@@ -47,22 +47,55 @@ function GaugeBar({ value }: { value: number }) {
 }
 
 export default function MarketMoodGauge() {
-  const { data: trend } = useGetMarketTrend({ query: { refetchInterval: 30000, queryKey: getGetMarketTrendQueryKey() } });
-  const { data: globals } = useGetGlobalIndices({ query: { refetchInterval: 30000, queryKey: getGetGlobalIndicesQueryKey() } });
+  const { data: trend, isLoading: trendLoading } = useGetMarketTrend({ query: { refetchInterval: 30000, queryKey: getGetMarketTrendQueryKey() } });
+  const { data: globals, isLoading: globalsLoading } = useGetGlobalIndices({ query: { refetchInterval: 30000, queryKey: getGetGlobalIndicesQueryKey() } });
 
   const vix = globals?.indices?.find(i => i.symbol === "^VIX");
   const dxy = globals?.indices?.find(i => i.symbol === "DX-Y.NYB");
   const crude = globals?.indices?.find(i => i.symbol === "CL=F");
   const indiavix = globals?.indices?.find(i => i.symbol === "^INDIAVIX");
 
+  // Honesty guard — distinguish "feed loading" vs "feed returned but
+  // every input is missing" vs "real readings". Without this, the gauge
+  // proudly displayed "50 · NEUTRAL" with all sub-rows blank when the
+  // entire backing trend / VIX feed had no data — an exact misleading
+  // reading the audit flagged. Mirrors the same guard in market-mood.tsx.
+  const isLoading = trendLoading || globalsLoading;
+  const trendKnown = typeof trend?.score === "number" && Number.isFinite(trend.score);
+  const vixKnown = vix != null && Number.isFinite(vix.changePercent);
+  const breadthKnown = typeof trend?.breadth?.advanceDeclineRatio === "number" && Number.isFinite(trend!.breadth!.advanceDeclineRatio);
+  const noData = !isLoading && !trendKnown && !vixKnown && !breadthKnown;
+
   // Composite mood (-100..+100) → 0..100
-  const trendScore = trend?.score ?? 0;
-  const vixScore = vix ? Math.max(-50, Math.min(50, -vix.changePercent * 5)) : 0;
-  const breadthRatio = trend?.breadth?.advanceDeclineRatio ?? 1;
+  const trendScore = trendKnown ? (trend!.score as number) : 0;
+  const vixScore = vixKnown ? Math.max(-50, Math.min(50, -vix!.changePercent * 5)) : 0;
+  const breadthRatio: number = breadthKnown ? (trend!.breadth!.advanceDeclineRatio as number) : 1;
   const breadthScore = Math.max(-40, Math.min(40, (breadthRatio - 1) * 30));
   const composite = Math.round((trendScore * 0.55) + (vixScore * 0.20) + (breadthScore * 0.25));
   const mmi = Math.round(Math.max(0, Math.min(100, (composite + 100) / 2)));
   const z = zoneFor(mmi);
+
+  if (isLoading || noData) {
+    return (
+      <Card className="border-border bg-gradient-to-br from-card to-card/40">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+              <Gauge className="w-4 h-4" /> MARKET MOOD INDEX
+            </div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+              {isLoading ? "Loading…" : "No data"}
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {isLoading
+              ? "Waiting for the market-trend and VIX feeds to return their first reading…"
+              : "Mood readings are unavailable — the upstream trend feed and VIX both returned no data. This usually clears once the broker session reconnects or the cash market opens."}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="border-border bg-gradient-to-br from-card to-card/40">

@@ -12,6 +12,7 @@ import {
   Home as HomeIcon,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import TrendCard from "@/components/trend-card";
 import MarketMoodGauge from "@/components/mmi-gauge";
 import IndicesBoard from "@/components/indices-board";
@@ -104,12 +105,15 @@ export default function Home() {
 
   return (
     <div className="w-full max-w-none px-4 lg:px-6 2xl:px-8 py-6 space-y-8">
-      <header className="flex items-center gap-3">
-        <HomeIcon className="h-6 w-6 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Home</h1>
-          <p className="text-sm text-muted-foreground">Live market overview, indices fact-pack, top movers and setups.</p>
+      <header className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <HomeIcon className="h-6 w-6 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Home</h1>
+            <p className="text-sm text-muted-foreground">Live market overview, indices fact-pack, top movers and setups.</p>
+          </div>
         </div>
+        <DataSourceBadge source="mixed" status="live" refreshMs={30_000} note="Kite live · Yahoo fallback for global / commodity / FX" />
       </header>
 
       <section className="space-y-2">

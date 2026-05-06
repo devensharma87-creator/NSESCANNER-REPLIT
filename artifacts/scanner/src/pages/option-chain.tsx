@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Activity, Target, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Radio, Shield, AlertTriangle, ChevronRight, Info, Filter, Database } from "lucide-react";
+import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import { formatDistanceToNow } from "date-fns";
 import {
   FNO_ALL,
@@ -411,12 +412,21 @@ export default function OptionChainPage() {
       {/* Header */}
       <div className="flex flex-wrap items-end gap-3 justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight font-mono">
-            Option Chain
-            <span className="ml-3 px-2 py-0.5 text-[11px] rounded border border-primary/40 bg-primary/10 text-primary uppercase tracking-wider">
-              {currentEntry?.kind ?? "—"}
-            </span>
-          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl font-bold tracking-tight font-mono">
+              Option Chain
+              <span className="ml-3 px-2 py-0.5 text-[11px] rounded border border-primary/40 bg-primary/10 text-primary uppercase tracking-wider">
+                {currentEntry?.kind ?? "—"}
+              </span>
+            </h1>
+            <DataSourceBadge
+              source={chain?.source === "kite" ? "kite" : "mixed"}
+              status={chain?.source === "kite" ? "live" : "delayed"}
+              refreshMs={15_000}
+              lastUpdated={chain?.generatedAt ?? null}
+              note="NSE option chain · 15s cache"
+            />
+          </div>
           <p className="text-xs text-muted-foreground mt-1">
             Live NSE OI for <b className="text-foreground/90 font-mono">{currentEntry?.label ?? underlying}</b>
             {currentEntry?.sector ? <> · <span className="text-foreground/70">{currentEntry.sector}</span></> : null}
