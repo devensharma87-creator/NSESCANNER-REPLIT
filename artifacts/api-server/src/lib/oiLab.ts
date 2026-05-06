@@ -647,11 +647,19 @@ export function computeOiInsights(chain: OcResponse, strikesAround = 20): OiInsi
     else if (pe) atmIv = +pe.toFixed(2);
   }
 
-  // Top OI clusters (calls = resistance, puts = support)
+  // Top OI clusters (calls = resistance, puts = support).
+  // Side-correct R/S: only CE strikes ≥ spot count as resistance, only PE
+  // strikes ≤ spot count as support. ITM-side OI is hedging noise, not a
+  // wall, and was bubbling up as the displayed level. See twin filter in
+  // optionAnalytics.ts (used by bulkSnapshot) for the originating bug.
   const callByStrike = rows.map(r => ({ strike: r.strike, oi: r.ce?.oi ?? 0 }));
   const putByStrike  = rows.map(r => ({ strike: r.strike, oi: r.pe?.oi ?? 0 }));
-  const topResistance = [...callByStrike].sort((a, b) => b.oi - a.oi).slice(0, 5);
-  const topSupport    = [...putByStrike].sort((a, b) => b.oi - a.oi).slice(0, 5);
+  const resistanceCandidates = callByStrike.filter(c => c.strike >= chain.spot);
+  const supportCandidates    = putByStrike.filter(c => c.strike <= chain.spot);
+  const topResistance = (resistanceCandidates.length > 0 ? resistanceCandidates : callByStrike)
+    .slice().sort((a, b) => b.oi - a.oi).slice(0, 5);
+  const topSupport    = (supportCandidates.length > 0 ? supportCandidates : putByStrike)
+    .slice().sort((a, b) => b.oi - a.oi).slice(0, 5);
 
   // Sentiment
   const topResistanceOi = topResistance.reduce((s, r) => s + r.oi, 0);

@@ -128,8 +128,24 @@ export function computeAnalytics(chain: OcResponse): OptionAnalytics {
     else if (pe) atmIv = +pe.toFixed(2);
   }
 
-  const topResistanceSorted = callByStrike.sort((a, b) => b.oi - a.oi).slice(0, 5);
-  const topSupportSorted    = putByStrike.sort((a, b) => b.oi - a.oi).slice(0, 5);
+  // Side-correct R/S: a CE wall only counts as resistance if its strike is
+  // AT or ABOVE spot (an ITM call has high OI for hedging reasons but is not
+  // a price ceiling). Symmetric for PE / support. Without this filter the
+  // top-OI strike on the wrong side of spot bubbled up as the "wall" — e.g.
+  // BANKNIFTY snapshot showed R=S=60000 with spot 54729 because the deep-ITM
+  // 60000 PE was the highest PE OI in the loaded window. The filter discards
+  // wrong-side OI from the R/S calc only; aggregates (totalCallOi/totalPutOi
+  // / PCR / max-pain) are unaffected.
+  const sortDesc = (a: OiCluster, b: OiCluster): number => b.oi - a.oi;
+  const resistanceCandidates = callByStrike.filter(c => c.strike >= chain.spot);
+  const supportCandidates    = putByStrike.filter(c => c.strike <= chain.spot);
+  // Defensive fallback: if spot sits beyond every loaded strike on one side
+  // (very rare; would only happen with a truncated chain) fall back to the
+  // unfiltered list so the column still renders SOMETHING rather than "—".
+  const topResistanceSorted = (resistanceCandidates.length > 0 ? resistanceCandidates : callByStrike)
+    .slice().sort(sortDesc).slice(0, 5);
+  const topSupportSorted    = (supportCandidates.length > 0 ? supportCandidates : putByStrike)
+    .slice().sort(sortDesc).slice(0, 5);
 
   const maxCallOi = topResistanceSorted[0]?.oi ?? 0;
   const maxPutOi  = topSupportSorted[0]?.oi ?? 0;

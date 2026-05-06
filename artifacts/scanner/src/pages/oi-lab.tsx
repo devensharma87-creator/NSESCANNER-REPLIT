@@ -361,7 +361,18 @@ function SnapshotTab() {
                           </Badge>
                         </td>
                         <td className="py-2 pr-3 text-muted-foreground">
-                          R: {it.topResistance?.[0]?.strike ?? "—"} · S: {it.topSupport?.[0]?.strike ?? "—"}
+                          {(() => {
+                            const r = it.topResistance?.[0]?.strike;
+                            const s = it.topSupport?.[0]?.strike;
+                            if (r != null && s != null && r === s) {
+                              // R==S after side-correct filtering means the same
+                              // strike is both the top OTM CE wall and the top
+                              // OTM PE wall — i.e. a magnet/pin level. Render
+                              // it as such so the user doesn't read "duplicate".
+                              return <span title="Top CE OI strike == top PE OI strike — pin / magnet level">Pin: {r}</span>;
+                            }
+                            return <>R: {r ?? "—"} · S: {s ?? "—"}</>;
+                          })()}
                         </td>
                       </>
                     )}
