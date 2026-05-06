@@ -1303,9 +1303,9 @@ function PositionsCard({
       <CardHeader>
         <CardTitle>Portfolio</CardTitle>
         <CardDescription>
-          Live mark-to-market using the most recently observed option premium
-          from the signal lifecycle. Use the close button to force-exit at the
-          last known premium.
+          Live mark-to-market. LTP is pulled fresh from the option chain on
+          every refresh (every 10s), independent of the signal cycle. Use the
+          close button to force-exit at the latest LTP.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1325,7 +1325,7 @@ function PositionsCard({
                   <th className="py-2 pr-3 text-right">SL</th>
                   <th className="py-2 pr-3 text-right">T1</th>
                   <th className="py-2 pr-3 text-right">T2</th>
-                  <th className="py-2 pr-3 text-right">Last</th>
+                  <th className="py-2 pr-3 text-right" title="Last Traded Price — refreshed live from the option chain on every poll (10s)">LTP</th>
                   <th className="py-2 pr-3 text-right">Capital</th>
                   <th className="py-2 pr-3 text-right">U.P&amp;L</th>
                   <th className="py-2 pr-3">Opened</th>

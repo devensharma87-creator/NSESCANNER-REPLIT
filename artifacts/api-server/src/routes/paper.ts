@@ -1,11 +1,15 @@
 /**
  * Paper trading HTTP routes — owner-only.
  *
- * MTM (mark-to-market) for OPEN positions is read straight from
- * paper_trade_fo.last_premium, which is updated on every option-signal
- * lifecycle evaluation by the F&O paper-trading hook. We do NOT fetch
- * fresh quotes here — that would multiply load on Kite/NSE without
- * adding any data the lifecycle path doesn't already capture.
+ * MTM (mark-to-market) for OPEN positions reads `paper_trade_fo.last_premium`
+ * (updated by the F&O lifecycle hook every signal cycle) AS A FALLBACK, but
+ * the GET /paper/positions/fo endpoint enriches every open row with a fresh
+ * option-chain LTP at request time so the UI's 10s poll surfaces TRUE live
+ * pricing instead of pricing that was at most 30s stale.
+ *
+ * The fresh-fetch path is bounded by `fetchOptionChain`'s own 15s in-process
+ * cache, so even with 5 open positions across distinct underlyings the
+ * upstream Kite/NSE load is at most one chain pull per underlying per 15s.
  */
 import { Router, type IRouter } from "express";
 import {
@@ -37,6 +41,7 @@ import {
   type Segment,
 } from "../lib/paperAccount";
 import { closePaperTradeForSignal, getMissedSignals } from "../lib/paperTradingFO";
+import { fetchOptionChain } from "../lib/optionChain";
 import { getFoAnalytics } from "../lib/paperAnalyticsFO";
 import { getMonthlyReport, getYearlyReport } from "../lib/paperReportsFO";
 import {
@@ -60,10 +65,25 @@ function istDateKey(d: Date = new Date()): string {
   return ist.toISOString().slice(0, 10);
 }
 
-function toOpenPosition(r: PaperTradeFoRow) {
+function toOpenPosition(r: PaperTradeFoRow, liveLtp?: number | null) {
   const entry = num(r.entryPremium);
-  const last = num(r.lastPremium);
+  // Prefer the freshly-fetched chain LTP when present and valid; fall back
+  // to the lifecycle-stored last_premium otherwise. This keeps the UI
+  // showing true live LTP every poll instead of pricing that was at most
+  // 30s stale, while preserving the legacy field semantics for clients
+  // that only care about MTM correctness (lastPremium is still the "best
+  // known premium right now").
+  const last =
+    liveLtp != null && Number.isFinite(liveLtp) && liveLtp > 0
+      ? liveLtp
+      : num(r.lastPremium);
   const upnl = (last - entry) * r.lots * r.lotSize;
+  // If we did refresh from the chain, surface "right now" as the
+  // evaluation time so the UI's "Updated" hint is honest.
+  const evaluatedAt =
+    liveLtp != null && Number.isFinite(liveLtp) && liveLtp > 0
+      ? new Date()
+      : r.lastEvaluatedAt;
   return {
     id: r.id,
     signalDate: r.signalDate,
@@ -85,9 +105,66 @@ function toOpenPosition(r: PaperTradeFoRow) {
     maxRunup: num(r.maxRunup),
     maxDrawdown: num(r.maxDrawdown),
     openedAt: r.openedAt.toISOString(),
-    lastEvaluatedAt: r.lastEvaluatedAt.toISOString(),
+    lastEvaluatedAt: evaluatedAt.toISOString(),
     status: "OPEN" as const,
   };
+}
+
+/**
+ * For each open paper-trade row, pull the freshest available option-chain
+ * LTP for that (indexSymbol, optionType, strike). Chains are fetched
+ * once per unique underlying and reused across all rows of that
+ * underlying — fetchOptionChain has its own 15s cache, but de-duplicating
+ * here also avoids 5 simultaneous in-flight fetches when the cache is
+ * cold and several positions share an underlying.
+ *
+ * Returns a Map<rowId, liveLtp | null>. A null entry means we tried but
+ * could not get a fresh price (chain miss, strike not present, no LTP);
+ * the caller should fall back to the row's stored last_premium.
+ */
+async function fetchLiveLtpForOpenRows(
+  rows: PaperTradeFoRow[],
+): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (rows.length === 0) return out;
+
+  const uniqueUnderlyings = Array.from(new Set(rows.map((r) => r.indexSymbol)));
+  const chains = new Map<string, Awaited<ReturnType<typeof fetchOptionChain>>>();
+  await Promise.all(
+    uniqueUnderlyings.map(async (sym) => {
+      try {
+        const chain = await fetchOptionChain(sym);
+        chains.set(sym, chain);
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error).message, sym },
+          "Live LTP enrichment: option chain fetch failed",
+        );
+        chains.set(sym, null);
+      }
+    }),
+  );
+
+  for (const r of rows) {
+    const chain = chains.get(r.indexSymbol);
+    if (!chain) {
+      out.set(r.id, null);
+      continue;
+    }
+    const strike = num(r.strike);
+    const row = chain.rows.find((cr) => cr.strike === strike);
+    if (!row) {
+      out.set(r.id, null);
+      continue;
+    }
+    const side = r.optionType === "CALL" ? row.ce : row.pe;
+    const ltp = side?.ltp;
+    out.set(
+      r.id,
+      ltp != null && Number.isFinite(ltp) && ltp > 0 ? ltp : null,
+    );
+  }
+  return out;
 }
 
 function toClosedTrade(r: PaperTradeFoRow) {
@@ -159,8 +236,14 @@ router.get("/paper/positions/fo", requireOwner, async (_req, res, next) => {
       .from(paperTradeFoTable)
       .where(eq(paperTradeFoTable.status, "OPEN"))
       .orderBy(desc(paperTradeFoTable.openedAt));
+    // Pull a fresh chain LTP for every open position so the UI's "LTP"
+    // column reflects right-now pricing, not lifecycle-cycle staleness.
+    // This is gated by fetchOptionChain's 15s in-process cache, so 10s
+    // UI polling does ~1 cache-hit + ~1/3 fetches per underlying per
+    // minute on average.
+    const liveLtps = await fetchLiveLtpForOpenRows(rows);
     const data = GetPaperPositionsFOResponse.parse({
-      positions: rows.map(toOpenPosition),
+      positions: rows.map((r) => toOpenPosition(r, liveLtps.get(r.id))),
       generatedAt: new Date().toISOString(),
     });
     return res.json(data);
@@ -213,6 +296,22 @@ router.post("/paper/positions/fo/:id/close", requireOwner, async (req, res, next
     const row = rows[0]!;
     if (row.status !== "OPEN") {
       return res.status(409).json({ error: "Position is not OPEN" });
+    }
+    // Refresh last_premium to the freshest available chain LTP BEFORE
+    // closing — pickExitPremium() routes MANUAL_OVERRIDE to lastPremium,
+    // so without this pre-refresh a force-exit would settle at whatever
+    // the lifecycle hook last wrote (up to 30s stale). Best-effort: if
+    // the chain fetch fails, we close at the stored price (same as before).
+    const liveLtps = await fetchLiveLtpForOpenRows([row]);
+    const liveLtp = liveLtps.get(row.id);
+    if (liveLtp != null && Number.isFinite(liveLtp) && liveLtp > 0) {
+      await db
+        .update(paperTradeFoTable)
+        .set({
+          lastPremium: sql`${liveLtp}::numeric`,
+          lastEvaluatedAt: new Date(),
+        })
+        .where(and(eq(paperTradeFoTable.id, row.id), eq(paperTradeFoTable.status, "OPEN")));
     }
     const closed = await closePaperTradeForSignal(
       row.signalDate,

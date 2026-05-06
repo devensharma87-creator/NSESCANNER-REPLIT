@@ -1332,7 +1332,16 @@ setInterval(() => {
 // will retry), and the call is a no-op outside market hours so it costs
 // effectively nothing on weekends / overnight.
 let triggerSweepRunning = false;
-const TRIGGER_SWEEP_INTERVAL_MS = 60 * 1000;
+// 30s (was 60s). Halving the sweep interval cuts the failure window for
+// the "MISSED_WINDOW" anti-phantom race in half — a setup that triggers
+// AND hits T1/T2/SL between two consecutive sweeps used to be silently
+// dropped (signal observed for the first time already in terminal state →
+// no paper trade opened, only a missed-signal log row). With a 30s
+// cadence, the engine still cannot prevent a within-30s round trip, but
+// the median catchable trade is now twice as fast. Kite's per-second cap
+// is comfortably under the load of one F&O option-chain pass per index
+// per 30s, so this is safe.
+const TRIGGER_SWEEP_INTERVAL_MS = 30 * 1000;
 
 setInterval(() => {
   if (triggerSweepRunning) return; // skip if previous tick still in flight
