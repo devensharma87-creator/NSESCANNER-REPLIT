@@ -484,12 +484,37 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
   // Both are best-effort: a failure leaves the corresponding rows on
   // Yahoo with the "DELAYED" label rather than poisoning the whole board.
   const tvTickers = INSTRUMENTS.map(c => c.tvSymbol).filter((s): s is string => !!s);
+  // Hard-cap each overlay source so a single hung HTTP socket cannot keep the
+  // whole board in a "Loading…" state forever (T008). Yahoo helpers already
+  // self-timeout at 6s; Kite + TradingView did not, hence this guard.
+  const OVERLAY_TIMEOUT_MS = 8_000;
+  // NB: clear the timer once the underlying promise settles so we don't log a
+  // spurious "overlay source timeout" on every fast/successful response and
+  // don't leave dangling timers under load.
+  const withDeadline = <T,>(op: string, p: Promise<T>, fallback: T): Promise<T> =>
+    new Promise<T>(resolve => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        logger.warn({ op, ms: OVERLAY_TIMEOUT_MS }, "indicesBoard: overlay source timeout; using fallback");
+        resolve(fallback);
+      }, OVERLAY_TIMEOUT_MS);
+      p.then(
+        v => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); },
+        err => { if (settled) return; settled = true; clearTimeout(timer); throw err; },
+      ).catch(err => {
+        // Re-throw asynchronously so the outer .catch() on Promise.all sees it.
+        if (!settled) { settled = true; clearTimeout(timer); }
+        Promise.reject(err);
+      });
+    });
   const [kiteMap, tvMap] = await Promise.all([
-    getKiteIndexQuotes().catch(err => {
+    withDeadline("kiteIndexQuotes", getKiteIndexQuotes(), null as Map<string, KiteIndexQuote> | null).catch(err => {
       logger.warn({ err: (err as Error).message }, "indicesBoard: Kite batch failed; falling back to Yahoo");
       return null;
     }),
-    getTvQuotes(tvTickers).catch(err => {
+    withDeadline("tvQuotes", getTvQuotes(tvTickers), new Map()).catch(err => {
       logger.warn({ err: (err as Error).message }, "indicesBoard: TradingView batch failed; falling back to Yahoo");
       return new Map();
     }),

@@ -369,6 +369,15 @@ export default function OptionChainPage() {
 
   const lastUpdate = chainQ.dataUpdatedAt;
   const secondsSinceUpdate = lastUpdate ? Math.max(0, Math.floor((Date.now() - lastUpdate) / 1000)) : null;
+  // T009: when analytics has been fetched, did NOT error, but came back
+  // empty (e.g. chain fetched OK but every strike row was filtered out, or
+  // upstream returned no rows), surface an explicit "no data" state on the
+  // four summary cards instead of an indefinite Skeleton that looks like
+  // loading. Excluding `isError` is important: a failed fetch should NOT be
+  // labelled "No live chain data" (which implies the upstream successfully
+  // returned an empty payload). Errors render as "—" without misleading copy.
+  const analyticsEmpty = analyticsQ.isFetched && !analyticsQ.isError && !analytics;
+  const analyticsErrored = analyticsQ.isError && !analytics;
 
   const status: "loading" | "error" | "ready" =
     chain ? "ready"
@@ -589,10 +598,13 @@ export default function OptionChainPage() {
               analytics.pcrOi >= 1.3 ? "text-signal-strong-buy" :
               analytics.pcrOi <= 0.7 ? "text-signal-strong-sell" : "text-foreground"
             }`}>
-              {analytics ? analytics.pcrOi.toFixed(2) : <Skeleton className="h-6 w-12" />}
+              {analytics ? analytics.pcrOi.toFixed(2) : analyticsEmpty ? <span className="text-muted-foreground">—</span> : <Skeleton className="h-6 w-12" />}
             </div>
             <div className="text-[11px] text-muted-foreground font-mono">
-              Vol PCR {analytics ? analytics.pcrVolume.toFixed(2) : "—"}
+              {analytics ? `Vol PCR ${analytics.pcrVolume.toFixed(2)}`
+                : analyticsErrored ? "Analytics fetch failed"
+                : analyticsEmpty ? "No live chain data"
+                : "Vol PCR —"}
             </div>
           </CardContent>
         </Card>
@@ -601,14 +613,18 @@ export default function OptionChainPage() {
           <CardContent className="p-3">
             <div className="text-[10px] uppercase text-muted-foreground font-mono">Max Pain</div>
             <div className="text-xl font-bold font-mono tabular-nums">
-              {analytics ? fmt(analytics.maxPain, 0) : <Skeleton className="h-6 w-16" />}
+              {analytics ? fmt(analytics.maxPain, 0) : analyticsEmpty ? <span className="text-muted-foreground">—</span> : <Skeleton className="h-6 w-16" />}
             </div>
-            {analytics && chain && (
+            {analytics && chain ? (
               <div className={`text-[11px] font-mono ${chain.spot > analytics.maxPain ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
                 {chain.spot > analytics.maxPain ? "+" : ""}
                 {(((chain.spot - analytics.maxPain) / analytics.maxPain) * 100).toFixed(2)}% vs spot
               </div>
-            )}
+            ) : analyticsErrored ? (
+              <div className="text-[11px] text-muted-foreground font-mono">Analytics fetch failed</div>
+            ) : analyticsEmpty ? (
+              <div className="text-[11px] text-muted-foreground font-mono">No live chain data</div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -616,11 +632,24 @@ export default function OptionChainPage() {
           <CardContent className="p-3">
             <div className="text-[10px] uppercase text-muted-foreground font-mono">ATM IV</div>
             <div className="text-xl font-bold font-mono tabular-nums">
-              {analytics?.atmIv != null ? `${analytics.atmIv.toFixed(2)}%` : (analytics ? "—" : <Skeleton className="h-6 w-12" />)}
+              {analytics?.atmIv != null ? `${analytics.atmIv.toFixed(2)}%`
+                : analytics ? "—"
+                : analyticsEmpty ? <span className="text-muted-foreground">—</span>
+                : <Skeleton className="h-6 w-12" />}
             </div>
             <div className="text-[11px] text-muted-foreground font-mono space-y-0.5">
-              <div>{analytics?.ivPercentile != null ? `IV%ile ${analytics.ivPercentile}` : "Building IV history…"}</div>
-              {analytics?.ivRank != null && <div>IV Rank {analytics.ivRank}</div>}
+              {analytics ? (
+                <>
+                  <div>{analytics.ivPercentile != null ? `IV%ile ${analytics.ivPercentile}` : "Building IV history…"}</div>
+                  {analytics.ivRank != null && <div>IV Rank {analytics.ivRank}</div>}
+                </>
+              ) : analyticsErrored ? (
+                <div>Analytics fetch failed</div>
+              ) : analyticsEmpty ? (
+                <div>No live chain data</div>
+              ) : (
+                <div>Building IV history…</div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -633,7 +662,12 @@ export default function OptionChainPage() {
               <span className="text-muted-foreground"> / </span>
               <span className="text-signal-strong-sell">{analytics ? fmtKL(analytics.totalPutOi) : "—"}</span>
             </div>
-            <div className="text-[10px] text-muted-foreground font-mono">CE / PE</div>
+            <div className="text-[10px] text-muted-foreground font-mono">
+              {analytics ? "CE / PE"
+                : analyticsErrored ? "Analytics fetch failed"
+                : analyticsEmpty ? "No live chain data"
+                : "CE / PE"}
+            </div>
             {analytics && (
               <div className="text-[11px] font-mono mt-1">
                 <span className={(analytics.callOiAdded ?? 0) >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}>

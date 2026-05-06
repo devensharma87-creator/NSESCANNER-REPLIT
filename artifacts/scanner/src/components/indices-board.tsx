@@ -35,7 +35,7 @@
  * Yahoo (~15 min delayed, with a "delayed" pill).
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useGetIndicesBoard, getGetIndicesBoardQueryKey } from "@workspace/api-client-react";
 import type { IndexBoardItem } from "@workspace/api-client-react";
 import { Activity, Globe2, Flame, AlertTriangle, Building2, DollarSign } from "lucide-react";
@@ -116,13 +116,23 @@ function nearestLevel(
 export default function IndicesBoard({ embedded = false }: { embedded?: boolean } = {}) {
   const [active, setActive] = useState<Cat>("INDIA");
 
-  const { data, isLoading, error } = useGetIndicesBoard({
+  const { data, isLoading, error, refetch } = useGetIndicesBoard({
     query: {
       queryKey: getGetIndicesBoardQueryKey(),
       refetchInterval: 5_000,
       staleTime: 5_000,
     },
   });
+
+  // T008: detect "stuck loading" — if the very first request hasn't returned
+  // after 25s the user gets an actionable retry button instead of an
+  // indefinite "Loading indices board…" message. Resets once data arrives.
+  const [loadingTooLong, setLoadingTooLong] = useState(false);
+  useEffect(() => {
+    if (!isLoading) { setLoadingTooLong(false); return; }
+    const t = setTimeout(() => setLoadingTooLong(true), 25_000);
+    return () => clearTimeout(t);
+  }, [isLoading]);
 
   const items = data?.items ?? [];
   const grouped = useMemo(() => {
@@ -173,9 +183,27 @@ export default function IndicesBoard({ embedded = false }: { embedded?: boolean 
       </header>
 
       {/* Loading / error states */}
-      {isLoading && (
+      {isLoading && !loadingTooLong && (
         <div className="rounded-lg border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
           Loading indices board…
+        </div>
+      )}
+      {isLoading && loadingTooLong && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-6 text-center text-sm text-amber-500 space-y-2">
+          <div className="flex items-center justify-center gap-2 font-medium">
+            <AlertTriangle className="h-4 w-4" />
+            Indices board is taking longer than usual
+          </div>
+          <div className="text-xs text-muted-foreground">
+            The upstream feed (Kite / TradingView / Yahoo) is slow to respond. You can keep waiting or retry now.
+          </div>
+          <button
+            type="button"
+            onClick={() => { setLoadingTooLong(false); refetch(); }}
+            className="mt-2 px-3 py-1 rounded border border-amber-500/60 hover:bg-amber-500/10 text-xs font-mono uppercase"
+          >
+            Retry
+          </button>
         </div>
       )}
       {error && (

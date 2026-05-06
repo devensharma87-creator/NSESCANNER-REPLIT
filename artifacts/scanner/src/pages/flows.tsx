@@ -50,12 +50,14 @@ function netClass(n: number): string {
 
 /* ── StockMojo-style daily view: table left + chart right ── */
 function FiiDiiCashMarketView({
-  days, isLoading, refetch, isFetching,
+  days, isLoading, refetch, isFetching, lastUpdatedAt, isError,
 }: {
   days: Array<{ date: string; fiiNet: number; diiNet: number; niftyClose?: number | null; niftyChangePct?: number | null }>;
   isLoading: boolean;
   refetch: () => void;
   isFetching: boolean;
+  lastUpdatedAt: number;
+  isError: boolean;
 }) {
   // Chart data: chronological (oldest → newest)
   const chartData = useMemo(
@@ -115,7 +117,25 @@ function FiiDiiCashMarketView({
             <Skeleton className="lg:col-span-8 h-[600px]" />
           </div>
         ) : days.length === 0 ? (
-          <div className="p-6 text-center text-sm text-muted-foreground font-mono">No FII/DII data yet.</div>
+          <div className="p-8 text-center space-y-2">
+            <div className="text-sm text-foreground font-mono">
+              {isError ? "FII/DII fetch failed" : "No FII/DII data available"}
+            </div>
+            <div className="text-xs text-muted-foreground font-mono">
+              {isError
+                ? "Upstream request errored — try again or check server logs."
+                : "Upstream NSE bhavcopy returned no rows."}{" "}
+              {lastUpdatedAt ? `Last attempt ${new Date(lastUpdatedAt).toLocaleTimeString()}.` : "Awaiting first response."}
+            </div>
+            <button
+              type="button"
+              onClick={refetch}
+              disabled={isFetching}
+              className="mt-2 px-3 py-1 rounded border border-border hover:bg-accent text-xs font-mono uppercase disabled:opacity-50"
+            >
+              Retry
+            </button>
+          </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 border-t border-border/40">
             {/* LEFT: scrollable table */}
@@ -252,10 +272,11 @@ function FiiDiiCashMarketView({
 
 function FiiDiiSection() {
   const [view, setView] = useState<"chart" | "monthly">("chart");
-  const { data, isLoading, refetch, isFetching } = useGetFiiDii(
+  const fiiQ = useGetFiiDii(
     { months: 12 },
     { query: { refetchInterval: 5 * 60 * 1000, queryKey: getGetFiiDiiQueryKey({ months: 12 }) } },
   );
+  const { data, isLoading, refetch, isFetching } = fiiQ;
   const months = data?.months ?? [];
   const [openMonth, setOpenMonth] = useState<string | null>(months[0]?.month ?? null);
 
@@ -275,7 +296,7 @@ function FiiDiiSection() {
           <Button size="sm" variant="default" onClick={() => setView("chart")} className="font-mono text-xs h-8">FII/DII Cash Market</Button>
           <Button size="sm" variant="outline" onClick={() => setView("monthly")} className="font-mono text-xs h-8">Monthly Aggregates</Button>
         </div>
-        <FiiDiiCashMarketView days={allDays} isLoading={isLoading} refetch={() => refetch()} isFetching={isFetching} />
+        <FiiDiiCashMarketView days={allDays} isLoading={isLoading} refetch={() => refetch()} isFetching={isFetching} lastUpdatedAt={fiiQ.dataUpdatedAt} isError={fiiQ.isError} />
       </div>
     );
   }
@@ -798,10 +819,11 @@ function SegmentCard({
 function ParticipantOiSection() {
   const [date, setDate] = useState<string | undefined>(undefined);
   const [view, setView] = useState<"segment" | "detail">("segment");
-  const { data, isLoading, refetch, isFetching } = useGetParticipantOi(
+  const participantQ = useGetParticipantOi(
     date ? { date } : {},
     { query: { refetchInterval: 5 * 60 * 1000, queryKey: getGetParticipantOiQueryKey(date ? { date } : {}) } },
   );
+  const { data, isLoading, refetch, isFetching } = participantQ;
 
   const rows = data?.rows ?? [];
   const previousRows = data?.previousRows ?? [];
@@ -876,8 +898,25 @@ function ParticipantOiSection() {
             {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
           </div>
         ) : rows.length === 0 ? (
-          <div className="p-6 text-center text-sm text-muted-foreground font-mono">
-            No participant OI data yet. Background fetch is running — try refreshing in a few seconds.
+          <div className="p-8 text-center space-y-2">
+            <div className="text-sm text-foreground font-mono">
+              {participantQ.isError ? "Participant OI fetch failed" : "No participant OI data available"}
+            </div>
+            <div className="text-xs text-muted-foreground font-mono">
+              {participantQ.isError
+                ? "Upstream request errored — retry, or check server logs."
+                : "NSE participant-wise OI bhavcopy not yet published for this date."}{" "}
+              {participantQ.dataUpdatedAt ? `Last attempt ${new Date(participantQ.dataUpdatedAt).toLocaleTimeString()}.` : ""}{" "}
+              Background fetch retries every 5 min.
+            </div>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="mt-2 px-3 py-1 rounded border border-border hover:bg-accent text-xs font-mono uppercase disabled:opacity-50"
+            >
+              Retry now
+            </button>
           </div>
         ) : view === "segment" ? (
           /* ── Analysis View — insight strip + 2×2 segment cards ──────────
