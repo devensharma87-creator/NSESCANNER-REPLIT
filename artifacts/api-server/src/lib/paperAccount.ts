@@ -35,6 +35,38 @@ export const SEED_CAPITAL: Record<Segment, number> = {
   EQUITY: 1_000_000,
 };
 
+/**
+ * Per-index FIXED lot count for paper-trade sizing.
+ *
+ * When an entry exists for an index, the paper trader bypasses the
+ * `lots = floor(budget / (perShareLoss × lotSize))` risk-budget formula
+ * and opens EXACTLY this many lots — useful for the owner who wants
+ * consistent position sizing across signals (apples-to-apples
+ * back-comparison) regardless of how tight/wide the stop on a given
+ * setup happens to be.
+ *
+ * NOTE: lotSize itself still comes from the exchange (Kite instruments
+ * dump). These are LOT COUNTS, not share counts. The actual qty going
+ * into the trade is `lots × lotSize`, e.g. NIFTY 10 lots × 75 share lot
+ * = 750 shares.
+ *
+ * Indices NOT listed here (FINNIFTY, MIDCPNIFTY, NIFTYNXT50, BANKEX)
+ * keep using the dynamic risk-budget formula.
+ *
+ * Owner override (2026-05-07): NIFTY 10, SENSEX 40, BANKNIFTY 30.
+ *
+ * Per-trade % loss caps and the daily/weekly DD caps still apply ON TOP
+ * of fixed sizing — if the implied risk for the planned stop blows past
+ * the configured ceiling we WARN but still open (the owner explicitly
+ * chose fixed sizing). The "insufficient balance" gate also still fires
+ * (a fixed-lot order we can't afford is rejected, not partially filled).
+ */
+export const PAPER_FIXED_LOTS: Record<string, number> = {
+  NIFTY: 10,
+  SENSEX: 40,
+  BANKNIFTY: 30,
+};
+
 /** F&O specific risk caps. */
 export const FNO_RISK = {
   /** Max loss per single trade as a fraction of segment balance. */

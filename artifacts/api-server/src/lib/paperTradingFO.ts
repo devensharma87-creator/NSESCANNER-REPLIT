@@ -36,6 +36,7 @@ import {
   ensureDailyReset,
   FNO_RISK,
   FNO_BASELINE_RISK,
+  PAPER_FIXED_LOTS,
   getDailyRealizedDrawdown,
   getWeeklyRealizedDrawdown,
 } from "./paperAccount";
@@ -340,15 +341,52 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         return null;
       }
 
-      const budget = balance * maxLossPctPerTrade;
+      // Sizing — two paths:
+      //   (a) Owner-configured FIXED lot count for this index (NIFTY 10,
+      //       SENSEX 40, BANKNIFTY 30 today) — use it verbatim, but warn
+      //       when the implied per-trade risk exceeds the configured cap
+      //       so the dashboard / logs still surface the over-risk event.
+      //       STANDARD tier ONLY — BASELINE is the conservative
+      //       half-size fallback lane (1% risk vs 2%, 55 conf vs 65); it
+      //       deliberately keeps dynamic budget sizing so a thin-data
+      //       fallback can't accidentally open a 10-lot NIFTY position.
+      //   (b) Otherwise (BASELINE tier OR no mapping for this index) the
+      //       original risk-budget formula:
+      //       lots = floor(balance × maxLossPct / (perShareLoss × lotSize))
+      const fixedLots =
+        tier === "STANDARD"
+          ? PAPER_FIXED_LOTS[indexSymbol.toUpperCase()]
+          : undefined;
       const perLotLoss = perShareLoss * lotSize;
-      const lots = Math.floor(budget / perLotLoss);
-      if (lots < 1) {
-        logger.info(
-          { indexSymbol, setupKey, tier, budget, perLotLoss, maxLossPctPerTrade },
-          "Paper FO skip: position too risky for budget (lots < 1)",
-        );
-        return null;
+      let lots: number;
+      if (typeof fixedLots === "number" && fixedLots > 0) {
+        lots = fixedLots;
+        const impliedRisk = lots * perLotLoss;
+        const riskBudget = balance * maxLossPctPerTrade;
+        if (impliedRisk > riskBudget) {
+          logger.warn(
+            {
+              indexSymbol,
+              setupKey,
+              tier,
+              fixedLots,
+              impliedRisk: +impliedRisk.toFixed(2),
+              riskBudget: +riskBudget.toFixed(2),
+              maxLossPctPerTrade,
+            },
+            "Paper FO: fixed-lot override exceeds per-trade risk cap (proceeding by owner choice)",
+          );
+        }
+      } else {
+        const budget = balance * maxLossPctPerTrade;
+        lots = Math.floor(budget / perLotLoss);
+        if (lots < 1) {
+          logger.info(
+            { indexSymbol, setupKey, tier, budget, perLotLoss, maxLossPctPerTrade },
+            "Paper FO skip: position too risky for budget (lots < 1)",
+          );
+          return null;
+        }
       }
       const capitalDeployed = lots * optionEntry * lotSize;
       if (balance < capitalDeployed) {
