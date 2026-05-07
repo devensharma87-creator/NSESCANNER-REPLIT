@@ -480,7 +480,20 @@ interface Detected {
   targetLevel: number;
   target2Level: number;
   invalidation: string;
+  // Pass-2A: true when the ATR-driven MIN stop floor exceeded the
+  // structural MAX stop cap (volatile day). Set inside
+  // clampPlanForIntraday. Used downstream to (a) force tier to BASELINE
+  // and (b) tag the OptionSignal "VOL_CLAMPED_STOP" so the paper trader
+  // routes via the conservative lane (1% loss cap, dynamic sizing).
+  volClamped?: boolean;
 }
+
+// Pass-2A: extreme-volatility hard reject. When the implied minStop
+// exceeds maxStop by more than this multiple, the structural envelope
+// is so badly broken that even a soft-demote to BASELINE risks
+// avoidable damage on a chaotic day. Below the multiple we accept the
+// trade at BASELINE tier (smaller exposure, full audit tag).
+const VOL_CLAMP_REJECT_RATIO = 1.5;
 
 /** 1. Trend Continuation — strong VWAP+EMA alignment, fresh momentum, RSI in trend zone */
 function detectTrendContinuation(c: Ctx): Detected | null {
@@ -963,12 +976,44 @@ function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR_FOR_HC
   //   - minStopDist (Phase-2) = max(0.30% spot, 1.0 × ATR15) — widens a
   //     too-tight structural plan so the stop survives one bar of noise.
   // The MIN floor wins on volatile days where it would exceed the cap;
-  // that is intentional — a stop must always survive realised noise even
-  // if it pushes the rupee-budget past the structural ceiling. The paper
-  // book auto-shrinks lots so per-trade rupee risk stays constant.
+  // a stop must always survive realised noise even if it pushes the
+  // rupee-budget past the structural ceiling. The paper book auto-
+  // shrinks lots so per-trade rupee risk stays constant.
   // Final stop sits at clamp(struct, min, max), enforcing min last.
+  //
+  // Pass-2A: when minStop > maxStop the structural envelope is broken
+  // (the trade no longer fits the regime it was designed for). We:
+  //   (1) HARD-REJECT when the breach is extreme (ratio > 1.5) — even
+  //       conservative sizing won't fix a stop that's 50%+ wider than
+  //       what the structural read can defend.
+  //   (2) FLAG everything else as `volClamped` so emission downgrades
+  //       the tier from HIGH_CONVICTION to BASELINE (paper trader picks
+  //       up the conservative lane: 1% loss cap, dynamic sizing, no
+  //       fixed-lot override). The trade still happens but loses
+  //       headline status. Audit tag `VOL_CLAMPED_STOP` is added on
+  //       the OptionSignal in toSignal().
   const minStopDist = Math.max(MIN_STOP_PCT_OF_SPOT * c.spot, MIN_STOP_ATR_MULT * c.atr15);
   const maxStopDist = Math.max(MAX_STOP_PCT_OF_SPOT * c.spot, STOP_ATR_MULT * c.atr15);
+  const volClamped = minStopDist > maxStopDist;
+  if (volClamped) {
+    const ratio = maxStopDist > 0 ? minStopDist / maxStopDist : Infinity;
+    if (ratio > VOL_CLAMP_REJECT_RATIO) {
+      logger.info(
+        {
+          setupKey: d.setupKey,
+          symbol: c.cfg.symbol,
+          spot: c.spot,
+          atr15: c.atr15,
+          minStopDist: +minStopDist.toFixed(2),
+          maxStopDist: +maxStopDist.toFixed(2),
+          ratio: +ratio.toFixed(2),
+          rejectAt: VOL_CLAMP_REJECT_RATIO,
+        },
+        "FO skip: ATR-floor stop excessively beyond structural cap (vol-regime broke trade envelope)",
+      );
+      return null;
+    }
+  }
   const structStopDist = Math.abs(entry - d.stopLevel);
   const newStopDist = Math.max(Math.min(structStopDist, maxStopDist), minStopDist);
   const stopLevel = dir === "BULLISH" ? entry - newStopDist : entry + newStopDist;
@@ -1011,6 +1056,7 @@ function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR_FOR_HC
     stopLevel,
     targetLevel,
     target2Level,
+    volClamped,
   };
 }
 
@@ -1031,6 +1077,10 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
   if ((rr ?? 0) < 1) tags.push("RR_LOW");
   // Mean-reversion setups are by construction "fade extremes"; tag for clarity.
   if (d.setupKey === "MEAN_REVERSION") tags.push("COUNTER_TREND");
+  // Pass-2A audit tag — surfaces the demote-to-BASELINE reason on the
+  // card and in analytics. Trader can see exactly why a setup that
+  // would otherwise have been HC is sized down today.
+  if (d.volClamped) tags.push("VOL_CLAMPED_STOP");
   return {
     index: c.cfg.symbol,
     indexName: c.cfg.display,
@@ -1292,10 +1342,24 @@ function buildSignalsForIndex(
   }
 
   // Sort high-conviction by confidence; keep top 3. Then append the baseline.
+  // Pass-2A: vol-clamped setups (minStop > maxStop on volatile days)
+  // must NEVER occupy a top-3 HC slot — that would let a clamped 80-conf
+  // setup displace a clean 75-conf one. Partition first, fill the top-3
+  // from clean HC candidates only, then append demoted vol-clamped
+  // signals as BASELINE-tier extras (with the VOL_CLAMPED_STOP audit
+  // tag already added in toSignal). Hard-reject for extreme breaches
+  // already happened inside clampPlanForIntraday (returned null), so
+  // anything reaching here is safe to route via the conservative
+  // paper-trader lane.
   highConviction.sort((a, b) => b.confidence - a.confidence);
+  const cleanHc = highConviction.filter((d) => !d.volClamped);
+  const volClampedHc = highConviction.filter((d) => d.volClamped);
   const out: OptionSignal[] = [];
-  for (const d of highConviction.slice(0, 3)) {
+  for (const d of cleanHc.slice(0, 3)) {
     out.push(applyLock(toSignal(ctx, d, "HIGH_CONVICTION")));
+  }
+  for (const d of volClampedHc) {
+    out.push(applyLock(toSignal(ctx, d, "BASELINE")));
   }
   if (baseline) {
     out.push(applyLock(toSignal(ctx, baseline, "BASELINE")));

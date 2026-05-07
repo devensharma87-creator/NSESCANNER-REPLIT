@@ -863,7 +863,7 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
     SELECT h.signal_date, h.index_symbol, h.index_name, h.setup_key, h.direction,
            h.option_type, h.strike, h.entry, h.stop_loss, h.target1, h.target2,
            h.option_entry, h.option_stop_loss, h.option_target1, h.option_target2,
-           h.confidence, h.status AS lifecycle_status
+           h.confidence, h.status AS lifecycle_status, h.tier AS persisted_tier
       FROM option_signal_history h
       LEFT JOIN paper_trade_fo p
         ON p.signal_date = h.signal_date
@@ -904,6 +904,7 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
       option_target2: string | null;
       confidence: number;
       lifecycle_status: string;
+      persisted_tier: string | null;
     }>;
   }).rows;
   if (rows.length === 0) return 0;
@@ -941,7 +942,22 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
       // Tier the synthetic open the same way the in-cycle path does:
       // BASELINE setups go through the conservative lane (1% loss cap,
       // 55 conf floor); everything else uses STANDARD.
-      const tier: TradeTier = r.setup_key === "BASELINE" ? "BASELINE" : "STANDARD";
+      //
+      // Pass-2A fix (HIGH): prefer the PERSISTED tier from
+      // option_signal_history when present. A vol-clamped HC setup
+      // (Pass-2A) is emitted as `tier="BASELINE"` and persisted as such
+      // by the lifecycle insert; if reconciliation derived tier from
+      // `setup_key` alone, that would silently re-promote it back to
+      // STANDARD here (defeating the whole soft-demote). Fall back to
+      // the setup_key heuristic only for legacy null rows.
+      const tier: TradeTier =
+        r.persisted_tier === "BASELINE"
+          ? "BASELINE"
+          : r.persisted_tier === "HIGH_CONVICTION"
+            ? "STANDARD"
+            : r.setup_key === "BASELINE"
+              ? "BASELINE"
+              : "STANDARD";
       const trade = await openPaperTrade({
         prev: null,
         next: "TRIGGERED",
