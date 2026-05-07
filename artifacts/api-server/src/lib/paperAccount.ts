@@ -21,7 +21,12 @@
  * account row, so concurrent handlers cannot oversize a position or
  * double-debit the balance.
  */
-import { db, paperAccountTable, paperTradeFoTable } from "@workspace/db";
+import {
+  db,
+  paperAccountTable,
+  paperTradeEqTable,
+  paperTradeFoTable,
+} from "@workspace/db";
 import type { PaperAccountRow } from "@workspace/db";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { logger } from "./logger";
@@ -101,6 +106,69 @@ export const FNO_BASELINE_RISK = {
   MAX_LOSS_PCT_PER_TRADE: 0.01, // 1%
   /** Confidence floor for BASELINE auto-trade. Lower than standard but still gates out the weakest reads. */
   MIN_CONFIDENCE: 55,
+} as const;
+
+/**
+ * F&O option-leg liquidity gates (Pass-1 safety nets, 2026-05-07).
+ *
+ * Reject paper-trade entries on illiquid option legs — even a perfect
+ * setup is uninvestable if you can't get out at a sane price. Three
+ * orthogonal filters:
+ *
+ *   - MIN_OPTION_LTP: too-cheap options have asymmetric slippage; the
+ *     bid-ask is often a meaningful fraction of LTP itself.
+ *   - MAX_BID_ASK_SPREAD_PCT: tight book required, otherwise market-
+ *     impact alone breaches the per-trade risk budget.
+ *   - MIN_OPTION_OI: thin OI = thin book = wide effective spread when
+ *     you actually need to exit. Cumulative session OI proxy.
+ *
+ * The MIN_OPTION_LTP gate uses `signal.optionEntry` (already populated
+ * by the chain enricher, no extra fetch). The spread + OI gates need
+ * a fresh chain pull at trade-open time; on chain-fetch failure we
+ * FAIL OPEN with a warn-log (the LTP gate already filters the worst
+ * cases) — paper trading should not hard-block on transient NSE
+ * connectivity blips that the live system would never see.
+ */
+export const FNO_LIQUIDITY = {
+  /** Reject if option entry premium < ₹20 (asymmetric slippage zone). */
+  MIN_OPTION_LTP: 20,
+  /** Reject if (ask - bid) / ltp > 1.5%. */
+  MAX_BID_ASK_SPREAD_PCT: 0.015,
+  /** Reject if open interest < 50,000 contracts (thin-book proxy). */
+  MIN_OPTION_OI: 50_000,
+} as const;
+
+/**
+ * Equity portfolio drawdown caps (Pass-1 safety nets, 2026-05-07).
+ *
+ * Mirrors the F&O DD latch system on the EQUITY segment so a string
+ * of losing swings can't bleed the bankroll past these floors before
+ * the human notices. Sticky-once-hit semantics, IST window rollover.
+ *
+ * Daily 2% / Weekly 4% / Monthly 8% — tighter than F&O because swing
+ * losses compound across days (vs F&O where a bad day fully resets
+ * tomorrow morning).
+ */
+export const EQUITY_DD_CAPS = {
+  MAX_DAILY_LOSS_PCT: 0.02,
+  MAX_WEEKLY_LOSS_PCT: 0.04,
+  MAX_MONTHLY_LOSS_PCT: 0.08,
+} as const;
+
+/**
+ * Equity stop-loss sanity bounds (Pass-1 safety nets, 2026-05-07).
+ *
+ * Reject swing entries with absurd stops:
+ *   - too tight (< 1% from entry) ⇒ noise-driven, near-100% stop hit.
+ *   - too wide  (> 8% from entry) ⇒ scanner geometry bug; risk per
+ *     share is unbounded and torpedoes the per-position risk budget.
+ *
+ * Computed as `(entry - stop) / entry`. Direction-agnostic: all swing
+ * paper trades today are LONG so stop is always below entry.
+ */
+export const EQUITY_STOP_SANITY = {
+  MIN_STOP_PCT: 0.01,
+  MAX_STOP_PCT: 0.08,
 } as const;
 
 /** Equity (swing-cash) specific allocation rules. User-decided. */
@@ -519,8 +587,103 @@ export async function getWeeklyRealizedDrawdown(): Promise<DrawdownReading> {
   };
 }
 
+// ─── Pass-1 Equity DD caps (mirrors the F&O latch system) ──────────────
+//
+// Same sticky-once-hit semantics as the F&O latches above, just on the
+// EQUITY segment with daily/weekly/monthly windows (2/4/8 % of seed).
+// `paperTradeEqTable.realizedPnl` is summed for CLOSED rows only —
+// open swing P&L doesn't count.
+
+/** First IST day of the current calendar month (YYYY-MM-01). */
+function istMonthStartKey(d: Date = new Date()): string {
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}-01`;
+}
+
+async function sumEqRealisedPnlSince(sinceDateKey: string): Promise<number> {
+  const result = await db
+    .select({ s: sql<string | null>`COALESCE(SUM(${paperTradeEqTable.realizedPnl}), 0)` })
+    .from(paperTradeEqTable)
+    .where(
+      and(
+        eq(paperTradeEqTable.status, "CLOSED"),
+        gte(paperTradeEqTable.signalDate, sinceDateKey),
+      ),
+    );
+  return num(result[0]?.s ?? 0);
+}
+
+let eqDailyDdLatch: { windowStart: string; reachedAt: Date } | null = null;
+let eqWeeklyDdLatch: { windowStart: string; reachedAt: Date } | null = null;
+let eqMonthlyDdLatch: { windowStart: string; reachedAt: Date } | null = null;
+
+/** Daily realised drawdown for the EQUITY segment. Sticky once cap hit. */
+export async function getEqDailyRealizedDrawdown(): Promise<DrawdownReading> {
+  const start = istDateKey();
+  const realisedPnl = await sumEqRealisedPnlSince(start);
+  const seed = SEED_CAPITAL.EQUITY;
+  const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
+  if (eqDailyDdLatch && eqDailyDdLatch.windowStart !== start) eqDailyDdLatch = null;
+  const liveHit = lossPct >= EQUITY_DD_CAPS.MAX_DAILY_LOSS_PCT;
+  if (liveHit && !eqDailyDdLatch) {
+    eqDailyDdLatch = { windowStart: start, reachedAt: new Date() };
+  }
+  return {
+    realisedPnl,
+    drawdownPct: lossPct,
+    capReached: liveHit || eqDailyDdLatch !== null,
+    capPct: EQUITY_DD_CAPS.MAX_DAILY_LOSS_PCT,
+    windowStart: start,
+  };
+}
+
+/** Trailing-week realised drawdown for the EQUITY segment. Sticky once cap hit. */
+export async function getEqWeeklyRealizedDrawdown(): Promise<DrawdownReading> {
+  const start = istWeekStartKey();
+  const realisedPnl = await sumEqRealisedPnlSince(start);
+  const seed = SEED_CAPITAL.EQUITY;
+  const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
+  if (eqWeeklyDdLatch && eqWeeklyDdLatch.windowStart !== start) eqWeeklyDdLatch = null;
+  const liveHit = lossPct >= EQUITY_DD_CAPS.MAX_WEEKLY_LOSS_PCT;
+  if (liveHit && !eqWeeklyDdLatch) {
+    eqWeeklyDdLatch = { windowStart: start, reachedAt: new Date() };
+  }
+  return {
+    realisedPnl,
+    drawdownPct: lossPct,
+    capReached: liveHit || eqWeeklyDdLatch !== null,
+    capPct: EQUITY_DD_CAPS.MAX_WEEKLY_LOSS_PCT,
+    windowStart: start,
+  };
+}
+
+/** Calendar-month realised drawdown for the EQUITY segment. Sticky once cap hit. */
+export async function getEqMonthlyRealizedDrawdown(): Promise<DrawdownReading> {
+  const start = istMonthStartKey();
+  const realisedPnl = await sumEqRealisedPnlSince(start);
+  const seed = SEED_CAPITAL.EQUITY;
+  const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
+  if (eqMonthlyDdLatch && eqMonthlyDdLatch.windowStart !== start) eqMonthlyDdLatch = null;
+  const liveHit = lossPct >= EQUITY_DD_CAPS.MAX_MONTHLY_LOSS_PCT;
+  if (liveHit && !eqMonthlyDdLatch) {
+    eqMonthlyDdLatch = { windowStart: start, reachedAt: new Date() };
+  }
+  return {
+    realisedPnl,
+    drawdownPct: lossPct,
+    capReached: liveHit || eqMonthlyDdLatch !== null,
+    capPct: EQUITY_DD_CAPS.MAX_MONTHLY_LOSS_PCT,
+    windowStart: start,
+  };
+}
+
 /** Test/admin only — clear the in-process DD latches without waiting for the IST rollover. */
 export function _resetDdLatchesForTest(): void {
   dailyDdLatch = null;
   weeklyDdLatch = null;
+  eqDailyDdLatch = null;
+  eqWeeklyDdLatch = null;
+  eqMonthlyDdLatch = null;
+  return;
 }
+

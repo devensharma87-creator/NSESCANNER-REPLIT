@@ -1456,20 +1456,56 @@ let triggerSweepRunning = false;
 // per 30s, so this is safe.
 const TRIGGER_SWEEP_INTERVAL_MS = 30 * 1000;
 
+// Pass-1 15:20 IST force-exit latch. We piggy-back on the existing
+// 30s sweep instead of standing up a dedicated interval — cheaper and
+// guarantees ordering with the rest of the lifecycle pipeline.
+//
+// The latch is set ONLY AFTER a successful force-close call. If the
+// import or the close fails (transient DB/network), the next 30s tick
+// retries — burning the latch up-front would drop the safety net for
+// the rest of the day on a single transient blip.
+let lastForceExit1520Date: string | null = null;
+
 setInterval(() => {
   if (triggerSweepRunning) return; // skip if previous tick still in flight
   if (computeMarketStatus(new Date()) !== "open") return;
   triggerSweepRunning = true;
-  void getOptionSignals()
-    .catch((err) => {
+
+  void (async () => {
+    try {
+      // 1) Run the lifecycle pass FIRST. If a position was about to be
+      //    STOPPED / TARGET-hit on this tick anyway, it should record the
+      //    natural exit reason (and the natural settlement premium) —
+      //    not get overwritten as TIME_EXIT_1520.
+      await getOptionSignals();
+
+      // 2) Then force-close any rows that survived the lifecycle pass.
+      //    Latch advances only on success so a transient failure retries
+      //    on the next 30s tick.
+      const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+      const istDay = ist.toISOString().slice(0, 10);
+      const istMin = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+      if (istMin >= 15 * 60 + 20 && lastForceExit1520Date !== istDay) {
+        try {
+          const { forceCloseAllOpenFnoFor1520 } = await import("./paperTradingFO");
+          await forceCloseAllOpenFnoFor1520();
+          lastForceExit1520Date = istDay; // only burn the latch on success
+        } catch (err) {
+          logger.warn(
+            { err: (err as Error).message },
+            "Paper FO 15:20 force-exit threw — will retry next tick",
+          );
+        }
+      }
+    } catch (err) {
       logger.warn(
         { err: (err as Error).message },
         "trigger sweep getOptionSignals failed",
       );
-    })
-    .finally(() => {
+    } finally {
       triggerSweepRunning = false;
-    });
+    }
+  })();
 }, TRIGGER_SWEEP_INTERVAL_MS).unref?.();
 
 // ─── Option-level enrichment (current LTP / projected entry-T1-T2-SL) ────

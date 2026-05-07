@@ -37,7 +37,12 @@ import type { PaperTradeEqRow } from "@workspace/db";
 import { and, eq, ne, sql } from "drizzle-orm";
 import {
   ensureDailyReset,
+  EQUITY_DD_CAPS,
   EQUITY_RISK,
+  EQUITY_STOP_SANITY,
+  getEqDailyRealizedDrawdown,
+  getEqMonthlyRealizedDrawdown,
+  getEqWeeklyRealizedDrawdown,
 } from "./paperAccount";
 import { logger } from "./logger";
 import type { SwingSignal } from "./swingSignals";
@@ -104,6 +109,58 @@ export async function openPaperEquityTrade(
   }
   if (!(signal.perShareRisk > 0)) {
     logger.info({ symbol: signal.symbol, risk: signal.perShareRisk }, "Paper EQ skip: invalid risk");
+    return null;
+  }
+
+  // ─── Pass-1 stop-loss sanity gate ──────────────────────────────────
+  // perShareRisk = entryPrice - stopPrice for LONG swings. Reject if
+  // the implied stop-distance pct is absurdly tight (noise zone) or
+  // absurdly wide (scanner geometry bug — risk per share is unbounded).
+  const stopPct = signal.perShareRisk / signal.entryPrice;
+  if (stopPct < EQUITY_STOP_SANITY.MIN_STOP_PCT || stopPct > EQUITY_STOP_SANITY.MAX_STOP_PCT) {
+    logger.info(
+      {
+        symbol: signal.symbol,
+        entry: signal.entryPrice,
+        stop: signal.stopPrice,
+        stopPct: +stopPct.toFixed(4),
+        floor: EQUITY_STOP_SANITY.MIN_STOP_PCT,
+        ceiling: EQUITY_STOP_SANITY.MAX_STOP_PCT,
+      },
+      "Paper EQ skip: stop-loss outside sanity bounds (1%–8%)",
+    );
+    return null;
+  }
+
+  // ─── Pass-1 portfolio drawdown caps (D / W / M) ────────────────────
+  // Sticky-once-hit. Daily 2% / Weekly 4% / Monthly 8% of seed.
+  const [eqDaily, eqWeekly, eqMonthly] = await Promise.all([
+    getEqDailyRealizedDrawdown(),
+    getEqWeeklyRealizedDrawdown(),
+    getEqMonthlyRealizedDrawdown(),
+  ]);
+  if (eqDaily.capReached) {
+    logger.info(
+      { symbol: signal.symbol, drawdownPct: +eqDaily.drawdownPct.toFixed(4),
+        capPct: EQUITY_DD_CAPS.MAX_DAILY_LOSS_PCT },
+      "Paper EQ skip: daily DD cap reached (sticky)",
+    );
+    return null;
+  }
+  if (eqWeekly.capReached) {
+    logger.info(
+      { symbol: signal.symbol, drawdownPct: +eqWeekly.drawdownPct.toFixed(4),
+        capPct: EQUITY_DD_CAPS.MAX_WEEKLY_LOSS_PCT },
+      "Paper EQ skip: weekly DD cap reached (sticky)",
+    );
+    return null;
+  }
+  if (eqMonthly.capReached) {
+    logger.info(
+      { symbol: signal.symbol, drawdownPct: +eqMonthly.drawdownPct.toFixed(4),
+        capPct: EQUITY_DD_CAPS.MAX_MONTHLY_LOSS_PCT },
+      "Paper EQ skip: monthly DD cap reached (sticky)",
+    );
     return null;
   }
 

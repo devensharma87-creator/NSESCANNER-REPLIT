@@ -36,11 +36,12 @@ import {
   ensureDailyReset,
   FNO_RISK,
   FNO_BASELINE_RISK,
+  FNO_LIQUIDITY,
   PAPER_FIXED_LOTS,
   getDailyRealizedDrawdown,
   getWeeklyRealizedDrawdown,
 } from "./paperAccount";
-import { LOT_SIZES } from "./optionChain";
+import { fetchOptionChain, LOT_SIZES } from "./optionChain";
 import { logger } from "./logger";
 import { computeMarketStatus } from "./marketEvents";
 import { isActionableForFno, type DataQualityLabel } from "./tradingConfig";
@@ -313,6 +314,79 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     return null;
   }
 
+  // ─── Pass-1 option-leg liquidity gates ────────────────────────────────
+  // (a) Cheap-premium gate runs on the cached `optionEntry` — no extra
+  //     network call. Catches the worst illiquidity instantly.
+  if (optionEntry < FNO_LIQUIDITY.MIN_OPTION_LTP) {
+    logger.info(
+      { indexSymbol, setupKey, optionEntry, floor: FNO_LIQUIDITY.MIN_OPTION_LTP },
+      "Paper FO skip: option premium below liquidity floor (illiquid)",
+    );
+    return null;
+  }
+  // (b) Spread + OI gates need a fresh chain pull. Best-effort: if the
+  //     fetch fails or the leg row is missing we WARN and proceed —
+  //     LTP gate above is the primary safety, and we don't want a
+  //     transient NSE hiccup to wedge the paper trader.
+  // Chain-fetch failure ⇒ FAIL OPEN with warn (LTP gate above is the
+  // primary safety; transient NSE blips must not wedge the trader).
+  // Strike-row missing entirely ⇒ FAIL CLOSED — that's an anomaly we
+  // shouldn't paper around. Bid/ask=0 (between trades) ⇒ skip spread
+  // check only. OI=0 with chain present ⇒ FAIL CLOSED (truly thin).
+  let chain: Awaited<ReturnType<typeof fetchOptionChain>> = null;
+  let chainFetchOk = true;
+  try {
+    chain = await fetchOptionChain(indexSymbol, signal.leg.expiry ?? undefined);
+  } catch (err) {
+    chainFetchOk = false;
+    logger.warn(
+      { indexSymbol, setupKey, err: (err as Error).message },
+      "Paper FO: liquidity probe chain-fetch threw (proceeding with LTP-only gate)",
+    );
+  }
+  if (chainFetchOk) {
+    if (!chain) {
+      logger.warn(
+        { indexSymbol, setupKey },
+        "Paper FO: liquidity probe chain-fetch returned null (proceeding with LTP-only gate)",
+      );
+    } else {
+      const row = chain.rows?.find((rw) => Math.abs(rw.strike - signal.leg.strike) < 0.01);
+      const side = row ? (signal.leg.type === "CALL" ? row.ce : row.pe) : undefined;
+      if (!side) {
+        logger.info(
+          { indexSymbol, setupKey, strike: signal.leg.strike, type: signal.leg.type },
+          "Paper FO skip: strike row missing from chain (liquidity check failed-closed on anomaly)",
+        );
+        return null;
+      }
+      const bid = side.bid ?? 0;
+      const ask = side.ask ?? 0;
+      const ltpRef = side.ltp ?? optionEntry;
+      const oi = side.oi ?? 0;
+      if (bid > 0 && ask > 0 && ltpRef > 0) {
+        const spreadPct = (ask - bid) / ltpRef;
+        if (spreadPct > FNO_LIQUIDITY.MAX_BID_ASK_SPREAD_PCT) {
+          logger.info(
+            { indexSymbol, setupKey, bid, ask, ltpRef, spreadPct: +spreadPct.toFixed(4),
+              cap: FNO_LIQUIDITY.MAX_BID_ASK_SPREAD_PCT },
+            "Paper FO skip: bid-ask spread too wide (illiquid book)",
+          );
+          return null;
+        }
+      }
+      // OI=0 with chain present is a real liquidity red flag, not a
+      // missing-data case — fail closed.
+      if (oi < FNO_LIQUIDITY.MIN_OPTION_OI) {
+        logger.info(
+          { indexSymbol, setupKey, oi, floor: FNO_LIQUIDITY.MIN_OPTION_OI },
+          "Paper FO skip: open interest below liquidity floor (thin book)",
+        );
+        return null;
+      }
+    }
+  }
+
   // Make sure the account row exists and has been refilled if a new
   // IST day rolled over since the last access.
   await ensureDailyReset("FNO");
@@ -526,7 +600,15 @@ async function markToMarket(input: LifecycleHookInput): Promise<void> {
     .where(and(eq(paperTradeFoTable.id, r.id), eq(paperTradeFoTable.status, "OPEN")));
 }
 
-export type CloseReason = "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE";
+export type CloseReason =
+  | "TARGET1_HIT"
+  | "TARGET2_HIT"
+  | "STOPPED"
+  | "EXPIRED"
+  | "MANUAL_OVERRIDE"
+  /** Pass-1 force-exit at 15:20 IST — closes any still-OPEN paper FO trade
+   *  before the last-10-min liquidity drop. Settles at lastPremium. */
+  | "TIME_EXIT_1520";
 
 /**
  * Reconcile paper_trade_fo rows that are still OPEN despite the
@@ -703,9 +785,57 @@ function pickExitPremium(r: PaperTradeFoRow, reason: CloseReason): number {
       return num(r.stopPremium);
     case "EXPIRED":
     case "MANUAL_OVERRIDE":
+    case "TIME_EXIT_1520":
     default:
       return num(r.lastPremium);
   }
+}
+
+/**
+ * Pass-1 15:20 IST force-exit. Closes every still-OPEN paper F&O trade
+ * at lastPremium with reason `TIME_EXIT_1520`. Idempotent — once a row
+ * is CLOSED the subsequent call is a no-op (selectOpen + per-row CAS).
+ *
+ * Called from the existing 30s `getOptionSignals` interval in
+ * `optionSignals.ts` once IST time crosses 15:20. The natural side
+ * effect of the close (status='OPEN' → 'CLOSED') ensures subsequent
+ * ticks find an empty set and no-op cheaply.
+ *
+ * Returns the count of trades actually closed by this call.
+ */
+export async function forceCloseAllOpenFnoFor1520(): Promise<number> {
+  const openRows = await db
+    .select({
+      signalDate: paperTradeFoTable.signalDate,
+      indexSymbol: paperTradeFoTable.indexSymbol,
+      setupKey: paperTradeFoTable.setupKey,
+      direction: paperTradeFoTable.direction,
+    })
+    .from(paperTradeFoTable)
+    .where(eq(paperTradeFoTable.status, "OPEN"));
+  if (openRows.length === 0) return 0;
+  let closed = 0;
+  for (const r of openRows) {
+    try {
+      const out = await closePaperTradeForSignal(
+        r.signalDate,
+        r.indexSymbol,
+        r.setupKey,
+        r.direction as "BULLISH" | "BEARISH",
+        "TIME_EXIT_1520",
+      );
+      if (out) closed++;
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message, indexSymbol: r.indexSymbol, setupKey: r.setupKey },
+        "forceCloseAllOpenFnoFor1520: close failed for one row, continuing",
+      );
+    }
+  }
+  if (closed > 0) {
+    logger.info({ closed }, "Paper FO 15:20 force-exit completed");
+  }
+  return closed;
 }
 
 /**
