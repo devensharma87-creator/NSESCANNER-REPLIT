@@ -1,7 +1,11 @@
 import { activeProvider } from "./dataProvider";
 
 export const CONFIDENCE_THRESHOLDS = {
-  MIN_FNO_TRADE: 70,
+  // Aligned with HC_EMISSION_FLOOR (optionSignals.ts) so we stop the
+  // double-gate: if the confluence engine emits the signal at >=65, the
+  // paper trader trusts it. Was 70 pre-Phase-3, before the confluence
+  // engine started haircutting confidence directly.
+  MIN_FNO_TRADE: 65,
   MIN_SWING_TRADE: 65,
   MIN_BASELINE_DISPLAY: 35,
   HTF_CONFLICT_HAIRCUT: 12,

@@ -221,11 +221,28 @@ router.get("/paper/account", requireOwner, async (req, res, next) => {
         getWeeklyRealizedDrawdown(),
       ]);
     }
+    // Lifetime realised P&L = sum of realizedPnl across every CLOSED
+    // trade for this segment. Computed server-side from the trade ledger
+    // (NOT from balance - seed) so that manual `/paper/account/topup`
+    // capital injections do not inflate the figure. Architect Sev-1 fix.
+    const ledgerTable =
+      segment === "FNO" ? paperTradeFoTable : paperTradeEqTable;
+    // Aggregate in SQL (not JS) so the wire payload is a single scalar
+    // even as the closed-trade ledger grows. Indexed on `status` already
+    // (`paper_trade_{fo,eq}_status_idx`).
+    const [{ sum: lifetimeSum } = { sum: null as string | null }] = await db
+      .select({
+        sum: sql<string | null>`COALESCE(SUM(${ledgerTable.realizedPnl}), 0)`,
+      })
+      .from(ledgerTable)
+      .where(eq(ledgerTable.status, "CLOSED"));
+    const lifetimeRealizedPnl = Number(lifetimeSum ?? 0);
     const data = GetPaperAccountResponse.parse({
       segment,
       seedCapital: num(acct.seedCapital),
       balance: num(acct.balance),
       dayRealizedPnl: num(acct.dayRealizedPnl),
+      lifetimeRealizedPnl,
       dayOpenCount: acct.dayOpenCount,
       dayTradeCount: acct.dayTradeCount,
       lastResetDate: acct.lastResetDate ?? istDateKey(),

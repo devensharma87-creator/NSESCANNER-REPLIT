@@ -1870,6 +1870,8 @@ export interface PaperAccountState {
   balance: number;
   /** Realized P&L (INR) accumulated since last daily reset. */
   dayRealizedPnl: number;
+  /** Sum of realizedPnl across ALL closed paper trades for this segment. Top-up safe (does not include manual cash injections). */
+  lifetimeRealizedPnl?: number;
   /** Number of trades currently OPEN today. */
   dayOpenCount: number;
   /** Number of trades opened so far today (cap counter). */

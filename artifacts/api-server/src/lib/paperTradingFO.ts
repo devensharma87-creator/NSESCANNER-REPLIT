@@ -12,7 +12,8 @@
  *
  * Position sizing is risk-driven (max 2% loss per trade), not lot-fixed,
  * so the more dangerous a setup is the smaller the position. Combined
- * with the 4-trades-per-day cap and a 70-confidence floor, the goal is
+ * with the 4-trades-per-day cap and a 65-confidence floor (aligned with
+ * the confluence-engine emission floor in optionSignals.ts), the goal is
  * to make the paper account behave the way a disciplined retail trader
  * would, not a YOLO scalper.
  *

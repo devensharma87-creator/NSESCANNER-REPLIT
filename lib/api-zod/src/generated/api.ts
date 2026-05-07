@@ -1921,6 +1921,12 @@ export const GetPaperAccountResponse = zod.object({
   dayRealizedPnl: zod
     .number()
     .describe("Realized P&L (INR) accumulated since last daily reset."),
+  lifetimeRealizedPnl: zod
+    .number()
+    .optional()
+    .describe(
+      "Sum of realizedPnl across ALL closed paper trades for this segment. Top-up safe (does not include manual cash injections).",
+    ),
   dayOpenCount: zod.number().describe("Number of trades currently OPEN today."),
   dayTradeCount: zod
     .number()

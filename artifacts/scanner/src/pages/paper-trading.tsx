@@ -53,6 +53,7 @@ interface PaperAccount {
   seedCapital: number;
   balance: number;
   dayRealizedPnl: number;
+  lifetimeRealizedPnl?: number;
   dayOpenCount: number;
   dayTradeCount: number;
   lastResetDate: string;
@@ -201,6 +202,20 @@ const fmtDate = (iso: string) => {
   } catch { return iso; }
 };
 
+// Combined "DD MMM · HH:MM:SS" rendering — used wherever the trigger time
+// of a paper trade matters (open positions table). The user explicitly
+// asked for the trade-trigger time to be visible alongside the date.
+const fmtDateTime = (iso: string) => {
+  try {
+    const d = new Date(iso);
+    const date = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+    const time = d.toLocaleTimeString("en-IN", {
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    });
+    return `${date} · ${time}`;
+  } catch { return iso; }
+};
+
 export default function PaperTrading() {
   const [segment, setSegment] = useState<Segment>("FNO");
   return (
@@ -239,11 +254,8 @@ function EquitySegment() {
     queryFn: () => api<{ positions: OpenEqPosition[]; generatedAt: string }>(`/paper/positions/eq`),
     refetchInterval: 15_000,
   });
-  const trades = useQuery({
-    queryKey: QK_TRADES_EQ,
-    queryFn: () => api<{ date: string; trades: ClosedEqTrade[]; generatedAt: string }>(`/paper/trades/eq`),
-    refetchInterval: 30_000,
-  });
+  // Closed/historical trades intentionally NOT fetched here — Paper tab is
+  // live-only by design. Reports tab (/paper-reports) carries the history.
   return (
     <div className="space-y-6">
       <EqAccountCard
@@ -256,11 +268,6 @@ function EquitySegment() {
         positions={positions.data?.positions ?? []}
         loading={positions.isLoading}
         error={positions.error instanceof Error ? positions.error.message : null}
-      />
-      <EqTradesCard
-        trades={trades.data?.trades ?? []}
-        loading={trades.isLoading}
-        error={trades.error instanceof Error ? trades.error.message : null}
       />
     </div>
   );
@@ -288,47 +295,74 @@ function EqAccountCard({ data, openPositions, loading, error }: {
       </Card>
     );
   }
-  // Account value = cash balance + book value of OPEN positions
-  // (entry × qty). Cash balance already reflects every debit/credit
-  // for closed trades; OPEN positions are still tying up capital.
-  const bookValue = openPositions.reduce((s, p) => s + p.capitalDeployed, 0);
-  const accountValue = data.balance + bookValue;
-  const lifetimePnl = accountValue - data.seedCapital;
+  // Capital math:
+  //   invested        = sum of entry × qty for all OPEN positions
+  //   currentValue    = sum of LTP   × qty for all OPEN positions (live MTM)
+  //   unrealizedPnl   = currentValue - invested
+  //   realizedLifetime= server-computed sum of realizedPnl across every
+  //                     CLOSED trade. Top-up safe (does NOT count manual
+  //                     capital injections as realised gains).
+  const invested = openPositions.reduce((s, p) => s + p.capitalDeployed, 0);
+  const currentValue = openPositions.reduce((s, p) => s + p.lastPrice * p.qty, 0);
+  const unrealizedPnl = currentValue - invested;
+  const unrealizedPnlPct = invested > 0 ? (unrealizedPnl / invested) * 100 : 0;
+  // Show em-dash when the API hasn't supplied the field rather than
+  // silently rendering ₹0.00 (which would mask a regression / DB issue).
+  const hasLifetime = typeof data.lifetimeRealizedPnl === "number";
+  const realizedLifetime = data.lifetimeRealizedPnl ?? 0;
   return (
     <Card>
       <CardHeader>
         <CardTitle>Equity Account</CardTitle>
         <CardDescription>
-          Multi-day swing book. Capital stays locked across days — only
-          closed trades release cash. Day counters reset each IST day.
-          Last day reset: {data.lastResetDate}.
+          Live capital snapshot. Closed-trade history lives in the Reports tab.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Stat label="Cash balance" value={inr(data.balance)} />
-        <Stat label="Capital in open positions" value={inr(bookValue)} />
-        <Stat label="Account value" value={inr(accountValue)} />
-        <Stat
-          label="Lifetime net P&L"
-          value={inrDec(lifetimePnl)}
-          tone={lifetimePnl > 0 ? "pos" : lifetimePnl < 0 ? "neg" : undefined}
-        />
-        <Stat
-          label="Realized P&L (today)"
-          value={inrDec(data.dayRealizedPnl)}
-          tone={data.dayRealizedPnl > 0 ? "pos" : data.dayRealizedPnl < 0 ? "neg" : undefined}
-        />
-        <Stat
-          label="Open positions"
-          value={`${openPositions.length}`}
-        />
-        <Stat
-          label="New entries today"
-          value={`${data.dayTradeCount} / ${data.dailyTradeCap}`}
-          tone={data.dayTradeCount >= data.dailyTradeCap ? "neg" : undefined}
-        />
-        <Stat label="Seed capital" value={inr(data.seedCapital)} />
-        <HeatIndicator deployed={bookValue} total={accountValue > 0 ? accountValue : data.seedCapital} />
+      <CardContent className="space-y-6">
+        {/* Section 1 — Capital ledger */}
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+            Capital
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Stat label="Capital introduced" value={inr(data.seedCapital)} />
+            <Stat label="Invested" value={inr(invested)} />
+            <Stat
+              label="Realized P&L (lifetime)"
+              value={hasLifetime ? inrDec(realizedLifetime) : "—"}
+              tone={
+                hasLifetime
+                  ? realizedLifetime > 0
+                    ? "pos"
+                    : realizedLifetime < 0
+                      ? "neg"
+                      : undefined
+                  : undefined
+              }
+            />
+            <Stat label="Balance capital" value={inr(data.balance)} />
+          </div>
+        </div>
+        {/* Section 2 — Open portfolio MTM */}
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+            Open portfolio (live MTM)
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Stat label="Invested amount" value={inr(invested)} />
+            <Stat label="Current value" value={inr(currentValue)} />
+            <Stat
+              label="Profit / Loss"
+              value={inrDec(unrealizedPnl)}
+              tone={unrealizedPnl > 0 ? "pos" : unrealizedPnl < 0 ? "neg" : undefined}
+            />
+            <Stat
+              label="% P/L"
+              value={`${unrealizedPnlPct >= 0 ? "+" : ""}${unrealizedPnlPct.toFixed(2)}%`}
+              tone={unrealizedPnl > 0 ? "pos" : unrealizedPnl < 0 ? "neg" : undefined}
+            />
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -536,7 +570,7 @@ function EqPositionRow({ p }: { p: OpenEqPosition }) {
       <td className={`py-2 pr-3 text-right tabular-nums ${dayTone}`}>
         {dayPnlPct >= 0 ? "+" : ""}{dayPnlPct.toFixed(2)}%
       </td>
-      <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtDate(p.openedAt)}</td>
+      <td className="py-2 pr-3 text-[12px] text-muted-foreground whitespace-nowrap">{fmtDateTime(p.openedAt)}</td>
       <td className="py-2 pr-3 text-right">
         <Button
           size="sm"
@@ -747,21 +781,15 @@ function FOSegment() {
     queryFn: () => api<{ positions: OpenPosition[]; generatedAt: string }>(`/paper/positions/fo`),
     refetchInterval: 10_000,
   });
-  const trades = useQuery({
-    queryKey: QK_TRADES,
-    queryFn: () => api<{ date: string; trades: ClosedTrade[]; generatedAt: string }>(`/paper/trades/fo`),
-    refetchInterval: 30_000,
-  });
   const missed = useQuery({
     queryKey: ["paper", "missed", "FNO"] as const,
     queryFn: () => api<{ missed: MissedSignalRow[]; generatedAt: string }>(`/paper/missed/fo`),
     refetchInterval: 30_000,
   });
-  const analytics = useQuery({
-    queryKey: ["paper", "analytics", "FNO"] as const,
-    queryFn: () => api<FoAnalytics>(`/paper/analytics/fo`),
-    refetchInterval: 60_000,
-  });
+  // Closed/historical trades + analytics intentionally NOT fetched here.
+  // Paper tab is live-only — Reports tab (/paper-reports) carries the
+  // cumulative analytics, equity curve, by-setup breakdown and closed
+  // trade log.
 
   const handleTopupSuccess = useCallback(() => {
     void qc.invalidateQueries({ queryKey: QK_ACCOUNT });
@@ -776,11 +804,6 @@ function FOSegment() {
         onTopupSuccess={handleTopupSuccess}
       />
       {account.data && <FnoDrawdownCard data={account.data} />}
-      <AnalyticsCard
-        data={analytics.data}
-        loading={analytics.isLoading}
-        error={analytics.error instanceof Error ? analytics.error.message : null}
-      />
       <PositionsCard
         positions={positions.data?.positions ?? []}
         loading={positions.isLoading}
@@ -790,11 +813,6 @@ function FOSegment() {
         missed={missed.data?.missed ?? []}
         loading={missed.isLoading}
         error={missed.error instanceof Error ? missed.error.message : null}
-      />
-      <TradesCard
-        trades={trades.data?.trades ?? []}
-        loading={trades.isLoading}
-        error={trades.error instanceof Error ? trades.error.message : null}
       />
     </div>
   );

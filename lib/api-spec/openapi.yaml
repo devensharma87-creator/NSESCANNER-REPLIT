@@ -2697,6 +2697,7 @@ components:
         seedCapital:       { type: number, description: "Starting / refill capital in INR." }
         balance:           { type: number, description: "Live cash balance after debits/credits." }
         dayRealizedPnl:    { type: number, description: "Realized P&L (INR) accumulated since last daily reset." }
+        lifetimeRealizedPnl: { type: number, description: "Sum of realizedPnl across ALL closed paper trades for this segment. Top-up safe (does not include manual cash injections)." }
         dayOpenCount:      { type: integer, description: "Number of trades currently OPEN today." }
         dayTradeCount:     { type: integer, description: "Number of trades opened so far today (cap counter)." }
         lastResetDate:     { type: string, description: "IST date YYYY-MM-DD of the last daily reset." }
