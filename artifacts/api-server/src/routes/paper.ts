@@ -50,7 +50,7 @@ import {
   getMonthlyReport as getEqMonthlyReport,
   getYearlyReport as getEqYearlyReport,
 } from "../lib/paperReportsEq";
-import { forceClosePaperEquityTrade } from "../lib/paperTradingEq";
+import { forceClosePaperEquityTrade, openManualPaperEquityTrade } from "../lib/paperTradingEq";
 import { getAllScannedRows } from "../lib/fullNseScanner";
 import { logger } from "../lib/logger";
 import { getJournalAnalytics } from "../lib/journalAnalytics";
@@ -618,6 +618,48 @@ router.get("/paper/trades/eq", requireOwner, async (req, res, next) => {
       generatedAt: new Date().toISOString(),
     });
     return res.json(data);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post("/paper/positions/eq/manual", requireOwner, async (req, res, next) => {
+  try {
+    await ensureDailyReset("EQUITY");
+    const body = (req.body ?? {}) as { symbol?: unknown; qty?: unknown };
+    const symbol = typeof body.symbol === "string" ? body.symbol.trim().toUpperCase() : "";
+    if (!symbol) return res.status(400).json({ error: "symbol required" });
+    const qtyRaw = body.qty;
+    let qty: number | undefined;
+    if (qtyRaw != null && qtyRaw !== "") {
+      const n = Number(qtyRaw);
+      if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
+        return res.status(400).json({ error: "qty must be a positive integer" });
+      }
+      qty = n;
+    }
+    const { rows: scanRows } = getAllScannedRows();
+    const row = scanRows.find(r => r.symbol === symbol);
+    if (!row) {
+      return res.status(404).json({
+        error: `Symbol ${symbol} not found in current scanner cache. Wait for the next scan or check the spelling.`,
+      });
+    }
+    const result = await openManualPaperEquityTrade(row, { qty });
+    if (!result.row) {
+      return res.status(409).json({ error: result.reason ?? "Trade rejected" });
+    }
+    logger.info({ symbol, id: result.row.id, qty: result.row.qty }, "Manual paper EQ buy");
+    return res.json({
+      id: result.row.id,
+      symbol: result.row.symbol,
+      qty: result.row.qty,
+      entryPrice: num(result.row.entryPrice),
+      stopPrice: num(result.row.stopPrice),
+      target1Price: num(result.row.target1Price),
+      target2Price: num(result.row.target2Price),
+      capitalDeployed: num(result.row.capitalDeployed),
+    });
   } catch (err) {
     return next(err);
   }

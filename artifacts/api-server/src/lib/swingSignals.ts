@@ -215,7 +215,7 @@ function istDateKey(d: Date = new Date()): string {
  * Returns null if the bars are insufficient or the upstream is paused.
  * NEVER fabricates a level — a missing bar means no signal.
  */
-async function computeSwingLevels(
+export async function computeSwingLevels(
   symbol: string,
 ): Promise<{ atr14: number; swing20Low: number } | null> {
   // 6 months of daily bars ≈ 125 sessions: enough headroom for

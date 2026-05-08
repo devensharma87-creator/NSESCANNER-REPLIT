@@ -50,6 +50,7 @@ import {
 } from "./paperAccount";
 import { logger } from "./logger";
 import type { SwingSignal } from "./swingSignals";
+import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
 
 function num(v: string | number | null | undefined): number {
@@ -90,6 +91,7 @@ export type EquityExitReason =
  */
 export async function openPaperEquityTrade(
   signal: SwingSignal,
+  opts?: { qtyOverride?: number },
 ): Promise<PaperTradeEqRow | null> {
   const today = signal.signalDate;
 
@@ -241,7 +243,10 @@ export async function openPaperEquityTrade(
         );
         return null;
       }
-      const qty = Math.floor(deploy / signal.entryPrice);
+      const autoQty = Math.floor(deploy / signal.entryPrice);
+      const qty = opts?.qtyOverride && opts.qtyOverride > 0
+        ? Math.floor(opts.qtyOverride)
+        : autoQty;
       if (qty < 1) {
         // Surface the depleted-account case explicitly. When deploy is
         // tiny (a few rupees) the issue is almost never "price too high"
@@ -443,6 +448,100 @@ async function closePaperEquityTradeRow(
     );
     return updated[0]!;
   });
+}
+
+/**
+ * Manual paper-buy from the UI. Bypasses the STRONG_BUY / score / sector
+ * / volume filters that gate the auto-swing tick, but keeps every
+ * capital / risk safety net (stop-sanity 1-8%, daily/weekly/monthly DD
+ * caps, MAX_NEW_PER_DAY, MAX_CONCURRENT, balance check, heat cap, and
+ * (symbol, signal_date) idempotency).
+ *
+ * Stop & targets are still derived from `computeSwingLevels` so the
+ * lifecycle evaluator (trail-to-T1 / TARGET2_HIT / STOPPED / TIME_STOP)
+ * works identically to an auto-opened trade.
+ *
+ * Caller supplies the `StockRow` from the scanner cache (so this
+ * function stays free of any fullNseScanner import — the route handler
+ * does the lookup). Returns `{ row, reason }` so the API can surface a
+ * meaningful error to the user when a gate rejects the trade.
+ */
+export async function openManualPaperEquityTrade(
+  row: StockRow,
+  opts?: { qty?: number },
+): Promise<{ row: PaperTradeEqRow | null; reason: string | null }> {
+  const today = istDateKey();
+  // Same-day duplicate guard. The DB has a UNIQUE (symbol, signalDate)
+  // index and openPaperEquityTrade short-circuits to the existing row
+  // on a hit — but it returns that row regardless of status, which the
+  // manual route would otherwise mis-report as "Buy filled". Surface
+  // the duplicate explicitly here so the UI can show "already traded
+  // this symbol today" instead.
+  const existing = await db
+    .select()
+    .from(paperTradeEqTable)
+    .where(
+      and(
+        eq(paperTradeEqTable.symbol, row.symbol),
+        eq(paperTradeEqTable.signalDate, today),
+      ),
+    )
+    .limit(1);
+  if (existing.length > 0) {
+    const status = existing[0]!.status;
+    return {
+      row: null,
+      reason: status === "OPEN"
+        ? `${row.symbol} already has an OPEN paper position from earlier today — close it before re-entering.`
+        : `${row.symbol} was already traded today (status: ${status}). Same-symbol re-entry is blocked until tomorrow.`,
+    };
+  }
+  const ltp = row.quote.price;
+  if (!(ltp > 0)) {
+    return { row: null, reason: "Invalid LTP for symbol — scanner has no price." };
+  }
+  const levels = await computeSwingLevels(row.symbol);
+  if (!levels) {
+    return { row: null, reason: "Insufficient price history to compute ATR/swing-low stop." };
+  }
+  const entryPrice = ltp;
+  const { atr14, swing20Low } = levels;
+  const atrStop = entryPrice - 1.5 * atr14;
+  const stopPrice = Math.max(atrStop, swing20Low);
+  if (!(stopPrice > 0) || stopPrice >= entryPrice) {
+    return { row: null, reason: "Computed stop is at or above entry — degenerate setup." };
+  }
+  const r = entryPrice - stopPrice;
+  const target1Price = entryPrice + 2 * r;
+  const target2Price = entryPrice + 3 * r;
+  const now = new Date();
+  const signal: SwingSignal = {
+    symbol: row.symbol,
+    name: row.name,
+    exchange: "NSE",
+    triggeredAt: now,
+    signalDate: istDateKey(now),
+    score: row.recommendation.score ?? 0,
+    entryPrice,
+    stopPrice,
+    target1Price,
+    target2Price,
+    perShareRisk: r,
+    atr14,
+    swing20Low,
+  };
+  logger.info(
+    { symbol: row.symbol, entry: entryPrice, stop: stopPrice, t1: target1Price, t2: target2Price, qtyOverride: opts?.qty ?? null },
+    "Paper EQ manual buy: attempting open",
+  );
+  const opened = await openPaperEquityTrade(signal, { qtyOverride: opts?.qty });
+  if (!opened) {
+    return {
+      row: null,
+      reason: "Trade rejected by a safety gate (cap, balance, drawdown, heat, or duplicate). See server logs for the specific reason.",
+    };
+  }
+  return { row: opened, reason: null };
 }
 
 /**
