@@ -718,8 +718,8 @@ interface MissedSignalRow {
 
 const SKIP_REASON_LABEL: Record<SkipReason, string> = {
   MISSED_WINDOW: "Missed window",
-  DATA_QUALITY_DELAYED: "Yahoo-delayed (Kite off)",
-  DATA_QUALITY_STALE: "Stale data",
+  DATA_QUALITY_DELAYED: "Kite data unavailable",
+  DATA_QUALITY_STALE: "Stale Kite bars",
   CONFIDENCE_FLOOR: "Below conf. floor",
 };
 
@@ -1252,13 +1252,15 @@ function MissedSignalsCard({ missed, loading, error }: {
           <span className="text-amber-300">Missed window</span> — signal
           triggered &amp; hit T1/T2/SL inside one polling cycle (anti-phantom
           rule prevents same-cycle open+close).{" "}
-          <span className="text-sky-300">Yahoo-delayed (Kite off)</span> — Kite
-          live feed unavailable; rejected only when{" "}
-          <code>PAPER_TRADE_KITE_ONLY=1</code> is set.{" "}
+          <span className="text-sky-300">Kite data unavailable</span> — F&amp;O
+          is Kite-only since the 2026-05-06 hard-cut; this fires if a signal
+          ever surfaces without a live-Kite data quality tag (defence-in-depth,
+          should be near-zero in steady state).{" "}
           <span className="text-violet-300">Below conf. floor</span> —
-          STANDARD &lt; 70 / BASELINE &lt; 55.{" "}
-          <span className="text-slate-300">Stale data</span> — bars older
-          than the Yahoo 15-min floor.
+          STANDARD &lt; 65 / BASELINE &lt; 55. Most common skip reason — the
+          confluence engine post-haircut score didn&apos;t clear the floor.{" "}
+          <span className="text-slate-300">Stale Kite bars</span> — last
+          intraday bar older than the 15-min freshness floor.
         </CardDescription>
       </CardHeader>
       <CardContent>
