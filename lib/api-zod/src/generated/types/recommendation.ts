@@ -5,7 +5,9 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { EntryPlan } from "./entryPlan";
 import type { HorizonBias } from "./horizonBias";
+import type { RecommendationEntryQuality } from "./recommendationEntryQuality";
 import type { SetupStatus } from "./setupStatus";
 import type { Signal } from "./signal";
 import type { SignalReason } from "./signalReason";
@@ -41,4 +43,14 @@ or 'Target and stop-loss will appear once volatility (ATR) is established.'
   conflicts?: string[];
   /** Three-horizon bias panel (Intraday / Swing / Long-term) */
   horizons?: HorizonBias[];
+  /** Separate from trend (`signal`/`displayLabel`). Tells the user how
+SAFE this exact moment is to take a fresh entry, regardless of how
+strong the trend is. POOR = price extended into a major resistance
+(or support, mirror for bearish) after a strong same-day move —
+high rejection risk; wait for breakout confirmation or pullback.
+FAIR = inside the proximity zone but conditions for POOR not all
+satisfied. GOOD = clear path; trend signal can be acted on.
+ */
+  entryQuality?: RecommendationEntryQuality;
+  entryPlan?: EntryPlan;
 }

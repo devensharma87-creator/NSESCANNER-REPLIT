@@ -1,9 +1,12 @@
 import type {
+  EntryPlan,
   HorizonBias,
   HorizonName,
   Indicators,
+  PriceZone,
   Quote,
   Recommendation,
+  RecommendationEntryQuality,
   SetupStatus,
   Signal,
   SignalReason,
@@ -215,6 +218,29 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
   const total = reasons.reduce((a, b) => a + b.weight, 0);
   const confidence = total === 0 ? 0 : Math.round((aligned / total) * 100);
 
+  // ---------- Equity Entry-Safety Gate (Pass-A demote + Pass-B entry plan) ----------
+  // Trend can be Strong Bullish AND the entry can still be unsafe — when price
+  // is extended into a major resistance after a strong same-day move, fresh
+  // longs face high rejection risk even if the multi-week trend is intact.
+  // We never flip direction; we only soften the headline tier (so users +
+  // paper-trader treat fresh entries as risky) and surface an actionable plan.
+  const entrySafety = computeEntrySafety({
+    signal, price, quote, indicators, atr14: indicators.atr14 ?? null,
+  });
+  if (entrySafety.demoteTag) {
+    // Two-step assignment widens TS narrowing — STRONG_SELL branch was
+    // unreachable to the checker after the first comparison.
+    const before: Signal = signal;
+    if (before === "STRONG_BUY") signal = "BUY";
+    else if (before === "STRONG_SELL") signal = "SELL";
+    push({
+      label: entrySafety.demoteTag,                              // LATE_ENTRY_AT_RESISTANCE / _AT_SUPPORT
+      detail: entrySafety.plan?.reason ?? "Entry timing degraded; trend unchanged.",
+      weight: 0,                                                  // audit-only — does not move score
+      bullish: signal === "BUY" || signal === "STRONG_BUY",
+    }, ["intraday", "swing"]);
+  }
+
   // ---------- Targets / SL (UNCHANGED) ----------
   let target: number | undefined;
   let stopLoss: number | undefined;
@@ -309,7 +335,174 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
     invalidation,
     conflicts,
     horizons,
+    entryQuality: entrySafety.quality,
+    entryPlan: entrySafety.plan,
   };
+}
+
+// ---------- Equity Entry-Safety Gate (Pass-A demote + Pass-B entry plan) ----------
+//
+// Hybrid resistance threshold (mirror for support):
+//   1. Within 1.5% of (52W high OR R1 OR 20-day swing/intraday resistance), OR
+//      within 1 ATR of R1 / swing resistance, AND
+//   2. Today's high tagged the level (>= candidate * 0.995), AND
+//   3. Today's move >= +2.5% (bullish; <= -2.5% bearish).
+//
+// When all three fire on a directional signal, demote STRONG_BUY -> BUY (or
+// STRONG_SELL -> SELL) and emit a POOR-quality entry plan. Inside the
+// proximity zone but missing one condition -> FAIR (advisory plan only,
+// no demote). Otherwise GOOD (no plan). NEUTRAL signals get no plan.
+interface EntrySafetyInput {
+  signal: Signal;
+  price: number;
+  quote: Quote;
+  indicators: Indicators;
+  atr14: number | null;
+}
+interface EntrySafetyResult {
+  quality?: RecommendationEntryQuality;
+  plan?: EntryPlan;
+  demoteTag?: "LATE_ENTRY_AT_RESISTANCE" | "LATE_ENTRY_AT_SUPPORT";
+}
+
+const NEAR_PCT = 0.015;          // 1.5% proximity to a major level
+const FAIR_PCT = 0.030;          // 3.0% advisory zone
+const STRONG_MOVE_PCT = 2.5;     // |today change %| threshold for "extended"
+const TAG_TOL = 0.005;           // today's high/low tagged within 0.5%
+
+function computeEntrySafety(inp: EntrySafetyInput): EntrySafetyResult {
+  const { signal, price, quote, indicators, atr14 } = inp;
+  if (signal === "NEUTRAL") return {};
+
+  const bullish = signal === "BUY" || signal === "STRONG_BUY";
+  const change = quote.changePercent ?? 0;
+  const todayHigh = quote.high ?? price;
+  const todayLow = quote.low ?? price;
+  const vwap = indicators.vwap ?? null;
+  const ema20 = indicators.ema20 ?? null;
+  const ema50 = indicators.ema50 ?? null;
+
+  // Candidate major levels.
+  // Strict pre-filter: only consider levels on the correct side of price
+  // (>= price for bullish, <= price for bearish). Materially crossed levels
+  // are no longer "resistance"/"support" — they're either failed levels
+  // (small overshoot) or new support/resistance (clean break + retest), and
+  // either way the late-entry-at-level thesis no longer applies.
+  // `useAtr` flags candidates eligible for the 1-ATR proximity check.
+  // Per spec the ATR threshold applies to R1 / swing resistance only —
+  // 52W high/low get the % proximity check exclusively (1 ATR is a rounding
+  // error against a yearly extreme).
+  type Cand = { level: number; src: string; useAtr: boolean };
+  const rawCandidates: Cand[] = bullish
+    ? [
+        indicators.resistanceLevel != null ? { level: indicators.resistanceLevel, src: "20D high",  useAtr: true  } : null,
+        indicators.r1              != null ? { level: indicators.r1,              src: "R1 pivot",  useAtr: true  } : null,
+        quote.fiftyTwoWeekHigh     != null ? { level: quote.fiftyTwoWeekHigh,     src: "52W high",  useAtr: false } : null,
+      ].filter((c): c is Cand => c != null && c.level >= price)
+    : [
+        indicators.supportLevel != null ? { level: indicators.supportLevel, src: "20D low",  useAtr: true  } : null,
+        indicators.s1           != null ? { level: indicators.s1,           src: "S1 pivot", useAtr: true  } : null,
+        quote.fiftyTwoWeekLow   != null ? { level: quote.fiftyTwoWeekLow,   src: "52W low",  useAtr: false } : null,
+      ].filter((c): c is Cand => c != null && c.level <= price);
+
+  if (rawCandidates.length === 0) return { quality: "GOOD" };
+
+  // For bullish: "near" = level within 1.5% above price (always) OR within
+  // 1 ATR above (R1 / swing res only). "Tagged" = today's high reached at
+  // least (level * (1 - TAG_TOL)). Mirror for bearish.
+  // Distance is non-negative by construction (strict pre-filter above), so we
+  // never accept a crossed level just because it's close in ATR units.
+  const evaluated = rawCandidates.map(c => {
+    const dist = bullish ? c.level - price : price - c.level;     // >= 0
+    const distPct = dist / price;
+    const nearByPct = distPct <= NEAR_PCT;
+    const nearByAtr = c.useAtr && atr14 != null && atr14 > 0 && dist <= atr14;
+    const tagged   = bullish
+      ? todayHigh >= c.level * (1 - TAG_TOL)
+      : todayLow  <= c.level * (1 + TAG_TOL);
+    return { ...c, dist, distPct, near: nearByPct || nearByAtr, tagged };
+  });
+
+  const blockers = evaluated.filter(e => e.near && e.tagged);
+  const strongMove = bullish ? change >= STRONG_MOVE_PCT : change <= -STRONG_MOVE_PCT;
+
+  // POOR (Pass-A demote): proximity + tag + strong same-day push.
+  if (blockers.length > 0 && strongMove) {
+    // Pick the tightest (smallest absolute distance) blocking level.
+    const nearest = blockers.reduce((best, e) =>
+      Math.abs(e.dist) < Math.abs(best.dist) ? e : best,
+    blockers[0]);
+    return {
+      quality: "POOR",
+      demoteTag: bullish ? "LATE_ENTRY_AT_RESISTANCE" : "LATE_ENTRY_AT_SUPPORT",
+      plan: buildEntryPlan({
+        bullish, price, level: nearest.level, levelSrc: nearest.src,
+        change, vwap, ema20, ema50, atr14,
+      }),
+    };
+  }
+
+  // FAIR (advisory): inside the 3% proximity ring but didn't trigger POOR.
+  const insideAdvisory = evaluated.some(e => Math.abs(e.distPct) <= FAIR_PCT);
+  if (insideAdvisory) {
+    const nearest = evaluated.reduce((best, e) =>
+      Math.abs(e.dist) < Math.abs(best.dist) ? e : best,
+    evaluated[0]);
+    return {
+      quality: "FAIR",
+      plan: buildEntryPlan({
+        bullish, price, level: nearest.level, levelSrc: nearest.src,
+        change, vwap, ema20, ema50, atr14, advisory: true,
+      }),
+    };
+  }
+  return { quality: "GOOD" };
+}
+
+interface PlanCtx {
+  bullish: boolean;
+  price: number;
+  level: number;
+  levelSrc: string;
+  change: number;
+  vwap: number | null;
+  ema20: number | null;
+  ema50: number | null;
+  atr14: number | null;
+  advisory?: boolean;
+}
+function buildEntryPlan(p: PlanCtx): EntryPlan {
+  const { bullish, price, level, levelSrc, change, vwap, ema20, ema50, atr14 } = p;
+  const buf = atr14 != null && atr14 > 0 ? Math.max(atr14 * 0.3, level * 0.003) : level * 0.005;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+
+  // Avoid zone straddles the level by ~0.5% on the far side and ~0.8% on the near.
+  const avoidZone: PriceZone = bullish
+    ? { low: r2(level * 0.995), high: r2(level * 1.008) }
+    : { low: r2(level * 0.992), high: r2(level * 1.005) };
+
+  // Breakout trigger: meaningful clearance beyond the level (≥ 0.3 ATR or 0.3%).
+  const breakoutTrigger = bullish ? r2(level + buf) : r2(level - buf);
+
+  // Pullback zone: VWAP ↔ EMA20 (or EMA50 fallback). Always returned with low <= high.
+  let pullbackZone: PriceZone | undefined;
+  const pbAnchors = [vwap, ema20].filter((n): n is number => n != null && n > 0);
+  if (pbAnchors.length === 0 && ema50 != null) pbAnchors.push(ema50);
+  if (pbAnchors.length >= 1) {
+    const pbLow  = Math.min(...pbAnchors);
+    const pbHigh = pbAnchors.length === 1 ? pbAnchors[0]! * 1.005 : Math.max(...pbAnchors);
+    // Only meaningful when the zone is actually a pullback from current price.
+    if (bullish ? pbHigh < price : pbLow > price) {
+      pullbackZone = { low: r2(Math.min(pbLow, pbHigh)), high: r2(Math.max(pbLow, pbHigh)) };
+    }
+  }
+
+  const moveTxt = `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
+  const reason = p.advisory
+    ? `Trend is ${bullish ? "bullish" : "bearish"} but price is approaching ${levelSrc} ₹${level.toFixed(2)}. Sizing down or waiting for confirmation reduces rejection risk.`
+    : `${bullish ? "Bullish" : "Bearish"} trend, but price is extended into ${levelSrc} ₹${level.toFixed(2)} after a strong same-day move (${moveTxt}). High rejection risk on a fresh entry — wait for a clean ${bullish ? "breakout" : "breakdown"} or a pullback.`;
+
+  return { reason, avoidZone, breakoutTrigger, pullbackZone };
 }
 
 // ---------- Per-horizon bias builder ----------

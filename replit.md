@@ -72,6 +72,15 @@ A comprehensive platform for scanning and analyzing the Indian stock market, pro
 
 **Adjacent dial changes (2026-05-07)**: `PAPER_FIXED_LOTS` map `{NIFTY:10, SENSEX:40, BANKNIFTY:30}` overrides dynamic budget for STANDARD-tier opens on those 3 indices; `CONFIDENCE_THRESHOLDS.MIN_FNO_TRADE` lowered 70→65 to align with `HC_EMISSION_FLOOR`.
 
+### Equity Entry-Safety Gate (2026-05-08, equity swing only — does NOT touch F&O Pass-1/2/3)
+- **Where**: `computeEntrySafety()` in `artifacts/api-server/src/lib/scoring.ts`, called inside `buildRecommendation` AFTER signal classification, BEFORE target/stop. Surfaces `recommendation.entryQuality` (GOOD/FAIR/POOR) and `recommendation.entryPlan` ({reason, avoidZone, breakoutTrigger, pullbackZone, invalidates}).
+- **Pass-A demote**: When POOR fires, `STRONG_BUY → BUY` / `STRONG_SELL → SELL` (direction unchanged; target/stop/score preserved). Audit reason `LATE_ENTRY_AT_RESISTANCE` / `LATE_ENTRY_AT_SUPPORT` pushed with weight 0. This naturally blocks paper-trader auto-opens (`swingSignals.ts:261` requires `STRONG_BUY`).
+- **Hybrid threshold (POOR)**: All three must hold — (1) within 1.5% of any candidate {20D high, R1, 52W high} OR within 1 ATR of {20D high, R1} only (52W extremes get %-only); (2) today's high/low tagged the level within 0.5%; (3) today's |move| ≥ 2.5%. Mirrored for bearish using {20D low, S1, 52W low}.
+- **Strict pre-filter**: Candidates must be on the correct side of price (≥ price for bullish; ≤ price for bearish). Crossed levels never fire — they're either failed or new S/R, not late-entry candidates.
+- **FAIR (advisory, no demote)**: inside 3% proximity ring but full POOR conditions not met. Plan rendered with reason only.
+- **Pullback zone**: VWAP ↔ EMA20 (EMA50 fallback) when both anchors lie below current price (above for bearish). Omitted otherwise.
+- **UI**: `EntryPlanCard` in `artifacts/scanner/src/pages/stock-detail.tsx` renders col-span-1 between Recommendation and Why-this-signal. POOR = rose theme + AlertTriangle, FAIR = amber + Hourglass, GOOD = emerald + ShieldCheck (badge only).
+
 **Perma-deferred per owner**: T1 partial booking, equity risk-based / ATR sizing, market-regime entry filter, global risk manager, dial changes (MIN_FNO_TRADE 70, halved per-trade risk, MAX_TRADES_PER_DAY).
 
 ### Account surface (2026-05-07)

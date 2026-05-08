@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
-import { ArrowLeft, TrendingUp, TrendingDown, Target, ShieldAlert, ExternalLink, Info, AlertTriangle, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Target, ShieldAlert, ExternalLink, Info, AlertTriangle, CheckCircle2, XCircle, Clock, ShieldCheck, Hourglass } from "lucide-react";
 import { InAppCandleChart } from "@/components/in-app-candle-chart";
 import StockStatements from "@/components/stock-statements";
 import { formatDistanceToNow } from "date-fns";
@@ -186,6 +186,14 @@ export default function StockDetail() {
             )}
           </CardContent>
         </Card>
+
+        {recommendation.entryQuality && (
+          <EntryPlanCard
+            quality={recommendation.entryQuality}
+            plan={recommendation.entryPlan}
+            invalidatesFallback={recommendation.stopLoss}
+          />
+        )}
 
         <Card className="lg:col-span-2 border-border">
           <CardHeader className="pb-2">
@@ -555,6 +563,112 @@ function Stat({ label, value, tone }: { label: string; value: React.ReactNode; t
       <div className={`mt-1 font-mono text-sm font-semibold tabular-nums ${cls}`}>{value}</div>
     </div>
   );
+}
+
+// ---------- Entry Plan card (Pass-A demote + Pass-B plan) ----------
+// Visually distinct from the Recommendation card so users see at a glance:
+// "the trend may be bullish, but THIS moment is risky/safe to enter."
+type EntryQuality = "GOOD" | "FAIR" | "POOR";
+type EntryPlanShape = {
+  reason: string;
+  avoidZone?: { low: number; high: number };
+  breakoutTrigger?: number;
+  pullbackZone?: { low: number; high: number };
+  invalidates?: number;
+};
+
+function EntryPlanCard({
+  quality,
+  plan,
+  invalidatesFallback,
+}: {
+  quality: EntryQuality;
+  plan?: EntryPlanShape;
+  invalidatesFallback?: number;
+}) {
+  const tone = entryQualityTone(quality);
+  const Icon = quality === "GOOD" ? ShieldCheck : quality === "FAIR" ? Hourglass : AlertTriangle;
+  const invalidates = plan?.invalidates ?? invalidatesFallback;
+  return (
+    <Card className={`lg:col-span-1 border ${tone.border}`} data-testid="card-entry-plan">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <Icon className={`w-3.5 h-3.5 ${tone.text}`} />
+          Entry Plan
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span
+            className={`text-[11px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded ${tone.bg} ${tone.text}`}
+            data-testid="badge-entry-quality"
+          >
+            Entry Quality: {quality}
+          </span>
+        </div>
+
+        {plan?.reason && (
+          <p className="text-[12px] leading-snug text-foreground/85" data-testid="text-entry-reason">
+            {plan.reason}
+          </p>
+        )}
+
+        {/* GOOD setups don't need a plan; the Recommendation card already covers it */}
+        {plan && quality !== "GOOD" && (
+          <div className="space-y-2">
+            {plan.avoidZone && (
+              <PlanRow
+                label="Avoid zone"
+                value={`₹${plan.avoidZone.low.toFixed(2)} – ₹${plan.avoidZone.high.toFixed(2)}`}
+                tone="warn"
+              />
+            )}
+            {plan.breakoutTrigger != null && (
+              <PlanRow
+                label="Breakout trigger"
+                value={`₹${plan.breakoutTrigger.toFixed(2)}`}
+                tone="info"
+              />
+            )}
+            {plan.pullbackZone && (
+              <PlanRow
+                label="Pullback zone"
+                value={`₹${plan.pullbackZone.low.toFixed(2)} – ₹${plan.pullbackZone.high.toFixed(2)}`}
+                tone="ok"
+              />
+            )}
+            {invalidates != null && (
+              <PlanRow
+                label="Invalidates"
+                value={`₹${invalidates.toFixed(2)}`}
+                tone="bad"
+              />
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PlanRow({ label, value, tone }: { label: string; value: string; tone: "warn" | "info" | "ok" | "bad" }) {
+  const cls =
+    tone === "warn" ? "border-amber-500/30 bg-amber-500/5 text-amber-200"
+    : tone === "info" ? "border-sky-500/30 bg-sky-500/5 text-sky-200"
+    : tone === "ok"   ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-200"
+    :                   "border-rose-500/30 bg-rose-500/5 text-rose-200";
+  return (
+    <div className={`flex items-center justify-between gap-2 rounded border px-2 py-1.5 ${cls}`}>
+      <span className="text-[10px] font-mono uppercase tracking-wider opacity-80">{label}</span>
+      <span className="font-mono text-xs font-semibold tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function entryQualityTone(q: EntryQuality): { border: string; bg: string; text: string } {
+  if (q === "GOOD") return { border: "border-emerald-500/30", bg: "bg-emerald-500/10", text: "text-emerald-300" };
+  if (q === "FAIR") return { border: "border-amber-500/30",   bg: "bg-amber-500/10",   text: "text-amber-300"   };
+  return                    { border: "border-rose-500/40",   bg: "bg-rose-500/10",    text: "text-rose-300"    };
 }
 
 function formatCr(n: number): string {

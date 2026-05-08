@@ -1312,6 +1312,50 @@ components:
           type: array
           description: "Three-horizon bias panel (Intraday / Swing / Long-term)"
           items: { $ref: "#/components/schemas/HorizonBias" }
+        # ---- additive: equity Entry-Safety gate (Pass-A + Pass-B, 2026-05-08) ----
+        entryQuality:
+          type: string
+          enum: [GOOD, FAIR, POOR]
+          description: |
+            Separate from trend (`signal`/`displayLabel`). Tells the user how
+            SAFE this exact moment is to take a fresh entry, regardless of how
+            strong the trend is. POOR = price extended into a major resistance
+            (or support, mirror for bearish) after a strong same-day move —
+            high rejection risk; wait for breakout confirmation or pullback.
+            FAIR = inside the proximity zone but conditions for POOR not all
+            satisfied. GOOD = clear path; trend signal can be acted on.
+        entryPlan:
+          $ref: "#/components/schemas/EntryPlan"
+
+    PriceZone:
+      type: object
+      required: [low, high]
+      properties:
+        low:  { type: number }
+        high: { type: number }
+
+    EntryPlan:
+      type: object
+      description: |
+        Actionable entry guidance shown alongside the Recommendation card.
+        Populated when `entryQuality` is FAIR or POOR (GOOD setups do not
+        need a special plan — the existing target / stop / R:R already
+        tells the full story).
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          description: "Plain-English explanation of WHY entry quality is degraded right now."
+        avoidZone:
+          $ref: "#/components/schemas/PriceZone"
+        breakoutTrigger:
+          type: number
+          description: "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish."
+        pullbackZone:
+          $ref: "#/components/schemas/PriceZone"
+        invalidates:
+          type: number
+          description: "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set)."
 
     StockRow:
       type: object

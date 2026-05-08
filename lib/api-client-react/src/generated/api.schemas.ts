@@ -158,6 +158,48 @@ export const SetupStatus = {
   NO_SETUP_AWAITING_CONFIRMATION: "NO_SETUP_AWAITING_CONFIRMATION",
 } as const;
 
+/**
+ * Separate from trend (`signal`/`displayLabel`). Tells the user how
+SAFE this exact moment is to take a fresh entry, regardless of how
+strong the trend is. POOR = price extended into a major resistance
+(or support, mirror for bearish) after a strong same-day move —
+high rejection risk; wait for breakout confirmation or pullback.
+FAIR = inside the proximity zone but conditions for POOR not all
+satisfied. GOOD = clear path; trend signal can be acted on.
+
+ */
+export type RecommendationEntryQuality =
+  (typeof RecommendationEntryQuality)[keyof typeof RecommendationEntryQuality];
+
+export const RecommendationEntryQuality = {
+  GOOD: "GOOD",
+  FAIR: "FAIR",
+  POOR: "POOR",
+} as const;
+
+export interface PriceZone {
+  low: number;
+  high: number;
+}
+
+/**
+ * Actionable entry guidance shown alongside the Recommendation card.
+Populated when `entryQuality` is FAIR or POOR (GOOD setups do not
+need a special plan — the existing target / stop / R:R already
+tells the full story).
+
+ */
+export interface EntryPlan {
+  /** Plain-English explanation of WHY entry quality is degraded right now. */
+  reason: string;
+  avoidZone?: PriceZone;
+  /** Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish. */
+  breakoutTrigger?: number;
+  pullbackZone?: PriceZone;
+  /** Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set). */
+  invalidates?: number;
+}
+
 export interface Recommendation {
   signal: Signal;
   /** -100 to 100 */
@@ -189,6 +231,16 @@ or 'Target and stop-loss will appear once volatility (ATR) is established.'
   conflicts?: string[];
   /** Three-horizon bias panel (Intraday / Swing / Long-term) */
   horizons?: HorizonBias[];
+  /** Separate from trend (`signal`/`displayLabel`). Tells the user how
+SAFE this exact moment is to take a fresh entry, regardless of how
+strong the trend is. POOR = price extended into a major resistance
+(or support, mirror for bearish) after a strong same-day move —
+high rejection risk; wait for breakout confirmation or pullback.
+FAIR = inside the proximity zone but conditions for POOR not all
+satisfied. GOOD = clear path; trend signal can be acted on.
+ */
+  entryQuality?: RecommendationEntryQuality;
+  entryPlan?: EntryPlan;
 }
 
 export interface StockRow {

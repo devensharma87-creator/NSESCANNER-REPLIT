@@ -350,6 +350,48 @@ export const GetMarketTrendResponse = zod.object({
               .describe(
                 "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
               ),
+            entryQuality: zod
+              .enum(["GOOD", "FAIR", "POOR"])
+              .optional()
+              .describe(
+                "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+              ),
+            entryPlan: zod
+              .object({
+                reason: zod
+                  .string()
+                  .describe(
+                    "Plain-English explanation of WHY entry quality is degraded right now.",
+                  ),
+                avoidZone: zod
+                  .object({
+                    low: zod.number(),
+                    high: zod.number(),
+                  })
+                  .optional(),
+                breakoutTrigger: zod
+                  .number()
+                  .optional()
+                  .describe(
+                    "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+                  ),
+                pullbackZone: zod
+                  .object({
+                    low: zod.number(),
+                    high: zod.number(),
+                  })
+                  .optional(),
+                invalidates: zod
+                  .number()
+                  .optional()
+                  .describe(
+                    "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+                  ),
+              })
+              .optional()
+              .describe(
+                "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
+              ),
           }),
         }),
       }),
@@ -557,6 +599,48 @@ export const GetMarketTrendResponse = zod.object({
               .optional()
               .describe(
                 "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+              ),
+            entryQuality: zod
+              .enum(["GOOD", "FAIR", "POOR"])
+              .optional()
+              .describe(
+                "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+              ),
+            entryPlan: zod
+              .object({
+                reason: zod
+                  .string()
+                  .describe(
+                    "Plain-English explanation of WHY entry quality is degraded right now.",
+                  ),
+                avoidZone: zod
+                  .object({
+                    low: zod.number(),
+                    high: zod.number(),
+                  })
+                  .optional(),
+                breakoutTrigger: zod
+                  .number()
+                  .optional()
+                  .describe(
+                    "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+                  ),
+                pullbackZone: zod
+                  .object({
+                    low: zod.number(),
+                    high: zod.number(),
+                  })
+                  .optional(),
+                invalidates: zod
+                  .number()
+                  .optional()
+                  .describe(
+                    "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+                  ),
+              })
+              .optional()
+              .describe(
+                "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
               ),
           }),
         }),
@@ -793,6 +877,48 @@ export const ListSectorsResponseItem = zod.object({
         )
         .optional()
         .describe("Three-horizon bias panel (Intraday \/ Swing \/ Long-term)"),
+      entryQuality: zod
+        .enum(["GOOD", "FAIR", "POOR"])
+        .optional()
+        .describe(
+          "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+        ),
+      entryPlan: zod
+        .object({
+          reason: zod
+            .string()
+            .describe(
+              "Plain-English explanation of WHY entry quality is degraded right now.",
+            ),
+          avoidZone: zod
+            .object({
+              low: zod.number(),
+              high: zod.number(),
+            })
+            .optional(),
+          breakoutTrigger: zod
+            .number()
+            .optional()
+            .describe(
+              "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+            ),
+          pullbackZone: zod
+            .object({
+              low: zod.number(),
+              high: zod.number(),
+            })
+            .optional(),
+          invalidates: zod
+            .number()
+            .optional()
+            .describe(
+              "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+            ),
+        })
+        .optional()
+        .describe(
+          "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
+        ),
     }),
   }),
 });
@@ -1004,6 +1130,48 @@ export const GetSectorResponse = zod.object({
           .describe(
             "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
           ),
+        entryQuality: zod
+          .enum(["GOOD", "FAIR", "POOR"])
+          .optional()
+          .describe(
+            "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+          ),
+        entryPlan: zod
+          .object({
+            reason: zod
+              .string()
+              .describe(
+                "Plain-English explanation of WHY entry quality is degraded right now.",
+              ),
+            avoidZone: zod
+              .object({
+                low: zod.number(),
+                high: zod.number(),
+              })
+              .optional(),
+            breakoutTrigger: zod
+              .number()
+              .optional()
+              .describe(
+                "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+              ),
+            pullbackZone: zod
+              .object({
+                low: zod.number(),
+                high: zod.number(),
+              })
+              .optional(),
+            invalidates: zod
+              .number()
+              .optional()
+              .describe(
+                "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+              ),
+          })
+          .optional()
+          .describe(
+            "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
+          ),
       }),
     }),
   }),
@@ -1197,6 +1365,48 @@ export const GetSectorResponse = zod.object({
           .optional()
           .describe(
             "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+          ),
+        entryQuality: zod
+          .enum(["GOOD", "FAIR", "POOR"])
+          .optional()
+          .describe(
+            "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+          ),
+        entryPlan: zod
+          .object({
+            reason: zod
+              .string()
+              .describe(
+                "Plain-English explanation of WHY entry quality is degraded right now.",
+              ),
+            avoidZone: zod
+              .object({
+                low: zod.number(),
+                high: zod.number(),
+              })
+              .optional(),
+            breakoutTrigger: zod
+              .number()
+              .optional()
+              .describe(
+                "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+              ),
+            pullbackZone: zod
+              .object({
+                low: zod.number(),
+                high: zod.number(),
+              })
+              .optional(),
+            invalidates: zod
+              .number()
+              .optional()
+              .describe(
+                "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+              ),
+          })
+          .optional()
+          .describe(
+            "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
           ),
       }),
     }),
@@ -1396,6 +1606,48 @@ export const ListStocksResponseItem = zod.object({
       )
       .optional()
       .describe("Three-horizon bias panel (Intraday \/ Swing \/ Long-term)"),
+    entryQuality: zod
+      .enum(["GOOD", "FAIR", "POOR"])
+      .optional()
+      .describe(
+        "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+      ),
+    entryPlan: zod
+      .object({
+        reason: zod
+          .string()
+          .describe(
+            "Plain-English explanation of WHY entry quality is degraded right now.",
+          ),
+        avoidZone: zod
+          .object({
+            low: zod.number(),
+            high: zod.number(),
+          })
+          .optional(),
+        breakoutTrigger: zod
+          .number()
+          .optional()
+          .describe(
+            "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+          ),
+        pullbackZone: zod
+          .object({
+            low: zod.number(),
+            high: zod.number(),
+          })
+          .optional(),
+        invalidates: zod
+          .number()
+          .optional()
+          .describe(
+            "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+          ),
+      })
+      .optional()
+      .describe(
+        "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
+      ),
   }),
 });
 export const ListStocksResponse = zod.array(ListStocksResponseItem);
@@ -1631,6 +1883,48 @@ export const GetStockDetailResponse = zod.object({
       )
       .optional()
       .describe("Three-horizon bias panel (Intraday \/ Swing \/ Long-term)"),
+    entryQuality: zod
+      .enum(["GOOD", "FAIR", "POOR"])
+      .optional()
+      .describe(
+        "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+      ),
+    entryPlan: zod
+      .object({
+        reason: zod
+          .string()
+          .describe(
+            "Plain-English explanation of WHY entry quality is degraded right now.",
+          ),
+        avoidZone: zod
+          .object({
+            low: zod.number(),
+            high: zod.number(),
+          })
+          .optional(),
+        breakoutTrigger: zod
+          .number()
+          .optional()
+          .describe(
+            "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+          ),
+        pullbackZone: zod
+          .object({
+            low: zod.number(),
+            high: zod.number(),
+          })
+          .optional(),
+        invalidates: zod
+          .number()
+          .optional()
+          .describe(
+            "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+          ),
+      })
+      .optional()
+      .describe(
+        "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
+      ),
   }),
   financials: zod.array(
     zod.object({
@@ -2005,6 +2299,48 @@ export const GetTopScansResponse = zod.object({
           .describe(
             "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
           ),
+        entryQuality: zod
+          .enum(["GOOD", "FAIR", "POOR"])
+          .optional()
+          .describe(
+            "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+          ),
+        entryPlan: zod
+          .object({
+            reason: zod
+              .string()
+              .describe(
+                "Plain-English explanation of WHY entry quality is degraded right now.",
+              ),
+            avoidZone: zod
+              .object({
+                low: zod.number(),
+                high: zod.number(),
+              })
+              .optional(),
+            breakoutTrigger: zod
+              .number()
+              .optional()
+              .describe(
+                "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+              ),
+            pullbackZone: zod
+              .object({
+                low: zod.number(),
+                high: zod.number(),
+              })
+              .optional(),
+            invalidates: zod
+              .number()
+              .optional()
+              .describe(
+                "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+              ),
+          })
+          .optional()
+          .describe(
+            "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
+          ),
       }),
     }),
   ),
@@ -2198,6 +2534,48 @@ export const GetTopScansResponse = zod.object({
           .optional()
           .describe(
             "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+          ),
+        entryQuality: zod
+          .enum(["GOOD", "FAIR", "POOR"])
+          .optional()
+          .describe(
+            "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+          ),
+        entryPlan: zod
+          .object({
+            reason: zod
+              .string()
+              .describe(
+                "Plain-English explanation of WHY entry quality is degraded right now.",
+              ),
+            avoidZone: zod
+              .object({
+                low: zod.number(),
+                high: zod.number(),
+              })
+              .optional(),
+            breakoutTrigger: zod
+              .number()
+              .optional()
+              .describe(
+                "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+              ),
+            pullbackZone: zod
+              .object({
+                low: zod.number(),
+                high: zod.number(),
+              })
+              .optional(),
+            invalidates: zod
+              .number()
+              .optional()
+              .describe(
+                "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+              ),
+          })
+          .optional()
+          .describe(
+            "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
           ),
       }),
     }),
