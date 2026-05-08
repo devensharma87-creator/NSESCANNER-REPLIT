@@ -486,6 +486,13 @@ interface Detected {
   // and (b) tag the OptionSignal "VOL_CLAMPED_STOP" so the paper trader
   // routes via the conservative lane (1% loss cap, dynamic sizing).
   volClamped?: boolean;
+  // Pass-2B signal-accuracy gates. Each, when set, force-demotes the
+  // setup from HIGH_CONVICTION to BASELINE in the emission loop and
+  // adds a matching audit tag in toSignal. Set in buildSignalsForIndex
+  // emission loop (per-detector and per-tick).
+  htfConflictGate?: boolean;          // ctx.htfBias (daily spot vs EMA50) opposes setup direction
+  noiseWindow?: "OPENING" | "CLOSING"; // 09:15-09:30 or 15:15-15:30 IST
+  inExpiryDay?: boolean;              // ctx.regime.regime === "EXPIRY_DAY"
 }
 
 // Pass-2A: extreme-volatility hard reject. When the implied minStop
@@ -1081,6 +1088,14 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
   // card and in analytics. Trader can see exactly why a setup that
   // would otherwise have been HC is sized down today.
   if (d.volClamped) tags.push("VOL_CLAMPED_STOP");
+  // Pass-2B signal-accuracy audit tags. Each maps 1:1 to a flag set
+  // in the emission loop; presence implies the setup was demoted from
+  // HIGH_CONVICTION to BASELINE for that reason. (HTF_CONFLICT is also
+  // emitted by the existing htfConflict computation above; the gate
+  // path uses the same tag so analytics see one canonical label.)
+  if (d.noiseWindow === "OPENING") tags.push("OPENING_NOISE");
+  if (d.noiseWindow === "CLOSING") tags.push("CLOSING_NOISE");
+  if (d.inExpiryDay) tags.push("EXPIRY_DAY");
   return {
     index: c.cfg.symbol,
     indexName: c.cfg.display,
@@ -1341,24 +1356,62 @@ function buildSignalsForIndex(
     baseline = clampedBL ?? realisticBL;
   }
 
+  // Pass-2B signal-accuracy gates: tag each HC candidate with reasons
+  // it should NOT be granted headline status, even if its confidence
+  // cleared the HC floor. Each gate is independent and additive — a
+  // setup can have multiple. All flagged setups still ship (so the
+  // diagnostic is visible) but as BASELINE-tier with audit tags.
+  //
+  //   (B) HTF gate           — daily HTF bias (spot vs EMA50, computed
+  //                            in buildContext) opposes setup direction.
+  //                            Same source as the existing HTF_CONFLICT
+  //                            tag — promoting it from "tag-only" to
+  //                            "tag + tier-demote".
+  //   (C) Time-of-day filter — first 15 min (opening noise) or last 15
+  //                            min (closing-auction whipsaw)
+  //   (F) Event-day filter   — regime classifier flagged today as
+  //                            EXPIRY_DAY (high pin/unwind risk)
+  //
+  // Computed once per emission tick (noiseWindow + inExpiryDay) and
+  // once per detector (htfConflict, dir-dependent).
+  const istNowGate = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const istMinGate = istNowGate.getUTCHours() * 60 + istNowGate.getUTCMinutes();
+  const noiseWindow: "OPENING" | "CLOSING" | undefined =
+    istMinGate >= 9 * 60 + 15 && istMinGate < 9 * 60 + 30
+      ? "OPENING"
+      : istMinGate >= 15 * 60 + 15 && istMinGate < 15 * 60 + 30
+        ? "CLOSING"
+        : undefined;
+  const inExpiryDay = ctx.regime.regime === "EXPIRY_DAY";
+  for (const d of highConviction) {
+    const htfConflict =
+      (d.direction === "BULLISH" && ctx.htfBias === "BEARISH") ||
+      (d.direction === "BEARISH" && ctx.htfBias === "BULLISH");
+    if (htfConflict) d.htfConflictGate = true;
+    if (noiseWindow) d.noiseWindow = noiseWindow;
+    if (inExpiryDay) d.inExpiryDay = true;
+  }
+
   // Sort high-conviction by confidence; keep top 3. Then append the baseline.
-  // Pass-2A: vol-clamped setups (minStop > maxStop on volatile days)
-  // must NEVER occupy a top-3 HC slot — that would let a clamped 80-conf
-  // setup displace a clean 75-conf one. Partition first, fill the top-3
-  // from clean HC candidates only, then append demoted vol-clamped
-  // signals as BASELINE-tier extras (with the VOL_CLAMPED_STOP audit
-  // tag already added in toSignal). Hard-reject for extreme breaches
-  // already happened inside clampPlanForIntraday (returned null), so
-  // anything reaching here is safe to route via the conservative
-  // paper-trader lane.
+  // Pass-2A + Pass-2B: setups with ANY demote flag (vol-clamped, HTF
+  // conflict, in-noise window, expiry-day) must NEVER occupy a top-3 HC
+  // slot — that would let e.g. a clamped 80-conf setup displace a clean
+  // 75-conf one. Partition first, fill the top-3 from clean HC
+  // candidates only, then append demoted setups as BASELINE-tier extras
+  // (with audit tags already added in toSignal). Hard-reject for
+  // extreme vol breaches already happened inside clampPlanForIntraday
+  // (returned null), so anything reaching here is safe to route via the
+  // conservative paper-trader lane.
   highConviction.sort((a, b) => b.confidence - a.confidence);
-  const cleanHc = highConviction.filter((d) => !d.volClamped);
-  const volClampedHc = highConviction.filter((d) => d.volClamped);
+  const isDemoted = (d: Detected): boolean =>
+    !!(d.volClamped || d.htfConflictGate || d.noiseWindow || d.inExpiryDay);
+  const cleanHc = highConviction.filter((d) => !isDemoted(d));
+  const demotedHc = highConviction.filter(isDemoted);
   const out: OptionSignal[] = [];
   for (const d of cleanHc.slice(0, 3)) {
     out.push(applyLock(toSignal(ctx, d, "HIGH_CONVICTION")));
   }
-  for (const d of volClampedHc) {
+  for (const d of demotedHc) {
     out.push(applyLock(toSignal(ctx, d, "BASELINE")));
   }
   if (baseline) {

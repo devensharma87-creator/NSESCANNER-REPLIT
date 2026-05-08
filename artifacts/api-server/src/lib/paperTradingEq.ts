@@ -40,6 +40,10 @@ import {
   EQUITY_DD_CAPS,
   EQUITY_RISK,
   EQUITY_STOP_SANITY,
+  PORTFOLIO_HEAT,
+  SEED_CAPITAL,
+  HEAT_SQL_EQ,
+  parseHeatRow,
   getEqDailyRealizedDrawdown,
   getEqMonthlyRealizedDrawdown,
   getEqWeeklyRealizedDrawdown,
@@ -266,6 +270,34 @@ export async function openPaperEquityTrade(
         logger.info(
           { symbol: signal.symbol, capitalDeployed, balance },
           "Paper EQ skip: insufficient balance after rounding",
+        );
+        return null;
+      }
+
+      // ─── Pass-2B portfolio heat cap (EQUITY-segment) ───────────────
+      // Sum of ₹-at-risk across every OPEN equity position must stay
+      // below MAX_EQ_HEAT_PCT × seed. New trade's risk = qty × per-share
+      // risk (entry - stop). Computed inside the txn so concurrent
+      // closes that just freed up heat are honoured. FAIL CLOSED — we
+      // do NOT silently shrink (would invalidate the planned RR).
+      // Reads via tx.execute so the snapshot honours the account-row
+      // FOR UPDATE lock — concurrent opens can't both pass the cap and
+      // then collectively breach it on commit.
+      const currentEqHeat = parseHeatRow(await tx.execute(HEAT_SQL_EQ));
+      const newTradeHeat = qty * signal.perShareRisk;
+      const projectedHeat = currentEqHeat + newTradeHeat;
+      const heatCap = SEED_CAPITAL.EQUITY * PORTFOLIO_HEAT.MAX_EQ_HEAT_PCT;
+      if (projectedHeat > heatCap) {
+        logger.info(
+          {
+            symbol: signal.symbol,
+            currentHeat: +currentEqHeat.toFixed(2),
+            newTradeHeat: +newTradeHeat.toFixed(2),
+            projectedHeat: +projectedHeat.toFixed(2),
+            heatCap: +heatCap.toFixed(2),
+            maxHeatPct: PORTFOLIO_HEAT.MAX_EQ_HEAT_PCT,
+          },
+          `Paper EQ skip: portfolio heat cap would be breached (${(projectedHeat / SEED_CAPITAL.EQUITY * 100).toFixed(2)}% > ${(PORTFOLIO_HEAT.MAX_EQ_HEAT_PCT * 100).toFixed(2)}%)`,
         );
         return null;
       }

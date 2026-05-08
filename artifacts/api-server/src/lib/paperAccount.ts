@@ -139,6 +139,101 @@ export const FNO_LIQUIDITY = {
 } as const;
 
 /**
+ * Pass-2B post-stop cool-down.
+ *
+ * After a STOPPED close on an index, the next entry on the SAME index
+ * within COOLDOWN_MINUTES uses SIZE_MULT × the otherwise-computed lots.
+ * Rationale: revenge-trade reduction. A stop-out is a regime-disagreement
+ * signal — sizing down on the next attempt acknowledges that the read
+ * was wrong without sitting out completely.
+ *
+ * Applied to BOTH dynamic-budget AND fixed-lot sizing paths in
+ * paperTradingFO. Floors at 1 lot (we never round to zero — the next
+ * trade either happens or doesn't, no zero-size phantom rows).
+ */
+export const POST_STOP_COOLDOWN = {
+  COOLDOWN_MINUTES: 60,
+  SIZE_MULT: 0.5,
+} as const;
+
+/**
+ * Pass-2B portfolio heat cap (per-segment).
+ *
+ * Sum of ₹-at-risk across all OPEN positions in the segment must stay
+ * below this fraction of seed capital. Different from the daily/weekly
+ * REALISED drawdown caps (those count CLOSED P&L) — heat counts
+ * potential loss if every open position simultaneously hit its stop.
+ *
+ *   - F&O 6%: with 4 trades/day × 2% per-trade cap, the absolute
+ *     theoretical max heat is 8% but real-world spread of openings
+ *     usually keeps it under 6%; this gates the rare cluster-overlap
+ *     case where 3-4 high-conf signals fire in the same 5-minute window.
+ *   - EQUITY 6%: matches F&O for symmetry; with 10 concurrent open cap,
+ *     a tight cluster of 8% stops would otherwise breach 8% × 10 = 80%
+ *     of seed at risk simultaneously.
+ *
+ * Computed on entry-stop premium distance × lots × lot_size (F&O) or
+ * (entry - stop) × qty (equity). FAIL CLOSED if the projected heat
+ * (current OPEN heat + this trade's risk) would breach the cap.
+ */
+export const PORTFOLIO_HEAT = {
+  MAX_FNO_HEAT_PCT: 0.06,
+  MAX_EQ_HEAT_PCT: 0.06,
+} as const;
+
+/**
+ * Pass-2B portfolio-level regime sizing scale.
+ *
+ * Independent of the per-signal vol-clamp soft-demote (Pass-2A): when
+ * the SETUP itself is in a VOLATILE regime (high realised vol / wide
+ * Bollinger band but stop envelope is intact), we still trade — but at
+ * smaller size. Stacks multiplicatively with POST_STOP_COOLDOWN.
+ *
+ * EXPIRY_DAY is handled separately in the signal layer (force tier to
+ * BASELINE) so it doesn't need a sizing scale here.
+ */
+export const REGIME_SIZING = {
+  VOLATILE_MULT: 0.5,
+} as const;
+
+/**
+ * Pass-2B: portfolio-heat SQL helpers.
+ *
+ * Sum across all OPEN rows of (qty × per-share-risk). The max-with-zero
+ * clamp guards against any inverted rows (stop above entry — shouldn't
+ * happen for long-only paper book but defensive).
+ *
+ * IMPORTANT: heat reads MUST be transaction-scoped — they're cap-checks
+ * that race with concurrent INSERTs. We therefore expose the SQL
+ * fragments and let callers run them via their own `tx.execute(...)`
+ * inside the same transaction that holds the account-row lock. Outside
+ * a txn, two parallel opens could each read heat=0, both pass the cap,
+ * and collectively breach it on commit.
+ */
+export const HEAT_SQL_FNO = sql`
+  SELECT COALESCE(
+    SUM(lots * lot_size * GREATEST(entry_premium - stop_premium, 0)),
+    0
+  )::numeric AS heat
+  FROM paper_trade_fo
+  WHERE status = 'OPEN'
+`;
+export const HEAT_SQL_EQ = sql`
+  SELECT COALESCE(
+    SUM(qty * GREATEST(entry - stop_loss, 0)),
+    0
+  )::numeric AS heat
+  FROM paper_trade_eq
+  WHERE status = 'OPEN'
+`;
+export function parseHeatRow(result: unknown): number {
+  const rows = (result as { rows: Array<{ heat: string | number }> }).rows;
+  if (rows.length === 0) return 0;
+  const v = rows[0]!.heat;
+  return typeof v === "number" ? v : parseFloat(v);
+}
+
+/**
  * Equity portfolio drawdown caps (Pass-1 safety nets, 2026-05-07).
  *
  * Mirrors the F&O DD latch system on the EQUITY segment so a string

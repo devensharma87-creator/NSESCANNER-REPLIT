@@ -38,6 +38,12 @@ import {
   FNO_BASELINE_RISK,
   FNO_LIQUIDITY,
   PAPER_FIXED_LOTS,
+  POST_STOP_COOLDOWN,
+  REGIME_SIZING,
+  PORTFOLIO_HEAT,
+  SEED_CAPITAL,
+  HEAT_SQL_FNO,
+  parseHeatRow,
   getDailyRealizedDrawdown,
   getWeeklyRealizedDrawdown,
 } from "./paperAccount";
@@ -462,6 +468,112 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
           return null;
         }
       }
+
+      // ─── Pass-2B sizing scales (multiplicative, after base sizing) ───
+      // Both scales apply on TOP of fixed-lot AND dynamic-budget paths
+      // so the trader can't bypass them by configuring fixed lots.
+      // Floor at 1 lot — we never round down to zero (a phantom-zero
+      // row would be inserted otherwise; we want to either trade or
+      // skip cleanly).
+
+      // (1) POST-STOP MULTIPLIER: after a STOPPED close on the same
+      //     index within the cool-down window, halve size for the next
+      //     entry. Read inside the txn so a parallel close that just
+      //     committed is honoured. Cool-down is index-scoped, NOT
+      //     setup-scoped — a NIFTY EMA_PULLBACK stop also dampens the
+      //     next NIFTY MEAN_REVERSION entry.
+      const cooldownCutoff = new Date(
+        Date.now() - POST_STOP_COOLDOWN.COOLDOWN_MINUTES * 60 * 1000,
+      );
+      const lastStopRows = await tx.execute(sql`
+        SELECT exited_at
+          FROM paper_trade_fo
+         WHERE index_symbol = ${indexSymbol}
+           AND exit_reason = 'STOPPED'
+           AND exited_at IS NOT NULL
+           AND exited_at >= ${cooldownCutoff.toISOString()}
+         ORDER BY exited_at DESC
+         LIMIT 1
+      `);
+      const lastStopRow = (lastStopRows as unknown as {
+        rows: Array<{ exited_at: string | Date }>;
+      }).rows[0];
+      if (lastStopRow) {
+        const beforeLots = lots;
+        lots = Math.max(1, Math.floor(lots * POST_STOP_COOLDOWN.SIZE_MULT));
+        logger.info(
+          {
+            indexSymbol,
+            setupKey,
+            tier,
+            beforeLots,
+            afterLots: lots,
+            sizeMult: POST_STOP_COOLDOWN.SIZE_MULT,
+            cooldownMinutes: POST_STOP_COOLDOWN.COOLDOWN_MINUTES,
+            lastStopAt: lastStopRow.exited_at,
+          },
+          `Paper FO: post-stop cool-down active — sizing halved`,
+        );
+      }
+
+      // (2) PORTFOLIO REGIME SCALING: when this signal's regime is
+      //     VOLATILE (high realised vol / wide BB but stop envelope
+      //     intact), halve size. Stacks multiplicatively with
+      //     POST_STOP_COOLDOWN. EXPIRY_DAY is handled at the signal
+      //     layer (forced to BASELINE tier) so doesn't need a scale.
+      //     `signal.regime` is the per-index regime label from
+      //     classifyRegime in optionSignals.ts, surfaced via toSignal.
+      const signalRegime = (signal as unknown as { regime?: string }).regime;
+      if (signalRegime === "VOLATILE") {
+        const beforeLots = lots;
+        lots = Math.max(1, Math.floor(lots * REGIME_SIZING.VOLATILE_MULT));
+        logger.info(
+          {
+            indexSymbol,
+            setupKey,
+            tier,
+            beforeLots,
+            afterLots: lots,
+            sizeMult: REGIME_SIZING.VOLATILE_MULT,
+            regime: signalRegime,
+          },
+          `Paper FO: VOLATILE regime active — sizing halved`,
+        );
+      }
+
+      // ─── Pass-2B portfolio heat cap (per-segment, segment-scoped) ───
+      // Sum of ₹-at-risk across every OPEN position in the F&O book
+      // must stay below MAX_FNO_HEAT_PCT × seed. The new trade's
+      // contribution = lots × lot_size × perShareLoss. Computed inside
+      // the txn so we honour any concurrent close that just freed up
+      // heat. FAIL CLOSED — if the projected heat breaches the cap, we
+      // do NOT silently shrink the trade, we skip it (the trader can
+      // see the missed signal). Shrinking would invalidate the
+      // setup's planned RR.
+      // Reads via tx.execute so the snapshot honours the account-row
+      // FOR UPDATE lock — two parallel opens cannot both pass the cap
+      // and then collectively breach it on commit.
+      const currentHeat = parseHeatRow(await tx.execute(HEAT_SQL_FNO));
+      const newTradeHeat = lots * lotSize * perShareLoss;
+      const projectedHeat = currentHeat + newTradeHeat;
+      const heatCap = SEED_CAPITAL.FNO * PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT;
+      if (projectedHeat > heatCap) {
+        logger.info(
+          {
+            indexSymbol,
+            setupKey,
+            tier,
+            currentHeat: +currentHeat.toFixed(2),
+            newTradeHeat: +newTradeHeat.toFixed(2),
+            projectedHeat: +projectedHeat.toFixed(2),
+            heatCap: +heatCap.toFixed(2),
+            maxHeatPct: PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT,
+          },
+          `Paper FO skip: portfolio heat cap would be breached (${(projectedHeat / SEED_CAPITAL.FNO * 100).toFixed(2)}% > ${(PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT * 100).toFixed(2)}%)`,
+        );
+        return null;
+      }
+
       const capitalDeployed = lots * optionEntry * lotSize;
       if (balance < capitalDeployed) {
         logger.info(
