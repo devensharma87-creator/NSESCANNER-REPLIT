@@ -2,12 +2,6 @@ import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { PatternDiagram, hasDiagram } from "@/components/learn/pattern-diagrams";
 import {
   GraduationCap,
@@ -1136,37 +1130,40 @@ function TopicSection({ topic }: { topic: Topic }) {
           );
 
           const renderPatternList = (concepts: typeof topic.keyConcepts) => (
-            <Accordion type="multiple" className="border border-border rounded bg-background/40 divide-y divide-border">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {concepts.map((k) => {
                 const { name, nature } = parsePatternHeader(k.term);
                 const slug = patternSlugFromTerm(k.term);
                 const colorClass = natureColorClass(nature);
                 return (
-                  <AccordionItem key={k.term} value={k.term} className="border-b-0">
-                    <AccordionTrigger className="px-3 py-2.5 hover:no-underline hover:bg-muted/30 rounded-none">
-                      <div className="flex items-center gap-3 min-w-0 flex-1 text-left">
-                        <span className="font-mono text-[12.5px] font-bold text-foreground truncate">{name}</span>
-                        {nature && (
-                          <span className={`font-mono text-[10px] uppercase tracking-wider ${colorClass} shrink-0 ml-auto pr-2`}>
-                            {nature}
-                          </span>
-                        )}
+                  <div
+                    key={k.term}
+                    className="border border-border rounded-md bg-background/40 hover:bg-muted/20 transition-colors p-3 flex flex-col gap-2"
+                  >
+                    {slug && hasDiagram(slug) && (
+                      <div className="w-full flex items-center justify-center bg-muted/20 border border-border/60 rounded-sm py-2 px-2 min-h-[110px]">
+                        <PatternDiagram slug={slug} />
                       </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="px-3 pt-1 pb-3">
-                      <div className="flex flex-col md:flex-row gap-4 items-start">
-                        {slug && hasDiagram(slug) && (
-                          <div className="shrink-0 w-full md:w-auto">
-                            <PatternDiagram slug={slug} />
-                          </div>
-                        )}
-                        <p className="text-[12.5px] text-muted-foreground leading-relaxed flex-1">{k.desc}</p>
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
+                    )}
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-mono text-[12.5px] font-bold text-foreground leading-tight">
+                        {name}
+                      </span>
+                      {nature && (
+                        <span
+                          className={`font-mono text-[9.5px] uppercase tracking-wider ${colorClass} shrink-0 text-right leading-tight pt-0.5`}
+                        >
+                          {nature}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[12px] text-muted-foreground leading-relaxed">
+                      {k.desc}
+                    </p>
+                  </div>
                 );
               })}
-            </Accordion>
+            </div>
           );
 
           return (
@@ -1179,7 +1176,7 @@ function TopicSection({ topic }: { topic: Topic }) {
                       Heading 01 — Candlestick patterns
                     </h3>
                     <span className="text-[10px] text-muted-foreground/70 ml-auto">
-                      Click any bar to expand the diagram and description
+                      Diagram, nature & description shown for every pattern
                     </span>
                   </div>
                   {renderPatternList(candleConcepts)}
@@ -1194,7 +1191,7 @@ function TopicSection({ topic }: { topic: Topic }) {
                       Heading 02 — Chart patterns
                     </h3>
                     <span className="text-[10px] text-muted-foreground/70 ml-auto">
-                      Click any bar to expand the diagram and description
+                      Diagram, nature & description shown for every pattern
                     </span>
                   </div>
                   {renderPatternList(chartConcepts)}
