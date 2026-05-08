@@ -727,6 +727,7 @@ function SetupForTomorrow({ data }: { data: PreMarketReport }) {
     num: number;
     icon: React.ReactNode;
     title: string;
+    subtitle?: string;
     content: React.ReactNode;
     expandKey?: string;
     available: boolean;
@@ -735,186 +736,73 @@ function SetupForTomorrow({ data }: { data: PreMarketReport }) {
       num: 1,
       icon: <Target className="w-3.5 h-3.5 text-blue-400" />,
       title: "Nifty 50 Key Levels",
+      subtitle: niftyLevels ? `Prev close ${fmt(niftyLevels.previousClose)}` : undefined,
       available: !!niftyLevels,
-      content: niftyLevels ? (
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">Pivot</span>
-            <span className="font-mono tabular-nums font-bold">{fmt(niftyLevels.pivot)}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-signal-strong-sell/80">R1 / R2</span>
-            <span className="font-mono tabular-nums">{fmt(niftyLevels.r1)} / {fmt(niftyLevels.r2)}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-signal-strong-buy/80">S1 / S2</span>
-            <span className="font-mono tabular-nums">{fmt(niftyLevels.s1)} / {fmt(niftyLevels.s2)}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">CPR</span>
-            <span className="font-mono tabular-nums text-[11px]">{fmt(niftyLevels.cprBottom)}–{fmt(niftyLevels.cprTop)} <span className="text-muted-foreground/70">({niftyLevels.cprWidthLabel})</span></span>
-          </div>
-        </div>
-      ) : null,
+      content: niftyLevels ? <KeyLevelsBlock lv={niftyLevels} /> : null,
     },
     {
       num: 2,
       icon: <Target className="w-3.5 h-3.5 text-purple-400" />,
       title: "Bank Nifty Key Levels",
+      subtitle: bnLevels ? `Prev close ${fmt(bnLevels.previousClose)}` : undefined,
       available: !!bnLevels,
-      content: bnLevels ? (
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">Pivot</span>
-            <span className="font-mono tabular-nums font-bold">{fmt(bnLevels.pivot)}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-signal-strong-sell/80">R1 / R2</span>
-            <span className="font-mono tabular-nums">{fmt(bnLevels.r1)} / {fmt(bnLevels.r2)}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-signal-strong-buy/80">S1 / S2</span>
-            <span className="font-mono tabular-nums">{fmt(bnLevels.s1)} / {fmt(bnLevels.s2)}</span>
-          </div>
-        </div>
-      ) : null,
+      content: bnLevels ? <KeyLevelsBlock lv={bnLevels} /> : null,
     },
     {
       num: 3,
       icon: <Crosshair className="w-3.5 h-3.5 text-red-400" />,
-      title: "Nifty Call OI",
-      available: !!niftyOpt?.maxCallOiStrike,
-      content: niftyOpt ? (
-        <div className="text-xs space-y-0.5">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Max CE OI (Resistance)</span>
-            <span className="font-mono tabular-nums text-signal-strong-sell font-bold">{fmt(niftyOpt.maxCallOiStrike, 0)}</span>
-          </div>
-        </div>
-      ) : null,
+      title: "Nifty Option Walls",
+      subtitle: niftyOpt ? expiryTagText(niftyOpt) : undefined,
+      available: !!niftyOpt && (!!niftyOpt.maxCallOiStrike || !!niftyOpt.maxPutOiStrike),
+      content: niftyOpt ? <OptionWallsBlock opt={niftyOpt} /> : null,
     },
     {
       num: 4,
-      icon: <Crosshair className="w-3.5 h-3.5 text-green-400" />,
-      title: "Nifty Put OI",
-      available: !!niftyOpt?.maxPutOiStrike,
-      content: niftyOpt ? (
-        <div className="text-xs space-y-0.5">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Max PE OI (Support)</span>
-            <span className="font-mono tabular-nums text-signal-strong-buy font-bold">{fmt(niftyOpt.maxPutOiStrike, 0)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Expected Move</span>
-            <span className="font-mono tabular-nums">±{niftyOpt.expectedMovePct?.toFixed(2)}%</span>
-          </div>
-        </div>
-      ) : null,
+      icon: <Gauge className="w-3.5 h-3.5 text-green-400" />,
+      title: "Nifty Option Snapshot",
+      subtitle: niftyOpt ? `ATM ${fmt(niftyOpt.atmStrike, 0)}` : undefined,
+      available: !!niftyOpt,
+      content: niftyOpt ? <OptionSnapshotBlock opt={niftyOpt} /> : null,
     },
     {
       num: 5,
       icon: <Crosshair className="w-3.5 h-3.5 text-red-300" />,
-      title: "Bank Nifty Call OI",
-      available: !!bnOpt?.maxCallOiStrike,
-      content: bnOpt ? (
-        <div className="text-xs">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Max CE OI (Resistance)</span>
-            <span className="font-mono tabular-nums text-signal-strong-sell font-bold">{fmt(bnOpt.maxCallOiStrike, 0)}</span>
-          </div>
-        </div>
-      ) : null,
+      title: "Bank Nifty Option Walls",
+      subtitle: bnOpt ? expiryTagText(bnOpt) : undefined,
+      available: !!bnOpt && (!!bnOpt.maxCallOiStrike || !!bnOpt.maxPutOiStrike),
+      content: bnOpt ? <OptionWallsBlock opt={bnOpt} /> : null,
     },
     {
       num: 6,
-      icon: <Crosshair className="w-3.5 h-3.5 text-green-300" />,
-      title: "Bank Nifty Put OI",
-      available: !!bnOpt?.maxPutOiStrike,
-      content: bnOpt ? (
-        <div className="text-xs">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Max PE OI (Support)</span>
-            <span className="font-mono tabular-nums text-signal-strong-buy font-bold">{fmt(bnOpt.maxPutOiStrike, 0)}</span>
-          </div>
-        </div>
-      ) : null,
+      icon: <Gauge className="w-3.5 h-3.5 text-green-300" />,
+      title: "Bank Nifty Option Snapshot",
+      subtitle: bnOpt ? `ATM ${fmt(bnOpt.atmStrike, 0)}` : undefined,
+      available: !!bnOpt,
+      content: bnOpt ? <OptionSnapshotBlock opt={bnOpt} /> : null,
     },
     {
       num: 7,
       icon: <Building2 className="w-3.5 h-3.5 text-amber-400" />,
       title: "FII / DII Flows",
+      subtitle: data.fiiDii ? `as of ${data.fiiDii.latestDate}` : undefined,
       available: !!data.fiiDii,
-      content: data.fiiDii ? (
-        <div className="text-xs space-y-1">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">FII Net</span>
-            <span className={`font-mono tabular-nums font-bold ${tone(data.fiiDii.fiiCashCr)}`}>
-              {data.fiiDii.fiiCashCr >= 0 ? "+" : ""}{data.fiiDii.fiiCashCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">DII Net</span>
-            <span className={`font-mono tabular-nums font-bold ${tone(data.fiiDii.diiCashCr)}`}>
-              {data.fiiDii.diiCashCr >= 0 ? "+" : ""}{data.fiiDii.diiCashCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr
-            </span>
-          </div>
-          <div className="text-[10px] text-muted-foreground/80">
-            5d FII: {data.fiiDii.fiveDayFiiCr >= 0 ? "+" : ""}{data.fiiDii.fiveDayFiiCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} · DII: {data.fiiDii.fiveDayDiiCr >= 0 ? "+" : ""}{data.fiiDii.fiveDayDiiCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-          </div>
-        </div>
-      ) : null,
+      content: data.fiiDii ? <FiiDiiBlock f={data.fiiDii} /> : null,
     },
     {
       num: 8,
       icon: <Gauge className="w-3.5 h-3.5 text-cyan-400" />,
       title: "Put-Call Ratio",
+      subtitle: niftyOpt ? "OI + Volume" : undefined,
       available: !!niftyOpt,
-      content: niftyOpt ? (
-        <div className="text-xs space-y-1">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Nifty PCR (OI)</span>
-            <span className={`font-mono tabular-nums font-bold ${(niftyOpt.pcrOi ?? 0) > 1.2 ? "text-signal-strong-buy" : (niftyOpt.pcrOi ?? 0) < 0.8 ? "text-signal-strong-sell" : "text-foreground"}`}>
-              {niftyOpt.pcrOi?.toFixed(2)}
-            </span>
-          </div>
-          {bnOpt && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">BN PCR (OI)</span>
-              <span className="font-mono tabular-nums">{bnOpt.pcrOi?.toFixed(2)}</span>
-            </div>
-          )}
-          <div className="text-[10px] text-muted-foreground/80">
-            {(niftyOpt.pcrOi ?? 0) > 1.0 ? "PCR > 1 → more puts written → bullish bias" :
-             (niftyOpt.pcrOi ?? 0) < 0.7 ? "PCR < 0.7 → call-heavy → bearish bias" :
-             "PCR near parity → neutral positioning"}
-          </div>
-        </div>
-      ) : null,
+      content: niftyOpt ? <PcrBlock niftyOpt={niftyOpt} bnOpt={bnOpt} /> : null,
     },
     {
       num: 9,
       icon: <Zap className="w-3.5 h-3.5 text-yellow-400" />,
       title: "India VIX",
+      subtitle: vixCue ? vixRegimeLabel(vixCue.value) : undefined,
       available: !!vixCue,
-      content: vixCue ? (
-        <div className="text-xs space-y-1">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Level</span>
-            <span className="font-mono tabular-nums font-bold">{vixCue.value?.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Change</span>
-            <span className={`font-mono tabular-nums ${tone(-(vixCue.changePercent ?? 0))}`}>
-              {pct(vixCue.changePercent)}
-            </span>
-          </div>
-          <div className="text-[10px] text-muted-foreground/80">
-            {(vixCue.value ?? 0) > 18 ? "Elevated — expect wider swings, option premiums rich" :
-             (vixCue.value ?? 0) < 12 ? "Complacent — surprise moves possible" :
-             "Moderate — normal volatility environment"}
-          </div>
-        </div>
-      ) : null,
+      content: vixCue ? <VixBlock cue={vixCue} /> : null,
     },
     {
       num: 10,
@@ -1049,10 +937,20 @@ function SetupForTomorrow({ data }: { data: PreMarketReport }) {
     },
   ];
 
+  // Section grouping: 1-2 = key levels, 3-6 = option chain (Nifty + BN), 7-9 = macro, 10-15 = stock activity
+  const sectionFor = (n: number): "LEVELS" | "OPTIONS" | "MACRO" | "STOCKS" =>
+    n <= 2 ? "LEVELS" : n <= 6 ? "OPTIONS" : n <= 9 ? "MACRO" : "STOCKS";
+  const sectionTitle: Record<string, string> = {
+    LEVELS: "Key Levels",
+    OPTIONS: "Option-Chain Setup",
+    MACRO: "Macro & Sentiment",
+    STOCKS: "F&O Stock Activity",
+  };
+
   return (
-    <Card className="border border-border/50 bg-card/80 backdrop-blur-sm">
+    <Card className="border-2 border-border/70 bg-card/80 backdrop-blur-sm shadow-sm">
       <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4 pb-3 border-b-2 border-border/50">
           <ClipboardList className="w-4 h-4 text-amber-400" />
           <h2 className="text-sm font-bold tracking-tight">Setup for Tomorrow</h2>
           <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400 ml-auto">
@@ -1060,24 +958,40 @@ function SetupForTomorrow({ data }: { data: PreMarketReport }) {
           </span>
         </div>
 
-        <div className="space-y-0">
-          {items.map((item) => (
-            <SetupItem
-              key={item.num}
-              num={item.num}
-              icon={item.icon}
-              title={item.title}
-              available={item.available}
-              expandable={!!item.expandKey}
-              isExpanded={!!item.expandKey && !!expanded[item.expandKey]}
-              onToggle={item.expandKey ? () => toggle(item.expandKey!) : undefined}
-            >
-              {item.content}
-            </SetupItem>
-          ))}
+        <div className="space-y-2">
+          {items.map((item, i) => {
+            const sec = sectionFor(item.num);
+            const prevSec = i > 0 ? sectionFor(items[i - 1]!.num) : null;
+            const showHeader = sec !== prevSec;
+            return (
+              <div key={item.num}>
+                {showHeader && (
+                  <div className="flex items-center gap-2 mt-3 first:mt-0 mb-1.5">
+                    <div className="h-px flex-1 bg-border/40" />
+                    <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60">
+                      {sectionTitle[sec]}
+                    </span>
+                    <div className="h-px flex-1 bg-border/40" />
+                  </div>
+                )}
+                <SetupItem
+                  num={item.num}
+                  icon={item.icon}
+                  title={item.title}
+                  subtitle={item.subtitle}
+                  available={item.available}
+                  expandable={!!item.expandKey}
+                  isExpanded={!!item.expandKey && !!expanded[item.expandKey]}
+                  onToggle={item.expandKey ? () => toggle(item.expandKey!) : undefined}
+                >
+                  {item.content}
+                </SetupItem>
+              </div>
+            );
+          })}
         </div>
 
-        <div className="mt-3 pt-3 border-t border-border/40">
+        <div className="mt-4 pt-3 border-t-2 border-border/50">
           <div className="text-[10px] text-muted-foreground/70 font-mono text-center">
             Data populates post-market · Global cues update overnight
           </div>
@@ -1087,12 +1001,14 @@ function SetupForTomorrow({ data }: { data: PreMarketReport }) {
   );
 }
 
+// ─── Per-item subcard wrapper — bordered for ease of reading ───
 function SetupItem({
-  num, icon, title, available, expandable, isExpanded, onToggle, children,
+  num, icon, title, subtitle, available, expandable, isExpanded, onToggle, children,
 }: {
   num: number;
   icon: React.ReactNode;
   title: string;
+  subtitle?: string;
   available: boolean;
   expandable?: boolean;
   isExpanded?: boolean;
@@ -1100,26 +1016,414 @@ function SetupItem({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`border-b border-border/30 last:border-b-0 py-2.5 ${!available ? "opacity-40" : ""}`}>
+    <div
+      className={`rounded-lg border border-border/60 bg-secondary/15 overflow-hidden transition-colors ${
+        !available ? "opacity-40" : "hover:border-border/80"
+      }`}
+    >
       <button
         type="button"
-        className={`flex items-center gap-2 w-full text-left ${expandable && available ? "cursor-pointer hover:bg-secondary/30 -mx-1 px-1 rounded" : "cursor-default"}`}
+        className={`flex items-center gap-2 w-full text-left px-2.5 py-2 ${
+          expandable && available
+            ? "cursor-pointer hover:bg-secondary/30"
+            : "cursor-default"
+        } ${available && children ? "border-b border-border/40" : ""}`}
         onClick={expandable && available ? onToggle : undefined}
         disabled={!expandable || !available}
       >
-        <span className="text-[9px] font-mono text-muted-foreground/60 w-4 text-right shrink-0">{num}</span>
-        {icon}
-        <span className="text-xs font-medium flex-1 truncate">{title}</span>
+        <span className="text-[10px] font-mono font-bold text-muted-foreground/70 w-5 text-right shrink-0 tabular-nums">
+          {num}
+        </span>
+        <span className="shrink-0">{icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-semibold truncate leading-tight">{title}</div>
+          {subtitle && (
+            <div className="text-[10px] text-muted-foreground/70 font-mono truncate leading-tight mt-0.5">
+              {subtitle}
+            </div>
+          )}
+        </div>
         {expandable && available && (
-          isExpanded ? <ChevronUp className="w-3 h-3 text-muted-foreground" /> : <ChevronDown className="w-3 h-3 text-muted-foreground" />
+          isExpanded
+            ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         )}
-        {!available && <span className="text-[9px] text-muted-foreground/50 font-mono">—</span>}
+        {!available && (
+          <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0">no data</span>
+        )}
       </button>
       {available && children && (
-        <div className="mt-1.5 ml-6 pl-2 border-l border-border/30">
-          {children}
+        <div className="px-3 py-2 bg-card/40">{children}</div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Per-item content blocks — each surfaces all available fields
+// from the OpenAPI schema (KeyIndexLevels, OptionSnapshot,
+// FiiDiiSnapshot, OvernightCue) instead of just one or two.
+// ═══════════════════════════════════════════════════════════════
+
+type LevelsLike = NonNullable<PreMarketReport["indexLevels"]>[number];
+type OptLike    = NonNullable<PreMarketReport["optionSnapshots"]>[number];
+type CueLike    = PreMarketReport["overnightCues"][number];
+type FiiLike    = NonNullable<PreMarketReport["fiiDii"]>;
+
+function KvRow({ label, value, valueClass }: { label: React.ReactNode; value: React.ReactNode; valueClass?: string }) {
+  return (
+    <div className="flex justify-between items-baseline gap-2 text-xs py-0.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`font-mono tabular-nums ${valueClass ?? ""}`}>{value}</span>
+    </div>
+  );
+}
+
+function KeyLevelsBlock({ lv }: { lv: LevelsLike }) {
+  // Position-in-52w bar — visual where price sits in the yearly range.
+  const pos = Math.max(0, Math.min(100, lv.positionInYearRangePct));
+  return (
+    <div className="space-y-1.5">
+      <KvRow label="Pivot" value={fmt(lv.pivot)} valueClass="font-bold" />
+      <KvRow label="R1 / R2" value={`${fmt(lv.r1)} / ${fmt(lv.r2)}`} valueClass="text-signal-strong-sell/90" />
+      <KvRow label="S1 / S2" value={`${fmt(lv.s1)} / ${fmt(lv.s2)}`} valueClass="text-signal-strong-buy/90" />
+      <KvRow
+        label="CPR"
+        value={
+          <>
+            {fmt(lv.cprBottom)}–{fmt(lv.cprTop)}{" "}
+            <span className={`text-[10px] ${
+              lv.cprWidthLabel === "NARROW" ? "text-amber-400"
+              : lv.cprWidthLabel === "WIDE" ? "text-cyan-400"
+              : "text-muted-foreground/70"
+            }`}>
+              ({lv.cprWidthLabel} {lv.cprWidthPct.toFixed(2)}%)
+            </span>
+          </>
+        }
+        valueClass="text-[11px]"
+      />
+      <KvRow label="Prev H / L" value={`${fmt(lv.prevHigh)} / ${fmt(lv.prevLow)}`} />
+      {lv.todayOpen != null && (
+        <KvRow label="Today's Open" value={fmt(lv.todayOpen)} valueClass="text-foreground/90" />
+      )}
+      <KvRow label="52W H / L" value={`${fmt(lv.yearHigh)} / ${fmt(lv.yearLow)}`} valueClass="text-[11px]" />
+      <div className="pt-1">
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground/80 mb-1">
+          <span>Position in 52W range</span>
+          <span className="font-mono tabular-nums">{pos.toFixed(0)}%</span>
+        </div>
+        <div className="relative h-1.5 rounded-full bg-secondary/60 overflow-hidden">
+          <div
+            className="absolute top-0 h-full bg-gradient-to-r from-signal-strong-sell/70 via-amber-500/70 to-signal-strong-buy/70"
+            style={{ width: `${pos}%` }}
+          />
+          <div
+            className="absolute top-0 h-full w-0.5 bg-foreground"
+            style={{ left: `${pos}%`, transform: "translateX(-50%)" }}
+          />
+        </div>
+        <div className="flex justify-between text-[9px] font-mono text-muted-foreground/60 mt-0.5">
+          <span>{fmt(lv.yearLow, 0)}</span>
+          <span>{fmt(lv.yearHigh, 0)}</span>
+        </div>
+      </div>
+      {lv.cprWidthLabel === "NARROW" && (
+        <div className="text-[10px] text-amber-400/90 mt-1">
+          Narrow CPR → trending day likely
         </div>
       )}
+      {lv.cprWidthLabel === "WIDE" && (
+        <div className="text-[10px] text-cyan-400/90 mt-1">
+          Wide CPR → range / chop likely
+        </div>
+      )}
+    </div>
+  );
+}
+
+function expiryTagText(opt: OptLike): string {
+  const tag =
+    opt.expiryContext === "EXPIRY_TODAY" ? "Expires today"
+    : opt.expiryContext === "EXPIRY_TOMORROW" ? "Expires tomorrow"
+    : opt.expiryContext === "EXPIRY_THIS_WEEK" ? `Expires this week (${opt.daysToExpiry}d)`
+    : opt.expiryContext === "EXPIRY_NEXT_WEEK" ? `Next week (${opt.daysToExpiry}d)`
+    : `${opt.daysToExpiry}d to expiry`;
+  return tag;
+}
+
+function OptionWallsBlock({ opt }: { opt: OptLike }) {
+  const ceDist = opt.maxCallOiStrike != null && opt.spot > 0
+    ? ((opt.maxCallOiStrike - opt.spot) / opt.spot) * 100
+    : null;
+  const peDist = opt.maxPutOiStrike != null && opt.spot > 0
+    ? ((opt.maxPutOiStrike - opt.spot) / opt.spot) * 100
+    : null;
+  const mpDist = opt.maxPain != null && opt.spot > 0
+    ? ((opt.maxPain - opt.spot) / opt.spot) * 100
+    : null;
+  return (
+    <div className="space-y-1.5">
+      {opt.maxCallOiStrike != null && (
+        <KvRow
+          label="Max CE OI (resistance)"
+          value={
+            <>
+              <span className="text-signal-strong-sell font-bold">{fmt(opt.maxCallOiStrike, 0)}</span>
+              {ceDist != null && (
+                <span className="text-[10px] text-muted-foreground/70 ml-1">
+                  ({ceDist >= 0 ? "+" : ""}{ceDist.toFixed(2)}%)
+                </span>
+              )}
+            </>
+          }
+        />
+      )}
+      {opt.maxPutOiStrike != null && (
+        <KvRow
+          label="Max PE OI (support)"
+          value={
+            <>
+              <span className="text-signal-strong-buy font-bold">{fmt(opt.maxPutOiStrike, 0)}</span>
+              {peDist != null && (
+                <span className="text-[10px] text-muted-foreground/70 ml-1">
+                  ({peDist >= 0 ? "+" : ""}{peDist.toFixed(2)}%)
+                </span>
+              )}
+            </>
+          }
+        />
+      )}
+      <KvRow
+        label="Max Pain"
+        value={
+          <>
+            <span className="text-amber-400 font-bold">{fmt(opt.maxPain, 0)}</span>
+            {mpDist != null && (
+              <span className="text-[10px] text-muted-foreground/70 ml-1">
+                ({mpDist >= 0 ? "+" : ""}{mpDist.toFixed(2)}%)
+              </span>
+            )}
+          </>
+        }
+      />
+      <KvRow label="Spot" value={fmt(opt.spot)} valueClass="text-muted-foreground" />
+      <div className="text-[10px] text-muted-foreground/80 mt-1.5 pt-1.5 border-t border-border/30">
+        Walls = strikes with the largest open interest. Price tends to gravitate toward Max Pain into expiry.
+      </div>
+    </div>
+  );
+}
+
+function OptionSnapshotBlock({ opt }: { opt: OptLike }) {
+  const expectedMovePts = opt.atmStraddle;
+  const biasTone = opt.bias === "BULLISH" ? "text-signal-strong-buy"
+                 : opt.bias === "BEARISH" ? "text-signal-strong-sell"
+                 : "text-muted-foreground";
+  const biasBg = opt.bias === "BULLISH" ? "bg-signal-strong-buy/10 border-signal-strong-buy/30"
+               : opt.bias === "BEARISH" ? "bg-signal-strong-sell/10 border-signal-strong-sell/30"
+               : "bg-secondary/40 border-border/40";
+  return (
+    <div className="space-y-1.5">
+      <KvRow label="ATM Strike" value={fmt(opt.atmStrike, 0)} valueClass="font-bold" />
+      <KvRow
+        label="ATM Straddle"
+        value={
+          <>
+            ₹{fmt(opt.atmStraddle, 0)}
+            <span className="text-[10px] text-muted-foreground/70 ml-1">pts</span>
+          </>
+        }
+      />
+      <KvRow
+        label="Expected Move"
+        value={
+          <>
+            ±{opt.expectedMovePct.toFixed(2)}%
+            <span className="text-[10px] text-muted-foreground/70 ml-1">
+              (±{fmt(expectedMovePts, 0)} pts)
+            </span>
+          </>
+        }
+        valueClass="font-bold"
+      />
+      {opt.atmIv != null && (
+        <KvRow label="ATM IV" value={`${opt.atmIv.toFixed(1)}%`} />
+      )}
+      <KvRow
+        label="Days to Expiry"
+        value={`${opt.daysToExpiry}d`}
+        valueClass={opt.daysToExpiry === 0 ? "text-amber-400 font-bold" : ""}
+      />
+      <div className={`mt-2 px-2 py-1.5 rounded border ${biasBg}`}>
+        <div className="flex items-center justify-between gap-2 mb-0.5">
+          <span className="text-[10px] font-mono uppercase text-muted-foreground/80">Bias</span>
+          <span className={`text-xs font-bold ${biasTone}`}>{opt.bias}</span>
+        </div>
+        <div className="text-[10px] text-foreground/85 leading-snug">{opt.interpretation}</div>
+      </div>
+    </div>
+  );
+}
+
+function FiiDiiBlock({ f }: { f: FiiLike }) {
+  // Combined net = directional pressure on cash market.
+  const combined = f.fiiCashCr + f.diiCashCr;
+  return (
+    <div className="space-y-1.5">
+      <KvRow
+        label="FII Net"
+        value={
+          <span className={`font-bold ${tone(f.fiiCashCr)}`}>
+            {f.fiiCashCr >= 0 ? "+" : ""}
+            {f.fiiCashCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr
+          </span>
+        }
+      />
+      <KvRow
+        label="DII Net"
+        value={
+          <span className={`font-bold ${tone(f.diiCashCr)}`}>
+            {f.diiCashCr >= 0 ? "+" : ""}
+            {f.diiCashCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr
+          </span>
+        }
+      />
+      <KvRow
+        label="Combined"
+        value={
+          <span className={`font-bold ${tone(combined)}`}>
+            {combined >= 0 ? "+" : ""}
+            {combined.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr
+          </span>
+        }
+      />
+      <div className="pt-1.5 mt-1 border-t border-border/30 space-y-0.5">
+        <KvRow
+          label="5d FII"
+          value={
+            <span className={tone(f.fiveDayFiiCr)}>
+              {f.fiveDayFiiCr >= 0 ? "+" : ""}
+              {f.fiveDayFiiCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr
+            </span>
+          }
+          valueClass="text-[11px]"
+        />
+        <KvRow
+          label="5d DII"
+          value={
+            <span className={tone(f.fiveDayDiiCr)}>
+              {f.fiveDayDiiCr >= 0 ? "+" : ""}
+              {f.fiveDayDiiCr.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr
+            </span>
+          }
+          valueClass="text-[11px]"
+        />
+      </div>
+      <div className="text-[10px] text-muted-foreground/80 mt-1.5">
+        {Math.abs(f.fiiCashCr) > 1500 && f.fiiCashCr * f.diiCashCr < 0
+          ? "FIIs and DIIs are tugging in opposite directions — choppy intraday tape likely."
+          : combined > 1000
+            ? "Net inflow — supports gap-ups and dip buys."
+            : combined < -1000
+              ? "Net outflow — caps rallies, supports breakdowns."
+              : "Flows roughly balanced — direction set by global cues."}
+      </div>
+    </div>
+  );
+}
+
+function PcrBlock({ niftyOpt, bnOpt }: { niftyOpt: OptLike; bnOpt?: OptLike }) {
+  const pcrTone = (p: number) =>
+    p >= 1.3 ? "text-signal-strong-buy"
+    : p <= 0.7 ? "text-signal-strong-sell"
+    : "text-foreground";
+  // Confluence between OI PCR and Volume PCR is the strongest read.
+  const niftyAligned = (niftyOpt.pcrOi >= 1.2 && niftyOpt.pcrVolume >= 1.2)
+                    || (niftyOpt.pcrOi <= 0.8 && niftyOpt.pcrVolume <= 0.8);
+  return (
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-3 gap-2 items-center text-xs">
+        <span className="text-muted-foreground">Index</span>
+        <span className="text-right text-[10px] font-mono uppercase text-muted-foreground/70">PCR (OI)</span>
+        <span className="text-right text-[10px] font-mono uppercase text-muted-foreground/70">PCR (Vol)</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 items-center text-xs">
+        <span className="font-medium">Nifty</span>
+        <span className={`text-right font-mono tabular-nums font-bold ${pcrTone(niftyOpt.pcrOi)}`}>
+          {niftyOpt.pcrOi.toFixed(2)}
+        </span>
+        <span className={`text-right font-mono tabular-nums ${pcrTone(niftyOpt.pcrVolume)}`}>
+          {niftyOpt.pcrVolume.toFixed(2)}
+        </span>
+      </div>
+      {bnOpt && (
+        <div className="grid grid-cols-3 gap-2 items-center text-xs">
+          <span className="font-medium">Bank Nifty</span>
+          <span className={`text-right font-mono tabular-nums font-bold ${pcrTone(bnOpt.pcrOi)}`}>
+            {bnOpt.pcrOi.toFixed(2)}
+          </span>
+          <span className={`text-right font-mono tabular-nums ${pcrTone(bnOpt.pcrVolume)}`}>
+            {bnOpt.pcrVolume.toFixed(2)}
+          </span>
+        </div>
+      )}
+      <div className="text-[10px] text-muted-foreground/80 mt-1.5 pt-1.5 border-t border-border/30 leading-snug">
+        {niftyOpt.pcrOi >= 1.3
+          ? "Nifty PCR ≥ 1.3 → heavy put writing, bullish undertone."
+          : niftyOpt.pcrOi <= 0.7
+            ? "Nifty PCR ≤ 0.7 → call-heavy, bearish pressure."
+            : niftyOpt.pcrOi >= 1.0
+              ? "Nifty PCR mildly elevated → neutral-to-bullish positioning."
+              : "Nifty PCR balanced → no clear directional bias."}
+        {niftyAligned && (
+          <span className="text-emerald-400/90"> OI + Volume PCR aligned (strong signal).</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function vixRegimeLabel(v: number | null | undefined): string {
+  if (v == null) return "";
+  if (v >= 20) return "High volatility";
+  if (v >= 15) return "Elevated";
+  if (v >= 12) return "Moderate";
+  return "Complacent";
+}
+
+function VixBlock({ cue }: { cue: CueLike }) {
+  const v = cue.value ?? 0;
+  const chg = cue.change ?? 0;
+  const chgPct = cue.changePercent ?? 0;
+  // VIX is inverted vs equities — rising VIX = bearish, falling = bullish.
+  const equityImplication =
+    chgPct > 5 ? "Sharp VIX spike → equities under stress."
+    : chgPct > 0 ? "VIX up → equities biased weaker."
+    : chgPct < -5 ? "Sharp VIX drop → risk appetite returning."
+    : "VIX cooling → equity-positive."
+  const regime =
+    v >= 20 ? "High volatility — wider stops, smaller size, expect violent intraday swings."
+    : v >= 15 ? "Elevated — option premiums richer than usual; favour debit-spreads over naked longs."
+    : v >= 12 ? "Moderate — normal volatility environment."
+    : "Complacent — surprise moves possible; avoid selling cheap volatility.";
+  return (
+    <div className="space-y-1.5">
+      <KvRow label="Level" value={v.toFixed(2)} valueClass="font-bold text-base" />
+      <KvRow
+        label="Change"
+        value={
+          <span className={tone(-chgPct)}>
+            {chg >= 0 ? "+" : ""}{chg.toFixed(2)} ({pct(chgPct)})
+          </span>
+        }
+      />
+      <div className="text-[10px] text-muted-foreground/85 mt-1.5 pt-1.5 border-t border-border/30 leading-snug">
+        {regime}
+      </div>
+      <div className={`text-[10px] mt-0.5 ${chgPct > 0 ? "text-signal-strong-sell/90" : "text-signal-strong-buy/90"}`}>
+        {equityImplication}
+      </div>
     </div>
   );
 }
