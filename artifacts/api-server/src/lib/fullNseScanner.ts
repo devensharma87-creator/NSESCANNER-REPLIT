@@ -817,8 +817,20 @@ async function performFullScan(): Promise<Cache> {
   return result;
 }
 
-export async function scanFullNse(): Promise<Cache> {
-  const fresh = cache && !cache.degraded && Date.now() - cache.lastUpdated < REFRESH_MS;
+export async function scanFullNse(opts?: { force?: boolean }): Promise<Cache> {
+  // The background timer passes { force: true } so the cache-freshness gate
+  // never causes a skipped tick. Walk-through of the prior bug: scan duration
+  // (~80s on a full Kite + Yahoo cycle) > REFRESH_MS (60s). Timer at t=0
+  // starts a scan that finishes at t=80; cache.lastUpdated=80. Timer at t=120
+  // sees cache age 40s < 60s → "fresh" → no new scan. Timer at t=180 sees
+  // age 100s → triggers next scan, finishes at t=260. So scans actually
+  // ran every ~180s, not 60s, and any backgrounded tab compounded it (the
+  // user observed 6m 58s staleness on the FULL SCANNER pill). The
+  // scanInFlight guard below is sufficient on its own to prevent overlapping
+  // work, so the freshness gate is only needed for ad-hoc HTTP callers
+  // (e.g. /api/scan/full-nse hit by a burst of clients) where returning the
+  // cached payload immediately is the right behaviour.
+  const fresh = !opts?.force && cache && !cache.degraded && Date.now() - cache.lastUpdated < REFRESH_MS;
   if (fresh) return cache!;
 
   // Kick off (or join) a background refresh.
@@ -906,7 +918,7 @@ export function startFullNseScannerBackground(): void {
     void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Initial full NSE scan failed"));
   }, 500);
   timer = setInterval(() => {
-    void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Background full NSE scan failed"));
+    void scanFullNse({ force: true }).catch(err => logger.warn({ err: (err as Error).message }, "Background full NSE scan failed"));
   }, REFRESH_MS);
   if (typeof timer.unref === "function") timer.unref();
   logger.info({ refreshMs: REFRESH_MS, warmCache: !!cache }, "Full NSE background scanner started (Kite-first)");
