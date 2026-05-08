@@ -845,13 +845,10 @@ function persistOiInsightsHistoryToDisk(): void {
 }
 
 /** Returns true when `ts` (epoch ms) falls inside the IST trading session
- *  window [09:15, 15:35]. We add 5 min of post-close grace so the closing
- *  bell snap (which sometimes lands 15:30:0X due to broker latency) is still
- *  captured for end-of-day analysis. Pre-market snaps are STRICTLY rejected
- *  per spec §1: "Snapshot capture must run only during market hours" —
- *  pre-9:15 OI values are stale carryover from yesterday's close and would
- *  poison the "All / Full Day" baseline pick. Timezone-safe via the
- *  IST minute-of-day trick (UTC+5:30 = +330 min). */
+ *  window [09:15, 15:35]. Used by the READ-PATH baseline filter
+ *  (`resolveWindowDelta`) to ensure picked baselines are real intraday
+ *  snaps, not post-close frozen-OI tails. Timezone-safe via the IST
+ *  minute-of-day trick (UTC+5:30 = +330 min). */
 function isInIstMarketHours(ts: number): boolean {
   const istMin = ((Math.floor(ts / 60_000) + 330) % 1440 + 1440) % 1440;
   const OPEN_MIN = 9 * 60 + 15;   // 555  → 09:15 IST
@@ -859,16 +856,53 @@ function isInIstMarketHours(ts: number): boolean {
   return istMin >= OPEN_MIN && istMin <= CLOSE_MIN;
 }
 
+/** WRITE-path gate: accept any push at/after 09:15 IST. The previous
+ *  strict [09:15, 15:35] window had a footgun — if the api-server is
+ *  restarted after market close (common during dev/deploy), every
+ *  subsequent `pushOiInsightsSnapshot` call is silently dropped, the
+ *  buffer stays at 0 snaps, and the OI Lab Δ-window selector falls back
+ *  to broker since-open Δ for every pill (the user-reported bug: "30
+ *  min / 1 hr / 3 hr all show the same -3.83Cr"). Relaxing the gate to
+ *  "≥ 09:15 IST today" lets post-close polls hydrate the buffer with
+ *  the last-known frozen-OI snap so the selector works going forward
+ *  (post-close Δ naturally reads ~0, which is truthful — OI doesn't
+ *  move after close). Pre-open (00:00-09:14 IST) is still rejected to
+ *  prevent yesterday's stale OI carryover from poisoning the next
+ *  day's "All / Full Day" baseline pick. Cross-day rollover at midnight
+ *  is handled separately by `hydrateOiInsightsHistoryFromDisk`'s
+ *  `tradingDay` discard. */
+function isAtOrAfterIstMarketOpen(ts: number): boolean {
+  const istMin = ((Math.floor(ts / 60_000) + 330) % 1440 + 1440) % 1440;
+  const OPEN_MIN = 9 * 60 + 15;   // 555  → 09:15 IST
+  return istMin >= OPEN_MIN;
+}
+
+/** Deep-equal compare of two snapshot CE+PE strike maps. Used for
+ *  post-close dedup — once OI freezes at 15:30, every subsequent poll
+ *  reports identical strike values; without this dedup the 450-snap
+ *  ring-buffer cap would evict legitimate intraday snaps within ~3.75h
+ *  of post-close polling at 30s cadence. */
+function snapDataEquals(a: OiInsightsSnapshot, b: OiInsightsSnapshot): boolean {
+  const aCeKeys = Object.keys(a.ce);
+  const bCeKeys = Object.keys(b.ce);
+  if (aCeKeys.length !== bCeKeys.length) return false;
+  for (const k of aCeKeys) if (a.ce[k as unknown as number] !== b.ce[k as unknown as number]) return false;
+  const aPeKeys = Object.keys(a.pe);
+  const bPeKeys = Object.keys(b.pe);
+  if (aPeKeys.length !== bPeKeys.length) return false;
+  for (const k of aPeKeys) if (a.pe[k as unknown as number] !== b.pe[k as unknown as number]) return false;
+  return true;
+}
+
 function pushOiInsightsSnapshot(insights: OiInsightsResponse): void {
   const key = `${insights.underlying}|${insights.expiry}`;
   const ts = new Date(insights.generatedAt).getTime();
-  // Pre-market / post-market guard. Out-of-hours snaps are silently
-  // dropped — they would otherwise contaminate the "All / Full Day"
-  // baseline pick (which expects the first valid snap at/after 09:15 IST)
-  // and the rolling buffer (which would surface yesterday's stale OI as
-  // "10 hr ago" baseline for the first morning poll). The ring-buffer
-  // ALREADY-stored snaps are NOT touched — only the new push is gated.
-  if (!isInIstMarketHours(ts)) {
+  // Pre-market guard ONLY. Pre-9:15 IST snaps carry yesterday's stale
+  // OI and would poison the "All / Full Day" baseline pick on the first
+  // morning poll. Post-close pushes are accepted (and dedup'd below)
+  // so the buffer hydrates even when the server is restarted after
+  // market close — see `isAtOrAfterIstMarketOpen` for full rationale.
+  if (!isAtOrAfterIstMarketOpen(ts)) {
     return;
   }
   const snap: OiInsightsSnapshot = {
@@ -911,6 +945,28 @@ function pushOiInsightsSnapshot(insights: OiInsightsResponse): void {
       spot: snap.spot ?? prev.spot,
     };
   } else if (insertIdx === buf.length) {
+    // Pure tail-append path. Apply value-dedup against the most-recent
+    // buffered snap: once OI freezes at 15:30 IST, every subsequent poll
+    // reports identical CE/PE strike values; without this guard, post-close
+    // polls at 30s cadence would evict ~3.75h of legitimate intraday history
+    // via the 450-snap cap (the partner of the relaxed write-gate above —
+    // both are needed to make the OI Lab Δ-window selector work post-close
+    // without sacrificing intraday baseline availability). Skipping the
+    // push also skips the disk persist (the buffer hasn't changed).
+    //
+    // CRITICAL: this dedup MUST come AFTER the same-ts merge branch above,
+    // not before — a pre-merge tail dedup would incorrectly drop an
+    // out-of-order arrival whose ts matches a mid-buffer row but whose
+    // values match the tail, bypassing the strike-map-union merge and
+    // leaving the mid-buffer row partial. Gating on `insertIdx === buf.length`
+    // (true tail-append) plus the same-ts branch above guarantees the
+    // merge always runs when applicable. Mid-buffer splice inserts
+    // (rare out-of-order arrivals with ts strictly between two existing
+    // rows) intentionally bypass dedup since they carry novel
+    // intermediate-time data even if values happen to equal the tail.
+    if (buf.length > 0 && snapDataEquals(buf[buf.length - 1]!, snap)) {
+      return;
+    }
     buf.push(snap);
   } else {
     buf.splice(insertIdx, 0, snap);
