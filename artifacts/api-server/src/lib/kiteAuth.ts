@@ -222,6 +222,14 @@ const instrCacheByExchange = new Map<string, ExchangeCache>();
 const instrInflight = new Map<string, Promise<any[]>>();
 const instrFailTs = new Map<string, number>();
 const instrFailCount = new Map<string, number>();
+/**
+ * Generation token for cooldown state. Bumped by `clearInstrumentsCooldown()`.
+ * In-flight `getInstruments` callbacks capture the gen at call-time and skip
+ * all post-clear state writes (cache set, fail-cooldown set, inflight delete)
+ * if the generation has changed under them. Prevents stale upstream failures
+ * from re-introducing cooldown after a successful force-refresh.
+ */
+let instrGeneration = 0;
 
 let failCooldownHydrated = false;
 
@@ -290,9 +298,14 @@ function wrapGetInstruments(kc: any): void {
     const existing = instrInflight.get(ex);
     if (existing) return existing;
 
-    const promise = (async () => {
+    const callGen = instrGeneration;
+    let promise!: Promise<any[]>;
+    promise = (async () => {
       try {
         const rows = await original(exchange);
+        // Generation guard: a clearInstrumentsCooldown() ran mid-flight.
+        // Skip ALL state writes — the post-clear world owns the cache now.
+        if (callGen !== instrGeneration) return rows;
         if (Array.isArray(rows) && rows.length > 0) {
           instrCacheByExchange.set(ex, { rows, ts: Date.now() });
           instrFailTs.delete(ex);
@@ -302,6 +315,16 @@ function wrapGetInstruments(kc: any): void {
         }
         return rows;
       } catch (err) {
+        // Same generation guard on the failure path: don't reintroduce
+        // cooldown after a force-refresh has cleared it.
+        if (callGen !== instrGeneration) {
+          logger.warn(
+            { exchange: ex, err: (err as Error).message },
+            "Kite getInstruments failed (stale generation — cooldown not applied)",
+          );
+          if (cached) return cached.rows;
+          return [];
+        }
         const newCount = (instrFailCount.get(ex) ?? 0) + 1;
         instrFailTs.set(ex, Date.now());
         instrFailCount.set(ex, newCount);
@@ -314,12 +337,107 @@ function wrapGetInstruments(kc: any): void {
         if (cached) return cached.rows;
         return [];
       } finally {
-        instrInflight.delete(ex);
+        // Only delete the inflight entry if we still own the slot (i.e.
+        // no clear happened OR the clear didn't replace our promise).
+        if (callGen === instrGeneration && instrInflight.get(ex) === promise) {
+          instrInflight.delete(ex);
+        }
       }
     })();
     instrInflight.set(ex, promise);
     return promise;
   };
+}
+
+/**
+ * Force-clear all instruments cooldown / cache state. Bumps the generation
+ * token so any in-flight wrapped getInstruments call cannot reintroduce
+ * cooldown after we return. Also wipes the on-disk caches by overwriting
+ * with empty arrays — `hydrateExchangeFromDisk` skips empty payloads, so
+ * subsequent calls won't be served stale instruments.
+ *
+ * Returns a snapshot of what was cleared (for the API response).
+ */
+export function clearInstrumentsCooldown(): {
+  clearedCacheExchanges: string[];
+  clearedCooldownExchanges: string[];
+  clearedInflight: number;
+} {
+  const cacheKeys = Array.from(instrCacheByExchange.keys());
+  const failKeys = Array.from(instrFailTs.keys());
+  const inflightCount = instrInflight.size;
+  // Bump generation BEFORE clearing maps so any in-flight callback that
+  // resolves after this point sees `callGen !== instrGeneration` and
+  // skips its cache/cooldown writes.
+  instrGeneration++;
+  instrCacheByExchange.clear();
+  instrFailTs.clear();
+  instrFailCount.clear();
+  instrInflight.clear();
+  persistFailCooldown();
+  // Wipe disk too — a fresh process start (or any call that goes through
+  // hydrateExchangeFromDisk) should see no stale cache.
+  const exchangesToWipe = new Set([...cacheKeys, ...failKeys, "NSE", "NFO", "BFO"]);
+  for (const ex of exchangesToWipe) {
+    saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, []);
+  }
+  return {
+    clearedCacheExchanges: cacheKeys,
+    clearedCooldownExchanges: failKeys,
+    clearedInflight: inflightCount,
+  };
+}
+
+/**
+ * Admin one-shot: clears cooldown/cache, then calls the raw Kite SDK
+ * `getInstruments` directly via a request-scoped, NON-wrapped KiteConnect
+ * instance. This sidesteps the wrapper's swallow-and-fall-back behaviour
+ * so true upstream errors propagate, while having ZERO effect on any
+ * concurrent normal `getInstruments()` calls in the rest of the process
+ * (they continue to flow through their own wrapped clients with full
+ * cache/cooldown semantics intact).
+ *
+ * On per-exchange success, seeds the shared wrapper cache + disk so the
+ * rest of the app sees the fresh data on its next call.
+ *
+ * Returns null if no Kite session is active. Otherwise returns per-exchange
+ * `{count}` on success or `{error}` on failure.
+ */
+export async function forceRefreshInstruments(): Promise<{
+  cleared: ReturnType<typeof clearInstrumentsCooldown>;
+  results: Record<string, { count: number } | { error: string }>;
+} | null> {
+  // Check session BEFORE the destructive clear — a 409 must be
+  // non-destructive (don't wipe a perfectly good warm cache just because
+  // the user has been logged out).
+  const session = await getActiveSession();
+  if (!session) return null;
+  const cleared = clearInstrumentsCooldown();
+  // Deliberately NOT wrapped — we want the SDK's getInstruments to throw
+  // on upstream failure so the admin route can report a real error.
+  const rawKc = new KiteConnect({ api_key: session.apiKey });
+  rawKc.setAccessToken(session.accessToken);
+  const results: Record<string, { count: number } | { error: string }> = {};
+  const exchanges = ["NSE", "NFO", "BFO"] as const;
+  await Promise.all(
+    exchanges.map(async (ex) => {
+      try {
+        const rows = (await rawKc.getInstruments(ex)) as unknown[];
+        const count = Array.isArray(rows) ? rows.length : 0;
+        results[ex] = { count };
+        if (count > 0) {
+          // Seed the shared wrapper cache + disk so the rest of the app
+          // sees the fresh dump on its next call instead of treating the
+          // post-clear empty disk as cold.
+          instrCacheByExchange.set(ex, { rows: rows as any[], ts: Date.now() });
+          saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, rows);
+        }
+      } catch (err) {
+        results[ex] = { error: (err as Error).message };
+      }
+    }),
+  );
+  return { cleared, results };
 }
 
 /** Build a KiteConnect REST client from the active session, or return null. */

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import crypto from "node:crypto";
-import { buildLoginUrl, clearSession, completeLogin, getActiveSession, getKiteCreds, storeImportedSession, exportInstrumentsCache, type ExportedSession } from "../lib/kiteAuth";
+import { buildLoginUrl, clearSession, completeLogin, forceRefreshInstruments, getActiveSession, getKiteCreds, storeImportedSession, exportInstrumentsCache, type ExportedSession } from "../lib/kiteAuth";
 import { addTickListener, feedStatus, getAllLiveQuotes, getLiveQuote, startTicker, stopTicker, subscribe } from "../lib/kiteFeed";
 import { requireOwner } from "../lib/userAuth";
 import { logger } from "../lib/logger";
@@ -89,6 +89,27 @@ router.post("/kite/logout", async (_req, res) => {
   stopTicker();
   await clearSession();
   res.json({ ok: true });
+});
+
+/**
+ * Force-clear the instruments cooldown/cache and immediately re-pull NSE,
+ * NFO, and BFO from Kite. Use after a Kite-side outage (ECONNRESET on the
+ * bulk instruments endpoint) when you don't want to wait for the
+ * exponential-backoff window to expire.
+ *
+ * Owner-only. Returns counts per exchange or per-exchange error message.
+ */
+router.post("/kite/refresh-instruments", async (_req, res) => {
+  const out = await forceRefreshInstruments();
+  if (!out) {
+    res.status(409).json({
+      ok: false,
+      error: "No active Kite session — log in first.",
+    });
+    return;
+  }
+  logger.info({ cleared: out.cleared, results: out.results }, "Kite instruments cooldown cleared and re-fetched");
+  res.json({ ok: true, ...out });
 });
 
 /** Export the active session so a peer environment (typically dev) can mirror

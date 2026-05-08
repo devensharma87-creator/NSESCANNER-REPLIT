@@ -103,6 +103,45 @@ export default function KitePage() {
     setTicks({});
   };
 
+  // ── Force-refresh instruments ────────────────────────────────────────────
+  // When Kite has an upstream outage on the bulk getInstruments endpoint
+  // (ECONNRESET on the ~50k-row NFO dump), the wrapper in kiteAuth.ts puts
+  // the failing exchange into an exponential cooldown (5 → 10 → 20 min ...)
+  // and serves an empty cached list during the window. Symptoms: Option
+  // Chain "Analytics fetch failed", OI Lab "no option-chain data", scanner
+  // collapses to the curated 199-symbol fallback. This button clears the
+  // cooldown maps and immediately re-pulls NSE / NFO / BFO.
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const handleRefreshInstruments = async () => {
+    setRefreshBusy(true);
+    setRefreshMsg(null);
+    try {
+      const r = await fetch(API("/kite/refresh-instruments"), { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setRefreshMsg({ type: "err", text: j.error ?? `Refresh failed (HTTP ${r.status})` });
+      } else {
+        const parts: string[] = [];
+        for (const [ex, v] of Object.entries(j.results as Record<string, { count?: number; error?: string }>)) {
+          if (typeof v.count === "number") parts.push(`${ex}: ${v.count.toLocaleString("en-IN")}`);
+          else parts.push(`${ex}: ✗ ${v.error}`);
+        }
+        const allOk = Object.values(j.results as Record<string, { count?: number }>).every(v => typeof v.count === "number" && v.count > 0);
+        setRefreshMsg({
+          type: allOk ? "ok" : "err",
+          text: allOk
+            ? `Refreshed — ${parts.join(" · ")}. Option Chain & OI Lab should now load.`
+            : `Partial — ${parts.join(" · ")}. Kite is still unstable; try again in a minute.`,
+        });
+      }
+    } catch (e) {
+      setRefreshMsg({ type: "err", text: (e as Error).message });
+    } finally {
+      setRefreshBusy(false);
+    }
+  };
+
   // ── Mirror-from-production ────────────────────────────────────────────────
   // Zerodha allows ONE Redirect URL per Connect app, so the daily login can
   // only complete on the production domain. This pulls the active session row
@@ -230,7 +269,26 @@ export default function KitePage() {
               >
                 <LogOut className="h-3.5 w-3.5" /> Disconnect
               </button>
+              <button
+                onClick={handleRefreshInstruments}
+                disabled={refreshBusy}
+                className="inline-flex items-center gap-2 rounded-md border border-amber-500/30 text-amber-300 px-3 py-1.5 text-xs font-semibold hover:bg-amber-500/10 disabled:opacity-40"
+                data-testid="button-refresh-instruments"
+                title="Clears NFO/BFO/NSE instruments cooldown and re-pulls from Kite. Use when Option Chain / OI Lab show empty after a Kite outage."
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshBusy ? "animate-spin" : ""}`} /> {refreshBusy ? "Refreshing…" : "Force-refresh instruments"}
+              </button>
             </div>
+            {refreshMsg && (
+              <div className={`md:col-span-2 mt-2 px-3 py-2 rounded-md text-xs flex items-start gap-2 ${
+                refreshMsg.type === "ok"
+                  ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
+                  : "bg-red-500/10 border border-red-500/30 text-red-300"
+              }`}>
+                {refreshMsg.type === "ok" ? <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />}
+                <span className="break-words">{refreshMsg.text}</span>
+              </div>
+            )}
           </div>
         )}
       </section>
