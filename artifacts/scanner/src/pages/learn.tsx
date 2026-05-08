@@ -1151,7 +1151,7 @@ function TopicSection({ topic }: { topic: Topic }) {
                       </span>
                       {nature && (
                         <span
-                          className={`font-mono text-[9.5px] uppercase tracking-wider ${colorClass} shrink-0 text-right leading-tight pt-0.5`}
+                          className={`font-mono text-[10.5px] uppercase tracking-wider ${colorClass} shrink-0 text-right leading-tight pt-0.5`}
                         >
                           {nature}
                         </span>
@@ -1175,7 +1175,7 @@ function TopicSection({ topic }: { topic: Topic }) {
                     <h3 className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
                       Heading 01 — Candlestick patterns
                     </h3>
-                    <span className="text-[10px] text-muted-foreground/70 ml-auto">
+                    <span className="text-[11px] text-muted-foreground/70 ml-auto hidden sm:inline">
                       Diagram, nature & description shown for every pattern
                     </span>
                   </div>
@@ -1190,7 +1190,7 @@ function TopicSection({ topic }: { topic: Topic }) {
                     <h3 className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
                       Heading 02 — Chart patterns
                     </h3>
-                    <span className="text-[10px] text-muted-foreground/70 ml-auto">
+                    <span className="text-[11px] text-muted-foreground/70 ml-auto hidden sm:inline">
                       Diagram, nature & description shown for every pattern
                     </span>
                   </div>
