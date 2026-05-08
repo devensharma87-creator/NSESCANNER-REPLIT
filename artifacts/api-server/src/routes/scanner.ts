@@ -688,54 +688,166 @@ router.get("/scan/full-nse/status", (_req, res) => {
 
 /**
  * GET /api/scan/full-nse/export?format=csv|json
+ *   &signal=STRONG_BUY|BUY|NEUTRAL|SELL|STRONG_SELL
+ *   &sector=<exact sector label>
+ *   &search=<symbol/name substring>
+ *   &screen=<screen preset id matching the UI dropdown>
  *
- * Streams every currently-cached row as a downloadable file. Triggers a
- * scan first if the cache is cold so the user always gets a non-empty file.
- * No filter parameters — the whole universe is exported deliberately so
- * downloads are deterministic. Re-filter offline if needed.
+ * Streams currently-cached rows as a downloadable file, after applying the
+ * SAME filter set the UI exposes. Without filters the entire universe ships
+ * (back-compat). Triggers a scan first if the cache is cold so the user
+ * always gets a non-empty file.
+ *
+ * NOTE: filter logic must stay in lock-step with the client-side
+ * `sortedStocks` filter in `scanner.tsx` so the downloaded file matches
+ * exactly what the user sees on screen.
  */
 router.get("/scan/full-nse/export", async (req, res, next) => {
   try {
-    let { rows, sourceDate, lastUpdated } = getAllScannedRows();
-    if (rows.length === 0) {
+    let { rows: fullRows, sourceDate, lastUpdated } = getAllScannedRows();
+    if (fullRows.length === 0) {
       // Cold cache — kick a fetch and re-read.
       const fresh = await scanFullNse();
-      rows = fresh.rows;
+      fullRows = fresh.rows;
       sourceDate = fresh.sourceDate;
       lastUpdated = fresh.lastUpdated;
     }
+    // Mirror the frontend's `mergedStocks`: full NSE universe overlaid by
+    // the curated F&O scanner (curated wins on overlap because it has
+    // strictly richer indicators — sector tags, ema100/ema200, etc.).
+    // We use the CACHED curated snapshot rather than awaiting a fresh
+    // `scanAll()` so the export endpoint doesn't block on an upstream
+    // refresh. If the curated cache is empty, the export gracefully
+    // degrades to full-NSE-only — matching what the UI would show in
+    // that state.
+    const curated = getCachedScanRows().rows;
+    const bySymbol = new Map<string, typeof fullRows[number]>();
+    for (const r of fullRows) bySymbol.set(r.symbol, r);
+    for (const r of curated) bySymbol.set(r.symbol, r);
+    const rows = Array.from(bySymbol.values());
     const format = String(req.query["format"] ?? "csv").toLowerCase();
-    // Flatten StockRow → wide spreadsheet row (one row per symbol with the
-    // most useful indicator columns broken out side-by-side).
-    const flat = rows.map(r => ({
-      symbol: r.symbol,
-      name: r.name,
-      sector: r.sector,
-      price: r.quote.price,
-      change: r.quote.change,
-      changePct: r.quote.changePercent,
-      open: r.quote.open,
-      high: r.quote.high,
-      low: r.quote.low,
-      previousClose: r.quote.previousClose,
-      volume: r.quote.volume,
-      avgVolume: r.quote.avgVolume,
-      fiftyTwoWeekHigh: r.quote.fiftyTwoWeekHigh ?? "",
-      fiftyTwoWeekLow:  r.quote.fiftyTwoWeekLow ?? "",
-      vwap:    r.indicators?.vwap ?? "",
-      ema20:   r.indicators?.ema20 ?? "",
-      ema50:   r.indicators?.ema50 ?? "",
-      ema100:  r.indicators?.ema100 ?? "",
-      ema200:  r.indicators?.ema200 ?? "",
-      rsi14:   r.indicators?.rsi14 ?? "",
-      atr14:   r.indicators?.atr14 ?? "",
-      volumeRatio: r.indicators?.volumeRatio ?? "",
-      deliveryPct: r.indicators?.deliveryPct ?? "",
-      score: r.recommendation.score,
-      signal: r.recommendation.signal,
-      sourceDate: sourceDate ?? "",
-      asOf: lastUpdated ? new Date(lastUpdated).toISOString() : "",
-    }));
+
+    // ── Apply the UI-equivalent filter set ─────────────────────────────
+    const signal = typeof req.query["signal"] === "string" && req.query["signal"] !== "all"
+      ? String(req.query["signal"]).toUpperCase()
+      : null;
+    const sector = typeof req.query["sector"] === "string" && req.query["sector"] !== "all"
+      ? String(req.query["sector"])
+      : null;
+    const search = typeof req.query["search"] === "string"
+      ? String(req.query["search"]).trim().toUpperCase()
+      : "";
+    const screen = typeof req.query["screen"] === "string" && req.query["screen"] !== "none"
+      ? String(req.query["screen"])
+      : null;
+
+    let filtered = rows;
+    if (signal) filtered = filtered.filter(r => r.recommendation.signal === signal);
+    if (sector) filtered = filtered.filter(r => r.sector === sector);
+    if (search) filtered = filtered.filter(r =>
+      r.symbol.toUpperCase().includes(search) || (r.name ?? "").toUpperCase().includes(search)
+    );
+    if (screen) {
+      filtered = filtered.filter(s => {
+        const ind = s.indicators;
+        const q = s.quote;
+        switch (screen) {
+          case "rsiOversold":   return ind?.rsi14 != null && ind.rsi14 < 30;
+          case "rsiOverbought": return ind?.rsi14 != null && ind.rsi14 > 70;
+          case "aboveVwap":     return ind?.vwap != null && q.price > ind.vwap;
+          case "belowVwap":     return ind?.vwap != null && q.price < ind.vwap;
+          case "volSpike":      return ind?.volumeRatio != null && ind.volumeRatio > 2;
+          case "near52wHigh":   return q.fiftyTwoWeekHigh != null && q.price >= q.fiftyTwoWeekHigh * 0.95;
+          case "near52wLow":    return q.fiftyTwoWeekLow  != null && q.price <= q.fiftyTwoWeekLow  * 1.05;
+          case "goldenCross":   return ind?.ema20 != null && ind?.ema50 != null && ind?.ema200 != null
+                                     && ind.ema20 > ind.ema50 && ind.ema50 > ind.ema200;
+          case "deathCross":    return ind?.ema20 != null && ind?.ema50 != null && ind?.ema200 != null
+                                     && ind.ema20 < ind.ema50 && ind.ema50 < ind.ema200;
+          case "topBuys":       return s.recommendation.signal === "STRONG_BUY";
+          case "topSells":      return s.recommendation.signal === "STRONG_SELL";
+          default:              return true;
+        }
+      });
+    }
+    // Sort by score desc — same as the UI's default sort so the CSV reads
+    // like the on-screen table.
+    filtered = filtered.slice().sort((a, b) => b.recommendation.score - a.recommendation.score);
+
+    // Flatten StockRow → wide spreadsheet row. Surfaces every populated
+    // indicator + recommendation field so the file is genuinely useful for
+    // offline analysis (Excel pivots, Sheets queries, R/Python ingest).
+    const flat = filtered.map(r => {
+      const ind = r.indicators ?? {};
+      const rec = r.recommendation;
+      // Top 3 reasons by absolute weight, joined into a single cell so a
+      // human can read why the engine flagged the stock without opening
+      // the JSON view.
+      const topReasons = (rec.reasons ?? [])
+        .slice()
+        .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))
+        .slice(0, 3)
+        .map(x => `${x.bullish ? "+" : "-"}${x.label} (w${x.weight})`)
+        .join(" | ");
+      return {
+        symbol: r.symbol,
+        name: r.name,
+        sector: r.sector,
+        // ── Quote ──
+        price: r.quote.price,
+        change: r.quote.change,
+        changePct: r.quote.changePercent,
+        open: r.quote.open,
+        high: r.quote.high,
+        low: r.quote.low,
+        previousClose: r.quote.previousClose,
+        volume: r.quote.volume,
+        avgVolume: r.quote.avgVolume,
+        fiftyTwoWeekHigh: r.quote.fiftyTwoWeekHigh ?? "",
+        fiftyTwoWeekLow:  r.quote.fiftyTwoWeekLow ?? "",
+        // ── Trend / momentum indicators ──
+        vwap:    ind.vwap    ?? "",
+        ema9:    ind.ema9    ?? "",
+        ema20:   ind.ema20   ?? "",
+        ema21:   ind.ema21   ?? "",
+        ema50:   ind.ema50   ?? "",
+        ema100:  ind.ema100  ?? "",
+        ema200:  ind.ema200  ?? "",
+        rsi14:   ind.rsi14   ?? "",
+        macd:        ind.macd        ?? "",
+        macdSignal:  ind.macdSignal  ?? "",
+        macdHist:    ind.macdHist    ?? "",
+        atr14:   ind.atr14   ?? "",
+        adx14:   ind.adx14   ?? "",
+        trendStrength: ind.trendStrength ?? "",
+        // ── Volume / delivery ──
+        volumeRatio: ind.volumeRatio ?? "",
+        deliveryPct: ind.deliveryPct ?? "",
+        // ── Levels (pivots + S/R + value area) ──
+        pivot:           ind.pivot           ?? "",
+        r1:              ind.r1              ?? "",
+        s1:              ind.s1              ?? "",
+        supportLevel:    ind.supportLevel    ?? "",
+        resistanceLevel: ind.resistanceLevel ?? "",
+        valueAreaHigh:   ind.valueAreaHigh   ?? "",
+        valueAreaLow:    ind.valueAreaLow    ?? "",
+        pointOfControl:  ind.pointOfControl  ?? "",
+        // ── F&O OI buildup tag from heatmap (null for non-F&O names) ──
+        futOiBuildup: (ind as Record<string, unknown>).futOiBuildup ?? "",
+        // ── Recommendation / setup ──
+        score:        rec.score,
+        signal:       rec.signal,
+        confidence:   rec.confidence ?? "",
+        displayLabel: rec.displayLabel ?? "",
+        setupStatus:  rec.setupStatus ?? "",
+        target:       rec.target ?? "",
+        stopLoss:     rec.stopLoss ?? "",
+        riskRewardRatio: rec.riskRewardRatio ?? "",
+        topReasons,
+        // ── Provenance ──
+        sourceDate: sourceDate ?? "",
+        asOf: lastUpdated ? new Date(lastUpdated).toISOString() : "",
+      };
+    });
     sendCsvExport(res, "nse-scan", format, flat);
   } catch (err) { next(err); }
 });

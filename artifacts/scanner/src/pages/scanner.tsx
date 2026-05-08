@@ -544,22 +544,57 @@ export default function ScannerPage() {
               <span>{Math.round((fullProgress.scanned / Math.max(1, fullProgress.total)) * 100)}%</span>
             </div>
           )}
-          <div className="inline-flex items-center gap-1.5">
-            <a
-              href="/api/scan/full-nse/export?format=csv"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary font-mono text-[11px] uppercase tracking-wider transition-colors"
-              download
-            >
-              <Download className="h-3 w-3" /> CSV
-            </a>
-            <a
-              href="/api/scan/full-nse/export?format=json"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary font-mono text-[11px] uppercase tracking-wider transition-colors"
-              download
-            >
-              <Download className="h-3 w-3" /> JSON
-            </a>
-          </div>
+          {(() => {
+            // Mirror the on-screen filter set into the export URL so the
+            // downloaded file contains EXACTLY the rows the user is
+            // looking at — not the full 4,000-row universe.
+            const buildExportUrl = (format: "csv" | "json"): string => {
+              const qs = new URLSearchParams({ format });
+              if (signalFilter !== "all") qs.set("signal", signalFilter);
+              if (sectorFilter !== "all") qs.set("sector", sectorFilter);
+              if (searchFilter.trim())    qs.set("search", searchFilter.trim());
+              if (screen !== "none")      qs.set("screen", screen);
+              return `/api/scan/full-nse/export?${qs.toString()}`;
+            };
+            const filterCount =
+              (signalFilter !== "all" ? 1 : 0) +
+              (sectorFilter !== "all" ? 1 : 0) +
+              (searchFilter.trim() ? 1 : 0) +
+              (screen !== "none" ? 1 : 0);
+            const exportTitle = filterCount > 0
+              ? `Export ${sortedStocks.length.toLocaleString("en-IN")} filtered rows (${filterCount} filter${filterCount > 1 ? "s" : ""} applied)`
+              : `Export entire universe (${mergedStocks.length.toLocaleString("en-IN")} rows)`;
+            return (
+              <div className="inline-flex items-center gap-1.5">
+                <a
+                  href={buildExportUrl("csv")}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary font-mono text-[11px] uppercase tracking-wider transition-colors"
+                  download
+                  title={exportTitle}
+                >
+                  <Download className="h-3 w-3" /> CSV
+                  {filterCount > 0 && (
+                    <span className="ml-1 px-1 py-0 rounded bg-primary/20 text-primary text-[9px]">
+                      {sortedStocks.length}
+                    </span>
+                  )}
+                </a>
+                <a
+                  href={buildExportUrl("json")}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 hover:text-primary font-mono text-[11px] uppercase tracking-wider transition-colors"
+                  download
+                  title={exportTitle}
+                >
+                  <Download className="h-3 w-3" /> JSON
+                  {filterCount > 0 && (
+                    <span className="ml-1 px-1 py-0 rounded bg-primary/20 text-primary text-[9px]">
+                      {sortedStocks.length}
+                    </span>
+                  )}
+                </a>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
