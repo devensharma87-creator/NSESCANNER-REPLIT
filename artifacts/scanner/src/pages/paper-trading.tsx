@@ -244,6 +244,7 @@ export default function PaperTrading() {
 }
 
 function EquitySegment() {
+  const qc = useQueryClient();
   const account = useQuery({
     queryKey: QK_ACCOUNT_EQ,
     queryFn: () => api<PaperAccount>(`/paper/account?segment=EQUITY`),
@@ -254,6 +255,9 @@ function EquitySegment() {
     queryFn: () => api<{ positions: OpenEqPosition[]; generatedAt: string }>(`/paper/positions/eq`),
     refetchInterval: 15_000,
   });
+  const handleTopupSuccess = () => {
+    void qc.invalidateQueries({ queryKey: QK_ACCOUNT_EQ });
+  };
   // Closed/historical trades intentionally NOT fetched here — Paper tab is
   // live-only by design. Reports tab (/paper-reports) carries the history.
   return (
@@ -263,6 +267,7 @@ function EquitySegment() {
         openPositions={positions.data?.positions ?? []}
         loading={account.isLoading}
         error={account.error instanceof Error ? account.error.message : null}
+        onTopupSuccess={handleTopupSuccess}
       />
       <EqPositionsCard
         positions={positions.data?.positions ?? []}
@@ -273,12 +278,14 @@ function EquitySegment() {
   );
 }
 
-function EqAccountCard({ data, openPositions, loading, error }: {
+function EqAccountCard({ data, openPositions, loading, error, onTopupSuccess }: {
   data?: PaperAccount;
   openPositions: OpenEqPosition[];
   loading: boolean;
   error: string | null;
+  onTopupSuccess: () => void;
 }) {
+  const [topupOpen, setTopupOpen] = useState(false);
   if (error) {
     return (
       <Card>
@@ -312,11 +319,22 @@ function EqAccountCard({ data, openPositions, loading, error }: {
   const realizedLifetime = data.lifetimeRealizedPnl ?? 0;
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Equity Account</CardTitle>
-        <CardDescription>
-          Live capital snapshot. Closed-trade history lives in the Reports tab.
-        </CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle>Equity Account</CardTitle>
+          <CardDescription>
+            Live capital snapshot. Closed-trade history lives in the Reports tab.
+            Use Add capital to top up the running cash balance.
+          </CardDescription>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setTopupOpen(true)}
+          data-testid="button-topup-eq"
+        >
+          Add capital
+        </Button>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Section 1 — Capital ledger */}
@@ -364,6 +382,13 @@ function EqAccountCard({ data, openPositions, loading, error }: {
           </div>
         </div>
       </CardContent>
+      <TopupDialog
+        open={topupOpen}
+        onClose={() => setTopupOpen(false)}
+        onSuccess={onTopupSuccess}
+        segment="EQUITY"
+        currentBalance={data.balance}
+      />
     </Card>
   );
 }
