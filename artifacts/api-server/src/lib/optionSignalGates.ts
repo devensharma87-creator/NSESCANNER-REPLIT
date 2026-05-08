@@ -2,6 +2,7 @@ import { db, optionSignalHistoryTable } from "@workspace/db";
 import { and, eq, sql, gte } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchKiteIntraday } from "./kiteIntraday";
+import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
 import type { OptionSignal } from "@workspace/api-zod";
 
 /**
@@ -94,6 +95,12 @@ export interface RecentStop {
   minutesAgo: number;
 }
 
+export interface SetupWinRate {
+  wins: number;
+  total: number;
+  winRate: number;
+}
+
 export interface GateContext {
   /** Total STOPPED rows for today's IST date across all indices. */
   stoppedToday: number;
@@ -106,6 +113,13 @@ export interface GateContext {
   /** True iff any global suppression (circuit breaker OR VIX spike) is on.
    *  Per-index gates (bias flip) are NOT folded into this. */
   globalSuppress: boolean;
+  /** Pass-3 (E): rolling 30-day per-setup win-rate from CLOSED paper_trade_fo
+   *  rows. Empty when the query failed (gate becomes a no-op). */
+  setupWinRates: Map<string, SetupWinRate>;
+  /** Pass-3 (D): NIFTY 5-day spot return % — the benchmark for sector
+   *  relative-strength comparisons. Null when Kite daily fetch failed
+   *  (gate becomes a no-op). */
+  nifty5dReturn: number | null;
   /** Human-readable lines describing every active gate. UI banner reads
    *  these verbatim, so they should be plain English. */
   notes: string[];
@@ -194,6 +208,81 @@ async function loadRecentStopsByIndex(
     );
   }
   return out;
+}
+
+// --- Pass-3 (E): rolling per-setup win-rate ---
+
+/**
+ * Group CLOSED paper_trade_fo rows over the last LOOKBACK_DAYS by
+ * setup_key, returning per-setup wins / total / win-rate. The emission
+ * loop reads this map and demotes HC candidates whose setup is currently
+ * underperforming (with sample-size guard).
+ *
+ * Failure is non-fatal: an empty map disables the gate (benefit of the
+ * doubt) — never blocks signal flow.
+ */
+async function loadSetupWinRates(): Promise<Map<string, SetupWinRate>> {
+  const cutoff = new Date(
+    Date.now() - WIN_RATE_CALIBRATION.LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+  );
+  const out = new Map<string, SetupWinRate>();
+  try {
+    const result = await db.execute(sql`
+      SELECT setup_key,
+             COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS wins
+        FROM paper_trade_fo
+       WHERE status = 'CLOSED'
+         AND opened_at >= ${cutoff}
+       GROUP BY setup_key
+    `);
+    const rows = (
+      result as unknown as {
+        rows: Array<{ setup_key: string; total: string | number; wins: string | number }>;
+      }
+    ).rows;
+    for (const r of rows) {
+      const total = typeof r.total === "number" ? r.total : Number(r.total);
+      const wins = typeof r.wins === "number" ? r.wins : Number(r.wins);
+      const winRate = total > 0 ? wins / total : 0;
+      out.set(r.setup_key, { wins, total, winRate });
+    }
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "loadSetupWinRates: query failed; LOW_WINRATE gate disabled this cycle",
+    );
+  }
+  return out;
+}
+
+// --- Pass-3 (D): NIFTY 5-day return as relative-strength benchmark ---
+
+/**
+ * Fetch NIFTY's last LOOKBACK_DAYS+1 daily closes and compute the
+ * percentage return from the oldest to the latest. Returned as the
+ * "broad-market" reference; per-index returns are computed inside
+ * buildContext from the same daily series each index already loads.
+ *
+ * Returns null on Kite failure / insufficient bars — gate becomes a
+ * no-op rather than mis-classifying.
+ */
+async function loadNifty5dReturn(): Promise<number | null> {
+  try {
+    const bars = await fetchKiteIntraday("^NSEI", "day", RELATIVE_STRENGTH.LOOKBACK_DAYS + 5);
+    if (!bars || bars.close.length < RELATIVE_STRENGTH.LOOKBACK_DAYS + 1) return null;
+    const closes = bars.close;
+    const last = closes[closes.length - 1]!;
+    const ago = closes[closes.length - 1 - RELATIVE_STRENGTH.LOOKBACK_DAYS]!;
+    if (!(ago > 0) || !Number.isFinite(last)) return null;
+    return ((last - ago) / ago) * 100;
+  } catch (err) {
+    logger.info(
+      { err: (err as Error).message },
+      "loadNifty5dReturn failed; RS_CONFLICT gate disabled this cycle",
+    );
+    return null;
+  }
 }
 
 // --- VIX ---
@@ -300,10 +389,12 @@ async function loadVixSnapshot(): Promise<VixSnapshot> {
  * a consistent snapshot.
  */
 export async function loadGateContext(): Promise<GateContext> {
-  const [stoppedToday, recentStops, vix] = await Promise.all([
+  const [stoppedToday, recentStops, vix, setupWinRates, nifty5dReturn] = await Promise.all([
     loadStoppedTodayCount(),
     loadRecentStopsByIndex(BIAS_FLIP_COOLDOWN_MIN),
     loadVixSnapshot(),
+    loadSetupWinRates(),
+    loadNifty5dReturn(),
   ]);
 
   const circuitBreakerActive = stoppedToday >= DAILY_STOP_LIMIT;
@@ -333,6 +424,8 @@ export async function loadGateContext(): Promise<GateContext> {
     recentStopsByIndex: recentStops,
     vix,
     globalSuppress,
+    setupWinRates,
+    nifty5dReturn,
     notes,
   };
 }

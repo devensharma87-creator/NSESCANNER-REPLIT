@@ -16,7 +16,7 @@ import {
   type SpotSnapshot,
 } from "./optionSignalLifecycle";
 import { computeMarketStatus } from "./marketEvents";
-import { fetchOiInsights, type OiInsightsResponse } from "./oiLab";
+import { fetchOiInsights, type OiInsightsResponse, type OiStrikeRow } from "./oiLab";
 import { classifyVolRegime, resolveDataQuality, isActionableForFno, type VolRegime, type DataQualityLabel } from "./tradingConfig";
 import {
   loadGateContext,
@@ -27,6 +27,7 @@ import {
   OI_VETO_THRESHOLD,
   type GateContext,
 } from "./optionSignalGates";
+import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
 
 export interface IndexCfg {
   symbol: string;
@@ -183,6 +184,16 @@ interface Ctx {
   atrDaily: number;
   dailyEma50: number;
   htfBias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  /** Pass-3 (A): TRUE 1-hour HTF bias derived from 4×15m aggregated bars
+   *  (EMA9/21 stack on the resampled 60m close series). Independent of
+   *  the daily-EMA50 `htfBias` — surfaces direction agreement at the
+   *  next-higher swing-trade timeframe. NEUTRAL when warm-up is
+   *  incomplete (<21 60m bars). */
+  htf1hBias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  /** Pass-3 (D): this index's 5-day spot return % from the daily series.
+   *  Compared in the emission loop against gateCtx.nifty5dReturn for the
+   *  RS_CONFLICT gate. Null when daily series too short. */
+  index5dReturn: number | null;
   avgVol20: number;
   lastVol: number | null;
   prevSwingHigh: number;
@@ -337,6 +348,69 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     : spot < effectiveDailyEma * 0.996 ? "BEARISH"
     : "NEUTRAL";
 
+  // Pass-3 (A): TRUE 1-hour HTF aggregation — session-aware. Naive
+  // walking-backwards 4-bar chunking would silently span the overnight
+  // gap (mixing yesterday's last bars with today's first into a single
+  // synthetic "candle"), distorting EMA9/21 with a phantom gap-jump.
+  // Instead: group intra bars by IST trading date using `intra.timestamps`,
+  // and within EACH session take the close of every completed 4-bar
+  // chunk from session-open forward (e.g. bars 1-4, 5-8, ...). Any
+  // orphan partial chunk at the END of a session is discarded — we
+  // would otherwise emit a half-formed candle whose close is the same
+  // as the latest 15m close (already represented in lower-TF series).
+  // For the LATEST (in-progress) session this means the freshest 60m
+  // candle has at least 4 closed 15m bars before it appears. NSE F&O
+  // sessions are 25 bars (09:15-15:30 IST) so a full day yields 6
+  // 60m candles. Concatenating chronologically across the 5-day intra
+  // window gives ~30 60m bars by mid-day-3 of warm-up.
+  const htf60Closes: number[] = [];
+  if (intra.timestamps && intra.timestamps.length === intraCloses.length) {
+    const istDateOf = (sec: number): string =>
+      new Date(sec * 1000 + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    // Bucket bar indices by IST date in chronological order. Map insertion
+    // order in JS is stable, so iterating Map.values() yields sessions
+    // in the order they first appear (i.e. oldest → newest).
+    const byDay = new Map<string, number[]>();
+    for (let i = 0; i < intra.timestamps.length; i++) {
+      const ts = intra.timestamps[i]!;
+      const day = istDateOf(ts);
+      const list = byDay.get(day) ?? [];
+      list.push(i);
+      byDay.set(day, list);
+    }
+    for (const idxs of byDay.values()) {
+      // Within each session, take the close of every completed 4-bar
+      // group from open (bar 0) forward. Orphan partial group at the
+      // tail is dropped (≤3 bars left over in a 25-bar session = 1
+      // dropped chunk per day, by design).
+      for (let i = 3; i < idxs.length; i += 4) {
+        htf60Closes.push(intraCloses[idxs[i]!]!);
+      }
+    }
+  }
+  let htf1hBias: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+  if (htf60Closes.length >= 21) {
+    const ema9_60  = lastVal(ema(htf60Closes, 9));
+    const ema21_60 = lastVal(ema(htf60Closes, 21));
+    const last60   = htf60Closes[htf60Closes.length - 1]!;
+    if (ema9_60 != null && ema21_60 != null) {
+      if (last60 > ema21_60 && ema9_60 > ema21_60) htf1hBias = "BULLISH";
+      else if (last60 < ema21_60 && ema9_60 < ema21_60) htf1hBias = "BEARISH";
+    }
+  }
+
+  // Pass-3 (D): per-index 5-day spot return from the daily series. The
+  // benchmark (NIFTY 5d) is loaded once per cycle in loadGateContext and
+  // compared in the emission loop. Null when daily series too short.
+  let index5dReturn: number | null = null;
+  if (dn >= RELATIVE_STRENGTH.LOOKBACK_DAYS + 1) {
+    const lastClose = daily.close[dn - 1]!;
+    const agoClose  = daily.close[dn - 1 - RELATIVE_STRENGTH.LOOKBACK_DAYS]!;
+    if (agoClose > 0 && Number.isFinite(lastClose)) {
+      index5dReturn = ((lastClose - agoClose) / agoClose) * 100;
+    }
+  }
+
   let realizedVol14: number | null = null;
   if (dn >= 15) {
     const dailyCloses = daily.close.slice(-15);
@@ -378,6 +452,8 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     vp, vpIntraday, piv,
     atr15: effectiveAtr15, atrDaily: effectiveAtrDaily, dailyEma50: effectiveDailyEma,
     htfBias,
+    htf1hBias,
+    index5dReturn,
     avgVol20,
     lastVol: vols.at(-1) ?? null,
     prevSwingHigh, prevSwingLow,
@@ -493,6 +569,14 @@ interface Detected {
   htfConflictGate?: boolean;          // ctx.htfBias (daily spot vs EMA50) opposes setup direction
   noiseWindow?: "OPENING" | "CLOSING"; // 09:15-09:30 or 15:15-15:30 IST
   inExpiryDay?: boolean;              // ctx.regime.regime === "EXPIRY_DAY"
+  // Pass-3 signal-accuracy gates. Same demote-only semantics as Pass-2B.
+  htf1hConflictGate?: boolean;        // (A) true 1h HTF bias opposes setup direction
+  rsConflictGate?: boolean;           // (D) sector lagging/leading NIFTY against setup direction
+  lowWinRateGate?: boolean;           // (E) setup_key 30d win-rate < threshold (with sample guard)
+  // Note: (G) ATM-OI confluence is enforced post-toSignal in
+  // applyOiConfirmation by mutating tier/tags directly — not via a
+  // Detected flag, since the OI insights aren't available until after
+  // buildSignalsForIndex returns.
 }
 
 // Pass-2A: extreme-volatility hard reject. When the implied minStop
@@ -1096,6 +1180,13 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
   if (d.noiseWindow === "OPENING") tags.push("OPENING_NOISE");
   if (d.noiseWindow === "CLOSING") tags.push("CLOSING_NOISE");
   if (d.inExpiryDay) tags.push("EXPIRY_DAY");
+  // Pass-3 audit tags. Each maps 1:1 to a Detected gate flag set in
+  // the emission loop; presence implies the setup was demoted from
+  // HIGH_CONVICTION to BASELINE for that reason. (OI_ATM_CONFLICT is
+  // pushed later in applyOiConfirmation, not here.)
+  if (d.htf1hConflictGate) tags.push("HTF1H_CONFLICT");
+  if (d.rsConflictGate) tags.push("RS_CONFLICT");
+  if (d.lowWinRateGate) tags.push("LOW_WINRATE");
   return {
     index: c.cfg.symbol,
     indexName: c.cfg.display,
@@ -1383,13 +1474,58 @@ function buildSignalsForIndex(
         ? "CLOSING"
         : undefined;
   const inExpiryDay = ctx.regime.regime === "EXPIRY_DAY";
+  // Pass-3 (D): pull NIFTY 5d benchmark once and skip the RS check on
+  // NIFTY itself (it's the benchmark — comparing against itself would
+  // always read flat).
+  const niftyRet = gateCtx?.nifty5dReturn ?? null;
+  const idxRet = ctx.index5dReturn;
+  const isNiftyBenchmark = cfg.symbol === "NIFTY";
+  const winRates = gateCtx?.setupWinRates;
   for (const d of highConviction) {
+    // Pass-2B (B): daily-EMA50 HTF
     const htfConflict =
       (d.direction === "BULLISH" && ctx.htfBias === "BEARISH") ||
       (d.direction === "BEARISH" && ctx.htfBias === "BULLISH");
     if (htfConflict) d.htfConflictGate = true;
     if (noiseWindow) d.noiseWindow = noiseWindow;
     if (inExpiryDay) d.inExpiryDay = true;
+
+    // Pass-3 (A): TRUE 1h HTF bias from aggregated 60m candles. Demote
+    // when 1h opposes direction — independent of daily-EMA50 (B). A
+    // setup can fail just one or both; either alone is enough to demote.
+    const htf1hConflict =
+      (d.direction === "BULLISH" && ctx.htf1hBias === "BEARISH") ||
+      (d.direction === "BEARISH" && ctx.htf1hBias === "BULLISH");
+    if (htf1hConflict) d.htf1hConflictGate = true;
+
+    // Pass-3 (D): sector relative strength vs NIFTY. Skip when:
+    //   (1) this IS NIFTY (it's the benchmark)
+    //   (2) NIFTY benchmark or this index's return is null (load failed
+    //       or daily series too short — gate becomes a no-op)
+    if (!isNiftyBenchmark && niftyRet != null && idxRet != null) {
+      const tol = RELATIVE_STRENGTH.TOLERANCE_PCT;
+      const lagging = idxRet < niftyRet - tol;
+      const leading = idxRet > niftyRet + tol;
+      if (
+        (d.direction === "BULLISH" && lagging) ||
+        (d.direction === "BEARISH" && leading)
+      ) {
+        d.rsConflictGate = true;
+      }
+    }
+
+    // Pass-3 (E): rolling 30d win-rate calibration. Sample guard
+    // (>= MIN_SAMPLE) prevents demoting brand-new setups before they've
+    // had a fair chance — they get the benefit of the doubt until
+    // enough data accumulates.
+    const wr = winRates && d.setupKey ? winRates.get(d.setupKey) : undefined;
+    if (
+      wr &&
+      wr.total >= WIN_RATE_CALIBRATION.MIN_SAMPLE &&
+      wr.winRate < WIN_RATE_CALIBRATION.MIN_WIN_RATE
+    ) {
+      d.lowWinRateGate = true;
+    }
   }
 
   // Sort high-conviction by confidence; keep top 3. Then append the baseline.
@@ -1404,7 +1540,16 @@ function buildSignalsForIndex(
   // conservative paper-trader lane.
   highConviction.sort((a, b) => b.confidence - a.confidence);
   const isDemoted = (d: Detected): boolean =>
-    !!(d.volClamped || d.htfConflictGate || d.noiseWindow || d.inExpiryDay);
+    !!(
+      d.volClamped ||
+      d.htfConflictGate ||
+      d.noiseWindow ||
+      d.inExpiryDay ||
+      // Pass-3 additions — same partition rule as Pass-2A/2B.
+      d.htf1hConflictGate ||
+      d.rsConflictGate ||
+      d.lowWinRateGate
+    );
   const cleanHc = highConviction.filter((d) => !isDemoted(d));
   const demotedHc = highConviction.filter(isDemoted);
   const out: OptionSignal[] = [];
@@ -1778,6 +1923,33 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
 }
 
 /**
+ * Pass-3 (G): map a CE leg's `ceBuildup` tag to a directional vote
+ * for the underlying. CE LONG_BUILDUP = call buyers piling on (BULLISH);
+ * CE SHORT_BUILDUP = call writers planting resistance (BEARISH);
+ * CE SHORT_COVERING = call writers giving up (BULLISH for spot);
+ * CE LONG_UNWINDING = call buyers losing conviction (BEARISH for spot).
+ */
+function ceBuildupVote(b: OiStrikeRow["ceBuildup"]): -1 | 0 | 1 {
+  if (b === "LONG_BUILDUP" || b === "SHORT_COVERING") return 1;
+  if (b === "SHORT_BUILDUP" || b === "LONG_UNWINDING") return -1;
+  return 0;
+}
+
+/**
+ * Pass-3 (G): map a PE leg's `peBuildup` tag to a directional vote
+ * for the underlying. PE SHORT_BUILDUP = put writers selling puts
+ * (BULLISH — they don't think the floor breaks);
+ * PE LONG_BUILDUP = put buyers piling on (BEARISH);
+ * PE LONG_UNWINDING = put buyers losing conviction (BULLISH for spot);
+ * PE SHORT_COVERING = put writers covering (BEARISH for spot).
+ */
+function peBuildupVote(b: OiStrikeRow["peBuildup"]): -1 | 0 | 1 {
+  if (b === "SHORT_BUILDUP" || b === "LONG_UNWINDING") return 1;
+  if (b === "LONG_BUILDUP" || b === "SHORT_COVERING") return -1;
+  return 0;
+}
+
+/**
  * Apply OI-derived alignment / conflict adjustments. Returns the set of
  * signals to DROP (hard veto) so the caller can filter them out before
  * they reach the lifecycle. Aligned signals are mutated in place with a
@@ -1785,6 +1957,14 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
  * conflicts (|sentimentScore| ≥ OI_VETO_THRESHOLD) are vetoed entirely
  * — this is the Phase-1 gate against trades that fight a well-formed
  * institutional positioning bias.
+ *
+ * Pass-3 (G) adds a *separate* ATM-strike-specific confluence check:
+ * even when aggregate sentiment is neutral, if BOTH legs of the ATM
+ * strike show buildup patterns that contradict the signal direction,
+ * the HC tier is demoted to BASELINE with `OI_ATM_CONFLICT` tag. Catches
+ * "the wider chain looks fine but the strike where the trade actually
+ * lives is being defended by writers" — the most common failure mode
+ * that aggregate PCR cannot see.
  */
 async function applyOiConfirmation(
   signals: OptionSignal[],
@@ -1870,6 +2050,40 @@ async function applyOiConfirmation(
             if (!s.tags?.includes("OI_CONFLICT")) {
               s.tags = [...(s.tags ?? []), "OI_CONFLICT"];
             }
+          }
+
+          // Pass-3 (G): ATM-strike OI confluence check. Independent of
+          // the aggregate-sentiment branches above — runs even when
+          // neither aligned nor conflict tripped. Demotes HC to BASELINE
+          // when BOTH legs of the ATM strike vote against the signal
+          // direction (atmVote == -2 for BULLISH or +2 for BEARISH).
+          // Single-leg dissent is intentionally NOT enough — too many
+          // false positives on intraday chop. Skip when the signal was
+          // already vetoed above (continue at line ~1971), already
+          // BASELINE (no demotion to do), or no ATM row available.
+          if (vetoed.has(s) || s.tier !== "HIGH_CONVICTION") continue;
+          const atmRow = oi.strikes.find((r) => r.isAtm);
+          if (!atmRow) continue;
+          const atmVote = ceBuildupVote(atmRow.ceBuildup) + peBuildupVote(atmRow.peBuildup);
+          const atmConflict =
+            (isBullish && atmVote <= -2) || (!isBullish && atmVote >= 2);
+          if (atmConflict) {
+            s.tier = "BASELINE";
+            if (!s.tags?.includes("OI_ATM_CONFLICT")) {
+              s.tags = [...(s.tags ?? []), "OI_ATM_CONFLICT"];
+            }
+            if (!s.tags?.includes("BASELINE")) {
+              s.tags = [...(s.tags ?? []), "BASELINE"];
+            }
+            s.drivers = [
+              ...(s.drivers ?? []),
+              {
+                label: "OI_ATM_CONFLICT",
+                weight: -10,
+                bullish: !isBullish,
+                detail: `ATM ${atmRow.strike} OI buildup opposes ${s.bias}: CE ${atmRow.ceBuildup}, PE ${atmRow.peBuildup} — demoted to BASELINE`,
+              },
+            ];
           }
         }
       } catch (err) {

@@ -197,6 +197,38 @@ export const REGIME_SIZING = {
 } as const;
 
 /**
+ * Pass-3 (E): rolling per-setup win-rate calibration.
+ *
+ * Self-healing accuracy filter — every signal cycle queries CLOSED
+ * paper_trade_fo rows over the last LOOKBACK_DAYS and groups by
+ * setup_key. When a setup's empirical win-rate drops below MIN_WIN_RATE
+ * (with at least MIN_SAMPLE closed trades to be statistically meaningful),
+ * the emission loop demotes its HC candidates to BASELINE with a
+ * `LOW_WINRATE` audit tag. New setups (sample < MIN_SAMPLE) get the
+ * benefit of the doubt — gate is a no-op until enough data accumulates.
+ */
+export const WIN_RATE_CALIBRATION = {
+  LOOKBACK_DAYS: 30,
+  MIN_SAMPLE: 10,
+  MIN_WIN_RATE: 0.4,
+} as const;
+
+/**
+ * Pass-3 (D): sector relative-strength tolerance vs NIFTY benchmark.
+ *
+ * Per-cycle we compute NIFTY's 5-day spot return, and per-index its own
+ * 5-day return. A BULLISH setup on a laggard (idxRet < niftyRet - TOL)
+ * or a BEARISH setup on a leader (idxRet > niftyRet + TOL) is demoted
+ * to BASELINE with `RS_CONFLICT` tag. Filters "right setup, wrong
+ * sector" — the sector is fighting the broader tape. NIFTY itself is
+ * the benchmark and exempt from the gate.
+ */
+export const RELATIVE_STRENGTH = {
+  LOOKBACK_DAYS: 5,
+  TOLERANCE_PCT: 1.0,
+} as const;
+
+/**
  * Pass-2B: portfolio-heat SQL helpers.
  *
  * Sum across all OPEN rows of (qty × per-share-risk). The max-with-zero
