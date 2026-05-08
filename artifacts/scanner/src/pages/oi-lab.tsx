@@ -161,7 +161,7 @@ export default function OiLab() {
 // ─── Snapshot tab ────────────────────────────────────────────────────────────
 function SnapshotTab() {
   const [universe, setUniverse] = useState<{ indices: string[]; stocks: string[] }>({ indices: [], stocks: [] });
-  const [selected, setSelected] = useState<Set<string>>(new Set(["NIFTY", "BANKNIFTY", "FINNIFTY"]));
+  const [selected, setSelected] = useState<Set<string>>(new Set(["NIFTY", "BANKNIFTY", "SENSEX"]));
   const [stockSearch, setStockSearch] = useState("");
   const [snap, setSnap] = useState<SnapshotResp | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2182,7 +2182,7 @@ function InsightsTab() {
                     <ul className="mt-1 space-y-0.5 text-left list-disc list-inside">
                       <li>Broker session has expired — re-connect from the Live Feed tab.</li>
                       <li>Selected expiry has no liquid strikes around the spot — pick a closer one above.</li>
-                      <li>Underlying is illiquid in the F&amp;O segment — try NIFTY / BANKNIFTY / FINNIFTY first.</li>
+                      <li>Underlying is illiquid in the F&amp;O segment — try NIFTY / BANKNIFTY / SENSEX first.</li>
                     </ul>
                   </div>
                 </div>

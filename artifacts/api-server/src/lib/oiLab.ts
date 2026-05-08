@@ -51,6 +51,26 @@ export const FNO_INDICES = [
   "SENSEX",   // BSE — quoted via BFO segment
 ] as const;
 
+// Explicit denylist of indices removed from the F&O universe. Used by
+// getDynamicFnoUniverse() to suppress their re-admission as "stocks" (they
+// appear in Kite's NFO instruments dump as FUT contracts under their own
+// `.name`, so the prior `!FNO_INDICES.includes(name)` filter alone would let
+// them sneak back in once they were dropped from FNO_INDICES). Also enforced
+// by bulkSnapshot() and startTracker() validators so OI Lab / tracker can
+// never accept these underlyings even if a stale client sends them.
+const REMOVED_FNO_INDEX_NAMES = new Set<string>([
+  "FINNIFTY",
+  "MIDCPNIFTY",
+  "BANKEX",
+  "NIFTYNXT50",
+  // Kite's instruments dump uses these alternate `.name` values for the same
+  // indices, so deny both forms to be safe.
+  "NIFTY FIN SERVICE",
+  "NIFTY MID SELECT",
+  "NIFTY NEXT 50",
+  "BSE BANKEX",
+]);
+
 /** Cache for dynamic F&O universe pulled from Kite NFO instruments dump.
  *  The dump is updated by Kite once per day (~07:30 IST), so a 6-hour TTL is
  *  generous. Resets on Kite session loss via clearOiBaseline(). */
@@ -81,6 +101,8 @@ export async function getDynamicFnoUniverse(): Promise<string[] | null> {
       const expIso = (typeof i.expiry === "string" ? i.expiry : i.expiry.toISOString()).slice(0, 10);
       if (expIso < todayIso) continue;
       if ((FNO_INDICES as readonly string[]).includes(i.name)) continue;
+      // Suppress removed indices so they don't get classified as "stocks".
+      if (REMOVED_FNO_INDEX_NAMES.has(i.name)) continue;
       names.add(i.name);
     }
     const stocks = Array.from(names).sort((a, b) => a.localeCompare(b));
@@ -177,6 +199,9 @@ export async function bulkSnapshot(
   // names but the snapshot rejected anything outside the static ~199 list.
   const dynamic = await getDynamicFnoUniverse();
   const isAcceptedFno = (sym: string): boolean => {
+    // Hard-reject removed indices regardless of dynamic universe contents —
+    // protects against stale clients still sending FINNIFTY/MIDCPNIFTY/BANKEX.
+    if (REMOVED_FNO_INDEX_NAMES.has(sym)) return false;
     if (dynamic && dynamic.length > 0) {
       return dynamic.includes(sym) || (FNO_INDICES as readonly string[]).includes(sym);
     }
@@ -1618,7 +1643,9 @@ export async function startTracker(args: { underlyings: string[]; intervalMs?: n
   // hasn't returned a universe yet.
   const dynamicSet = new Set(await getDynamicFnoUniverse() ?? []);
   const cleaned = Array.from(new Set(args.underlyings.map(s => s.toUpperCase().trim())))
-    .filter(s => s && (
+    // Hard-reject removed indices first so stale tracker requests for
+    // FINNIFTY/MIDCPNIFTY/BANKEX/NIFTYNXT50 cannot start.
+    .filter(s => s && !REMOVED_FNO_INDEX_NAMES.has(s) && (
       dynamicSet.size > 0
         ? (dynamicSet.has(s) || (FNO_INDICES as readonly string[]).includes(s))
         : isFnoUnderlying(s)
