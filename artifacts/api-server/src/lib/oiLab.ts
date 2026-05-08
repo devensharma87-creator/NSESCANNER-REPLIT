@@ -30,6 +30,7 @@ import { enrichAnalyticsWithIv } from "./ivHistory";
 import { getRestClient, getActiveSession } from "./kiteAuth";
 import { loadBlob, saveBlob, istTradingDay } from "./diskCache";
 import { loadFnoInstruments, type FnoInstrument } from "./kiteFnoInstruments";
+import { fetchKiteOiHistoricalByToken } from "./kiteIntraday";
 
 /**
  * OI Lab is strictly Kite-only — we do NOT use the NSE fallback that
@@ -914,6 +915,24 @@ function pushOiInsightsSnapshot(insights: OiInsightsResponse): void {
     // Sensibull "Change on <date>" panel.
     spot: Number.isFinite(insights.spot) ? insights.spot : undefined,
   };
+  insertOiSnap(key, snap);
+}
+
+/** Order-preserving insert of a fully-built snapshot into the per-key
+ *  ring buffer. Extracted from `pushOiInsightsSnapshot` so the
+ *  Kite-historical backfill path (`backfillOiInsightsHistoryFromKite`)
+ *  can write reconstructed past snapshots into the same buffer without
+ *  re-running the OI insights computation pipeline.
+ *
+ *  The backfill caller pre-validates `snap.ts` is in-session today, so
+ *  the pre-market write-gate is intentionally NOT re-applied here —
+ *  that gate belongs to the LIVE-poll entry point which receives a
+ *  wall-clock timestamp that could legitimately be pre-09:15 if the
+ *  user opens OI Lab at 08:30 IST. Backfill timestamps are always
+ *  Kite-candle-bucket close times for in-session candles, so they're
+ *  guaranteed in [09:15, 15:30] by construction. */
+function insertOiSnap(key: string, snap: OiInsightsSnapshot): void {
+  const ts = snap.ts;
   const buf = OI_INSIGHTS_HISTORY.get(key) ?? [];
   // Order-preserving insert. `resolveWindowDelta` relies on the buffer
   // being sorted by `ts` ascending (so `candidates[0]` is oldest and the
@@ -976,6 +995,241 @@ function pushOiInsightsSnapshot(insights: OiInsightsResponse): void {
   while (buf.length > OI_INSIGHTS_HISTORY_MAX) buf.shift();
   OI_INSIGHTS_HISTORY.set(key, buf);
   persistOiInsightsHistoryToDisk();
+}
+
+// ─── Kite-historical OI backfill ─────────────────────────────────────────────
+//
+// PROBLEM. The OI Lab Δ-window selector (3m / 30m / 1h / 3h / Full Day) reads
+// from `OI_INSIGHTS_HISTORY` — an in-memory buffer fed by the live 30s poll.
+// When the api-server is restarted mid- or post-session (deploy, crash,
+// dev-restart), the buffer is empty for today, the relaxed write-gate hydrates
+// it only with NEW snapshots from "now" forward, and every Δ pill ends up
+// reading broker since-open Δ via the windowMode==="none" fallback — so
+// every pill shows the same number. The user sees "30 min / 1 hr / 3 hr all
+// show -3.83Cr" and the selector is effectively dead until tomorrow's open.
+//
+// SOLUTION. On the FIRST `fetchOiInsights` call per (underlying|expiry|day),
+// kick off a background fetch of Kite's `historical_data` API with `oi=true`
+// at 5-minute resolution for each option leg the user is currently viewing.
+// Convert the candle stream into reconstructed snapshots (one per candle ts,
+// strike-map keyed by leg) and feed them into the SAME buffer via
+// `insertOiSnap` — re-using the order-preserving insert + same-ts merge so
+// existing live snaps are never overwritten or modified (per owner directive
+// "do not change existing data and information"). Backfilled snaps fill the
+// gaps; live polls continue to extend the buffer at the tail.
+//
+// CONSTRAINTS.
+//  * NEVER overwrites existing snaps. `insertOiSnap`'s same-ts merge unions
+//    strike maps non-destructively (existing strike-OI values win when the
+//    backfilled candle bucket happens to share a ts with a live snap — which
+//    is rare since live polls land at wall-clock ts and candles at bucket
+//    closes, but defended for safety).
+//  * NEVER fabricates OI. Candles with non-finite or negative `oi` are
+//    rejected upstream in `fetchKiteOiHistoricalByToken`.
+//  * Runs AT MOST once per (underlying|expiry|day) — `oiBackfillCompleted`
+//    map prevents repeat work, `oiBackfillInflight` map prevents concurrent
+//    work for the same key.
+//  * Background-only — `fetchOiInsights` returns the live snap immediately
+//    and lets the backfill enrich the buffer for SUBSEQUENT polls. The first
+//    poll the user sees still uses broker since-open Δ; second-onward polls
+//    (30s cadence) start surfacing real windowed Δ as backfilled snaps land.
+//  * Bounded cost. Capped at `BACKFILL_MAX_STRIKES=15` strikes (ATM ± 7),
+//    × 2 sides = 30 historical_data calls per backfill. At 2.5 req/s shared
+//    throttle (HISTORICAL_MIN_INTERVAL_MS=400ms in kiteIntraday.ts) ≈ 12s
+//    per index. For the F&O sweep's 3 indices in parallel ≈ 30-45s total —
+//    acceptable background warmup window.
+//  * Fail-OPEN. Any failure (no Kite session, no instruments, throttle
+//    overflow, transient 5xx) is caught + logged; the backfill silently
+//    skips and the day's `oiBackfillCompleted` flag is NOT set, so the
+//    next `fetchOiInsights` call retries. Never blocks the request hot path.
+
+const BACKFILL_MAX_STRIKES = 15; // ATM ± 7 strikes, both legs each
+const BACKFILL_INTERVAL = "5minute" as const;
+/** Per-(underlying|expiry) → tradingDay-of-completion. Backfill skips when
+ *  this map's value matches today. Resets implicitly on cross-day rollover
+ *  because the keys here are scoped to the same in-process lifetime as the
+ *  buffer itself; both get rebuilt fresh after a server restart. */
+const oiBackfillCompleted = new Map<string, string>();
+/** In-flight dedup so two parallel `fetchOiInsights` calls for the same key
+ *  trigger at most one backfill. Cleared in the .finally block. */
+const oiBackfillInflight = new Map<string, Promise<void>>();
+
+function maybeBackfillOiInsightsHistoryFromKite(insights: OiInsightsResponse): void {
+  const key = `${insights.underlying}|${insights.expiry}`;
+  const today = istTradingDay();
+  if (oiBackfillCompleted.get(key) === today) return;
+  if (oiBackfillInflight.has(key)) return;
+  // Bail when the buffer is already well-populated for today — the live
+  // polls have done the work themselves (e.g. server has been up since 09:15
+  // and is just servicing a fresh user view). Threshold of 8 in-session snaps
+  // ≈ 4 minutes of live polling at 30s cadence; below this, backfill is
+  // worthwhile (catches "server just restarted" + "first user view of the
+  // day" cases). Above this, backfill would mostly duplicate existing tail.
+  const buf = OI_INSIGHTS_HISTORY.get(key) ?? [];
+  const inSessionToday = buf.filter(s => isInIstMarketHours(s.ts) && istTradingDay(new Date(s.ts)) === today).length;
+  if (inSessionToday >= 8) {
+    oiBackfillCompleted.set(key, today);
+    return;
+  }
+  // Fire-and-forget. The .finally clears inflight; the .then sets the
+  // completed marker only on success so failures self-retry on next poll.
+  const visibleStrikes = insights.strikes.map(s => s.strike);
+  const work = backfillOiInsightsHistoryFromKite(insights.underlying, insights.expiry, insights.atmStrike, visibleStrikes)
+    .then(() => {
+      oiBackfillCompleted.set(key, today);
+    })
+    .catch(err => {
+      logger.warn(
+        { err: (err as Error).message, underlying: insights.underlying, expiry: insights.expiry },
+        "OI insights history backfill failed; will retry on next fetch",
+      );
+    })
+    .finally(() => {
+      oiBackfillInflight.delete(key);
+    });
+  oiBackfillInflight.set(key, work);
+}
+
+async function backfillOiInsightsHistoryFromKite(
+  underlying: string,
+  expiry: string,
+  atmStrike: number,
+  visibleStrikes: number[],
+): Promise<void> {
+  const client = await getRestClient();
+  if (!client) return; // No Kite session → silent skip; live polls retry next cycle
+  const { kc } = client;
+
+  // Resolve option-leg instrument tokens. `loadFnoInstruments` is cached
+  // (refreshed daily); typical hot-path latency is single-digit ms.
+  const all = await loadFnoInstruments(kc);
+  // Cap to ATM ± BACKFILL_MAX_STRIKES/2 so cost stays bounded. Visible
+  // strikes are sorted in `insights.strikes` already (ATM-centered band)
+  // but we re-center on `atmStrike` here to be robust to any ordering
+  // quirk and pick the BACKFILL_MAX_STRIKES strikes nearest ATM.
+  const sortedByAtmDist = [...visibleStrikes].sort(
+    (a, b) => Math.abs(a - atmStrike) - Math.abs(b - atmStrike),
+  );
+  const strikeSet = new Set(sortedByAtmDist.slice(0, BACKFILL_MAX_STRIKES));
+  const legs = all.filter((i): i is FnoInstrument & { instrument_type: "CE" | "PE" } =>
+    i.name === underlying &&
+    (i.instrument_type === "CE" || i.instrument_type === "PE") &&
+    expiryISOForBackfill(i.expiry) === expiry &&
+    strikeSet.has(i.strike),
+  );
+  if (legs.length === 0) {
+    logger.info({ underlying, expiry, visibleStrikes: visibleStrikes.length }, "OI backfill: no matching legs found");
+    return;
+  }
+
+  // Today's intraday window in IST.
+  const today = istTradingDay();
+  const fromIst = new Date(`${today}T09:15:00+05:30`);
+  const toIst = new Date(); // up to "now"; Kite clamps to last completed candle bucket
+
+  // Bucket reconstructed candles by ts so all strikes that share a candle
+  // bucket close coalesce into a single snapshot. Map<tsMs, {ce, pe}>.
+  const buckets = new Map<number, { ce: Map<number, number>; pe: Map<number, number> }>();
+
+  // Bounded concurrency 4. Each worker pulls the next leg index off the
+  // shared cursor. The global Kite-historical throttle in kiteIntraday.ts
+  // serializes the actual API calls to ~2.5 req/s regardless of worker
+  // count — concurrency here just keeps the pipeline full while one slot
+  // is in flight. Workers > legs is harmless (loop exits immediately).
+  let nextLeg = 0;
+  // WORKERS=2 (architect-driven HIGH fix). With 3 indices kicked off in
+  // parallel by the F&O sweep loop, WORKERS=4 per index would pin up to
+  // 12 throttle slots simultaneously — combined with the equity scanner
+  // and the sweep's own intraday OHLCV calls, the shared 30-slot queue
+  // (`HISTORICAL_MAX_QUEUE` in kiteIntraday.ts) could overflow and force
+  // legitimate live calls to fall back to Yahoo (degraded data quality
+  // until the backfill drains, ~12-30s). At WORKERS=2 the backfill's
+  // peak footprint across all indices is ≤6 slots, leaving comfortable
+  // headroom for the scanner. Per-leg fetches still serialize through
+  // the global 400ms-per-slot throttle so increasing concurrency above
+  // this never improves wall-clock time anyway — it just hogs queue
+  // capacity from concurrent callers.
+  const WORKERS = 2;
+  await Promise.all(Array.from({ length: Math.min(WORKERS, legs.length) }, async () => {
+    while (true) {
+      const i = nextLeg++;
+      if (i >= legs.length) return;
+      const leg = legs[i]!;
+      const candles = await fetchKiteOiHistoricalByToken(
+        leg.instrument_token,
+        `OI:${leg.exchange}:${leg.tradingsymbol}`,
+        BACKFILL_INTERVAL,
+        fromIst,
+        toIst,
+      );
+      if (!candles || candles.length === 0) continue;
+      const optType = leg.instrument_type;
+      for (const c of candles) {
+        // Defensive: clamp to in-session window. Kite occasionally returns
+        // a stub candle at the session boundary (e.g. a 09:14 bucket close
+        // when the request `from` is 09:15) — those would be rejected by
+        // the buffer's same-day filter anyway but we drop them here to
+        // keep the bucket map clean and the persisted disk blob lean.
+        if (!isInIstMarketHours(c.ts)) continue;
+        let b = buckets.get(c.ts);
+        if (!b) { b = { ce: new Map(), pe: new Map() }; buckets.set(c.ts, b); }
+        if (optType === "CE") b.ce.set(leg.strike, c.oi);
+        else b.pe.set(leg.strike, c.oi);
+      }
+    }
+  }));
+
+  if (buckets.size === 0) {
+    logger.info({ underlying, expiry, legs: legs.length }, "OI backfill: Kite returned no candles");
+    return;
+  }
+
+  // Insert in ts-ascending order so the buffer's order invariant stays
+  // intact even though `insertOiSnap`'s splice path would correct any
+  // out-of-order arrival. Sorted insert means every backfilled snap
+  // lands via the cheap tail-append branch (or the same-ts merge branch
+  // when a live poll happens to coincide with a candle bucket close).
+  const key = `${underlying}|${expiry}`;
+  const sortedTs = [...buckets.keys()].sort((a, b) => a - b);
+  for (const ts of sortedTs) {
+    const b = buckets.get(ts)!;
+    // Skip empty buckets defensively (shouldn't happen — every bucket is
+    // created on first leg-write — but cheap to guard).
+    if (b.ce.size === 0 && b.pe.size === 0) continue;
+    const snap: OiInsightsSnapshot = {
+      ts,
+      ce: Object.fromEntries(b.ce),
+      pe: Object.fromEntries(b.pe),
+      // No `spot` for backfilled snaps. Kite's option-leg historical
+      // candles don't carry the underlying spot, and reconstructing it
+      // from a parallel index-historical fetch would multiply the API
+      // cost. The buffer's `spot` field is optional — `resolveWindowDelta`
+      // surfaces `windowBaselineSpot: null` when the picked baseline has
+      // no spot, which the client renders gracefully. Live polls landing
+      // at the SAME ts (rare, candle-boundary collision) would merge in
+      // the live spot via the same-ts merge branch's `snap.spot ?? prev.spot`.
+    };
+    insertOiSnap(key, snap);
+  }
+  logger.info(
+    {
+      underlying, expiry,
+      legsFetched: legs.length,
+      snapsBackfilled: sortedTs.length,
+      bufferSize: (OI_INSIGHTS_HISTORY.get(key) ?? []).length,
+    },
+    "OI insights history backfill complete",
+  );
+}
+
+/** Local copy of expiryISO from kiteOptionChain.ts — duplicated here to avoid
+ *  cycling that module (it imports OcResponse from optionChain.ts which is
+ *  fine, but we don't want oiLab.ts pulling in the full kiteOptionChain
+ *  module just for one date-format helper). Identical semantics. */
+function expiryISOForBackfill(d: Date | string): string {
+  const dt = typeof d === "string" ? new Date(d) : d;
+  if (!dt || Number.isNaN(dt.getTime())) return "";
+  return dt.toISOString().slice(0, 10);
 }
 
 /** Pure helper extracted so unit tests can pin behavior without going
@@ -1199,6 +1453,14 @@ export async function fetchOiInsights(
   // matches `insights.generatedAt` exactly (which the client uses for the
   // "updated Ns ago" pulse) — keeps timestamps consistent across surfaces.
   pushOiInsightsSnapshot(insights);
+  // Background backfill — fires at most once per (underlying|expiry|day)
+  // when the buffer has < 8 in-session snaps for today (i.e. fresh server
+  // restart, or first user view of a not-yet-polled underlying). Pulls
+  // Kite `historical_data` with `oi=true` for the visible strike band so
+  // the Δ-window selector becomes useful immediately rather than waiting
+  // for the live 30s polls to backfill organically (which post-close
+  // never happens at all). Fire-and-forget; never blocks the request.
+  void maybeBackfillOiInsightsHistoryFromKite(insights);
   if (windowMs == null || windowMs <= 0) {
     // No windowed Δ requested — return broker since-open Δ shape unchanged.
     return insights;

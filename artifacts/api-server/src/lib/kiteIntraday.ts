@@ -388,3 +388,102 @@ export async function fetchKiteEquityIntraday(
 export function hasKiteIntradayCoverage(yahooSymbol: string): boolean {
   return INDEX_TABLE.some(e => e.yahoo === yahooSymbol);
 }
+
+/** OI-aware candle returned by `fetchKiteOiHistoricalByToken`. Strict subset
+ *  of Kite's historical-data row shape — we only surface what the OI Lab
+ *  backfill consumes (ts + per-bucket OI snapshot, with close as a sanity
+ *  check for the caller). */
+export interface KiteOiCandle {
+  /** Epoch ms (UTC) of the candle bucket's open. */
+  ts: number;
+  /** OI snapshot for this leg at the candle bucket's close. */
+  oi: number;
+  /** Close price of the leg over the bucket — exposed for sanity logging
+   *  but not used by the buffer (the buffer stores per-strike OI only). */
+  close: number;
+}
+
+/**
+ * OI-aware variant of `fetchKiteHistoricalByToken`. Calls Kite's
+ * `getHistoricalData` with the 6th positional arg (`oi`) set to `true`,
+ * so each returned candle carries an `oi` field — Kite returns this
+ * for option/futures legs only (cash-equity tokens have no OI series).
+ *
+ * Used exclusively by the OI Lab history-buffer backfill path: when the
+ * api-server is restarted mid-session (or post-close) and the in-memory
+ * Δ-window snapshot buffer is empty for today, this fetcher pulls each
+ * option leg's intraday OI track at 5-minute resolution so the
+ * Δ-window selector becomes immediately useful instead of waiting for
+ * the live 30s polls to trickle in (which post-close never happens).
+ *
+ * Shares the SAME global throttle queue as `fetchKiteHistoricalByToken`
+ * (HISTORICAL_MIN_INTERVAL_MS=400ms ≈ 2.5 req/sec) so backfill bursts
+ * cannot starve the F&O signal sweep's intraday OHLCV calls. Bypasses
+ * the cache + inflight-dedup maps because OI backfills run AT MOST
+ * once per (underlying|expiry|day) — caching wouldn't help and would
+ * waste process memory on per-leg series.
+ *
+ * Returns `null` when:
+ *   - Kite session is not active
+ *   - The throttle queue is full (caller skips this leg silently)
+ *   - The historical-data call threw (rate limit, transient 5xx)
+ *
+ * Returns an empty array when Kite responded with no candles for the
+ * requested window (e.g. the leg was not yet listed at `fromIst`).
+ *
+ * Never fabricates OI values.
+ */
+export async function fetchKiteOiHistoricalByToken(
+  token: number,
+  cacheLabel: string,
+  interval: KiteInterval,
+  fromIst: Date,
+  toIst: Date,
+): Promise<KiteOiCandle[] | null> {
+  const slotOk = await reserveHistoricalSlot();
+  if (!slotOk) {
+    logger.warn(
+      { cacheLabel, interval, token, queueDepth: pendingCount },
+      "Kite OI historical-data throttle queue full; backfill skipping leg",
+    );
+    return null;
+  }
+
+  const client = await getRestClient();
+  if (!client) return null;
+  const { kc } = client;
+
+  const fromStr = fmtIst(fromIst);
+  const toStr = fmtIst(toIst);
+
+  type RawOiCandle = RawCandle & { oi?: number };
+  let raw: RawOiCandle[];
+  try {
+    // 5th arg `continuous` = false (we never want continuous-contract
+    // stitching — option legs don't roll). 6th arg `oi` = true.
+    raw = (await kc.getHistoricalData(token, interval, fromStr, toStr, false, true)) as RawOiCandle[];
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, cacheLabel, interval, token },
+      "Kite OI getHistoricalData failed; backfill skipping leg",
+    );
+    return null;
+  }
+
+  if (!Array.isArray(raw)) return null;
+
+  const out: KiteOiCandle[] = [];
+  for (const c of raw) {
+    const tsMs = c.date instanceof Date ? c.date.getTime() : new Date(c.date).getTime();
+    if (!Number.isFinite(tsMs)) continue;
+    if (!Number.isFinite(c.oi as number)) continue;
+    const oi = c.oi as number;
+    if (oi < 0) continue; // OI is non-negative by definition; reject malformed rows
+    out.push({
+      ts: tsMs,
+      oi,
+      close: Number.isFinite(c.close) && c.close > 0 ? c.close : 0,
+    });
+  }
+  return out;
+}
