@@ -1,0 +1,237 @@
+Hi,
+
+I have reviewed the website pages in detail and prepared a full audit document. Please treat this as an **additional improvement and fixing document**, not a complete redesign request.
+
+The current website already has a strong foundation, especially the dark pro-trader UI, market dashboard structure, option chain, OI Lab, pre/post market planning, stock detail page, and learning section. The goal now is to **fix weak systems, remove confusion, improve trader usability, and make the website more decision-focused**.
+
+Please focus on the following priorities:
+
+## 1. Fix signal consistency
+
+Some pages currently show mixed or confusing signals. For example, a page may show “Neutral” while the supporting indicators are mostly bearish, or say “call writers adding” when OI change is actually negative.
+
+Please improve the signal engine so every recommendation clearly shows:
+
+* Bias: Bullish / Bearish / Neutral / Range-bound
+* Confidence percentage
+* Timeframe: Intraday / Swing / Positional
+* Reason for the signal
+* Conflicting signals, if any
+* Confirmation condition
+* Invalidation condition
+
+Example:
+
+“Neutral-to-Bearish. Confidence 62%. Price is below short-term EMAs and breadth is weak, but MACD is improving. Avoid longs unless price reclaims resistance.”
+
+## 2. Fix empty target and stop-loss boxes
+
+On the stock page, target and stop boxes are currently blank in some cases. Please do not leave these empty.
+
+If no trade setup is generated, show a proper message:
+
+“No valid trade setup generated because risk/reward is not favorable.”
+
+Or:
+
+“Target and stop-loss will appear after breakout/breakdown confirmation.”
+
+## 3. Improve data freshness and source clarity
+
+Every important widget should clearly show:
+
+* Data source: Kite / NSE / Yahoo fallback
+* Last updated time
+* Live / delayed / cached status
+* Market open or closed status
+* Warning when data is stale
+
+The user should never be confused about whether the data is live, delayed, cached, or stale.
+
+## 4. Improve Option Chain logic and layout
+
+The Option Chain is powerful but needs cleanup.
+
+Please implement:
+
+* Sticky strike column
+* Sticky table header
+* Better horizontal scrolling
+* Column show/hide settings
+* Compact mode and Pro mode
+* Saved user column preferences
+* Clearer OI interpretation
+
+Important logic fix:
+If OI change is negative, do not say “writers adding.” Negative OI change usually means unwinding or reduction. Wording must correctly distinguish between:
+
+* Fresh call writing
+* Fresh put writing
+* Call unwinding
+* Put unwinding
+* Short covering
+* Long buildup
+* Long unwinding
+* Short buildup
+
+## 5. Improve OI Lab interpretation
+
+OI Lab is one of the strongest parts of the website, but it needs clearer trading interpretation.
+
+Please add:
+
+* PCR trend, not just current PCR
+* OI wall shift tracker
+* Support strengthening / weakening
+* Resistance strengthening / weakening
+* Max Pain warning tooltip
+* IV skew explanation
+* Alert when spot nears major OI wall
+* Alert when OI wall shifts
+* Alert when PCR crosses important levels
+
+Max Pain should not be shown as a standalone trade signal. Add tooltip:
+
+“Max Pain is not a trade signal by itself. It is more useful near expiry and should be checked with price action, OI change, volume, and IV.”
+
+## 6. Improve Pre/Post Market page
+
+This page is very useful, but too dense. Please make it easier to read quickly.
+
+Add a top summary box:
+
+* Overall market bias
+* Expected open
+* Key support
+* Key resistance
+* Avoid-long level
+* Avoid-short level
+* Best trade zone
+* Market risk level
+
+Also improve the scenario cards:
+
+* Bullish scenario
+* Bearish scenario
+* Range scenario
+
+Each scenario should include:
+
+* Probability
+* Confirmation
+* Invalidation
+* Levels
+* Instruments to watch
+* Avoid condition
+
+## 7. Add a proper trading plan output
+
+The website should not only show data. It should help create a trading plan.
+
+Where possible, generate:
+
+* Entry zone
+* Stop-loss
+* Target 1
+* Target 2
+* Risk/reward
+* Confirmation condition
+* Invalidation condition
+* Position sizing suggestion
+* Trade type: breakout / reversal / range / no trade
+
+If it is not safe to generate a setup, show “No Trade” clearly.
+
+## 8. Add alerts system
+
+Please implement alerts for:
+
+* Price crossing key level
+* OI wall shift
+* PCR threshold
+* IV spike/drop
+* Volume anomaly
+* Breakout/breakdown
+* Sector rotation
+* Long buildup
+* Short buildup
+* Short covering
+* Long unwinding
+* Stop-loss invalidation
+
+Alerts should be usable from Scanner, Stock Detail, Option Chain, OI Lab, and Pre/Post pages.
+
+## 9. Improve Learn page readability
+
+The Learn page should not be one long dense page. Please split it into modules:
+
+* How to read the Scanner
+* How to read Stock Detail
+* How to read Pre/Post Market
+* How to use Option Chain
+* How to use OI Lab
+* PCR explained
+* Max Pain explained
+* IV and IV skew explained
+* Greeks explained
+* CPR and pivots
+* Risk management
+* Common trading mistakes
+
+Also add search, glossary, examples, and tooltips.
+
+## 10. Add trader workflow
+
+The website should follow this workflow:
+
+Prepare → Scan → Confirm → Plan → Execute → Track → Journal → Review
+
+Please add features that support this workflow:
+
+* Save trade idea
+* Add to watchlist
+* Save setup
+* Save screenshot
+* Trade journal
+* Entry/exit log
+* Mistake tagging
+* Daily review
+* Setup performance tracking
+
+## 11. UI/UX improvements
+
+Please improve:
+
+* Font size in dense areas
+* Spacing between cards
+* Table readability
+* Mobile/tablet responsiveness
+* Empty states
+* Loading states
+* Error states
+* Tooltip explanations
+* Collapsible sections
+* Keyboard shortcuts
+* Better scroll behavior on wide tables
+
+Keep the current dark theme and pro-trader look. Do not make the UI look like a generic finance website.
+
+## Main goal
+
+The main goal is to convert the website from a market-data dashboard into a **trading decision engine**.
+
+The website should help answer:
+
+* What is the market bias?
+* What is the setup?
+* Where is entry?
+* Where is stop-loss?
+* Where are targets?
+* What confirms the trade?
+* What cancels the trade?
+* What changed since last refresh?
+* Is this a trade or no-trade situation?
+
+Please review the attached audit document and implement these changes in priority order, starting with signal consistency, target/stop handling, data freshness, Option Chain logic, and OI Lab interpretation.
+
+Thanks.
