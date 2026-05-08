@@ -256,6 +256,100 @@ export const GetMarketTrendResponse = zod.object({
                 bullish: zod.boolean(),
               }),
             ),
+            displayLabel: zod
+              .string()
+              .optional()
+              .describe(
+                "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+              ),
+            setupStatus: zod
+              .enum([
+                "TRADEABLE",
+                "NO_SETUP_RR",
+                "NO_SETUP_NEUTRAL",
+                "NO_SETUP_AWAITING_LEVELS",
+                "NO_SETUP_AWAITING_CONFIRMATION",
+              ])
+              .optional()
+              .describe(
+                "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+              ),
+            setupMessage: zod
+              .string()
+              .optional()
+              .describe(
+                "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+              ),
+            confirmation: zod
+              .string()
+              .optional()
+              .describe(
+                "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+              ),
+            invalidation: zod
+              .string()
+              .optional()
+              .describe("Top-level: what cancels the active setup"),
+            conflicts: zod
+              .array(zod.string())
+              .optional()
+              .describe(
+                "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+              ),
+            horizons: zod
+              .array(
+                zod.object({
+                  horizon: zod
+                    .enum(["INTRADAY", "SWING", "LONG_TERM"])
+                    .describe(
+                      "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+                    ),
+                  bias: zod
+                    .enum([
+                      "BULLISH",
+                      "BEARISH",
+                      "NEUTRAL_BULLISH",
+                      "NEUTRAL_BEARISH",
+                      "RANGE_BOUND",
+                      "INSUFFICIENT_DATA",
+                    ])
+                    .describe(
+                      "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+                    ),
+                  label: zod
+                    .string()
+                    .describe(
+                      "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+                    ),
+                  confidence: zod
+                    .number()
+                    .describe(
+                      "0-100, share of horizon-relevant evidence aligned with the bias",
+                    ),
+                  timeframe: zod
+                    .string()
+                    .describe("Display window e.g. 'Today \/ 1-3 days'"),
+                  reason: zod
+                    .string()
+                    .describe("Concise plain-English rationale"),
+                  conflicts: zod
+                    .string()
+                    .optional()
+                    .describe("Opposing evidence on this horizon, if any"),
+                  confirmation: zod
+                    .string()
+                    .optional()
+                    .describe("What confirms a trade on this horizon"),
+                  invalidation: zod
+                    .string()
+                    .optional()
+                    .describe("What cancels the bias on this horizon"),
+                }),
+              )
+              .optional()
+              .describe(
+                "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+              ),
           }),
         }),
       }),
@@ -370,6 +464,100 @@ export const GetMarketTrendResponse = zod.object({
                 bullish: zod.boolean(),
               }),
             ),
+            displayLabel: zod
+              .string()
+              .optional()
+              .describe(
+                "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+              ),
+            setupStatus: zod
+              .enum([
+                "TRADEABLE",
+                "NO_SETUP_RR",
+                "NO_SETUP_NEUTRAL",
+                "NO_SETUP_AWAITING_LEVELS",
+                "NO_SETUP_AWAITING_CONFIRMATION",
+              ])
+              .optional()
+              .describe(
+                "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+              ),
+            setupMessage: zod
+              .string()
+              .optional()
+              .describe(
+                "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+              ),
+            confirmation: zod
+              .string()
+              .optional()
+              .describe(
+                "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+              ),
+            invalidation: zod
+              .string()
+              .optional()
+              .describe("Top-level: what cancels the active setup"),
+            conflicts: zod
+              .array(zod.string())
+              .optional()
+              .describe(
+                "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+              ),
+            horizons: zod
+              .array(
+                zod.object({
+                  horizon: zod
+                    .enum(["INTRADAY", "SWING", "LONG_TERM"])
+                    .describe(
+                      "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+                    ),
+                  bias: zod
+                    .enum([
+                      "BULLISH",
+                      "BEARISH",
+                      "NEUTRAL_BULLISH",
+                      "NEUTRAL_BEARISH",
+                      "RANGE_BOUND",
+                      "INSUFFICIENT_DATA",
+                    ])
+                    .describe(
+                      "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+                    ),
+                  label: zod
+                    .string()
+                    .describe(
+                      "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+                    ),
+                  confidence: zod
+                    .number()
+                    .describe(
+                      "0-100, share of horizon-relevant evidence aligned with the bias",
+                    ),
+                  timeframe: zod
+                    .string()
+                    .describe("Display window e.g. 'Today \/ 1-3 days'"),
+                  reason: zod
+                    .string()
+                    .describe("Concise plain-English rationale"),
+                  conflicts: zod
+                    .string()
+                    .optional()
+                    .describe("Opposing evidence on this horizon, if any"),
+                  confirmation: zod
+                    .string()
+                    .optional()
+                    .describe("What confirms a trade on this horizon"),
+                  invalidation: zod
+                    .string()
+                    .optional()
+                    .describe("What cancels the bias on this horizon"),
+                }),
+              )
+              .optional()
+              .describe(
+                "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+              ),
           }),
         }),
       }),
@@ -515,6 +703,96 @@ export const ListSectorsResponseItem = zod.object({
           bullish: zod.boolean(),
         }),
       ),
+      displayLabel: zod
+        .string()
+        .optional()
+        .describe(
+          "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+        ),
+      setupStatus: zod
+        .enum([
+          "TRADEABLE",
+          "NO_SETUP_RR",
+          "NO_SETUP_NEUTRAL",
+          "NO_SETUP_AWAITING_LEVELS",
+          "NO_SETUP_AWAITING_CONFIRMATION",
+        ])
+        .optional()
+        .describe(
+          "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+        ),
+      setupMessage: zod
+        .string()
+        .optional()
+        .describe(
+          "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+        ),
+      confirmation: zod
+        .string()
+        .optional()
+        .describe(
+          "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+        ),
+      invalidation: zod
+        .string()
+        .optional()
+        .describe("Top-level: what cancels the active setup"),
+      conflicts: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+          "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+        ),
+      horizons: zod
+        .array(
+          zod.object({
+            horizon: zod
+              .enum(["INTRADAY", "SWING", "LONG_TERM"])
+              .describe(
+                "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+              ),
+            bias: zod
+              .enum([
+                "BULLISH",
+                "BEARISH",
+                "NEUTRAL_BULLISH",
+                "NEUTRAL_BEARISH",
+                "RANGE_BOUND",
+                "INSUFFICIENT_DATA",
+              ])
+              .describe(
+                "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+              ),
+            label: zod
+              .string()
+              .describe(
+                "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+              ),
+            confidence: zod
+              .number()
+              .describe(
+                "0-100, share of horizon-relevant evidence aligned with the bias",
+              ),
+            timeframe: zod
+              .string()
+              .describe("Display window e.g. 'Today \/ 1-3 days'"),
+            reason: zod.string().describe("Concise plain-English rationale"),
+            conflicts: zod
+              .string()
+              .optional()
+              .describe("Opposing evidence on this horizon, if any"),
+            confirmation: zod
+              .string()
+              .optional()
+              .describe("What confirms a trade on this horizon"),
+            invalidation: zod
+              .string()
+              .optional()
+              .describe("What cancels the bias on this horizon"),
+          }),
+        )
+        .optional()
+        .describe("Three-horizon bias panel (Intraday \/ Swing \/ Long-term)"),
     }),
   }),
 });
@@ -634,6 +912,98 @@ export const GetSectorResponse = zod.object({
             bullish: zod.boolean(),
           }),
         ),
+        displayLabel: zod
+          .string()
+          .optional()
+          .describe(
+            "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+          ),
+        setupStatus: zod
+          .enum([
+            "TRADEABLE",
+            "NO_SETUP_RR",
+            "NO_SETUP_NEUTRAL",
+            "NO_SETUP_AWAITING_LEVELS",
+            "NO_SETUP_AWAITING_CONFIRMATION",
+          ])
+          .optional()
+          .describe(
+            "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+          ),
+        setupMessage: zod
+          .string()
+          .optional()
+          .describe(
+            "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+          ),
+        confirmation: zod
+          .string()
+          .optional()
+          .describe(
+            "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+          ),
+        invalidation: zod
+          .string()
+          .optional()
+          .describe("Top-level: what cancels the active setup"),
+        conflicts: zod
+          .array(zod.string())
+          .optional()
+          .describe(
+            "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+          ),
+        horizons: zod
+          .array(
+            zod.object({
+              horizon: zod
+                .enum(["INTRADAY", "SWING", "LONG_TERM"])
+                .describe(
+                  "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+                ),
+              bias: zod
+                .enum([
+                  "BULLISH",
+                  "BEARISH",
+                  "NEUTRAL_BULLISH",
+                  "NEUTRAL_BEARISH",
+                  "RANGE_BOUND",
+                  "INSUFFICIENT_DATA",
+                ])
+                .describe(
+                  "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+                ),
+              label: zod
+                .string()
+                .describe(
+                  "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+                ),
+              confidence: zod
+                .number()
+                .describe(
+                  "0-100, share of horizon-relevant evidence aligned with the bias",
+                ),
+              timeframe: zod
+                .string()
+                .describe("Display window e.g. 'Today \/ 1-3 days'"),
+              reason: zod.string().describe("Concise plain-English rationale"),
+              conflicts: zod
+                .string()
+                .optional()
+                .describe("Opposing evidence on this horizon, if any"),
+              confirmation: zod
+                .string()
+                .optional()
+                .describe("What confirms a trade on this horizon"),
+              invalidation: zod
+                .string()
+                .optional()
+                .describe("What cancels the bias on this horizon"),
+            }),
+          )
+          .optional()
+          .describe(
+            "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+          ),
       }),
     }),
   }),
@@ -736,6 +1106,98 @@ export const GetSectorResponse = zod.object({
             bullish: zod.boolean(),
           }),
         ),
+        displayLabel: zod
+          .string()
+          .optional()
+          .describe(
+            "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+          ),
+        setupStatus: zod
+          .enum([
+            "TRADEABLE",
+            "NO_SETUP_RR",
+            "NO_SETUP_NEUTRAL",
+            "NO_SETUP_AWAITING_LEVELS",
+            "NO_SETUP_AWAITING_CONFIRMATION",
+          ])
+          .optional()
+          .describe(
+            "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+          ),
+        setupMessage: zod
+          .string()
+          .optional()
+          .describe(
+            "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+          ),
+        confirmation: zod
+          .string()
+          .optional()
+          .describe(
+            "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+          ),
+        invalidation: zod
+          .string()
+          .optional()
+          .describe("Top-level: what cancels the active setup"),
+        conflicts: zod
+          .array(zod.string())
+          .optional()
+          .describe(
+            "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+          ),
+        horizons: zod
+          .array(
+            zod.object({
+              horizon: zod
+                .enum(["INTRADAY", "SWING", "LONG_TERM"])
+                .describe(
+                  "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+                ),
+              bias: zod
+                .enum([
+                  "BULLISH",
+                  "BEARISH",
+                  "NEUTRAL_BULLISH",
+                  "NEUTRAL_BEARISH",
+                  "RANGE_BOUND",
+                  "INSUFFICIENT_DATA",
+                ])
+                .describe(
+                  "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+                ),
+              label: zod
+                .string()
+                .describe(
+                  "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+                ),
+              confidence: zod
+                .number()
+                .describe(
+                  "0-100, share of horizon-relevant evidence aligned with the bias",
+                ),
+              timeframe: zod
+                .string()
+                .describe("Display window e.g. 'Today \/ 1-3 days'"),
+              reason: zod.string().describe("Concise plain-English rationale"),
+              conflicts: zod
+                .string()
+                .optional()
+                .describe("Opposing evidence on this horizon, if any"),
+              confirmation: zod
+                .string()
+                .optional()
+                .describe("What confirms a trade on this horizon"),
+              invalidation: zod
+                .string()
+                .optional()
+                .describe("What cancels the bias on this horizon"),
+            }),
+          )
+          .optional()
+          .describe(
+            "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+          ),
       }),
     }),
   ),
@@ -844,6 +1306,96 @@ export const ListStocksResponseItem = zod.object({
         bullish: zod.boolean(),
       }),
     ),
+    displayLabel: zod
+      .string()
+      .optional()
+      .describe(
+        "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+      ),
+    setupStatus: zod
+      .enum([
+        "TRADEABLE",
+        "NO_SETUP_RR",
+        "NO_SETUP_NEUTRAL",
+        "NO_SETUP_AWAITING_LEVELS",
+        "NO_SETUP_AWAITING_CONFIRMATION",
+      ])
+      .optional()
+      .describe(
+        "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+      ),
+    setupMessage: zod
+      .string()
+      .optional()
+      .describe(
+        "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+      ),
+    confirmation: zod
+      .string()
+      .optional()
+      .describe(
+        "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+      ),
+    invalidation: zod
+      .string()
+      .optional()
+      .describe("Top-level: what cancels the active setup"),
+    conflicts: zod
+      .array(zod.string())
+      .optional()
+      .describe(
+        "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+      ),
+    horizons: zod
+      .array(
+        zod.object({
+          horizon: zod
+            .enum(["INTRADAY", "SWING", "LONG_TERM"])
+            .describe(
+              "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+            ),
+          bias: zod
+            .enum([
+              "BULLISH",
+              "BEARISH",
+              "NEUTRAL_BULLISH",
+              "NEUTRAL_BEARISH",
+              "RANGE_BOUND",
+              "INSUFFICIENT_DATA",
+            ])
+            .describe(
+              "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+            ),
+          label: zod
+            .string()
+            .describe(
+              "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+            ),
+          confidence: zod
+            .number()
+            .describe(
+              "0-100, share of horizon-relevant evidence aligned with the bias",
+            ),
+          timeframe: zod
+            .string()
+            .describe("Display window e.g. 'Today \/ 1-3 days'"),
+          reason: zod.string().describe("Concise plain-English rationale"),
+          conflicts: zod
+            .string()
+            .optional()
+            .describe("Opposing evidence on this horizon, if any"),
+          confirmation: zod
+            .string()
+            .optional()
+            .describe("What confirms a trade on this horizon"),
+          invalidation: zod
+            .string()
+            .optional()
+            .describe("What cancels the bias on this horizon"),
+        }),
+      )
+      .optional()
+      .describe("Three-horizon bias panel (Intraday \/ Swing \/ Long-term)"),
   }),
 });
 export const ListStocksResponse = zod.array(ListStocksResponseItem);
@@ -989,6 +1541,96 @@ export const GetStockDetailResponse = zod.object({
         bullish: zod.boolean(),
       }),
     ),
+    displayLabel: zod
+      .string()
+      .optional()
+      .describe(
+        "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+      ),
+    setupStatus: zod
+      .enum([
+        "TRADEABLE",
+        "NO_SETUP_RR",
+        "NO_SETUP_NEUTRAL",
+        "NO_SETUP_AWAITING_LEVELS",
+        "NO_SETUP_AWAITING_CONFIRMATION",
+      ])
+      .optional()
+      .describe(
+        "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+      ),
+    setupMessage: zod
+      .string()
+      .optional()
+      .describe(
+        "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+      ),
+    confirmation: zod
+      .string()
+      .optional()
+      .describe(
+        "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+      ),
+    invalidation: zod
+      .string()
+      .optional()
+      .describe("Top-level: what cancels the active setup"),
+    conflicts: zod
+      .array(zod.string())
+      .optional()
+      .describe(
+        "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+      ),
+    horizons: zod
+      .array(
+        zod.object({
+          horizon: zod
+            .enum(["INTRADAY", "SWING", "LONG_TERM"])
+            .describe(
+              "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+            ),
+          bias: zod
+            .enum([
+              "BULLISH",
+              "BEARISH",
+              "NEUTRAL_BULLISH",
+              "NEUTRAL_BEARISH",
+              "RANGE_BOUND",
+              "INSUFFICIENT_DATA",
+            ])
+            .describe(
+              "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+            ),
+          label: zod
+            .string()
+            .describe(
+              "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+            ),
+          confidence: zod
+            .number()
+            .describe(
+              "0-100, share of horizon-relevant evidence aligned with the bias",
+            ),
+          timeframe: zod
+            .string()
+            .describe("Display window e.g. 'Today \/ 1-3 days'"),
+          reason: zod.string().describe("Concise plain-English rationale"),
+          conflicts: zod
+            .string()
+            .optional()
+            .describe("Opposing evidence on this horizon, if any"),
+          confirmation: zod
+            .string()
+            .optional()
+            .describe("What confirms a trade on this horizon"),
+          invalidation: zod
+            .string()
+            .optional()
+            .describe("What cancels the bias on this horizon"),
+        }),
+      )
+      .optional()
+      .describe("Three-horizon bias panel (Intraday \/ Swing \/ Long-term)"),
   }),
   financials: zod.array(
     zod.object({
@@ -1271,6 +1913,98 @@ export const GetTopScansResponse = zod.object({
             bullish: zod.boolean(),
           }),
         ),
+        displayLabel: zod
+          .string()
+          .optional()
+          .describe(
+            "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+          ),
+        setupStatus: zod
+          .enum([
+            "TRADEABLE",
+            "NO_SETUP_RR",
+            "NO_SETUP_NEUTRAL",
+            "NO_SETUP_AWAITING_LEVELS",
+            "NO_SETUP_AWAITING_CONFIRMATION",
+          ])
+          .optional()
+          .describe(
+            "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+          ),
+        setupMessage: zod
+          .string()
+          .optional()
+          .describe(
+            "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+          ),
+        confirmation: zod
+          .string()
+          .optional()
+          .describe(
+            "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+          ),
+        invalidation: zod
+          .string()
+          .optional()
+          .describe("Top-level: what cancels the active setup"),
+        conflicts: zod
+          .array(zod.string())
+          .optional()
+          .describe(
+            "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+          ),
+        horizons: zod
+          .array(
+            zod.object({
+              horizon: zod
+                .enum(["INTRADAY", "SWING", "LONG_TERM"])
+                .describe(
+                  "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+                ),
+              bias: zod
+                .enum([
+                  "BULLISH",
+                  "BEARISH",
+                  "NEUTRAL_BULLISH",
+                  "NEUTRAL_BEARISH",
+                  "RANGE_BOUND",
+                  "INSUFFICIENT_DATA",
+                ])
+                .describe(
+                  "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+                ),
+              label: zod
+                .string()
+                .describe(
+                  "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+                ),
+              confidence: zod
+                .number()
+                .describe(
+                  "0-100, share of horizon-relevant evidence aligned with the bias",
+                ),
+              timeframe: zod
+                .string()
+                .describe("Display window e.g. 'Today \/ 1-3 days'"),
+              reason: zod.string().describe("Concise plain-English rationale"),
+              conflicts: zod
+                .string()
+                .optional()
+                .describe("Opposing evidence on this horizon, if any"),
+              confirmation: zod
+                .string()
+                .optional()
+                .describe("What confirms a trade on this horizon"),
+              invalidation: zod
+                .string()
+                .optional()
+                .describe("What cancels the bias on this horizon"),
+            }),
+          )
+          .optional()
+          .describe(
+            "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+          ),
       }),
     }),
   ),
@@ -1373,6 +2107,98 @@ export const GetTopScansResponse = zod.object({
             bullish: zod.boolean(),
           }),
         ),
+        displayLabel: zod
+          .string()
+          .optional()
+          .describe(
+            "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+          ),
+        setupStatus: zod
+          .enum([
+            "TRADEABLE",
+            "NO_SETUP_RR",
+            "NO_SETUP_NEUTRAL",
+            "NO_SETUP_AWAITING_LEVELS",
+            "NO_SETUP_AWAITING_CONFIRMATION",
+          ])
+          .optional()
+          .describe(
+            "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+          ),
+        setupMessage: zod
+          .string()
+          .optional()
+          .describe(
+            "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+          ),
+        confirmation: zod
+          .string()
+          .optional()
+          .describe(
+            "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+          ),
+        invalidation: zod
+          .string()
+          .optional()
+          .describe("Top-level: what cancels the active setup"),
+        conflicts: zod
+          .array(zod.string())
+          .optional()
+          .describe(
+            "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+          ),
+        horizons: zod
+          .array(
+            zod.object({
+              horizon: zod
+                .enum(["INTRADAY", "SWING", "LONG_TERM"])
+                .describe(
+                  "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+                ),
+              bias: zod
+                .enum([
+                  "BULLISH",
+                  "BEARISH",
+                  "NEUTRAL_BULLISH",
+                  "NEUTRAL_BEARISH",
+                  "RANGE_BOUND",
+                  "INSUFFICIENT_DATA",
+                ])
+                .describe(
+                  "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+                ),
+              label: zod
+                .string()
+                .describe(
+                  "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+                ),
+              confidence: zod
+                .number()
+                .describe(
+                  "0-100, share of horizon-relevant evidence aligned with the bias",
+                ),
+              timeframe: zod
+                .string()
+                .describe("Display window e.g. 'Today \/ 1-3 days'"),
+              reason: zod.string().describe("Concise plain-English rationale"),
+              conflicts: zod
+                .string()
+                .optional()
+                .describe("Opposing evidence on this horizon, if any"),
+              confirmation: zod
+                .string()
+                .optional()
+                .describe("What confirms a trade on this horizon"),
+              invalidation: zod
+                .string()
+                .optional()
+                .describe("What cancels the bias on this horizon"),
+            }),
+          )
+          .optional()
+          .describe(
+            "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+          ),
       }),
     }),
   ),

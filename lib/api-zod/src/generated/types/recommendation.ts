@@ -5,6 +5,8 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { HorizonBias } from "./horizonBias";
+import type { SetupStatus } from "./setupStatus";
 import type { Signal } from "./signal";
 import type { SignalReason } from "./signalReason";
 
@@ -20,4 +22,23 @@ export interface Recommendation {
   stopLoss?: number;
   riskRewardRatio?: number;
   reasons: SignalReason[];
+  /** UI-friendly label that resolves the "Neutral when evidence is one-sided" bug.
+Examples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',
+'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.
+ */
+  displayLabel?: string;
+  setupStatus?: SetupStatus;
+  /** Plain-English explanation that ALWAYS replaces blank target/stop boxes.
+E.g. 'No valid trade setup generated because risk/reward (0.6:1) is not favorable.'
+or 'Target and stop-loss will appear once volatility (ATR) is established.'
+ */
+  setupMessage?: string;
+  /** Top-level: what confirms the active setup (mirrors the swing horizon when tradeable) */
+  confirmation?: string;
+  /** Top-level: what cancels the active setup */
+  invalidation?: string;
+  /** Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons) */
+  conflicts?: string[];
+  /** Three-horizon bias panel (Intraday / Swing / Long-term) */
+  horizons?: HorizonBias[];
 }

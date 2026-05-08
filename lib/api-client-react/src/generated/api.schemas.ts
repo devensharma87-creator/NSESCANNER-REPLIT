@@ -94,6 +94,70 @@ export interface SignalReason {
   bullish: boolean;
 }
 
+/**
+ * Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)
+ */
+export type HorizonName = (typeof HorizonName)[keyof typeof HorizonName];
+
+export const HorizonName = {
+  INTRADAY: "INTRADAY",
+  SWING: "SWING",
+  LONG_TERM: "LONG_TERM",
+} as const;
+
+/**
+ * Per-horizon bias classification — never just 'NEUTRAL' when one side dominates
+ */
+export type HorizonBiasBias =
+  (typeof HorizonBiasBias)[keyof typeof HorizonBiasBias];
+
+export const HorizonBiasBias = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL_BULLISH: "NEUTRAL_BULLISH",
+  NEUTRAL_BEARISH: "NEUTRAL_BEARISH",
+  RANGE_BOUND: "RANGE_BOUND",
+  INSUFFICIENT_DATA: "INSUFFICIENT_DATA",
+} as const;
+
+export interface HorizonBias {
+  horizon: HorizonName;
+  /** Per-horizon bias classification — never just 'NEUTRAL' when one side dominates */
+  bias: HorizonBiasBias;
+  /** Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish' */
+  label: string;
+  /** 0-100, share of horizon-relevant evidence aligned with the bias */
+  confidence: number;
+  /** Display window e.g. 'Today / 1-3 days' */
+  timeframe: string;
+  /** Concise plain-English rationale */
+  reason: string;
+  /** Opposing evidence on this horizon, if any */
+  conflicts?: string;
+  /** What confirms a trade on this horizon */
+  confirmation?: string;
+  /** What cancels the bias on this horizon */
+  invalidation?: string;
+}
+
+/**
+ * TRADEABLE — entry/stop/target valid with R:R >= 1.
+NO_SETUP_RR — risk/reward unfavorable.
+NO_SETUP_NEUTRAL — bias is range-bound; wait for breakout/breakdown.
+NO_SETUP_AWAITING_LEVELS — directional bias but ATR/S-R inputs missing (insufficient session data).
+NO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout/breakdown trigger.
+
+ */
+export type SetupStatus = (typeof SetupStatus)[keyof typeof SetupStatus];
+
+export const SetupStatus = {
+  TRADEABLE: "TRADEABLE",
+  NO_SETUP_RR: "NO_SETUP_RR",
+  NO_SETUP_NEUTRAL: "NO_SETUP_NEUTRAL",
+  NO_SETUP_AWAITING_LEVELS: "NO_SETUP_AWAITING_LEVELS",
+  NO_SETUP_AWAITING_CONFIRMATION: "NO_SETUP_AWAITING_CONFIRMATION",
+} as const;
+
 export interface Recommendation {
   signal: Signal;
   /** -100 to 100 */
@@ -106,6 +170,25 @@ export interface Recommendation {
   stopLoss?: number;
   riskRewardRatio?: number;
   reasons: SignalReason[];
+  /** UI-friendly label that resolves the "Neutral when evidence is one-sided" bug.
+Examples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',
+'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.
+ */
+  displayLabel?: string;
+  setupStatus?: SetupStatus;
+  /** Plain-English explanation that ALWAYS replaces blank target/stop boxes.
+E.g. 'No valid trade setup generated because risk/reward (0.6:1) is not favorable.'
+or 'Target and stop-loss will appear once volatility (ATR) is established.'
+ */
+  setupMessage?: string;
+  /** Top-level: what confirms the active setup (mirrors the swing horizon when tradeable) */
+  confirmation?: string;
+  /** Top-level: what cancels the active setup */
+  invalidation?: string;
+  /** Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons) */
+  conflicts?: string[];
+  /** Three-horizon bias panel (Intraday / Swing / Long-term) */
+  horizons?: HorizonBias[];
 }
 
 export interface StockRow {

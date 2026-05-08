@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
-import { ArrowLeft, TrendingUp, TrendingDown, Target, ShieldAlert, ExternalLink } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Target, ShieldAlert, ExternalLink, Info, AlertTriangle, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { InAppCandleChart } from "@/components/in-app-candle-chart";
 import StockStatements from "@/components/stock-statements";
 import { formatDistanceToNow } from "date-fns";
@@ -101,21 +101,89 @@ export default function StockDetail() {
             <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Recommendation</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <SignalBadge signal={recommendation.signal} />
               <span className="font-mono text-xs text-muted-foreground">Confidence {recommendation.confidence}%</span>
             </div>
+            {/* Display label resolves the 'Neutral when evidence is bearish' bug.
+                Suppress only when the label simply restates the badge in human form
+                (e.g. signal=BUY → label='Bullish'); show when it adds info like
+                'Neutral-to-Bearish' or 'No Trade — Bearish Pressure'. */}
+            {recommendation.displayLabel && recommendation.displayLabel !== humanizeSignal(recommendation.signal) && (
+              <div
+                className={`text-sm font-semibold font-mono ${labelTone(recommendation.displayLabel)}`}
+                data-testid="text-display-label"
+              >
+                {recommendation.displayLabel}
+              </div>
+            )}
             <ScoreBar score={recommendation.score} />
+
+            {/* Target / Stop — never blank: setupMessage replaces empty boxes */}
             <div className="grid grid-cols-2 gap-3 pt-2">
               <div className="rounded border border-signal-strong-buy/30 bg-signal-strong-buy/5 p-2">
                 <div className="text-[10px] font-mono uppercase text-muted-foreground flex items-center gap-1"><Target className="w-3 h-3" />Target</div>
-                <div className="font-mono font-bold text-signal-strong-buy">{recommendation.target ? `₹${recommendation.target.toFixed(2)}` : "—"}</div>
+                <div className="font-mono font-bold text-signal-strong-buy" data-testid="text-target">
+                  {recommendation.target != null ? `₹${recommendation.target.toFixed(2)}` : "—"}
+                </div>
               </div>
               <div className="rounded border border-signal-strong-sell/30 bg-signal-strong-sell/5 p-2">
                 <div className="text-[10px] font-mono uppercase text-muted-foreground flex items-center gap-1"><ShieldAlert className="w-3 h-3" />Stop</div>
-                <div className="font-mono font-bold text-signal-strong-sell">{recommendation.stopLoss ? `₹${recommendation.stopLoss.toFixed(2)}` : "—"}</div>
+                <div className="font-mono font-bold text-signal-strong-sell" data-testid="text-stop">
+                  {recommendation.stopLoss != null ? `₹${recommendation.stopLoss.toFixed(2)}` : "—"}
+                </div>
               </div>
+              {recommendation.riskRewardRatio != null && (
+                <div className="col-span-2 text-[11px] font-mono text-muted-foreground">
+                  R:R <span className="text-foreground font-semibold">{recommendation.riskRewardRatio.toFixed(2)}:1</span>
+                </div>
+              )}
             </div>
+
+            {/* setupMessage explains WHY when target/stop are blank, or confirms when tradeable */}
+            {recommendation.setupMessage && (
+              <div
+                className={`flex items-start gap-2 rounded border p-2 text-[11px] leading-snug ${setupTone(recommendation.setupStatus)}`}
+                data-testid="text-setup-message"
+              >
+                {recommendation.setupStatus === "TRADEABLE"
+                  ? <CheckCircle2 className="w-3.5 h-3.5 mt-px shrink-0" />
+                  : <Info className="w-3.5 h-3.5 mt-px shrink-0" />}
+                <span>{recommendation.setupMessage}</span>
+              </div>
+            )}
+
+            {/* Top-level confirmation + invalidation */}
+            {(recommendation.confirmation || recommendation.invalidation) && (
+              <div className="space-y-1.5 pt-1 border-t border-border">
+                {recommendation.confirmation && (
+                  <div className="text-[11px] leading-snug">
+                    <span className="text-[10px] font-mono uppercase text-emerald-400 mr-1">Confirms:</span>
+                    <span className="text-foreground/80">{recommendation.confirmation}</span>
+                  </div>
+                )}
+                {recommendation.invalidation && (
+                  <div className="text-[11px] leading-snug">
+                    <span className="text-[10px] font-mono uppercase text-rose-400 mr-1">Invalidates:</span>
+                    <span className="text-foreground/80">{recommendation.invalidation}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Conflicts — opposing evidence summary */}
+            {recommendation.conflicts && recommendation.conflicts.length > 0 && (
+              <div className="rounded border border-amber-500/30 bg-amber-500/5 p-2 space-y-1">
+                <div className="text-[10px] font-mono uppercase text-amber-400 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Conflicting evidence
+                </div>
+                <ul className="space-y-1">
+                  {recommendation.conflicts.map((c, i) => (
+                    <li key={i} className="text-[11px] text-amber-200/90 leading-snug">• {c}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -138,6 +206,24 @@ export default function StockDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* 3-horizon bias panel — Intraday / Swing / Long-term */}
+      {recommendation.horizons && recommendation.horizons.length > 0 && (
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <Clock className="w-3.5 h-3.5" /> Bias by horizon
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {recommendation.horizons.map(h => (
+                <HorizonCard key={h.horizon} horizon={h} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="overview" className="w-full">
         <TabsList className="bg-card border border-border">
@@ -356,6 +442,109 @@ export default function StockDetail() {
       </Tabs>
     </div>
   );
+}
+
+type HorizonBiasView = {
+  horizon: "INTRADAY" | "SWING" | "LONG_TERM";
+  bias: "BULLISH" | "BEARISH" | "NEUTRAL_BULLISH" | "NEUTRAL_BEARISH" | "RANGE_BOUND" | "INSUFFICIENT_DATA";
+  label: string;
+  confidence: number;
+  timeframe: string;
+  reason: string;
+  conflicts?: string;
+  confirmation?: string;
+  invalidation?: string;
+};
+
+function HorizonCard({ horizon }: { horizon: HorizonBiasView }) {
+  const tone = biasTone(horizon.bias);
+  return (
+    <div
+      className={`rounded border p-3 space-y-2 ${tone.border} ${tone.bg}`}
+      data-testid={`card-horizon-${horizon.horizon.toLowerCase()}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          {horizonLabel(horizon.horizon)}
+          <span className="ml-1 text-foreground/60">· {horizon.timeframe}</span>
+        </div>
+        <span className="font-mono text-[10px] text-muted-foreground">{horizon.confidence}%</span>
+      </div>
+      <div className={`text-sm font-bold font-mono ${tone.text}`}>{horizon.label}</div>
+      <div className="text-[11px] text-foreground/80 leading-snug">
+        <span className="text-[10px] font-mono uppercase text-muted-foreground mr-1">Why:</span>
+        {horizon.reason}
+      </div>
+      {horizon.conflicts && (
+        <div className="text-[11px] text-amber-200/90 leading-snug flex items-start gap-1">
+          <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0 text-amber-400" />
+          <span><span className="text-[10px] font-mono uppercase text-amber-400 mr-1">Conflict:</span>{horizon.conflicts}</span>
+        </div>
+      )}
+      {horizon.confirmation && (
+        <div className="text-[11px] text-foreground/70 leading-snug flex items-start gap-1">
+          <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-emerald-400" />
+          <span><span className="text-[10px] font-mono uppercase text-emerald-400 mr-1">Confirms:</span>{horizon.confirmation}</span>
+        </div>
+      )}
+      {horizon.invalidation && (
+        <div className="text-[11px] text-foreground/70 leading-snug flex items-start gap-1">
+          <XCircle className="w-3 h-3 mt-0.5 shrink-0 text-rose-400" />
+          <span><span className="text-[10px] font-mono uppercase text-rose-400 mr-1">Invalidates:</span>{horizon.invalidation}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function horizonLabel(h: HorizonBiasView["horizon"]): string {
+  if (h === "INTRADAY") return "Intraday";
+  if (h === "SWING") return "Swing";
+  return "Long-term";
+}
+
+function biasTone(bias: HorizonBiasView["bias"]): { border: string; bg: string; text: string } {
+  switch (bias) {
+    case "BULLISH":
+      return { border: "border-signal-strong-buy/40", bg: "bg-signal-strong-buy/5", text: "text-signal-strong-buy" };
+    case "NEUTRAL_BULLISH":
+      return { border: "border-emerald-500/30", bg: "bg-emerald-500/5", text: "text-emerald-400" };
+    case "BEARISH":
+      return { border: "border-signal-strong-sell/40", bg: "bg-signal-strong-sell/5", text: "text-signal-strong-sell" };
+    case "NEUTRAL_BEARISH":
+      return { border: "border-rose-500/30", bg: "bg-rose-500/5", text: "text-rose-400" };
+    case "RANGE_BOUND":
+      return { border: "border-amber-500/30", bg: "bg-amber-500/5", text: "text-amber-300" };
+    default:
+      return { border: "border-border", bg: "bg-muted/20", text: "text-muted-foreground" };
+  }
+}
+
+function humanizeSignal(signal: string): string {
+  switch (signal) {
+    case "STRONG_BUY": return "Strong Bullish";
+    case "BUY": return "Bullish";
+    case "SELL": return "Bearish";
+    case "STRONG_SELL": return "Strong Bearish";
+    default: return signal;
+  }
+}
+
+function labelTone(label: string): string {
+  if (label.startsWith("Strong Bullish") || label === "Bullish") return "text-signal-strong-buy";
+  if (label === "Neutral-to-Bullish" || label.includes("Bullish Pressure")) return "text-emerald-400";
+  if (label.startsWith("Strong Bearish") || label === "Bearish") return "text-signal-strong-sell";
+  if (label === "Neutral-to-Bearish" || label.includes("Bearish Pressure")) return "text-rose-400";
+  if (label === "Range-bound") return "text-amber-300";
+  return "text-muted-foreground";
+}
+
+function setupTone(status?: string): string {
+  if (status === "TRADEABLE") return "border-emerald-500/30 bg-emerald-500/5 text-emerald-200";
+  if (status === "NO_SETUP_RR") return "border-amber-500/30 bg-amber-500/5 text-amber-200";
+  if (status === "NO_SETUP_NEUTRAL") return "border-slate-500/30 bg-slate-500/5 text-slate-200";
+  if (status === "NO_SETUP_AWAITING_LEVELS" || status === "NO_SETUP_AWAITING_CONFIRMATION") return "border-blue-500/30 bg-blue-500/5 text-blue-200";
+  return "border-border bg-muted/20 text-muted-foreground";
 }
 
 function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: "buy" | "sell" }) {

@@ -1233,6 +1233,43 @@ components:
         weight: { type: number }
         bullish: { type: boolean }
 
+    HorizonName:
+      type: string
+      enum: [INTRADAY, SWING, LONG_TERM]
+      description: "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)"
+
+    HorizonBias:
+      type: object
+      required: [horizon, bias, label, confidence, timeframe, reason]
+      properties:
+        horizon: { $ref: "#/components/schemas/HorizonName" }
+        bias:
+          type: string
+          enum: [BULLISH, BEARISH, NEUTRAL_BULLISH, NEUTRAL_BEARISH, RANGE_BOUND, INSUFFICIENT_DATA]
+          description: "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates"
+        label: { type: string, description: "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'" }
+        confidence: { type: number, description: "0-100, share of horizon-relevant evidence aligned with the bias" }
+        timeframe: { type: string, description: "Display window e.g. 'Today / 1-3 days'" }
+        reason: { type: string, description: "Concise plain-English rationale" }
+        conflicts: { type: string, description: "Opposing evidence on this horizon, if any" }
+        confirmation: { type: string, description: "What confirms a trade on this horizon" }
+        invalidation: { type: string, description: "What cancels the bias on this horizon" }
+
+    SetupStatus:
+      type: string
+      enum:
+        - TRADEABLE
+        - NO_SETUP_RR
+        - NO_SETUP_NEUTRAL
+        - NO_SETUP_AWAITING_LEVELS
+        - NO_SETUP_AWAITING_CONFIRMATION
+      description: |
+        TRADEABLE — entry/stop/target valid with R:R >= 1.
+        NO_SETUP_RR — risk/reward unfavorable.
+        NO_SETUP_NEUTRAL — bias is range-bound; wait for breakout/breakdown.
+        NO_SETUP_AWAITING_LEVELS — directional bias but ATR/S-R inputs missing (insufficient session data).
+        NO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout/breakdown trigger.
+
     Recommendation:
       type: object
       required: [signal, score, confidence, reasons]
@@ -1247,6 +1284,34 @@ components:
         reasons:
           type: array
           items: { $ref: "#/components/schemas/SignalReason" }
+        # ---- additive: structured decision-engine fields (Stock Detail page) ----
+        displayLabel:
+          type: string
+          description: |
+            UI-friendly label that resolves the "Neutral when evidence is one-sided" bug.
+            Examples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',
+            'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.
+        setupStatus: { $ref: "#/components/schemas/SetupStatus" }
+        setupMessage:
+          type: string
+          description: |
+            Plain-English explanation that ALWAYS replaces blank target/stop boxes.
+            E.g. 'No valid trade setup generated because risk/reward (0.6:1) is not favorable.'
+            or 'Target and stop-loss will appear once volatility (ATR) is established.'
+        confirmation:
+          type: string
+          description: "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)"
+        invalidation:
+          type: string
+          description: "Top-level: what cancels the active setup"
+        conflicts:
+          type: array
+          description: "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)"
+          items: { type: string }
+        horizons:
+          type: array
+          description: "Three-horizon bias panel (Intraday / Swing / Long-term)"
+          items: { $ref: "#/components/schemas/HorizonBias" }
 
     StockRow:
       type: object
