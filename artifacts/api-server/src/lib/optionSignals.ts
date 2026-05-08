@@ -43,13 +43,15 @@ export interface IndexCfg {
   expiryWeekday: number;
 }
 
+// Owner-restricted F&O universe (2026-05-08): only NIFTY / BANKNIFTY / SENSEX
+// trade live. FINNIFTY / MIDCPNIFTY / BANKEX removed — monthly-only cadence
+// + thinner OI on weekly OTM strikes was producing low-quality fills and
+// disproportionate stop-loss hits relative to the bigger-three indices.
+// Restoring an index = re-add its entry below AND its SIGNAL_INDEX_TO_LTP_KEY row.
 export const OPTION_INDICES: IndexCfg[] = [
   { symbol: "NIFTY",     yahoo: "^NSEI",              display: "NIFTY 50",      strikeStep:  50, expiryCadence: "weekly",  expiryWeekday: 2 /* Tue */ },
   { symbol: "BANKNIFTY", yahoo: "^NSEBANK",           display: "BANK NIFTY",    strikeStep: 100, expiryCadence: "monthly", expiryWeekday: 4 /* last Thu */ },
-  { symbol: "FINNIFTY",  yahoo: "^CNXFIN",            display: "FIN NIFTY",     strikeStep:  50, expiryCadence: "monthly", expiryWeekday: 2 /* last Tue */ },
-  { symbol: "MIDCPNIFTY",yahoo: "NIFTY_MID_SELECT.NS",display: "MIDCAP NIFTY",  strikeStep:  25, expiryCadence: "monthly", expiryWeekday: 1 /* last Mon */ },
   { symbol: "SENSEX",    yahoo: "^BSESN",             display: "SENSEX",        strikeStep: 100, expiryCadence: "weekly",  expiryWeekday: 2 /* Tue */ },
-  { symbol: "BANKEX",    yahoo: "BSE-BANK.BO",        display: "BSE BANKEX",    strikeStep: 100, expiryCadence: "monthly", expiryWeekday: 2 /* last Tue */ },
 ];
 
 /**
@@ -62,10 +64,7 @@ export const OPTION_INDICES: IndexCfg[] = [
 const SIGNAL_INDEX_TO_LTP_KEY: Record<string, string> = {
   NIFTY:      "^NSEI",
   BANKNIFTY:  "^NSEBANK",
-  FINNIFTY:   "NIFTY_FIN_SERVICE.NS",
-  MIDCPNIFTY: "NIFTY_MID_SELECT.NS",
   SENSEX:     "^BSESN",
-  BANKEX:     "BSE-BANK.BO",
 };
 
 // ---------- helpers ----------

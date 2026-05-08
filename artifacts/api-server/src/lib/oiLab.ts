@@ -41,14 +41,14 @@ async function fetchKiteOnlyChain(sym: string): Promise<OcResponse | null> {
 }
 
 // ─── Universe ────────────────────────────────────────────────────────────────
+// Owner-restricted (2026-05-08): only NIFTY / BANKNIFTY / SENSEX. Mirrors the
+// OPTION_INDICES restriction in optionSignals.ts so OI Lab + signal engine
+// always show the same universe (no orphaned analytics for indices we no
+// longer trade). To restore: re-add symbols here AND in OPTION_INDICES.
 export const FNO_INDICES = [
   "NIFTY",
   "BANKNIFTY",
-  "FINNIFTY",
-  "MIDCPNIFTY",
-  "NIFTYNXT50",
   "SENSEX",   // BSE — quoted via BFO segment
-  "BANKEX",   // BSE — quoted via BFO segment
 ] as const;
 
 /** Cache for dynamic F&O universe pulled from Kite NFO instruments dump.
