@@ -280,12 +280,167 @@ function EquitySegment() {
         error={positions.error instanceof Error ? positions.error.message : null}
         onBuyClick={() => setBuyOpen(true)}
       />
+      <EqAuditPanel />
       <ManualBuyEqDialog
         open={buyOpen}
         onClose={() => setBuyOpen(false)}
         onSuccess={handleBuySuccess}
       />
     </div>
+  );
+}
+
+interface EqAuditRow {
+  id: string;
+  ts: string;
+  symbol: string;
+  signal: string | null;
+  score: number | null;
+  decision: string;
+  reason: string;
+  detail: string | null;
+  entry: number | null;
+  stop: number | null;
+  qty: number | null;
+  deploy: number | null;
+  balance: number | null;
+  accountValue: number | null;
+  source: string;
+}
+
+const SKIP_TONE: Record<string, string> = {
+  STOP_SANITY: "text-amber-300 border-amber-500/40 bg-amber-500/10",
+  DD_DAILY: "text-rose-300 border-rose-500/40 bg-rose-500/10",
+  DD_WEEKLY: "text-rose-300 border-rose-500/40 bg-rose-500/10",
+  DD_MONTHLY: "text-rose-300 border-rose-500/40 bg-rose-500/10",
+  HEAT_CAP: "text-rose-300 border-rose-500/40 bg-rose-500/10",
+  DAILY_CAP: "text-amber-300 border-amber-500/40 bg-amber-500/10",
+  CONCURRENT_CAP: "text-amber-300 border-amber-500/40 bg-amber-500/10",
+  INSUFF_BAL: "text-amber-300 border-amber-500/40 bg-amber-500/10",
+  QTY_LT_1: "text-amber-300 border-amber-500/40 bg-amber-500/10",
+  DEPLOY_LE_0: "text-amber-300 border-amber-500/40 bg-amber-500/10",
+  DUPLICATE: "text-slate-300 border-slate-500/30 bg-slate-500/10",
+  TXN_ABORT: "text-slate-300 border-slate-500/30 bg-slate-500/10",
+  NO_ACCT: "text-rose-300 border-rose-500/40 bg-rose-500/10",
+  INVALID_ENTRY: "text-rose-300 border-rose-500/40 bg-rose-500/10",
+  INVALID_RISK: "text-rose-300 border-rose-500/40 bg-rose-500/10",
+  OPENED: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10",
+};
+
+/**
+ * Equity-side decision audit trail. Rolling view of every "would-be
+ * trade" the auto swing tick + manual buy form considered, including
+ * the gate that fired (if any) and the snapshot that drove it.
+ *
+ * Polls every 30 s — fast enough to feel live during market hours,
+ * slow enough not to flood the API outside trading hours.
+ */
+function EqAuditPanel() {
+  const summary = useQuery({
+    queryKey: ["paper", "audit", "eq", "summary"],
+    queryFn: () => api<{ items: Array<{ reason: string; count: number }>; hours: number }>(
+      `/paper/audit/eq/summary?hours=24`,
+    ),
+    refetchInterval: 30_000,
+  });
+  const list = useQuery({
+    queryKey: ["paper", "audit", "eq", "list"],
+    queryFn: () => api<{ items: EqAuditRow[] }>(`/paper/audit/eq?limit=100`),
+    refetchInterval: 30_000,
+  });
+  const items = list.data?.items ?? [];
+  const summaryItems = summary.data?.items ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Equity decision audit</CardTitle>
+        <CardDescription>
+          Every paper-buy attempt (auto from STRONG_BUY scans, or manual from the
+          Buy buttons) gets a row here. Use it to see exactly why a STRONG_BUY
+          didn't trade — drawdown cap, heat cap, duplicate, balance, etc.
+          Last 24 h summary on top; most-recent 100 decisions below. Refreshes every 30 s.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* 24h skip-reason summary */}
+        {summary.isLoading ? (
+          <Skeleton className="h-12 w-full" />
+        ) : summaryItems.length === 0 ? (
+          <div className="text-xs text-muted-foreground font-mono">
+            No decisions in the last 24 h.
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {summaryItems.map(s => (
+              <span
+                key={s.reason}
+                className={`px-2 py-1 rounded border text-[10px] font-mono uppercase tracking-wider ${SKIP_TONE[s.reason] ?? "text-muted-foreground border-border bg-muted/30"}`}
+                title={`${s.count} occurrence${s.count === 1 ? "" : "s"} of ${s.reason} in the last 24 h`}
+              >
+                {s.reason} · {s.count}
+              </span>
+            ))}
+          </div>
+        )}
+        {/* Detail table */}
+        {list.isLoading ? (
+          <Skeleton className="h-48 w-full" />
+        ) : list.error ? (
+          <ErrorBlock message={list.error instanceof Error ? list.error.message : "Failed to load audit"} />
+        ) : items.length === 0 ? (
+          <div className="text-xs text-muted-foreground font-mono py-4 text-center">
+            No audit rows yet.
+          </div>
+        ) : (
+          <div className="overflow-auto max-h-96 border border-border rounded">
+            <table className="w-full text-xs font-mono">
+              <thead className="sticky top-0 bg-card border-b border-border z-10">
+                <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <th className="px-2 py-2">Time</th>
+                  <th className="px-2 py-2">Symbol</th>
+                  <th className="px-2 py-2">Decision</th>
+                  <th className="px-2 py-2">Reason</th>
+                  <th className="px-2 py-2">Detail</th>
+                  <th className="px-2 py-2 text-right">Score</th>
+                  <th className="px-2 py-2">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(r => (
+                  <tr
+                    key={r.id}
+                    className="border-b border-border/50 hover:bg-accent/30"
+                    data-testid={`row-audit-${r.id}`}
+                  >
+                    <td className="px-2 py-1.5 text-muted-foreground tabular-nums whitespace-nowrap">
+                      {fmtDateTime(r.ts)}
+                    </td>
+                    <td className="px-2 py-1.5 font-bold">{r.symbol}</td>
+                    <td className="px-2 py-1.5">
+                      <span className={`px-1.5 py-0.5 rounded border text-[10px] uppercase ${r.decision === "OPEN" ? "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" : "text-rose-300 border-rose-500/40 bg-rose-500/10"}`}>
+                        {r.decision}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <span className={`px-1.5 py-0.5 rounded border text-[10px] uppercase ${SKIP_TONE[r.reason] ?? "text-muted-foreground border-border bg-muted/30"}`}>
+                        {r.reason}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 text-muted-foreground max-w-[420px] truncate" title={r.detail ?? ""}>
+                      {r.detail ?? "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">
+                      {r.score == null ? "—" : r.score.toFixed(0)}
+                    </td>
+                    <td className="px-2 py-1.5 text-muted-foreground text-[10px]">{r.source}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

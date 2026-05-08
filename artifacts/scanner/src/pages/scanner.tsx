@@ -15,6 +15,7 @@ import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import type { StockRow } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { QuickBuyEqDialog } from "@/components/quick-buy-eq-dialog";
 
 interface FullNseResponse {
   rows: StockRow[];
@@ -235,8 +236,9 @@ const GRID_TEMPLATE = [
   "minmax(80px, 1fr)",      // FUT OI    — buildup classification
   "minmax(112px, 1.6fr)",   // SCORE     — visualisation bar (ScoreBar inner min-w-[90px] + cell px-2 ≈ 106 px), rounded up
   "minmax(118px, 130px)",   // SIGNAL    — pill, capped; min sized to clear "STRONG BEARISH" label at the badge's text-[10px] font-mono
+  "minmax(56px, 62px)",     // BUY       — owner-only quick-buy action (paper-trades the symbol via /paper/positions/eq/manual)
 ].join(" ");
-const TOTAL_WIDTH = 110 + 74 + 60 + 64 + 60*5 + 60*4 + 46 + 76*2 + 52 + 60 + 80 + 112 + 100;
+const TOTAL_WIDTH = 110 + 74 + 60 + 64 + 60*5 + 60*4 + 46 + 76*2 + 52 + 60 + 80 + 112 + 100 + 60;
 
 const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
 const fmt = (n: number | undefined | null, dp = 2) => n == null ? "—" : n.toFixed(dp);
@@ -260,7 +262,7 @@ function OiBuildupBadge({ buildup }: { buildup: string | undefined }) {
  * (NOT a <tr>) because virtualization requires absolute positioning, which
  * the browser doesn't apply correctly inside <table> markup.
  */
-const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) {
+const Row = memo(function Row({ stock, top, onBuy }: { stock: StockRow; top: number; onBuy: (symbol: string) => void }) {
   const q = stock.quote;
   const ind = stock.indicators;
   const chgClass = q.changePercent >= 0 ? 'text-signal-strong-buy' : 'text-signal-strong-sell';
@@ -327,6 +329,17 @@ const Row = memo(function Row({ stock, top }: { stock: StockRow; top: number }) 
       <div className="px-2"><OiBuildupBadge buildup={(ind as Record<string, unknown> | undefined)?.futOiBuildup as string | undefined} /></div>
       <div className="px-2 min-w-0"><ScoreBar score={stock.recommendation.score} /></div>
       <div className="px-2 flex items-center justify-end"><SignalBadge signal={stock.recommendation.signal} /></div>
+      <div className="px-2 flex items-center justify-center">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onBuy(stock.symbol); }}
+          className="px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 text-[10px] font-mono uppercase tracking-wider hover:bg-emerald-500/20 hover:text-emerald-200 transition-colors"
+          title={`Paper-buy ${stock.symbol} (auto-sized; capital safety gates still apply)`}
+          data-testid={`button-row-buy-${stock.symbol}`}
+        >
+          Buy
+        </button>
+      </div>
     </div>
   );
 });
@@ -346,6 +359,9 @@ export default function ScannerPage() {
   const [sectorFilter, setSectorFilter] = useState<string>(initialSector);
   const [signalFilter, setSignalFilter] = useState<string>("all");
   const [searchFilter, setSearchFilter] = useState<string>(initialSearch);
+  const [buyOpen, setBuyOpen] = useState(false);
+  const [buySymbol, setBuySymbol] = useState<string>("");
+  const openBuy = (symbol: string) => { setBuySymbol(symbol); setBuyOpen(true); };
 
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "score", dir: "desc" });
   const [screen, setScreen] = useState<string>("none");
@@ -463,6 +479,11 @@ export default function ScannerPage() {
 
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-4">
+      <QuickBuyEqDialog
+        open={buyOpen}
+        onClose={() => setBuyOpen(false)}
+        defaultSymbol={buySymbol}
+      />
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="space-y-1">
           <div className="flex items-center gap-3 flex-wrap">
@@ -637,6 +658,7 @@ export default function ScannerPage() {
                 <div className="px-2"><SortHead k="futOi" label="FUT OI" sort={sort} setSort={setSort} align="left" /></div>
                 <div className="px-2"><SortHead k="score" label="SCORE" sort={sort} setSort={setSort} align="left" /></div>
                 <div className="text-right px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">SIGNAL</div>
+                <div className="text-center px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground" title="Paper-buy this row instantly. Capital safety gates (DD caps, heat, sanity) still apply.">BUY</div>
               </div>
 
               {stocksLoading ? (
@@ -653,7 +675,7 @@ export default function ScannerPage() {
                 <div className="relative" style={{ height: rowVirtualizer.getTotalSize(), minWidth: TOTAL_WIDTH }}>
                   {rowVirtualizer.getVirtualItems().map(v => {
                     const stock = sortedStocks[v.index];
-                    return <Row key={stock.symbol} stock={stock} top={v.start} />;
+                    return <Row key={stock.symbol} stock={stock} top={v.start} onBuy={openBuy} />;
                   })}
                 </div>
               )}

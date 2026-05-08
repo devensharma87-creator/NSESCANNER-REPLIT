@@ -51,6 +51,7 @@ import {
   getYearlyReport as getEqYearlyReport,
 } from "../lib/paperReportsEq";
 import { forceClosePaperEquityTrade, openManualPaperEquityTrade } from "../lib/paperTradingEq";
+import { listEqAudit, summarizeEqAudit, getEqEventsSince } from "../lib/paperEqAudit";
 import { getAllScannedRows } from "../lib/fullNseScanner";
 import { logger } from "../lib/logger";
 import { getJournalAnalytics } from "../lib/journalAnalytics";
@@ -806,6 +807,43 @@ router.get("/paper/journal-analytics", requireOwner, async (req, res, next) => {
   } catch (err) {
     return next(err);
   }
+});
+
+/**
+ * Owner-only equity audit trail. Each row records one auto/manual
+ * decision (OPEN or SKIP) with the gate that fired and the snapshot
+ * that drove it. Lets the user see *why* a STRONG_BUY didn't trade.
+ */
+router.get("/paper/audit/eq", requireOwner, async (req, res, next) => {
+  try {
+    const limit = Number(req.query.limit ?? 100);
+    const rows = await listEqAudit(Number.isFinite(limit) ? limit : 100);
+    return res.json({ items: rows, generatedAt: new Date().toISOString() });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get("/paper/audit/eq/summary", requireOwner, async (req, res, next) => {
+  try {
+    const hours = Number(req.query.hours ?? 24);
+    const rows = await summarizeEqAudit(Number.isFinite(hours) ? hours : 24);
+    return res.json({ items: rows, hours, generatedAt: new Date().toISOString() });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * Live event feed for UI toasts. Long-poll-friendly: client passes its
+ * last-seen `since` id, server returns every event with a higher id +
+ * the new latest id for the next poll.
+ */
+router.get("/paper/events/eq", requireOwner, (req, res) => {
+  const since = Number(req.query.since ?? 0);
+  const safeSince = Number.isFinite(since) && since >= 0 ? since : 0;
+  const { events, latestId } = getEqEventsSince(safeSince);
+  return res.json({ events, latestId, generatedAt: new Date().toISOString() });
 });
 
 void sql;

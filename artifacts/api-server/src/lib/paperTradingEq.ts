@@ -49,6 +49,7 @@ import {
   getEqWeeklyRealizedDrawdown,
 } from "./paperAccount";
 import { logger } from "./logger";
+import { recordEqDecision, pushEqEvent, type EqEventType } from "./paperEqAudit";
 import type { SwingSignal } from "./swingSignals";
 import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
@@ -91,8 +92,9 @@ export type EquityExitReason =
  */
 export async function openPaperEquityTrade(
   signal: SwingSignal,
-  opts?: { qtyOverride?: number },
+  opts?: { qtyOverride?: number; source?: "AUTO" | "MANUAL"; signalLabel?: string },
 ): Promise<PaperTradeEqRow | null> {
+  const sigLabel = opts?.signalLabel ?? "STRONG_BUY";
   const today = signal.signalDate;
 
   // Pre-check (lock-free): if a row already exists for this symbol+day,
@@ -111,10 +113,20 @@ export async function openPaperEquityTrade(
 
   if (!(signal.entryPrice > 0)) {
     logger.info({ symbol: signal.symbol, entry: signal.entryPrice }, "Paper EQ skip: invalid entry");
+    await recordEqDecision({
+      symbol: signal.symbol, decision: "SKIP", reason: "INVALID_ENTRY",
+      detail: `Invalid entry price ${signal.entryPrice}`, signal: sigLabel, score: signal.score,
+      entry: signal.entryPrice, source: opts?.source ?? "AUTO",
+    });
     return null;
   }
   if (!(signal.perShareRisk > 0)) {
     logger.info({ symbol: signal.symbol, risk: signal.perShareRisk }, "Paper EQ skip: invalid risk");
+    await recordEqDecision({
+      symbol: signal.symbol, decision: "SKIP", reason: "INVALID_RISK",
+      detail: `Invalid per-share risk ${signal.perShareRisk}`, signal: sigLabel, score: signal.score,
+      entry: signal.entryPrice, stop: signal.stopPrice, source: opts?.source ?? "AUTO",
+    });
     return null;
   }
 
@@ -135,6 +147,15 @@ export async function openPaperEquityTrade(
       },
       "Paper EQ skip: stop-loss outside sanity bounds (1%–8%)",
     );
+    await recordEqDecision({
+      symbol: signal.symbol, decision: "SKIP", reason: "STOP_SANITY",
+      detail: `Stop ${(stopPct * 100).toFixed(2)}% outside sanity bounds (${(EQUITY_STOP_SANITY.MIN_STOP_PCT * 100).toFixed(0)}–${(EQUITY_STOP_SANITY.MAX_STOP_PCT * 100).toFixed(0)}%)`,
+      signal: sigLabel, score: signal.score,
+      entry: signal.entryPrice, stop: signal.stopPrice, source: opts?.source ?? "AUTO",
+      emitEvent: opts?.source === "MANUAL" ? {
+        type: "BUY_SKIPPED", title: `${signal.symbol} buy rejected`, severity: "warn",
+      } : undefined,
+    });
     return null;
   }
 
@@ -151,6 +172,11 @@ export async function openPaperEquityTrade(
         capPct: EQUITY_DD_CAPS.MAX_DAILY_LOSS_PCT },
       "Paper EQ skip: daily DD cap reached (sticky)",
     );
+    await recordEqDecision({
+      symbol: signal.symbol, decision: "SKIP", reason: "DD_DAILY",
+      detail: `Daily DD cap reached: ${(eqDaily.drawdownPct * 100).toFixed(2)}% > ${(EQUITY_DD_CAPS.MAX_DAILY_LOSS_PCT * 100).toFixed(2)}%`,
+      signal: sigLabel, score: signal.score, source: opts?.source ?? "AUTO",
+    });
     return null;
   }
   if (eqWeekly.capReached) {
@@ -159,6 +185,11 @@ export async function openPaperEquityTrade(
         capPct: EQUITY_DD_CAPS.MAX_WEEKLY_LOSS_PCT },
       "Paper EQ skip: weekly DD cap reached (sticky)",
     );
+    await recordEqDecision({
+      symbol: signal.symbol, decision: "SKIP", reason: "DD_WEEKLY",
+      detail: `Weekly DD cap reached: ${(eqWeekly.drawdownPct * 100).toFixed(2)}% > ${(EQUITY_DD_CAPS.MAX_WEEKLY_LOSS_PCT * 100).toFixed(2)}%`,
+      signal: sigLabel, score: signal.score, source: opts?.source ?? "AUTO",
+    });
     return null;
   }
   if (eqMonthly.capReached) {
@@ -167,6 +198,11 @@ export async function openPaperEquityTrade(
         capPct: EQUITY_DD_CAPS.MAX_MONTHLY_LOSS_PCT },
       "Paper EQ skip: monthly DD cap reached (sticky)",
     );
+    await recordEqDecision({
+      symbol: signal.symbol, decision: "SKIP", reason: "DD_MONTHLY",
+      detail: `Monthly DD cap reached: ${(eqMonthly.drawdownPct * 100).toFixed(2)}% > ${(EQUITY_DD_CAPS.MAX_MONTHLY_LOSS_PCT * 100).toFixed(2)}%`,
+      signal: sigLabel, score: signal.score, source: opts?.source ?? "AUTO",
+    });
     return null;
   }
 
@@ -192,6 +228,11 @@ export async function openPaperEquityTrade(
       }).rows;
       if (rs.length === 0) {
         logger.warn({ symbol: signal.symbol }, "Paper EQ skip: no EQUITY account row (seed missing)");
+        await recordEqDecision({
+          symbol: signal.symbol, decision: "SKIP", reason: "NO_ACCT",
+          detail: "No EQUITY account row (seed missing)",
+          signal: sigLabel, score: signal.score, source: opts?.source ?? "AUTO",
+        });
         return null;
       }
       const balance = num(rs[0]!.balance);
@@ -203,6 +244,11 @@ export async function openPaperEquityTrade(
           { symbol: signal.symbol, dayCount },
           "Paper EQ skip: daily new-entry cap reached",
         );
+        await recordEqDecision({
+          symbol: signal.symbol, decision: "SKIP", reason: "DAILY_CAP",
+          detail: `Daily new-entry cap reached: ${dayCount} ≥ ${EQUITY_RISK.MAX_NEW_PER_DAY}`,
+          signal: sigLabel, score: signal.score, balance, source: opts?.source ?? "AUTO",
+        });
         return null;
       }
       if (openCount >= EQUITY_RISK.MAX_CONCURRENT) {
@@ -210,6 +256,11 @@ export async function openPaperEquityTrade(
           { symbol: signal.symbol, openCount },
           "Paper EQ skip: concurrent-open cap reached",
         );
+        await recordEqDecision({
+          symbol: signal.symbol, decision: "SKIP", reason: "CONCURRENT_CAP",
+          detail: `Concurrent-open cap reached: ${openCount} ≥ ${EQUITY_RISK.MAX_CONCURRENT}`,
+          signal: sigLabel, score: signal.score, balance, source: opts?.source ?? "AUTO",
+        });
         return null;
       }
 
@@ -241,6 +292,12 @@ export async function openPaperEquityTrade(
           { symbol: signal.symbol, accountValue, balance, slots },
           "Paper EQ skip: deploy <= 0 (no capital available)",
         );
+        await recordEqDecision({
+          symbol: signal.symbol, decision: "SKIP", reason: "DEPLOY_LE_0",
+          detail: `No deployable capital — balance ₹${balance.toFixed(2)}, accountValue ₹${accountValue.toFixed(2)}`,
+          signal: sigLabel, score: signal.score,
+          entry: signal.entryPrice, balance, accountValue, source: opts?.source ?? "AUTO",
+        });
         return null;
       }
       const autoQty = Math.floor(deploy / signal.entryPrice);
@@ -268,6 +325,17 @@ export async function openPaperEquityTrade(
           },
           "Paper EQ skip: qty < 1 (capital per slot insufficient for entry price)",
         );
+        await recordEqDecision({
+          symbol: signal.symbol, decision: "SKIP", reason: "QTY_LT_1",
+          detail: accountDepleted
+            ? `Account depleted: deploy ₹${deploy.toFixed(2)} < entry ₹${signal.entryPrice.toFixed(2)} (balance ₹${balance.toFixed(2)})`
+            : `Per-slot allocation < 1 share: deploy ₹${deploy.toFixed(2)} / entry ₹${signal.entryPrice.toFixed(2)} (slots ${slots})`,
+          signal: sigLabel, score: signal.score,
+          entry: signal.entryPrice, deploy, balance, accountValue, source: opts?.source ?? "AUTO",
+          emitEvent: opts?.source === "MANUAL" ? {
+            type: "BUY_SKIPPED", title: `${signal.symbol} buy rejected`, severity: "warn",
+          } : undefined,
+        });
         return null;
       }
       const capitalDeployed = qty * signal.entryPrice;
@@ -276,6 +344,12 @@ export async function openPaperEquityTrade(
           { symbol: signal.symbol, capitalDeployed, balance },
           "Paper EQ skip: insufficient balance after rounding",
         );
+        await recordEqDecision({
+          symbol: signal.symbol, decision: "SKIP", reason: "INSUFF_BAL",
+          detail: `Insufficient balance after rounding: needed ₹${capitalDeployed.toFixed(2)}, have ₹${balance.toFixed(2)}`,
+          signal: sigLabel, score: signal.score,
+          entry: signal.entryPrice, qty, deploy: capitalDeployed, balance, source: opts?.source ?? "AUTO",
+        });
         return null;
       }
 
@@ -304,6 +378,12 @@ export async function openPaperEquityTrade(
           },
           `Paper EQ skip: portfolio heat cap would be breached (${(projectedHeat / SEED_CAPITAL.EQUITY * 100).toFixed(2)}% > ${(PORTFOLIO_HEAT.MAX_EQ_HEAT_PCT * 100).toFixed(2)}%)`,
         );
+        await recordEqDecision({
+          symbol: signal.symbol, decision: "SKIP", reason: "HEAT_CAP",
+          detail: `Heat cap would be breached: ${(projectedHeat / SEED_CAPITAL.EQUITY * 100).toFixed(2)}% > ${(PORTFOLIO_HEAT.MAX_EQ_HEAT_PCT * 100).toFixed(2)}%`,
+          signal: sigLabel, score: signal.score,
+          entry: signal.entryPrice, stop: signal.stopPrice, qty, source: opts?.source ?? "AUTO",
+        });
         return null;
       }
 
@@ -332,6 +412,11 @@ export async function openPaperEquityTrade(
         .returning();
       if (inserted.length === 0) {
         logger.info({ symbol: signal.symbol }, "Paper EQ skip: trade row already exists for symbol+day");
+        await recordEqDecision({
+          symbol: signal.symbol, decision: "SKIP", reason: "DUPLICATE",
+          detail: "Already opened today (symbol+day unique constraint)",
+          signal: sigLabel, score: signal.score, source: opts?.source ?? "AUTO",
+        });
         return null;
       }
 
@@ -374,6 +459,20 @@ export async function openPaperEquityTrade(
         },
         "Paper EQ OPENED",
       );
+      const isManual = opts?.source === "MANUAL";
+      await recordEqDecision({
+        symbol: signal.symbol, decision: "OPEN", reason: "OPENED",
+        detail: `${isManual ? "Manual" : "Auto"} buy filled: ${qty} × ₹${signal.entryPrice.toFixed(2)} (stop ₹${signal.stopPrice.toFixed(2)}, T1 ₹${signal.target1Price.toFixed(2)}, T2 ₹${signal.target2Price.toFixed(2)})`,
+        signal: sigLabel, score: signal.score,
+        entry: signal.entryPrice, stop: signal.stopPrice, qty,
+        deploy: capitalDeployed, balance: num(debited[0]!.balance),
+        source: isManual ? "MANUAL" : "AUTO",
+        emitEvent: {
+          type: isManual ? "MANUAL_BUY" : "BUY_EXECUTED",
+          title: `${isManual ? "Manual buy" : "Buy filled"}: ${signal.symbol}`,
+          severity: "success",
+        },
+      });
       return inserted[0]!;
     });
   } catch (err) {
@@ -382,6 +481,11 @@ export async function openPaperEquityTrade(
         { symbol: signal.symbol },
         "Paper EQ skip: txn aborted (cap/balance lost the race)",
       );
+      await recordEqDecision({
+        symbol: signal.symbol, decision: "SKIP", reason: "TXN_ABORT",
+        detail: "Transaction aborted — concurrent open won the cap/balance race",
+        signal: sigLabel, score: signal.score, source: opts?.source ?? "AUTO",
+      });
       return null;
     }
     throw err;
@@ -446,6 +550,38 @@ async function closePaperEquityTradeRow(
       },
       "Paper EQ CLOSED",
     );
+    const sevMap: Record<EquityExitReason, "success" | "warn" | "error" | "info"> = {
+      TARGET2_HIT: "success",
+      TRAIL_STOP_HIT: "success",
+      STOPPED: "error",
+      SIGNAL_FLIP: "warn",
+      TIME_STOP: "info",
+      MANUAL_OVERRIDE: "info",
+    };
+    const typeMap: Record<EquityExitReason, EqEventType> = {
+      TARGET2_HIT: "TARGET2_HIT",
+      TRAIL_STOP_HIT: "SL_HIT",
+      STOPPED: "SL_HIT",
+      SIGNAL_FLIP: "SIGNAL_FLIP",
+      TIME_STOP: "TIME_STOP",
+      MANUAL_OVERRIDE: "MANUAL_CLOSE",
+    };
+    const titleMap: Record<EquityExitReason, string> = {
+      TARGET2_HIT: `Target 2 hit: ${row.symbol}`,
+      TRAIL_STOP_HIT: `Trailed stop hit: ${row.symbol}`,
+      STOPPED: `Stop loss hit: ${row.symbol}`,
+      SIGNAL_FLIP: `Signal flipped — exit: ${row.symbol}`,
+      TIME_STOP: `Time stop: ${row.symbol}`,
+      MANUAL_OVERRIDE: `Manual close: ${row.symbol}`,
+    };
+    pushEqEvent({
+      type: typeMap[reason],
+      symbol: row.symbol,
+      title: titleMap[reason],
+      detail: `${row.qty} × ₹${num(row.entryPrice).toFixed(2)} → ₹${exitPrice.toFixed(2)} · P&L ₹${realizedPnl.toFixed(0)}`,
+      source: reason === "MANUAL_OVERRIDE" ? "manual" : "auto",
+      severity: sevMap[reason],
+    });
     return updated[0]!;
   });
 }
@@ -534,7 +670,11 @@ export async function openManualPaperEquityTrade(
     { symbol: row.symbol, entry: entryPrice, stop: stopPrice, t1: target1Price, t2: target2Price, qtyOverride: opts?.qty ?? null },
     "Paper EQ manual buy: attempting open",
   );
-  const opened = await openPaperEquityTrade(signal, { qtyOverride: opts?.qty });
+  const opened = await openPaperEquityTrade(signal, {
+    qtyOverride: opts?.qty,
+    source: "MANUAL",
+    signalLabel: row.recommendation.signal,
+  });
   if (!opened) {
     return {
       row: null,
@@ -678,6 +818,14 @@ async function evaluateOne(
           { id: row.id, symbol: row.symbol, ltp, t1, newStop: t1 },
           "Paper EQ trailed stop to T1",
         );
+        pushEqEvent({
+          type: "TRAIL_TO_T1",
+          symbol: row.symbol,
+          title: `Stop trailed to T1: ${row.symbol}`,
+          detail: `LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${t1.toFixed(2)} — new stop ₹${t1.toFixed(2)}`,
+          source: "auto",
+          severity: "success",
+        });
       }
     }
   }

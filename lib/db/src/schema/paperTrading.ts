@@ -240,3 +240,50 @@ export const paperTradeEqTable = pgTable(
 
 export type PaperTradeEqRow = typeof paperTradeEqTable.$inferSelect;
 export type NewPaperTradeEqRow = typeof paperTradeEqTable.$inferInsert;
+
+/**
+ * Equity-side decision audit trail. One row per "would-be trade" event:
+ *   - OPEN  : an equity paper trade was actually opened
+ *   - SKIP  : the auto/manual open was rejected by one of the gates
+ *
+ * `reason` is machine-readable (STOP_SANITY, DD_DAILY, QTY_LT_1, etc) so
+ * the UI can group / colour-code; `detail` is the matching human-readable
+ * message that previously only existed in server logs. Surfaces the same
+ * information the user used to have to grep `pino` output for.
+ *
+ * Owner-only by design — exposed via GET /paper/audit/eq.
+ */
+export const paperEqAuditTable = pgTable(
+  "paper_eq_audit",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
+    symbol: text("symbol").notNull(),
+    /** Recommendation signal at the time of the decision (STRONG_BUY / BUY / etc). May be null for manual opens. */
+    signal: text("signal"),
+    /** Recommendation score 0-100 (or null for manual opens with no row). */
+    score: numeric("score", { precision: 8, scale: 2 }),
+    /** OPEN | SKIP */
+    decision: text("decision").notNull(),
+    /** Machine-readable reason code. See paperEqAudit.ts for the enum. */
+    reason: text("reason").notNull(),
+    /** Human-readable detail (mirrors the previous logger message). */
+    detail: text("detail"),
+    /** Snapshot of the planned entry / stop / qty / deploy / balance at decision time. All optional. */
+    entry: numeric("entry", { precision: 18, scale: 4 }),
+    stop: numeric("stop", { precision: 18, scale: 4 }),
+    qty: integer("qty"),
+    deploy: numeric("deploy", { precision: 18, scale: 2 }),
+    balance: numeric("balance", { precision: 18, scale: 2 }),
+    accountValue: numeric("account_value", { precision: 18, scale: 2 }),
+    /** "AUTO" (swing scanner tick) or "MANUAL" (UI buy click). */
+    source: text("source").notNull().default("AUTO"),
+  },
+  (t) => ({
+    tsIdx: index("paper_eq_audit_ts_idx").on(t.ts),
+    symbolTsIdx: index("paper_eq_audit_symbol_ts_idx").on(t.symbol, t.ts),
+  }),
+);
+
+export type PaperEqAuditRow = typeof paperEqAuditTable.$inferSelect;
+export type NewPaperEqAuditRow = typeof paperEqAuditTable.$inferInsert;

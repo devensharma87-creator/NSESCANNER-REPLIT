@@ -10,6 +10,7 @@ import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import { TrendlyneInsights } from "@/components/trendlyne-widget";
+import { QuickBuyEqDialog } from "@/components/quick-buy-eq-dialog";
 import {
   useGetStockDetail,
   getGetStockDetailQueryKey,
@@ -111,6 +112,7 @@ export default function DeepScan() {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<LookupItem | null>(null);
   const [range, setRange] = useState<Range>("6mo");
+  const [buyOpen, setBuyOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Default symbol on first load — honor `?sym=...&kind=...` if present so peer
@@ -303,8 +305,26 @@ export default function DeepScan() {
                       <span className="text-xs text-muted-foreground ml-1">({snap.quote.change >= 0 ? "+" : ""}{fmt(snap.quote.change)})</span>
                     </span>
                   </div>
+                  {snap.kind === "stock" && (
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        size="sm"
+                        onClick={() => setBuyOpen(true)}
+                        className="h-7 px-3 text-xs font-mono uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white"
+                        data-testid="button-deepscan-buy"
+                        title={`Paper-buy ${snap.symbol}. Capital safety gates still apply.`}
+                      >
+                        Buy {snap.symbol}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
+              <QuickBuyEqDialog
+                open={buyOpen}
+                onClose={() => setBuyOpen(false)}
+                defaultSymbol={snap.kind === "stock" ? snap.symbol : ""}
+              />
 
               <div className="flex flex-wrap gap-1">
                 {RANGES.map(r => (

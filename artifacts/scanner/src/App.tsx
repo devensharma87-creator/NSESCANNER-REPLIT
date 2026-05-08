@@ -10,6 +10,7 @@ import { AccessGuard } from "@/components/access-guard";
 import { ErrorBoundary } from "@/components/error-boundary";
 import Layout from "@/components/layout";
 import { OptionSignalAlerter } from "@/components/option-signal-alerter";
+import { EqEventToaster } from "@/components/eq-event-toaster";
 import Home from "@/pages/dashboard";
 import Scanner from "@/pages/scanner";
 import IndicesRedirect from "@/pages/indices";
@@ -135,6 +136,7 @@ function App() {
                 <RoutedShell />
               </WouterRouter>
               <OptionSignalAlerter />
+              <EqEventToaster />
             </LoginGate>
           </AuthProvider>
         </ErrorBoundary>
