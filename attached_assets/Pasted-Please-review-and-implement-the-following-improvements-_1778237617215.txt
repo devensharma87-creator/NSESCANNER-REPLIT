@@ -1,0 +1,97 @@
+Please review and implement the following improvements in the trading engine.
+
+1. Strong Buy Order Not Executed Despite Available Capital
+
+A stock was marked as Strong Buy, but the system did not place the buy order even though sufficient capital was available.
+
+Please investigate and confirm why the order was not executed. The engine should automatically check the following before rejecting or skipping any Strong Buy order:
+
+Available capital
+Required margin or order value
+Predefined risk and allocation rules
+Maximum position limits
+Existing holdings or open orders
+Market timing and order execution conditions
+Any system-level restrictions or failed API response
+
+If the order is skipped, the system must clearly log the reason.
+
+2. Keep Trading Engine in Fully Automatic Mode
+
+The trading engine should remain in automatic mode at all times.
+
+It should continuously monitor the available capital and automatically process buy orders whenever a stock enters the Strong Buy category and satisfies the predefined execution rules.
+
+The system should not require manual intervention for eligible Strong Buy trades.
+
+3. Continuous Monitoring of Strong Buy Stocks
+
+The engine should continuously observe stocks listed under Strong Buy and execute trades based on capital availability.
+
+Required behavior:
+
+Keep scanning Strong Buy signals in real time or at the predefined scan interval.
+Check capital availability automatically.
+Execute the buy order when capital is available.
+Follow predefined trade execution rules.
+Avoid missing trade opportunities due to delay or manual processing.
+Maintain proper logs for every executed, pending, skipped, or failed order.
+4. Predefined Rule-Based Order Execution
+
+All automated trades must strictly follow the predefined rules already configured in the system, including:
+
+Capital allocation per trade
+Quantity calculation
+Entry price logic
+Stop loss placement
+Target placement
+Risk management rules
+Order type selection
+Maximum number of active trades
+Sector or stock-level exposure limits, if applicable
+
+The system should not execute any order outside these predefined rules.
+
+5. Equity Popup Notifications
+
+Please add popup notifications for equity trades whenever any of the following events occur:
+
+Buy order executed
+Stop loss hit
+Target achieved
+Sell order executed
+Order rejected or failed
+
+The popup should clearly show:
+
+Stock name
+Order type
+Quantity
+Entry, stop loss, or target price as applicable
+Execution time
+Execution status
+Reason in case of failure or rejection
+6. Buy Option Directly from Scanned and Deep Scan Tabs
+
+Currently, the buy option is available only from the Trade section, where the user has to manually search for each stock. This makes execution slow and inconvenient.
+
+Please add a Buy button directly inside the following tabs:
+
+Scanned tab
+Deep Scan tab
+
+The user should be able to execute a buy order directly from these tabs without searching for the stock again in the Trade section.
+
+The Buy action should:
+
+Auto-populate the selected stock details
+Show available capital
+Show calculated quantity as per rules
+Show entry price, stop loss, and target
+Allow manual confirmation if manual mode is enabled
+Execute automatically if automatic mode is enabled and the trade satisfies all predefined rules
+7. Main Objective
+
+The main objective is to ensure that no Strong Buy opportunity is missed due to manual delay, navigation difficulty, or capital-check failure.
+
+The system should be fully automated, continuously monitor Strong Buy stocks, check capital availability, and execute eligible trades according to predefined rules.
