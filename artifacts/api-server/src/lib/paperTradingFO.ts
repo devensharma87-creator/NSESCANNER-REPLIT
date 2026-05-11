@@ -36,6 +36,7 @@ import {
   ensureDailyReset,
   FNO_RISK,
   FNO_BASELINE_RISK,
+  FNO_BASELINE_GUARDRAILS,
   FNO_LIQUIDITY,
   PAPER_FIXED_LOTS,
   POST_STOP_COOLDOWN,
@@ -44,6 +45,7 @@ import {
   SEED_CAPITAL,
   HEAT_SQL_FNO,
   parseHeatRow,
+  riskPctForConfidence,
   getDailyRealizedDrawdown,
   getWeeklyRealizedDrawdown,
 } from "./paperAccount";
@@ -130,15 +132,134 @@ function lotSizeFor(indexSymbol: string): number | null {
  * Idempotent on the (signalDate, indexSymbol, setupKey, direction) key —
  * a second call short-circuits to the existing row without re-debiting.
  */
+/**
+ * BASELINE-lane-only daily stats for the BASELINE guardrails. Joins
+ * paper_trade_fo to option_signal_history.tier so we can isolate the
+ * lane without adding a column to paper_trade_fo. Same-day, IST-anchored
+ * via signal_date (the ledger key already reflects IST trade date).
+ *
+ * Returns:
+ *   openCount         — BASELINE rows opened today (any status)
+ *   realizedLossAbs   — sum of negative realized_pnl from CLOSED BASELINE
+ *                       rows today (positive number; 0 if no losses)
+ *   consecutiveLosses — count of MOST-RECENT BASELINE closes today that
+ *                       were stops/losses, breaking the streak on the
+ *                       first non-loss
+ */
+type SqlExecutor = { execute: (typeof db)["execute"] };
+
+async function getBaselineDayStats(
+  signalDate: string,
+  executor: SqlExecutor = db,
+): Promise<{
+  openCount: number;
+  realizedLossAbs: number;
+  consecutiveLosses: number;
+}> {
+  try {
+    const result = await executor.execute(sql`
+      SELECT
+        COUNT(*)::int AS open_count,
+        COALESCE(SUM(CASE
+          WHEN p.status = 'CLOSED' AND p.realized_pnl < 0
+          THEN -p.realized_pnl ELSE 0
+        END), 0)::numeric AS loss_abs
+      FROM paper_trade_fo p
+      JOIN option_signal_history h
+        ON h.signal_date = p.signal_date
+       AND h.index_symbol = p.index_symbol
+       AND h.setup_key   = p.setup_key
+       AND h.direction   = p.direction
+      WHERE p.signal_date = ${signalDate}
+        AND h.tier = 'BASELINE'
+    `);
+    const row = (result as unknown as {
+      rows: Array<{ open_count: number | string; loss_abs: number | string }>;
+    }).rows[0];
+    const openCount = row ? Number(row.open_count) : 0;
+    const realizedLossAbs = row ? Number(row.loss_abs) : 0;
+
+    // Consecutive most-recent BASELINE losses today (stops or negative-pnl exits).
+    const streakResult = await executor.execute(sql`
+      SELECT p.realized_pnl, p.exit_reason
+      FROM paper_trade_fo p
+      JOIN option_signal_history h
+        ON h.signal_date = p.signal_date
+       AND h.index_symbol = p.index_symbol
+       AND h.setup_key   = p.setup_key
+       AND h.direction   = p.direction
+      WHERE p.signal_date = ${signalDate}
+        AND p.status = 'CLOSED'
+        AND h.tier = 'BASELINE'
+      ORDER BY p.exited_at DESC
+      LIMIT 10
+    `);
+    const closes = (streakResult as unknown as {
+      rows: Array<{ realized_pnl: string | number | null; exit_reason: string | null }>;
+    }).rows;
+    let consecutiveLosses = 0;
+    for (const c of closes) {
+      const pnl = c.realized_pnl == null ? 0 : Number(c.realized_pnl);
+      if (pnl < 0) consecutiveLosses++;
+      else break;
+    }
+    return { openCount, realizedLossAbs, consecutiveLosses };
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, signalDate },
+      "getBaselineDayStats: query failed; baseline guardrails fail-OPEN this cycle",
+    );
+    return { openCount: 0, realizedLossAbs: 0, consecutiveLosses: 0 };
+  }
+}
+
+/**
+ * Helper: build a MissedSignal payload from a `(signal, ...)` context
+ * inside openPaperTrade. Centralised so the dozen-plus skip points all
+ * record uniform fields without re-typing the signal-shape boilerplate.
+ */
+function buildMissedFromOpenCtx(args: {
+  signal: OptionSignal;
+  signalDate: string;
+  indexSymbol: string;
+  setupKey: string;
+  direction: "BULLISH" | "BEARISH";
+  confidence: number;
+  tier: TradeTier;
+  skipReason: SkipReason;
+}): MissedSignal {
+  const { signal, signalDate, indexSymbol, setupKey, direction, confidence, tier, skipReason } = args;
+  return {
+    signalDate,
+    indexSymbol,
+    indexName: signal.indexName ?? indexSymbol,
+    setupKey,
+    direction,
+    confidence,
+    tier,
+    status: (signal.status as LifecycleStatus | undefined) ?? "TRIGGERED",
+    reason: null,
+    skipReason,
+    dataQuality: (signal.dataQuality as string | undefined) ?? "UNKNOWN",
+    optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
+    optionStop: signal.optionStopLoss ?? null,
+    optionTarget1: signal.optionTarget1 ?? null,
+    optionTarget2: signal.optionTarget2 ?? null,
+    observedAt: new Date(),
+  };
+}
+
 async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRow | null> {
   const { signal, signalDate, direction } = input;
   const tier: TradeTier = input.tier ?? "STANDARD";
   const minConfidence =
     tier === "BASELINE" ? FNO_BASELINE_RISK.MIN_CONFIDENCE : FNO_RISK.MIN_CONFIDENCE;
-  const maxLossPctPerTrade =
-    tier === "BASELINE"
-      ? FNO_BASELINE_RISK.MAX_LOSS_PCT_PER_TRADE
-      : FNO_RISK.MAX_LOSS_PCT_PER_TRADE;
+  // Confidence-driven sub-tier sizing (2026-05-11):
+  //   STANDARD              → FNO_RISK.MAX_LOSS_PCT_PER_TRADE   (2.0 %)
+  //   BASELINE 60-64 ("baseline") → FNO_BASELINE_RISK.BASELINE_RISK_PCT  (0.5 %)
+  //   BASELINE 55-59 ("micro")    → FNO_BASELINE_RISK.MICRO_RISK_PCT     (0.25 %)
+  // Resolved AFTER the confidence gate below so we don't size on a
+  // sub-floor signal.
 
   const indexSymbol = signal.index;
   const setupKey = signal.setupKey;
@@ -146,32 +267,29 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
 
   // Pre-checks that do NOT touch the account.
   const confidence = Math.round(signal.confidence ?? 0);
+
+  // Confidence-driven sizing — pure function of (tier, conf). Resolved
+  // up-front so every downstream skip log can include the realised
+  // risk-pct (helpful when explaining why a 55-conf MICRO got cut from
+  // a heat or budget cap that a 65-conf STANDARD wouldn't have).
+  const maxLossPctPerTrade = riskPctForConfidence(tier, confidence);
+
+  // Local skip-recorder closure so the dozen-plus silent skip points
+  // below stay readable. Returns the `newlyRecorded` boolean so the
+  // caller can gate its INFO log (we still want one log line per skip
+  // class per signal, but not on every poll cycle).
+  const recordSkip = (skipReason: SkipReason): boolean =>
+    recordMissedSignal(
+      buildMissedFromOpenCtx({
+        signal, signalDate, indexSymbol, setupKey,
+        direction, confidence, tier, skipReason,
+      }),
+    );
+
   if (confidence < minConfidence) {
-    // Surface confidence-floor drops in the MissedSignals ring buffer so
-    // the owner sees EVERY trigger the engine declined — previously
-    // these vanished into the log and the UI showed nothing, which is
-    // exactly the "signal vs trade decoupling" symptom the owner hit.
-    const newlyRecorded = recordMissedSignal({
-      signalDate,
-      indexSymbol,
-      indexName: signal.indexName ?? indexSymbol,
-      setupKey,
-      direction,
-      confidence,
-      tier,
-      status: (signal.status as LifecycleStatus | undefined) ?? "TRIGGERED",
-      reason: null,
-      skipReason: "CONFIDENCE_FLOOR",
-      dataQuality: (signal.dataQuality as string | undefined) ?? "UNKNOWN",
-      optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
-      optionStop: signal.optionStopLoss ?? null,
-      optionTarget1: signal.optionTarget1 ?? null,
-      optionTarget2: signal.optionTarget2 ?? null,
-      observedAt: new Date(),
-    });
-    if (newlyRecorded) {
+    if (recordSkip("CONFIDENCE_FLOOR")) {
       logger.info(
-        { indexSymbol, setupKey, tier, confidence, floor: minConfidence },
+        { indexSymbol, setupKey, tier, confidence, floor: minConfidence, maxLossPctPerTrade },
         `Paper FO skip: ${tier} confidence < ${minConfidence}`,
       );
     }
@@ -199,10 +317,12 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
   if (existing.length > 0) return existing[0]!;
 
   if (computeMarketStatus(new Date()) !== "open") {
-    logger.info(
-      { indexSymbol, setupKey },
-      "Paper FO skip: market not open (weekend/holiday/outside hours) — intraday only",
-    );
+    if (recordSkip("MARKET_CLOSED")) {
+      logger.info(
+        { indexSymbol, setupKey },
+        "Paper FO skip: market not open (weekend/holiday/outside hours) — intraday only",
+      );
+    }
     return null;
   }
 
@@ -223,10 +343,12 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
   if (recentClosed.length >= FNO_RISK.MAX_CONSECUTIVE_STOPS_PER_DAY) {
     const allStopped = recentClosed.every(r => r.exitReason === "STOPPED");
     if (allStopped) {
-      logger.info(
-        { indexSymbol, setupKey, consecutiveStops: recentClosed.length },
-        `Paper FO skip: ${FNO_RISK.MAX_CONSECUTIVE_STOPS_PER_DAY} consecutive stops today — pausing`,
-      );
+      if (recordSkip("CONSECUTIVE_STOPS")) {
+        logger.info(
+          { indexSymbol, setupKey, consecutiveStops: recentClosed.length },
+          `Paper FO skip: ${FNO_RISK.MAX_CONSECUTIVE_STOPS_PER_DAY} consecutive stops today — pausing`,
+        );
+      }
       return null;
     }
   }
@@ -240,21 +362,7 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     getWeeklyRealizedDrawdown(),
   ]);
   if (dailyDD.capReached) {
-    const newlyRecorded = recordMissedSignal({
-      signalDate, indexSymbol,
-      indexName: signal.indexName ?? indexSymbol,
-      setupKey, direction, confidence, tier,
-      status: (signal.status as LifecycleStatus | undefined) ?? "TRIGGERED",
-      reason: null,
-      skipReason: "DAILY_DD_CAP",
-      dataQuality: (signal.dataQuality as string | undefined) ?? "UNKNOWN",
-      optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
-      optionStop: signal.optionStopLoss ?? null,
-      optionTarget1: signal.optionTarget1 ?? null,
-      optionTarget2: signal.optionTarget2 ?? null,
-      observedAt: new Date(),
-    });
-    if (newlyRecorded) {
+    if (recordSkip("DAILY_DD_CAP")) {
       logger.info(
         { indexSymbol, setupKey, drawdownPct: dailyDD.drawdownPct, capPct: dailyDD.capPct },
         `Paper FO skip: daily DD cap hit (${(dailyDD.drawdownPct * 100).toFixed(2)}% ≥ ${(dailyDD.capPct * 100).toFixed(2)}%)`,
@@ -263,21 +371,7 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     return null;
   }
   if (weeklyDD.capReached) {
-    const newlyRecorded = recordMissedSignal({
-      signalDate, indexSymbol,
-      indexName: signal.indexName ?? indexSymbol,
-      setupKey, direction, confidence, tier,
-      status: (signal.status as LifecycleStatus | undefined) ?? "TRIGGERED",
-      reason: null,
-      skipReason: "WEEKLY_DD_CAP",
-      dataQuality: (signal.dataQuality as string | undefined) ?? "UNKNOWN",
-      optionEntry: signal.optionEntry ?? signal.optionLtp ?? null,
-      optionStop: signal.optionStopLoss ?? null,
-      optionTarget1: signal.optionTarget1 ?? null,
-      optionTarget2: signal.optionTarget2 ?? null,
-      observedAt: new Date(),
-    });
-    if (newlyRecorded) {
+    if (recordSkip("WEEKLY_DD_CAP")) {
       logger.info(
         { indexSymbol, setupKey, drawdownPct: weeklyDD.drawdownPct, capPct: weeklyDD.capPct },
         `Paper FO skip: weekly DD cap hit (${(weeklyDD.drawdownPct * 100).toFixed(2)}% ≥ ${(weeklyDD.capPct * 100).toFixed(2)}%)`,
@@ -285,13 +379,32 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     }
     return null;
   }
+
+  // NOTE: BASELINE-lane guardrails moved INSIDE the open-txn (after the
+  // account FOR UPDATE acquire) so two concurrent BASELINE triggers can
+  // never both pass a stale precheck and exceed the daily cap.
+
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const istMin = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+  // STANDARD lane: 15:25 cutoff (10 min before square-off).
+  // BASELINE lane: 14:45 cutoff (under-conviction setups need more runway).
   if (istMin >= 15 * 60 + 25) {
-    logger.info(
-      { indexSymbol, setupKey, istMin },
-      "Paper FO skip: past 15:25 IST late-session cutoff — not enough runway",
-    );
+    if (recordSkip("TIME_FILTER_LATE")) {
+      logger.info(
+        { indexSymbol, setupKey, istMin },
+        "Paper FO skip: past 15:25 IST late-session cutoff — not enough runway",
+      );
+    }
+    return null;
+  }
+  if (tier === "BASELINE" && istMin >= FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN) {
+    if (recordSkip("BASELINE_LATE")) {
+      logger.info(
+        { indexSymbol, setupKey, istMin,
+          cutoff: FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN },
+        "Paper FO skip: BASELINE past 14:45 IST cutoff — under-conviction late chase rejected",
+      );
+    }
     return null;
   }
 
@@ -313,10 +426,12 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
 
   const perShareLoss = optionEntry - optionStop;
   if (!(optionEntry > 0) || !(perShareLoss > 0)) {
-    logger.info(
-      { indexSymbol, setupKey, optionEntry, optionStop },
-      "Paper FO skip: invalid premium plan",
-    );
+    if (recordSkip("INVALID_PREMIUM_PLAN")) {
+      logger.info(
+        { indexSymbol, setupKey, optionEntry, optionStop },
+        "Paper FO skip: invalid premium plan",
+      );
+    }
     return null;
   }
 
@@ -324,10 +439,12 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
   // (a) Cheap-premium gate runs on the cached `optionEntry` — no extra
   //     network call. Catches the worst illiquidity instantly.
   if (optionEntry < FNO_LIQUIDITY.MIN_OPTION_LTP) {
-    logger.info(
-      { indexSymbol, setupKey, optionEntry, floor: FNO_LIQUIDITY.MIN_OPTION_LTP },
-      "Paper FO skip: option premium below liquidity floor (illiquid)",
-    );
+    if (recordSkip("LIQUIDITY_LTP")) {
+      logger.info(
+        { indexSymbol, setupKey, optionEntry, floor: FNO_LIQUIDITY.MIN_OPTION_LTP },
+        "Paper FO skip: option premium below liquidity floor (illiquid)",
+      );
+    }
     return null;
   }
   // (b) Spread + OI gates need a fresh chain pull. Best-effort: if the
@@ -360,10 +477,12 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
       const row = chain.rows?.find((rw) => Math.abs(rw.strike - signal.leg.strike) < 0.01);
       const side = row ? (signal.leg.type === "CALL" ? row.ce : row.pe) : undefined;
       if (!side) {
-        logger.info(
-          { indexSymbol, setupKey, strike: signal.leg.strike, type: signal.leg.type },
-          "Paper FO skip: strike row missing from chain (liquidity check failed-closed on anomaly)",
-        );
+        if (recordSkip("LIQUIDITY_CHAIN_MISSING")) {
+          logger.info(
+            { indexSymbol, setupKey, strike: signal.leg.strike, type: signal.leg.type },
+            "Paper FO skip: strike row missing from chain (liquidity check failed-closed on anomaly)",
+          );
+        }
         return null;
       }
       const bid = side.bid ?? 0;
@@ -373,21 +492,25 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
       if (bid > 0 && ask > 0 && ltpRef > 0) {
         const spreadPct = (ask - bid) / ltpRef;
         if (spreadPct > FNO_LIQUIDITY.MAX_BID_ASK_SPREAD_PCT) {
-          logger.info(
-            { indexSymbol, setupKey, bid, ask, ltpRef, spreadPct: +spreadPct.toFixed(4),
-              cap: FNO_LIQUIDITY.MAX_BID_ASK_SPREAD_PCT },
-            "Paper FO skip: bid-ask spread too wide (illiquid book)",
-          );
+          if (recordSkip("LIQUIDITY_SPREAD")) {
+            logger.info(
+              { indexSymbol, setupKey, bid, ask, ltpRef, spreadPct: +spreadPct.toFixed(4),
+                cap: FNO_LIQUIDITY.MAX_BID_ASK_SPREAD_PCT },
+              "Paper FO skip: bid-ask spread too wide (illiquid book)",
+            );
+          }
           return null;
         }
       }
       // OI=0 with chain present is a real liquidity red flag, not a
       // missing-data case — fail closed.
       if (oi < FNO_LIQUIDITY.MIN_OPTION_OI) {
-        logger.info(
-          { indexSymbol, setupKey, oi, floor: FNO_LIQUIDITY.MIN_OPTION_OI },
-          "Paper FO skip: open interest below liquidity floor (thin book)",
-        );
+        if (recordSkip("LIQUIDITY_OI")) {
+          logger.info(
+            { indexSymbol, setupKey, oi, floor: FNO_LIQUIDITY.MIN_OPTION_OI },
+            "Paper FO skip: open interest below liquidity floor (thin book)",
+          );
+        }
         return null;
       }
     }
@@ -417,8 +540,51 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
       const dayCount = rs[0]!.day_trade_count;
 
       if (dayCount >= FNO_RISK.MAX_TRADES_PER_DAY) {
-        logger.info({ dayCount, indexSymbol, setupKey }, "Paper FO skip: daily cap reached (txn-checked)");
+        if (recordSkip("DAILY_TRADE_CAP")) {
+          logger.info({ dayCount, indexSymbol, setupKey, cap: FNO_RISK.MAX_TRADES_PER_DAY }, "Paper FO skip: daily cap reached (txn-checked)");
+        }
         return null;
+      }
+
+      // ─── BASELINE-lane guardrails (2026-05-11) — TXN-INTERNAL ───────
+      // Re-evaluated under the FOR UPDATE lock so two parallel BASELINE
+      // triggers cannot both pass a stale precheck. STANDARD signals
+      // bypass this entire block. Stats query runs via tx.execute so it
+      // honours the same lock and snapshot as the open-row insert below.
+      if (tier === "BASELINE") {
+        const baselineStats = await getBaselineDayStats(signalDate, tx);
+        if (baselineStats.openCount >= FNO_BASELINE_GUARDRAILS.MAX_TRADES_PER_DAY) {
+          if (recordSkip("BASELINE_DAILY_CAP")) {
+            logger.info(
+              { indexSymbol, setupKey, baselineOpenCount: baselineStats.openCount,
+                cap: FNO_BASELINE_GUARDRAILS.MAX_TRADES_PER_DAY },
+              `Paper FO skip: BASELINE daily cap (${baselineStats.openCount}/${FNO_BASELINE_GUARDRAILS.MAX_TRADES_PER_DAY})`,
+            );
+          }
+          return null;
+        }
+        const baselineDdCap = SEED_CAPITAL.FNO * FNO_BASELINE_GUARDRAILS.MAX_DAILY_LOSS_PCT;
+        if (baselineStats.realizedLossAbs >= baselineDdCap) {
+          if (recordSkip("BASELINE_DAILY_DD_CAP")) {
+            logger.info(
+              { indexSymbol, setupKey, lossAbs: +baselineStats.realizedLossAbs.toFixed(2),
+                cap: +baselineDdCap.toFixed(2),
+                capPct: FNO_BASELINE_GUARDRAILS.MAX_DAILY_LOSS_PCT },
+              `Paper FO skip: BASELINE daily loss cap hit (₹${baselineStats.realizedLossAbs.toFixed(0)} ≥ ${(FNO_BASELINE_GUARDRAILS.MAX_DAILY_LOSS_PCT * 100).toFixed(2)}% of seed)`,
+            );
+          }
+          return null;
+        }
+        if (baselineStats.consecutiveLosses >= FNO_BASELINE_GUARDRAILS.MAX_CONSECUTIVE_LOSSES) {
+          if (recordSkip("BASELINE_CONSECUTIVE_LOSSES")) {
+            logger.info(
+              { indexSymbol, setupKey, streak: baselineStats.consecutiveLosses,
+                cap: FNO_BASELINE_GUARDRAILS.MAX_CONSECUTIVE_LOSSES },
+              `Paper FO skip: ${baselineStats.consecutiveLosses} consecutive BASELINE losses today — lane locked`,
+            );
+          }
+          return null;
+        }
       }
 
       // Sizing — two paths:
@@ -461,10 +627,12 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         const budget = balance * maxLossPctPerTrade;
         lots = Math.floor(budget / perLotLoss);
         if (lots < 1) {
-          logger.info(
-            { indexSymbol, setupKey, tier, budget, perLotLoss, maxLossPctPerTrade },
-            "Paper FO skip: position too risky for budget (lots < 1)",
-          );
+          if (recordSkip("BUDGET_TOO_TIGHT")) {
+            logger.info(
+              { indexSymbol, setupKey, tier, budget, perLotLoss, maxLossPctPerTrade },
+              "Paper FO skip: position too risky for budget (lots < 1)",
+            );
+          }
           return null;
         }
       }
@@ -558,28 +726,32 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
       const projectedHeat = currentHeat + newTradeHeat;
       const heatCap = SEED_CAPITAL.FNO * PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT;
       if (projectedHeat > heatCap) {
-        logger.info(
-          {
-            indexSymbol,
-            setupKey,
-            tier,
-            currentHeat: +currentHeat.toFixed(2),
-            newTradeHeat: +newTradeHeat.toFixed(2),
-            projectedHeat: +projectedHeat.toFixed(2),
-            heatCap: +heatCap.toFixed(2),
-            maxHeatPct: PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT,
-          },
-          `Paper FO skip: portfolio heat cap would be breached (${(projectedHeat / SEED_CAPITAL.FNO * 100).toFixed(2)}% > ${(PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT * 100).toFixed(2)}%)`,
-        );
+        if (recordSkip("PORTFOLIO_HEAT")) {
+          logger.info(
+            {
+              indexSymbol,
+              setupKey,
+              tier,
+              currentHeat: +currentHeat.toFixed(2),
+              newTradeHeat: +newTradeHeat.toFixed(2),
+              projectedHeat: +projectedHeat.toFixed(2),
+              heatCap: +heatCap.toFixed(2),
+              maxHeatPct: PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT,
+            },
+            `Paper FO skip: portfolio heat cap would be breached (${(projectedHeat / SEED_CAPITAL.FNO * 100).toFixed(2)}% > ${(PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT * 100).toFixed(2)}%)`,
+          );
+        }
         return null;
       }
 
       const capitalDeployed = lots * optionEntry * lotSize;
       if (balance < capitalDeployed) {
-        logger.info(
-          { indexSymbol, setupKey, capitalDeployed, balance },
-          "Paper FO skip: insufficient balance for premium",
-        );
+        if (recordSkip("INSUFFICIENT_BALANCE")) {
+          logger.info(
+            { indexSymbol, setupKey, capitalDeployed, balance },
+            "Paper FO skip: insufficient balance for premium",
+          );
+        }
         return null;
       }
 
@@ -1179,13 +1351,48 @@ export async function onLifecycleUpsert(input: LifecycleHookInput): Promise<void
  *   CONFIDENCE_FLOOR    — confidence was below the tier's MIN floor
  *                         (BASELINE 55 / STANDARD 70).
  */
+/**
+ * Why the engine declined to open a trade. Every silent rejection in
+ * `openPaperTrade` is mirrored to a SkipReason so the audit panel can
+ * show the *terminal* reason for every signal observed this session.
+ *
+ * Names mirror the pro-trader audit categories (NO_TRADE_*) but stay
+ * compact for table display. Categorised:
+ *
+ *   Data feed:       DATA_QUALITY_DELAYED, DATA_QUALITY_STALE
+ *   Anti-phantom:    MISSED_WINDOW
+ *   Confidence:      CONFIDENCE_FLOOR
+ *   Time / market:   MARKET_CLOSED, TIME_FILTER_LATE, BASELINE_LATE
+ *   Liquidity:       LIQUIDITY_LTP, LIQUIDITY_SPREAD, LIQUIDITY_OI, LIQUIDITY_CHAIN_MISSING
+ *   Risk plan:       INVALID_PREMIUM_PLAN
+ *   Daily caps:      DAILY_TRADE_CAP, BASELINE_DAILY_CAP, CONSECUTIVE_STOPS,
+ *                    BASELINE_CONSECUTIVE_LOSSES
+ *   Drawdown caps:   DAILY_DD_CAP, WEEKLY_DD_CAP, BASELINE_DAILY_DD_CAP
+ *   Heat / sizing:   PORTFOLIO_HEAT, BUDGET_TOO_TIGHT, INSUFFICIENT_BALANCE
+ */
 export type SkipReason =
   | "MISSED_WINDOW"
   | "DATA_QUALITY_DELAYED"
   | "DATA_QUALITY_STALE"
   | "CONFIDENCE_FLOOR"
+  | "MARKET_CLOSED"
+  | "TIME_FILTER_LATE"
+  | "BASELINE_LATE"
+  | "LIQUIDITY_LTP"
+  | "LIQUIDITY_SPREAD"
+  | "LIQUIDITY_OI"
+  | "LIQUIDITY_CHAIN_MISSING"
+  | "INVALID_PREMIUM_PLAN"
+  | "DAILY_TRADE_CAP"
+  | "BASELINE_DAILY_CAP"
+  | "CONSECUTIVE_STOPS"
+  | "BASELINE_CONSECUTIVE_LOSSES"
   | "DAILY_DD_CAP"
-  | "WEEKLY_DD_CAP";
+  | "WEEKLY_DD_CAP"
+  | "BASELINE_DAILY_DD_CAP"
+  | "PORTFOLIO_HEAT"
+  | "BUDGET_TOO_TIGHT"
+  | "INSUFFICIENT_BALANCE";
 
 export interface MissedSignal {
   signalDate: string;

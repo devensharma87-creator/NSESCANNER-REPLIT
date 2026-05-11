@@ -94,19 +94,81 @@ export const FNO_RISK = {
 } as const;
 
 /**
- * BASELINE auto-trade lane. Conservative fallback so the F&O book still
- * ticks when the high-conviction detectors are suppressed (e.g. partial
- * indicators because intraday bar history is thin). Half the per-trade
- * risk (1% vs 2%), a lower but still meaningful confidence floor, and
- * shares the same MAX_TRADES_PER_DAY / MAX_CONSECUTIVE_STOPS_PER_DAY
- * caps as the standard lane so overall daily exposure is unchanged.
+ * BASELINE auto-trade lane (2026-05-11 redesign).
+ *
+ * Conservative fallback so the F&O book still ticks when the high-
+ * conviction detectors are suppressed (thin intraday bar history,
+ * confluence haircut, P3 demote tags, etc.).
+ *
+ * Sub-tiered by confidence so a 55-conf "weak read" doesn't get the
+ * same risk envelope as a 64-conf near-HC setup:
+ *
+ *   55-59 conf  → MICRO    : 0.25 % risk per trade  ("test" size)
+ *   60-64 conf  → BASELINE : 0.50 % risk per trade  ("small" size)
+ *   65+  conf   → STANDARD : 2.00 % risk per trade  (full HC sizing)
+ *
+ * Plus dedicated BASELINE-only guardrails on top of the global F&O
+ * limits (MAX_TRADES_PER_DAY=4, MAX_CONSECUTIVE_STOPS_PER_DAY=2,
+ * MAX_DAILY_LOSS_PCT=2.5%, MAX_WEEKLY_LOSS_PCT=5%):
+ *
+ *   - max 2 BASELINE opens per IST day (a quiet day shouldn't become
+ *     a BASELINE-spam day just because conviction is weak everywhere)
+ *   - daily BASELINE realised-loss cap = 0.75 % of seed (independent
+ *     of and tighter than the global 2.5 % daily cap)
+ *   - 2 consecutive BASELINE losses lock the BASELINE lane for the rest
+ *     of the IST day (HC lane is unaffected — a lower-conviction streak
+ *     of losses shouldn't kill a clean HC setup if one fires later)
+ *   - no NEW BASELINE entries after 14:45 IST (HC stays at 15:25) —
+ *     an under-conviction setup needs more runway, not less
+ *
+ * The dial values intentionally favour SAFETY over throughput. After
+ * 20-30 closed BASELINE trades we'll have data to widen them or not.
  */
 export const FNO_BASELINE_RISK = {
-  /** Max loss per BASELINE trade as a fraction of segment balance — half of the standard lane. */
-  MAX_LOSS_PCT_PER_TRADE: 0.01, // 1%
   /** Confidence floor for BASELINE auto-trade. Lower than standard but still gates out the weakest reads. */
   MIN_CONFIDENCE: 55,
+  /** Sub-tier breakpoint: confidence ≥ this uses BASELINE_RISK_PCT, below uses MICRO_RISK_PCT. */
+  MICRO_TO_BASELINE_BREAKPOINT: 60,
+  /** 0.25 % per trade — applied to confidence 55-59 ("test" size). */
+  MICRO_RISK_PCT: 0.0025,
+  /** 0.50 % per trade — applied to confidence 60-64 ("small" baseline size). */
+  BASELINE_RISK_PCT: 0.005,
+  /** Old top-level constant kept for back-compat; equals BASELINE_RISK_PCT (used as the "max" sanity ceiling). */
+  MAX_LOSS_PCT_PER_TRADE: 0.005,
 } as const;
+
+/**
+ * BASELINE-lane-specific guardrails (independent of FNO_RISK / DD caps).
+ * All checks fire BEFORE openPaperTrade reaches sizing, and each check
+ * records a distinct MissedSignal SkipReason so the audit panel shows
+ * exactly which guardrail rejected an entry.
+ */
+export const FNO_BASELINE_GUARDRAILS = {
+  /** Max BASELINE trades opened per IST day (HC lane unaffected). */
+  MAX_TRADES_PER_DAY: 2,
+  /** Realised loss from BASELINE trades only — capped at 0.75 % of seed/day. */
+  MAX_DAILY_LOSS_PCT: 0.0075,
+  /** After this many consecutive BASELINE-tier stops in a single IST day, lock BASELINE for the day. */
+  MAX_CONSECUTIVE_LOSSES: 2,
+  /** No new BASELINE entries after this IST minute-of-day (14:45 = 14*60+45 = 885). */
+  LATE_ENTRY_CUTOFF_IST_MIN: 14 * 60 + 45,
+} as const;
+
+/**
+ * Resolve effective per-trade risk fraction from confidence and tier.
+ * Pure function — no DB I/O. Used at trade-open sizing.
+ */
+export function riskPctForConfidence(
+  tier: "STANDARD" | "BASELINE",
+  confidence: number,
+): number {
+  if (tier === "STANDARD") return FNO_RISK.MAX_LOSS_PCT_PER_TRADE; // 2 %
+  // BASELINE sub-tiers:
+  if (confidence >= FNO_BASELINE_RISK.MICRO_TO_BASELINE_BREAKPOINT) {
+    return FNO_BASELINE_RISK.BASELINE_RISK_PCT; // 0.5 %
+  }
+  return FNO_BASELINE_RISK.MICRO_RISK_PCT; // 0.25 %
+}
 
 /**
  * F&O option-leg liquidity gates (Pass-1 safety nets, 2026-05-07).

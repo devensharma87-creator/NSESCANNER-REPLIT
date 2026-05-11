@@ -897,7 +897,25 @@ type SkipReason =
   | "MISSED_WINDOW"
   | "DATA_QUALITY_DELAYED"
   | "DATA_QUALITY_STALE"
-  | "CONFIDENCE_FLOOR";
+  | "CONFIDENCE_FLOOR"
+  | "MARKET_CLOSED"
+  | "TIME_FILTER_LATE"
+  | "BASELINE_LATE"
+  | "LIQUIDITY_LTP"
+  | "LIQUIDITY_SPREAD"
+  | "LIQUIDITY_OI"
+  | "LIQUIDITY_CHAIN_MISSING"
+  | "INVALID_PREMIUM_PLAN"
+  | "DAILY_TRADE_CAP"
+  | "BASELINE_DAILY_CAP"
+  | "CONSECUTIVE_STOPS"
+  | "BASELINE_CONSECUTIVE_LOSSES"
+  | "DAILY_DD_CAP"
+  | "WEEKLY_DD_CAP"
+  | "BASELINE_DAILY_DD_CAP"
+  | "PORTFOLIO_HEAT"
+  | "BUDGET_TOO_TIGHT"
+  | "INSUFFICIENT_BALANCE";
 
 interface MissedSignalRow {
   signalDate: string;
@@ -923,6 +941,24 @@ const SKIP_REASON_LABEL: Record<SkipReason, string> = {
   DATA_QUALITY_DELAYED: "Kite data unavailable",
   DATA_QUALITY_STALE: "Stale Kite bars",
   CONFIDENCE_FLOOR: "Below conf. floor",
+  MARKET_CLOSED: "Market closed",
+  TIME_FILTER_LATE: "Past 15:25 cutoff",
+  BASELINE_LATE: "Baseline past 14:45",
+  LIQUIDITY_LTP: "Premium below ₹20",
+  LIQUIDITY_SPREAD: "Bid/ask too wide",
+  LIQUIDITY_OI: "OI too thin",
+  LIQUIDITY_CHAIN_MISSING: "Strike not on chain",
+  INVALID_PREMIUM_PLAN: "Bad premium plan",
+  DAILY_TRADE_CAP: "Daily 4-trade cap",
+  BASELINE_DAILY_CAP: "Baseline 2/day cap",
+  CONSECUTIVE_STOPS: "2 consec. stops",
+  BASELINE_CONSECUTIVE_LOSSES: "Baseline 2 consec. losses",
+  DAILY_DD_CAP: "Daily DD cap (2.5%)",
+  WEEKLY_DD_CAP: "Weekly DD cap (5%)",
+  BASELINE_DAILY_DD_CAP: "Baseline DD cap (0.75%)",
+  PORTFOLIO_HEAT: "Portfolio heat cap",
+  BUDGET_TOO_TIGHT: "Budget too tight",
+  INSUFFICIENT_BALANCE: "Insufficient balance",
 };
 
 const SKIP_REASON_TONE: Record<SkipReason, string> = {
@@ -930,6 +966,24 @@ const SKIP_REASON_TONE: Record<SkipReason, string> = {
   DATA_QUALITY_DELAYED: "bg-sky-500/15 text-sky-200 border-sky-500/30",
   DATA_QUALITY_STALE: "bg-slate-500/15 text-slate-200 border-slate-500/30",
   CONFIDENCE_FLOOR: "bg-violet-500/15 text-violet-200 border-violet-500/30",
+  MARKET_CLOSED: "bg-slate-500/15 text-slate-200 border-slate-500/30",
+  TIME_FILTER_LATE: "bg-orange-500/15 text-orange-200 border-orange-500/30",
+  BASELINE_LATE: "bg-orange-500/15 text-orange-200 border-orange-500/30",
+  LIQUIDITY_LTP: "bg-cyan-500/15 text-cyan-200 border-cyan-500/30",
+  LIQUIDITY_SPREAD: "bg-cyan-500/15 text-cyan-200 border-cyan-500/30",
+  LIQUIDITY_OI: "bg-cyan-500/15 text-cyan-200 border-cyan-500/30",
+  LIQUIDITY_CHAIN_MISSING: "bg-cyan-500/15 text-cyan-200 border-cyan-500/30",
+  INVALID_PREMIUM_PLAN: "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  DAILY_TRADE_CAP: "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-500/30",
+  BASELINE_DAILY_CAP: "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-500/30",
+  CONSECUTIVE_STOPS: "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  BASELINE_CONSECUTIVE_LOSSES: "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  DAILY_DD_CAP: "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  WEEKLY_DD_CAP: "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  BASELINE_DAILY_DD_CAP: "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  PORTFOLIO_HEAT: "bg-amber-500/15 text-amber-200 border-amber-500/30",
+  BUDGET_TOO_TIGHT: "bg-slate-500/15 text-slate-200 border-slate-500/30",
+  INSUFFICIENT_BALANCE: "bg-slate-500/15 text-slate-200 border-slate-500/30",
 };
 
 interface FoAnalytics {
@@ -1587,7 +1641,13 @@ function MissedSignalsCard({ missed, loading, error }: {
             No skipped signals tracked since server start.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {/* "Why no trade?" terminal-reason rollup (2026-05-11). Grouped
+                client-side from the same dataset; the server's
+                /paper/diagnostics/untriggered/fo endpoint exposes the same
+                bucketing for programmatic consumers. */}
+            <WhyNoTradeSummary rows={missed} />
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
                 <tr>
@@ -1644,10 +1704,72 @@ function MissedSignalsCard({ missed, loading, error }: {
                 })}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * "Why no trade?" terminal-reason rollup. Pure client-side aggregation
+ * of the missed-signals ring buffer — no extra fetch. Three pivots:
+ * by-reason (the dominant blocker), by-tier (is BASELINE even firing?),
+ * and by-index (is the drought index-specific?). Mirrors the server's
+ * /paper/diagnostics/untriggered/fo bucketing.
+ */
+function WhyNoTradeSummary({ rows }: { rows: MissedSignalRow[] }) {
+  const byReason: Record<string, number> = {};
+  const byTier: Record<string, number> = { STANDARD: 0, BASELINE: 0 };
+  const byIndex: Record<string, number> = {};
+  for (const m of rows) {
+    const r = m.skipReason ?? "UNKNOWN";
+    byReason[r] = (byReason[r] ?? 0) + 1;
+    byTier[m.tier] = (byTier[m.tier] ?? 0) + 1;
+    byIndex[m.indexSymbol] = (byIndex[m.indexSymbol] ?? 0) + 1;
+  }
+  const sortDesc = (rec: Record<string, number>) =>
+    Object.entries(rec)
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => b[1] - a[1]);
+
+  const reasonRows = sortDesc(byReason);
+  const tierRows = sortDesc(byTier);
+  const indexRows = sortDesc(byIndex);
+
+  const Pill = ({ k, n, tone }: { k: string; n: number; tone?: string }) => (
+    <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] ${tone ?? "border-border bg-muted/30 text-foreground/80"}`}>
+      <span>{k}</span>
+      <span className="tabular-nums font-semibold">{n}</span>
+    </span>
+  );
+
+  return (
+    <div className="mb-3 grid gap-2 rounded-md border border-border bg-muted/10 p-3 sm:grid-cols-3">
+      <div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">By reason ({rows.length})</div>
+        <div className="flex flex-wrap gap-1">
+          {reasonRows.map(([k, n]) => (
+            <Pill key={k} k={SKIP_REASON_LABEL[k as SkipReason] ?? k} n={n} tone={SKIP_REASON_TONE[k as SkipReason]} />
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">By tier</div>
+        <div className="flex flex-wrap gap-1">
+          {tierRows.map(([k, n]) => (
+            <Pill key={k} k={k} n={n} tone={k === "BASELINE" ? "border-violet-500/30 bg-violet-500/15 text-violet-200" : "border-emerald-500/30 bg-emerald-500/15 text-emerald-200"} />
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">By index</div>
+        <div className="flex flex-wrap gap-1">
+          {indexRows.map(([k, n]) => <Pill key={k} k={k} n={n} />)}
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -427,6 +427,70 @@ router.get("/paper/missed/fo", requireOwner, async (_req, res, next) => {
   }
 });
 
+/**
+ * "Why no trade?" terminal-reason diagnostics (2026-05-11).
+ *
+ * Same source as `/paper/missed/fo` (the in-process MissedSignals ring
+ * buffer) but reshaped for at-a-glance debugging:
+ *
+ *   - `byReason` : count grouped by SkipReason (largest first) so you
+ *                  immediately see the dominant terminal reason.
+ *   - `byIndex`  : count grouped by indexSymbol so you see whether the
+ *                  drought is index-specific (e.g. only BANKNIFTY).
+ *   - `byTier`   : split STANDARD vs BASELINE — central question of the
+ *                  2026-05-11 fix is "is the BASELINE lane even firing?"
+ *   - `recent`   : last 50 raw rows for spot-check.
+ *
+ * Pure read; no DB I/O; no auth-state mutation; safe to poll. Fail-OPEN
+ * on render error (returns empty buckets rather than 500).
+ */
+router.get("/paper/diagnostics/untriggered/fo", requireOwner, async (_req, res, next) => {
+  try {
+    const all = getMissedSignals();
+
+    const byReason: Record<string, number> = {};
+    const byIndex: Record<string, number> = {};
+    const byTier: Record<string, number> = { STANDARD: 0, BASELINE: 0 };
+    for (const m of all) {
+      const r = m.skipReason ?? "UNKNOWN";
+      byReason[r] = (byReason[r] ?? 0) + 1;
+      byIndex[m.indexSymbol] = (byIndex[m.indexSymbol] ?? 0) + 1;
+      const t = m.tier ?? "STANDARD";
+      byTier[t] = (byTier[t] ?? 0) + 1;
+    }
+
+    const sortDesc = (rec: Record<string, number>) =>
+      Object.entries(rec)
+        .sort((a, b) => b[1] - a[1])
+        .map(([key, count]) => ({ key, count }));
+
+    const recent = all
+      .slice(-50)
+      .reverse()
+      .map(m => ({
+        signalDate: m.signalDate,
+        indexSymbol: m.indexSymbol,
+        setupKey: m.setupKey,
+        direction: m.direction,
+        confidence: m.confidence,
+        tier: m.tier,
+        skipReason: m.skipReason,
+        observedAt: m.observedAt.toISOString(),
+      }));
+
+    return res.json({
+      total: all.length,
+      byReason: sortDesc(byReason),
+      byIndex: sortDesc(byIndex),
+      byTier: sortDesc(byTier),
+      recent,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.get("/paper/analytics/fo", requireOwner, async (req, res, next) => {
   try {
     const from = String(req.query.from ?? "").trim() || undefined;
