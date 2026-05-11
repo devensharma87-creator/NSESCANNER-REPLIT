@@ -17,6 +17,7 @@ import paperRouter from "./paper";
 import homeRouter from "./home";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
+import { startSwingScanScheduler } from "../lib/swingScannerStore";
 
 const router: IRouter = Router();
 
@@ -41,5 +42,9 @@ router.use(homeRouter);       // /home/enrichment — aggregated home dashboard 
 startInstFlowsRefresher();
 // Try to resume Kite live feed if a valid session is already in the DB.
 void bootstrapKite();
+// Swing-scanner scheduler — once-per-IST-day deep scan after 15:35 +
+// 15-min intraday LTP refresh during market hours. Single-replica
+// assumption (latches live in-process).
+startSwingScanScheduler();
 
 export default router;
