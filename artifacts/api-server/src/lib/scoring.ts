@@ -352,14 +352,14 @@ export function buildRecommendation(input: ScoreInput): Recommendation {
 // STRONG_SELL -> SELL) and emit a POOR-quality entry plan. Inside the
 // proximity zone but missing one condition -> FAIR (advisory plan only,
 // no demote). Otherwise GOOD (no plan). NEUTRAL signals get no plan.
-interface EntrySafetyInput {
+export interface EntrySafetyInput {
   signal: Signal;
   price: number;
   quote: Quote;
   indicators: Indicators;
   atr14: number | null;
 }
-interface EntrySafetyResult {
+export interface EntrySafetyResult {
   quality?: RecommendationEntryQuality;
   plan?: EntryPlan;
   demoteTag?: "LATE_ENTRY_AT_RESISTANCE" | "LATE_ENTRY_AT_SUPPORT";
@@ -370,7 +370,7 @@ const FAIR_PCT = 0.030;          // 3.0% advisory zone
 const STRONG_MOVE_PCT = 2.5;     // |today change %| threshold for "extended"
 const TAG_TOL = 0.005;           // today's high/low tagged within 0.5%
 
-function computeEntrySafety(inp: EntrySafetyInput): EntrySafetyResult {
+export function computeEntrySafety(inp: EntrySafetyInput): EntrySafetyResult {
   const { signal, price, quote, indicators, atr14 } = inp;
   if (signal === "NEUTRAL") return {};
 
@@ -473,16 +473,23 @@ interface PlanCtx {
 }
 function buildEntryPlan(p: PlanCtx): EntryPlan {
   const { bullish, price, level, levelSrc, change, vwap, ema20, ema50, atr14 } = p;
-  const buf = atr14 != null && atr14 > 0 ? Math.max(atr14 * 0.3, level * 0.003) : level * 0.005;
   const r2 = (n: number) => Math.round(n * 100) / 100;
 
-  // Avoid zone straddles the level by ~0.5% on the far side and ~0.8% on the near.
+  // Avoid zone: the danger band where rejection wicks tend to print.
+  // Sized off ATR when available (≈0.5 ATR beyond the level) so volatile
+  // names get a wider zone; otherwise a fixed 0.8% band.
+  const danger = atr14 != null && atr14 > 0 ? Math.max(atr14 * 0.5, level * 0.005) : level * 0.008;
   const avoidZone: PriceZone = bullish
-    ? { low: r2(level * 0.995), high: r2(level * 1.008) }
-    : { low: r2(level * 0.992), high: r2(level * 1.005) };
+    ? { low: r2(level * 0.995), high: r2(level + danger) }
+    : { low: r2(level - danger), high: r2(level * 1.005) };
 
-  // Breakout trigger: meaningful clearance beyond the level (≥ 0.3 ATR or 0.3%).
-  const breakoutTrigger = bullish ? r2(level + buf) : r2(level - buf);
+  // Breakout trigger: ALWAYS above (bullish) / below (bearish) the avoid
+  // zone — a clean clear, not a tag. Adds a small confirmation buffer
+  // (≈0.2 ATR or 0.2%) on top of the avoid-zone edge.
+  const confirm = atr14 != null && atr14 > 0 ? Math.max(atr14 * 0.2, level * 0.002) : level * 0.003;
+  const breakoutTrigger = bullish
+    ? r2(avoidZone.high + confirm)
+    : r2(avoidZone.low  - confirm);
 
   // Pullback zone: VWAP ↔ EMA20 (or EMA50 fallback). Always returned with low <= high.
   let pullbackZone: PriceZone | undefined;
