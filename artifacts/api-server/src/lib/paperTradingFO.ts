@@ -154,6 +154,11 @@ async function getBaselineDayStats(
 ): Promise<{
   openCount: number;
   realizedLossAbs: number;
+  /** Open-position MTM loss from BASELINE-tier positions whose
+   *  last_premium has dropped below entry. Adds to realizedLossAbs in
+   *  the daily-cap check so we don't open a second BASELINE while the
+   *  first is floating badly but not yet stopped. */
+  unrealizedLossAbs: number;
   consecutiveLosses: number;
 }> {
   try {
@@ -163,7 +168,14 @@ async function getBaselineDayStats(
         COALESCE(SUM(CASE
           WHEN p.status = 'CLOSED' AND p.realized_pnl < 0
           THEN -p.realized_pnl ELSE 0
-        END), 0)::numeric AS loss_abs
+        END), 0)::numeric AS loss_abs,
+        COALESCE(SUM(CASE
+          WHEN p.status = 'OPEN'
+           AND p.last_premium IS NOT NULL
+           AND p.last_premium < p.entry_premium
+          THEN (p.entry_premium - p.last_premium) * p.lots * p.lot_size
+          ELSE 0
+        END), 0)::numeric AS unrealized_loss_abs
       FROM paper_trade_fo p
       JOIN option_signal_history h
         ON h.signal_date = p.signal_date
@@ -174,10 +186,15 @@ async function getBaselineDayStats(
         AND h.tier = 'BASELINE'
     `);
     const row = (result as unknown as {
-      rows: Array<{ open_count: number | string; loss_abs: number | string }>;
+      rows: Array<{
+        open_count: number | string;
+        loss_abs: number | string;
+        unrealized_loss_abs: number | string;
+      }>;
     }).rows[0];
     const openCount = row ? Number(row.open_count) : 0;
     const realizedLossAbs = row ? Number(row.loss_abs) : 0;
+    const unrealizedLossAbs = row ? Number(row.unrealized_loss_abs) : 0;
 
     // Consecutive most-recent BASELINE losses today (stops or negative-pnl exits).
     const streakResult = await executor.execute(sql`
@@ -203,13 +220,13 @@ async function getBaselineDayStats(
       if (pnl < 0) consecutiveLosses++;
       else break;
     }
-    return { openCount, realizedLossAbs, consecutiveLosses };
+    return { openCount, realizedLossAbs, unrealizedLossAbs, consecutiveLosses };
   } catch (err) {
     logger.warn(
       { err: (err as Error).message, signalDate },
       "getBaselineDayStats: query failed; baseline guardrails fail-OPEN this cycle",
     );
-    return { openCount: 0, realizedLossAbs: 0, consecutiveLosses: 0 };
+    return { openCount: 0, realizedLossAbs: 0, unrealizedLossAbs: 0, consecutiveLosses: 0 };
   }
 }
 
@@ -564,13 +581,21 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
           return null;
         }
         const baselineDdCap = SEED_CAPITAL.FNO * FNO_BASELINE_GUARDRAILS.MAX_DAILY_LOSS_PCT;
-        if (baselineStats.realizedLossAbs >= baselineDdCap) {
+        // 2026-05-11.b: Cap counts realized + unrealized BASELINE loss
+        // so we can't pile on a second BASELINE while the first is
+        // floating badly but not yet stopped (reviewer feedback).
+        const totalBaselineLossAbs =
+          baselineStats.realizedLossAbs + baselineStats.unrealizedLossAbs;
+        if (totalBaselineLossAbs >= baselineDdCap) {
           if (recordSkip("BASELINE_DAILY_DD_CAP")) {
             logger.info(
-              { indexSymbol, setupKey, lossAbs: +baselineStats.realizedLossAbs.toFixed(2),
+              { indexSymbol, setupKey,
+                realizedLossAbs: +baselineStats.realizedLossAbs.toFixed(2),
+                unrealizedLossAbs: +baselineStats.unrealizedLossAbs.toFixed(2),
+                totalLossAbs: +totalBaselineLossAbs.toFixed(2),
                 cap: +baselineDdCap.toFixed(2),
                 capPct: FNO_BASELINE_GUARDRAILS.MAX_DAILY_LOSS_PCT },
-              `Paper FO skip: BASELINE daily loss cap hit (₹${baselineStats.realizedLossAbs.toFixed(0)} ≥ ${(FNO_BASELINE_GUARDRAILS.MAX_DAILY_LOSS_PCT * 100).toFixed(2)}% of seed)`,
+              `Paper FO skip: BASELINE daily loss cap hit (realized ₹${baselineStats.realizedLossAbs.toFixed(0)} + unrealized ₹${baselineStats.unrealizedLossAbs.toFixed(0)} ≥ ${(FNO_BASELINE_GUARDRAILS.MAX_DAILY_LOSS_PCT * 100).toFixed(2)}% of seed)`,
             );
           }
           return null;

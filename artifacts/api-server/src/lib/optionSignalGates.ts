@@ -227,14 +227,25 @@ async function loadSetupWinRates(): Promise<Map<string, SetupWinRate>> {
   );
   const out = new Map<string, SetupWinRate>();
   try {
-    // Win-rate denominator FIX (2026-05-11): exclude flat-EXPIRED rows
-    // (exit_reason='EXPIRED' AND realized_pnl=0). These are end-of-day
-    // sweep rescues — the trade was opened but the lifecycle never
-    // recorded a real exit (T1/T2/SL); we close at last_premium which
-    // typically equals entry, producing a 0 PnL non-event. Counting
-    // these as "losses" (denominator includes them, numerator doesn't)
-    // depresses the win rate and can wrongly trigger LOW_WINRATE demote
-    // for an actually-decent setup. Real outcomes only.
+    // Win-rate denominator FIX (2026-05-11, hardened 2026-05-11.b):
+    // Switch from a blacklist (exclude flat-EXPIRED) to an explicit
+    // POSITIVE WHITELIST of "decided" outcomes:
+    //
+    //   TARGET1_HIT / TARGET2_HIT / STOPPED / MANUAL_OVERRIDE
+    //     → always count (real exit signal fired or owner chose to close)
+    //   EXPIRED
+    //     → count ONLY if realized_pnl != 0 (an EXPIRED close at non-zero
+    //        pnl means the lifecycle did mark price somewhere informative)
+    //
+    // Rows excluded from the denominator are end-of-day sweep rescues
+    // where the lifecycle never recorded a real exit (we close at
+    // last_premium ≈ entry, producing a 0-pnl non-event). Since
+    // paper_trade_fo only contains filled trades (insert is inside the
+    // open-txn after account debit), "fill state" is implicit — we just
+    // need to filter for *decided* fills, not *all* fills.
+    //
+    // Reference exit_reason enum: TARGET1_HIT, TARGET2_HIT, STOPPED,
+    // EXPIRED, MANUAL_OVERRIDE (lib/db/src/schema/paperTrading.ts).
     const result = await db.execute(sql`
       SELECT setup_key,
              COUNT(*)::int AS total,
@@ -242,7 +253,10 @@ async function loadSetupWinRates(): Promise<Map<string, SetupWinRate>> {
         FROM paper_trade_fo
        WHERE status = 'CLOSED'
          AND opened_at >= ${cutoff}
-         AND NOT (exit_reason = 'EXPIRED' AND realized_pnl = 0)
+         AND (
+               exit_reason IN ('TARGET1_HIT','TARGET2_HIT','STOPPED','MANUAL_OVERRIDE')
+           OR (exit_reason = 'EXPIRED' AND realized_pnl <> 0)
+         )
        GROUP BY setup_key
     `);
     const rows = (
