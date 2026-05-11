@@ -1,0 +1,67 @@
+Small additions I would suggest now
+
+Do not change signal logic or ATR trigger geometry yet. The next improvements should be observational and safety-focused.
+
+Add these next, in order
+1. Add an alert when BASELINE_GUARDRAIL_STATS_UNAVAILABLE occurs.
+2. Add daily summary:
+   - signals generated
+   - trades opened
+   - skipped by reason
+   - baseline P&L
+   - HC P&L
+   - scratches count
+   - manual overrides count
+
+3. Add one dashboard metric:
+   trade_open_rate = trades_opened / valid_trade_candidates
+
+4. Add setup-level expectancy:
+   avg_R by setup
+   avg_R by tier
+   avg_R by index
+
+The key one is trade_open_rate. You need to know whether the system is still undertrading after the fix.
+
+One important check
+
+Ask the coder to confirm this:
+
+SCRATCH trades are excluded from win-rate denominator,
+but included in expectancy denominator.
+
+That is the correct design.
+
+Example:
+
+3 wins, 2 losses, 5 scratch trades
+
+win-rate = 3 / (3 + 2) = 60%
+expectancy = total P&L / 10 filled system trades
+
+If expectancy is calculated only on wins and losses, it will overstate performance.
+
+Suggested message to coder
+This upgrade is approved.
+
+The fail-CLOSED guardrail, 4-bucket outcome classifier, MANUAL_OVERRIDE exclusion, and SQL/helper parity tests resolve the reviewer amendments.
+
+Please do not change ATR trigger geometry or signal detectors yet.
+
+Next low-risk additions:
+1. Alert when BASELINE_GUARDRAIL_STATS_UNAVAILABLE occurs.
+2. Add daily summary for signals, trades, skips, baseline P&L, HC P&L, scratches, and manual overrides.
+3. Add trade_open_rate = trades_opened / valid_trade_candidates.
+4. Confirm SCRATCH is excluded from win-rate but included in expectancy.
+
+After 10–20 sessions, we will review:
+- no-trade reasons
+- trigger conversion rate
+- baseline expectancy
+- HC expectancy
+- missed move behavior
+Final opinion
+
+This is now a well-controlled recovery path.
+
+Do not over-optimize further today. The system has moved from “silently choking” to “controlled participation with observability.” Now the job is to collect clean data for 10–20 sessions before touching trigger geometry or signal logic.

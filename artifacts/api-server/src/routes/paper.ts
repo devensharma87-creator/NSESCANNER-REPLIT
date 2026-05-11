@@ -42,7 +42,11 @@ import {
   getWeeklyRealizedDrawdown,
   type Segment,
 } from "../lib/paperAccount";
-import { closePaperTradeForSignal, getMissedSignals } from "../lib/paperTradingFO";
+import {
+  closePaperTradeForSignal,
+  getMissedSignals,
+  getOperationalAlerts,
+} from "../lib/paperTradingFO";
 import { fetchOptionChain } from "../lib/optionChain";
 import { getFoAnalytics } from "../lib/paperAnalyticsFO";
 import { getMonthlyReport, getYearlyReport } from "../lib/paperReportsFO";
@@ -484,6 +488,172 @@ router.get("/paper/diagnostics/untriggered/fo", requireOwner, async (_req, res, 
       byIndex: sortDesc(byIndex),
       byTier: sortDesc(byTier),
       recent,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * Daily summary (2026-05-11.d, reviewer-requested observability).
+ *
+ * Single-call snapshot the owner can hit each session to answer:
+ *   - "Are signals firing?"             → signalsGenerated
+ *   - "Are trades opening?"             → tradesOpened
+ *   - "Why are they being skipped?"     → skippedByReason
+ *   - "What's the open-rate?"           → tradeOpenRate (opened / candidates)
+ *   - "How is each lane performing?"    → baselinePnl, hcPnl
+ *   - "Any operator-influenced exits?"  → manualOverridesCount
+ *   - "How many flat fills (scratches)?"→ scratchesCount
+ *   - "Any guardrail-stats outages?"    → alerts.baselineStatsUnavailable
+ *
+ * `tradeOpenRate = opened / (opened + skipped_today)` where a "candidate"
+ * is any signal that reached `openPaperTrade()` (so it produced either a
+ * fill or a SkipReason). Pure observational endpoint — no DB writes,
+ * no signal-logic mutation, safe to poll. Restricted to today's IST date
+ * by design; multi-day analytics belong on `/paper/analytics/fo`.
+ *
+ * Win-rate vs expectancy semantics (confirmed per reviewer 2026-05-11.d):
+ *   - SCRATCH outcomes (filled flat trades) are EXCLUDED from the
+ *     win-rate denominator (no signed outcome to score) but INCLUDED
+ *     in the filled-trade pool for expectancy. This endpoint exposes
+ *     the SCRATCH count directly so the owner can verify the
+ *     denominators match the policy in `winRateClassification.ts`.
+ */
+router.get("/paper/diagnostics/daily-summary/fo", requireOwner, async (_req, res, next) => {
+  try {
+    const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const today = istNow.toISOString().slice(0, 10);
+
+    // (1) Signals generated today.
+    const sigRows = await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+        FROM option_signal_history
+       WHERE signal_date = ${today}
+    `);
+    const signalsGenerated = Number(
+      (sigRows as unknown as { rows: Array<{ n: number | string }> }).rows[0]?.n ?? 0,
+    );
+
+    // (2) Trades OPENED today (anchored on signal_date IST, which is also
+    //     the open-day for FNO since opens are intra-session). Tier from
+    //     option_signal_history; NULL → HC bucket.
+    const openRows = await db.execute(sql`
+      SELECT h.tier AS tier, COUNT(*)::int AS n
+        FROM paper_trade_fo p
+        LEFT JOIN option_signal_history h
+          ON h.signal_date  = p.signal_date
+         AND h.index_symbol = p.index_symbol
+         AND h.setup_key    = p.setup_key
+         AND h.direction    = p.direction
+       WHERE p.signal_date = ${today}
+       GROUP BY h.tier
+    `);
+    const oRows = (openRows as unknown as {
+      rows: Array<{ tier: string | null; n: number | string }>;
+    }).rows;
+
+    // (3)+(4)+(5) Trades CLOSED today (anchored on exited_at IST close-day,
+    //     not signal_date — fixes architect-flagged semantic bug 2026-05-11.d
+    //     where a prior-day signal closing today would have been omitted).
+    const closeRows = await db.execute(sql`
+      SELECT
+        h.tier                                                   AS tier,
+        COUNT(*)::int                                            AS n,
+        COUNT(*) FILTER (
+          WHERE p.exit_reason IN ('TARGET1_HIT','TARGET2_HIT','STOPPED','EXPIRED')
+            AND p.realized_pnl = 0
+        )::int                                                   AS scratches,
+        COUNT(*) FILTER (
+          WHERE p.exit_reason = 'MANUAL_OVERRIDE'
+        )::int                                                   AS manual_overrides,
+        COALESCE(SUM(p.realized_pnl), 0)::numeric                AS realized_pnl
+      FROM paper_trade_fo p
+      LEFT JOIN option_signal_history h
+        ON h.signal_date  = p.signal_date
+       AND h.index_symbol = p.index_symbol
+       AND h.setup_key    = p.setup_key
+       AND h.direction    = p.direction
+      WHERE p.status = 'CLOSED'
+        AND (p.exited_at AT TIME ZONE 'Asia/Kolkata')::date = ${today}::date
+      GROUP BY h.tier
+    `);
+    const cRows = (closeRows as unknown as {
+      rows: Array<{
+        tier: string | null;
+        n: number | string;
+        scratches: number | string;
+        manual_overrides: number | string;
+        realized_pnl: number | string;
+      }>;
+    }).rows;
+
+    let tradesOpened = 0;
+    let baselineOpened = 0;
+    let hcOpened = 0;
+    for (const r of oRows) {
+      const n = Number(r.n);
+      tradesOpened += n;
+      if (r.tier === "BASELINE") baselineOpened += n;
+      else hcOpened += n;
+    }
+
+    let tradesClosed = 0;
+    let scratchesCount = 0;
+    let manualOverridesCount = 0;
+    let baselinePnl = 0;
+    let hcPnl = 0;
+    for (const r of cRows) {
+      const n = Number(r.n);
+      const pnl = Number(r.realized_pnl);
+      tradesClosed += n;
+      scratchesCount += Number(r.scratches);
+      manualOverridesCount += Number(r.manual_overrides);
+      if (r.tier === "BASELINE") baselinePnl += pnl;
+      else hcPnl += pnl; // STANDARD or NULL (legacy untiered) → HC bucket
+    }
+
+    // (6) Skipped-by-reason for today (from in-process MissedSignals ring).
+    const todaySkips = getMissedSignals().filter(m => m.signalDate === today);
+    const skippedByReason: Record<string, number> = {};
+    for (const m of todaySkips) {
+      const r = m.skipReason ?? "UNKNOWN";
+      skippedByReason[r] = (skippedByReason[r] ?? 0) + 1;
+    }
+    const skippedTotal = todaySkips.length;
+    const validCandidates = tradesOpened + skippedTotal;
+    const tradeOpenRate = validCandidates > 0 ? tradesOpened / validCandidates : null;
+
+    return res.json({
+      date: today,
+      signalsGenerated,
+      tradesOpened,
+      tradesOpenedByTier: { BASELINE: baselineOpened, HC: hcOpened },
+      tradesClosed, // closed-today (exited_at IST), distinct from opened-today
+      validCandidates,
+      tradeOpenRate, // null when no candidates today (avoid 0/0)
+      skipped: {
+        total: skippedTotal,
+        byReason: Object.entries(skippedByReason)
+          .sort((a, b) => b[1] - a[1])
+          .map(([key, count]) => ({ key, count })),
+      },
+      pnl: {
+        baseline: +baselinePnl.toFixed(2),
+        hc: +hcPnl.toFixed(2),
+        total: +(baselinePnl + hcPnl).toFixed(2),
+      },
+      scratchesCount,
+      manualOverridesCount,
+      alerts: getOperationalAlerts(),
+      // Surface the policy in the response so the owner can verify it
+      // visually without grepping source.
+      policy: {
+        winRate: "WIN+LOSS only (SCRATCH excluded)",
+        expectancy: "WIN+LOSS+SCRATCH (every filled system trade)",
+        manualOverride: "EXCLUDED from autonomous setup calibration",
+      },
       generatedAt: new Date().toISOString(),
     });
   } catch (err) {

@@ -586,12 +586,24 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         // stats can't be computed we MUST NOT silently allow the open
         // — block and surface the reason so the owner can see why.
         if (baselineStats === null) {
-          if (recordSkip("BASELINE_GUARDRAIL_STATS_UNAVAILABLE")) {
-            logger.warn(
-              { indexSymbol, setupKey, signalDate },
-              "Paper FO skip: BASELINE guardrail stats unavailable — fail-CLOSED (block)",
-            );
-          }
+          // Reviewer-requested ALERT (2026-05-11.d): bump severity tag
+          // and a process-level counter so the daily-summary endpoint
+          // surfaces this as a flagged operational event. Always log
+          // (not gated by recordSkip dedup) so every occurrence shows
+          // up in the audit trail; the ring-buffer dedup still applies
+          // to the user-facing "missed signals" feed.
+          baselineStatsUnavailableAlertCount += 1;
+          baselineStatsUnavailableLastAt = new Date();
+          logger.warn(
+            {
+              event: "ALERT",
+              alert: "BASELINE_GUARDRAIL_STATS_UNAVAILABLE",
+              indexSymbol, setupKey, signalDate,
+              count: baselineStatsUnavailableAlertCount,
+            },
+            "ALERT: BASELINE guardrail stats unavailable — fail-CLOSED (block)",
+          );
+          recordSkip("BASELINE_GUARDRAIL_STATS_UNAVAILABLE");
           return null;
         }
         if (baselineStats.openCount >= FNO_BASELINE_GUARDRAILS.MAX_TRADES_PER_DAY) {
@@ -1498,6 +1510,32 @@ function recordMissedSignal(m: MissedSignal): boolean {
 /** Newest-first list of missed signals (read-only copy). */
 export function getMissedSignals(): MissedSignal[] {
   return [...missedRing].reverse();
+}
+
+/* ───────────────── Operational alerts (2026-05-11.d) ───────────────── */
+
+/** Process-level counter for BASELINE_GUARDRAIL_STATS_UNAVAILABLE events.
+ *  Surfaced via the daily-summary endpoint so the owner sees fail-closed
+ *  outages explicitly rather than implicitly via the missed-signals ring. */
+let baselineStatsUnavailableAlertCount = 0;
+let baselineStatsUnavailableLastAt: Date | null = null;
+
+export interface PaperOperationalAlerts {
+  baselineStatsUnavailable: {
+    count: number;
+    lastAt: string | null;
+  };
+}
+
+export function getOperationalAlerts(): PaperOperationalAlerts {
+  return {
+    baselineStatsUnavailable: {
+      count: baselineStatsUnavailableAlertCount,
+      lastAt: baselineStatsUnavailableLastAt
+        ? baselineStatsUnavailableLastAt.toISOString()
+        : null,
+    },
+  };
 }
 
 export async function tryOpenPaperTrades(

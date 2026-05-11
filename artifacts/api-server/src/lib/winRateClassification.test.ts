@@ -150,3 +150,38 @@ describe("SQL/helper PARITY (mandatory contract test, reviewer-required)", () =>
     },
   );
 });
+
+/**
+ * Reviewer-confirmed denominator policy (2026-05-11.d): SCRATCH is
+ * EXCLUDED from win-rate but INCLUDED in expectancy. This test pins
+ * that contract so a future "tidy up" cannot silently fold scratches
+ * into the win-rate denominator (which would depress it) or drop them
+ * from expectancy (which would over-state per-trade EV).
+ */
+describe("SCRATCH denominator contract (2026-05-11.d)", () => {
+  const sysReasons: ExitReason[] = ["TARGET1_HIT", "TARGET2_HIT", "STOPPED", "EXPIRED"];
+
+  it("SCRATCH is excluded from win-rate denominator", () => {
+    for (const r of sysReasons) {
+      expect(classifyTradeOutcome(r, 0)).toBe("SCRATCH");
+      expect(isCountedForWinRate(r, 0)).toBe(false);
+    }
+  });
+
+  it("SCRATCH is included in expectancy denominator (filled-system bucket)", () => {
+    for (const r of sysReasons) {
+      expect(isFilledSystemTrade(r, 0)).toBe(true);
+    }
+  });
+
+  it("WIN and LOSS appear in BOTH denominators; MANUAL_OVERRIDE in NEITHER", () => {
+    expect(isCountedForWinRate("TARGET1_HIT", 1)).toBe(true);
+    expect(isFilledSystemTrade("TARGET1_HIT", 1)).toBe(true);
+    expect(isCountedForWinRate("STOPPED", -1)).toBe(true);
+    expect(isFilledSystemTrade("STOPPED", -1)).toBe(true);
+    for (const pnl of [-1, 0, 1]) {
+      expect(isCountedForWinRate("MANUAL_OVERRIDE", pnl)).toBe(false);
+      expect(isFilledSystemTrade("MANUAL_OVERRIDE", pnl)).toBe(false);
+    }
+  });
+});
