@@ -1758,6 +1758,11 @@ setInterval(() => {
           );
         }
       }
+
+      // (EOD daily-summary persistence runs on its OWN 60s interval
+      //  inside paperDailySummaryFo.ts — it cannot live here because
+      //  this sweep short-circuits when computeMarketStatus !== "open"
+      //  and that closes at 15:30 IST, before the 15:35 EOD target.)
     } catch (err) {
       logger.warn(
         { err: (err as Error).message },

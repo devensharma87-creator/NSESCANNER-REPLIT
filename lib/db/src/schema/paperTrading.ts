@@ -35,6 +35,7 @@ import {
   date,
   index,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -287,3 +288,46 @@ export const paperEqAuditTable = pgTable(
 
 export type PaperEqAuditRow = typeof paperEqAuditTable.$inferSelect;
 export type NewPaperEqAuditRow = typeof paperEqAuditTable.$inferInsert;
+
+/**
+ * Daily F&O paper-trader summary snapshot (2026-05-11.d, reviewer-requested
+ * historical trail). One row per IST trading day. Persisted at EOD by the
+ * scheduler in `optionSignals.ts` (15:35 IST latch, after the 15:20 force-
+ * exit) AND on every read of the live endpoint as an upsert — so an
+ * intra-day refresh updates the row in place and the EOD tick locks in
+ * the final values. PK is the IST date so `ON CONFLICT (date) DO UPDATE`
+ * is the natural shape.
+ *
+ * Mirrors the live `/paper/diagnostics/daily-summary/fo` payload one-to-one
+ * so a future `…/history` query can be surfaced on the same UI without
+ * any re-shaping. `skippedByReason` and `alerts` are stored as JSONB to
+ * preserve the open-ended SkipReason union and forward-compat alert keys.
+ */
+export const paperDailySummaryFoTable = pgTable("paper_daily_summary_fo", {
+  date: date("date").primaryKey(),
+  signalsGenerated: integer("signals_generated").notNull(),
+  tradesOpened: integer("trades_opened").notNull(),
+  tradesClosed: integer("trades_closed").notNull(),
+  baselineOpened: integer("baseline_opened").notNull(),
+  hcOpened: integer("hc_opened").notNull(),
+  validCandidates: integer("valid_candidates").notNull(),
+  /** opened / (opened + skipped). NULL when no candidates (avoids 0/0). */
+  tradeOpenRate: numeric("trade_open_rate", { precision: 6, scale: 4 }),
+  skippedTotal: integer("skipped_total").notNull(),
+  /** [{ key: SkipReason, count: number }, …] sorted desc by count. */
+  skippedByReason: jsonb("skipped_by_reason").notNull().default([]),
+  baselinePnl: numeric("baseline_pnl", { precision: 18, scale: 2 }).notNull(),
+  hcPnl: numeric("hc_pnl", { precision: 18, scale: 2 }).notNull(),
+  totalPnl: numeric("total_pnl", { precision: 18, scale: 2 }).notNull(),
+  scratchesCount: integer("scratches_count").notNull(),
+  manualOverridesCount: integer("manual_overrides_count").notNull(),
+  /** { baselineStatsUnavailable: { count, lastAt } } — process-level counters
+   *  snapshotted at write time. Process restart resets the counter, so
+   *  the historical row preserves the *peak* observed value for that day. */
+  alerts: jsonb("alerts").notNull().default({}),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type PaperDailySummaryFoRow = typeof paperDailySummaryFoTable.$inferSelect;
+export type NewPaperDailySummaryFoRow = typeof paperDailySummaryFoTable.$inferInsert;
