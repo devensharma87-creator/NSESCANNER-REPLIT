@@ -148,10 +148,7 @@ function lotSizeFor(indexSymbol: string): number | null {
  */
 type SqlExecutor = { execute: (typeof db)["execute"] };
 
-async function getBaselineDayStats(
-  signalDate: string,
-  executor: SqlExecutor = db,
-): Promise<{
+interface BaselineDayStats {
   openCount: number;
   realizedLossAbs: number;
   /** Open-position MTM loss from BASELINE-tier positions whose
@@ -160,7 +157,22 @@ async function getBaselineDayStats(
    *  first is floating badly but not yet stopped. */
   unrealizedLossAbs: number;
   consecutiveLosses: number;
-}> {
+}
+
+/**
+ * Returns BASELINE-lane day stats, or `null` on query failure.
+ *
+ * Reviewer amendment 2026-05-11.c: this function used to fail-OPEN
+ * (return zeros, allowing the trade through). For risk guardrails on
+ * a real-money-paths system, fail-open is unacceptable — a stats
+ * outage must NOT be a free pass to stack BASELINE risk. We now
+ * fail-CLOSED: the caller checks for `null` and skips with the
+ * `BASELINE_GUARDRAIL_STATS_UNAVAILABLE` reason.
+ */
+async function getBaselineDayStats(
+  signalDate: string,
+  executor: SqlExecutor = db,
+): Promise<BaselineDayStats | null> {
   try {
     const result = await executor.execute(sql`
       SELECT
@@ -224,9 +236,9 @@ async function getBaselineDayStats(
   } catch (err) {
     logger.warn(
       { err: (err as Error).message, signalDate },
-      "getBaselineDayStats: query failed; baseline guardrails fail-OPEN this cycle",
+      "getBaselineDayStats: query failed; BASELINE guardrails fail-CLOSED (open will be skipped)",
     );
-    return { openCount: 0, realizedLossAbs: 0, unrealizedLossAbs: 0, consecutiveLosses: 0 };
+    return null;
   }
 }
 
@@ -570,6 +582,18 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
       // honours the same lock and snapshot as the open-row insert below.
       if (tier === "BASELINE") {
         const baselineStats = await getBaselineDayStats(signalDate, tx);
+        // Fail-CLOSED (2026-05-11.c, reviewer-amended): if BASELINE
+        // stats can't be computed we MUST NOT silently allow the open
+        // — block and surface the reason so the owner can see why.
+        if (baselineStats === null) {
+          if (recordSkip("BASELINE_GUARDRAIL_STATS_UNAVAILABLE")) {
+            logger.warn(
+              { indexSymbol, setupKey, signalDate },
+              "Paper FO skip: BASELINE guardrail stats unavailable — fail-CLOSED (block)",
+            );
+          }
+          return null;
+        }
         if (baselineStats.openCount >= FNO_BASELINE_GUARDRAILS.MAX_TRADES_PER_DAY) {
           if (recordSkip("BASELINE_DAILY_CAP")) {
             logger.info(
@@ -1415,6 +1439,7 @@ export type SkipReason =
   | "DAILY_DD_CAP"
   | "WEEKLY_DD_CAP"
   | "BASELINE_DAILY_DD_CAP"
+  | "BASELINE_GUARDRAIL_STATS_UNAVAILABLE"
   | "PORTFOLIO_HEAT"
   | "BUDGET_TOO_TIGHT"
   | "INSUFFICIENT_BALANCE";

@@ -227,36 +227,38 @@ async function loadSetupWinRates(): Promise<Map<string, SetupWinRate>> {
   );
   const out = new Map<string, SetupWinRate>();
   try {
-    // Win-rate denominator FIX (2026-05-11, hardened 2026-05-11.b):
-    // Switch from a blacklist (exclude flat-EXPIRED) to an explicit
-    // POSITIVE WHITELIST of "decided" outcomes:
+    // Win-rate denominator policy (2026-05-11.c, reviewer-amended):
     //
-    //   TARGET1_HIT / TARGET2_HIT / STOPPED / MANUAL_OVERRIDE
-    //     → always count (real exit signal fired or owner chose to close)
-    //   EXPIRED
-    //     → count ONLY if realized_pnl != 0 (an EXPIRED close at non-zero
-    //        pnl means the lifecycle did mark price somewhere informative)
+    // Four buckets per `classifyTradeOutcome()` in
+    // `lib/winRateClassification.ts`:
+    //   WIN     : system exit, pnl > 0
+    //   LOSS    : system exit, pnl < 0
+    //   SCRATCH : system exit, pnl == 0 (break-even / EOD sweep rescue)
+    //   EXCLUDE : MANUAL_OVERRIDE or non-system exit_reason
     //
-    // Rows excluded from the denominator are end-of-day sweep rescues
-    // where the lifecycle never recorded a real exit (we close at
-    // last_premium ≈ entry, producing a 0-pnl non-event). Since
-    // paper_trade_fo only contains filled trades (insert is inside the
-    // open-txn after account debit), "fill state" is implicit — we just
-    // need to filter for *decided* fills, not *all* fills.
+    // Win-rate denominator = WIN + LOSS only (i.e. realized_pnl <> 0).
+    // Scratches DO NOT depress the win rate (they have no signed
+    // outcome) but they remain in the filled-trade pool for the
+    // separate expectancy view, which is computed off the helper not
+    // off this aggregate.
     //
-    // Reference exit_reason enum: TARGET1_HIT, TARGET2_HIT, STOPPED,
-    // EXPIRED, MANUAL_OVERRIDE (lib/db/src/schema/paperTrading.ts).
+    // System exit_reason whitelist matches `SYSTEM_EXIT_REASONS` in the
+    // helper. MANUAL_OVERRIDE is operator-influenced and excluded from
+    // autonomous setup calibration. Parity with the helper is enforced
+    // by the SQL_PREDICATE_MIRROR test fixture so future drift fails
+    // CI before reaching prod.
+    //
+    // paper_trade_fo only contains filled trades by construction
+    // (insert is inside the open-txn after account debit), so no
+    // separate fill-state filter is needed.
     const result = await db.execute(sql`
       SELECT setup_key,
-             COUNT(*)::int AS total,
-             COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS wins
+             COUNT(*) FILTER (WHERE realized_pnl <> 0)::int AS total,
+             COUNT(*) FILTER (WHERE realized_pnl > 0)::int  AS wins
         FROM paper_trade_fo
        WHERE status = 'CLOSED'
          AND opened_at >= ${cutoff}
-         AND (
-               exit_reason IN ('TARGET1_HIT','TARGET2_HIT','STOPPED','MANUAL_OVERRIDE')
-           OR (exit_reason = 'EXPIRED' AND realized_pnl <> 0)
-         )
+         AND exit_reason IN ('TARGET1_HIT','TARGET2_HIT','STOPPED','EXPIRED')
        GROUP BY setup_key
     `);
     const rows = (

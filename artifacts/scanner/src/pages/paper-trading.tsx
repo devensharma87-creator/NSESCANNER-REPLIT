@@ -913,6 +913,7 @@ type SkipReason =
   | "DAILY_DD_CAP"
   | "WEEKLY_DD_CAP"
   | "BASELINE_DAILY_DD_CAP"
+  | "BASELINE_GUARDRAIL_STATS_UNAVAILABLE"
   | "PORTFOLIO_HEAT"
   | "BUDGET_TOO_TIGHT"
   | "INSUFFICIENT_BALANCE";
@@ -956,6 +957,7 @@ const SKIP_REASON_LABEL: Record<SkipReason, string> = {
   DAILY_DD_CAP: "Daily DD cap (2.5%)",
   WEEKLY_DD_CAP: "Weekly DD cap (5%)",
   BASELINE_DAILY_DD_CAP: "Baseline DD cap (0.75%)",
+  BASELINE_GUARDRAIL_STATS_UNAVAILABLE: "Baseline stats unavailable (fail-closed)",
   PORTFOLIO_HEAT: "Portfolio heat cap",
   BUDGET_TOO_TIGHT: "Budget too tight",
   INSUFFICIENT_BALANCE: "Insufficient balance",
@@ -981,6 +983,7 @@ const SKIP_REASON_TONE: Record<SkipReason, string> = {
   DAILY_DD_CAP: "bg-rose-500/15 text-rose-200 border-rose-500/30",
   WEEKLY_DD_CAP: "bg-rose-500/15 text-rose-200 border-rose-500/30",
   BASELINE_DAILY_DD_CAP: "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  BASELINE_GUARDRAIL_STATS_UNAVAILABLE: "bg-amber-500/15 text-amber-200 border-amber-500/30",
   PORTFOLIO_HEAT: "bg-amber-500/15 text-amber-200 border-amber-500/30",
   BUDGET_TOO_TIGHT: "bg-slate-500/15 text-slate-200 border-slate-500/30",
   INSUFFICIENT_BALANCE: "bg-slate-500/15 text-slate-200 border-slate-500/30",

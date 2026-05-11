@@ -1,0 +1,163 @@
+Verdict
+
+The coder has shipped the right subset:
+
+Win-rate classification made explicit.
+BASELINE daily-loss cap now includes unrealized loss.
+Tests expanded to 29 passing cases.
+Trigger geometry still deferred.
+No major schema/background-job work added.
+
+That is the correct risk-controlled path.
+
+But I see three important review points.
+
+1. Win-rate whitelist is better, but one detail needs correction
+
+This part is good:
+
+TARGET1_HIT / TARGET2_HIT / STOPPED / MANUAL_OVERRIDE count.
+EXPIRED counts only if realized_pnl ≠ 0.
+
+However, I do not fully agree with this line:
+
+EXPIRED only if realized_pnl ≠ 0
+
+If paper_trade_fo truly contains only filled trades, then a filled trade that exits flat at 0 P&L is still a real trade sample. It should not disappear from the denominator.
+
+Better classification:
+
+Filled trade with profit > 0      → win
+Filled trade with loss < 0        → loss
+Filled trade with P&L = 0         → scratch / breakeven
+Unfilled signal / expired pending → exclude
+
+So I would prefer three buckets, not just win/loss:
+
+wins
+losses
+scratch
+
+For calibration:
+
+win_rate = wins / (wins + losses)
+expectancy = total_pnl / total_filled_trades
+
+Why? Because win-rate alone can be misleading. A system with many scratches is different from a system with many unfilled signals.
+
+My suggested change
+
+Ask him to make the helper return a classification, not just boolean:
+
+COUNT_AS_WIN
+COUNT_AS_LOSS
+COUNT_AS_SCRATCH
+EXCLUDE_NOT_FILLED_OR_NOT_SYSTEM_TRADE
+
+This is cleaner for future analytics.
+
+2. “Fail-OPEN behaviour preserved” is a red flag
+
+This is the biggest issue in the update.
+
+For diagnostics, fail-open is fine.
+
+For risk guardrails, fail-open is dangerous.
+
+He wrote:
+
+Fail-OPEN behaviour preserved.
+
+For a trading risk cap, that means if the stats check fails, the system may still allow a new trade. I would not accept that.
+
+Risk systems should be:
+
+Fail-closed
+or
+Fail-reduced
+
+Preferred behavior:
+
+If BASELINE day stats cannot be calculated:
+    block new BASELINE trade
+    record skip reason: BASELINE_GUARDRAIL_STATS_UNAVAILABLE
+    allow HC only if separate global risk checks are healthy
+
+At minimum:
+
+If guardrail check fails:
+    allow only 0.10% diagnostic/test trade
+
+But my professional preference is fail-closed for BASELINE.
+
+This is a small but important change.
+
+3. Manual override should be separated from model calibration
+
+He included:
+
+MANUAL_OVERRIDE always count
+
+This depends on what MANUAL_OVERRIDE means.
+
+If it means a manually closed system trade, then yes, count it in trade P&L.
+
+But if it means a human overrode the system’s normal exit, then it should be separated from model calibration.
+
+I would split it like this:
+
+System performance:
+TARGET1_HIT
+TARGET2_HIT
+STOPPED
+EOD_EXIT
+EXPIRED_FILLED
+
+Operator-influenced performance:
+MANUAL_OVERRIDE
+
+Manual override can count in account P&L, but it should not contaminate the setup’s autonomous win-rate unless you explicitly want human-assisted performance.
+
+What I would tell the coder now
+
+Send this:
+
+Good work. Accept this implementation direction.
+
+Before final sign-off, please make these small changes:
+
+1. Risk guardrails must not fail-open.
+   If BASELINE day stats cannot be calculated, block new BASELINE trades and record:
+   BASELINE_GUARDRAIL_STATS_UNAVAILABLE.
+
+2. Refine win-rate classification:
+   Since paper_trade_fo rows are filled trades, a filled flat trade should not disappear.
+   Classify outcomes as WIN / LOSS / SCRATCH / EXCLUDE.
+   Use WIN and LOSS for win-rate.
+   Use all filled trades, including SCRATCH, for expectancy.
+
+3. Add the optional parity test between SQL filter and isCountedForWinRate helper.
+   This should not remain optional because SQL/helper drift can silently corrupt calibration.
+
+4. Keep trigger geometry unchanged.
+   Keep fo_trade_decision_audit and MFE/MAE deferred.
+My final opinion
+
+This implementation is approved with minor risk-control amendments.
+
+The most valuable improvement is the unrealized-loss inclusion in the BASELINE daily cap. That directly prevents stacking trades while one is already bleeding.
+
+The one thing I would not accept as-is is fail-open risk behavior. In trading systems, especially F&O, risk checks should not fail open. They should fail closed, log the reason, and wait for clean state.
+
+So my decision:
+
+Accept:
+- whitelist classifier
+- unrealized + realized BASELINE loss cap
+- added tests
+- defer audit table, MFE/MAE, trigger geometry
+
+Change before final:
+- BASELINE guardrails must fail-closed
+- classify scratch trades separately
+- add SQL/helper parity test
