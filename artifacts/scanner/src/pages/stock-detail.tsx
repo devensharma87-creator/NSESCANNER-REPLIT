@@ -20,6 +20,7 @@ import { ScoreBar } from "@/components/ui/score-bar";
 import { ArrowLeft, TrendingUp, TrendingDown, Target, ShieldAlert, ExternalLink, Info, AlertTriangle, CheckCircle2, XCircle, Clock, ShieldCheck, Hourglass } from "lucide-react";
 import { InAppCandleChart } from "@/components/in-app-candle-chart";
 import StockStatements from "@/components/stock-statements";
+import { KiteOfflineBanner } from "@/components/kite-offline-banner";
 import { formatDistanceToNow } from "date-fns";
 
 const RANGES = ["1mo", "3mo", "6mo", "1y", "2y"] as const;
@@ -59,6 +60,7 @@ export default function StockDetail() {
 
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-6">
+      <KiteOfflineBanner />
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="space-y-1">
           <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors">

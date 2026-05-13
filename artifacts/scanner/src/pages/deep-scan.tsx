@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, TrendingUp, TrendingDown } from "lucide-react";
+import { KiteOfflineBanner, KiteOfflineNote } from "@/components/kite-offline-banner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -209,6 +210,7 @@ export default function DeepScan() {
 
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-6">
+      <KiteOfflineBanner />
       {/* Header / search */}
       <div className="flex flex-col items-center gap-3">
         <div className="text-center">
@@ -273,8 +275,9 @@ export default function DeepScan() {
         <Skeleton className="h-[600px] w-full" />
       ) : snapQ.error || !snap ? (
         <Card className="border-signal-strong-sell/30">
-          <CardContent className="p-4 text-sm font-mono text-signal-strong-sell">
-            Could not load snapshot for <b>{active.symbol}</b>. {(snapQ.error as Error | undefined)?.message ?? ""}
+          <CardContent className="p-4 space-y-2 text-sm font-mono text-signal-strong-sell">
+            <div>Could not load snapshot for <b>{active.symbol}</b>. {(snapQ.error as Error | undefined)?.message ?? ""}</div>
+            <KiteOfflineNote area="Deep Scan snapshot" />
           </CardContent>
         </Card>
       ) : (

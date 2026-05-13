@@ -8,6 +8,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Cell,
   LineChart, Line, Legend, PieChart, Pie,
 } from "recharts";
+import { KiteOfflineNote } from "@/components/kite-offline-banner";
 
 function fmtCr(n?: number | null): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -116,13 +117,14 @@ export default function StockStatements({ symbol }: { symbol: string }) {
   if (!hasAnyData) {
     return (
       <Card>
-        <CardContent className="p-6 text-center">
+        <CardContent className="p-6 text-center space-y-3">
           <p className="text-sm font-mono text-muted-foreground">
             Detailed statements not available for this symbol from Yahoo Finance.
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             (Coverage may be limited for SME/newly-listed/low-volume stocks.)
           </p>
+          <div className="max-w-md mx-auto"><KiteOfflineNote area="fundamentals" /></div>
         </CardContent>
       </Card>
     );
@@ -143,6 +145,7 @@ export default function StockStatements({ symbol }: { symbol: string }) {
 
   return (
     <Tabs defaultValue="quarterly" className="w-full">
+      <KiteOfflineNote area="fundamentals" />
       <TabsList className="bg-card border border-border flex flex-wrap h-auto">
         <TabsTrigger value="quarterly" className="font-mono text-[11px] uppercase">Quarterly</TabsTrigger>
         <TabsTrigger value="annual" className="font-mono text-[11px] uppercase">Annual P&amp;L</TabsTrigger>

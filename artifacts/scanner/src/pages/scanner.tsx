@@ -16,6 +16,7 @@ import type { StockRow } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { QuickBuyEqDialog } from "@/components/quick-buy-eq-dialog";
+import { KiteOfflineBanner } from "@/components/kite-offline-banner";
 
 interface FullNseResponse {
   rows: StockRow[];
@@ -487,6 +488,7 @@ export default function ScannerPage() {
 
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-4">
+      <KiteOfflineBanner />
       <QuickBuyEqDialog
         open={buyOpen}
         onClose={() => setBuyOpen(false)}
