@@ -3737,6 +3737,276 @@ export const GetPaperReportEqYearlyResponse = zod.object({
 });
 
 /**
+ * @summary Owner-only list of paper-trading combos (server-priced).
+ */
+export const ListPaperCombosQueryParams = zod.object({
+  status: zod.enum(["OPEN", "CLOSED"]).optional(),
+});
+
+export const ListPaperCombosResponse = zod.object({
+  combos: zod.array(
+    zod.object({
+      id: zod.string(),
+      underlying: zod.string(),
+      expiry: zod.string().describe("YYYY-MM-DD"),
+      strategyName: zod.string().nullish(),
+      status: zod.enum(["OPEN", "CLOSED"]),
+      openedAt: zod.coerce.date(),
+      closedAt: zod.coerce.date().nullish(),
+      closeReason: zod
+        .union([
+          zod.literal("MANUAL"),
+          zod.literal("EXPIRY"),
+          zod.literal(null),
+        ])
+        .nullish(),
+      lotSize: zod.number(),
+      spotAtEntry: zod.number(),
+      spotLast: zod.number().nullish(),
+      netDebitEntry: zod
+        .number()
+        .describe("₹\/share at open (positive=debit, negative=credit)."),
+      maxProfitEntry: zod
+        .number()
+        .nullish()
+        .describe("Per-lot ₹ at open. NULL = unbounded (rejected on open)."),
+      maxLossEntry: zod
+        .number()
+        .nullish()
+        .describe("Per-lot ₹ at open. NULL = unbounded."),
+      breakevensEntry: zod.array(zod.number()),
+      netGreeksEntry: zod.object({
+        delta: zod.number(),
+        gamma: zod.number(),
+        vega: zod.number(),
+        theta: zod.number(),
+      }),
+      marginRequired: zod.number().describe("Server estimate at open (₹)."),
+      capitalDeployed: zod
+        .number()
+        .describe("max(netDebit×qty, marginRequired) in ₹."),
+      netMtm: zod
+        .number()
+        .nullish()
+        .describe("Live mark, ₹. NULL until first MTM."),
+      realizedPnl: zod.number().nullish(),
+      lastEvaluatedAt: zod.coerce.date().nullish(),
+      journal: zod.string().nullish(),
+      daysToExpiry: zod.number(),
+      legs: zod.array(
+        zod.object({
+          id: zod.string(),
+          legIndex: zod.number(),
+          action: zod.enum(["BUY", "SELL"]),
+          optionType: zod.enum(["CE", "PE"]),
+          strike: zod.number(),
+          qty: zod.number().describe("Total shares = lots × lotSize."),
+          lots: zod.number(),
+          entryPremium: zod
+            .number()
+            .describe("Per-share premium (server-priced at open)."),
+          ivAtEntry: zod.number().nullish(),
+          entrySource: zod.enum(["chain", "bs"]),
+          lastPremium: zod.number().nullish(),
+          lastSource: zod.enum(["chain", "bs", "ws"]).nullish(),
+          exitPremium: zod.number().nullish(),
+          unrealizedPnl: zod.number().nullish(),
+        }),
+      ),
+    }),
+  ),
+});
+
+/**
+ * @summary Owner-only manual open of a multi-leg combo. Server reprices from the live chain — client cannot supply premium, Greeks, margin, or P&L.
+ */
+export const openPaperComboBodyLegsItemLotsMax = 1000;
+
+export const openPaperComboBodyLegsMax = 8;
+
+export const OpenPaperComboBody = zod.object({
+  underlying: zod.string().describe("e.g. NIFTY, BANKNIFTY, SENSEX, RELIANCE"),
+  expiry: zod
+    .string()
+    .optional()
+    .describe("Optional YYYY-MM-DD; defaults to nearest available."),
+  strategyName: zod
+    .string()
+    .nullish()
+    .describe("Optional human label, e.g. 'Bull Call Spread'."),
+  journal: zod.string().nullish(),
+  legs: zod
+    .array(
+      zod
+        .object({
+          strike: zod.number(),
+          optionType: zod.enum(["CE", "PE"]),
+          action: zod.enum(["BUY", "SELL"]),
+          lots: zod.number().min(1).max(openPaperComboBodyLegsItemLotsMax),
+        })
+        .describe(
+          "Combo leg INPUT. Server explicitly ignores any premium\/iv\/Greeks fields — paper combos are always priced from the live chain.",
+        ),
+    )
+    .min(1)
+    .max(openPaperComboBodyLegsMax),
+});
+
+/**
+ * @summary Owner-only paper-trading combo detail (re-marks live for OPEN combos).
+ */
+export const GetPaperComboParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetPaperComboResponse = zod.object({
+  combo: zod.object({
+    id: zod.string(),
+    underlying: zod.string(),
+    expiry: zod.string().describe("YYYY-MM-DD"),
+    strategyName: zod.string().nullish(),
+    status: zod.enum(["OPEN", "CLOSED"]),
+    openedAt: zod.coerce.date(),
+    closedAt: zod.coerce.date().nullish(),
+    closeReason: zod
+      .union([zod.literal("MANUAL"), zod.literal("EXPIRY"), zod.literal(null)])
+      .nullish(),
+    lotSize: zod.number(),
+    spotAtEntry: zod.number(),
+    spotLast: zod.number().nullish(),
+    netDebitEntry: zod
+      .number()
+      .describe("₹\/share at open (positive=debit, negative=credit)."),
+    maxProfitEntry: zod
+      .number()
+      .nullish()
+      .describe("Per-lot ₹ at open. NULL = unbounded (rejected on open)."),
+    maxLossEntry: zod
+      .number()
+      .nullish()
+      .describe("Per-lot ₹ at open. NULL = unbounded."),
+    breakevensEntry: zod.array(zod.number()),
+    netGreeksEntry: zod.object({
+      delta: zod.number(),
+      gamma: zod.number(),
+      vega: zod.number(),
+      theta: zod.number(),
+    }),
+    marginRequired: zod.number().describe("Server estimate at open (₹)."),
+    capitalDeployed: zod
+      .number()
+      .describe("max(netDebit×qty, marginRequired) in ₹."),
+    netMtm: zod
+      .number()
+      .nullish()
+      .describe("Live mark, ₹. NULL until first MTM."),
+    realizedPnl: zod.number().nullish(),
+    lastEvaluatedAt: zod.coerce.date().nullish(),
+    journal: zod.string().nullish(),
+    daysToExpiry: zod.number(),
+    legs: zod.array(
+      zod.object({
+        id: zod.string(),
+        legIndex: zod.number(),
+        action: zod.enum(["BUY", "SELL"]),
+        optionType: zod.enum(["CE", "PE"]),
+        strike: zod.number(),
+        qty: zod.number().describe("Total shares = lots × lotSize."),
+        lots: zod.number(),
+        entryPremium: zod
+          .number()
+          .describe("Per-share premium (server-priced at open)."),
+        ivAtEntry: zod.number().nullish(),
+        entrySource: zod.enum(["chain", "bs"]),
+        lastPremium: zod.number().nullish(),
+        lastSource: zod.enum(["chain", "bs", "ws"]).nullish(),
+        exitPremium: zod.number().nullish(),
+        unrealizedPnl: zod.number().nullish(),
+      }),
+    ),
+  }),
+});
+
+/**
+ * @summary Owner-only manual close of an OPEN paper combo at freshly-marked premium.
+ */
+export const ClosePaperComboParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ClosePaperComboBody = zod.object({
+  journal: zod.string().nullish(),
+});
+
+export const ClosePaperComboResponse = zod.object({
+  combo: zod.object({
+    id: zod.string(),
+    underlying: zod.string(),
+    expiry: zod.string().describe("YYYY-MM-DD"),
+    strategyName: zod.string().nullish(),
+    status: zod.enum(["OPEN", "CLOSED"]),
+    openedAt: zod.coerce.date(),
+    closedAt: zod.coerce.date().nullish(),
+    closeReason: zod
+      .union([zod.literal("MANUAL"), zod.literal("EXPIRY"), zod.literal(null)])
+      .nullish(),
+    lotSize: zod.number(),
+    spotAtEntry: zod.number(),
+    spotLast: zod.number().nullish(),
+    netDebitEntry: zod
+      .number()
+      .describe("₹\/share at open (positive=debit, negative=credit)."),
+    maxProfitEntry: zod
+      .number()
+      .nullish()
+      .describe("Per-lot ₹ at open. NULL = unbounded (rejected on open)."),
+    maxLossEntry: zod
+      .number()
+      .nullish()
+      .describe("Per-lot ₹ at open. NULL = unbounded."),
+    breakevensEntry: zod.array(zod.number()),
+    netGreeksEntry: zod.object({
+      delta: zod.number(),
+      gamma: zod.number(),
+      vega: zod.number(),
+      theta: zod.number(),
+    }),
+    marginRequired: zod.number().describe("Server estimate at open (₹)."),
+    capitalDeployed: zod
+      .number()
+      .describe("max(netDebit×qty, marginRequired) in ₹."),
+    netMtm: zod
+      .number()
+      .nullish()
+      .describe("Live mark, ₹. NULL until first MTM."),
+    realizedPnl: zod.number().nullish(),
+    lastEvaluatedAt: zod.coerce.date().nullish(),
+    journal: zod.string().nullish(),
+    daysToExpiry: zod.number(),
+    legs: zod.array(
+      zod.object({
+        id: zod.string(),
+        legIndex: zod.number(),
+        action: zod.enum(["BUY", "SELL"]),
+        optionType: zod.enum(["CE", "PE"]),
+        strike: zod.number(),
+        qty: zod.number().describe("Total shares = lots × lotSize."),
+        lots: zod.number(),
+        entryPremium: zod
+          .number()
+          .describe("Per-share premium (server-priced at open)."),
+        ivAtEntry: zod.number().nullish(),
+        entrySource: zod.enum(["chain", "bs"]),
+        lastPremium: zod.number().nullish(),
+        lastSource: zod.enum(["chain", "bs", "ws"]).nullish(),
+        exitPremium: zod.number().nullish(),
+        unrealizedPnl: zod.number().nullish(),
+      }),
+    ),
+  }),
+});
+
+/**
  * @summary Live NSE option chain (indices + F&O equities)
  */
 export const GetOptionChainParams = zod.object({

@@ -2225,6 +2225,174 @@ export interface OptionStrategiesResponse {
   generatedAt: string;
 }
 
+export type PaperComboLegSpecOptionType =
+  (typeof PaperComboLegSpecOptionType)[keyof typeof PaperComboLegSpecOptionType];
+
+export const PaperComboLegSpecOptionType = {
+  CE: "CE",
+  PE: "PE",
+} as const;
+
+export type PaperComboLegSpecAction =
+  (typeof PaperComboLegSpecAction)[keyof typeof PaperComboLegSpecAction];
+
+export const PaperComboLegSpecAction = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+/**
+ * Combo leg INPUT. Server explicitly ignores any premium/iv/Greeks fields — paper combos are always priced from the live chain.
+ */
+export interface PaperComboLegSpec {
+  strike: number;
+  optionType: PaperComboLegSpecOptionType;
+  action: PaperComboLegSpecAction;
+  /**
+   * @minimum 1
+   * @maximum 1000
+   */
+  lots: number;
+}
+
+export interface PaperComboOpenRequest {
+  /** e.g. NIFTY, BANKNIFTY, SENSEX, RELIANCE */
+  underlying: string;
+  /** Optional YYYY-MM-DD; defaults to nearest available. */
+  expiry?: string;
+  /** Optional human label, e.g. 'Bull Call Spread'. */
+  strategyName?: string | null;
+  journal?: string | null;
+  /**
+   * @minItems 1
+   * @maxItems 8
+   */
+  legs: PaperComboLegSpec[];
+}
+
+export interface PaperComboCloseRequest {
+  journal?: string | null;
+}
+
+export type PaperComboLegAction =
+  (typeof PaperComboLegAction)[keyof typeof PaperComboLegAction];
+
+export const PaperComboLegAction = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export type PaperComboLegOptionType =
+  (typeof PaperComboLegOptionType)[keyof typeof PaperComboLegOptionType];
+
+export const PaperComboLegOptionType = {
+  CE: "CE",
+  PE: "PE",
+} as const;
+
+export type PaperComboLegEntrySource =
+  (typeof PaperComboLegEntrySource)[keyof typeof PaperComboLegEntrySource];
+
+export const PaperComboLegEntrySource = {
+  chain: "chain",
+  bs: "bs",
+} as const;
+
+export type PaperComboLegLastSource =
+  | (typeof PaperComboLegLastSource)[keyof typeof PaperComboLegLastSource]
+  | null;
+
+export const PaperComboLegLastSource = {
+  chain: "chain",
+  bs: "bs",
+  ws: "ws",
+} as const;
+
+export interface PaperComboLeg {
+  id: string;
+  legIndex: number;
+  action: PaperComboLegAction;
+  optionType: PaperComboLegOptionType;
+  strike: number;
+  /** Total shares = lots × lotSize. */
+  qty: number;
+  lots: number;
+  /** Per-share premium (server-priced at open). */
+  entryPremium: number;
+  ivAtEntry?: number | null;
+  entrySource: PaperComboLegEntrySource;
+  lastPremium?: number | null;
+  lastSource?: PaperComboLegLastSource;
+  exitPremium?: number | null;
+  unrealizedPnl?: number | null;
+}
+
+export type PaperComboStatus =
+  (typeof PaperComboStatus)[keyof typeof PaperComboStatus];
+
+export const PaperComboStatus = {
+  OPEN: "OPEN",
+  CLOSED: "CLOSED",
+} as const;
+
+export type PaperComboCloseReason =
+  | (typeof PaperComboCloseReason)[keyof typeof PaperComboCloseReason]
+  | null;
+
+export const PaperComboCloseReason = {
+  MANUAL: "MANUAL",
+  EXPIRY: "EXPIRY",
+} as const;
+
+export type PaperComboNetGreeksEntry = {
+  delta: number;
+  gamma: number;
+  vega: number;
+  theta: number;
+};
+
+export interface PaperCombo {
+  id: string;
+  underlying: string;
+  /** YYYY-MM-DD */
+  expiry: string;
+  strategyName?: string | null;
+  status: PaperComboStatus;
+  openedAt: string;
+  closedAt?: string | null;
+  closeReason?: PaperComboCloseReason;
+  lotSize: number;
+  spotAtEntry: number;
+  spotLast?: number | null;
+  /** ₹/share at open (positive=debit, negative=credit). */
+  netDebitEntry: number;
+  /** Per-lot ₹ at open. NULL = unbounded (rejected on open). */
+  maxProfitEntry?: number | null;
+  /** Per-lot ₹ at open. NULL = unbounded. */
+  maxLossEntry?: number | null;
+  breakevensEntry: number[];
+  netGreeksEntry: PaperComboNetGreeksEntry;
+  /** Server estimate at open (₹). */
+  marginRequired: number;
+  /** max(netDebit×qty, marginRequired) in ₹. */
+  capitalDeployed: number;
+  /** Live mark, ₹. NULL until first MTM. */
+  netMtm?: number | null;
+  realizedPnl?: number | null;
+  lastEvaluatedAt?: string | null;
+  journal?: string | null;
+  daysToExpiry: number;
+  legs: PaperComboLeg[];
+}
+
+export interface PaperComboResponse {
+  combo: PaperCombo;
+}
+
+export interface PaperComboListResponse {
+  combos: PaperCombo[];
+}
+
 export type PaperAccountStateSegment =
   (typeof PaperAccountStateSegment)[keyof typeof PaperAccountStateSegment];
 
@@ -3314,6 +3482,18 @@ export type GetPaperReportEqYearlyParams = {
    */
   fy: string;
 };
+
+export type ListPaperCombosParams = {
+  status?: ListPaperCombosStatus;
+};
+
+export type ListPaperCombosStatus =
+  (typeof ListPaperCombosStatus)[keyof typeof ListPaperCombosStatus];
+
+export const ListPaperCombosStatus = {
+  OPEN: "OPEN",
+  CLOSED: "CLOSED",
+} as const;
 
 export type GetOptionChainParams = {
   /**

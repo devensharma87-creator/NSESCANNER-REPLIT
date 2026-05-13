@@ -474,6 +474,77 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PaperReportEqYearly" }
 
+  /paper/combos:
+    get:
+      operationId: listPaperCombos
+      tags: [paper]
+      summary: "Owner-only list of paper-trading combos (server-priced)."
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema: { type: string, enum: [OPEN, CLOSED] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperComboListResponse" }
+    post:
+      operationId: openPaperCombo
+      tags: [paper]
+      summary: "Owner-only manual open of a multi-leg combo. Server reprices from the live chain — client cannot supply premium, Greeks, margin, or P&L."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaperComboOpenRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperComboResponse" }
+
+  /paper/combos/{id}:
+    get:
+      operationId: getPaperCombo
+      tags: [paper]
+      summary: "Owner-only paper-trading combo detail (re-marks live for OPEN combos)."
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperComboResponse" }
+
+  /paper/combos/{id}/close:
+    post:
+      operationId: closePaperCombo
+      tags: [paper]
+      summary: "Owner-only manual close of an OPEN paper combo at freshly-marked premium."
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaperComboCloseRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperComboResponse" }
+
   /options/chain/{underlying}:
     get:
       operationId: getOptionChain
@@ -2991,6 +3062,122 @@ components:
           type: array
           items: { $ref: "#/components/schemas/OptionStrategy" }
         generatedAt: { type: string, format: date-time }
+
+    PaperComboLegSpec:
+      type: object
+      required: [strike, optionType, action, lots]
+      description: "Combo leg INPUT. Server explicitly ignores any premium/iv/Greeks fields — paper combos are always priced from the live chain."
+      properties:
+        strike:     { type: number }
+        optionType: { type: string, enum: [CE, PE] }
+        action:     { type: string, enum: [BUY, SELL] }
+        lots:       { type: integer, minimum: 1, maximum: 1000 }
+
+    PaperComboOpenRequest:
+      type: object
+      required: [underlying, legs]
+      properties:
+        underlying:   { type: string, description: "e.g. NIFTY, BANKNIFTY, SENSEX, RELIANCE" }
+        expiry:       { type: string, description: "Optional YYYY-MM-DD; defaults to nearest available." }
+        strategyName: { type: string, nullable: true, description: "Optional human label, e.g. 'Bull Call Spread'." }
+        journal:      { type: string, nullable: true }
+        legs:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items: { $ref: "#/components/schemas/PaperComboLegSpec" }
+
+    PaperComboCloseRequest:
+      type: object
+      properties:
+        journal: { type: string, nullable: true }
+
+    PaperComboLeg:
+      type: object
+      required: [id, legIndex, action, optionType, strike, qty, lots, entryPremium, entrySource]
+      properties:
+        id:           { type: string }
+        legIndex:     { type: integer }
+        action:       { type: string, enum: [BUY, SELL] }
+        optionType:   { type: string, enum: [CE, PE] }
+        strike:       { type: number }
+        qty:          { type: integer, description: "Total shares = lots × lotSize." }
+        lots:         { type: integer }
+        entryPremium: { type: number, description: "Per-share premium (server-priced at open)." }
+        ivAtEntry:    { type: number, nullable: true }
+        entrySource:  { type: string, enum: [chain, bs] }
+        lastPremium:  { type: number, nullable: true }
+        lastSource:   { type: string, enum: [chain, bs, ws], nullable: true }
+        exitPremium:  { type: number, nullable: true }
+        unrealizedPnl: { type: number, nullable: true }
+
+    PaperCombo:
+      type: object
+      required:
+        - id
+        - underlying
+        - expiry
+        - status
+        - openedAt
+        - lotSize
+        - spotAtEntry
+        - netDebitEntry
+        - breakevensEntry
+        - netGreeksEntry
+        - marginRequired
+        - capitalDeployed
+        - daysToExpiry
+        - legs
+      properties:
+        id:              { type: string }
+        underlying:      { type: string }
+        expiry:          { type: string, description: "YYYY-MM-DD" }
+        strategyName:    { type: string, nullable: true }
+        status:          { type: string, enum: [OPEN, CLOSED] }
+        openedAt:        { type: string, format: date-time }
+        closedAt:        { type: string, format: date-time, nullable: true }
+        closeReason:     { type: string, nullable: true, enum: [MANUAL, EXPIRY, null] }
+        lotSize:         { type: integer }
+        spotAtEntry:     { type: number }
+        spotLast:        { type: number, nullable: true }
+        netDebitEntry:   { type: number, description: "₹/share at open (positive=debit, negative=credit)." }
+        maxProfitEntry:  { type: number, nullable: true, description: "Per-lot ₹ at open. NULL = unbounded (rejected on open)." }
+        maxLossEntry:    { type: number, nullable: true, description: "Per-lot ₹ at open. NULL = unbounded." }
+        breakevensEntry:
+          type: array
+          items: { type: number }
+        netGreeksEntry:
+          type: object
+          required: [delta, gamma, vega, theta]
+          properties:
+            delta: { type: number }
+            gamma: { type: number }
+            vega:  { type: number }
+            theta: { type: number }
+        marginRequired:  { type: number, description: "Server estimate at open (₹)." }
+        capitalDeployed: { type: number, description: "max(netDebit×qty, marginRequired) in ₹." }
+        netMtm:          { type: number, nullable: true, description: "Live mark, ₹. NULL until first MTM." }
+        realizedPnl:     { type: number, nullable: true }
+        lastEvaluatedAt: { type: string, format: date-time, nullable: true }
+        journal:         { type: string, nullable: true }
+        daysToExpiry:    { type: integer }
+        legs:
+          type: array
+          items: { $ref: "#/components/schemas/PaperComboLeg" }
+
+    PaperComboResponse:
+      type: object
+      required: [combo]
+      properties:
+        combo: { $ref: "#/components/schemas/PaperCombo" }
+
+    PaperComboListResponse:
+      type: object
+      required: [combos]
+      properties:
+        combos:
+          type: array
+          items: { $ref: "#/components/schemas/PaperCombo" }
 
     PaperAccountState:
       type: object

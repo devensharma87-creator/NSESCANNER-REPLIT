@@ -73,6 +73,7 @@ import type {
   HomeEnrichmentResponse,
   IndicesBoardSnapshot,
   ListGlobalInstrumentsParams,
+  ListPaperCombosParams,
   ListStocksParams,
   MacroHistoryResponse,
   MarketEventsResponse,
@@ -86,6 +87,10 @@ import type {
   OptionSignalSet,
   OptionStrategiesResponse,
   PaperAccountState,
+  PaperComboCloseRequest,
+  PaperComboListResponse,
+  PaperComboOpenRequest,
+  PaperComboResponse,
   PaperPositionsEqResponse,
   PaperPositionsFOResponse,
   PaperReportEqMonthly,
@@ -2573,6 +2578,360 @@ export function useGetPaperReportEqYearly<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Owner-only list of paper-trading combos (server-priced).
+ */
+export const getListPaperCombosUrl = (params?: ListPaperCombosParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/paper/combos?${stringifiedParams}`
+    : `/api/paper/combos`;
+};
+
+export const listPaperCombos = async (
+  params?: ListPaperCombosParams,
+  options?: RequestInit,
+): Promise<PaperComboListResponse> => {
+  return customFetch<PaperComboListResponse>(getListPaperCombosUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPaperCombosQueryKey = (params?: ListPaperCombosParams) => {
+  return [`/api/paper/combos`, ...(params ? [params] : [])] as const;
+};
+
+export const getListPaperCombosQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPaperCombos>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListPaperCombosParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPaperCombos>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPaperCombosQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listPaperCombos>>> = ({
+    signal,
+  }) => listPaperCombos(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPaperCombos>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPaperCombosQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPaperCombos>>
+>;
+export type ListPaperCombosQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only list of paper-trading combos (server-priced).
+ */
+
+export function useListPaperCombos<
+  TData = Awaited<ReturnType<typeof listPaperCombos>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListPaperCombosParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPaperCombos>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPaperCombosQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only manual open of a multi-leg combo. Server reprices from the live chain — client cannot supply premium, Greeks, margin, or P&L.
+ */
+export const getOpenPaperComboUrl = () => {
+  return `/api/paper/combos`;
+};
+
+export const openPaperCombo = async (
+  paperComboOpenRequest: PaperComboOpenRequest,
+  options?: RequestInit,
+): Promise<PaperComboResponse> => {
+  return customFetch<PaperComboResponse>(getOpenPaperComboUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(paperComboOpenRequest),
+  });
+};
+
+export const getOpenPaperComboMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof openPaperCombo>>,
+    TError,
+    { data: BodyType<PaperComboOpenRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof openPaperCombo>>,
+  TError,
+  { data: BodyType<PaperComboOpenRequest> },
+  TContext
+> => {
+  const mutationKey = ["openPaperCombo"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof openPaperCombo>>,
+    { data: BodyType<PaperComboOpenRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return openPaperCombo(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type OpenPaperComboMutationResult = NonNullable<
+  Awaited<ReturnType<typeof openPaperCombo>>
+>;
+export type OpenPaperComboMutationBody = BodyType<PaperComboOpenRequest>;
+export type OpenPaperComboMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only manual open of a multi-leg combo. Server reprices from the live chain — client cannot supply premium, Greeks, margin, or P&L.
+ */
+export const useOpenPaperCombo = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof openPaperCombo>>,
+    TError,
+    { data: BodyType<PaperComboOpenRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof openPaperCombo>>,
+  TError,
+  { data: BodyType<PaperComboOpenRequest> },
+  TContext
+> => {
+  return useMutation(getOpenPaperComboMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only paper-trading combo detail (re-marks live for OPEN combos).
+ */
+export const getGetPaperComboUrl = (id: string) => {
+  return `/api/paper/combos/${id}`;
+};
+
+export const getPaperCombo = async (
+  id: string,
+  options?: RequestInit,
+): Promise<PaperComboResponse> => {
+  return customFetch<PaperComboResponse>(getGetPaperComboUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPaperComboQueryKey = (id: string) => {
+  return [`/api/paper/combos/${id}`] as const;
+};
+
+export const getGetPaperComboQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPaperCombo>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperCombo>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPaperComboQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPaperCombo>>> = ({
+    signal,
+  }) => getPaperCombo(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPaperCombo>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPaperComboQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPaperCombo>>
+>;
+export type GetPaperComboQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only paper-trading combo detail (re-marks live for OPEN combos).
+ */
+
+export function useGetPaperCombo<
+  TData = Awaited<ReturnType<typeof getPaperCombo>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPaperCombo>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPaperComboQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only manual close of an OPEN paper combo at freshly-marked premium.
+ */
+export const getClosePaperComboUrl = (id: string) => {
+  return `/api/paper/combos/${id}/close`;
+};
+
+export const closePaperCombo = async (
+  id: string,
+  paperComboCloseRequest?: PaperComboCloseRequest,
+  options?: RequestInit,
+): Promise<PaperComboResponse> => {
+  return customFetch<PaperComboResponse>(getClosePaperComboUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(paperComboCloseRequest),
+  });
+};
+
+export const getClosePaperComboMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closePaperCombo>>,
+    TError,
+    { id: string; data: BodyType<PaperComboCloseRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof closePaperCombo>>,
+  TError,
+  { id: string; data: BodyType<PaperComboCloseRequest> },
+  TContext
+> => {
+  const mutationKey = ["closePaperCombo"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof closePaperCombo>>,
+    { id: string; data: BodyType<PaperComboCloseRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return closePaperCombo(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ClosePaperComboMutationResult = NonNullable<
+  Awaited<ReturnType<typeof closePaperCombo>>
+>;
+export type ClosePaperComboMutationBody = BodyType<PaperComboCloseRequest>;
+export type ClosePaperComboMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only manual close of an OPEN paper combo at freshly-marked premium.
+ */
+export const useClosePaperCombo = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closePaperCombo>>,
+    TError,
+    { id: string; data: BodyType<PaperComboCloseRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof closePaperCombo>>,
+  TError,
+  { id: string; data: BodyType<PaperComboCloseRequest> },
+  TContext
+> => {
+  return useMutation(getClosePaperComboMutationOptions(options));
+};
 
 /**
  * @summary Live NSE option chain (indices + F&O equities)
