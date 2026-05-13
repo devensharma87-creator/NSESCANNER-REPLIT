@@ -54,7 +54,7 @@ const PROVIDER_STATUS_KEY = ["provider-status"] as const;
  *
  * No-op outside dev builds. Always returns null in production.
  */
-function getMockProviderStatus(): ProviderStatus | null {
+export function getMockProviderStatus(): ProviderStatus | null {
   if (!import.meta.env.DEV) return null;
   if (typeof window === "undefined") return null;
   try {
@@ -119,7 +119,7 @@ function useProviderStatus(pollMs: number | null) {
 /** Classify the headline by the textual `reason` returned from
  *  providerStatus(). Defaults to a neutral "Live feed unavailable" so we
  *  don't misdiagnose every yahoo-fallback as a daily-login expiry. */
-function headlineFor(reason: string): string {
+export function headlineFor(reason: string): string {
   const r = reason.toLowerCase();
   if (r.includes("complete kite daily login") || r.includes("session"))
     return "Kite session expired — please re-login";
