@@ -135,3 +135,81 @@ Two clean sub-grids replace the prior 9-stat cluster:
 - **Open portfolio (live MTM)**: Invested amount / Current value / Profit-Loss / % P/L
 
 `currentValue` and `unrealizedPnl` are computed client-side from open positions (`Σ qty × LTP` vs `Σ capitalDeployed`). `lifetimeRealizedPnl` is now a server-side field on `/paper/account` (`Σ realizedPnl WHERE status='CLOSED'` for the segment), making it **top-up safe** — manual `/paper/account/topup` capital injections cannot inflate the realised figure.
+
+---
+
+## Paper-Trader Trade-Drought Fix (2026-05-11)
+
+Owner reported zero F&O trades for 15-20 days. DB confirmed only 7 real BASELINE trades in 30d at 42.9% win rate (above 40% floor — so LOW_WINRATE wasn't the cause). Root cause: a dozen silent skip points in `openPaperTrade` (`paperTradingFO.ts`) returned `null` with only `logger.info` — UI showed nothing, owner had no visibility into *why* triggers weren't becoming trades.
+
+### (A) Win-rate classification (4-bucket, reviewer-amended 2026-05-11.c)
+`lib/winRateClassification.ts` exports `classifyTradeOutcome()` returning `WIN / LOSS / SCRATCH / EXCLUDE`. WIN = system exit + pnl>0; LOSS = system exit + pnl<0; SCRATCH = system exit + pnl=0 (filled flat trades — kept as samples for expectancy, not depressed against win-rate); EXCLUDE = `MANUAL_OVERRIDE` (operator-influenced, not autonomous setup performance) or any non-system reason. System exits = `TARGET1_HIT / TARGET2_HIT / STOPPED / EXPIRED`. `loadSetupWinRates` SQL counts `wins = realized_pnl > 0`, `total = realized_pnl <> 0` over the system-exit set — denominator excludes scratches. Mandatory parity test (`SQL_PREDICATE_MIRROR` in `winRateClassification.test.ts`, 35 cartesian fixtures) gates SQL/helper drift in CI.
+
+### (B) Sub-tiered BASELINE sizing + guardrails
+`paperAccount.ts` adds `FNO_BASELINE_RISK` (MICRO 0.25 % conf 55-59 / BASELINE 0.5 % conf 60-64 / STANDARD 2 % conf 65+) resolved by `riskPctForConfidence(tier, conf)`, plus `FNO_BASELINE_GUARDRAILS` (max 2 BASELINE trades/day, 0.75 % daily loss cap, 2 consecutive-loss lane lock, 14:45 IST late-entry cutoff vs 15:25 for HC). Guardrails join `paper_trade_fo→option_signal_history.tier='BASELINE'` so no schema migration needed; all gates fail-OPEN. STANDARD signals bypass the BASELINE block entirely. Race-safe: guardrail checks run **inside the same `FOR UPDATE` transaction** as the open-row insert (via `tx.execute`). The 0.75 % daily-loss cap counts **realized + unrealized** BASELINE loss so a second BASELINE entry can't pile on while the first floats badly. Reviewer-amended 2026-05-11.c: `getBaselineDayStats` now **fails CLOSED** — on query failure it returns `null` and the caller skips the open with `BASELINE_GUARDRAIL_STATS_UNAVAILABLE` rather than allowing the trade through with zeroed stats.
+
+### (C) Missed-entry diagnostics
+`SkipReason` union extended from 6 to 23 values covering every silent rejection (MARKET_CLOSED / TIME_FILTER_LATE / BASELINE_LATE / LIQUIDITY_LTP / LIQUIDITY_SPREAD / LIQUIDITY_OI / LIQUIDITY_CHAIN_MISSING / INVALID_PREMIUM_PLAN / DAILY_TRADE_CAP / BASELINE_DAILY_CAP / CONSECUTIVE_STOPS / BASELINE_CONSECUTIVE_LOSSES / BASELINE_DAILY_DD_CAP / PORTFOLIO_HEAT / BUDGET_TOO_TIGHT / INSUFFICIENT_BALANCE). Every `return null` path now calls `recordSkip(reason)` which feeds the existing `MissedSignals` ring buffer. New `GET /paper/diagnostics/untriggered/fo` endpoint groups skips by reason / index / tier and includes a 50-row recent log so the owner can answer "Why no trade?" in one glance. UI label/tone maps in `paper-trading.tsx` updated for the new SkipReasons.
+
+**Deferred per owner**: trigger geometry rework (separate change once 2-3 weeks of audit data accumulate).
+
+---
+
+## Paper-Trader Observability Addendum (2026-05-11.d)
+
+Reviewer approved 2026-05-11.c and asked for 4 small observational/safety additions before collecting 10–20 sessions of data. Signal detectors and trigger geometry intentionally UNCHANGED.
+
+1. **`BASELINE_GUARDRAIL_STATS_UNAVAILABLE` alert** — fail-CLOSED warn now tagged `event:"ALERT", alert:"BASELINE_GUARDRAIL_STATS_UNAVAILABLE"` and bumps a process-level counter (`baselineStatsUnavailableAlertCount`) exposed via `getOperationalAlerts()` in `paperTradingFO.ts`. Always logged (not gated by `recordSkip` dedup) so every occurrence enters the audit trail.
+2. **`GET /paper/diagnostics/daily-summary/fo`** — single owner-scoped read returning today's IST-day metrics. Two distinct date anchors (architect-flagged 2026-05-11.d): **opened-today** metrics (`tradesOpened`, `tradesOpenedByTier`) key off `signal_date = today`; **closed-today** metrics (`pnl.{baseline,hc,total}`, `scratchesCount`, `manualOverridesCount`, `tradesClosed`) key off `(exited_at AT TIME ZONE 'Asia/Kolkata')::date = today` so a prior-day signal that closes today is correctly attributed. `signalsGenerated` is option_signal_history count for today; `skipped.byReason` reads the in-process MissedSignals ring filtered to today; `tradeOpenRate = tradesOpened / (tradesOpened + skippedToday)` returns null when no candidates (avoids 0/0). Pure read, no DB writes; multi-day analytics still belong on `/paper/analytics/fo`.
+3. **SCRATCH denominator policy** confirmed — `winRateClassification.ts` already documents WIN+LOSS-only win-rate vs WIN+LOSS+SCRATCH expectancy; the SQL mirror enforces it (`wins = realized_pnl > 0`, `total = realized_pnl <> 0`). Daily-summary response surfaces the policy verbatim under `policy:{winRate, expectancy, manualOverride}`. New `SCRATCH denominator contract` test block in `winRateClassification.test.ts` pins the relationship so a future "tidy-up" cannot silently fold scratches into win-rate or drop them from expectancy.
+4. **Daily-summary persistence + history** — new table `paper_daily_summary_fo` (PK = IST `date`) snapshots the full payload one-to-one (jsonb for `skippedByReason` + `alerts`). Logic extracted into `lib/paperDailySummaryFo.ts → computeDailySummaryFo(date)` (pure read, used by both the live endpoint AND the persister) and `persistDailySummaryFo(date)` (idempotent ON-CONFLICT upsert that THROWS on failure — earlier fail-OPEN swallow corrupted EOD latch retry semantics). Live endpoint fires a `.catch(...)`-wrapped upsert on every read so intra-day refreshes update the row in place while the read itself stays fail-OPEN. EOD persistence runs on its OWN 60s `setInterval` inside `paperDailySummaryFo.ts` (NOT piggy-backed on the trigger sweep — that path short-circuits at `computeMarketStatus !== "open"` which closes at 15:30 IST, before the 15:35 EOD target); `maybePersistEodDailySummary` latches on `lastEodPersistDate` and only burns the latch on a clean throw-free persist so transient DB failures retry on the next minute. `capturedAt` preserves the first-write timestamp; `updatedAt` advances. New `GET /paper/diagnostics/daily-summary/fo/history?from=YYYY-MM-DD&to=YYYY-MM-DD` returns trailing-30-day rows by default, ordered desc; date inputs are round-trip validated. **Single-replica assumption** documented — multi-replica scaling would require a DB advisory lock for EOD coordination.
+
+**Watchlist over next 10–20 sessions** (per reviewer): `tradeOpenRate`, top `skipped.byReason`, `tradesOpenedByTier`, `pnl.{baseline,hc}`, `scratchesCount`, `manualOverridesCount`, `alerts.baselineStatsUnavailable`. Interpretation rules: high CONFIDENCE skips → detector/gating issue; high LIQUIDITY/TIME skips → entry geometry; high BASELINE_* skips → guardrail tightness; low open-rate during good market moves → execution layer too restrictive; high open-rate with poor P&L → signal-quality / option-selection issue. **Deferred** until 10–20 clean sessions accumulate: trigger-not-hit counter, average-R-by-tier, trigger geometry rework.
+
+---
+
+## Technical Analysis (NIFTY 500) — Pro Swing Scanner v3 Port (2026-05-11)
+
+TS port of the 1818-line Python "Pro Swing Scanner v3" added as a third section on `/stocks-to-watch` (preserves the two existing news Watch/Avoid columns).
+
+- **Pure-math library**: `lib/swingScanner.ts` — RSI, ATR, ADX, EMAs, rolling/anchored VWAP, pivots, market-structure, FVG, supply/demand zones, fixed-volume profile, weekly confirmation, candle confirmation, volatility/gap risk, fundamental score, build_buy_zone/stop/targets, position_size, classify_action/setup, score_and_plan. No I/O, no globals.
+- **Data layer**: `lib/swingScannerData.ts` — Kite-first via `getInstrumentToken` + `fetchKiteHistoricalByToken(token, label, "day", 250)`; Yahoo `fetchChart` fallback; `fetchFundamentals` (NOT `fetchStatements` — too heavy at 500 names; QoQ deferred as NaN, ratios are divided by 100). NIFTY benchmark via `^NSEI`. Returns null only when both Kite and Yahoo fail.
+- **Cache + scheduler**: `lib/swingScannerStore.ts` — `swing_scan_result` (composite PK `(symbol, scan_date)` — required for ON CONFLICT, plain index throws 42P10) + `swing_scan_run` audit table. Concurrency=6 to play nice with the existing throttle queue. Two `setInterval`s: deep-scan latch (60s tick, fires once per IST-day after 15:35), intraday LTP-only refresh (15min during market hours, ~5 batched quote calls). **Cold-start probe** (architect-amended 2026-05-11): only auto-runs when (a) weekday-IST, (b) past the 15:35 cutoff, AND (c) NO finished `swing_scan_run` row exists for today — latch decision keys off the run-audit row, NOT raw result rows, so a partially-written scan from a crashed prior process can't permanently suppress today's official rerun, and a pre-15:35 boot can't burn the latch and silence the scheduled post-close run. Single-replica assumption documented.
+- **API**: `GET /api/stocks-to-watch/analysis?limit=&action=&setup=&minScore=` — same auth posture as the parent `/stocks-to-watch` endpoint (cookie-gated, public-mode allowed). Returns `{ asOf, scanDate, runMeta, rows }` direct-fetch (no zod codegen — matches existing endpoint convention).
+- **UI**: `/stocks-to-watch` gains a third "Technical Analysis — NIFTY 500" section below the news columns. Sortable table (Symbol, Action, Setup, Quality, Score bar, Close, Entry, Stop, T1, T2, R:R, RSI, ATR%, Buy Zone, Weekly Trend), Action chips (Buy Zone / Breakout / Pullback / Wait for Confirmation / Watchlist / Avoid — `.includes()` matchers tolerate the Python action strings `"AVOID / NO TRADE"`, `"WAIT FOR PULLBACK"`, etc.), Quality chips (A / B+ / B / C / D), default sort score-desc. Cross-ref: news SignalCards show a small `Tech NN` badge when the symbol also appears in the tech scan.
+- **Operational notes**: First production deep-scan on 2026-05-11 — 477 scored / 23 errors / 5m14s for 500 names. Action distribution skewed AVOID-heavy (294/477) — expected post-Monday-open behaviour, not a code bug; setup mix unblocks once the market trends.
+
+---
+
+## Equity Entry-Safety Gate (2026-05-08, equity swing only — does NOT touch F&O Pass-1/2/3)
+
+- **Where**: `computeEntrySafety()` in `artifacts/api-server/src/lib/scoring.ts`, called inside `buildRecommendation` AFTER signal classification, BEFORE target/stop. Surfaces `recommendation.entryQuality` (GOOD/FAIR/POOR) and `recommendation.entryPlan` ({reason, avoidZone, breakoutTrigger, pullbackZone, invalidates}).
+- **Pass-A demote**: When POOR fires, `STRONG_BUY → BUY` / `STRONG_SELL → SELL` (direction unchanged; target/stop/score preserved). Audit reason `LATE_ENTRY_AT_RESISTANCE` / `LATE_ENTRY_AT_SUPPORT` pushed with weight 0. This naturally blocks paper-trader auto-opens (`swingSignals.ts:261` requires `STRONG_BUY`).
+- **Hybrid threshold (POOR)**: All three must hold — (1) within 1.5% of any candidate {20D high, R1, 52W high} OR within 1 ATR of {20D high, R1} only (52W extremes get %-only); (2) today's high/low tagged the level within 0.5%; (3) today's |move| ≥ 2.5%. Mirrored for bearish using {20D low, S1, 52W low}.
+- **Strict pre-filter**: Candidates must be on the correct side of price (≥ price for bullish; ≤ price for bearish). Crossed levels never fire.
+- **FAIR (advisory, no demote)**: inside 3% proximity ring but full POOR conditions not met. Plan rendered with reason only.
+- **Pullback zone**: VWAP ↔ EMA20 (EMA50 fallback) when both anchors lie below current price (above for bearish). Omitted otherwise.
+- **UI**: `EntryPlanCard` in `artifacts/scanner/src/pages/stock-detail.tsx` renders col-span-1 between Recommendation and Why-this-signal. POOR = rose theme + AlertTriangle, FAIR = amber + Hourglass, GOOD = emerald + ShieldCheck (badge only).
+
+---
+
+## Account Surface (2026-05-07)
+
+- **Paper Tab → Live-Only**: `/paper-trading` is a pure live dashboard. Closed history, equity curve, analytics, journal live exclusively in `/paper-reports`. Open-position rows show `fmtDateTime(openedAt)`. Stale components in `paper-trading.tsx` left defined-but-unrendered for easy reinstatement.
+- **Equity Account Card**: Two sub-grids — (a) Capital introduced / Invested / Realized P&L (lifetime) / Balance capital; (b) Open portfolio (live MTM): Invested / Current value / P&L / %. `lifetimeRealizedPnl` is server-side on `/paper/account` (top-up safe).
+
+---
+
+## Kite Offline UX (2026-05-13)
+
+When the Zerodha Kite daily session expires, the server silently falls back to delayed Yahoo data and many panels (fundamentals, Deep Scan snapshot, F&O signals) look blank-or-zero. Visible UX surfaces added so the owner doesn't think the app is broken:
+
+- **`KiteOfflineBanner`** (page-level amber strip) mounted on Scanner, Stock Detail, Deep Scan. Owner sees a "Reconnect Zerodha" CTA linking to `/kite`; non-owner sees the banner without the CTA.
+- **`KiteOfflineNote`** (inline slim variant) embedded in Deep Scan snapshot error card and Stock Statements (fundamentals) — both empty and populated states.
+- Backed by public `GET /api/provider/status` (mounted in `scanner.ts` behind only the global `requireAuth` gate — cookie-gated, public-mode allowed). Polled every 60s by **one** observer (the page banner sets `refetchInterval`; the inline note is a pure cache reader) to avoid multi-observer timer amplification.
+- **FAIL-OPEN**: both surfaces silent on `isLoading || isError || !data`. A phantom warning is worse than a missing one when the status endpoint itself is flaky.
+- **Branched copy by `data.reason`** so we don't shout "session expired" at non-expiry causes (cold-start, websocket disconnect, missing creds). `headlineFor()` switches between four headlines.
+- **Dev verification path**: `?mockProvider=session|disconnected|no_creds|generic|kite|off` URL param (sticky in sessionStorage) short-circuits the real fetch in `import.meta.env.DEV` builds only — lets us verify all banner variants without waiting for a real session expiry. No-op in production.
+
+### Paper-trade EQ heat query column-name fix (2026-05-13)
+`HEAT_SQL_EQ` in `paperAccount.ts` referenced non-existent `entry` / `stop_loss` columns; the schema has `entry_price` / `stop_price`. Result: every equity swing open under heat-cap evaluation threw `Failed query` and the wrapper logged "Paper EQ open failed for one signal, continuing". Fixed to use the correct column names; verified against live DB (5 open rows, ₹32,911 heat — well under ₹60K cap).

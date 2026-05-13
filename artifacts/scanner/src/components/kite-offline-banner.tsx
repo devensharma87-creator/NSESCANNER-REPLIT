@@ -38,18 +38,82 @@ async function fetchProviderStatus(): Promise<ProviderStatus> {
 
 const PROVIDER_STATUS_KEY = ["provider-status"] as const;
 
+/**
+ * Dev-only override for banner verification without waiting for a real
+ * Kite session expiry. Activated via URL query `?mockProvider=<key>` (sticky
+ * in sessionStorage so it survives navigation), or directly via
+ * `sessionStorage.setItem('mockProvider', '<key>')` in DevTools.
+ *
+ * Keys:
+ *   session        → "Kite session expired — please re-login"
+ *   disconnected   → "Kite WebSocket disconnected — falling back to Yahoo"
+ *   no_creds       → "Kite API credentials not configured"
+ *   generic        → "Live Zerodha feed unavailable — using delayed Yahoo data"
+ *   kite           → live (banner hidden) — useful for clearing the override
+ *   off / clear    → remove override and resume real polling
+ *
+ * No-op outside dev builds. Always returns null in production.
+ */
+function getMockProviderStatus(): ProviderStatus | null {
+  if (!import.meta.env.DEV) return null;
+  if (typeof window === "undefined") return null;
+  try {
+    const url = new URL(window.location.href);
+    const fromUrl = url.searchParams.get("mockProvider");
+    if (fromUrl) {
+      if (fromUrl === "off" || fromUrl === "clear") {
+        window.sessionStorage.removeItem("mockProvider");
+      } else {
+        window.sessionStorage.setItem("mockProvider", fromUrl);
+      }
+      // Strip ?mockProvider= from the URL after parsing so it doesn't
+      // get accidentally shared in screenshots or pasted links. The
+      // sessionStorage entry is now the source of truth.
+      url.searchParams.delete("mockProvider");
+      window.history.replaceState({}, "", url.toString());
+    }
+    const key = window.sessionStorage.getItem("mockProvider");
+    if (!key || key === "off" || key === "clear") return null;
+    switch (key) {
+      case "session":
+        return { active: "yahoo", liveAvailable: false, reason: "Complete Kite daily login to enable live data" };
+      case "disconnected":
+        return { active: "yahoo", liveAvailable: false, reason: "Kite WebSocket disconnected" };
+      case "no_creds":
+        return { active: "yahoo", liveAvailable: false, reason: "KITE_API_KEY / KITE_API_SECRET missing" };
+      case "generic":
+        return { active: "yahoo", liveAvailable: false, reason: "Live feed warming up" };
+      case "kite":
+        return { active: "kite", liveAvailable: true, reason: "Live Kite ticks streaming" };
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
 /** Single source of truth: passing pollMs=null makes this observer a pure
  *  cache reader (no timer of its own). Exactly one observer in the tree
- *  should pass pollMs > 0 — by convention that's the page-level banner. */
+ *  should pass pollMs > 0 — by convention that's the page-level banner.
+ *
+ *  In dev, a `?mockProvider=<key>` override short-circuits the real fetch
+ *  so we can verify all banner copy variants without waiting on real Kite. */
 function useProviderStatus(pollMs: number | null) {
-  return useQuery({
+  const mock = getMockProviderStatus();
+  const q = useQuery({
     queryKey: PROVIDER_STATUS_KEY,
     queryFn: fetchProviderStatus,
-    refetchInterval: pollMs ?? false,
-    refetchOnWindowFocus: pollMs != null,
+    refetchInterval: mock ? false : (pollMs ?? false),
+    refetchOnWindowFocus: !mock && pollMs != null,
     staleTime: 30_000,
     retry: 1,
+    enabled: !mock,
   });
+  if (mock) {
+    return { data: mock, isLoading: false, isError: false } as const;
+  }
+  return q;
 }
 
 /** Classify the headline by the textual `reason` returned from

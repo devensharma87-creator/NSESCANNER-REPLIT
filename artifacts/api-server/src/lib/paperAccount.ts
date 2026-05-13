@@ -314,7 +314,7 @@ export const HEAT_SQL_FNO = sql`
 `;
 export const HEAT_SQL_EQ = sql`
   SELECT COALESCE(
-    SUM(qty * GREATEST(entry - stop_loss, 0)),
+    SUM(qty * GREATEST(entry_price - stop_price, 0)),
     0
   )::numeric AS heat
   FROM paper_trade_eq
