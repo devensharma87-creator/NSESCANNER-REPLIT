@@ -27,7 +27,9 @@ import {
   integer,
   date,
   index,
+  uniqueIndex,
   jsonb,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -96,6 +98,15 @@ export const paperTradeComboTable = pgTable(
       t.status,
     ),
     openedAtIdx: index("paper_trade_combo_opened_at_idx").on(t.openedAt),
+    // Lifecycle invariants — defense in depth against direct SQL writes.
+    statusChk: check(
+      "paper_trade_combo_status_chk",
+      sql`${t.status} in ('OPEN','CLOSED')`,
+    ),
+    closeReasonChk: check(
+      "paper_trade_combo_close_reason_chk",
+      sql`${t.closeReason} is null or ${t.closeReason} in ('MANUAL','EXPIRY')`,
+    ),
   }),
 );
 
@@ -143,6 +154,29 @@ export const paperTradeComboLegTable = pgTable(
   },
   (t) => ({
     comboIdx: index("paper_trade_combo_leg_combo_idx").on(t.comboId),
+    // Stable per-combo leg ordering. Prevents duplicate `legIndex` values
+    // inside the same combo (e.g. a buggy reorder operation writing two
+    // rows with `leg_index = 0`).
+    comboLegOrderUk: uniqueIndex("paper_trade_combo_leg_combo_idx_uk").on(
+      t.comboId,
+      t.legIndex,
+    ),
+    actionChk: check(
+      "paper_trade_combo_leg_action_chk",
+      sql`${t.action} in ('BUY','SELL')`,
+    ),
+    optionTypeChk: check(
+      "paper_trade_combo_leg_option_type_chk",
+      sql`${t.optionType} in ('CE','PE')`,
+    ),
+    entrySourceChk: check(
+      "paper_trade_combo_leg_entry_source_chk",
+      sql`${t.entrySource} in ('chain','bs','ws')`,
+    ),
+    lastSourceChk: check(
+      "paper_trade_combo_leg_last_source_chk",
+      sql`${t.lastSource} is null or ${t.lastSource} in ('chain','bs','ws')`,
+    ),
   }),
 );
 

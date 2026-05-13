@@ -60,6 +60,9 @@ export const COMBO_MAX_OPEN = 5;
 export const COMBO_SEED_EQUITY_RUPEES = 1_000_000;
 export const COMBO_MAX_NET_DEBIT_PCT = 0.05;
 
+/** Thrown inside the open-cap transaction so it rolls back cleanly. */
+class ComboCapacityError extends Error {}
+
 export type ComboOpenError =
   | { code: "EMPTY"; message: string }
   | { code: "TOO_MANY_LEGS"; message: string }
@@ -210,22 +213,6 @@ export async function openCombo(
     return { ok: false, error: { code: "TOO_MANY_LEGS", message: "Maximum 8 legs supported." } };
   }
 
-  // Open-cap gate. Read inside its own SELECT so an in-flight close can't
-  // race past the cap.
-  const openCount = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(paperTradeComboTable)
-    .where(eq(paperTradeComboTable.status, "OPEN"));
-  if ((openCount[0]?.n ?? 0) >= COMBO_MAX_OPEN) {
-    return {
-      ok: false,
-      error: {
-        code: "TOO_MANY_OPEN",
-        message: `Maximum ${COMBO_MAX_OPEN} simultaneously-open combos. Close one first.`,
-      },
-    };
-  }
-
   const priced = await fetchPricedSnapshot(input.underlying, input.expiry, input.legs);
   if (!priced.ok) {
     return { ok: false, error: { code: priced.code, message: priced.message } };
@@ -265,8 +252,25 @@ export async function openCombo(
     };
   }
 
-  // Persist combo + legs in one transaction.
+  // Persist combo + legs in one transaction. Open-cap gate runs INSIDE
+  // the txn under a PG advisory lock so two parallel opens cannot both
+  // race past the cap. The lock is released on COMMIT/ROLLBACK.
+  //
+  // Magic key: 7593721 — arbitrary process-wide ID for "combo open cap".
+  // Any other code paths that mutate `status` must NOT take this lock or
+  // they'll serialize unnecessarily; only opens read+insert are gated.
   const inserted = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(7593721)`);
+    const openCount = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(paperTradeComboTable)
+      .where(eq(paperTradeComboTable.status, "OPEN"));
+    if ((openCount[0]?.n ?? 0) >= COMBO_MAX_OPEN) {
+      throw new ComboCapacityError(
+        `Maximum ${COMBO_MAX_OPEN} simultaneously-open combos. Close one first.`,
+      );
+    }
+
     const [combo] = await tx
       .insert(paperTradeComboTable)
       .values({
@@ -290,27 +294,45 @@ export async function openCombo(
       .returning();
     if (!combo) throw new Error("combo insert returned no row");
 
-    // Snapshot's `legs` order matches the request's `legs` order.
+    // Snapshot's `legs` order matches the request's `legs` order, which in
+    // turn matches `input.legs`. The strategy-builder's `StrategyLeg.qty`
+    // is *lot-count* (line 1676 of optionStrategies.ts: `qty: lots`), NOT
+    // shares — so we expand to shares ourselves here. The original
+    // requested lot count is taken from `input.legs[i].lots` so persistence
+    // never depends on reverse-deriving lots from a shares value.
     await tx.insert(paperTradeComboLegTable).values(
-      snap.legs.map((leg, i) => ({
-        comboId: combo.id,
-        legIndex: i,
-        action: leg.action,
-        optionType: leg.optionType,
-        strike: String(leg.strike),
-        qty: leg.qty,
-        // Reverse-derive lots from qty + lotSize for storage convenience.
-        lots: Math.max(1, Math.round(leg.qty / r.lotSize)),
-        entryPremium: String(leg.premium),
-        ivAtEntry: leg.iv != null ? String(leg.iv) : null,
-        entrySource: leg.source,
-        lastPremium: String(leg.premium),
-        lastSource: leg.source,
-        lastEvaluatedAt: new Date(),
-      })),
+      snap.legs.map((leg, i) => {
+        const requestedLots = Math.max(1, Math.floor(input.legs[i]!.lots));
+        const shares = requestedLots * r.lotSize;
+        return {
+          comboId: combo.id,
+          legIndex: i,
+          action: leg.action,
+          optionType: leg.optionType,
+          strike: String(leg.strike),
+          qty: shares,
+          lots: requestedLots,
+          entryPremium: String(leg.premium),
+          ivAtEntry: leg.iv != null ? String(leg.iv) : null,
+          entrySource: leg.source,
+          lastPremium: String(leg.premium),
+          lastSource: leg.source,
+          lastEvaluatedAt: new Date(),
+        };
+      }),
     );
     return combo;
+  }).catch((err: unknown) => {
+    if (err instanceof ComboCapacityError) return { __capacityError: err.message } as const;
+    throw err;
   });
+
+  if ("__capacityError" in inserted) {
+    return {
+      ok: false,
+      error: { code: "TOO_MANY_OPEN", message: inserted.__capacityError },
+    };
+  }
 
   const position = await loadCombo(inserted.id);
   if (!position) throw new Error("Failed to reload combo immediately after insert.");
@@ -399,6 +421,12 @@ export async function markComboToMarket(comboId: string): Promise<ComboPosition 
  * Close a combo at the freshly-marked premium. Realised P&L is whatever
  * `markComboToMarket` arrives at on the close pass — never accepts a
  * client-supplied number.
+ *
+ * Idempotent under concurrent calls: the header `UPDATE` uses a
+ * compare-and-swap on `status='OPEN'`, so two parallel close requests
+ * cannot both win. The loser short-circuits with "already closed" and
+ * does not overwrite leg `exit_premium` or the realized P&L the winner
+ * recorded.
  */
 export async function closeCombo(
   comboId: string,
@@ -415,14 +443,33 @@ export async function closeCombo(
   // Refresh marks first so the realised P&L matches what the user just saw.
   await markComboToMarket(comboId);
 
-  const legs = await db
-    .select()
-    .from(paperTradeComboLegTable)
-    .where(eq(paperTradeComboLegTable.comboId, comboId))
-    .orderBy(paperTradeComboLegTable.legIndex);
+  const result = await db.transaction(async (tx) => {
+    // CAS-claim the close right BEFORE writing leg exits. If another
+    // request beat us to it, the row count is 0 and we abort without
+    // touching anything.
+    const claim = await tx
+      .update(paperTradeComboTable)
+      .set({
+        status: "CLOSED",
+        closedAt: new Date(),
+        closeReason: opts?.reason ?? "MANUAL",
+        ...(opts?.journal != null ? { journal: opts.journal } : {}),
+      })
+      .where(
+        and(eq(paperTradeComboTable.id, comboId), eq(paperTradeComboTable.status, "OPEN")),
+      )
+      .returning({ id: paperTradeComboTable.id });
+    if (claim.length === 0) {
+      return { closed: false as const };
+    }
 
-  let realized = 0;
-  await db.transaction(async (tx) => {
+    const legs = await tx
+      .select()
+      .from(paperTradeComboLegTable)
+      .where(eq(paperTradeComboLegTable.comboId, comboId))
+      .orderBy(paperTradeComboLegTable.legIndex);
+
+    let realized = 0;
     for (const leg of legs) {
       const last = numOr(leg.lastPremium, numOr(leg.entryPremium));
       const entry = numOr(leg.entryPremium);
@@ -433,18 +480,17 @@ export async function closeCombo(
         .set({ exitPremium: String(last) })
         .where(eq(paperTradeComboLegTable.id, leg.id));
     }
+    const realizedR = +realized.toFixed(2);
     await tx
       .update(paperTradeComboTable)
-      .set({
-        status: "CLOSED",
-        closedAt: new Date(),
-        closeReason: opts?.reason ?? "MANUAL",
-        realizedPnl: String(+realized.toFixed(2)),
-        netMtm: String(+realized.toFixed(2)),
-        ...(opts?.journal != null ? { journal: opts.journal } : {}),
-      })
+      .set({ realizedPnl: String(realizedR), netMtm: String(realizedR) })
       .where(eq(paperTradeComboTable.id, comboId));
+    return { closed: true as const };
   });
+
+  if (!result.closed) {
+    return { ok: false, error: "Combo was already closed by a concurrent request." };
+  }
 
   const combo = await loadCombo(comboId);
   if (!combo) return { ok: false, error: "Failed to reload combo after close." };

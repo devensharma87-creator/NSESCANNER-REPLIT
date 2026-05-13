@@ -30,7 +30,7 @@ A comprehensive platform for scanning and analyzing the Indian stock market, pro
 - `lib/api-spec/openapi.yaml`: OpenAPI specification (source of truth for codegen)
 - `artifacts/scanner/src/theme/`: UI theme configurations
 - **`docs/paper-trader-architecture.md`**: Long-form rationale for F&O Phases 1-4, paper-trader Pass-1/2/3 gates, trade-drought fix, observability addendum, OI Lab backfill, Equity Entry-Safety Gate, Account surface, Kite Offline UX, and Pro Swing Scanner v3 port. **Read this for the "why".** `replit.md` keeps only the current-state summary and active guardrails.
-- **`docs/combo-paper-trader-design.md`**: Tier-C design note for a separate `paper_trade_combo` lane (manual multi-leg entries from the Strategy Builder). **Design only — pending user sign-off; no schema or routes shipped.**
+- **`docs/combo-paper-trader-design.md`**: Tier-C design note for a separate `paper_trade_combo` lane (manual multi-leg entries from the Strategy Builder). **Phase 1 SHIPPED 2026-05-13** — see Combo paper-trader lane below.
 
 ## Architecture decisions
 
@@ -86,6 +86,14 @@ TS port of the Python "Pro Swing Scanner v3" surfaced as a third section on `/st
 ### Options Strategy surface
 - `/strategies` has two tabs: **Recommended Plans** (existing 13-strategy regime-ranked bundle, `GET /options/strategies/:underlying`) and **Custom Builder** (`StrategyBuilder` in `pages/strategies-builder.tsx`, max 8 legs, scenario sliders for spot ±20% / IV ±50% / days passed). Builder calls `POST /options/strategies/:underlying/custom` (debounced 300ms) which delegates to `buildCustomStrategy` + `simulateScenario` in `lib/optionStrategies.ts` — both reuse `buildPayoff`, `distributionalMetrics`, `computeLegEdges`, `estimateMargin`, `classifyLegQuality`, `netGreeks`, `netDebit`, `midOrLtp`, `legLiquidity`. **Zero math duplication client- or server-side.** Builder is read-only — no order placement, no paper-trade integration in v1.
 - Option chain has an `oiSpike` filter (Unusual OI Buildup): `OI≥5000 AND |ΔOI/OI|≥15%`. Pure helper in `artifacts/scanner/src/lib/optionChainFilters.ts` (`applyStrikeFilter` + constants). Existing volume filter renamed to "Unusual Vol" for clarity.
+
+### Combo paper-trader lane (Tier C, Phase 1, 2026-05-13)
+Owner-only manual multi-leg paper trades, fully isolated from the auto `paper_trade_fo` lane.
+- **Tables** (`paper_trade_combo` + `paper_trade_combo_leg`): UNIQUE(combo_id, leg_index), 6 CHECK constraints, FK CASCADE. Combo legs persist `qty = lots × lotSize` (shares) and `lots` is taken straight from the request, never reverse-derived. P&L formula `Σ sign·(last−entry)·qty` therefore yields rupees.
+- **Routes** (`/api/paper/combos`): owner-only. POST opens, GET lists/details (re-marks live on detail), POST `:id/close`. All pricing comes from `fetchOptionChain` server-side; the request schema does not accept premium/IV/Greeks/margin/P&L — `sanitizeLegSpec` strips them defense-in-depth.
+- **Defined-risk only v1**: rejects naked shorts/ratios via `snapshot.maxLoss == null` → `UNDEFINED_RISK` 400.
+- **Concurrency safety**: open-cap (`COMBO_MAX_OPEN`) gated inside the insert txn under `pg_advisory_xact_lock(7593721)`; close uses CAS `WHERE id=? AND status='OPEN'` and returns "already closed" for the loser of a race.
+- **Isolation**: auto-trader paths (`runFnoPaperTradingTick`, `tryOpenPaperTrades`, etc.) only touch `paper_trade_fo`/`paper_trade_eq`; combo lane never enters the FNO heat budget and is **opted out of the 15:20 force-exit**.
 
 ### Account surface
 - `/paper-trading` is live-only; closed history / equity curve / analytics / journal live in `/paper-reports`.

@@ -91,4 +91,27 @@ describe("paperTradingCombo / computeRealizedPnl", () => {
   it("returns 0 for an empty leg list", () => {
     expect(computeRealizedPnl([])).toBe(0);
   });
+
+  it("scales with shares (NIFTY lot=65, 2 lots = 130 shares)", () => {
+    // Regression for the qty unit-mismatch bug: combo legs persist `qty`
+    // as TOTAL SHARES (lots × lotSize). A ₹50 winning leg on 2 lots of
+    // NIFTY (130 shares) must be ₹6,500, not ₹100.
+    const pnl = computeRealizedPnl([
+      { action: "BUY", qty: 130, entryPremium: 100, exitPremium: 150 },
+    ]);
+    expect(pnl).toBe(6500);
+  });
+
+  it("scales with shares for a multi-lot SENSEX spread (lot=10)", () => {
+    // SENSEX lot=10. 3 lots = 30 shares per leg. Bull-call-spread that
+    // captures full ₹100 width: long +₹50 fill (₹50 → ₹150) and short
+    // -₹50 give-back (₹30 → ₹80).
+    //   leg1 BUY  30 (150-50)  = +3000
+    //   leg2 SELL 30 (30-80)   = +1500   (sign flip, exit lower than entry)
+    const pnl = computeRealizedPnl([
+      { action: "BUY",  qty: 30, entryPremium: 50, exitPremium: 150 },
+      { action: "SELL", qty: 30, entryPremium: 80, exitPremium: 30 },
+    ]);
+    expect(pnl).toBe(4500);
+  });
 });
