@@ -1,8 +1,21 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { TransactionRollbackError } from "drizzle-orm/errors";
 import { db, pool, paperTradeEqTable } from "@workspace/db";
 import { HEAT_SQL_EQ, HEAT_SQL_FNO, parseHeatRow } from "./paperAccount";
+
+/**
+ * `tx.rollback()` throws a typed `TransactionRollbackError` (drizzle-orm
+ * 0.45+, exposed via the `drizzle-orm/errors` subpath export). We catch
+ * it explicitly so the rollback signal doesn't bubble as a test failure,
+ * while every other error (including assertion failures inside the txn)
+ * rethrows and fails the test correctly.
+ */
+function swallowIntentionalRollback(err: unknown): void {
+  if (err instanceof TransactionRollbackError) return;
+  throw err;
+}
 
 /**
  * Regression tests for the heat-cap SQL fragments in paperAccount.ts.
@@ -105,12 +118,7 @@ describeDb("HEAT_SQL_EQ — live DB execution against the real schema", () => {
 
       // Roll back so the test row never lands.
       tx.rollback();
-    }).catch((err: unknown) => {
-      // drizzle's tx.rollback() throws a sentinel; rethrow real errors.
-      const isRollbackSentinel =
-        err instanceof Error && /rollback/i.test(err.message);
-      if (!isRollbackSentinel) throw err;
-    });
+    }).catch(swallowIntentionalRollback);
   });
 
   it("inverted stop (stop > entry) contributes 0 — GREATEST clamp works", async () => {
@@ -136,11 +144,7 @@ describeDb("HEAT_SQL_EQ — live DB execution against the real schema", () => {
       expect(heatAfter - heatBefore).toBeCloseTo(0, 6);
 
       tx.rollback();
-    }).catch((err: unknown) => {
-      const isRollbackSentinel =
-        err instanceof Error && /rollback/i.test(err.message);
-      if (!isRollbackSentinel) throw err;
-    });
+    }).catch(swallowIntentionalRollback);
   });
 
   it("CLOSED rows are excluded from the heat calculation", async () => {
@@ -170,10 +174,6 @@ describeDb("HEAT_SQL_EQ — live DB execution against the real schema", () => {
       expect(heatAfter - heatBefore).toBeCloseTo(0, 6);
 
       tx.rollback();
-    }).catch((err: unknown) => {
-      const isRollbackSentinel =
-        err instanceof Error && /rollback/i.test(err.message);
-      if (!isRollbackSentinel) throw err;
-    });
+    }).catch(swallowIntentionalRollback);
   });
 });

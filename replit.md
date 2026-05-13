@@ -7,6 +7,7 @@ A comprehensive platform for scanning and analyzing the Indian stock market, pro
 - **Run (per-artifact)**: Workflows handle this — do not `pnpm dev` at root. Use `restart_workflow "artifacts/api-server: API Server"` etc.
 - **Codegen**: `pnpm --filter @workspace/api-spec run codegen` (regenerates `lib/api-client-react/src/generated/*` and `lib/api-zod/src/generated/*` from `lib/api-spec/openapi.yaml`).
 - **Typecheck**: `pnpm run typecheck` (canonical full check; runs `typecheck:libs` + every leaf workspace's `tsc --noEmit`).
+- **Tests**: `pnpm --filter @workspace/api-server run test` (vitest, includes live-DB heat-SQL regression that auto-skips when `DATABASE_URL` is unset). `pnpm --filter @workspace/scanner run test` (vitest + jsdom).
 - **DB push**: `pnpm --filter @workspace/api-server exec drizzle-kit push` (applies the Drizzle schema in `lib/db/src/schema/` to the dev database).
 - **Required env**: `DATABASE_URL`, `APP_ACCESS_PASSWORD`, `SESSION_SECRET`, `TRADINGVIEW_WEBHOOK_SECRET` (all already provisioned).
 
