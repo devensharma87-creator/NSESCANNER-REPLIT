@@ -227,6 +227,9 @@ export default function PaperTrading() {
           fresh daily bankroll so you can audit the strategy without real money.
         </p>
       </div>
+      <div className="mb-4">
+        <EnvironmentBanner />
+      </div>
       <Tabs value={segment} onValueChange={v => setSegment(v as Segment)}>
         <TabsList className="mb-4">
           <TabsTrigger value="FNO">F&amp;O</TabsTrigger>
@@ -598,6 +601,53 @@ function DrawdownMeter({
       <div className="h-1.5 rounded-full bg-secondary/40 overflow-hidden">
         <div className={`h-full ${tone} transition-all`} style={{ width: `${widthPct}%` }} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Tiny env probe shown above every Paper-Trading segment so the owner
+ * never confuses the dev preview (read-only by default) with the live
+ * production deployment (auto-trader on). Hits a public diagnostic
+ * endpoint so it renders even before login.
+ */
+interface EnvInfo {
+  env: "production" | "development";
+  autoTradingEnabled: boolean;
+  reason: string;
+}
+
+function EnvironmentBanner() {
+  const q = useQuery({
+    queryKey: ["paper", "diagnostics", "environment"] as const,
+    queryFn: () => api<EnvInfo>(`/paper/diagnostics/environment`),
+    staleTime: 5 * 60_000,
+  });
+  if (!q.data) return null;
+  const isProd = q.data.env === "production";
+  const live = q.data.autoTradingEnabled;
+  // Production + auto-trader on → muted green confirmation.
+  // Anything else (dev, or prod with auto-trader off) → loud amber so
+  // the owner knows new trades are NOT being captured here.
+  const tone =
+    isProd && live
+      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
+      : "border-amber-500/40 bg-amber-500/10 text-amber-100";
+  const headline = isProd
+    ? live
+      ? "Production · live paper trading"
+      : "Production · auto-trader DISABLED (read-only)"
+    : live
+      ? "Development · auto-trader ENABLED (unusual — overrides default)"
+      : "Development preview · read-only (auto-trader off)";
+  const sub = isProd
+    ? "This is the live deployment on your published domain. New auto-opens here are recorded as real paper trades."
+    : "This is the Replit Workspace preview. New auto-opens are suppressed so dev cannot diverge from prod. Existing dev history stays visible. Manual buys still work for testing.";
+  return (
+    <div className={`rounded-md border px-4 py-2.5 text-sm ${tone}`}>
+      <div className="font-semibold">{headline}</div>
+      <div className="text-xs opacity-90 mt-0.5">{sub}</div>
+      <div className="text-[11px] opacity-70 mt-1 font-mono">env={q.data.env} · {q.data.reason}</div>
     </div>
   );
 }

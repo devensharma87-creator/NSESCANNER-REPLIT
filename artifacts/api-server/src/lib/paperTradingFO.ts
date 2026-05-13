@@ -31,6 +31,7 @@ import {
 } from "@workspace/db";
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
+import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
 import type { OptionSignal } from "@workspace/api-zod";
 import {
   ensureDailyReset,
@@ -279,6 +280,11 @@ function buildMissedFromOpenCtx(args: {
 }
 
 async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRow | null> {
+  // Belt-and-braces: every caller already gates above this, but a hard
+  // gate inside the only function that mutates `paper_trade_fo` makes
+  // the read-only-mode invariant impossible to bypass via a future
+  // caller that forgets the check.
+  if (!isPaperAutoTradingEnabled()) return null;
   const { signal, signalDate, direction } = input;
   const tier: TradeTier = input.tier ?? "STANDARD";
   const minConfidence =
@@ -1191,6 +1197,12 @@ export async function forceCloseAllOpenFnoFor1520(): Promise<number> {
  * never silently drops trades.
  */
 export async function reconcileMissingPaperTrades(): Promise<number> {
+  // Read-only-mode short-circuit. When PAPER_TRADING_ENABLED is off
+  // (dev/preview default) we never open new rows, including via the
+  // mid-day reconciliation backfill. Production deployments leave the
+  // flag on and behave exactly as before.
+  if (!isPaperAutoTradingEnabled()) return 0;
+
   // No global activeProvider() gate. The previous version short-circuited
   // here whenever the Kite WebSocket had not yet received its first tick
   // (liveQuotes === 0), which silently skipped backfill on a mid-day

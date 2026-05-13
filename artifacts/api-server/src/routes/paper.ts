@@ -63,6 +63,7 @@ import { forceClosePaperEquityTrade, openManualPaperEquityTrade } from "../lib/p
 import { listEqAudit, summarizeEqAudit, getEqEventsSince } from "../lib/paperEqAudit";
 import { getAllScannedRows } from "../lib/fullNseScanner";
 import { logger } from "../lib/logger";
+import { getEnvironmentLabel } from "../lib/paperAutoTradeFlag";
 import { getJournalAnalytics } from "../lib/journalAnalytics";
 
 const router: IRouter = Router();
@@ -526,6 +527,25 @@ router.get("/paper/diagnostics/untriggered/fo", requireOwner, async (_req, res, 
  *     the SCRATCH count directly so the owner can verify the
  *     denominators match the policy in `winRateClassification.ts`.
  */
+/**
+ * Reports which environment the API process believes it's running in
+ * and whether the auto-trader is currently allowed to open new paper
+ * trades. Backs the dev/prod banner on `/paper-trading` so the owner
+ * never confuses their local Replit preview with the live deployment.
+ *
+ * Public endpoint (no `requireOwner`) so the banner can render even
+ * before the user logs in / on the public read-only mode. Returns no
+ * secrets — only an `env` label and a one-line `reason`.
+ */
+router.get("/paper/diagnostics/environment", (_req, res) => {
+  const info = getEnvironmentLabel();
+  res.json({
+    env: info.env,
+    autoTradingEnabled: info.autoTradingEnabled,
+    reason: info.reason,
+  });
+});
+
 router.get("/paper/diagnostics/daily-summary/fo", requireOwner, async (req, res, next) => {
   try {
     const today = istDateOf();

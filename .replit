@@ -70,5 +70,8 @@ externalPort = 3000
 [userenv.development]
 KITE_MIRROR_URL = "https://marketscannerbydev.in"
 
+[userenv.production]
+PAPER_TRADING_ENABLED = "true"
+
 [nix]
 channel = "stable-25_05"

@@ -34,6 +34,7 @@ A comprehensive platform for scanning and analyzing the Indian stock market, pro
 ## Architecture decisions
 
 ### Cross-cutting
+- **Dev-vs-prod paper-trading isolation (2026-05-13)**: Dev/Workspace preview is **read-only** for the paper auto-trader by default — `runEquityPaperTradingTick`, `tryOpenPaperTrades`, `reconcileMissingPaperTrades`, and the inner `openPaperTrade` (FO) all early-return when `isPaperAutoTradingEnabled()` is false. Resolution: `PAPER_TRADING_ENABLED` env override (`1`/`true`/`yes`/`on` enable, anything else disable, fail-closed on unrecognised) → falls back to auto-detect via `REPLIT_DEPLOYMENT === "1"`. Production deployment has `PAPER_TRADING_ENABLED=true` set explicitly. Manual buys (`POST /paper/positions/eq/manual`) and manual closes are NOT gated. UI: `EnvironmentBanner` on `/paper-trading` (green when prod+live, amber otherwise). Diagnostics: `GET /paper/diagnostics/environment` (public, no secrets — only `env`/`autoTradingEnabled`/`reason`). EQ mark-to-market still runs in dev so existing OPEN positions move correctly.
 - **Secure Authentication**: HMAC-SHA256 HttpOnly session cookies with role-based access control.
 - **Public Access Mode**: Read-only access to the entire site via a shareable URL for unauthenticated users.
 - **Legal Pages Accessibility**: `/legal/*` paths bypass login with a stripped-down UI.

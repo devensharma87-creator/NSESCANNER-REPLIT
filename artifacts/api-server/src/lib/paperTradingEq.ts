@@ -49,6 +49,7 @@ import {
   getEqWeeklyRealizedDrawdown,
 } from "./paperAccount";
 import { logger } from "./logger";
+import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
 import { recordEqDecision, pushEqEvent, type EqEventType } from "./paperEqAudit";
 import type { SwingSignal } from "./swingSignals";
 import { computeSwingLevels } from "./swingSignals";
@@ -876,11 +877,16 @@ export async function runEquityPaperTradingTick(
   scannerRows: readonly StockRow[],
   signals: readonly SwingSignal[],
 ): Promise<void> {
+  // Read-only-mode short-circuit on auto opens. Mark-to-market
+  // (`evaluatePaperEquityTrades`) still runs so existing OPEN
+  // positions move as expected — we only suppress the auto opener.
+  const autoOpensEnabled = isPaperAutoTradingEnabled();
+
   // Open new trades first so they participate in this same tick's
   // evaluator pass (cheap because the new row's LTP is by definition
   // its entry → no immediate exit unless ATR was zero, which we
   // already rejected upstream).
-  for (const s of signals) {
+  if (autoOpensEnabled) for (const s of signals) {
     try {
       await openPaperEquityTrade(s);
     } catch (err) {
