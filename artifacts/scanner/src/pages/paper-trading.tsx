@@ -602,6 +602,230 @@ function DrawdownMeter({
   );
 }
 
+/**
+ * Snapshot from `GET /paper/diagnostics/daily-summary/fo`. We only type
+ * the fields the card consumes; extra fields are ignored.
+ */
+interface FoDailySummary {
+  date: string;
+  signalsGenerated: number;
+  tradesOpened: number;
+  tradesOpenedByTier: { BASELINE: number; HC: number };
+  validCandidates: number;
+  tradeOpenRate: number | null;
+  skipped: {
+    total: number;
+    byReason: Array<{ key: string; count: number }>;
+  };
+}
+
+/**
+ * Friendly one-liner for each `SkipReason` returned by the F&O paper
+ * trader. Keys MUST stay in sync with the `SkipReason` union in
+ * `artifacts/api-server/src/lib/paperTradingFO.ts`. Unknown keys fall
+ * through to the raw key so a new reason never silently disappears.
+ */
+const SKIP_REASON_COPY: Record<string, string> = {
+  MISSED_WINDOW:
+    "Signal triggered & exited inside the same 30s sweep — anti-phantom rule.",
+  DATA_QUALITY_DELAYED:
+    "Data was delayed at the moment of trigger — F&O requires live Kite.",
+  DATA_QUALITY_STALE:
+    "Data was stale at the moment of trigger — last bar older than freshness floor.",
+  CONFIDENCE_FLOOR:
+    "Below confidence floor (HC ≥65 / BASELINE ≥55).",
+  MARKET_CLOSED:
+    "Market closed — no new F&O opens outside session hours.",
+  TIME_FILTER_LATE:
+    "After F&O late-entry cutoff (close to 15:20 IST force-exit window).",
+  BASELINE_LATE:
+    "BASELINE late-entry cutoff (after 14:45 IST) — no new BASELINE opens.",
+  LIQUIDITY_LTP:
+    "Option leg LTP below liquidity floor (≥ ₹20).",
+  LIQUIDITY_SPREAD:
+    "Option leg bid-ask spread above 1.5% — too wide to fill safely.",
+  LIQUIDITY_OI:
+    "Option leg open-interest below 50k contracts.",
+  LIQUIDITY_CHAIN_MISSING:
+    "No option chain available for the underlying / expiry.",
+  INVALID_PREMIUM_PLAN:
+    "Premium plan invalid (entry / stop / target geometry rejected).",
+  DAILY_TRADE_CAP:
+    "Daily F&O trade cap reached — no more opens today (IST).",
+  BASELINE_DAILY_CAP:
+    "BASELINE lane locked: max 2 BASELINE trades/day reached.",
+  CONSECUTIVE_STOPS:
+    "Per-index 60-min cool-down after a stop-out — sizing throttled.",
+  BASELINE_CONSECUTIVE_LOSSES:
+    "BASELINE lane locked after 2 consecutive losses today.",
+  DAILY_DD_CAP:
+    "F&O daily DD cap (2.5%) latched — no more F&O opens today (IST).",
+  WEEKLY_DD_CAP:
+    "F&O weekly DD cap (5%) latched — no more F&O opens this week (Mon→).",
+  BASELINE_DAILY_DD_CAP:
+    "BASELINE lane locked: 0.75% daily loss cap reached. Lane reopens tomorrow (IST).",
+  BASELINE_GUARDRAIL_STATS_UNAVAILABLE:
+    "Guardrail stats unavailable — failing CLOSED on BASELINE opens (safety).",
+  PORTFOLIO_HEAT:
+    "Portfolio heat cap reached — open positions already use 6% of capital.",
+  BUDGET_TOO_TIGHT:
+    "Computed lot budget too tight to open even one lot at this premium.",
+  INSUFFICIENT_BALANCE:
+    "Cash balance below the capital required for one lot.",
+};
+
+function GuardrailStatusCard({ account }: { account: PaperAccount }) {
+  const summary = useQuery({
+    queryKey: ["paper", "fo", "daily-summary"] as const,
+    queryFn: () => api<FoDailySummary>(`/paper/diagnostics/daily-summary/fo`),
+    refetchInterval: 30_000,
+  });
+
+  if (summary.isLoading || !summary.data) {
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Why no F&amp;O trade?</CardTitle></CardHeader>
+        <CardContent><Skeleton className="h-24 w-full" /></CardContent>
+      </Card>
+    );
+  }
+  if (summary.error) {
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Why no F&amp;O trade?</CardTitle></CardHeader>
+        <CardContent>
+          <ErrorBlock message={summary.error instanceof Error ? summary.error.message : "failed"} />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const s = summary.data;
+  const tradesUsed = account.dayTradeCount;
+  const tradeCap = account.dailyTradeCap;
+  const tradeCapReached = tradeCap > 0 && tradesUsed >= tradeCap;
+  const dailyDdLatched =
+    account.dailyDrawdownPct != null &&
+    account.dailyDrawdownCapPct != null &&
+    account.dailyDrawdownPct >= account.dailyDrawdownCapPct;
+  const weeklyDdLatched =
+    account.weeklyDrawdownPct != null &&
+    account.weeklyDrawdownCapPct != null &&
+    account.weeklyDrawdownPct >= account.weeklyDrawdownCapPct;
+
+  // Top 5 skip reasons (already sorted desc on the server).
+  const topReasons = s.skipped.byReason.slice(0, 5);
+  const openRatePct =
+    s.tradeOpenRate == null ? "—" : `${(s.tradeOpenRate * 100).toFixed(0)}%`;
+
+  // Show a coloured headline only when something is actively gating.
+  const latches: string[] = [];
+  if (dailyDdLatched) latches.push("Daily DD cap latched");
+  if (weeklyDdLatched) latches.push("Weekly DD cap latched");
+  if (tradeCapReached) latches.push("Daily trade cap reached");
+  // Sticky-latch SkipReasons (vs transient gates like CONFIDENCE_FLOOR or
+  // MISSED_WINDOW which can change tick to tick). These names MUST match
+  // the `SkipReason` union in `paperTradingFO.ts`.
+  const latchReasonCopy: Record<string, string> = {
+    BASELINE_DAILY_DD_CAP: "BASELINE 0.75% daily loss cap latched",
+    BASELINE_DAILY_CAP: "BASELINE 2-trades/day cap reached",
+    BASELINE_CONSECUTIVE_LOSSES: "BASELINE lane locked after 2 consecutive losses",
+    BASELINE_LATE: "BASELINE late-entry cutoff (after 14:45 IST)",
+    BASELINE_GUARDRAIL_STATS_UNAVAILABLE:
+      "BASELINE guardrail stats unavailable (fail-closed)",
+    DAILY_TRADE_CAP: "Daily F&O trade cap reached",
+    PORTFOLIO_HEAT: "Portfolio heat cap reached (6%)",
+    TIME_FILTER_LATE: "After 15:20 IST F&O cutoff",
+  };
+  for (const r of topReasons) {
+    if (r.count > 0 && latchReasonCopy[r.key]) latches.push(latchReasonCopy[r.key]);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Why no F&amp;O trade?</CardTitle>
+        <CardDescription>
+          Live view of today&apos;s safety guardrails and signal-skip reasons.
+          The system can be quiet because nothing qualified, or because a
+          guardrail latched after a loss. This panel makes the difference
+          obvious. Refreshes every 30s.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {latches.length > 0 && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            <div className="font-semibold mb-1">
+              Active guardrail latch — entries are intentionally blocked
+            </div>
+            <ul className="list-disc list-inside text-amber-100/90 space-y-0.5">
+              {latches.map(l => <li key={l}>{l}</li>)}
+            </ul>
+            <div className="mt-2 text-xs text-amber-100/70">
+              Latches reset on the next IST trading day. This is the safety
+              net working as designed — not a bug.
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <GuardrailStat label="Signals today" value={String(s.signalsGenerated)} />
+          <GuardrailStat
+            label="Trades opened"
+            value={`${s.tradesOpened} / ${tradeCap}`}
+            sub={`HC ${s.tradesOpenedByTier.HC} · BASELINE ${s.tradesOpenedByTier.BASELINE}`}
+          />
+          <GuardrailStat
+            label="Open rate"
+            value={openRatePct}
+            sub={`${s.validCandidates} candidates`}
+          />
+          <GuardrailStat label="Skipped today" value={String(s.skipped.total)} />
+        </div>
+
+        {topReasons.length > 0 && (
+          <div>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+              Top skip reasons
+            </div>
+            <ul className="space-y-1.5 text-sm">
+              {topReasons.map(r => (
+                <li key={r.key} className="flex items-start justify-between gap-3">
+                  <div className="flex-1">
+                    <Badge variant="outline" className="font-mono text-[11px]">
+                      {r.key}
+                    </Badge>
+                    <span className="ml-2 text-muted-foreground">
+                      {SKIP_REASON_COPY[r.key] ?? "See diagnostics for detail."}
+                    </span>
+                  </div>
+                  <span className="font-semibold tabular-nums">{r.count}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {topReasons.length === 0 && s.signalsGenerated > 0 && (
+          <p className="text-sm text-muted-foreground">
+            No skip reasons logged today — every qualifying signal opened.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GuardrailStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
+      {sub && <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
 function FnoDrawdownCard({ data }: { data: PaperAccount }) {
   if (
     data.dailyDrawdownPct == null ||
@@ -1063,6 +1287,7 @@ function FOSegment() {
         onTopupSuccess={handleTopupSuccess}
       />
       {account.data && <FnoDrawdownCard data={account.data} />}
+      {account.data && <GuardrailStatusCard account={account.data} />}
       <PositionsCard
         positions={positions.data?.positions ?? []}
         loading={positions.isLoading}
