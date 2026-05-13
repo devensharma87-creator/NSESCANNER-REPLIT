@@ -330,15 +330,23 @@ const Row = memo(function Row({ stock, top, onBuy }: { stock: StockRow; top: num
       <div className="px-2 min-w-0"><ScoreBar score={stock.recommendation.score} /></div>
       <div className="px-2 flex items-center justify-end"><SignalBadge signal={stock.recommendation.signal} /></div>
       <div className="px-2 flex items-center justify-center">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onBuy(stock.symbol); }}
-          className="px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 text-[10px] font-mono uppercase tracking-wider hover:bg-emerald-500/20 hover:text-emerald-200 transition-colors"
-          title={`Paper-buy ${stock.symbol} (auto-sized; capital safety gates still apply)`}
-          data-testid={`button-row-buy-${stock.symbol}`}
-        >
-          Buy
-        </button>
+        {stock.recommendation.signal === "STRONG_BUY" || stock.recommendation.signal === "BUY" ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); onBuy(stock.symbol); }}
+            className={`px-2 py-0.5 rounded border text-[10px] font-mono uppercase tracking-wider transition-colors ${
+              stock.recommendation.signal === "STRONG_BUY"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 hover:text-emerald-200"
+                : "border-emerald-500/25 bg-emerald-500/5 text-emerald-400/80 hover:bg-emerald-500/15 hover:text-emerald-300"
+            }`}
+            title={`Paper-buy ${stock.symbol} (auto-sized; capital safety gates still apply)`}
+            data-testid={`button-row-buy-${stock.symbol}`}
+          >
+            Buy
+          </button>
+        ) : (
+          <span className="text-muted-foreground/50 font-mono text-[11px]" title="Buy is gated to actionable bullish signals (BUY / STRONG BULLISH).">—</span>
+        )}
       </div>
     </div>
   );
