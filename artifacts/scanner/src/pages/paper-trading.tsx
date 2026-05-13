@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { PaperComboSegment } from "@/components/paper-combo-segment";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 
@@ -46,7 +47,7 @@ const QK_ACCOUNT_EQ = ["paper", "account", "EQUITY"] as const;
 const QK_POSITIONS_EQ = ["paper", "positions", "EQUITY"] as const;
 const QK_TRADES_EQ = ["paper", "trades", "EQUITY"] as const;
 
-type Segment = "FNO" | "EQUITY";
+type Segment = "FNO" | "EQUITY" | "COMBO";
 
 interface PaperAccount {
   segment: Segment;
@@ -234,12 +235,16 @@ export default function PaperTrading() {
         <TabsList className="mb-4">
           <TabsTrigger value="FNO">F&amp;O</TabsTrigger>
           <TabsTrigger value="EQUITY">Equity</TabsTrigger>
+          <TabsTrigger value="COMBO" data-testid="tab-combo">Combos</TabsTrigger>
         </TabsList>
         <TabsContent value="FNO" className="space-y-6">
           <FOSegment />
         </TabsContent>
         <TabsContent value="EQUITY" className="space-y-6">
           <EquitySegment />
+        </TabsContent>
+        <TabsContent value="COMBO" className="space-y-6">
+          <PaperComboSegment />
         </TabsContent>
       </Tabs>
     </div>

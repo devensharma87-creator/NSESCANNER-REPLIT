@@ -1,0 +1,61 @@
+Great work. Tier C Phase 1 is approved.
+
+Please proceed with **Phase 2 UI wiring** now. The API-only lane is not useful enough for daily use until it is connected to the Strategy Builder and Paper Trading screen.
+
+Implement this next:
+
+1. Add **“Send to Combo Paper Trade”** button in the Custom Strategy Builder
+
+   * Owner-only.
+   * Manual action only.
+   * No auto-signal combo entries.
+   * Send only leg specs: underlying, expiry, strike, CE/PE, BUY/SELL, lots, strategy name/journal.
+   * Do not send trusted premium, Greeks, margin, or P&L from the client.
+
+2. Add a confirmation modal before opening
+
+   * Show server-repriced entry premiums.
+   * Show net debit/credit, max loss, max profit, breakevens, margin, and capital deployed.
+   * Warn clearly that this is a manual combo paper trade and does not follow the single-leg F&O auto-trader guardrails.
+   * Require explicit confirmation before opening.
+
+3. Add Combo section/tab on `/paper-trading`
+
+   * Separate from existing EQ and single-leg F&O.
+   * Show open combos and closed combos.
+   * Show per-leg entry/current/exit premiums.
+   * Show MTM source: chain / BS / WS when available.
+   * Add manual close button with confirmation.
+   * Show realized P&L after close.
+
+4. Keep isolation strict
+
+   * Do not mix combo P&L into existing single-leg F&O stats yet.
+   * Do not alter Paper EQ or Paper F&O tables.
+   * Do not consume existing F&O heat budget.
+   * Keep combo lane manual-only.
+
+5. Add tests
+
+   * UI payload does not include trusted premium/Greeks/P&L.
+   * Open combo success flow.
+   * Server repricing result is displayed.
+   * Close combo flow.
+   * Owner-only visibility.
+   * Existing Paper EQ/F&O UI remains unaffected.
+
+After wiring, run:
+
+* `pnpm run typecheck`
+* API tests
+* scanner/frontend tests
+* live UI smoke test:
+
+  * build custom bull call spread
+  * send to combo paper trade
+  * verify it appears in `/paper-trading`
+  * close it
+  * confirm realized P&L
+  * verify existing single-leg Paper F&O/EQ still unchanged
+
+Do not deploy to production until the full UI smoke test passes in dev.

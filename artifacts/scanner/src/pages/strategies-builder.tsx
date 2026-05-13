@@ -11,7 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, AlertCircle, Sparkles, RefreshCw } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Sparkles, RefreshCw, Send } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { PaperComboConfirmDialog } from "@/components/paper-combo-confirm-dialog";
 import {
   ResponsiveContainer, ComposedChart, Line, Area, XAxis, YAxis, Tooltip,
   CartesianGrid, ReferenceLine,
@@ -150,6 +152,9 @@ export function StrategyBuilder({ underlying }: { underlying: string }) {
 
   const [snapshot, setSnapshot] = useState<CustomStrategyResponse | null>(null);
   const [buildError, setBuildError] = useState<string | null>(null);
+  const [paperComboOpen, setPaperComboOpen] = useState(false);
+  const { role } = useAuth();
+  const isOwner = role === "owner";
   // Monotonic request id — protects against out-of-order responses (a slow
   // older request finishing AFTER a newer one would otherwise overwrite the
   // fresher snapshot). We also bump on `underlying` change so a stale chain's
@@ -477,10 +482,54 @@ export function StrategyBuilder({ underlying }: { underlying: string }) {
                   </CardContent>
                 </Card>
               )}
+
+              {/* ── Owner-only: send to combo paper trade ─────────────── */}
+              {isOwner && (
+                <Card className="border-primary/30 bg-primary/5">
+                  <CardContent className="p-3 flex items-center justify-between gap-3">
+                    <div className="text-[11px] font-mono text-muted-foreground leading-relaxed">
+                      Open this combo as a <strong className="text-foreground">manual paper trade</strong>.
+                      Server reprices from the live chain at open. Isolated
+                      from the F&amp;O auto-trader lane.
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => setPaperComboOpen(true)}
+                      disabled={apiLegs.length === 0 || snap.maxLoss == null}
+                      data-testid="button-send-paper-combo"
+                      title={
+                        snap.maxLoss == null
+                          ? "Combo has unbounded loss — defined-risk only"
+                          : ""
+                      }
+                    >
+                      <Send className="w-3.5 h-3.5 mr-1.5" />
+                      Send to Combo Paper Trade
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
             </>
           )}
         </div>
       </div>
+
+      {isOwner && snapshot && snap && chain && (
+        <PaperComboConfirmDialog
+          open={paperComboOpen}
+          onClose={() => setPaperComboOpen(false)}
+          underlying={chain.underlying}
+          expiry={chain.expiry}
+          snapshot={snapshot}
+          legs={apiLegs.map((l) => ({
+            action: l.action,
+            optionType: l.optionType,
+            strike: l.strike,
+            lots: l.lots,
+          }))}
+        />
+      )}
     </div>
   );
 }
