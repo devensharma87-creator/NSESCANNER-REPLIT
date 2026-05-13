@@ -48,3 +48,9 @@ id = "5e3_9_C-iY9dbublZCq0R"
 uri = "file://exports/stock-scanner-pro-20260505-1227.tar.gz"
 type = "unspecified"
 title = "Stock Scanner Pro — full source backup (May 5, 2026)"
+
+[[outputs]]
+id = "um1XuPAQTSR8rAAp0Jslj"
+uri = "file://backups/db_backup_20260513_132619.tar.gz"
+type = "unspecified"
+title = "Full database backup — 2026-05-13 13:26 UTC"
