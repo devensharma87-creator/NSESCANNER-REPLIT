@@ -4104,6 +4104,166 @@ export const GetOptionStrategiesResponse = zod.object({
 });
 
 /**
+ * @summary Free-form multi-leg strategy builder with scenario re-prices
+ */
+export const PostOptionStrategyCustomParams = zod.object({
+  underlying: zod.coerce.string(),
+});
+
+export const postOptionStrategyCustomBodyLegsMax = 8;
+
+export const postOptionStrategyCustomBodyScenariosMax = 50;
+
+export const PostOptionStrategyCustomBody = zod.object({
+  expiry: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional expiry override (YYYY-MM-DD). Defaults to nearest weekly\/monthly.",
+    ),
+  legs: zod
+    .array(
+      zod.object({
+        strike: zod.number(),
+        optionType: zod.enum(["CE", "PE"]),
+        action: zod.enum(["BUY", "SELL"]),
+        lots: zod.number().min(1),
+        premiumOverride: zod
+          .number()
+          .nullish()
+          .describe("Override mid\/LTP (₹\/share)"),
+        ivOverride: zod
+          .number()
+          .nullish()
+          .describe("Override IV (decimal, e.g. 0.18)"),
+      }),
+    )
+    .min(1)
+    .max(postOptionStrategyCustomBodyLegsMax),
+  scenarios: zod
+    .array(
+      zod.object({
+        spotShiftPct: zod.number().describe("% move in spot (-50..50)"),
+        ivShiftPct: zod.number().describe("% relative shift in IV (-50..50)"),
+        daysPassed: zod.number().describe("Calendar days passed (0..30)"),
+      }),
+    )
+    .max(postOptionStrategyCustomBodyScenariosMax)
+    .optional(),
+});
+
+export const PostOptionStrategyCustomResponse = zod.object({
+  underlying: zod.string(),
+  spot: zod.number(),
+  expiry: zod.string(),
+  daysToExpiry: zod.number(),
+  lotSize: zod.number(),
+  ivContext: zod.enum(["LOW", "HIGH", "UNKNOWN"]),
+  snapshot: zod.object({
+    legs: zod.array(
+      zod.object({
+        action: zod.enum(["BUY", "SELL"]),
+        optionType: zod.enum(["CE", "PE"]),
+        strike: zod.number(),
+        premium: zod.number(),
+        iv: zod.number(),
+        qty: zod.number(),
+        delta: zod.number(),
+        gamma: zod.number(),
+        vega: zod.number(),
+        theta: zod.number(),
+        source: zod.enum(["chain", "bs"]),
+        bid: zod.number().nullish(),
+        ask: zod.number().nullish(),
+        spreadPct: zod.number().nullish(),
+        oi: zod.number().nullish(),
+        volume: zod.number().nullish(),
+        quoted: zod.boolean(),
+      }),
+    ),
+    netDebit: zod
+      .number()
+      .describe("₹\/share (positive=debit, negative=credit)"),
+    netGreeks: zod.object({
+      delta: zod.number(),
+      gamma: zod.number(),
+      vega: zod.number(),
+      theta: zod.number(),
+    }),
+    maxProfit: zod.number().nullish(),
+    maxLoss: zod.number().nullish(),
+    breakevens: zod.array(zod.number()),
+    payoff: zod.array(
+      zod.object({
+        spot: zod.number(),
+        pnl: zod.number().describe("P\/L at expiry, INR (per 1 lot)"),
+      }),
+    ),
+    pop: zod.number().nullish(),
+    rrRatio: zod.number().nullish(),
+    displayMaxProfit: zod.number(),
+    displayMaxLoss: zod.number(),
+    displayRrRatio: zod.number().nullish(),
+    dist: zod.object({
+      expectedValue: zod.number(),
+      stdDev: zod.number(),
+      pop: zod.number(),
+      avgWin: zod.number(),
+      avgLoss: zod.number(),
+      probabilisticRr: zod.number().nullish(),
+      expectedMove1Sigma: zod.number(),
+      expectedMove2Sigma: zod.number(),
+    }),
+    legEdges: zod.array(
+      zod.object({
+        strike: zod.number(),
+        type: zod.enum(["CE", "PE"]),
+        action: zod.enum(["BUY", "SELL"]),
+        mid: zod.number(),
+        theoretical: zod.number(),
+        edge: zod.number(),
+      }),
+    ),
+    netEdge: zod.number(),
+    marginRequired: zod.number(),
+    returnOnCapital: zod.number().nullish(),
+    lotSize: zod.number(),
+    perLot: zod.object({
+      maxProfit: zod.number().nullable(),
+      maxLoss: zod.number().nullable(),
+      netDebit: zod.number(),
+      displayMaxProfit: zod.number(),
+      displayMaxLoss: zod.number(),
+    }),
+    legQuality: zod.enum(["TIGHT", "WIDE", "POOR"]),
+    avgLegIv: zod.number(),
+    shortLegOi: zod.number().nullish(),
+  }),
+  scenarios: zod.array(
+    zod.object({
+      spotShiftPct: zod.number(),
+      ivShiftPct: zod.number(),
+      daysPassed: zod.number(),
+      newSpot: zod.number(),
+      newT: zod.number(),
+      totalPnl: zod.number(),
+      legs: zod.array(
+        zod.object({
+          strike: zod.number(),
+          optionType: zod.enum(["CE", "PE"]),
+          action: zod.enum(["BUY", "SELL"]),
+          newPrice: zod.number(),
+          mtmPerShare: zod.number(),
+          mtmTotal: zod.number(),
+        }),
+      ),
+    }),
+  ),
+  warnings: zod.array(zod.string()),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
  * @summary FII / DII cash market monthly aggregates with daily breakdown
  */
 export const getFiiDiiQueryMonthsDefault = 12;

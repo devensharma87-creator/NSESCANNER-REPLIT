@@ -30,6 +30,7 @@ A comprehensive platform for scanning and analyzing the Indian stock market, pro
 - `lib/api-spec/openapi.yaml`: OpenAPI specification (source of truth for codegen)
 - `artifacts/scanner/src/theme/`: UI theme configurations
 - **`docs/paper-trader-architecture.md`**: Long-form rationale for F&O Phases 1-4, paper-trader Pass-1/2/3 gates, trade-drought fix, observability addendum, OI Lab backfill, Equity Entry-Safety Gate, Account surface, Kite Offline UX, and Pro Swing Scanner v3 port. **Read this for the "why".** `replit.md` keeps only the current-state summary and active guardrails.
+- **`docs/combo-paper-trader-design.md`**: Tier-C design note for a separate `paper_trade_combo` lane (manual multi-leg entries from the Strategy Builder). **Design only — pending user sign-off; no schema or routes shipped.**
 
 ## Architecture decisions
 
@@ -81,6 +82,10 @@ TS port of the Python "Pro Swing Scanner v3" surfaced as a third section on `/st
 
 ### OI Lab
 - **Δ-window Kite-historical backfill**: First `fetchOiInsights` per (underlying|expiry|day) when buffer < 8 snaps fires background `kc.getHistoricalData(..., oi=true)` for ATM±7 strikes × 2 sides. Same-ts merge never overwrites live snaps. WORKERS=2 per index. Fail-OPEN.
+
+### Options Strategy surface
+- `/strategies` has two tabs: **Recommended Plans** (existing 13-strategy regime-ranked bundle, `GET /options/strategies/:underlying`) and **Custom Builder** (`StrategyBuilder` in `pages/strategies-builder.tsx`, max 8 legs, scenario sliders for spot ±20% / IV ±50% / days passed). Builder calls `POST /options/strategies/:underlying/custom` (debounced 300ms) which delegates to `buildCustomStrategy` + `simulateScenario` in `lib/optionStrategies.ts` — both reuse `buildPayoff`, `distributionalMetrics`, `computeLegEdges`, `estimateMargin`, `classifyLegQuality`, `netGreeks`, `netDebit`, `midOrLtp`, `legLiquidity`. **Zero math duplication client- or server-side.** Builder is read-only — no order placement, no paper-trade integration in v1.
+- Option chain has an `oiSpike` filter (Unusual OI Buildup): `OI≥5000 AND |ΔOI/OI|≥15%`. Pure helper in `artifacts/scanner/src/lib/optionChainFilters.ts` (`applyStrikeFilter` + constants). Existing volume filter renamed to "Unusual Vol" for clarity.
 
 ### Account surface
 - `/paper-trading` is live-only; closed history / equity curve / analytics / journal live in `/paper-reports`.

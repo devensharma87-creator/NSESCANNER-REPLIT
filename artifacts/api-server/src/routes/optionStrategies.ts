@@ -1,12 +1,19 @@
 import { Router, type IRouter } from "express";
 import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics, type OptionAnalytics } from "../lib/optionAnalytics";
-import { buildStrategies, type StrategyBundle } from "../lib/optionStrategies";
+import {
+  buildStrategies,
+  buildCustomStrategy,
+  type StrategyBundle,
+  type CustomLegSpec,
+  type CustomScenario,
+} from "../lib/optionStrategies";
 import { computeLiveBias } from "../lib/liveBias";
 import { computeMarketStatus } from "../lib/marketEvents";
 import { getActiveSession } from "../lib/kiteAuth";
 import { requireSubscriberOrOwner } from "../lib/userAuth";
 import { logger } from "../lib/logger";
+import { PostOptionStrategyCustomBody } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -90,6 +97,63 @@ router.get("/options/strategies/:underlying", async (req, res): Promise<void> =>
   } catch (err) {
     logger.error({ err: (err as Error).message, underlying }, "Strategies handler crashed");
     res.status(500).json({ error: "Internal error building strategies" });
+  }
+});
+
+// ─── POST /options/strategies/:underlying/custom ───────────────────────────
+// Free-form strategy builder. Body: { expiry?, legs: CustomLegSpec[],
+// scenarios?: CustomScenario[] }. Returns a single composed snapshot built
+// from the user's legs + per-scenario re-prices. Reuses the same chain
+// fetch + IV enrichment + `buildCustomStrategy` math the GET endpoint uses.
+router.post("/options/strategies/:underlying/custom", async (req, res): Promise<void> => {
+  const underlying = String(req.params.underlying ?? "").trim();
+  if (!underlying) { res.status(400).json({ error: "underlying required" }); return; }
+
+  // Strict OpenAPI/Zod validation — no silent coercion. Bad input is
+  // rejected with the first parse error so the client can correct it.
+  const parsed = PostOptionStrategyCustomBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    const path = first?.path?.join(".") || "body";
+    res.status(400).json({ error: `Invalid request: ${path}: ${first?.message ?? "invalid"}` });
+    return;
+  }
+  const expiry = parsed.data.expiry;
+  const legs = parsed.data.legs as unknown as CustomLegSpec[];
+  const scenarios = (parsed.data.scenarios ?? []) as unknown as CustomScenario[];
+
+  try {
+    const chain = await fetchOptionChain(underlying, expiry);
+    if (!chain) {
+      const kiteSession = await getActiveSession().catch(() => null);
+      res.status(503).json({
+        error: "Option chain unavailable",
+        detail: kiteSession
+          ? `Both data sources returned no chain for ${underlying}. Try re-authenticating Kite from the Live Feed page.`
+          : "Live data unavailable and no Kite session is active. Authenticate from the Live Feed page.",
+        kiteAuthenticated: !!kiteSession,
+        underlying,
+      });
+      return;
+    }
+
+    const analytics = computeAnalytics(chain);
+    {
+      const { enrichAnalyticsWithIv } = await import("../lib/ivHistory");
+      const ivMetrics = await enrichAnalyticsWithIv(analytics);
+      analytics.ivRank = ivMetrics.ivRank;
+      analytics.ivPercentile = ivMetrics.ivPercentile;
+    }
+
+    const result = buildCustomStrategy(chain, analytics, legs, { scenarios });
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json(result.response);
+  } catch (err) {
+    logger.error({ err: (err as Error).message, underlying }, "Custom strategy builder crashed");
+    res.status(500).json({ error: "Internal error building custom strategy" });
   }
 });
 

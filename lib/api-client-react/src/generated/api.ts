@@ -17,6 +17,8 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  CustomStrategyRequest,
+  CustomStrategyResponse,
   ExportOptionSignalReportParams,
   FiiDiiResponse,
   FnoBanListResponse,
@@ -95,6 +97,7 @@ import type {
   PaperTradesEqResponse,
   PaperTradesFOResponse,
   ParticipantOiResponse,
+  PostOptionStrategyCustom400,
   PreMarketReport,
   RefreshInstFlows200,
   SectorDetail,
@@ -2930,6 +2933,98 @@ export function useGetOptionStrategies<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Free-form multi-leg strategy builder with scenario re-prices
+ */
+export const getPostOptionStrategyCustomUrl = (underlying: string) => {
+  return `/api/options/strategies/${underlying}/custom`;
+};
+
+export const postOptionStrategyCustom = async (
+  underlying: string,
+  customStrategyRequest: CustomStrategyRequest,
+  options?: RequestInit,
+): Promise<CustomStrategyResponse> => {
+  return customFetch<CustomStrategyResponse>(
+    getPostOptionStrategyCustomUrl(underlying),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(customStrategyRequest),
+    },
+  );
+};
+
+export const getPostOptionStrategyCustomMutationOptions = <
+  TError = ErrorType<PostOptionStrategyCustom400>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postOptionStrategyCustom>>,
+    TError,
+    { underlying: string; data: BodyType<CustomStrategyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postOptionStrategyCustom>>,
+  TError,
+  { underlying: string; data: BodyType<CustomStrategyRequest> },
+  TContext
+> => {
+  const mutationKey = ["postOptionStrategyCustom"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postOptionStrategyCustom>>,
+    { underlying: string; data: BodyType<CustomStrategyRequest> }
+  > = (props) => {
+    const { underlying, data } = props ?? {};
+
+    return postOptionStrategyCustom(underlying, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostOptionStrategyCustomMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postOptionStrategyCustom>>
+>;
+export type PostOptionStrategyCustomMutationBody =
+  BodyType<CustomStrategyRequest>;
+export type PostOptionStrategyCustomMutationError =
+  ErrorType<PostOptionStrategyCustom400>;
+
+/**
+ * @summary Free-form multi-leg strategy builder with scenario re-prices
+ */
+export const usePostOptionStrategyCustom = <
+  TError = ErrorType<PostOptionStrategyCustom400>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postOptionStrategyCustom>>,
+    TError,
+    { underlying: string; data: BodyType<CustomStrategyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof postOptionStrategyCustom>>,
+  TError,
+  { underlying: string; data: BodyType<CustomStrategyRequest> },
+  TContext
+> => {
+  return useMutation(getPostOptionStrategyCustomMutationOptions(options));
+};
 
 /**
  * @summary FII / DII cash market monthly aggregates with daily breakdown

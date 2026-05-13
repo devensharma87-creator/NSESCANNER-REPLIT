@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, TrendingUp, TrendingDown, Sparkles, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { Search, TrendingUp, TrendingDown, Sparkles, AlertCircle, ChevronDown, ChevronUp, Wrench } from "lucide-react";
+import { StrategyBuilder } from "./strategies-builder";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -168,6 +169,9 @@ export default function Strategies() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<StrategyKind>>(new Set());
+  // Tab mode — "presets" shows the recommended bundle (existing UX),
+  // "builder" mounts the free-form multi-leg editor + scenario sliders.
+  const [mode, setMode] = useState<"presets" | "builder">("presets");
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -187,7 +191,10 @@ export default function Strategies() {
   const bundleQ = useQuery<StrategyBundle, Error & { body?: ApiError }>({
     queryKey: ["strategies", picker?.sym],
     queryFn: () => apiGet<StrategyBundle>(`/options/strategies/${encodeURIComponent(picker!.sym)}`),
-    enabled: !!picker,
+    // Only fetch the recommended-bundle when the user is on that tab.
+    // The Custom Builder fetches its own chain via useGetOptionChain and
+    // doesn't need the 13-strategy bundle.
+    enabled: !!picker && mode === "presets",
     refetchInterval: 30_000,
     retry: false,
   });
@@ -285,7 +292,37 @@ export default function Strategies() {
         </div>
       </div>
 
-      {!picker ? null : bundleQ.isLoading && !bundleQ.data ? (
+      {/* ── Tab toggle: Recommended Plans vs. Custom Builder ────────────── */}
+      {picker && (
+        <div className="flex items-center justify-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setMode("presets")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded border transition-colors ${
+              mode === "presets"
+                ? "border-primary bg-primary/15 text-primary font-bold"
+                : "border-border bg-card hover-row text-muted-foreground"
+            }`}
+          >
+            <Sparkles className="w-3 h-3" /> Recommended Plans
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("builder")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded border transition-colors ${
+              mode === "builder"
+                ? "border-primary bg-primary/15 text-primary font-bold"
+                : "border-border bg-card hover-row text-muted-foreground"
+            }`}
+          >
+            <Wrench className="w-3 h-3" /> Custom Builder
+          </button>
+        </div>
+      )}
+
+      {picker && mode === "builder" ? (
+        <StrategyBuilder underlying={picker.sym} />
+      ) : !picker ? null : bundleQ.isLoading && !bundleQ.data ? (
         <div className="grid md:grid-cols-2 gap-4">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[420px]" />)}
         </div>

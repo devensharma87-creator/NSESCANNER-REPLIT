@@ -537,6 +537,37 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/OptionStrategiesResponse" }
 
+  /options/strategies/{underlying}/custom:
+    post:
+      operationId: postOptionStrategyCustom
+      tags: [options]
+      summary: "Free-form multi-leg strategy builder with scenario re-prices"
+      parameters:
+        - in: path
+          name: underlying
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomStrategyRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomStrategyResponse" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+
   /inst/fii-dii:
     get:
       operationId: getFiiDii
@@ -2723,6 +2754,178 @@ components:
         invalidation: { type: string, description: "Condition that would invalidate the current bias" }
         marketStatus:   { type: string, enum: [open, closed, pre_open], description: "NSE session state at compute time. Holiday-aware on the server. Clients use this to switch poll cadence." }
         generatedAt:    { type: string, format: date-time }
+
+    CustomStrategyRequest:
+      type: object
+      required: [legs]
+      properties:
+        expiry:
+          type: string
+          description: "Optional expiry override (YYYY-MM-DD). Defaults to nearest weekly/monthly."
+        legs:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items: { $ref: "#/components/schemas/CustomLegSpec" }
+        scenarios:
+          type: array
+          maxItems: 50
+          items: { $ref: "#/components/schemas/CustomScenarioSpec" }
+
+    CustomLegSpec:
+      type: object
+      required: [strike, optionType, action, lots]
+      properties:
+        strike:           { type: number }
+        optionType:       { type: string, enum: [CE, PE] }
+        action:           { type: string, enum: [BUY, SELL] }
+        lots:             { type: integer, minimum: 1 }
+        premiumOverride:  { type: number, nullable: true, description: "Override mid/LTP (₹/share)" }
+        ivOverride:       { type: number, nullable: true, description: "Override IV (decimal, e.g. 0.18)" }
+
+    CustomScenarioSpec:
+      type: object
+      required: [spotShiftPct, ivShiftPct, daysPassed]
+      properties:
+        spotShiftPct: { type: number, description: "% move in spot (-50..50)" }
+        ivShiftPct:   { type: number, description: "% relative shift in IV (-50..50)" }
+        daysPassed:   { type: number, description: "Calendar days passed (0..30)" }
+
+    CustomStrategyLeg:
+      type: object
+      required: [action, optionType, strike, premium, iv, qty, delta, gamma, vega, theta, source, quoted]
+      properties:
+        action:     { type: string, enum: [BUY, SELL] }
+        optionType: { type: string, enum: [CE, PE] }
+        strike:     { type: number }
+        premium:    { type: number }
+        iv:         { type: number }
+        qty:        { type: integer }
+        delta:      { type: number }
+        gamma:      { type: number }
+        vega:       { type: number }
+        theta:      { type: number }
+        source:     { type: string, enum: [chain, bs] }
+        bid:        { type: number, nullable: true }
+        ask:        { type: number, nullable: true }
+        spreadPct:  { type: number, nullable: true }
+        oi:         { type: number, nullable: true }
+        volume:     { type: number, nullable: true }
+        quoted:     { type: boolean }
+
+    CustomStrategySnapshot:
+      type: object
+      required: [legs, netDebit, netGreeks, breakevens, payoff, marginRequired, lotSize, perLot, legQuality, avgLegIv, displayMaxProfit, displayMaxLoss, dist, legEdges, netEdge]
+      properties:
+        legs:
+          type: array
+          items: { $ref: "#/components/schemas/CustomStrategyLeg" }
+        netDebit:    { type: number, description: "₹/share (positive=debit, negative=credit)" }
+        netGreeks:
+          type: object
+          required: [delta, gamma, vega, theta]
+          properties:
+            delta: { type: number }
+            gamma: { type: number }
+            vega:  { type: number }
+            theta: { type: number }
+        maxProfit:        { type: number, nullable: true }
+        maxLoss:          { type: number, nullable: true }
+        breakevens:
+          type: array
+          items: { type: number }
+        payoff:
+          type: array
+          items: { $ref: "#/components/schemas/PayoffPoint" }
+        pop:              { type: number, nullable: true }
+        rrRatio:          { type: number, nullable: true }
+        displayMaxProfit: { type: number }
+        displayMaxLoss:   { type: number }
+        displayRrRatio:   { type: number, nullable: true }
+        dist:
+          type: object
+          required: [expectedValue, stdDev, pop, avgWin, avgLoss, expectedMove1Sigma, expectedMove2Sigma]
+          properties:
+            expectedValue:      { type: number }
+            stdDev:             { type: number }
+            pop:                { type: number }
+            avgWin:             { type: number }
+            avgLoss:            { type: number }
+            probabilisticRr:    { type: number, nullable: true }
+            expectedMove1Sigma: { type: number }
+            expectedMove2Sigma: { type: number }
+        legEdges:
+          type: array
+          items:
+            type: object
+            required: [strike, type, action, mid, theoretical, edge]
+            properties:
+              strike:      { type: number }
+              type:        { type: string, enum: [CE, PE] }
+              action:      { type: string, enum: [BUY, SELL] }
+              mid:         { type: number }
+              theoretical: { type: number }
+              edge:        { type: number }
+        netEdge:         { type: number }
+        marginRequired:  { type: number }
+        returnOnCapital: { type: number, nullable: true }
+        lotSize:         { type: integer }
+        perLot:
+          type: object
+          required: [maxProfit, maxLoss, netDebit, displayMaxProfit, displayMaxLoss]
+          properties:
+            maxProfit:        { type: number, nullable: true }
+            maxLoss:          { type: number, nullable: true }
+            netDebit:         { type: number }
+            displayMaxProfit: { type: number }
+            displayMaxLoss:   { type: number }
+        legQuality:  { type: string, enum: [TIGHT, WIDE, POOR] }
+        avgLegIv:    { type: number }
+        shortLegOi:  { type: number, nullable: true }
+
+    CustomScenarioLegResult:
+      type: object
+      required: [strike, optionType, action, newPrice, mtmPerShare, mtmTotal]
+      properties:
+        strike:      { type: number }
+        optionType:  { type: string, enum: [CE, PE] }
+        action:      { type: string, enum: [BUY, SELL] }
+        newPrice:    { type: number }
+        mtmPerShare: { type: number }
+        mtmTotal:    { type: number }
+
+    CustomScenarioResult:
+      type: object
+      required: [spotShiftPct, ivShiftPct, daysPassed, newSpot, newT, totalPnl, legs]
+      properties:
+        spotShiftPct: { type: number }
+        ivShiftPct:   { type: number }
+        daysPassed:   { type: number }
+        newSpot:      { type: number }
+        newT:         { type: number }
+        totalPnl:     { type: number }
+        legs:
+          type: array
+          items: { $ref: "#/components/schemas/CustomScenarioLegResult" }
+
+    CustomStrategyResponse:
+      type: object
+      required: [underlying, spot, expiry, daysToExpiry, lotSize, ivContext, snapshot, scenarios, warnings, generatedAt]
+      properties:
+        underlying:   { type: string }
+        spot:         { type: number }
+        expiry:       { type: string }
+        daysToExpiry: { type: integer }
+        lotSize:      { type: integer }
+        ivContext:    { type: string, enum: [LOW, HIGH, UNKNOWN] }
+        snapshot:     { $ref: "#/components/schemas/CustomStrategySnapshot" }
+        scenarios:
+          type: array
+          items: { $ref: "#/components/schemas/CustomScenarioResult" }
+        warnings:
+          type: array
+          items: { type: string }
+        generatedAt:  { type: string, format: date-time }
 
     OptionStrategyLeg:
       type: object

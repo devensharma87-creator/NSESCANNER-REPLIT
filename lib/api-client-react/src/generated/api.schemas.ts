@@ -1895,6 +1895,248 @@ export interface OptionAnalyticsResponse {
   generatedAt: string;
 }
 
+export type CustomLegSpecOptionType =
+  (typeof CustomLegSpecOptionType)[keyof typeof CustomLegSpecOptionType];
+
+export const CustomLegSpecOptionType = {
+  CE: "CE",
+  PE: "PE",
+} as const;
+
+export type CustomLegSpecAction =
+  (typeof CustomLegSpecAction)[keyof typeof CustomLegSpecAction];
+
+export const CustomLegSpecAction = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export interface CustomLegSpec {
+  strike: number;
+  optionType: CustomLegSpecOptionType;
+  action: CustomLegSpecAction;
+  /** @minimum 1 */
+  lots: number;
+  /** Override mid/LTP (₹/share) */
+  premiumOverride?: number | null;
+  /** Override IV (decimal, e.g. 0.18) */
+  ivOverride?: number | null;
+}
+
+export interface CustomScenarioSpec {
+  /** % move in spot (-50..50) */
+  spotShiftPct: number;
+  /** % relative shift in IV (-50..50) */
+  ivShiftPct: number;
+  /** Calendar days passed (0..30) */
+  daysPassed: number;
+}
+
+export interface CustomStrategyRequest {
+  /** Optional expiry override (YYYY-MM-DD). Defaults to nearest weekly/monthly. */
+  expiry?: string;
+  /**
+   * @minItems 1
+   * @maxItems 8
+   */
+  legs: CustomLegSpec[];
+  /** @maxItems 50 */
+  scenarios?: CustomScenarioSpec[];
+}
+
+export type CustomStrategyLegAction =
+  (typeof CustomStrategyLegAction)[keyof typeof CustomStrategyLegAction];
+
+export const CustomStrategyLegAction = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export type CustomStrategyLegOptionType =
+  (typeof CustomStrategyLegOptionType)[keyof typeof CustomStrategyLegOptionType];
+
+export const CustomStrategyLegOptionType = {
+  CE: "CE",
+  PE: "PE",
+} as const;
+
+export type CustomStrategyLegSource =
+  (typeof CustomStrategyLegSource)[keyof typeof CustomStrategyLegSource];
+
+export const CustomStrategyLegSource = {
+  chain: "chain",
+  bs: "bs",
+} as const;
+
+export interface CustomStrategyLeg {
+  action: CustomStrategyLegAction;
+  optionType: CustomStrategyLegOptionType;
+  strike: number;
+  premium: number;
+  iv: number;
+  qty: number;
+  delta: number;
+  gamma: number;
+  vega: number;
+  theta: number;
+  source: CustomStrategyLegSource;
+  bid?: number | null;
+  ask?: number | null;
+  spreadPct?: number | null;
+  oi?: number | null;
+  volume?: number | null;
+  quoted: boolean;
+}
+
+export type CustomStrategySnapshotNetGreeks = {
+  delta: number;
+  gamma: number;
+  vega: number;
+  theta: number;
+};
+
+export type CustomStrategySnapshotDist = {
+  expectedValue: number;
+  stdDev: number;
+  pop: number;
+  avgWin: number;
+  avgLoss: number;
+  probabilisticRr?: number | null;
+  expectedMove1Sigma: number;
+  expectedMove2Sigma: number;
+};
+
+export type CustomStrategySnapshotLegEdgesItemType =
+  (typeof CustomStrategySnapshotLegEdgesItemType)[keyof typeof CustomStrategySnapshotLegEdgesItemType];
+
+export const CustomStrategySnapshotLegEdgesItemType = {
+  CE: "CE",
+  PE: "PE",
+} as const;
+
+export type CustomStrategySnapshotLegEdgesItemAction =
+  (typeof CustomStrategySnapshotLegEdgesItemAction)[keyof typeof CustomStrategySnapshotLegEdgesItemAction];
+
+export const CustomStrategySnapshotLegEdgesItemAction = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export type CustomStrategySnapshotLegEdgesItem = {
+  strike: number;
+  type: CustomStrategySnapshotLegEdgesItemType;
+  action: CustomStrategySnapshotLegEdgesItemAction;
+  mid: number;
+  theoretical: number;
+  edge: number;
+};
+
+export type CustomStrategySnapshotPerLot = {
+  maxProfit: number | null;
+  maxLoss: number | null;
+  netDebit: number;
+  displayMaxProfit: number;
+  displayMaxLoss: number;
+};
+
+export type CustomStrategySnapshotLegQuality =
+  (typeof CustomStrategySnapshotLegQuality)[keyof typeof CustomStrategySnapshotLegQuality];
+
+export const CustomStrategySnapshotLegQuality = {
+  TIGHT: "TIGHT",
+  WIDE: "WIDE",
+  POOR: "POOR",
+} as const;
+
+export interface PayoffPoint {
+  spot: number;
+  /** P/L at expiry, INR (per 1 lot) */
+  pnl: number;
+}
+
+export interface CustomStrategySnapshot {
+  legs: CustomStrategyLeg[];
+  /** ₹/share (positive=debit, negative=credit) */
+  netDebit: number;
+  netGreeks: CustomStrategySnapshotNetGreeks;
+  maxProfit?: number | null;
+  maxLoss?: number | null;
+  breakevens: number[];
+  payoff: PayoffPoint[];
+  pop?: number | null;
+  rrRatio?: number | null;
+  displayMaxProfit: number;
+  displayMaxLoss: number;
+  displayRrRatio?: number | null;
+  dist: CustomStrategySnapshotDist;
+  legEdges: CustomStrategySnapshotLegEdgesItem[];
+  netEdge: number;
+  marginRequired: number;
+  returnOnCapital?: number | null;
+  lotSize: number;
+  perLot: CustomStrategySnapshotPerLot;
+  legQuality: CustomStrategySnapshotLegQuality;
+  avgLegIv: number;
+  shortLegOi?: number | null;
+}
+
+export type CustomScenarioLegResultOptionType =
+  (typeof CustomScenarioLegResultOptionType)[keyof typeof CustomScenarioLegResultOptionType];
+
+export const CustomScenarioLegResultOptionType = {
+  CE: "CE",
+  PE: "PE",
+} as const;
+
+export type CustomScenarioLegResultAction =
+  (typeof CustomScenarioLegResultAction)[keyof typeof CustomScenarioLegResultAction];
+
+export const CustomScenarioLegResultAction = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export interface CustomScenarioLegResult {
+  strike: number;
+  optionType: CustomScenarioLegResultOptionType;
+  action: CustomScenarioLegResultAction;
+  newPrice: number;
+  mtmPerShare: number;
+  mtmTotal: number;
+}
+
+export interface CustomScenarioResult {
+  spotShiftPct: number;
+  ivShiftPct: number;
+  daysPassed: number;
+  newSpot: number;
+  newT: number;
+  totalPnl: number;
+  legs: CustomScenarioLegResult[];
+}
+
+export type CustomStrategyResponseIvContext =
+  (typeof CustomStrategyResponseIvContext)[keyof typeof CustomStrategyResponseIvContext];
+
+export const CustomStrategyResponseIvContext = {
+  LOW: "LOW",
+  HIGH: "HIGH",
+  UNKNOWN: "UNKNOWN",
+} as const;
+
+export interface CustomStrategyResponse {
+  underlying: string;
+  spot: number;
+  expiry: string;
+  daysToExpiry: number;
+  lotSize: number;
+  ivContext: CustomStrategyResponseIvContext;
+  snapshot: CustomStrategySnapshot;
+  scenarios: CustomScenarioResult[];
+  warnings: string[];
+  generatedAt: string;
+}
+
 export type OptionStrategyLegType =
   (typeof OptionStrategyLegType)[keyof typeof OptionStrategyLegType];
 
@@ -1923,12 +2165,6 @@ export interface OptionStrategyLeg {
   theta?: number;
   gamma?: number;
   vega?: number;
-}
-
-export interface PayoffPoint {
-  spot: number;
-  /** P/L at expiry, INR (per 1 lot) */
-  pnl: number;
 }
 
 export type OptionStrategyCategory =
@@ -3092,6 +3328,10 @@ export type GetOptionAnalyticsParams = {
 
 export type GetOptionStrategiesParams = {
   expiry?: string;
+};
+
+export type PostOptionStrategyCustom400 = {
+  error: string;
 };
 
 export type GetFiiDiiParams = {

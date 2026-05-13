@@ -1466,3 +1466,366 @@ function buildRationale(
 
   return parts.join(" ");
 }
+
+// ─── Custom (free-form) strategy builder ────────────────────────────────────
+// Reuses *every* helper above (buildPayoff, distributionalMetrics,
+// computeLegEdges, estimateMargin, classifyLegQuality, netGreeks, netDebit).
+// No math is duplicated — the only new logic is leg resolution from a
+// user-supplied spec and the scenario re-pricer.
+
+export interface CustomLegSpec {
+  /** Strike price, must exist as an OcRow in the chain. */
+  strike: number;
+  optionType: OptionType;
+  action: "BUY" | "SELL";
+  /** Number of lots (positive). Each lot = chain.lotSize contracts. */
+  lots: number;
+  /** Override mid/LTP from chain (₹/share). When null/undefined, use chain. */
+  premiumOverride?: number | null;
+  /** Override IV (decimal, e.g. 0.18). When null/undefined, use chain or BS solve. */
+  ivOverride?: number | null;
+}
+
+export interface CustomScenario {
+  /** % move in spot (e.g. -5 → spot drops 5%). */
+  spotShiftPct: number;
+  /** % shift in IV applied to every leg (e.g. -10 → IV cut by 10% relative). */
+  ivShiftPct: number;
+  /** Calendar days that have passed (reduces T). */
+  daysPassed: number;
+}
+
+export interface ScenarioLegResult {
+  strike: number;
+  optionType: OptionType;
+  action: "BUY" | "SELL";
+  /** Theoretical mid-price under the shifted conditions (₹/share). */
+  newPrice: number;
+  /** Per-share MTM change vs. entry premium (signed by action). */
+  mtmPerShare: number;
+  /** Total MTM change = mtmPerShare × lots × lotSize (₹). */
+  mtmTotal: number;
+}
+
+export interface ScenarioResult {
+  spotShiftPct: number;
+  ivShiftPct: number;
+  daysPassed: number;
+  /** Spot under the shift. */
+  newSpot: number;
+  /** Years to expiry remaining after the shift. */
+  newT: number;
+  /** Total MTM ₹ (sum of leg results). */
+  totalPnl: number;
+  legs: ScenarioLegResult[];
+}
+
+export interface CustomStrategyResponse {
+  underlying: string;
+  spot: number;
+  expiry: string;
+  daysToExpiry: number;
+  lotSize: number;
+  ivContext: "LOW" | "HIGH" | "UNKNOWN";
+  /** The composed snapshot for the user's legs. */
+  snapshot: CustomStrategySnapshot;
+  /** Scenario re-prices, in the same order as the request. */
+  scenarios: ScenarioResult[];
+  /** Soft warnings — e.g. unknown IV → BS solver couldn't run, no scenario. */
+  warnings: string[];
+  generatedAt: string;
+}
+
+/** Snapshot for a custom strategy. Same shape as `StrategySnapshot` minus
+ *  `kind`/`name`/`category`/`outlook`/`description`/`suitability`/`recommended`/
+ *  `rationale` (which only make sense for the named templates). */
+export interface CustomStrategySnapshot {
+  legs: StrategyLeg[];
+  netDebit: number;
+  netGreeks: { delta: number; gamma: number; vega: number; theta: number };
+  maxProfit: number | null;
+  maxLoss: number | null;
+  breakevens: number[];
+  payoff: PayoffPoint[];
+  pop: number | null;
+  rrRatio: number | null;
+  displayMaxProfit: number;
+  displayMaxLoss: number;
+  displayRrRatio: number | null;
+  dist: DistMetrics;
+  legEdges: LegEdge[];
+  netEdge: number;
+  marginRequired: number;
+  returnOnCapital: number | null;
+  lotSize: number;
+  perLot: {
+    maxProfit: number | null;
+    maxLoss: number | null;
+    netDebit: number;
+    displayMaxProfit: number;
+    displayMaxLoss: number;
+  };
+  legQuality: "TIGHT" | "WIDE" | "POOR";
+  avgLegIv: number;
+  shortLegOi: number | null;
+}
+
+/** Builds a single StrategySnapshot for an arbitrary user-supplied list of legs.
+ *  Rejects with `{ error: string }` when validation fails so the route can
+ *  return a structured 400. Successful return is `{ ok: true, response }`. */
+export function buildCustomStrategy(
+  chain: OcResponse,
+  analytics: OptionAnalytics,
+  legSpecs: CustomLegSpec[],
+  opts?: { scenarios?: CustomScenario[] },
+): { ok: true; response: CustomStrategyResponse } | { ok: false; error: string } {
+  if (!Array.isArray(legSpecs) || legSpecs.length === 0) {
+    return { ok: false, error: "At least one leg is required." };
+  }
+  if (legSpecs.length > 8) {
+    return { ok: false, error: "Maximum 8 legs supported." };
+  }
+
+  const spot = chain.spot;
+  const lotSize = chain.lotSize ?? 1;
+  const T = yearsToExpiry(chain.expiry);
+  const q = 0;
+
+  // IV regime — same logic as buildStrategies (extracted-of-band so the UI
+  // can render the regime badge without a second call).
+  let ivContext: "LOW" | "HIGH" | "UNKNOWN" = "UNKNOWN";
+  if (analytics.ivPercentile != null) {
+    if (analytics.ivPercentile >= 70) ivContext = "HIGH";
+    else if (analytics.ivPercentile <= 30) ivContext = "LOW";
+  } else if (analytics.atmIv != null) {
+    const isIndex = chain.kind === "INDEX";
+    const hi = isIndex ? 18 : 35;
+    const lo = isIndex ? 11 : 20;
+    if (analytics.atmIv >= hi) ivContext = "HIGH";
+    else if (analytics.atmIv <= lo) ivContext = "LOW";
+  }
+
+  const atmSigma = analytics.atmIv != null ? analytics.atmIv / 100 : 0.18;
+  const warnings: string[] = [];
+
+  // ── Resolve each leg spec to a StrategyLeg ────────────────────────────
+  const legs: StrategyLeg[] = [];
+  for (let i = 0; i < legSpecs.length; i++) {
+    const spec = legSpecs[i];
+    const lots = Math.floor(Number(spec.lots));
+    if (!Number.isFinite(lots) || lots <= 0) {
+      return { ok: false, error: `Leg ${i + 1}: lots must be a positive integer.` };
+    }
+    if (spec.action !== "BUY" && spec.action !== "SELL") {
+      return { ok: false, error: `Leg ${i + 1}: action must be BUY or SELL.` };
+    }
+    if (spec.optionType !== "CE" && spec.optionType !== "PE") {
+      return { ok: false, error: `Leg ${i + 1}: optionType must be CE or PE.` };
+    }
+    const row = chain.rows.find(r => r.strike === spec.strike);
+    if (!row) {
+      return { ok: false, error: `Leg ${i + 1}: strike ${spec.strike} not found in chain.` };
+    }
+    const side = spec.optionType === "CE" ? row.ce : row.pe;
+    if (!side) {
+      return { ok: false, error: `Leg ${i + 1}: no ${spec.optionType} quote at strike ${spec.strike}.` };
+    }
+
+    // Premium: override → midOrLtp → reject
+    let premium: number | null = null;
+    if (spec.premiumOverride != null && Number.isFinite(spec.premiumOverride) && spec.premiumOverride > 0) {
+      premium = +Number(spec.premiumOverride).toFixed(2);
+    } else {
+      premium = midOrLtp(side);
+    }
+    if (premium == null) {
+      return { ok: false, error: `Leg ${i + 1}: no tradeable premium at ${spec.optionType} ${spec.strike}. Provide a manual premium override.` };
+    }
+
+    // IV: override → chain → BS solve. If all fail, leg is unusable for Greeks/scenario.
+    let iv: number | null = null;
+    if (spec.ivOverride != null && Number.isFinite(spec.ivOverride) && spec.ivOverride > 0) {
+      iv = +Number(spec.ivOverride).toFixed(4);
+    } else if (side.iv != null && side.iv > 0) {
+      iv = side.iv / 100;
+    } else {
+      iv = impliedVolatility({
+        S: spot, K: spec.strike, T, r: RISK_FREE, q,
+        type: spec.optionType, marketPrice: premium,
+      });
+    }
+    if (iv == null || !(iv > 0)) {
+      return { ok: false, error: `Leg ${i + 1}: could not derive IV at ${spec.optionType} ${spec.strike}. Provide a manual IV override.` };
+    }
+
+    const greeks = priceAndGreeks({
+      S: spot, K: spec.strike, T, r: RISK_FREE, q, sigma: iv, type: spec.optionType,
+    });
+    const liq = legLiquidity(side);
+
+    legs.push({
+      action: spec.action,
+      optionType: spec.optionType,
+      strike: spec.strike,
+      premium,
+      iv,
+      delta: greeks.delta,
+      gamma: greeks.gamma,
+      vega: greeks.vega,
+      theta: greeks.theta,
+      qty: lots,
+      source: spec.ivOverride != null || side.iv != null ? "chain" : "bs",
+      bid: liq.bid,
+      ask: liq.ask,
+      spreadPct: liq.spreadPct,
+      oi: liq.oi,
+      volume: liq.volume,
+      quoted: liq.quoted,
+    });
+  }
+
+  // ── Compose the snapshot using the SAME pipeline as buildStrategies ───
+  const debit = +netDebit(legs).toFixed(2);
+  const greeksAgg = netGreeks(legs);
+  const stdLnATM = Number.isFinite(atmSigma) && atmSigma > 0 && T > 0 ? atmSigma * Math.sqrt(T) : 0;
+  const expectedMove2Sigma = spot > 0 ? spot * 2 * stdLnATM : 0;
+  const buildResult = buildPayoff(legs, spot, lotSize, expectedMove2Sigma);
+  const { payoff, displayMaxProfit, displayMaxLoss, breakevens, maxProfit, maxLoss } = buildResult;
+  const dist = distributionalMetrics(legs, lotSize, spot, T, atmSigma, RISK_FREE, q);
+  const { edges: legEdges, netEdge: netEdgeRaw } = computeLegEdges(legs, spot, T, atmSigma, RISK_FREE, q);
+  const netEdge = +(netEdgeRaw * lotSize).toFixed(2);
+  const marginRequired = estimateMargin(debit, maxLoss, spot, lotSize, chain.kind);
+  const legQuality = classifyLegQuality(legs);
+
+  const optLegs = legs.filter(l => l.strike > 0);
+  const avgLegIv = optLegs.length
+    ? +(optLegs.reduce((acc, l) => acc + l.iv, 0) / optLegs.length).toFixed(4)
+    : 0;
+  const shortLegOiVals = optLegs.filter(l => l.action === "SELL").map(l => l.oi).filter((v): v is number => v != null && v > 0);
+  const shortLegOi = shortLegOiVals.length ? Math.min(...shortLegOiVals) : null;
+
+  const displayRrRatio = displayMaxLoss < 0 && displayMaxProfit > 0
+    ? +Math.abs(displayMaxProfit / displayMaxLoss).toFixed(3)
+    : null;
+
+  const safeDist: DistMetrics = dist ?? {
+    expectedValue: 0, stdDev: 0, pop: 0, avgWin: 0, avgLoss: 0,
+    probabilisticRr: null, expectedMove1Sigma: 0, expectedMove2Sigma: 0,
+  };
+  const returnOnCapital = marginRequired > 0
+    ? +(safeDist.expectedValue / marginRequired).toFixed(4)
+    : null;
+
+  if (!dist) {
+    warnings.push("Distributional metrics unavailable (no ATM IV) — POP and probabilistic R:R are placeholder zeros.");
+  }
+
+  const snapshot: CustomStrategySnapshot = {
+    legs,
+    netDebit: debit,
+    netGreeks: greeksAgg,
+    maxProfit,
+    maxLoss,
+    breakevens,
+    payoff,
+    pop: dist ? safeDist.pop : null,
+    rrRatio: maxProfit != null && maxLoss != null && maxLoss !== 0
+      ? +Math.abs(maxProfit / maxLoss).toFixed(3) : null,
+    displayMaxProfit,
+    displayMaxLoss,
+    displayRrRatio,
+    dist: safeDist,
+    legEdges,
+    netEdge,
+    marginRequired,
+    returnOnCapital,
+    lotSize,
+    perLot: {
+      maxProfit: maxProfit != null ? +maxProfit.toFixed(2) : null,
+      maxLoss:   maxLoss   != null ? +maxLoss.toFixed(2)   : null,
+      netDebit:  +(debit * lotSize).toFixed(2),
+      displayMaxProfit,
+      displayMaxLoss,
+    },
+    legQuality,
+    avgLegIv,
+    shortLegOi,
+  };
+
+  // ── Scenarios ─────────────────────────────────────────────────────────
+  const scenarios: ScenarioResult[] = [];
+  for (const sc of (opts?.scenarios ?? [])) {
+    scenarios.push(simulateScenario(legs, spot, T, sc, q, lotSize));
+  }
+
+  return {
+    ok: true,
+    response: {
+      underlying: chain.underlying,
+      spot,
+      expiry: chain.expiry,
+      daysToExpiry: Math.max(0, Math.round(T * 365)),
+      lotSize,
+      ivContext,
+      snapshot,
+      scenarios,
+      warnings,
+      generatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+/** Re-prices each leg under (spotShiftPct, ivShiftPct, daysPassed) using
+ *  Black-Scholes and sums the MTM change vs. entry premium. The payoff
+ *  *at expiry* is unaffected by IV/T shifts (it's just intrinsic) — this
+ *  function answers "what's my P&L *now* if I close the position at the
+ *  shifted conditions?", which is what the user reads off the sliders. */
+export function simulateScenario(
+  legs: StrategyLeg[],
+  baseSpot: number,
+  baseT: number,
+  scenario: CustomScenario,
+  q: number,
+  lotSize: number,
+): ScenarioResult {
+  const spotMul = 1 + (Number(scenario.spotShiftPct) || 0) / 100;
+  const newSpot = +(baseSpot * spotMul).toFixed(2);
+  const ivMul = 1 + (Number(scenario.ivShiftPct) || 0) / 100;
+  const dayShift = (Number(scenario.daysPassed) || 0) / 365;
+  // Floor T at 1 hour so BS doesn't degenerate to pure intrinsic when a
+  // user drags the slider past expiry. The expiry-payoff curve already
+  // covers that case in the chart.
+  const newT = Math.max(baseT - dayShift, 1 / (365 * 24));
+
+  const legResults: ScenarioLegResult[] = [];
+  let totalPnl = 0;
+  for (const leg of legs) {
+    const newIv = Math.max(leg.iv * ivMul, 1e-4);
+    const { price } = priceAndGreeks({
+      S: newSpot, K: leg.strike, T: newT, r: RISK_FREE, q, sigma: newIv, type: leg.optionType,
+    });
+    const newPrice = +price.toFixed(2);
+    const sign = leg.action === "BUY" ? 1 : -1;
+    const mtmPerShare = +(sign * (newPrice - leg.premium)).toFixed(2);
+    const mtmTotal = +(mtmPerShare * leg.qty * lotSize).toFixed(2);
+    legResults.push({
+      strike: leg.strike,
+      optionType: leg.optionType,
+      action: leg.action,
+      newPrice,
+      mtmPerShare,
+      mtmTotal,
+    });
+    totalPnl += mtmTotal;
+  }
+
+  return {
+    spotShiftPct: Number(scenario.spotShiftPct) || 0,
+    ivShiftPct: Number(scenario.ivShiftPct) || 0,
+    daysPassed: Number(scenario.daysPassed) || 0,
+    newSpot,
+    newT: +newT.toFixed(6),
+    totalPnl: +totalPnl.toFixed(2),
+    legs: legResults,
+  };
+}

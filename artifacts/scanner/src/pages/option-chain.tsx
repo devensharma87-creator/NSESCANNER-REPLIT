@@ -23,7 +23,7 @@ import {
   type FnoEntry,
 } from "@/data/fnoUniverse";
 
-type StrikeFilter = "all" | "atm5" | "atm10" | "highOi" | "unusual";
+import { applyStrikeFilter, type StrikeFilter } from "@/lib/optionChainFilters";
 
 function fmt(n: number | null | undefined, dp = 2): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -304,33 +304,12 @@ export default function OptionChainPage() {
 
   const filteredRows = useMemo(() => {
     if (!chain) return [];
-    const rows = chain.rows;
-    const atmIdx = rows.findIndex(r => r.strike === chain.atmStrike);
-    switch (strikeFilter) {
-      case "atm5": {
-        const lo = Math.max(0, atmIdx - 5);
-        const hi = Math.min(rows.length, atmIdx + 6);
-        return rows.slice(lo, hi);
-      }
-      case "atm10": {
-        const lo = Math.max(0, atmIdx - 10);
-        const hi = Math.min(rows.length, atmIdx + 11);
-        return rows.slice(lo, hi);
-      }
-      case "highOi": {
-        const threshold = maxOi * 0.3;
-        return rows.filter(r => (r.ce?.oi ?? 0) >= threshold || (r.pe?.oi ?? 0) >= threshold);
-      }
-      case "unusual": {
-        return rows.filter(r => {
-          const ceVol = r.ce?.volOiRatio ?? 0;
-          const peVol = r.pe?.volOiRatio ?? 0;
-          return ceVol >= 1.5 || peVol >= 1.5;
-        });
-      }
-      default:
-        return rows;
-    }
+    return applyStrikeFilter({
+      rows: chain.rows,
+      filter: strikeFilter,
+      atmStrike: chain.atmStrike,
+      maxOi,
+    });
   }, [chain, strikeFilter, maxOi]);
 
   const sortedRows = useMemo(() => {
@@ -995,7 +974,8 @@ export default function OptionChainPage() {
                 { v: "atm10" as const, l: "ATM±10" },
                 { v: "all" as const, l: "All" },
                 { v: "highOi" as const, l: "High OI" },
-                { v: "unusual" as const, l: "Unusual" },
+                { v: "unusual" as const, l: "Unusual Vol" },
+                { v: "oiSpike" as const, l: "OI Spike" },
               ]).map(f => (
                 <button
                   key={f.v}
@@ -1007,7 +987,8 @@ export default function OptionChainPage() {
                   }`}
                   title={
                     f.v === "highOi" ? "Show strikes with OI ≥ 30% of max" :
-                    f.v === "unusual" ? "Show strikes with Vol/OI ratio ≥ 1.5 (unusual activity)" :
+                    f.v === "unusual" ? "Volume anomaly: Vol/OI ratio ≥ 1.5 — fresh trading activity vs. existing positions" :
+                    f.v === "oiSpike" ? "Unusual OI Buildup: |ΔOI/OI| ≥ 15% AND OI ≥ 5,000 — aggressive position building or unwinding today" :
                     undefined
                   }
                 >
