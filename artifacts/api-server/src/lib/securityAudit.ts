@@ -6,6 +6,9 @@
  * No secret values are ever returned.
  */
 import { isPasswordConfigured } from "./auth";
+import { db, kiteSessionTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { isEncryptionKeyConfigured, isEncrypted } from "./kiteCrypto";
 
 export type Severity = "ok" | "warn" | "fail";
 
@@ -227,26 +230,53 @@ export async function runSecurityAudit(): Promise<AuditReport> {
     detail: hasEnv("DATABASE_URL") ? "DATABASE_URL configured." : "DATABASE_URL missing — server cannot persist alerts/sessions.",
   });
 
-  // Kite session row stored in PG IS plaintext (api_key + access_token +
-  // public_token). The token self-rotates daily at ~06:00 IST, but anyone with
-  // a copy of the database between login and 06:00 IST holds a working
-  // session. This is a known risk; flag it so a routine `pg_dump` for the
-  // owner's records doesn't silently leak credentials.
+  // Kite session encryption-at-rest. Status combines:
+  //   1. Is KITE_TOKEN_ENC_KEY configured?
+  //   2. Is the row in DB actually ciphertext (v1: prefix)?
+  // We probe the live row so a misconfiguration (key set but rows still
+  // plaintext) shows up as a warn rather than a false-OK.
+  let kiteEncDetail = "";
+  let kiteEncStatus: Severity = "warn";
+  try {
+    const rows = await db
+      .select({ apiKey: kiteSessionTable.apiKey, accessToken: kiteSessionTable.accessToken })
+      .from(kiteSessionTable)
+      .where(eq(kiteSessionTable.id, "active"))
+      .limit(1);
+    const keyOn = isEncryptionKeyConfigured();
+    if (rows.length === 0) {
+      kiteEncStatus = keyOn ? "ok" : "warn";
+      kiteEncDetail = keyOn
+        ? "KITE_TOKEN_ENC_KEY is configured. No active Kite session row to inspect; the next login will be stored encrypted at rest (AES-256-GCM, v1: envelope)."
+        : "KITE_TOKEN_ENC_KEY is NOT set. New Kite session rows will be stored in PLAINTEXT — a DB dump between login and 06:00 IST leaks a working session.";
+    } else {
+      const enc = isEncrypted(rows[0]!.apiKey) && isEncrypted(rows[0]!.accessToken);
+      if (keyOn && enc) {
+        kiteEncStatus = "ok";
+        kiteEncDetail = "Live kite_session row IS encrypted at rest (AES-256-GCM, v1: envelope) and KITE_TOKEN_ENC_KEY is configured.";
+      } else if (keyOn && !enc) {
+        kiteEncStatus = "warn";
+        kiteEncDetail = "KITE_TOKEN_ENC_KEY is configured but the current kite_session row is still plaintext. It will lazy-migrate on the next read or be encrypted on the next login. Until then a dump still leaks the live session.";
+      } else {
+        kiteEncStatus = "fail";
+        kiteEncDetail = "kite_session row is in PLAINTEXT and KITE_TOKEN_ENC_KEY is NOT configured. A DB dump leaks a working Kite session until ~06:00 IST.";
+      }
+    }
+  } catch (err) {
+    kiteEncStatus = "warn";
+    kiteEncDetail = `Could not probe kite_session row: ${(err as Error).message}`;
+  }
   checks.push({
     id: "secret_kite_session_at_rest",
     category: "secrets",
     title: "Kite session token storage at rest",
-    status: "warn",
-    source: "config",
-    detail:
-      "kite_session.{api_key,access_token,public_token} are stored in plaintext " +
-      "Postgres. Tokens auto-expire at the next 06:00 IST, but a DB dump taken " +
-      "between login and expiry leaks a usable session. Use scripts/safe-db-export.sh " +
-      "(excludes kite_session entirely) for any dump that leaves the server.",
+    status: kiteEncStatus,
+    source: "live",
+    detail: kiteEncDetail,
     remediation:
-      "Short term: always use scripts/safe-db-export.sh and never share raw pg_dump " +
-      "output. Medium term: encrypt access_token/api_key/public_token columns at rest " +
-      "with a KITE_TOKEN_ENC_KEY (AES-GCM) before persisting.",
+      kiteEncStatus === "ok"
+        ? undefined
+        : "Set KITE_TOKEN_ENC_KEY in Replit Secrets to a 32-byte key (base64 of 32 random bytes, OR 64 hex chars). After the next Kite login (or the next read of an existing row) the value will be sealed.",
   });
 
   // /api/kite/export-session bypasses the owner cookie and is gated only by

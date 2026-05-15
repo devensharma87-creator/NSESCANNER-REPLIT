@@ -18,6 +18,12 @@ import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 import { KiteConnect } from "kiteconnect";
 import { loadBlob, saveBlob } from "./diskCache";
+import {
+  encryptToken,
+  decryptToken,
+  isEncrypted,
+  isEncryptionKeyConfigured,
+} from "./kiteCrypto";
 
 const ACTIVE_ID = "active";
 const KITE_LOGIN_BASE = "https://kite.zerodha.com/connect/login";
@@ -79,11 +85,12 @@ export async function completeLogin(requestToken: string): Promise<ActiveSession
 
   const now = new Date();
   const expiresAt = next6amIST(now);
-  const row = {
+  // Persist as ciphertext when KITE_TOKEN_ENC_KEY is set; passthrough otherwise.
+  const dbRow = {
     id: ACTIVE_ID,
-    apiKey: creds.apiKey,
-    accessToken: session.access_token,
-    publicToken: session.public_token ?? null,
+    apiKey: encryptToken(creds.apiKey),
+    accessToken: encryptToken(session.access_token),
+    publicToken: session.public_token ? encryptToken(session.public_token) : null,
     userId: session.user_id ?? null,
     userName: session.user_name ?? null,
     loginTime: now,
@@ -92,46 +99,86 @@ export async function completeLogin(requestToken: string): Promise<ActiveSession
 
   await db
     .insert(kiteSessionTable)
-    .values(row)
+    .values(dbRow)
     .onConflictDoUpdate({
       target: kiteSessionTable.id,
       set: {
-        apiKey: row.apiKey,
-        accessToken: row.accessToken,
-        publicToken: row.publicToken,
-        userId: row.userId,
-        userName: row.userName,
-        loginTime: row.loginTime,
-        expiresAt: row.expiresAt,
+        apiKey: dbRow.apiKey,
+        accessToken: dbRow.accessToken,
+        publicToken: dbRow.publicToken,
+        userId: dbRow.userId,
+        userName: dbRow.userName,
+        loginTime: dbRow.loginTime,
+        expiresAt: dbRow.expiresAt,
       },
     });
 
-  logger.info({ userId: row.userId, expiresAt: row.expiresAt.toISOString() }, "Kite session stored");
+  logger.info(
+    {
+      userId: dbRow.userId,
+      expiresAt: dbRow.expiresAt.toISOString(),
+      encryptedAtRest: isEncryptionKeyConfigured(),
+    },
+    "Kite session stored",
+  );
   return {
-    apiKey: row.apiKey,
-    accessToken: row.accessToken,
-    userId: row.userId,
-    userName: row.userName,
-    loginTime: row.loginTime,
-    expiresAt: row.expiresAt,
+    apiKey: creds.apiKey,
+    accessToken: session.access_token,
+    userId: session.user_id ?? null,
+    userName: session.user_name ?? null,
+    loginTime: now,
+    expiresAt,
   };
 }
 
-/** Read the active (non-expired) Kite session, if any. */
+/** Read the active (non-expired) Kite session, if any.
+ *
+ *  Decrypts the token columns transparently. If a row is still in legacy
+ *  plaintext format AND KITE_TOKEN_ENC_KEY is now configured, lazily
+ *  re-writes it as ciphertext so the next dump is clean. Lazy migration
+ *  failures never fail the read (we have a working session — log and move on).
+ */
 export async function getActiveSession(): Promise<ActiveSession | null> {
   try {
     const rows = await db.select().from(kiteSessionTable).where(eq(kiteSessionTable.id, ACTIVE_ID)).limit(1);
     const r = rows[0];
     if (!r) return null;
     if (r.expiresAt.getTime() <= Date.now()) return null;
-    return {
-      apiKey: r.apiKey,
-      accessToken: r.accessToken,
-      userId: r.userId,
-      userName: r.userName,
-      loginTime: r.loginTime,
-      expiresAt: r.expiresAt,
-    };
+
+    let apiKey: string;
+    let accessToken: string;
+    let publicToken: string | null;
+    try {
+      apiKey = decryptToken(r.apiKey)!;
+      accessToken = decryptToken(r.accessToken)!;
+      publicToken = decryptToken(r.publicToken);
+    } catch (err) {
+      // Decrypt failure (key missing or tag mismatch) → treat as no session
+      // so the daily login flow recovers. Don't expose token internals.
+      logger.warn({ err: (err as Error).message }, "Kite session decrypt failed — treating as no session");
+      return null;
+    }
+
+    // Lazy migration: encrypt-on-read if the row is plaintext and a key is now
+    // configured. Best-effort — never fail the read on migration failure.
+    if (isEncryptionKeyConfigured() && (!isEncrypted(r.apiKey) || !isEncrypted(r.accessToken))) {
+      void db
+        .update(kiteSessionTable)
+        .set({
+          apiKey: encryptToken(apiKey),
+          accessToken: encryptToken(accessToken),
+          publicToken: publicToken ? encryptToken(publicToken) : null,
+        })
+        .where(eq(kiteSessionTable.id, ACTIVE_ID))
+        .then(() => {
+          logger.info({ userId: r.userId }, "Kite session migrated plaintext→encrypted at rest");
+        })
+        .catch((err: Error) => {
+          logger.warn({ err: err.message }, "Kite session lazy-encrypt migration failed (will retry next read)");
+        });
+    }
+
+    return { apiKey, accessToken, userId: r.userId, userName: r.userName, loginTime: r.loginTime, expiresAt: r.expiresAt };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "Kite session read failed");
     return null;
@@ -171,11 +218,13 @@ export async function storeImportedSession(s: ExportedSession): Promise<ActiveSe
   if (!s.apiKey || !s.accessToken) {
     throw new Error("Imported session is missing apiKey or accessToken");
   }
-  const row = {
+  // Encrypt before writing. Token values returned to the caller stay plaintext
+  // so the live request flow keeps working; only the at-rest copy is sealed.
+  const dbRow = {
     id: ACTIVE_ID,
-    apiKey: s.apiKey,
-    accessToken: s.accessToken,
-    publicToken: s.publicToken ?? null,
+    apiKey: encryptToken(s.apiKey),
+    accessToken: encryptToken(s.accessToken),
+    publicToken: s.publicToken ? encryptToken(s.publicToken) : null,
     userId: s.userId ?? null,
     userName: s.userName ?? null,
     loginTime,
@@ -183,30 +232,34 @@ export async function storeImportedSession(s: ExportedSession): Promise<ActiveSe
   };
   await db
     .insert(kiteSessionTable)
-    .values(row)
+    .values(dbRow)
     .onConflictDoUpdate({
       target: kiteSessionTable.id,
       set: {
-        apiKey: row.apiKey,
-        accessToken: row.accessToken,
-        publicToken: row.publicToken,
-        userId: row.userId,
-        userName: row.userName,
-        loginTime: row.loginTime,
-        expiresAt: row.expiresAt,
+        apiKey: dbRow.apiKey,
+        accessToken: dbRow.accessToken,
+        publicToken: dbRow.publicToken,
+        userId: dbRow.userId,
+        userName: dbRow.userName,
+        loginTime: dbRow.loginTime,
+        expiresAt: dbRow.expiresAt,
       },
     });
   logger.info(
-    { userId: row.userId, expiresAt: row.expiresAt.toISOString() },
+    {
+      userId: dbRow.userId,
+      expiresAt: dbRow.expiresAt.toISOString(),
+      encryptedAtRest: isEncryptionKeyConfigured(),
+    },
     "Kite session imported from peer environment",
   );
   return {
-    apiKey: row.apiKey,
-    accessToken: row.accessToken,
-    userId: row.userId,
-    userName: row.userName,
-    loginTime: row.loginTime,
-    expiresAt: row.expiresAt,
+    apiKey: s.apiKey,
+    accessToken: s.accessToken,
+    userId: s.userId ?? null,
+    userName: s.userName ?? null,
+    loginTime,
+    expiresAt,
   };
 }
 

@@ -1,0 +1,59 @@
+Proceed with **Priority 1: Encrypt `kite_session` columns at rest**.
+
+This is approved as the next implementation wedge.
+
+Scope approved:
+
+1. Encrypt sensitive Kite/session fields at rest using AES-GCM or an equivalent secure encryption method.
+2. Use a dedicated secret key such as `KITE_TOKEN_ENC_KEY`.
+3. Sensitive columns to protect include:
+
+   * `kite_session.access_token`
+   * `kite_session.api_key`
+   * `kite_session.public_token`
+   * any other Kite/session token-like field found during implementation
+4. Do not print, log, expose, or include any real token value in output, logs, tests, or documentation.
+5. Add migration/backfill logic carefully so existing rows are handled safely.
+6. Add tests for:
+
+   * encryption on write
+   * decryption on read
+   * no plaintext token leakage
+   * invalid/missing encryption key handling
+   * safe failure behavior
+7. Keep the safe export script and `.gitignore` protections already added.
+8. Update the security audit/dashboard check so encrypted-at-rest status is properly detected.
+9. Update documentation in `replit.md` or a security doc explaining the new secure storage process.
+10. Run typecheck/tests before final summary.
+
+Important guardrails:
+
+* Do **not** change F&O signal logic.
+* Do **not** change swing scanner logic.
+* Do **not** change paper trading logic.
+* Do **not** change Kite trading/order execution logic beyond secure token storage.
+* Do **not** start option-chain snapshots, candle persistence, sector mapping, or sizing fixes yet.
+* Do **not** begin the full rebuild.
+
+About the audit document:
+
+Keep the audit-of-the-audit document at:
+
+`docs/audit-of-the-audit-2026-05-15.md`
+
+That location is fine.
+
+Regarding `KITE_MIRROR_ALLOWED_HOSTS`:
+
+Do not change it until I confirm that `APP_ACCESS_PASSWORD` has been rotated. After I confirm rotation, we can set:
+
+`KITE_MIRROR_ALLOWED_HOSTS=marketscannerbydev.in`
+
+Final output expected from you:
+
+1. Files changed
+2. Migration added
+3. Tests added/run
+4. Security behavior summary
+5. Any manual secret/env changes I need to make
+6. Confirmation that no trading logic was touched
