@@ -1,8 +1,14 @@
 import { Lock } from "lucide-react";
+import { Seo } from "@/components/seo";
 
 export default function PrivacyPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 lg:px-6 py-10 space-y-6">
+      <Seo
+        path="/legal/privacy"
+        title="Privacy Notice"
+        description="Privacy Notice for Market Scanner by Dev — what data we store, how it is used, and the rights of subscribers on the platform."
+      />
       <header className="space-y-2">
         <div className="flex items-center gap-2 text-primary">
           <Lock className="h-5 w-5" />

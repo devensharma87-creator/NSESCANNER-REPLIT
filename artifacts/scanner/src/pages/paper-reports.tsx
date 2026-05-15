@@ -22,6 +22,7 @@
  */
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Seo } from "@/components/seo";
 import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
 } from "@/components/ui/card";
@@ -248,6 +249,7 @@ export default function PaperReports() {
   const [tab, setTab] = useState<"INTRADAY" | "EQUITY" | "FNO" | "JOURNAL">("FNO");
   return (
     <div className="container mx-auto px-4 py-6 max-w-6xl">
+      <Seo path="/paper-reports" title="Paper P&L Reports" noindex />
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">P&amp;L Reports</h1>
         <p className="text-sm text-muted-foreground mt-1">

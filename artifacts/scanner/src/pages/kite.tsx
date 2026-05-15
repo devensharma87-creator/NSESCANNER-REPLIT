@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, AlertCircle, CheckCircle2, Download, ExternalLink, LogOut, RefreshCw } from "lucide-react";
+import { Seo } from "@/components/seo";
 
 const MIRROR_URL_KEY = "kite.mirrorSourceUrl";
 
@@ -201,6 +202,7 @@ export default function KitePage() {
 
   return (
     <div className="px-4 py-5 max-w-6xl mx-auto space-y-5">
+      <Seo path="/kite" title="Zerodha Kite Live Feed" noindex />
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Live Data Feed — Zerodha Kite</h1>
         <p className="text-sm text-muted-foreground mt-1">

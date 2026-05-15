@@ -7,6 +7,7 @@ import {
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SignalBadge } from "@/components/ui/signal-badge";
+import { Seo } from "@/components/seo";
 import {
   TrendingUp, TrendingDown, ArrowRight, Flame, Snowflake,
   Home as HomeIcon,
@@ -105,6 +106,7 @@ export default function Home() {
 
   return (
     <div className="w-full max-w-none px-4 lg:px-6 2xl:px-8 py-6 space-y-8">
+      <Seo path="/" />
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <HomeIcon className="h-6 w-6 text-primary" />

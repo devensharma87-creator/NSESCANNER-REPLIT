@@ -1,8 +1,14 @@
 import { BookOpen } from "lucide-react";
+import { Seo } from "@/components/seo";
 
 export default function MethodologyPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 lg:px-6 py-10 space-y-6">
+      <Seo
+        path="/legal/methodology"
+        title="Methodology & Data Sources"
+        description="How Market Scanner by Dev computes signals, scans and option-chain analytics for the Indian markets, and where the underlying NSE/BSE data comes from. Educational use only."
+      />
       <header className="space-y-2">
         <div className="flex items-center gap-2 text-primary">
           <BookOpen className="h-5 w-5" />

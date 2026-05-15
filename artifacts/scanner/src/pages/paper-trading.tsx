@@ -10,6 +10,7 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Seo } from "@/components/seo";
 import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
 } from "@/components/ui/card";
@@ -221,6 +222,7 @@ export default function PaperTrading() {
   const [segment, setSegment] = useState<Segment>("FNO");
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
+      <Seo path="/paper-trading" title="Paper Trading" noindex />
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Paper Trading</h1>
         <p className="text-sm text-muted-foreground mt-1">

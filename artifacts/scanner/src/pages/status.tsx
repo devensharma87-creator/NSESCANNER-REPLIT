@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Activity, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Info, Server, Database, Radio, Globe, Bell } from "lucide-react";
+import { Seo } from "@/components/seo";
 
 type Severity = "ok" | "warn" | "fail" | "info";
 
@@ -111,6 +112,7 @@ export default function StatusPage() {
 
   return (
     <div className="space-y-6">
+      <Seo path="/status" title="System Status" noindex />
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">

@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Shield, ShieldAlert, ShieldCheck, RefreshCw, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { Seo } from "@/components/seo";
 
 type Severity = "ok" | "warn" | "fail";
 interface AuditCheck {
@@ -99,6 +100,7 @@ export default function AuditPage() {
 
   return (
     <div className="space-y-6">
+      <Seo path="/audit" title="Security Audit" noindex />
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Security Audit</h1>

@@ -8,6 +8,7 @@ import IndianStrip from "@/components/indian-strip";
 import { useListStocks, getListStocksQueryKey } from "@workspace/api-client-react";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ThemeSwitcher, applyTheme, loadInitialTheme } from "@/components/theme-switcher";
+import { isSeoManagedPath } from "@/lib/seo-config";
 import { useAuth } from "@/hooks/use-auth";
 import { logout, type AllowedTabKey } from "@/lib/auth-api";
 import { PublicModeBanner } from "@/components/public-mode-banner";
@@ -144,7 +145,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       else if (location.startsWith("/index/")) label = safeDecode(location.slice(7)).toUpperCase();
       else if (location.startsWith("/option-chain/")) label = `${safeDecode(location.slice(14))} Chain`;
     }
-    document.title = label ? `${label} · NSE Scanner` : "NSE Scanner";
+    // Skip routes that mount <Seo /> — they own document.title themselves
+    // (single source of truth in seo-config.ts). React effect ordering is
+    // child-before-parent on mount AND on each render, so without this guard
+    // Layout would consistently overwrite Seo's title after Seo set it.
+    if (isSeoManagedPath(location)) return;
+    document.title = label ? `${label} · Market Scanner by Dev` : "Market Scanner by Dev";
   }, [location]);
 
   // Legal pages render with stripped-down chrome — no nav, no live data

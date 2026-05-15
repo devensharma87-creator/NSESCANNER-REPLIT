@@ -1,8 +1,14 @@
 import { FileText } from "lucide-react";
+import { Seo } from "@/components/seo";
 
 export default function TermsPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 lg:px-6 py-10 space-y-6">
+      <Seo
+        path="/legal/terms"
+        title="Terms of Use"
+        description="Terms of Use for Market Scanner by Dev. Educational and research-only platform; not investment advice or a SEBI-registered advisory."
+      />
       <header className="space-y-2">
         <div className="flex items-center gap-2 text-primary">
           <FileText className="h-5 w-5" />

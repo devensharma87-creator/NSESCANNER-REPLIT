@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Seo } from "@/components/seo";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -101,6 +102,7 @@ export default function AdminPage() {
 
   return (
     <div className="w-full max-w-none px-4 lg:px-6 2xl:px-8 py-6 space-y-6">
+      <Seo path="/admin" title="Subscriber Administration" noindex />
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <ShieldCheck className="h-6 w-6 text-primary" />

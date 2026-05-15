@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { Sparkles, Zap, Sun, ShieldCheck, BarChart3, Database, ArrowLeft } from "lucide-react";
+import { Seo } from "@/components/seo";
 
 interface Affirmation {
   text: string;
@@ -157,6 +158,7 @@ const AFFIRMATIONS: Affirmation[] = [
 export default function Manifesto() {
   return (
     <div className="relative min-h-[calc(100dvh-12rem)] overflow-hidden">
+      <Seo path="/manifesto" title="Manifesto" noindex />
       {/* Animated background */}
       <style>{`
         @keyframes manifesto-blob {

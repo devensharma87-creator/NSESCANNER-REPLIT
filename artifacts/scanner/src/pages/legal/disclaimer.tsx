@@ -1,8 +1,14 @@
 import { ShieldAlert } from "lucide-react";
+import { Seo } from "@/components/seo";
 
 export default function DisclaimerPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 lg:px-6 py-10 space-y-6">
+      <Seo
+        path="/legal/disclaimer"
+        title="Disclaimer"
+        description="Educational and research-only disclaimer for Market Scanner by Dev. Not investment advice. Not a SEBI-registered adviser. No guaranteed returns."
+      />
       <header className="space-y-2">
         <div className="flex items-center gap-2 text-amber-400">
           <ShieldAlert className="h-5 w-5" />

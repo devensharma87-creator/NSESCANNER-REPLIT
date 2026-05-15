@@ -1,0 +1,37 @@
+# Market Scanner by Dev — robots.txt
+# Public surface only: landing/login screen + legal pages.
+# All gated app routes are disallowed (they require authentication anyway).
+
+User-agent: *
+Allow: /$
+Allow: /legal/
+Allow: /favicon.svg
+Allow: /opengraph.jpg
+Allow: /site.webmanifest
+
+Disallow: /api/
+Disallow: /scanner
+Disallow: /option-chain
+Disallow: /oi-lab
+Disallow: /watchlist
+Disallow: /premarket
+Disallow: /flows
+Disallow: /stocks-to-watch
+Disallow: /news
+Disallow: /learn
+Disallow: /deep-scan
+Disallow: /options
+Disallow: /strategies
+Disallow: /sectors
+Disallow: /kite
+Disallow: /audit
+Disallow: /status
+Disallow: /manifesto
+Disallow: /admin
+Disallow: /paper-trading
+Disallow: /paper-reports
+Disallow: /stock/
+Disallow: /index/
+Disallow: /indices
+
+Sitemap: https://marketscannerbydev.in/sitemap.xml
