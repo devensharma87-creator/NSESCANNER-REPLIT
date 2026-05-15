@@ -36,6 +36,7 @@ import { fetchDailyBars, fetchBenchmarkBars, fetchFundamentalsForSwing } from ".
 import { NIFTY500_SYMBOLS } from "./watchlistLists";
 import { loadKiteQuotes } from "./kiteScanner";
 import { logger } from "./logger";
+import { lookupSector } from "./sectorMap";
 
 const CONCURRENCY = 6;
 const DEEP_SCAN_HOUR_IST = 15;
@@ -135,8 +136,13 @@ function rowFromResult(scanDate: string, r: SwingScanResult): typeof swingScanRe
     rs20: numToStr(r.rs20),
     rs50: numToStr(r.rs50),
     rs120: numToStr(r.rs120),
-    sector: r.sector || null,
-    industry: r.industry || null,
+    // Sector/industry: prefer fundamentals-provided values when present,
+    // else fall back to the durable sector map (UNIVERSE + curated
+    // extension). `lookupSector` always returns a value — for genuinely
+    // unmapped symbols it returns the literal "Unmapped" sentinel which
+    // surfaces in the diagnostic endpoint.
+    sector: (r.sector ?? "").trim() || lookupSector(r.symbol).sector,
+    industry: (r.industry ?? "").trim() || lookupSector(r.symbol).industry,
     fundamentalStatus: r.fundamentalStatus,
     reasons: r.reasons,
     warnings: r.warnings,

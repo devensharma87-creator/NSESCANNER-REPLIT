@@ -27,6 +27,7 @@ A comprehensive platform for scanning and analyzing the Indian stock market, pro
 - `artifacts/scanner/`: React + Vite frontend (NSE)
 - `artifacts/global/`: Global multi-asset React + Vite frontend
 - `lib/db/src/schema/`: Drizzle schema (paperTrading, swingScan, etc.)
+- `artifacts/api-server/src/lib/sectorMap.ts`: Single source of truth for symbol → {sector, industry}. UNIVERSE (200 entries from `lib/universe.ts`) → curated EXTENSION (295 NIFTY 500 mid/small caps) → `{sector:"Unmapped", industry:"Unmapped"}` fallback. Used by `swingScannerStore.toResultRow` (`r.sector || lookupSector(r.symbol).sector`) so all future scans auto-populate. One-shot historical backfill: `pnpm --filter @workspace/api-server run backfill:swing-sector` (idempotent, supports `-- --dry-run`). Coverage diagnostic (owner-only): `GET /api/stocks-to-watch/diagnostics/sector-coverage` returns `lookup` + `db` views with `unmappedSymbols` list. Current state: 477 NIFTY 500 symbols mapped at 100 % (2026-05-15).
 - `lib/api-spec/openapi.yaml`: OpenAPI specification (source of truth for codegen)
 - `artifacts/scanner/src/theme/`: UI theme configurations
 - **`docs/paper-trader-architecture.md`**: Long-form rationale for F&O Phases 1-4, paper-trader Pass-1/2/3 gates, trade-drought fix, observability addendum, OI Lab backfill, Equity Entry-Safety Gate, Account surface, Kite Offline UX, and Pro Swing Scanner v3 port. **Read this for the "why".** `replit.md` keeps only the current-state summary and active guardrails.
