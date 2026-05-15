@@ -1,0 +1,288 @@
+I want a complete technical review of the actual trading logic currently implemented in the codebase for:
+
+1. F&O paper trading for all supported indices
+2. Swing/cash equity trading
+
+This is a review/audit task only. Do not change any code unless I separately approve.
+
+Please deeply inspect the actual codebase and prepare a detailed report explaining the logic behind trade entry, exit, signal generation, scoring, filters, and risk controls.
+
+For **F&O paper trading**, explain:
+
+1. Which indices are supported currently:
+
+   * NIFTY
+   * BANKNIFTY
+   * SENSEX
+   * any other index if actually active in the current codebase
+
+2. Which files/modules are responsible for:
+
+   * F&O signal generation
+   * F&O signal filtering/gates
+   * paper F&O trade creation
+   * F&O trade lifecycle
+   * stop loss / target handling
+   * expiry handling
+   * option selection
+   * risk sizing
+   * P&L calculation
+
+3. Explain how an F&O signal pops up:
+
+   * What market data is used?
+   * Which technical indicators are used?
+   * Which OI/option-chain inputs are used, if any?
+   * Whether VWAP, EMA, CPR, ATR, RSI, ADX, trend, volume, IV, PCR, OI buildup, or market regime are used.
+   * Whether the system uses Kite data, NSE fallback, stored snapshots, live feed, or cached data.
+   * Whether the signal is generated from index spot, futures, option premium, or a combination.
+
+4. Explain the exact entry logic:
+
+   * What conditions must be true before a CALL/CE signal is generated?
+   * What conditions must be true before a PUT/PE signal is generated?
+   * How does the system decide bullish vs bearish?
+   * How is the strike selected?
+   * How is option type selected?
+   * How is entry price decided?
+   * Is entry based on spot price, option premium, candle close, breakout, VWAP reclaim, EMA pullback, trend continuation, or another setup?
+   * Is there any confirmation candle logic?
+   * Is volume confirmation required?
+   * Is option liquidity/spread checked?
+
+5. Explain all F&O setup types currently implemented, such as:
+
+   * BASELINE
+   * VWAP_RECLAIM
+   * EMA_PULLBACK
+   * TREND_CONTINUATION
+   * any other setup found in the code
+
+   For each setup, explain:
+
+   * purpose of the setup,
+   * technical condition,
+   * bullish condition,
+   * bearish condition,
+   * entry rule,
+   * stop rule,
+   * target rule,
+   * invalidation rule,
+   * known weakness.
+
+6. Explain the exit logic:
+
+   * How stop loss is calculated.
+   * Whether stop is based on spot or option premium.
+   * How Target 1 and Target 2 are calculated.
+   * Whether trailing stop is used.
+   * Whether partial booking is used.
+   * Whether time-based expiry/stale-trigger exit is used.
+   * What statuses exist, such as STOPPED, TARGET1_HIT, TARGET2_HIT, EXPIRED, EXPIRED_TRIGGERED, EXPIRED_PENDING, STALE_TRIGGER.
+   * What exactly causes each status.
+
+7. Explain risk management:
+
+   * position size / lot size logic,
+   * maximum open trades,
+   * daily loss limits,
+   * heat/exposure caps,
+   * cooldowns if any,
+   * expiry-day rules if any,
+   * no-trade conditions if any.
+
+8. Explain paper F&O trade lifecycle:
+
+   * signal generated,
+   * pending trigger,
+   * triggered,
+   * active,
+   * target hit,
+   * stopped,
+   * expired,
+   * closed.
+
+   Please map this lifecycle to exact code files/functions.
+
+9. Explain how F&O P&L is calculated:
+
+   * premium-based or spot-based,
+   * lot size used,
+   * charges/slippage included or not,
+   * MFE/MAE tracked or not.
+
+10. Identify gaps or mismatches:
+
+* Any signal generated but not executable.
+* Any spot-price vs option-premium mismatch.
+* Any missing option exit premium.
+* Any stale signal issue.
+* Any stop too tight issue.
+* Any high-conviction label not backed by performance.
+* Any unused table/data.
+* Any mismatch between audit report and actual code.
+
+For **Swing/Cash Equity Trading**, explain:
+
+1. Which files/modules are responsible for:
+
+   * stock scanning,
+   * scoring,
+   * recommendation/action labels,
+   * entry level,
+   * stop loss,
+   * target,
+   * paper equity trade creation,
+   * trade lifecycle,
+   * position sizing,
+   * exit/trailing stop logic.
+
+2. Explain how a stock becomes a swing candidate:
+
+   * universe used,
+   * sector/industry mapping,
+   * data source,
+   * candle timeframe,
+   * filters applied,
+   * liquidity/value traded filters,
+   * trend filters,
+   * technical filters,
+   * fundamental filters,
+   * volume filters,
+   * risk filters.
+
+3. Explain all scoring components:
+
+   * technical_score,
+   * smc_score,
+   * volume_score,
+   * momentum_score,
+   * fundamental_score,
+   * risk_score,
+   * context_score,
+   * rs_score,
+   * any other score used.
+
+   For each score, explain:
+
+   * formula or logic,
+   * indicators used,
+   * weight,
+   * how it affects final score,
+   * where in code it is calculated.
+
+4. Explain action/recommendation logic:
+
+   * BUY NOW,
+   * STRONG BUY,
+   * WATCHLIST,
+   * WAIT FOR CONFIRMATION,
+   * WAIT FOR PULLBACK,
+   * AVOID / NO TRADE,
+   * any other action found.
+
+   Explain exact criteria for each label.
+
+5. Explain swing entry criteria:
+
+   * breakout,
+   * pullback,
+   * trend continuation,
+   * volume confirmation,
+   * relative strength,
+   * sector strength,
+   * SMC/order block/demand zone logic,
+   * RSI/ADX/ATR logic,
+   * moving average logic,
+   * 52-week high/low proximity,
+   * value traded/liquidity logic.
+
+6. Explain swing exit criteria:
+
+   * initial stop loss,
+   * trailing stop,
+   * target 1 / target 2,
+   * time-based exit if any,
+   * close below moving average,
+   * reversal candle,
+   * stop sanity checks,
+   * trail stop hit logic.
+
+7. Explain paper equity sizing:
+
+   * account balance used,
+   * available cash,
+   * max open trades,
+   * slots logic,
+   * deploy amount,
+   * quantity calculation,
+   * stop sanity range,
+   * DD caps,
+   * daily cap,
+   * concurrent cap,
+   * heat cap,
+   * reasons such as QTY_LT_1, DAILY_CAP, CONCURRENT_CAP, HEAT_CAP, INVALID_STOP, STOP_SANITY_TIGHT, STOP_SANITY_WIDE.
+
+8. Explain how equity paper trades are opened:
+
+   * which candidate is selected,
+   * how entry price is used,
+   * how stop and target are stored,
+   * whether trades open automatically or only via manual/paper logic,
+   * what prevents a trade from opening.
+
+9. Explain equity paper trade lifecycle:
+
+   * candidate scanned,
+   * accepted/rejected,
+   * paper trade opened,
+   * open position tracked,
+   * target/trailing stop/stop hit,
+   * closed trade,
+   * P&L calculated.
+
+10. Identify all gaps or concerns:
+
+* high-score candidates still rejected,
+* sector logic now mapped but whether it affects scoring,
+* whether candle warehouse is used or still decoupled,
+* whether option-chain snapshots affect signals or are only stored,
+* whether swing scanner uses stored candle data or live Kite pulls,
+* any mismatch between displayed recommendation and actual trade execution,
+* any unused diagnostics.
+
+Report format required:
+
+A. Executive summary
+B. F&O trading logic overview
+C. F&O entry logic, setup-wise
+D. F&O exit logic and lifecycle
+E. F&O risk and sizing logic
+F. Swing trading logic overview
+G. Swing scoring and recommendation logic
+H. Swing entry and exit logic
+I. Swing paper trade sizing and lifecycle
+J. Exact code map: file name, function name, responsibility
+K. Data sources used by each module
+L. Gaps, bugs, or unclear logic
+M. Recommended improvements
+N. Questions requiring my decision
+
+Important instructions:
+
+* This is a read-only audit.
+* Do not modify code.
+* Do not refactor.
+* Do not change signals.
+* Do not change paper trading.
+* Do not change Kite/order execution.
+* Do not change swing scanner logic.
+* Do not change F&O logic.
+* Do not change database schema.
+* Do not change scheduler behavior.
+* Cite exact files and functions.
+* Where possible, include pseudo-code for the current logic.
+* Clearly separate what is already implemented from what is only planned/documented.
+* Clearly identify if a feature exists only as data infrastructure and is not connected to trade decisions yet.
+* Be honest if a strategy is not implemented or cannot be proven from code.
+* Final output should be a detailed markdown report suitable for my review before approving any strategy changes.
