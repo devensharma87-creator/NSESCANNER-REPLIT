@@ -17,10 +17,12 @@ import paperRouter from "./paper";
 import paperComboRouter from "./paperCombo";
 import homeRouter from "./home";
 import optionChainSnapshotRouter from "./optionChainSnapshot";
+import candleWarehouseRouter from "./candleWarehouse";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
 import { startSwingScanScheduler } from "../lib/swingScannerStore";
 import { startOptionSnapshotIngestor } from "../lib/optionChainSnapshotIngestor";
+import { startCandleWarehouse } from "../lib/candleWarehouseIngestor";
 
 const router: IRouter = Router();
 
@@ -42,6 +44,7 @@ router.use(paperRouter);      // /paper/* — owner-only paper trading (per-rout
 router.use(paperComboRouter); // /paper/combos/* — owner-only manual multi-leg combo lane (Tier C)
 router.use(homeRouter);       // /home/enrichment — aggregated home dashboard data
 router.use(optionChainSnapshotRouter); // /option-snapshots/* — owner-only diagnostics for write-only F&O snapshot store
+router.use(candleWarehouseRouter);     // /candles/* — owner-only diagnostics + manual sync for the candle warehouse
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 startInstFlowsRefresher();
@@ -56,5 +59,11 @@ startSwingScanScheduler();
 // don't fight production. Write-only data layer — does not feed any
 // trading decision.
 startOptionSnapshotIngestor();
+// Candle warehouse — daily EOD sync after 15:40 IST + 15-min intraday
+// during market hours. Gated by `CANDLE_WAREHOUSE_ENABLED` (auto-off
+// in dev). Write-only data substrate — does not feed any trading
+// decision (swing scanner / F&O signals continue to read from
+// fetchKiteHistoricalByToken directly).
+startCandleWarehouse();
 
 export default router;

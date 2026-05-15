@@ -1,0 +1,114 @@
+Priority 3 is accepted. Good work.
+
+The option-chain snapshot infrastructure is approved as complete.
+
+Accepted final state:
+
+* New `option_chain_snapshot` and `option_chain_snapshot_run` tables added.
+* Snapshot ingestion is write-only and does not affect live F&O signals.
+* Source reuses existing `fetchOptionChain()` Kite-first / NSE-fallback path.
+* Universe is limited to `NIFTY`, `BANKNIFTY`, and `SENSEX`, which is acceptable for now because it matches the currently allowed F&O index universe.
+* Current expiry + next expiry are handled.
+* ATM ± configurable strike window is implemented.
+* Idempotent bucketed upsert is implemented.
+* Retention policy is implemented.
+* Owner-only diagnostics and manual trigger are implemented.
+* Typecheck passed.
+* 140/140 tests passed.
+* No trading logic was changed.
+
+Known limitations are accepted for now:
+
+* `tradingsymbol` and `instrument_token` are nullable.
+* Option leg OHLC fields are nullable.
+* FINNIFTY / MIDCPNIFTY / NIFTYNXT50 are not added yet because they are currently denylisted elsewhere.
+* Dev has `0` rows because `OPTION_SNAPSHOT_ENABLED` is off by design.
+
+Do not change Priority 3 further unless I separately ask.
+
+You are now approved to proceed with **Priority 4: Persist NSE/Kite Candle Warehouse** only.
+
+Scope approved for Priority 4:
+
+1. Create durable candle persistence for Indian market instruments.
+2. Start with a controlled universe only:
+
+   * NIFTY
+   * BANKNIFTY
+   * SENSEX
+   * currently supported F&O indices
+   * F&O stock universe if already available safely
+   * swing scanner universe only if safe and not too heavy
+3. Persist at least:
+
+   * `1d`
+   * `15m`
+   * optionally `5m` if existing architecture supports it safely
+4. Do not attempt tick-level candle building yet unless it already exists and is safe.
+5. Use Kite historical data / existing Kite-first data paths where available.
+6. Add database tables or migrations for candle storage with a proper unique key:
+
+   * symbol / instrument identifier
+   * exchange
+   * interval
+   * timestamp
+7. Store fields:
+
+   * open
+   * high
+   * low
+   * close
+   * volume
+   * OI where available
+   * source
+   * created_at
+   * updated_at
+8. Add idempotent upsert behavior so repeated syncs do not duplicate candles.
+9. Add backfill support:
+
+   * minimum 252 trading days for daily candles where feasible,
+   * recent intraday window for 15m candles,
+   * configurable limits to avoid API abuse.
+10. Add owner-only diagnostic endpoint/report showing:
+
+* symbols tracked,
+* intervals tracked,
+* latest candle timestamp,
+* rows by interval,
+* missing/stale symbols,
+* last sync status,
+* errors by source.
+
+11. Add safe scheduler or manual sync job, but keep it controlled and fail-safe.
+12. Add tests where applicable.
+13. Run typecheck/tests before final summary.
+
+Important guardrails remain active:
+
+* Do not change F&O signal generation logic.
+* Do not change F&O entry/exit logic.
+* Do not connect candle warehouse into live signals yet.
+* Do not change swing scoring logic.
+* Do not change swing buy/sell recommendation logic.
+* Do not change paper trading logic.
+* Do not change Kite order/execution logic.
+* Do not change strategy builder, combo lane, or scanner recommendation logic.
+* Do not start paper-equity sizing fixes.
+* Do not begin the full rebuild.
+
+This Priority 4 work is **data infrastructure only**. It is for future backtesting, charting, replay, market regime, and signal validation. It must not alter current trading decisions.
+
+Expected final output:
+
+1. Files changed.
+2. Database migration/table added.
+3. Candle ingestion design.
+4. Universe and intervals implemented.
+5. Backfill limits and API-safety controls.
+6. Diagnostic endpoint/report.
+7. Tests/typecheck result.
+8. Rows written / sample coverage.
+9. Any known limitations.
+10. Confirmation that no trading logic was changed.
+
+Proceed with Priority 4 only.
