@@ -1,0 +1,95 @@
+Priority 2 is accepted. Good work.
+
+Sector/industry mapping backfill is approved as complete.
+
+The final result is accepted:
+
+* `2120 / 2120` swing rows now have sector and industry.
+* `477 / 477` distinct symbols mapped.
+* `0` unmapped symbols.
+* Future swing scans auto-populate sector/industry.
+* Diagnostic endpoint is owner-only.
+* Tests/typecheck passed.
+* Guardrails were respected.
+
+You are now approved to proceed with **Priority 3: Persist Option-Chain Snapshots** only.
+
+Scope approved for Priority 3:
+
+1. Create a durable option-chain snapshot storage layer.
+2. Store option-chain snapshots for Indian F&O underlyings such as:
+
+   * NIFTY
+   * BANKNIFTY
+   * FINNIFTY
+   * MIDCPNIFTY
+   * NIFTYNXT50
+   * other supported F&O underlyings already present in the system, if safe
+3. Start with current expiry and next expiry only, unless existing code already supports more safely.
+4. Do not subscribe to or persist every possible option contract blindly. Use a configurable strike window such as ATM ± N strikes.
+5. Store enough fields to support future F&O research and replay, including where available:
+
+   * underlying
+   * expiry
+   * strike
+   * option type CE/PE
+   * tradingsymbol
+   * instrument token
+   * timestamp/captured_at
+   * LTP
+   * open/high/low/close if available
+   * volume
+   * OI
+   * OI change if available
+   * bid
+   * ask
+   * spread
+   * depth summary if available
+   * source
+6. Add database migration/table design carefully.
+7. Add a write-only ingestion service or job.
+8. Add idempotency/upsert handling to avoid duplicate rows for the same contract and capture time.
+9. Add retention policy support, default around 30 days unless existing architecture suggests otherwise.
+10. Add owner-only diagnostic/report showing:
+
+* underlyings tracked,
+* expiries tracked,
+* strikes tracked,
+* latest snapshot time,
+* rows written today,
+* missing contracts,
+* stale contracts,
+* data source used,
+* errors if any.
+
+11. Add tests where applicable.
+12. Run typecheck/tests before final summary.
+
+Important guardrails:
+
+* Do **not** change F&O signal generation logic.
+* Do **not** change F&O entry/exit logic.
+* Do **not** connect this snapshot data into live trading signals yet.
+* Do **not** change swing scanner logic.
+* Do **not** change paper trading logic.
+* Do **not** change Kite order/execution logic.
+* Do **not** start candle persistence.
+* Do **not** start paper-equity sizing fixes.
+* Do **not** begin the full rebuild.
+
+This Priority 3 work should be treated as **data infrastructure only**. It is for future research, replay, backtesting, PCR, OI buildup, IV/straddle/max-pain work later. It must not alter current trading decisions.
+
+Expected final output:
+
+1. Files changed.
+2. Database migration/table added.
+3. Snapshot ingestion design.
+4. Underlyings/expiries/strike window implemented.
+5. Fields stored.
+6. Diagnostic endpoint/report.
+7. Tests/typecheck result.
+8. Rows written / sample coverage.
+9. Any known limitations.
+10. Confirmation that no trading logic was changed.
+
+Proceed with Priority 3 only.

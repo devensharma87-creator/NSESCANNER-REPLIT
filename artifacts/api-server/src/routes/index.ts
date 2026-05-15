@@ -16,9 +16,11 @@ import adminRouter from "./admin";
 import paperRouter from "./paper";
 import paperComboRouter from "./paperCombo";
 import homeRouter from "./home";
+import optionChainSnapshotRouter from "./optionChainSnapshot";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
 import { startSwingScanScheduler } from "../lib/swingScannerStore";
+import { startOptionSnapshotIngestor } from "../lib/optionChainSnapshotIngestor";
 
 const router: IRouter = Router();
 
@@ -39,6 +41,7 @@ router.use(adminRouter);      // /admin/users[/:id] — owner-only via router-le
 router.use(paperRouter);      // /paper/* — owner-only paper trading (per-route requireOwner)
 router.use(paperComboRouter); // /paper/combos/* — owner-only manual multi-leg combo lane (Tier C)
 router.use(homeRouter);       // /home/enrichment — aggregated home dashboard data
+router.use(optionChainSnapshotRouter); // /option-snapshots/* — owner-only diagnostics for write-only F&O snapshot store
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 startInstFlowsRefresher();
@@ -48,5 +51,10 @@ void bootstrapKite();
 // 15-min intraday LTP refresh during market hours. Single-replica
 // assumption (latches live in-process).
 startSwingScanScheduler();
+// Option-chain snapshot ingestor — gated by `OPTION_SNAPSHOT_ENABLED`
+// (or auto-detected REPLIT_DEPLOYMENT). Default-OFF in dev so writes
+// don't fight production. Write-only data layer — does not feed any
+// trading decision.
+startOptionSnapshotIngestor();
 
 export default router;

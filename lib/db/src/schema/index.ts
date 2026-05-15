@@ -8,3 +8,4 @@ export * from "./paperTradeCombo";
 export * from "./globalScanner";
 export * from "./ivHistory";
 export * from "./swingScan";
+export * from "./optionChainSnapshot";
