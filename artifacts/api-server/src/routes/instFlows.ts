@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import {
   getFiiDiiMonthly,
   getParticipantOi,
+  getParticipantOiAudit,
   refreshFiiDii,
   refreshParticipantOi,
 } from "../lib/instFlows";
@@ -25,6 +26,28 @@ router.get("/inst/participant-oi", async (req, res, next) => {
     const data = await getParticipantOi(date);
     if (!data) {
       res.json({ date: null, rows: [], availableDates: [], generatedAt: new Date().toISOString() });
+      return;
+    }
+    res.json({ ...data, generatedAt: new Date().toISOString() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/inst/participant-oi/audit", async (req, res, next) => {
+  try {
+    const date = typeof req.query.date === "string" ? req.query.date : undefined;
+    const data = await getParticipantOiAudit(date);
+    if (!data) {
+      res.json({
+        date: null,
+        previousDate: null,
+        source: "nse-archive",
+        sourceUrl: null,
+        fetchedAt: null,
+        participants: [],
+        generatedAt: new Date().toISOString(),
+      });
       return;
     }
     res.json({ ...data, generatedAt: new Date().toISOString() });

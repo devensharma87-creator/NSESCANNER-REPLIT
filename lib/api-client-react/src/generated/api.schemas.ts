@@ -1171,6 +1171,62 @@ exists. Same shape as `rows`.
   generatedAt: string;
 }
 
+export type ParticipantOiAuditCellSegment =
+  (typeof ParticipantOiAuditCellSegment)[keyof typeof ParticipantOiAuditCellSegment];
+
+export const ParticipantOiAuditCellSegment = {
+  indexFut: "indexFut",
+  stockFut: "stockFut",
+  indexOpt: "indexOpt",
+  stockOpt: "stockOpt",
+} as const;
+
+/**
+ * Raw long/short legs that fed the formula.
+ */
+export type ParticipantOiAuditCellComponents = { [key: string]: number };
+
+/**
+ * Computed Net OI for one (participant × segment) cell, alongside the
+raw long/short components that fed the formula. Use this to verify
+that the directional options formula is being applied correctly.
+
+ */
+export interface ParticipantOiAuditCell {
+  segment: ParticipantOiAuditCellSegment;
+  /** Human-readable formula string used to compute `net`. */
+  formula: string;
+  /** Raw long/short legs that fed the formula. */
+  components?: ParticipantOiAuditCellComponents;
+  net: number;
+  /** Net(today) − Net(prev). Null when prev data is missing. */
+  change?: number | null;
+}
+
+export interface ParticipantOiAuditParticipant {
+  clientType: string;
+  segments: ParticipantOiAuditCell[];
+}
+
+export interface ParticipantOiAuditResponse {
+  /** Trading date the audit covers (YYYY-MM-DD). */
+  date: string | null;
+  /** Prior trading date with data, used as the baseline for Change OI.
+   */
+  previousDate?: string | null;
+  /** Logical source name (e.g. "nse-archive"). */
+  source: string;
+  /** Upstream URL the persisted row originated from, when known. The
+participant-OI ingestion always reads
+`https://archives.nseindia.com/content/nsccl/fao_participant_oi_DDMMYYYY.csv`.
+ */
+  sourceUrl: string | null;
+  /** When the persisted row was last upserted. */
+  fetchedAt: string | null;
+  participants: ParticipantOiAuditParticipant[];
+  generatedAt: string;
+}
+
 export type MarketHolidayRegion =
   (typeof MarketHolidayRegion)[keyof typeof MarketHolidayRegion];
 
@@ -3523,6 +3579,13 @@ export type GetFiiDiiParams = {
 };
 
 export type GetParticipantOiParams = {
+  /**
+   * YYYY-MM-DD; latest if omitted
+   */
+  date?: string;
+};
+
+export type GetParticipantOiAuditParams = {
   /**
    * YYYY-MM-DD; latest if omitted
    */

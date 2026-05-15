@@ -4647,6 +4647,72 @@ export const GetParticipantOiResponse = zod.object({
 });
 
 /**
+ * @summary Diagnostic audit of Participant-wise OI for a single trading day.
+Returns source metadata, raw long/short components, computed Net /
+Change OI per (participant × segment), the formula string used, and
+the corresponding day-over-day previous trading date pulled from the
+same DB rows the public /inst/participant-oi endpoint consumes.
+Read-only, no secrets.
+
+ */
+export const GetParticipantOiAuditQueryParams = zod.object({
+  date: zod.coerce.string().optional(),
+});
+
+export const GetParticipantOiAuditResponse = zod.object({
+  date: zod
+    .string()
+    .nullable()
+    .describe("Trading date the audit covers (YYYY-MM-DD)."),
+  previousDate: zod
+    .string()
+    .nullish()
+    .describe(
+      "Prior trading date with data, used as the baseline for Change OI.\n",
+    ),
+  source: zod.string().describe('Logical source name (e.g. \"nse-archive\").'),
+  sourceUrl: zod
+    .string()
+    .nullable()
+    .describe(
+      "Upstream URL the persisted row originated from, when known. The\nparticipant-OI ingestion always reads\n`https:\/\/archives.nseindia.com\/content\/nsccl\/fao_participant_oi_DDMMYYYY.csv`.\n",
+    ),
+  fetchedAt: zod.coerce
+    .date()
+    .nullable()
+    .describe("When the persisted row was last upserted."),
+  participants: zod.array(
+    zod.object({
+      clientType: zod.string(),
+      segments: zod.array(
+        zod
+          .object({
+            segment: zod.enum(["indexFut", "stockFut", "indexOpt", "stockOpt"]),
+            formula: zod
+              .string()
+              .describe("Human-readable formula string used to compute `net`."),
+            components: zod
+              .record(zod.string(), zod.number())
+              .optional()
+              .describe("Raw long\/short legs that fed the formula."),
+            net: zod.number(),
+            change: zod
+              .number()
+              .nullish()
+              .describe(
+                "Net(today) − Net(prev). Null when prev data is missing.",
+              ),
+          })
+          .describe(
+            "Computed Net OI for one (participant × segment) cell, alongside the\nraw long\/short components that fed the formula. Use this to verify\nthat the directional options formula is being applied correctly.\n",
+          ),
+      ),
+    }),
+  ),
+  generatedAt: zod.coerce.date(),
+});
+
+/**
  * @summary NSE F&O Ban List — stocks restricted to square-off-only trades (MWPL breach)
  */
 export const GetFnoBanListResponse = zod.object({

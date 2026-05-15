@@ -671,6 +671,28 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ParticipantOiResponse" }
 
+  /inst/participant-oi/audit:
+    get:
+      operationId: getParticipantOiAudit
+      tags: [institutional]
+      summary: |
+        Diagnostic audit of Participant-wise OI for a single trading day.
+        Returns source metadata, raw long/short components, computed Net /
+        Change OI per (participant × segment), the formula string used, and
+        the corresponding day-over-day previous trading date pulled from the
+        same DB rows the public /inst/participant-oi endpoint consumes.
+        Read-only, no secrets.
+      parameters:
+        - in: query
+          name: date
+          schema: { type: string, description: "YYYY-MM-DD; latest if omitted" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParticipantOiAuditResponse" }
+
   /inst/fno-ban:
     get:
       operationId: getFnoBanList
@@ -2350,6 +2372,74 @@ components:
             exists. Same shape as `rows`.
           items: { $ref: "#/components/schemas/ParticipantOiRow" }
         generatedAt:    { type: string, format: date-time }
+
+    ParticipantOiAuditCell:
+      type: object
+      description: |
+        Computed Net OI for one (participant × segment) cell, alongside the
+        raw long/short components that fed the formula. Use this to verify
+        that the directional options formula is being applied correctly.
+      required: [segment, formula, net]
+      properties:
+        segment:
+          type: string
+          enum: [indexFut, stockFut, indexOpt, stockOpt]
+        formula:
+          type: string
+          description: Human-readable formula string used to compute `net`.
+        components:
+          type: object
+          description: Raw long/short legs that fed the formula.
+          additionalProperties: { type: integer }
+        net: { type: integer }
+        change:
+          type: integer
+          nullable: true
+          description: Net(today) − Net(prev). Null when prev data is missing.
+
+    ParticipantOiAuditParticipant:
+      type: object
+      required: [clientType, segments]
+      properties:
+        clientType: { type: string }
+        segments:
+          type: array
+          items: { $ref: "#/components/schemas/ParticipantOiAuditCell" }
+
+    ParticipantOiAuditResponse:
+      type: object
+      required: [date, source, sourceUrl, fetchedAt, participants, generatedAt]
+      properties:
+        date:
+          type: string
+          nullable: true
+          description: Trading date the audit covers (YYYY-MM-DD).
+        previousDate:
+          type: string
+          nullable: true
+          description: |
+            Prior trading date with data, used as the baseline for Change OI.
+        source:
+          type: string
+          description: Logical source name (e.g. "nse-archive").
+        sourceUrl:
+          type: string
+          nullable: true
+          description: |
+            Upstream URL the persisted row originated from, when known. The
+            participant-OI ingestion always reads
+            `https://archives.nseindia.com/content/nsccl/fao_participant_oi_DDMMYYYY.csv`.
+        fetchedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the persisted row was last upserted.
+        participants:
+          type: array
+          items: { $ref: "#/components/schemas/ParticipantOiAuditParticipant" }
+        generatedAt:
+          type: string
+          format: date-time
 
     MarketHoliday:
       type: object

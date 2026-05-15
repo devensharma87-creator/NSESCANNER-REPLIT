@@ -1,0 +1,192 @@
+Please investigate and fix the **FII/DII Cash Market and Participant-wise OI data mismatch** shown in the attached screenshots.
+
+I have attached screenshots from:
+
+1. Our website: `marketscannerbydev.in/flows`
+2. Reference websites showing FII/DII Cash Market and Participant-wise OI data
+3. StockMojo FII/DII summary and cash market pages
+
+The issue is **not just visual**. Some data points match, but several **Index Options** and **Stock Options** participant-wise OI values appear mismatched.
+
+Important: Do **not** blindly copy another website. Use official NSE/source data as the source of truth, and use the screenshots only as a QA comparison.
+
+Observed from screenshots:
+
+Cash Market seems mostly correct for 14 May:
+
+* FII Cash Net: `+187.46 Cr`
+* DII Cash Net: `+684.33 Cr`
+* Nifty: around `23,689.6`, `+1.18%`
+
+But Participant-wise OI appears mismatched, especially:
+
+* Index Options
+* Stock Options
+
+Futures rows look closer to reference, but option rows need a full audit.
+
+Expected reference values for 14 May from screenshots, to be verified against official source:
+
+**Index Futures**
+
+* FII: `-2.26L`
+* Pro: `27,922`
+* Client: `1.65L`
+* DII: `32,191`
+
+**Index Options**
+
+* FII: `-6.12L`
+* Pro: `-49,892`
+* Client: `7.12L`
+* DII: `-50,689`
+
+**Stock Futures**
+
+* FII: `6.53L`
+* Pro: `4.73L`
+* Client: `28.17L`
+* DII: `-39.44L`
+
+**Stock Options**
+
+* FII: `-1.98L`
+* Pro: `-7.62L`
+* Client: `13.94L`
+* DII: `-4.34L`
+
+Also verify the **Change OI** values. For example, reference screenshots show approximately:
+
+**Index Options Change**
+
+* FII: `+86,383`
+* Pro: `+1.63L`
+* Client: `-2.47L`
+* DII: `-1,645`
+
+**Stock Options Change**
+
+* FII: `+814`
+* Pro: `+68,025`
+* Client: `-54,360`
+* DII: `-14,479`
+
+Please investigate the full data pipeline:
+
+1. Identify the current source used by our `/flows` page.
+2. Identify whether we are mixing sources such as NSE archive, niftytrader history, cached DB rows, or fallback data.
+3. Confirm the date being displayed. The UI shows “Today, 15 May” but the data is for **14 May**, so ensure all cards/tables/charts clearly show the actual trading date.
+4. Verify whether Cash Market and Participant-wise OI are using the same trade date.
+5. Check whether current day vs previous trading day calculation is correct.
+6. Check if holidays/weekends/non-trading days are handled correctly.
+
+Please specifically audit the formula used for Participant-wise OI.
+
+Use these formulas unless official NSE data structure requires adjustment:
+
+**Index Futures Net OI**
+`Future Index Long - Future Index Short`
+
+**Stock Futures Net OI**
+`Future Stock Long - Future Stock Short`
+
+**Index Options Directional Net OI**
+`(Index Call Long + Index Put Short) - (Index Call Short + Index Put Long)`
+
+**Stock Options Directional Net OI**
+`(Stock Call Long + Stock Put Short) - (Stock Call Short + Stock Put Long)`
+
+Do not calculate options net as simply:
+
+`Total Option Long - Total Option Short`
+
+That can give the wrong directional reading because calls and puts have opposite directional meaning.
+
+Also verify unit formatting:
+
+* Cash market values should be in `Cr`
+* OI values should be contracts/lots formatted as raw number or `L`
+* Do not label OI contracts as rupee crores
+* `1L = 100,000`
+* Preserve signs correctly
+* Do not round too aggressively before comparison
+
+Please add an audit/debug endpoint or internal helper, for example:
+
+`/api/flows/participant-oi/audit?date=YYYY-MM-DD`
+
+It should return:
+
+* source name
+* source URL/file/date
+* fetched timestamp
+* raw participant rows
+* current day raw long/short components
+* previous trading day raw long/short components
+* computed net OI
+* computed change OI
+* formula used
+* final formatted value shown in UI
+
+This will help us diagnose future mismatch issues quickly.
+
+UI improvements needed:
+
+1. Add a clear source/date label:
+
+   * Example: `Participant OI: NSE EOD data as of 14 May 2026`
+   * Example: `Cash Market: NSE FII/DII cash data as of 14 May 2026`
+
+2. If any fallback/mixed source is used, show it clearly:
+
+   * Example: `Mixed sources: NSE archive + fallback history`
+   * Do not silently mix live, historical, and fallback data.
+
+3. Add tooltip or “How this is calculated” section for Participant-wise OI:
+
+   * Explain futures net formula
+   * Explain options directional net formula
+   * Explain Change OI = current net - previous trading day net
+
+4. Make sure the FII/DII Cash Market tab and Summary tab are internally consistent.
+
+Tests required:
+
+1. Unit tests for participant OI formulas:
+
+   * Index futures
+   * Stock futures
+   * Index options directional net
+   * Stock options directional net
+   * Change vs previous trading day
+   * Sign handling
+   * Unit formatting
+
+2. Add a fixture for 14 May data using the official/raw source rows.
+
+   * The computed outputs should match the verified values above if official data confirms them.
+
+3. Integration test for `/flows` or the underlying API:
+
+   * Same date should return same values across Summary, F&O, Cash Market, and FII History where applicable.
+
+4. Regression test to ensure options OI is not calculated using the wrong formula.
+
+Very important guardrails:
+
+* Do not touch trading signals.
+* Do not touch paper trading.
+* Do not touch Kite login.
+* Do not touch strategy builder or combo paper trader.
+* Do not change scanner recommendation logic.
+* This task is only about FII/DII Cash Market + Participant-wise OI data correctness, source consistency, formulas, labels, and tests.
+
+Acceptance criteria:
+
+1. Our 14 May Cash Market data matches official source.
+2. Our Participant-wise Index Options and Stock Options values match official source.
+3. Our UI no longer shows misleading “today” wording when displaying previous trading day EOD data.
+4. The audit endpoint/helper clearly explains how each number was calculated.
+5. Summary, Cash Market, and Participant OI views are internally consistent.
+6. All tests and typecheck pass.
+7. Provide before/after comparison using the attached screenshots.

@@ -39,6 +39,7 @@ import type {
   GetPaperReportFoYearlyParams,
   GetPaperTradesEqParams,
   GetPaperTradesFOParams,
+  GetParticipantOiAuditParams,
   GetParticipantOiParams,
   GetStockHistoryParams,
   GlobalAuthStatus,
@@ -101,6 +102,7 @@ import type {
   PaperTradeFOClosed,
   PaperTradesEqResponse,
   PaperTradesFOResponse,
+  ParticipantOiAuditResponse,
   ParticipantOiResponse,
   PostOptionStrategyCustom400,
   PreMarketReport,
@@ -3568,6 +3570,124 @@ export function useGetParticipantOi<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetParticipantOiQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Diagnostic audit of Participant-wise OI for a single trading day.
+Returns source metadata, raw long/short components, computed Net /
+Change OI per (participant × segment), the formula string used, and
+the corresponding day-over-day previous trading date pulled from the
+same DB rows the public /inst/participant-oi endpoint consumes.
+Read-only, no secrets.
+
+ */
+export const getGetParticipantOiAuditUrl = (
+  params?: GetParticipantOiAuditParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/inst/participant-oi/audit?${stringifiedParams}`
+    : `/api/inst/participant-oi/audit`;
+};
+
+export const getParticipantOiAudit = async (
+  params?: GetParticipantOiAuditParams,
+  options?: RequestInit,
+): Promise<ParticipantOiAuditResponse> => {
+  return customFetch<ParticipantOiAuditResponse>(
+    getGetParticipantOiAuditUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetParticipantOiAuditQueryKey = (
+  params?: GetParticipantOiAuditParams,
+) => {
+  return [
+    `/api/inst/participant-oi/audit`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetParticipantOiAuditQueryOptions = <
+  TData = Awaited<ReturnType<typeof getParticipantOiAudit>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetParticipantOiAuditParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getParticipantOiAudit>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetParticipantOiAuditQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getParticipantOiAudit>>
+  > = ({ signal }) =>
+    getParticipantOiAudit(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getParticipantOiAudit>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetParticipantOiAuditQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getParticipantOiAudit>>
+>;
+export type GetParticipantOiAuditQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Diagnostic audit of Participant-wise OI for a single trading day.
+Returns source metadata, raw long/short components, computed Net /
+Change OI per (participant × segment), the formula string used, and
+the corresponding day-over-day previous trading date pulled from the
+same DB rows the public /inst/participant-oi endpoint consumes.
+Read-only, no secrets.
+
+ */
+
+export function useGetParticipantOiAudit<
+  TData = Awaited<ReturnType<typeof getParticipantOiAudit>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetParticipantOiAuditParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getParticipantOiAudit>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetParticipantOiAuditQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

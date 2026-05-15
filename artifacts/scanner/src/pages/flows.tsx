@@ -7,8 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Layers, Users, Building2, RefreshCw, Minus } from "lucide-react";
+import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Layers, Users, Building2, RefreshCw, Minus, Info } from "lucide-react";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
+import {
+  computeSegmentNet,
+  SEGMENT_FORMULAS,
+  type SegmentKey as PoiSegmentKey,
+  type ParticipantOiComponents,
+} from "@/lib/participantOi";
 import {
   ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, Tooltip as RTooltip,
   CartesianGrid, ReferenceLine, Cell,
@@ -453,9 +459,11 @@ function fmtLakhSigned(n: number | null | undefined): string {
   return n > 0 ? `+${s}` : s;
 }
 
-/* ── Per-segment Net OI: futures use long-short directly; options sum
-   (CallLong + PutLong) - (CallShort + PutShort). Lifted out so both
-   "today" and "previous day" rows go through the identical formula. */
+/* ── Per-segment Net OI shape. Math itself lives in `lib/participantOi.ts`
+   so that both "today" and "previous day" rows go through the identical,
+   unit-tested helper. Futures use Long − Short; options use the
+   DIRECTIONAL formula (CallLong + PutShort) − (CallShort + PutLong) — see
+   SEGMENT_FORMULAS for the full contract. */
 type ParticipantRow = {
   clientType: string;
   futureIndexLong: number; futureIndexShort: number;
@@ -485,17 +493,18 @@ const PARTICIPANT_DISPLAY: { key: string; label: string }[] = [
   { key: "Client", label: "Client" },
 ];
 
+/**
+ * Thin adapter — delegates to the pure, unit-tested helper in
+ * `lib/participantOi.ts`. Kept as a named function so the existing call
+ * sites in this file (segment cards, day-over-day change, Σ checks) read
+ * unchanged. The directional options formula lives in the helper, not here
+ * — see `SEGMENT_FORMULAS` for the exact contract.
+ */
 function netForSegment(r: ParticipantRow, seg: SegmentKey): number {
-  switch (seg) {
-    case "indexFut": return r.futureIndexLong - r.futureIndexShort;
-    case "stockFut": return r.futureStockLong - r.futureStockShort;
-    case "indexOpt":
-      return (r.optionIndexCallLong + r.optionIndexPutLong)
-           - (r.optionIndexCallShort + r.optionIndexPutShort);
-    case "stockOpt":
-      return (r.optionStockCallLong + r.optionStockPutLong)
-           - (r.optionStockCallShort + r.optionStockPutShort);
-  }
+  // SegmentKey on this page and PoiSegmentKey from the helper are the same
+  // four-string union; the cast is just to satisfy the structural-only
+  // ParticipantOiComponents shape (which is a strict subset of ParticipantRow).
+  return computeSegmentNet(r as ParticipantOiComponents, seg as PoiSegmentKey);
 }
 
 /* ── Stance classification: turns (net, change) into a human-readable
@@ -854,10 +863,33 @@ function ParticipantOiSection() {
             Participant-wise Open Interest
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1 font-mono">
-            Net OI by segment and participant. Source: NSE F&amp;O participant-wise OI archive.
+            Net OI by segment and participant. Source: <span className="text-foreground">NSE F&amp;O participant-wise OI archive (EOD bhavcopy)</span>.
             {currentDate && <> · As of <span className="text-foreground">{fmtDate(currentDate)}</span></>}
             {previousDate && view === "segment" && <> · Prev <span className="text-foreground">{fmtDate(previousDate)}</span></>}
           </p>
+          <details className="mt-2 group">
+            <summary className="cursor-pointer text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+              <Info className="h-3 w-3" /> How this is calculated
+            </summary>
+            {/* Disclosure surface for the directional options formula. The
+                values shown in the segment cards/table use the SAME formulas
+                as listed here, sourced from `lib/participantOi.ts`. Audit
+                consumers can hit `GET /api/inst/participant-oi/audit?date=…`
+                for raw long/short legs + computed net + change per cell. */}
+            <div className="mt-2 p-3 border border-border/40 rounded bg-muted/[0.03] text-[11px] font-mono text-muted-foreground space-y-1.5 leading-relaxed">
+              <div><span className="text-foreground">Index Futures Net OI</span> = {SEGMENT_FORMULAS.indexFut}</div>
+              <div><span className="text-foreground">Stock Futures Net OI</span> = {SEGMENT_FORMULAS.stockFut}</div>
+              <div><span className="text-foreground">Index Options Net OI</span> = {SEGMENT_FORMULAS.indexOpt}</div>
+              <div><span className="text-foreground">Stock Options Net OI</span> = {SEGMENT_FORMULAS.stockOpt}</div>
+              <div className="pt-1 border-t border-border/30 mt-2">
+                <span className="text-foreground">Change OI</span> = Net(today) − Net(previous trading day). Weekends and holidays are skipped automatically — "previous" is the most recent prior date for which NSE has published participant data.
+              </div>
+              <div>
+                Options use the <span className="text-foreground">directional</span> formula (long calls and short puts are bullish exposure; short calls and long puts are bearish exposure). A naive "Total Long − Total Short" reading would be misleading because calls and puts move the book in opposite directions.
+              </div>
+              <div>Units: contracts (raw lot count), formatted as L = 100,000. Cash market values are ₹ Cr.</div>
+            </div>
+          </details>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {/* Analysis / Detail view switch — Analysis is the default rich

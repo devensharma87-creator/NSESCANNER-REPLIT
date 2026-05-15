@@ -551,6 +551,187 @@ export async function getParticipantOi(date?: string): Promise<ParticipantOiDayD
   return { date: useDate, rows: mapped, availableDates, previousDate: prevDate, previousRows };
 }
 
+// ──────────────── Audit (diagnostic) endpoint ────────────────
+
+/**
+ * Per-segment formula strings — kept in sync with the scanner's pure
+ * helper at `artifacts/scanner/src/lib/participantOi.ts`. Hard-coded here
+ * (rather than imported from the scanner package) because api-server is a
+ * sibling artifact and must not depend on a sibling's source. The unit
+ * tests on the scanner side guard the formula contract; this string is
+ * purely documentation surfaced through the audit response.
+ */
+const PARTICIPANT_OI_FORMULAS = {
+  indexFut: "Future Index Long − Future Index Short",
+  stockFut: "Future Stock Long − Future Stock Short",
+  indexOpt:
+    "(Index Call Long + Index Put Short) − (Index Call Short + Index Put Long)",
+  stockOpt:
+    "(Stock Call Long + Stock Put Short) − (Stock Call Short + Stock Put Long)",
+} as const;
+
+const PARTICIPANT_OI_SOURCE_URL_TEMPLATE =
+  "https://archives.nseindia.com/content/nsccl/fao_participant_oi_DDMMYYYY.csv";
+
+export interface ParticipantOiAuditCellDto {
+  segment: "indexFut" | "stockFut" | "indexOpt" | "stockOpt";
+  formula: string;
+  components: Record<string, number>;
+  net: number;
+  change: number | null;
+}
+
+export interface ParticipantOiAuditParticipantDto {
+  clientType: string;
+  segments: ParticipantOiAuditCellDto[];
+}
+
+export interface ParticipantOiAuditResponseDto {
+  date: string | null;
+  previousDate: string | null;
+  source: string;
+  sourceUrl: string | null;
+  fetchedAt: string | null;
+  participants: ParticipantOiAuditParticipantDto[];
+}
+
+function netForRow(
+  r: typeof participantOiDailyTable.$inferSelect,
+  seg: keyof typeof PARTICIPANT_OI_FORMULAS,
+): { net: number; components: Record<string, number> } {
+  switch (seg) {
+    case "indexFut":
+      return {
+        net: r.futureIndexLong - r.futureIndexShort,
+        components: {
+          futureIndexLong: r.futureIndexLong,
+          futureIndexShort: r.futureIndexShort,
+        },
+      };
+    case "stockFut":
+      return {
+        net: r.futureStockLong - r.futureStockShort,
+        components: {
+          futureStockLong: r.futureStockLong,
+          futureStockShort: r.futureStockShort,
+        },
+      };
+    case "indexOpt":
+      return {
+        net:
+          (r.optionIndexCallLong + r.optionIndexPutShort) -
+          (r.optionIndexCallShort + r.optionIndexPutLong),
+        components: {
+          optionIndexCallLong: r.optionIndexCallLong,
+          optionIndexCallShort: r.optionIndexCallShort,
+          optionIndexPutLong: r.optionIndexPutLong,
+          optionIndexPutShort: r.optionIndexPutShort,
+        },
+      };
+    case "stockOpt":
+      return {
+        net:
+          (r.optionStockCallLong + r.optionStockPutShort) -
+          (r.optionStockCallShort + r.optionStockPutLong),
+        components: {
+          optionStockCallLong: r.optionStockCallLong,
+          optionStockCallShort: r.optionStockCallShort,
+          optionStockPutLong: r.optionStockPutLong,
+          optionStockPutShort: r.optionStockPutShort,
+        },
+      };
+  }
+}
+
+/**
+ * Returns the full breakdown for one trading day: source/date metadata,
+ * raw long/short legs as persisted, and the directional Net + day-over-day
+ * Change for every (participant × segment) pair, alongside the formula
+ * string that produced each value. Designed for QA against reference
+ * publishers (StockMojo, niftytrader) when numbers diverge.
+ */
+export async function getParticipantOiAudit(
+  date?: string,
+): Promise<ParticipantOiAuditResponseDto | null> {
+  const dateRows = await db
+    .selectDistinct({ d: participantOiDailyTable.date })
+    .from(participantOiDailyTable)
+    .orderBy(desc(participantOiDailyTable.date))
+    .limit(60);
+  const availableDates = dateRows.map(r => r.d);
+  if (availableDates.length === 0) return null;
+
+  const useDate =
+    date && availableDates.includes(date) ? date : availableDates[0];
+  const idx = availableDates.indexOf(useDate);
+  const prevDate: string | null =
+    idx >= 0 && idx + 1 < availableDates.length ? availableDates[idx + 1] : null;
+
+  const rawRows = await db
+    .select()
+    .from(participantOiDailyTable)
+    .where(
+      prevDate
+        ? inArray(participantOiDailyTable.date, [useDate, prevDate])
+        : eq(participantOiDailyTable.date, useDate),
+    );
+
+  const todayRows = rawRows.filter(r => r.date === useDate);
+  const prevByType = new Map(
+    rawRows.filter(r => r.date === prevDate).map(r => [r.clientType, r]),
+  );
+
+  const segments = Object.keys(PARTICIPANT_OI_FORMULAS) as Array<
+    keyof typeof PARTICIPANT_OI_FORMULAS
+  >;
+  const participants: ParticipantOiAuditParticipantDto[] = todayRows
+    .filter(r => !/^total$/i.test(r.clientType))
+    .map(r => {
+      const prev = prevByType.get(r.clientType);
+      return {
+        clientType: r.clientType,
+        segments: segments.map(seg => {
+          const cur = netForRow(r, seg);
+          const prevNet = prev ? netForRow(prev, seg).net : null;
+          return {
+            segment: seg,
+            formula: PARTICIPANT_OI_FORMULAS[seg],
+            components: cur.components,
+            net: cur.net,
+            change: prevNet == null ? null : cur.net - prevNet,
+          };
+        }),
+      };
+    });
+
+  // `updatedAt` is the most recent upsert across rows for this date — used
+  // by the UI to show the user when the persisted snapshot was last touched.
+  const fetchedAt =
+    todayRows.length > 0
+      ? todayRows
+          .map(r => r.updatedAt)
+          .reduce((a, b) => (a > b ? a : b))
+          .toISOString()
+      : null;
+
+  // Reconstruct the source URL the persisted row came from. Format matches
+  // `fetchParticipantOiForDate` exactly so the audit string is verifiable.
+  const [yyyy, mm, dd] = useDate.split("-");
+  const sourceUrl = PARTICIPANT_OI_SOURCE_URL_TEMPLATE.replace(
+    "DDMMYYYY",
+    `${dd}${mm}${yyyy}`,
+  );
+
+  return {
+    date: useDate,
+    previousDate: prevDate,
+    source: "nse-archive",
+    sourceUrl,
+    fetchedAt,
+    participants,
+  };
+}
+
 // ──────────────── Background refresher ────────────────
 
 let refreshTimer: NodeJS.Timeout | null = null;
