@@ -1,0 +1,70 @@
+Documentation cleanup is accepted. Good work.
+
+Accepted final state:
+
+* `docs/data-infrastructure.md` created.
+* `docs/audit-implementation-status-2026-05-15.md` created.
+* `replit.md` trimmed into short structured pointers.
+* No runtime code changed.
+* No schema changed.
+* No data-ingestion behavior changed.
+* No trading logic changed.
+* Tests/typecheck were correctly not re-run because this was documentation-only.
+
+You are now approved to proceed with **Priority 6: Owner-only Diagnostic Route Security Regression Tests** only.
+
+Scope approved:
+
+1. Add regression tests confirming owner-only protection for the new diagnostic/manual endpoints:
+
+   * `/api/paper/eq/sizing-preview`
+   * `/api/paper/eq/candidates-diagnostic`
+   * `/api/option-snapshots/diagnostics`
+   * `/api/option-snapshots/run-now`
+   * `/api/candles/diagnostics`
+   * `/api/candles/sync`
+   * `/api/stocks-to-watch/diagnostics/sector-coverage`
+
+2. Tests should verify:
+
+   * unauthenticated request returns `401` or appropriate auth failure,
+   * non-owner request is rejected if the test harness supports it,
+   * public-mode read bypass does not accidentally expose these routes,
+   * owner-authenticated request reaches the route handler safely, using mocks if needed.
+
+3. This is a **test-only priority**.
+   Do not modify endpoint behavior unless a real security bug is found.
+
+4. If a bug is found:
+
+   * stop,
+   * report the exact route,
+   * explain the exposure,
+   * propose the smallest fix,
+   * wait for approval before changing runtime code.
+
+5. Do not change:
+
+   * F&O signal logic,
+   * swing scanner logic,
+   * paper trading execution,
+   * Kite order/execution,
+   * strategy builder,
+   * combo lane,
+   * scanner recommendation logic,
+   * data ingestion behavior,
+   * database schema,
+   * scheduler behavior.
+
+6. Run the relevant test suite and typecheck if code/test files are touched.
+
+Expected final output:
+
+1. Test files added/changed.
+2. Routes covered.
+3. Auth cases covered.
+4. Test/typecheck results.
+5. Any security gaps found.
+6. Confirmation that no runtime/trading/data-ingestion logic was changed.
+
+Proceed with Priority 6 tests only.
