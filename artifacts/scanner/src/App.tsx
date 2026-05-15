@@ -34,6 +34,7 @@ import AuditPage from "@/pages/audit";
 import StatusPage from "@/pages/status";
 import Manifesto from "@/pages/manifesto";
 import AdminPage from "@/pages/admin";
+import InfraHealthPage from "@/pages/infra-health";
 import PaperTrading from "@/pages/paper-trading";
 import PaperReports from "@/pages/paper-reports";
 import DisclaimerPage from "@/pages/legal/disclaimer";
@@ -91,6 +92,7 @@ function Router() {
       <Route path="/status" component={guarded(StatusPage, { ownerOnly: true })} />
       <Route path="/manifesto" component={guarded(Manifesto, { ownerOnly: true })} />
       <Route path="/admin" component={guarded(AdminPage, { ownerOnly: true })} />
+      <Route path="/infra-health" component={guarded(InfraHealthPage, { ownerOnly: true })} />
       <Route path="/paper-trading" component={guarded(PaperTrading, { ownerOnly: true })} />
       <Route path="/paper-reports" component={guarded(PaperReports, { ownerOnly: true })} />
 

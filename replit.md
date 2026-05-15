@@ -46,6 +46,9 @@ A comprehensive platform for scanning and analyzing the Indian stock market, pro
 - **`docs/data-infrastructure.md`** — per-feature notes for sector map, option-chain snapshots, candle warehouse, equity sizing helper, combo lane.
 - **`docs/audit-implementation-status-2026-05-15.md`** — implementation status report for audit Priorities 1-5 (all COMPLETED 2026-05-15) plus pending operator security actions and remaining audit backlog.
 
+### Owner-only Data Infrastructure Health dashboard (Priority 10, 2026-05-15)
+Read-only owner-only roll-up at `/infra-health` (nav: INFRA next to ADMIN). Five sections: Security Status, Sector/Industry Mapping, Candle Warehouse, F&O Option-Chain Snapshots (diagnostics + Priority 9 analytics), Equity Risk Diagnostics (incl. on-demand sizing-preview form). Pure severity helpers in `artifacts/scanner/src/lib/infraHealth.ts` (`deriveAgeSeverity`, `deriveCoverageSeverity`, `deriveSnapshotSeverity`, `deriveCandleSeverity`, `deriveSnapshotSectionSeverity`, `formatAge`, `rollUp`). Snapshot section badge AND header roll-up both consume `deriveSnapshotSectionSeverity` so analytics-down with diag-green correctly surfaces as WARN, never OK. Independent 30s wall-clock state so staleness ages in real time even with auto-refresh OFF. Consumes existing endpoints only (`/api/security/audit`, `/api/stocks-to-watch/diagnostics/sector-coverage`, `/api/option-snapshots/diagnostics`, `/api/option-snapshots/analytics`, `/api/candles/diagnostics`, `/api/paper/eq/candidates-diagnostic`, `/api/paper/eq/sizing-preview`). Zero backend, signal, scheduler, ingestion, or schema changes. 16 unit tests in `infraHealth.test.ts`.
+
 ## Architecture decisions
 
 ### Cross-cutting

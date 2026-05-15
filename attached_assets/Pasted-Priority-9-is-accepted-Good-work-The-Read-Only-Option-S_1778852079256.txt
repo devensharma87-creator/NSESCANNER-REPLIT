@@ -1,0 +1,162 @@
+Priority 9 is accepted. Good work.
+
+The Read-Only Option Snapshot Analytics Diagnostics implementation is approved as complete.
+
+Accepted final state:
+
+* Pure option snapshot analytics module added.
+* Owner-only endpoint added:
+  `/api/option-snapshots/analytics`
+* PCR, CE/PE OI, OI change, highest OI strikes, highest OI-change strikes, approximate max pain, ATM strike, ATM straddle, IV averages, spread summary, and stale snapshot warning are implemented.
+* Endpoint uses existing stored `option_chain_snapshot` data only.
+* No new Kite calls were added.
+* No new NSE calls were added.
+* No ingestion behavior changed.
+* No DB schema or migration changed.
+* 323/323 tests passed.
+* Typecheck passed.
+* Architect review passed.
+* No F&O signal generation, entry/exit logic, paper trading, swing scanner, strategy, combo, scanner, Kite execution, candle warehouse, or option snapshot ingestor logic was changed.
+
+Known limitations are accepted for now:
+
+* Max pain is approximate because it only uses strikes present in the stored snapshot window.
+* PCR is OI-based only.
+* Spread summary is point-in-time L1 based.
+* Highest OI-change only considers positive buildup.
+* Staleness is wall-clock based and may show stale overnight.
+* No caching added.
+* No new index added.
+
+Do not change Priority 9 further unless I separately ask.
+
+You are now approved to proceed with **Priority 10: Owner-Only Data Infrastructure Health Dashboard / UI** only.
+
+Scope approved:
+
+1. Build a read-only owner-only UI/dashboard page that surfaces the infrastructure and diagnostic work completed so far.
+
+2. This should be a dashboard only. It must not change trading signals, scanner recommendations, paper trading, Kite order execution, or ingestion behavior.
+
+3. The dashboard should show status cards/sections for:
+
+   * Kite token encryption status,
+   * sector/industry mapping coverage,
+   * option-chain snapshot diagnostics,
+   * option snapshot analytics,
+   * candle warehouse diagnostics,
+   * equity sizing diagnostic links/status,
+   * owner-only diagnostic route health if available.
+
+4. Use existing endpoints only where possible:
+
+   * `/api/option-snapshots/diagnostics`
+   * `/api/option-snapshots/analytics`
+   * `/api/candles/diagnostics`
+   * `/api/stocks-to-watch/diagnostics/sector-coverage`
+   * `/api/paper/eq/sizing-preview`
+   * `/api/paper/eq/candidates-diagnostic`
+   * any existing owner/security audit endpoint if already present.
+
+5. The dashboard should include clear visual states:
+
+   * OK / Green
+   * Warning / Amber
+   * Failed / Red
+   * Disabled / Grey
+   * Stale / Amber or Red depending on severity
+
+6. Suggested sections:
+
+   A. Security Status
+
+   * Kite session encrypted at rest
+   * key configured
+   * export safety status if available
+
+   B. Indian Market Data Coverage
+
+   * sector mapping coverage
+   * symbols mapped/unmapped
+   * candle rows by interval
+   * latest candle timestamp
+   * stale candle symbols
+
+   C. F&O Data Infrastructure
+
+   * option snapshot enabled/disabled
+   * latest snapshot time
+   * rows today
+   * underlyings tracked
+   * expiries tracked
+   * strikes tracked
+   * stale contracts
+   * analytics summary: PCR, max pain, ATM straddle, highest OI strikes
+
+   D. Equity Risk Diagnostics
+
+   * candidate sizing diagnostic summary
+   * rejection histogram if endpoint returns it
+   * quick link/form to test sizing preview by symbol, entry, stop
+
+7. UI requirements:
+
+   * owner-only access,
+   * read-only,
+   * no trade buttons,
+   * no order buttons,
+   * no signal-generation triggers,
+   * no scheduler triggers unless already explicitly safe and owner-only,
+   * responsive layout,
+   * clear loading/error/empty states,
+   * compact but readable tables,
+   * use existing UI conventions/components where possible.
+
+8. Do not add new backend calculations unless absolutely necessary.
+   Prefer consuming existing diagnostic/analytics endpoints.
+
+9. If a missing backend field blocks a useful display:
+
+   * do not change backend immediately,
+   * note it as a limitation,
+   * propose the smallest backend addition separately.
+
+10. Do not change:
+
+* F&O signal generation logic,
+* F&O entry/exit logic,
+* swing scanner logic,
+* swing scoring or recommendations,
+* paper trading execution,
+* Kite order/execution logic,
+* strategy builder,
+* combo lane,
+* scanner recommendation logic,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* database schema,
+* scheduler behavior.
+
+11. Add tests where practical:
+
+* route/page renders,
+* unauthenticated user cannot access if UI routing supports this,
+* loading state,
+* error state,
+* normal data state,
+* stale/warning state.
+
+12. Run typecheck/tests before final summary.
+
+Expected final output:
+
+1. Files changed.
+2. Page/route added.
+3. Endpoints consumed.
+4. UI sections implemented.
+5. Tests/typecheck result.
+6. Screens/summary of display behavior.
+7. Known limitations.
+8. Confirmation that no trading logic, execution logic, ingestion behavior, schema, or scheduler behavior was changed.
+
+Proceed with Priority 10 only.
