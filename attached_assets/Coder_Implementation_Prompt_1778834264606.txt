@@ -1,0 +1,101 @@
+CODER IMPLEMENTATION PROMPT — INDIAN MARKET F&O + SWING TRADING PLATFORM
+
+You are the lead full-stack engineer and quantitative trading-system implementer for this Indian market trading platform. Your job is to correct, update, and implement the platform exactly according to the attached consolidated audit report and its verbatim source appendices.
+
+Non-negotiable instruction:
+Read the complete consolidated report and every verbatim appendix before coding. Do not rely only on the executive summary. The appendices contain full source audit text and strategy instructions that must not be ignored.
+
+Primary objective:
+Convert the current prototype trading database/website into a professional Indian Market Intelligence + Trading Decision Platform focused on:
+1. Rich F&O signalling for NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, NIFTYNXT50, SENSEX/BANKEX where applicable, and F&O stocks.
+2. Rich swing cash trading data for NSE/BSE stocks, especially NIFTY 500, F&O stocks, liquid midcaps, and sector leaders.
+3. Reliable Kite API data ingestion, WebSocket live data, candle persistence, option-chain intelligence, backtesting, risk management, and clean UI/UX.
+
+Implementation priorities:
+
+P0 — Stop-the-bleeding fixes:
+1. Fix option_signal_history exit-price logic. Do not store spot index value as option exit premium. Rename existing exit_price to exit_spot if needed, add option_exit_price/exit_premium, and backfill decided signals where quote history exists.
+2. Populate global_candles or replace it with a proper Indian candle warehouse. Persist 1m/3m/5m/15m/60m/day/week candles and adjusted daily candles.
+3. Fix Kite API integration. Implement daily instrument master sync, secure session handling, WebSocket tick ingestion, REST quote batching, historical candle backfill, and API health monitoring.
+4. Fix swing sector and industry mapping. 100% NULL sector/industry in swing_scan_result must be corrected through NSE/BSE/Kite mapping and sector index constituents.
+5. Fix equity paper-trading position sizing. Resolve QTY_LT_1 rejection issue and implement risk-based sizing using account value, free cash, max open positions, and stop distance.
+6. Rotate/remove Kite session/access tokens from database exports. Store secrets securely and exclude sessions from portable backups.
+
+P1 — Core data-rich Indian market layer:
+1. Build complete Indian instrument master with NSE/BSE equities, F&O contracts, indices, sector/industry, lot size, tick size, expiry, strike, option type, active status, and daily snapshots.
+2. Add option-chain snapshots with strike-wise CE/PE OI, OI change, volume, IV, bid/ask, depth, PCR, max pain, ATM straddle, IV rank, IV percentile, and buildup classification.
+3. Add market data tables for India VIX, sector indices, market breadth, advance/decline, delivery %, bulk/block deals, F&O ban list/MWPL, corporate actions, earnings calendar, and economic events.
+4. Reconcile fii_dii_daily sources and standardise source-of-truth logic.
+5. Add strategy_versions, feature_snapshots, backtest_runs, walk_forward_results, signal_expectancy, and trade_journal_events.
+
+P2 — F&O signal engine upgrade:
+1. Implement market regime classifier: bullish trend, bearish trend, range, volatile/event, gap, expiry, and no-trade modes.
+2. Rebuild F&O signals around market regime + VWAP/CPR + opening range + futures OI + option-chain confirmation + IV/VIX + liquidity/spread + risk-reward + historical expectancy.
+3. Add ATR/volatility-adjusted stop logic instead of fixed/tight stops.
+4. Add option premium stop, spot invalidation, time stop, partial booking, trailing stop, scale-out logic, and signal invalidation reasons.
+5. Calibrate high-conviction labels only from historical expectancy and walk-forward evidence.
+6. Add expiry-day rules, no-trade rules, event-day rules, low-liquidity filters, correlation guards, and spread filters.
+
+P3 — Swing engine upgrade:
+1. Implement sector rotation + relative strength + price-volume + delivery + risk-reward model.
+2. Add swing lifecycle: watchlist -> near trigger -> triggered -> active -> partial exit -> trailing -> invalidated/closed.
+3. Add BUY NOW only after trigger close + volume confirmation + acceptable risk-reward + market/sector confirmation.
+4. Add multi-timeframe confirmation: daily + weekly trend, sector trend, stock-vs-sector RS, stock-vs-NIFTY RS.
+5. Add breakout, pullback, reversal, base formation, sector leader continuation, and post-earnings momentum setup types.
+6. Add exits: ATR trail, 10/20 EMA trail, 3-bar reversal, close below 9 EMA hourly, volume spike on down candle, time stop, and event stop.
+
+P4 — Backtesting, paper trading, and risk:
+1. Create realistic F&O backtesting using actual option premium, bid/ask spread, slippage, costs, IV change, time decay, DTE, OI, and liquidity.
+2. Create swing backtesting using adjusted candles, corporate actions, gap risk, slippage, liquidity, trailing stops, and sector regime.
+3. Implement walk-forward validation before displaying confidence labels.
+4. Add risk engine: max risk per trade, max daily loss, max open positions, sector exposure, F&O exposure, kill switch, cooldown after loss, no averaging down in option buying.
+5. Add paper_fo_audit similar to paper_eq_audit and a rejection-summary UI.
+
+P5 — UI/UX implementation:
+1. Build Market Cockpit: indices, India VIX, FII/DII, participant OI, breadth, sector heatmap, market regime, data health.
+2. Build F&O Cockpit: option-chain heatmap, OI change, PCR, max pain, ATM straddle, IV rank/percentile, futures buildup, active signals, signal score, risk panel.
+3. Build Swing Cockpit: sector leaders, RS leaders, breakout candidates, pullback candidates, near-trigger stocks, active swing trades, invalidated setups, event warnings.
+4. Build Prediction Dashboard: bullish trend day probability, bearish trend day probability, range day probability, gap-fill probability, breakout success probability, volatility expansion probability.
+5. Build Strategy Performance Dashboard: win rate, average R, profit factor, max drawdown, best/worst setup, best/worst regime, signal expiry rate, stop-hit rate, target-hit rate, time-of-day performance.
+6. Use a professional dark trading theme: deep navy/charcoal, green bullish, red bearish, amber warning, slate/blue neutral. Use Inter/IBM Plex Sans for UI and JetBrains Mono/Roboto Mono or similar for numbers. Use badges for LIVE, STALE, LOW LIQUIDITY, HIGH SPREAD, BACKTEST MISSING.
+
+Engineering standards:
+1. Use migrations for every database change.
+2. Add constraints, foreign keys, and indexes listed in the report.
+3. Write unit tests for scoring, sizing, signal generation, risk logic, and backtest calculations.
+4. Write integration tests for Kite ingestion, option-chain snapshots, candle generation, and signal lifecycle.
+5. Add data quality monitoring. If data is stale, partial, delayed, or failed, block fresh signal generation and show a data-quality banner.
+6. Do not hardcode expiry assumptions. Use exchange contract files and expiry calendar logic.
+7. Do not expose API secrets in frontend. Encrypt tokens and sanitize backups.
+8. Preserve auditability: every signal must store the exact feature snapshot and strategy version that produced it.
+9. No live-order execution until paper trading, backtesting, risk controls, kill switch, and user confirmations are fully tested.
+
+Acceptance criteria:
+1. Historical candles exist and are queryable for key indices, F&O underlyings, and the swing universe.
+2. Kite WebSocket ticks are stored, monitored, and converted into candles.
+3. F&O signals are generated only when all required feature data is present.
+4. Every F&O signal stores option premium entry, option premium exit, option spread, IV, OI, volume, DTE, liquidity, stop, target, invalidation, and feature snapshot.
+5. Every swing candidate has sector, industry, sector rank, stock RS, trigger, stop, target, risk-reward, lifecycle status, and reason/warning fields.
+6. No high-conviction label appears without historical expectancy and sample-size support.
+7. Strategy performance pages show win rate, average R, profit factor, max drawdown, expectancy, and regime-based performance.
+8. Data quality dashboard shows Kite status, WebSocket status, last tick, candle status, missing candles, sync failures, and stale data.
+9. Security audit confirms no credentials in frontend or exported backups.
+10. UI is readable, fast, mobile responsive, and decision-oriented rather than raw-table heavy.
+
+Deliverables expected from coder:
+1. Database migration files.
+2. Backend ingestion services.
+3. Kite WebSocket service.
+4. Historical candle backfill service.
+5. Option-chain snapshot service.
+6. F&O signal engine.
+7. Swing signal engine.
+8. Backtesting and walk-forward engine.
+9. Risk management module.
+10. Paper-trading audit module.
+11. Market, F&O, Swing, Prediction, Data Quality, and Strategy Performance dashboards.
+12. Tests and deployment documentation.
+13. A changelog mapping each implemented item to the consolidated report section.
+
+Important final instruction:
+Do not implement cosmetic UI first. The correct order is data integrity -> Kite/live ingestion -> candle storage -> option-chain snapshots -> signal feature snapshots -> backtesting -> risk controls -> UI. The platform must become evidence-based, not just visually attractive.

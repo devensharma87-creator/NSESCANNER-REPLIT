@@ -1,0 +1,2060 @@
+PRO TRADING TOOL BLUEPRINT FOR INDIAN MARKET
+F&O SIGNALLING + SWING CASH TRADING + DATA-RICH MARKET INTELLIGENCE PLATFORM
+
+Prepared for: Devendra Sharma
+Date: 14 May 2026
+Purpose:
+To convert the current trading website/database into a professional Indian-market trading decision platform with rich F&O signalling, swing trading intelligence, market prediction, backtesting, risk control, and professional UI/UX.
+
+Important note:
+This document is a product and trading-system design blueprint. It is not financial advice, not a guaranteed-profit system, and not a recommendation to trade any security. The purpose is to design a disciplined, data-rich, evidence-based platform.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+01. Executive Summary
+02. Final Product Vision
+03. Current System Direction Based on Audit
+04. Core Architecture
+05. Data Warehouse Required for a Pro Indian Market Tool
+06. Kite API Architecture
+07. F&O Trading Engine
+08. F&O Signal Scoring System
+09. F&O Entry and Exit Strategy Framework
+10. Swing Trading Engine
+11. Swing Signal Scoring System
+12. Swing Entry and Exit Strategy Framework
+13. Market Prediction Engine
+14. Backtesting and Strategy Validation
+15. Risk Management Engine
+16. Paper Trading and Execution Simulation
+17. Alerts and Notification System
+18. UI/UX Design Recommendations
+19. Database Tables to Add
+20. Data Quality and Monitoring
+21. Security and Compliance
+22. Implementation Roadmap
+23. The Best Combined Strategy
+24. Final Checklist
+25. Official Reference Notes
+
+================================================================================
+01. EXECUTIVE SUMMARY
+================================================================================
+
+The platform should not be built as a normal indicator-based scanner. It should be built as an Indian Market Intelligence and Trading Decision Platform.
+
+The goal is to answer five questions every trading day:
+
+1. What is the current market regime?
+2. Which side has institutional and derivative confirmation?
+3. Which sectors are leading or weakening?
+4. Which F&O trades are actually high probability today?
+5. Which cash stocks are close to swing-tradeable levels?
+
+A professional system should not generate random BUY/SELL alerts. It should generate only filtered, evidence-backed, risk-defined, backtested, and explainable signals.
+
+The platform should have two major trading engines:
+
+A. F&O Engine
+Focused on NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, NIFTYNXT50, and F&O stocks.
+Primary focus: intraday and short-duration directional option trades.
+Secondary focus: option-chain intelligence, OI, IV, PCR, straddle, expiry behaviour, and risk.
+
+B. Swing Cash Engine
+Focused on NSE cash stocks, especially NIFTY 500, liquid midcaps, F&O stocks, and high relative-strength names.
+Primary focus: 5-20 session swing trades.
+Secondary focus: sector rotation, stock relative strength, volume, delivery, breakouts, pullbacks, and risk-reward.
+
+The foundation must be a strong data warehouse. Without reliable candles, instrument master, option-chain snapshots, sector data, corporate actions, and historical outcomes, the tool cannot become professional.
+
+================================================================================
+02. FINAL PRODUCT VISION
+================================================================================
+
+Recommended product positioning:
+
+"Indian Market Intelligence + Trading Decision Platform"
+
+Core promise:
+
+- Know the market regime.
+- Know where institutions are positioned.
+- Know which sectors are leading.
+- Know which F&O setups are high probability.
+- Know which swing stocks are near actionable zones.
+- Know when not to trade.
+
+The last point is very important. A professional tool should reduce bad trades, not only increase the number of alerts.
+
+The system should behave like a senior trading assistant:
+
+- It studies the full market.
+- It classifies the trading day.
+- It identifies strength and weakness.
+- It filters out low-quality trades.
+- It explains why a signal is generated.
+- It gives invalidation levels.
+- It tracks outcome.
+- It improves strategy scoring over time.
+
+================================================================================
+03. CURRENT SYSTEM DIRECTION BASED ON AUDIT
+================================================================================
+
+Based on the earlier database audit, the existing system has useful early components:
+
+- F&O signal history
+- Swing scanner history
+- Paper trading tables
+- FII/DII data
+- Participant OI tables
+- IV history
+- Watchlists
+- TradingView alert intake
+
+But it has major gaps before it can be called pro-grade:
+
+1. Historical candle data is missing or underdeveloped.
+   A serious platform needs 1-minute, 3-minute, 5-minute, 15-minute, daily, weekly, and adjusted daily candles.
+
+2. Indian instrument master is incomplete.
+   The system needs NSE, BSE, F&O, index, sector, lot size, tick size, expiry, and contract metadata.
+
+3. F&O signals need stronger option-chain context.
+   A signal without OI, PCR, IV, spread, liquidity, expiry, and straddle context is incomplete.
+
+4. Swing signals need sector and lifecycle logic.
+   A swing tool should know whether a stock is a sector leader, near trigger, triggered, invalidated, active, or closed.
+
+5. Backtesting is not yet sufficient.
+   Confidence should not be a static label. It should come from historical expectancy.
+
+6. Security needs improvement.
+   API/session credentials should never be included in portable database backups.
+
+================================================================================
+04. CORE ARCHITECTURE
+================================================================================
+
+The ideal platform architecture:
+
+Raw Data Sources
+    |
+    |-- Kite API
+    |-- NSE/BSE official files
+    |-- Bhavcopy
+    |-- Corporate actions
+    |-- FII/DII data
+    |-- Participant OI
+    |-- Index constituents
+    |-- Sector classification
+    |-- News/event calendar
+    |
+Data Ingestion Layer
+    |
+    |-- Daily instrument sync
+    |-- Live WebSocket stream
+    |-- Historical candle sync
+    |-- Option-chain snapshots
+    |-- End-of-day reconciliation
+    |
+Market Data Warehouse
+    |
+    |-- Instruments
+    |-- Candles
+    |-- F&O contracts
+    |-- Option-chain snapshots
+    |-- Sector data
+    |-- Corporate actions
+    |-- FII/DII
+    |-- Breadth
+    |
+Feature Engine
+    |
+    |-- Technical indicators
+    |-- OI features
+    |-- IV features
+    |-- Volume/delivery features
+    |-- Relative strength
+    |-- Sector strength
+    |-- Market breadth
+    |
+Market Regime Engine
+    |
+    |-- Trend day
+    |-- Range day
+    |-- Volatile day
+    |-- Expiry day
+    |-- Gap day
+    |-- Event day
+    |
+Trading Engines
+    |
+    |-- F&O signal engine
+    |-- Swing cash signal engine
+    |
+Risk Engine
+    |
+    |-- Position sizing
+    |-- Stop loss
+    |-- Max daily loss
+    |-- Exposure limits
+    |-- Trade quality filter
+    |
+Backtesting Engine
+    |
+    |-- Historical outcomes
+    |-- Win rate
+    |-- Average R
+    |-- Profit factor
+    |-- Drawdown
+    |-- Expectancy
+    |
+User Interface
+    |
+    |-- Market cockpit
+    |-- F&O cockpit
+    |-- Swing cockpit
+    |-- Prediction page
+    |-- Strategy performance page
+    |-- Alerts
+
+================================================================================
+05. DATA WAREHOUSE REQUIRED FOR A PRO INDIAN MARKET TOOL
+================================================================================
+
+A pro trading platform is only as good as its data. The following data categories are required.
+
+--------------------------------------------------------------------------------
+05.1 Instrument Master
+--------------------------------------------------------------------------------
+
+Required fields:
+
+- exchange
+- tradingsymbol
+- instrument_token
+- instrument_type
+- segment
+- name
+- lot_size
+- tick_size
+- expiry
+- strike
+- option_type
+- underlying
+- isin
+- sector
+- industry
+- market_cap_category
+- is_fo_stock
+- is_index
+- is_active
+- first_seen_date
+- last_seen_date
+
+Important principle:
+Do not rely only on instrument_token for long-term identity. For derivatives, tokens can change or be reused after expiry. Store exchange + tradingsymbol, expiry, strike, and option type.
+
+--------------------------------------------------------------------------------
+05.2 Candle Data
+--------------------------------------------------------------------------------
+
+Required candle tables:
+
+- candles_1m
+- candles_3m
+- candles_5m
+- candles_15m
+- candles_60m
+- candles_1d
+- candles_1w
+- adjusted_candles_1d
+
+Fields:
+
+- instrument_id
+- timestamp
+- open
+- high
+- low
+- close
+- volume
+- oi
+- source
+- is_adjusted
+- created_at
+
+Daily candles must be adjusted for:
+
+- splits
+- bonuses
+- dividends where relevant
+- symbol changes
+- mergers/demergers
+- corporate actions
+
+Why this matters:
+Without clean candles, you cannot backtest strategies, calculate reliable indicators, validate breakouts, or measure signal quality.
+
+--------------------------------------------------------------------------------
+05.3 F&O Data
+--------------------------------------------------------------------------------
+
+Required F&O data:
+
+- all active index futures
+- all active stock futures
+- all active index options
+- all active stock options
+- expiry calendar
+- strike ladder
+- lot size
+- open interest
+- OI change
+- volume
+- bid/ask spread
+- implied volatility
+- ATM IV
+- IV rank
+- IV percentile
+- PCR
+- max pain
+- ATM straddle
+- participant OI
+- FII index futures/options positioning
+- MWPL and ban list for F&O stocks
+
+Recommended F&O tables:
+
+- fo_contracts
+- fo_option_chain_snapshots
+- fo_strike_oi_history
+- fo_futures_oi_history
+- fo_pcr_history
+- fo_iv_history
+- fo_iv_rank_percentile
+- fo_atm_straddle_history
+- fo_max_pain_history
+- fo_buildup_classification
+- fo_mwpl_ban_history
+- fo_signal_features
+- fo_signals
+- fo_signal_outcomes
+
+--------------------------------------------------------------------------------
+05.4 Swing Trading Data
+--------------------------------------------------------------------------------
+
+Required swing data:
+
+- NSE equity universe
+- NIFTY 50
+- NIFTY 100
+- NIFTY 200
+- NIFTY 500
+- F&O stock universe
+- sector classification
+- industry classification
+- relative strength vs NIFTY
+- relative strength vs sector
+- volume shock
+- delivery percentage
+- delivery value
+- 52-week high/low
+- all-time high proximity
+- moving averages
+- ATR
+- RSI
+- ADX
+- trend structure
+- support/resistance
+- breakout levels
+- pullback levels
+- earnings calendar
+- corporate action warnings
+- liquidity filters
+
+Recommended swing tables:
+
+- swing_universe
+- swing_sector_strength
+- swing_relative_strength
+- swing_setups
+- swing_triggers
+- swing_signal_features
+- swing_signals
+- swing_signal_outcomes
+- swing_watchlist_lifecycle
+
+--------------------------------------------------------------------------------
+05.5 Market Breadth Data
+--------------------------------------------------------------------------------
+
+Breadth data gives early clues about market strength or weakness.
+
+Add:
+
+- advance/decline ratio
+- number of stocks above 20 DMA
+- number of stocks above 50 DMA
+- number of stocks above 200 DMA
+- new 52-week highs
+- new 52-week lows
+- sector advance/decline
+- index contribution
+- top positive contributors
+- top negative contributors
+- volume gainers
+- delivery gainers
+- gap-up and gap-down count
+
+--------------------------------------------------------------------------------
+05.6 Institutional and Macro Data
+--------------------------------------------------------------------------------
+
+Add:
+
+- FII cash market flow
+- DII cash market flow
+- FII index futures long/short
+- FII index options long/short
+- FII stock futures position
+- client participant OI
+- proprietary participant OI
+- India VIX
+- GIFT Nifty
+- Dow futures
+- Nasdaq futures
+- S&P 500 futures
+- USDINR
+- crude oil
+- gold
+- US 10-year yield
+- major global index performance
+
+================================================================================
+06. KITE API ARCHITECTURE
+================================================================================
+
+Kite API should be used carefully and professionally. Do not build a system that keeps hitting REST APIs unnecessarily during market hours.
+
+--------------------------------------------------------------------------------
+06.1 Daily Pre-Market Process
+--------------------------------------------------------------------------------
+
+Before market open:
+
+1. Fetch full instrument master.
+2. Store instrument master snapshot.
+3. Update current contracts.
+4. Update expiry calendar.
+5. Update lot sizes and strike list.
+6. Build index watchlist.
+7. Build F&O active contract watchlist.
+8. Build swing watchlist.
+9. Mark stale/expired instruments inactive.
+10. Prepare WebSocket subscription lists.
+
+--------------------------------------------------------------------------------
+06.2 Live Market Process
+--------------------------------------------------------------------------------
+
+During market hours:
+
+1. Use WebSocket for live ticks.
+2. Subscribe to indices, major F&O instruments, active ATM/near-ATM options, and watchlist stocks.
+3. Build 1-minute candles from ticks.
+4. Reconcile with official/historical data later.
+5. Capture option-chain snapshots every 1-5 minutes depending on priority.
+6. Run F&O engine every 1, 3, or 5 minutes.
+7. Run swing trigger engine every 5 or 15 minutes.
+8. Push only actionable alerts.
+
+--------------------------------------------------------------------------------
+06.3 End-of-Day Process
+--------------------------------------------------------------------------------
+
+After market close:
+
+1. Finalize candles.
+2. Reconcile candles with historical source.
+3. Store end-of-day bhavcopy data.
+4. Update delivery data.
+5. Update sector strength.
+6. Mark F&O signal outcomes.
+7. Mark swing signal outcomes.
+8. Update backtest metrics.
+9. Generate next-day watchlist.
+10. Prepare pre-market levels.
+
+--------------------------------------------------------------------------------
+06.4 Suggested WebSocket Grouping
+--------------------------------------------------------------------------------
+
+Connection 1:
+- NIFTY
+- BANKNIFTY
+- FINNIFTY
+- MIDCPNIFTY
+- NIFTYNXT50
+- India VIX
+- major indices
+- top F&O stocks
+
+Connection 2:
+- active option contracts
+- ATM, ITM, and OTM strikes
+- current and next expiry contracts
+
+Connection 3:
+- swing watchlist
+- high-priority cash stocks
+- high-volume breakout candidates
+
+--------------------------------------------------------------------------------
+06.5 Kite API Handling Rules
+--------------------------------------------------------------------------------
+
+- Do not expose API secret in frontend.
+- Do not store access tokens in plain text.
+- Rotate leaked or exported credentials.
+- Use backend-only authentication.
+- Batch API requests.
+- Cache quote snapshots.
+- Use WebSocket for live data.
+- Store instrument master daily.
+- Use retry with backoff.
+- Maintain API health dashboard.
+- Log every failed request.
+
+================================================================================
+07. F&O TRADING ENGINE
+================================================================================
+
+The F&O engine should not be one strategy. It should be a multi-regime engine.
+
+Required F&O sub-engines:
+
+1. Index Momentum Breakout Engine
+2. Pullback Continuation Engine
+3. Range/Expiry Avoidance Engine
+4. Event/Volatility Engine
+5. Option Chain Confirmation Engine
+6. Futures Buildup Engine
+7. Liquidity and Spread Filter
+8. Risk-Reward Validator
+9. Historical Expectancy Engine
+
+--------------------------------------------------------------------------------
+07.1 Market Regimes for F&O
+--------------------------------------------------------------------------------
+
+The engine should classify every trading day into one of these:
+
+- Bullish trend day
+- Bearish trend day
+- Range day
+- High volatility event day
+- Gap-up continuation day
+- Gap-up exhaustion day
+- Gap-down continuation day
+- Gap-down reversal day
+- Expiry decay day
+- No-trade day
+
+A signal should only be generated after regime classification.
+
+--------------------------------------------------------------------------------
+07.2 Important F&O Inputs
+--------------------------------------------------------------------------------
+
+F&O signal should consider:
+
+- spot price
+- futures price
+- futures OI
+- futures OI change
+- price/OI relationship
+- option-chain OI
+- option-chain OI change
+- call writing
+- put writing
+- call unwinding
+- put unwinding
+- PCR
+- max pain
+- ATM straddle value
+- ATM IV
+- IV rank
+- IV percentile
+- option volume
+- option spread
+- bid/ask depth
+- expiry day
+- time to expiry
+- India VIX
+- previous day high/low
+- CPR
+- VWAP
+- opening range
+- support/resistance
+- market breadth
+- sector confirmation
+
+================================================================================
+08. F&O SIGNAL SCORING SYSTEM
+================================================================================
+
+Every F&O signal should get a 100-point score.
+
+Recommended model:
+
+1. Market Regime - 15 points
+2. Trend Structure - 15 points
+3. Futures OI Confirmation - 15 points
+4. Option Chain Confirmation - 20 points
+5. Liquidity and Spread - 10 points
+6. IV/VIX Condition - 10 points
+7. Risk-Reward - 10 points
+8. Historical Expectancy - 5 points
+
+Signal category:
+
+- 90 to 100: A+ Signal
+- 80 to 89: A Signal
+- 70 to 79: Conditional Watch
+- Below 70: No Trade
+
+Do not show "High Conviction" unless:
+- historical expectancy is positive
+- minimum number of similar past trades exists
+- risk-reward is valid
+- spread is acceptable
+- OI and price confirmation agree
+- market regime supports the setup
+
+Suggested minimum requirements for a tradable F&O signal:
+
+- score >= 80
+- risk-reward >= 1:1.5
+- spread <= allowed threshold
+- volume above minimum threshold
+- signal not generated during no-trade window
+- option premium stop loss available
+- spot invalidation level available
+- historical sample size available
+
+================================================================================
+09. F&O ENTRY AND EXIT STRATEGY FRAMEWORK
+================================================================================
+
+--------------------------------------------------------------------------------
+09.1 Strategy 1: Index Momentum Breakout
+--------------------------------------------------------------------------------
+
+Best for:
+- strong trending days
+- first half of trading session
+- clear institutional/derivative confirmation
+
+Bullish conditions:
+
+- index above VWAP
+- index above CPR
+- price breaks opening range high
+- futures price up + OI up
+- put writing visible below spot
+- call unwinding at resistance or call OI shifting higher
+- ATM/ITM call has good volume
+- spread acceptable
+- India VIX not sharply rising against the trade
+- breadth supports the move
+
+Entry:
+
+- buy ATM or slightly ITM CE above confirmed breakout
+- or buy after pullback to breakout zone if breakout candle is too large
+
+Stop loss:
+
+- option premium SL
+- spot SL below breakout zone/VWAP/opening range
+- time-based SL if no movement after defined period
+
+Targets:
+
+- target 1 at 1R or nearest resistance
+- target 2 at 2R or next OI resistance
+- trail after target 1
+
+Exit:
+
+- partial exit at target 1
+- trail remaining quantity
+- exit if spot closes below VWAP
+- exit if OI confirmation reverses
+- exit if option spread widens abnormally
+- exit before end-of-day cutoff
+
+Bearish conditions:
+
+- index below VWAP
+- index below CPR
+- price breaks opening range low
+- futures price down + OI up
+- call writing visible above spot
+- put unwinding at support or put OI shifting lower
+- ATM/ITM put has good volume
+- breadth weak
+
+Entry:
+
+- buy ATM or slightly ITM PE below confirmed breakdown
+
+Stop loss:
+
+- option premium SL
+- spot SL above breakdown zone/VWAP/opening range
+
+--------------------------------------------------------------------------------
+09.2 Strategy 2: Pullback Continuation
+--------------------------------------------------------------------------------
+
+Best for:
+- trend days where initial breakout is missed
+
+Bullish setup:
+
+- market regime bullish
+- price above VWAP
+- price above 20 EMA
+- pullback to VWAP/20 EMA/demand zone
+- low-volume pullback
+- put writing remains intact
+- futures OI does not collapse
+- reversal candle confirms
+
+Entry:
+
+- buy CE after reversal candle high breaks
+
+Stop loss:
+
+- below pullback low
+- option premium stop loss
+
+Exit:
+
+- trail using 9 EMA or VWAP
+- exit if price closes below VWAP
+- exit if OI support breaks
+
+Bearish setup:
+
+- market regime bearish
+- price below VWAP
+- price below 20 EMA
+- pullback to VWAP/supply zone
+- call writing remains intact
+- reversal candle confirms
+
+Entry:
+
+- buy PE after rejection candle low breaks
+
+--------------------------------------------------------------------------------
+09.3 Strategy 3: Range Day / Expiry Day Avoidance
+--------------------------------------------------------------------------------
+
+Best use:
+- protect option buyers from theta decay and false signals
+
+Range day signs:
+
+- price stuck inside previous day range
+- repeated VWAP mean reversion
+- weak ADX
+- low directional breadth
+- OI walls on both call and put side
+- ATM straddle decaying
+- no clean sector leadership
+- false breakouts on both sides
+
+Recommended output:
+
+- Market Type: Range
+- Action: Avoid option buying
+- Trade only edge reversals if system supports it
+- Prefer no-trade for retail users
+
+This engine should save users from unnecessary trades.
+
+--------------------------------------------------------------------------------
+09.4 Strategy 4: Event / Volatility Engine
+--------------------------------------------------------------------------------
+
+Use when:
+
+- RBI event
+- Budget
+- election result
+- major gap
+- global crash/rally
+- sudden VIX spike
+- major news event
+- weekly/monthly expiry volatility
+
+Output options:
+
+- No Trade
+- Wait for first 30 minutes
+- Trade only after range confirmation
+- Reduce position size
+- Avoid far OTM options
+- Use strict SL
+
+--------------------------------------------------------------------------------
+09.5 Option Selection Logic
+--------------------------------------------------------------------------------
+
+For option buying:
+
+Prefer:
+- ATM options
+- slightly ITM options
+- high liquidity
+- low spread
+- strong volume
+- acceptable IV
+- strong delta
+
+Avoid:
+- far OTM lottery options
+- illiquid strikes
+- wide spreads
+- low volume
+- contracts close to expiry without momentum
+- buying high IV after large move unless momentum is very strong
+
+--------------------------------------------------------------------------------
+09.6 F&O Invalidation Logic
+--------------------------------------------------------------------------------
+
+Every signal must have invalidation.
+
+Examples:
+
+Bullish CE invalidation:
+- spot closes below VWAP
+- put writing unwinds
+- futures OI collapses
+- call side resistance becomes stronger
+- option premium breaks SL
+- market breadth turns negative
+
+Bearish PE invalidation:
+- spot closes above VWAP
+- call writing unwinds
+- futures short buildup reverses
+- put side support strengthens
+- option premium breaks SL
+- market breadth recovers
+
+================================================================================
+10. SWING TRADING ENGINE
+================================================================================
+
+The swing engine should be built around:
+
+Sector Rotation + Relative Strength + Price-Volume Confirmation + Risk-Reward
+
+It should not simply scan RSI or moving average crossovers.
+
+Recommended swing flow:
+
+1. Check market regime.
+2. Rank sectors.
+3. Rank stocks inside strong sectors.
+4. Check relative strength vs NIFTY.
+5. Check relative strength vs sector.
+6. Identify breakout, pullback, or reversal setups.
+7. Confirm volume and delivery.
+8. Check risk-reward.
+9. Check event risk.
+10. Generate watchlist or buy trigger.
+
+--------------------------------------------------------------------------------
+10.1 Swing Universe
+--------------------------------------------------------------------------------
+
+Recommended universe:
+
+- NIFTY 50
+- NIFTY 100
+- NIFTY 200
+- NIFTY 500
+- all F&O stocks
+- high liquidity midcaps
+- sector leaders
+- stocks with average daily traded value above threshold
+
+Avoid:
+
+- illiquid stocks
+- ASM/GSM risky stocks unless explicitly marked
+- stocks near bad corporate event
+- stocks with very low delivery/traded value
+- penny stocks
+- stocks with abnormal circuit risk
+
+--------------------------------------------------------------------------------
+10.2 Swing Setup Types
+--------------------------------------------------------------------------------
+
+A. Breakout Swing
+B. Pullback Swing
+C. Reversal Swing
+D. Base Formation Swing
+E. Sector Leader Continuation
+F. Post-Earnings Momentum
+G. Relative Strength Breakout
+
+================================================================================
+11. SWING SIGNAL SCORING SYSTEM
+================================================================================
+
+Every swing signal should get a 100-point score.
+
+Recommended model:
+
+1. Market Regime - 10 points
+2. Sector Strength - 15 points
+3. Stock Relative Strength - 15 points
+4. Price Structure - 15 points
+5. Volume and Delivery - 15 points
+6. Momentum - 10 points
+7. Fundamental Quality - 10 points
+8. Risk-Reward - 5 points
+9. Event/Corporate Action Safety - 5 points
+
+Action classification:
+
+- 85+ and trigger hit: BUY NOW
+- 75 to 84 and near trigger: HIGH PRIORITY WATCH
+- 65 to 74: WATCHLIST
+- 55 to 64: WAIT
+- Below 55: AVOID
+
+Important rule:
+The score and action must not contradict each other. If a stock has score 80 but action says AVOID, the system must clearly explain the reason, such as low liquidity, event risk, bad risk-reward, or weak sector.
+
+================================================================================
+12. SWING ENTRY AND EXIT STRATEGY FRAMEWORK
+================================================================================
+
+--------------------------------------------------------------------------------
+12.1 Strategy 1: Sector Leader Breakout
+--------------------------------------------------------------------------------
+
+Best for:
+- strong market regime
+- sector rotation
+- institutional accumulation
+
+Conditions:
+
+- sector in top 3 or top 5
+- stock outperforming NIFTY
+- stock outperforming its sector
+- price near 20-day/50-day/52-week breakout
+- volume above 1.5x or 2x average
+- delivery percentage improving
+- clean base formation
+- risk-reward at least 1:2
+
+Entry:
+
+- buy above breakout level
+- or buy on retest if breakout already happened
+
+Stop loss:
+
+- below breakout base
+- below recent swing low
+- ATR-based stop for volatile stocks
+
+Targets:
+
+- target 1 = 1.5R
+- target 2 = 2.5R or 3R
+- trail remaining quantity with 10 EMA or 20 EMA
+
+Exit:
+
+- close below 20 EMA
+- breakdown below swing low
+- high-volume reversal
+- sector weakness
+- target achieved
+- earnings/event risk
+
+--------------------------------------------------------------------------------
+12.2 Strategy 2: Pullback in Uptrend
+--------------------------------------------------------------------------------
+
+Conditions:
+
+- stock in confirmed uptrend
+- sector strong
+- price above 50 DMA or 200 DMA
+- pullback to 20 EMA/50 EMA/demand zone
+- low-volume pullback
+- reversal candle appears
+- RS remains strong
+
+Entry:
+
+- buy above reversal candle high
+- or buy near support with confirmation
+
+Stop loss:
+
+- below pullback low
+
+Exit:
+
+- target previous high
+- trail if breakout follows
+
+--------------------------------------------------------------------------------
+12.3 Strategy 3: Reversal Swing
+--------------------------------------------------------------------------------
+
+This should be used with lower position size.
+
+Conditions:
+
+- stock oversold
+- positive divergence
+- capitulation volume
+- price reclaims key moving average
+- sector stops falling
+- market regime stabilizes
+
+Entry:
+
+- buy above reversal confirmation
+
+Stop loss:
+
+- below recent low
+
+Risk:
+Reversal trades fail more often than continuation trades. The system should clearly label them as high risk.
+
+--------------------------------------------------------------------------------
+12.4 Swing Invalidation
+--------------------------------------------------------------------------------
+
+Swing trade should be invalidated if:
+
+- price closes below stop
+- sector rank collapses
+- relative strength breaks down
+- breakout fails within 2-3 sessions
+- volume dries after breakout
+- market regime turns bearish
+- negative corporate event appears
+- risk-reward becomes poor
+
+================================================================================
+13. MARKET PREDICTION ENGINE
+================================================================================
+
+The prediction engine should not predict exact price targets like "NIFTY will close at 24570." That is unreliable and misleading.
+
+Instead, it should predict probabilities:
+
+- bullish trend day probability
+- bearish trend day probability
+- range day probability
+- gap-fill probability
+- breakout success probability
+- breakdown success probability
+- swing continuation probability
+- sector rotation probability
+- volatility expansion probability
+
+--------------------------------------------------------------------------------
+13.1 Prediction Inputs
+--------------------------------------------------------------------------------
+
+Use:
+
+- global market cues
+- GIFT Nifty
+- US markets
+- Asian markets
+- USDINR
+- crude
+- gold
+- US bond yield
+- FII/DII cash flow
+- participant OI
+- index futures OI
+- index option OI
+- PCR
+- India VIX
+- pre-market gap
+- previous day range
+- CPR
+- VWAP
+- breadth
+- sector momentum
+- opening range behaviour
+
+--------------------------------------------------------------------------------
+13.2 Market Regime Classifier
+--------------------------------------------------------------------------------
+
+Output:
+
+- Bullish Trend
+- Bearish Trend
+- Range
+- Volatile
+- Event Risk
+- No Trade
+
+Each output should show reasons.
+
+Example:
+
+Market Regime: Bullish Trend
+Reasons:
+- NIFTY above VWAP
+- breadth positive
+- put writing active
+- futures long buildup
+- sector leadership broad
+- VIX stable
+
+Example:
+
+Market Regime: Range
+Reasons:
+- index inside previous range
+- ATM straddle decaying
+- OI walls on both sides
+- breadth neutral
+- weak trend strength
+
+================================================================================
+14. BACKTESTING AND STRATEGY VALIDATION
+================================================================================
+
+This is one of the most important upgrades.
+
+The platform should not display confidence unless it has historical validation.
+
+--------------------------------------------------------------------------------
+14.1 Required Backtest Metrics
+--------------------------------------------------------------------------------
+
+For every strategy:
+
+- total trades
+- winning trades
+- losing trades
+- win rate
+- average win
+- average loss
+- average R
+- profit factor
+- expectancy
+- max drawdown
+- average holding time
+- best market regime
+- worst market regime
+- best time of day
+- worst time of day
+- MFE
+- MAE
+- slippage sensitivity
+- transaction cost adjusted performance
+
+--------------------------------------------------------------------------------
+14.2 F&O Backtesting
+--------------------------------------------------------------------------------
+
+F&O backtesting must include:
+
+- option premium entry
+- option premium exit
+- spread
+- slippage
+- expiry decay
+- IV change
+- time of entry
+- time of exit
+- spot movement
+- option liquidity
+- transaction cost
+- realistic fill model
+
+Do not backtest option trades using only spot levels. That gives false results.
+
+--------------------------------------------------------------------------------
+14.3 Swing Backtesting
+--------------------------------------------------------------------------------
+
+Swing backtesting must include:
+
+- adjusted price data
+- entry trigger
+- stop loss
+- gap-down risk
+- corporate actions
+- slippage
+- liquidity
+- partial exits
+- trailing stop
+- holding period
+- sector regime
+
+--------------------------------------------------------------------------------
+14.4 Walk-Forward Testing
+--------------------------------------------------------------------------------
+
+Do not optimize only on past data.
+
+Use:
+
+- in-sample period
+- out-of-sample period
+- walk-forward period
+- monthly performance review
+- regime-based validation
+
+Example:
+
+Train:
+2022-2024
+
+Validate:
+2025
+
+Live forward test:
+2026
+
+================================================================================
+15. RISK MANAGEMENT ENGINE
+================================================================================
+
+A professional tool must control risk before generating a trade.
+
+--------------------------------------------------------------------------------
+15.1 Universal Risk Rules
+--------------------------------------------------------------------------------
+
+- max risk per trade
+- max risk per day
+- max open positions
+- max sector exposure
+- max F&O exposure
+- no revenge trade mode
+- cooldown after loss
+- no trade after daily loss limit
+- reduced size on event days
+- reduced size in high VIX
+- avoid illiquid instruments
+
+--------------------------------------------------------------------------------
+15.2 F&O Risk Rules
+--------------------------------------------------------------------------------
+
+- never suggest far OTM options without warning
+- avoid wide spreads
+- avoid low-volume contracts
+- limit trades near expiry unless momentum is strong
+- option premium SL mandatory
+- spot invalidation mandatory
+- time stop mandatory
+- no averaging down in option buying
+- show theta risk
+- show IV risk
+
+--------------------------------------------------------------------------------
+15.3 Swing Risk Rules
+--------------------------------------------------------------------------------
+
+- position size based on stop distance
+- liquidity check
+- gap risk warning
+- earnings warning
+- corporate action warning
+- sector concentration warning
+- maximum portfolio heat
+- trailing stop logic
+
+--------------------------------------------------------------------------------
+15.4 Position Sizing Formula
+--------------------------------------------------------------------------------
+
+For swing:
+
+Capital risk per trade = Total capital x Risk percentage
+
+Quantity = Capital risk per trade / (Entry price - Stop loss)
+
+Example:
+
+Capital = Rs. 500,000
+Risk per trade = 1%
+Capital risk = Rs. 5,000
+Entry = Rs. 500
+Stop = Rs. 475
+Risk per share = Rs. 25
+Quantity = 5000 / 25 = 200 shares
+
+For F&O:
+
+Risk should be calculated using option premium SL and lot size.
+
+Loss per lot = (Entry premium - SL premium) x lot size
+
+Allowed lots = Max risk per trade / Loss per lot
+
+================================================================================
+16. PAPER TRADING AND EXECUTION SIMULATION
+================================================================================
+
+Paper trading should become realistic.
+
+Required upgrades:
+
+- use actual bid/ask spread
+- include brokerage/charges
+- include slippage
+- use lot size for F&O
+- use position sizing rules
+- record reason for entry
+- record reason for exit
+- record signal version
+- record market regime
+- record MFE and MAE
+- record missed trades
+- record invalidated signals
+
+Paper trade lifecycle:
+
+Signal Generated
+    |
+Waiting for Trigger
+    |
+Triggered
+    |
+Active
+    |
+Partial Exit
+    |
+Trailing
+    |
+Closed / Stopped / Expired / Invalidated
+    |
+Performance Updated
+
+================================================================================
+17. ALERTS AND NOTIFICATION SYSTEM
+================================================================================
+
+Alerts should be intelligent, not noisy.
+
+Alert categories:
+
+1. Market Regime Change
+2. F&O A+ Signal
+3. F&O Signal Invalidated
+4. Swing Stock Near Trigger
+5. Swing Trigger Hit
+6. Stop Loss Hit
+7. Target Hit
+8. Sector Rotation Alert
+9. Data Feed Issue
+10. Risk Limit Alert
+
+Example F&O alert:
+
+NIFTY CE Signal - A Grade
+Setup: Momentum Breakout
+Entry: Above 24520 spot / CE above Rs. 145
+SL: CE below Rs. 118
+T1: Rs. 175
+T2: Rs. 210
+Score: 84/100
+Reason: VWAP breakout + futures long buildup + put writing + breadth support
+Invalidation: spot below VWAP or put writing unwind
+
+Example swing alert:
+
+ABC Ltd Near Breakout
+Setup: Sector Leader Breakout
+Buy Above: Rs. 1250
+SL: Rs. 1190
+T1: Rs. 1340
+T2: Rs. 1425
+Score: 87/100
+Sector Rank: 2/21
+Volume: 1.8x
+Delivery: rising
+Risk-Reward: 1:2.9
+
+================================================================================
+18. UI/UX DESIGN RECOMMENDATIONS
+================================================================================
+
+The platform should look like a professional trading cockpit.
+
+--------------------------------------------------------------------------------
+18.1 Main Navigation
+--------------------------------------------------------------------------------
+
+Recommended pages:
+
+1. Market Cockpit
+2. F&O Cockpit
+3. Swing Cockpit
+4. Prediction Dashboard
+5. Watchlists
+6. Active Trades
+7. Strategy Performance
+8. Backtesting
+9. Data Quality
+10. Settings
+
+--------------------------------------------------------------------------------
+18.2 Market Cockpit
+--------------------------------------------------------------------------------
+
+Show:
+
+- NIFTY
+- BANKNIFTY
+- FINNIFTY
+- MIDCPNIFTY
+- India VIX
+- FII/DII data
+- participant OI
+- advance/decline
+- sector heatmap
+- top sectors
+- weak sectors
+- volume shock
+- delivery shock
+- market regime card
+
+--------------------------------------------------------------------------------
+18.3 F&O Cockpit
+--------------------------------------------------------------------------------
+
+Show:
+
+- index bias
+- active F&O signals
+- option-chain heatmap
+- strike-wise OI
+- OI change
+- PCR
+- max pain
+- ATM straddle
+- IV rank
+- IV percentile
+- futures buildup
+- expiry countdown
+- signal quality score
+- risk warning
+
+--------------------------------------------------------------------------------
+18.4 Swing Cockpit
+--------------------------------------------------------------------------------
+
+Show:
+
+- sector leaders
+- sector laggards
+- top RS stocks
+- breakout candidates
+- pullback candidates
+- near-trigger stocks
+- active swing trades
+- invalidated setups
+- upcoming results warnings
+- high delivery accumulation stocks
+
+--------------------------------------------------------------------------------
+18.5 Prediction Dashboard
+--------------------------------------------------------------------------------
+
+Show probabilities:
+
+- bullish trend day probability
+- bearish trend day probability
+- range day probability
+- gap-fill probability
+- breakout probability
+- volatility expansion probability
+
+Also show reason cards.
+
+--------------------------------------------------------------------------------
+18.6 Strategy Performance Dashboard
+--------------------------------------------------------------------------------
+
+Show:
+
+- win rate
+- profit factor
+- average R
+- max drawdown
+- best setup
+- worst setup
+- best instrument
+- best market regime
+- worst market regime
+- expiry-day performance
+- time-of-day performance
+- signal expiry rate
+- stop-hit rate
+- target-hit rate
+
+--------------------------------------------------------------------------------
+18.7 Color System
+--------------------------------------------------------------------------------
+
+Recommended dark theme:
+
+- Background: deep navy / charcoal
+- Bullish: green
+- Bearish: red
+- Warning: amber
+- Neutral: slate or blue
+- High confidence: bright accent
+- Low confidence: muted gray
+
+Do not rely only on red and green. Also use labels, arrows, icons, badges, and text because some users may have color-vision limitations.
+
+--------------------------------------------------------------------------------
+18.8 Fonts
+--------------------------------------------------------------------------------
+
+Recommended:
+
+- UI font: Inter or IBM Plex Sans
+- Number font: JetBrains Mono or Roboto Mono
+- Chart labels: clean sans-serif
+- Avoid decorative fonts
+
+--------------------------------------------------------------------------------
+18.9 Best Visuals
+--------------------------------------------------------------------------------
+
+Use:
+
+- option-chain heatmap
+- sector heatmap
+- market breadth dashboard
+- PCR chart
+- IV percentile gauge
+- risk-reward bar
+- signal lifecycle timeline
+- relative strength ranking table
+- market regime card
+- data quality status bar
+
+================================================================================
+19. DATABASE TABLES TO ADD
+================================================================================
+
+--------------------------------------------------------------------------------
+19.1 Market Master Tables
+--------------------------------------------------------------------------------
+
+market_instruments
+market_instrument_snapshots
+market_indices
+market_index_constituents
+market_sectors
+market_industries
+market_holidays
+market_expiry_calendar
+market_corporate_actions
+market_symbol_changes
+
+--------------------------------------------------------------------------------
+19.2 Candle Tables
+--------------------------------------------------------------------------------
+
+candles_1m
+candles_3m
+candles_5m
+candles_15m
+candles_60m
+candles_1d
+candles_1w
+adjusted_candles_1d
+
+--------------------------------------------------------------------------------
+19.3 F&O Tables
+--------------------------------------------------------------------------------
+
+fo_contracts
+fo_option_chain_snapshots
+fo_strike_oi_history
+fo_futures_oi_history
+fo_pcr_history
+fo_max_pain_history
+fo_iv_history
+fo_iv_rank_percentile
+fo_atm_straddle_history
+fo_buildup_classification
+fo_mwpl_ban_history
+fo_signal_features
+fo_signals
+fo_signal_outcomes
+
+--------------------------------------------------------------------------------
+19.4 Swing Tables
+--------------------------------------------------------------------------------
+
+swing_universe
+swing_sector_strength
+swing_relative_strength
+swing_setups
+swing_triggers
+swing_signal_features
+swing_signals
+swing_signal_outcomes
+swing_watchlist_lifecycle
+
+--------------------------------------------------------------------------------
+19.5 Backtesting Tables
+--------------------------------------------------------------------------------
+
+strategy_versions
+backtest_runs
+backtest_trades
+walkforward_results
+signal_expectancy
+strategy_daily_performance
+strategy_monthly_performance
+
+--------------------------------------------------------------------------------
+19.6 Risk Tables
+--------------------------------------------------------------------------------
+
+risk_profiles
+position_sizing_rules
+open_risk
+daily_loss_limits
+trade_journal
+execution_audit
+risk_events
+
+--------------------------------------------------------------------------------
+19.7 Data Quality Tables
+--------------------------------------------------------------------------------
+
+data_source_status
+data_sync_jobs
+data_missing_candles
+data_stale_instruments
+api_error_logs
+data_quality_scores
+
+================================================================================
+20. DATA QUALITY AND MONITORING
+================================================================================
+
+A pro platform must show whether data is reliable.
+
+Add a Data Quality Bar:
+
+- Kite connected
+- WebSocket live
+- last tick time
+- candle generation active
+- option-chain updated
+- FII/DII updated
+- participant OI updated
+- instrument master updated
+- missing candles count
+- stale symbols count
+- API errors
+
+Data quality statuses:
+
+- LIVE
+- DELAYED
+- STALE
+- PARTIAL
+- FAILED
+
+If data is stale, the platform must not generate fresh signals.
+
+================================================================================
+21. SECURITY AND COMPLIANCE
+================================================================================
+
+Critical rules:
+
+1. Never store API secret in frontend.
+2. Never export access tokens in backups.
+3. Encrypt sensitive tokens.
+4. Rotate leaked tokens immediately.
+5. Use environment variables for secrets.
+6. Separate user sessions from strategy data.
+7. Use role-based access.
+8. Keep audit logs.
+9. Avoid unauthorized trade execution.
+10. Add disclaimers and risk warnings.
+
+Recommended backup rule:
+
+Exclude these from shared backups:
+
+- sessions
+- access tokens
+- API secrets
+- refresh tokens
+- user password hashes
+- private user data
+- live credentials
+
+================================================================================
+22. IMPLEMENTATION ROADMAP
+================================================================================
+
+--------------------------------------------------------------------------------
+PHASE 1: FOUNDATION
+--------------------------------------------------------------------------------
+
+Goal:
+Fix the data foundation.
+
+Tasks:
+
+1. Create Indian instrument master.
+2. Fetch Kite instrument dump daily.
+3. Create candle tables.
+4. Start historical candle backfill.
+5. Store 1-minute candles.
+6. Add sector and industry classification.
+7. Add expiry calendar.
+8. Secure credentials.
+9. Build data quality dashboard.
+
+Success criteria:
+
+- all active NSE cash symbols available
+- all F&O contracts mapped
+- candles available for key instruments
+- no credentials in backups
+- data freshness visible
+
+--------------------------------------------------------------------------------
+PHASE 2: F&O DATA-RICH ENGINE
+--------------------------------------------------------------------------------
+
+Goal:
+Build option-chain and OI intelligence.
+
+Tasks:
+
+1. Store option-chain snapshots.
+2. Store strike-wise OI change.
+3. Compute PCR.
+4. Compute max pain.
+5. Compute ATM straddle.
+6. Compute IV rank and IV percentile.
+7. Classify futures buildup.
+8. Add spread/liquidity filter.
+9. Add F&O signal feature snapshots.
+10. Build F&O cockpit.
+
+Success criteria:
+
+- every F&O signal has reason and data snapshot
+- no signal without OI/IV/liquidity/risk data
+- expiry-day mode works
+- invalidation logic exists
+
+--------------------------------------------------------------------------------
+PHASE 3: SWING DATA-RICH ENGINE
+--------------------------------------------------------------------------------
+
+Goal:
+Build professional swing intelligence.
+
+Tasks:
+
+1. Build NIFTY 500 universe.
+2. Add sector/industry ranks.
+3. Calculate relative strength.
+4. Add volume shock.
+5. Add delivery shock.
+6. Add breakout/pullback detection.
+7. Add trigger lifecycle.
+8. Add earnings/corporate-action warning.
+9. Build swing cockpit.
+
+Success criteria:
+
+- every swing candidate has sector rank
+- every signal has trigger, SL, target, risk-reward
+- near-trigger alerts are available
+- invalidation is tracked
+
+--------------------------------------------------------------------------------
+PHASE 4: BACKTESTING AND EXPECTANCY
+--------------------------------------------------------------------------------
+
+Goal:
+Make confidence evidence-based.
+
+Tasks:
+
+1. Create strategy versioning.
+2. Backtest F&O strategies.
+3. Backtest swing strategies.
+4. Include slippage and costs.
+5. Add walk-forward testing.
+6. Generate expectancy by setup.
+7. Replace static confidence with statistical confidence.
+
+Success criteria:
+
+- every strategy has win rate and average R
+- every signal can show similar past setup performance
+- bad strategies are downgraded automatically
+
+--------------------------------------------------------------------------------
+PHASE 5: PRO TRADER UI
+--------------------------------------------------------------------------------
+
+Goal:
+Create professional experience.
+
+Tasks:
+
+1. Market cockpit.
+2. F&O cockpit.
+3. Swing cockpit.
+4. Prediction dashboard.
+5. Strategy performance page.
+6. Data quality bar.
+7. Alerts and notification system.
+8. Mobile responsive design.
+
+Success criteria:
+
+- user can understand market condition in 30 seconds
+- user can see best F&O opportunities quickly
+- user can see best swing setups quickly
+- no table overload
+- clear risk warnings
+
+--------------------------------------------------------------------------------
+PHASE 6: ADVANCED INTELLIGENCE
+--------------------------------------------------------------------------------
+
+Goal:
+Create market prediction and self-improving system.
+
+Tasks:
+
+1. Add regime classifier.
+2. Add probability model.
+3. Add sector rotation model.
+4. Add signal decay model.
+5. Add ML only after clean historical data exists.
+6. Add daily market report generator.
+7. Add trade journal insights.
+
+Success criteria:
+
+- system predicts regime probabilities
+- system learns which strategies work in which regime
+- user receives daily actionable market plan
+
+================================================================================
+23. THE BEST COMBINED STRATEGY
+================================================================================
+
+If only one final strategy architecture must be selected, choose this:
+
+F&O:
+Index Regime + VWAP/CPR + Opening Range + Futures OI + Option-Chain Confirmation + Liquidity Filter + Strict Risk
+
+Meaning:
+Generate NIFTY/BANKNIFTY/FINNIFTY CE/PE signals only when market regime, price action, futures OI, option-chain OI, IV, liquidity, and risk-reward agree.
+
+Swing:
+Sector Rotation + Relative Strength + Volume/Delivery Breakout/Pullback + Risk-Reward
+
+Meaning:
+Select stocks from leading sectors, outperforming NIFTY and their sector, close to clean breakout or pullback levels, with defined stop loss and positive historical expectancy.
+
+This combination is stronger than normal indicator systems because it uses:
+
+- market regime
+- institutional data
+- derivative positioning
+- sector leadership
+- price-volume confirmation
+- risk management
+- historical expectancy
+
+================================================================================
+24. FINAL CHECKLIST
+================================================================================
+
+Use this checklist to build the perfect Indian market trading tool.
+
+DATA CHECKLIST:
+
+[ ] NSE instrument master
+[ ] BSE instrument master
+[ ] F&O contract master
+[ ] daily instrument snapshot
+[ ] 1-minute candles
+[ ] 5-minute candles
+[ ] 15-minute candles
+[ ] daily candles
+[ ] weekly candles
+[ ] adjusted candles
+[ ] option-chain snapshots
+[ ] futures OI
+[ ] strike OI change
+[ ] PCR
+[ ] max pain
+[ ] IV rank
+[ ] IV percentile
+[ ] ATM straddle
+[ ] FII/DII data
+[ ] participant OI
+[ ] sector classification
+[ ] industry classification
+[ ] corporate actions
+[ ] earnings calendar
+[ ] delivery data
+[ ] breadth data
+
+F&O CHECKLIST:
+
+[ ] market regime engine
+[ ] VWAP/CPR levels
+[ ] opening range logic
+[ ] futures buildup logic
+[ ] option-chain confirmation
+[ ] liquidity/spread filter
+[ ] IV/VIX filter
+[ ] expiry-day mode
+[ ] signal score
+[ ] entry level
+[ ] option premium SL
+[ ] spot invalidation
+[ ] target levels
+[ ] MFE/MAE tracking
+[ ] outcome tracking
+[ ] backtest report
+
+SWING CHECKLIST:
+
+[ ] sector rank
+[ ] stock RS rank
+[ ] volume shock
+[ ] delivery confirmation
+[ ] breakout detection
+[ ] pullback detection
+[ ] trigger lifecycle
+[ ] risk-reward
+[ ] stop loss
+[ ] targets
+[ ] event warnings
+[ ] corporate action warnings
+[ ] outcome tracking
+[ ] backtest report
+
+UI CHECKLIST:
+
+[ ] market cockpit
+[ ] F&O cockpit
+[ ] swing cockpit
+[ ] prediction page
+[ ] strategy performance page
+[ ] data quality bar
+[ ] option-chain heatmap
+[ ] sector heatmap
+[ ] alert system
+[ ] mobile layout
+[ ] dark theme
+[ ] clean fonts
+[ ] risk badges
+
+SECURITY CHECKLIST:
+
+[ ] no API secret in frontend
+[ ] no token in export
+[ ] encrypted secrets
+[ ] access control
+[ ] audit logs
+[ ] backup sanitization
+[ ] token rotation process
+
+================================================================================
+25. OFFICIAL REFERENCE NOTES
+================================================================================
+
+The following official references should be used while implementing the system:
+
+1. Kite Connect Market Quotes
+   Key implementation note:
+   The quote API can provide full market snapshots including OHLC, OI, and market depth. Use this for snapshots, not high-frequency polling.
+
+2. Kite Connect Historical Data
+   Key implementation note:
+   Historical candle data supports multiple intervals and can include OI where available. Use it for reconciliation and backfilling.
+
+3. Kite Connect WebSocket
+   Key implementation note:
+   WebSocket is the right approach for live data. Kite supports live quote streaming with subscription limits per connection and API key.
+
+4. NSE Equity Derivatives Contract Specifications
+   Key implementation note:
+   Expiry handling must be dynamic. Do not hardcode old expiry assumptions. Use exchange contract files and expiry calendar logic.
+
+Implementation sources verified:
+- Kite Connect market quotes documentation
+- Kite Connect historical data documentation
+- Kite Connect WebSocket documentation
+- NSE equity derivatives contract specifications
+
+================================================================================
+FINAL CONCLUSION
+================================================================================
+
+To make this a perfect Indian market trading tool, focus on these three pillars:
+
+1. Data Depth
+   Build a full Indian market data warehouse covering candles, F&O, option-chain, OI, IV, sectors, breadth, delivery, institutions, and corporate events.
+
+2. Signal Quality
+   Build scoring systems for F&O and swing trades where every signal has reason, risk, invalidation, and historical expectancy.
+
+3. Trader Workflow
+   Build dashboards that help the user move from market understanding to actionable trade decisions within minutes.
+
+The best platform is not the one that gives the most signals. The best platform is the one that gives fewer but better trades, shows when not to trade, and continuously proves its signals through data.
