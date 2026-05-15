@@ -1,0 +1,44 @@
+I want a complete read-only technical review of the actual trading logic currently implemented in the codebase for F&O paper trading and swing/cash equity trading. Do not modify code. Do not refactor. Do not change signals, paper trading, Kite/order execution, swing scanner logic, F&O logic, database schema, or scheduler behavior.
+
+Please inspect the actual codebase and prepare a detailed markdown report explaining the logic behind trade entry, exit, signal generation, scoring, filters, and risk controls.
+
+For F&O paper trading:
+1. List supported indices currently active in code: NIFTY, BANKNIFTY, SENSEX, and any others if truly active.
+2. Map exact files/functions responsible for signal generation, signal filtering/gates, paper F&O trade creation, trade lifecycle, stop/target handling, expiry handling, option selection, risk sizing, and P&L calculation.
+3. Explain how an F&O signal pops up: data source, indicators, OI/option-chain inputs, VWAP/EMA/ATR/RSI/ADX/volume/IV/PCR/OI buildup/market regime usage, and whether the signal is spot-based, futures-based, premium-based, or mixed.
+4. Explain exact CE/CALL and PE/PUT entry logic: bullish/bearish criteria, strike selection, option type selection, entry price, candle confirmation, VWAP reclaim/loss, EMA pullback, trend continuation, volume confirmation, liquidity/spread checks.
+5. Explain all setup types currently implemented: BASELINE, VWAP_RECLAIM, EMA_PULLBACK, TREND_CONTINUATION, ORB, VOLUME_BREAKOUT, or any other setup in code. For each: purpose, technical condition, bullish condition, bearish condition, entry rule, stop rule, target rule, invalidation rule, weakness.
+6. Explain exit logic: spot SL vs premium SL, Target 1/2/3, trailing stop, partial booking, time-based expiry/stale-trigger logic, and status meanings such as STOPPED, TARGET1_HIT, TARGET2_HIT, EXPIRED, EXPIRED_TRIGGERED, EXPIRED_PENDING, STALE_TRIGGER.
+7. Explain risk management: lots, capital, max open trades, DD caps, heat caps, cooldown, expiry-day rule, no-trade conditions.
+8. Explain F&O P&L: premium-based or spot-based, lot size, charges/slippage, MFE/MAE, option exit premium.
+9. Verify whether the new F&O setup from files.zip is actually wired into the production paper-trade path: computeBias() -> directorFor() -> gateSignal() -> paper trade insert. If not, identify all old paths that can create trades.
+10. Identify gaps: spot vs premium mismatch, missing option exit premium, stale signals, stops too tight, high-conviction not backed by data, unused option snapshots/analytics, ORB/Volume Breakout placeholders.
+
+For swing/cash equity trading:
+1. Map exact files/functions for scanning, scoring, recommendation labels, entry, stop, target, paper trade creation, trade lifecycle, position sizing, and trailing exit.
+2. Explain how a stock becomes a candidate: universe, sector/industry, data source, candle timeframe, filters, liquidity, trend, technical, fundamental, volume, risk.
+3. Explain all scoring components: technical_score, smc_score, volume_score, momentum_score, fundamental_score, risk_score, context_score, rs_score, and any others.
+4. Explain action/recommendation labels and exact criteria: BUY NOW, STRONG BUY, WATCHLIST, WAIT FOR CONFIRMATION, WAIT FOR PULLBACK, AVOID / NO TRADE, or actual labels in code.
+5. Explain swing entry criteria: breakout, pullback, trend continuation, volume confirmation, relative strength, sector strength, SMC/demand zone/order block, RSI/ADX/ATR, moving averages, 52-week proximity, liquidity/value traded.
+6. Explain swing exit criteria: initial SL, trailing stop, targets, time exit, close below MA, reversal candle, stop sanity.
+7. Explain paper equity sizing: account balance, available cash, max open trades, slots logic, deploy amount, quantity calculation, DD caps, daily cap, concurrent cap, heat cap, rejection reasons.
+8. Explain lifecycle: scanned -> accepted/rejected -> paper trade opened -> open position tracked -> target/trailing stop/stop hit -> closed -> P&L.
+9. Identify gaps: whether sector mapping affects scoring or only display; whether candle warehouse is used or decoupled; whether displayed recommendation matches actual trade execution; whether high-score candidates are rejected and why.
+
+Report format:
+A. Executive summary
+B. F&O trading logic overview
+C. F&O entry logic setup-wise
+D. F&O exit logic and lifecycle
+E. F&O risk and sizing logic
+F. Swing trading logic overview
+G. Swing scoring and recommendation logic
+H. Swing entry and exit logic
+I. Swing paper trade sizing and lifecycle
+J. Exact code map: file name, function name, responsibility
+K. Data sources used by each module
+L. Gaps, bugs, or unclear logic
+M. Recommended improvements
+N. Questions requiring owner decision
+
+Important: Cite exact files and functions. Include pseudo-code where possible. Clearly separate implemented logic from planned/documented logic and from data infrastructure that is not yet connected to trade decisions.
