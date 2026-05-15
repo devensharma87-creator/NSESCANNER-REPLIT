@@ -38,6 +38,15 @@ Durable per-contract option snapshots. **Write-only data layer — does NOT feed
 - **Owner-only diagnostics** (strict owner gate, no public-mode read bypass):
   - `GET /api/option-snapshots/diagnostics` — config + per-underlying coverage + recent runs.
   - `POST /api/option-snapshots/run-now?force=1` — manual cycle (`force` bypasses market-hours guard).
+  - `GET /api/option-snapshots/analytics` (Priority 9, 2026-05-15) — read-only analytics over already-stored rows. **No Kite calls, no NSE calls, no writes, no schema/index changes. Does not feed any trading decision.**
+    - **Pure module**: `artifacts/api-server/src/lib/optionSnapshotAnalytics.ts` exports `computeAnalytics(rows) → AnalyticsResult` and `computeStaleness(captured, now, threshold)`.
+    - **Per-group analytics**: PCR, total CE/PE OI, CE/PE OI deltas, highest-OI strike per side, **highest-positive-OI-change** strike per side (returns null when no positive build-up exists — never reports the "least-bad unwind"), approximate max pain via standard writer-pain formula `Σmax(S−K,0)·OI_CE + Σmax(K−S,0)·OI_PE` over the strikes present in the snapshot, ATM strike (denormalised `atm_strike` first, fallback to nearest strike to spot), ATM straddle (CE+PE LTP at ATM), ATM IV (CE/PE/mean, drops bogus IV ≤ 0 or ≥ 500), per-side average IV, bid/ask spread summary (median %, count of legs whose spread% > `WIDE_SPREAD_PCT=1.5`, sample size, skips inverted books).
+    - **Filters** (all optional, all bounded): `underlying` (universe-validated), `expiry` (`YYYY-MM-DD`), `capturedAt` (ISO timestamp, exact-match against the bucket the ingestor rounds to), `lookbackMinutes` (1..1440), `staleThresholdMin` (1..1440, default 30), `maxGroups` (1..50, default 12).
+    - **Default selection**: `MAX(captured_at)` per `(underlying, expiry)`, but only the **2 most-recent expiries per underlying** (CTE with `ROW_NUMBER() OVER (PARTITION BY underlying ORDER BY expiry DESC)`), restricted to `SNAPSHOT_INDICES`. Bogus filter values silently drop to safe defaults.
+    - **Hard safety limits**: `MAX_ROWS_PER_GROUP=200` cap on the per-group leg query, `MAX_GROUPS_HARD_CAP=50`, `MAX_LOOKBACK_MIN=1440`. Uses the existing `(underlying, expiry, captured_at)` index — no new index added.
+    - **Staleness**: every group carries `staleness: { ageMinutes, isStale, thresholdMinutes }`. Future-clock-skew capturedAt clamps to `ageMinutes=0` rather than going negative.
+    - **Honest nulls** everywhere: when source data is missing (no OI on a side, no IV column, etc.) the corresponding field is `null`, never a synthesised zero.
+    - **Tests** (`artifacts/api-server/src/lib/optionSnapshotAnalytics.test.ts` — 36 pure tests; route-level coverage in `routes/__tests__/diagnosticRouteAuth.test.ts` — 5 strict-owner auth cases + 4 owner-path runtime cases for default / lookback / capturedAt / bogus-params).
 
 ---
 

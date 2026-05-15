@@ -13,6 +13,7 @@
  *   5. GET  /api/candles/diagnostics                               (P4)
  *   6. POST /api/candles/sync                                      (P4)
  *   7. GET  /api/stocks-to-watch/diagnostics/sector-coverage       (P2)
+ *   8. GET  /api/option-snapshots/analytics                        (P9)
  *
  * Auth cases per endpoint:
  *   A) anonymous, public-mode OFF  → 401 AUTH_REQUIRED
@@ -235,6 +236,7 @@ const ENDPOINTS: readonly Endpoint[] = [
   { name: "P4 candle diagnostics",    method: "GET",  path: "/api/candles/diagnostics" },
   { name: "P4 candle sync",           method: "POST", path: "/api/candles/sync" },
   { name: "P2 sector-coverage",       method: "GET",  path: "/api/stocks-to-watch/diagnostics/sector-coverage" },
+  { name: "P9 snapshot analytics",    method: "GET",  path: "/api/option-snapshots/analytics" },
 ] as const;
 
 async function call(ep: Endpoint, cookie?: string): Promise<{ status: number; body: unknown }> {
@@ -295,6 +297,85 @@ describe("Priority 6 — owner-only diagnostic route auth gate", () => {
       const r = await call(ep, OWNER_COOKIE);
       expect(r.status).not.toBe(401);
       expect(r.status).not.toBe(403);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Priority 9 — default-path runtime regression for /option-snapshots/analytics.
+//
+// The analytics handler has two distinct SQL branches (default = latest per
+// (underlying, expiry) limited to 2 most-recent expiries; capturedAt = exact
+// match). The default branch previously crashed if `lookbackMinutes` was
+// omitted because the conditional guard tested an always-truthy SQL fragment
+// instead of the cutoff Date. These tests pin the post-fix behaviour.
+// ---------------------------------------------------------------------------
+
+describe("Priority 9 — /api/option-snapshots/analytics owner-path runtime", () => {
+  it("default (no params) returns 200 with empty groups when no rows exist", async () => {
+    publicAccessState.enabled = false;
+    const r = await call(
+      { name: "p9 default", method: "GET", path: "/api/option-snapshots/analytics" },
+      OWNER_COOKIE,
+    );
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      groupCount: 0,
+      groups: [],
+      universe: ["NIFTY", "BANKNIFTY", "SENSEX"],
+    });
+  });
+  it("with lookbackMinutes returns 200 and propagates filter back in response", async () => {
+    publicAccessState.enabled = false;
+    const r = await call(
+      {
+        name: "p9 lookback",
+        method: "GET",
+        path: "/api/option-snapshots/analytics?lookbackMinutes=60&staleThresholdMin=15",
+      },
+      OWNER_COOKIE,
+    );
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      filters: { lookbackMinutes: 60, staleThresholdMin: 15 },
+      groupCount: 0,
+    });
+  });
+  it("with capturedAt (exact-match branch) returns 200", async () => {
+    publicAccessState.enabled = false;
+    const r = await call(
+      {
+        name: "p9 capturedAt",
+        method: "GET",
+        path: "/api/option-snapshots/analytics?capturedAt=2026-05-15T09:30:00Z",
+      },
+      OWNER_COOKIE,
+    );
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      filters: { capturedAt: "2026-05-15T09:30:00.000Z" },
+      groupCount: 0,
+    });
+  });
+  it("rejects bogus query params silently (filters drop to safe defaults)", async () => {
+    publicAccessState.enabled = false;
+    const r = await call(
+      {
+        name: "p9 bad params",
+        method: "GET",
+        path:
+          "/api/option-snapshots/analytics?underlying=GARBAGE&expiry=not-a-date&lookbackMinutes=abc&maxGroups=999999",
+      },
+      OWNER_COOKIE,
+    );
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      filters: {
+        underlying: null,
+        expiry: null,
+        lookbackMinutes: null,
+        maxGroups: 12,
+      },
     });
   });
 });

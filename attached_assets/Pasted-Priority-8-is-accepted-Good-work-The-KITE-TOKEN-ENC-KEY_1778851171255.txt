@@ -1,0 +1,115 @@
+Priority 8 is accepted. Good work.
+
+The `KITE_TOKEN_ENC_KEY` rotation runbook and safe rotation script are approved as complete.
+
+Accepted final state:
+
+* Additive crypto helper exports were added safely.
+* Existing runtime Kite token encryption behavior was preserved.
+* Rotation script was added.
+* Dry-run is default.
+* Apply mode requires explicit `--apply` / `--commit`.
+* Old/new keys are not printed.
+* Token values are not printed.
+* Wrong old key fails closed.
+* Identical old/new keys are refused.
+* Plaintext/NULL handling is safe.
+* Rotation runbook was added.
+* Package script was added.
+* 278/278 tests passed.
+* Typecheck passed.
+* Architect review passed.
+* No trading logic, scanner logic, paper trading, Kite order/execution, data-ingestion, scheduler, or schema behavior was changed.
+
+Do not change Priority 8 further unless I separately ask.
+
+You are now approved to proceed with **Priority 9: Read-Only Option Snapshot Analytics Diagnostics** only.
+
+Scope approved:
+
+1. Build read-only analytics on top of the existing `option_chain_snapshot` table.
+
+2. This must be analytics/diagnostics only.
+   Do not connect this into live F&O signal generation.
+
+3. Add calculations/reporting for stored option snapshots, where data is available:
+
+   * PCR by underlying and expiry,
+   * total CE OI,
+   * total PE OI,
+   * CE OI change,
+   * PE OI change,
+   * highest CE OI strike,
+   * highest PE OI strike,
+   * highest CE OI-change strike,
+   * highest PE OI-change strike,
+   * approximate max pain,
+   * ATM strike,
+   * ATM straddle value,
+   * IV average / ATM IV if available,
+   * bid/ask spread summary,
+   * stale snapshot warning.
+
+4. Add an owner-only diagnostic endpoint such as:
+   `GET /api/option-snapshots/analytics`
+
+5. Endpoint should support safe filters:
+
+   * `underlying`
+   * `expiry`
+   * `capturedAt` or latest snapshot only
+   * optional lookback window
+
+6. Default behavior:
+
+   * return latest snapshot analytics per supported underlying and expiry,
+   * do not scan unlimited history by default,
+   * enforce safe limits.
+
+7. Add tests for:
+
+   * PCR calculation,
+   * max pain approximation,
+   * ATM straddle calculation,
+   * highest OI strike detection,
+   * OI-change detection,
+   * empty data handling,
+   * stale data handling,
+   * owner-only route protection if not already covered.
+
+8. Use existing stored data only.
+   Do not add new Kite calls.
+   Do not add new NSE calls.
+   Do not modify the option snapshot ingestor unless absolutely necessary.
+
+9. Do not change:
+
+   * F&O signal generation logic,
+   * F&O entry/exit logic,
+   * swing scanner logic,
+   * paper trading execution,
+   * Kite order/execution logic,
+   * strategy builder,
+   * combo lane,
+   * scanner recommendation logic,
+   * candle warehouse ingestion,
+   * option snapshot ingestion behavior,
+   * database schema unless a small read-optimization index is absolutely required.
+
+10. If a schema/index change is required:
+
+* explain why,
+* keep it minimal,
+* ensure no data rewrite is required.
+
+Expected final output:
+
+1. Files changed.
+2. Analytics formulas implemented.
+3. Endpoint/report added.
+4. Tests/typecheck result.
+5. Sample analytics output shape.
+6. Known limitations.
+7. Confirmation that no trading logic or ingestion behavior was changed.
+
+Proceed with Priority 9 only.

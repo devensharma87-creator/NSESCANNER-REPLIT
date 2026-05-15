@@ -35,7 +35,7 @@ A comprehensive platform for scanning and analyzing the Indian stock market, pro
 ### Data infrastructure (full notes in **`docs/data-infrastructure.md`**)
 
 - **Sector / industry mapping** — `artifacts/api-server/src/lib/sectorMap.ts` + diagnostic `GET /api/stocks-to-watch/diagnostics/sector-coverage`.
-- **Option-chain snapshots** — `lib/db/src/schema/optionChainSnapshot.ts` + diagnostics `GET/POST /api/option-snapshots/*`. Write-only, does not feed trading decisions.
+- **Option-chain snapshots** — `lib/db/src/schema/optionChainSnapshot.ts` + diagnostics `GET/POST /api/option-snapshots/*`. Write-only, does not feed trading decisions. Read-only analytics surface added 2026-05-15: `GET /api/option-snapshots/analytics` (owner-only, strict gate) computes PCR / total OI / OI deltas / highest-OI strike per side / highest-positive-OI-change / approx max-pain / ATM straddle / ATM IV / spread summary / staleness, defaulting to the latest snapshot per (underlying, top-2 most-recent expiries). Pure module: `artifacts/api-server/src/lib/optionSnapshotAnalytics.ts`. Does not feed any trading decision.
 - **Candle warehouse** — `lib/db/src/schema/candleWarehouse.ts` + diagnostics `GET/POST /api/candles/*`. Write-only data substrate.
 - **Equity sizing helper** — `artifacts/api-server/src/lib/equitySizingHelper.ts` + diagnostics `GET /api/paper/eq/sizing-preview` and `GET /api/paper/eq/candidates-diagnostic`. Read-only preview, mirrors `openPaperEquityTrade`'s 11-gate sequence; never called from any execution path.
 
