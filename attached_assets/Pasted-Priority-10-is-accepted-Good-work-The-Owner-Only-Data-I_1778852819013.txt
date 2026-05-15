@@ -1,0 +1,135 @@
+Priority 10 is accepted. Good work.
+
+The Owner-Only Data Infrastructure Health Dashboard is approved as complete.
+
+Accepted final state:
+
+* `/infra-health` owner-only dashboard added.
+* Security, sector/industry mapping, candle warehouse, option-chain snapshots, option snapshot analytics, and equity risk diagnostics are surfaced.
+* INFRA nav link added for owners.
+* OK/WARN/STALE/FAIL/DISABLED badge states implemented.
+* Auto-refresh and independent wall-clock staleness handling implemented.
+* Analytics-down with diagnostics-green correctly rolls up as WARN.
+* 66/66 scanner tests passed.
+* Repo-wide typecheck passed.
+* Architect review passed.
+* No backend changes were made.
+* No new endpoints were added.
+* No F&O signal logic, swing scanner logic, paper trading, Kite execution, ingestion, scheduler, schema, strategy builder, combo lane, or scanner recommendation logic was changed.
+
+Do not change Priority 10 further unless I separately ask.
+
+You are now approved to proceed with **Priority 11: Production Readiness Checklist and Safe Deployment Verification Runbook** only.
+
+Scope approved:
+
+1. Create a production-readiness document, suggested path:
+   `docs/production-readiness-2026-05-15.md`
+
+2. The document should cover all completed priorities:
+
+   * Priority 1: Kite token encryption
+   * Priority 2: sector/industry mapping
+   * Priority 3: option-chain snapshots
+   * Priority 4: candle warehouse
+   * Priority 5: equity sizing helper
+   * Priority 6: owner-only route auth tests
+   * Priority 7: DD-latch route integration tests
+   * Priority 8: encryption-key rotation script/runbook
+   * Priority 9: option snapshot analytics
+   * Priority 10: `/infra-health` dashboard
+
+3. Include required production environment variables and what each one controls:
+
+   * `KITE_TOKEN_ENC_KEY`
+   * `KITE_API_KEY`
+   * `KITE_API_SECRET`
+   * `APP_ACCESS_PASSWORD`
+   * `SESSION_SECRET`
+   * `DATABASE_URL`
+   * `TRADINGVIEW_WEBHOOK_SECRET`
+   * `KITE_MIRROR_ALLOWED_HOSTS`
+   * `OPTION_SNAPSHOT_ENABLED`
+   * `OPTION_SNAPSHOT_INTERVAL_MIN`
+   * `OPTION_SNAPSHOT_STRIKE_WINDOW`
+   * `OPTION_SNAPSHOT_EXPIRIES`
+   * `OPTION_SNAPSHOT_RETENTION_DAYS`
+   * `CANDLE_WAREHOUSE_ENABLED`
+   * `CANDLE_WAREHOUSE_UNIVERSES`
+   * `CANDLE_WAREHOUSE_DAILY_BACKFILL_DAYS`
+   * `CANDLE_WAREHOUSE_INTRADAY_BACKFILL_DAYS`
+   * `CANDLE_WAREHOUSE_MAX_SYMBOLS_PER_RUN`
+   * `CANDLE_WAREHOUSE_RETENTION_DAYS_INTRADAY`
+
+4. Include a safe go-live checklist:
+
+   * secrets configured,
+   * Kite token encryption verified,
+   * owner-only diagnostics verified,
+   * `/infra-health` accessible only to owner,
+   * option snapshot scheduler intentionally enabled or disabled,
+   * candle warehouse scheduler intentionally enabled or disabled,
+   * safe DB export script used,
+   * no plaintext tokens in DB dump,
+   * tests/typecheck green,
+   * rollback plan documented.
+
+5. Include a post-deployment smoke-test checklist:
+
+   * `/api/healthz`
+   * `/infra-health`
+   * `/api/option-snapshots/diagnostics`
+   * `/api/option-snapshots/analytics`
+   * `/api/candles/diagnostics`
+   * `/api/stocks-to-watch/diagnostics/sector-coverage`
+   * `/api/paper/eq/candidates-diagnostic`
+   * owner-only access behavior
+   * public-mode bypass safety
+   * logs contain no token values.
+
+6. Include rollback instructions:
+
+   * how to disable option snapshots,
+   * how to disable candle warehouse,
+   * how to handle bad `KITE_TOKEN_ENC_KEY`,
+   * how to delete `kite_session` and force fresh login,
+   * how to revert only the latest deployment if needed.
+
+7. Do not modify runtime code unless absolutely necessary.
+   This should be documentation/runbook only.
+
+8. Do not change:
+
+   * F&O signal logic,
+   * F&O entry/exit logic,
+   * swing scanner logic,
+   * swing scoring/recommendations,
+   * paper trading execution,
+   * Kite order/execution logic,
+   * strategy builder,
+   * combo lane,
+   * scanner recommendation logic,
+   * option snapshot ingestion,
+   * candle warehouse ingestion,
+   * database schema,
+   * scheduler behavior.
+
+9. If you find any production-readiness blocker while documenting:
+
+   * stop,
+   * report the blocker,
+   * explain risk,
+   * propose the smallest fix,
+   * wait for approval before changing code.
+
+Expected final output:
+
+1. Documentation files added/changed.
+2. Production checklist summary.
+3. Env variables documented.
+4. Smoke-test checklist included.
+5. Rollback plan included.
+6. Any blockers found.
+7. Confirmation that no runtime/trading/data-ingestion/schema/scheduler logic was changed.
+
+Proceed with Priority 11 documentation/runbook only.
