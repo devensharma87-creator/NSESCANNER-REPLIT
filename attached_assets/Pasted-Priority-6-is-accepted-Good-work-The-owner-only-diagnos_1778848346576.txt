@@ -1,0 +1,82 @@
+Priority 6 is accepted. Good work.
+
+The owner-only diagnostic route security regression tests are approved as complete.
+
+Accepted final state:
+
+* New route auth regression test file added.
+* All 7 owner-only diagnostic/manual endpoints are covered.
+* Anonymous access is rejected.
+* Public-mode read bypass does not expose these routes.
+* Subscriber cookie does not escalate to owner.
+* Owner cookie passes the auth gate.
+* 218/218 tests passed.
+* Typecheck passed.
+* No runtime route behavior was changed.
+* No trading logic, data-ingestion logic, schema, scheduler, or execution behavior was changed.
+
+Do not change Priority 6 further unless I separately ask.
+
+You are now approved to proceed with **Priority 7: Equity DD-Latch Route Integration Test** only.
+
+Scope approved:
+
+1. Add an integration/regression test proving the equity sizing diagnostic route correctly respects drawdown latch state.
+
+2. The test should verify that when the route-level account snapshot has:
+
+   * daily drawdown cap reached,
+   * weekly drawdown cap reached,
+   * or monthly drawdown cap reached,
+
+   the endpoint/helper output rejects with the correct reason:
+
+   * `DD_DAILY`
+   * `DD_WEEKLY`
+   * `DD_MONTHLY`
+
+3. The test should also verify gate ordering:
+
+   * drawdown latch rejection must happen before `DAILY_CAP`,
+   * before `CONCURRENT_CAP`,
+   * and before normal sizing acceptance.
+
+4. Use mocks/stubs if needed.
+   Do not rely on live trading, live Kite, or real paper-trade execution.
+
+5. This is a **test-only priority**.
+   Do not modify runtime logic unless the test exposes a real mismatch.
+
+6. If a bug is found:
+
+   * stop,
+   * report the exact mismatch,
+   * explain whether the live route and helper disagree,
+   * propose the smallest fix,
+   * wait for approval before changing runtime code.
+
+7. Do not change:
+
+   * F&O signal logic,
+   * swing scanner logic,
+   * paper-trading execution behavior,
+   * Kite order/execution logic,
+   * strategy builder,
+   * combo lane,
+   * scanner recommendation logic,
+   * data ingestion behavior,
+   * database schema,
+   * scheduler behavior.
+
+8. Run the relevant tests and typecheck if test/code files are touched.
+
+Expected final output:
+
+1. Test files added/changed.
+2. DD-latch cases covered.
+3. Gate-order behavior verified.
+4. Test/typecheck result.
+5. Any mismatch or bug found.
+6. Confirmation that no runtime/trading/data-ingestion logic was changed.
+
+Proceed with Priority 7 test only.
