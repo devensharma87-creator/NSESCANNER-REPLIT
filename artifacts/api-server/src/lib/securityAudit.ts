@@ -227,6 +227,49 @@ export async function runSecurityAudit(): Promise<AuditReport> {
     detail: hasEnv("DATABASE_URL") ? "DATABASE_URL configured." : "DATABASE_URL missing — server cannot persist alerts/sessions.",
   });
 
+  // Kite session row stored in PG IS plaintext (api_key + access_token +
+  // public_token). The token self-rotates daily at ~06:00 IST, but anyone with
+  // a copy of the database between login and 06:00 IST holds a working
+  // session. This is a known risk; flag it so a routine `pg_dump` for the
+  // owner's records doesn't silently leak credentials.
+  checks.push({
+    id: "secret_kite_session_at_rest",
+    category: "secrets",
+    title: "Kite session token storage at rest",
+    status: "warn",
+    source: "config",
+    detail:
+      "kite_session.{api_key,access_token,public_token} are stored in plaintext " +
+      "Postgres. Tokens auto-expire at the next 06:00 IST, but a DB dump taken " +
+      "between login and expiry leaks a usable session. Use scripts/safe-db-export.sh " +
+      "(excludes kite_session entirely) for any dump that leaves the server.",
+    remediation:
+      "Short term: always use scripts/safe-db-export.sh and never share raw pg_dump " +
+      "output. Medium term: encrypt access_token/api_key/public_token columns at rest " +
+      "with a KITE_TOKEN_ENC_KEY (AES-GCM) before persisting.",
+  });
+
+  // /api/kite/export-session bypasses the owner cookie and is gated only by
+  // x-app-password — anyone holding APP_ACCESS_PASSWORD can pull the live
+  // session cross-network. Used by autoMirrorSession() to mirror prod → dev.
+  checks.push({
+    id: "secret_export_session_endpoint",
+    category: "secrets",
+    title: "Kite session export endpoint hardening",
+    status: process.env["KITE_MIRROR_ALLOWED_HOSTS"] ? "ok" : "warn",
+    source: "config",
+    detail:
+      "/api/kite/export-session returns a usable session JSON when the " +
+      "x-app-password header matches APP_ACCESS_PASSWORD. KITE_MIRROR_ALLOWED_HOSTS " +
+      `is currently ${process.env["KITE_MIRROR_ALLOWED_HOSTS"] ? "set (peer host allowlist active)" : "UNSET (default allowlist applies)"}. ` +
+      "If APP_ACCESS_PASSWORD ever leaks, the password rotation must happen BEFORE " +
+      "the next 06:00 IST or the leaker can pull a fresh token at every Kite re-login.",
+    remediation:
+      "Set KITE_MIRROR_ALLOWED_HOSTS explicitly. Rotate APP_ACCESS_PASSWORD any time " +
+      "it may have leaked. Consider migrating mirror auth to a dedicated, scoped key " +
+      "instead of reusing the owner login password.",
+  });
+
   // --- TRANSPORT / COOKIES ---
   checks.push({
     id: "transport_https",

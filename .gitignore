@@ -38,6 +38,27 @@ node_modules
 npm-debug.log
 yarn-error.log
 testem.log
+
+# secrets / env files (must NEVER be committed) ------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*_credentials.json
+secrets.json
+
+# database exports / backups (may contain Kite tokens, bcrypt hashes, etc.) --
+*.sql
+*.sql.gz
+*.dump
+*.backup
+safe-export-*.sql
+unsafe-export-*.sql
+
+# Replit DB tool local outputs
+.replit-db/
 /typings
 
 # System Files

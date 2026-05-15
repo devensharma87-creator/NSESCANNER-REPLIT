@@ -120,6 +120,13 @@ Owner-only manual multi-leg paper trades, fully isolated from the auto `paper_tr
 
 I prefer clear and concise communication. For coding, I favor functional programming paradigms where applicable. I expect an iterative development approach with regular updates on progress. Please ask for confirmation before implementing any major architectural changes or feature deprecations. Ensure that all new features are accompanied by appropriate tests and documentation. I prefer detailed explanations for complex logic or design decisions.
 
+## Security hygiene
+
+- **Kite session storage is plaintext (known risk)**: `kite_session.{api_key, access_token, public_token}` are stored in plain Postgres. The token self-rotates daily at ~06:00 IST. **Never share a raw `pg_dump` of the live DB** — it leaks a working Kite session for the rest of the day. Use **`scripts/safe-db-export.sh`** (excludes `kite_session` entirely + scrubs `users.password_hash` + `global_screener_presets.share_token`) for any dump that leaves the server.
+- **`/api/kite/export-session` is APP_ACCESS_PASSWORD-gated, not owner-cookie-gated** so dev can mirror prod's session via `autoMirrorSession()`. If APP_ACCESS_PASSWORD ever leaks, **rotate it before the next 06:00 IST** or the leaker can pull a fresh session at each Kite re-login. Setting `KITE_MIRROR_ALLOWED_HOSTS` explicitly is recommended (currently relies on the default allowlist).
+- **Credential rotation order after a leak**: (1) `KITE_API_SECRET` in Zerodha developer console (the only long-lived Kite credential), (2) `APP_ACCESS_PASSWORD` in Replit Secrets, (3) `SESSION_SECRET` (invalidates all existing cookies as defense-in-depth), (4) Postgres password / `DATABASE_URL`, (5) `TRADINGVIEW_WEBHOOK_SECRET` if applicable. The current `kite_session` row will auto-die at the next 06:00 IST or via `DELETE FROM kite_session;`.
+- **`.gitignore` blocks** `.env*`, `*.sql`, `*.dump`, `*.backup`, `safe-export-*.sql`. The repo currently has no committed env files. Live security checks live in `securityAudit.ts` and surface in the owner-only audit dashboard.
+
 ## Gotchas
 
 - **Kite API Rate Limiting**: Use exponential backoff; do not poll F&O Top-50 faster than 15s.
