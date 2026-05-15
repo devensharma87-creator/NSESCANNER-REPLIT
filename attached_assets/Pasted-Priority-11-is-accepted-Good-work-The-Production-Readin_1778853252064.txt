@@ -1,0 +1,108 @@
+Priority 11 is accepted. Good work.
+
+The Production Readiness Checklist and Safe Deployment Verification Runbook is approved as complete.
+
+Accepted final state:
+
+* `docs/production-readiness-2026-05-15.md` added.
+* All completed priorities 1–10 are documented.
+* Production environment variables are documented.
+* Go-live checklist is included.
+* Post-deployment smoke-test checklist is included.
+* Rollback plan is included.
+* Architect review passed after correcting the four factual issues.
+* No production-readiness blockers were found.
+* No runtime code changed.
+* No trading logic, paper execution, Kite execution, data-ingestion, schema, scheduler, strategy, combo, scanner, or F&O/swing logic was changed.
+
+Do not change Priority 11 further unless I separately ask.
+
+You are now approved to proceed with **Priority 12: Final Deployment Verification Checklist Execution Plan** only.
+
+Scope approved:
+
+1. Prepare a concise final deployment verification plan using the new production readiness runbook.
+
+2. Do not modify code.
+
+3. Do not modify documentation unless you find a factual error.
+
+4. The plan should list the exact order of deployment checks:
+
+   * secrets verification,
+   * `KITE_TOKEN_ENC_KEY` configured,
+   * Kite encryption-at-rest verified,
+   * `APP_ACCESS_PASSWORD` rotated,
+   * `SESSION_SECRET` rotated,
+   * `KITE_API_SECRET` rotation status confirmed,
+   * `KITE_MIRROR_ALLOWED_HOSTS` configured if applicable,
+   * option snapshot scheduler intentionally enabled/disabled,
+   * candle warehouse scheduler intentionally enabled/disabled,
+   * safe DB export process confirmed,
+   * no plaintext tokens in DB/export/logs,
+   * owner-only diagnostic routes checked,
+   * `/infra-health` checked,
+   * typecheck/tests green.
+
+5. Include the exact smoke-test endpoints to verify after deployment:
+
+   * `/api/healthz`
+   * `/infra-health`
+   * `/api/option-snapshots/diagnostics`
+   * `/api/option-snapshots/analytics`
+   * `/api/candles/diagnostics`
+   * `/api/stocks-to-watch/diagnostics/sector-coverage`
+   * `/api/paper/eq/candidates-diagnostic`
+
+6. Include expected result for each check:
+
+   * what should be green,
+   * what can be warning,
+   * what is a blocker,
+   * what must remain owner-only.
+
+7. Include rollback triggers:
+
+   * Kite decrypt failure,
+   * owner-only route exposure,
+   * plaintext token found,
+   * scheduler overload,
+   * DB errors,
+   * failing health check,
+   * unexpected trading behavior.
+
+8. Include rollback action:
+
+   * disable option snapshots,
+   * disable candle warehouse,
+   * delete `kite_session` and force fresh login if needed,
+   * revert deployment,
+   * rotate credentials if leak suspected.
+
+9. Important guardrails:
+
+   * Do not change F&O signal logic.
+   * Do not change swing scanner logic.
+   * Do not change paper trading execution.
+   * Do not change Kite order/execution.
+   * Do not change strategy builder.
+   * Do not change combo lane.
+   * Do not change scanner recommendation logic.
+   * Do not change option snapshot ingestion.
+   * Do not change candle warehouse ingestion.
+   * Do not change database schema.
+   * Do not change scheduler behavior.
+
+10. This is a planning/checklist task only.
+
+Expected final output:
+
+1. Final deployment verification sequence.
+2. Exact commands/endpoints to check.
+3. Expected pass/fail criteria.
+4. Rollback triggers.
+5. Rollback actions.
+6. Any remaining manual actions for me.
+7. Confirmation that no code/runtime/trading/data-ingestion/schema/scheduler logic was changed.
+
+Proceed with Priority 12 verification plan only.
