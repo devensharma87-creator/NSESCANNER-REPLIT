@@ -70,12 +70,12 @@ export function PaperComboSegment() {
     },
   );
   const closedQ = useListPaperCombos(
-    { status: "CLOSED", limit: 50 },
+    { status: "CLOSED" },
     {
       query: {
         refetchInterval: 60_000,
         staleTime: 30_000,
-        queryKey: getListPaperCombosQueryKey({ status: "CLOSED", limit: 50 }),
+        queryKey: getListPaperCombosQueryKey({ status: "CLOSED" }),
       },
     },
   );
@@ -106,7 +106,7 @@ export function PaperComboSegment() {
         showClose
       />
       <ComboTable
-        title="Closed combos (last 50)"
+        title="Closed combos"
         combos={closed}
         loading={closedQ.isLoading}
         empty="No closed combos yet."

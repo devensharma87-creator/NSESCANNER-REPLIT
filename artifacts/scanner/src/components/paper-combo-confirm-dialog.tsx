@@ -139,16 +139,9 @@ export function PaperComboConfirmDialog({
 
   const totalLots = legs.reduce((sum, l) => sum + Math.max(1, Math.floor(l.lots)), 0);
   const isCredit = snap.netDebit < 0;
-  const lotSize = snap.legs[0]?.qty != null && legs[0]?.lots != null && legs[0].lots > 0
-    ? Math.round(snap.legs[0].qty * 0 + (snapshot.spot ? 1 : 1)) // placeholder
-    : 1;
-  // The builder's snapshot.legs[*].qty is in *lots*, not shares — so
-  // total capital is netDebit (₹/share) * lotSize * lots. The server
-  // recomputes this authoritatively at open; here we just preview.
-  // (We deliberately avoid duplicating the server's max(netDebit*qty,
-  // marginRequired) capital formula in the client — the server's
-  // returned `capitalDeployed` is the truth, this preview is just a
-  // hint of what to expect.)
+  // We deliberately don't compute total capital client-side — the server's
+  // returned `capitalDeployed` (max(netDebit×qty, marginRequired)) is the
+  // single source of truth. This preview only shows per-lot risk numbers.
 
   const handleConfirm = () => {
     const body = payloadFromLegs({
