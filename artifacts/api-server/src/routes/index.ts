@@ -18,6 +18,7 @@ import paperComboRouter from "./paperCombo";
 import homeRouter from "./home";
 import optionChainSnapshotRouter from "./optionChainSnapshot";
 import candleWarehouseRouter from "./candleWarehouse";
+import equitySizingRouter from "./equitySizing";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { bootstrapKite } from "../lib/kiteFeed";
 import { startSwingScanScheduler } from "../lib/swingScannerStore";
@@ -45,6 +46,7 @@ router.use(paperComboRouter); // /paper/combos/* — owner-only manual multi-leg
 router.use(homeRouter);       // /home/enrichment — aggregated home dashboard data
 router.use(optionChainSnapshotRouter); // /option-snapshots/* — owner-only diagnostics for write-only F&O snapshot store
 router.use(candleWarehouseRouter);     // /candles/* — owner-only diagnostics + manual sync for the candle warehouse
+router.use(equitySizingRouter);        // /paper/eq/sizing-preview + /paper/eq/candidates-diagnostic — owner-only read-only sizing helper (Priority 5)
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 startInstFlowsRefresher();

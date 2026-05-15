@@ -1,0 +1,98 @@
+Priority 4 is accepted. Good work.
+
+The NSE/Kite candle warehouse infrastructure is approved as complete.
+
+Accepted final state:
+
+* New `candle` and `candle_sync_run` tables added.
+* Candle ingestion is data-infrastructure only.
+* Existing Kite historical data path is reused.
+* Idempotent upsert is implemented.
+* Daily and 15-minute candle persistence are implemented.
+* Controlled universe support is implemented.
+* Backfill and API-safety controls are implemented.
+* Owner-only diagnostics and manual sync are implemented.
+* Typecheck passed.
+* 159/159 tests passed.
+* No trading logic was changed.
+
+Known limitations are accepted for now:
+
+* Dev has `0` rows because `CANDLE_WAREHOUSE_ENABLED` is off by design.
+* 5-minute candles are excluded for v1.
+* OI is null for v1.
+* FINNIFTY / MIDCPNIFTY / NIFTYNXT50 are not added yet.
+* Warehouse is not connected to live trading decisions yet.
+
+Do not change Priority 4 further unless I separately ask.
+
+You are now approved to proceed with **Priority 5: Equity Sizing Helper and Diagnostics** only.
+
+Scope approved for Priority 5:
+
+1. Create an equity quantity/sizing helper for manual review and diagnostics.
+2. The helper should calculate suggested quantity using:
+
+   * account balance / equity capital,
+   * available cash,
+   * entry price,
+   * stop-loss price,
+   * risk per trade,
+   * max open trades,
+   * current open exposure,
+   * minimum cash reserve if already supported,
+   * liquidity/value-traded safety checks if already available.
+3. Show/return useful sizing details:
+
+   * suggested quantity,
+   * capital required,
+   * risk per share,
+   * total rupee risk,
+   * risk percentage,
+   * reason if quantity is zero,
+   * whether trade is blocked by cash, risk, exposure, max-open-trades, or invalid stop.
+4. Add a diagnostic report for equity candidates showing why a candidate would be accepted/rejected.
+5. If existing audit tables exist, use them. If not, add a lightweight diagnostic/helper only.
+6. This must be a preview/helper/diagnostic only unless current architecture already has a safe non-invasive path.
+7. Do **not** change actual paper-trade execution behavior without separate approval.
+8. Do **not** change live trading/order execution.
+9. Add owner-only diagnostic endpoint/report where appropriate.
+10. Add tests for:
+
+* normal quantity calculation,
+* quantity zero due to insufficient cash,
+* quantity zero due to invalid stop,
+* max-open-trade block,
+* risk cap,
+* high-priced stock case,
+* fractional-share prevention,
+* sane rounding behavior.
+
+11. Run typecheck/tests before final summary.
+
+Important guardrails remain active:
+
+* Do not change F&O signal generation logic.
+* Do not change F&O entry/exit logic.
+* Do not change swing scoring logic.
+* Do not change swing buy/sell recommendation logic.
+* Do not change actual paper trading execution logic unless I separately approve.
+* Do not change Kite order/execution logic.
+* Do not change strategy builder, combo lane, or scanner recommendation logic.
+* Do not connect this helper into automated trading decisions yet.
+* Do not begin the full rebuild.
+
+This Priority 5 work should be treated as **risk/sizing visibility infrastructure only**. It should help us understand and debug equity sizing decisions before changing any real execution behavior.
+
+Expected final output:
+
+1. Files changed.
+2. Helper/diagnostic design.
+3. Formula used.
+4. Endpoint/report added, if any.
+5. Tests/typecheck result.
+6. Sample outputs for normal, blocked, and high-priced cases.
+7. Any known limitations.
+8. Confirmation that no trading logic or execution behavior was changed.
+
+Proceed with Priority 5 only.
