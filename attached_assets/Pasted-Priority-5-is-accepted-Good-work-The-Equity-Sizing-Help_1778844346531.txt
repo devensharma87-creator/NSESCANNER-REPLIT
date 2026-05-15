@@ -1,0 +1,82 @@
+Priority 5 is accepted. Good work.
+
+The Equity Sizing Helper and Diagnostics implementation is approved as complete.
+
+Accepted final state:
+
+* Pure sizing helper added.
+* Owner-only diagnostic endpoints added.
+* Existing live paper-trade execution was not changed.
+* Formula mirrors current live path for preview/diagnostic purposes.
+* Drawdown caps, stop sanity, daily cap, concurrent cap, quantity, deploy, and heat-cap logic are visible.
+* Typecheck passed.
+* 182/182 tests passed.
+* No trading logic or execution behavior was changed.
+
+Known limitations are accepted for now:
+
+* Preview is not transactional and may differ if account state changes after preview.
+* `INSUFF_BAL` is retained as defensive logic.
+* Candidate diagnostic uses `swing_scan_result.action <> 'AVOID / NO TRADE'`.
+* This helper is not connected to automated trading decisions.
+
+Do not change Priority 5 further unless I separately ask.
+
+Before starting any new trading/data feature, proceed with **Documentation Cleanup and Implementation Status Report** only.
+
+Scope approved:
+
+1. Move the growing per-feature infrastructure notes from `replit.md` into a new document:
+   `docs/data-infrastructure.md`
+
+2. Keep `replit.md` lightweight with only short pointers to:
+
+   * Kite token encryption,
+   * sector/industry mapping,
+   * option-chain snapshots,
+   * candle warehouse,
+   * equity sizing helper,
+   * diagnostics endpoints.
+
+3. Create or update a concise implementation status document:
+   `docs/audit-implementation-status-2026-05-15.md`
+
+4. The status document should include:
+
+   * Priority 1: Kite token encryption — completed
+   * Priority 2: Sector/industry mapping — completed
+   * Priority 3: Option-chain snapshots — completed
+   * Priority 4: Candle warehouse — completed
+   * Priority 5: Equity sizing helper — completed
+   * files changed for each priority,
+   * diagnostics/endpoints added,
+   * tests added,
+   * current limitations,
+   * pending security manual actions,
+   * remaining audit backlog.
+
+5. Do not modify any runtime logic except documentation references.
+
+6. Do not change:
+
+   * F&O signal logic,
+   * swing scanner logic,
+   * paper trading logic,
+   * Kite order/execution logic,
+   * strategy builder,
+   * combo lane,
+   * scanner recommendation logic,
+   * data ingestion behavior,
+   * database schema.
+
+7. Run typecheck/tests only if any code reference or import is touched. If documentation only, just confirm no code changed.
+
+Expected final output:
+
+1. Documentation files changed.
+2. Summary of what was moved from `replit.md`.
+3. Confirmation that no runtime logic changed.
+4. Confirmation that no trading logic changed.
+5. Remaining recommended next priorities after documentation cleanup.
+
+Proceed with documentation cleanup only.
