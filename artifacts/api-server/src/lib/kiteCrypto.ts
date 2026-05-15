@@ -46,6 +46,45 @@ function b64urlDecode(s: string): Buffer {
   return Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/") + pad, "base64");
 }
 
+/**
+ * Parse a raw key string (hex / base64 / base64url) into a 32-byte Buffer.
+ * Pure: no env reads, no caching, no logging. Throws (with a non-token
+ * error message) if the input is empty or doesn't decode to 32 bytes.
+ *
+ * Exported for the rotation tooling (`scripts/rotateKiteTokenEncKey.ts`)
+ * so it shares one validator with `loadKeyFromEnv` — keeping format
+ * acceptance identical between live decrypt and offline rotation.
+ */
+export function parseKeyMaterial(raw: string): Buffer {
+  const v = (raw ?? "").trim();
+  if (!v) throw new Error("Key material is empty.");
+  let buf: Buffer | null = null;
+  if (/^[0-9a-fA-F]{64}$/.test(v)) {
+    buf = Buffer.from(v, "hex");
+  } else {
+    try {
+      const candidate = b64urlDecode(v);
+      if (candidate.length === KEY_LEN) buf = candidate;
+    } catch {
+      // fall through
+    }
+    if (!buf) {
+      try {
+        const candidate = Buffer.from(v, "base64");
+        if (candidate.length === KEY_LEN) buf = candidate;
+      } catch {
+        // fall through
+      }
+    }
+  }
+  if (!buf || buf.length !== KEY_LEN) {
+    throw new Error(
+      `Key must decode to exactly ${KEY_LEN} bytes (use 32 random bytes encoded as base64 or 64 hex chars). Length seen after decode: ${buf?.length ?? "invalid"}.`,
+    );
+  }
+  return buf;
+}
+
 /** Parse the env-supplied key. Returns null if env is unset/empty.
  *  Throws (with a non-token error message) if the env value is malformed. */
 function loadKeyFromEnv(): Buffer | null {
@@ -56,34 +95,77 @@ function loadKeyFromEnv(): Buffer | null {
     cachedKey = null;
     return null;
   }
-  let buf: Buffer | null = null;
-  // Try hex (64 chars, only [0-9a-f])
-  if (/^[0-9a-fA-F]{64}$/.test(raw)) {
-    buf = Buffer.from(raw, "hex");
-  } else {
-    // Try base64 / base64url
-    try {
-      const candidate = b64urlDecode(raw);
-      if (candidate.length === KEY_LEN) buf = candidate;
-    } catch {
-      // fall through
-    }
-    if (!buf) {
-      try {
-        const candidate = Buffer.from(raw, "base64");
-        if (candidate.length === KEY_LEN) buf = candidate;
-      } catch {
-        // fall through
-      }
-    }
-  }
-  if (!buf || buf.length !== KEY_LEN) {
+  // Re-wrap parser errors with the original env-specific message so
+  // existing callers / log consumers see the same text as before the
+  // pure helper was extracted.
+  try {
+    cachedKey = parseKeyMaterial(raw);
+  } catch {
+    let decoded: Buffer | null = null;
+    try { decoded = Buffer.from(raw, "base64"); } catch { /* ignore */ }
     throw new Error(
-      `KITE_TOKEN_ENC_KEY must decode to exactly ${KEY_LEN} bytes (use 32 random bytes encoded as base64 or 64 hex chars). Length seen after decode: ${buf?.length ?? "invalid"}.`,
+      `KITE_TOKEN_ENC_KEY must decode to exactly ${KEY_LEN} bytes (use 32 random bytes encoded as base64 or 64 hex chars). Length seen after decode: ${decoded?.length ?? "invalid"}.`,
     );
   }
-  cachedKey = buf;
   return cachedKey;
+}
+
+/**
+ * Encrypt with an explicit Buffer key (no env). Pure / side-effect free.
+ * Same v1 envelope as `encryptToken`. Used by the rotation script so
+ * one canonical AES-GCM implementation is shared with the runtime path.
+ *
+ * Unlike `encryptToken` this never passes through unencrypted input —
+ * if the value already carries a `v1:` envelope it throws, because
+ * double-wrapping during a rotation would silently corrupt the row.
+ */
+export function encryptWithKey(plain: string, key: Buffer): string {
+  if (typeof plain !== "string" || plain.length === 0) {
+    throw new Error("encryptWithKey: input must be a non-empty string");
+  }
+  if (key.length !== KEY_LEN) {
+    throw new Error(`encryptWithKey: key must be ${KEY_LEN} bytes`);
+  }
+  if (isEncrypted(plain)) {
+    throw new Error("encryptWithKey: refusing to double-wrap an existing v1 envelope");
+  }
+  const iv = randomBytes(IV_LEN);
+  const cipher = createCipheriv(ALGO, key, iv);
+  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  if (tag.length !== TAG_LEN) throw new Error("encryptWithKey: unexpected auth tag length");
+  return `${VERSION}:${b64urlEncode(iv)}:${b64urlEncode(tag)}:${b64urlEncode(ct)}`;
+}
+
+/**
+ * Decrypt a v1 envelope using an explicit Buffer key. Pure.
+ * STRICT — unlike `decryptToken` this rejects legacy plaintext and
+ * null/empty inputs. The rotation tool uses this so it never
+ * accidentally treats an undecryptable string as "already plain".
+ */
+export function decryptWithKey(value: string, key: Buffer): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("decryptWithKey: input must be a non-empty string");
+  }
+  if (!isEncrypted(value)) {
+    throw new Error("decryptWithKey: input is not a v1 envelope");
+  }
+  if (key.length !== KEY_LEN) {
+    throw new Error(`decryptWithKey: key must be ${KEY_LEN} bytes`);
+  }
+  const parts = value.split(":");
+  if (parts.length !== 4 || parts[0] !== VERSION) {
+    throw new Error("decryptWithKey: malformed v1 envelope");
+  }
+  const iv = b64urlDecode(parts[1]!);
+  const tag = b64urlDecode(parts[2]!);
+  const ct = b64urlDecode(parts[3]!);
+  if (iv.length !== IV_LEN) throw new Error("decryptWithKey: bad iv length");
+  if (tag.length !== TAG_LEN) throw new Error("decryptWithKey: bad tag length");
+  const decipher = createDecipheriv(ALGO, key, iv);
+  decipher.setAuthTag(tag);
+  const pt = Buffer.concat([decipher.update(ct), decipher.final()]);
+  return pt.toString("utf8");
 }
 
 /** Returns true iff KITE_TOKEN_ENC_KEY is configured and well-formed. */

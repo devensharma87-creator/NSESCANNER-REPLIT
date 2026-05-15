@@ -1,0 +1,96 @@
+Priority 7 is accepted. Good work.
+
+The Equity DD-Latch Route Integration Test is approved as complete.
+
+Accepted final state:
+
+* New route integration test added.
+* Daily, weekly, and monthly DD latch cases are covered.
+* Gate order is verified end-to-end.
+* `DD_DAILY`, `DD_WEEKLY`, and `DD_MONTHLY` rejection behavior is confirmed.
+* `DAILY_CAP` vs `CONCURRENT_CAP` ordering is now covered.
+* 238/238 tests passed.
+* Typecheck passed.
+* No mismatch or bug was found.
+* No runtime logic changed.
+* No trading logic, paper execution, Kite execution, data-ingestion, schema, or scheduler behavior changed.
+
+Do not change Priority 7 further unless I separately ask.
+
+You are now approved to proceed with **Priority 8: KITE_TOKEN_ENC_KEY Rotation Runbook and Safe Rotation Script** only.
+
+Scope approved:
+
+1. Create a safe operator runbook for rotating `KITE_TOKEN_ENC_KEY`.
+
+2. Add documentation explaining:
+
+   * what `KITE_TOKEN_ENC_KEY` is,
+   * why it must be protected,
+   * when it should be rotated,
+   * what happens if it is lost,
+   * how to generate a new 32-byte key,
+   * how to rotate without exposing token values,
+   * rollback/failure handling,
+   * post-rotation verification.
+
+3. Add a safe script/tool if appropriate, but it must:
+
+   * never print plaintext Kite tokens,
+   * never print old or new encryption keys,
+   * support dry-run mode,
+   * validate old key and new key format,
+   * decrypt existing encrypted values using the old key,
+   * re-encrypt using the new key,
+   * update only the intended `kite_session` encrypted fields,
+   * produce only safe counts/status output,
+   * fail closed if any row cannot be decrypted,
+   * not modify data in dry-run mode.
+
+4. Suggested env names:
+
+   * current key: `KITE_TOKEN_ENC_KEY`
+   * old key for rotation: `KITE_TOKEN_ENC_KEY_OLD`
+   * new key for rotation: `KITE_TOKEN_ENC_KEY_NEW`
+
+5. Add tests where practical:
+
+   * validates key format,
+   * dry-run does not write,
+   * encrypted values are re-encrypted,
+   * plaintext values are not printed,
+   * wrong old key fails,
+   * missing new key fails,
+   * malformed key fails.
+
+6. Do not change runtime Kite auth behavior unless absolutely required for the script to reuse existing crypto helpers safely.
+
+7. Do not change:
+
+   * F&O signal logic,
+   * swing scanner logic,
+   * paper trading execution,
+   * Kite order/execution logic,
+   * strategy builder,
+   * combo lane,
+   * scanner recommendation logic,
+   * data-ingestion behavior,
+   * database schema,
+   * scheduler behavior.
+
+8. This is a **security operations/tooling priority only**.
+
+If a runtime change is required, stop and explain the reason before implementing it.
+
+Expected final output:
+
+1. Documentation/runbook files added or changed.
+2. Script/tool files added or changed.
+3. Rotation process summary.
+4. Dry-run behavior.
+5. Safety protections.
+6. Tests/typecheck result.
+7. Any limitations.
+8. Confirmation that no trading/data-ingestion/runtime behavior was changed.
+
+Proceed with Priority 8 only.
