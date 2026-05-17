@@ -639,7 +639,12 @@ interface ReasoningAnalyticsResp {
     stoppedByConfidenceBucket: KeyCountRow[];
     rejectedReasonBySetup: Array<{ setupKey: string; reasonCode: string; count: number }>;
     t1ThenStoppedGroups: number;
-    t1ThenStoppedMeta: { proxyMethod: string; limitation: string };
+    t1ThenStopped: {
+      exact: number; proxy: number;
+      mode: "exact" | "proxy" | "hybrid";
+      rowsWithFingerprint: number; rowsWithoutFingerprint: number;
+      proxyMethod: string; limitation: string;
+    };
     lowWinRateDemotions: number;
     rowSampleType: string;
   };
@@ -692,7 +697,7 @@ function ReasoningSection({ data, error, loading }: FetchState<ReasoningAnalytic
       title="F&O Reasoning Analytics"
       icon={Brain}
       severity={severity}
-      description="Read-only roll-up over the fno_signal_reasoning substrate (P14 + P14b). Counts are event-rows, not unique signals. No trade or signal effect."
+      description="Read-only roll-up over the fno_signal_reasoning substrate (P14 + P14b + P15b fingerprint). Counts are event-rows, not unique signals. T1→stop shows `exact+proxyP` where exact uses signal_fingerprint and proxy is the legacy 4-tuple fallback. No trade or signal effect."
       testId="section-reasoning"
     >
       {error && <div className="text-xs text-rose-500 mb-2" data-testid="reasoning-error">{error}</div>}
@@ -707,8 +712,12 @@ function ReasoningSection({ data, error, loading }: FetchState<ReasoningAnalytic
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
             <Stat label="Rows analysed" value={num(a.rowCount)} tone="info" />
             <Stat label="Window" value={a.windowFrom && a.windowTo ? `${a.windowFrom} → ${a.windowTo}` : "—"} tone="info" />
-            <div title={a.t1ThenStoppedMeta.limitation}>
-              <Stat label="T1 → stop reversals (proxy)" value={a.t1ThenStoppedGroups} tone={a.t1ThenStoppedGroups > 0 ? "warn" : "ok"} />
+            <div title={`mode=${a.t1ThenStopped.mode} · exact=${a.t1ThenStopped.exact} · proxy=${a.t1ThenStopped.proxy} · ${a.t1ThenStopped.limitation}`}>
+              <Stat
+                label={`T1 → stop (${a.t1ThenStopped.mode})`}
+                value={`${a.t1ThenStopped.exact}+${a.t1ThenStopped.proxy}p`}
+                tone={a.t1ThenStoppedGroups > 0 ? "warn" : "ok"}
+              />
             </div>
             <Stat label="Low-WR demotions" value={a.lowWinRateDemotions} tone={a.lowWinRateDemotions > 0 ? "warn" : "ok"} />
           </div>

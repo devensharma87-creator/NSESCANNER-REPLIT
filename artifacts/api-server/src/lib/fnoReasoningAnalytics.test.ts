@@ -38,6 +38,7 @@ const baseRow = (over: Partial<FnoSignalReasoningRow> = {}): FnoSignalReasoningR
   spotTarget1: null,
   spotTarget2: null,
   selectedStrike: "24500.00",
+  signalFingerprint: null,
   optionEntry: null,
   optionStop: null,
   optionTarget1: null,
@@ -95,6 +96,119 @@ describe("P15 — analyticsFiltersFromQuery", () => {
   });
 });
 
+describe("P15b — signal_fingerprint exact lifecycle linkage", () => {
+  it("exact T1→stop linkage uses fingerprint when present (mode='exact')", () => {
+    const fp = "deadbeefcafe1234";
+    const rows = [
+      baseRow({ id: 1, decision: "EMITTED", signalFingerprint: fp }),
+      baseRow({ id: 2, decision: "OPENED", signalFingerprint: fp }),
+      baseRow({ id: 3, decision: "CLOSED_TARGET1", signalFingerprint: fp, realizedPnl: "500.00" }),
+      baseRow({ id: 4, decision: "CLOSED_STOPPED", signalFingerprint: fp, realizedPnl: "-300.00" }),
+    ];
+    const a = computeReasoningAnalytics(rows);
+    expect(a.t1ThenStopped.exact).toBe(1);
+    expect(a.t1ThenStopped.proxy).toBe(0);
+    expect(a.t1ThenStopped.mode).toBe("exact");
+    expect(a.t1ThenStopped.rowsWithFingerprint).toBe(4);
+    expect(a.t1ThenStopped.rowsWithoutFingerprint).toBe(0);
+    expect(a.t1ThenStoppedGroups).toBe(1);
+  });
+
+  it("different fingerprints do not collide", () => {
+    const a = computeReasoningAnalytics([
+      baseRow({ id: 1, decision: "CLOSED_TARGET1", signalFingerprint: "aaaaaaaaaaaaaaaa" }),
+      baseRow({ id: 2, decision: "CLOSED_STOPPED", signalFingerprint: "bbbbbbbbbbbbbbbb" }),
+    ]);
+    expect(a.t1ThenStopped.exact).toBe(0);
+    expect(a.t1ThenStopped.proxy).toBe(0);
+  });
+
+  it("proxy fallback fires for legacy null-fingerprint rows (mode='proxy')", () => {
+    const rows = [
+      baseRow({ id: 1, decision: "CLOSED_TARGET1", signalFingerprint: null, selectedStrike: "24500.00" }),
+      baseRow({ id: 2, decision: "CLOSED_STOPPED", signalFingerprint: null, selectedStrike: "24500.00" }),
+    ];
+    const a = computeReasoningAnalytics(rows);
+    expect(a.t1ThenStopped.exact).toBe(0);
+    expect(a.t1ThenStopped.proxy).toBe(1);
+    expect(a.t1ThenStopped.mode).toBe("proxy");
+    expect(a.t1ThenStopped.rowsWithFingerprint).toBe(0);
+    expect(a.t1ThenStopped.rowsWithoutFingerprint).toBe(2);
+    expect(a.t1ThenStoppedGroups).toBe(1);
+  });
+
+  it("hybrid mode: mix of fingerprinted and legacy rows tallies both independently", () => {
+    const fp = "1234567890abcdef";
+    const a = computeReasoningAnalytics([
+      baseRow({ id: 1, decision: "CLOSED_TARGET1", signalFingerprint: fp }),
+      baseRow({ id: 2, decision: "CLOSED_STOPPED", signalFingerprint: fp }),
+      baseRow({ id: 3, decision: "CLOSED_TARGET1", signalFingerprint: null, selectedStrike: "24500.00", setupKey: "VWAP_RECLAIM" }),
+      baseRow({ id: 4, decision: "CLOSED_STOPPED", signalFingerprint: null, selectedStrike: "24500.00", setupKey: "VWAP_RECLAIM" }),
+    ]);
+    expect(a.t1ThenStopped.exact).toBe(1);
+    expect(a.t1ThenStopped.proxy).toBe(1);
+    expect(a.t1ThenStopped.mode).toBe("hybrid");
+    expect(a.t1ThenStopped.rowsWithFingerprint).toBe(2);
+    expect(a.t1ThenStopped.rowsWithoutFingerprint).toBe(2);
+    expect(a.t1ThenStoppedGroups).toBe(2);
+  });
+
+  it("mode is 'exact' when ALL lifecycle (T1/STOPPED) rows carry a fingerprint, even if non-lifecycle rows do not", () => {
+    const fp = "9999999999999999";
+    const a = computeReasoningAnalytics([
+      // Non-lifecycle rows without fingerprint MUST NOT degrade the mode.
+      baseRow({ id: 1, decision: "SKIPPED", signalFingerprint: null }),
+      baseRow({ id: 2, decision: "PRE_EMISSION_REJECTED", signalFingerprint: null }),
+      // Lifecycle rows fully fingerprinted.
+      baseRow({ id: 3, decision: "CLOSED_TARGET1", signalFingerprint: fp }),
+      baseRow({ id: 4, decision: "CLOSED_STOPPED", signalFingerprint: fp }),
+    ]);
+    expect(a.t1ThenStopped.mode).toBe("exact");
+    expect(a.t1ThenStopped.exact).toBe(1);
+    expect(a.t1ThenStopped.proxy).toBe(0);
+    // Dataset-wide coverage still surfaces the unfingerprinted SKIPPED rows.
+    expect(a.t1ThenStopped.rowsWithFingerprint).toBe(2);
+    expect(a.t1ThenStopped.rowsWithoutFingerprint).toBe(2);
+  });
+
+  it("mode is 'hybrid' only when lifecycle rows themselves are mixed", () => {
+    const fp = "7777777777777777";
+    const a = computeReasoningAnalytics([
+      baseRow({ id: 1, decision: "CLOSED_TARGET1", signalFingerprint: fp }),
+      baseRow({ id: 2, decision: "CLOSED_STOPPED", signalFingerprint: null, selectedStrike: "24500.00" }),
+    ]);
+    expect(a.t1ThenStopped.mode).toBe("hybrid");
+  });
+
+  it("mode is 'exact' when there are zero lifecycle rows (trivially)", () => {
+    const a = computeReasoningAnalytics([
+      baseRow({ id: 1, decision: "EMITTED", signalFingerprint: null }),
+    ]);
+    expect(a.t1ThenStopped.mode).toBe("exact");
+  });
+
+  it("distinct trades that share the 6-tuple but were emitted on different days do NOT collapse", () => {
+    // signalDate is part of the fingerprint key, so cross-day repeats stay separated.
+    const fpA = "aaaaaaaaaaaaaaaa";
+    const fpB = "bbbbbbbbbbbbbbbb";
+    const a = computeReasoningAnalytics([
+      baseRow({ id: 1, signalDate: "2026-05-15", decision: "CLOSED_TARGET1", signalFingerprint: fpA }),
+      baseRow({ id: 2, signalDate: "2026-05-15", decision: "CLOSED_STOPPED", signalFingerprint: fpA }),
+      baseRow({ id: 3, signalDate: "2026-05-16", decision: "CLOSED_TARGET1", signalFingerprint: fpB }),
+      baseRow({ id: 4, signalDate: "2026-05-16", decision: "CLOSED_STOPPED", signalFingerprint: fpB }),
+    ]);
+    expect(a.t1ThenStopped.exact).toBe(2);
+  });
+
+  it("null-safe: missing fingerprint AND missing proxy fields does not crash", () => {
+    const a = computeReasoningAnalytics([
+      baseRow({ id: 1, decision: "CLOSED_TARGET1", signalFingerprint: null, selectedStrike: null, setupKey: null, direction: null }),
+    ]);
+    expect(a.t1ThenStopped.exact).toBe(0);
+    expect(a.t1ThenStopped.proxy).toBe(0);
+  });
+});
+
 describe("P15 — computeReasoningAnalytics", () => {
   it("returns the empty shape for zero rows without throwing", () => {
     const a = computeReasoningAnalytics([]);
@@ -104,10 +218,10 @@ describe("P15 — computeReasoningAnalytics", () => {
     expect(a.bySetup).toEqual([]);
     expect(a.byDecision).toEqual([]);
     expect(a.t1ThenStoppedGroups).toBe(0);
+    expect(a.t1ThenStopped).toMatchObject({ exact: 0, proxy: 0, mode: "exact", rowsWithFingerprint: 0, rowsWithoutFingerprint: 0 });
+    expect(a.t1ThenStopped.proxyMethod).toContain("group_by");
     expect(a.lowWinRateDemotions).toBe(0);
     expect(a.rowSampleType).toBe("event_rows_not_unique_signals");
-    expect(a.t1ThenStoppedMeta.proxyMethod).toContain("group_by");
-    expect(a.t1ThenStoppedMeta.limitation).toContain("approximation");
   });
 
   it("aggregates per-setup counts across decisions", () => {

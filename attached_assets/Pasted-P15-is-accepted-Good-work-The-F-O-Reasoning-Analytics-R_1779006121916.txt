@@ -1,0 +1,125 @@
+P15 is accepted. Good work.
+
+The F&O Reasoning Analytics Report/Dashboard is approved as complete.
+
+Accepted final state:
+
+* `/api/paper/diagnostics/fno-reasoning/analytics` endpoint added.
+* `/infra-health` F&O Reasoning Analytics panel added.
+* Setup-wise, index-wise, tier-wise, decision-wise, reason-wise, demotion-tag, missing-data, stop-loss, target-hit, and confidence-bucket analytics are available.
+* 363/363 tests passed.
+* Typecheck passed.
+* Architect review passed.
+* No F&O trading behavior changed.
+* No swing, paper-equity, Kite, execution, data-ingestion, scheduler, scanner, strategy, combo, option snapshot, or candle warehouse behavior changed.
+
+However, one limitation must be fixed before we rely on the analytics for strategy changes:
+
+The current `T1→stop` reversal count is only a proxy because reasoning rows do not have an exact persistent `signal_id` / correlation key tying `EMITTED → OPENED → TARGET1 → STOPPED/CLOSED` for the same signal/trade.
+
+Before changing partial booking, stop loss, option-chain gates, or slippage rules, we need exact lifecycle linkage.
+
+You are now approved to proceed with **P15b: Exact F&O Reasoning Correlation ID / Signal Lifecycle Linkage** only.
+
+Scope approved:
+
+1. Add an exact correlation key to F&O reasoning rows so the system can tie together the full lifecycle of the same signal/trade.
+
+2. The goal is to accurately link:
+
+   * `EMITTED`
+   * `PRE_EMISSION_REJECTED`
+   * `OPENED`
+   * `SKIPPED`
+   * `DEMOTED`
+   * `CLOSED_STOPPED`
+   * `CLOSED_TARGET1`
+   * `CLOSED_TARGET2`
+   * `CLOSED_EXPIRED`
+   * other lifecycle decisions
+
+   wherever they belong to the same signal/trade.
+
+3. Preferred approach:
+
+   * use an existing signal/trade ID if one already exists and is stable,
+   * otherwise create a deterministic `signal_fingerprint` from stable fields such as:
+
+     * signal date,
+     * index symbol,
+     * setup key,
+     * direction,
+     * option type,
+     * selected strike,
+     * expiry if available,
+     * entry/trigger timestamp or signal timestamp,
+     * entry premium/spot if needed.
+
+4. Add this field to reasoning records using the smallest safe schema change if required.
+
+5. Backfill only if safe and deterministic.
+   If old rows cannot be safely backfilled, leave them null and document that exact linkage applies from this release forward.
+
+6. Update the analytics so `T1→stop` and lifecycle sequence analysis use exact correlation ID where available.
+
+7. Keep the previous proxy method only as fallback for old rows without correlation ID.
+
+8. The analytics response should clearly show:
+
+   * exact lifecycle count,
+   * proxy lifecycle count,
+   * rows with correlation ID,
+   * rows without correlation ID,
+   * whether the displayed T1→stop value is exact or proxy.
+
+9. Add tests for:
+
+   * correlation ID creation,
+   * same signal lifecycle records share the same ID,
+   * different signals do not collide,
+   * T1→stop exact lifecycle calculation,
+   * proxy fallback for old rows,
+   * null-safe handling for old records,
+   * no token/secret values included in the correlation key.
+
+10. This is diagnostics/data-quality only.
+
+Do not change:
+
+* F&O signal generation logic,
+* F&O entry logic,
+* F&O exit logic,
+* F&O stop/target logic,
+* F&O sizing logic,
+* F&O setup definitions,
+* F&O gate thresholds,
+* confluence scoring,
+* paper-trade execution behavior,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior.
+
+11. If exact lifecycle linkage requires changing live trade behavior, stop and report before implementing.
+
+Expected final output:
+
+1. Files changed.
+2. Correlation ID / signal fingerprint design.
+3. Schema change, if any.
+4. Where correlation ID is created and written.
+5. Analytics changes.
+6. Tests/typecheck result.
+7. Sample exact lifecycle output.
+8. Known limitations.
+9. Confirmation that no F&O trading behavior changed.
+10. Confirmation that no swing/paper/Kite/execution/data-ingestion behavior changed.
+
+After P15b is complete, we will collect live data for 1–2 weeks before approving any real strategy changes such as partial booking, stop-loss modification, option-chain gates, or slippage/charges modelling.
+
+Proceed with P15b only.

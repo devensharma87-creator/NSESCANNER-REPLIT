@@ -83,6 +83,18 @@ export const fnoSignalReasoningTable = pgTable(
     decision: varchar("decision", { length: 32 }).notNull(),
     reasonCode: varchar("reason_code", { length: 64 }),
 
+    /* P15b — deterministic correlation key tying EMITTED → OPENED → CLOSED_*
+     * rows of the same signal/trade together. Computed by
+     * `computeSignalFingerprint` in fnoSignalReasoningLogger.ts from the
+     * 6-tuple (signalDate, indexSymbol, setupKey, direction, optionType,
+     * selectedStrike). Nullable because SKIPPED / PRE_EMISSION_REJECTED
+     * rows do not have all 6 fields in scope (no leg → no strike); those
+     * rows continue to use the legacy 4-tuple proxy for grouping.
+     *
+     * Hash = SHA-256 hex truncated to 16 chars (64 bits) — collision
+     * probability ~1e-10 for ≤100k rows, well inside diagnostics needs. */
+    signalFingerprint: varchar("signal_fingerprint", { length: 16 }),
+
     /* signal context at decision */
     confidence: integer("confidence"),
     confluenceScore: numeric("confluence_score", { precision: 6, scale: 2 }),
@@ -135,6 +147,7 @@ export const fnoSignalReasoningTable = pgTable(
     decisionTimeIdx: index("fno_signal_reasoning_decision_time_idx").on(t.decision, t.capturedAt),
     reasonTimeIdx: index("fno_signal_reasoning_reason_time_idx").on(t.reasonCode, t.capturedAt),
     setupTimeIdx: index("fno_signal_reasoning_setup_time_idx").on(t.setupKey, t.capturedAt),
+    fingerprintIdx: index("fno_signal_reasoning_fingerprint_idx").on(t.signalFingerprint),
   }),
 );
 

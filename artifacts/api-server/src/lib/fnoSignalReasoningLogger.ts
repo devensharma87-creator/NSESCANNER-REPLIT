@@ -92,6 +92,17 @@ export interface FnoReasoningPayload {
   tier?: string | null;
   reasonCode?: string | null;
 
+  /**
+   * P15b — deterministic correlation ID. Operator-supplied is optional;
+   * when omitted `buildReasoningRow` auto-derives it from the 6-tuple
+   * (signalDate, indexSymbol, setupKey, direction, optionType,
+   * selectedStrike) via `computeSignalFingerprint`. Stays null when any
+   * of those six fields are missing (e.g. PRE_EMISSION_REJECTED rows
+   * without a leg). NEVER carries any token, secret, session value, or
+   * user-supplied free text.
+   */
+  signalFingerprint?: string | null;
+
   confidence?: number | null;
   confluenceScore?: number | null;
   regime?: string | null;
@@ -177,6 +188,59 @@ function sanitiseSnapshot(
   return out;
 }
 
+/* ─── P15b — deterministic signal fingerprint ───────────────────────────
+ *
+ * Why: P15 analytics could only proxy a "T1→stop reversal" because rows
+ * carried no correlation key. P15b adds a SHA-256(hex)[:16] over the
+ * 6 fields that uniquely identify a trade lifecycle so EMITTED → OPENED
+ * → CLOSED_* rows for the same signal/trade share an exact key.
+ *
+ * Inputs are deliberately RESTRICTED to fields already persisted on the
+ * row itself (signal_date / index_symbol / setup_key / direction /
+ * option_type / selected_strike). NO timestamp, NO token, NO secret,
+ * NO session, NO premium, NO PII — the hash input set is whitelisted
+ * here in source and asserted in tests.
+ *
+ * Diagnostics-only: NEVER consumed by signal generation, gates, sizing,
+ * execution, scheduler, scanner, swing, paper-equity, Kite, combo, or
+ * any ingestion path. */
+const FINGERPRINT_PARTS = [
+  "signalDate", "indexSymbol", "setupKey", "direction", "optionType", "selectedStrike",
+] as const;
+
+export interface FingerprintParts {
+  signalDate?: string | null;
+  indexSymbol?: string | null;
+  setupKey?: string | null;
+  direction?: string | null;
+  optionType?: string | null;
+  selectedStrike?: number | null;
+}
+
+export function computeSignalFingerprint(p: FingerprintParts): string | null {
+  if (!p.signalDate || !p.indexSymbol) return null;
+  if (!p.setupKey || !p.direction || !p.optionType) return null;
+  if (p.selectedStrike == null || !Number.isFinite(p.selectedStrike)) return null;
+  // Normalise: lowercase identity-ish fields, fixed-decimal strike, pipe-delimited
+  // canonical key. Pipe is the separator because no field is allowed to contain it
+  // (all six are bounded varchars or a number).
+  const key = [
+    String(p.signalDate).trim(),
+    String(p.indexSymbol).trim().toUpperCase(),
+    String(p.setupKey).trim().toUpperCase(),
+    String(p.direction).trim().toUpperCase(),
+    String(p.optionType).trim().toUpperCase(),
+    Number(p.selectedStrike).toFixed(2),
+  ].join("|");
+  // Lazy crypto import to keep this module side-effect-free at import time.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createHash } = require("node:crypto") as typeof import("node:crypto");
+  return createHash("sha256").update(key).digest("hex").slice(0, 16);
+}
+
+/** Test-visible whitelist of allowed fingerprint parts. */
+export const FINGERPRINT_INPUT_FIELDS: ReadonlyArray<string> = FINGERPRINT_PARTS;
+
 /** String trim/cap helper (avoid blowing varchar limits silently). */
 function strOrNull(s: string | null | undefined, max: number): string | null {
   if (s == null) return null;
@@ -201,6 +265,20 @@ export function buildReasoningRow(p: FnoReasoningPayload): NewFnoSignalReasoning
     tier: strOrNull(p.tier, 16),
     decision: strOrNull(p.decision, 32) ?? p.decision,
     reasonCode: strOrNull(p.reasonCode, 64),
+    // P15b: trust operator-supplied value if shape-valid; otherwise auto-derive
+    // from the 6-tuple in scope. Stays null when fields are missing (e.g.
+    // PRE_EMISSION_REJECTED / SKIPPED rows without a leg → proxy fallback).
+    signalFingerprint:
+      (typeof p.signalFingerprint === "string" && /^[0-9a-f]{16}$/.test(p.signalFingerprint)
+        ? p.signalFingerprint
+        : computeSignalFingerprint({
+            signalDate: p.signalDate,
+            indexSymbol: p.indexSymbol,
+            setupKey: p.setupKey ?? null,
+            direction: p.direction ?? null,
+            optionType: p.optionType ?? null,
+            selectedStrike: p.selectedStrike ?? null,
+          })),
     confidence: intOrNull(p.confidence),
     confluenceScore: numOrNull(p.confluenceScore, 2),
     regime: strOrNull(p.regime, 24),
