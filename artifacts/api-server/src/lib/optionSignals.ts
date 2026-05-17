@@ -7,6 +7,7 @@ import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators"
 import { classifyRegime, type RegimeResult } from "./regimeClassifier";
 import { recordAtmIv, computeIvMetrics } from "./ivHistory";
 import { logger } from "./logger";
+import { logUpstreamReasoningBatch } from "./fnoSignalReasoningLogger";
 import { fetchOptionChain, type OcRow, type OcSide } from "./optionChain";
 import {
   recordOrUpdate as recordLifecycle,
@@ -2457,5 +2458,28 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     },
   };
   cache = { ts: Date.now(), data: result };
+
+  // ─── P14b upstream reasoning logger (diagnostics-only, fire-and-forget) ──
+  // Records one EMITTED row per surviving signal + one PRE_EMISSION_REJECTED
+  // row per orchestrator suppression. Reads `out` and `suppressed` AFTER
+  // every gate/veto/clamp/correlation decision has already been taken, so
+  // it cannot influence signal output. The batch helper is non-throwing
+  // and statically imported (no per-call await import latency).
+  try {
+    const istNow2 = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const sigDate2 = istNow2.toISOString().slice(0, 10);
+    void logUpstreamReasoningBatch({
+      signals: out,
+      suppressed,
+      signalDate: sigDate2,
+      vix: typeof gateCtx.vix.intradayPct === "number" ? gateCtx.vix.intradayPct : null,
+    });
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "P14b upstream reasoning hook failed to dispatch (diagnostics-only)",
+    );
+  }
+
   return result;
 }

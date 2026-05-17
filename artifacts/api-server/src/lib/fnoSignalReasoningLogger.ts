@@ -42,8 +42,23 @@ import type {
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { logger } from "./logger";
 
-/** Possible verdicts the paper-trade pipeline emits for a signal. */
+/** Possible verdicts the paper-trade pipeline emits for a signal.
+ *
+ * Two families:
+ *   - `EMITTED` / `PRE_EMISSION_REJECTED` are **upstream** events written
+ *     by the signal-generation orchestrator (P14b). They answer "why did
+ *     this signal appear?" and "why didn't this candidate appear?".
+ *   - All others are **downstream** events written by the paper-trade
+ *     decision boundary (P14). They answer what the trader did with the
+ *     signal once it landed.
+ *
+ * Tier-demotion reasons (HTF_CONFLICT, RS_CONFLICT, LOW_WINRATE, ...) live
+ * inside the EMITTED row's `snapshot.tags` rather than as a separate
+ * decision value, so demoted signals are not double-counted in histograms.
+ */
 export type FnoReasoningDecision =
+  | "EMITTED"
+  | "PRE_EMISSION_REJECTED"
   | "OPENED"
   | "SKIPPED"
   | "MISSED_WINDOW"
@@ -244,6 +259,281 @@ export async function logFnoReasoning(payload: FnoReasoningPayload): Promise<voi
       },
       "fno_signal_reasoning write failed (diagnostics-only; trading unaffected)",
     );
+  }
+}
+
+/* ─────────────────── Upstream emission helpers (P14b) ───────────────────
+ *
+ * The orchestrator (`getOptionSignals`) calls these AT THE VERY END of a
+ * cycle to record:
+ *
+ *   - one `EMITTED` row per signal that survived every gate, with the
+ *     full driver/tag/regime/IVR/IVP/EMA/VWAP context lifted out of the
+ *     OptionSignal verbatim, and demotion tags surfaced in `snapshot.tags`.
+ *
+ *   - one `PRE_EMISSION_REJECTED` row per `{index, reason}` pair from the
+ *     orchestrator's `suppressed` diagnostic. Best-effort parses the
+ *     leading `setup_name:` prefix off the reason string so histograms by
+ *     setup work for both emitted and rejected populations.
+ *
+ * Both helpers are PURE (no I/O) and the public `logUpstreamReasoningBatch`
+ * is non-throwing — a logger outage cannot disturb the signal pipeline.
+ *
+ * No live signal field is mutated and no decision the engine has already
+ * taken is re-derived here. The orchestrator's `suppressed` array, which
+ * was already populated for the UI banner, is the sole source of truth
+ * for rejection reasons.
+ */
+
+/** Loose shape we accept for upstream emission — kept narrow on purpose so
+ *  a stray `OptionSignal` field rename doesn't break the build. We only
+ *  touch documented public fields. */
+export interface UpstreamSignalShape {
+  index: string;
+  indexName?: string;
+  setupKey?: string;
+  setupName?: string;
+  bias: string;
+  tier?: string;
+  confidence: number;
+  confluenceScore?: number;
+  regime?: string;
+  spot?: number;
+  vwap?: number;
+  ema9?: number;
+  ema20?: number;
+  ema21?: number;
+  ema50?: number;
+  dailyEma50?: number;
+  htfBias?: string;
+  htfConflict?: boolean;
+  ivRank?: number;
+  ivPercentile?: number;
+  dataQuality?: string;
+  tags?: string[];
+  drivers?: Array<{ label?: string; weight?: number; detail?: string; bullish?: boolean }>;
+  leg?: { type?: string; strike?: number; entry?: number; stopLoss?: number; target1?: number; target2?: number };
+}
+
+/** Loose shape for the orchestrator's per-index suppression bundle. */
+export interface UpstreamSuppressed {
+  index: string;
+  reasons: string[];
+}
+
+/**
+ * Parse `"trend_continuation: confidence 58 < HC emission floor 65 — demoted"`
+ * into `{ setupKey: "TREND_CONTINUATION", reason: "confidence 58 < ..." }`.
+ *
+ * The orchestrator emits suppression strings with two shapes:
+ *   - `"<detector_name>: <reason>"` from inside `buildSignalsForIndex`
+ *   - `"<SETUP_KEY>: <reason>"`     from the bundle-level drop aggregators
+ *
+ * Both encode the setup in the leading chunk, so a single split works.
+ */
+export function parseSuppressionReason(raw: string): {
+  setupKey: string | null;
+  reason: string;
+} {
+  if (typeof raw !== "string") return { setupKey: null, reason: "" };
+  const t = raw.trim();
+  if (!t) return { setupKey: null, reason: "" };
+  const i = t.indexOf(":");
+  if (i <= 0) return { setupKey: null, reason: t };
+  const lead = t.slice(0, i).trim();
+  const rest = t.slice(i + 1).trim();
+  if (!lead) return { setupKey: null, reason: rest };
+  return { setupKey: lead.toUpperCase().replace(/\s+/g, "_"), reason: rest };
+}
+
+/** Map a free-text suppression reason to a stable `reason_code` enum for
+ *  histograms. Unknown reasons collapse to `OTHER` so the bucket cardinality
+ *  stays manageable across cycles. */
+export function classifySuppressionReason(reason: string): string {
+  const r = reason.toLowerCase();
+  if (r.includes("market_closed") || r.includes("market closed")) return "MARKET_CLOSED";
+  if (r.includes("partial_indicators") || r.includes("partial indicators")) return "PARTIAL_INDICATORS";
+  if (r.includes("opening-noise") || r.includes("opening_noise")) return "OPENING_NOISE";
+  if (r.includes("late-session vwap-reclaim") || r.includes("vwap-reclaim gate")) return "VWAP_RECLAIM_LATE";
+  if (r.includes("late-session entry") || r.includes("late_session_entry")) return "LATE_SESSION_ENTRY";
+  // OI buckets must be checked BEFORE the generic "hc emission floor" rule —
+  // the orchestrator's OI-post-floor message literally reads
+  // "post-OI confidence X < HC emission floor Y — demoted (OI conflict ...)"
+  // and the semantic root cause is the OI conflict, not the floor itself.
+  if (r.includes("oi hard-veto") || r.includes("oi hard veto")) return "OI_VETO";
+  if (r.includes("post-oi confidence") || r.includes("oi conflict")) return "OI_CONFLICT";
+  if (r.includes("hc emission floor")) return "HC_FLOOR";
+  if (r.includes("post-clamp rr")) return "POST_CLAMP_RR";
+  if (r.includes("conditions not met")) return "CONDITIONS_NOT_MET";
+  if (r.includes("circuit-breaker") || r.includes("circuit breaker")) return "CIRCUIT_BREAKER";
+  if (r.includes("vol_regime") || r.includes("vol regime")) return "VOL_REGIME";
+  if (r.includes("flip") || r.includes("bias-flip") || r.includes("bias flip")) return "BIAS_FLIP";
+  if (r.includes("correlation") || r.includes("redundant")) return "CORRELATION_CAP";
+  if (r.includes("global suppression")) return "GLOBAL_SUPPRESSION";
+  if (r.includes("no_bars") || r.includes("no bars")) return "NO_BARS";
+  if (r === "error" || r.startsWith("error")) return "DETECTOR_ERROR";
+  return "OTHER";
+}
+
+/**
+ * Build one EMITTED row from a live OptionSignal. Pure — no I/O. Captures
+ * every field the upstream reasoning spec asks for; missing-data fields
+ * (e.g. IVR null at emission time) are flagged in `snapshot.missing`.
+ */
+export function buildEmittedRow(
+  s: UpstreamSignalShape,
+  signalDate: string,
+  vix: number | null,
+): FnoReasoningPayload {
+  const tags = Array.isArray(s.tags) ? s.tags : [];
+  const drivers = Array.isArray(s.drivers)
+    ? s.drivers.slice(0, 24).map(d => ({
+        label: d.label,
+        weight: d.weight,
+        detail: d.detail,
+        bullish: d.bullish,
+      }))
+    : [];
+  const missing: string[] = [];
+  if (s.ivRank == null) missing.push("ivRank");
+  if (s.ivPercentile == null) missing.push("ivPercentile");
+  if (vix == null) missing.push("vix");
+  if (s.vwap == null) missing.push("vwap");
+  if (s.ema50 == null) missing.push("ema50");
+  // Tag-derived demotion reasons (HTF/RS/LOW_WINRATE/OPENING_NOISE/etc.) —
+  // surfaced as a separate snapshot field so a downstream query can ask
+  // "how many EMITTED rows carried at least one demotion tag?" without
+  // splitting tag strings.
+  const DEMOTION_TAGS = new Set([
+    "HTF_CONFLICT", "HTF1H_CONFLICT", "RS_CONFLICT", "LOW_WINRATE",
+    "OPENING_NOISE", "CLOSING_NOISE", "EXPIRY_DAY", "OI_ATM_CONFLICT",
+    "VOL_CLAMPED_STOP", "COUNTER_TREND", "RR_LOW",
+  ]);
+  const demotionTags = tags.filter(t => DEMOTION_TAGS.has(t));
+  const emaStack = {
+    ema9: s.ema9 ?? null,
+    ema20: s.ema20 ?? null,
+    ema21: s.ema21 ?? null,
+    ema50: s.ema50 ?? null,
+    dailyEma50: s.dailyEma50 ?? null,
+  };
+  const vwapRel = s.vwap != null && s.spot != null
+    ? (s.spot > s.vwap ? "ABOVE" : s.spot < s.vwap ? "BELOW" : "AT")
+    : null;
+
+  return {
+    decision: "EMITTED",
+    signalDate,
+    indexSymbol: s.index,
+    indexName: s.indexName ?? null,
+    setupKey: s.setupKey ?? null,
+    direction: s.bias ?? null,
+    optionType: s.leg?.type === "CALL" ? "CE" : s.leg?.type === "PUT" ? "PE" : null,
+    tier: s.tier ?? null,
+    reasonCode: demotionTags.length > 0 ? "DEMOTED" : "EMITTED",
+    confidence: s.confidence ?? null,
+    confluenceScore: s.confluenceScore ?? null,
+    regime: s.regime ?? null,
+    vix,
+    ivr: s.ivRank ?? null,
+    ivp: s.ivPercentile ?? null,
+    spot: s.spot ?? null,
+    spotEntry: s.leg?.entry ?? null,
+    spotStop: s.leg?.stopLoss ?? null,
+    spotTarget1: s.leg?.target1 ?? null,
+    spotTarget2: s.leg?.target2 ?? null,
+    selectedStrike: s.leg?.strike ?? null,
+    dataQuality: s.dataQuality ?? null,
+    snapshot: {
+      setupName: s.setupName ?? null,
+      tags,
+      demotionTags,
+      drivers,
+      emaStack,
+      vwapRel,
+      htfBias: s.htfBias ?? null,
+      htfConflict: s.htfConflict ?? null,
+      missing,
+    },
+  };
+}
+
+/** Build PRE_EMISSION_REJECTED rows from the orchestrator `suppressed` array. */
+export function buildPreEmissionRejectedRows(
+  suppressed: ReadonlyArray<UpstreamSuppressed>,
+  signalDate: string,
+): FnoReasoningPayload[] {
+  const out: FnoReasoningPayload[] = [];
+  for (const bucket of suppressed) {
+    if (!bucket || typeof bucket.index !== "string") continue;
+    const reasons = Array.isArray(bucket.reasons) ? bucket.reasons : [];
+    for (const raw of reasons) {
+      const { setupKey, reason } = parseSuppressionReason(String(raw));
+      out.push({
+        decision: "PRE_EMISSION_REJECTED",
+        signalDate,
+        indexSymbol: bucket.index,
+        setupKey,
+        reasonCode: classifySuppressionReason(reason),
+        note: reason.slice(0, 240),
+        snapshot: { rawReason: String(raw).slice(0, 480) },
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Build the full set of upstream rows for one `getOptionSignals` cycle.
+ * Pure; tests call this directly. Empty inputs produce an empty array.
+ */
+export function buildUpstreamReasoningRows(args: {
+  signals: ReadonlyArray<UpstreamSignalShape>;
+  suppressed: ReadonlyArray<UpstreamSuppressed>;
+  signalDate: string;
+  vix?: number | null;
+}): FnoReasoningPayload[] {
+  const vix = args.vix ?? null;
+  const rows: FnoReasoningPayload[] = [];
+  for (const s of args.signals) {
+    try {
+      rows.push(buildEmittedRow(s, args.signalDate, vix));
+    } catch {
+      // Skip individual signal whose shape blew up; never throw upward.
+    }
+  }
+  rows.push(...buildPreEmissionRejectedRows(args.suppressed, args.signalDate));
+  return rows;
+}
+
+/**
+ * Non-throwing batch writer used by the orchestrator hook. Each row is
+ * dispatched via `logFnoReasoning` (already non-throwing) so a single
+ * bad row never poisons the batch and a DB outage emits a single WARN
+ * per row without disturbing the caller.
+ *
+ * Caller idiom: `void logUpstreamReasoningBatch({...})` — fire-and-forget.
+ */
+export async function logUpstreamReasoningBatch(args: {
+  signals: ReadonlyArray<UpstreamSignalShape>;
+  suppressed: ReadonlyArray<UpstreamSuppressed>;
+  signalDate: string;
+  vix?: number | null;
+}): Promise<void> {
+  let rows: FnoReasoningPayload[];
+  try {
+    rows = buildUpstreamReasoningRows(args);
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "fno_signal_reasoning upstream batch build failed (diagnostics-only)",
+    );
+    return;
+  }
+  // Sequential await — count is small (signals + suppressed ≈ <50/cycle),
+  // and we'd rather not flood the connection pool from a diagnostic path.
+  for (const r of rows) {
+    await logFnoReasoning(r);
   }
 }
 

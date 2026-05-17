@@ -1,0 +1,135 @@
+P14 is accepted. Good work.
+
+The F&O Signal Reasoning Logger is approved as complete.
+
+Accepted final state:
+
+* `fno_signal_reasoning` table added.
+* Append-only/non-blocking logger added.
+* Owner-only diagnostic endpoint added:
+  `/api/paper/diagnostics/fno-reasoning`
+* OPENED, CLOSED, STOPPED, TARGET, EXPIRED, SKIPPED, REJECTED, and DEMOTED decision-boundary events are now captured.
+* Histograms by decision, reason, index, setup, tier, and stop-loss setup are available.
+* Logger is non-blocking and swallows errors.
+* Snapshot JSONB sanitizer added.
+* 341/341 tests passed.
+* Typecheck passed.
+* Architect review passed.
+* No F&O trading behavior changed.
+* No swing, paper-equity, Kite, execution, scheduler, scanner, strategy, combo, option-snapshot, or candle-warehouse behavior changed.
+
+However, one limitation is important:
+
+The logger currently captures the **paper-trade decision boundary**, but it does **not yet capture the upstream signal-generation reasoning inside `optionSignals.ts` / confluence generation**. So we can see why a signal was opened, skipped, stopped, or closed, but we still cannot fully see why the signal originally appeared from the signal engine.
+
+Therefore, you are now approved to proceed with **P14b: Upstream F&O Signal Emission Reasoning Logger** only.
+
+Scope approved:
+
+1. Add diagnostics-only upstream reasoning capture at the F&O signal-generation/emission stage.
+
+2. This must answer:
+
+   * Why did this F&O signal appear?
+   * What setup created it?
+   * What confluence inputs supported it?
+   * What technical conditions were true?
+   * What market regime was detected?
+   * What confidence/tier was assigned?
+   * What data was missing?
+   * What gates were applied before emission?
+   * Why was it HIGH_CONVICTION, STANDARD, BASELINE, MICRO, DEMOTED, or REJECTED?
+
+3. Capture upstream reasoning fields where available:
+
+   * timestamp,
+   * signal date,
+   * index symbol,
+   * setup key,
+   * setup name,
+   * direction,
+   * option type,
+   * selected strike,
+   * tier,
+   * confidence,
+   * confluence score,
+   * market regime,
+   * trend classification,
+   * EMA stack state,
+   * VWAP relation,
+   * volume profile / POC relation if available,
+   * intraday volume/volume breakout info if available,
+   * IVR / IVP / VIX inputs,
+   * OI confluence inputs currently used,
+   * liquidity/spread inputs currently used,
+   * Phase 3 confluence fields,
+   * win-rate gate sample size,
+   * win-rate gate result,
+   * fail-open / fail-closed gate result,
+   * demotion reason,
+   * rejection reason,
+   * data source used,
+   * missing-data flags,
+   * final emission decision.
+
+4. Reuse the existing `fno_signal_reasoning` table if suitable.
+   If you need a new decision value such as `EMITTED`, `GENERATED`, `PRE_EMISSION_REJECTED`, or `PRE_EMISSION_DEMOTED`, add it safely without breaking existing records.
+
+5. If the current table is not suitable, propose the smallest additive change before implementing.
+
+6. This must be observational only.
+
+Do not change:
+
+* F&O signal generation logic,
+* F&O entry logic,
+* F&O exit logic,
+* F&O sizing logic,
+* F&O setup definitions,
+* F&O gate thresholds,
+* confluence scoring logic,
+* tier assignment logic,
+* win-rate gate logic,
+* paper-trade execution,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior.
+
+7. If adding this requires touching `optionSignals.ts` or related signal-generation files, the touch must be minimal and diagnostics-only.
+
+8. If you find that capturing this data would change live signal behavior, stop and report before implementing.
+
+9. Add tests where practical:
+
+   * emitted signal creates upstream reasoning record,
+   * pre-emission rejection creates reasoning record,
+   * demotion reason is captured,
+   * confluence fields are captured,
+   * missing-data flags are captured,
+   * logger failure does not break signal generation,
+   * no token/secret values are logged,
+   * existing F&O signal output remains unchanged.
+
+10. Update the owner-only endpoint/report if needed to include upstream emission records and histograms.
+
+Expected final output:
+
+1. Files changed.
+2. Where upstream logger is called.
+3. New decision/reason codes added, if any.
+4. Fields captured.
+5. Tests/typecheck result.
+6. Sample upstream reasoning record.
+7. Any limitations.
+8. Confirmation that no F&O trading behavior changed.
+9. Confirmation that no swing/paper/Kite/execution/data-ingestion behavior changed.
+
+After P14b is complete, we will let the system collect live reasoning data for approximately 1–2 weeks before approving any strategy change such as partial booking, option-chain confirmation gates, slippage/charges model, or stop-loss modification.
+
+Proceed with P14b only.

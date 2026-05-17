@@ -18,9 +18,15 @@
 import { describe, it, expect, vi } from "vitest";
 
 import {
+  buildEmittedRow,
+  buildPreEmissionRejectedRows,
   buildReasoningRow,
+  buildUpstreamReasoningRows,
+  classifySuppressionReason,
   logFnoReasoning,
+  logUpstreamReasoningBatch,
   normaliseFilters,
+  parseSuppressionReason,
   type FnoReasoningPayload,
 } from "./fnoSignalReasoningLogger";
 
@@ -257,6 +263,164 @@ describe("normaliseFilters — owner-facing filter shape", () => {
     expect(f.indexSymbol).toBeUndefined();
     expect(f.setupKey).toBeUndefined();
     expect(f.tier).toBeUndefined();
+  });
+});
+
+describe("P14b — upstream emission helpers", () => {
+  const EMITTED_SIG = {
+    index: "BANKNIFTY",
+    indexName: "BANKNIFTY",
+    setupKey: "TREND_CONTINUATION",
+    setupName: "Trend Continuation",
+    bias: "BULLISH",
+    tier: "STANDARD",
+    confidence: 72,
+    confluenceScore: 8.5,
+    regime: "TRENDING",
+    spot: 48500.25,
+    vwap: 48420.1,
+    ema9: 48490,
+    ema20: 48470,
+    ema21: 48468,
+    ema50: 48400,
+    dailyEma50: 47800,
+    htfBias: "BULLISH",
+    htfConflict: false,
+    ivRank: 42.5,
+    ivPercentile: 38.2,
+    dataQuality: "OK",
+    tags: ["OI_CONFIRMED"],
+    drivers: [
+      { label: "EMA_STACK", weight: 6, detail: "Above 9/20/50", bullish: true },
+      { label: "VWAP", weight: 4, detail: "Above VWAP", bullish: true },
+    ],
+    leg: { type: "CALL", strike: 48500, entry: 142.5, stopLoss: 113.5, target1: 171.6, target2: 200.5 },
+  };
+
+  it("buildEmittedRow captures the full upstream-reasoning field set", () => {
+    const row = buildEmittedRow(
+      EMITTED_SIG, "2026-05-15", 13.2,
+    );
+    expect(row.decision).toBe("EMITTED");
+    expect(row.reasonCode).toBe("EMITTED"); // no demotion tags → EMITTED
+    expect(row.setupKey).toBe("TREND_CONTINUATION");
+    expect(row.direction).toBe("BULLISH");
+    expect(row.optionType).toBe("CE");
+    expect(row.tier).toBe("STANDARD");
+    expect(row.confidence).toBe(72);
+    expect(row.confluenceScore).toBe(8.5);
+    expect(row.regime).toBe("TRENDING");
+    expect(row.ivr).toBe(42.5);
+    expect(row.ivp).toBe(38.2);
+    expect(row.vix).toBe(13.2);
+    expect(row.selectedStrike).toBe(48500);
+    expect(row.spotEntry).toBe(142.5);
+    expect(row.snapshot).toMatchObject({
+      tags: ["OI_CONFIRMED"],
+      demotionTags: [],
+      vwapRel: "ABOVE",
+      htfBias: "BULLISH",
+      htfConflict: false,
+      missing: [],
+      emaStack: { ema9: 48490, ema20: 48470, ema50: 48400 },
+    });
+    expect((row.snapshot as { drivers: unknown[] }).drivers).toHaveLength(2);
+  });
+
+  it("buildEmittedRow flags demotion tags and switches reasonCode to DEMOTED", () => {
+    const sig = { ...EMITTED_SIG, tier: "BASELINE", tags: ["LOW_WINRATE", "RS_CONFLICT", "OI_CONFIRMED"] };
+    const row = buildEmittedRow(sig, "2026-05-15", null);
+    expect(row.reasonCode).toBe("DEMOTED");
+    expect((row.snapshot as { demotionTags: string[] }).demotionTags).toEqual(["LOW_WINRATE", "RS_CONFLICT"]);
+    expect(row.tier).toBe("BASELINE");
+  });
+
+  it("buildEmittedRow records missing-data flags for null ivr/ivp/vix", () => {
+    const sig = { ...EMITTED_SIG, ivRank: undefined, ivPercentile: undefined };
+    const row = buildEmittedRow(sig, "2026-05-15", null);
+    const missing = (row.snapshot as { missing: string[] }).missing;
+    expect(missing).toContain("ivRank");
+    expect(missing).toContain("ivPercentile");
+    expect(missing).toContain("vix");
+  });
+
+  it("parseSuppressionReason splits the leading 'setup:' prefix", () => {
+    // imported at top: parseSuppressionReason
+    expect(parseSuppressionReason("trend_continuation: conditions not met"))
+      .toEqual({ setupKey: "TREND_CONTINUATION", reason: "conditions not met" });
+    expect(parseSuppressionReason("VWAP_RECLAIM: post-clamp RR < 1.4"))
+      .toEqual({ setupKey: "VWAP_RECLAIM", reason: "post-clamp RR < 1.4" });
+    expect(parseSuppressionReason("NO_BARS_OR_INSUFFICIENT_DATA"))
+      .toEqual({ setupKey: null, reason: "NO_BARS_OR_INSUFFICIENT_DATA" });
+    expect(parseSuppressionReason("")).toEqual({ setupKey: null, reason: "" });
+  });
+
+  it("classifySuppressionReason maps free-text to stable reason_code buckets", () => {
+    // imported at top: classifySuppressionReason
+    expect(classifySuppressionReason("opening-noise gate before 09:30 IST")).toBe("OPENING_NOISE");
+    expect(classifySuppressionReason("late-session entry gate after 14:30 IST")).toBe("LATE_SESSION_ENTRY");
+    expect(classifySuppressionReason("confidence 58 < HC emission floor 65 — demoted")).toBe("HC_FLOOR");
+    expect(classifySuppressionReason("post-clamp RR < 1.4 — plan rejected")).toBe("POST_CLAMP_RR");
+    expect(classifySuppressionReason("OI hard-veto on BULLISH bias")).toBe("OI_VETO");
+    expect(classifySuppressionReason("post-OI confidence 60 < HC emission floor — OI conflict")).toBe("OI_CONFLICT");
+    expect(classifySuppressionReason("conditions not met")).toBe("CONDITIONS_NOT_MET");
+    expect(classifySuppressionReason("circuit-breaker veto: 2 stops today")).toBe("CIRCUIT_BREAKER");
+    expect(classifySuppressionReason("correlation cap: redundant NIFTY signal")).toBe("CORRELATION_CAP");
+    expect(classifySuppressionReason("flip cooldown")).toBe("BIAS_FLIP");
+    expect(classifySuppressionReason("market_closed: post-market")).toBe("MARKET_CLOSED");
+    expect(classifySuppressionReason("partial_indicators: not enough bars")).toBe("PARTIAL_INDICATORS");
+    expect(classifySuppressionReason("something else entirely")).toBe("OTHER");
+  });
+
+  it("buildPreEmissionRejectedRows produces one row per (index, reason)", () => {
+    // imported at top: buildPreEmissionRejectedRows
+    const rows = buildPreEmissionRejectedRows([
+      { index: "NIFTY", reasons: ["trend_continuation: conditions not met", "VWAP_RECLAIM: post-clamp RR < 1.4"] },
+      { index: "BANKNIFTY", reasons: ["TREND_CONTINUATION: OI hard-veto on BULLISH bias"] },
+    ], "2026-05-15");
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r: { decision: string }) => r.decision === "PRE_EMISSION_REJECTED")).toBe(true);
+    expect(rows[0].indexSymbol).toBe("NIFTY");
+    expect(rows[0].setupKey).toBe("TREND_CONTINUATION");
+    expect(rows[0].reasonCode).toBe("CONDITIONS_NOT_MET");
+    expect(rows[1].reasonCode).toBe("POST_CLAMP_RR");
+    expect(rows[2].indexSymbol).toBe("BANKNIFTY");
+    expect(rows[2].reasonCode).toBe("OI_VETO");
+  });
+
+  it("buildUpstreamReasoningRows combines emitted + rejected and tolerates empty inputs", () => {
+    // imported at top: buildUpstreamReasoningRows
+    const rows = buildUpstreamReasoningRows({
+      signals: [EMITTED_SIG],
+      suppressed: [{ index: "SENSEX", reasons: ["mean_reversion: conditions not met"] }],
+      signalDate: "2026-05-15",
+      vix: 13.0,
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].decision).toBe("EMITTED");
+    expect(rows[1].decision).toBe("PRE_EMISSION_REJECTED");
+    expect(buildUpstreamReasoningRows({ signals: [], suppressed: [], signalDate: "2026-05-15" })).toEqual([]);
+  });
+
+  it("logUpstreamReasoningBatch never throws even when every write fails", async () => {
+    const dbModule = await import("@workspace/db");
+    const spy = vi.spyOn(dbModule.db, "insert").mockImplementation(() => ({
+      values: () => Promise.reject(new Error("simulated outage")),
+    } as unknown as ReturnType<typeof dbModule.db.insert>));
+    const { logUpstreamReasoningBatch } = await import("./fnoSignalReasoningLogger");
+    await expect(logUpstreamReasoningBatch({
+      signals: [EMITTED_SIG],
+      suppressed: [{ index: "NIFTY", reasons: ["trend_continuation: conditions not met"] }],
+      signalDate: "2026-05-15",
+      vix: 13,
+    })).resolves.toBeUndefined();
+    spy.mockRestore();
+  });
+
+  it("no secret-shaped keys are leaked into EMITTED snapshot (no header/cookie/token in shape)", () => {
+    const row = buildEmittedRow(EMITTED_SIG, "2026-05-15", 13);
+    const json = JSON.stringify(row);
+    expect(/token|secret|password|cookie|authorization/i.test(json)).toBe(false);
   });
 });
 
