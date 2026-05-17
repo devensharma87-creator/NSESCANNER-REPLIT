@@ -1,0 +1,166 @@
+P18 report is accepted as a provisional verification report.
+
+Good work.
+
+Important decision:
+
+We will choose **Path 1: wait for the next live market session and re-run P18 after Monday EOD**.
+
+Do **not** implement official cost integration into realised P&L yet.
+
+Do **not** add schema columns for net P&L yet.
+
+Do **not** change F&O strategy, signals, entry, exit, stop loss, target, sizing, DD caps, heat caps, or paper-trade execution yet.
+
+Reason:
+
+The current P18 sample is too thin:
+
+* today is Sunday / market closed,
+* only 6 `EMITTED` reasoning rows exist,
+* downstream lifecycle rows are still zero,
+* fingerprint coverage is `0%`,
+* no `OPENED`, `CLOSED_STOPPED`, `CLOSED_TARGET1`, `CLOSED_TARGET2`, or `CLOSED_EXPIRED` rows were produced in this verification window,
+* therefore exact trade lifecycle evidence is not available yet.
+
+The shadow cost model is useful, but converting it into official realised P&L would change reporting/DD interpretation and may require schema changes. That is not approved yet.
+
+Proceed with **P18b: Monday Live Session Observability Re-Verification** only.
+
+Scope for P18b:
+
+1. Re-run the full P18 verification after the next live market session, preferably after market close on Monday, May 18, 2026.
+
+2. Use production/live-session data, not only Sunday/dev data.
+
+3. Confirm whether `fno_signal_reasoning` receives live records for:
+
+   * `EMITTED`
+   * `PRE_EMISSION_REJECTED`
+   * `SKIPPED`
+   * `MISSED_WINDOW`
+   * `OPENED`
+   * `CLOSED_STOPPED`
+   * `CLOSED_TARGET1`
+   * `CLOSED_TARGET2`
+   * `CLOSED_EXPIRED`
+
+4. Confirm whether `signal_fingerprint` is populated for lifecycle rows after live trades open/close.
+
+5. Confirm whether the following endpoints return useful non-empty data:
+
+   * `/api/paper/diagnostics/fno-observability`
+   * `/api/paper/diagnostics/fno-reasoning`
+   * `/api/paper/diagnostics/fno-reasoning/analytics`
+   * `/api/paper/analytics/fo/failure-diagnosis`
+   * `/api/paper/analytics/fo/shadow-costs`
+
+6. Confirm `/infra-health` shows valid live-session data for:
+
+   * F&O observability substrate,
+   * F&O reasoning analytics,
+   * F&O failure diagnosis,
+   * F&O shadow costs.
+
+7. Produce a Monday EOD live verification report with:
+
+   A. Reasoning row health:
+
+   * total rows today,
+   * upstream rows,
+   * downstream rows,
+   * rows by decision,
+   * rows with fingerprint,
+   * rows without fingerprint,
+   * latest reasoning timestamp,
+   * logger success/failure count,
+   * last logger error if any.
+
+   B. Signal funnel:
+
+   * emitted,
+   * rejected,
+   * skipped,
+   * opened,
+   * stopped,
+   * target1,
+   * target2,
+   * expired,
+   * stale/untriggered.
+
+   C. Failure diagnosis:
+
+   * worst setup,
+   * worst index,
+   * worst tier,
+   * most common rejection reason,
+   * most common demotion reason,
+   * most common missing-data flag,
+   * stop-loss clustering,
+   * untriggered/expired clustering.
+
+   D. Shadow cost impact:
+
+   * gross P&L,
+   * estimated cost,
+   * shadow net P&L,
+   * trades flipped from profit to loss after cost,
+   * average cost per trade,
+   * average cost as percentage of premium.
+
+8. If the Monday session still produces only `EMITTED` rows and no downstream rows, report that as a blocker and investigate why paper F&O trades are not opening or lifecycle rows are not being logged.
+
+9. If Monday live data shows enough evidence, recommend only one first actual correction from:
+
+   * T1 partial booking and trail-to-breakeven,
+   * option-chain confirmation gate,
+   * stop-loss recalibration,
+   * stale/untriggered trigger improvement,
+   * weak setup demotion/disable rule,
+   * time-of-day restriction,
+   * data-quality gate,
+   * per-index threshold adjustment,
+   * official cost/net-P&L integration.
+
+10. Do not implement the correction in P18b. Provide only the recommendation and implementation plan.
+
+Guardrails:
+
+Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* F&O stop-loss logic,
+* F&O target logic,
+* F&O sizing logic,
+* F&O gate thresholds,
+* confluence scoring,
+* realised P&L,
+* DD/circuit breakers,
+* paper-trade execution,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* database schema.
+
+Expected final output:
+
+1. Monday live-session verification summary.
+2. Reasoning row counts.
+3. Fingerprint coverage.
+4. Signal funnel.
+5. Failure diagnosis summary.
+6. Shadow cost summary.
+7. Observability blockers, if any.
+8. One recommended first actual F&O correction, if evidence supports it.
+9. Implementation plan for that correction.
+10. Confirmation that no code/trading behavior was changed.
+
+Proceed with P18b only after Monday live-session data is available.
