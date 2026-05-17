@@ -1,0 +1,135 @@
+P16 is accepted. Good work.
+
+The F&O Failure Diagnosis Report is approved as complete.
+
+Accepted final state:
+
+* `fnoFailureDiagnosis.ts` added.
+* Owner-only endpoint added:
+  `/api/paper/analytics/fo/failure-diagnosis`
+* `exactOnly=1` filter added.
+* `/infra-health` now includes the P16 F&O Failure Diagnosis section.
+* Hypothesis ranking, recommendations, lifecycle funnel, setup/index/tier tables, stop-loss, untriggered, missing-data, and demotion analysis are available.
+* H2 and H7 logic issues found by architect were fixed.
+* 418/418 tests passed.
+* Full repo typecheck passed.
+* No F&O signal generation, gates, sizing, entry, exit, paper execution, Kite, swing, equity, scanner, strategy, combo, option snapshots, candle warehouse, schema, or scheduler behavior was changed.
+
+Do not change P16 further unless I separately ask.
+
+Now proceed with **P17: Evidence-Based First Strategy Correction Proposal** only.
+
+Important:
+
+This is still a planning/evidence task. Do not implement the correction yet. I want you to use the P16 report data and tell me which exact F&O correction should be implemented first.
+
+Purpose:
+
+Our F&O system is weak right now. Too many index trades are hitting stop loss, expiring, failing, or remaining untriggered. We now have diagnostics, upstream reasoning, downstream reasoning, exact fingerprint lifecycle linkage, and the P16 failure report. Use that data to recommend the first actual strategy correction.
+
+Scope approved for P17:
+
+1. Pull or inspect the latest P16 failure diagnosis output.
+
+2. Analyse the current F&O failure data using exact lifecycle linkage where available.
+
+3. Give a clear evidence-based answer:
+
+   * What is the biggest current failure reason?
+   * Which setup is failing most?
+   * Which index is failing most?
+   * Which tier is failing most?
+   * Are stops too tight?
+   * Are entries late/stale?
+   * Are trades hitting T1 and then reversing?
+   * Are untriggered/expired signals caused by poor trigger placement?
+   * Are weak setups being allowed due to low sample fail-open?
+   * Are missing IV/OI/VIX/spread fields causing poor decisions?
+   * Is option-chain confirmation missing from the trade decision?
+   * Is paper P&L unrealistic due to missing charges/slippage/spread?
+
+4. Rank the next possible corrections using evidence:
+
+   A. Add realistic slippage/charges/spread model.
+   B. Add T1 partial booking and trail-to-breakeven.
+   C. Add option-chain confirmation gate before opening CE/PE.
+   D. Recalibrate stop loss by setup/index/regime.
+   E. Block/demote weak setups such as mean reversion in trending regimes.
+   F. Tighten win-rate gate so weak/new setups do not fail open.
+   G. Improve stale/untriggered signal handling.
+   H. Add time-of-day restrictions or late-session blocking.
+   I. Add per-index thresholds for NIFTY/BANKNIFTY/SENSEX.
+   J. Add data-quality gate when IV/OI/VIX/liquidity/spread is missing.
+
+5. For each recommended correction, provide:
+
+   * evidence from P16,
+   * affected setup/index/tier,
+   * expected benefit,
+   * risk of making performance worse,
+   * files/functions likely affected,
+   * whether it changes trading behavior,
+   * tests needed,
+   * rollback plan,
+   * how success will be measured.
+
+6. Choose only **one recommended first correction**.
+
+7. Do not implement it yet.
+   I want a final recommendation and implementation plan first.
+
+8. The final recommendation must be structured as:
+
+   * First correction to implement:
+   * Why this is first:
+   * Evidence:
+   * Files likely affected:
+   * Behavior change:
+   * Test plan:
+   * Rollback plan:
+   * Metrics to monitor for 1–2 weeks after implementation:
+   * What not to change yet:
+
+9. Continue to respect guardrails.
+
+Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* stop-loss logic,
+* target logic,
+* sizing logic,
+* setup definitions,
+* gate thresholds,
+* paper-trade execution,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* database schema,
+* scheduler behavior.
+
+10. If you find a critical safety issue that needs immediate action, report it separately and do not fix it without approval.
+
+Expected final output for P17:
+
+1. Latest P16 evidence summary.
+2. Failure ranking by setup.
+3. Failure ranking by index.
+4. Failure ranking by tier.
+5. Lifecycle funnel summary.
+6. Stop-loss analysis.
+7. Untriggered/expired analysis.
+8. Missing-data/demotion analysis.
+9. Ranked correction candidates.
+10. One recommended first correction.
+11. Detailed implementation plan for that correction.
+12. Risk and rollback plan.
+13. Confirmation that no code/trading behavior was changed.
+
+Proceed with P17 only.
