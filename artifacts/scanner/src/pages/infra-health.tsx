@@ -37,6 +37,7 @@ import {
   XCircle,
   Info,
   PauseCircle,
+  Brain,
 } from "lucide-react";
 import { Seo } from "@/components/seo";
 import {
@@ -606,6 +607,192 @@ function EquitySection({
   );
 }
 
+// ── P15: F&O Reasoning Analytics section ───────────────────────────────────
+
+interface KeyCountRow { key: string; count: number }
+interface SetupBreakdownRow {
+  setupKey: string;
+  total: number; emitted: number; preEmissionRejected: number; opened: number;
+  skipped: number; stopped: number; target1: number; target2: number;
+  expired: number; forceExit: number; manualClose: number; demoted: number;
+  avgConfidence: number | null; avgConfluence: number | null;
+}
+interface IndexBreakdownRow {
+  indexSymbol: string; total: number; emitted: number; opened: number;
+  stopped: number; targetHit: number; expired: number;
+}
+interface ReasoningAnalyticsResp {
+  filters: { latestN: number; from?: string; to?: string };
+  analytics: {
+    generatedAt: string;
+    rowCount: number;
+    windowFrom: string | null;
+    windowTo: string | null;
+    bySetup: SetupBreakdownRow[];
+    byIndex: IndexBreakdownRow[];
+    byDemotionTag: KeyCountRow[];
+    byMissingData: KeyCountRow[];
+    byDecision: KeyCountRow[];
+    byReasonCode: KeyCountRow[];
+    stoppedBySetup: KeyCountRow[];
+    stoppedByIndex: KeyCountRow[];
+    stoppedByConfidenceBucket: KeyCountRow[];
+    rejectedReasonBySetup: Array<{ setupKey: string; reasonCode: string; count: number }>;
+    t1ThenStoppedGroups: number;
+    t1ThenStoppedMeta: { proxyMethod: string; limitation: string };
+    lowWinRateDemotions: number;
+    rowSampleType: string;
+  };
+}
+
+function MiniHist({ rows, max = 6 }: { rows: KeyCountRow[]; max?: number }) {
+  if (rows.length === 0) return <div className="text-xs text-muted-foreground">no data yet</div>;
+  const top = Math.max(...rows.slice(0, max).map(r => r.count), 1);
+  return (
+    <div className="space-y-1">
+      {rows.slice(0, max).map(r => (
+        <div key={r.key} className="flex items-center gap-2 text-xs">
+          <div className="w-32 truncate font-mono" title={r.key}>{r.key}</div>
+          <div className="flex-1 h-2 bg-muted rounded overflow-hidden">
+            <div className="h-full bg-primary/60" style={{ width: `${(r.count / top) * 100}%` }} />
+          </div>
+          <div className="w-8 text-right font-mono">{r.count}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReasoningSection({ data, error, loading }: FetchState<ReasoningAnalyticsResp>): React.ReactElement {
+  let severity: Severity = "ok";
+  if (loading && !data) severity = "disabled";
+  else if (error) severity = "warn";
+  else if (!data || data.analytics.rowCount === 0) severity = "disabled";
+  else if (data.analytics.lowWinRateDemotions > 0 || data.analytics.byMissingData.length > 0) severity = "warn";
+
+  const a = data?.analytics;
+  const topFailingSetups = useMemo(() => {
+    if (!a) return [] as KeyCountRow[];
+    return a.bySetup
+      .filter(s => s.stopped + s.expired + s.demoted > 0)
+      .map(s => ({ key: s.setupKey, count: s.stopped + s.expired + s.demoted }))
+      .sort((x, y) => y.count - x.count)
+      .slice(0, 6);
+  }, [a]);
+
+  const topRejectedReasons = useMemo(() => {
+    if (!a) return [] as KeyCountRow[];
+    const m = new Map<string, number>();
+    for (const r of a.rejectedReasonBySetup) m.set(r.reasonCode, (m.get(r.reasonCode) ?? 0) + r.count);
+    return Array.from(m, ([key, count]) => ({ key, count })).sort((x, y) => y.count - x.count);
+  }, [a]);
+
+  return (
+    <SectionShell
+      title="F&O Reasoning Analytics"
+      icon={Brain}
+      severity={severity}
+      description="Read-only roll-up over the fno_signal_reasoning substrate (P14 + P14b). Counts are event-rows, not unique signals. No trade or signal effect."
+      testId="section-reasoning"
+    >
+      {error && <div className="text-xs text-rose-500 mb-2" data-testid="reasoning-error">{error}</div>}
+      {!a && !error && <div className="text-xs text-muted-foreground">Loading…</div>}
+      {a && a.rowCount === 0 && (
+        <div className="text-xs text-muted-foreground">
+          No reasoning rows yet — once P14 / P14b loggers have captured data this panel will populate.
+        </div>
+      )}
+      {a && a.rowCount > 0 && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <Stat label="Rows analysed" value={num(a.rowCount)} tone="info" />
+            <Stat label="Window" value={a.windowFrom && a.windowTo ? `${a.windowFrom} → ${a.windowTo}` : "—"} tone="info" />
+            <div title={a.t1ThenStoppedMeta.limitation}>
+              <Stat label="T1 → stop reversals (proxy)" value={a.t1ThenStoppedGroups} tone={a.t1ThenStoppedGroups > 0 ? "warn" : "ok"} />
+            </div>
+            <Stat label="Low-WR demotions" value={a.lowWinRateDemotions} tone={a.lowWinRateDemotions > 0 ? "warn" : "ok"} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Top failing setups (stop+expire+demote)</div>
+              <MiniHist rows={topFailingSetups} />
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Top rejected reasons</div>
+              <MiniHist rows={topRejectedReasons} />
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Stop-loss by setup</div>
+              <MiniHist rows={a.stoppedBySetup} />
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Stop-loss by index</div>
+              <MiniHist rows={a.stoppedByIndex} />
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Demotion tags</div>
+              <MiniHist rows={a.byDemotionTag} />
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Missing-data warnings</div>
+              {a.byMissingData.length === 0
+                ? <div className="text-xs text-emerald-500">No missing-data flags raised.</div>
+                : <MiniHist rows={a.byMissingData} />}
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Decision histogram</div>
+              <MiniHist rows={a.byDecision} max={8} />
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Stopped by confidence bucket</div>
+              <MiniHist rows={a.stoppedByConfidenceBucket} />
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Setup detail (top 8 by volume)</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs font-mono">
+                <thead className="text-muted-foreground">
+                  <tr className="border-b border-border/50">
+                    <th className="text-left py-1 pr-2">Setup</th>
+                    <th className="text-right px-2">Total</th>
+                    <th className="text-right px-2">Emit</th>
+                    <th className="text-right px-2">Open</th>
+                    <th className="text-right px-2">Stop</th>
+                    <th className="text-right px-2">T1</th>
+                    <th className="text-right px-2">T2</th>
+                    <th className="text-right px-2">Exp</th>
+                    <th className="text-right px-2">Demote</th>
+                    <th className="text-right px-2">Avg Conf</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {a.bySetup.slice(0, 8).map(s => (
+                    <tr key={s.setupKey} className="border-b border-border/30">
+                      <td className="text-left py-1 pr-2 truncate" title={s.setupKey}>{s.setupKey}</td>
+                      <td className="text-right px-2">{s.total}</td>
+                      <td className="text-right px-2">{s.emitted}</td>
+                      <td className="text-right px-2">{s.opened}</td>
+                      <td className={`text-right px-2 ${s.stopped > 0 ? "text-rose-500" : ""}`}>{s.stopped}</td>
+                      <td className={`text-right px-2 ${s.target1 > 0 ? "text-emerald-500" : ""}`}>{s.target1}</td>
+                      <td className={`text-right px-2 ${s.target2 > 0 ? "text-emerald-500" : ""}`}>{s.target2}</td>
+                      <td className="text-right px-2">{s.expired}</td>
+                      <td className="text-right px-2">{s.demoted}</td>
+                      <td className="text-right px-2">{s.avgConfidence ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 // ── tiny atoms ─────────────────────────────────────────────────────────────
 
 function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone: "ok" | "warn" | "fail" | "info" }) {
@@ -653,6 +840,7 @@ export default function InfraHealthPage(): React.ReactElement {
   );
   const analytics = useEndpoint<AnalyticsResp>("api/option-snapshots/analytics", auto, tick);
   const candidates = useEndpoint<CandidatesDiag>("api/paper/eq/candidates-diagnostic", auto, tick);
+  const reasoning = useEndpoint<ReasoningAnalyticsResp>("api/paper/diagnostics/fno-reasoning/analytics", auto, tick);
 
   // Roll-up for the header banner.
   const headerSeverity: Severity = useMemo(() => {
@@ -707,6 +895,9 @@ export default function InfraHealthPage(): React.ReactElement {
         <SnapshotSection diag={snapshot} analytics={analytics} nowMs={nowMs} />
         <div className="md:col-span-2">
           <EquitySection cand={candidates} nowMs={nowMs} refresh={refresh} />
+        </div>
+        <div className="md:col-span-2">
+          <ReasoningSection {...reasoning} />
         </div>
       </div>
     </div>

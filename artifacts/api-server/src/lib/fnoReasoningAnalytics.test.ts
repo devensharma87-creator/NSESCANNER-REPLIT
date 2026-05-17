@@ -1,0 +1,242 @@
+/**
+ * P15 — fnoReasoningAnalytics pure tests.
+ *
+ * Covers: empty data, setup-wise aggregation, stop/target/expired/demotion
+ * grouping, snapshot-derived histograms (demotionTags, missing[]),
+ * confidence-bucket distribution, regime/index stop-loss histograms,
+ * tier realized-pnl, T1→stop reversal proxy, low-winrate demotions,
+ * filter normalisation (default + invalid + cap), and stable ordering.
+ */
+import { describe, it, expect } from "vitest";
+import type { FnoSignalReasoningRow } from "@workspace/db";
+import {
+  analyticsFiltersFromQuery,
+  computeReasoningAnalytics,
+} from "./fnoReasoningAnalytics";
+
+const baseRow = (over: Partial<FnoSignalReasoningRow> = {}): FnoSignalReasoningRow => ({
+  id: 1,
+  capturedAt: new Date("2026-05-15T09:20:00Z"),
+  signalDate: "2026-05-15",
+  indexSymbol: "NIFTY",
+  indexName: null,
+  setupKey: "TREND_CONTINUATION",
+  direction: "BULLISH",
+  optionType: "CE",
+  tier: "STANDARD",
+  decision: "EMITTED",
+  reasonCode: "EMITTED",
+  confidence: 70,
+  confluenceScore: "8.50",
+  regime: "TRENDING",
+  vix: "13.20",
+  ivr: "42.00",
+  ivp: "38.00",
+  spot: "24500.00",
+  spotEntry: "24500.00",
+  spotStop: null,
+  spotTarget1: null,
+  spotTarget2: null,
+  selectedStrike: "24500.00",
+  optionEntry: null,
+  optionStop: null,
+  optionTarget1: null,
+  optionTarget2: null,
+  optionSpreadPct: null,
+  optionOi: null,
+  optionLtp: null,
+  optionExit: null,
+  realizedPnl: null,
+  lifecycleStatus: null,
+  exitReason: null,
+  dataQuality: "OK",
+  maxLossPct: null,
+  lots: null,
+  lotSize: null,
+  snapshot: null,
+  note: null,
+  ...over,
+});
+
+describe("P15 — analyticsFiltersFromQuery", () => {
+  it("returns sane defaults on empty input", () => {
+    const f = analyticsFiltersFromQuery({});
+    expect(f.latestN).toBe(2000);
+    expect(f.indexSymbol).toBeUndefined();
+    expect(f.from).toBeUndefined();
+  });
+
+  it("accepts the documented filter aliases", () => {
+    const f = analyticsFiltersFromQuery({
+      index: "BANKNIFTY", setup: "VWAP_RECLAIM", side: "BEARISH",
+      option: "PE", tier: "MICRO", status: "CLOSED_STOPPED",
+      reason: "OI_CONFLICT", regime: "VOLATILE",
+      from: "2026-05-01", to: "2026-05-15", limit: "500",
+    });
+    expect(f).toEqual({
+      indexSymbol: "BANKNIFTY", setupKey: "VWAP_RECLAIM", direction: "BEARISH",
+      optionType: "PE", tier: "MICRO", decision: "CLOSED_STOPPED",
+      reasonCode: "OI_CONFLICT", regime: "VOLATILE",
+      from: "2026-05-01", to: "2026-05-15", latestN: 500,
+    });
+  });
+
+  it("rejects invalid dates and caps latestN", () => {
+    const f = analyticsFiltersFromQuery({ from: "2026-13-99", to: "junk", latestN: "99999" });
+    expect(f.from).toBeUndefined();
+    expect(f.to).toBeUndefined();
+    expect(f.latestN).toBe(10_000);
+  });
+
+  it("ignores zero / negative latestN", () => {
+    expect(analyticsFiltersFromQuery({ latestN: "0" }).latestN).toBe(2000);
+    expect(analyticsFiltersFromQuery({ latestN: "-5" }).latestN).toBe(2000);
+    expect(analyticsFiltersFromQuery({ latestN: "abc" }).latestN).toBe(2000);
+  });
+});
+
+describe("P15 — computeReasoningAnalytics", () => {
+  it("returns the empty shape for zero rows without throwing", () => {
+    const a = computeReasoningAnalytics([]);
+    expect(a.rowCount).toBe(0);
+    expect(a.windowFrom).toBeNull();
+    expect(a.windowTo).toBeNull();
+    expect(a.bySetup).toEqual([]);
+    expect(a.byDecision).toEqual([]);
+    expect(a.t1ThenStoppedGroups).toBe(0);
+    expect(a.lowWinRateDemotions).toBe(0);
+    expect(a.rowSampleType).toBe("event_rows_not_unique_signals");
+    expect(a.t1ThenStoppedMeta.proxyMethod).toContain("group_by");
+    expect(a.t1ThenStoppedMeta.limitation).toContain("approximation");
+  });
+
+  it("aggregates per-setup counts across decisions", () => {
+    const rows = [
+      baseRow({ id: 1, setupKey: "TREND_CONTINUATION", decision: "EMITTED" }),
+      baseRow({ id: 2, setupKey: "TREND_CONTINUATION", decision: "EMITTED", reasonCode: "DEMOTED" }),
+      baseRow({ id: 3, setupKey: "TREND_CONTINUATION", decision: "OPENED" }),
+      baseRow({ id: 4, setupKey: "TREND_CONTINUATION", decision: "CLOSED_STOPPED", realizedPnl: "-1200.00" }),
+      baseRow({ id: 5, setupKey: "TREND_CONTINUATION", decision: "CLOSED_TARGET1", realizedPnl: "800.00" }),
+      baseRow({ id: 6, setupKey: "VWAP_RECLAIM", decision: "PRE_EMISSION_REJECTED", reasonCode: "POST_CLAMP_RR" }),
+      baseRow({ id: 7, setupKey: "VWAP_RECLAIM", decision: "CLOSED_EXPIRED" }),
+    ];
+    const a = computeReasoningAnalytics(rows);
+    const tc = a.bySetup.find(s => s.setupKey === "TREND_CONTINUATION")!;
+    expect(tc.total).toBe(5);
+    expect(tc.emitted).toBe(2);
+    expect(tc.demoted).toBe(1);
+    expect(tc.opened).toBe(1);
+    expect(tc.stopped).toBe(1);
+    expect(tc.target1).toBe(1);
+    const vr = a.bySetup.find(s => s.setupKey === "VWAP_RECLAIM")!;
+    expect(vr.preEmissionRejected).toBe(1);
+    expect(vr.expired).toBe(1);
+  });
+
+  it("computes stop-loss histograms by setup / index / confidence / regime", () => {
+    const rows = [
+      baseRow({ id: 1, setupKey: "MEAN_REVERSION", indexSymbol: "NIFTY", confidence: 58, regime: "VOLATILE", decision: "CLOSED_STOPPED" }),
+      baseRow({ id: 2, setupKey: "MEAN_REVERSION", indexSymbol: "BANKNIFTY", confidence: 62, regime: "TRENDING", decision: "CLOSED_STOPPED" }),
+      baseRow({ id: 3, setupKey: "VOLUME_BREAKOUT", indexSymbol: "BANKNIFTY", confidence: 72, regime: "TRENDING", decision: "CLOSED_STOPPED" }),
+      baseRow({ id: 4, setupKey: "MEAN_REVERSION", decision: "EMITTED" }), // non-stop ignored
+    ];
+    const a = computeReasoningAnalytics(rows);
+    expect(a.stoppedBySetup[0]).toEqual({ key: "MEAN_REVERSION", count: 2 });
+    expect(a.stoppedByIndex[0]).toEqual({ key: "BANKNIFTY", count: 2 });
+    expect(a.stoppedByConfidenceBucket).toContainEqual({ key: "55-59", count: 1 });
+    expect(a.stoppedByConfidenceBucket).toContainEqual({ key: "60-64", count: 1 });
+    expect(a.stoppedByConfidenceBucket).toContainEqual({ key: "70-74", count: 1 });
+    expect(a.stoppedByRegime).toContainEqual({ key: "TRENDING", count: 2 });
+    expect(a.stoppedByRegime).toContainEqual({ key: "VOLATILE", count: 1 });
+  });
+
+  it("derives demotion-tag and missing-data histograms from snapshot", () => {
+    const rows = [
+      baseRow({ id: 1, decision: "EMITTED", reasonCode: "DEMOTED",
+        snapshot: { demotionTags: ["LOW_WINRATE", "RS_CONFLICT"], missing: ["ivRank"] } }),
+      baseRow({ id: 2, decision: "EMITTED", reasonCode: "DEMOTED",
+        snapshot: { demotionTags: ["LOW_WINRATE"], missing: ["ivRank", "ivPercentile", "vix"] } }),
+      baseRow({ id: 3, decision: "EMITTED",
+        snapshot: { demotionTags: [], missing: [] } }),
+    ];
+    const a = computeReasoningAnalytics(rows);
+    expect(a.byDemotionTag).toEqual([
+      { key: "LOW_WINRATE", count: 2 },
+      { key: "RS_CONFLICT", count: 1 },
+    ]);
+    expect(a.byMissingData).toEqual([
+      { key: "ivRank", count: 2 },
+      { key: "ivPercentile", count: 1 },
+      { key: "vix", count: 1 },
+    ]);
+    expect(a.lowWinRateDemotions).toBe(2);
+  });
+
+  it("computes average confidence and confluence per setup", () => {
+    const rows = [
+      baseRow({ id: 1, setupKey: "X", confidence: 60, confluenceScore: "6.00" }),
+      baseRow({ id: 2, setupKey: "X", confidence: 70, confluenceScore: "8.00" }),
+      baseRow({ id: 3, setupKey: "Y", confidence: 55, confluenceScore: null }),
+    ];
+    const a = computeReasoningAnalytics(rows);
+    const x = a.bySetup.find(s => s.setupKey === "X")!;
+    expect(x.avgConfidence).toBe(65);
+    expect(x.avgConfluence).toBe(7);
+    const y = a.bySetup.find(s => s.setupKey === "Y")!;
+    expect(y.avgConfidence).toBe(55);
+    expect(y.avgConfluence).toBeNull();
+  });
+
+  it("rolls realized pnl per tier across CLOSED_* rows", () => {
+    const rows = [
+      baseRow({ id: 1, tier: "STANDARD", decision: "CLOSED_TARGET1", realizedPnl: "1500.50" }),
+      baseRow({ id: 2, tier: "STANDARD", decision: "CLOSED_STOPPED", realizedPnl: "-800.00" }),
+      baseRow({ id: 3, tier: "BASELINE", decision: "CLOSED_STOPPED", realizedPnl: "-200.00" }),
+      baseRow({ id: 4, tier: "BASELINE", decision: "EMITTED" }), // non-closed
+    ];
+    const a = computeReasoningAnalytics(rows);
+    const std = a.byTier.find(t => t.tier === "STANDARD")!;
+    expect(std.realizedPnl).toBe(700.5);
+    expect(std.target1).toBe(1);
+    expect(std.stopped).toBe(1);
+    const base = a.byTier.find(t => t.tier === "BASELINE")!;
+    expect(base.realizedPnl).toBe(-200);
+  });
+
+  it("counts T1→stop reversal groups by (date,index,setup,direction,strike)", () => {
+    const rows = [
+      baseRow({ id: 1, decision: "CLOSED_TARGET1", signalDate: "2026-05-15", indexSymbol: "NIFTY", setupKey: "TC", direction: "BULLISH", selectedStrike: "24500.00" }),
+      baseRow({ id: 2, decision: "CLOSED_STOPPED", signalDate: "2026-05-15", indexSymbol: "NIFTY", setupKey: "TC", direction: "BULLISH", selectedStrike: "24500.00" }),
+      baseRow({ id: 3, decision: "CLOSED_TARGET1", signalDate: "2026-05-15", indexSymbol: "BANKNIFTY", setupKey: "TC", direction: "BULLISH", selectedStrike: "48500.00" }),
+      // BANKNIFTY group has T1 only — no reversal
+      baseRow({ id: 4, decision: "CLOSED_STOPPED", signalDate: "2026-05-15", indexSymbol: "SENSEX", setupKey: "TC", direction: "BULLISH", selectedStrike: "78000.00" }),
+      // SENSEX group has STOP only — no reversal
+    ];
+    const a = computeReasoningAnalytics(rows);
+    expect(a.t1ThenStoppedGroups).toBe(1);
+  });
+
+  it("emits rejected-reason-by-setup with stable ordering", () => {
+    const rows = [
+      baseRow({ id: 1, setupKey: "A", decision: "PRE_EMISSION_REJECTED", reasonCode: "POST_CLAMP_RR" }),
+      baseRow({ id: 2, setupKey: "A", decision: "PRE_EMISSION_REJECTED", reasonCode: "POST_CLAMP_RR" }),
+      baseRow({ id: 3, setupKey: "A", decision: "PRE_EMISSION_REJECTED", reasonCode: "OI_CONFLICT" }),
+      baseRow({ id: 4, setupKey: "B", decision: "PRE_EMISSION_REJECTED", reasonCode: "HC_FLOOR" }),
+    ];
+    const a = computeReasoningAnalytics(rows);
+    expect(a.rejectedReasonBySetup[0]).toEqual({ setupKey: "A", reasonCode: "POST_CLAMP_RR", count: 2 });
+    expect(a.rejectedReasonBySetup.length).toBe(3);
+  });
+
+  it("derives signal-date window from min/max of input rows", () => {
+    const rows = [
+      baseRow({ id: 1, signalDate: "2026-05-10" }),
+      baseRow({ id: 2, signalDate: "2026-05-15" }),
+      baseRow({ id: 3, signalDate: "2026-05-12" }),
+    ];
+    const a = computeReasoningAnalytics(rows);
+    expect(a.windowFrom).toBe("2026-05-10");
+    expect(a.windowTo).toBe("2026-05-15");
+    expect(a.rowCount).toBe(3);
+  });
+});

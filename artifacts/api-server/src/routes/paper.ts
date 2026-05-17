@@ -51,6 +51,11 @@ import {
   queryReasoning,
 } from "../lib/fnoSignalReasoningLogger";
 import {
+  analyticsFiltersFromQuery,
+  computeReasoningAnalytics,
+  fetchReasoningRows,
+} from "../lib/fnoReasoningAnalytics";
+import {
   computeDailySummaryFo,
   istDateOf,
   persistDailySummaryFo,
@@ -628,6 +633,35 @@ router.get("/paper/diagnostics/fno-reasoning", requireOwner, async (req, res, ne
         note: r.note,
       })),
       generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * F&O Reasoning Analytics (P15, 2026-05-17).
+ *
+ * Owner-only, read-only. Computes setup/index/tier breakdowns plus
+ * decision / reason / regime / demotion-tag / missing-data histograms
+ * from the `fno_signal_reasoning` rows produced by P14 + P14b loggers.
+ *
+ * Does NOT change F&O signal generation, gates, sizing, execution,
+ * scheduler, Kite, swing, paper-equity, scanner, strategy builder,
+ * combo lane, option snapshot ingestion, or candle warehouse ingestion.
+ *
+ * Filters (all optional): index, setup, direction/side, optionType/option,
+ * tier, decision/status, reason/reasonCode, regime, from (YYYY-MM-DD),
+ * to (YYYY-MM-DD), latestN/limit (default 2000, max 10000).
+ */
+router.get("/paper/diagnostics/fno-reasoning/analytics", requireOwner, async (req, res, next) => {
+  try {
+    const filters = analyticsFiltersFromQuery(req.query as Record<string, unknown>);
+    const rows = await fetchReasoningRows(filters);
+    const analytics = computeReasoningAnalytics(rows);
+    return res.json({
+      filters,
+      analytics,
     });
   } catch (err) {
     return next(err);

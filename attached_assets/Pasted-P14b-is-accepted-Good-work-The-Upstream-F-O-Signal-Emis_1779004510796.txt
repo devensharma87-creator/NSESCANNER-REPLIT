@@ -1,0 +1,144 @@
+P14b is accepted. Good work.
+
+The Upstream F&O Signal Emission Reasoning Logger is approved as complete.
+
+Accepted final state:
+
+* Upstream `EMITTED` and `PRE_EMISSION_REJECTED` reasoning is captured.
+* Signal-generation reasoning is now visible.
+* Demotion tags are captured.
+* Missing-data flags are captured.
+* Confluence drivers are captured where available.
+* Reason buckets are classified.
+* Existing `/api/paper/diagnostics/fno-reasoning` endpoint can now show upstream and downstream records.
+* 350/350 tests passed.
+* Typecheck passed.
+* Architect review passed.
+* No F&O trading behavior changed.
+* No swing, paper-equity, Kite, execution, data-ingestion, scheduler, scanner, strategy, combo, option snapshot, or candle warehouse behavior changed.
+
+Do not change P14b further unless I separately ask.
+
+You are now approved to proceed with **P15: F&O Reasoning Analytics Report / Dashboard** only.
+
+Scope approved:
+
+1. Build a read-only analytics/reporting layer using the existing `fno_signal_reasoning` records from P14 and P14b.
+
+2. This must be analytics-only.
+   Do not change F&O signal generation, entry, exit, stops, targets, sizing, gates, or execution.
+
+3. The report should answer:
+
+   * Which setup creates the most signals?
+   * Which setup gets stopped most often?
+   * Which setup reaches target most often?
+   * Which setup gets demoted most often?
+   * Which setup gets rejected most often?
+   * Which index has the most stop losses?
+   * Which tier performs worst: MICRO, BASELINE, STANDARD, HIGH_CONVICTION?
+   * Which decision bucket dominates: EMITTED, PRE_EMISSION_REJECTED, SKIPPED, OPENED, CLOSED_STOPPED, CLOSED_TARGET1, CLOSED_TARGET2, CLOSED_EXPIRED?
+   * Are stop losses concentrated in specific setups such as MEAN_REVERSION, VWAP_RECLAIM, VOLUME_BREAKOUT, EMA_PULLBACK, TREND_CONTINUATION, or BASELINE?
+   * Are signals failing due to missing data such as IVR, IVP, VIX, OI, liquidity, or spread?
+   * Are demotions mostly due to LOW_WINRATE, RS_CONFLICT, OI conflict, HC floor, post-clamp RR, or other reasons?
+   * Are TARGET1_HIT trades later reversing because there is no partial booking or trail-to-breakeven?
+   * Are new setups bypassing proof because win-rate sample size is below minimum sample threshold?
+
+4. Add owner-only endpoint/report, suggested:
+   `GET /api/paper/diagnostics/fno-reasoning/analytics`
+
+5. The endpoint should support safe filters:
+
+   * date range,
+   * index,
+   * setup,
+   * direction,
+   * option type,
+   * tier,
+   * decision,
+   * reason code,
+   * regime,
+   * latest N records.
+
+6. Analytics to include:
+
+   * setup-wise count,
+   * setup-wise stopped count,
+   * setup-wise target count,
+   * setup-wise expired count,
+   * setup-wise demotion count,
+   * index-wise stop-loss count,
+   * tier-wise result count,
+   * reason-code histogram,
+   * missing-data histogram,
+   * demotion-tag histogram,
+   * decision histogram,
+   * stop-loss by setup,
+   * target-hit by setup,
+   * expiry/stale-trigger by setup,
+   * average confidence by setup,
+   * average confluence score by setup,
+   * stopped trades grouped by confidence bucket,
+   * stopped trades grouped by regime if available.
+
+7. If practical, add a compact owner-only UI section under `/infra-health` or a new read-only diagnostic page showing:
+
+   * top failing setups,
+   * top rejected reasons,
+   * stop-loss heatmap by setup/index,
+   * demotion histogram,
+   * missing-data warning panel,
+   * latest reasoning records.
+
+8. Use existing logs only.
+   Do not add new trading logic.
+   Do not add new broker calls.
+   Do not change option snapshot ingestion.
+   Do not change candle warehouse ingestion.
+
+9. Add tests where practical:
+
+   * setup-wise aggregation,
+   * stop-loss grouping,
+   * target grouping,
+   * demotion histogram,
+   * missing-data histogram,
+   * filters,
+   * empty data handling,
+   * owner-only route protection.
+
+10. Important guardrails:
+
+* Do not change F&O signal generation logic.
+* Do not change F&O entry logic.
+* Do not change F&O exit logic.
+* Do not change F&O sizing logic.
+* Do not change F&O setup definitions.
+* Do not change F&O gate thresholds.
+* Do not change confluence scoring.
+* Do not change paper-trade execution.
+* Do not change Kite order/execution.
+* Do not change swing scanner.
+* Do not change paper-equity logic.
+* Do not change scanner recommendations.
+* Do not change strategy builder.
+* Do not change combo lane.
+* Do not change option snapshot ingestion.
+* Do not change candle warehouse ingestion.
+* Do not change scheduler behavior.
+
+Expected final output:
+
+1. Files changed.
+2. Endpoint/report added.
+3. Analytics generated.
+4. Filters supported.
+5. Tests/typecheck result.
+6. Sample analytics output.
+7. Any limitations.
+8. Confirmation that no F&O trading behavior changed.
+9. Confirmation that no swing/paper/Kite/execution/data-ingestion behavior changed.
+
+After P15 is complete, we will collect live data for 1–2 weeks before approving any actual strategy modification such as partial booking, stop-loss changes, option-chain confirmation gates, or slippage/charges modelling.
+
+Proceed with P15 only.
