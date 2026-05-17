@@ -1,0 +1,188 @@
+P17b is accepted. Good work.
+
+The Shadow F&O Cost / Slippage / Spread Model is approved as complete.
+
+Accepted final state:
+
+* `fnoCostModel.ts` added.
+* `fnoShadowCosts.ts` added.
+* Owner-only endpoint added:
+  `/api/paper/analytics/fo/shadow-costs`
+* `/infra-health` shadow cost section added.
+* Cost model includes brokerage, STT, exchange charges, SEBI charges, GST, stamp duty, spread, and slippage.
+* Shadow net P&L is reporting-only.
+* Realised P&L used by trading decisions was not changed.
+* DD caps, heat caps, circuit breakers, entry, exit, stop, target, sizing, gates, and signal generation were not changed.
+* No DB migration was added.
+* 446/446 api-server tests passed.
+* api-server and scanner typechecks are clean.
+* Code review passed.
+* The expired-worthless vs open-position bug was caught and fixed.
+* No F&O trading behavior changed.
+* No swing, paper-equity, Kite, execution, scanner, strategy, combo, option snapshot, candle warehouse, scheduler, or schema behavior changed.
+
+Do not change P17b further unless I separately ask.
+
+Now proceed with **P18: Live F&O Observability Verification and Strategy Correction Decision Gate** only.
+
+Purpose:
+
+Before making the first actual F&O strategy change, we need to verify that the new observability and analytics systems work during a real live market session.
+
+The system has been weak in F&O: too many index trades hit stop loss, fail, expire, or remain untriggered. We must now collect exact live evidence from:
+
+* P14 downstream reasoning,
+* P14b upstream reasoning,
+* P15 analytics,
+* P15b signal fingerprint lifecycle linkage,
+* P16 failure diagnosis,
+* P17a observability substrate,
+* P17b shadow costs.
+
+Scope approved for P18:
+
+1. During the next live market session, monitor whether `fno_signal_reasoning` is actually being populated.
+
+2. Confirm the following are being written:
+
+   * `EMITTED`
+   * `PRE_EMISSION_REJECTED`
+   * `SKIPPED`
+   * `MISSED_WINDOW`
+   * `OPENED`
+   * `CLOSED_STOPPED`
+   * `CLOSED_TARGET1`
+   * `CLOSED_TARGET2`
+   * `CLOSED_EXPIRED`
+   * `signal_fingerprint` on lifecycle rows
+
+3. Confirm the observability endpoint works:
+
+   * `/api/paper/diagnostics/fno-observability`
+
+4. Confirm the analytics endpoints work and return non-empty useful data when market activity exists:
+
+   * `/api/paper/diagnostics/fno-reasoning`
+   * `/api/paper/diagnostics/fno-reasoning/analytics`
+   * `/api/paper/analytics/fo/failure-diagnosis`
+   * `/api/paper/analytics/fo/shadow-costs`
+
+5. Confirm `/infra-health` correctly shows:
+
+   * F&O observability substrate,
+   * F&O reasoning analytics,
+   * F&O failure diagnosis,
+   * F&O shadow costs.
+
+6. Produce a live-session verification report with:
+
+   A. Reasoning row health:
+
+   * total rows today,
+   * upstream rows today,
+   * downstream rows today,
+   * rows by decision,
+   * rows with fingerprint,
+   * rows without fingerprint,
+   * latest reasoning timestamp,
+   * logger success/failure counts,
+   * last logger error if any.
+
+   B. Signal funnel:
+
+   * emitted count,
+   * rejected count,
+   * skipped count,
+   * opened count,
+   * stopped count,
+   * target1 count,
+   * target2 count,
+   * expired count,
+   * untriggered/stale count.
+
+   C. Failure diagnosis:
+
+   * worst setup,
+   * worst index,
+   * worst tier,
+   * most common rejection reason,
+   * most common demotion reason,
+   * most common missing-data flag,
+   * stop-loss clustering by setup/index/tier,
+   * untriggered/expired clustering.
+
+   D. Shadow cost impact:
+
+   * gross P&L,
+   * estimated costs,
+   * shadow net P&L,
+   * trades flipped from profit to loss after costs,
+   * average cost per trade,
+   * average cost as percentage of premium.
+
+7. Based on the live evidence, recommend only **one** first actual strategy correction from this list:
+
+   * T1 partial booking and trail-to-breakeven,
+   * option-chain confirmation gate,
+   * stop-loss recalibration,
+   * stale/untriggered trigger improvement,
+   * weak setup demotion/disable rule,
+   * time-of-day restriction,
+   * data-quality gate,
+   * per-index threshold adjustment,
+   * slippage/cost integration into official paper P&L.
+
+8. Do not implement the strategy correction yet.
+   P18 is verification and recommendation only.
+
+9. For the recommended correction, provide:
+
+   * evidence,
+   * why it is first,
+   * expected benefit,
+   * risk,
+   * affected files/functions,
+   * test plan,
+   * rollback plan,
+   * metrics to monitor after implementation.
+
+10. Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* F&O stop-loss logic,
+* F&O target logic,
+* F&O sizing logic,
+* F&O gate thresholds,
+* confluence scoring,
+* paper-trade execution,
+* realised P&L,
+* DD/circuit-breakers,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* database schema.
+
+11. If the live session shows that observability is still not writing rows, stop and report that as the blocker. Do not proceed to strategy recommendations until observability is fixed.
+
+Expected final output:
+
+1. Live session verification summary.
+2. Reasoning row counts.
+3. Signal funnel.
+4. Failure diagnosis summary.
+5. Shadow cost summary.
+6. Observability issues, if any.
+7. One recommended first actual F&O correction.
+8. Implementation plan for that correction.
+9. Risk and rollback plan.
+10. Confirmation that no trading behavior was changed in P18.
+
+Proceed with P18 only after the next live market session has data.
