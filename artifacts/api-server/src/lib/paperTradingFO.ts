@@ -54,6 +54,10 @@ import { fetchOptionChain, LOT_SIZES } from "./optionChain";
 import { logger } from "./logger";
 import { computeMarketStatus } from "./marketEvents";
 import { isActionableForFno, type DataQualityLabel } from "./tradingConfig";
+import {
+  logFnoReasoning,
+  type FnoReasoningDecision,
+} from "./fnoSignalReasoningLogger";
 
 /**
  * Risk tier for an auto-opened paper trade.
@@ -899,6 +903,40 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         },
         `Paper FO OPENED (${tier})`,
       );
+
+      // P14 — diagnostics-only reasoning log for the successful open.
+      // Fire-and-forget; never blocks trading. Captures the full
+      // decision context so the owner can reconstruct WHY this trade
+      // was opened later.
+      void logFnoReasoning({
+        decision: "OPENED",
+        signalDate,
+        indexSymbol,
+        indexName: signal.indexName,
+        setupKey,
+        direction,
+        optionType: signal.leg.type,
+        tier,
+        reasonCode: "OPENED",
+        confidence,
+        lifecycleStatus: "TRIGGERED",
+        dataQuality: (signal.dataQuality as string | undefined) ?? null,
+        selectedStrike: signal.leg.strike,
+        optionEntry,
+        optionStop,
+        optionTarget1: optionT1,
+        optionTarget2: optionT2,
+        optionLtp: signal.optionLtp ?? null,
+        spot: signal.spot ?? null,
+        regime: (signal.regime as string | undefined) ?? null,
+        confluenceScore: signal.confluenceScore ?? null,
+        ivr: signal.ivRank ?? null,
+        ivp: signal.ivPercentile ?? null,
+        maxLossPct: maxLossPctPerTrade,
+        lots,
+        lotSize,
+      });
+
       return inserted[0]!;
     });
   } catch (err) {
@@ -1122,6 +1160,45 @@ export async function closePaperTradeForSignal(
       },
       "Paper FO CLOSED",
     );
+
+    // P14 — diagnostics-only reasoning log for the close. One row per
+    // close (no dedup) so we capture every exit. Decision discriminator
+    // maps the lifecycle reason to a CLOSED_* tag.
+    const closeDecisionMap: Record<CloseReason, FnoReasoningDecision> = {
+      STOPPED: "CLOSED_STOPPED",
+      TARGET1_HIT: "CLOSED_TARGET1",
+      TARGET2_HIT: "CLOSED_TARGET2",
+      EXPIRED: "CLOSED_EXPIRED",
+      MANUAL_OVERRIDE: "CLOSED_MANUAL",
+      TIME_EXIT_1520: "CLOSED_TIME_EXIT_1520",
+    };
+    void logFnoReasoning({
+      decision: closeDecisionMap[reason],
+      signalDate,
+      indexSymbol,
+      indexName: r.indexName,
+      setupKey,
+      direction,
+      optionType: r.optionType,
+      reasonCode: reason,
+      exitReason: reason,
+      lifecycleStatus:
+        reason === "STOPPED" ? "STOPPED" :
+        reason === "TARGET1_HIT" ? "TARGET1_HIT" :
+        reason === "TARGET2_HIT" ? "TARGET2_HIT" :
+        reason === "EXPIRED" ? "EXPIRED" : null,
+      selectedStrike: num(r.strike),
+      optionEntry: num(r.entryPremium),
+      optionStop: num(r.stopPremium),
+      optionTarget1: num(r.target1Premium),
+      optionTarget2: num(r.target2Premium),
+      optionLtp: num(r.lastPremium),
+      optionExit: exitPremium,
+      realizedPnl,
+      lots: r.lots,
+      lotSize: r.lotSize,
+    });
+
     return updated[0]!;
   });
 }
@@ -1516,6 +1593,31 @@ function recordMissedSignal(m: MissedSignal): boolean {
     const dropped = missedRing.shift();
     if (dropped) missedSeen.delete(missedKey(dropped));
   }
+
+  // P14 — diagnostics-only reasoning log. Fire-and-forget; never blocks
+  // trading. Mirrors the ring-buffer dedup contract: one row per
+  // (signal, gate) per day so "which gates are failing most often"
+  // counts are honest. The logger swallows all errors internally.
+  void logFnoReasoning({
+    decision: m.skipReason === "MISSED_WINDOW" ? "MISSED_WINDOW" : "SKIPPED",
+    signalDate: m.signalDate,
+    indexSymbol: m.indexSymbol,
+    indexName: m.indexName,
+    setupKey: m.setupKey,
+    direction: m.direction,
+    tier: m.tier,
+    confidence: m.confidence,
+    reasonCode: m.skipReason,
+    lifecycleStatus: m.status,
+    exitReason: m.reason,
+    dataQuality: m.dataQuality,
+    optionEntry: m.optionEntry,
+    optionStop: m.optionStop,
+    optionTarget1: m.optionTarget1,
+    optionTarget2: m.optionTarget2,
+    capturedAt: m.observedAt,
+  });
+
   return true;
 }
 

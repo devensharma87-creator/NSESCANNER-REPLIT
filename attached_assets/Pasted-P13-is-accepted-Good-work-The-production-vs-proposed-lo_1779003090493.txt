@@ -1,0 +1,163 @@
+P13 is accepted. Good work.
+
+The production-vs-proposed logic map is approved as complete.
+
+My decisions on your §7 questions are:
+
+1. Follow the **Handoff Pack guardrails**, not the older aggressive sweep prompt.
+2. Do **not** rewrite F&O trading logic yet.
+3. Do **not** port the Pine Script architecture into TypeScript yet.
+4. Do **not** change F&O signal generation, entry, exit, paper trading, Kite, swing scanner, or execution logic yet.
+5. Proceed with **P14: F&O Signal Reasoning Logger** only.
+6. We will measure the actual reasons for stop-outs before changing the strategy.
+
+You are now approved to proceed with **Priority P14: F&O Signal Reasoning Logger**.
+
+Scope approved:
+
+1. Add a read-only/additive reasoning logger for the F&O paper-trade signal pipeline.
+
+2. The logger should capture why each F&O signal was:
+
+   * emitted,
+   * rejected,
+   * demoted,
+   * skipped,
+   * expired,
+   * stopped,
+   * target-hit,
+   * or blocked by a gate.
+
+3. Capture the reasoning snapshot at the point of decision, including where available:
+
+   * timestamp,
+   * index / underlying,
+   * setup name,
+   * side: CE / PE / bullish / bearish,
+   * signal tier,
+   * confidence,
+   * confluence score,
+   * market regime,
+   * VIX / IVR / IVP if available,
+   * EMA stack,
+   * VWAP relation,
+   * volume profile / POC relation if available,
+   * OI confluence inputs if currently used,
+   * liquidity gate result,
+   * spread result,
+   * heat-cap result,
+   * DD/circuit-breaker result,
+   * baseline guardrail result,
+   * win-rate gate result,
+   * setup win-rate sample size,
+   * fail-open / fail-closed gate result,
+   * demotion reason,
+   * rejection reason,
+   * selected strike,
+   * option type,
+   * entry premium if available,
+   * stop premium if available,
+   * target premium if available,
+   * spot entry / stop / target values,
+   * any stale-trigger or expiry reason.
+
+4. The logger should make it possible to answer these questions later:
+
+   * Why did this F&O signal appear?
+   * Why was this signal rejected?
+   * Why was this signal demoted?
+   * Why did this signal become BASELINE instead of HIGH_CONVICTION?
+   * Did a stop-hit signal fail because of bad setup, tight stop, liquidity, IV, spread, timing, or missing option-chain confirmation?
+   * Which gates are failing most often?
+   * Which setup is causing most stop-losses?
+   * Are new setups bypassing proof because win-rate sample size is below `MIN_SAMPLE=10`?
+   * Are `TARGET1_HIT` trades later reversing because there is no partial booking/trail-to-breakeven?
+
+5. Add storage carefully.
+
+   Preferred:
+
+   * create a dedicated table for F&O signal reasoning/audit records, or
+   * use an existing diagnostics/audit structure if one already exists and is suitable.
+
+6. The reasoning logger must be append-only or safely upserted.
+   Do not overwrite useful historical reasoning.
+
+7. Add an owner-only diagnostic endpoint/report to view reasoning logs.
+
+   Suggested outputs:
+
+   * latest reasoning records,
+   * reason histogram,
+   * reject/demote histogram,
+   * stop-loss reason grouping,
+   * setup-wise counts,
+   * tier-wise counts,
+   * index-wise counts,
+   * gate fail-open/fail-closed summary,
+   * top reasons for skipped/rejected/demoted signals.
+
+8. Add filters if easy and safe:
+
+   * index,
+   * setup,
+   * side,
+   * tier,
+   * status,
+   * reason,
+   * date range,
+   * latest N records.
+
+9. Add tests where practical:
+
+   * reasoning record is created for emitted signal,
+   * reasoning record is created for rejected signal,
+   * demotion reason is captured,
+   * gate result is captured,
+   * no token/secret values are logged,
+   * diagnostic endpoint is owner-only,
+   * logger failure does not break trading flow if designed as non-blocking,
+   * no behavior change in signal output.
+
+10. This must be diagnostics-only.
+
+Do not change:
+
+* F&O signal generation logic,
+* F&O entry logic,
+* F&O exit logic,
+* F&O sizing logic,
+* F&O gate thresholds,
+* F&O setup definitions,
+* paper-trade execution,
+* Kite order/execution,
+* swing scanner,
+* swing scoring,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* database schema beyond the minimal reasoning-log storage needed,
+* scheduler behavior unless only adding a passive diagnostics write.
+
+Important:
+
+If adding the logger requires touching live signal code, keep the touch minimal and observational only. It must not alter signal decisions.
+
+If you discover that adding the logger would change behavior, stop and explain before implementing.
+
+Expected final output:
+
+1. Files changed.
+2. Storage/table added, if any.
+3. Reasoning fields captured.
+4. Where in the pipeline the logger is called.
+5. Diagnostic endpoint/report added.
+6. Tests/typecheck result.
+7. Sample reasoning output.
+8. Any limitations.
+9. Confirmation that no F&O trading behavior changed.
+10. Confirmation that no swing/paper/Kite/execution behavior changed.
+
+Proceed with P14 only.

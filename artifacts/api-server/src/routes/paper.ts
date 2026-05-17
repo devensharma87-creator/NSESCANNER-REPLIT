@@ -47,6 +47,10 @@ import {
   getMissedSignals,
 } from "../lib/paperTradingFO";
 import {
+  normaliseFilters,
+  queryReasoning,
+} from "../lib/fnoSignalReasoningLogger";
+import {
   computeDailySummaryFo,
   istDateOf,
   persistDailySummaryFo,
@@ -544,6 +548,90 @@ router.get("/paper/diagnostics/environment", (_req, res) => {
     autoTradingEnabled: info.autoTradingEnabled,
     reason: info.reason,
   });
+});
+
+/**
+ * F&O Signal Reasoning diagnostics (P14, 2026-05-15).
+ *
+ * Owner-only. Returns the most recent reasoning rows plus histograms
+ * (by decision, reason, index, setup, tier, and per-setup stop-out count)
+ * for the matching filter set.
+ *
+ * Filters (all optional, all case-sensitive strings unless noted):
+ *   - index | indexSymbol  : exact match on index symbol (NIFTY, BANKNIFTY, SENSEX)
+ *   - setup | setupKey     : exact match on setup key (TREND_CONTINUATION, etc.)
+ *   - side  | direction    : exact match on direction (BULLISH | BEARISH)
+ *   - tier                 : STANDARD | BASELINE | MICRO
+ *   - status | decision    : OPENED | SKIPPED | MISSED_WINDOW | CLOSED_*
+ *   - reason | reasonCode  : exact match on reason_code (e.g. LIQUIDITY_OI, STOPPED)
+ *   - from                 : YYYY-MM-DD signal_date >=
+ *   - to                   : YYYY-MM-DD signal_date <=
+ *   - limit                : 1..500, default 100
+ *
+ * Pure read; no DB writes; no signal-logic mutation; safe to poll.
+ */
+router.get("/paper/diagnostics/fno-reasoning", requireOwner, async (req, res, next) => {
+  try {
+    const filters = normaliseFilters(req.query as Record<string, unknown>);
+    const { rows, histogram, filters: applied } = await queryReasoning(filters);
+    return res.json({
+      filters: applied,
+      total: histogram.total,
+      histogram: {
+        byDecision: histogram.byDecision,
+        byReason: histogram.byReason,
+        byIndex: histogram.byIndex,
+        bySetup: histogram.bySetup,
+        byTier: histogram.byTier,
+        byStopReasonSetup: histogram.byStopReason,
+      },
+      rows: rows.map(r => ({
+        id: r.id,
+        capturedAt: r.capturedAt.toISOString(),
+        signalDate: r.signalDate,
+        indexSymbol: r.indexSymbol,
+        indexName: r.indexName,
+        setupKey: r.setupKey,
+        direction: r.direction,
+        optionType: r.optionType,
+        tier: r.tier,
+        decision: r.decision,
+        reasonCode: r.reasonCode,
+        confidence: r.confidence,
+        confluenceScore: r.confluenceScore == null ? null : Number(r.confluenceScore),
+        regime: r.regime,
+        vix: r.vix == null ? null : Number(r.vix),
+        ivr: r.ivr == null ? null : Number(r.ivr),
+        ivp: r.ivp == null ? null : Number(r.ivp),
+        spot: r.spot == null ? null : Number(r.spot),
+        spotEntry: r.spotEntry == null ? null : Number(r.spotEntry),
+        spotStop: r.spotStop == null ? null : Number(r.spotStop),
+        spotTarget1: r.spotTarget1 == null ? null : Number(r.spotTarget1),
+        spotTarget2: r.spotTarget2 == null ? null : Number(r.spotTarget2),
+        selectedStrike: r.selectedStrike == null ? null : Number(r.selectedStrike),
+        optionEntry: r.optionEntry == null ? null : Number(r.optionEntry),
+        optionStop: r.optionStop == null ? null : Number(r.optionStop),
+        optionTarget1: r.optionTarget1 == null ? null : Number(r.optionTarget1),
+        optionTarget2: r.optionTarget2 == null ? null : Number(r.optionTarget2),
+        optionSpreadPct: r.optionSpreadPct == null ? null : Number(r.optionSpreadPct),
+        optionOi: r.optionOi,
+        optionLtp: r.optionLtp == null ? null : Number(r.optionLtp),
+        optionExit: r.optionExit == null ? null : Number(r.optionExit),
+        realizedPnl: r.realizedPnl == null ? null : Number(r.realizedPnl),
+        lifecycleStatus: r.lifecycleStatus,
+        exitReason: r.exitReason,
+        dataQuality: r.dataQuality,
+        maxLossPct: r.maxLossPct == null ? null : Number(r.maxLossPct),
+        lots: r.lots,
+        lotSize: r.lotSize,
+        snapshot: r.snapshot,
+        note: r.note,
+      })),
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 router.get("/paper/diagnostics/daily-summary/fo", requireOwner, async (req, res, next) => {
