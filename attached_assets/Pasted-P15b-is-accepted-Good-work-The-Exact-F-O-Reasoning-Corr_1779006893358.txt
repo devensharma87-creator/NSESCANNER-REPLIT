@@ -1,0 +1,206 @@
+P15b is accepted. Good work.
+
+The Exact F&O Reasoning Correlation ID / Signal Lifecycle Linkage implementation is approved as complete.
+
+Accepted final state:
+
+* `signal_fingerprint` column added to `fno_signal_reasoning`.
+* Additive schema change completed safely.
+* Fingerprint is nullable for old/legacy rows.
+* EMITTED / OPENED / CLOSED lifecycle rows can now be linked exactly.
+* Fingerprint is generated from stable non-secret fields.
+* No token, credential, PII, or sensitive value is used in the fingerprint.
+* Analytics now separates:
+
+  * exact lifecycle count,
+  * proxy lifecycle count,
+  * hybrid mode,
+  * rows with fingerprint,
+  * rows without fingerprint.
+* T1→stop analysis now supports exact linkage where possible.
+* Proxy fallback is preserved for old rows.
+* `/infra-health` now shows exact/proxy/hybrid lifecycle mode.
+* 394/394 tests passed.
+* Architect review passed.
+* No trading behavior was changed.
+* No F&O signal generation, entry, exit, sizing, gates, Kite, swing scanner, paper-equity, strategy, combo, option snapshot, candle warehouse, schema beyond the additive diagnostic column, or scheduler behavior was changed.
+
+Known limitation accepted:
+
+* Old reasoning rows before this deployment will have null fingerprint and will use proxy fallback.
+* Mode may show hybrid during the transition period, then move toward exact as new data accumulates.
+
+Now proceed with **P16: F&O Failure Diagnosis Report** only.
+
+Purpose:
+
+We now have upstream reasoning, downstream reasoning, analytics, and exact lifecycle linkage. Before changing strategy, entry, exit, stops, partial booking, or option-chain gates, I want a detailed evidence-based failure diagnosis report.
+
+This is still a read-only analysis/reporting task.
+
+Scope approved for P16:
+
+1. Use the existing `fno_signal_reasoning` data, including the new `signal_fingerprint`, to analyse why F&O paper trades are failing.
+
+2. Produce an owner-only report/endpoint or markdown report that answers:
+
+   A. Setup failure analysis:
+
+   * Which setup creates the most signals?
+   * Which setup gets opened most often?
+   * Which setup gets stopped most often?
+   * Which setup reaches T1 most often?
+   * Which setup reaches T2 most often?
+   * Which setup expires most often?
+   * Which setup remains untriggered most often?
+   * Which setup is most often rejected before emission?
+   * Which setup is most often demoted?
+
+   B. Index-wise analysis:
+
+   * Which index performs worst: NIFTY, BANKNIFTY, or SENSEX?
+   * Which index has the most stop losses?
+   * Which index has the most untriggered/expired signals?
+   * Which index has the best target-hit ratio?
+   * Which index has the worst setup mix?
+
+   C. Tier-wise analysis:
+
+   * MICRO vs BASELINE vs STANDARD vs HIGH_CONVICTION result comparison.
+   * Which tier has most stop losses?
+   * Which tier has best target hit ratio?
+   * Are HIGH_CONVICTION signals actually performing better?
+   * Are BASELINE/MICRO trades dragging performance?
+
+   D. Lifecycle analysis using exact `signal_fingerprint`:
+
+   * How many signals go from EMITTED → OPENED?
+   * How many go from OPENED → TARGET1?
+   * How many go from OPENED → STOPPED?
+   * How many go from TARGET1 → STOPPED?
+   * How many go from TARGET1 → TARGET2?
+   * How many never trigger?
+   * How many expire pending?
+   * How many are rejected before emission?
+   * How many are demoted before opening?
+
+   E. Stop-loss analysis:
+
+   * Which setup causes most stop losses?
+   * Which index causes most stop losses?
+   * Which confidence bucket causes most stop losses?
+   * Which regime causes most stop losses?
+   * Are stops happening quickly after entry?
+   * Are stops occurring after T1 was already hit?
+   * Are stop losses concentrated in one setup, one index, one tier, or one regime?
+
+   F. Untriggered/expired signal analysis:
+
+   * Which setups produce levels that do not trigger?
+   * Are triggers too far from price?
+   * Are stale triggers common?
+   * Are signals being generated too late in the session?
+   * Are signals expiring due to poor timing or poor setup quality?
+
+   G. Missing-data and demotion analysis:
+
+   * Which fields are commonly missing: IVR, IVP, VIX, OI, liquidity, spread?
+   * Which missing data correlates with stop losses?
+   * Which demotion tags are most common?
+   * Are demoted signals still opening and failing?
+   * Are low-win-rate setups still getting trades?
+
+   H. Hypothesis ranking:
+   Rank these failure hypotheses using evidence from the logs:
+
+   * H1: Slippage/charges/spread not modelled, so real edge is weaker.
+   * H2: No partial booking or trail-to-breakeven after T1.
+   * H3: No option-chain confirmation before entry.
+   * H4: Stop loss is too tight for certain index/setup/regime.
+   * H5: Win-rate gate fails open below minimum sample.
+   * H6: Mean-reversion or counter-trend setups fail during trending regimes.
+   * H7: Entry triggers are late or stale.
+   * H8: Signals are emitted without enough data quality.
+   * H9: Certain indices should have different thresholds.
+   * H10: Certain setups should be disabled or demoted.
+
+3. The report must clearly separate:
+
+   * proven by data,
+   * likely but not fully proven,
+   * not enough data yet,
+   * cannot be determined from current logs.
+
+4. Add safe filters:
+
+   * date range,
+   * index,
+   * setup,
+   * tier,
+   * direction,
+   * decision,
+   * reason code,
+   * regime,
+   * exact-only vs proxy/hybrid.
+
+5. Show sample size clearly for every conclusion.
+
+6. Do not make strategy changes in P16.
+
+7. Do not change:
+
+   * F&O signal generation,
+   * F&O entry logic,
+   * F&O exit logic,
+   * F&O sizing logic,
+   * stop-loss logic,
+   * target logic,
+   * setup definitions,
+   * gate thresholds,
+   * confluence scoring,
+   * paper-trade execution,
+   * Kite order/execution,
+   * swing scanner,
+   * paper-equity logic,
+   * scanner recommendations,
+   * strategy builder,
+   * combo lane,
+   * option snapshot ingestion,
+   * candle warehouse ingestion,
+   * scheduler behavior.
+
+8. If you find an urgent safety issue while preparing the report, do not fix it immediately. Report it separately with:
+
+   * exact evidence,
+   * affected file/function,
+   * risk,
+   * smallest proposed fix,
+   * whether it changes trading behavior.
+
+Expected final output for P16:
+
+1. Files changed.
+2. Endpoint/report added, if any.
+3. Exact metrics produced.
+4. Filters supported.
+5. Failure hypotheses ranked with evidence.
+6. Setup-wise failure table.
+7. Index-wise failure table.
+8. Tier-wise failure table.
+9. Lifecycle funnel using `signal_fingerprint`.
+10. Stop-loss and untriggered analysis.
+11. Missing-data/demotion analysis.
+12. Recommended next strategy priorities based on evidence.
+13. Tests/typecheck result.
+14. Known limitations.
+15. Confirmation that no trading behavior changed.
+
+After P16, we will decide the first actual strategy correction. Likely candidates are:
+
+* P17: realistic slippage/charges/spread model,
+* P18: T1 partial booking and trail-to-breakeven,
+* P19: option-chain confirmation gate,
+* P20: setup/index/regime-specific stop recalibration,
+* P21: disable or demote weak setups.
+
+Proceed with P16 only.

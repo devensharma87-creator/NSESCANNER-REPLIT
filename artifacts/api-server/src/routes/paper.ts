@@ -55,6 +55,7 @@ import {
   computeReasoningAnalytics,
   fetchReasoningRows,
 } from "../lib/fnoReasoningAnalytics";
+import { computeFailureDiagnosis } from "../lib/fnoFailureDiagnosis";
 import {
   computeDailySummaryFo,
   istDateOf,
@@ -663,6 +664,28 @@ router.get("/paper/diagnostics/fno-reasoning/analytics", requireOwner, async (re
       filters,
       analytics,
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * P16 — F&O Failure Diagnosis Report.
+ *
+ * Owner-only, READ-ONLY. Consumes `fno_signal_reasoning` rows via the
+ * existing `fetchReasoningRows` helper. Supports the same filters as
+ * the analytics endpoint plus `exactOnly=1` to restrict to rows
+ * carrying a `signal_fingerprint`. Returns a structured report with
+ * eight sections (A–H) and ten ranked hypotheses, each tagged with a
+ * sample size and evidence-status ∈ {proven, likely, insufficient_data,
+ * undetermined}. Does NOT change any trading behaviour.
+ */
+router.get("/paper/analytics/fo/failure-diagnosis", requireOwner, async (req, res, next) => {
+  try {
+    const filters = analyticsFiltersFromQuery(req.query as Record<string, unknown>);
+    const rows = await fetchReasoningRows(filters);
+    const report = computeFailureDiagnosis(rows, { exactOnly: filters.exactOnly === true });
+    return res.json({ filters, report });
   } catch (err) {
     return next(err);
   }

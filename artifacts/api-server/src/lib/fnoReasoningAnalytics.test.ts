@@ -79,7 +79,16 @@ describe("P15 — analyticsFiltersFromQuery", () => {
       optionType: "PE", tier: "MICRO", decision: "CLOSED_STOPPED",
       reasonCode: "OI_CONFLICT", regime: "VOLATILE",
       from: "2026-05-01", to: "2026-05-15", latestN: 500,
+      exactOnly: false,
     });
+  });
+
+  it("parses exactOnly from query string truthy variants", () => {
+    expect(analyticsFiltersFromQuery({ exactOnly: "true" }).exactOnly).toBe(true);
+    expect(analyticsFiltersFromQuery({ exactOnly: "1" }).exactOnly).toBe(true);
+    expect(analyticsFiltersFromQuery({ exactOnly: true }).exactOnly).toBe(true);
+    expect(analyticsFiltersFromQuery({ exactOnly: "false" }).exactOnly).toBe(false);
+    expect(analyticsFiltersFromQuery({}).exactOnly).toBe(false);
   });
 
   it("rejects invalid dates and caps latestN", () => {

@@ -20,7 +20,7 @@
  * and for snapshot tests.
  */
 
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lte } from "drizzle-orm";
 import {
   fnoSignalReasoningTable,
   type FnoSignalReasoningRow,
@@ -42,6 +42,12 @@ export interface AnalyticsFilters {
   to?: string;
   /** Caps the row pull. Default 2000, max 10_000. */
   latestN: number;
+  /**
+   * P16: when true, restricts the result set to rows that carry a
+   * `signal_fingerprint` (i.e. exact lifecycle linkage only). Default
+   * false. Applied in `whereClause` as `signal_fingerprint IS NOT NULL`.
+   */
+  exactOnly?: boolean;
 }
 
 const DEFAULT_LATEST_N = 2000;
@@ -86,6 +92,7 @@ export function analyticsFiltersFromQuery(raw: Record<string, unknown>): Analyti
     from: isValidDate(raw.from) ? raw.from : undefined,
     to: isValidDate(raw.to) ? raw.to : undefined,
     latestN,
+    exactOnly: raw.exactOnly === true || raw.exactOnly === "true" || raw.exactOnly === "1",
   };
 }
 
@@ -101,6 +108,9 @@ function whereClause(f: AnalyticsFilters) {
   if (f.regime) conds.push(eq(fnoSignalReasoningTable.regime, f.regime));
   if (f.from) conds.push(gte(fnoSignalReasoningTable.signalDate, f.from));
   if (f.to) conds.push(lte(fnoSignalReasoningTable.signalDate, f.to));
+  // Cast keeps the array element type compatible with `eq()` returns above —
+  // drizzle SQL operators are uniformly assignable at the call site.
+  if (f.exactOnly) conds.push(isNotNull(fnoSignalReasoningTable.signalFingerprint) as ReturnType<typeof eq>);
   return conds.length === 0 ? undefined : and(...conds);
 }
 

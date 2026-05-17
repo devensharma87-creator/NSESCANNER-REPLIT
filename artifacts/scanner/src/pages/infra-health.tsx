@@ -802,6 +802,464 @@ function ReasoningSection({ data, error, loading }: FetchState<ReasoningAnalytic
   );
 }
 
+// ── P16: F&O Failure Diagnosis Report ──────────────────────────────────────
+
+interface FailureHypothesis {
+  id: string;
+  label: string;
+  status: "proven" | "likely" | "insufficient_data" | "undetermined";
+  sampleSize: number;
+  evidence: string;
+}
+interface FailureRecommendation {
+  priority: number;
+  label: string;
+  rationale: string;
+  sampleBacking: number;
+}
+interface FailureDiagnosisResp {
+  filters: { exactOnly?: boolean; latestN: number; from?: string; to?: string };
+  report: {
+    generatedAt: string;
+    rowCount: number;
+    windowFrom: string | null;
+    windowTo: string | null;
+    setupAnalysis: Array<{
+      setupKey: string; total: number; emitted: number; opened: number;
+      stopped: number; target1: number; target2: number; expired: number;
+      demoted: number; stopRate: number | null; targetHitRate: number | null;
+    }>;
+    indexAnalysis: Array<{
+      indexSymbol: string; total: number; opened: number; stopped: number;
+      targetHit: number; expired: number; realizedPnl: number;
+      stopRate: number | null; targetHitRate: number | null;
+    }>;
+    tierAnalysis: Array<{
+      tier: string; total: number; opened: number; stopped: number;
+      target1: number; target2: number; expired: number; realizedPnl: number;
+      stopRate: number | null; targetHitRate: number | null;
+    }>;
+    tierVerdict: {
+      hcOutperformsBaseline: boolean | null;
+      hcStopRate: number | null; baselineStopRate: number | null;
+      hcSampleSize: number; baselineSampleSize: number;
+    };
+    lifecycleFunnel: {
+      mode: "exact" | "proxy" | "hybrid";
+      rowsWithFingerprint: number; rowsWithoutFingerprint: number;
+      emitted: number; opened: number; target1: number; target2: number;
+      stopped: number; expired: number; preEmissionRejected: number;
+      demoted: number; emittedNeverOpenedExact: number;
+      target1ThenStoppedExact: number; target1ToTarget2Exact: number;
+      conversion: {
+        emittedToOpened: number | null;
+        openedToTarget1: number | null;
+        openedToStopped: number | null;
+        target1ToTarget2: number | null;
+        target1ToStopped: number | null;
+      };
+    };
+    stopLossDeepDive: {
+      totalStops: number; afterT1Stops: number;
+      bySetup: KeyCountRow[]; byIndex: KeyCountRow[];
+      byConfidenceBucket: KeyCountRow[]; byRegime: KeyCountRow[];
+      concentration: {
+        topSetup: { key: string; share: number } | null;
+        topIndex: { key: string; share: number } | null;
+        topRegime: { key: string; share: number } | null;
+      };
+    };
+    untriggeredAnalysis: {
+      expired: number; emittedNeverOpenedExact: number; skipped: number;
+      lateSessionEmissions: number; lateSessionShare: number | null;
+      bySkipReason: KeyCountRow[]; expiredBySetup: KeyCountRow[];
+    };
+    missingDataAnalysis: {
+      byMissingField: KeyCountRow[]; byDemotionTag: KeyCountRow[];
+      demotedThenOpenedExact: number; demotedThenOpenedAndStoppedExact: number;
+      lowWinRateDemotions: number;
+      missingFieldStopCorrelation: Array<{
+        field: string; emittedSample: number; openedSample: number;
+        stopped: number; stopRate: number | null;
+      }>;
+    };
+    hypotheses: FailureHypothesis[];
+    recommendedNextSteps: FailureRecommendation[];
+    notes: string[];
+  };
+}
+
+function StatusPill({ s }: { s: FailureHypothesis["status"] }) {
+  const cls: Record<typeof s, string> = {
+    proven: "bg-rose-500/20 text-rose-300 border-rose-500/40",
+    likely: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+    insufficient_data: "bg-muted text-muted-foreground border-border/50",
+    undetermined: "bg-muted text-muted-foreground border-border/50",
+  };
+  return (
+    <span className={`text-[10px] uppercase tracking-wide font-mono px-1.5 py-0.5 rounded border ${cls[s]}`}>
+      {s.replace("_", " ")}
+    </span>
+  );
+}
+
+function FailureDiagnosisSection(
+  { data, error, loading, exactOnly, onToggleExact }:
+  FetchState<FailureDiagnosisResp> & { exactOnly: boolean; onToggleExact: () => void },
+): React.ReactElement {
+  let severity: Severity = "ok";
+  if (loading && !data) severity = "disabled";
+  else if (error) severity = "warn";
+  else if (!data || data.report.rowCount === 0) severity = "disabled";
+  else {
+    const proven = data.report.hypotheses.filter(h => h.status === "proven").length;
+    if (proven > 0) severity = "fail";
+    else if (data.report.hypotheses.some(h => h.status === "likely")) severity = "warn";
+  }
+
+  const r = data?.report;
+
+  return (
+    <SectionShell
+      title="F&O Failure Diagnosis (P16)"
+      icon={Brain}
+      severity={severity}
+      description="Evidence-based, read-only failure diagnosis over fno_signal_reasoning. Eight sections (setup / index / tier / lifecycle / stops / untriggered / missing-data / hypotheses) — every conclusion carries a sample size and a status (proven / likely / insufficient_data / undetermined). No strategy, sizing, gate, signal, execution, or scheduler behaviour changed."
+      testId="section-failure-diagnosis"
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <Button variant="outline" size="sm" onClick={onToggleExact} data-testid="button-toggle-exact">
+          Exact-only: {exactOnly ? "ON" : "OFF"}
+        </Button>
+        <span className="text-[10px] text-muted-foreground">
+          When ON, restricts to rows carrying signal_fingerprint.
+        </span>
+      </div>
+      {error && <div className="text-xs text-rose-500 mb-2" data-testid="failure-diagnosis-error">{error}</div>}
+      {!r && !error && <div className="text-xs text-muted-foreground">Loading…</div>}
+      {r && r.rowCount === 0 && (
+        <div className="text-xs text-muted-foreground">
+          No reasoning rows in the current window — once the P14 / P14b loggers have captured data this report will populate.
+        </div>
+      )}
+      {r && r.rowCount > 0 && (
+        <div className="space-y-5">
+          {/* Top stats */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+            <Stat label="Rows analysed" value={num(r.rowCount)} tone="info" />
+            <Stat
+              label="Window"
+              value={r.windowFrom && r.windowTo ? `${r.windowFrom} → ${r.windowTo}` : "—"}
+              tone="info"
+            />
+            <Stat
+              label={`Funnel mode (${r.lifecycleFunnel.mode})`}
+              value={`${r.lifecycleFunnel.rowsWithFingerprint}/${r.lifecycleFunnel.rowsWithFingerprint + r.lifecycleFunnel.rowsWithoutFingerprint} fp`}
+              tone={r.lifecycleFunnel.mode === "exact" ? "ok" : r.lifecycleFunnel.mode === "hybrid" ? "warn" : "warn"}
+            />
+            <Stat
+              label="Stops after T1 (exact)"
+              value={r.lifecycleFunnel.target1ThenStoppedExact}
+              tone={r.lifecycleFunnel.target1ThenStoppedExact > 0 ? "warn" : "ok"}
+            />
+            <Stat
+              label="Late-session emissions"
+              value={`${r.untriggeredAnalysis.lateSessionEmissions} (${pct(r.untriggeredAnalysis.lateSessionShare)})`}
+              tone={(r.untriggeredAnalysis.lateSessionShare ?? 0) >= 0.25 ? "warn" : "ok"}
+            />
+          </div>
+
+          {/* H — Hypothesis ranking */}
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+              H. Hypothesis ranking (H1–H10)
+            </div>
+            <div className="space-y-1">
+              {r.hypotheses.map(h => (
+                <div
+                  key={h.id}
+                  className="flex flex-col md:flex-row md:items-start md:gap-3 border-b border-border/30 py-1.5"
+                  data-testid={`hypothesis-${h.id}`}
+                >
+                  <div className="flex items-center gap-2 md:w-44 shrink-0">
+                    <span className="font-mono text-xs text-muted-foreground">{h.id}</span>
+                    <StatusPill s={h.status} />
+                    <span className="font-mono text-[10px] text-muted-foreground">n={h.sampleSize}</span>
+                  </div>
+                  <div className="text-xs flex-1">
+                    <div className="font-medium">{h.label}</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{h.evidence}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recommendations */}
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+              Recommended next strategy priorities (evidence-backed only)
+            </div>
+            <ol className="space-y-1 text-xs">
+              {r.recommendedNextSteps.map(s => (
+                <li key={s.priority} className="flex gap-2 border-b border-border/30 py-1">
+                  <span className="font-mono text-muted-foreground w-6">#{s.priority}</span>
+                  <div className="flex-1">
+                    <div className="font-medium">{s.label}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {s.rationale} · backing n={s.sampleBacking}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* D. Lifecycle funnel */}
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">D. Lifecycle funnel</div>
+              <div className="text-xs space-y-0.5">
+                <Kv label="EMITTED" value={r.lifecycleFunnel.emitted} />
+                <Kv label="OPENED" value={r.lifecycleFunnel.opened} />
+                <Kv label="TARGET1" value={r.lifecycleFunnel.target1} />
+                <Kv label="TARGET2" value={r.lifecycleFunnel.target2} />
+                <Kv label="STOPPED" value={r.lifecycleFunnel.stopped} />
+                <Kv label="EXPIRED" value={r.lifecycleFunnel.expired} />
+                <Kv label="PRE_EMISSION_REJECTED" value={r.lifecycleFunnel.preEmissionRejected} />
+                <Kv label="Demoted (EMITTED)" value={r.lifecycleFunnel.demoted} />
+                <Kv
+                  label="EMITTED → OPENED (exact)"
+                  value={pct(r.lifecycleFunnel.conversion.emittedToOpened)}
+                />
+                <Kv
+                  label="OPENED → TARGET1 (exact)"
+                  value={pct(r.lifecycleFunnel.conversion.openedToTarget1)}
+                  tone={(r.lifecycleFunnel.conversion.openedToTarget1 ?? 0) < 0.3 ? "warn" : "ok"}
+                />
+                <Kv
+                  label="OPENED → STOPPED (exact)"
+                  value={pct(r.lifecycleFunnel.conversion.openedToStopped)}
+                  tone={(r.lifecycleFunnel.conversion.openedToStopped ?? 0) > 0.5 ? "fail" : "ok"}
+                />
+                <Kv
+                  label="T1 → STOPPED (exact)"
+                  value={pct(r.lifecycleFunnel.conversion.target1ToStopped)}
+                  tone={(r.lifecycleFunnel.conversion.target1ToStopped ?? 0) > 0.25 ? "warn" : "ok"}
+                />
+                <Kv
+                  label="T1 → T2 (exact)"
+                  value={pct(r.lifecycleFunnel.conversion.target1ToTarget2)}
+                />
+                <Kv
+                  label="EMITTED never OPENED (exact)"
+                  value={r.lifecycleFunnel.emittedNeverOpenedExact}
+                />
+              </div>
+            </div>
+
+            {/* C. Tier verdict */}
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">C. Tier verdict</div>
+              <div className="text-xs space-y-0.5">
+                <Kv
+                  label="HC outperforms BASELINE?"
+                  value={r.tierVerdict.hcOutperformsBaseline == null ? "insufficient sample" : (r.tierVerdict.hcOutperformsBaseline ? "YES" : "NO")}
+                  tone={r.tierVerdict.hcOutperformsBaseline === false ? "fail" : r.tierVerdict.hcOutperformsBaseline ? "ok" : undefined}
+                />
+                <Kv label="HC stopRate" value={pct(r.tierVerdict.hcStopRate)} />
+                <Kv label="BASELINE stopRate" value={pct(r.tierVerdict.baselineStopRate)} />
+                <Kv label="HC sample (opened)" value={r.tierVerdict.hcSampleSize} />
+                <Kv label="BASELINE sample (opened)" value={r.tierVerdict.baselineSampleSize} />
+              </div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mt-3 mb-1">
+                E. Stops by index / regime
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[10px] text-muted-foreground mb-1">by index</div>
+                  <MiniHist rows={r.stopLossDeepDive.byIndex} max={4} />
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted-foreground mb-1">by regime</div>
+                  <MiniHist rows={r.stopLossDeepDive.byRegime} max={4} />
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted-foreground mb-1">by confidence</div>
+                  <MiniHist rows={r.stopLossDeepDive.byConfidenceBucket} max={4} />
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted-foreground mb-1">by setup</div>
+                  <MiniHist rows={r.stopLossDeepDive.bySetup} max={4} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* A — Setup table */}
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">A. Setup failure table</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs font-mono">
+                <thead className="text-muted-foreground">
+                  <tr className="border-b border-border/50">
+                    <th className="text-left py-1 pr-2">Setup</th>
+                    <th className="text-right px-2">Tot</th>
+                    <th className="text-right px-2">Emit</th>
+                    <th className="text-right px-2">Open</th>
+                    <th className="text-right px-2">Stop</th>
+                    <th className="text-right px-2">T1</th>
+                    <th className="text-right px-2">T2</th>
+                    <th className="text-right px-2">Exp</th>
+                    <th className="text-right px-2">Demote</th>
+                    <th className="text-right px-2">StopRt</th>
+                    <th className="text-right px-2">HitRt</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.setupAnalysis.slice(0, 12).map(s => (
+                    <tr key={s.setupKey} className="border-b border-border/30">
+                      <td className="text-left py-1 pr-2 truncate" title={s.setupKey}>{s.setupKey}</td>
+                      <td className="text-right px-2">{s.total}</td>
+                      <td className="text-right px-2">{s.emitted}</td>
+                      <td className="text-right px-2">{s.opened}</td>
+                      <td className={`text-right px-2 ${s.stopped > 0 ? "text-rose-500" : ""}`}>{s.stopped}</td>
+                      <td className={`text-right px-2 ${s.target1 > 0 ? "text-emerald-500" : ""}`}>{s.target1}</td>
+                      <td className={`text-right px-2 ${s.target2 > 0 ? "text-emerald-500" : ""}`}>{s.target2}</td>
+                      <td className="text-right px-2">{s.expired}</td>
+                      <td className="text-right px-2">{s.demoted}</td>
+                      <td className={`text-right px-2 ${(s.stopRate ?? 0) >= 0.5 ? "text-rose-500" : ""}`}>{pct(s.stopRate)}</td>
+                      <td className={`text-right px-2 ${(s.targetHitRate ?? 0) >= 0.4 ? "text-emerald-500" : ""}`}>{pct(s.targetHitRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* B + C — Index + Tier table */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">B. Index failure table</div>
+              <table className="w-full text-xs font-mono">
+                <thead className="text-muted-foreground">
+                  <tr className="border-b border-border/50">
+                    <th className="text-left py-1 pr-2">Index</th>
+                    <th className="text-right px-2">Open</th>
+                    <th className="text-right px-2">Stop</th>
+                    <th className="text-right px-2">Hit</th>
+                    <th className="text-right px-2">Exp</th>
+                    <th className="text-right px-2">StopRt</th>
+                    <th className="text-right px-2">PnL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.indexAnalysis.map(i => (
+                    <tr key={i.indexSymbol} className="border-b border-border/30">
+                      <td className="text-left py-1 pr-2">{i.indexSymbol}</td>
+                      <td className="text-right px-2">{i.opened}</td>
+                      <td className={`text-right px-2 ${i.stopped > 0 ? "text-rose-500" : ""}`}>{i.stopped}</td>
+                      <td className={`text-right px-2 ${i.targetHit > 0 ? "text-emerald-500" : ""}`}>{i.targetHit}</td>
+                      <td className="text-right px-2">{i.expired}</td>
+                      <td className={`text-right px-2 ${(i.stopRate ?? 0) >= 0.5 ? "text-rose-500" : ""}`}>{pct(i.stopRate)}</td>
+                      <td className={`text-right px-2 ${i.realizedPnl < 0 ? "text-rose-500" : i.realizedPnl > 0 ? "text-emerald-500" : ""}`}>{num(i.realizedPnl)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">C. Tier failure table</div>
+              <table className="w-full text-xs font-mono">
+                <thead className="text-muted-foreground">
+                  <tr className="border-b border-border/50">
+                    <th className="text-left py-1 pr-2">Tier</th>
+                    <th className="text-right px-2">Open</th>
+                    <th className="text-right px-2">Stop</th>
+                    <th className="text-right px-2">T1</th>
+                    <th className="text-right px-2">T2</th>
+                    <th className="text-right px-2">StopRt</th>
+                    <th className="text-right px-2">HitRt</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.tierAnalysis.map(t => (
+                    <tr key={t.tier} className="border-b border-border/30">
+                      <td className="text-left py-1 pr-2">{t.tier}</td>
+                      <td className="text-right px-2">{t.opened}</td>
+                      <td className={`text-right px-2 ${t.stopped > 0 ? "text-rose-500" : ""}`}>{t.stopped}</td>
+                      <td className="text-right px-2">{t.target1}</td>
+                      <td className="text-right px-2">{t.target2}</td>
+                      <td className={`text-right px-2 ${(t.stopRate ?? 0) >= 0.5 ? "text-rose-500" : ""}`}>{pct(t.stopRate)}</td>
+                      <td className={`text-right px-2 ${(t.targetHitRate ?? 0) >= 0.4 ? "text-emerald-500" : ""}`}>{pct(t.targetHitRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* F + G */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">F. Untriggered / expired</div>
+              <div className="text-xs space-y-0.5">
+                <Kv label="EXPIRED" value={r.untriggeredAnalysis.expired} />
+                <Kv label="EMITTED never OPENED (exact)" value={r.untriggeredAnalysis.emittedNeverOpenedExact} />
+                <Kv label="SKIPPED rows" value={r.untriggeredAnalysis.skipped} />
+                <Kv
+                  label="Late-session share (≥14:00 IST)"
+                  value={pct(r.untriggeredAnalysis.lateSessionShare)}
+                  tone={(r.untriggeredAnalysis.lateSessionShare ?? 0) >= 0.25 ? "warn" : undefined}
+                />
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-2 mb-1">Top skip reasons</div>
+              <MiniHist rows={r.untriggeredAnalysis.bySkipReason} max={6} />
+              <div className="text-[10px] text-muted-foreground mt-2 mb-1">Expired by setup</div>
+              <MiniHist rows={r.untriggeredAnalysis.expiredBySetup} max={6} />
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">G. Missing data / demotion</div>
+              <div className="text-xs space-y-0.5">
+                <Kv label="Demoted → opened (exact)" value={r.missingDataAnalysis.demotedThenOpenedExact} />
+                <Kv
+                  label="Demoted → opened → stopped (exact)"
+                  value={r.missingDataAnalysis.demotedThenOpenedAndStoppedExact}
+                  tone={r.missingDataAnalysis.demotedThenOpenedAndStoppedExact > 0 ? "warn" : undefined}
+                />
+                <Kv label="LOW_WINRATE demotions" value={r.missingDataAnalysis.lowWinRateDemotions} />
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-2 mb-1">Missing fields</div>
+              <MiniHist rows={r.missingDataAnalysis.byMissingField} max={6} />
+              <div className="text-[10px] text-muted-foreground mt-2 mb-1">Demotion tags</div>
+              <MiniHist rows={r.missingDataAnalysis.byDemotionTag} max={6} />
+              {r.missingDataAnalysis.missingFieldStopCorrelation.length > 0 && (
+                <>
+                  <div className="text-[10px] text-muted-foreground mt-2 mb-1">Missing-field → stop rate</div>
+                  <div className="text-xs space-y-0.5">
+                    {r.missingDataAnalysis.missingFieldStopCorrelation.slice(0, 6).map(c => (
+                      <div key={c.field} className="flex justify-between border-b border-border/30 py-0.5">
+                        <span className="font-mono">{c.field}</span>
+                        <span className="font-mono text-muted-foreground">
+                          {c.stopped}/{c.openedSample} opens · {pct(c.stopRate)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="text-[10px] text-muted-foreground">
+            {r.notes.map((n, i) => <div key={i}>• {n}</div>)}
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 // ── tiny atoms ─────────────────────────────────────────────────────────────
 
 function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone: "ok" | "warn" | "fail" | "info" }) {
@@ -850,6 +1308,15 @@ export default function InfraHealthPage(): React.ReactElement {
   const analytics = useEndpoint<AnalyticsResp>("api/option-snapshots/analytics", auto, tick);
   const candidates = useEndpoint<CandidatesDiag>("api/paper/eq/candidates-diagnostic", auto, tick);
   const reasoning = useEndpoint<ReasoningAnalyticsResp>("api/paper/diagnostics/fno-reasoning/analytics", auto, tick);
+
+  // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
+  // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
+  const [exactOnly, setExactOnly] = useState(false);
+  const failureDiagnosis = useEndpoint<FailureDiagnosisResp>(
+    `api/paper/analytics/fo/failure-diagnosis${exactOnly ? "?exactOnly=1" : ""}`,
+    auto,
+    tick,
+  );
 
   // Roll-up for the header banner.
   const headerSeverity: Severity = useMemo(() => {
@@ -907,6 +1374,13 @@ export default function InfraHealthPage(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <ReasoningSection {...reasoning} />
+        </div>
+        <div className="md:col-span-2">
+          <FailureDiagnosisSection
+            {...failureDiagnosis}
+            exactOnly={exactOnly}
+            onToggleExact={() => setExactOnly(v => !v)}
+          />
         </div>
       </div>
     </div>
