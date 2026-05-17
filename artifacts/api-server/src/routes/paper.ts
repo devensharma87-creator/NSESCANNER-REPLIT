@@ -47,9 +47,11 @@ import {
   getMissedSignals,
 } from "../lib/paperTradingFO";
 import {
+  getReasoningLoggerHealth,
   normaliseFilters,
   queryReasoning,
 } from "../lib/fnoSignalReasoningLogger";
+import { isPaperAutoTradingEnabled } from "../lib/paperAutoTradeFlag";
 import {
   analyticsFiltersFromQuery,
   computeReasoningAnalytics,
@@ -686,6 +688,165 @@ router.get("/paper/analytics/fo/failure-diagnosis", requireOwner, async (req, re
     const rows = await fetchReasoningRows(filters);
     const report = computeFailureDiagnosis(rows, { exactOnly: filters.exactOnly === true });
     return res.json({ filters, report });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * P17a — F&O Observability Substrate Health.
+ *
+ * Owner-only, READ-ONLY. Returns process-local logger counters plus DB
+ * roll-ups so the operator can verify that the reasoning substrate is
+ * actually capturing rows. Designed to answer in one call:
+ *
+ *   - Has the logger written anything since boot?
+ *   - Are rows landing today by decision (EMITTED / OPENED / SKIPPED / ...)?
+ *   - Is the auto-trader gated off (which explains 0 OPENED / SKIPPED)?
+ *   - Are skip reasons being persisted (durable fallback in summary)?
+ *   - Does `paper_trade_fo.setup_key` look like the real setup key, or
+ *     like the tier label?
+ *
+ * Does NOT touch any signal, gate, sizing, exec, scheduler, Kite,
+ * swing, equity, scanner, strategy, combo, snapshot, or candle path.
+ */
+router.get("/paper/diagnostics/fno-observability", requireOwner, async (_req, res, next) => {
+  try {
+    const today = istDateOf();
+    const loggerHealth = getReasoningLoggerHealth();
+
+    // (1) Decisions today + last row timestamp (durable substrate).
+    const decisionRows = (await db.execute(sql`
+      SELECT decision, COUNT(*)::int AS n
+        FROM fno_signal_reasoning
+       WHERE signal_date = ${today}
+       GROUP BY decision
+    `)) as unknown as { rows: Array<{ decision: string; n: number | string }> };
+    const decisionsToday: Record<string, number> = {};
+    let rowsToday = 0;
+    for (const r of decisionRows.rows) {
+      const n = Number(r.n);
+      decisionsToday[r.decision] = n;
+      rowsToday += n;
+    }
+
+    // (2) Total rows + last-seen timestamp (boot-to-now coverage).
+    const totalRow = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n,
+             MAX(captured_at) AS last_captured_at
+        FROM fno_signal_reasoning
+    `)) as unknown as { rows: Array<{ n: number | string; last_captured_at: string | null }> };
+    const totalRows = Number(totalRow.rows[0]?.n ?? 0);
+    const lastCapturedAt = totalRow.rows[0]?.last_captured_at ?? null;
+
+    // (3) Upstream vs downstream split today — upstream means the
+    // signal-generation orchestrator is firing the batch helper.
+    const upstreamToday =
+      (decisionsToday["EMITTED"] ?? 0) + (decisionsToday["PRE_EMISSION_REJECTED"] ?? 0);
+    const downstreamToday = rowsToday - upstreamToday;
+
+    // (4) Fingerprint coverage for downstream today — proves the P15b
+    // exact-correlation feature is working end-to-end.
+    const fpRow = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+        FROM fno_signal_reasoning
+       WHERE signal_date = ${today}
+         AND signal_fingerprint IS NOT NULL
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+    const fingerprintedToday = Number(fpRow.rows[0]?.n ?? 0);
+
+    // (5) Skip-reason capture: durable count for today.
+    const skipDurableRow = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+        FROM fno_signal_reasoning
+       WHERE signal_date = ${today}
+         AND decision IN ('SKIPPED','MISSED_WINDOW')
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+    const skippedReasonsDurableToday = Number(skipDurableRow.rows[0]?.n ?? 0);
+
+    // (6) `setup_key` validity check. The valid set comes from the live
+    // OptionSignal detectors. "BASELINE" is also a legitimate setup key
+    // (always-on directional outlook in optionSignals.ts:985), so it is
+    // not a tier-conflation bug despite sharing the tier label spelling.
+    const VALID_SETUP_KEYS = new Set([
+      "TREND_CONTINUATION",
+      "VWAP_RECLAIM",
+      "VOLUME_BREAKOUT",
+      "EMA_PULLBACK",
+      "MEAN_REVERSION",
+      "BASELINE", // legitimate — see optionSignals.ts
+    ]);
+    const setupKeyRows = (await db.execute(sql`
+      SELECT setup_key, COUNT(*)::int AS n
+        FROM paper_trade_fo
+       GROUP BY setup_key
+       ORDER BY n DESC
+       LIMIT 50
+    `)) as unknown as { rows: Array<{ setup_key: string | null; n: number | string }> };
+    const setupKeyDistribution = setupKeyRows.rows.map(r => ({
+      setupKey: r.setup_key ?? "(null)",
+      count: Number(r.n),
+      looksValid: r.setup_key != null && VALID_SETUP_KEYS.has(r.setup_key),
+      looksTierLike: r.setup_key === "BASELINE" || r.setup_key === "STANDARD" || r.setup_key === "MICRO",
+    }));
+
+    // (7) In-memory missed-signal ring snapshot (best-effort; bounded).
+    const ringSnapshot = getMissedSignals();
+    const ringToday = ringSnapshot.filter(m => m.signalDate === today).length;
+
+    // (8) Derived health verdict — purely informational.
+    const autoTradingEnabled = isPaperAutoTradingEnabled();
+    const reasons: string[] = [];
+    if (totalRows === 0)
+      reasons.push("fno_signal_reasoning is empty — logger has never written");
+    if (rowsToday === 0 && totalRows > 0)
+      reasons.push("no rows captured today yet");
+    if (!autoTradingEnabled)
+      reasons.push("paper auto-trader is OFF — OPENED/SKIPPED rows will not appear");
+    if (loggerHealth.writesFailed > 0)
+      reasons.push(`logger reported ${loggerHealth.writesFailed} write failure(s) since boot`);
+    const verdict: "OK" | "WARN" | "FAIL" =
+      loggerHealth.writesFailed > 0
+        ? "FAIL"
+        : totalRows === 0 || rowsToday === 0
+          ? "WARN"
+          : "OK";
+
+    return res.json({
+      verdict,
+      reasons,
+      today,
+      autoTradingEnabled,
+      loggerHealth,
+      durable: {
+        totalRows,
+        lastCapturedAt,
+        rowsToday,
+        decisionsToday,
+        upstreamToday,
+        downstreamToday,
+        fingerprintedToday,
+        // Coverage = fingerprinted / downstream rows today. Upstream
+        // (EMITTED / PRE_EMISSION_REJECTED) rows never carry a
+        // fingerprint by design, so including them in the denominator
+        // would understate true correlation health.
+        fingerprintCoveragePctToday:
+          downstreamToday > 0 ? +((fingerprintedToday / downstreamToday) * 100).toFixed(2) : null,
+        skippedReasonsDurableToday,
+      },
+      missedRing: {
+        bufferSize: ringSnapshot.length,
+        rowsForToday: ringToday,
+      },
+      setupKey: {
+        knownValidKeys: Array.from(VALID_SETUP_KEYS).sort(),
+        distribution: setupKeyDistribution,
+        anyUnknown: setupKeyDistribution.some(d => !d.looksValid),
+        baselineDetectorCount:
+          setupKeyDistribution.find(d => d.setupKey === "BASELINE")?.count ?? 0,
+      },
+      generatedAt: new Date().toISOString(),
+    });
   } catch (err) {
     return next(err);
   }

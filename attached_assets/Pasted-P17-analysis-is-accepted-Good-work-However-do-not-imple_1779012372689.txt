@@ -1,0 +1,145 @@
+P17 analysis is accepted. Good work.
+
+However, do **not** implement the slippage/charges model yet.
+
+Your P17 finding exposed a more important blocker:
+
+* `fno_signal_reasoning` has `0` rows.
+* `paper_daily_summary_fo.skipped_by_reason` is empty.
+* 28 emitted signals dropped between emission and valid/opened state with no captured reason.
+* `paper_trade_fo.setup_key` appears to contain `BASELINE` for all 7 closed trades, meaning it may be storing tier instead of the actual setup.
+
+This means the diagnostics substrate is not yet producing the evidence needed to safely improve F&O strategy.
+
+You are now approved to proceed with **P17a: Fix F&O Observability Substrate** only.
+
+Purpose:
+
+Before changing F&O strategy, P&L, slippage, stops, partial booking, option-chain gates, or entries, ensure that the reasoning logger and skip-reason capture are actually working in live/dev runtime.
+
+Scope approved:
+
+1. Investigate why `fno_signal_reasoning` is empty despite P14 and P14b being implemented.
+
+2. Verify whether the P14/P14b hooks are actually being reached in the real F&O signal/paper-trade flow:
+
+   * upstream `EMITTED`,
+   * `PRE_EMISSION_REJECTED`,
+   * `OPENED`,
+   * `SKIPPED`,
+   * `DEMOTED`,
+   * `CLOSED_STOPPED`,
+   * `CLOSED_TARGET1`,
+   * `CLOSED_TARGET2`,
+   * `CLOSED_EXPIRED`.
+
+3. Verify whether the logger is silently swallowing errors:
+
+   * DB insert errors,
+   * schema mismatch,
+   * enum/field mismatch,
+   * transaction timing issue,
+   * wrong table/schema,
+   * env/gating issue,
+   * scheduler path not calling the hooked function.
+
+4. Verify why `paper_daily_summary_fo.skipped_by_reason` is empty:
+
+   * whether skip reasons are not being collected,
+   * whether skip reasons are collected but not persisted,
+   * whether the daily summary is using the wrong source,
+   * whether the reason ring buffer is in-memory only and lost before summary write.
+
+5. Verify whether `paper_trade_fo.setup_key` is storing the actual setup or only the tier label.
+   If it is storing tier incorrectly, report:
+
+   * exact source,
+   * affected functions,
+   * whether correcting it is a schema/data issue or write-path issue,
+   * smallest safe fix.
+
+6. Implement the smallest diagnostics-only fix needed so that future sessions populate:
+
+   * `fno_signal_reasoning`,
+   * upstream emission records,
+   * pre-emission rejection records,
+   * skipped/rejected/demoted reasons,
+   * opened/closed lifecycle records,
+   * exact `signal_fingerprint`,
+   * actual setup key where available,
+   * paper daily skipped-by-reason summary.
+
+7. Add a safe owner-only health check or extend existing diagnostics to show:
+
+   * last F&O reasoning row timestamp,
+   * reasoning rows written today,
+   * upstream rows today,
+   * downstream rows today,
+   * skipped reasons captured today,
+   * skipped reasons persisted today,
+   * logger insert failure count if available,
+   * last logger error class without sensitive values,
+   * whether setup key appears valid or tier-like.
+
+8. Add tests where practical:
+
+   * upstream logger writes a row when `getOptionSignals()` emits signals,
+   * pre-emission rejection writes a row,
+   * skipped reason is persisted,
+   * opened/closed lifecycle writes are persisted,
+   * logger DB failure is non-blocking but counted/visible,
+   * `signal_fingerprint` is present for lifecycle rows,
+   * actual setup key is preserved,
+   * no token/secret values are logged.
+
+9. Important: this is observability/diagnostics repair only.
+
+Do not change:
+
+* F&O signal generation logic,
+* F&O entry logic,
+* F&O exit logic,
+* F&O stop-loss logic,
+* F&O target logic,
+* F&O sizing logic,
+* F&O setup definitions,
+* F&O gate thresholds,
+* confluence scoring,
+* paper-trade execution behavior,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior.
+
+10. If the smallest fix requires touching a live F&O decision path, keep it observational only.
+    It must not alter decisions.
+
+11. If a fix would change trading behavior, stop and report before implementing.
+
+Expected final output:
+
+1. Root cause of empty `fno_signal_reasoning`.
+2. Root cause of empty `skipped_by_reason`.
+3. Root cause of `setup_key='BASELINE'` issue, if confirmed.
+4. Files changed.
+5. Fix implemented.
+6. Diagnostics/health check added or updated.
+7. Tests/typecheck result.
+8. Sample reasoning rows after fix, using safe dummy/sample values only.
+9. Confirmation that F&O trading behavior did not change.
+10. Confirmation that swing/paper/Kite/execution/data-ingestion behavior did not change.
+
+After P17a is complete and reasoning rows are confirmed to populate, then we can decide whether to proceed with:
+
+* P17b: realistic slippage/charges/spread model,
+* P18: T1 partial booking and trail-to-breakeven,
+* P19: option-chain confirmation gate,
+* P20: stop-loss recalibration,
+* P21: weak setup demotion/disable rules.
+
+Proceed with P17a only.

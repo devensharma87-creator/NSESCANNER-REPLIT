@@ -42,6 +42,48 @@ import type {
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { logger } from "./logger";
 
+/* ──────────────────── P17a observability counters ────────────────────
+ * In-memory counters so an owner-only health endpoint can answer
+ * "is the reasoning logger actually writing?" without having to grep
+ * server logs. These are process-local and reset on restart — that
+ * is the desired semantic (we want to know what THIS process has
+ * done since boot). No DB writes, no decision impact.
+ */
+interface ReasoningLoggerHealth {
+  writesAttempted: number;
+  writesSucceeded: number;
+  writesFailed: number;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorClass: string | null;
+  lastErrorMessage: string | null;
+  bootedAt: string;
+}
+const HEALTH: ReasoningLoggerHealth = {
+  writesAttempted: 0,
+  writesSucceeded: 0,
+  writesFailed: 0,
+  lastSuccessAt: null,
+  lastErrorAt: null,
+  lastErrorClass: null,
+  lastErrorMessage: null,
+  bootedAt: new Date().toISOString(),
+};
+/** Snapshot of the reasoning-logger health counters. Read-only. */
+export function getReasoningLoggerHealth(): Readonly<ReasoningLoggerHealth> {
+  return { ...HEALTH };
+}
+/** Test-only reset. Not exported from the public barrel; use sparingly. */
+export function __resetReasoningLoggerHealthForTests(): void {
+  HEALTH.writesAttempted = 0;
+  HEALTH.writesSucceeded = 0;
+  HEALTH.writesFailed = 0;
+  HEALTH.lastSuccessAt = null;
+  HEALTH.lastErrorAt = null;
+  HEALTH.lastErrorClass = null;
+  HEALTH.lastErrorMessage = null;
+}
+
 /** Possible verdicts the paper-trade pipeline emits for a signal.
  *
  * Two families:
@@ -321,16 +363,29 @@ export function buildReasoningRow(p: FnoReasoningPayload): NewFnoSignalReasoning
  * outages explicitly without spamming the request log.
  */
 export async function logFnoReasoning(payload: FnoReasoningPayload): Promise<void> {
+  HEALTH.writesAttempted += 1;
   try {
     const row = buildReasoningRow(payload);
     await db.insert(fnoSignalReasoningTable).values(row);
+    HEALTH.writesSucceeded += 1;
+    HEALTH.lastSuccessAt = new Date().toISOString();
   } catch (err) {
     // Swallowed — diagnostics MUST NOT influence trading. One WARN per
     // failure keeps the issue visible in logs without crashing the
     // pipeline. We intentionally do NOT re-throw, retry, or back off.
+    HEALTH.writesFailed += 1;
+    HEALTH.lastErrorAt = new Date().toISOString();
+    // Robust extraction — non-Error throwables (strings, plain objects)
+    // must not crash this catch arm. Compute message ONCE and reuse.
+    const errIsError = err instanceof Error;
+    const errMessage = errIsError ? err.message : String(err);
+    HEALTH.lastErrorClass = errIsError ? err.constructor.name : typeof err;
+    // Truncate message defensively — never persist secrets/tokens; also
+    // bound the visible length surfaced by the health endpoint.
+    HEALTH.lastErrorMessage = errMessage.slice(0, 200);
     logger.warn(
       {
-        err: (err as Error).message,
+        err: errMessage,
         decision: payload.decision,
         indexSymbol: payload.indexSymbol,
         setupKey: payload.setupKey,

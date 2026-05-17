@@ -35,6 +35,44 @@ import {
   type PaperOperationalAlerts,
 } from "./paperTradingFO";
 
+/* ─────────────────── P17a durable skip-reason fallback ───────────────────
+ * The in-memory `getMissedSignals()` ring resets on every process
+ * restart, so a deploy / crash mid-day was losing the entire
+ * `skipped_by_reason` histogram. The reasoning-logger writes a row to
+ * `fno_signal_reasoning` (decision IN ('SKIPPED','MISSED_WINDOW')) for
+ * the SAME events, and that table is durable. This helper consults
+ * the durable source as a fallback whenever the in-memory ring is
+ * empty for the requested IST date. Pure read; no decision impact.
+ */
+async function fetchDurableSkipReasons(
+  date: string,
+): Promise<{ total: number; byReason: Record<string, number> }> {
+  try {
+    const rows = (await db.execute(sql`
+      SELECT reason_code AS r, COUNT(*)::int AS n
+        FROM fno_signal_reasoning
+       WHERE signal_date = ${date}
+         AND decision IN ('SKIPPED','MISSED_WINDOW')
+       GROUP BY reason_code
+    `)) as unknown as { rows: Array<{ r: string | null; n: number | string }> };
+    const byReason: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows.rows) {
+      const key = row.r ?? "UNKNOWN";
+      const n = Number(row.n);
+      byReason[key] = (byReason[key] ?? 0) + n;
+      total += n;
+    }
+    return { total, byReason };
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, date },
+      "fetchDurableSkipReasons failed (diagnostics-only; falling back to in-memory ring)",
+    );
+    return { total: 0, byReason: {} };
+  }
+}
+
 export interface DailySummaryFo {
   date: string;
   signalsGenerated: number;
@@ -156,14 +194,30 @@ export async function computeDailySummaryFo(date: string): Promise<DailySummaryF
     else hcPnl += pnl;
   }
 
-  // (4) Skips (today-filtered MissedSignals ring).
-  const todaySkips = getMissedSignals().filter(m => m.signalDate === date);
-  const skippedByReason: Record<string, number> = {};
-  for (const m of todaySkips) {
+  // (4) Skips: prefer the durable `fno_signal_reasoning` source because
+  // the in-memory ring is bounded and resets on every process restart
+  // (P17a). The ring is only used as a fail-open fallback when the
+  // durable query returned nothing — that way a mid-day restart that
+  // re-populates the ring with NEW skips cannot overwrite the larger
+  // persisted durable total with a smaller ring-only number.
+  const ringSkips = getMissedSignals().filter(m => m.signalDate === date);
+  const ringByReason: Record<string, number> = {};
+  for (const m of ringSkips) {
     const r = m.skipReason ?? "UNKNOWN";
-    skippedByReason[r] = (skippedByReason[r] ?? 0) + 1;
+    ringByReason[r] = (ringByReason[r] ?? 0) + 1;
   }
-  const skippedTotal = todaySkips.length;
+  const durable = await fetchDurableSkipReasons(date);
+  let skippedTotal: number;
+  let skippedByReason: Record<string, number>;
+  if (durable.total >= ringSkips.length) {
+    skippedTotal = durable.total;
+    skippedByReason = durable.byReason;
+  } else {
+    // Durable came back empty / errored → use the ring snapshot as a
+    // fail-open backup. Never silently undercount a known datum.
+    skippedTotal = ringSkips.length;
+    skippedByReason = ringByReason;
+  }
   const validCandidates = tradesOpened + skippedTotal;
   const tradeOpenRate = validCandidates > 0 ? tradesOpened / validCandidates : null;
 

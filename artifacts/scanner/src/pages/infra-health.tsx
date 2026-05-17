@@ -38,6 +38,7 @@ import {
   Info,
   PauseCircle,
   Brain,
+  Radio,
 } from "lucide-react";
 import { Seo } from "@/components/seo";
 import {
@@ -903,6 +904,139 @@ function StatusPill({ s }: { s: FailureHypothesis["status"] }) {
   );
 }
 
+interface ObservabilityResp {
+  verdict: "OK" | "WARN" | "FAIL";
+  reasons: string[];
+  today: string;
+  autoTradingEnabled: boolean;
+  loggerHealth: {
+    writesAttempted: number;
+    writesSucceeded: number;
+    writesFailed: number;
+    lastSuccessAt: string | null;
+    lastErrorAt: string | null;
+    lastErrorClass: string | null;
+    lastErrorMessage: string | null;
+    bootedAt: string;
+  };
+  durable: {
+    totalRows: number;
+    lastCapturedAt: string | null;
+    rowsToday: number;
+    decisionsToday: Record<string, number>;
+    upstreamToday: number;
+    downstreamToday: number;
+    fingerprintedToday: number;
+    fingerprintCoveragePctToday: number | null;
+    skippedReasonsDurableToday: number;
+  };
+  missedRing: { bufferSize: number; rowsForToday: number };
+  setupKey: {
+    knownValidKeys: string[];
+    distribution: Array<{ setupKey: string; count: number; looksValid: boolean; looksTierLike: boolean }>;
+    anyUnknown: boolean;
+    baselineDetectorCount: number;
+  };
+  generatedAt: string;
+}
+
+function ObservabilitySection({ data, error, loading }: FetchState<ObservabilityResp>): React.ReactElement {
+  let severity: Severity = "ok";
+  if (loading && !data) severity = "disabled";
+  else if (error) severity = "fail";
+  else if (data?.verdict === "FAIL") severity = "fail";
+  else if (data?.verdict === "WARN") severity = "warn";
+
+  const d = data;
+  return (
+    <SectionShell
+      title="F&O Observability Substrate (P17a)"
+      icon={Radio}
+      severity={severity}
+      description="Verifies the reasoning logger is actually writing rows. Surfaces process-local logger counters, today's decision histogram from fno_signal_reasoning, fingerprint coverage, durable skip-reason count, and setup_key validity. Read-only; no signal/exec/scheduler changes."
+      testId="section-observability"
+    >
+      {error && <div className="text-xs text-rose-500 mb-2" data-testid="observability-error">{error}</div>}
+      {!d && !error && <div className="text-xs text-muted-foreground">Loading…</div>}
+      {d && (
+        <div className="space-y-4">
+          {d.reasons.length > 0 && (
+            <ul className="text-xs space-y-1">
+              {d.reasons.map((r, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <SeverityIcon s={d.verdict === "FAIL" ? "fail" : "warn"} className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="text-muted-foreground">{r}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <Stat label="Rows today" value={num(d.durable.rowsToday)} tone={d.durable.rowsToday > 0 ? "ok" : "warn"} />
+            <Stat label="Rows total" value={num(d.durable.totalRows)} tone={d.durable.totalRows > 0 ? "ok" : "warn"} />
+            <Stat label="Upstream today" value={num(d.durable.upstreamToday)} tone="info" />
+            <Stat label="Downstream today" value={num(d.durable.downstreamToday)} tone="info" />
+            <Stat label="Skips persisted today" value={num(d.durable.skippedReasonsDurableToday)} tone="info" />
+            <Stat
+              label="Fingerprint coverage"
+              value={d.durable.fingerprintCoveragePctToday == null ? "—" : `${d.durable.fingerprintCoveragePctToday.toFixed(1)}%`}
+              tone={d.durable.fingerprintCoveragePctToday == null ? "info" : d.durable.fingerprintCoveragePctToday >= 90 ? "ok" : "warn"}
+            />
+            <Stat label="Ring buffer (process)" value={`${d.missedRing.rowsForToday} / ${d.missedRing.bufferSize}`} tone="info" />
+            <Stat label="Auto-trader" value={d.autoTradingEnabled ? "ON" : "OFF"} tone={d.autoTradingEnabled ? "ok" : "warn"} />
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Logger health (process-local)</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 text-xs">
+              <Kv label="Writes attempted" value={num(d.loggerHealth.writesAttempted)} />
+              <Kv label="Writes succeeded" value={num(d.loggerHealth.writesSucceeded)} tone="ok" />
+              <Kv label="Writes failed" value={num(d.loggerHealth.writesFailed)} tone={d.loggerHealth.writesFailed ? "fail" : "ok"} />
+              <Kv label="Booted" value={d.loggerHealth.bootedAt ? new Date(d.loggerHealth.bootedAt).toLocaleString() : "—"} />
+              <Kv label="Last success" value={d.loggerHealth.lastSuccessAt ? new Date(d.loggerHealth.lastSuccessAt).toLocaleString() : "—"} />
+              <Kv label="Last error" value={d.loggerHealth.lastErrorAt ? `${d.loggerHealth.lastErrorClass}: ${d.loggerHealth.lastErrorMessage}` : "—"} tone={d.loggerHealth.lastErrorAt ? "fail" : "ok"} />
+            </div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+              Today decisions ({d.today})
+            </div>
+            {Object.keys(d.durable.decisionsToday).length === 0 ? (
+              <div className="text-xs text-muted-foreground">No reasoning rows captured for today yet.</div>
+            ) : (
+              <div className="flex flex-wrap gap-2 text-[10px] font-mono">
+                {Object.entries(d.durable.decisionsToday).sort((a,b) => b[1] - a[1]).map(([k, v]) => (
+                  <span key={k} className="px-1.5 py-0.5 rounded border border-border/40">{k}: {v}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+              paper_trade_fo.setup_key distribution (sanity check)
+            </div>
+            <div className="text-[11px] text-muted-foreground mb-1">
+              "BASELINE" is a legitimate always-on directional detector in optionSignals.ts (not a tier conflation).
+            </div>
+            <div className="space-y-1 text-xs">
+              {d.setupKey.distribution.length === 0 && (
+                <div className="text-muted-foreground">No paper_trade_fo rows yet.</div>
+              )}
+              {d.setupKey.distribution.map(s => (
+                <div key={s.setupKey} className="flex items-center gap-2 border-b border-border/30 py-0.5">
+                  <span className="font-mono text-xs flex-1">{s.setupKey}</span>
+                  <span className="font-mono text-xs text-muted-foreground w-12 text-right">{s.count}</span>
+                  <span className={`text-[10px] font-mono px-1 rounded border ${s.looksValid ? "border-emerald-600 text-emerald-600" : "border-rose-600 text-rose-600"}`}>
+                    {s.looksValid ? "valid" : "unknown"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 function FailureDiagnosisSection(
   { data, error, loading, exactOnly, onToggleExact }:
   FetchState<FailureDiagnosisResp> & { exactOnly: boolean; onToggleExact: () => void },
@@ -1308,6 +1442,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const analytics = useEndpoint<AnalyticsResp>("api/option-snapshots/analytics", auto, tick);
   const candidates = useEndpoint<CandidatesDiag>("api/paper/eq/candidates-diagnostic", auto, tick);
   const reasoning = useEndpoint<ReasoningAnalyticsResp>("api/paper/diagnostics/fno-reasoning/analytics", auto, tick);
+  const observability = useEndpoint<ObservabilityResp>("api/paper/diagnostics/fno-observability", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -1371,6 +1506,9 @@ export default function InfraHealthPage(): React.ReactElement {
         <SnapshotSection diag={snapshot} analytics={analytics} nowMs={nowMs} />
         <div className="md:col-span-2">
           <EquitySection cand={candidates} nowMs={nowMs} refresh={refresh} />
+        </div>
+        <div className="md:col-span-2">
+          <ObservabilitySection {...observability} />
         </div>
         <div className="md:col-span-2">
           <ReasoningSection {...reasoning} />
