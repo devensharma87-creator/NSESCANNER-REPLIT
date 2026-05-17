@@ -58,6 +58,8 @@ import {
   fetchReasoningRows,
 } from "../lib/fnoReasoningAnalytics";
 import { computeFailureDiagnosis } from "../lib/fnoFailureDiagnosis";
+import { computeShadowCostReport } from "../lib/fnoShadowCosts";
+import { isShadowCostsEnabled } from "../lib/fnoCostModel";
 import {
   computeDailySummaryFo,
   istDateOf,
@@ -847,6 +849,68 @@ router.get("/paper/diagnostics/fno-observability", requireOwner, async (_req, re
       },
       generatedAt: new Date().toISOString(),
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * P17b — Shadow F&O Cost / Slippage / Spread report.
+ *
+ * Owner-only, READ-ONLY. Computes brokerage / STT / exchange / SEBI /
+ * GST / stamp duty / spread / slippage estimates for every CLOSED
+ * paper_trade_fo row and groups gross-vs-shadow-net P&L by setup,
+ * index, tier, and exit reason. Also lists trades whose gross profit
+ * turned into a net loss after estimated costs.
+ *
+ * IMPORTANT: this surface NEVER feeds back into realised P&L, DD caps,
+ * heat caps, circuit breakers, sizing, gates, signal generation,
+ * entry, exit, stops, targets, scheduler, Kite, swing, equity,
+ * scanner, strategy, combo, snapshot, or candle paths. The feature
+ * flag `PAPER_FO_COSTS_SHADOW_ENABLED` only gates this report; when
+ * disabled, the endpoint returns the same shape with `enabled=false`
+ * so the UI can render a "disabled" state without crashing.
+ *
+ * Query params (all optional):
+ *   - from=YYYY-MM-DD  inclusive lower bound on signal_date
+ *   - to=YYYY-MM-DD    inclusive upper bound on signal_date
+ *   - topNFlipped      1..50, cap for the flipped-to-loss spotlight list
+ */
+router.get("/paper/analytics/fo/shadow-costs", requireOwner, async (req, res, next) => {
+  try {
+    if (!isShadowCostsEnabled()) {
+      return res.json({
+        enabled: false,
+        generatedAt: new Date().toISOString(),
+        range: { from: null, to: null },
+        rowCount: 0,
+        computableCount: 0,
+        totals: {
+          grossPnl: 0, totalCost: 0, netPnl: 0,
+          avgCostPerTrade: 0, avgCostPctOfPremium: null,
+          grossWins: 0, grossLosses: 0, netWins: 0, netLosses: 0,
+          flippedToLossCount: 0,
+        },
+        bySetup: [], byIndex: [], byTier: [], byExitReason: [],
+        flippedToLossTopN: [],
+        parameters: null,
+        note: "PAPER_FO_COSTS_SHADOW_ENABLED is disabled — report suppressed.",
+      });
+    }
+    const parseDate = (v: unknown): string | undefined => {
+      if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
+      return v;
+    };
+    const parseTopN = (v: unknown): number | undefined => {
+      const n = typeof v === "string" ? parseInt(v, 10) : NaN;
+      return Number.isFinite(n) && n > 0 ? Math.min(50, n) : undefined;
+    };
+    const report = await computeShadowCostReport({
+      from: parseDate(req.query.from),
+      to: parseDate(req.query.to),
+      topNFlipped: parseTopN(req.query.topNFlipped),
+    });
+    return res.json(report);
   } catch (err) {
     return next(err);
   }

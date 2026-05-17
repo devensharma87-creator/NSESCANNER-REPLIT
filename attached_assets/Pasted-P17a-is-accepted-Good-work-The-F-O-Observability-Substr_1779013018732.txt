@@ -1,0 +1,155 @@
+P17a is accepted. Good work.
+
+The F&O Observability Substrate repair/verification is approved as complete.
+
+Accepted findings:
+
+* `fno_signal_reasoning` was empty because the logger/table shipped on Sunday after market activity, so `getOptionSignals()` had not fired yet.
+* The empty table is not currently proof of logger failure.
+* `setup_key='BASELINE'` in old `paper_trade_fo` rows is not confirmed as a tier-conflation bug; it maps to a legitimate always-on BASELINE detector.
+* `skipped_by_reason` weakness has been improved by durable fallback using `fno_signal_reasoning`.
+* Logger health counters are now available.
+* Owner-only endpoint added:
+  `/api/paper/diagnostics/fno-observability`
+* `/infra-health` now shows F&O Observability Substrate status.
+* Durable skip-reason fallback is implemented.
+* Fingerprint coverage and setup-key validity are visible.
+* 423 api-server tests passed.
+* api-server and scanner typechecks are clean.
+* Architect findings were fixed.
+* No signal logic, trade execution, scheduler, schema, Kite, swing scanner, paper-equity, option snapshot, candle warehouse, strategy, combo, or scanner recommendation behavior was changed.
+
+Do not change P17a further unless I separately ask.
+
+Important next operational step:
+
+On the next live market session, I want the observability substrate monitored carefully. The system must prove that it is writing:
+
+* upstream `EMITTED` rows,
+* `PRE_EMISSION_REJECTED` rows,
+* `SKIPPED` / `MISSED_WINDOW` rows,
+* `OPENED` rows,
+* `CLOSED_*` rows,
+* `signal_fingerprint` for lifecycle rows,
+* durable skipped-by-reason counts.
+
+However, while we wait for live market data, proceed with **P17b: Shadow F&O Cost / Slippage / Spread Model** only.
+
+Purpose:
+
+Make paper-trade reporting realistic without changing trade decisions yet. Current paper P&L appears to ignore brokerage, exchange charges, STT, spread, and slippage. This can make weak F&O trades look better than they actually are.
+
+Scope approved for P17b:
+
+1. Add a pure, deterministic cost model for F&O paper trades.
+
+2. The first version must be **shadow/reporting only**.
+
+3. Do **not** change actual trade entry, exit, stop-loss, target, sizing, or gate behavior.
+
+4. Do **not** use the cost-adjusted P&L for DD caps, heat caps, circuit breakers, or any trading decision yet.
+
+5. The model should calculate, where inputs are available:
+
+   * brokerage,
+   * STT,
+   * exchange transaction charges,
+   * SEBI charges,
+   * GST,
+   * stamp duty if applicable,
+   * bid/ask spread cost,
+   * slippage estimate,
+   * total estimated cost,
+   * gross P&L,
+   * net/shadow P&L after estimated cost.
+
+6. Add configuration constants in one place.
+
+7. Add a feature flag, suggested:
+   `PAPER_FO_COSTS_SHADOW_ENABLED`
+
+8. In v1, default should be safe:
+
+   * no trading behavior change,
+   * legacy realized P&L remains unchanged unless explicitly approved later,
+   * shadow cost/net P&L is visible only in diagnostics/reporting.
+
+9. Add reporting to existing diagnostics where suitable:
+
+   * per trade estimated cost,
+   * gross vs shadow net P&L,
+   * setup-wise gross vs net,
+   * index-wise gross vs net,
+   * tier-wise gross vs net,
+   * expired trades where apparent profit may turn negative after costs,
+   * average cost per trade,
+   * average cost as percentage of premium.
+
+10. If a table/column is needed, propose the smallest additive schema change first.
+    Preferred v1:
+
+* avoid schema change if possible,
+* compute shadow values from existing trade rows and show in diagnostics.
+
+11. Add tests for:
+
+* cost model calculation,
+* zero quantity / invalid premium handling,
+* CE/PE option trade,
+* expired ITM option cost handling if applicable,
+* spread/slippage calculation,
+* gross vs net P&L,
+* feature flag behavior,
+* no effect on realised P&L or DD calculations.
+
+12. Add an owner-only endpoint or extend existing analytics endpoint to expose the shadow cost report.
+
+13. Important guardrails:
+
+Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* F&O stop-loss logic,
+* F&O target logic,
+* F&O sizing logic,
+* F&O gate thresholds,
+* confluence scoring,
+* paper-trade execution behavior,
+* realised P&L used for trading decisions,
+* DD/circuit breaker behavior,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior.
+
+14. If implementing cost reporting would require changing realised P&L or trade execution behavior, stop and report before implementing.
+
+Expected final output:
+
+1. Files changed.
+2. Cost model formula and assumptions.
+3. Feature flag added.
+4. Endpoint/report added.
+5. Tests/typecheck result.
+6. Sample gross vs shadow-net output.
+7. Limitations.
+8. Confirmation that no trading behavior changed.
+9. Confirmation that no DD/circuit breaker behavior changed.
+10. Confirmation that no swing/paper/Kite/execution/data-ingestion behavior changed.
+
+After P17b and after one live market session confirms reasoning rows are being written, we will decide the first actual F&O strategy correction, likely one of:
+
+* T1 partial booking and trail-to-breakeven,
+* option-chain confirmation gate,
+* stop-loss recalibration,
+* stale/untriggered trigger improvement,
+* weak setup demotion/disable rules.
+
+Proceed with P17b only.

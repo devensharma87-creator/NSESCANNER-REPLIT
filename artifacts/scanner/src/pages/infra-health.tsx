@@ -39,6 +39,7 @@ import {
   PauseCircle,
   Brain,
   Radio,
+  Receipt,
 } from "lucide-react";
 import { Seo } from "@/components/seo";
 import {
@@ -1037,6 +1038,204 @@ function ObservabilitySection({ data, error, loading }: FetchState<Observability
   );
 }
 
+interface ShadowCostsGroup {
+  key: string;
+  trades: number;
+  computable: number;
+  grossPnl: number;
+  totalCost: number;
+  netPnl: number;
+  grossWinRate: number | null;
+  netWinRate: number | null;
+  avgCost: number;
+  flippedToLoss: number;
+}
+interface ShadowCostsResp {
+  enabled: boolean;
+  generatedAt: string;
+  rowCount: number;
+  computableCount: number;
+  totals: {
+    grossPnl: number;
+    totalCost: number;
+    netPnl: number;
+    avgCostPerTrade: number;
+    avgCostPctOfPremium: number | null;
+    grossWins: number;
+    grossLosses: number;
+    netWins: number;
+    netLosses: number;
+    flippedToLossCount: number;
+  };
+  bySetup: ShadowCostsGroup[];
+  byIndex: ShadowCostsGroup[];
+  byTier: ShadowCostsGroup[];
+  byExitReason: ShadowCostsGroup[];
+  flippedToLossTopN: Array<{
+    id: string; signalDate: string; indexSymbol: string; setupKey: string;
+    tier: string | null; direction: string; exitReason: string | null;
+    grossPnl: number; totalCost: number; netPnl: number; costPctOfPremium: number | null;
+  }>;
+  parameters: Record<string, number> | null;
+  note?: string;
+}
+
+function inr(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const sign = v < 0 ? "-" : "";
+  return `${sign}₹${Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+}
+
+function ShadowCostsSection({ data, error, loading }: FetchState<ShadowCostsResp>): React.ReactElement {
+  let severity: Severity = "ok";
+  if (loading && !data) severity = "disabled";
+  else if (error) severity = "fail";
+  else if (data && !data.enabled) severity = "disabled";
+  else if (data && data.computableCount === 0) severity = "disabled";
+  else if (data && data.totals.flippedToLossCount > 0) severity = "warn";
+
+  const d = data;
+  return (
+    <SectionShell
+      title="F&O Shadow Costs (P17b — reporting only)"
+      icon={Receipt}
+      severity={severity}
+      description="Brokerage + STT + exchange + SEBI + GST + stamp duty + spread + slippage estimates applied to every CLOSED paper_trade_fo row. SHADOW-ONLY: never feeds realised P&L, DD caps, heat caps, gates, or any trading decision. Toggle via PAPER_FO_COSTS_SHADOW_ENABLED."
+      testId="section-shadow-costs"
+    >
+      {error && <div className="text-xs text-rose-500 mb-2" data-testid="shadow-costs-error">{error}</div>}
+      {!d && !error && <div className="text-xs text-muted-foreground">Loading…</div>}
+      {d && !d.enabled && (
+        <div className="text-xs text-muted-foreground" data-testid="shadow-costs-disabled">
+          {d.note ?? "Disabled by feature flag."}
+        </div>
+      )}
+      {d && d.enabled && d.computableCount === 0 && (
+        <div className="text-xs text-muted-foreground">
+          No CLOSED paper_trade_fo rows in range — once trades close this report will populate.
+        </div>
+      )}
+      {d && d.enabled && d.computableCount > 0 && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <Stat label="Trades (closed)" value={num(d.computableCount)} tone="info" />
+            <Stat label="Gross P&L" value={inr(d.totals.grossPnl)} tone={d.totals.grossPnl >= 0 ? "ok" : "fail"} />
+            <Stat label="Estimated costs" value={inr(d.totals.totalCost)} tone="warn" />
+            <Stat label="Shadow net P&L" value={inr(d.totals.netPnl)} tone={d.totals.netPnl >= 0 ? "ok" : "fail"} />
+            <Stat label="Avg cost / trade" value={inr(d.totals.avgCostPerTrade)} tone="info" />
+            <Stat
+              label="Avg cost % of premium"
+              value={d.totals.avgCostPctOfPremium == null ? "—" : `${d.totals.avgCostPctOfPremium.toFixed(2)}%`}
+              tone="info"
+            />
+            <Stat
+              label="Gross win-rate"
+              value={
+                d.totals.grossWins + d.totals.grossLosses === 0
+                  ? "—"
+                  : `${((d.totals.grossWins / (d.totals.grossWins + d.totals.grossLosses)) * 100).toFixed(1)}%`
+              }
+              tone="ok"
+            />
+            <Stat
+              label="Net win-rate (after costs)"
+              value={
+                d.totals.netWins + d.totals.netLosses === 0
+                  ? "—"
+                  : `${((d.totals.netWins / (d.totals.netWins + d.totals.netLosses)) * 100).toFixed(1)}%`
+              }
+              tone={d.totals.netWins >= d.totals.grossWins ? "ok" : "warn"}
+            />
+            <Stat
+              label="Flipped to net loss"
+              value={num(d.totals.flippedToLossCount)}
+              tone={d.totals.flippedToLossCount > 0 ? "warn" : "ok"}
+            />
+          </div>
+
+          <ShadowGrid title="By setup" rows={d.bySetup} />
+          <ShadowGrid title="By index" rows={d.byIndex} />
+          <ShadowGrid title="By tier" rows={d.byTier} />
+          <ShadowGrid title="By exit reason" rows={d.byExitReason} />
+
+          {d.flippedToLossTopN.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+                Apparent winners that flip to net loss after costs (top {d.flippedToLossTopN.length})
+              </div>
+              <div className="space-y-1 text-xs">
+                {d.flippedToLossTopN.map(t => (
+                  <div key={t.id} className="flex flex-wrap items-center gap-2 border-b border-border/30 py-1">
+                    <span className="font-mono text-[10px] text-muted-foreground">{t.signalDate}</span>
+                    <span className="font-mono text-xs">{t.indexSymbol}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{t.setupKey}/{t.tier ?? "—"}/{t.direction}</span>
+                    <span className="ml-auto font-mono text-emerald-500">+{inr(t.grossPnl)}</span>
+                    <span className="font-mono text-amber-500">−{inr(t.totalCost)}</span>
+                    <span className="font-mono text-rose-500">= {inr(t.netPnl)}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      {t.costPctOfPremium == null ? "—" : `${t.costPctOfPremium.toFixed(2)}%`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <details className="text-[11px] text-muted-foreground">
+            <summary className="cursor-pointer">Cost model parameters (read-only)</summary>
+            {d.parameters && (
+              <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-[10px]">
+                {JSON.stringify(d.parameters, null, 2)}
+              </pre>
+            )}
+          </details>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+function ShadowGrid({ title, rows }: { title: string; rows: ShadowCostsGroup[] }): React.ReactElement | null {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{title}</div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-[10px] uppercase text-muted-foreground">
+            <tr className="border-b border-border/40">
+              <th className="text-left py-1 pr-2">Key</th>
+              <th className="text-right py-1 px-2">N</th>
+              <th className="text-right py-1 px-2">Gross</th>
+              <th className="text-right py-1 px-2">Cost</th>
+              <th className="text-right py-1 px-2">Net</th>
+              <th className="text-right py-1 px-2">Avg cost</th>
+              <th className="text-right py-1 px-2">Gross WR</th>
+              <th className="text-right py-1 px-2">Net WR</th>
+              <th className="text-right py-1 pl-2">Flipped</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.key} className="border-b border-border/20">
+                <td className="py-0.5 pr-2 font-mono">{r.key}</td>
+                <td className="py-0.5 px-2 text-right font-mono">{r.computable}</td>
+                <td className={`py-0.5 px-2 text-right font-mono ${r.grossPnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>{inr(r.grossPnl)}</td>
+                <td className="py-0.5 px-2 text-right font-mono text-amber-500">{inr(r.totalCost)}</td>
+                <td className={`py-0.5 px-2 text-right font-mono ${r.netPnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>{inr(r.netPnl)}</td>
+                <td className="py-0.5 px-2 text-right font-mono">{inr(r.avgCost)}</td>
+                <td className="py-0.5 px-2 text-right font-mono">{r.grossWinRate == null ? "—" : `${(r.grossWinRate * 100).toFixed(0)}%`}</td>
+                <td className="py-0.5 px-2 text-right font-mono">{r.netWinRate == null ? "—" : `${(r.netWinRate * 100).toFixed(0)}%`}</td>
+                <td className={`py-0.5 pl-2 text-right font-mono ${r.flippedToLoss > 0 ? "text-amber-500" : ""}`}>{r.flippedToLoss}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function FailureDiagnosisSection(
   { data, error, loading, exactOnly, onToggleExact }:
   FetchState<FailureDiagnosisResp> & { exactOnly: boolean; onToggleExact: () => void },
@@ -1443,6 +1642,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const candidates = useEndpoint<CandidatesDiag>("api/paper/eq/candidates-diagnostic", auto, tick);
   const reasoning = useEndpoint<ReasoningAnalyticsResp>("api/paper/diagnostics/fno-reasoning/analytics", auto, tick);
   const observability = useEndpoint<ObservabilityResp>("api/paper/diagnostics/fno-observability", auto, tick);
+  const shadowCosts = useEndpoint<ShadowCostsResp>("api/paper/analytics/fo/shadow-costs", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -1509,6 +1709,9 @@ export default function InfraHealthPage(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <ObservabilitySection {...observability} />
+        </div>
+        <div className="md:col-span-2">
+          <ShadowCostsSection {...shadowCosts} />
         </div>
         <div className="md:col-span-2">
           <ReasoningSection {...reasoning} />
