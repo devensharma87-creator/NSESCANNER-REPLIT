@@ -1,0 +1,162 @@
+P20 is accepted. Good work.
+
+The F&O MFE/MAE Logging Fix + Shadow Target/Partial-Booking Simulation is approved as complete.
+
+Accepted final state:
+
+* Root cause of zero `max_runup` / `max_drawdown` was identified.
+* `recordLifecycle()` was running before option-level enrichment, so mark-to-market had no live `optionLtp`.
+* A post-enrichment mark-to-market path was added.
+* `max_runup`, `max_drawdown`, `last_premium`, and `last_evaluated_at` are now updated for open F&O paper trades.
+* Shadow exits simulator added.
+* Owner-only endpoint added:
+  `/api/paper/analytics/fo/shadow-exits`
+* `/infra-health` now includes the shadow-exits section.
+* Shadow rules are reporting-only.
+* No live exit, target, stop-loss, partial booking, trailing stop, realised P&L, DD, heat, sizing, or signal behavior was changed.
+* No schema change was made.
+* No Kite, swing, scanner, strategy, combo, option snapshot, candle warehouse, or scheduler behavior was changed.
+* Endpoint is owner-only.
+* Typecheck passed.
+* Tests passed.
+
+Please clarify one minor reporting inconsistency in your final notes:
+You mentioned `472/472` tests and later `477 total`. Confirm the final test count after P20 so the status document stays accurate.
+
+Do not change P20 further unless I separately ask.
+
+You are now approved to proceed with **P21: Post-P20 Live MFE/MAE and Shadow-Exit Verification** only.
+
+Purpose:
+
+Before approving any live exit change such as lower T1, partial booking, trail-to-breakeven, or target recalibration, we must verify that the new MFE/MAE logging works in a real market session and that the shadow-exit simulator has usable post-fix data.
+
+Important:
+
+This is verification and analysis only. Do not implement live exit changes yet.
+
+Scope approved for P21:
+
+1. Run verification after the next live market session has completed and F&O paper trades have had a chance to open, update, and close.
+
+2. Confirm for new post-P20 F&O paper trades:
+
+   * `max_runup` is no longer stuck at `0.00`,
+   * `max_drawdown` is no longer stuck at `0.00`,
+   * `last_premium` updates during the open trade,
+   * `last_evaluated_at` updates during the open trade,
+   * closed trades preserve final MFE/MAE values,
+   * MFE/MAE values are directionally correct.
+
+3. Verify the mark-to-market flow:
+
+   * signal is enriched with live option LTP,
+   * open paper trade receives mark-to-market update,
+   * MFE/MAE update does not affect trade decisions,
+   * update failure does not break signal/trade flow,
+   * no duplicate or excessive writes happen.
+
+4. Verify the shadow-exits endpoint:
+
+   * `/api/paper/analytics/fo/shadow-exits`
+
+5. Verify `/infra-health` shadow-exits section shows:
+
+   * raw row count,
+   * processed row count,
+   * MFE available count,
+   * low-sample warning,
+   * actual P&L,
+   * Rule 1 / Rule 2 / Rule 3 / Rule 4 simulated P&L,
+   * improved trades,
+   * reduced trades,
+   * best shadow rule,
+   * sample-size limitations.
+
+6. Produce a post-P20 live verification report with:
+
+   A. MFE/MAE health:
+
+   * number of new trades opened after P20,
+   * number of open trades receiving mark-to-market updates,
+   * number of closed trades with non-zero MFE/MAE,
+   * latest mark-to-market timestamp,
+   * any stale mark-to-market rows.
+
+   B. Shadow-exit analysis:
+
+   * actual P&L,
+   * Rule 1 simulated P&L,
+   * Rule 2 simulated P&L,
+   * Rule 3 simulated P&L,
+   * Rule 4 simulated P&L,
+   * best-performing shadow rule,
+   * trades improved by shadow rule,
+   * trades worsened by shadow rule,
+   * sample size warning.
+
+   C. Exit-change readiness:
+
+   * whether sample size is still too low,
+   * whether any rule is clearly better,
+   * whether lower T1 is supported,
+   * whether partial booking is supported,
+   * whether trail-to-breakeven is supported,
+   * whether more sessions are needed.
+
+7. Do not implement any live exit change unless separately approved.
+
+8. Do not change:
+
+   * F&O signal generation,
+   * F&O entry logic,
+   * F&O live exit logic,
+   * stop-loss logic,
+   * target logic,
+   * partial booking,
+   * trailing stop,
+   * sizing logic,
+   * gate thresholds,
+   * confluence scoring,
+   * realised P&L,
+   * DD/circuit breakers,
+   * Kite order/execution,
+   * swing scanner,
+   * paper-equity logic,
+   * scanner recommendations,
+   * strategy builder,
+   * combo lane,
+   * option snapshot ingestion,
+   * candle warehouse ingestion,
+   * scheduler behavior,
+   * database schema.
+
+9. If MFE/MAE still remains zero after post-P20 live trades, stop and report it as a blocker with:
+
+   * exact rows,
+   * affected functions,
+   * likely cause,
+   * smallest proposed fix,
+   * whether it changes trading behavior.
+
+10. If shadow-exit results show one rule is clearly better, do not implement it yet. Provide:
+
+* evidence,
+* sample size,
+* expected benefit,
+* risk,
+* implementation plan,
+* rollback plan,
+* tests needed.
+
+Expected final output:
+
+1. Final corrected test count after P20.
+2. Post-P20 live-session MFE/MAE verification.
+3. Mark-to-market verification.
+4. Shadow-exit report.
+5. Sample-size status.
+6. Recommended next step.
+7. Confirmation that no live trading behavior was changed in P21.
+
+Proceed with P21 only after post-P20 live market data is available.
