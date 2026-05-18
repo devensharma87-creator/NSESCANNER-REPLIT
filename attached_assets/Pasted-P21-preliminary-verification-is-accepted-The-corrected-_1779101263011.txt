@@ -1,0 +1,105 @@
+P21 preliminary verification is accepted.
+
+The corrected P20 test count is accepted as:
+
+`477 api-server tests passed across 22 test files`.
+
+P21 is currently marked as **blocked**, not failed.
+
+Accepted findings:
+
+* No post-P20 live production trade data exists yet.
+* Current `paper_trade_fo` rows are old pre-P20 rows.
+* Current `max_runup = 0` and `max_drawdown = 0` rows are expected because they pre-date the fix.
+* `/api/paper/analytics/fo/shadow-exits` is mounted and owner-gated.
+* `/infra-health` shadow-exits UI is wired.
+* Shadow-exit simulation is not decision-grade yet because `mfeAvailableCount = 0`.
+* No live trading behavior was changed in P21.
+
+Do not make any further code changes for P21 right now.
+
+Next action:
+
+Proceed with **P21b: Post-Deploy Production MFE/MAE Verification** only after P20 has been deployed to production and at least one full live market session has completed.
+
+Before running P21b, confirm:
+
+1. P20 is deployed to production.
+2. Production has `REPLIT_DEPLOYMENT=1`.
+3. Production has `PAPER_TRADING_ENABLED=true` or the expected production auto-trading setting.
+4. The market session has completed.
+5. At least one F&O paper trade opened after the P20 deployment.
+
+For P21b, re-run verification against production DB only.
+
+Check:
+
+* new post-P20 trades,
+* `max_runup > 0`,
+* `max_drawdown < 0` where applicable,
+* `last_premium` updates,
+* `last_evaluated_at` advances during open trades,
+* closed trades preserve final MFE/MAE,
+* `/api/paper/analytics/fo/shadow-exits` returns meaningful production data,
+* `/infra-health` shows updated shadow-exits metrics.
+
+Use this SQL or equivalent:
+
+```sql
+SELECT signal_date, status,
+  COUNT(*) AS n,
+  COUNT(*) FILTER (WHERE max_runup > 0)    AS nonzero_runup,
+  COUNT(*) FILTER (WHERE max_drawdown < 0) AS nonzero_dd,
+  MAX(last_evaluated_at) AS latest_mtm
+FROM paper_trade_fo
+WHERE signal_date >= '2026-05-18'
+GROUP BY signal_date, status
+ORDER BY signal_date DESC;
+```
+
+Expected post-fix result:
+
+* `nonzero_runup + nonzero_dd > 0` for trades that had meaningful live premium movement,
+* `latest_mtm` should advance during the session,
+* `mfeAvailableCount` should start increasing in the shadow-exits report.
+
+If MFE/MAE still remains zero after a real post-P20 production session, stop and report it as a blocker with:
+
+* affected rows,
+* affected functions,
+* likely cause,
+* smallest proposed fix,
+* whether it changes trading behavior.
+
+Do not implement any live exit change yet.
+
+Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* stop-loss logic,
+* target logic,
+* partial booking,
+* trailing stop,
+* sizing logic,
+* gate thresholds,
+* confluence scoring,
+* realised P&L,
+* DD/circuit breakers,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* database schema.
+
+After P21b confirms valid post-P20 MFE/MAE data, we will wait until there are enough usable samples before approving any live exit change.
+
+Do not reorganize `replit.md` right now. Documentation cleanup can be handled separately later.
+
+Stand by until P20 is deployed and the next production live market session has completed.
