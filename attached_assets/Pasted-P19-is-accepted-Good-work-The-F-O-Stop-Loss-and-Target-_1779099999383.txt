@@ -1,0 +1,175 @@
+P19 is accepted. Good work.
+
+The F&O Stop-Loss and Target-Reachability Diagnosis is approved as complete.
+
+Accepted findings:
+
+* Stop-loss widening is not yet justified.
+* The main issue is target reachability, not stop-loss distance.
+* 0 paper trades have reached T1 or T2.
+* T1 distances are often too far from option entry premium.
+* Some profitable trades were force-exited at 15:20 before ever hitting T1.
+* The T1/T2 close path appears wired correctly.
+* The reason target exits do not happen is likely that target levels are unreachable, not that the close path is broken.
+* SENSEX BASELINE stop widening is not approved yet.
+* `max_runup` and `max_drawdown` are not being populated, which is an observability bug and prevents proper partial-booking/trailing calibration.
+* No code was changed in P19.
+* No trading behavior was changed.
+
+Decision:
+
+Do **not** implement live T1 cap yet.
+
+Do **not** change live stop-loss, target, partial booking, trailing stop, entry logic, or signal logic yet.
+
+Proceed with **P20: F&O MFE/MAE Logging Fix + Shadow Target/Partial-Booking Simulation** only.
+
+Purpose:
+
+Before changing live exit behavior, fix the MFE/MAE observability bug and create a shadow simulation that tells us whether lower T1 / partial booking / trail-to-breakeven would have improved results.
+
+Scope approved for P20:
+
+Part A — Fix MFE/MAE logging, diagnostics-only:
+
+1. Investigate and fix why `paper_trade_fo.max_runup` and `paper_trade_fo.max_drawdown` remain `0.00`.
+
+2. The fix should only update observability fields:
+
+   * `max_runup`
+   * `max_drawdown`
+   * any existing non-decision analytics field if needed.
+
+3. Do not use MFE/MAE for live trading decisions yet.
+
+4. Ensure the update happens during the existing mark-to-market / open-position evaluation flow.
+
+5. For long option trades, expected behavior:
+
+   * `max_runup` should capture best favourable premium movement from entry.
+   * `max_drawdown` should capture worst adverse premium movement from entry.
+
+6. Add tests:
+
+   * premium moves from entry to +20%, +85%, +57% should produce max_runup = +85%.
+   * premium moves from entry to +20%, +5%, -30% should produce max_drawdown = -30%.
+   * values should not reset downward incorrectly.
+   * closed trades preserve final MFE/MAE.
+   * no trade decision changes.
+
+Part B — Shadow target / partial-booking simulation:
+
+7. Add a read-only shadow simulation for alternative F&O exit management.
+
+8. The shadow simulation should not change live exits.
+
+9. Simulate these possible rules:
+
+   Rule 1:
+
+   * T1 at +30% option premium.
+   * T2 at +60% option premium.
+
+   Rule 2:
+
+   * book 50% at +30%,
+   * trail remaining to breakeven,
+   * exit remaining at actual exit or force-exit.
+
+   Rule 3:
+
+   * book 50% at +50%,
+   * trail remaining to breakeven,
+   * exit remaining at actual exit or force-exit.
+
+   Rule 4:
+
+   * no partial booking, but trail to breakeven after MFE reaches +50%.
+
+10. Use existing trade data and MFE/MAE where available.
+    If exact intratrade premium path is not available, clearly mark the simulation as approximate and explain the limitation.
+
+11. Do not overwrite actual `target1`, `target2`, `exit`, `realized_pnl`, or trade status.
+
+12. Add an owner-only endpoint/report, suggested:
+
+`/api/paper/analytics/fo/shadow-exits`
+
+13. The report should show:
+
+* actual gross P&L,
+* actual shadow-cost net P&L if available,
+* simulated P&L under Rule 1,
+* simulated P&L under Rule 2,
+* simulated P&L under Rule 3,
+* simulated P&L under Rule 4,
+* trades where shadow partial booking would improve outcome,
+* trades where shadow partial booking would reduce outcome,
+* setup-wise comparison,
+* index-wise comparison,
+* tier-wise comparison.
+
+14. Add `/infra-health` display if safe:
+
+* actual vs shadow exit comparison,
+* best-performing shadow rule,
+* sample size,
+* confidence warning if sample size is low.
+
+15. Add tests:
+
+* MFE/MAE calculation,
+* shadow T1 hit when MFE exceeds threshold,
+* no shadow T1 hit when MFE does not exceed threshold,
+* partial-booking simulation,
+* trail-to-breakeven simulation,
+* force-exit comparison,
+* low-sample warning,
+* no change to actual trade fields.
+
+Important guardrails:
+
+Do not change:
+
+* live F&O signal generation,
+* live F&O entry logic,
+* live F&O exit logic,
+* live stop-loss logic,
+* live target logic,
+* live partial-booking behavior,
+* live trailing-stop behavior,
+* sizing logic,
+* gate thresholds,
+* confluence scoring,
+* paper-trade execution behavior except MFE/MAE observability fields,
+* realised P&L,
+* DD/circuit breakers,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior.
+
+If the MFE/MAE fix would affect trading decisions, stop and report before implementing.
+
+If the shadow simulation requires schema change, propose the smallest additive schema change first and wait for approval unless it can be done without schema change.
+
+Expected final output:
+
+1. Root cause of MFE/MAE always being zero.
+2. Files changed.
+3. MFE/MAE fix implemented.
+4. Shadow exit rules implemented.
+5. Endpoint/report added.
+6. Tests/typecheck result.
+7. Sample shadow-exit output.
+8. Limitations and sample-size warning.
+9. Recommended live exit rule, if evidence supports one.
+10. Confirmation that no live F&O trading behavior changed.
+11. Confirmation that no swing/paper-equity/Kite/execution/data-ingestion behavior changed.
+
+After P20, we will review the shadow results and then decide whether to approve the first live exit change, most likely a conservative T1 partial-booking / trail-to-breakeven rule.

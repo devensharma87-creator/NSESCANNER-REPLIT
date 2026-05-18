@@ -1156,7 +1156,7 @@ function ShadowCostsSection({ data, error, loading }: FetchState<ShadowCostsResp
           <ShadowGrid title="By setup" rows={d.bySetup} />
           <ShadowGrid title="By index" rows={d.byIndex} />
           <ShadowGrid title="By tier" rows={d.byTier} />
-          <ShadowGrid title="By exit reason" rows={d.byExitReason} />
+          <ShadowGrid title="By exit reason" rows={d.byExitReason} />{/* /shadow-costs */}
 
           {d.flippedToLossTopN.length > 0 && (
             <div>
@@ -1233,6 +1233,227 @@ function ShadowGrid({ title, rows }: { title: string; rows: ShadowCostsGroup[] }
         </table>
       </div>
     </div>
+  );
+}
+
+/* ───────────────── P20: Shadow Exits ───────────────────────────────── */
+
+interface ShadowExitsGroupRow {
+  key: string;
+  trades: number;
+  mfeAvailableCount: number;
+  actualPnl: number;
+  rule1Pnl: number; rule2Pnl: number; rule3Pnl: number; rule4Pnl: number;
+  rule1Delta: number; rule2Delta: number; rule3Delta: number; rule4Delta: number;
+  rule1Better: number; rule1Worse: number;
+  rule2Better: number; rule2Worse: number;
+  rule3Better: number; rule3Worse: number;
+  rule4Better: number; rule4Worse: number;
+}
+interface ShadowExitsTradeRow {
+  id: string; signalDate: string; indexSymbol: string; setupKey: string;
+  tier: string | null; direction: string; exitReason: string | null;
+  entryPremium: number; exitPremium: number;
+  mfeAbs: number; mfeAvailable: boolean;
+  actualPnl: number;
+  rule1Pnl: number; rule2Pnl: number; rule3Pnl: number; rule4Pnl: number;
+  bestRule: "RULE_1" | "RULE_2" | "RULE_3" | "RULE_4";
+  bestDelta: number;
+}
+interface ShadowExitsResp {
+  enabled: boolean;
+  generatedAt: string;
+  rowCount: number;
+  mfeAvailableCount: number;
+  lowSampleWarning: boolean;
+  lowSampleThreshold: number;
+  totals: {
+    actualPnl: number;
+    rule1Pnl: number; rule2Pnl: number; rule3Pnl: number; rule4Pnl: number;
+    rule1Delta: number; rule2Delta: number; rule3Delta: number; rule4Delta: number;
+    rule1Better: number; rule1Worse: number;
+    rule2Better: number; rule2Worse: number;
+    rule3Better: number; rule3Worse: number;
+    rule4Better: number; rule4Worse: number;
+    bestRule: "RULE_1" | "RULE_2" | "RULE_3" | "RULE_4" | null;
+    bestRuleDelta: number;
+  };
+  bySetup: ShadowExitsGroupRow[];
+  byIndex: ShadowExitsGroupRow[];
+  byTier: ShadowExitsGroupRow[];
+  improvedTopN: ShadowExitsTradeRow[];
+  reducedTopN: ShadowExitsTradeRow[];
+  parameters: unknown;
+  limitations: string[];
+  note?: string;
+}
+
+const RULE_LABELS: Record<"RULE_1" | "RULE_2" | "RULE_3" | "RULE_4", string> = {
+  RULE_1: "R1 (T1+30/T2+60)",
+  RULE_2: "R2 (50%@+30 → BE)",
+  RULE_3: "R3 (50%@+50 → BE)",
+  RULE_4: "R4 (BE after +50%)",
+};
+
+function ShadowExitsGrid({ title, rows }: { title: string; rows: ShadowExitsGroupRow[] }): React.ReactElement | null {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{title}</div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-[10px] uppercase text-muted-foreground">
+            <tr className="border-b border-border/40">
+              <th className="text-left py-1 pr-2">Key</th>
+              <th className="text-right py-1 px-2">N</th>
+              <th className="text-right py-1 px-2">MFE OK</th>
+              <th className="text-right py-1 px-2">Actual</th>
+              <th className="text-right py-1 px-2">R1 Δ</th>
+              <th className="text-right py-1 px-2">R2 Δ</th>
+              <th className="text-right py-1 px-2">R3 Δ</th>
+              <th className="text-right py-1 px-2">R4 Δ</th>
+              <th className="text-right py-1 pl-2">R1/R2/R3/R4 better</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => {
+              const tone = (d: number) =>
+                d > 0 ? "text-emerald-500" : d < 0 ? "text-rose-500" : "";
+              return (
+                <tr key={r.key} className="border-b border-border/20">
+                  <td className="py-0.5 pr-2 font-mono">{r.key}</td>
+                  <td className="py-0.5 px-2 text-right font-mono">{r.trades}</td>
+                  <td className="py-0.5 px-2 text-right font-mono">{r.mfeAvailableCount}</td>
+                  <td className={`py-0.5 px-2 text-right font-mono ${r.actualPnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>{inr(r.actualPnl)}</td>
+                  <td className={`py-0.5 px-2 text-right font-mono ${tone(r.rule1Delta)}`}>{inr(r.rule1Delta)}</td>
+                  <td className={`py-0.5 px-2 text-right font-mono ${tone(r.rule2Delta)}`}>{inr(r.rule2Delta)}</td>
+                  <td className={`py-0.5 px-2 text-right font-mono ${tone(r.rule3Delta)}`}>{inr(r.rule3Delta)}</td>
+                  <td className={`py-0.5 px-2 text-right font-mono ${tone(r.rule4Delta)}`}>{inr(r.rule4Delta)}</td>
+                  <td className="py-0.5 pl-2 text-right font-mono text-[10px]">
+                    {r.rule1Better}/{r.rule2Better}/{r.rule3Better}/{r.rule4Better}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ShadowExitsSection({ data, error }: FetchState<ShadowExitsResp>): React.ReactElement {
+  let severity: Severity = "ok";
+  if (error) severity = "fail";
+  else if (data && !data.enabled) severity = "disabled";
+  else if (data && data.rowCount === 0) severity = "disabled";
+  else if (data && data.lowSampleWarning) severity = "warn";
+
+  const d = data;
+  return (
+    <SectionShell
+      title="F&O Shadow Exits (P20 — reporting only)"
+      icon={TrendingUp}
+      severity={severity}
+      description="Compares each CLOSED paper_trade_fo row to four hypothetical exit rules (T1+30/T2+60; book 50%@+30 → trail BE; book 50%@+50 → trail BE; trail BE after MFE+50%). Uses max_runup observability fix from P20-A. SHADOW-ONLY — never feeds live exits, stops, targets, partials, sizing, P&L, DD caps, gates, or any trading decision. Toggle via PAPER_FO_SHADOW_EXITS_ENABLED."
+      testId="section-shadow-exits"
+    >
+      {error && <div className="text-xs text-rose-500 mb-2" data-testid="shadow-exits-error">{error}</div>}
+      {!d && !error && <div className="text-xs text-muted-foreground">Loading…</div>}
+      {d && !d.enabled && (
+        <div className="text-xs text-muted-foreground" data-testid="shadow-exits-disabled">
+          {d.note ?? "Disabled by feature flag."}
+        </div>
+      )}
+      {d && d.enabled && d.rowCount === 0 && (
+        <div className="text-xs text-muted-foreground">
+          No CLOSED paper_trade_fo rows in range — once trades close this report will populate.
+        </div>
+      )}
+      {d && d.enabled && d.rowCount > 0 && (
+        <div className="space-y-4">
+          {d.lowSampleWarning && (
+            <div className="text-xs rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-amber-600" data-testid="shadow-exits-low-sample">
+              Low-sample warning: only {d.mfeAvailableCount} of {d.rowCount} trades have post-P20 MFE data
+              (threshold = {d.lowSampleThreshold}). Pre-P20 rows use realised gain as a strict lower bound on
+              MFE, so their shadow P&L is conservative. Treat aggregates as directional, not decisional.
+            </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+            <Stat label="Trades (closed)" value={num(d.rowCount)} tone="info" />
+            <Stat label="MFE-fix coverage" value={`${d.mfeAvailableCount}/${d.rowCount}`} tone={d.mfeAvailableCount === d.rowCount ? "ok" : "warn"} />
+            <Stat label="Best rule (Σ Δ)" value={d.totals.bestRule ? RULE_LABELS[d.totals.bestRule] : "—"} tone={d.totals.bestRuleDelta > 0 ? "ok" : "warn"} />
+            <Stat label="Actual P&L" value={inr(d.totals.actualPnl)} tone={d.totals.actualPnl >= 0 ? "ok" : "fail"} />
+            <Stat label="R1 P&L (Δ)" value={`${inr(d.totals.rule1Pnl)} (${d.totals.rule1Delta >= 0 ? "+" : ""}${inr(d.totals.rule1Delta)})`} tone={d.totals.rule1Delta >= 0 ? "ok" : "warn"} />
+            <Stat label="R2 P&L (Δ)" value={`${inr(d.totals.rule2Pnl)} (${d.totals.rule2Delta >= 0 ? "+" : ""}${inr(d.totals.rule2Delta)})`} tone={d.totals.rule2Delta >= 0 ? "ok" : "warn"} />
+            <Stat label="R3 P&L (Δ)" value={`${inr(d.totals.rule3Pnl)} (${d.totals.rule3Delta >= 0 ? "+" : ""}${inr(d.totals.rule3Delta)})`} tone={d.totals.rule3Delta >= 0 ? "ok" : "warn"} />
+            <Stat label="R4 P&L (Δ)" value={`${inr(d.totals.rule4Pnl)} (${d.totals.rule4Delta >= 0 ? "+" : ""}${inr(d.totals.rule4Delta)})`} tone={d.totals.rule4Delta >= 0 ? "ok" : "warn"} />
+            <Stat label="Better/Worse (R1)" value={`${d.totals.rule1Better} / ${d.totals.rule1Worse}`} tone="info" />
+            <Stat label="Better/Worse (R2)" value={`${d.totals.rule2Better} / ${d.totals.rule2Worse}`} tone="info" />
+            <Stat label="Better/Worse (R3)" value={`${d.totals.rule3Better} / ${d.totals.rule3Worse}`} tone="info" />
+            <Stat label="Better/Worse (R4)" value={`${d.totals.rule4Better} / ${d.totals.rule4Worse}`} tone="info" />
+          </div>
+
+          <ShadowExitsGrid title="By setup" rows={d.bySetup} />
+          <ShadowExitsGrid title="By index" rows={d.byIndex} />
+          <ShadowExitsGrid title="By tier"  rows={d.byTier} />
+
+          {d.improvedTopN.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+                Trades a shadow rule would have improved (top {d.improvedTopN.length})
+              </div>
+              <div className="space-y-1 text-xs">
+                {d.improvedTopN.map(t => (
+                  <div key={t.id} className="flex flex-wrap items-center gap-2 border-b border-border/30 py-1">
+                    <span className="font-mono text-[10px] text-muted-foreground">{t.signalDate}</span>
+                    <span className="font-mono text-xs">{t.indexSymbol}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{t.setupKey}/{t.tier ?? "—"}/{t.direction}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{t.exitReason ?? "—"}</span>
+                    <span className={`ml-auto font-mono ${t.actualPnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>{inr(t.actualPnl)}</span>
+                    <span className="font-mono text-emerald-500">→ {RULE_LABELS[t.bestRule]} +{inr(t.bestDelta)}</span>
+                    {!t.mfeAvailable && <span className="text-[9px] uppercase tracking-wide text-amber-500">approx</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {d.reducedTopN.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+                Trades a shadow rule would have hurt (top {d.reducedTopN.length})
+              </div>
+              <div className="space-y-1 text-xs">
+                {d.reducedTopN.filter(t => t.bestDelta < 0).map(t => (
+                  <div key={t.id} className="flex flex-wrap items-center gap-2 border-b border-border/30 py-1">
+                    <span className="font-mono text-[10px] text-muted-foreground">{t.signalDate}</span>
+                    <span className="font-mono text-xs">{t.indexSymbol}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{t.setupKey}/{t.tier ?? "—"}/{t.direction}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{t.exitReason ?? "—"}</span>
+                    <span className={`ml-auto font-mono ${t.actualPnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>{inr(t.actualPnl)}</span>
+                    <span className="font-mono text-rose-500">best Δ {inr(t.bestDelta)}</span>
+                    {!t.mfeAvailable && <span className="text-[9px] uppercase tracking-wide text-amber-500">approx</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {d.limitations.length > 0 && (
+            <details className="text-[11px] text-muted-foreground">
+              <summary className="cursor-pointer">Simulation limitations & rule parameters</summary>
+              <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                {d.limitations.map((l, i) => <li key={i}>{l}</li>)}
+              </ul>
+              <pre className="mt-2 whitespace-pre-wrap break-all font-mono text-[10px]">
+                {JSON.stringify(d.parameters, null, 2)}
+              </pre>
+            </details>
+          )}
+        </div>
+      )}
+    </SectionShell>
   );
 }
 
@@ -1643,6 +1864,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const reasoning = useEndpoint<ReasoningAnalyticsResp>("api/paper/diagnostics/fno-reasoning/analytics", auto, tick);
   const observability = useEndpoint<ObservabilityResp>("api/paper/diagnostics/fno-observability", auto, tick);
   const shadowCosts = useEndpoint<ShadowCostsResp>("api/paper/analytics/fo/shadow-costs", auto, tick);
+  const shadowExits = useEndpoint<ShadowExitsResp>("api/paper/analytics/fo/shadow-exits", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -1712,6 +1934,9 @@ export default function InfraHealthPage(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <ShadowCostsSection {...shadowCosts} />
+        </div>
+        <div className="md:col-span-2">
+          <ShadowExitsSection {...shadowExits} />
         </div>
         <div className="md:col-span-2">
           <ReasoningSection {...reasoning} />

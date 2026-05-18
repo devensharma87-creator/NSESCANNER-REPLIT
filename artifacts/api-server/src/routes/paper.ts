@@ -60,6 +60,7 @@ import {
 import { computeFailureDiagnosis } from "../lib/fnoFailureDiagnosis";
 import { computeShadowCostReport } from "../lib/fnoShadowCosts";
 import { isShadowCostsEnabled } from "../lib/fnoCostModel";
+import { computeShadowExitReport, isShadowExitsEnabled, SHADOW_RULE_PARAMS } from "../lib/fnoShadowExits";
 import {
   computeDailySummaryFo,
   istDateOf,
@@ -909,6 +910,70 @@ router.get("/paper/analytics/fo/shadow-costs", requireOwner, async (req, res, ne
       from: parseDate(req.query.from),
       to: parseDate(req.query.to),
       topNFlipped: parseTopN(req.query.topNFlipped),
+    });
+    return res.json(report);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * P20 — Shadow F&O exit-rule simulation (owner-only, read-only).
+ *
+ * Compares the realised exit on every CLOSED `paper_trade_fo` row against
+ * four hypothetical exit-management rules (Rule 1: T1=+30%/T2=+60%; Rule
+ * 2/3: book 50% at +30%/+50% then trail to BE; Rule 4: trail to BE after
+ * MFE ≥ +50%). Pure projection over existing trade rows. Never writes,
+ * never changes any live trading behaviour. Feature flag
+ * `PAPER_FO_SHADOW_EXITS_ENABLED` only gates whether this report surfaces
+ * values.
+ *
+ * Query params (all optional):
+ *   - from=YYYY-MM-DD  inclusive lower bound on signal_date
+ *   - to=YYYY-MM-DD    inclusive upper bound on signal_date
+ *   - topN             1..50, cap for improved/reduced spotlight lists
+ */
+router.get("/paper/analytics/fo/shadow-exits", requireOwner, async (req, res, next) => {
+  try {
+    if (!isShadowExitsEnabled()) {
+      return res.json({
+        enabled: false,
+        generatedAt: new Date().toISOString(),
+        range: { from: null, to: null },
+        rowCount: 0,
+        mfeAvailableCount: 0,
+        lowSampleWarning: true,
+        lowSampleThreshold: 20,
+        totals: {
+          actualPnl: 0,
+          rule1Pnl: 0, rule2Pnl: 0, rule3Pnl: 0, rule4Pnl: 0,
+          rule1Delta: 0, rule2Delta: 0, rule3Delta: 0, rule4Delta: 0,
+          rule1Better: 0, rule1Worse: 0,
+          rule2Better: 0, rule2Worse: 0,
+          rule3Better: 0, rule3Worse: 0,
+          rule4Better: 0, rule4Worse: 0,
+          bestRule: null,
+          bestRuleDelta: 0,
+        },
+        bySetup: [], byIndex: [], byTier: [],
+        improvedTopN: [], reducedTopN: [],
+        parameters: SHADOW_RULE_PARAMS,
+        limitations: [],
+        note: "PAPER_FO_SHADOW_EXITS_ENABLED is disabled — report suppressed.",
+      });
+    }
+    const parseDate = (v: unknown): string | undefined => {
+      if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
+      return v;
+    };
+    const parseTopN = (v: unknown): number | undefined => {
+      const n = typeof v === "string" ? parseInt(v, 10) : NaN;
+      return Number.isFinite(n) && n > 0 ? Math.min(50, n) : undefined;
+    };
+    const report = await computeShadowExitReport({
+      from: parseDate(req.query.from),
+      to: parseDate(req.query.to),
+      topN: parseTopN(req.query.topN),
     });
     return res.json(report);
   } catch (err) {

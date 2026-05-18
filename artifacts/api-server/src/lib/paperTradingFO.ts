@@ -950,9 +950,94 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
 }
 
 /**
+ * Public MTM sweep for OPEN paper_trade_fo rows, called from the signal
+ * cycle in optionSignals.ts AFTER enrichBundlesWithOptionLevels has
+ * populated `signal.optionLtp`. This is the path that actually drives
+ * max_runup / max_drawdown growth — the lifecycle-hook `markToMarket`
+ * below runs BEFORE enrichment, so its `signal.optionLtp` is always
+ * undefined and it always early-returns (P20 root cause).
+ *
+ * Observability-only. Touches only:
+ *   - paper_trade_fo.last_premium
+ *   - paper_trade_fo.last_evaluated_at
+ *   - paper_trade_fo.max_runup    (GREATEST — never resets downward)
+ *   - paper_trade_fo.max_drawdown (LEAST    — never resets upward)
+ *
+ * No decision-affecting fields are written. No close-path side effects.
+ * Fail-quiet per signal so one malformed row cannot abort the sweep.
+ *
+ * Idempotent: re-running with the same LTP set is a no-op (GREATEST/LEAST
+ * preserve extremes; last_premium converges to the freshest tick).
+ */
+export async function markOpenFnoTradesToMarket(
+  signals: OptionSignal[],
+  signalDate: string,
+): Promise<void> {
+  for (const signal of signals) {
+    const setupKey = signal.setupKey;
+    if (!setupKey) continue;
+    const ltp = signal.optionLtp;
+    if (ltp == null || !Number.isFinite(ltp)) continue;
+    const direction: "BULLISH" | "BEARISH" =
+      signal.bias === "BEARISH" ? "BEARISH" : "BULLISH";
+    try {
+      const row = await db
+        .select({
+          id: paperTradeFoTable.id,
+          entryPremium: paperTradeFoTable.entryPremium,
+          lots: paperTradeFoTable.lots,
+          lotSize: paperTradeFoTable.lotSize,
+        })
+        .from(paperTradeFoTable)
+        .where(
+          and(
+            eq(paperTradeFoTable.signalDate, signalDate),
+            eq(paperTradeFoTable.indexSymbol, signal.index),
+            eq(paperTradeFoTable.setupKey, setupKey),
+            eq(paperTradeFoTable.direction, direction),
+            eq(paperTradeFoTable.status, "OPEN"),
+          ),
+        )
+        .limit(1);
+      if (row.length === 0) continue;
+      const r = row[0]!;
+      const entry = num(r.entryPremium);
+      const upnl = (ltp - entry) * r.lots * r.lotSize;
+      await db
+        .update(paperTradeFoTable)
+        .set({
+          lastPremium: toDbNumeric(ltp, 4),
+          lastEvaluatedAt: new Date(),
+          maxRunup: sql`GREATEST(${paperTradeFoTable.maxRunup}, ${toDbNumeric(upnl, 2)}::numeric)`,
+          maxDrawdown: sql`LEAST(${paperTradeFoTable.maxDrawdown}, ${toDbNumeric(upnl, 2)}::numeric)`,
+        })
+        .where(and(eq(paperTradeFoTable.id, r.id), eq(paperTradeFoTable.status, "OPEN")));
+    } catch (err) {
+      logger.warn(
+        {
+          err: (err as Error).message,
+          idx: signal.index,
+          setup: setupKey,
+        },
+        "markOpenFnoTradesToMarket: MTM update failed for one row, continuing",
+      );
+    }
+  }
+}
+
+/**
  * Update the live last-known premium on an open row so we have a fresh
  * value for MTM display and for the EXPIRED close fallback. Also keeps
  * max_runup / max_drawdown in step.
+ *
+ * NOTE (P20): this lifecycle-hook path is effectively a no-op for MFE/MAE
+ * because the lifecycle fires BEFORE option-premium enrichment in
+ * optionSignals.ts (see line ~2360 vs ~2409). `signal.optionLtp` is
+ * undefined here and we early-return. Kept for the future case where
+ * the hook DOES carry a fresh LTP (e.g. from an enriched re-emission),
+ * and as a defensive write of last_premium when one arrives. The actual
+ * intra-session MFE/MAE growth is driven by `markOpenFnoTradesToMarket`
+ * above.
  */
 async function markToMarket(input: LifecycleHookInput): Promise<void> {
   const { signal, signalDate, direction } = input;
