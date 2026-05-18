@@ -1,0 +1,219 @@
+P18b is accepted. Good work.
+
+The Monday live-session observability verification is approved as complete.
+
+Accepted findings:
+
+* Production observability is alive.
+* `fno_signal_reasoning` is writing live rows.
+* 1,998 reasoning rows were captured today.
+* `EMITTED`, `PRE_EMISSION_REJECTED`, `SKIPPED`, `OPENED`, and `CLOSED_TIME_EXIT_1520` were observed.
+* Lifecycle fingerprint coverage is 100% for today’s opened/closed trades.
+* Endpoints are healthy.
+* `/infra-health` is usable for F&O diagnostics.
+* Shadow cost analytics are working.
+* No code was changed in P18b.
+* No trading behavior changed.
+
+Important findings to investigate next:
+
+1. No `CLOSED_TARGET1` or `CLOSED_TARGET2` rows have ever appeared in production history.
+2. Today’s two trades were force-exited at 15:20 in profit.
+3. Historical stop losses are concentrated in SENSEX BASELINE, but sample size is small.
+4. HC/high-conviction emission appears starved.
+5. Many signals are rejected before opening.
+6. Several signals remain expired/untriggered.
+
+Do not implement any stop-loss change yet.
+
+You are now approved to proceed with **P19: F&O Stop-Loss and Target-Reachability Diagnosis** only.
+
+This is a read-only diagnosis task.
+
+Purpose:
+
+Before changing stop loss, target, partial booking, or trailing logic, determine whether the current F&O failure is caused by:
+
+* stops being too tight,
+* targets being too far,
+* target-hit path not being reached/logged,
+* force-exit closing profitable trades before target,
+* stale/untriggered entries,
+* SENSEX BASELINE needing separate stop calibration,
+* or some other setup/index/tier issue.
+
+Scope approved for P19:
+
+1. Diagnose historical and live F&O stop-loss behavior.
+
+2. Focus first on:
+
+   * SENSEX BASELINE,
+   * all BASELINE trades,
+   * all stopped trades,
+   * all force-exited profitable trades,
+   * all expired/untriggered signals.
+
+3. Analyse all available rows from:
+
+   * `fno_signal_reasoning`,
+   * `paper_trade_fo`,
+   * `option_signal_history`,
+   * `paper_daily_summary_fo`,
+   * shadow-cost analytics,
+   * failure-diagnosis analytics.
+
+4. For stopped trades, calculate where available:
+
+   * index,
+   * setup,
+   * tier,
+   * direction,
+   * option type,
+   * strike,
+   * entry premium,
+   * stop premium,
+   * exit premium,
+   * gross P&L,
+   * shadow net P&L,
+   * time from open to stop,
+   * stop distance as % of premium,
+   * stop distance in points,
+   * regime,
+   * confidence,
+   * confluence score,
+   * IV/VIX context if available,
+   * OI/spread/liquidity context if available.
+
+5. Determine whether stops are likely too tight by comparing:
+
+   * stop distance vs option premium,
+   * stop distance vs typical intraday option movement if available,
+   * stop distance vs setup/index volatility,
+   * stop distance vs time held,
+   * stopped trade MFE/MAE if available.
+
+6. Analyse target reachability.
+
+   Specifically answer:
+
+   * Have any trades ever reached Target 1?
+   * Have any trades ever reached Target 2?
+   * Are T1/T2 levels too far from entry?
+   * Are trades being force-exited profitably before T1?
+   * Is the T1/T2 close path actually wired and logging?
+   * Are target-hit statuses missing because no trade reached target, or because logging/status update is incomplete?
+   * Would a lower T1 or partial-booking rule have captured today’s profitable force-exited trades?
+
+7. Analyse force-exit behavior.
+
+   For `CLOSED_TIME_EXIT_1520` trades:
+
+   * were they profitable at force-exit?
+   * how close were they to T1/T2?
+   * how much unrealised profit existed before force-exit?
+   * should they have trailed earlier?
+   * should T1 have been closer?
+   * should partial booking have occurred before 15:20?
+
+8. Analyse stale/untriggered and expired signals.
+
+   For expired/untriggered signals:
+
+   * setup,
+   * index,
+   * direction,
+   * trigger distance from price,
+   * time of generation,
+   * time until expiry,
+   * whether generated too late,
+   * whether trigger was unrealistic,
+   * whether confidence was low,
+   * whether setup should be rejected earlier.
+
+9. Produce a diagnosis report with:
+
+   A. Stop-loss analysis
+   B. SENSEX BASELINE analysis
+   C. Target reachability analysis
+   D. Force-exit profit capture analysis
+   E. Stale/untriggered signal analysis
+   F. Setup/index/tier comparison
+   G. Whether stop recalibration is justified
+   H. Whether target/partial-booking adjustment is more urgent
+   I. Whether the T1/T2 path needs code inspection
+   J. Recommended first actual correction, but do not implement it
+
+10. Rank these possible corrections after diagnosis:
+
+* SENSEX BASELINE stop-loss widening,
+* setup-wise/index-wise stop recalibration,
+* lower T1 target,
+* T1 partial booking,
+* trail-to-breakeven after unrealised profit,
+* force-exit improvement,
+* stale trigger rejection,
+* untriggered signal filter,
+* target path/logging fix,
+* option-chain confirmation gate.
+
+11. Do not implement any correction in P19.
+
+12. Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* stop-loss logic,
+* target logic,
+* partial booking,
+* trailing stop,
+* sizing logic,
+* gate thresholds,
+* confluence scoring,
+* paper-trade execution,
+* realised P&L,
+* DD/circuit breakers,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* database schema.
+
+13. If you find that the T1/T2 close path is not wired or not logging correctly, report it as a bug with:
+
+* exact file/function,
+* evidence,
+* smallest proposed fix,
+* whether it changes trading behavior,
+* test plan.
+
+14. If you find that stop-loss is genuinely too tight, do not change it yet. Provide:
+
+* exact proposed stop rule,
+* index/setup/tier affected,
+* expected impact,
+* risk,
+* rollback plan,
+* shadow-test plan before live promotion.
+
+Expected final output:
+
+1. Files changed, if any. Prefer no files changed.
+2. Stop-loss diagnosis.
+3. SENSEX BASELINE diagnosis.
+4. Target reachability diagnosis.
+5. Force-exit profit capture diagnosis.
+6. Expired/untriggered signal diagnosis.
+7. Evidence tables.
+8. Recommended first actual correction.
+9. Implementation plan for that correction.
+10. Risk and rollback plan.
+11. Confirmation that no code/trading behavior was changed.
+
+Proceed with P19 diagnosis only.
