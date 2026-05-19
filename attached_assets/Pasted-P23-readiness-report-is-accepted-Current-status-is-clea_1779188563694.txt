@@ -1,0 +1,109 @@
+P23 readiness report is accepted.
+
+Current status is clear:
+
+* P23 is **deferred**, not failed.
+* P22 has not yet been deployed to production.
+* Today’s production data was generated on pre-P22 code.
+* No open F&O trades are currently available for live sweep verification.
+* Production historical rows confirm the exact MTM-staleness problem P22 is designed to fix.
+* The 2026-05-19 trade verified P20 MFE/MAE, but it does not verify P22 because P22 was not deployed to production at that time.
+* No code, schema, workflow, or trading behavior was changed during this verification.
+
+Decision:
+
+Do not run further P23 verification until P22 is deployed to production and a full live session has completed.
+
+Next required action from my side:
+
+I will deploy/publish the latest code so P22 is live in production.
+
+After deployment, wait for the next full live market session.
+
+Once the next session is complete, proceed with **P23 Live Verification After P22 Production Deployment**.
+
+Scope for next P23 run:
+
+1. Confirm production is running the P22 build.
+
+2. Confirm `getMtmSweepHealth()` is available in production.
+
+3. Confirm at least one live F&O paper trade opens after P22 deployment.
+
+4. During the session, verify:
+
+   * `cyclesTotal > 0`,
+   * `rowsUpdatedTotal > 0` if open trades exist,
+   * `considered` count,
+   * `updatedFromChain` count,
+   * `skippedAlreadyFresh` count,
+   * `skippedNoQuote` count,
+   * `errors` count,
+   * latest success timestamp,
+   * latest error class/message if any.
+
+5. For all OPEN trades, verify:
+
+   * `last_premium` updates,
+   * `last_evaluated_at` advances,
+   * `max_runup` updates when premium moves favourably,
+   * `max_drawdown` updates when premium moves adversely,
+   * MTM does not become stale when the trade drops out of the current signal cohort.
+
+6. After close, verify:
+
+   * final status,
+   * final exit reason,
+   * final `last_premium`,
+   * final `max_runup`,
+   * final `max_drawdown`,
+   * final realised P&L,
+   * force-exit settlement math if applicable,
+   * shadow-exits inclusion.
+
+7. Run these production read-only checks:
+
+```sql
+SELECT signal_date, COUNT(*) AS n,
+       COUNT(*) FILTER (WHERE max_runup > 0) AS nz_runup,
+       COUNT(*) FILTER (WHERE max_drawdown < 0) AS nz_drawdown,
+       MAX(last_evaluated_at) AS latest_mtm
+FROM paper_trade_fo
+WHERE status = 'CLOSED' AND signal_date = CURRENT_DATE
+GROUP BY signal_date;
+```
+
+And for open trades during the session:
+
+```sql
+SELECT id, signal_date, index_symbol, setup_key, direction, option_type,
+       selected_strike, status, entry_premium, last_premium,
+       max_runup, max_drawdown, last_evaluated_at
+FROM paper_trade_fo
+WHERE status = 'OPEN'
+ORDER BY created_at DESC;
+```
+
+8. Produce a final P23 report with:
+
+   A. Production build/deploy confirmation
+   B. MTM sweep health counters
+   C. Open trade MTM status
+   D. Closed trade MFE/MAE status
+   E. Staleness comparison vs pre-P22 rows
+   F. Force-exit settlement check
+   G. Errors/skipped quote summary
+   H. Whether P22 is fully verified
+   I. Whether more sessions are needed
+   J. Confirmation that no code or trading behavior was changed during verification
+
+Guardrails:
+
+Do not change code.
+Do not simulate trades.
+Do not force trades.
+Do not change F&O signal generation, entry, exit, stop-loss, target, partial booking, trailing stop, sizing, gates, confluence, realised P&L, DD/circuit-breakers, Kite execution, swing scanner, paper-equity, scanner recommendations, strategy builder, combo lane, option snapshot ingestion, candle warehouse ingestion, scheduler behavior, or schema.
+
+Also, do not reorganize `replit.md` right now. We will handle documentation cleanup separately after P23 is completed.
+
+Stand by until I confirm P22 has been deployed to production and the next live market session has completed.
