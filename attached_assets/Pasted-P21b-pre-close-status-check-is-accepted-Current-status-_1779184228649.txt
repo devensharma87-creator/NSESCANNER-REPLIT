@@ -1,0 +1,118 @@
+P21b pre-close status check is accepted.
+
+Current status is understood:
+
+* Trade is still OPEN at 15:12 IST.
+* Post-P20 MFE/MAE has already been verified as non-zero.
+* `max_runup` and `max_drawdown` are populated.
+* `last_premium` updated earlier.
+* `last_evaluated_at` has not advanced for around one hour.
+* This is not treated as a blocker yet.
+* No code/schema/trading behavior was changed.
+
+Important observation accepted:
+
+The current MTM hook appears to update only when the matching signal cohort is emitted again. If the open trade’s setup stops appearing in the active signal bundle, mark-to-market may go stale until force-exit or another matching signal appears.
+
+This should be noted as a follow-up item, but do not fix it now.
+
+After 15:35 IST, please run the full **P21b EOD Verification Report**.
+
+Verify:
+
+1. Whether the BANKNIFTY EMA_PULLBACK trade closed.
+
+2. Final close reason:
+
+   * `CLOSED_TIME_EXIT_1520`
+   * `STOPPED`
+   * `TARGET1`
+   * `TARGET2`
+   * `EXPIRED`
+   * `MANUAL`
+   * or abnormal still-open state.
+
+3. Final trade fields:
+
+   * final status,
+   * exit reason,
+   * entry premium,
+   * exit premium,
+   * last premium,
+   * realised P&L,
+   * max_runup,
+   * max_drawdown,
+   * last_evaluated_at,
+   * signal_fingerprint.
+
+4. Confirm final MFE/MAE values persisted after close.
+
+5. Confirm `/api/paper/analytics/fo/shadow-exits` includes this trade.
+
+6. Confirm `/infra-health` shadow-exits section reflects:
+
+   * raw row count,
+   * processed row count,
+   * `mfeAvailableCount`,
+   * low-sample warning,
+   * best shadow rule if any,
+   * limitations.
+
+7. Confirm whether `mfeAvailableCount` increased from `0` to `1`.
+
+8. Run reasoning/funnel checks:
+
+   * today’s decision histogram,
+   * EMITTED count,
+   * PRE_EMISSION_REJECTED count,
+   * SKIPPED count,
+   * OPENED count,
+   * CLOSED count,
+   * signal_fingerprint coverage,
+   * top rejection/skipped reasons.
+
+9. Include MTM staleness analysis:
+
+   * how long `last_evaluated_at` remained stale,
+   * whether this affected MFE/MAE accuracy,
+   * whether force-exit refreshed final values,
+   * whether future MTM should cover all OPEN trades independent of current signal cohort.
+
+10. Give a clear verdict:
+
+* P20 fully verified,
+* P20 partially verified with MTM-staleness follow-up,
+* or P20 failed/blocker.
+
+Do not change code.
+
+Do not change:
+
+* F&O signal generation,
+* entry logic,
+* exit logic,
+* stop-loss,
+* target,
+* partial booking,
+* trailing stop,
+* sizing,
+* gates,
+* confluence scoring,
+* realised P&L,
+* DD/circuit breakers,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* database schema.
+
+If the trade remains OPEN after force-exit window, report that as a blocker.
+
+If final MFE/MAE remains correct and persists after close, mark P21b as verified, but note that sample size is still too low for approving live exit changes.
+
+Do not recommend live T1 cap, partial booking, trail-to-breakeven, or stop/target changes yet unless you clearly label them as future follow-up recommendations only.
