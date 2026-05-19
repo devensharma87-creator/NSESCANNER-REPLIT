@@ -1,0 +1,97 @@
+Market is live now. Please proceed with **P21b Live Intraday Monitoring — Verification Only**.
+
+Important: this is **not** permission to change strategy or code.
+
+Use production/live DB read-only access only. Do not simulate data. Do not modify code.
+
+Purpose:
+
+Verify whether the P20 MFE/MAE fix is working during live market hours while F&O paper trades are open.
+
+Please check:
+
+1. Whether any F&O paper trade opened today after P20 deployment.
+2. Whether open F&O trades are receiving mark-to-market updates.
+3. Whether `last_premium` is updating.
+4. Whether `last_evaluated_at` is updating during the live session.
+5. Whether `max_runup` is updating when premium moves favourably.
+6. Whether `max_drawdown` is updating when premium moves adversely.
+7. Whether `signal_fingerprint` exists for lifecycle rows.
+8. Whether `/api/paper/analytics/fo/shadow-exits` is mounted and usable.
+9. Whether `/infra-health` shows the updated shadow-exits section.
+
+Run this query against production DB:
+
+```sql
+SELECT signal_date, status,
+  COUNT(*) AS n,
+  COUNT(*) FILTER (WHERE max_runup > 0)    AS nonzero_runup,
+  COUNT(*) FILTER (WHERE max_drawdown < 0) AS nonzero_dd,
+  MAX(last_premium) AS latest_premium,
+  MAX(last_evaluated_at) AS latest_mtm
+FROM paper_trade_fo
+WHERE signal_date >= CURRENT_DATE
+GROUP BY signal_date, status
+ORDER BY signal_date DESC;
+```
+
+Also check open trades:
+
+```sql
+SELECT id, signal_date, index_symbol, setup_key, direction, option_type,
+       selected_strike, entry_premium, last_premium,
+       max_runup, max_drawdown, last_evaluated_at, status
+FROM paper_trade_fo
+WHERE signal_date >= CURRENT_DATE
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+Expected live behavior:
+
+* If trades are open and option LTP is available, `last_premium` should update.
+* `last_evaluated_at` should advance during the session.
+* `max_runup` should become positive if premium moves above entry.
+* `max_drawdown` should become negative if premium moves below entry.
+* If no trades open today, report that clearly and do not force or simulate trades.
+
+Please produce a short intraday report:
+
+1. Production/live data source confirmed or not.
+2. Current market-time check.
+3. F&O paper trades opened today: yes/no/count.
+4. Open trade mark-to-market status.
+5. `last_premium` update status.
+6. `last_evaluated_at` update status.
+7. `max_runup` / `max_drawdown` status.
+8. Any logger or endpoint issue.
+9. Whether P20 appears to be working.
+10. Whether full P21b should still be re-run after 15:35 IST.
+
+Do not change:
+
+* F&O signal generation,
+* entry logic,
+* exit logic,
+* stop-loss,
+* target,
+* partial booking,
+* trailing stop,
+* sizing,
+* gates,
+* confluence scoring,
+* realised P&L,
+* DD/circuit breakers,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* database schema.
+
+If MFE/MAE is still zero while trades are open and `last_premium` is changing, report it as a blocker with exact rows and likely cause. Do not fix without approval.
+
+After market close, around 15:35 IST, we will run the final full **P21b EOD verification**.
