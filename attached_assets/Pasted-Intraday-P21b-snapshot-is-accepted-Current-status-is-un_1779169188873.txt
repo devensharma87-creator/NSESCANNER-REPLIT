@@ -1,0 +1,69 @@
+Intraday P21b snapshot is accepted.
+
+Current status is understood:
+
+* Production read-only data source confirmed.
+* P20 was deployed after yesterday’s market close, so yesterday’s trades are pre-P20 and cannot verify the fix.
+* No F&O paper trade has opened today yet.
+* Therefore MFE/MAE verification is currently **blocked, not failed**.
+* There is no evidence of P20 failure because there are no open trades to mark-to-market.
+* No blocker exists yet under the P21b blocker rule.
+* No code or trading behavior was changed.
+
+Please continue with **P21b Live Monitoring — Read-Only Only**.
+
+Do not change code.
+Do not simulate trades.
+Do not force trades.
+Do not change any F&O signal, entry, exit, stop-loss, target, sizing, gate, paper-trading, Kite, swing, scheduler, schema, or strategy logic.
+
+Next actions:
+
+1. Run one optional midday spot-check around 13:00–13:30 IST if market activity develops.
+
+2. Run the full P21b EOD verification after 15:35 IST today.
+
+3. If no trades open all day:
+
+   * report that clearly,
+   * pull today’s `fno_signal_reasoning` decision histogram,
+   * explain whether the signal pipeline was active,
+   * show why no trade cleared the gates if reason data is available,
+   * keep P21b blocked until a post-P20 trade opens.
+
+4. If at least one F&O paper trade opens:
+
+   * verify `last_premium` updates,
+   * verify `last_evaluated_at` advances,
+   * verify `max_runup` becomes positive if premium moves favourably,
+   * verify `max_drawdown` becomes negative if premium moves adversely,
+   * verify closed trades preserve final MFE/MAE,
+   * verify `/api/paper/analytics/fo/shadow-exits` reflects the new trade,
+   * verify `/infra-health` shadow-exits section updates.
+
+5. For EOD report, provide:
+
+   A. Production data confirmation
+   B. F&O paper trades opened today
+   C. MFE/MAE status
+   D. Mark-to-market status
+   E. Shadow-exits status
+   F. Reasoning row histogram
+   G. Signal funnel
+   H. Any blocker
+   I. Whether P20 is verified, still blocked, or failed
+   J. Recommended next step
+
+Important blocker rule:
+
+If a post-P20 trade opens and `last_premium` / `last_evaluated_at` update but `max_runup` and `max_drawdown` remain stuck at zero despite price movement, stop and report it as a blocker with:
+
+* exact rows,
+* affected functions,
+* likely cause,
+* smallest proposed fix,
+* whether it changes trading behavior.
+
+Until the EOD report is complete, do not recommend live exit changes such as T1 cap, partial booking, trail-to-breakeven, stop-loss changes, or target changes.
+
+Proceed with read-only P21b monitoring only.
