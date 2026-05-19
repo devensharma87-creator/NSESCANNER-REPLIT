@@ -100,18 +100,92 @@ describe("pickLtpFromChain — pure", () => {
 describe("markAllOpenFnoTradesToMarket — fail-safe (no DB required)", () => {
   beforeEach(() => __resetMtmSweepHealthForTests());
 
-  dbit("resolves cleanly when chainFetcher throws", async () => {
-    // Use a sentinel-date with zero rows so the function loops nothing.
+  dbit("resolves cleanly when chainFetcher throws (zero considered rows)", async () => {
     const stats = await markAllOpenFnoTradesToMarket(
       "1999-01-01",
       async () => {
         throw new Error("synthetic chain failure");
       },
     );
-    // With zero considered rows, the throwing fetcher is never invoked,
-    // and the function resolves cleanly.
     expect(stats.considered).toBe(0);
     expect(stats.errors).toBe(0);
+  });
+
+  dbit("chainFetcher throw is swallowed per row; sweep still resolves", async () => {
+    await db
+      .transaction(async (tx) => {
+        await seedTrade(tx, {
+          signalDate: TEST_DATE,
+          indexSymbol: "BANKNIFTY",
+          setupKey: "EMA_PULLBACK",
+          direction: "BULLISH",
+          indexName: "BANKNIFTY",
+          optionType: "CE",
+          strike: 48000,
+          lots: 1,
+          lotSize: 30,
+          entryPremium: 700,
+          stopPremium: 600,
+          target1Premium: 760,
+          target2Premium: 820,
+          lastEvaluatedAt: new Date(Date.now() - 5 * 60_000),
+        });
+        const throwingFetcher = async () => {
+          throw new Error("synthetic chain failure");
+        };
+        const stats = await markAllOpenFnoTradesToMarket(
+          TEST_DATE,
+          throwingFetcher,
+          tx,
+        );
+        // The internal `.catch(() => null)` around chainFetcher converts the
+        // throw into a null chain, which then routes through the no-quote
+        // path. The sweep MUST resolve and the per-row try/catch MUST NOT
+        // re-throw into the caller.
+        expect(stats.considered).toBe(1);
+        expect(stats.updatedFromChain).toBe(0);
+        expect(stats.skippedNoQuote).toBe(1);
+        tx.rollback();
+      })
+      .catch(swallowIntentionalRollback);
+  });
+
+  dbit("strike float-jitter (48000.0000 vs 48000) still matches", async () => {
+    await db
+      .transaction(async (tx) => {
+        const id = await seedTrade(tx, {
+          signalDate: TEST_DATE,
+          indexSymbol: "BANKNIFTY",
+          setupKey: "EMA_PULLBACK",
+          direction: "BULLISH",
+          indexName: "BANKNIFTY",
+          optionType: "CE",
+          strike: 48000, // stored as numeric(_,4) → "48000.0000"
+          lots: 1,
+          lotSize: 30,
+          entryPremium: 700,
+          stopPremium: 600,
+          target1Premium: 760,
+          target2Premium: 820,
+          lastEvaluatedAt: new Date(Date.now() - 5 * 60_000),
+        });
+        // Chain returns the strike as the bare integer — the most common
+        // case. Verifies the epsilon match in pickLtpFromChain works through
+        // the full numeric-string round-trip.
+        const stats = await markAllOpenFnoTradesToMarket(
+          TEST_DATE,
+          async () => makeChain(48000, 720),
+          tx,
+        );
+        expect(stats.updatedFromChain).toBe(1);
+        const after = await tx
+          .select()
+          .from(paperTradeFoTable)
+          .where(eq(paperTradeFoTable.id, id));
+        expect(Number(after[0]!.lastPremium)).toBeCloseTo(720, 2);
+        tx.rollback();
+      })
+      .catch(swallowIntentionalRollback);
   });
 });
 

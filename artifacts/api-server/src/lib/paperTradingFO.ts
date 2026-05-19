@@ -1037,7 +1037,11 @@ export function pickLtpFromChain(
   optionType: "CE" | "PE",
 ): number | null {
   if (!chain || !Array.isArray(chain.rows)) return null;
-  const row = chain.rows.find((r) => r.strike === strike);
+  // Strikes are nominally integers (NSE 50/100-step), but paper_trade_fo
+  // stores them as numeric(_, 4) so the round-tripped value can be e.g.
+  // 48000.0000. Use a sub-step epsilon (0.01) so float jitter never causes
+  // a spurious miss — strict === would be brittle.
+  const row = chain.rows.find((r) => Math.abs(r.strike - strike) < 0.01);
   if (!row) return null;
   const side = optionType === "CE" ? row.ce : row.pe;
   const ltp = side?.ltp;
