@@ -1,0 +1,152 @@
+P22 is accepted. Good work.
+
+The All-Open F&O Paper Trade MTM Coverage Fix is approved as complete.
+
+Accepted final state:
+
+* Cohort-only MTM staleness gap is fixed.
+* `markAllOpenFnoTradesToMarket(signalDate)` now refreshes every OPEN `paper_trade_fo` row.
+* Existing cohort MTM path remains.
+* All-open MTM sweep runs after the cohort path.
+* `last_premium`, `last_evaluated_at`, `max_runup`, and `max_drawdown` now have better live coverage.
+* Strike-match epsilon hardening added.
+* Chain-fetcher failure test added.
+* `getMtmSweepHealth()` diagnostics are available.
+* 493/493 tests passed.
+* Typecheck passed.
+* No schema change.
+* No signal generation change.
+* No entry logic change.
+* No stop-loss/target formula change.
+* No sizing/gate/confluence change.
+* No Kite execution, swing, equity, strategy, combo, option snapshot, candle warehouse, or scheduler behavior changed.
+
+Approved behavior impact is accepted:
+
+* 15:20 force-exit settlement may now use fresher `last_premium`.
+* BASELINE intra-day loss-cap may now use fresher `last_premium`.
+* This is accepted because it improves paper-trade accuracy and risk visibility.
+
+Do not change P22 further unless I separately ask.
+
+Now proceed with **P23: Live Verification of All-Open F&O MTM Sweep** only.
+
+Purpose:
+
+Verify during the next live market session that P22 keeps all OPEN F&O paper trades marked-to-market even when the original setup/signal cohort no longer appears.
+
+This is verification only. Do not change code.
+
+Scope for P23:
+
+1. During the next live market session, monitor any OPEN F&O paper trades.
+
+2. Confirm that every OPEN trade receives MTM updates even if its setup is no longer in the current signal cohort.
+
+3. Verify:
+
+   * `last_premium` updates,
+   * `last_evaluated_at` advances,
+   * `max_runup` updates on favourable movement,
+   * `max_drawdown` updates on adverse movement,
+   * no stale MTM gap like the previous 66-minute stale window,
+   * force-exit still works normally,
+   * realised P&L remains mathematically correct,
+   * no trade status is changed by MTM sweep itself.
+
+4. Verify `getMtmSweepHealth()` or equivalent diagnostics:
+
+   * `cyclesTotal`,
+   * `rowsUpdatedTotal`,
+   * last cycle considered count,
+   * updated from chain count,
+   * skipped already fresh count,
+   * skipped no quote count,
+   * errors count,
+   * last success timestamp,
+   * last error class/message if any.
+
+5. If possible, compare:
+
+   * cohort MTM updates,
+   * all-open sweep MTM updates,
+   * force-exit final MTM update.
+
+6. Run production DB read-only checks only. Do not simulate trades.
+
+Suggested checks:
+
+```sql
+SELECT id, signal_date, index_symbol, setup_key, direction, option_type,
+       selected_strike, status, entry_premium, last_premium,
+       max_runup, max_drawdown, last_evaluated_at
+FROM paper_trade_fo
+WHERE status = 'OPEN'
+ORDER BY created_at DESC;
+```
+
+And after close:
+
+```sql
+SELECT signal_date, status,
+       COUNT(*) AS n,
+       COUNT(*) FILTER (WHERE max_runup > 0) AS nonzero_runup,
+       COUNT(*) FILTER (WHERE max_drawdown < 0) AS nonzero_drawdown,
+       MAX(last_evaluated_at) AS latest_mtm
+FROM paper_trade_fo
+WHERE signal_date >= CURRENT_DATE
+GROUP BY signal_date, status
+ORDER BY signal_date DESC;
+```
+
+7. Produce a P23 report with:
+
+   A. Live data source confirmation
+   B. Number of OPEN trades monitored
+   C. MTM sweep health counters
+   D. Per-trade MTM update status
+   E. Whether any OPEN trade went stale
+   F. Force-exit settlement check, if applicable
+   G. Any errors or skipped quotes
+   H. Whether P22 is fully verified
+   I. Whether more sessions are needed
+   J. Confirmation that no code/trading behavior was changed during verification
+
+8. Do not approve or implement live exit changes yet.
+
+9. Do not change:
+
+   * F&O signal generation,
+   * F&O entry logic,
+   * F&O exit logic,
+   * stop-loss logic,
+   * target logic,
+   * partial booking,
+   * trailing stop,
+   * sizing,
+   * gates,
+   * confluence scoring,
+   * realised P&L,
+   * DD/circuit-breakers,
+   * Kite order/execution,
+   * swing scanner,
+   * paper-equity logic,
+   * scanner recommendations,
+   * strategy builder,
+   * combo lane,
+   * option snapshot ingestion,
+   * candle warehouse ingestion,
+   * scheduler behavior,
+   * database schema.
+
+10. If all-open MTM sweep fails or causes unexpected behaviour, stop and report:
+
+* exact trade rows,
+* affected function,
+* likely cause,
+* smallest proposed fix,
+* whether it changes trading behavior.
+
+After P23, continue collecting post-P20/P22 closed trades until we have meaningful MFE-available sample size before approving live T1 cap, partial booking, trail-to-breakeven, stop-loss recalibration, or target changes.
+
+Proceed with P23 verification only during the next live session.
