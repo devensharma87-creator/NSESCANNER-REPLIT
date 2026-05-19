@@ -50,7 +50,7 @@ import {
   getDailyRealizedDrawdown,
   getWeeklyRealizedDrawdown,
 } from "./paperAccount";
-import { fetchOptionChain, LOT_SIZES } from "./optionChain";
+import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
 import { logger } from "./logger";
 import { computeMarketStatus } from "./marketEvents";
 import { isActionableForFno, type DataQualityLabel } from "./tradingConfig";
@@ -1022,6 +1022,245 @@ export async function markOpenFnoTradesToMarket(
         "markOpenFnoTradesToMarket: MTM update failed for one row, continuing",
       );
     }
+  }
+}
+
+/**
+ * P22: Pure helper. Pick the LTP for a (strike, optionType) from an
+ * already-fetched option chain. Returns null when the chain is missing,
+ * has no matching row, or the leg has no usable ltp. Exposed for unit
+ * tests; also used by markAllOpenFnoTradesToMarket below.
+ */
+export function pickLtpFromChain(
+  chain: OcResponse | null | undefined,
+  strike: number,
+  optionType: "CE" | "PE",
+): number | null {
+  if (!chain || !Array.isArray(chain.rows)) return null;
+  const row = chain.rows.find((r) => r.strike === strike);
+  if (!row) return null;
+  const side = optionType === "CE" ? row.ce : row.pe;
+  const ltp = side?.ltp;
+  if (ltp == null || !Number.isFinite(ltp) || ltp <= 0) return null;
+  return ltp;
+}
+
+/**
+ * P22: per-cycle MTM-sweep diagnostics, surfaced via getOperationalAlerts().
+ * Process-local; resets on restart. Observability only — never read by any
+ * trading-decision path.
+ */
+interface MtmSweepCycleStats {
+  considered: number;
+  updatedFromChain: number;
+  skippedAlreadyFresh: number;
+  skippedNoQuote: number;
+  errors: number;
+}
+let mtmSweepLastCycle: MtmSweepCycleStats | null = null;
+let mtmSweepLastSuccessAt: Date | null = null;
+let mtmSweepLastErrorAt: Date | null = null;
+let mtmSweepLastErrorClass: string | null = null;
+let mtmSweepLastErrorMessage: string | null = null;
+let mtmSweepCyclesTotal = 0;
+let mtmSweepRowsUpdatedTotal = 0;
+
+export interface MtmSweepHealth {
+  cyclesTotal: number;
+  rowsUpdatedTotal: number;
+  lastCycle: MtmSweepCycleStats | null;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorClass: string | null;
+  lastErrorMessage: string | null;
+}
+
+export function getMtmSweepHealth(): MtmSweepHealth {
+  return {
+    cyclesTotal: mtmSweepCyclesTotal,
+    rowsUpdatedTotal: mtmSweepRowsUpdatedTotal,
+    lastCycle: mtmSweepLastCycle,
+    lastSuccessAt: mtmSweepLastSuccessAt ? mtmSweepLastSuccessAt.toISOString() : null,
+    lastErrorAt: mtmSweepLastErrorAt ? mtmSweepLastErrorAt.toISOString() : null,
+    lastErrorClass: mtmSweepLastErrorClass,
+    lastErrorMessage: mtmSweepLastErrorMessage,
+  };
+}
+
+/** Test-only reset of the sweep-health counters. */
+export function __resetMtmSweepHealthForTests(): void {
+  mtmSweepLastCycle = null;
+  mtmSweepLastSuccessAt = null;
+  mtmSweepLastErrorAt = null;
+  mtmSweepLastErrorClass = null;
+  mtmSweepLastErrorMessage = null;
+  mtmSweepCyclesTotal = 0;
+  mtmSweepRowsUpdatedTotal = 0;
+}
+
+/**
+ * Window (ms) within which an OPEN row is considered "already freshly
+ * marked" by the cohort-driven path (markOpenFnoTradesToMarket above)
+ * and therefore skipped by the chain-driven sweep. Chosen comfortably
+ * larger than a single signal cycle so the chain sweep does not
+ * duplicate work the cohort path just did.
+ */
+const MTM_FRESHNESS_WINDOW_MS = 45_000;
+
+/**
+ * P22: Chain-driven MTM fallback. Marks every OPEN paper_trade_fo row for
+ * the current IST day to market by pulling the latest option chain per
+ * unique index and looking up the row's stored strike/optionType. Closes
+ * the cohort-staleness gap noted at P21b EOD: the existing
+ * markOpenFnoTradesToMarket only iterates the current signal cohort, so a
+ * row whose (index, setup, direction) drops out of the cohort goes idle
+ * until force-exit or the cohort returns.
+ *
+ * Observability-only. Touches only:
+ *   - paper_trade_fo.last_premium
+ *   - paper_trade_fo.last_evaluated_at
+ *   - paper_trade_fo.max_runup    (GREATEST — monotone)
+ *   - paper_trade_fo.max_drawdown (LEAST    — monotone)
+ *
+ * Never writes status / exit_premium / exit_reason / realized_pnl, never
+ * opens or closes a trade, never reads paper_account, never affects
+ * sizing / gates / DD / heat / circuit-breakers.
+ *
+ * Rate-limit / cost: at most one fetchOptionChain() call per unique
+ * indexSymbol (typically NIFTY / BANKNIFTY / SENSEX → ≤3). The chain
+ * layer already has its own ~5s TTL cache; intra-TTL re-calls are free.
+ *
+ * Fail-safe: every error (DB, chain, finite-math) is caught and logged;
+ * the function always resolves. The caller in optionSignals.ts
+ * additionally wraps it in `.catch(...)`.
+ *
+ * `chainFetcher` is injectable for tests; production passes the real
+ * `fetchOptionChain`.
+ */
+export async function markAllOpenFnoTradesToMarket(
+  signalDate: string,
+  chainFetcher: (
+    underlying: string,
+  ) => Promise<OcResponse | null> = (sym) => fetchOptionChain(sym),
+  /**
+   * Optional db handle override — production passes nothing (uses the
+   * module-level pool); tests pass a transaction handle so seeded rows
+   * and the sweep run inside the same rolled-back txn and leave zero
+   * footprint on the dev DB.
+   */
+  dbHandle: Pick<typeof db, "select" | "update"> = db,
+): Promise<MtmSweepCycleStats> {
+  const stats: MtmSweepCycleStats = {
+    considered: 0,
+    updatedFromChain: 0,
+    skippedAlreadyFresh: 0,
+    skippedNoQuote: 0,
+    errors: 0,
+  };
+  mtmSweepCyclesTotal += 1;
+  try {
+    const openRows = await dbHandle
+      .select({
+        id: paperTradeFoTable.id,
+        indexSymbol: paperTradeFoTable.indexSymbol,
+        optionType: paperTradeFoTable.optionType,
+        strike: paperTradeFoTable.strike,
+        entryPremium: paperTradeFoTable.entryPremium,
+        lots: paperTradeFoTable.lots,
+        lotSize: paperTradeFoTable.lotSize,
+        lastEvaluatedAt: paperTradeFoTable.lastEvaluatedAt,
+      })
+      .from(paperTradeFoTable)
+      .where(
+        and(
+          eq(paperTradeFoTable.signalDate, signalDate),
+          eq(paperTradeFoTable.status, "OPEN"),
+        ),
+      );
+
+    stats.considered = openRows.length;
+    if (openRows.length === 0) {
+      mtmSweepLastCycle = stats;
+      mtmSweepLastSuccessAt = new Date();
+      return stats;
+    }
+
+    const nowMs = Date.now();
+    const chainByIndex = new Map<string, OcResponse | null>();
+    for (const row of openRows) {
+      try {
+        // Skip rows the cohort path already refreshed within the window.
+        const lastEvalMs = row.lastEvaluatedAt
+          ? new Date(row.lastEvaluatedAt).getTime()
+          : 0;
+        if (nowMs - lastEvalMs < MTM_FRESHNESS_WINDOW_MS) {
+          stats.skippedAlreadyFresh += 1;
+          continue;
+        }
+
+        let chain = chainByIndex.get(row.indexSymbol);
+        if (chain === undefined) {
+          chain = await chainFetcher(row.indexSymbol).catch(() => null);
+          chainByIndex.set(row.indexSymbol, chain);
+        }
+        const ot = (row.optionType === "PE" ? "PE" : "CE") as "CE" | "PE";
+        const strikeNum = num(row.strike);
+        const ltp = pickLtpFromChain(chain, strikeNum, ot);
+        if (ltp == null) {
+          stats.skippedNoQuote += 1;
+          continue;
+        }
+        const entry = num(row.entryPremium);
+        const upnl = (ltp - entry) * row.lots * row.lotSize;
+        if (!Number.isFinite(upnl)) {
+          stats.skippedNoQuote += 1;
+          continue;
+        }
+        await dbHandle
+          .update(paperTradeFoTable)
+          .set({
+            lastPremium: toDbNumeric(ltp, 4),
+            lastEvaluatedAt: new Date(),
+            maxRunup: sql`GREATEST(${paperTradeFoTable.maxRunup}, ${toDbNumeric(upnl, 2)}::numeric)`,
+            maxDrawdown: sql`LEAST(${paperTradeFoTable.maxDrawdown}, ${toDbNumeric(upnl, 2)}::numeric)`,
+          })
+          .where(
+            and(
+              eq(paperTradeFoTable.id, row.id),
+              eq(paperTradeFoTable.status, "OPEN"),
+            ),
+          );
+        stats.updatedFromChain += 1;
+        mtmSweepRowsUpdatedTotal += 1;
+      } catch (err) {
+        stats.errors += 1;
+        mtmSweepLastErrorAt = new Date();
+        mtmSweepLastErrorClass = (err as Error).name ?? "Error";
+        mtmSweepLastErrorMessage = String((err as Error).message ?? "").slice(0, 200);
+        logger.warn(
+          {
+            err: (err as Error).message,
+            idx: row.indexSymbol,
+            id: row.id,
+          },
+          "markAllOpenFnoTradesToMarket: per-row MTM update failed, continuing",
+        );
+      }
+    }
+    mtmSweepLastCycle = stats;
+    mtmSweepLastSuccessAt = new Date();
+    return stats;
+  } catch (err) {
+    stats.errors += 1;
+    mtmSweepLastCycle = stats;
+    mtmSweepLastErrorAt = new Date();
+    mtmSweepLastErrorClass = (err as Error).name ?? "Error";
+    mtmSweepLastErrorMessage = String((err as Error).message ?? "").slice(0, 200);
+    logger.warn(
+      { err: (err as Error).message },
+      "markAllOpenFnoTradesToMarket: top-level failure, swallowed (observability-only)",
+    );
+    return stats;
   }
 }
 

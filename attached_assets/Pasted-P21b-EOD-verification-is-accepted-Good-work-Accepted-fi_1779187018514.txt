@@ -1,0 +1,151 @@
+P21b EOD verification is accepted.
+
+Good work.
+
+Accepted findings:
+
+* A post-P20 F&O paper trade opened and closed today.
+* Trade closed via `TIME_EXIT_1520` at 15:20 IST.
+* Final MFE/MAE values persisted after close.
+* `max_runup` and `max_drawdown` are no longer stuck at zero.
+* `last_premium` and `last_evaluated_at` updated.
+* Final math reconciles correctly.
+* The trade is eligible for the shadow-exits aggregator.
+* `mfeAvailableCount` should now move from `0` to `1`.
+* No code or trading behavior was changed during P21b.
+* No live exit change is approved yet.
+
+P20 is accepted as **live verified for primary MFE/MAE correctness**.
+
+However, one follow-up observability issue is accepted:
+
+The mark-to-market hook currently updates only when the open trade’s matching `(index, setup, direction)` appears in the current signal cohort. If the trade drops out of the active signal cohort, MTM can become stale until force-exit or until the signal returns.
+
+This does not prove trading behavior is wrong, but it can understate MFE/MAE and weaken shadow-exit analysis.
+
+Do **not** approve T1 cap, partial booking, trail-to-breakeven, stop-loss changes, target changes, option-chain gates, or strategy changes yet. Sample size is still too low.
+
+You are now approved to proceed with **P22: All-Open F&O Paper Trade MTM Coverage Fix** only.
+
+Purpose:
+
+Improve observability accuracy by ensuring all currently OPEN F&O paper trades receive mark-to-market updates during the live session, even if their original setup is no longer present in the current signal cohort.
+
+This is observability-only.
+
+Scope approved:
+
+1. Investigate the current MTM flow:
+
+   * `markOpenFnoTradesToMarket(signals, signalDate)`
+   * where it is called,
+   * what trade rows it updates,
+   * why it only updates cohort-matching trades.
+
+2. Implement the smallest safe change so that all OPEN F&O paper trades are marked to market periodically during the live F&O cycle.
+
+3. The update should refresh only observability fields:
+
+   * `last_premium`
+   * `last_evaluated_at`
+   * `max_runup`
+   * `max_drawdown`
+
+4. Do not change:
+
+   * trade status,
+   * stop-loss,
+   * target,
+   * entry,
+   * exit,
+   * realised P&L,
+   * DD caps,
+   * heat caps,
+   * signal generation,
+   * paper-trade opening,
+   * paper-trade closing,
+   * force-exit behavior.
+
+5. Prefer reusing already available live option-chain / quote data if safe.
+
+6. If fetching fresh option premium is required:
+
+   * use existing Kite/NSE quote paths,
+   * respect existing rate limits,
+   * avoid excessive calls,
+   * batch by index/expiry/strike where possible,
+   * fail quietly if quote is unavailable,
+   * never block the trading loop.
+
+7. The update must be non-blocking or fail-safe.
+   If MTM fails, it must not affect trade decisions.
+
+8. Add diagnostics if practical:
+
+   * count of open trades considered for MTM,
+   * count updated,
+   * count skipped due to missing quote,
+   * latest successful MTM timestamp,
+   * last MTM error class/message without sensitive values.
+
+9. Extend `/infra-health` or existing diagnostics only if safe.
+
+10. Add tests for:
+
+* open trade with fresh quote updates `last_premium`,
+* favourable move updates `max_runup`,
+* adverse move updates `max_drawdown`,
+* stale/missing quote does not throw,
+* closed trades are not updated,
+* update does not change status/exit/P&L,
+* multiple open trades can be processed,
+* failure does not break signal loop.
+
+11. Important guardrails:
+
+Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* stop-loss logic,
+* target logic,
+* partial booking,
+* trailing stop,
+* sizing logic,
+* gate thresholds,
+* confluence scoring,
+* realised P&L,
+* DD/circuit-breakers,
+* Kite order/execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* database schema unless absolutely unavoidable.
+
+12. If the smallest fix requires schema change, stop and ask first.
+
+13. If the smallest fix would affect trading behavior, stop and ask first.
+
+Expected final output:
+
+1. Root cause of MTM staleness.
+2. Files changed.
+3. MTM coverage fix implemented.
+4. How all OPEN trades are discovered.
+5. How option premium is fetched or reused.
+6. Rate-limit/fail-safe behavior.
+7. Diagnostics added, if any.
+8. Tests/typecheck result.
+9. Sample before/after behavior.
+10. Confirmation that no live trading behavior changed.
+11. Confirmation that no swing/paper-equity/Kite execution/data-ingestion behavior changed.
+
+After P22, continue collecting post-P20/P22 closed F&O trades until we have a meaningful MFE-available sample, ideally around 20 trades, before approving live exit changes.
+
+Proceed with P22 only.

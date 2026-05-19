@@ -2419,7 +2419,7 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // Paper-trade opens MUST run AFTER enrichment so that signal.optionEntry
   // etc. are populated.  The lifecycle hook (recordLifecycle → onLifecycleUpsert)
   // only handles MTM + close; opens are deferred here.
-  const { tryOpenPaperTrades, markOpenFnoTradesToMarket } = await import("./paperTradingFO");
+  const { tryOpenPaperTrades, markOpenFnoTradesToMarket, markAllOpenFnoTradesToMarket } = await import("./paperTradingFO");
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const signalDate = istNow.toISOString().slice(0, 10);
   await tryOpenPaperTrades(allSignals, signalDate).catch((err) =>
@@ -2434,6 +2434,15 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // (matches existing behaviour where last_premium == entry_premium at open).
   await markOpenFnoTradesToMarket(allSignals, signalDate).catch((err) =>
     logger.warn({ err: (err as Error).message }, "markOpenFnoTradesToMarket failed"),
+  );
+
+  // P22: Chain-driven fallback sweep. Catches OPEN rows whose (index, setup,
+  // direction) is NOT in the current signal cohort and therefore got skipped
+  // by the cohort path above. Observability-only; never opens / closes /
+  // changes any decision-affecting field. Internal 45s freshness window
+  // avoids duplicating cohort-path work. Fail-safe and idempotent.
+  await markAllOpenFnoTradesToMarket(signalDate).catch((err) =>
+    logger.warn({ err: (err as Error).message }, "markAllOpenFnoTradesToMarket failed"),
   );
 
   // Sweep open rows to EXPIRED after market close (no-op intra-session).
