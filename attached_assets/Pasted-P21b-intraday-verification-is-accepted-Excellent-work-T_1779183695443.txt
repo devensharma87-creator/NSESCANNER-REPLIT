@@ -1,0 +1,85 @@
+P21b intraday verification is accepted.
+
+Excellent work. This confirms that the P20 MFE/MAE fix is working live.
+
+Accepted findings:
+
+* A post-P20 F&O paper trade opened today.
+* Trade: BANKNIFTY EMA_PULLBACK BULLISH CALL.
+* `last_premium` is updating.
+* `last_evaluated_at` is fresh.
+* `max_runup` is non-zero.
+* `max_drawdown` is non-zero.
+* MFE/MAE values reconcile correctly with live premium movement.
+* The previous zero MFE/MAE issue is fixed.
+* No blocker exists.
+* No code or trading behavior was changed during verification.
+
+Current status:
+
+P20 is **intraday verified**, but not yet fully EOD verified because the trade is still open.
+
+Please continue with **P21b EOD Verification — Read-Only Only** after 15:35 IST.
+
+At EOD, verify:
+
+1. Whether the BANKNIFTY EMA_PULLBACK trade closed.
+
+2. Final status:
+
+   * STOPPED,
+   * TARGET1,
+   * TARGET2,
+   * TIME_EXIT_1520,
+   * EXPIRED,
+   * MANUAL,
+   * or still OPEN if abnormal.
+
+3. Final `last_premium`.
+
+4. Final `last_evaluated_at`.
+
+5. Final `max_runup`.
+
+6. Final `max_drawdown`.
+
+7. Final realised P&L.
+
+8. Whether final MFE/MAE values persisted after close.
+
+9. Whether the trade appears in:
+
+   * `/api/paper/analytics/fo/shadow-exits`
+   * `/infra-health` shadow-exits section
+
+10. Whether `mfeAvailableCount` increased from `0` to `1`.
+
+Also run the full EOD P21b report:
+
+A. Production data confirmation
+B. F&O paper trades opened today
+C. Final trade lifecycle status
+D. MFE/MAE health
+E. Mark-to-market health
+F. Shadow-exits report
+G. Reasoning row histogram
+H. Signal funnel
+I. Any blocker
+J. Whether P20 is fully verified after EOD close
+K. Recommended next step
+
+Important:
+
+Do not change code.
+Do not simulate data.
+Do not force-close manually unless existing system does so automatically.
+Do not change F&O signal generation, entry, exit, stop-loss, target, partial booking, trailing stop, sizing, gates, confluence scoring, realised P&L, DD/circuit-breakers, Kite, swing scanner, paper-equity, strategy, combo, option snapshots, candle warehouse, scheduler, schema, or scanner logic.
+
+After EOD verification:
+
+* If final MFE/MAE persisted correctly, mark P21b as fully verified.
+* If `mfeAvailableCount = 1`, note that sample size is still too low for live exit changes.
+* Do not approve T1 cap, partial booking, or trail-to-breakeven yet.
+* Continue collecting post-P20 closed trades until sample size is meaningful, ideally around 20 MFE-available closed trades.
+
+For now, continue monitoring read-only and prepare the EOD report after 15:35 IST.
