@@ -1,0 +1,59 @@
+11:10 IST spot-check is accepted.
+
+Current status is clear:
+
+* No F&O paper trades opened today yet.
+* No open trades exist.
+* Therefore P20 MFE/MAE fix has not been exercised yet.
+* This is **blocked, not failed**.
+* No code/schema/trading behavior was changed.
+
+Please continue with **read-only P21b monitoring only**.
+
+Next steps:
+
+1. Run one optional spot-check around **13:00–13:30 IST**.
+
+2. If a trade opens before then, immediately verify live mark-to-market:
+
+   * `last_premium`
+   * `last_evaluated_at`
+   * `max_runup`
+   * `max_drawdown`
+   * `signal_fingerprint`
+   * corresponding reasoning rows
+
+3. If no trade opens by EOD, then after **15:35 IST** run the full P21b report and include:
+
+   * no-trade confirmation,
+   * today’s `fno_signal_reasoning` decision histogram,
+   * number of `EMITTED` rows,
+   * number of `PRE_EMISSION_REJECTED` rows,
+   * number of `SKIPPED` rows,
+   * top rejection reasons,
+   * top skipped reasons,
+   * whether the signal pipeline was active,
+   * why no trade cleared the opening gates if reason data explains it.
+
+4. If a trade opens and closes today, run full P21b EOD verification:
+
+   * post-P20 trade count,
+   * MFE/MAE health,
+   * mark-to-market health,
+   * shadow-exits report,
+   * sample-size status,
+   * whether any shadow rule is promising,
+   * whether enough evidence exists for live T1/partial-booking approval.
+
+Important guardrails:
+
+Do not change code.
+Do not simulate trades.
+Do not force trades.
+Do not change F&O signal generation, entry, exit, stop-loss, target, partial booking, trailing stop, sizing, gates, realised P&L, DD/circuit breakers, Kite, swing scanner, paper-equity, scanner recommendations, option snapshot ingestion, candle warehouse ingestion, scheduler, schema, or strategy logic.
+
+If there are still no trades at EOD, do **not** treat P20 as failed. Report it as:
+
+`P21b remains blocked because no post-P20 F&O paper trade opened today.`
+
+For now, do not reorganize `replit.md`. We will handle documentation cleanup separately later.
