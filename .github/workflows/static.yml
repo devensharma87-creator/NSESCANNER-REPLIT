@@ -23,15 +23,16 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
+          version: 10
           run_install: false
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -47,10 +48,10 @@ jobs:
           PORT: 4173
           BASE_PATH: /NSESCANNER-REPLIT/
 
-      - name: Add SPA fallback
+      - name: Add 404 fallback for GitHub Pages
         run: cp artifacts/scanner/dist/public/index.html artifacts/scanner/dist/public/404.html
 
-      - name: Setup Pages
+      - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload GitHub Pages artifact
@@ -60,4 +61,4 @@ jobs:
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v4`
