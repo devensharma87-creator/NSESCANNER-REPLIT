@@ -1,0 +1,155 @@
+P24 report is accepted.
+
+Decision-gate verdict is approved:
+
+* `mfeAvailableCount = 3`
+* Minimum threshold = 20
+* Sample is far too small.
+* No live exit change is approved.
+* No target change is approved.
+* No stop-loss change is approved.
+* No T1 cap is approved.
+* No partial booking is approved.
+* No trail-to-breakeven is approved.
+* No shadow-exit rule is promoted to watchlist yet.
+* All rules remain “not yet evaluable.”
+
+Accepted findings:
+
+* P20/P22/P23 infrastructure is working.
+* Post-fix MFE/MAE data is now usable.
+* Current strict evidence set is only 3 trades.
+* All 3 strict MFE-available trades are losses.
+* One BANKNIFTY trade makes +30% / +50% shadow exits look useful, but this is only one trade and not decision-grade.
+* There are not enough winners in the MFE-available sample to know whether partial booking would clip winners.
+* Evidence is directional only.
+* Gate remains closed.
+
+Now proceed with **P25: F&O Exit Evidence Collection Tracker — Read-Only Only**.
+
+Purpose:
+
+Continue collecting post-P20/P22/P23 F&O closed-trade evidence until we have enough MFE-available trades to make an exit decision.
+
+This is not a strategy task. This is not an implementation task.
+
+Scope:
+
+1. Prepare a repeatable EOD evidence-collection process.
+
+2. Use production read-only queries only.
+
+3. Track only closed F&O paper trades where MFE/MAE is usable:
+
+   * `max_runup > 0`
+   * `max_drawdown < 0`
+
+4. For each eligible trade, capture:
+
+   * date,
+   * trade id,
+   * index,
+   * setup,
+   * direction,
+   * option type,
+   * strike,
+   * entry premium,
+   * exit premium,
+   * lots,
+   * lot size,
+   * realised P&L,
+   * MFE amount,
+   * MAE amount,
+   * MFE %,
+   * MAE %,
+   * exit reason,
+   * holding time,
+   * whether force-exit occurred,
+   * shadow-rule result for each rule.
+
+5. Track the same shadow rules from P24:
+
+   * R1: full exit at +30%,
+   * R2: full exit at +60%,
+   * R3: 50% book at +30% + breakeven trail,
+   * R4: 50% book at +50% + breakeven trail,
+   * R5: full breakeven trail after +50% MFE.
+
+6. For each rule, maintain:
+
+   * triggered count,
+   * improved count,
+   * worsened count,
+   * same count,
+   * total shadow P&L,
+   * delta versus actual,
+   * whether it clipped actual winners,
+   * whether it saved actual losers,
+   * whether result depends on one outlier.
+
+7. Produce a short EOD evidence summary when I ask:
+
+   A. Current `mfeAvailableCount`
+   B. New trades added since last report
+   C. Actual P&L of eligible cohort
+   D. Shadow-rule comparison
+   E. Setup/index/direction breakdown
+   F. Any rule showing early promise
+   G. Any rule showing early danger
+   H. Whether threshold is cleared
+   I. Whether live change is approved
+   J. Confirmation that no code/trading behavior changed
+
+8. Verdict rules:
+
+   * If `mfeAvailableCount < 20`, do not recommend implementation.
+   * If fewer than 5 shadow-trigger events exist for a rule, mark it as anecdotal only.
+   * If a rule’s positive result comes from one trade, mark it as outlier-dependent.
+   * If a rule clips winners materially, flag it immediately.
+   * If a rule converts an actual winner into a loser, flag it immediately.
+   * If a rule improves only losing trades but has no winner sample, do not approve it.
+   * If threshold clears, prepare a decision report only — still do not implement.
+
+9. Do not change code.
+
+10. Do not create or modify app files.
+
+11. If you need a local temporary evidence file, keep it outside the repo or in an agent scratch/output area only. Do not commit it.
+
+12. Do not modify `replit.md`.
+
+13. Do not change:
+
+* F&O signal generation,
+* entry logic,
+* exit logic,
+* stop-loss,
+* target,
+* partial booking,
+* trailing stop,
+* sizing,
+* gates,
+* confluence scoring,
+* realised P&L,
+* DD/circuit-breakers,
+* Kite execution,
+* swing scanner,
+* paper-equity,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* DB schema,
+* workflows,
+* route auth.
+
+Expected output now:
+
+* Confirm P25 evidence-tracker process.
+* Provide the exact read-only SQL bundle you will use.
+* Provide the EOD report template.
+* Confirm no implementation or strategy change will happen until `mfeAvailableCount >= 20` and the evidence gate clears.
+
+Proceed with P25 preparation only.
