@@ -1,0 +1,84 @@
+P25 preparation is accepted.
+
+The F&O Exit Evidence Collection Tracker process is approved.
+
+Accepted items:
+
+* Production read-only SQL bundle is approved.
+* Replica-clock guard is approved.
+* Correct MFE-available condition is approved:
+
+  * `max_runup > 0`
+  * `max_drawdown < 0`
+* Shadow rules R1–R5 remain unchanged from P24.
+* BE-trail approximation warning is accepted and must be carried forward in every report.
+* EOD A–J report template is approved.
+* Verdict rules are approved.
+* No background polling.
+* No scheduled checks.
+* No proactive re-pulls.
+* No repo file changes.
+* Any optional CSV trail must remain outside the repo under `.agents/outputs/p25/`.
+
+Current baseline:
+
+* `mfeAvailableCount = 3`
+* Minimum threshold = 20
+* Earliest eligible = 2026-05-19
+* Latest eligible = 2026-05-26
+* Next cursor starts from 2026-05-26
+* Gate remains closed.
+
+Important correction / clarification:
+
+For Q2, if parameterized SQL with `$1` is not supported by the executeSql tool, use a literal date safely inserted by you from the prior cursor, not user input. Example cursor:
+
+```sql
+AND signal_date > DATE '2026-05-26'
+```
+
+Do not use dynamic user-provided SQL.
+
+Proceed as follows:
+
+1. Stand by until I explicitly ask for an EOD report.
+2. When I ask, first run the replica-clock guard.
+3. If DB time is before 16:30 IST, mark the report deferred.
+4. If DB time is after 16:30 IST, run the approved P25 evidence bundle.
+5. Produce only the approved A–J evidence report.
+6. Do not recommend implementation unless the gate clears.
+7. Even if the gate clears, produce a decision report only — no code.
+
+Guardrails remain fully active:
+
+Do not change:
+
+* F&O signal generation,
+* entry logic,
+* exit logic,
+* stop-loss,
+* target,
+* partial booking,
+* trailing stop,
+* sizing,
+* gates,
+* confluence scoring,
+* realised P&L,
+* DD/circuit-breakers,
+* Kite execution,
+* swing scanner,
+* paper-equity,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`.
+
+No implementation or strategy change is approved.
+
+P25 is now armed. Stand by for the first EOD evidence ping.
