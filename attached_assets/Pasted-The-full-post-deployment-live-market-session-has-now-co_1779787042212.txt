@@ -1,0 +1,42 @@
+The full post-deployment live market session has now completed.
+
+Please run **P23 Live Verification After Deployment** now.
+
+Use production read-only checks only. Do not simulate trades, do not force trades, and do not change code, schema, workflow, auth, or trading behavior.
+
+If I provide `/api/paper/diagnostics/fo/mtm-sweep` JSON, include it in the report. If not available, mark sweep counters as not directly captured and use DB evidence as secondary proof.
+
+Run the agreed checks:
+
+1. Open-trade / latest MTM check.
+2. EOD closed-trade MFE/MAE rollup.
+3. Pre-vs-post-P22 staleness comparison.
+4. Force-exit settlement check.
+5. Any available production logs for MTM sweep errors.
+
+Produce the final A–K report:
+
+A. Production deploy confirmation
+B. Live session confirmation
+C. MTM sweep health counters
+D. Open trade MTM status
+E. Closed trade MFE/MAE status
+F. Staleness comparison versus pre-P22 rows
+G. Force-exit settlement check
+H. Errors or skipped quote summary
+I. Whether P22 is verified
+J. Whether more sessions are needed
+K. Confirmation that no code/trading behavior changed during verification
+
+Important verdict rule:
+
+* If there were no post-deployment F&O trades, mark P23 as **deferred, not failed**.
+* If there were trades and MFE/MAE populated correctly, mark P22/P23 as verified.
+* If MTM still goes stale or MFE/MAE stays zero, report blocker with exact rows and likely cause.
+* If today was only a partial post-deployment session, label it partial-session evidence and do not overstate final verification.
+
+Guardrails remain unchanged:
+
+Do not change F&O signal generation, entry, exit, stop-loss, target, partial booking, trailing stop, sizing, gates, confluence, realised P&L, DD/circuit-breakers, Kite execution, swing scanner, paper-equity, scanner, strategy builder, combo lane, option snapshot ingestion, candle ingestion, scheduler, DB schema, route auth, workflows, or `replit.md`.
+
+Proceed with P23 verification report only.
