@@ -60,3 +60,9 @@ id = "_iHL8akEq-sIINY6KU_dm"
 uri = "file://backups/website-backup-20260526-112102.tar.gz"
 type = "unspecified"
 title = "Website Backup — 2026-05-26 (full source, 332 MB)"
+
+[[outputs]]
+id = "T2gYBBEe1JBwOOhI5ERE-"
+uri = "file://backups/source-20260526-115036.tar.gz"
+type = "unspecified"
+title = "Website Source Backup — 2026-05-26 (1.6 MB)"
