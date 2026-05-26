@@ -45,6 +45,7 @@ import {
 import {
   closePaperTradeForSignal,
   getMissedSignals,
+  getMtmSweepHealth,
 } from "../lib/paperTradingFO";
 import {
   getReasoningLoggerHealth,
@@ -1076,6 +1077,28 @@ router.get("/paper/diagnostics/daily-summary/fo/history", requireOwner, async (r
   } catch (err) {
     return next(err);
   }
+});
+
+/**
+ * P23a — Owner-only MTM Sweep Diagnostics.
+ *
+ * Owner-only, READ-ONLY. Exposes the process-local counters maintained by
+ * `markAllOpenFnoTradesToMarket` (the P22 chain-driven MTM fallback) so
+ * P23 live verification can read sweep health directly instead of having
+ * to infer it from DB side-effects.
+ *
+ * This endpoint:
+ *   - never triggers an MTM sweep,
+ *   - never calls Kite / fetchOptionChain,
+ *   - never reads or mutates paper_trade_fo or any other table,
+ *   - never enqueues scheduler work,
+ *   - simply returns the in-memory snapshot from getMtmSweepHealth().
+ *
+ * Counters reset on api-server restart (process-local by design — see
+ * `paperTradingFO.ts` MtmSweepHealth declaration).
+ */
+router.get("/paper/diagnostics/fo/mtm-sweep", requireOwner, (_req, res) => {
+  res.json(getMtmSweepHealth());
 });
 
 router.get("/paper/analytics/fo", requireOwner, async (req, res, next) => {

@@ -1,0 +1,77 @@
+P23 preparation checklist is accepted.
+
+Good catch on both points:
+
+1. `getMtmSweepHealth()` is not exposed through any owner-only HTTP route.
+2. The correct column is `strike`, not `selected_strike`.
+
+Decision:
+
+Please proceed with a very small **P23a: Owner-Only MTM Sweep Diagnostics Endpoint** before final P23 live verification.
+
+Purpose:
+
+Expose the already-existing `getMtmSweepHealth()` result through an owner-only, read-only diagnostic endpoint so P23 can verify sweep counters directly instead of inferring them only from DB side effects.
+
+Approved scope:
+
+1. Add a read-only owner-only endpoint, suggested path:
+
+   `/api/paper/diagnostics/fo/mtm-sweep`
+
+2. Endpoint should return only the existing `getMtmSweepHealth()` data:
+
+   * `cyclesTotal`
+   * `rowsUpdatedTotal`
+   * `lastCycle.considered`
+   * `lastCycle.updatedFromChain`
+   * `lastCycle.skippedAlreadyFresh`
+   * `lastCycle.skippedNoQuote`
+   * `lastCycle.errors`
+   * `lastSuccessAt`
+   * `lastErrorAt`
+   * `lastErrorClass`
+   * `lastErrorMessage`
+
+3. Do not trigger MTM from this endpoint.
+
+4. Do not query Kite from this endpoint.
+
+5. Do not query or mutate trades from this endpoint.
+
+6. Do not add scheduler behavior.
+
+7. Do not change the MTM sweep implementation.
+
+8. Do not change F&O signal generation, entry, exit, stop-loss, target, partial booking, trailing stop, sizing, gates, confluence scoring, realised P&L, DD/circuit-breakers, Kite execution, swing scanner, paper-equity, scanner recommendations, strategy builder, combo lane, option snapshot ingestion, candle warehouse ingestion, or schema.
+
+9. Protect the route exactly like the other owner-only paper/infra diagnostic routes.
+
+10. Add tests for:
+
+* owner can access the endpoint,
+* non-owner is denied,
+* public/unauthorized access is denied,
+* response shape includes the expected counters,
+* endpoint does not mutate DB/trades,
+* endpoint does not call Kite or trigger MTM.
+
+11. If adding this endpoint requires schema changes, stop and ask first.
+
+12. If adding this endpoint risks trading behavior changes, stop and ask first.
+
+13. Do not reorganize `replit.md` yet.
+
+Expected output:
+
+* Files changed.
+* Endpoint path.
+* Auth behavior.
+* Example response shape.
+* Tests added.
+* Typecheck/test result.
+* Confirmation that endpoint is read-only.
+* Confirmation that no trading behavior changed.
+* Confirmation that P23 should still wait until P22/P23a are deployed to production and the next full live session completes.
+
+After P23a is complete, we will deploy/publish, then run P23 live verification after the next completed live market session.
