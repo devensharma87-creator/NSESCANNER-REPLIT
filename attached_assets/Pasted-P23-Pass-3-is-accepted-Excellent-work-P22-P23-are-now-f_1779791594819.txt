@@ -1,0 +1,148 @@
+P23 Pass 3 is accepted.
+
+Excellent work. P22/P23 are now fully verified in production.
+
+Final accepted status:
+
+* P22 All-Open F&O MTM Coverage Fix is production verified.
+* P23 Live Verification After Deployment is closed.
+* Both post-deployment trades closed correctly.
+* Both trades had non-zero `max_runup` and `max_drawdown`.
+* MFE/MAE persisted after close.
+* `last_premium` was fresh.
+* `exit_premium = last_premium` for both force-exit trades.
+* `TIME_EXIT_1520` settlement math reconciled exactly.
+* Realised P&L reconciled exactly.
+* No MTM sweep errors were found.
+* No code, schema, workflow, route-auth, trading behavior, or `replit.md` changes were made during verification.
+
+Mark this milestone as complete:
+
+```text
+P20: MFE/MAE logging fix — verified.
+P22: All-open MTM coverage — verified.
+P23a: MTM sweep diagnostics endpoint — shipped and smoke-tested.
+P23: Live production verification — fully verified and closed.
+```
+
+Do not change P22/P23 further.
+
+Now proceed with **P24: F&O Exit Evidence Collection and Shadow-Exit Decision Gate**.
+
+Purpose:
+
+We now have trustworthy MFE/MAE data. The next step is to collect and analyse enough post-P20/P22 closed F&O trades before approving any live exit or target changes.
+
+This is **read-only analysis only**. No strategy changes.
+
+Scope:
+
+1. Build a current post-P20/P22 evidence summary from production data.
+
+2. Count MFE-available closed trades after the verified fix.
+
+3. Separate trades by:
+
+   * index,
+   * setup,
+   * direction,
+   * option type,
+   * exit reason,
+   * gross P&L,
+   * MFE,
+   * MAE,
+   * holding time,
+   * entry premium band,
+   * whether force-exit occurred,
+   * whether target/stop occurred.
+
+4. Pull current shadow-exit analytics, especially:
+
+   * full exit at +30%,
+   * full exit at +60%,
+   * 50% book at +30% and trail rest to breakeven,
+   * 50% book at +50% and trail rest to breakeven,
+   * full-size breakeven trail after +50% MFE.
+
+5. Produce a table:
+
+   * actual realised P&L,
+   * estimated shadow P&L for each rule,
+   * win/loss result,
+   * whether shadow rule improved or worsened trade,
+   * whether MFE was enough to trigger partial booking,
+   * whether MAE would have hit breakeven/trail.
+
+6. Clearly mark sample quality:
+
+   * `mfeAvailableCount`,
+   * minimum sample threshold,
+   * whether sample is too small,
+   * whether evidence is directional only,
+   * whether any rule is already obviously bad,
+   * whether any rule is promising but not yet approved.
+
+7. Verdict rules:
+
+   * If `mfeAvailableCount < 20`, do **not** recommend live exit changes.
+   * If sample is below threshold, report “continue collecting”.
+   * If one shadow rule is promising, mark it as “watchlist only”.
+   * If a rule clearly worsens results, mark it as rejected from watchlist.
+   * Do not approve partial booking, T1 cap, trail-to-BE, stop-loss, or target changes yet.
+
+8. Include a recommended evidence-collection plan:
+
+   * how many more trades are needed,
+   * whether one more week is enough or not,
+   * what daily/EOD report should be run,
+   * what threshold would justify implementation planning.
+
+9. Guardrails:
+
+Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* stop-loss,
+* target,
+* partial booking,
+* trailing stop,
+* sizing,
+* gates,
+* confluence scoring,
+* realised P&L,
+* DD/circuit-breakers,
+* Kite execution,
+* swing scanner,
+* paper-equity,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* DB schema,
+* route auth,
+* workflows,
+* `replit.md`.
+
+10. Expected output:
+
+A. Data window used
+B. Post-fix closed trade count
+C. MFE-available count
+D. Trade-by-trade summary
+E. Setup/index breakdown
+F. Actual vs shadow-exit comparison
+G. Best and worst shadow rules
+H. Sample-size verdict
+I. Whether any live change is approved
+J. What to monitor next
+K. Confirmation that no code or trading behavior changed
+
+Important:
+
+This is a **decision-gate report only**, not an implementation task.
+
+No live exit changes are approved yet.
