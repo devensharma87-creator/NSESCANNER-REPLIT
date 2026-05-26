@@ -1,0 +1,70 @@
+P23 Deferred EOD Re-Pull Pass 2 is accepted.
+
+Current verdict remains:
+
+**P23 is still deferred, not failed.**
+
+Accepted findings:
+
+* Production read replica is still lagging and remains pre-15:20 IST.
+* Today’s two post-deployment F&O trades are still visible as OPEN on the replica.
+* No CLOSED rows are visible yet for today.
+* Force-exit settlement cannot be verified yet.
+* Live MTM sweep is still working on OPEN rows.
+* `last_premium` is moving.
+* `last_evaluated_at` is fresh.
+* `max_runup` and `max_drawdown` remain non-zero.
+* BANKNIFTY `max_drawdown` advanced monotonically across snapshots.
+* No MTM sweep errors or relevant warnings were found.
+* No code/schema/workflow/auth/trading behavior changed.
+
+This is a replication-lag issue only, not a P22/P23 blocker.
+
+Please continue standing by.
+
+Do not run repeated checks unless I ping you again.
+
+Next action:
+
+When the replica has likely caught up, or tomorrow morning, I will ask you to run **P23 Deferred EOD Re-Pull Pass 3**.
+
+At that time, verify only:
+
+E. Closed-trade MFE/MAE status
+G. Force-exit settlement check
+I. Final P22/P23 verification verdict
+
+Target trades:
+
+1. SENSEX BASELINE BEARISH 76200 PUT
+2. BANKNIFTY BASELINE BEARISH 55100 PUT
+
+For each trade, confirm:
+
+* final status,
+* exit reason,
+* exit premium,
+* last premium,
+* realised P&L,
+* `max_runup`,
+* `max_drawdown`,
+* `last_evaluated_at`,
+* whether MFE/MAE persisted after close,
+* whether settlement math reconciles.
+
+Verdict rule for Pass 3:
+
+* If both trades are CLOSED with non-zero MFE/MAE and settlement math reconciles, mark P23 as fully verified.
+* If replica still shows them OPEN, mark P23 still deferred.
+* If they are CLOSED but MFE/MAE is zero/stale, report blocker with exact rows.
+* If they closed by stop/target instead of `TIME_EXIT_1520`, verify MFE/MAE persistence now and defer only the force-exit-specific part.
+
+Guardrails remain unchanged:
+
+Do not change code.
+Do not change schema.
+Do not change route auth.
+Do not change workflows.
+Do not change F&O signal generation, entry, exit, stop-loss, target, partial booking, trailing stop, sizing, gates, confluence, realised P&L, DD/circuit-breakers, Kite execution, swing scanner, paper-equity, scanner recommendations, strategy builder, combo lane, option snapshot ingestion, candle warehouse ingestion, scheduler behavior, or `replit.md`.
+
+Stand by until I ask for Pass 3.
