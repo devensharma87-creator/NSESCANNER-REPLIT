@@ -1,0 +1,103 @@
+Please prepare for **P23 Production Verification**, but do not run it yet.
+
+This is a preparation-only instruction.
+
+Current status:
+
+* P22 has been accepted.
+* P22 still needs to be deployed to production.
+* P23 can run only after P22 is deployed and one full live market session completes.
+* Until then, no code or trading behavior should be changed.
+
+Please prepare the exact P23 verification checklist and queries so we can run quickly after the next live session.
+
+Prepare, but do not execute:
+
+1. Production deployment confirmation check:
+
+   * confirm latest deployed commit includes P22,
+   * confirm production API has `markAllOpenFnoTradesToMarket`,
+   * confirm production diagnostics can expose MTM sweep health if available.
+
+2. MTM sweep health check:
+
+   * `cyclesTotal`,
+   * `rowsUpdatedTotal`,
+   * last cycle considered,
+   * updated from chain,
+   * skipped already fresh,
+   * skipped no quote,
+   * errors,
+   * last success timestamp,
+   * last error class/message.
+
+3. Open trade live check query:
+
+```sql
+SELECT id, signal_date, index_symbol, setup_key, direction, option_type,
+       selected_strike, status, entry_premium, last_premium,
+       max_runup, max_drawdown, last_evaluated_at
+FROM paper_trade_fo
+WHERE status = 'OPEN'
+ORDER BY created_at DESC;
+```
+
+4. EOD closed trade verification query:
+
+```sql
+SELECT signal_date, status,
+       COUNT(*) AS n,
+       COUNT(*) FILTER (WHERE max_runup > 0) AS nonzero_runup,
+       COUNT(*) FILTER (WHERE max_drawdown < 0) AS nonzero_drawdown,
+       MAX(last_evaluated_at) AS latest_mtm
+FROM paper_trade_fo
+WHERE signal_date >= CURRENT_DATE
+GROUP BY signal_date, status
+ORDER BY signal_date DESC;
+```
+
+5. Prepare the P23 report format with these sections:
+
+A. Production deploy confirmation
+B. Live session confirmation
+C. MTM sweep health counters
+D. Open trade MTM status
+E. Closed trade MFE/MAE status
+F. Staleness comparison versus pre-P22 rows
+G. Force-exit settlement check
+H. Errors or skipped quote summary
+I. Whether P22 is verified
+J. Whether more sessions are needed
+K. Confirmation that no code/trading behavior changed
+
+Important guardrails:
+
+Do not run P23 before I confirm production deployment and live-session completion.
+
+Do not change:
+
+* F&O signal generation,
+* entry logic,
+* exit logic,
+* stop-loss,
+* target,
+* partial booking,
+* trailing stop,
+* sizing,
+* gate thresholds,
+* confluence scoring,
+* realised P&L,
+* DD/circuit breakers,
+* Kite execution,
+* swing scanner,
+* paper-equity logic,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* database schema,
+* `replit.md`.
+
+This is preparation only. Stand by after preparing the checklist.
