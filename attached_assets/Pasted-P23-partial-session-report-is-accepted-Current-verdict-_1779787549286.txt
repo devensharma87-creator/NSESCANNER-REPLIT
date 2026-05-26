@@ -1,0 +1,117 @@
+P23 partial-session report is accepted.
+
+Current verdict:
+
+* P23 is **partially verified**, not fully verified yet.
+* Live MTM sweep behavior is working on OPEN rows.
+* `last_premium` is moving.
+* `last_evaluated_at` is fresh.
+* `max_runup` and `max_drawdown` are advancing correctly.
+* Monotone MFE/MAE math is working.
+* No MTM sweep errors were found in logs.
+* No code, schema, workflow, auth, or trading behavior was changed.
+
+Important limitation accepted:
+
+Because the production read replica was lagging by around 75 minutes, post-15:20 force-exit / EOD settlement rows were not visible during this pass.
+
+Therefore, do **not** mark P22/P23 fully verified yet.
+
+Please run a **P23 Deferred EOD Re-Pull** once the production read replica has caught up past today’s close window, or tomorrow if needed.
+
+Scope:
+
+Read-only production checks only.
+
+Do not change code, schema, workflow, auth, route behavior, or trading behavior.
+
+Re-check only the deferred sections:
+
+E. Closed-trade MFE/MAE status
+G. Force-exit settlement check
+I. Final P22/P23 verification verdict
+
+Specifically verify today’s two post-deployment trades:
+
+1. SENSEX BASELINE BEARISH 76200 PUT
+2. BANKNIFTY BASELINE BEARISH 55100 PUT
+
+For each trade, confirm:
+
+* final status,
+* final exit reason,
+* exit premium,
+* last premium,
+* realised P&L,
+* `max_runup`,
+* `max_drawdown`,
+* `last_evaluated_at`,
+* whether values persisted after close,
+* whether force-exit settlement used fresh `last_premium`,
+* whether realised P&L reconciles mathematically.
+
+Run the closed-trade rollup:
+
+```sql id="d2dix9"
+SELECT signal_date, status,
+       COUNT(*) AS n,
+       COUNT(*) FILTER (WHERE max_runup > 0) AS nonzero_runup,
+       COUNT(*) FILTER (WHERE max_drawdown < 0) AS nonzero_drawdown,
+       MAX(last_evaluated_at) AS latest_mtm
+FROM paper_trade_fo
+WHERE signal_date = CURRENT_DATE
+GROUP BY signal_date, status
+ORDER BY signal_date DESC;
+```
+
+Run the force-exit settlement check:
+
+```sql id="898g1i"
+SELECT id, index_symbol, setup_key, direction, option_type, strike,
+       status, exit_reason, entry_premium, last_premium, exit_premium,
+       (exit_premium - last_premium) AS exit_minus_lastpx,
+       realized_pnl, max_runup, max_drawdown, last_evaluated_at
+FROM paper_trade_fo
+WHERE signal_date = CURRENT_DATE
+  AND status = 'CLOSED'
+ORDER BY opened_at DESC;
+```
+
+Verdict rule:
+
+* If both trades closed cleanly and have non-zero MFE/MAE, mark P23 as **fully verified**.
+* If one or both trades remain invisible because of replica lag, mark P23 as **still deferred**.
+* If rows closed but MFE/MAE is zero or stale, report blocker with exact rows and likely cause.
+* If rows closed via organic stop/target instead of `TIME_EXIT_1520`, verify the same fields and note force-exit settlement will require a future trade that survives until 15:20.
+
+Guardrails:
+
+Do not change:
+
+* F&O signal generation,
+* entry logic,
+* exit logic,
+* stop-loss,
+* target,
+* partial booking,
+* trailing stop,
+* sizing,
+* gates,
+* confluence scoring,
+* realised P&L,
+* DD/circuit-breakers,
+* Kite execution,
+* swing scanner,
+* paper-equity,
+* scanner recommendations,
+* strategy builder,
+* combo lane,
+* option snapshot ingestion,
+* candle warehouse ingestion,
+* scheduler behavior,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`.
+
+Produce a short deferred EOD report only. Do not start strategy corrections yet.
