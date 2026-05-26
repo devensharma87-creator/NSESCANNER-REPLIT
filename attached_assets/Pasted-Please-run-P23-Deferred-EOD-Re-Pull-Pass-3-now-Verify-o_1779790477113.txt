@@ -1,0 +1,72 @@
+Please run **P23 Deferred EOD Re-Pull Pass 3** now.
+
+Verify only the deferred sections:
+
+E. Closed-trade MFE/MAE status
+G. Force-exit settlement check
+I. Final P22/P23 verification verdict
+
+Use production read-only checks only.
+
+Target trades:
+
+1. SENSEX BASELINE BEARISH 76200 PUT
+2. BANKNIFTY BASELINE BEARISH 55100 PUT
+
+For each trade, confirm:
+
+* final status,
+* exit reason,
+* entry premium,
+* exit premium,
+* last premium,
+* realised P&L,
+* `max_runup`,
+* `max_drawdown`,
+* `last_evaluated_at`,
+* whether MFE/MAE persisted after close,
+* whether settlement math reconciles.
+
+Run the closed-trade rollup:
+
+```sql
+SELECT signal_date, status,
+       COUNT(*) AS n,
+       COUNT(*) FILTER (WHERE max_runup > 0) AS nonzero_runup,
+       COUNT(*) FILTER (WHERE max_drawdown < 0) AS nonzero_drawdown,
+       MAX(last_evaluated_at) AS latest_mtm
+FROM paper_trade_fo
+WHERE signal_date = CURRENT_DATE
+GROUP BY signal_date, status
+ORDER BY signal_date DESC;
+```
+
+Run the target-trade check:
+
+```sql
+SELECT id, index_symbol, setup_key, direction, option_type, strike,
+       status, exit_reason, entry_premium, last_premium, exit_premium,
+       (exit_premium - last_premium) AS exit_minus_lastpx,
+       realized_pnl, max_runup, max_drawdown, last_evaluated_at
+FROM paper_trade_fo
+WHERE signal_date = CURRENT_DATE
+  AND index_symbol IN ('SENSEX', 'BANKNIFTY')
+  AND setup_key = 'BASELINE'
+  AND direction = 'BEARISH'
+  AND option_type = 'PUT'
+  AND strike IN (76200, 55100)
+ORDER BY opened_at DESC;
+```
+
+Verdict rule:
+
+* If both trades are CLOSED with non-zero MFE/MAE and settlement math reconciles, mark P23 as fully verified.
+* If the replica still shows them OPEN, mark P23 still deferred.
+* If they are CLOSED but MFE/MAE is zero or stale, report blocker with exact rows and likely cause.
+* If they closed by stop/target instead of `TIME_EXIT_1520`, verify MFE/MAE persistence now and defer only the force-exit-specific part.
+
+Do not change code, schema, workflow, route auth, trading behavior, or `replit.md`.
+
+Do not touch F&O signal generation, entry, exit, stop-loss, target, partial booking, trailing stop, sizing, gates, confluence, realised P&L, DD/circuit-breakers, Kite execution, swing scanner, paper-equity, scanner recommendations, strategy builder, combo lane, option snapshot ingestion, candle warehouse ingestion, or scheduler behavior.
+
+Produce a short Pass 3 report only.
