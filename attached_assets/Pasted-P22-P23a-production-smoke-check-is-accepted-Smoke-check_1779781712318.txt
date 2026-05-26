@@ -1,0 +1,53 @@
+P22 + P23a production smoke check is accepted.
+
+Smoke-check verdict is approved:
+
+* `/api/paper/diagnostics/fo/mtm-sweep` route is deployed.
+* Auth gate is working.
+* Production process is alive.
+* F&O signal cycles are firing.
+* Kite option snapshot ingestion is healthy.
+* No MTM sweep errors are visible in logs.
+* No code, schema, workflow, or trading behavior was changed.
+
+Important decision on authentication:
+
+Do **not** add any temporary unauthenticated endpoint.
+Do **not** weaken owner-only protection.
+Do **not** ask me to share owner cookies or secrets in chat.
+
+For the final P23 report, use one of these safe methods:
+
+1. If you can access the endpoint through the normal owner-authenticated production session, capture the JSON directly.
+2. If not, I will open the endpoint from my logged-in browser and paste the JSON response for you.
+3. If endpoint JSON is unavailable, report MTM sweep counters as “not directly captured” and use production DB evidence as secondary proof.
+
+No new code is approved.
+
+Now stand by for **P23 Live Verification After Deployment**.
+
+Run final P23 only after a full live market session has completed with P22 + P23a deployed in production.
+
+When I ping you after session close, produce the A–K report:
+
+A. Production deploy confirmation
+B. Live session confirmation
+C. MTM sweep health counters
+D. Open trade MTM status
+E. Closed trade MFE/MAE status
+F. Staleness comparison versus pre-P22 rows
+G. Force-exit settlement check
+H. Errors or skipped quote summary
+I. Whether P22 is verified
+J. Whether more sessions are needed
+K. Confirmation that no code/trading behavior changed during verification
+
+Use production read-only SQL only. Do not simulate trades and do not force trades.
+
+Guardrails remain unchanged:
+
+Do not change F&O signal generation, entry, exit, stop-loss, target, partial booking, trailing stop, sizing, gates, confluence scoring, realised P&L, DD/circuit-breakers, Kite execution, swing scanner, paper-equity logic, scanner recommendations, strategy builder, combo lane, option snapshot ingestion, candle warehouse ingestion, scheduler behavior, DB schema, workflow behavior, route auth, or `replit.md`.
+
+If today’s deployment happened mid-session, clearly mark today as **partial-session evidence only** and wait for the next full post-deployment trading session before giving a final P23 pass.
+
+Stand by until I confirm session completion.
