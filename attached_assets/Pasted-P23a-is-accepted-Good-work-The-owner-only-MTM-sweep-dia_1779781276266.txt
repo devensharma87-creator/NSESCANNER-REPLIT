@@ -1,0 +1,58 @@
+P23a is accepted.
+
+Good work. The owner-only MTM sweep diagnostics endpoint is approved as complete.
+
+Accepted final state:
+
+* Endpoint added: `GET /api/paper/diagnostics/fo/mtm-sweep`
+* It returns only `getMtmSweepHealth()`.
+* It does not trigger MTM.
+* It does not call Kite.
+* It does not query or mutate trades.
+* It does not touch scheduler logic.
+* It does not change schema.
+* It does not change the MTM sweep implementation.
+* 504/504 tests passed.
+* Typecheck passed.
+* No trading behavior changed.
+
+The auth behavior is accepted because it matches the existing lenient `requireOwner` behavior used by peer paper diagnostic routes.
+
+No further code changes are approved right now.
+
+Next sequence:
+
+1. I will deploy/publish the latest build containing P22 + P23a to production.
+2. After deployment, do only a light production smoke check if I ask:
+
+   * confirm `/api/paper/diagnostics/fo/mtm-sweep` responds,
+   * confirm response shape,
+   * confirm counters are present,
+   * do not trigger any write or trading action.
+3. Then wait for the next full live market session to complete.
+4. After that, run **P23 Live Verification After Deployment**.
+
+Do not run final P23 yet unless both conditions are true:
+
+* P22 + P23a are deployed to production.
+* One full live market session has completed after deployment.
+
+For P23, use the agreed A–K report:
+
+A. Production deploy confirmation
+B. Live session confirmation
+C. MTM sweep health counters
+D. Open trade MTM status
+E. Closed trade MFE/MAE status
+F. Staleness comparison versus pre-P22 rows
+G. Force-exit settlement check
+H. Errors or skipped quote summary
+I. Whether P22 is verified
+J. Whether more sessions are needed
+K. Confirmation that no code/trading behavior changed during verification
+
+Guardrails remain:
+
+Do not change F&O signal generation, entry, exit, stop-loss, target, partial booking, trailing stop, sizing, gates, confluence scoring, realised P&L, DD/circuit-breakers, Kite execution, swing scanner, paper-equity logic, scanner recommendations, strategy builder, combo lane, option snapshot ingestion, candle warehouse ingestion, scheduler behavior, DB schema, workflow behavior, or `replit.md`.
+
+P23a is complete. Stand by until I confirm production deployment and completed live session.
