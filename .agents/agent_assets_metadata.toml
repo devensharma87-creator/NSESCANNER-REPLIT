@@ -66,3 +66,9 @@ id = "T2gYBBEe1JBwOOhI5ERE-"
 uri = "file://backups/source-20260526-115036.tar.gz"
 type = "unspecified"
 title = "Website Source Backup — 2026-05-26 (1.6 MB)"
+
+[[outputs]]
+id = "SywwogBtDbiV5OpoaBRNn"
+uri = "file://dist/backup-20260527-132350.tar.gz"
+type = "unspecified"
+title = "Project Backup — Source + Safe DB Export (2026-05-27)"
