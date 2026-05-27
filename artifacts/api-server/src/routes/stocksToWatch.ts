@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { sql } from "drizzle-orm";
 import { db, swingScanResultTable } from "@workspace/db";
 import { getStocksToWatch } from "../lib/stocksToWatch";
-import { getLatestSwingScan, getSchedulerState } from "../lib/swingScannerStore";
+import { getLatestSwingScan, getSchedulerState, getIntradayRefreshHealth } from "../lib/swingScannerStore";
 import { computeSectorCoverage, UNMAPPED_SECTOR } from "../lib/sectorMap";
 import { getSession, requireOwner } from "../lib/userAuth";
 import { isPublicAccessEnabled } from "../lib/publicAccess";
@@ -153,6 +153,40 @@ router.get(
     } catch (err) {
       next(err);
     }
+  },
+);
+
+/**
+ * GET /api/stocks-to-watch/diagnostics/intraday-refresh
+ *
+ * Owner-only operational diagnostic. Exposes the process-local health
+ * snapshot for the NIFTY-500 swing-scanner intraday refresh loop
+ * (`runIntradayRefresh` in `swingScannerStore.ts`). Used to confirm
+ * that the 15-min market-hours refresh cycle is firing, populating
+ * `intraday_last` / `intraday_change_pct` / `intraday_updated_at` /
+ * `trigger_hit` on the latest `swing_scan_result` rows.
+ *
+ * READ-ONLY. Returns `getIntradayRefreshHealth()` verbatim. Does NOT
+ * trigger a refresh, call Kite, query or mutate the DB, or enqueue
+ * any scheduler work. Same strict owner-only gate as the peer
+ * `/sector-coverage` diagnostic.
+ */
+router.get(
+  "/stocks-to-watch/diagnostics/intraday-refresh",
+  // Strict owner-only: do NOT inherit `requireOwner`'s public-mode read
+  // bypass. Diagnostics list internal refresh-loop state and are owner-
+  // only regardless of public-access mode.
+  (req, res, next) => {
+    const s = getSession(req);
+    if (s?.role === "owner") return next();
+    if (isPublicAccessEnabled()) {
+      res.status(403).json({ error: "owner_only", code: "OWNER_ONLY_DIAGNOSTIC" });
+      return;
+    }
+    res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
+  },
+  (_req, res) => {
+    res.json(getIntradayRefreshHealth());
   },
 );
 

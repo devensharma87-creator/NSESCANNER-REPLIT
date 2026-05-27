@@ -149,6 +149,17 @@ vi.mock("../../lib/swingScannerStore", () => ({
   getLatestSwingScan: vi.fn(async () => ({ rows: [], generatedAt: null })),
   getSchedulerState: () => ({}),
   startSwingScanScheduler: () => {},
+  getIntradayRefreshHealth: vi.fn(() => ({
+    cyclesTotal: 0,
+    rowsUpdatedTotal: 0,
+    triggerHitsLatchedTotal: 0,
+    lastCycle: null,
+    lastSuccessAt: null,
+    lastErrorAt: null,
+    lastErrorClass: null,
+    lastErrorMessage: null,
+    bootedAt: new Date().toISOString(),
+  })),
 }));
 
 // Silence pino in tests.
@@ -237,6 +248,7 @@ const ENDPOINTS: readonly Endpoint[] = [
   { name: "P4 candle sync",           method: "POST", path: "/api/candles/sync" },
   { name: "P2 sector-coverage",       method: "GET",  path: "/api/stocks-to-watch/diagnostics/sector-coverage" },
   { name: "P9 snapshot analytics",    method: "GET",  path: "/api/option-snapshots/analytics" },
+  { name: "S2a intraday-refresh",     method: "GET",  path: "/api/stocks-to-watch/diagnostics/intraday-refresh" },
 ] as const;
 
 async function call(ep: Endpoint, cookie?: string): Promise<{ status: number; body: unknown }> {

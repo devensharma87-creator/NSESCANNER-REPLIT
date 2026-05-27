@@ -1,0 +1,146 @@
+S2 report is accepted.
+
+Approved decisions:
+
+1. Keep the S2 patch in main.
+2. Schedule live verification for the next live market session.
+3. Before live verification, proceed with a tiny owner-only diagnostics endpoint for the new intraday refresh health.
+4. Do **not** start S3 implementation yet.
+5. S3 may be prepared as a read-only audit/design task only after S2a is complete.
+
+Accepted S2 findings:
+
+* Root cause is confirmed.
+* Intraday refresh was querying today’s scan rows during market hours, but today’s scan rows are created only after the 15:35 deep scan.
+* Therefore `intraday_last`, `intraday_change_pct`, `intraday_updated_at`, and `trigger_hit` were never populated.
+* Fix to refresh the latest available `scan_date` is accepted.
+* Trigger latch monotonic behavior is accepted.
+* No scoring, recommendation, entry, stop, target, RR, paper-equity, F&O, schema, workflow, route auth, or `replit.md` behavior changed.
+* 518/518 tests passed.
+* Typecheck passed.
+* Live verification is still pending.
+
+Now proceed with:
+
+# S2a: Owner-Only Swing Intraday Refresh Diagnostics Endpoint
+
+Purpose:
+
+Expose the already-created `getIntradayRefreshHealth()` snapshot through a read-only owner-only endpoint so tomorrow’s live verification can directly confirm refresh cycles, updates, trigger latches, skips, and errors.
+
+This is diagnostics only.
+
+## Approved endpoint
+
+Suggested path:
+
+```text
+GET /api/stocks-to-watch/diagnostics/intraday-refresh
+```
+
+## Endpoint rules
+
+1. Return only `getIntradayRefreshHealth()`.
+
+2. Do not trigger intraday refresh.
+
+3. Do not call Kite.
+
+4. Do not query or mutate DB rows.
+
+5. Do not enqueue scheduler work.
+
+6. Do not change swing scoring.
+
+7. Do not change swing recommendations.
+
+8. Do not change entry/stop/target/RR.
+
+9. Do not touch F&O, paper-equity, Kite execution, option snapshots, candle warehouse, schema, workflows, route auth model, or `replit.md`.
+
+10. Use the same owner-only protection pattern as the existing diagnostics routes.
+
+## Response should expose
+
+* `cyclesTotal`
+* `rowsUpdatedTotal`
+* `triggerHitsLatchedTotal`
+* `lastCycle`
+
+  * `scanDate`
+  * `considered`
+  * `quotesReturned`
+  * `updated`
+  * `triggerHitsLatched`
+  * `skippedNoQuote`
+  * `skippedBadLtp`
+  * `errors`
+  * `durationMs`
+  * `reason` if any
+* `lastSuccessAt`
+* `lastErrorAt`
+* `lastErrorClass`
+* `lastErrorMessage`
+* `bootedAt`
+
+## Tests required
+
+Add tests for:
+
+1. Owner can access the endpoint.
+2. Anonymous/non-owner is denied according to the same auth behavior as peer diagnostics routes.
+3. Response shape contains all expected top-level keys.
+4. `lastCycle` shape is correct when present.
+5. Repeated reads do not mutate counters.
+6. Endpoint does not call Kite.
+7. Endpoint does not trigger refresh.
+8. Endpoint does not query or mutate DB.
+9. Route is registered exactly once.
+10. Route uses owner-only middleware.
+
+## Expected output
+
+Produce an S2a report with:
+
+A. Files changed
+B. Endpoint path
+C. Auth behavior
+D. Example response shape
+E. Tests added
+F. Typecheck/test result
+G. Confirmation that endpoint is read-only
+H. Confirmation that no scoring/trading behavior changed
+I. Confirmation that S2 live verification is still pending for next market session
+
+## After S2a
+
+Do not start live verification until market hours.
+
+During the next live market session, run:
+
+# S2b: Swing Intraday Refresh Live Verification
+
+Verify:
+
+1. Latest scan rows have non-null `intraday_last`.
+2. Latest scan rows have non-null `intraday_updated_at`.
+3. `intraday_updated_at` refreshes during market hours.
+4. `intraday_change_pct` is populated where close price exists.
+5. `trigger_hit` can latch when intraday high crosses trigger.
+6. `getIntradayRefreshHealth()` shows:
+
+   * `cyclesTotal > 0`
+   * `rowsUpdatedTotal > 0`
+   * `updated > 0`
+   * reasonable `quotesReturned`
+   * low/zero errors
+7. No score/action/entry/stop/target/RR changes from intraday refresh.
+8. No F&O, paper-equity, Kite execution, scheduler, schema, workflow, or `replit.md` changes.
+
+## Important
+
+Do not start S3 implementation yet.
+
+Once S2a is complete, we may prepare S3 as a read-only RS/sector/delivery audit while waiting for live verification, but no scoring changes are approved until S2 live verification is accepted.
+
+Proceed with S2a only.
