@@ -1,0 +1,101 @@
+S2b Pre-Session Baseline Report is accepted.
+
+Current status:
+
+* Baseline capture is complete.
+* This is not live verification.
+* Endpoint is reachable.
+* Auth gate works.
+* Owner-authenticated body was not directly captured, which is acceptable.
+* Recent scan rows have zero populated intraday fields.
+* `intraday_last`, `intraday_change_pct`, `intraday_updated_at`, and `trigger_hit` are all empty in the baseline.
+* Top-20 plan-column baseline has been captured.
+* No code, schema, workflow, route auth, trading behavior, or `replit.md` was changed.
+
+S2b remains pending until tomorrow’s live market session.
+
+Please stand by until I ping you during market hours.
+
+When I ping you tomorrow between 09:15–15:30 IST, run **S2b Live Verification**.
+
+Use production read-only checks only.
+
+Verify:
+
+1. Latest scan rows start showing non-null `intraday_last`.
+2. Latest scan rows start showing non-null `intraday_updated_at`.
+3. `intraday_updated_at` advances during the session.
+4. `intraday_change_pct` is populated where close price exists.
+5. `trigger_hit` latches if intraday high crosses trigger.
+6. Diagnostics endpoint, if accessible, shows:
+
+   * `cyclesTotal > 0`
+   * `rowsUpdatedTotal > 0`
+   * `lastCycle.updated > 0`
+   * `lastCycle.errors = 0` or explain any error
+   * `lastSuccessAt` recent
+7. Logs show swing intraday refresh cycles completing with `updated > 0`.
+8. Top-20 plan drift check confirms these fields do not change due to intraday refresh:
+
+   * score/final_score,
+   * action,
+   * entry/entry_price,
+   * stop_loss,
+   * target1,
+   * target2,
+   * rr_to_t1.
+
+Important:
+
+For tomorrow’s verification, use the actual schema column names where needed:
+
+* `score`, not `final_score`
+* `entry`, not `entry_price`
+
+Output required tomorrow:
+
+A. Market/session confirmation
+B. Endpoint/diagnostic health snapshot
+C. Intraday coverage after first cycle
+D. Sample updated rows
+E. Trigger-latch evidence
+F. Plan-drift check against baseline
+G. Logs/error summary
+H. Whether S2 is live verified
+I. Remaining limitations
+J. Confirmation that no code/schema/workflow/trading behavior/`replit.md` changed
+
+Guardrails:
+
+Do not change code.
+Do not change schema.
+Do not change workflows.
+Do not change route auth.
+Do not change trading behavior.
+Do not modify `replit.md`.
+
+Do not touch:
+
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* paper-equity execution,
+* F&O logic,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler behavior,
+* Kite execution.
+
+S3 remains paused until S2b live verification is accepted.
+
+Stand by for tomorrow’s market-hours ping.
