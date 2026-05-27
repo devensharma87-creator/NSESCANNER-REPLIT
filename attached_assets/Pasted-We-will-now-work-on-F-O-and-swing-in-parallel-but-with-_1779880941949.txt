@@ -1,0 +1,168 @@
+We will now work on F&O and swing in parallel, but with strict separation.
+
+Current F&O status:
+
+* P20/P22/P23 are complete and verified.
+* P24 decision gate is complete.
+* P25 evidence tracker is active.
+* `mfeAvailableCount = 3`
+* Threshold = 20
+* F&O exit/target/partial-booking changes are still blocked until enough evidence is collected.
+
+Decision:
+
+Continue F&O P25 evidence collection only when I explicitly ping for EOD reports.
+
+Do not change F&O strategy yet.
+
+Now start a separate parallel workstream:
+
+# S1: Live Swing Trading System Audit — Read-Only First
+
+Purpose:
+
+Audit the current swing trading scanner/signalling system in live-market conditions while F&O evidence collection continues separately.
+
+This is an audit and diagnosis task only.
+
+Do not change swing scoring, recommendations, entries, exits, or paper trading behavior yet.
+
+## Scope
+
+1. Map the current swing pipeline end-to-end:
+
+   * universe selection,
+   * candle/data source,
+   * sector/industry usage,
+   * technical score,
+   * momentum score,
+   * volume score,
+   * relative-strength score,
+   * SMC/structure score if present,
+   * fundamental/context/risk score if present,
+   * final score,
+   * recommendation label,
+   * entry/stop/target generation,
+   * paper-trade trigger path if any.
+
+2. Identify which fields are actually used in scoring versus only displayed.
+
+3. Specifically verify whether the following are truly active in swing decision-making:
+
+   * sector strength,
+   * industry strength,
+   * stock relative strength vs NIFTY,
+   * stock relative strength vs sector,
+   * volume expansion,
+   * delivery/accumulation proxy,
+   * trend strength,
+   * breakout/pullback structure,
+   * risk-reward,
+   * market regime,
+   * NIFTY/BANKNIFTY context.
+
+4. Compare current swing scanner output with live market reality:
+
+   * which stocks are marked BUY / WATCH / AVOID,
+   * whether they are actually near actionable trigger levels,
+   * whether recommendations are stale,
+   * whether entries are too far from current price,
+   * whether stop-loss and target are realistic,
+   * whether risk-reward is acceptable,
+   * whether high-score names are actually sector leaders.
+
+5. Produce a live audit table with at least:
+
+   * symbol,
+   * sector,
+   * industry,
+   * recommendation,
+   * final score,
+   * technical score,
+   * momentum score,
+   * volume score,
+   * RS score,
+   * sector score if present,
+   * entry,
+   * stop,
+   * target,
+   * current price,
+   * distance to entry,
+   * risk-reward,
+   * reason for recommendation,
+   * whether recommendation looks actionable,
+   * whether it should be candidate / near-trigger / triggered / avoid.
+
+6. Identify current swing weaknesses:
+
+   * score inflation,
+   * stale candidates,
+   * weak sector alignment,
+   * no trigger lifecycle,
+   * poor entry distance,
+   * unrealistic targets,
+   * missing delivery/volume confirmation,
+   * poor exit/trailing logic,
+   * weak risk-reward,
+   * no paper outcome validation.
+
+7. Do not implement fixes yet.
+
+8. Do not modify:
+
+   * swing scanner scoring,
+   * swing recommendation logic,
+   * paper-equity trading,
+   * F&O logic,
+   * F&O signal generation,
+   * F&O exits,
+   * F&O targets,
+   * F&O stops,
+   * Kite execution,
+   * option snapshots,
+   * candle warehouse,
+   * scheduler,
+   * database schema,
+   * workflows,
+   * route auth,
+   * `replit.md`.
+
+9. If you need to inspect code, do so read-only.
+
+10. If you need production data, use production read-only queries only.
+
+11. If a small diagnostic endpoint is needed later, do not build it yet. First report the need and ask for approval.
+
+## Output required
+
+Produce an **S1 Swing Live Audit Report** with:
+
+A. Current swing pipeline map
+B. Files/functions involved
+C. Data sources used
+D. What actually affects final recommendation
+E. What is only displayed but not scored
+F. Current live scanner sample
+G. Actionability review of top BUY/WATCH names
+H. Sector/relative-strength usage review
+I. Entry/stop/target realism review
+J. Trigger-lifecycle gap review
+K. Paper-trade validation gap review
+L. Main weaknesses ranked by severity
+M. Recommended next swing priorities
+N. Confirmation that no code/trading behavior changed
+
+## Parallel coordination rule
+
+While S1 is running:
+
+* F&O P25 evidence collection continues separately only on my EOD pings.
+* Do not mix F&O and swing changes in one task.
+* Do not implement swing changes until S1 audit is accepted.
+* Do not implement F&O changes until P25 evidence gate clears.
+
+Goal:
+
+Use the F&O evidence-collection waiting period to complete the swing audit and prepare the swing upgrade path, so we save time without making unsafe live strategy changes.
+
+Proceed with S1 audit only.
