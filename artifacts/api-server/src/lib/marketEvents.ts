@@ -48,7 +48,6 @@ const NSE_HOLIDAYS_2026: MarketHoliday[] = [
   { date: "2026-04-03", name: "Good Friday",          exchange: "NSE/BSE", region: "IN" },
   { date: "2026-04-14", name: "Dr. B.R. Ambedkar Jayanti", exchange: "NSE/BSE", region: "IN" },
   { date: "2026-05-01", name: "Maharashtra Day",      exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-05-27", name: "Eid-ul-Adha (Bakri Eid)", exchange: "NSE/BSE", region: "IN" },
   { date: "2026-06-25", name: "Muharram",             exchange: "NSE/BSE", region: "IN" },
   { date: "2026-08-15", name: "Independence Day",     exchange: "NSE/BSE", region: "IN" },
   { date: "2026-08-27", name: "Ganesh Chaturthi",     exchange: "NSE/BSE", region: "IN" },
