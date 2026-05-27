@@ -1,0 +1,191 @@
+S1 Swing Live Audit Report is accepted.
+
+Good work. We will now continue F&O P25 evidence collection separately, but start fixing the swing system in parallel.
+
+Accepted S1 findings:
+
+* Swing scanner v3 has a strong base.
+* Current scoring uses technical, SMC, VWAP/volume/RS bucket, momentum, fundamental, context, and risk/RR.
+* Sector and industry are displayed but not actually scored.
+* Sector strength does not feed the recommendation.
+* Stock RS vs sector is not computed.
+* Delivery/accumulation data is available from bhavcopy pre-warm but not consumed by the swing scorer.
+* Intraday fields were NULL across the live sample.
+* `trigger_hit` is not reliable because the intraday refresh path appears broken.
+* Top swing names are mostly WATCHLIST, not true actionable BUY candidates.
+* RR around 2.00 appears mostly mechanical because targets are formulaic.
+* There is no proper trigger lifecycle yet.
+* No code/trading behavior was changed during S1.
+
+Decision:
+
+Do **not** change swing scoring yet.
+
+Do **not** add sector scoring yet.
+
+Do **not** change action labels yet.
+
+The first swing priority is to fix the live actionability layer.
+
+Proceed with:
+
+# S2: Swing Intraday Refresh and Trigger-Latch Repair
+
+Purpose:
+
+Make the swing scanner live-actionable by ensuring intraday LTP/high/low/change fields and `trigger_hit` update correctly during market hours.
+
+This is data freshness and trigger-observability plumbing only. It must not change the swing scoring model.
+
+## Approved scope
+
+1. Investigate the current intraday refresh path:
+
+   * `swingScannerStore.ts`
+   * 15-minute intraday refresh
+   * Kite `getQuote` usage
+   * symbol formatting used for NSE cash symbols
+   * trigger latch update:
+
+     * `trigger_hit = q.high >= trigger_price`
+   * fields:
+
+     * `intraday_last`
+     * `intraday_change_pct`
+     * `intraday_updated_at`
+     * `trigger_hit`
+
+2. Identify why today’s `intraday_*` columns were NULL and why `trigger_hit` was unusable.
+
+3. Check whether the issue is caused by:
+
+   * wrong Kite symbol format,
+   * refresh not running after deep scan,
+   * refresh running before rows exist,
+   * market-hour gate problem,
+   * failed batch quote call,
+   * quote parsing mismatch,
+   * DB update mismatch,
+   * missing logging,
+   * scheduler/cold-start timing,
+   * scan_date mismatch,
+   * disabled env flag.
+
+4. Implement the smallest safe fix if the cause is clear.
+
+5. The fix may update only intended intraday/live fields:
+
+   * `intraday_last`
+   * `intraday_change_pct`
+   * `intraday_updated_at`
+   * `trigger_hit`
+
+6. The fix must not change:
+
+   * final swing score,
+   * score weights,
+   * recommendation label,
+   * entry formula,
+   * stop formula,
+   * target formula,
+   * risk-reward formula,
+   * paper-equity execution,
+   * F&O logic.
+
+7. Add safe diagnostics or logging if useful:
+
+   * rows considered,
+   * quote symbols requested,
+   * quotes returned,
+   * rows updated,
+   * trigger hits newly latched,
+   * skipped symbols,
+   * error count,
+   * latest refresh timestamp.
+
+8. If a tiny owner-only diagnostic endpoint is needed, do **not** build it yet. First report the need and ask.
+
+9. If a schema change is required, stop and ask first.
+
+10. If the fix would alter scoring, recommendation, entry/stop/target, or paper trading behavior, stop and ask first.
+
+## Tests required
+
+Add or update tests for:
+
+1. Correct Kite NSE cash symbol formatting.
+2. Successful quote updates `intraday_last`.
+3. Successful quote updates `intraday_change_pct`.
+4. Successful quote updates `intraday_updated_at`.
+5. Quote high crossing trigger sets `trigger_hit = true`.
+6. Quote high below trigger leaves `trigger_hit = false`.
+7. Existing `trigger_hit = true` remains latched true.
+8. Missing quote does not throw.
+9. Bad quote payload does not throw.
+10. Refresh does not change score/action/entry/stop/target.
+11. Refresh does not touch F&O tables.
+12. Refresh does not touch paper-equity execution.
+
+## Live verification plan
+
+After implementation, do not claim fully verified until market-hours verification.
+
+During the next live market session, verify:
+
+* intraday fields are no longer NULL for latest scan rows,
+* `intraday_updated_at` is fresh,
+* at least a sample of rows has live LTP,
+* `trigger_hit` can latch when high crosses trigger,
+* no score/action/entry/stop/target changed due to refresh,
+* no F&O or paper-equity behavior changed.
+
+## Output required
+
+Produce an S2 report with:
+
+A. Root cause
+B. Files changed
+C. Exact fix
+D. Symbol formatting used
+E. Intraday fields updated
+F. Trigger-latch behavior
+G. Diagnostics/logs added, if any
+H. Tests added/updated
+I. Typecheck/test result
+J. Live verification status
+K. Remaining limitations
+L. Confirmation that no scoring/trading behavior changed
+
+## Parallel coordination
+
+F&O remains on P25 evidence collection only.
+
+Do not mix this swing task with F&O changes.
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* F&O P&L,
+* F&O DD/circuit-breakers,
+* option snapshots,
+* candle warehouse,
+* Kite execution,
+* paper-equity execution,
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* DB schema,
+* route auth,
+* workflows,
+* `replit.md`.
+
+Proceed with S2 only.

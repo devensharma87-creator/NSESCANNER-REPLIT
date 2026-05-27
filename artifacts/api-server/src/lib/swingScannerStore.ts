@@ -240,52 +240,219 @@ export async function runDeepScan(scanDate: string = istDateString()): Promise<{
 
 let intradayInflight = false;
 
-export async function runIntradayRefresh(): Promise<{ updated: number }> {
-  if (intradayInflight) return { updated: 0 };
+/**
+ * Process-local observability for the intraday refresh cycle.
+ * Read-only via `getIntradayRefreshHealth()`. Reset between tests via
+ * `__resetIntradayRefreshHealthForTests()`. No DB persistence, no
+ * effect on scoring/recommendation/plan/paper/F&O.
+ */
+interface IntradayRefreshHealth {
+  cyclesTotal: number;
+  rowsUpdatedTotal: number;
+  triggerHitsLatchedTotal: number;
+  lastCycle: {
+    scanDate: string | null;
+    considered: number;
+    symbolsRequested: number;
+    quotesReturned: number;
+    updated: number;
+    triggerHitsLatched: number;
+    skippedNoQuote: number;
+    skippedBadLtp: number;
+    errors: number;
+    durationMs: number;
+    reason?: string;
+  } | null;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorClass: string | null;
+  lastErrorMessage: string | null;
+  bootedAt: string;
+}
+
+const intradayHealth: IntradayRefreshHealth = {
+  cyclesTotal: 0,
+  rowsUpdatedTotal: 0,
+  triggerHitsLatchedTotal: 0,
+  lastCycle: null,
+  lastSuccessAt: null,
+  lastErrorAt: null,
+  lastErrorClass: null,
+  lastErrorMessage: null,
+  bootedAt: new Date().toISOString(),
+};
+
+export function getIntradayRefreshHealth(): IntradayRefreshHealth {
+  return { ...intradayHealth, lastCycle: intradayHealth.lastCycle ? { ...intradayHealth.lastCycle } : null };
+}
+
+export function __resetIntradayRefreshHealthForTests(): void {
+  intradayHealth.cyclesTotal = 0;
+  intradayHealth.rowsUpdatedTotal = 0;
+  intradayHealth.triggerHitsLatchedTotal = 0;
+  intradayHealth.lastCycle = null;
+  intradayHealth.lastSuccessAt = null;
+  intradayHealth.lastErrorAt = null;
+  intradayHealth.lastErrorClass = null;
+  intradayHealth.lastErrorMessage = null;
+}
+
+/**
+ * S2 (2026-05-27): the original implementation queried
+ * `WHERE scan_date = istDateString()`. But the deep scan only starts at
+ * 15:35 IST and the intraday gate (`isMarketHoursIst`) closes at 15:30
+ * IST, so there was NEVER a market-hours moment where today's rows
+ * existed. Consequence: `intraday_last`, `intraday_change_pct`,
+ * `intraday_updated_at`, `trigger_hit` were NULL on every historical
+ * scan_date going back to 2026-05-11.
+ *
+ * Fix: refresh the latest available `scan_date` (mirrors
+ * `getLatestSwingScan` — UI already shows yesterday's plan in pre-market).
+ * On a normal trading day this is yesterday's plan during the session
+ * and today's plan after 15:35. On the first trading day after a weekend
+ * /holiday it's Friday's plan, etc.
+ *
+ * Strict scope: this function only mutates `intraday_last`,
+ * `intraday_change_pct`, `trigger_hit`, `intraday_updated_at`. It does
+ * NOT touch score, action, setup, entry, stop_loss, target1, target2,
+ * rr_to_t1, or any other plan field, and it does NOT touch
+ * paper_trade_eq, paper_trade_fo, or any F&O table.
+ *
+ * Quote loader (`loadKiteQuotes`) formats symbols as `NSE:<TRADINGSYMBOL>`
+ * for Kite getQuote and consumes `q.ohlc.high` for the trigger latch
+ * via the mapped `KiteScannerQuote.high` field.
+ */
+export interface IntradayRefreshResult {
+  scanDate: string | null;
+  considered: number;
+  updated: number;
+  triggerHitsLatched: number;
+  skippedNoQuote: number;
+  skippedBadLtp: number;
+  reason?: string;
+}
+
+/**
+ * Optional test-injection seam: production call sites pass nothing and
+ * the function uses the singleton `db`. Tests can pass a transaction
+ * handle so seeded rows and the refresh run on the same connection
+ * (P22 pattern, used by the F&O MTM sweep's `dbHandle` parameter).
+ *
+ * Also accepts an optional `quotesLoader` so unit tests can stub Kite
+ * without spinning up `vi.mock`. Production passes nothing → uses
+ * `loadKiteQuotes`.
+ */
+export type DbHandle = Pick<typeof db, "select" | "update">;
+export type QuotesLoader = (symbols: string[]) => Promise<Map<string, import("./kiteScanner").KiteScannerQuote> | null>;
+
+export async function runIntradayRefresh(
+  dbHandle?: DbHandle,
+  quotesLoader?: QuotesLoader,
+): Promise<IntradayRefreshResult> {
+  if (intradayInflight) {
+    return { scanDate: null, considered: 0, updated: 0, triggerHitsLatched: 0, skippedNoQuote: 0, skippedBadLtp: 0, reason: "ALREADY_INFLIGHT" };
+  }
   intradayInflight = true;
+  const startedMs = Date.now();
+  intradayHealth.cyclesTotal++;
+  const dbh: DbHandle = dbHandle ?? db;
+  const loader: QuotesLoader = quotesLoader ?? loadKiteQuotes;
   try {
-    const scanDate = istDateString();
-    // Only refresh today's locked plans. Skip if there are none yet
-    // (e.g. cold-start before the first deep scan).
-    const todays = await db
+    // Latest available scan_date (NOT strictly today — see S2 note above).
+    const latest = await dbh
+      .select({ d: swingScanResultTable.scanDate })
+      .from(swingScanResultTable)
+      .orderBy(desc(swingScanResultTable.scanDate))
+      .limit(1);
+    const scanDate = latest[0]?.d ?? null;
+    if (!scanDate) {
+      const result: IntradayRefreshResult = { scanDate: null, considered: 0, updated: 0, triggerHitsLatched: 0, skippedNoQuote: 0, skippedBadLtp: 0, reason: "NO_SCAN_ROWS_YET" };
+      intradayHealth.lastCycle = { scanDate: null, considered: 0, symbolsRequested: 0, quotesReturned: 0, updated: 0, triggerHitsLatched: 0, skippedNoQuote: 0, skippedBadLtp: 0, errors: 0, durationMs: Date.now() - startedMs, reason: result.reason };
+      return result;
+    }
+
+    const rows = await dbh
       .select({
         symbol: swingScanResultTable.symbol,
         triggerPrice: swingScanResultTable.triggerPrice,
         closePrice: swingScanResultTable.closePrice,
+        triggerHit: swingScanResultTable.triggerHit,
       })
       .from(swingScanResultTable)
       .where(eq(swingScanResultTable.scanDate, scanDate));
-    if (todays.length === 0) return { updated: 0 };
-    const symbols = todays.map(t => t.symbol);
-    const quotes = await loadKiteQuotes(symbols);
+
+    if (rows.length === 0) {
+      const result: IntradayRefreshResult = { scanDate, considered: 0, updated: 0, triggerHitsLatched: 0, skippedNoQuote: 0, skippedBadLtp: 0, reason: "NO_ROWS_FOR_SCAN_DATE" };
+      intradayHealth.lastCycle = { scanDate, considered: 0, symbolsRequested: 0, quotesReturned: 0, updated: 0, triggerHitsLatched: 0, skippedNoQuote: 0, skippedBadLtp: 0, errors: 0, durationMs: Date.now() - startedMs, reason: result.reason };
+      return result;
+    }
+
+    const symbols = rows.map(r => r.symbol);
+    const quotes = await loader(symbols);
     if (!quotes) {
       logger.warn({ scanDate }, "swing-scan intraday refresh: Kite session unavailable");
-      return { updated: 0 };
+      const result: IntradayRefreshResult = { scanDate, considered: rows.length, updated: 0, triggerHitsLatched: 0, skippedNoQuote: rows.length, skippedBadLtp: 0, reason: "KITE_UNAVAILABLE" };
+      intradayHealth.lastCycle = { scanDate, considered: rows.length, symbolsRequested: symbols.length, quotesReturned: 0, updated: 0, triggerHitsLatched: 0, skippedNoQuote: rows.length, skippedBadLtp: 0, errors: 0, durationMs: Date.now() - startedMs, reason: result.reason };
+      return result;
     }
+
     const now = new Date();
     let updated = 0;
-    for (const t of todays) {
-      const q = quotes.get(t.symbol);
-      if (!q) continue;
+    let triggerHitsLatched = 0;
+    let skippedNoQuote = 0;
+    let skippedBadLtp = 0;
+    let errors = 0;
+
+    for (const r of rows) {
+      const q = quotes.get(r.symbol);
+      if (!q) { skippedNoQuote++; continue; }
       const lp = q.lastPrice;
-      const baseClose = Number(t.closePrice);
-      const trigger = Number(t.triggerPrice);
-      if (!Number.isFinite(lp) || lp <= 0) continue;
+      if (!Number.isFinite(lp) || lp <= 0) { skippedBadLtp++; continue; }
+      const baseClose = Number(r.closePrice);
+      const trigger = Number(r.triggerPrice);
       const changePct = baseClose > 0 ? ((lp - baseClose) / baseClose) * 100 : NaN;
-      const triggerHit = Number.isFinite(trigger) && trigger > 0 ? (q.high ?? lp) >= trigger : null;
-      await db.update(swingScanResultTable).set({
-        intradayLast: numToStr(lp),
-        intradayChangePct: numToStr(changePct),
-        triggerHit,
-        intradayUpdatedAt: now,
-      }).where(and(eq(swingScanResultTable.symbol, t.symbol), eq(swingScanResultTable.scanDate, scanDate)));
-      updated++;
+      // Trigger latch: high of session >= triggerPrice. If we already
+      // latched true earlier in the day, keep it latched (defensive — a
+      // late-session pullback below trigger shouldn't unlatch).
+      const wasLatched = r.triggerHit === true;
+      const hitNow = Number.isFinite(trigger) && trigger > 0 ? (q.high ?? lp) >= trigger : null;
+      const triggerHit = wasLatched ? true : hitNow;
+      if (!wasLatched && hitNow === true) triggerHitsLatched++;
+      try {
+        await dbh.update(swingScanResultTable).set({
+          intradayLast: numToStr(lp),
+          intradayChangePct: Number.isFinite(changePct) ? numToStr(changePct) : null,
+          triggerHit,
+          intradayUpdatedAt: now,
+        }).where(and(eq(swingScanResultTable.symbol, r.symbol), eq(swingScanResultTable.scanDate, scanDate)));
+        updated++;
+      } catch (err) {
+        errors++;
+        logger.warn({ symbol: r.symbol, scanDate, err: (err as Error).message?.slice(0, 200) }, "swing-scan intraday row update failed");
+      }
     }
-    logger.info({ scanDate, updated, total: todays.length }, "swing-scan intraday refresh complete");
-    return { updated };
+
+    intradayHealth.rowsUpdatedTotal += updated;
+    intradayHealth.triggerHitsLatchedTotal += triggerHitsLatched;
+    intradayHealth.lastSuccessAt = new Date().toISOString();
+    intradayHealth.lastCycle = {
+      scanDate, considered: rows.length, symbolsRequested: symbols.length, quotesReturned: quotes.size,
+      updated, triggerHitsLatched, skippedNoQuote, skippedBadLtp, errors,
+      durationMs: Date.now() - startedMs,
+    };
+    logger.info(
+      { scanDate, considered: rows.length, quotesReturned: quotes.size, updated, triggerHitsLatched, skippedNoQuote, skippedBadLtp, errors },
+      "swing-scan intraday refresh complete",
+    );
+    return { scanDate, considered: rows.length, updated, triggerHitsLatched, skippedNoQuote, skippedBadLtp };
   } catch (err) {
-    logger.warn({ err: (err as Error).message }, "swing-scan intraday refresh failed");
-    return { updated: 0 };
+    const e = err as Error;
+    intradayHealth.lastErrorAt = new Date().toISOString();
+    intradayHealth.lastErrorClass = e.constructor?.name ?? "Error";
+    intradayHealth.lastErrorMessage = (e.message ?? "").slice(0, 200);
+    intradayHealth.lastCycle = { scanDate: null, considered: 0, symbolsRequested: 0, quotesReturned: 0, updated: 0, triggerHitsLatched: 0, skippedNoQuote: 0, skippedBadLtp: 0, errors: 1, durationMs: Date.now() - startedMs, reason: "THREW" };
+    logger.warn({ err: e.message }, "swing-scan intraday refresh failed");
+    return { scanDate: null, considered: 0, updated: 0, triggerHitsLatched: 0, skippedNoQuote: 0, skippedBadLtp: 0, reason: "THREW" };
   } finally {
     intradayInflight = false;
   }
