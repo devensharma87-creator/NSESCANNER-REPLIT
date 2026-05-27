@@ -1,0 +1,153 @@
+Adding the endpoint and tests. Three edits in parallel: route handler, auth-matrix test addition, dedicated shape/no-side-effect test.
+
+
+17 actions
+All green: 533/533 tests pass, full workspace typecheck clean.
+
+S2a Report — Owner-Only Swing Intraday Refresh Diagnostics Endpoint
+A. Files changed
+File	Lines	Nature
+artifacts/api-server/src/routes/stocksToWatch.ts	+35 (import + new route)	Diagnostics endpoint
+artifacts/api-server/src/routes/__tests__/diagnosticRouteAuth.test.ts	+13 / -1 (mock keys + ENDPOINTS row)	Auth-matrix coverage
+artifacts/api-server/src/routes/__tests__/intradayRefreshDiagnostics.test.ts	+280 (new)	Dedicated shape / no-side-effect tests
+Nothing else touched. Specifically NOT changed:
+
+swingScannerStore.ts (S2 patch sits as-is — no new helper, no signature change)
+swingScanner.ts, swingScannerData.ts
+paperTradingEq.ts, paperTradingFO.ts, optionSignals.ts, scoring.ts
+lib/db/src/schema/* (no schema change)
+Workflow configs, .replit-artifact/*, replit.md
+B. Endpoint path
+GET /api/stocks-to-watch/diagnostics/intraday-refresh
+
+Mounted on the existing stocksToWatch router (already mounted at /api), so no new app.use(...) call site, no route-registration plumbing change.
+
+C. Auth behavior
+Strict owner-only — byte-identical pattern to the peer /sector-coverage diagnostic:
+
+(req, res, next) => {
+  const s = getSession(req);
+  if (s?.role === "owner") return next();
+  if (isPublicAccessEnabled()) {
+    res.status(403).json({ error: "owner_only", code: "OWNER_ONLY_DIAGNOSTIC" });
+    return;
+  }
+  res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
+}
+
+Caller	Public-mode	Result
+Anonymous	OFF	401 AUTH_REQUIRED
+Anonymous	ON	403 OWNER_ONLY_DIAGNOSTIC (no public-mode read bypass — critical)
+Subscriber cookie	OFF	401 AUTH_REQUIRED (no role escalation)
+Subscriber cookie	ON	403 OWNER_ONLY_DIAGNOSTIC
+Owner cookie	OFF	200 + health snapshot
+Owner cookie	ON	200 + health snapshot
+Same gate as the 8 pre-existing owner-only diagnostics — now 9 endpoints covered by the shared diagnosticRouteAuth.test.ts matrix (5 cases × 9 endpoints = 45 assertions).
+
+D. Example response shape
+Cold boot (no cycles run yet):
+
+{
+  "cyclesTotal": 0,
+  "rowsUpdatedTotal": 0,
+  "triggerHitsLatchedTotal": 0,
+  "lastCycle": null,
+  "lastSuccessAt": null,
+  "lastErrorAt": null,
+  "lastErrorClass": null,
+  "lastErrorMessage": null,
+  "bootedAt": "2026-05-27T03:30:00.000Z"
+}
+
+Mid-session healthy:
+
+{
+  "cyclesTotal": 7,
+  "rowsUpdatedTotal": 1234,
+  "triggerHitsLatchedTotal": 9,
+  "lastCycle": {
+    "scanDate": "2026-05-27",
+    "considered": 500,
+    "quotesReturned": 498,
+    "updated": 498,
+    "triggerHitsLatched": 2,
+    "skippedNoQuote": 1,
+    "skippedBadLtp": 1,
+    "errors": 0,
+    "durationMs": 845
+  },
+  "lastSuccessAt": "2026-05-27T09:45:12.000Z",
+  "lastErrorAt": null,
+  "lastErrorClass": null,
+  "lastErrorMessage": null,
+  "bootedAt": "2026-05-27T03:30:00.000Z"
+}
+
+Early-return / error cycles attach an optional reason field to lastCycle:
+
+"lastCycle": {
+  "scanDate": null,
+  "considered": 0,
+  ...
+  "reason": "NO_SCAN_ROWS_YET"  // or NO_ROWS_FOR_SCAN_DATE / KITE_UNAVAILABLE / ALREADY_INFLIGHT / THREW
+}
+
+All fields are the verbatim output of getIntradayRefreshHealth() — no projection, no rename, no scaling.
+
+E. Tests added
+Auth matrix (diagnosticRouteAuth.test.ts, +1 endpoint row): 5 cases × the new endpoint = 5 assertions covering required tests 1, 2, 10.
+
+#	Case	Status
+1	Anonymous + public-mode OFF	401 AUTH_REQUIRED ✅
+2	Anonymous + public-mode ON	403 OWNER_ONLY_DIAGNOSTIC ✅
+3	Subscriber + public-mode OFF	401 AUTH_REQUIRED ✅
+4	Owner + public-mode OFF	gate passes ✅
+5	Owner + public-mode ON	gate passes ✅
+Plus the existing "strict-vs-lenient contract" test re-runs against the new endpoint (auto-discovered via ENDPOINTS).
+
+Dedicated (intradayRefreshDiagnostics.test.ts, 10 tests):
+
+#	Test	Maps to required
+1	Owner read returns 200 with all 9 top-level keys, values pass through verbatim	3
+2	lastCycle shape contains all 9 required fields when present	4
+3	lastCycle: null on cold boot is tolerated (200, body literally null)	4
+4	Three sequential reads return identical counters (idempotent)	5
+5	loadKiteQuotes mock is never called across 2 reads	6
+6	runIntradayRefresh mock is never called across 2 reads	7
+7	All four db.* accessors throw on access; endpoint still returns 200 (so none was touched)	8
+8	Route registered exactly once on the router stack	9
+9	Handler block contains getSession(req), s?.role === "owner", isPublicAccessEnabled(), OWNER_ONLY_DIAGNOSTIC, AUTH_REQUIRED, getIntradayRefreshHealth() — strict-gate fingerprint matches peer	10
+10	Handler block contains NO runIntradayRefresh, loadKiteQuotes, fetchOptionChain, openPaperTrade, placeKiteOrder, db.update, db.insert, db.delete (tokens built at runtime so the test file itself can't satisfy the match)	6, 7, 8 (defense-in-depth)
+The dedicated test file mocks @workspace/db to throw on any access, loadKiteQuotes to throw, and runIntradayRefresh to throw — so a 200 response is itself proof none of those was called.
+
+F. Typecheck / test result
+pnpm run typecheck: ✅ all 5 leaf workspaces clean.
+pnpm --filter @workspace/api-server run test: ✅ 533 / 533 passing (was 518 after S2; +15 = 10 dedicated + 5 auth-matrix). 26 test files, 0 failures.
+G. Confirmation — endpoint is read-only
+Confirmed structurally and behaviorally:
+
+Handler body is literally one expression: res.json(getIntradayRefreshHealth()). No await, no DB handle, no Kite client, no setter call.
+getIntradayRefreshHealth() itself is read-only: returns a shallow-copied snapshot of the process-local counters object ({ ...health, lastCycle: health.lastCycle ? { ...health.lastCycle } : null }). No mutation, no IO.
+Test 7 observes the endpoint returns 200 while every db.* method throws on access ⇒ DB is provably untouched.
+Tests 5, 6 observe loadKiteQuotes and runIntradayRefresh mocks have zero call counts after multiple reads.
+Test 10 asserts the handler source block contains none of: runIntradayRefresh, loadKiteQuotes, fetchOptionChain, openPaperTrade, placeKiteOrder, db.update, db.insert, db.delete.
+No scheduler enqueue: the route handler never calls maybeRunIntradayLatched, startSwingScanScheduler, or any setTimeout/setInterval.
+H. Confirmation — no scoring / trading behavior changed
+Confirmed. Diff surface is:
+
+One new export from swingScannerStore is imported (getIntradayRefreshHealth — already added in S2, unchanged).
+One new GET route on the existing stocksToWatch router (read-only, owner-only, returns the snapshot verbatim).
+Two test files updated/added.
+Untouched: swing scoring weights, recommendation labels, entry / stop / target / RR formulas, intraday refresh execution path itself (S2 code unchanged), paper-equity execution, F&O signal generation, F&O entries / exits / stops / targets / sizing / gates / confluence / P&L / DD caps / circuit-breakers / heat, Kite execution, option-chain snapshot ingestion, candle warehouse, scheduler, DB schema, route auth model for any other endpoint, workflows, .replit-artifact/*, replit.md.
+
+P25 F&O evidence collection: untouched. mfeAvailableCount = 3 / 20, cursor signal_date > 2026-05-26, gate closed.
+
+I. Confirmation — S2 live verification still pending
+Confirmed. Not verified yet.
+
+The fix to runIntradayRefresh (S2) and the diagnostics endpoint (S2a) are both shipped, but the next intraday refresh cycle cannot fire until tomorrow's IST market session (Thu 2026-05-28, 09:15–15:30 IST). S2b verification plan from the S2 report stands unchanged, with one addition now possible:
+
+Live during 09:15–15:30 IST: curl (or browser, owner-logged-in) the new endpoint and confirm cyclesTotal increments roughly every 15 min, lastCycle.updated > 0, errors == 0, lastSuccessAt advances, and lastCycle.scanDate matches the row's scan_date in the DB.
+S3 (RS pipeline repair from §M of S1) remains paused. Available for read-only audit/design only after S2 live verification accepted.
+
+Awaiting your call on: approve S2a to remain in main pending live verification tomorrow, or any tweaks to the response shape / endpoint path before tomorrow's session opens?
