@@ -1,0 +1,146 @@
+S2a report is accepted.
+
+Approved decision:
+
+* Keep S2a in main.
+* Endpoint path is approved:
+
+```text
+GET /api/stocks-to-watch/diagnostics/intraday-refresh
+```
+
+Accepted findings:
+
+* Endpoint returns only `getIntradayRefreshHealth()`.
+* Endpoint is strict owner-only.
+* It does not trigger intraday refresh.
+* It does not call Kite.
+* It does not query or mutate DB rows.
+* It does not enqueue scheduler work.
+* It does not change swing scoring.
+* It does not change recommendations, entry, stop, target, or RR.
+* It does not touch F&O, paper-equity, schema, workflows, route auth model, or `replit.md`.
+* Typecheck passed.
+* 533/533 tests passed.
+
+No tweaks needed to endpoint path or response shape.
+
+Now proceed with **S2b: Swing Intraday Refresh Live Verification** during the next live market session only.
+
+Do not start S3 yet.
+
+## S2b verification scope
+
+During market hours, verify production read-only:
+
+1. Latest scan rows have non-null `intraday_last`.
+2. Latest scan rows have non-null `intraday_updated_at`.
+3. `intraday_updated_at` advances during the session.
+4. `intraday_change_pct` is populated where close price exists.
+5. `trigger_hit` can latch when intraday high crosses trigger.
+6. New diagnostics endpoint shows:
+
+   * `cyclesTotal > 0`
+   * `rowsUpdatedTotal > 0`
+   * `triggerHitsLatchedTotal`
+   * `lastCycle.scanDate`
+   * `lastCycle.considered`
+   * `lastCycle.quotesReturned`
+   * `lastCycle.updated`
+   * `lastCycle.triggerHitsLatched`
+   * `lastCycle.skippedNoQuote`
+   * `lastCycle.skippedBadLtp`
+   * `lastCycle.errors`
+   * `lastSuccessAt`
+7. Logs show intraday refresh cycles completing.
+8. Score/action/entry/stop/target/RR remain unchanged due to intraday refresh.
+9. No F&O, paper-equity, Kite execution, scheduler, schema, workflow, route auth, or `replit.md` behavior changed.
+
+## Suggested production read-only checks
+
+```sql
+SELECT scan_date,
+       COUNT(*) AS total,
+       COUNT(intraday_last) AS with_ltp,
+       COUNT(intraday_updated_at) AS with_intraday_ts,
+       COUNT(*) FILTER (WHERE trigger_hit = true) AS trigger_hits,
+       MAX(intraday_updated_at AT TIME ZONE 'Asia/Kolkata') AS latest_refresh_ist
+FROM swing_scan_result
+GROUP BY scan_date
+ORDER BY scan_date DESC
+LIMIT 3;
+```
+
+```sql
+SELECT symbol, scan_date, action, final_score, close_price,
+       trigger_price, intraday_last, intraday_change_pct,
+       trigger_hit, intraday_updated_at
+FROM swing_scan_result
+WHERE scan_date = (
+  SELECT MAX(scan_date) FROM swing_scan_result
+)
+ORDER BY final_score DESC
+LIMIT 20;
+```
+
+For plan drift check, compare a sample before/after refresh and confirm these fields do not change:
+
+* `final_score`
+* `action`
+* `entry_price`
+* `stop_loss`
+* `target1`
+* `target2`
+* `rr_to_t1`
+
+## Output required
+
+Produce an **S2b Live Verification Report** with:
+
+A. Production deploy/session confirmation
+B. Intraday refresh diagnostics endpoint result
+C. Latest scan row coverage
+D. Sample live rows
+E. Trigger latch evidence
+F. Plan drift check
+G. Logs/error summary
+H. Whether S2 is live verified
+I. Remaining limitations
+J. Confirmation that no scoring/trading behavior changed
+
+## Guardrails
+
+Do not change code.
+Do not change schema.
+Do not change workflows.
+Do not change route auth.
+Do not change trading behavior.
+Do not modify `replit.md`.
+
+Do not touch:
+
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* F&O P&L,
+* F&O DD/circuit-breakers,
+* option snapshots,
+* candle warehouse,
+* scheduler behavior,
+* Kite execution.
+
+S3 remains paused until S2b live verification is accepted.
+
+Proceed with S2b live verification only during the next live market session.
