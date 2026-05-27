@@ -1,0 +1,109 @@
+Proceed with **Option 1: S2b Pre-Session Baseline Capture**.
+
+This is approved as read-only baseline preparation only.
+
+Do **not** mark S2b verified yet.
+
+Current status:
+
+* Market is closed.
+* S2 and S2a were deployed after today’s close.
+* No live intraday refresh cycle can run until tomorrow’s market session.
+* Therefore actual S2b verification must wait until tomorrow between 09:15–15:30 IST.
+
+Please capture the baseline now:
+
+1. Hit the production owner-only endpoint if accessible:
+
+```text
+GET /api/stocks-to-watch/diagnostics/intraday-refresh
+```
+
+Record:
+
+* `cyclesTotal`
+* `rowsUpdatedTotal`
+* `triggerHitsLatchedTotal`
+* `lastCycle`
+* `lastSuccessAt`
+* `lastErrorAt`
+* `lastErrorClass`
+* `lastErrorMessage`
+* `bootedAt`
+
+If owner-authenticated endpoint access is not available, mark endpoint body as “not directly captured” and continue with DB baseline.
+
+2. Run the baseline coverage query:
+
+```sql
+SELECT scan_date,
+       COUNT(*) AS total,
+       COUNT(intraday_last) AS with_ltp,
+       COUNT(intraday_updated_at) AS with_intraday_ts,
+       COUNT(*) FILTER (WHERE trigger_hit = true) AS trigger_hits,
+       MAX(intraday_updated_at AT TIME ZONE 'Asia/Kolkata') AS latest_refresh_ist
+FROM swing_scan_result
+GROUP BY scan_date
+ORDER BY scan_date DESC
+LIMIT 3;
+```
+
+3. Capture top-20 plan snapshot for tomorrow’s drift comparison:
+
+```sql
+SELECT symbol, scan_date, action, final_score, close_price,
+       trigger_price, entry_price, stop_loss, target1, target2, rr_to_t1,
+       intraday_last, intraday_change_pct, trigger_hit, intraday_updated_at
+FROM swing_scan_result
+WHERE scan_date = (
+  SELECT MAX(scan_date) FROM swing_scan_result
+)
+ORDER BY final_score DESC
+LIMIT 20;
+```
+
+4. Produce a short **S2b Pre-Session Baseline Report** with:
+
+A. Production endpoint/auth status
+B. Endpoint health snapshot, if available
+C. Latest scan coverage baseline
+D. Top-20 plan-column baseline
+E. Current intraday field baseline
+F. Confirmation that this is not live verification
+G. What needs to be checked tomorrow during market hours
+H. Confirmation that no code/schema/workflow/trading behavior changed
+
+Important:
+
+Do not change code.
+Do not change schema.
+Do not change workflows.
+Do not change route auth.
+Do not change trading behavior.
+Do not modify `replit.md`.
+
+Do not touch:
+
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* paper-equity execution,
+* F&O logic,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler behavior,
+* Kite execution.
+
+After this baseline, stand by.
+
+Tomorrow during market hours, I will ping you for actual **S2b Live Verification**.
