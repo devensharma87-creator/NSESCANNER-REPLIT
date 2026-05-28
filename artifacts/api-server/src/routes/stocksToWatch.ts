@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { sql } from "drizzle-orm";
 import { db, swingScanResultTable } from "@workspace/db";
 import { getStocksToWatch } from "../lib/stocksToWatch";
-import { getLatestSwingScan, getSchedulerState, getIntradayRefreshHealth } from "../lib/swingScannerStore";
+import { getLatestSwingScan, getSchedulerState, getIntradayRefreshHealth, getSwingBenchmarkHealth } from "../lib/swingScannerStore";
 import { computeSectorCoverage, UNMAPPED_SECTOR } from "../lib/sectorMap";
 import { getSession, requireOwner } from "../lib/userAuth";
 import { isPublicAccessEnabled } from "../lib/publicAccess";
@@ -187,6 +187,43 @@ router.get(
   },
   (_req, res) => {
     res.json(getIntradayRefreshHealth());
+  },
+);
+
+/**
+ * GET /api/stocks-to-watch/diagnostics/swing-benchmark
+ *
+ * S3a (2026-05-28) — owner-only operational diagnostic. Exposes the
+ * process-local health snapshot for the NIFTY 50 swing benchmark
+ * loader (`fetchBenchmarkBarsResilient` in `swingScannerData.ts`).
+ *
+ * Reports the last benchmark fetch's source (`yahoo` / `yahoo_retry` /
+ * `kite` / `none`), bar count, first/last date, per-source errors,
+ * duration, and whether RS was enabled. Used to confirm that the
+ * resilient fallback chain is firing and to pinpoint which source
+ * actually fed the latest deep-scan's RS calculation.
+ *
+ * READ-ONLY. Returns `getSwingBenchmarkHealth()` verbatim. Does NOT
+ * trigger a deep scan, call Yahoo/Kite, query or mutate the DB, or
+ * enqueue any scheduler work. Same strict owner-only gate as the peer
+ * `/intraday-refresh` and `/sector-coverage` diagnostics.
+ */
+router.get(
+  "/stocks-to-watch/diagnostics/swing-benchmark",
+  // Strict owner-only: do NOT inherit `requireOwner`'s public-mode read
+  // bypass. Diagnostics list internal benchmark-loader state and are
+  // owner-only regardless of public-access mode.
+  (req, res, next) => {
+    const s = getSession(req);
+    if (s?.role === "owner") return next();
+    if (isPublicAccessEnabled()) {
+      res.status(403).json({ error: "owner_only", code: "OWNER_ONLY_DIAGNOSTIC" });
+      return;
+    }
+    res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
+  },
+  (_req, res) => {
+    res.json(getSwingBenchmarkHealth());
   },
 );
 

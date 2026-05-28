@@ -1,0 +1,188 @@
+S3 audit findings are accepted based on the visible report.
+
+Important note:
+
+The uploaded S3 report appears to cut off at section I, “Main weaknesses, ranked by severity.” Before continuing, please include the missing tail sections if they exist:
+
+* I. Main weaknesses ranked by severity
+* J. Recommended upgrade sequence
+* K. Which fixes require live market and which do not
+* L. Confirmation that no code/trading behavior changed
+
+However, based on the completed visible S3 evidence, the next approved task is clear.
+
+Proceed with:
+
+# S3a: Swing RS Benchmark Reliability Fix — Controlled Implementation
+
+Purpose:
+
+Fix the unreliable swing relative-strength benchmark feed so `rs20`, `rs50`, `rs120`, and `rs_score` populate consistently.
+
+This is not a new scoring model. This is a data-reliability fix for the existing RS calculation.
+
+Accepted S3 findings:
+
+* Current RS formula works when benchmark data is available.
+* 2026-05-26 had healthy RS coverage: 476/476 rows populated.
+* 2026-05-27 had broken RS coverage: only 1/450 rows populated.
+* 2026-05-20 had 0/463 RS coverage.
+* Current benchmark source is Yahoo `^NSEI` only.
+* There is no Kite fallback.
+* There is no retry.
+* When benchmark fails, RS silently falls back to neutral/NULL.
+* Sector and industry are display-only today.
+* Stock-vs-sector RS does not exist today.
+* Delivery data is not used by swing scoring today.
+
+Approved scope for S3a:
+
+1. Investigate and harden `fetchBenchmarkBars()` / benchmark loading for swing RS.
+
+2. Add a reliable fallback path for NIFTY benchmark bars.
+
+Preferred fallback order:
+
+```text
+1. Existing Yahoo ^NSEI benchmark fetch
+2. Retry Yahoo once with safe delay/backoff if feasible
+3. Kite NIFTY 50 index historical daily bars fallback if available
+4. If all fail, keep existing neutral RS behavior but log/diagnose loudly
+```
+
+3. Do not change the RS formula.
+
+4. Do not change RS weights.
+
+5. Do not add sector scoring.
+
+6. Do not add delivery scoring.
+
+7. Do not add stock-vs-sector RS yet.
+
+8. Do not change recommendation thresholds.
+
+9. Do not change entry/stop/target/RR.
+
+10. Do not change swing paper-equity execution.
+
+11. Do not change F&O.
+
+Approved behavior impact:
+
+If benchmark fallback succeeds on a day where Yahoo would have failed, swing scores and recommendations may change because the existing RS calculation will now receive real benchmark data instead of neutral/NULL data.
+
+This is accepted as a data-quality correction, not a strategy change.
+
+Diagnostics required:
+
+Add safe logging/diagnostics for each deep scan:
+
+* benchmark source used:
+
+  * `yahoo`
+  * `yahoo_retry`
+  * `kite`
+  * `none`
+* benchmark bar count,
+* benchmark first date,
+* benchmark last date,
+* whether RS was enabled or neutralized,
+* number of symbols with populated `rs20`,
+* number of symbols with populated `rs50`,
+* number of symbols with populated `rs120`,
+* number of symbols with non-zero `rs_score`.
+
+If there is an existing scan-run metadata place to store this safely, use it only if no schema change is required. If schema change is required, stop and ask first.
+
+Tests required:
+
+1. Yahoo benchmark success populates benchmark bars.
+2. Yahoo first attempt fails, retry succeeds.
+3. Yahoo fails, Kite fallback succeeds.
+4. Yahoo and Kite both fail → existing neutral RS behavior remains.
+5. Benchmark with insufficient bars → neutral RS behavior remains.
+6. Benchmark fallback does not throw the scan.
+7. RS formula output remains unchanged for a fixed stock/benchmark fixture.
+8. `rs20`, `rs50`, `rs120`, and `rs_score` populate when benchmark is valid.
+9. No sector scoring is introduced.
+10. No delivery scoring is introduced.
+11. No stock-vs-sector RS is introduced.
+12. No entry/stop/target/RR behavior changes.
+13. No F&O or paper-equity execution path changes.
+
+Output required:
+
+Produce an **S3a RS Benchmark Reliability Fix Report** with:
+
+A. Root cause confirmed
+B. Files changed
+C. Fallback order implemented
+D. Benchmark source behavior
+E. Diagnostics/logs added
+F. Tests added/updated
+G. Typecheck/test result
+H. Expected effect on future deep scans
+I. Live/post-scan verification plan
+J. Confirmation that RS formula/weights did not change
+K. Confirmation that sector/delivery scoring was not added
+L. Confirmation that no F&O or paper-equity execution behavior changed
+
+Verification plan:
+
+After the next deep scan completes, verify production read-only:
+
+```sql
+SELECT scan_date,
+       COUNT(*) AS total,
+       COUNT(rs20) AS with_rs20,
+       COUNT(rs50) AS with_rs50,
+       COUNT(rs120) AS with_rs120,
+       COUNT(*) FILTER (WHERE rs_score > 0) AS with_rs_score,
+       AVG(rs_score) AS avg_rs_score
+FROM swing_scan_result
+GROUP BY scan_date
+ORDER BY scan_date DESC
+LIMIT 5;
+```
+
+Acceptance target:
+
+* For a normal completed scan, `with_rs20`, `with_rs50`, and `with_rs120` should be close to total.
+* If benchmark fails completely, logs must clearly show why and source=`none`.
+* No silent RS failure.
+
+Guardrails:
+
+Do not change:
+
+* swing scoring formula,
+* swing score weights,
+* swing recommendations except as a natural result of restored RS data,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* sector scoring,
+* delivery scoring,
+* stock-vs-sector RS,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler behavior,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`.
+
+S2b live verification remains pending for the next active market session.
+
+Proceed with S3a only.

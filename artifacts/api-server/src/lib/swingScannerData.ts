@@ -23,7 +23,7 @@
  */
 import type { DailyBars, FundamentalsSnapshot } from "./swingScanner";
 import { EMPTY_FUNDAMENTALS, fundamentalScore, fundamentalStatusFromScore } from "./swingScanner";
-import { fetchKiteHistoricalByToken } from "./kiteIntraday";
+import { fetchKiteHistoricalByToken, getIndexTokenMap } from "./kiteIntraday";
 import { getInstrumentToken } from "./kiteFeed";
 import { fetchChart, fetchChartRaw, fetchFundamentals } from "./yahoo";
 import { logger } from "./logger";
@@ -69,14 +69,185 @@ export async function fetchDailyBars(symbol: string, daysBack = 500): Promise<Da
 }
 
 /** Benchmark bars for relative strength: NIFTY 50 (^NSEI). 1 year is
- *  enough — RS lookbacks top out at 120 bars. ^NSEI has no NSE-EQ
- *  instrument_token, so we skip Kite and go straight to Yahoo via the
- *  raw chart path (no `.NS` suffix appending). */
+ *  enough — RS lookbacks top out at 120 bars. Public Yahoo-only path
+ *  retained for callers (and tests) that want the original behaviour;
+ *  `fetchBenchmarkBarsResilient` below is the production entry point
+ *  used by the deep-scan orchestrator (S3a, 2026-05-28). */
 export async function fetchBenchmarkBars(daysBack = 365): Promise<DailyBars | null> {
   const range = daysBack > 365 ? "2y" : "1y";
   const yahoo = await fetchChartRaw("^NSEI", range, "1d");
   if (!yahoo || yahoo.close.length < 140) return null;
   return chartToBars(yahoo);
+}
+
+/* ───────────────── S3a: resilient benchmark loader ───────────────── */
+/**
+ * Minimum overlap window the swing RS formula needs to compute rs120
+ * (largest of the three windows). Below this we treat the bars as
+ * unusable — same threshold used by the legacy `fetchBenchmarkBars`.
+ */
+const BENCH_MIN_BARS = 140;
+
+/**
+ * Well-known NIFTY 50 instrument token. Kept here as a hard-coded
+ * defense-in-depth fallback even though `getIndexTokenMap()` already
+ * seeds the same value before attempting live revalidation. This way
+ * the swing benchmark can resolve a token even if the Kite session is
+ * not yet established (e.g. pre-06:00-IST first scan after a restart),
+ * provided `fetchKiteHistoricalByToken` itself can still authenticate.
+ */
+const NIFTY50_INSTRUMENT_TOKEN = 256265;
+
+/** Source tag for the benchmark fetch path that actually returned bars. */
+export type SwingBenchmarkSource = "yahoo" | "yahoo_retry" | "kite" | "none";
+
+export interface SwingBenchmarkResult {
+  /** OHLCV bars or null when every fallback failed. */
+  bars: DailyBars | null;
+  /** Which path produced the bars (`"none"` when all failed). */
+  source: SwingBenchmarkSource;
+  /** Bar count (0 when none). */
+  barCount: number;
+  /** First bar's UTC ISO date (`YYYY-MM-DD`), or null. */
+  firstDate: string | null;
+  /** Last bar's UTC ISO date (`YYYY-MM-DD`), or null. */
+  lastDate: string | null;
+  /** Last-attempt error message per source we tried, ≤200 chars. */
+  errors: { yahoo?: string; yahooRetry?: string; kite?: string };
+  /** Wall-clock elapsed time across all attempts, ms. */
+  durationMs: number;
+}
+
+/** Internal seam: production passes nothing; tests override Yahoo/Kite.
+ *  Returns a ChartLike (the projection chartToBars consumes). */
+export interface BenchmarkInjections {
+  yahooFetch?: () => Promise<ChartLike | null>;
+  kiteFetch?: () => Promise<ChartLike | null>;
+  /** Sleep override for the inter-attempt backoff in tests. */
+  sleepMs?: (ms: number) => Promise<void>;
+}
+
+function isoDate(tsMs: number | undefined): string | null {
+  if (typeof tsMs !== "number" || !Number.isFinite(tsMs)) return null;
+  return new Date(tsMs).toISOString().slice(0, 10);
+}
+
+function trimErr(s: string): string {
+  return s.length > 200 ? s.slice(0, 200) : s;
+}
+
+async function defaultYahooFetch(daysBack: number) {
+  const range = daysBack > 365 ? "2y" : "1y";
+  return fetchChartRaw("^NSEI", range, "1d");
+}
+
+async function defaultKiteFetch(daysBack: number) {
+  // Resolve the NIFTY 50 token via the shared resolver (uses live
+  // instrument dump when a Kite session is up; falls back to the
+  // hard-coded 256265 seed otherwise). Either way, the subsequent
+  // historical-data call needs an authenticated session, so when
+  // there is no session this layer still returns null and the
+  // resilient loader records a `kite` error.
+  let token: number | null = null;
+  try {
+    const map = await getIndexTokenMap();
+    if (map) token = map.get("^NSEI") ?? null;
+  } catch {
+    // Swallow — fall back to hard-coded token below.
+  }
+  if (!token || !Number.isFinite(token)) token = NIFTY50_INSTRUMENT_TOKEN;
+  return fetchKiteHistoricalByToken(token, "swing:^NSEI", "day", daysBack);
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * S3a (2026-05-28) — resilient NIFTY 50 benchmark loader for the swing
+ * scanner. Order:
+ *   1. Yahoo `^NSEI` daily (existing path)
+ *   2. Yahoo retry (one attempt, 750 ms backoff)
+ *   3. Kite historical via NIFTY 50 instrument token (256265, live-
+ *      revalidated by `getIndexTokenMap`)
+ *   4. None — caller keeps existing neutral RS behaviour
+ *
+ * NEVER throws — every layer is wrapped, every error is recorded in
+ * the returned `errors` map. Bars are validated against `BENCH_MIN_BARS`
+ * before they are accepted from any source — a too-short response is
+ * recorded as an error for that source and the next fallback runs.
+ *
+ * No change to the RS formula, no change to RS weights, no change to
+ * any scoring/recommendation/entry/stop/target/RR path.
+ */
+export async function fetchBenchmarkBarsResilient(
+  daysBack = 365,
+  inj?: BenchmarkInjections,
+): Promise<SwingBenchmarkResult> {
+  const startedMs = Date.now();
+  const errors: SwingBenchmarkResult["errors"] = {};
+  const sleepFn = inj?.sleepMs ?? sleep;
+  const yahooFn = inj?.yahooFetch ?? (() => defaultYahooFetch(daysBack));
+  const kiteFn = inj?.kiteFetch ?? (() => defaultKiteFetch(daysBack));
+
+  const tryAccept = (chart: ChartLike | null): DailyBars | null => {
+    if (!chart) return null;
+    if (!Array.isArray(chart.close) || chart.close.length < BENCH_MIN_BARS) return null;
+    return chartToBars(chart);
+  };
+
+  const sampleDates = (bars: DailyBars): { first: string | null; last: string | null } => ({
+    first: isoDate(bars.ts[0]),
+    last: isoDate(bars.ts[bars.ts.length - 1]),
+  });
+
+  // ── Attempt 1: Yahoo (existing path) ─────────────────────────────
+  try {
+    const y1 = await yahooFn();
+    const bars = tryAccept(y1);
+    if (bars) {
+      const { first, last } = sampleDates(bars);
+      return { bars, source: "yahoo", barCount: bars.ts.length, firstDate: first, lastDate: last, errors, durationMs: Date.now() - startedMs };
+    }
+    if (y1) errors.yahoo = `insufficient_bars:${y1.close?.length ?? 0}`;
+    else errors.yahoo = "null_response";
+  } catch (e) {
+    errors.yahoo = trimErr((e as Error).message ?? "yahoo_threw");
+  }
+
+  // ── Attempt 2: Yahoo retry with backoff ──────────────────────────
+  try {
+    await sleepFn(750);
+    const y2 = await yahooFn();
+    const bars = tryAccept(y2);
+    if (bars) {
+      const { first, last } = sampleDates(bars);
+      return { bars, source: "yahoo_retry", barCount: bars.ts.length, firstDate: first, lastDate: last, errors, durationMs: Date.now() - startedMs };
+    }
+    if (y2) errors.yahooRetry = `insufficient_bars:${y2.close?.length ?? 0}`;
+    else errors.yahooRetry = "null_response";
+  } catch (e) {
+    errors.yahooRetry = trimErr((e as Error).message ?? "yahoo_retry_threw");
+  }
+
+  // ── Attempt 3: Kite NIFTY 50 historical ──────────────────────────
+  try {
+    const k = await kiteFn();
+    const bars = tryAccept(k);
+    if (bars) {
+      const { first, last } = sampleDates(bars);
+      return { bars, source: "kite", barCount: bars.ts.length, firstDate: first, lastDate: last, errors, durationMs: Date.now() - startedMs };
+    }
+    if (k) errors.kite = `insufficient_bars:${k.close?.length ?? 0}`;
+    else errors.kite = "null_response";
+  } catch (e) {
+    errors.kite = trimErr((e as Error).message ?? "kite_threw");
+  }
+
+  // ── All paths failed ─────────────────────────────────────────────
+  logger.warn(
+    { errors },
+    "swing-scan benchmark: all sources failed; RS scores will be neutral",
+  );
+  return { bars: null, source: "none", barCount: 0, firstDate: null, lastDate: null, errors, durationMs: Date.now() - startedMs };
 }
 
 /* ─────────────────────── Fundamentals bridge ─────────────────────── */

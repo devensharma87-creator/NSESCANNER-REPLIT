@@ -1,0 +1,1 @@
+- [replit.md is not to be trimmed](replit-md-do-not-trim.md) — owner has explicitly forbidden trimming/reorganizing replit.md; ignore all auto-trim suggestions.

@@ -160,6 +160,12 @@ vi.mock("../../lib/swingScannerStore", () => ({
     lastErrorMessage: null,
     bootedAt: new Date().toISOString(),
   })),
+  getSwingBenchmarkHealth: vi.fn(() => ({
+    fetchesTotal: 0,
+    bySource: { yahoo: 0, yahoo_retry: 0, kite: 0, none: 0 },
+    lastBenchmark: null,
+    bootedAt: new Date().toISOString(),
+  })),
 }));
 
 // Silence pino in tests.
@@ -249,6 +255,7 @@ const ENDPOINTS: readonly Endpoint[] = [
   { name: "P2 sector-coverage",       method: "GET",  path: "/api/stocks-to-watch/diagnostics/sector-coverage" },
   { name: "P9 snapshot analytics",    method: "GET",  path: "/api/option-snapshots/analytics" },
   { name: "S2a intraday-refresh",     method: "GET",  path: "/api/stocks-to-watch/diagnostics/intraday-refresh" },
+  { name: "S3a swing-benchmark",      method: "GET",  path: "/api/stocks-to-watch/diagnostics/swing-benchmark" },
 ] as const;
 
 async function call(ep: Endpoint, cookie?: string): Promise<{ status: number; body: unknown }> {

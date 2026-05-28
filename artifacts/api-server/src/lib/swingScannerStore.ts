@@ -32,7 +32,7 @@ import { sql, eq, desc, and, gte } from "drizzle-orm";
 import { db, swingScanResultTable, swingScanRunTable } from "@workspace/db";
 import type { SwingScanResultRow } from "@workspace/db";
 import { scoreAndPlan, type SwingScanResult } from "./swingScanner";
-import { fetchDailyBars, fetchBenchmarkBars, fetchFundamentalsForSwing } from "./swingScannerData";
+import { fetchDailyBars, fetchBenchmarkBarsResilient, fetchFundamentalsForSwing, type SwingBenchmarkSource } from "./swingScannerData";
 import { NIFTY500_SYMBOLS } from "./watchlistLists";
 import { loadKiteQuotes } from "./kiteScanner";
 import { logger } from "./logger";
@@ -170,6 +170,50 @@ let deepScanInflight = false;
 let lastDeepScanDate: string | null = null;
 let lastDeepScanError: string | null = null;
 
+/* ─────────────────── S3a benchmark health ──────────────────────────
+ * Process-local observability for the swing benchmark loader. Reset
+ * between tests via `__resetSwingBenchmarkHealthForTests()`. Read via
+ * `getSwingBenchmarkHealth()`. No DB persistence, no effect on
+ * scoring/recommendation/plan/paper/F&O.
+ */
+export interface SwingBenchmarkHealth {
+  fetchesTotal: number;
+  bySource: Record<SwingBenchmarkSource, number>;
+  lastBenchmark: {
+    scanDate: string;
+    source: SwingBenchmarkSource;
+    barCount: number;
+    firstDate: string | null;
+    lastDate: string | null;
+    errors: { yahoo?: string; yahooRetry?: string; kite?: string };
+    durationMs: number;
+    rsEnabled: boolean;
+    at: string;
+  } | null;
+  bootedAt: string;
+}
+
+const benchmarkHealth: SwingBenchmarkHealth = {
+  fetchesTotal: 0,
+  bySource: { yahoo: 0, yahoo_retry: 0, kite: 0, none: 0 },
+  lastBenchmark: null,
+  bootedAt: new Date().toISOString(),
+};
+
+export function getSwingBenchmarkHealth(): SwingBenchmarkHealth {
+  return {
+    ...benchmarkHealth,
+    bySource: { ...benchmarkHealth.bySource },
+    lastBenchmark: benchmarkHealth.lastBenchmark ? { ...benchmarkHealth.lastBenchmark, errors: { ...benchmarkHealth.lastBenchmark.errors } } : null,
+  };
+}
+
+export function __resetSwingBenchmarkHealthForTests(): void {
+  benchmarkHealth.fetchesTotal = 0;
+  benchmarkHealth.bySource = { yahoo: 0, yahoo_retry: 0, kite: 0, none: 0 };
+  benchmarkHealth.lastBenchmark = null;
+}
+
 export async function runDeepScan(scanDate: string = istDateString()): Promise<{ scanned: number; errors: number; durationMs: number }> {
   if (deepScanInflight) {
     logger.warn({ scanDate }, "swing-scan deep-scan already in flight; skipping");
@@ -181,10 +225,37 @@ export async function runDeepScan(scanDate: string = istDateString()): Promise<{
   let errors = 0;
   try {
     logger.info({ scanDate, universe: NIFTY500_SYMBOLS.length }, "swing-scan deep scan starting");
-    const benchmark = await fetchBenchmarkBars(365);
-    if (!benchmark) logger.warn({ scanDate }, "swing-scan benchmark fetch failed; RS scores will be neutral");
-    const benchClose = benchmark?.close ?? null;
-    const benchTs = benchmark?.ts ?? null;
+    // S3a (2026-05-28): resilient benchmark loader. Order:
+    //   Yahoo → Yahoo retry (750ms backoff) → Kite NIFTY 50 historical
+    // → none. Returns a structured result so we can log/diagnose the
+    // exact source. No change to the RS formula or weights.
+    const benchmark = await fetchBenchmarkBarsResilient(365);
+    benchmarkHealth.lastBenchmark = {
+      scanDate,
+      source: benchmark.source,
+      barCount: benchmark.barCount,
+      firstDate: benchmark.firstDate,
+      lastDate: benchmark.lastDate,
+      errors: benchmark.errors,
+      durationMs: benchmark.durationMs,
+      rsEnabled: benchmark.bars != null,
+      at: new Date().toISOString(),
+    };
+    benchmarkHealth.fetchesTotal++;
+    benchmarkHealth.bySource[benchmark.source]++;
+    if (benchmark.bars) {
+      logger.info(
+        { scanDate, source: benchmark.source, barCount: benchmark.barCount, firstDate: benchmark.firstDate, lastDate: benchmark.lastDate, durationMs: benchmark.durationMs },
+        "swing-scan benchmark loaded",
+      );
+    } else {
+      logger.warn(
+        { scanDate, errors: benchmark.errors, durationMs: benchmark.durationMs },
+        "swing-scan benchmark fetch failed (all sources); RS scores will be neutral",
+      );
+    }
+    const benchClose = benchmark.bars?.close ?? null;
+    const benchTs = benchmark.bars?.ts ?? null;
 
     await mapWithConcurrency(NIFTY500_SYMBOLS, CONCURRENCY, async (symbol) => {
       try {
