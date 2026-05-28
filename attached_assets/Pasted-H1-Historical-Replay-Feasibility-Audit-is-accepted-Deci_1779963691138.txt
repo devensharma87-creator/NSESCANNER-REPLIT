@@ -1,0 +1,290 @@
+H1 Historical Replay Feasibility Audit is accepted.
+
+Decision:
+
+Proceed with the optional scratch-only replay script from Part F.2, but only for **offline F&O shadow evidence**.
+
+Do not treat this as live verification.
+
+Do not change production logic.
+
+Do not change DB rows.
+
+Do not backfill MFE/MAE.
+
+Do not reduce the P25 20-live-trade gate based on this alone.
+
+Proceed with:
+
+# H2: Scratch-Only F&O Historical Shadow Replay
+
+Purpose:
+
+Use available historical option-chain snapshots to produce approximate offline evidence for F&O MFE/MAE and shadow exits, while clearly labelling results as:
+
+```text
+historically replayed
+offline shadow evidence
+approximate
+not live-verified
+not decision-grade alone
+```
+
+## Accepted H1 findings
+
+* `paper_trade_fo` has 14 closed historical trades.
+* `option_chain_snapshot` starts from 2026-05-18.
+* Only 7 of 14 trades are reconstructable.
+* Reconstruction coverage is approximately 50%.
+* 7 trades are not reconstructable due to pre-snapshot dates, MIDCPNIFTY absence, or missing overlap.
+* `paper_trade_fo` does not store expiry.
+* Snapshot option type uses `CE/PE`, while trades use `CALL/PUT`.
+* Snapshot cadence is around 5 minutes, so tick ordering is not exact.
+* BE-trail results are approximate / upper-bound only.
+* H2 cannot replace live verification.
+* H2 cannot clear P25 by itself.
+
+## Approved scope
+
+Create a scratch-only script/output under:
+
+```text
+.agents/outputs/h2/
+```
+
+Allowed outputs:
+
+```text
+.agents/outputs/h2/fno_historical_shadow_replay.csv
+.agents/outputs/h2/fno_historical_shadow_replay_summary.md
+```
+
+Do not commit these files.
+
+Do not modify app code.
+
+Do not modify production DB.
+
+Do not modify schema.
+
+Do not modify `replit.md`.
+
+Do not modify memory/docs.
+
+## Data sources
+
+Use production read-only queries only:
+
+* `paper_trade_fo`
+* `option_chain_snapshot`
+* `option_chain_snapshot_run` if useful
+* `fno_signal_reasoning` if useful
+* `option_signal_history` if useful
+
+Do not write to any table.
+
+Do not update `paper_trade_fo.max_runup`.
+
+Do not update `paper_trade_fo.max_drawdown`.
+
+Do not backfill any values.
+
+## Replay rules
+
+For each reconstructable F&O paper trade:
+
+1. Match by:
+
+   * index,
+   * strike,
+   * option type mapping:
+
+     * `CALL → CE`
+     * `PUT → PE`
+   * snapshot timestamp between `opened_at` and `exited_at`.
+
+2. Expiry handling:
+
+   Since `paper_trade_fo` does not store expiry, use one of these approaches:
+
+   * If expiry can be inferred safely from available reasoning/snapshot context, use it and mark method as `inferred`.
+   * If not, compute separate replay per candidate expiry and choose the most plausible path, but mark data quality as `approximate_expiry_ambiguous`.
+   * If expiry ambiguity makes the result unreliable, mark trade as `insufficient`.
+
+3. For each trade, compute:
+
+   * min observed LTP,
+   * max observed LTP,
+   * approximate MFE amount,
+   * approximate MAE amount,
+   * approximate MFE%,
+   * approximate MAE%,
+   * first observed time reaching +30%,
+   * first observed time reaching +50%,
+   * first observed time reaching +60%,
+   * whether +30 / +50 / +60 was reached,
+   * snapshot count,
+   * first snapshot time,
+   * last snapshot time,
+   * data-quality grade.
+
+4. Shadow rules:
+
+   Calculate approximate results for:
+
+   * R1: full exit at +30%
+   * R2: full exit at +60%
+   * R3: 50% book at +30% + BE trail
+   * R4: 50% book at +50% + BE trail
+   * R5: full BE after +50% MFE
+
+5. BE-trail caveat:
+
+   Every BE-trail result must include the note:
+
+```text
+BE-trail result is approximate / upper-bound because snapshot cadence is ~5 minutes and intra-window tick ordering is unknown.
+```
+
+6. Data-quality grades:
+
+Use:
+
+```text
+good_5min
+approximate_expiry_ambiguous
+insufficient_no_snapshots
+insufficient_no_expiry_match
+insufficient_midcpnifty_not_snapshotted
+```
+
+## CSV columns required
+
+Include at least:
+
+* trade_id
+* signal_date
+* index_symbol
+* setup_key
+* direction
+* option_type
+* mapped_option_type
+* strike
+* expiry_used
+* expiry_method
+* opened_at
+* exited_at
+* entry_premium
+* exit_premium
+* lots
+* lot_size
+* qty
+* realized_pnl
+* snapshot_count
+* min_ltp
+* max_ltp
+* mfe_amount
+* mae_amount
+* mfe_pct
+* mae_pct
+* hit_30
+* hit_50
+* hit_60
+* first_hit_30_at
+* first_hit_50_at
+* first_hit_60_at
+* R1_shadow_pnl
+* R2_shadow_pnl
+* R3_shadow_pnl
+* R4_shadow_pnl
+* R5_shadow_pnl
+* R1_delta_vs_actual
+* R2_delta_vs_actual
+* R3_delta_vs_actual
+* R4_delta_vs_actual
+* R5_delta_vs_actual
+* data_quality
+* limitations
+
+## Summary report required
+
+Produce a short markdown summary with:
+
+A. Trades checked
+B. Trades reconstructable
+C. Trades not reconstructable
+D. Coverage percentage
+E. Data-quality breakdown
+F. Aggregate actual P&L of reconstructable trades
+G. Aggregate shadow P&L for R1–R5
+H. Hit-rate for +30 / +50 / +60 MFE
+I. Which rule looks directionally interesting
+J. Which results are outlier-dependent
+K. Whether this changes P25 gate status
+L. What still requires live evidence
+M. Confirmation that no code/schema/trading behavior changed
+
+## Verdict rules
+
+* Do not claim any rule is approved.
+* Do not promote any rule to live implementation.
+* Do not reduce the P25 live threshold based on H2.
+* If a rule looks promising, label it:
+
+```text
+directionally interesting, not live-approved
+```
+
+* If results are driven by one trade, label:
+
+```text
+outlier-dependent
+```
+
+* If expiry ambiguity materially affects results, label:
+
+```text
+not decision-grade
+```
+
+## Guardrails
+
+Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* stop-loss,
+* target,
+* partial booking,
+* trailing stop,
+* sizing,
+* gates,
+* confluence,
+* realised P&L,
+* DD/circuit-breakers,
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* option snapshot ingestion,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+## After H2
+
+Do not start H3 or any implementation automatically.
+
+After the H2 report, stop and wait for my instruction.
+
+Proceed with H2 scratch-only historical F&O shadow replay.
