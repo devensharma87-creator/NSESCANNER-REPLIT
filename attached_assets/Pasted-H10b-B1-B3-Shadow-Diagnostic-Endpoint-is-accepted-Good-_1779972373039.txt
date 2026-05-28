@@ -1,0 +1,318 @@
+H10b B1/B3 Shadow Diagnostic Endpoint is accepted.
+
+Good work.
+
+Accepted final state:
+
+* Production warning-code verification passed across 10 scan dates.
+* All three B3-relevant warning substrings were observed.
+* Two additional non-B3 warning strings were correctly identified and cataloged as non-B3:
+
+  * `Large opening gap`
+  * `Upper-wick rejection`
+* Unknown warning handling is accepted.
+* Owner-only endpoint added:
+
+```text id="64ly3i"
+GET /api/stocks-to-watch/diagnostics/swing-shadow-score
+```
+
+* Endpoint is read-only.
+* Endpoint is owner-only.
+* Endpoint uses latest scan cohort only.
+* Endpoint is bounded.
+* Endpoint uses deterministic ordering.
+* Endpoint has 5-minute in-process memoization.
+* Endpoint is behind `SWING_SHADOW_DIAG_ENABLED`.
+* No outcomes fetching was added.
+* No scheduler was added.
+* No UI was added.
+* No DB writes.
+* No schema changes.
+* No live swing scoring change.
+* No action-label change.
+* No entry/stop/target/RR change.
+* No paper-equity change.
+* No F&O change.
+* No `replit.md` or memory/docs change.
+* Typecheck clean.
+* 652/652 api-server tests passed.
+* Code review PASS.
+
+Current verdict:
+
+```text id="nz3lgr"
+H10b = accepted
+B1/B3 diagnostic endpoint = accepted
+Live scoring = unchanged
+Shadow endpoint = diagnostic only
+No live activation approved
+```
+
+Now proceed with:
+
+# H10c: Production Smoke Verification — B1/B3 Shadow Diagnostic Endpoint
+
+Purpose:
+
+Verify the newly added B1/B3 shadow diagnostic endpoint in the deployed/production environment.
+
+This is verification only.
+
+Do not change code unless a clear defect is found.
+
+Do not change live swing scoring.
+
+Do not change action labels.
+
+Do not change entries, stops, targets, RR, trigger latch, intraday refresh, paper-equity, F&O, scheduler, schema, workflows, UI, `replit.md`, or memory/docs.
+
+## Scope
+
+Verify:
+
+```text id="6vvl17"
+GET /api/stocks-to-watch/diagnostics/swing-shadow-score
+```
+
+This endpoint must remain:
+
+* owner-only,
+* read-only,
+* bounded,
+* latest-scan only,
+* no DB writes,
+* no scan trigger,
+* no intraday refresh trigger,
+* no Kite/Yahoo call,
+* no outcomes fetch,
+* no live scoring mutation.
+
+## Checks required
+
+### 1. Deployment / availability
+
+Confirm the endpoint is present in the deployed build.
+
+Check:
+
+* route exists,
+* route responds,
+* no server crash,
+* no startup errors related to `swingShadowScore` or `swingShadowDiagnostic`.
+
+### 2. Auth behavior
+
+Verify:
+
+* anonymous access denied,
+* non-owner/subscriber access denied if testable,
+* owner access allowed if owner cookie/session is available.
+
+If owner session is unavailable, do not request secrets. Report owner-body verification as not captured and continue with anonymous/auth-denial evidence.
+
+### 3. Feature flag behavior
+
+Check current value/effective behavior of:
+
+```text id="ui7kta"
+SWING_SHADOW_DIAG_ENABLED
+```
+
+Confirm whether endpoint is enabled.
+
+If disabled, report disabled state and do not force-enable unless already part of deployment config.
+
+If enabled, continue.
+
+### 4. Response shape
+
+For owner-enabled response, capture summary only.
+
+Do not paste huge payloads.
+
+Confirm response contains:
+
+* latest scan date,
+* total rows,
+* feature flag status,
+* warning verification summary,
+* B1 summary,
+* B3 summary,
+* current top candidates,
+* B1 top candidates,
+* B3 top candidates,
+* promoted/demoted lists,
+* score-delta distribution,
+* data-quality summary.
+
+### 5. Latest scan only
+
+Confirm the endpoint uses only the latest `scan_date`.
+
+Run read-only DB check if needed:
+
+```sql id="ekqera"
+SELECT MAX(scan_date) AS latest_scan_date
+FROM swing_scan_result;
+```
+
+Then confirm endpoint `latestScanDate` matches.
+
+### 6. Row count sanity
+
+Run read-only DB check:
+
+```sql id="lg1dso"
+SELECT scan_date, COUNT(*) AS rows
+FROM swing_scan_result
+WHERE scan_date = (SELECT MAX(scan_date) FROM swing_scan_result)
+GROUP BY scan_date;
+```
+
+Confirm endpoint total rows matches or explain any intentional filtering.
+
+### 7. Warning verification sanity
+
+Confirm endpoint surfaces:
+
+* B3 known warning substrings,
+* known non-B3 strings,
+* unknown strings if any,
+* no silent guessing.
+
+### 8. B1/B3 sanity
+
+Check that:
+
+* live score is unchanged,
+* live action is unchanged,
+* B1 score differs only by fundamental-score adjustment,
+* B3 score differs by B1 + accepted penalties,
+* reason codes are present,
+* missing/null fields fail open.
+
+Do not compare every row manually. Sample a few rows:
+
+* one high fundamental-score row,
+* one overextended warning row,
+* one RS-weak warning row,
+* one row with no B3 warnings.
+
+### 9. Memoization sanity
+
+Call endpoint twice within 5 minutes if owner access is available.
+
+Confirm:
+
+* response is stable,
+* no duplicate heavy work visible in logs,
+* no DB writes,
+* no scan trigger.
+
+If memoization is not visible externally, report as indirectly verified by code/tests only.
+
+### 10. Logs
+
+Check logs for:
+
+* no endpoint errors,
+* no unexpected Kite/Yahoo calls,
+* no scan/intraday refresh triggered,
+* no DB mutation,
+* no unhandled unknown warnings.
+
+## Output required
+
+Produce an **H10c Production Smoke Verification Report** with:
+
+A. Deployment/build confirmation
+B. Endpoint availability
+C. Auth behavior result
+D. Feature flag state
+E. Owner response captured or not captured
+F. Response shape summary
+G. Latest-scan / row-count match
+H. Warning verification summary
+I. B1/B3 row sanity samples
+J. Memoization sanity
+K. Logs reviewed
+L. Any defects found
+M. Whether H10b is production-verified
+N. Confirmation that no code/schema/DB write/scheduler/UI/live scoring/trading behavior changed
+O. Recommended next phase, but do not start it
+
+## Verdict rules
+
+Allowed verdicts:
+
+```text id="mg24x4"
+H10b production-verified
+```
+
+or
+
+```text id="1zx05r"
+H10b partially verified — owner response not captured
+```
+
+or
+
+```text id="f12i27"
+H10b verification failed — defect found
+```
+
+If defect is found:
+
+* do not patch automatically unless it is a small obvious test-only/reporting issue,
+* describe the defect,
+* propose the smallest fix,
+* stop for approval if it could affect route behavior or production logic.
+
+## Guardrails
+
+Do not change:
+
+* live swing scoring,
+* live swing recommendations,
+* live swing action labels,
+* live swing entries,
+* live swing stops,
+* live swing targets,
+* live swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* UI,
+* `replit.md`,
+* memory/docs.
+
+## Coordination
+
+S2b live intraday refresh verification remains pending.
+
+S3b post-deep-scan RS benchmark verification remains pending.
+
+F&O P25 live evidence collection remains pending.
+
+S4c/S4d/S4e/S4f remain not approved.
+
+After H10c, stop and wait for instruction.
+
+Proceed with H10c production smoke verification only.
