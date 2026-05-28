@@ -1,0 +1,182 @@
+S3a report is accepted.
+
+Approved final state:
+
+* S3a is shipped.
+* RS benchmark reliability fix is accepted.
+* Fallback ladder is approved:
+
+```text
+Yahoo ^NSEI → Yahoo retry → Kite NIFTY 50 daily bars → neutral fallback
+```
+
+* `fetchBenchmarkBarsResilient()` is approved.
+* `getSwingBenchmarkHealth()` is approved.
+* Owner-only endpoint is approved:
+
+```text
+GET /api/stocks-to-watch/diagnostics/swing-benchmark
+```
+
+* RS formula did not change.
+* RS weights did not change.
+* Sector scoring was not added.
+* Delivery scoring was not added.
+* Stock-vs-sector RS was not added.
+* Entry/stop/target/RR logic did not change.
+* F&O and paper-equity execution paths did not change.
+* No schema change.
+* Typecheck passed.
+* 554/554 tests passed.
+
+One note:
+
+Please do not add or modify any memory/documentation files unless I explicitly approve. The `.agents/memory/replit-md-do-not-trim.md` note is acceptable as an internal agent note if it is outside the repo and not committed, but do not make any further memory/doc changes now.
+
+Now proceed with **S3b: Swing RS Benchmark Live/Post-Scan Verification** only.
+
+Purpose:
+
+Verify that S3a actually improves RS population after the next completed swing deep scan.
+
+This is read-only verification only.
+
+## When to run
+
+Run S3b only after the next post-15:35 IST deep scan has completed.
+
+Do not run before the deep scan completes.
+
+## Verification scope
+
+1. Confirm latest deployed build includes S3a.
+
+2. Hit owner-only diagnostic endpoint if accessible:
+
+```text
+GET /api/stocks-to-watch/diagnostics/swing-benchmark
+```
+
+Capture:
+
+* `source`
+* `barCount`
+* `firstDate`
+* `lastDate`
+* `errors`
+* `durationMs`
+* `lastSuccessAt`
+* `lastErrorAt`
+* any benchmark health fields exposed
+
+If owner-authenticated endpoint body is not accessible, do not request cookies or secrets. Mark endpoint body as not directly captured and proceed with DB evidence.
+
+3. Run production read-only RS coverage query:
+
+```sql
+SELECT scan_date,
+       COUNT(*) AS total,
+       COUNT(rs20) AS with_rs20,
+       COUNT(rs50) AS with_rs50,
+       COUNT(rs120) AS with_rs120,
+       COUNT(*) FILTER (WHERE rs_score > 0) AS with_rs_score,
+       AVG(rs_score) AS avg_rs_score
+FROM swing_scan_result
+GROUP BY scan_date
+ORDER BY scan_date DESC
+LIMIT 5;
+```
+
+4. Compare post-S3a latest scan against pre-S3a baseline:
+
+Known pre-S3a bad days:
+
+```text
+2026-05-27: 1/450 RS coverage
+2026-05-20: 0/463 RS coverage
+```
+
+Known healthy day:
+
+```text
+2026-05-26: 476/476 RS coverage
+```
+
+5. Acceptance criteria:
+
+* Latest completed scan should have `with_rs20`, `with_rs50`, and `with_rs120` close to `total`.
+* `with_rs_score` should be meaningfully above zero.
+* `avg_rs_score` should be non-zero on a normal scan.
+* If benchmark source is `yahoo`, `yahoo_retry`, or `kite`, bar count should be `>= 140`.
+* If source is `none`, logs/health must clearly explain failure and RS should fail neutral without crashing.
+* No silent RS failure.
+
+6. Also sample top rows:
+
+```sql
+SELECT symbol, scan_date, action, score, rs_score,
+       rs20, rs50, rs120, sector, industry
+FROM swing_scan_result
+WHERE scan_date = (
+  SELECT MAX(scan_date) FROM swing_scan_result
+)
+ORDER BY score DESC
+LIMIT 20;
+```
+
+Check whether RS values are populated and plausible.
+
+## Output required
+
+Produce an **S3b RS Benchmark Verification Report** with:
+
+A. Production/deploy confirmation
+B. Latest deep-scan confirmation
+C. Benchmark diagnostic endpoint result
+D. RS coverage table
+E. Comparison versus pre-S3a bad days
+F. Top-20 RS sample
+G. Whether S3a is live verified
+H. Any remaining limitations
+I. Confirmation that no code/schema/workflow/trading behavior changed
+
+## Guardrails
+
+Do not change code.
+Do not change schema.
+Do not change workflows.
+Do not change route auth.
+Do not change trading behavior.
+Do not modify `replit.md` or memory/docs.
+
+Do not touch:
+
+* swing RS formula,
+* swing RS weights,
+* sector scoring,
+* delivery scoring,
+* stock-vs-sector RS,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler behavior,
+* Kite execution.
+
+S2b live intraday verification remains pending separately for next market hours.
+
+F&O P25 evidence collection remains separate and unchanged.
+
+Proceed with S3b verification only after the next completed deep scan.
