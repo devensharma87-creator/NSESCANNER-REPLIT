@@ -1,0 +1,390 @@
+H3 Swing Historical Sector / RS Shadow Replay is accepted.
+
+Good work.
+
+Accepted findings:
+
+* H3 was scratch-only.
+* Outputs were written only under `.agents/outputs/h3/`.
+* No DB writes.
+* No schema changes.
+* No app-code changes.
+* No route/auth/workflow changes.
+* No `replit.md` or memory/docs changes.
+* No live scoring or trading behavior changed.
+* Only 3 historical scan dates were usable:
+
+  * 2026-05-19
+  * 2026-05-26
+  * 2026-05-28
+* Several days were excluded due to missing sector data or all-zero RS score collapse.
+* Sector-RS overlay is directionally useful but not decision-grade yet.
+* H3 supports further design thinking, but does not approve S4c.
+* S4c implementation is not approved.
+* No live activation is approved.
+
+Current verdict:
+
+```text
+H3 = useful offline shadow evidence
+S4c = not approved yet
+Swing sector/RS live scoring = not approved
+Need more clean scan days and outcome evidence
+```
+
+Now proceed with the next safe acceleration task:
+
+# H4: Swing Historical Daily-OHLC Outcome Replay — Scratch-Only
+
+Purpose:
+
+Use historical scan rows plus historical daily OHLC data to estimate whether swing scanner candidates later reached entry, stop, target, or produced positive forward returns.
+
+This is offline shadow evidence only.
+
+It must not change live scoring, recommendations, entries, stops, targets, RR, trigger latch, paper-equity, F&O, schema, workflows, route auth, `replit.md`, memory/docs, or production rows.
+
+## Important language
+
+Label all results as:
+
+```text
+historical daily-bar replay
+offline shadow evidence
+approximate
+not live-verified
+not intraday-exact
+not implementation approval
+```
+
+Daily OHLC cannot prove exact intraday order when both stop and target fall inside the same day’s range.
+
+## Approved scope
+
+Create scratch-only outputs under:
+
+```text
+.agents/outputs/h4/
+```
+
+Allowed files:
+
+```text
+.agents/outputs/h4/swing_daily_ohlc_outcome_replay.csv
+.agents/outputs/h4/swing_daily_ohlc_outcome_replay_summary.md
+```
+
+Do not commit these files.
+
+Do not modify app code.
+
+Do not modify DB.
+
+Do not backfill rows.
+
+Do not change schema.
+
+Do not modify `replit.md`.
+
+Do not modify memory/docs.
+
+## Data sources
+
+Use production read-only queries for:
+
+* `swing_scan_result`
+* `swing_scan_run`
+* score/action fields
+* sector/industry fields
+* rs fields
+* entry / stop / target / RR fields
+* close price
+* trigger price
+* scan date
+
+For historical OHLC:
+
+* Prefer existing non-mutating fetch helpers if usable from scratch.
+* Yahoo daily bars are acceptable for scratch-only analysis.
+* Kite historical daily bars are acceptable only if already available through existing read-only helper and rate-safe.
+* Do not write fetched bars into production DB.
+* Do not populate candle warehouse.
+* Do not add a scheduler.
+* Do not modify app code.
+
+## Replay window
+
+For each eligible scan row, check forward daily bars for:
+
+```text
+1 trading day
+3 trading days
+5 trading days
+10 trading days
+20 trading days
+```
+
+Use whichever windows are available.
+
+## Candidate selection
+
+Do not replay all 3,000+ rows if it is too heavy.
+
+Use a sensible sample:
+
+1. All BUY / BUY BREAKOUT / BUY ZONE rows if any.
+2. All WATCHLIST rows.
+3. Top 50 by score per scan date.
+4. Top 50 by `rs_score` per scan date.
+5. Top 50 sector leaders from H3 clean dates.
+6. A comparison sample of AVOID rows:
+
+   * top-score AVOID rows,
+   * sector-leader AVOID rows,
+   * laggard AVOID rows.
+
+Keep the sample manageable and document exact selection logic.
+
+## Outcome logic
+
+For each replayed row:
+
+1. Determine whether entry/trigger was reached:
+
+```text
+trigger_hit_daily = future high >= trigger_price or entry
+```
+
+2. Determine whether target1 was reached:
+
+```text
+target1_hit_daily = future high >= target1
+```
+
+3. Determine whether stop was reached:
+
+```text
+stop_hit_daily = future low <= stop_loss
+```
+
+4. If both target and stop occur in the same day:
+
+Mark outcome as:
+
+```text
+ambiguous_same_day_stop_and_target
+```
+
+Do not assume which happened first.
+
+5. If entry was never reached:
+
+Mark:
+
+```text
+not_triggered
+```
+
+6. If entry reached and target hit before any stop ambiguity:
+
+Mark:
+
+```text
+target1_hit_daily_approx
+```
+
+7. If entry reached and stop hit before target, where daily bars make it clear:
+
+Mark:
+
+```text
+stop_hit_daily_approx
+```
+
+8. Also calculate forward returns from scan close:
+
+* 1D return
+* 3D return
+* 5D return
+* 10D return
+* 20D return
+* max favourable daily move
+* max adverse daily move
+
+## Compare groups
+
+Compare historical outcomes by:
+
+* action class:
+
+  * BUY
+  * WATCHLIST
+  * WAIT
+  * AVOID
+* score bucket:
+
+  * 50–60
+  * 60–70
+  * 70+
+* RS bucket:
+
+  * high RS
+  * medium RS
+  * low RS
+* sector leader class from H3:
+
+  * leader
+  * inline
+  * laggard
+* sector rank:
+
+  * top sectors
+  * middle sectors
+  * weak sectors
+
+## Output CSV columns
+
+Include at least:
+
+* scan_date
+* symbol
+* sector
+* industry
+* action
+* score
+* rs_score
+* rs20
+* rs50
+* rs120
+* sector_avg_rs_score
+* stock_minus_sector_rs_score
+* sector_rank
+* leader_class
+* close_price
+* trigger_price
+* entry
+* stop_loss
+* target1
+* target2
+* rr_to_t1
+* replay_start_date
+* replay_end_date
+* bars_available
+* entry_reached
+* entry_reached_date
+* target1_hit
+* target1_hit_date
+* stop_hit
+* stop_hit_date
+* ambiguous_same_day
+* outcome_label
+* return_1d
+* return_3d
+* return_5d
+* return_10d
+* return_20d
+* max_favourable_move_pct
+* max_adverse_move_pct
+* data_quality
+* limitations
+
+## Summary report
+
+Produce an **H4 Swing Daily-OHLC Outcome Replay Report** with:
+
+A. Data window used
+B. Scan dates included
+C. Candidate selection logic
+D. Number of rows replayed
+E. OHLC data source and coverage
+F. Entry/trigger reach rate
+G. Target1 hit rate
+H. Stop hit rate
+I. Ambiguous same-day rate
+J. Forward return summary by action class
+K. Forward return summary by score bucket
+L. Forward return summary by RS bucket
+M. Forward return summary by sector leader class
+N. Whether WATCHLIST/BUY rows outperform AVOID rows
+O. Whether sector leaders outperform laggards
+P. Data-quality limitations
+Q. Whether this supports S4c/S4e design
+R. What still requires live verification
+S. Confirmation that no code/schema/trading behavior changed
+
+## Verdict rules
+
+Do not approve live scoring changes.
+
+Do not approve action-label changes.
+
+Do not approve entry/stop/target/RR changes.
+
+Do not approve paper-equity execution changes.
+
+If results are useful, label:
+
+```text
+supports design / shadow-mode planning only
+```
+
+If daily-bar ambiguity is high, label:
+
+```text
+not decision-grade for entry/exit timing
+```
+
+If leaders outperform laggards, label:
+
+```text
+supports sector-RS overlay design, not live activation
+```
+
+If WATCHLIST/BUY does not outperform AVOID, flag as scanner-quality risk.
+
+## Guardrails
+
+Do not change:
+
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+## Coordination
+
+S2b live intraday refresh verification remains pending.
+
+S3b post-deep-scan RS benchmark verification remains pending.
+
+F&O P25 live evidence collection remains pending.
+
+S4c/S4d/S4e/S4f are not approved.
+
+After H4, stop and wait for instruction.
+
+Proceed with H4 scratch-only swing historical daily-OHLC outcome replay.
