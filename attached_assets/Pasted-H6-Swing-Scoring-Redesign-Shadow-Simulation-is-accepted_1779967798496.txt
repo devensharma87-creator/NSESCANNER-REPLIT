@@ -1,0 +1,345 @@
+H6 Swing Scoring Redesign Shadow Simulation is accepted.
+
+Good work.
+
+Accepted findings:
+
+* H6 was scratch-only.
+* Outputs were written only under `.agents/outputs/h6/`.
+* No DB writes.
+* No schema changes.
+* No app-code changes.
+* No route/auth/workflow changes.
+* No `replit.md` or memory/docs changes.
+* No live scoring or trading behavior changed.
+* M6 was the only model that flipped score/return relationship positive.
+* M6 improved Pearson from `-0.211` to `+0.053`.
+* M6 improved Q5−Q1 5D return from negative to positive.
+* M6 demoted many high-score losers.
+* M6 recovered some hidden AVOID winners.
+* M4/RR removal is not recommended.
+* M6 is promising but not decision-grade.
+* M6 is not approved for implementation.
+* S4c/S4d/S4e/S4f remain not approved.
+
+Current verdict:
+
+```text id="8f33qa"
+M6 = candidate redesign model only
+Status = not implementation-approved
+Reason = small sample, overfitting risk, limited forward window, no live shadow evidence
+```
+
+Proceed with the next safe step:
+
+# H7: Swing Redesign Robustness + Leakage Audit — Scratch-Only
+
+Purpose:
+
+Stress-test H6/M6 before any live implementation is discussed.
+
+This is offline validation only.
+
+Do not modify production scoring.
+
+Do not modify app code.
+
+Do not modify DB.
+
+Do not change schema.
+
+Do not change recommendations, entries, stops, targets, RR, action labels, trigger latch, intraday refresh, paper-equity, F&O, workflows, route auth, `replit.md`, memory/docs.
+
+## Approved output path
+
+Use scratch-only output:
+
+```text id="rwlrme"
+.agents/outputs/h7/
+```
+
+Allowed files:
+
+```text id="vzmdt1"
+.agents/outputs/h7/swing_redesign_robustness_audit.csv
+.agents/outputs/h7/swing_redesign_robustness_audit_summary.md
+```
+
+Do not commit these files.
+
+## Data sources
+
+Use read-only/scratch inputs only:
+
+* H4 output CSV
+* H5 output report/data
+* H6 output CSV
+* H3 sector/RS output
+* production read-only `swing_scan_result` queries if needed
+* code inspection of current swing scanner logic if needed
+
+Do not fetch live Kite data.
+
+Do not trigger scans.
+
+Do not write DB rows.
+
+Do not backfill anything.
+
+## Main questions
+
+Answer these:
+
+1. Is M6 genuinely more robust than M0, or did it overfit the May sample?
+
+2. Does M6 work across scan dates, or only on one or two dates?
+
+3. Does M6 work across sectors, or only because Healthcare/Metals/Telecom dominated?
+
+4. Does M6 work across action classes?
+
+5. Does M6 merely recover mean-reversion in one specific market regime?
+
+6. Are any M6 input fields potentially look-ahead contaminated?
+
+7. Are any H4/H5/H6 outcome calculations using future information that would not be known at scan time?
+
+8. Does the M6 improvement survive simpler versions, or does it depend on stacked penalties?
+
+## Required tests
+
+### 1. Leave-one-scan-date-out validation
+
+For each scan date:
+
+* exclude that scan date,
+* compute model performance on the remaining dates,
+* compute model performance on the excluded date,
+* compare M0 vs M6.
+
+Report:
+
+* Pearson / Spearman if sample size allows,
+* Q5−Q1 5D return,
+* promoted-row return,
+* demoted-row return,
+* whether M6 beats M0.
+
+If sample is too small, state that clearly.
+
+### 2. Date-by-date performance
+
+For each scan date, compare:
+
+* M0 Q5 5D return,
+* M0 Q1 5D return,
+* M6 Q5 5D return,
+* M6 Q1 5D return,
+* M6 Q5−Q1,
+* number of rows.
+
+Flag whether M6 is driven by one date.
+
+### 3. Sector robustness
+
+Compare M6 vs M0 inside:
+
+* Healthcare,
+* Metals,
+* Telecom,
+* IT,
+* Banking/Financials,
+* Auto,
+* all other sectors grouped.
+
+Check whether M6 improvement exists outside the top-3 sectors.
+
+### 4. Action-class robustness
+
+Compare M6 vs M0 inside:
+
+* AVOID,
+* WAIT,
+* WATCHLIST,
+* BUY if sample exists.
+
+Check whether M6 only works by re-ranking AVOID rows.
+
+### 5. Component ablation
+
+Test M6 minus each component:
+
+* M6 without fundamentals downweight,
+* M6 without overextension penalty,
+* M6 without sector leader overlay,
+* M6 without warn_rs_weak penalty.
+
+Goal:
+
+Identify which component is truly carrying improvement.
+
+### 6. Simpler model test
+
+Test whether a simpler model performs close to M6.
+
+Examples:
+
+* M1 + M2 only,
+* M1 + M3 only,
+* M1 + M2 + M5,
+* M1 only.
+
+Prefer the simplest robust model over the most complex model.
+
+### 7. Leakage audit
+
+Inspect whether these fields are available at scan time and not future-derived:
+
+* `score`
+* `fundamental_score`
+* RSI / overextension fields
+* warning labels
+* `rs_score`
+* `rs20`
+* `rs50`
+* `rs120`
+* sector / industry
+* leader class from H3/H6
+* entry / stop / target / RR
+* close price
+* 52-week distance
+* Yahoo forward bars from H4
+
+Flag any field that may include future data, post-scan data, or same-day close assumptions.
+
+### 8. Outcome-bias audit
+
+Check whether H4 outcome labels are biased by:
+
+* daily-bar approximation,
+* shrinking forward window near current date,
+* missing BUY rows,
+* AVOID-dominated sample,
+* Yahoo `.NS/.BO` coverage,
+* same-day stop/target ambiguity,
+* survivorship from current universe.
+
+## Required tables
+
+Produce:
+
+A. M0 vs M6 date-by-date
+B. Leave-one-date-out results
+C. M6 sector robustness
+D. M6 action-class robustness
+E. Component ablation results
+F. Simpler model comparison
+G. Leakage-risk table
+H. Outcome-bias table
+I. Fields safe at scan time
+J. Fields questionable at scan time
+K. Final robustness verdict
+
+## Output report
+
+Produce an **H7 Swing Redesign Robustness + Leakage Audit Report** with:
+
+A. Data used
+B. Validation approach
+C. Date-by-date robustness
+D. Leave-one-date-out results
+E. Sector robustness
+F. Action-class robustness
+G. Component ablation
+H. Simpler model comparison
+I. Leakage audit
+J. Outcome-bias audit
+K. Whether M6 remains the best candidate
+L. Whether a simpler model is preferable
+M. Whether evidence is enough for live shadow-mode implementation
+N. What still requires live verification
+O. Confirmation that no code/schema/trading behavior changed
+
+## Verdict rules
+
+Do not approve live scoring changes.
+
+Do not approve action-label changes.
+
+Do not approve entry/stop/target/RR changes.
+
+Do not approve paper-equity execution changes.
+
+Do not approve S4c/S4d/S4e/S4f.
+
+If M6 passes robustness checks, label:
+
+```text id="b7j1yd"
+candidate for live shadow-mode only — not live scoring
+```
+
+If M6 fails robustness checks, label:
+
+```text id="3rvxdf"
+overfit risk too high
+```
+
+If a simpler model performs nearly as well, prefer:
+
+```text id="vr7v92"
+simpler candidate shadow model
+```
+
+If leakage risk exists, state:
+
+```text id="bs64v3"
+do not proceed until leakage is resolved
+```
+
+## Guardrails
+
+Do not change:
+
+* swing scoring,
+* swing recommendations,
+* swing action labels,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+## Coordination
+
+S2b live intraday refresh verification remains pending.
+
+S3b post-deep-scan RS benchmark verification remains pending.
+
+F&O P25 live evidence collection remains pending.
+
+S4c/S4d/S4e/S4f are not approved.
+
+After H7, stop and wait for instruction.
+
+Proceed with H7 scratch-only robustness and leakage audit.
