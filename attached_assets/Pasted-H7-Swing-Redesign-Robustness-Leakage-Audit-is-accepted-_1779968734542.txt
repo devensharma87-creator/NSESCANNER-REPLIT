@@ -1,0 +1,303 @@
+H7 Swing Redesign Robustness + Leakage Audit is accepted.
+
+Good work.
+
+Accepted findings:
+
+* H7 was scratch-only.
+* Outputs were written only under `.agents/outputs/h7/`.
+* No DB writes.
+* No schema changes.
+* No app-code changes.
+* No route/auth/workflow changes.
+* No `replit.md` or memory/docs changes.
+* No live scoring or trading behavior changed.
+* M6 is **not robust enough**.
+* M6 is date-unstable.
+* M6 fails on some sectors.
+* M6 has overfit risk.
+* 70% of M6 gain comes from fundamentals removal.
+* The sector-leader component has a medium circularity concern.
+* There are 0 BUY rows in the sample, so BUY behavior is untested.
+* S4c/S4d/S4e/S4f remain not approved.
+
+Current verdict:
+
+```text id="qgxc9z"
+M6 = overfit risk too high
+M1+M2+M5 = simpler candidate shadow model
+M1 alone = smallest defensible baseline correction
+Status = no implementation approved
+```
+
+Decision:
+
+Do **not** implement M6.
+
+Do **not** implement live scoring changes.
+
+Do **not** change action labels.
+
+Do **not** change entry/stop/target/RR.
+
+Do **not** change paper-equity execution.
+
+Proceed with one more offline validation task:
+
+# H8: Minimal Swing Redesign Candidate Lockdown — Scratch-Only
+
+Purpose:
+
+Narrow the swing redesign from many candidate models into the simplest defensible shadow candidate, while resolving the H7 sector-leader circularity concern.
+
+This is still offline research only.
+
+No production scoring changes.
+
+No app-code changes.
+
+No DB writes.
+
+No schema changes.
+
+No live activation.
+
+## Approved output path
+
+Use scratch-only output:
+
+```text id="69coi1"
+.agents/outputs/h8/
+```
+
+Allowed files:
+
+```text id="6rb8ap"
+.agents/outputs/h8/minimal_swing_redesign_candidate.csv
+.agents/outputs/h8/minimal_swing_redesign_candidate_summary.md
+```
+
+Do not commit these files.
+
+## Inputs
+
+Use only read-only / scratch inputs:
+
+* H4 output CSV
+* H5 output/report data
+* H6 output CSV
+* H7 output CSV/report
+* H3 output if needed
+* production read-only `swing_scan_result` queries if needed
+
+Do not fetch live Kite data.
+
+Do not trigger scans.
+
+Do not write production DB.
+
+Do not backfill anything.
+
+## Models to compare
+
+Focus only on simple, defensible candidates:
+
+### B0 — Current baseline
+
+Current live score as stored.
+
+### B1 — M1 only
+
+Remove or heavily downweight `fundamental_score`.
+
+Purpose:
+
+Test the smallest possible correction because H7 showed fundamentals removal carries most of the gain.
+
+### B2 — M1 + M2
+
+Fundamentals downweight + overextension penalty.
+
+Purpose:
+
+Test whether adding overextension improves without overcomplication.
+
+### B3 — M1 + M2 + M5
+
+Fundamentals downweight + overextension penalty + `warn_rs_weak` hard penalty.
+
+Purpose:
+
+This is the current preferred simple candidate from H7.
+
+### B4 — M1 + M2 + lagged sector-leader overlay
+
+Same as B2, plus sector leader class computed only from data available up to `scan_date - 1`.
+
+Purpose:
+
+Resolve H7’s circularity concern.
+
+### B5 — M1 + M2 + M5 + lagged sector-leader overlay
+
+Same as B3, plus lagged sector leader overlay.
+
+Purpose:
+
+Check whether sector leadership adds value only when leakage-safe.
+
+Do **not** include original M6 unless used only as a reference row.
+
+## Lagged sector-leader rule
+
+If testing sector leadership:
+
+* Do not use same-day sector leader classification.
+* Use prior clean scan date only.
+* For each `scan_date`, compute sector/stock leader class from the most recent prior eligible scan date.
+* If no prior eligible clean scan exists, mark leader class unavailable.
+* Do not forward-fill more than one prior scan unless explicitly reported.
+
+Label this as:
+
+```text id="gqbmig"
+lagged sector leader, leakage-reduced
+```
+
+## Required analysis
+
+For each model:
+
+1. Pearson/Spearman vs 5D forward return.
+2. Q5−Q1 5D return.
+3. Date-by-date Q5−Q1.
+4. Sector-by-sector improvement.
+5. Action-class improvement.
+6. High-score losers demoted.
+7. Hidden AVOID winners recovered.
+8. Promotions vs demotions performance.
+9. Complexity score:
+
+   * number of components,
+   * dependency on H3/sector data,
+   * dependency on warnings,
+   * dependency on fundamentals.
+10. Robustness verdict.
+
+## Required tables
+
+Produce:
+
+A. Model comparison summary
+B. Complexity vs performance table
+C. Date-by-date robustness table
+D. Sector robustness table
+E. Action-class robustness table
+F. High-score loser demotion table
+G. AVOID hidden-winner recovery table
+H. Promotion/demotion performance table
+I. Lagged-sector availability table
+J. Leakage-risk table
+K. Final candidate ranking
+
+## Output report
+
+Produce an **H8 Minimal Swing Redesign Candidate Lockdown Report** with:
+
+A. Data used
+B. Models compared
+C. Why M6 is rejected
+D. Whether M1 alone is enough
+E. Whether B3 = M1+M2+M5 is robust enough for future live shadow-mode
+F. Whether lagged sector overlay adds value safely
+G. Simplest model that improves the inversion
+H. Recommended candidate, if any
+I. What should be excluded from the first shadow candidate
+J. Risks and limitations
+K. Whether evidence is enough for live shadow-mode implementation planning
+L. What still requires live verification
+M. Confirmation that no code/schema/trading behavior changed
+
+## Verdict rules
+
+Do not approve live scoring changes.
+
+Do not approve action-label changes.
+
+Do not approve entry/stop/target/RR changes.
+
+Do not approve paper-equity execution changes.
+
+Do not approve S4c/S4d/S4e/S4f.
+
+Allowed verdicts only:
+
+```text id="3n6o1r"
+no candidate is robust enough
+```
+
+or
+
+```text id="6k5zoq"
+candidate for future live shadow-mode planning only — not live scoring
+```
+
+or
+
+```text id="0abl82"
+needs more data before even shadow-mode planning
+```
+
+If B3 performs close to or better than lagged-sector versions, prefer B3 because it is simpler and avoids sector circularity.
+
+If lagged sector overlay fails due insufficient clean prior dates, say so clearly.
+
+If M1 alone removes most of the inversion with less risk, say so clearly.
+
+## Guardrails
+
+Do not change:
+
+* swing scoring,
+* swing recommendations,
+* swing action labels,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+## Coordination
+
+S2b live intraday refresh verification remains pending.
+
+S3b post-deep-scan RS benchmark verification remains pending.
+
+F&O P25 live evidence collection remains pending.
+
+S4c/S4d/S4e/S4f remain not approved.
+
+After H8, stop and wait for instruction.
+
+Proceed with H8 scratch-only minimal swing redesign candidate lockdown.
