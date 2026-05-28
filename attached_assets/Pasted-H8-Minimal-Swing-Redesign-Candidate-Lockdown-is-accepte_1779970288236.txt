@@ -1,0 +1,318 @@
+H8 Minimal Swing Redesign Candidate Lockdown is accepted.
+
+Good work.
+
+Accepted findings:
+
+* H8 was scratch-only.
+* Outputs were written only under `.agents/outputs/h8/`.
+* No DB writes.
+* No schema changes.
+* No app-code changes.
+* No route/auth/workflow changes.
+* No `replit.md` or memory/docs changes.
+* No live scoring or trading behavior changed.
+* M6 is rejected.
+* B1 is the primary minimal candidate:
+
+  * downweight/remove `fundamental_score`
+  * lowest complexity
+  * no H3 dependency
+  * no sector circularity
+  * best simplicity-to-benefit ratio
+* B3 is a secondary candidate:
+
+  * B1 + overextension penalty + `warn_rs_weak`
+  * more discriminating but more complex
+* B4/B5 lagged sector-leader versions are not ready because lagged-leader coverage is only about 14%.
+* Sector-leader overlay is deferred until at least 10 clean prior scan dates exist.
+* No live scoring/action/entry/stop/target/RR change is approved.
+* S4c/S4d/S4e/S4f remain not approved.
+
+Current verdict:
+
+```text id="upccsl"
+B1 = candidate for future live shadow-mode planning only — not live scoring
+B3 = secondary candidate for future live shadow-mode planning only — not live scoring
+M6 = rejected
+Sector overlay = deferred
+```
+
+Now proceed with:
+
+# H9: B1/B3 Live Shadow-Mode Planning — Design Only
+
+Purpose:
+
+Design how to run B1 and B3 beside the current live swing scanner in production, without changing recommendations or trading behavior.
+
+This is a planning/design task only.
+
+Do not implement code.
+
+Do not modify DB.
+
+Do not modify schema.
+
+Do not modify routes.
+
+Do not change live scoring.
+
+Do not change action labels.
+
+Do not change entries, stops, targets, RR, trigger latch, intraday refresh, paper-equity, F&O, workflows, route auth, `replit.md`, memory/docs.
+
+## Goal
+
+Create a safe plan for future live shadow-mode evidence collection.
+
+The live system should continue using current production score/action exactly as-is.
+
+Shadow mode should only compute and report:
+
+* current score,
+* current action,
+* B1 shadow score,
+* B1 shadow rank,
+* B1 shadow action suggestion if applicable,
+* B3 shadow score,
+* B3 shadow rank,
+* B3 shadow action suggestion if applicable,
+* score deltas,
+* promoted/demoted rows,
+* reason for promotion/demotion,
+* later forward outcome evidence.
+
+But this H9 task is **design only**.
+
+## Candidate definitions
+
+### B1 — Primary candidate
+
+Plain-English definition:
+
+```text id="z9n097"
+Reduce or remove the impact of fundamental_score from final swing score.
+```
+
+Purpose:
+
+Test whether removing the most negatively correlated component fixes the score inversion.
+
+### B3 — Secondary candidate
+
+Plain-English definition:
+
+```text id="yf9hq8"
+B1 + overextension penalty + warn_rs_weak penalty.
+```
+
+Purpose:
+
+Test whether adding simple technical penalties improves discrimination without overfitting.
+
+## Required design decisions
+
+Answer these clearly:
+
+1. Should B1/B3 be computed:
+
+   * inside the deep scan pipeline,
+   * inside a separate read-only post-scan diagnostic job,
+   * only inside owner-only diagnostic endpoint,
+   * or in a scratch/offline job?
+
+2. Is a schema change required?
+
+Preferred answer should be no if feasible.
+
+If schema is required, do not implement it. Describe exact proposed schema and stop.
+
+3. Can B1/B3 be computed from existing persisted scan rows?
+
+Check whether these fields are already persisted:
+
+* final score,
+* `fundamental_score`,
+* warning labels,
+* RSI/extension fields,
+* `rs_score`,
+* `rs20`,
+* `rs50`,
+* `rs120`,
+* action label,
+* sector/industry,
+* entry/stop/target/RR.
+
+4. If some fields are not persisted, identify whether:
+
+* they can be recomputed safely from existing row data,
+* they require original scoring breakdown,
+* they require new persistence,
+* or they should be excluded from first shadow mode.
+
+5. Design a future owner-only diagnostic endpoint, but do not build it.
+
+Possible endpoint:
+
+```text id="eprbq7"
+GET /api/stocks-to-watch/diagnostics/swing-shadow-score
+```
+
+Response should include:
+
+* latest scan date,
+* total rows,
+* current top candidates,
+* B1 top candidates,
+* B3 top candidates,
+* promoted by B1,
+* demoted by B1,
+* promoted by B3,
+* demoted by B3,
+* score-delta distribution,
+* rows where current action conflicts with shadow rank,
+* rows where shadow model avoids current high-score losers,
+* rows where shadow model recovers current AVOID winners.
+
+6. Design future daily evidence tracking.
+
+For each scan date, future evidence should track:
+
+* current top-20 forward return,
+* B1 top-20 forward return,
+* B3 top-20 forward return,
+* current top-20 MFE/MAE,
+* B1 top-20 MFE/MAE,
+* B3 top-20 MFE/MAE,
+* current WATCHLIST/BUY outcomes,
+* B1 promoted-row outcomes,
+* B3 promoted-row outcomes,
+* overlap rate,
+* promotion quality,
+* demotion quality.
+
+7. Define activation gates.
+
+Important:
+
+Do not approve activation.
+
+Only design gates.
+
+Suggested future gates:
+
+* at least 20 clean scan dates,
+* at least 10 clean post-S3a RS days,
+* at least 60 trading days of forward outcome data if possible,
+* B1/B3 must beat current baseline on out-of-sample windows,
+* no BUY-class regression,
+* no sector-specific failure,
+* owner approval required.
+
+8. Define rollback / safety posture.
+
+Since shadow mode must not affect live decisions, rollback should mean:
+
+* disable diagnostic computation,
+* keep production scoring unchanged,
+* no effect on paper-equity.
+
+9. Explain how H9 coordinates with pending live tasks:
+
+* S2b live intraday refresh verification,
+* S3b RS benchmark post-deep-scan verification,
+* F&O P25 evidence collection.
+
+## Output required
+
+Produce an **H9 B1/B3 Live Shadow-Mode Planning Report** with:
+
+A. Accepted H8 summary
+B. B1 and B3 formulas in plain English
+C. Which fields are required
+D. Which fields are already persisted
+E. Which fields are missing
+F. Whether shadow mode can be no-schema
+G. Proposed future diagnostic endpoint response shape
+H. Proposed future daily evidence metrics
+I. Proposed activation gates
+J. Proposed rollback/safety posture
+K. Recommended implementation phases if later approved
+L. What should not be implemented yet
+M. What still requires live verification
+N. Confirmation that no code/schema/trading behavior changed
+
+## Verdict rules
+
+Do not approve implementation.
+
+Do not approve live scoring.
+
+Do not approve action-label changes.
+
+Do not approve entry/stop/target/RR changes.
+
+Do not approve paper-equity execution changes.
+
+Do not approve S4c/S4d/S4e/S4f.
+
+Allowed conclusion only:
+
+```text id="g14yn3"
+ready for future shadow-mode implementation planning
+```
+
+or
+
+```text id="myki6u"
+not ready for shadow-mode implementation
+```
+
+## Guardrails
+
+Do not change:
+
+* swing scoring,
+* swing recommendations,
+* swing action labels,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+## Coordination
+
+S2b live intraday refresh verification remains pending.
+
+S3b post-deep-scan RS benchmark verification remains pending.
+
+F&O P25 live evidence collection remains pending.
+
+S4c/S4d/S4e/S4f remain not approved.
+
+After H9, stop and wait for instruction.
+
+Proceed with H9 design-only planning.
