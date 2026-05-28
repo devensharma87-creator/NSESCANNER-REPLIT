@@ -166,6 +166,7 @@ vi.mock("../../lib/swingScannerStore", () => ({
     lastBenchmark: null,
     bootedAt: new Date().toISOString(),
   })),
+  getLatestSwingScanSectorRows: vi.fn(async () => ({ scanDate: null, rows: [] })),
 }));
 
 // Silence pino in tests.
@@ -256,6 +257,7 @@ const ENDPOINTS: readonly Endpoint[] = [
   { name: "P9 snapshot analytics",    method: "GET",  path: "/api/option-snapshots/analytics" },
   { name: "S2a intraday-refresh",     method: "GET",  path: "/api/stocks-to-watch/diagnostics/intraday-refresh" },
   { name: "S3a swing-benchmark",      method: "GET",  path: "/api/stocks-to-watch/diagnostics/swing-benchmark" },
+  { name: "S4b sector-strength",      method: "GET",  path: "/api/stocks-to-watch/diagnostics/sector-strength" },
 ] as const;
 
 async function call(ep: Endpoint, cookie?: string): Promise<{ status: number; body: unknown }> {
@@ -396,6 +398,35 @@ describe("Priority 9 — /api/option-snapshots/analytics owner-path runtime", ()
         maxGroups: 12,
       },
     });
+  });
+});
+
+describe("S4b — /api/stocks-to-watch/diagnostics/sector-strength owner-path contract", () => {
+  it("owner path returns the documented response shape with empty rows", async () => {
+    publicAccessState.enabled = false;
+    const r = await call(
+      { name: "s4b shape", method: "GET", path: "/api/stocks-to-watch/diagnostics/sector-strength" },
+      OWNER_COOKIE,
+    );
+    expect(r.status).toBe(200);
+    const body = r.body as Record<string, unknown>;
+    expect(body).toMatchObject({
+      scanDate: null,
+      totalRows: 0,
+      totalSectors: 0,
+      confidentSectors: 0,
+      minMembers: 5,
+      sectors: [],
+    });
+    expect(typeof body.generatedAt).toBe("string");
+    // Unavailable-metrics surface MUST be present so the UI can render
+    // the "why is breadth absent" note. Architect S4b review.
+    const metrics = body.unavailableMetrics as Array<{ metric: string }>;
+    expect(Array.isArray(metrics)).toBe(true);
+    const names = metrics.map((m) => m.metric);
+    expect(names).toEqual(
+      expect.arrayContaining(["pctAboveEma20", "pctAboveEma50", "pctAboveEma200", "pct20dHigh"]),
+    );
   });
 });
 

@@ -600,6 +600,78 @@ export async function getLatestSwingScan(q: SwingScanQuery = {}): Promise<SwingS
   };
 }
 
+/**
+ * S4b (2026-05-28) — read-only fetch for the sector-strength
+ * diagnostic. Returns ONLY the columns the pure aggregator needs from
+ * the latest `scan_date`. No mutation, no scheduler enqueue, no Kite.
+ */
+export interface SectorStrengthFetchResult {
+  scanDate: string | null;
+  rows: Array<{
+    symbol: string;
+    sector: string | null;
+    industry: string | null;
+    score: number;
+    rsScore: number | null;
+    rs20: number | null;
+    rs50: number | null;
+    rs120: number | null;
+    action: string;
+  }>;
+}
+
+export async function getLatestSwingScanSectorRows(): Promise<SectorStrengthFetchResult> {
+  const latestDateRow = await db
+    .select({ d: swingScanResultTable.scanDate })
+    .from(swingScanResultTable)
+    .orderBy(desc(swingScanResultTable.scanDate))
+    .limit(1);
+  const scanDate = latestDateRow[0]?.d ?? null;
+  if (!scanDate) return { scanDate: null, rows: [] };
+
+  const rows = await db
+    .select({
+      symbol: swingScanResultTable.symbol,
+      sector: swingScanResultTable.sector,
+      industry: swingScanResultTable.industry,
+      score: swingScanResultTable.score,
+      rsScore: swingScanResultTable.rsScore,
+      rs20: swingScanResultTable.rs20,
+      rs50: swingScanResultTable.rs50,
+      rs120: swingScanResultTable.rs120,
+      action: swingScanResultTable.action,
+    })
+    .from(swingScanResultTable)
+    .where(eq(swingScanResultTable.scanDate, scanDate));
+
+  // Drizzle returns numeric() columns as strings — coerce here so the
+  // pure aggregator can stay number-only.
+  const toNum = (v: unknown): number | null => {
+    if (v == null) return null;
+    const n = typeof v === "number" ? v : parseFloat(String(v));
+    return Number.isFinite(n) ? n : null;
+  };
+  const toNumRequired = (v: unknown): number => {
+    const n = toNum(v);
+    return n ?? 0;
+  };
+
+  return {
+    scanDate,
+    rows: rows.map((r) => ({
+      symbol: r.symbol,
+      sector: r.sector,
+      industry: r.industry,
+      score: toNumRequired(r.score),
+      rsScore: toNum(r.rsScore),
+      rs20: toNum(r.rs20),
+      rs50: toNum(r.rs50),
+      rs120: toNum(r.rs120),
+      action: r.action,
+    })),
+  };
+}
+
 /* ──────────────────────── Scheduler bootstrap ────────────────────── */
 
 let schedulerStarted = false;

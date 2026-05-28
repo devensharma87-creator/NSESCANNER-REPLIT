@@ -255,14 +255,14 @@ const UNIVERSE_RAW: UniverseEntry[] = [
 
   // === Expansion: more liquid F&O / index names ===
   // IT additions
-  { symbol: "PERSISTENT", name: "Persistent Systems", sector: "Information Technology", industry: "IT Services", description: "Mid-cap IT services with strong digital engineering franchise.", catalysts: ["Deal wins", "Hi-tech vertical"] },
-  { symbol: "COFORGE", name: "Coforge", sector: "Information Technology", industry: "IT Services", description: "Mid-cap IT firm strong in BFSI and travel verticals.", catalysts: ["BFSI deal momentum", "Margin"] },
-  { symbol: "MPHASIS", name: "Mphasis", sector: "Information Technology", industry: "IT Services", description: "Mid-cap IT, strong in BFSI (Blackstone-owned).", catalysts: ["BFSI ramp", "Direct vs DXC mix"] },
-  { symbol: "OFSS", name: "Oracle Financial Services", sector: "Information Technology", industry: "Banking Software", description: "Oracle banking products subsidiary.", catalysts: ["License revenue", "Special dividend"] },
-  { symbol: "KPITTECH", name: "KPIT Technologies", sector: "Information Technology", industry: "Auto ER&D", description: "Pure-play automotive engineering services for EV/CASE.", catalysts: ["EV programs", "Order book"] },
-  { symbol: "TATAELXSI", name: "Tata Elxsi", sector: "Information Technology", industry: "ER&D", description: "Design & embedded engineering services for auto, media, healthcare.", catalysts: ["Auto ER&D", "Media tech"] },
-  { symbol: "LTIM", name: "LTIMindtree", sector: "Information Technology", industry: "IT Services", description: "Merged L&T Infotech + Mindtree IT services major.", catalysts: ["Synergy realisation", "Deal pipeline"] },
-  { symbol: "LTTS", name: "L&T Technology Services", sector: "Information Technology", industry: "ER&D", description: "Pure-play engineering R&D services arm of L&T.", catalysts: ["Telecom 5G", "Sustainability deals"] },
+  { symbol: "PERSISTENT", name: "Persistent Systems", sector: "IT", industry: "IT Services", description: "Mid-cap IT services with strong digital engineering franchise.", catalysts: ["Deal wins", "Hi-tech vertical"] },
+  { symbol: "COFORGE", name: "Coforge", sector: "IT", industry: "IT Services", description: "Mid-cap IT firm strong in BFSI and travel verticals.", catalysts: ["BFSI deal momentum", "Margin"] },
+  { symbol: "MPHASIS", name: "Mphasis", sector: "IT", industry: "IT Services", description: "Mid-cap IT, strong in BFSI (Blackstone-owned).", catalysts: ["BFSI ramp", "Direct vs DXC mix"] },
+  { symbol: "OFSS", name: "Oracle Financial Services", sector: "IT", industry: "Banking Software", description: "Oracle banking products subsidiary.", catalysts: ["License revenue", "Special dividend"] },
+  { symbol: "KPITTECH", name: "KPIT Technologies", sector: "IT", industry: "Auto ER&D", description: "Pure-play automotive engineering services for EV/CASE.", catalysts: ["EV programs", "Order book"] },
+  { symbol: "TATAELXSI", name: "Tata Elxsi", sector: "IT", industry: "ER&D", description: "Design & embedded engineering services for auto, media, healthcare.", catalysts: ["Auto ER&D", "Media tech"] },
+  { symbol: "LTIM", name: "LTIMindtree", sector: "IT", industry: "IT Services", description: "Merged L&T Infotech + Mindtree IT services major.", catalysts: ["Synergy realisation", "Deal pipeline"] },
+  { symbol: "LTTS", name: "L&T Technology Services", sector: "IT", industry: "ER&D", description: "Pure-play engineering R&D services arm of L&T.", catalysts: ["Telecom 5G", "Sustainability deals"] },
 
   // Banking additions
   { symbol: "BANDHANBNK", name: "Bandhan Bank", sector: "Banking", industry: "Private Bank", description: "Microfinance-focused private bank.", catalysts: ["Asset quality", "Diversification"] },
@@ -273,13 +273,13 @@ const UNIVERSE_RAW: UniverseEntry[] = [
   { symbol: "PAYTM", name: "Paytm (One97)", sector: "Financials", industry: "Fintech", description: "Payments and financial services platform.", catalysts: ["Payments licence", "Lending volumes"] },
 
   // Auto additions
-  { symbol: "ASHOKLEY", name: "Ashok Leyland", sector: "Automobile", industry: "CV Maker", description: "Hinduja flagship commercial vehicle maker.", catalysts: ["CV cycle", "Defence orders"] },
-  { symbol: "TVSMOTOR", name: "TVS Motor Company", sector: "Automobile", industry: "2W Maker", description: "South-based 2W & 3W maker; iQube EV.", catalysts: ["Premium 2W mix", "EV ramp"] },
-  { symbol: "BALKRISIND", name: "Balkrishna Industries", sector: "Automobile", industry: "Off-highway Tyres", description: "Leading global OHT tyre maker (agri/industrial).", catalysts: ["EU/US replacement demand"] },
-  { symbol: "MRF", name: "MRF", sector: "Automobile", industry: "Tyres", description: "India's largest tyre maker; iconic high-priced share.", catalysts: ["Rubber prices", "Replacement mix"] },
-  { symbol: "APOLLOTYRE", name: "Apollo Tyres", sector: "Automobile", industry: "Tyres", description: "Top-3 tyre maker with European Vredestein brand.", catalysts: ["EU recovery", "Margins"] },
-  { symbol: "EXIDEIND", name: "Exide Industries", sector: "Automobile", industry: "Auto Batteries", description: "Largest auto battery maker; Li-ion JV with SVOLT.", catalysts: ["Li-ion ramp", "Replacement demand"] },
-  { symbol: "MOTHERSON", name: "Samvardhana Motherson", sector: "Automobile", industry: "Auto Components", description: "Global auto component supplier.", catalysts: ["EV content", "M&A integration"] },
+  { symbol: "ASHOKLEY", name: "Ashok Leyland", sector: "Auto", industry: "CV Maker", description: "Hinduja flagship commercial vehicle maker.", catalysts: ["CV cycle", "Defence orders"] },
+  { symbol: "TVSMOTOR", name: "TVS Motor Company", sector: "Auto", industry: "2W Maker", description: "South-based 2W & 3W maker; iQube EV.", catalysts: ["Premium 2W mix", "EV ramp"] },
+  { symbol: "BALKRISIND", name: "Balkrishna Industries", sector: "Auto", industry: "Off-highway Tyres", description: "Leading global OHT tyre maker (agri/industrial).", catalysts: ["EU/US replacement demand"] },
+  { symbol: "MRF", name: "MRF", sector: "Auto", industry: "Tyres", description: "India's largest tyre maker; iconic high-priced share.", catalysts: ["Rubber prices", "Replacement mix"] },
+  { symbol: "APOLLOTYRE", name: "Apollo Tyres", sector: "Auto", industry: "Tyres", description: "Top-3 tyre maker with European Vredestein brand.", catalysts: ["EU recovery", "Margins"] },
+  { symbol: "EXIDEIND", name: "Exide Industries", sector: "Auto", industry: "Auto Batteries", description: "Largest auto battery maker; Li-ion JV with SVOLT.", catalysts: ["Li-ion ramp", "Replacement demand"] },
+  { symbol: "MOTHERSON", name: "Samvardhana Motherson", sector: "Auto", industry: "Auto Components", description: "Global auto component supplier.", catalysts: ["EV content", "M&A integration"] },
 
   // Pharma / Healthcare
   { symbol: "ZYDUSLIFE", name: "Zydus Lifesciences", sector: "Healthcare", industry: "Pharmaceuticals", description: "Diversified Indian pharma with US generics franchise.", catalysts: ["US launches (gRevlimid)", "Vaccines"] },
@@ -351,13 +351,13 @@ const UNIVERSE_RAW: UniverseEntry[] = [
   { symbol: "SJVN", name: "SJVN", sector: "Energy", industry: "Hydro Power", description: "PSU hydro + RE power producer.", catalysts: ["Solar pipeline"] },
 
   // Realty
-  { symbol: "DLF", name: "DLF", sector: "Realty", industry: "Real Estate Developer", description: "India's largest real estate developer.", catalysts: ["Luxury launches", "Rental income"] },
-  { symbol: "GODREJPROP", name: "Godrej Properties", sector: "Realty", industry: "Real Estate Developer", description: "Premium real estate developer.", catalysts: ["Bookings", "Land additions"] },
-  { symbol: "OBEROIRLTY", name: "Oberoi Realty", sector: "Realty", industry: "Real Estate Developer", description: "Mumbai-focused premium developer.", catalysts: ["Project launches", "Annuity income"] },
-  { symbol: "PRESTIGE", name: "Prestige Estates", sector: "Realty", industry: "Real Estate Developer", description: "South-based developer expanding pan-India.", catalysts: ["NCR launches", "Annuity book"] },
-  { symbol: "PHOENIXLTD", name: "Phoenix Mills", sector: "Realty", industry: "Mall Operator", description: "Premium mall operator.", catalysts: ["Consumption growth", "New malls"] },
-  { symbol: "BRIGADE", name: "Brigade Enterprises", sector: "Realty", industry: "Real Estate Developer", description: "Bengaluru-based diversified real estate developer.", catalysts: ["Bookings", "Hospitality"] },
-  { symbol: "LODHA", name: "Macrotech Developers (Lodha)", sector: "Realty", industry: "Real Estate Developer", description: "MMR-focused premium developer.", catalysts: ["Bookings", "Land bank"] },
+  { symbol: "DLF", name: "DLF", sector: "Real Estate", industry: "Real Estate Developer", description: "India's largest real estate developer.", catalysts: ["Luxury launches", "Rental income"] },
+  { symbol: "GODREJPROP", name: "Godrej Properties", sector: "Real Estate", industry: "Real Estate Developer", description: "Premium real estate developer.", catalysts: ["Bookings", "Land additions"] },
+  { symbol: "OBEROIRLTY", name: "Oberoi Realty", sector: "Real Estate", industry: "Real Estate Developer", description: "Mumbai-focused premium developer.", catalysts: ["Project launches", "Annuity income"] },
+  { symbol: "PRESTIGE", name: "Prestige Estates", sector: "Real Estate", industry: "Real Estate Developer", description: "South-based developer expanding pan-India.", catalysts: ["NCR launches", "Annuity book"] },
+  { symbol: "PHOENIXLTD", name: "Phoenix Mills", sector: "Real Estate", industry: "Mall Operator", description: "Premium mall operator.", catalysts: ["Consumption growth", "New malls"] },
+  { symbol: "BRIGADE", name: "Brigade Enterprises", sector: "Real Estate", industry: "Real Estate Developer", description: "Bengaluru-based diversified real estate developer.", catalysts: ["Bookings", "Hospitality"] },
+  { symbol: "LODHA", name: "Macrotech Developers (Lodha)", sector: "Real Estate", industry: "Real Estate Developer", description: "MMR-focused premium developer.", catalysts: ["Bookings", "Land bank"] },
 
   // Telecom / Media / Internet
   { symbol: "IDEA", name: "Vodafone Idea", sector: "Telecom", industry: "Wireless", description: "Third largest telco in India.", catalysts: ["Tariff hikes", "Fundraise"] },

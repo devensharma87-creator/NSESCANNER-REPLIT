@@ -2,8 +2,9 @@ import { Router, type IRouter } from "express";
 import { sql } from "drizzle-orm";
 import { db, swingScanResultTable } from "@workspace/db";
 import { getStocksToWatch } from "../lib/stocksToWatch";
-import { getLatestSwingScan, getSchedulerState, getIntradayRefreshHealth, getSwingBenchmarkHealth } from "../lib/swingScannerStore";
+import { getLatestSwingScan, getSchedulerState, getIntradayRefreshHealth, getSwingBenchmarkHealth, getLatestSwingScanSectorRows } from "../lib/swingScannerStore";
 import { computeSectorCoverage, UNMAPPED_SECTOR } from "../lib/sectorMap";
+import { computeSectorStrength } from "../lib/sectorStrength";
 import { getSession, requireOwner } from "../lib/userAuth";
 import { isPublicAccessEnabled } from "../lib/publicAccess";
 
@@ -224,6 +225,55 @@ router.get(
   },
   (_req, res) => {
     res.json(getSwingBenchmarkHealth());
+  },
+);
+
+/**
+ * GET /api/stocks-to-watch/diagnostics/sector-strength
+ *
+ * S4b (2026-05-28) — owner-only READ-ONLY sector-strength diagnostic.
+ * Aggregates the latest `swing_scan_result` cohort by sector and
+ * reports member count, average score / RS-score / rs20 / rs50 / rs120,
+ * action histogram, top-N by score/rsScore, and a 1-based rank
+ * (confident sectors only, memberCount ≥ SECTOR_STRENGTH_MIN_MEMBERS).
+ *
+ * READ-ONLY contract. Does NOT:
+ *   - trigger deep scan,
+ *   - trigger intraday refresh,
+ *   - call Kite or Yahoo,
+ *   - mutate DB,
+ *   - enqueue scheduler work,
+ *   - influence score / action / quality_grade / setup / entry /
+ *     stop_loss / target1 / target2 / rr_to_t1 / trigger_hit /
+ *     paper-equity execution.
+ *
+ * EMA-breadth / 20-day-high-breadth metrics are NOT computed —
+ * `swing_scan_result` does not persist the underlying signals and
+ * adding columns is out of S4b scope. The response lists these under
+ * `unavailableMetrics` so the owner sees why they are absent.
+ *
+ * Same strict owner-only gate as the peer `/sector-coverage`,
+ * `/intraday-refresh`, and `/swing-benchmark` diagnostics.
+ */
+router.get(
+  "/stocks-to-watch/diagnostics/sector-strength",
+  (req, res, next) => {
+    const s = getSession(req);
+    if (s?.role === "owner") return next();
+    if (isPublicAccessEnabled()) {
+      res.status(403).json({ error: "owner_only", code: "OWNER_ONLY_DIAGNOSTIC" });
+      return;
+    }
+    res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
+  },
+  async (_req, res, next) => {
+    try {
+      const { scanDate, rows } = await getLatestSwingScanSectorRows();
+      const summary = computeSectorStrength(rows, { scanDate });
+      res.json(summary);
+    } catch (err) {
+      next(err);
+    }
   },
 );
 

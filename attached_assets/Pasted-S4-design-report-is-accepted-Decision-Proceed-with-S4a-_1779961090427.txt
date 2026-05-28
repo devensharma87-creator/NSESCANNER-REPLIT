@@ -1,0 +1,209 @@
+S4 design report is accepted.
+
+Decision:
+
+Proceed with **S4a + S4b only**.
+
+Do not start S4c/S4d/S4e/S4f yet.
+
+Current accepted S4 findings:
+
+* Sector and industry labels are currently display-only.
+* Sector strength is not computed.
+* Industry strength is not computed.
+* Stock-vs-sector RS does not exist.
+* Delivery data is not used in the swing scorer.
+* A professional swing system needs sector leadership and accumulation confirmation.
+* But live swing scoring must not be changed yet.
+* S2b live intraday verification is still pending.
+* S3b RS benchmark verification is still pending.
+* F&O P25 evidence collection remains separate.
+
+Now proceed with:
+
+# S4a + S4b: Sector Taxonomy Cleanup + Read-Only Sector Strength Diagnostic
+
+Purpose:
+
+Prepare the swing sector-strength layer without changing live recommendations.
+
+This task may clean obvious sector/industry label inconsistencies and add read-only diagnostics, but must not alter swing scores, action labels, entries, stops, targets, RR, or paper trading.
+
+## Part 1 — S4a: Sector taxonomy cleanup
+
+1. Audit current sector/industry labels in the swing universe.
+
+2. Identify obvious duplicate/alias labels, for example:
+
+   * `Auto` vs `Automobile`
+   * `IT` vs `Information Technology`
+   * other spelling/capitalization variants
+
+3. Be careful with non-identical business categories.
+
+Do **not** blindly merge categories such as:
+
+```text
+Pharma vs Healthcare
+Banking vs Financials
+Auto vs Auto Components
+Energy vs Oil & Gas
+Capital Goods vs Industrials
+```
+
+unless there is strong evidence they are true duplicates.
+
+4. Implement only safe label normalization if obvious.
+
+5. If any mapping is ambiguous, do not change it. Report it as “needs owner decision”.
+
+6. Sector cleanup must affect only display/grouping/diagnostic consistency.
+
+7. Sector cleanup must not change:
+
+   * swing scoring,
+   * recommendation labels,
+   * entries,
+   * stops,
+   * targets,
+   * RR,
+   * paper-equity execution,
+   * F&O logic.
+
+## Part 2 — S4b: Read-only sector strength diagnostic
+
+Add a read-only sector-strength calculation and owner-only diagnostic surface.
+
+Purpose:
+
+Compute sector strength from existing stored/latest swing scan data and bars, but do not feed it into live scoring.
+
+Suggested diagnostic endpoint:
+
+```text
+GET /api/stocks-to-watch/diagnostics/sector-strength
+```
+
+Use strict owner-only protection, same pattern as other swing diagnostics.
+
+The endpoint must be read-only.
+
+It must not:
+
+* trigger deep scan,
+* trigger intraday refresh,
+* call Kite unnecessarily,
+* mutate DB,
+* enqueue scheduler work,
+* change scores,
+* change recommendations.
+
+## Sector strength metrics to compute
+
+For each sector with enough members:
+
+* member count,
+* average score,
+* average `rs_score`,
+* average `rs20`,
+* average `rs50`,
+* average `rs120`,
+* percentage of stocks above EMA20 if available,
+* percentage above EMA50 if available,
+* percentage above EMA200 if available,
+* percentage making 20-day high if available,
+* count of WATCHLIST / BUY / AVOID names,
+* top stocks by score,
+* top stocks by RS,
+* sector rank.
+
+If EMA/breadth fields are not available from stored rows, do not add schema. Either compute from existing available fields or mark as unavailable.
+
+## Important design rule
+
+This endpoint is diagnostic/shadow only.
+
+It must not influence:
+
+* `score`,
+* `action`,
+* `quality_grade`,
+* `setup`,
+* `entry`,
+* `stop_loss`,
+* `target1`,
+* `target2`,
+* `rr_to_t1`,
+* `trigger_hit`,
+* paper-equity execution.
+
+## Tests required
+
+Add tests for:
+
+1. Sector alias normalization only changes approved obvious aliases.
+2. Ambiguous sector pairs are not merged.
+3. Sector diagnostic endpoint is owner-only.
+4. Anonymous/non-owner access is denied according to the existing strict diagnostic pattern.
+5. Endpoint returns expected sector-strength response shape.
+6. Endpoint does not mutate DB.
+7. Endpoint does not trigger deep scan.
+8. Endpoint does not trigger intraday refresh.
+9. Endpoint does not call Kite.
+10. Endpoint does not change swing score/action/entry/stop/target/RR.
+11. Endpoint does not touch F&O or paper-equity paths.
+12. If sector member count is too small, sector rank/strength is marked low-confidence or unavailable.
+
+## Output required
+
+Produce an **S4a/S4b Report** with:
+
+A. Sector taxonomy issues found
+B. Safe normalizations applied
+C. Ambiguous mappings left unchanged
+D. Files changed
+E. Diagnostic endpoint path
+F. Response shape
+G. Sector strength metrics included
+H. Metrics unavailable and why
+I. Tests added/updated
+J. Typecheck/test result
+K. Confirmation that live swing scoring did not change
+L. Confirmation that F&O, paper-equity, schema, workflows, route auth model, and `replit.md` did not change
+M. Live/post-scan verification plan if needed
+
+## Guardrails
+
+Do not change:
+
+* swing scoring formula,
+* swing score weights,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* trigger latch,
+* intraday refresh logic,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler behavior,
+* DB schema,
+* workflows,
+* `replit.md`,
+* memory/docs.
+
+If a schema change is needed, stop and ask first.
+
+If the diagnostic cannot be built without calling live Kite or mutating data, stop and ask first.
+
+Proceed with S4a/S4b only.
