@@ -1,0 +1,224 @@
+H11 Shadow Diagnostic Owner-Test Runbook is accepted.
+
+Good work.
+
+Accepted findings:
+
+* Runbook was written only under:
+
+```text id="r3i8xt"
+.agents/outputs/h11/h10d_owner_payload_verification_runbook.md
+```
+
+* No production code changed.
+* No routes changed.
+* No DB writes.
+* No schema changes.
+* No workflow changes.
+* No UI changes.
+* No `replit.md` change.
+* No memory/docs change outside the allowed scratch runbook.
+* No live swing scoring or trading behavior changed.
+* H10b remains partially verified until the owner 200-response payload is captured.
+
+Current status:
+
+```text id="0ckwjf"
+H10b = partially verified
+H10d = deferred until owner session is available
+H11 = accepted
+No defect found
+```
+
+Do not continue probing the owner endpoint.
+
+Do not bypass auth.
+
+Do not create owner credentials.
+
+Do not add an owner-call harness.
+
+Do not modify route/auth behavior.
+
+Now proceed with a separate safe coordination task:
+
+# G1: Consolidated Pending Gates + Next-Session Execution Plan — Scratch-Only
+
+Purpose:
+
+Create one clear status/control document showing what is done, what is blocked, and exactly what should be run next when market/owner access becomes available.
+
+This is coordination-only.
+
+No code changes.
+
+No DB writes unless explicitly read-only checks are needed.
+
+No schema changes.
+
+No route changes.
+
+No workflow changes.
+
+No trading behavior changes.
+
+No `replit.md` changes.
+
+No memory/docs changes.
+
+If writing a file, write only under:
+
+```text id="xkz45p"
+.agents/outputs/g1/
+```
+
+Allowed file:
+
+```text id="enav6i"
+.agents/outputs/g1/consolidated_pending_gates_and_next_session_plan.md
+```
+
+Do not commit it.
+
+## Include these workstreams
+
+### 1. F&O / Options
+
+Current known state:
+
+* F&O MFE/MAE live substrate fixed.
+* P25 live evidence gate remains open.
+* Current live MFE-available sample remains below threshold.
+* H2 historical shadow replay is accepted as offline evidence only.
+* R4 looked directionally interesting but not live-approved.
+* No F&O exit change approved.
+* No partial booking approved.
+* No breakeven trail approved.
+* P25 20-live-trade gate remains unchanged.
+
+Document next actions:
+
+* next valid EOD P25 evidence check,
+* no-trade diagnostic only if a full active session produces zero trades again,
+* exit-rule implementation only after live evidence gate clears.
+
+### 2. Swing live verification
+
+Current known state:
+
+* S2/S2a implemented.
+* S2b live intraday refresh verification remains pending.
+* S3a RS benchmark reliability shipped.
+* S3b post-deep-scan RS verification remains pending.
+* Market/live session is required for both.
+
+Document next actions:
+
+* during market hours: S2b intraday refresh verification,
+* after post-15:35 deep scan: S3b RS benchmark verification.
+
+### 3. Swing shadow scoring
+
+Current known state:
+
+* H4/H5 found scanner-quality red flags.
+* H6/H7/H8 narrowed redesign candidates.
+* M6 rejected.
+* B1 primary candidate for future shadow planning only.
+* B3 secondary candidate.
+* H10a pure module accepted.
+* H10b owner-only diagnostic endpoint accepted.
+* H10c route/auth smoke partially verified.
+* H10d owner payload deferred.
+* H11 runbook created.
+
+Document next actions:
+
+* owner runs H11 browser-based verification,
+* if owner payload passes, H10b becomes fully verified,
+* no live scoring change approved,
+* no action-label change approved,
+* no paper-equity change approved.
+
+### 4. S4 sector/delivery work
+
+Current known state:
+
+* S4a sector taxonomy cleanup accepted.
+* S4b read-only sector-strength diagnostic accepted.
+* S4c/S4d/S4e/S4f not approved.
+* Sector overlay deferred until more clean post-S3a scan days.
+* Delivery scoring not approved.
+* Delivery historical table does not exist.
+
+Document next actions:
+
+* collect more clean scan days,
+* do not implement sector scoring yet,
+* do not implement delivery scoring yet,
+* revisit after S2b/S3b/H10d and more forward data.
+
+## Required output format
+
+Produce a **G1 Consolidated Pending Gates + Next-Session Execution Plan** with:
+
+A. Current overall status
+B. Completed workstreams
+C. Blocked workstreams and blockers
+D. Pending live-market checks
+E. Pending owner-session checks
+F. Pending evidence gates
+G. Exact next prompts to run when market opens
+H. Exact next prompts to run after 15:35 IST deep scan
+I. Exact next prompt to run after owner endpoint is available
+J. Explicit list of things not approved
+K. Risk register
+L. Recommended priority order
+M. Confirmation that no code/schema/DB/trading behavior changed
+
+## Priority order to recommend
+
+Use this order unless evidence says otherwise:
+
+1. H10d owner payload verification when owner session is available.
+2. S2b live intraday refresh verification during market hours.
+3. S3b RS benchmark verification after next deep scan.
+4. F&O P25 EOD evidence check on next active trading day.
+5. Only after those: revisit swing shadow evidence and sector/delivery work.
+
+## Guardrails
+
+Do not change:
+
+* live swing scoring,
+* live swing recommendations,
+* live swing action labels,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* UI,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+After G1, stop and wait for instruction.
