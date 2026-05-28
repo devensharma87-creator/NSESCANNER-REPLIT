@@ -1,0 +1,281 @@
+H4 Swing Historical Daily-OHLC Outcome Replay is accepted.
+
+Good work.
+
+Accepted findings:
+
+* H4 was scratch-only.
+* Outputs were written only under `.agents/outputs/h4/`.
+* No DB writes.
+* No schema changes.
+* No app-code changes.
+* No route/auth/workflow changes.
+* No `replit.md` or memory/docs changes.
+* No live scoring or trading behavior changed.
+* Replay covered 959 sample rows.
+* Results are historical daily-bar replay only.
+* Results are approximate, not intraday-exact, and not live-verified.
+* H4 does not approve S4c/S4d/S4e/S4f.
+* No implementation is approved.
+
+Important accepted warning:
+
+The replay produced a scanner-quality red flag:
+
+```text
+WATCH+BUY underperformed AVOID across available forward windows.
+Higher score buckets underperformed lower score buckets.
+Sector leaders outperformed laggards directionally, but sample is still limited.
+```
+
+Decision:
+
+Do **not** proceed to live sector-RS scoring.
+
+Do **not** proceed to S4c/S4d/S4e/S4f implementation.
+
+Before changing swing scoring, we need to understand why the current score/action system is not monotonic with forward outcomes.
+
+Proceed with:
+
+# H5: Swing Scanner Quality Root-Cause Audit — Read-Only Only
+
+Purpose:
+
+Investigate why WATCH/BUY and higher-score swing rows underperformed AVOID/lower-score rows in the H4 historical replay.
+
+This is root-cause analysis only.
+
+No scoring changes.
+
+No implementation.
+
+No live activation.
+
+## Scope
+
+Use:
+
+* H4 scratch output under `.agents/outputs/h4/`
+* H3 scratch output under `.agents/outputs/h3/`
+* production read-only queries from `swing_scan_result`
+* code inspection of swing scanner scoring/action logic
+
+Do not write to production DB.
+
+Do not modify app code.
+
+Do not modify schema.
+
+Do not modify `replit.md`.
+
+Do not modify memory/docs.
+
+## Questions to answer
+
+1. Why are high-score rows underperforming lower-score rows?
+
+Check whether the high-score group is biased toward:
+
+* overextended stocks,
+* high RSI,
+* late-stage momentum,
+* poor reward after move already happened,
+* entry too close to exhaustion,
+* weak forward breadth,
+* high volatility,
+* low sector confirmation,
+* missing RS data,
+* weak market context,
+* formulaic RR,
+* post-breakout failure risk.
+
+2. Why are WATCH/BUY rows underperforming AVOID?
+
+Check whether AVOID rows include many technically strong stocks that are rejected only because of:
+
+* action gate,
+* RR gate,
+* bearish penalty,
+* entry safety demotion,
+* overextension warning,
+* score/action mismatch,
+* quality-grade mismatch,
+* trigger not actionable,
+* label logic too conservative or inconsistent.
+
+3. Is the action label reliable?
+
+Audit:
+
+* `classifyAction`
+* score thresholds,
+* RR gates,
+* buy-zone / breakout conditions,
+* warning penalties,
+* recommendation labels,
+* “AVOID / NO TRADE” conditions,
+* “WAIT FOR CONFIRMATION”
+* “WATCHLIST”
+* “WAIT FOR PULLBACK”
+* “BUY BREAKOUT”
+* “BUY ZONE - WAIT TRIGGER”
+
+4. Is the final score reliable?
+
+Break down performance by:
+
+* technical score,
+* SMC score,
+* VWAP/volume/RS bucket,
+* momentum score,
+* fundamental score,
+* context score,
+* risk/RR score,
+* RSI bucket,
+* volume ratio bucket,
+* RS bucket,
+* sector leader class,
+* entry distance bucket,
+* stop distance bucket,
+* RR bucket.
+
+5. Is the scanner selecting candidates too late?
+
+For H4 rows, check:
+
+* distance from 20-day high,
+* distance from 52-week high,
+* RSI level,
+* ATR/volatility,
+* whether forward return mean-reverts after scan,
+* whether high-score rows are already extended.
+
+6. Is RR too mechanical?
+
+H4 showed many rows have RR around 2.00.
+
+Audit whether:
+
+* targets are mostly formulaic,
+* RR is not truly predictive,
+* stop/target placement creates false confidence,
+* target1 is too far or too close,
+* stop is too wide or too tight.
+
+7. Is sector leadership useful despite current score issues?
+
+Use H3/H4 to check:
+
+* leader vs inline vs laggard outcomes,
+* whether leader overlay would reduce false positives,
+* whether AVOID ∩ leader rows performed better,
+* whether WATCHLIST ∩ leader rows performed better,
+* whether laggard rows should receive penalties.
+
+## Required analysis tables
+
+Produce tables for:
+
+A. Forward return by action label
+B. Forward return by score bucket
+C. Forward return by sub-score bucket
+D. Forward return by RSI bucket
+E. Forward return by entry-distance bucket
+F. Forward return by RR bucket
+G. Forward return by sector leader class
+H. AVOID ∩ leader performance
+I. WATCHLIST/BUY ∩ leader performance
+J. High-score losers: top reasons
+K. Low-score / AVOID winners: top reasons
+L. Score/action mismatch examples
+
+## Output required
+
+Produce an **H5 Swing Scanner Quality Root-Cause Audit Report** with:
+
+A. Data used
+B. Key H4 red flags confirmed or rejected
+C. Root causes ranked by evidence strength
+D. Whether score is monotonic with forward returns
+E. Whether action labels are reliable
+F. Whether high-score rows are overextended
+G. Whether AVOID contains hidden winners
+H. Whether sector leadership helps
+I. Which current score components appear useful
+J. Which current score components appear weak or misleading
+K. Recommended redesign priorities
+L. What should be fixed before S4c/S4d/S4e
+M. What still needs live verification
+N. Confirmation that no code/schema/trading behavior changed
+
+## Verdict rules
+
+Do not approve live scoring changes.
+
+Do not approve action-label changes.
+
+Do not approve entry/stop/target/RR changes.
+
+Do not approve paper-equity execution changes.
+
+If the evidence suggests a fix, label it:
+
+```text
+candidate redesign item only
+```
+
+If evidence is too weak, label:
+
+```text
+needs more data
+```
+
+If H4 limitations make a conclusion uncertain, clearly state that.
+
+## Guardrails
+
+Do not change:
+
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+## Coordination
+
+S2b live intraday refresh verification remains pending.
+
+S3b post-deep-scan RS benchmark verification remains pending.
+
+F&O P25 live evidence collection remains pending.
+
+S4c/S4d/S4e/S4f are not approved.
+
+After H5, stop and wait for instruction.
+
+Proceed with H5 root-cause audit only.
