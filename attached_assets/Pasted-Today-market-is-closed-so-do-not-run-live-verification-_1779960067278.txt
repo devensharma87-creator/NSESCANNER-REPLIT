@@ -1,0 +1,174 @@
+Today market is closed, so do not run live verification tasks.
+
+Do not run:
+
+* S2b live intraday refresh verification,
+* S3b RS benchmark post-scan verification unless a new completed deep scan exists,
+* F&O P25 EOD evidence report unless there were actual F&O paper trades.
+
+Instead, proceed with a closed-market design task:
+
+# S4: Swing Sector / Stock-vs-Sector RS / Delivery Scoring Design — Read-Only Only
+
+Purpose:
+
+Design the next swing upgrade using the S1/S3 findings, without changing live scoring yet.
+
+Current accepted findings:
+
+* RS formula works when benchmark data is available.
+* S3a fixed benchmark reliability with Yahoo → Yahoo retry → Kite fallback.
+* Sector and industry are currently displayed but not scored.
+* Stock-vs-sector RS does not exist.
+* Sector-vs-NIFTY strength does not exist.
+* Industry strength does not exist.
+* Delivery data exists in the broader system but is not used by swing scoring.
+* Swing currently lacks a professional sector-leader / accumulation confirmation layer.
+
+Important:
+
+This is design/audit only. Do not implement scoring changes yet.
+
+## Scope
+
+1. Design how sector strength should be calculated.
+
+Include possible metrics:
+
+* sector average RS vs NIFTY,
+* sector momentum over 20/50/120 days,
+* percentage of sector stocks above EMA20/EMA50/EMA200,
+* percentage of sector stocks making 20-day highs,
+* sector breadth,
+* sector volume expansion,
+* sector rank among all sectors.
+
+2. Design how stock-vs-sector RS should be calculated.
+
+Include:
+
+* stock return minus sector average return over 20/50/120 days,
+* stock rank within sector,
+* stock rank within industry if industry sample size is sufficient,
+* leader / laggard classification.
+
+3. Design how delivery/accumulation confirmation should be used.
+
+Review current delivery data path:
+
+* bhavcopy source,
+* delivery percentage,
+* delivery value,
+* volume shock,
+* price-up + delivery-up confirmation,
+* avoid high-delivery distribution days,
+* accumulation proxy.
+
+4. Propose a scoring design, but do not implement it.
+
+Suggested scoring buckets to evaluate:
+
+```text
+Existing swing score stays 0–100.
+Sector/RS/delivery upgrade should be additive or rebalance only after approval.
+```
+
+Possible design:
+
+```text
+Sector strength:       0–8 points
+Stock-vs-sector RS:    0–8 points
+Delivery confirmation: 0–6 points
+Volume/accumulation:   0–5 points
+Penalty for weak sector / laggard stock / distribution day
+```
+
+But do not modify actual weights yet.
+
+5. Identify which parts can be calculated from existing stored data and which need new data.
+
+For each proposed metric, state:
+
+* data source,
+* current availability,
+* whether DB schema change is needed,
+* whether it can be computed at scan time only,
+* whether it requires persistence,
+* whether it affects UI only or scoring,
+* whether it needs live market.
+
+6. Evaluate whether any schema changes would be needed.
+
+Do not make schema changes.
+
+7. Evaluate whether any new diagnostics endpoint would be useful.
+
+Do not build it yet.
+
+8. Produce a phased implementation recommendation:
+
+* S4a: sector normalization cleanup,
+* S4b: sector strength computation,
+* S4c: stock-vs-sector RS,
+* S4d: delivery/accumulation integration,
+* S4e: scoring simulation/shadow mode,
+* S4f: live scoring activation only after evidence.
+
+9. Include a shadow-mode approach.
+
+Before changing live recommendations, propose how to calculate new sector/RS/delivery scores in shadow mode and compare:
+
+* current score,
+* shadow upgraded score,
+* current action,
+* shadow action,
+* reason for difference,
+* whether upgraded score would improve candidate quality.
+
+10. Do not change:
+
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O logic,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+## Output required
+
+Produce an **S4 Swing Sector / RS / Delivery Upgrade Design Report** with:
+
+A. Current gap summary
+B. Proposed sector-strength model
+C. Proposed stock-vs-sector RS model
+D. Proposed delivery/accumulation model
+E. Data availability table
+F. Schema impact assessment
+G. Shadow-mode design
+H. Proposed scoring impact, without implementation
+I. Risks / false-positive controls
+J. Recommended phased implementation order
+K. Which steps require live market and which do not
+L. Confirmation that no code/schema/trading behavior changed
+
+## Coordination
+
+S2b live verification remains pending for the next active market session.
+
+S3b post-deep-scan verification remains pending after the next completed deep scan.
+
+F&O P25 evidence collection remains separate.
+
+Proceed with S4 design only.
