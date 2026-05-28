@@ -1,0 +1,105 @@
+Today market is closed, so do not run S2b live verification.
+
+S2b requires live market hours and remains pending until the next active trading session.
+
+Do not run P25 EOD evidence report for a no-market day unless there were actual F&O paper trades.
+
+Instead, proceed with a read-only swing audit task:
+
+# S3: Swing RS / Sector / Delivery Scoring Audit — Read-Only Only
+
+Purpose:
+
+Audit the swing scanner’s relative-strength, sector-strength, industry-strength, and delivery/accumulation logic so we can prepare the next swing upgrade while waiting for live market verification.
+
+This is audit/design only. Do not change scoring yet.
+
+## Scope
+
+1. Inspect current swing scanner code and production data to verify:
+
+   * whether `rs20`, `rs50`, `rs120` are computed,
+   * whether they are populated in `swing_scan_result`,
+   * whether they affect the final score,
+   * why RS score was `0.0` in the S1 sample,
+   * whether benchmark data is available and valid,
+   * whether NIFTY comparison is working.
+
+2. Audit sector/industry usage:
+
+   * whether sector and industry are only displayed,
+   * whether sector strength is calculated anywhere,
+   * whether industry strength is calculated anywhere,
+   * whether stock-vs-sector RS exists,
+   * whether sector breadth or sector momentum exists,
+   * whether sector/industry affect recommendation today.
+
+3. Audit delivery/accumulation usage:
+
+   * whether bhavcopy delivery data is loaded,
+   * where it is stored,
+   * whether delivery percentage/value affects swing scoring,
+   * whether volume shock is used,
+   * whether delivery + volume confirmation exists,
+   * whether accumulation/distribution proxy exists.
+
+4. Use production read-only queries only.
+
+5. Produce evidence tables for:
+
+   * RS population coverage,
+   * sector/industry coverage,
+   * delivery data coverage,
+   * top-ranked stocks with RS values,
+   * top-ranked stocks with sector/industry values,
+   * whether high-score names are actual sector leaders,
+   * whether delivery/volume supports the recommendation.
+
+6. Do not implement any scoring changes.
+
+7. Do not change:
+
+   * swing scoring,
+   * swing recommendations,
+   * swing entries,
+   * swing stops,
+   * swing targets,
+   * swing RR,
+   * intraday refresh,
+   * trigger latch,
+   * paper-equity execution,
+   * F&O logic,
+   * option snapshots,
+   * candle warehouse,
+   * scheduler,
+   * schema,
+   * workflows,
+   * route auth,
+   * `replit.md`.
+
+## Output required
+
+Produce an **S3 Swing RS / Sector / Delivery Audit Report** with:
+
+A. Current RS pipeline map
+B. Why RS scores are zero/null, if confirmed
+C. Sector/industry usage map
+D. Delivery/accumulation usage map
+E. Production data coverage tables
+F. Whether sector strength is truly scored
+G. Whether stock-vs-sector RS exists
+H. Whether delivery confirmation exists
+I. Main weaknesses ranked by severity
+J. Recommended upgrade sequence
+K. Which fixes require live market and which do not
+L. Confirmation that no code/trading behavior changed
+
+## Important
+
+S2b live verification remains pending for the next active market session.
+
+Do not start S2b today.
+
+Do not implement S3 fixes yet.
+
+This is audit/design only.
