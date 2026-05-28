@@ -1,0 +1,281 @@
+H10c Production Smoke Verification is accepted as **partial verification**.
+
+Accepted findings:
+
+* No separate production deployment was available.
+* `REPLIT_DEPLOYMENT` was empty.
+* Verification was therefore performed against the dev/workspace build.
+* Route exists and is registered.
+* Anonymous probe returned `401 AUTH_REQUIRED`.
+* Auth gate fired before DB/Kite/Yahoo/scan work.
+* Feature flag `SWING_SHADOW_DIAG_ENABLED` is unset and therefore default-ON.
+* Latest DB scan date was `2026-05-28`.
+* Latest scan row count was `476`.
+* No startup errors related to `swingShadowScore` or `swingShadowDiagnostic`.
+* No unexpected Kite/Yahoo calls.
+* No scan trigger.
+* No intraday refresh trigger.
+* No DB mutation.
+* No code/schema/scheduler/workflow/UI/docs changes.
+* Owner 200 payload was not captured because no owner session was available.
+
+Current verdict:
+
+```text id="qqvvu9"
+H10c = partially verified
+Reason = owner response not captured
+H10b endpoint = route/auth smoke verified
+Live scoring = unchanged
+```
+
+Now proceed only with this follow-up:
+
+# H10d: Owner Payload Verification for B1/B3 Shadow Diagnostic
+
+Purpose:
+
+Capture and verify the owner-authenticated response body for:
+
+```text id="l58n7p"
+GET /api/stocks-to-watch/diagnostics/swing-shadow-score
+```
+
+This is verification only.
+
+Do not change code unless a clear defect is found.
+
+Do not bypass auth.
+
+Do not request or expose secrets.
+
+Do not alter sessions.
+
+Do not create test owner credentials.
+
+Do not change live scoring or trading behavior.
+
+## Preconditions
+
+Run H10d only if one of these is available:
+
+1. A real owner-authenticated browser/session in the workspace, or
+2. An actual deployed `.replit.app` / production domain with owner session available, or
+3. Existing safe test harness support for owner-authenticated route calls.
+
+If no owner-authenticated access is available, stop and report:
+
+```text id="umre8q"
+H10d deferred — owner session unavailable
+```
+
+Do not try to bypass auth.
+
+## Checks required
+
+### 1. Owner response
+
+With owner-authenticated access, call:
+
+```text id="l1n21v"
+GET /api/stocks-to-watch/diagnostics/swing-shadow-score
+```
+
+Capture only a bounded/summarized payload.
+
+Do not paste the full payload if it is large.
+
+Confirm response includes:
+
+* `latestScanDate`
+* total rows
+* feature flag status
+* warning verification summary
+* B1 summary
+* B3 summary
+* current top candidates
+* B1 top candidates
+* B3 top candidates
+* promoted by B1
+* demoted by B1
+* promoted by B3
+* demoted by B3
+* score-delta distribution
+* data-quality summary
+
+### 2. Latest scan match
+
+Run read-only DB sanity query:
+
+```sql id="hxdhmh"
+SELECT MAX(scan_date) AS latest_scan_date
+FROM swing_scan_result;
+```
+
+Confirm endpoint latest scan date matches.
+
+### 3. Row-count match
+
+Run read-only DB sanity query:
+
+```sql id="oc6m7t"
+SELECT scan_date, COUNT(*) AS rows
+FROM swing_scan_result
+WHERE scan_date = (SELECT MAX(scan_date) FROM swing_scan_result)
+GROUP BY scan_date;
+```
+
+Confirm endpoint row count matches or explain intentional filtering.
+
+### 4. Warning verification
+
+Confirm endpoint reports:
+
+* known B3 warning substrings,
+* known non-B3 warning substrings,
+* unknown warning strings if any,
+* no silent guessing.
+
+### 5. B1 sanity samples
+
+Pick 3–5 sample rows.
+
+Verify:
+
+* live score unchanged,
+* live action unchanged,
+* B1 shadow score is lower by `fundamental_score` removal,
+* B1 reasons explain the adjustment,
+* missing/null fundamental score fails open.
+
+### 6. B3 sanity samples
+
+Pick 3–5 sample rows covering:
+
+* overextended warning,
+* RSI overextended warning,
+* RS weak warning,
+* no B3 warning.
+
+Verify:
+
+* B3 applies only confirmed penalties,
+* unknown warnings are not mapped,
+* reason codes are present,
+* score is clamped 0–100,
+* live score/action are unchanged.
+
+### 7. Bounded response
+
+Confirm:
+
+* top lists are capped,
+* promoted/demoted lists are capped,
+* deterministic ordering is visible or already covered by tests,
+* response is not unbounded.
+
+### 8. Memoization sanity
+
+Call endpoint twice within 5 minutes if owner access is available.
+
+Confirm:
+
+* stable response,
+* no visible duplicate heavy work,
+* no DB writes,
+* no scan trigger,
+* no Kite/Yahoo calls.
+
+### 9. Logs
+
+Check logs for:
+
+* no endpoint error,
+* no unexpected Kite/Yahoo call,
+* no deep scan trigger,
+* no intraday refresh trigger,
+* no DB mutation,
+* no unhandled unknown warning crash.
+
+## Output required
+
+Produce an **H10d Owner Payload Verification Report** with:
+
+A. Environment tested
+B. Owner access method used, without exposing secrets
+C. Endpoint status
+D. Response shape summary
+E. Latest scan / row-count match
+F. Warning verification summary
+G. B1 sample sanity
+H. B3 sample sanity
+I. Bounded response check
+J. Memoization sanity
+K. Logs reviewed
+L. Defects found, if any
+M. Whether H10b is fully verified or still partial
+N. Confirmation that no code/schema/DB write/scheduler/UI/live scoring/trading behavior changed
+
+## Allowed verdicts
+
+Use one:
+
+```text id="7uj9wn"
+H10b fully verified
+```
+
+or
+
+```text id="axl3zl"
+H10b still partially verified — owner payload unavailable
+```
+
+or
+
+```text id="vr581b"
+H10b verification failed — defect found
+```
+
+If a defect is found:
+
+* do not patch automatically unless it is a tiny test-only/reporting fix,
+* describe the defect,
+* propose the smallest fix,
+* stop for approval if route behavior or production logic would be affected.
+
+## Guardrails
+
+Do not change:
+
+* live swing scoring,
+* live swing recommendations,
+* live swing action labels,
+* live swing entries,
+* live swing stops,
+* live swing targets,
+* live swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* UI,
+* `replit.md`,
+* memory/docs.
+
+If owner access is unavailable, do not continue probing. Mark H10d deferred and stop.
+
+After H10d, stop and wait for instruction.
