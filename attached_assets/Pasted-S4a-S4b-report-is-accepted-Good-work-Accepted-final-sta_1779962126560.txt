@@ -1,0 +1,314 @@
+S4a + S4b report is accepted.
+
+Good work.
+
+Accepted final state:
+
+* S4a sector taxonomy cleanup is accepted.
+* Safe aliases normalized:
+
+  * `Automobile → Auto`
+  * `Information Technology → IT`
+  * `Realty → Real Estate`
+* Ambiguous mappings correctly left untouched:
+
+  * Pharma vs Healthcare
+  * Banking vs Financials
+  * Defence vs Capital Goods
+* S4b read-only sector-strength diagnostic is accepted.
+* New endpoint accepted:
+
+```text
+GET /api/stocks-to-watch/diagnostics/sector-strength
+```
+
+* Sector-strength aggregation is diagnostic only.
+* It does not affect swing scoring.
+* It does not affect swing action labels.
+* It does not affect entry, stop, target, RR, trigger latch, intraday refresh, paper-equity, F&O, option snapshots, candles, scheduler, schema, workflows, route auth pattern, or `replit.md`.
+* 571/571 tests passed.
+* Workspace typecheck passed.
+
+Do not proceed to S4c/S4d/S4e/S4f yet.
+
+Now we will address the earlier question:
+
+“Instead of waiting for live data, can we run the option and swing pending live tests on historical data?”
+
+Decision:
+
+Yes, we will use historical/offline replay to accelerate evidence collection, but we must not label historical replay as live verification.
+
+Proceed with:
+
+# H1: Historical Replay Feasibility Audit — F&O Options + Swing
+
+Purpose:
+
+Check what we can safely validate or accelerate using historical data while waiting for:
+
+* S2b live intraday refresh verification,
+* S3b post-deep-scan RS benchmark verification,
+* F&O P25 live trade evidence collection.
+
+This is read-only audit/design only.
+
+No production logic changes.
+
+No live strategy changes.
+
+No DB writes.
+
+No backfills.
+
+No schema changes.
+
+No app-code changes unless separately approved.
+
+Historical replay language must be precise:
+
+Use:
+
+* “historically replayed”
+* “offline evidence”
+* “shadow evidence”
+* “approximate”
+* “not live-verified”
+
+Do **not** mark any of these as fully live-verified solely from historical replay:
+
+* S2b,
+* S3b,
+* F&O exit changes,
+* swing scoring changes,
+* swing trigger-latch production behavior,
+* Kite/scheduler behavior.
+
+---
+
+## Part A — F&O / Options Historical Replay Feasibility
+
+Audit whether existing production/stored data can reconstruct historical option trade paths.
+
+Check these data sources read-only:
+
+* `paper_trade_fo`
+* `fno_signal_reasoning`
+* `option_signal_history`
+* `option_chain_snapshot`
+* `option_chain_snapshot_run`
+* option snapshot timestamps
+* strike / expiry / option type / index fields
+* entry and exit timestamps
+* premium / LTP fields
+* candle warehouse if useful
+
+For each historical F&O paper trade, determine whether we can reconstruct:
+
+* entry premium,
+* exit premium,
+* intraday high premium after entry,
+* intraday low premium after entry,
+* reconstructed MFE,
+* reconstructed MAE,
+* whether +30% MFE was reached,
+* whether +50% MFE was reached,
+* whether +60% MFE was reached,
+* whether BE trail could have helped,
+* whether T1/T2 were realistically reachable,
+* whether force-exit helped or hurt.
+
+Important limitations to state clearly:
+
+* If snapshots are too sparse, say so.
+* If exact strike/expiry is missing, say so.
+* If tick ordering is unknown, BE-trail results are approximate / upper-bound only.
+* Do not update `paper_trade_fo`.
+* Do not backfill MFE/MAE.
+* Do not change live exits.
+* Do not change P&L.
+
+Output for F&O:
+
+A. Historical option data sources available
+B. Number of historical F&O trades checked
+C. Number reconstructable
+D. Number not reconstructable
+E. Coverage percentage
+F. Data-quality grade:
+
+* exact,
+* good,
+* approximate,
+* insufficient
+  G. Reconstructed MFE/MAE table if possible
+  H. Shadow-exit comparison if possible:
+* R1 full +30%
+* R2 full +60%
+* R3 50%@+30% + BE
+* R4 50%@+50% + BE
+* R5 full BE after +50%
+  I. Whether this can accelerate P25
+  J. Whether it can reduce the 20-live-trade wait
+  K. What still requires live data
+
+---
+
+## Part B — Swing Historical Replay Feasibility
+
+Audit whether stored swing scan rows and historical daily bars can be used to test swing upgrades offline.
+
+Check these data sources read-only:
+
+* `swing_scan_result`
+* `swing_scan_run`
+* stored daily bars / candle warehouse if available
+* RS fields:
+
+  * `rs20`
+  * `rs50`
+  * `rs120`
+  * `rs_score`
+* sector / industry fields
+* score / action fields
+* entry / stop / target / RR fields
+* trigger price
+* close price
+* intraday fields if present
+* bhavcopy / delivery availability
+
+Determine whether we can replay:
+
+* RS benchmark coverage across historical scan dates,
+* sector ranking from past scans,
+* sector-strength diagnostic over historical scans,
+* stock-vs-sector RS offline,
+* delivery confirmation if data exists,
+* whether WATCHLIST/BUY names later reached entry,
+* whether target/stop would have hit using daily bars,
+* whether high-score names outperformed low-score names,
+* whether sector leaders outperformed laggards.
+
+Important limitations:
+
+* Daily OHLC cannot perfectly prove intraday trigger order.
+* If both stop and target are inside same day’s range, mark outcome ambiguous.
+* If delivery history is missing, say whether forward collection is required.
+* Do not change live swing scoring.
+* Do not change recommendations.
+* Do not backfill production rows.
+
+Output for swing:
+
+A. Historical swing data sources available
+B. Historical scan sample size
+C. RS coverage over time
+D. Sector/industry coverage over time
+E. Whether stock-vs-sector RS can be computed offline
+F. Whether delivery confirmation can be computed offline
+G. Whether trigger/target/stop outcome can be replayed
+H. Data-quality limitations
+I. Which swing upgrades can be designed from historical evidence
+J. Which still require live verification
+
+---
+
+## Part C — Acceleration Recommendation
+
+Produce a final recommendation:
+
+1. Which tasks can be accelerated historically:
+
+   * F&O shadow exits,
+   * F&O target reachability,
+   * F&O setup quality,
+   * swing RS reliability,
+   * swing sector leadership,
+   * swing stock-vs-sector RS,
+   * swing trigger outcome,
+   * swing delivery confirmation.
+
+2. Which still require live market verification:
+
+   * S2b intraday refresh,
+   * S3b post-deep-scan RS production verification,
+   * actual Kite/scheduler behavior,
+   * production trigger latch,
+   * final F&O exit-change validation.
+
+3. Whether historical replay can reduce the waiting period.
+
+4. Whether any scratch script is needed.
+
+If a scratch script is needed:
+
+* keep it under `.agents/outputs/` or another scratch area only,
+* do not commit it,
+* do not modify app code,
+* do not modify DB,
+* do not modify schema,
+* do not modify `replit.md`,
+* do not modify memory/docs.
+
+---
+
+## Coordination with current work
+
+Pending live tasks remain separate:
+
+* S2b live intraday refresh verification — still pending next active market session.
+* S3b RS benchmark post-deep-scan verification — still pending next completed deep scan.
+* F&O P25 evidence collection — still separate and gated.
+* S4c/S4d/S4e/S4f — not approved yet.
+
+Do not mix H1 with implementation tasks.
+
+---
+
+## Guardrails
+
+Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* F&O stop-loss,
+* F&O target,
+* F&O partial booking,
+* F&O trailing stop,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* F&O realised P&L,
+* F&O DD/circuit-breakers,
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+Expected output:
+
+Produce an **H1 Historical Replay Feasibility Report** with clear sections for:
+
+A. F&O/options replay feasibility
+B. Swing replay feasibility
+C. Data gaps
+D. What can be accelerated
+E. What cannot replace live verification
+F. Recommended next fastest path
+G. Confirmation that no code/schema/trading behavior changed
+
+Proceed with H1 feasibility audit only.
