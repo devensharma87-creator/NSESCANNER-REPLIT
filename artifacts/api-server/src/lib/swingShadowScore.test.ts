@@ -447,7 +447,9 @@ describe("isolation — no DB / Kite / Yahoo / scheduler / route / schema depend
     expect(B3_WARNING_SUBSTRINGS.RS_WEAK).toBe("Short-term relative strength weak vs benchmark");
   });
 
-  it("KNOWN_NON_B3_WARNING_SUBSTRINGS covers the 10 non-B3 prose strings emitted by swingScanner.ts", () => {
-    expect(KNOWN_NON_B3_WARNING_SUBSTRINGS).toHaveLength(10);
+  it("KNOWN_NON_B3_WARNING_SUBSTRINGS covers the 12 non-B3 prose strings emitted by swingScanner.ts (10 static + 2 dynamic verified 2026-05-28)", () => {
+    expect(KNOWN_NON_B3_WARNING_SUBSTRINGS).toHaveLength(12);
+    expect(KNOWN_NON_B3_WARNING_SUBSTRINGS).toContain("Large opening gap");
+    expect(KNOWN_NON_B3_WARNING_SUBSTRINGS).toContain("Upper-wick rejection");
   });
 });

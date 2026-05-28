@@ -466,7 +466,21 @@ export interface WarningCodeVerificationResult {
   allSubstringsObserved: boolean;
 }
 
-/** Known prose emitted by `swingScanner.ts` that is NOT consumed by B3 (verified L978-L1068 snapshot). */
+/**
+ * Known prose emitted by `swingScanner.ts` that is NOT consumed by B3
+ * (verified L978-L1068 snapshot, extended 2026-05-28 after H10b production
+ * sample verification across 10 scan dates / ~4,765 rows).
+ *
+ * Additions on 2026-05-28:
+ *   - "Large opening gap"      — dynamic emission from candle / risk helper
+ *   - "Upper-wick rejection"   — dynamic emission from candle helper
+ *
+ * Both were observed in every production scan date sampled but had no
+ * static literal in `swingScanner.ts` to grep for. They are NOT B3
+ * penalties — B3 stays scoped to the three substrings in
+ * `B3_WARNING_SUBSTRINGS`. Cataloguing them here keeps `verifyWarningCodes`
+ * able to flag genuinely-novel future drift without false alarms.
+ */
 export const KNOWN_NON_B3_WARNING_SUBSTRINGS = Object.freeze([
   "Below EMA200",
   "Bearish structure",
@@ -478,6 +492,8 @@ export const KNOWN_NON_B3_WARNING_SUBSTRINGS = Object.freeze([
   "R:R moderate",
   "R:R weak",
   "Stop distance wide versus ATR",
+  "Large opening gap",
+  "Upper-wick rejection",
 ] as const);
 
 /**

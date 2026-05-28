@@ -258,6 +258,7 @@ const ENDPOINTS: readonly Endpoint[] = [
   { name: "S2a intraday-refresh",     method: "GET",  path: "/api/stocks-to-watch/diagnostics/intraday-refresh" },
   { name: "S3a swing-benchmark",      method: "GET",  path: "/api/stocks-to-watch/diagnostics/swing-benchmark" },
   { name: "S4b sector-strength",      method: "GET",  path: "/api/stocks-to-watch/diagnostics/sector-strength" },
+  { name: "H10b swing-shadow-score",  method: "GET",  path: "/api/stocks-to-watch/diagnostics/swing-shadow-score" },
 ] as const;
 
 async function call(ep: Endpoint, cookie?: string): Promise<{ status: number; body: unknown }> {
@@ -427,6 +428,143 @@ describe("S4b — /api/stocks-to-watch/diagnostics/sector-strength owner-path co
     expect(names).toEqual(
       expect.arrayContaining(["pctAboveEma20", "pctAboveEma50", "pctAboveEma200", "pct20dHigh"]),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H10b — owner-path runtime behaviour for the swing-shadow-score diagnostic.
+// Auth cases A/B/C/D are already covered by the parametrised matrix above;
+// these tests cover the feature-flag-disabled response and the latest-scan-
+// only SQL semantics required by the H10b spec checklist.
+// ---------------------------------------------------------------------------
+
+describe("H10b — /api/stocks-to-watch/diagnostics/swing-shadow-score owner-path runtime", () => {
+  const SHADOW_PATH = "/api/stocks-to-watch/diagnostics/swing-shadow-score";
+
+  beforeEach(() => {
+    delete process.env["SWING_SHADOW_DIAG_ENABLED"];
+    // Reset dbStub.execute to default empty-rows behaviour between tests.
+    dbStub.execute.mockReset();
+    dbStub.execute.mockImplementation(async () => ({ rows: [] }));
+  });
+
+  // The dbStub's execute mock infers `rows: never[]`; cast row arrays
+  // through `unknown` so per-test fixtures can use real shapes.
+  type AnyRows = { rows: never[] };
+  const asRows = <T,>(rows: T[]): AnyRows => ({ rows }) as unknown as AnyRows;
+
+  it("feature-flag disabled → 200 with featureFlagEnabled:false and no computation", async () => {
+    process.env["SWING_SHADOW_DIAG_ENABLED"] = "0";
+    const r = await call({ name: "h10b off", method: "GET", path: SHADOW_PATH }, OWNER_COOKIE);
+    expect(r.status).toBe(200);
+    const body = r.body as Record<string, unknown>;
+    expect(body).toMatchObject({
+      featureFlagEnabled: false,
+      flagEnvVar: "SWING_SHADOW_DIAG_ENABLED",
+    });
+    // Disabled branch returns early — must NOT compute scanDate / totalRows
+    // and must NOT have called the DB.
+    expect(body.scanDate).toBeUndefined();
+    expect(body.totalRows).toBeUndefined();
+    expect(dbStub.execute).not.toHaveBeenCalled();
+  });
+
+  it("feature-flag enabled, empty DB → 200 with scanDate=null and totalRows=0; runs exactly one query (latest scan_date probe)", async () => {
+    delete process.env["SWING_SHADOW_DIAG_ENABLED"];
+    dbStub.execute.mockImplementationOnce(async () => asRows([{ latest: null }]));
+    const r = await call({ name: "h10b empty", method: "GET", path: SHADOW_PATH }, OWNER_COOKIE);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      featureFlagEnabled: true,
+      scanDate: null,
+      totalRows: 0,
+      listCap: 25,
+      highScoreThreshold: 60,
+    });
+    // Only the MAX(scan_date) probe ran; no cohort SELECT.
+    expect(dbStub.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("feature-flag enabled, populated DB → 200 with payload; reads LATEST scan_date only (no all-rows scan)", async () => {
+    delete process.env["SWING_SHADOW_DIAG_ENABLED"];
+    const LATEST = "2026-05-28";
+    dbStub.execute
+      // 1. latest scan_date probe
+      .mockImplementationOnce(async () => asRows([{ latest: LATEST }]))
+      // 2. cohort SELECT for LATEST only
+      .mockImplementationOnce(async () => asRows([
+          {
+            symbol: "RELIANCE",
+            scan_date: LATEST,
+            score: "75.00",
+            action: "WATCH",
+            sector: "Energy",
+            industry: "Oil & Gas",
+            fundamental_score: "5.00",
+            rsi14: "55.00",
+            pct_from_52w_high: "-12.00",
+            warnings: ["RSI overextended"],
+          },
+          {
+            symbol: "HDFCBANK",
+            scan_date: LATEST,
+            score: "80.00",
+            action: "BUY ZONE",
+            sector: "Financial Services",
+            industry: "Banks",
+            fundamental_score: "10.00",
+            rsi14: "60.00",
+            pct_from_52w_high: "-5.00",
+            warnings: [],
+          },
+        ]));
+    const r = await call({ name: "h10b ok", method: "GET", path: SHADOW_PATH }, OWNER_COOKIE);
+    expect(r.status).toBe(200);
+    const body = r.body as Record<string, unknown>;
+    expect(body).toMatchObject({
+      featureFlagEnabled: true,
+      scanDate: LATEST,
+      totalRows: 2,
+      listCap: 25,
+      cached: false,
+    });
+    // Exactly 2 DB calls: latest probe + cohort SELECT. No third call (no
+    // outcomes fetch, no scheduler, no Kite, no Yahoo).
+    expect(dbStub.execute).toHaveBeenCalledTimes(2);
+    // No write verbs were used (DB stub doesn't expose insert/update/delete).
+    // Verify nothing called the mocked write surfaces:
+    expect((dbStub as unknown as { insert?: unknown }).insert).toBeUndefined();
+
+    // Per-row payload shape sanity: rows surface in the top lists with the
+    // shadow fields populated by computeShadowScores.
+    const topByLive = body.topByLive as Array<Record<string, unknown>>;
+    expect(Array.isArray(topByLive)).toBe(true);
+    expect(topByLive.length).toBe(2);
+    const sample = topByLive[0]!;
+    expect(sample).toHaveProperty("b1ShadowScore");
+    expect(sample).toHaveProperty("b3ShadowScore");
+    expect(sample).toHaveProperty("b1Delta");
+    expect(sample).toHaveProperty("b3Delta");
+    expect(sample).toHaveProperty("dataQuality");
+  });
+
+  it("memo: second identical request within TTL returns cached:true and skips the DB", async () => {
+    delete process.env["SWING_SHADOW_DIAG_ENABLED"];
+    const LATEST = "2026-05-28";
+    const probe = async () => asRows([{ latest: LATEST }]);
+    const cohort = async () => asRows([] as Array<Record<string, unknown>>);
+    dbStub.execute.mockImplementationOnce(probe).mockImplementationOnce(cohort);
+
+    const r1 = await call({ name: "h10b first", method: "GET", path: SHADOW_PATH }, OWNER_COOKIE);
+    expect(r1.status).toBe(200);
+    expect((r1.body as Record<string, unknown>).cached).toBe(false);
+
+    // Second call: only the latest-scan probe should fire; cohort is skipped
+    // because the memo key (scanDate, rowCount=0) matches.
+    dbStub.execute.mockImplementationOnce(probe);
+    const r2 = await call({ name: "h10b second", method: "GET", path: SHADOW_PATH }, OWNER_COOKIE);
+    expect(r2.status).toBe(200);
+    expect((r2.body as Record<string, unknown>).cached).toBe(true);
   });
 });
 

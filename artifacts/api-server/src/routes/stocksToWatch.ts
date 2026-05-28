@@ -5,6 +5,14 @@ import { getStocksToWatch } from "../lib/stocksToWatch";
 import { getLatestSwingScan, getSchedulerState, getIntradayRefreshHealth, getSwingBenchmarkHealth, getLatestSwingScanSectorRows } from "../lib/swingScannerStore";
 import { computeSectorCoverage, UNMAPPED_SECTOR } from "../lib/sectorMap";
 import { computeSectorStrength } from "../lib/sectorStrength";
+import {
+  buildShadowDiagnostic,
+  isSwingShadowDiagEnabled,
+  memoKey as shadowMemoKey,
+  getMemoizedPayload as getShadowMemo,
+  setMemoizedPayload as setShadowMemo,
+  type ShadowDiagnosticInputRow,
+} from "../lib/swingShadowDiagnostic";
 import { getSession, requireOwner } from "../lib/userAuth";
 import { isPublicAccessEnabled } from "../lib/publicAccess";
 
@@ -151,6 +159,145 @@ router.get(
                 ) / 10,
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * GET /api/stocks-to-watch/diagnostics/swing-shadow-score
+ *
+ * H10b (2026-05-28) — owner-only READ-ONLY shadow-scoring diagnostic.
+ *
+ * Computes B1 (live − fundamental, clamped) and B3 (B1 − overextension /
+ * RS-weak penalties, clamped) for every row of the LATEST persisted
+ * `swing_scan_result` cohort, alongside a warning-prose verifier. Returns
+ * per-row deltas, top lists, promotion / demotion buckets, score-delta
+ * distributions, and a data-quality histogram (all lists capped at 25 rows).
+ *
+ * Feature-flag gated by `SWING_SHADOW_DIAG_ENABLED` (default ENABLED).
+ * Disabled state returns 200 with `featureFlagEnabled: false` and no
+ * computation — gives the owner a way to confirm the flag is off without
+ * confusing 404s.
+ *
+ * STRICT READ-ONLY contract. Does NOT:
+ *   - mutate the row's persisted `score` or `action`,
+ *   - trigger a deep scan,
+ *   - trigger intraday refresh,
+ *   - call Kite or Yahoo or fetch outcomes,
+ *   - mutate DB,
+ *   - enqueue scheduler work,
+ *   - touch the paper-equity or F&O paths.
+ *
+ * 5-minute in-process memoization keyed by (scan_date, row count).
+ *
+ * Same strict owner-only gate as the peer `/sector-coverage`,
+ * `/intraday-refresh`, `/swing-benchmark`, `/sector-strength` diagnostics.
+ */
+router.get(
+  "/stocks-to-watch/diagnostics/swing-shadow-score",
+  (req, res, next) => {
+    const s = getSession(req);
+    if (s?.role === "owner") return next();
+    if (isPublicAccessEnabled()) {
+      res.status(403).json({ error: "owner_only", code: "OWNER_ONLY_DIAGNOSTIC" });
+      return;
+    }
+    res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
+  },
+  async (_req, res, next) => {
+    try {
+      // Feature flag — safe disabled response.
+      if (!isSwingShadowDiagEnabled()) {
+        res.json({
+          generatedAt: new Date().toISOString(),
+          featureFlagEnabled: false,
+          flagEnvVar: "SWING_SHADOW_DIAG_ENABLED",
+          message:
+            "Diagnostic disabled. Set SWING_SHADOW_DIAG_ENABLED=1 (or remove the env var) to enable.",
+        });
+        return;
+      }
+
+      // Resolve latest scan_date.
+      const latestRes = (await db.execute(sql`
+        SELECT MAX(scan_date)::text AS latest FROM swing_scan_result;
+      `)) as unknown as { rows: Array<{ latest: string | null }> };
+      const scanDate = latestRes.rows[0]?.latest ?? null;
+
+      if (scanDate == null) {
+        res.json({
+          generatedAt: new Date().toISOString(),
+          featureFlagEnabled: true,
+          scanDate: null,
+          totalRows: 0,
+          listCap: 25,
+          highScoreThreshold: 60,
+          message: "No rows in swing_scan_result yet.",
+        });
+        return;
+      }
+
+      // Load only the latest cohort, only the columns the diagnostic uses.
+      const rowsRes = (await db.execute(sql`
+        SELECT
+          symbol,
+          scan_date::text         AS scan_date,
+          score,
+          action,
+          sector,
+          industry,
+          fundamental_score,
+          rsi14,
+          pct_from_52w_high,
+          warnings
+        FROM swing_scan_result
+        WHERE scan_date = ${scanDate}::date;
+      `)) as unknown as {
+        rows: Array<{
+          symbol: string;
+          scan_date: string;
+          score: number | string | null;
+          action: string | null;
+          sector: string | null;
+          industry: string | null;
+          fundamental_score: number | string | null;
+          rsi14: number | string | null;
+          pct_from_52w_high: number | string | null;
+          warnings: unknown;
+        }>;
+      };
+
+      const rows: ShadowDiagnosticInputRow[] = rowsRes.rows.map((r) => ({
+        symbol: r.symbol,
+        scanDate: r.scan_date,
+        score: r.score,
+        action: r.action,
+        sector: r.sector,
+        industry: r.industry,
+        fundamentalScore: r.fundamental_score,
+        rsi14: r.rsi14,
+        pctFrom52wHigh: r.pct_from_52w_high,
+        warnings: Array.isArray(r.warnings) ? (r.warnings as unknown[]) : null,
+      }));
+
+      // 5-minute in-process memo (scan_date + row count).
+      const now = Date.now();
+      const key = shadowMemoKey(scanDate, rows.length);
+      const cached = getShadowMemo(now, key);
+      if (cached != null) {
+        res.json({ ...cached, cached: true });
+        return;
+      }
+
+      const payload = buildShadowDiagnostic({
+        generatedAt: new Date().toISOString(),
+        scanDate,
+        rows,
+      });
+      setShadowMemo(now, key, payload);
+      res.json({ ...payload, cached: false });
     } catch (err) {
       next(err);
     }

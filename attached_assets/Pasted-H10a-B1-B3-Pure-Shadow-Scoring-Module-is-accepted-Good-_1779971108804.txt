@@ -1,0 +1,262 @@
+H10a B1/B3 Pure Shadow-Scoring Module is accepted.
+
+Good work.
+
+Accepted final state:
+
+* `swingShadowScore.ts` pure module is accepted.
+* `computeShadowB1`, `computeShadowB3`, `computeShadowScores`, and `verifyWarningCodes` are accepted.
+* B1 formula is accepted as full removal of `fundamental_score` for shadow-scoring only.
+* B3 formula is accepted as B1 + overextension penalty + RS-weak warning penalty.
+* Confirmed warning strings are English prose, not code identifiers.
+* Confirmed B3-relevant warning substrings:
+
+  * `Price extended far above EMA20`
+  * `RSI overextended`
+  * `Short-term relative strength weak vs benchmark`
+* Fail-open behavior is accepted.
+* Numeric string tolerance for Drizzle numeric fields is accepted.
+* 40/40 module tests passed.
+* 611/611 full api-server tests passed.
+* Code review PASS.
+* No caller imports the module yet.
+* No live scoring behavior changed.
+* No route/UI/schema/DB/scheduler/workflow change happened.
+* No paper-equity or F&O path changed.
+* No `replit.md` or memory/docs change happened.
+
+Current verdict:
+
+```text id="edddhj"
+H10a = accepted isolated foundation
+Live swing scoring = unchanged
+B1/B3 = shadow-only candidates
+No live activation approved
+```
+
+Now proceed with the next guarded phase:
+
+# H10b: Warning-Code Production Sample Verification + Owner-Only Shadow Diagnostic Endpoint
+
+Purpose:
+
+Add an owner-only diagnostic endpoint that computes B1/B3 shadow scores on demand for the latest swing scan, without changing live scoring or recommendations.
+
+This phase may add a diagnostic route only if the production warning-code verification passes.
+
+No live scoring integration.
+
+No paper-equity integration.
+
+No schema changes.
+
+No DB writes.
+
+No scheduler.
+
+No UI.
+
+No outcomes fetching yet.
+
+## Part 1 — Production warning-code verification
+
+Before adding the route, run a read-only verification against recent production swing rows.
+
+Use the existing `verifyWarningCodes()` helper against a representative recent sample.
+
+Suggested sample:
+
+```text id="fv97f2"
+latest 30 calendar days or last 10 available scan dates, whichever gives better coverage
+```
+
+Check:
+
+* total rows sampled,
+* rows with warnings,
+* distinct warning strings,
+* confirmed B3 warning strings,
+* known non-B3 warning strings,
+* unknown warning strings,
+* whether all expected B3 substrings were observed,
+* whether unknown warning strings exist.
+
+Required rule:
+
+If unknown warning strings exist, do **not** guess.
+
+If B3-required warning substrings are not observed, keep B3 fail-open for those rules and report the limitation.
+
+If warning-code verification produces ambiguous results, stop and report. Do not add the endpoint.
+
+## Part 2 — Owner-only diagnostic endpoint
+
+If Part 1 is clean enough, add:
+
+```text id="yzca08"
+GET /api/stocks-to-watch/diagnostics/swing-shadow-score
+```
+
+Strict owner-only diagnostic route, same protection pattern as the other diagnostics.
+
+Feature flag required:
+
+```text id="bho41y"
+SWING_SHADOW_DIAG_ENABLED
+```
+
+Behavior:
+
+* If disabled, return a safe disabled response or 404/403 according to the project’s existing diagnostic-feature pattern.
+* If enabled and owner-authenticated, compute B1/B3 shadow scores for the latest scan rows.
+* Read-only only.
+* No DB writes.
+* No scheduler.
+* No scan trigger.
+* No Kite/Yahoo fetch.
+* No outcomes fetching.
+* No mutation of live `score` or `action`.
+
+## Endpoint response shape
+
+Return:
+
+* latest scan date,
+* total rows,
+* feature flag status,
+* warning verification summary,
+* B1 summary,
+* B3 summary,
+* current top candidates,
+* B1 top candidates,
+* B3 top candidates,
+* promoted by B1,
+* demoted by B1,
+* promoted by B3,
+* demoted by B3,
+* rows where live high-score is demoted by B1/B3,
+* rows where live AVOID is promoted by B1/B3,
+* score-delta distribution,
+* data-quality summary.
+
+For each row included in lists, include:
+
+* symbol,
+* sector,
+* industry,
+* live score,
+* live action,
+* B1 shadow score,
+* B3 shadow score,
+* B1 delta,
+* B3 delta,
+* B1 reasons,
+* B3 reasons,
+* data quality,
+* missing fields.
+
+Keep response bounded.
+
+Use sensible limits, for example top/promoted/demoted lists capped at 20–50 rows each.
+
+## Memoization
+
+Add 5-minute in-process memoization if simple and safe.
+
+Memoization must not mutate DB.
+
+Memoization must not alter live behavior.
+
+If memoization adds unnecessary complexity, skip it and report that it was deferred.
+
+## Tests required
+
+Add tests for:
+
+1. Endpoint is owner-only.
+2. Anonymous access denied.
+3. Non-owner/subscriber access denied.
+4. Feature flag disabled behavior.
+5. Feature flag enabled owner response shape.
+6. Endpoint reads latest scan rows only.
+7. Endpoint calls `computeShadowScores`.
+8. Endpoint does not mutate DB.
+9. Endpoint does not trigger deep scan.
+10. Endpoint does not trigger intraday refresh.
+11. Endpoint does not call Kite/Yahoo.
+12. Endpoint does not fetch outcomes.
+13. Endpoint response is bounded.
+14. Promotion/demotion lists are deterministic.
+15. Unknown warning strings are surfaced, not guessed.
+16. B1/B3 scores do not change live `score` or `action`.
+17. No paper-equity or F&O paths are touched.
+18. No schema changes.
+
+## Guardrails
+
+Do not change:
+
+* live swing scoring,
+* live swing recommendations,
+* live swing action labels,
+* live swing entries,
+* live swing stops,
+* live swing targets,
+* live swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* UI,
+* `replit.md`,
+* memory/docs.
+
+## Output required
+
+Produce an **H10b B1/B3 Shadow Diagnostic Endpoint Report** with:
+
+A. Production warning-code verification result
+B. Unknown warning strings, if any
+C. Whether endpoint was added or deferred
+D. Files changed
+E. Endpoint path
+F. Feature flag behavior
+G. Response shape
+H. Memoization decision
+I. Tests added/updated
+J. Typecheck/test results
+K. Confirmation that no schema/DB write/scheduler/UI was added
+L. Confirmation that live swing scoring/action/entry/stop/target/RR did not change
+M. Confirmation that paper-equity, F&O, workflows, `replit.md`, and memory/docs did not change
+N. Recommended next phase, but do not start it
+
+## Verdict rules
+
+Do not approve live scoring.
+
+Do not approve action-label changes.
+
+Do not approve entry/stop/target/RR changes.
+
+Do not approve paper-equity execution changes.
+
+Do not approve S4c/S4d/S4e/S4f.
+
+After H10b, stop and wait for instruction.
+
+Proceed with H10b only.
