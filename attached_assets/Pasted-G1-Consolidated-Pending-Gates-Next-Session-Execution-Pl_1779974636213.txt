@@ -1,0 +1,137 @@
+G1 Consolidated Pending Gates + Next-Session Execution Plan is accepted.
+
+Good work.
+
+Accepted findings:
+
+* G1 was coordination-only.
+* Scratch file written only under:
+
+```text id="x5x493"
+.agents/outputs/g1/consolidated_pending_gates_and_next_session_plan.md
+```
+
+* No code changes.
+* No DB writes.
+* No schema changes.
+* No route changes.
+* No scheduler/workflow changes.
+* No UI changes.
+* No `replit.md` change.
+* No memory/docs change.
+* No trading behavior changed.
+* H10b remains partially verified.
+* H10d remains blocked until owner session is available.
+* S2b remains blocked until live market hours.
+* S3b remains blocked until next completed post-15:35 IST deep scan.
+* F&O P25 remains blocked until next valid post-16:30 IST active-session evidence check.
+
+Current status:
+
+```text id="yegow3"
+No further coding task is approved right now.
+Next movement is operational, not implementation.
+```
+
+Do not start any new implementation.
+
+Do not create more diagnostics.
+
+Do not add more routes.
+
+Do not add more schema.
+
+Do not modify scanner logic.
+
+Do not modify F&O logic.
+
+Do not modify swing scoring.
+
+Do not modify `replit.md`.
+
+Do not modify memory/docs.
+
+## Next approved actions only
+
+### 1. When owner session is available
+
+Run H10d-final using the H11 runbook.
+
+Goal:
+
+```text id="twe7b0"
+Capture owner-authenticated 200 payload for /api/stocks-to-watch/diagnostics/swing-shadow-score
+```
+
+Allowed verdicts:
+
+```text id="nrfiva"
+H10b fully verified
+H10b still partially verified — owner payload unavailable
+H10b verification failed — defect found
+```
+
+### 2. During next active market session, 09:15–15:30 IST
+
+Run S2b live intraday refresh verification.
+
+Goal:
+
+```text id="hq9dfl"
+Verify swing intraday_last / intraday_updated_at / trigger_hit refresh behavior during live market hours
+```
+
+Read-only verification only.
+
+### 3. After next completed post-15:35 IST deep scan
+
+Run S3b RS benchmark post-scan verification.
+
+Goal:
+
+```text id="1ck3jc"
+Verify S3a benchmark fallback fixed RS population on the latest completed scan
+```
+
+Read-only verification only.
+
+### 4. After 16:30 IST on next active trading day
+
+Run F&O P25 EOD evidence check.
+
+Goal:
+
+```text id="swiq3c"
+Update live MFE-available trade count toward the 20-trade gate
+```
+
+Read-only evidence only.
+
+## Explicitly not approved
+
+* No live swing scoring change.
+* No B1/B3 live activation.
+* No action-label change.
+* No paper-equity change.
+* No S4c/S4d/S4e/S4f.
+* No F&O exit change.
+* No partial booking.
+* No breakeven trail.
+* No stop/target change.
+* No P25 threshold reduction.
+* No sector scoring.
+* No delivery scoring.
+* No owner-auth bypass.
+* No test owner credential creation.
+* No `replit.md` edits.
+
+Stand by until one of the approved triggers is available:
+
+```text id="0hujz8"
+owner session available
+live market hours
+post-15:35 deep scan complete
+post-16:30 active-session F&O evidence window
+```
+
+Stop here and wait for instruction.
