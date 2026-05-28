@@ -1,0 +1,234 @@
+H9 B1/B3 Live Shadow-Mode Planning Report is accepted.
+
+Good work.
+
+Accepted findings:
+
+* H9 was design-only.
+* No DB writes.
+* No schema changes.
+* No app-code changes.
+* No route/auth/workflow changes.
+* No `replit.md` or memory/docs changes.
+* No live scoring or trading behavior changed.
+* B1/B3 can be computed from already persisted `swing_scan_result` fields.
+* No schema change is required for the first shadow diagnostic iteration.
+* Recommended siting is an owner-only, on-demand diagnostic endpoint.
+* Activation gates are not met.
+* Live scoring changes are not approved.
+* S4c/S4d/S4e/S4f remain not approved.
+
+Current verdict:
+
+```text id="8h621d"
+B1/B3 = ready for future shadow-mode implementation planning
+Live scoring = not approved
+Action-label changes = not approved
+Paper-equity changes = not approved
+```
+
+Now proceed with the first safe implementation phase only:
+
+# H10a: B1/B3 Pure Shadow-Scoring Module + Warning-Code Verification
+
+Purpose:
+
+Implement the smallest isolated foundation needed for future B1/B3 shadow diagnostics.
+
+This phase must not expose a route yet.
+
+This phase must not affect production scoring.
+
+This phase must not change recommendations.
+
+This phase must not change paper trading.
+
+## Approved scope
+
+Implement only:
+
+1. A pure utility/module that computes B1/B3 shadow scores from an already-loaded swing scan row.
+
+2. Unit tests for the pure module.
+
+3. One read-only warning-code verification test/query/helper to confirm the exact warning strings used in `warnings`.
+
+No diagnostic endpoint yet.
+
+No UI.
+
+No outcomes fetching.
+
+No scheduler.
+
+No schema.
+
+No DB writes.
+
+No live scoring integration.
+
+## B1 definition
+
+B1 should represent the minimal correction:
+
+```text id="uot72d"
+Current score with fundamental_score removed or heavily downweighted.
+```
+
+Implementation detail:
+
+* Do not change current stored `score`.
+* Compute a separate `b1_shadow_score`.
+* Preserve current score untouched.
+* Clamp output safely to a 0–100 scale.
+* Include explanation fields showing how much was subtracted/downweighted.
+
+If there is ambiguity about whether to remove or downweight `fundamental_score`, choose the conservative option from H8 planning and document it clearly in the report. Do not alter live score.
+
+## B3 definition
+
+B3 should represent:
+
+```text id="0te01l"
+B1 + overextension penalty + warn_rs_weak penalty.
+```
+
+Implementation detail:
+
+* Compute a separate `b3_shadow_score`.
+* Use only fields already present on `swing_scan_result`.
+* Penalize overextension only if the required persisted fields/warnings are present.
+* Penalize `warn_rs_weak` only if the warning code is confirmed.
+* If a required field is missing/null, fail open and record a reason.
+* Clamp output safely to 0–100.
+* Return reason codes for every adjustment.
+
+## Required output shape from pure function
+
+Design a pure function that returns something like:
+
+```ts id="mz4rb5"
+{
+  symbol,
+  scanDate,
+  liveScore,
+  liveAction,
+  b1ShadowScore,
+  b3ShadowScore,
+  b1Delta,
+  b3Delta,
+  b1Reasons,
+  b3Reasons,
+  dataQuality,
+  missingFields
+}
+```
+
+Exact naming is up to you, but keep it clear and testable.
+
+## Warning-code verification
+
+Before locking B3 rules, verify actual persisted warning strings.
+
+Check warnings such as:
+
+* `warn_rs_weak`
+* overextension warning codes
+* RSI overextension warning codes
+* any warning strings used by the current scanner
+
+If warning strings differ from H5/H6 assumptions:
+
+* do not silently guess,
+* map only confirmed codes,
+* report unrecognized codes,
+* fail open for unrecognized codes.
+
+## Tests required
+
+Add tests for:
+
+1. B1 subtracts/downweights `fundamental_score` correctly.
+2. B1 never mutates live score/action.
+3. B1 clamps safely to 0–100.
+4. B1 handles null/missing `fundamental_score`.
+5. B3 applies overextension penalty only when confirmed fields/warnings exist.
+6. B3 applies `warn_rs_weak` penalty only when confirmed warning code exists.
+7. B3 fails open for unknown warning strings.
+8. B3 returns reason codes.
+9. B3 handles null RSI / null 52-week distance / missing warnings.
+10. Pure module has no DB/Kite/Yahoo/scheduler imports.
+11. No route is added.
+12. No schema changes.
+13. No production swing score/action function is changed.
+14. No paper-equity or F&O paths are touched.
+
+## Guardrails
+
+Do not change:
+
+* live swing scoring,
+* live swing recommendations,
+* live swing action labels,
+* live swing entries,
+* live swing stops,
+* live swing targets,
+* live swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* diagnostic routes,
+* UI,
+* `replit.md`,
+* memory/docs.
+
+## Output required
+
+Produce an **H10a B1/B3 Pure Shadow-Scoring Module Report** with:
+
+A. Files changed
+B. Pure function/API added
+C. Exact B1 formula used
+D. Exact B3 formula used
+E. Warning codes verified
+F. Unknown warning codes found, if any
+G. Fail-open behavior
+H. Tests added
+I. Typecheck/test results
+J. Confirmation that no route/schema/DB write was added
+K. Confirmation that live swing scoring/action/entry/stop/target/RR did not change
+L. Confirmation that paper-equity, F&O, scheduler, workflows, `replit.md`, and memory/docs did not change
+M. Recommended next phase, but do not start it
+
+## Verdict rules
+
+Do not approve live scoring.
+
+Do not approve action-label changes.
+
+Do not approve entry/stop/target/RR changes.
+
+Do not approve paper-equity execution changes.
+
+Do not approve S4c/S4d/S4e/S4f.
+
+After H10a, stop and wait for instruction.
+
+Proceed with H10a only.
