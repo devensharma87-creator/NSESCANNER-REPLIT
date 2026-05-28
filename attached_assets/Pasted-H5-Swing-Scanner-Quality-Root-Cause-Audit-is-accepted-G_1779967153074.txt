@@ -1,0 +1,299 @@
+H5 Swing Scanner Quality Root-Cause Audit is accepted.
+
+Good work.
+
+Accepted findings:
+
+* H5 was read-only and scratch-only.
+* No DB writes.
+* No schema changes.
+* No app-code changes.
+* No route/auth/workflow changes.
+* No `replit.md` or memory/docs changes.
+* No live scoring or trading behavior changed.
+* Final swing score is currently anti-monotonic with forward 5D return on the H4/H5 sample.
+* Higher score performed worse.
+* WATCH/BUY underperformed AVOID.
+* `fundamental_score` showed the worst negative relationship.
+* Weak-warning AVOID gates appear sign-inverted on this sample.
+* RR is too formulaic / non-discriminating.
+* `context_score` appears degenerate.
+* Sector leadership appears directionally useful.
+* H5 does not approve live scoring changes.
+* H5 does not approve action-label changes.
+* H5 does not approve S4c/S4d/S4e/S4f.
+
+Decision:
+
+Do **not** implement any live swing scoring changes yet.
+
+Proceed with the next safe step:
+
+# H6: Swing Scoring Redesign Shadow Simulation — Scratch-Only
+
+Purpose:
+
+Use H4/H5 evidence to test candidate redesigned swing scoring models offline, without touching production scoring.
+
+This is scratch-only research.
+
+Do not modify live code.
+
+Do not modify production DB.
+
+Do not modify schema.
+
+Do not change live scoring, action labels, entries, stops, targets, RR, trigger latch, intraday refresh, paper-equity execution, F&O, workflows, route auth, `replit.md`, memory/docs.
+
+## Approved output path
+
+Use scratch-only outputs:
+
+```text id="ud7wvy"
+.agents/outputs/h6/
+```
+
+Allowed files:
+
+```text id="q9ixz7"
+.agents/outputs/h6/swing_scoring_shadow_simulation.csv
+.agents/outputs/h6/swing_scoring_shadow_simulation_summary.md
+```
+
+Do not commit these files.
+
+## Data sources
+
+Use read-only / scratch inputs only:
+
+* H4 output CSV
+* H5 output report/data if available
+* H3 sector/RS output
+* production read-only queries from `swing_scan_result` only if needed
+
+Do not fetch live Kite data.
+
+Do not trigger scans.
+
+Do not write DB rows.
+
+Do not backfill anything.
+
+## Models to simulate
+
+Compare the current live score/action baseline against multiple offline shadow models.
+
+At minimum include:
+
+### M0 — Current baseline
+
+Current score/action exactly as stored.
+
+### M1 — Remove or heavily downweight `fundamental_score`
+
+Reason: H5 found `fundamental_score` had the strongest negative relationship with forward return.
+
+Test:
+
+* remove it,
+* cap it,
+* or reduce its weight materially.
+
+Do not implement this in code. Simulation only.
+
+### M2 — Overextension-aware model
+
+Add stronger penalties for:
+
+* high RSI,
+* overextended from moving averages,
+* near exhaustion,
+* warning labels such as `warn_extended` / `warn_rsi_overext`,
+* poor forward MAE risk.
+
+### M3 — Sector-leader overlay
+
+Use H3/H4 leader class:
+
+* leader bonus,
+* laggard penalty,
+* inline neutral.
+
+This is simulation only, not S4c implementation.
+
+### M4 — RR de-emphasis
+
+Remove RR as a predictive score component, or reduce it sharply.
+
+Reason: H5 found RR is formulaic and clustered around 2.0–2.5R.
+
+RR may remain useful for sizing/risk, but not as a strong score driver.
+
+### M5 — Weak-warning gate repair simulation
+
+Test alternative handling of weak-warning AVOID gates:
+
+* do not automatically demote all weak-warning rows to AVOID,
+* distinguish real weakness from mean-reversion candidates,
+* separately test `warn_rs_weak` as a stronger negative gate.
+
+### M6 — Combined candidate model
+
+Combine the best conservative pieces from M1–M5.
+
+Do not overfit.
+
+Keep it simple and explainable.
+
+## Required analysis
+
+For each model:
+
+1. Calculate shadow score or shadow rank.
+
+2. Compare against current score.
+
+3. Group rows into score buckets.
+
+4. Measure forward returns:
+
+   * 1D
+   * 3D
+   * 5D
+   * 10D if enough data
+   * MFE
+   * MAE
+
+5. Check monotonicity:
+
+   * Does higher shadow score produce better forward return?
+   * Pearson/Spearman correlation if feasible.
+   * Bucket ladder by score quintile.
+
+6. Compare action support:
+
+   * current WATCH/BUY rows,
+   * current AVOID rows,
+   * sector leaders,
+   * high-score losers,
+   * low-score winners.
+
+7. Check whether the model reduces H4/H5 red flags:
+
+   * WATCH/BUY underperforming AVOID,
+   * high score underperforming low score,
+   * AVOID containing hidden winners,
+   * overextended high-score failures,
+   * formulaic RR false confidence.
+
+## Required tables
+
+Produce:
+
+A. Model comparison summary
+B. Score/return monotonicity by model
+C. Forward return by shadow-score bucket
+D. MFE/MAE by model bucket
+E. Current score vs shadow score deltas
+F. Rows promoted by each model
+G. Rows demoted by each model
+H. High-score losers fixed by each model
+I. AVOID winners recovered by each model
+J. Sector-leader impact
+K. Fundamental-score impact
+L. RR de-emphasis impact
+M. Overextension penalty impact
+N. Weak-warning gate impact
+
+## Output report
+
+Produce an **H6 Swing Scoring Shadow Simulation Report** with:
+
+A. Data used
+B. Models tested
+C. Model formulas, plain English
+D. Baseline current-score performance
+E. Shadow model performance comparison
+F. Which models improve monotonicity
+G. Which models reduce WATCH/BUY underperformance
+H. Which models recover AVOID hidden winners
+I. Which models reduce high-score losers
+J. Which model is simplest and most robust
+K. Risks of overfitting
+L. Recommended redesign candidate, if any
+M. What still requires live verification
+N. Confirmation that no code/schema/trading behavior changed
+
+## Verdict rules
+
+Do not approve implementation.
+
+Do not approve live scoring changes.
+
+Do not approve action-label changes.
+
+Do not approve entry/stop/target/RR changes.
+
+Do not approve paper-equity execution changes.
+
+If a candidate model improves results, label it:
+
+```text id="5xf621"
+candidate redesign model only — not implementation-approved
+```
+
+If evidence is weak or overfit, label:
+
+```text id="5otrwx"
+needs more data
+```
+
+If no model improves monotonicity, say so clearly.
+
+## Guardrails
+
+Do not change:
+
+* swing scoring,
+* swing recommendations,
+* swing action labels,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+## Coordination
+
+S2b live intraday refresh verification remains pending.
+
+S3b post-deep-scan RS benchmark verification remains pending.
+
+F&O P25 live evidence collection remains pending.
+
+S4c/S4d/S4e/S4f are not approved.
+
+After H6, stop and wait for instruction.
+
+Proceed with H6 scratch-only swing scoring shadow simulation.
