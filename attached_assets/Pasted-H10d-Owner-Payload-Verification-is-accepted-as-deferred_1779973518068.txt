@@ -1,0 +1,224 @@
+H10d Owner Payload Verification is accepted as **deferred**.
+
+Good call stopping there.
+
+Accepted findings:
+
+* No owner session was available in the workspace.
+* `REPLIT_DEPLOYMENT` was empty, so no deployed `.replit.app` target was available.
+* No safe owner-call harness exists in the repo.
+* You did not bypass auth.
+* You did not request secrets.
+* You did not create test owner credentials.
+* You did not alter sessions.
+* No code changes.
+* No schema changes.
+* No DB writes.
+* No scheduler/workflow/UI changes.
+* No live scoring or trading behavior changed.
+* H10b remains partially verified:
+
+  * route/auth smoke verified,
+  * owner 200 payload not captured.
+
+Current verdict:
+
+```text id="o5t7k8"
+H10d = deferred — owner session unavailable
+H10b = still partially verified
+No defect found
+No live behavior changed
+```
+
+Now do **not** continue probing the owner endpoint.
+
+Do **not** build a bypass.
+
+Do **not** create test owner credentials.
+
+Do **not** add an owner-call harness unless separately approved.
+
+Proceed with the next safe non-owner, non-live task:
+
+# H11: Shadow Diagnostic Deployment/Owner-Test Runbook — Documentation Only
+
+Purpose:
+
+Create a short operator runbook that tells the owner exactly how to complete H10d later from a real owner-authenticated browser/session, without exposing secrets and without asking the coder to bypass auth.
+
+This is documentation-only.
+
+Do not modify production code.
+
+Do not modify routes.
+
+Do not modify DB.
+
+Do not modify schema.
+
+Do not modify workflows.
+
+Do not modify `replit.md`.
+
+Do not modify memory/docs broadly.
+
+If a scratch output file is needed, write only under:
+
+```text id="bq06gm"
+.agents/outputs/h11/
+```
+
+Allowed file:
+
+```text id="f5zgcf"
+.agents/outputs/h11/h10d_owner_payload_verification_runbook.md
+```
+
+Do not commit it unless separately approved.
+
+## Runbook content required
+
+Create a concise runbook with:
+
+A. Current status
+B. What is already verified
+C. What remains unverified
+D. Preconditions needed for owner payload verification
+E. Browser-based verification steps
+F. Curl-based verification steps, without printing secrets
+G. Expected success response shape
+H. Expected denied response for anonymous access
+I. Read-only DB sanity queries
+J. What logs to check
+K. What must not be done
+L. Exact report template for H10d-final
+M. Troubleshooting
+
+## Details to include
+
+### Current status
+
+State:
+
+```text id="3dutn3"
+H10b endpoint exists and passed route/auth smoke.
+H10d owner payload verification is deferred because no owner session was available.
+```
+
+### Endpoint
+
+```text id="4ew7mn"
+GET /api/stocks-to-watch/diagnostics/swing-shadow-score
+```
+
+### Browser verification
+
+Owner should:
+
+1. Log in normally as owner.
+2. Open the endpoint in the same browser session.
+3. Confirm HTTP 200.
+4. Capture only summary keys, not full huge payload.
+5. Confirm no trading action occurs.
+
+### Curl verification
+
+Include safe instructions that use an existing browser session cookie only if the owner chooses to export it manually.
+
+Do not ask the coder to generate or recover cookies.
+
+Do not print the cookie value into logs.
+
+Example structure only:
+
+```bash id="ky4g6b"
+curl -sS \
+  -H "Cookie: scanner_session=<OWNER_COOKIE_REDACTED>" \
+  "https://<DEPLOYED_DOMAIN>/api/stocks-to-watch/diagnostics/swing-shadow-score" \
+  | jq '{latestScanDate,totalRows,featureFlag,warningVerification,b1Summary,b3Summary}'
+```
+
+Use `<OWNER_COOKIE_REDACTED>` placeholder only.
+
+### DB sanity queries
+
+Include:
+
+```sql id="scee8j"
+SELECT MAX(scan_date) AS latest_scan_date
+FROM swing_scan_result;
+```
+
+```sql id="y91fdm"
+SELECT scan_date, COUNT(*) AS rows
+FROM swing_scan_result
+WHERE scan_date = (SELECT MAX(scan_date) FROM swing_scan_result)
+GROUP BY scan_date;
+```
+
+### Expected report template
+
+Include final possible verdicts:
+
+```text id="wup2nh"
+H10b fully verified
+```
+
+or
+
+```text id="e5h0a7"
+H10b still partially verified — owner payload unavailable
+```
+
+or
+
+```text id="0l6ibe"
+H10b verification failed — defect found
+```
+
+## Guardrails
+
+Do not change:
+
+* live swing scoring,
+* live swing recommendations,
+* live swing action labels,
+* live swing entries,
+* live swing stops,
+* live swing targets,
+* live swing RR,
+* sector scoring in live code,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* UI,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+## Output required
+
+Produce an **H11 Runbook Report** with:
+
+A. File written
+B. Summary of runbook contents
+C. Confirmation that no production code/schema/DB/workflow/UI/trading behavior changed
+D. Confirmation that H10b remains partially verified until owner payload is captured
+E. Recommended next operational step
+
+After H11, stop and wait for instruction.
