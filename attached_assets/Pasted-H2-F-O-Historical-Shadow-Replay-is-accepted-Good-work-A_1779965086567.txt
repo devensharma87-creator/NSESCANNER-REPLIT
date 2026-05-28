@@ -1,0 +1,250 @@
+H2 F&O Historical Shadow Replay is accepted.
+
+Good work.
+
+Accepted findings:
+
+* H2 was scratch-only.
+* Outputs were written only under `.agents/outputs/h2/`.
+* No production DB writes.
+* No schema changes.
+* No app-code changes.
+* No route/auth/workflow changes.
+* No `replit.md` or memory/docs changes.
+* No live trading behavior changed.
+* 14 historical F&O trades checked.
+* 7 trades reconstructable.
+* 7 trades not reconstructable.
+* Coverage = 50%.
+* Data quality is approximate, not exact.
+* Expiry ambiguity exists on some trades.
+* Snapshot cadence is around 5 minutes, so tick ordering is unknown.
+* BE-trail results are upper-bound approximations.
+* H2 is offline shadow evidence only.
+* H2 is not live verification.
+* H2 does not clear the P25 gate.
+
+Accepted directional finding:
+
+R4 — `50% book at +50% MFE + breakeven trail` — looks directionally interesting on the 7-trade reconstructable sample.
+
+But final decision:
+
+* No live exit change is approved.
+* No partial booking is approved.
+* No trail-to-breakeven is approved.
+* No target change is approved.
+* No stop-loss change is approved.
+* No P25 threshold reduction is approved.
+* P25 still requires live MFE-available evidence.
+* Current live gate remains unchanged.
+
+Carry forward:
+
+```text
+H2 finding = offline side evidence only
+P25 live evidence gate = unchanged
+Minimum live sample = 20 MFE-available closed trades
+Current live sample = 3
+```
+
+Now proceed with the next safe acceleration task:
+
+# H3: Swing Historical Sector / RS Shadow Replay — Scratch-Only
+
+Purpose:
+
+Use existing historical `swing_scan_result` rows and the S4b sector-strength diagnostic logic to produce offline shadow evidence for swing sector leadership and stock-vs-sector RS.
+
+This is historical/offline analysis only.
+
+Do not change live swing scoring.
+
+Do not change recommendations.
+
+Do not change entries, stops, targets, RR, trigger latch, intraday refresh, paper-equity execution, F&O, schema, workflows, route auth, `replit.md`, memory/docs, or production rows.
+
+## Scope
+
+Use production read-only queries and scratch-only output.
+
+Allowed output path:
+
+```text
+.agents/outputs/h3/
+```
+
+Allowed files:
+
+```text
+.agents/outputs/h3/swing_sector_rs_shadow_replay.csv
+.agents/outputs/h3/swing_sector_rs_shadow_replay_summary.md
+```
+
+Do not commit these files.
+
+## Data sources
+
+Use read-only production data only:
+
+* `swing_scan_result`
+* `swing_scan_run`
+* sector / industry fields
+* score / action fields
+* `rs20`
+* `rs50`
+* `rs120`
+* `rs_score`
+* close price
+* entry / stop / target / RR fields if useful
+
+Do not use live Kite.
+
+Do not trigger scans.
+
+Do not mutate DB.
+
+Do not backfill rows.
+
+## Analysis required
+
+For each historical scan date with enough sector and RS coverage:
+
+1. Compute sector-level summary:
+
+   * scan date,
+   * sector,
+   * member count,
+   * average score,
+   * average `rs_score`,
+   * average `rs20`,
+   * average `rs50`,
+   * average `rs120`,
+   * count of WATCHLIST / BUY / AVOID names,
+   * top stocks by score,
+   * top stocks by RS,
+   * sector rank.
+
+2. Compute stock-vs-sector RS approximation:
+
+   * stock `rs_score` minus sector average `rs_score`,
+   * stock `rs20` minus sector average `rs20`,
+   * stock `rs50` minus sector average `rs50`,
+   * stock `rs120` minus sector average `rs120`,
+   * rank within sector by score,
+   * rank within sector by `rs_score`,
+   * leader / inline / laggard classification.
+
+3. Identify:
+
+   * top sector leaders,
+   * high-score stocks in weak sectors,
+   * high-RS stocks in strong sectors,
+   * laggard stocks inside strong sectors,
+   * WATCHLIST names that are actually sector leaders,
+   * AVOID names that score well but are sector laggards.
+
+4. Compare live score/action against shadow sector-RS label:
+
+   * current action,
+   * current score,
+   * sector rank,
+   * stock rank within sector,
+   * leader classification,
+   * whether sector-RS overlay would support or reject the current recommendation.
+
+5. Clearly label this as:
+
+```text
+historical shadow evidence
+offline only
+not live scoring
+not implementation
+not live verified
+```
+
+## Important limitations
+
+State clearly:
+
+* Historical sample is limited.
+* Pre-S3a days may have weak/NULL RS coverage.
+* Sector data exists mainly from post-S3a/S4a period.
+* Delivery confirmation is not available because no delivery table exists.
+* Daily scan rows cannot prove intraday trigger behavior.
+* This cannot replace S2b/S3b live verification.
+
+## Output required
+
+Produce an **H3 Swing Historical Sector / RS Shadow Replay Report** with:
+
+A. Data window used
+B. Scan dates included
+C. Scan dates excluded and why
+D. Sector coverage summary
+E. RS coverage summary
+F. Sector ranking table
+G. Stock-vs-sector RS table
+H. Leader / laggard classification examples
+I. Current action vs shadow sector-RS support
+J. Main findings
+K. Whether this supports S4c design
+L. What still needs live verification
+M. Confirmation that no code/schema/trading behavior changed
+
+## Verdict rules
+
+Do not recommend live scoring activation.
+
+Do not recommend changing action labels yet.
+
+Do not approve S4c implementation from this alone.
+
+If findings are useful, label:
+
+```text
+supports S4c design, not live activation
+```
+
+If evidence is too sparse, label:
+
+```text
+insufficient historical evidence
+```
+
+## Guardrails
+
+Do not change:
+
+* swing scoring,
+* swing recommendations,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* sector scoring,
+* delivery scoring,
+* stock-vs-sector RS in live code,
+* intraday refresh,
+* trigger latch,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* DB schema,
+* workflows,
+* route auth,
+* `replit.md`,
+* memory/docs.
+
+After H3, stop and wait for instruction.
+
+Proceed with H3 scratch-only swing historical sector/RS shadow replay.
