@@ -1,0 +1,242 @@
+Market is live now.
+
+Proceed with **S2b: Swing Intraday Refresh Live Verification** only.
+
+This is read-only verification.
+
+Do not change code.
+
+Do not change schema.
+
+Do not change scheduler.
+
+Do not change scoring.
+
+Do not change recommendations.
+
+Do not change entries/stops/targets/RR.
+
+Do not change paper-equity or F&O.
+
+Do not touch `replit.md`, memory/docs, routes, auth, UI, or workflows.
+
+## Objective
+
+Verify that the S2/S2a intraday refresh repair works during live market hours.
+
+Specifically verify:
+
+* `intraday_last` is being populated,
+* `intraday_change_pct` is being populated,
+* `intraday_updated_at` is being populated,
+* `trigger_hit` latch works,
+* refresh is using latest available `scan_date`,
+* no score/action/entry/stop/target/RR changes happen,
+* no paper trade behavior changes happen.
+
+## Step 1 — Confirm current time/session
+
+Confirm IST time and that market is live.
+
+If market is not live, stop and report:
+
+```text
+S2b deferred — market not live
+```
+
+## Step 2 — Check diagnostic endpoint
+
+Call owner-only diagnostic endpoint if owner access is available:
+
+```text
+GET /api/stocks-to-watch/diagnostics/intraday-refresh
+```
+
+Capture:
+
+* cycles total,
+* rows updated total,
+* latest cycle time,
+* latest scan date,
+* latest updated rows,
+* errors,
+* whether refresh is targeting latest available scan date.
+
+If owner response is not accessible, do not request secrets. Continue with DB/log evidence.
+
+## Step 3 — DB coverage query
+
+Run read-only query:
+
+```sql
+SELECT scan_date,
+       COUNT(*) AS total,
+       COUNT(intraday_last) AS with_ltp,
+       COUNT(intraday_updated_at) AS with_intraday_ts,
+       COUNT(*) FILTER (WHERE trigger_hit = true) AS trigger_hits,
+       MAX(intraday_updated_at AT TIME ZONE 'Asia/Kolkata') AS latest_refresh_ist
+FROM swing_scan_result
+GROUP BY scan_date
+ORDER BY scan_date DESC
+LIMIT 5;
+```
+
+Acceptance expectation:
+
+* latest available `scan_date` should start getting `intraday_last`,
+* `intraday_updated_at` should be populated,
+* `latest_refresh_ist` should be during current live session,
+* errors should be zero or clearly explained.
+
+## Step 4 — Top-20 sample
+
+Run:
+
+```sql
+SELECT symbol, scan_date, action, score, close_price,
+       trigger_price, entry, stop_loss, target1, target2, rr_to_t1,
+       intraday_last, intraday_change_pct, trigger_hit, intraday_updated_at
+FROM swing_scan_result
+WHERE scan_date = (SELECT MAX(scan_date) FROM swing_scan_result)
+ORDER BY score DESC
+LIMIT 20;
+```
+
+Check:
+
+* intraday fields are populated,
+* `trigger_hit` is true only where price condition is met,
+* rows without trigger should remain false,
+* score/action/entry/stop/target/RR remain unchanged.
+
+## Step 5 — Latch verification
+
+Find any rows where trigger condition is currently met.
+
+Use:
+
+```sql
+SELECT symbol, scan_date, action, score, close_price,
+       trigger_price, entry, intraday_last,
+       trigger_hit, intraday_updated_at
+FROM swing_scan_result
+WHERE scan_date = (SELECT MAX(scan_date) FROM swing_scan_result)
+  AND intraday_last IS NOT NULL
+  AND trigger_price IS NOT NULL
+ORDER BY intraday_updated_at DESC
+LIMIT 50;
+```
+
+Verify:
+
+* once `trigger_hit = true`, it does not revert to false,
+* rows already latched remain latched,
+* no false trigger on rows below trigger.
+
+## Step 6 — Plan drift check
+
+Confirm S2b did **not** alter:
+
+* score,
+* action,
+* entry,
+* stop_loss,
+* target1,
+* target2,
+* rr_to_t1,
+* quality grade,
+* setup.
+
+If needed, compare current latest scan rows against pre-refresh state/logs.
+
+## Step 7 — Logs
+
+Check logs for:
+
+* intraday refresh cycle running,
+* rows updated,
+* no crash,
+* no Kite/Yahoo unexpected failure,
+* no DB mutation beyond the four approved intraday fields,
+* no scoring recalculation,
+* no paper-equity trigger,
+* no F&O activity.
+
+Approved fields only:
+
+```text
+intraday_last
+intraday_change_pct
+intraday_updated_at
+trigger_hit
+```
+
+## Output required
+
+Produce an **S2b Live Intraday Refresh Verification Report** with:
+
+A. Market/live-session confirmation
+B. Diagnostic endpoint result
+C. DB coverage table
+D. Top-20 sample
+E. Trigger-latch evidence
+F. Plan drift check
+G. Logs reviewed
+H. Defects found, if any
+I. Whether S2b is live verified
+J. Confirmation that no code/schema/scoring/trading behavior changed
+
+## Verdict rules
+
+Use one:
+
+```text
+S2b live verified
+```
+
+or
+
+```text
+S2b partially verified — owner endpoint unavailable
+```
+
+or
+
+```text
+S2b failed — defect found
+```
+
+## Guardrails
+
+Do not change:
+
+* live swing scoring,
+* swing recommendations,
+* action labels,
+* entries,
+* stops,
+* targets,
+* RR,
+* B1/B3 shadow logic,
+* sector scoring,
+* delivery scoring,
+* intraday refresh logic,
+* trigger-latch logic,
+* paper-equity execution,
+* F&O logic,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* schema,
+* routes,
+* auth,
+* UI,
+* workflows,
+* `replit.md`,
+* memory/docs.
+
+After S2b, stop and wait for instruction.
+
+Do not run S3b until post-15:35 IST deep scan completes.
+
+Do not run F&O P25 until post-16:30 IST.
