@@ -15,7 +15,7 @@
  * `mfeAvailableCount` shown by the separate evidence panel — never recomputed
  * from these rows.
  */
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   Card,
   CardContent,
@@ -27,7 +27,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   deriveFoRiskBadges,
   deriveFoPnlPct,
-  deriveFoEmptyState,
   deriveP25Display,
   getTimeInTradeMs,
   formatDurationShort,
@@ -157,12 +156,27 @@ function DesktopRow({
   );
 }
 
+export interface FoClosedGroup {
+  key: string;
+  trades: FoClosedTrade[];
+}
+
 export function FoClosedTradesReview({
-  trades,
+  groups,
+  grouped,
+  rawCount,
+  isNoData,
   loading,
   error,
 }: {
-  trades: FoClosedTrade[] | null | undefined;
+  /** Filtered + sorted trades, partitioned into display groups (empty groups omitted). */
+  groups: FoClosedGroup[];
+  /** Render group sub-headers (true) or a single flat list (false). */
+  grouped: boolean;
+  /** Count of closed trades BEFORE filtering — distinguishes "none today" from "filtered out". */
+  rawCount: number;
+  /** The `/paper/trades/fo` query returned null/undefined (no data yet). */
+  isNoData: boolean;
   loading: boolean;
   error: string | null;
 }) {
@@ -186,20 +200,21 @@ export function FoClosedTradesReview({
     );
   }
 
-  const empty = deriveFoEmptyState("closed", trades as FoTradeRow[] | null | undefined);
-  if (empty !== "ok") {
+  const shown = groups.reduce((n, g) => n + g.trades.length, 0);
+  if (shown === 0) {
+    const message = isNoData
+      ? "No closed-trade data available right now."
+      : rawCount === 0
+        ? "No F&O paper trades have closed today yet."
+        : "No F&O rows match the selected filters. Reset filters to view all.";
     return (
       <HeaderShell>
-        <p className="text-sm text-muted-foreground py-6 text-center">
-          {empty === "no_data"
-            ? "No closed-trade data available right now."
-            : "No F&O paper trades have closed today yet."}
-        </p>
+        <p className="text-sm text-muted-foreground py-6 text-center">{message}</p>
       </HeaderShell>
     );
   }
 
-  const rows = trades ?? [];
+  const visibleGroups = groups.filter((g) => g.trades.length > 0);
 
   return (
     <HeaderShell>
@@ -222,13 +237,27 @@ export function FoClosedTradesReview({
             </tr>
           </thead>
           <tbody>
-            {rows.map((t) => (
-              <DesktopRow
-                key={t.id}
-                t={t}
-                expanded={expandedId === t.id}
-                onToggle={() => toggle(t.id)}
-              />
+            {visibleGroups.map((g) => (
+              <Fragment key={g.key}>
+                {grouped && (
+                  <tr className="bg-muted/30">
+                    <td
+                      colSpan={WHY_COLSPAN}
+                      className="py-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
+                      {g.key} · {g.trades.length}
+                    </td>
+                  </tr>
+                )}
+                {g.trades.map((t) => (
+                  <DesktopRow
+                    key={t.id}
+                    t={t}
+                    expanded={expandedId === t.id}
+                    onToggle={() => toggle(t.id)}
+                  />
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -236,24 +265,33 @@ export function FoClosedTradesReview({
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-3">
-        {rows.map((t) => {
-          const { badges, p25, pnlPct, timeInTrade } = deriveView(t);
-          const expanded = expandedId === t.id;
-          return (
-            <FoClosedTradeCard
-              key={t.id}
-              t={t}
-              badges={badges}
-              p25={p25}
-              pnlPct={pnlPct}
-              timeInTrade={timeInTrade}
-              expanded={expanded}
-              onToggle={() => toggle(t.id)}
-            >
-              <FoWhyThisTrade t={t} p25={p25} pnlPct={pnlPct} timeInTrade={timeInTrade} />
-            </FoClosedTradeCard>
-          );
-        })}
+        {visibleGroups.map((g) => (
+          <div key={g.key} className="space-y-3">
+            {grouped && (
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {g.key} · {g.trades.length}
+              </div>
+            )}
+            {g.trades.map((t) => {
+              const { badges, p25, pnlPct, timeInTrade } = deriveView(t);
+              const expanded = expandedId === t.id;
+              return (
+                <FoClosedTradeCard
+                  key={t.id}
+                  t={t}
+                  badges={badges}
+                  p25={p25}
+                  pnlPct={pnlPct}
+                  timeInTrade={timeInTrade}
+                  expanded={expanded}
+                  onToggle={() => toggle(t.id)}
+                >
+                  <FoWhyThisTrade t={t} p25={p25} pnlPct={pnlPct} timeInTrade={timeInTrade} />
+                </FoClosedTradeCard>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </HeaderShell>
   );

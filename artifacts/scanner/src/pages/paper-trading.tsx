@@ -22,14 +22,32 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { FoCockpitSafetyBanner } from "@/components/fno/FoCockpitSafetyBanner";
 import { FoCockpitSummaryCards } from "@/components/fno/FoCockpitSummaryCards";
-import { FoOpenTradesTable } from "@/components/fno/FoOpenTradesTable";
+import { FoOpenTradesTable, type FoOpenGroup } from "@/components/fno/FoOpenTradesTable";
 import { FoP25EvidencePanel } from "@/components/fno/FoP25EvidencePanel";
-import { FoClosedTradesReview } from "@/components/fno/FoClosedTradesReview";
+import {
+  FoClosedTradesReview,
+  type FoClosedGroup,
+} from "@/components/fno/FoClosedTradesReview";
+import { FoCockpitControls } from "@/components/fno/FoCockpitControls";
 import {
   summarizeFoCockpit,
   deriveP25Headline,
   deriveP25EvidenceDetail,
   deriveFoFreshness,
+  applyFoFilters,
+  sortFoRows,
+  groupFoRows,
+  countActiveFoFilters,
+  uniqueIndexes,
+  uniqueSetups,
+  uniqueExitReasons,
+  uniqueDirections,
+  uniqueOptionTypes,
+  DEFAULT_FO_FILTERS,
+  type FoFilters,
+  type FoSortKey,
+  type FoSortDir,
+  type FoGroupBy,
   type FoTradeRow,
   type FoShadowExitsResponse,
 } from "@/lib/foCockpitView";
@@ -1380,6 +1398,85 @@ function FOSegment() {
     () => (trades.data?.trades ?? []).map((t) => ({ ...t, status: "CLOSED" })),
     [trades.data],
   );
+
+  // ── W3-P6: client-side cockpit controls (display-only) ──────────────────────
+  // Shared filter/sort/group state for the whole F&O cockpit. Every transform is
+  // an accepted PURE helper over rows already fetched — no new fetch, no payload
+  // change, no trading-logic touch. Filtering/sorting/grouping is presentation.
+  const [foFilters, setFoFilters] = useState<FoFilters>(DEFAULT_FO_FILTERS);
+  const [foSortKey, setFoSortKey] = useState<FoSortKey>("entryTime");
+  const [foSortDir, setFoSortDir] = useState<FoSortDir>("desc");
+  const [foGroupBy, setFoGroupBy] = useState<FoGroupBy>("none");
+
+  const foOptions = useMemo(() => {
+    const all = [...openRows, ...closedRows];
+    return {
+      indexes: uniqueIndexes(all),
+      setups: uniqueSetups(all),
+      directions: uniqueDirections(all),
+      optionTypes: uniqueOptionTypes(all),
+      exitReasons: uniqueExitReasons(all),
+    };
+  }, [openRows, closedRows]);
+
+  // id → original payload, so grouped FoTradeRow rows map back to typed payloads
+  // without re-deriving any field.
+  // Keys normalized via String() on BOTH build and lookup, so a numeric-vs-string
+  // id mismatch can never silently drop a row from the grouped view.
+  const openById = useMemo(
+    () => new Map((positions.data?.positions ?? []).map((p) => [String(p.id), p])),
+    [positions.data],
+  );
+  const closedById = useMemo(
+    () => new Map((trades.data?.trades ?? []).map((t) => [String(t.id), t])),
+    [trades.data],
+  );
+
+  const openFilteredSorted = useMemo(
+    () => sortFoRows(applyFoFilters(openRows, foFilters), foSortKey, foSortDir),
+    [openRows, foFilters, foSortKey, foSortDir],
+  );
+  const closedFilteredSorted = useMemo(
+    () => sortFoRows(applyFoFilters(closedRows, foFilters), foSortKey, foSortDir),
+    [closedRows, foFilters, foSortKey, foSortDir],
+  );
+
+  const openGroups = useMemo<FoOpenGroup[]>(
+    () =>
+      groupFoRows(openFilteredSorted, foGroupBy)
+        .map((g) => ({
+          key: g.key,
+          positions: g.rows
+            .map((r) => openById.get(String(r.id)))
+            .filter((p): p is NonNullable<typeof p> => p != null),
+        }))
+        .filter((g) => g.positions.length > 0),
+    [openFilteredSorted, foGroupBy, openById],
+  );
+  const closedGroups = useMemo<FoClosedGroup[]>(
+    () =>
+      groupFoRows(closedFilteredSorted, foGroupBy)
+        .map((g) => ({
+          key: g.key,
+          trades: g.rows
+            .map((r) => closedById.get(String(r.id)))
+            .filter((t): t is NonNullable<typeof t> => t != null),
+        }))
+        .filter((g) => g.trades.length > 0),
+    [closedFilteredSorted, foGroupBy, closedById],
+  );
+
+  const foCounts = useMemo(
+    () => ({
+      open: openFilteredSorted.length,
+      closed: closedFilteredSorted.length,
+      showing: openFilteredSorted.length + closedFilteredSorted.length,
+      total: openRows.length + closedRows.length,
+      active: countActiveFoFilters(foFilters),
+    }),
+    [openFilteredSorted, closedFilteredSorted, openRows, closedRows, foFilters],
+  );
+
   const cockpitSummary = useMemo(
     () => summarizeFoCockpit({ openTrades: openRows, closedTrades: closedRows }),
     [openRows, closedRows],
@@ -1503,8 +1600,24 @@ function FOSegment() {
       />
       {account.data && <FnoDrawdownCard data={account.data} />}
       {account.data && <GuardrailStatusCard account={account.data} />}
+      <FoCockpitControls
+        filters={foFilters}
+        onFilters={setFoFilters}
+        sortKey={foSortKey}
+        onSortKey={setFoSortKey}
+        sortDir={foSortDir}
+        onSortDir={setFoSortDir}
+        groupBy={foGroupBy}
+        onGroupBy={setFoGroupBy}
+        onReset={() => setFoFilters(DEFAULT_FO_FILTERS)}
+        options={foOptions}
+        counts={foCounts}
+      />
       <FoOpenTradesTable
-        positions={positions.data?.positions}
+        groups={openGroups}
+        grouped={foGroupBy !== "none"}
+        rawCount={openRows.length}
+        isNoData={(positions.data?.positions ?? null) == null}
         loading={positions.isLoading}
         error={positions.error instanceof Error ? positions.error.message : null}
         now={Date.now()}
@@ -1512,7 +1625,10 @@ function FOSegment() {
         closingIds={closingIds}
       />
       <FoClosedTradesReview
-        trades={trades.data?.trades}
+        groups={closedGroups}
+        grouped={foGroupBy !== "none"}
+        rawCount={closedRows.length}
+        isNoData={(trades.data?.trades ?? null) == null}
         loading={trades.isLoading}
         error={trades.error instanceof Error ? trades.error.message : null}
       />

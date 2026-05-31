@@ -24,6 +24,9 @@ import {
   uniqueIndexes,
   uniqueSetups,
   uniqueExitReasons,
+  uniqueDirections,
+  uniqueOptionTypes,
+  countActiveFoFilters,
   deriveP25Headline,
   deriveP25EvidenceDetail,
   classifyP25PanelError,
@@ -1104,5 +1107,141 @@ describe("closed-trade badge derivation (payload without MFE/MAE)", () => {
 
   it("never flags a closed row as a stale quote regardless of now", () => {
     expect(isFoQuoteStale(closedPayloadRow(), Date.now())).toBe(false);
+  });
+});
+
+// ── W3-P6: cockpit controls composition (filter → sort → group, counts, reset) ──
+// These verify the page-level pipeline contract: every transform is a PURE
+// helper over already-fetched rows. No fabrication, no mutation, deterministic.
+
+describe("W3-P6 unique option lists (direction / optionType)", () => {
+  it("builds sorted unique direction and optionType lists", () => {
+    expect(uniqueDirections(mixedRows())).toEqual(["LONG", "SHORT"]);
+    expect(uniqueOptionTypes(mixedRows())).toEqual(["CE", "PE"]);
+  });
+
+  it("ignores blank/missing values", () => {
+    const rows = [
+      openRow({ direction: "" as never, optionType: "" as never }),
+      openRow({ direction: null as never, optionType: null as never }),
+    ];
+    expect(uniqueDirections(rows)).toEqual([]);
+    expect(uniqueOptionTypes(rows)).toEqual([]);
+  });
+});
+
+describe("W3-P6 countActiveFoFilters", () => {
+  it("default filters count as zero active", () => {
+    expect(countActiveFoFilters(DEFAULT_FO_FILTERS)).toBe(0);
+  });
+
+  it("paperOnly never counts as an active narrowing filter", () => {
+    expect(countActiveFoFilters({ ...DEFAULT_FO_FILTERS, paperOnly: true })).toBe(0);
+  });
+
+  it("counts each narrowing constraint independently", () => {
+    expect(
+      countActiveFoFilters({
+        ...DEFAULT_FO_FILTERS,
+        index: "NIFTY",
+        status: "OPEN",
+        pnlSign: "POSITIVE",
+        p25EligibleOnly: true,
+        dateFrom: "2026-05-29",
+      }),
+    ).toBe(5);
+    expect(
+      countActiveFoFilters({
+        ...DEFAULT_FO_FILTERS,
+        setup: "TREND",
+        direction: "LONG",
+        optionType: "CE",
+        exitReason: "TARGET1",
+        evidenceAvailableOnly: true,
+        dateTo: "2026-05-31",
+      }),
+    ).toBe(6);
+  });
+});
+
+describe("W3-P6 reset semantics", () => {
+  it("DEFAULT_FO_FILTERS is the canonical reset target and shows everything", () => {
+    const rows = mixedRows();
+    expect(countActiveFoFilters(DEFAULT_FO_FILTERS)).toBe(0);
+    expect(applyFoFilters(rows, DEFAULT_FO_FILTERS)).toHaveLength(rows.length);
+  });
+
+  it("a structural clone of DEFAULT behaves identically (reset is a fresh copy)", () => {
+    const reset = { ...DEFAULT_FO_FILTERS };
+    expect(applyFoFilters(mixedRows(), reset).map((r) => r.id)).toEqual(
+      applyFoFilters(mixedRows(), DEFAULT_FO_FILTERS).map((r) => r.id),
+    );
+  });
+});
+
+describe("W3-P6 filter → sort → group pipeline", () => {
+  const base = (over: Partial<FoFilters> = {}): FoFilters => ({ ...DEFAULT_FO_FILTERS, ...over });
+
+  it("open-only filter then sort then group composes deterministically", () => {
+    const filtered = applyFoFilters(mixedRows(), base({ status: "OPEN" }));
+    expect(filtered.map((r) => r.id)).toEqual(["o1"]);
+    const sorted = sortFoRows(filtered, "unrealizedPnl", "desc");
+    const grouped = groupFoRows(sorted, "index");
+    expect(grouped.map((g) => g.key)).toEqual(["NIFTY"]);
+    expect(grouped[0].rows.map((r) => r.id)).toEqual(["o1"]);
+  });
+
+  it("closed-only filter then sort by realised P&L desc", () => {
+    const filtered = applyFoFilters(mixedRows(), base({ status: "CLOSED" }));
+    const sorted = sortFoRows(filtered, "realizedPnl", "desc");
+    expect(sorted.map((r) => r.id)).toEqual(["n1", "b1"]);
+  });
+
+  it("combined filter narrows before sort and group", () => {
+    const filtered = applyFoFilters(mixedRows(), base({ index: "NIFTY", pnlSign: "POSITIVE" }));
+    const sorted = sortFoRows(filtered, "symbol", "asc");
+    const grouped = groupFoRows(sorted, "status");
+    const ids = grouped.flatMap((g) => g.rows.map((r) => r.id)).sort();
+    expect(ids).toEqual(["n1", "o1"]);
+  });
+
+  it("sort order survives grouping within a single group", () => {
+    const rows = [
+      closedEligible({ id: "lo", indexSymbol: "NIFTY", realizedPnl: 10 }),
+      closedEligible({ id: "hi", indexSymbol: "NIFTY", realizedPnl: 900 }),
+    ];
+    const sorted = sortFoRows(applyFoFilters(rows, DEFAULT_FO_FILTERS), "realizedPnl", "desc");
+    const grouped = groupFoRows(sorted, "index");
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0].rows.map((r) => r.id)).toEqual(["hi", "lo"]);
+  });
+
+  it("a filter that matches nothing yields an empty grouped result (empty-after-filter)", () => {
+    const filtered = applyFoFilters(mixedRows(), base({ index: "SENSEX" }));
+    expect(filtered).toHaveLength(0);
+    expect(groupFoRows(sortFoRows(filtered, "entryTime", "desc"), "index")).toEqual([]);
+  });
+});
+
+describe("W3-P6 no fabrication, no mutation", () => {
+  it("filtering by P25 eligibility never fabricates evidence on surviving rows", () => {
+    const before = mixedRows();
+    const survivors = applyFoFilters(before, { ...DEFAULT_FO_FILTERS, p25EligibleOnly: true });
+    expect(survivors.map((r) => r.id)).toEqual(["n1"]);
+    const original = before.find((r) => r.id === "n1")!;
+    const survived = survivors.find((r) => r.id === "n1")!;
+    // identical field values — the helper selects, it does not enrich.
+    expect(survived.maxRunup).toBe(original.maxRunup);
+    expect(survived.maxDrawdown).toBe(original.maxDrawdown);
+    expect(survived.realizedPnl).toBe(original.realizedPnl);
+  });
+
+  it("the full filter→sort→group pipeline does not mutate the input array", () => {
+    const rows = mixedRows();
+    const snapshot = JSON.stringify(rows);
+    const filtered = applyFoFilters(rows, { ...DEFAULT_FO_FILTERS, status: "CLOSED" });
+    const sorted = sortFoRows(filtered, "realizedPnl", "asc");
+    groupFoRows(sorted, "index");
+    expect(JSON.stringify(rows)).toBe(snapshot);
   });
 });

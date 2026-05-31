@@ -1059,3 +1059,29 @@ export const uniqueIndexes = (rows: FoTradeRow[]): string[] =>
 export const uniqueSetups = (rows: FoTradeRow[]): string[] => uniqueSorted(rows, (r) => r.setupKey);
 export const uniqueExitReasons = (rows: FoTradeRow[]): string[] =>
   uniqueSorted(rows, (r) => r.exitReason);
+export const uniqueDirections = (rows: FoTradeRow[]): string[] =>
+  uniqueSorted(rows, (r) => r.direction);
+export const uniqueOptionTypes = (rows: FoTradeRow[]): string[] =>
+  uniqueSorted(rows, (r) => r.optionType);
+
+/**
+ * Count the constraints currently NARROWING the result set (display-only, for
+ * the "Filters active: N" badge). `paperOnly` is excluded: it never removes a
+ * row (all rows are paper), so it would inflate the count without affecting
+ * results. Pure; does not mutate input.
+ */
+export function countActiveFoFilters(filters: FoFilters): number {
+  let n = 0;
+  if (filters.index !== "ALL") n++;
+  if (filters.setup !== "ALL") n++;
+  if (filters.direction !== "ALL") n++;
+  if (filters.optionType !== "ALL") n++;
+  if (filters.status !== "ALL") n++;
+  if (filters.dateFrom != null) n++;
+  if (filters.dateTo != null) n++;
+  if (filters.pnlSign !== "ALL") n++;
+  if (filters.p25EligibleOnly) n++;
+  if (filters.exitReason !== "ALL") n++;
+  if (filters.evidenceAvailableOnly) n++;
+  return n;
+}

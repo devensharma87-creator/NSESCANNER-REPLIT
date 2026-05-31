@@ -1,0 +1,418 @@
+W3-P5 F&O Closed Trades Review + “Why this trade?” drawer is accepted.
+
+Accepted final state:
+
+* Closed F&O trades review added.
+* Mobile closed-trade cards added.
+* “Why this trade?” drawer added.
+* Realised P&L, exit reason, time-in-trade, journal/tags displayed.
+* Per-trade P25 eligibility is handled honestly.
+* Since `/paper/trades/fo` does not contain `maxRunup/maxDrawdown`, per-trade P25 eligibility correctly shows unavailable from this payload.
+* Official P25 count still comes only from `shadow-exits.mfeAvailableCount`.
+* No fake MFE/MAE eligibility is shown.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No route/auth changes.
+* No OpenAPI/codegen changes.
+* No F&O signal/entry/exit/stop/target/sizing/gate change.
+* No paper-trade execution change.
+* No P25 tracker or threshold change.
+* No MFE/MAE calculation change.
+* No swing logic change.
+* No `replit.md`, memory, or docs change.
+* 228/228 scanner tests passed.
+* Full workspace typecheck clean.
+* Architect review passed.
+* Visual QA remains blocked by owner login, which is acceptable.
+
+Current verdict:
+
+```text id="proai7"
+W3-P5 = accepted
+F&O closed-trades review + why-this-trade drawer = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W3-P6 only**.
+
+# W3-P6: F&O Cockpit Filters, Sorting, Grouping + Final Empty States
+
+Purpose:
+
+Add client-side filters, sorting, grouping, and final cockpit empty/error-state polish for the F&O cockpit on `/paper-trading`.
+
+This is frontend/read-only UI work only.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change P25 tracker logic.
+
+Do not change paper-trade execution.
+
+---
+
+## Approved scope
+
+Add UI controls and display-only grouping for existing F&O trade data.
+
+Allowed:
+
+1. F&O cockpit controls bar.
+2. Client-side filters.
+3. Client-side sorting.
+4. Client-side grouping.
+5. Clear filter result counts.
+6. Reset filters button.
+7. Empty states for filtered-out results.
+8. Consistent loading/error/no-data states.
+9. Mobile-safe controls layout.
+
+Do **not** add backend filters.
+
+Do **not** add backend endpoints.
+
+Do **not** change endpoint payloads.
+
+Do **not** change paper-trade behavior.
+
+Do **not** change manual close behavior.
+
+---
+
+## Existing helpers to use
+
+Use accepted helper:
+
+```text id="b4wlgb"
+artifacts/scanner/src/lib/foCockpitView.ts
+```
+
+Use helpers already implemented:
+
+```text id="uhjlmv"
+DEFAULT_FO_FILTERS
+applyFoFilters
+sortFoRows
+groupFoRows
+uniqueIndexes
+uniqueSetups
+uniqueExitReasons
+deriveFoEmptyState
+deriveP25Display
+deriveFoRiskBadges
+```
+
+Only add small pure helper additions if required.
+
+Do not duplicate existing logic.
+
+---
+
+## Data source
+
+Use existing in-memory open/closed rows already fetched on `/paper-trading`.
+
+Do not add new API calls.
+
+Do not add backend endpoints.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+---
+
+# UI requirements
+
+## 1. F&O controls bar
+
+Add a controls bar for the F&O cockpit with:
+
+* index filter,
+* setup filter,
+* direction filter,
+* option type filter,
+* status filter,
+* date range filter,
+* P&L sign filter,
+* P25 eligible filter,
+* exit reason filter,
+* evidence available filter,
+* sort key,
+* sort direction,
+* grouping option,
+* reset filters button.
+
+If a filter is not meaningful for open rows or closed rows, disable it or show clean hint.
+
+Do not hide this logic in backend.
+
+Everything is client-side only.
+
+## 2. Filtering behavior
+
+Apply filters to combined trade rows where safe.
+
+For open trades:
+
+* status = OPEN,
+* no exit reason,
+* no exit date,
+* realised P&L unavailable,
+* unrealised P&L available.
+
+For closed trades:
+
+* status = CLOSED,
+* exit reason available if payload has it,
+* realised P&L available,
+* unrealised P&L unavailable.
+
+If a filter cannot apply to a row because data is missing, handle safely.
+
+No crash.
+
+No mutation.
+
+## 3. Sorting behavior
+
+Allow sorting by:
+
+* entry time,
+* exit time,
+* realised P&L,
+* unrealised P&L,
+* MFE,
+* MAE,
+* time in trade,
+* index/symbol.
+
+Use existing `sortFoRows`.
+
+Null/NaN values last.
+
+Do not mutate input rows.
+
+## 4. Grouping behavior
+
+Allow grouping by:
+
+* none,
+* index,
+* setup,
+* exit reason,
+* status,
+* P25 status,
+* P&L sign.
+
+Use existing `groupFoRows`.
+
+If group has zero rows after filter, do not render empty group.
+
+## 5. Result counts
+
+Show:
+
+```text id="lm783r"
+Showing X of Y F&O rows
+Open: A
+Closed: B
+Filters active: N
+```
+
+Do not misrepresent filtered rows as missing data.
+
+## 6. Apply controls to sections
+
+Use one shared controls state if clean, or separate open/closed controls if safer.
+
+Preferred:
+
+* Shared controls for whole F&O cockpit.
+* Open section shows filtered open rows.
+* Closed section shows filtered closed rows.
+* Groups appear within each section, or a grouped combined section if simpler.
+
+Keep UX clean.
+
+Avoid overcomplication.
+
+## 7. Empty states
+
+Add distinct empty states:
+
+* no open trades,
+* no closed trades today,
+* no rows match filters,
+* endpoint loading,
+* endpoint error,
+* paper trading disabled,
+* data unavailable.
+
+If filters remove all rows, show:
+
+```text id="cng0jl"
+No F&O rows match the selected filters. Reset filters to view all.
+```
+
+## 8. Safety labels
+
+Keep visible:
+
+```text id="8cg75v"
+Paper trading only — no live order placement
+```
+
+and:
+
+```text id="5mmsv7"
+Filters and grouping are display-only and do not affect trading logic.
+```
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="szoqo3"
+artifacts/scanner/src/pages/paper-trading.tsx
+artifacts/scanner/src/components/fno/FoCockpitControls.tsx
+artifacts/scanner/src/components/fno/FoOpenTradesTable.tsx
+artifacts/scanner/src/components/fno/FoClosedTradesReview.tsx
+artifacts/scanner/src/lib/foCockpitView.ts
+artifacts/scanner/src/lib/foCockpitView.test.ts
+```
+
+Only modify `foCockpitView.ts` if a small pure helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add or update pure helper tests if helper logic changes.
+
+At minimum verify:
+
+1. Active filter count.
+2. Reset filter state equals `DEFAULT_FO_FILTERS`.
+3. Open rows filter safely.
+4. Closed rows filter safely.
+5. Combined filters work.
+6. Sort works after filters.
+7. Grouping works after filters.
+8. Empty state for no rows after filters.
+9. P25 eligible filter does not fabricate eligibility when MFE/MAE absent.
+10. No input mutation.
+
+Run:
+
+```text id="k37gzv"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-trading`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify controls render,
+* verify reset filters works,
+* verify open section respects filters,
+* verify closed section respects filters,
+* verify grouping renders,
+* verify no layout break,
+* verify no console errors.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stop logic,
+* F&O target logic,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option selection,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* MTM sweep logic,
+* live order logic,
+* Kite logic,
+* swing scoring,
+* swing recommendations,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="0z1lli"
+artifacts/api-server/**
+lib/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W3-P6 F&O Cockpit Filters/Sorting/Grouping Implementation Report** with:
+
+A. Files changed
+B. Components/helpers added or updated
+C. Filters added
+D. Sorting added
+E. Grouping added
+F. Result-count behavior
+G. Empty/loading/error states
+H. Tests added/updated
+I. Test/typecheck results
+J. Visual smoke result
+K. Confirmation W3-P2/P3/P4/P5 still work
+L. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+M. Limitations/follow-up for W3-P7
+
+After W3-P6, stop and wait for approval.

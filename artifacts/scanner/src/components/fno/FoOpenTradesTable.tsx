@@ -7,6 +7,7 @@
  * NOTHING. The Close action is the PRE-EXISTING manual close, owned by the page
  * and passed in via `onClose`/`closingIds` — no new close semantics added.
  */
+import { Fragment } from "react";
 import {
   Card,
   CardContent,
@@ -21,7 +22,6 @@ import {
   deriveFoRiskBadges,
   deriveFoPnlPct,
   isFoQuoteStale,
-  deriveFoEmptyState,
   type FoTradeRow,
 } from "@/lib/foCockpitView";
 import {
@@ -138,15 +138,32 @@ function DesktopRow({
   );
 }
 
+const OPEN_COLSPAN = 14;
+
+export interface FoOpenGroup {
+  key: string;
+  positions: FoOpenPosition[];
+}
+
 export function FoOpenTradesTable({
-  positions,
+  groups,
+  grouped,
+  rawCount,
+  isNoData,
   loading,
   error,
   now,
   onClose,
   closingIds,
 }: {
-  positions: FoOpenPosition[] | null | undefined;
+  /** Filtered + sorted positions, partitioned into display groups (empty groups omitted). */
+  groups: FoOpenGroup[];
+  /** Render group sub-headers (true) or a single flat list (false). */
+  grouped: boolean;
+  /** Count of open positions BEFORE filtering — distinguishes "none open" from "filtered out". */
+  rawCount: number;
+  /** The `/paper/positions/fo` query returned null/undefined (no data yet). */
+  isNoData: boolean;
   loading: boolean;
   error: string | null;
   now: number;
@@ -170,19 +187,21 @@ export function FoOpenTradesTable({
     );
   }
 
-  const rows = positions ?? [];
-  const empty = deriveFoEmptyState("open", positions as FoTradeRow[] | null | undefined);
-  if (empty !== "ok") {
+  const shown = groups.reduce((n, g) => n + g.positions.length, 0);
+  if (shown === 0) {
+    const message = isNoData
+      ? "No position data available right now."
+      : rawCount === 0
+        ? "No open paper positions right now. Auto-opens on the next qualifying signal trigger."
+        : "No F&O rows match the selected filters. Reset filters to view all.";
     return (
       <HeaderShell>
-        <p className="text-sm text-muted-foreground py-6 text-center">
-          {empty === "no_data"
-            ? "No position data available right now."
-            : "No open paper positions right now. Auto-opens on the next qualifying signal trigger."}
-        </p>
+        <p className="text-sm text-muted-foreground py-6 text-center">{message}</p>
       </HeaderShell>
     );
   }
+
+  const visibleGroups = groups.filter((g) => g.positions.length > 0);
 
   return (
     <HeaderShell>
@@ -215,14 +234,28 @@ export function FoOpenTradesTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((p) => (
-              <DesktopRow
-                key={p.id}
-                p={p}
-                now={now}
-                onClose={() => onClose(p.id)}
-                closing={closingIds.has(p.id)}
-              />
+            {visibleGroups.map((g) => (
+              <Fragment key={g.key}>
+                {grouped && (
+                  <tr className="bg-muted/30">
+                    <td
+                      colSpan={OPEN_COLSPAN}
+                      className="py-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
+                      {g.key} · {g.positions.length}
+                    </td>
+                  </tr>
+                )}
+                {g.positions.map((p) => (
+                  <DesktopRow
+                    key={p.id}
+                    p={p}
+                    now={now}
+                    onClose={() => onClose(p.id)}
+                    closing={closingIds.has(p.id)}
+                  />
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -230,20 +263,29 @@ export function FoOpenTradesTable({
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-3">
-        {rows.map((p) => {
-          const row = asRow(p);
-          return (
-            <FoOpenTradeCard
-              key={p.id}
-              p={p}
-              badges={deriveFoRiskBadges(row, { now, staleMinutes: STALE_MINUTES })}
-              pnlPct={deriveFoPnlPct(row)}
-              stale={isFoQuoteStale(row, now, STALE_MINUTES)}
-              onClose={() => onClose(p.id)}
-              closing={closingIds.has(p.id)}
-            />
-          );
-        })}
+        {visibleGroups.map((g) => (
+          <div key={g.key} className="space-y-3">
+            {grouped && (
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {g.key} · {g.positions.length}
+              </div>
+            )}
+            {g.positions.map((p) => {
+              const row = asRow(p);
+              return (
+                <FoOpenTradeCard
+                  key={p.id}
+                  p={p}
+                  badges={deriveFoRiskBadges(row, { now, staleMinutes: STALE_MINUTES })}
+                  pnlPct={deriveFoPnlPct(row)}
+                  stale={isFoQuoteStale(row, now, STALE_MINUTES)}
+                  onClose={() => onClose(p.id)}
+                  closing={closingIds.has(p.id)}
+                />
+              );
+            })}
+          </div>
+        ))}
       </div>
     </HeaderShell>
   );
