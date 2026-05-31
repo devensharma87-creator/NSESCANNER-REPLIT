@@ -1,0 +1,276 @@
+W3-P6 F&O Cockpit Filters / Sorting / Grouping is accepted.
+
+Accepted final state:
+
+* F&O cockpit controls bar added.
+* Client-side filters added.
+* Client-side sorting added.
+* Client-side grouping added.
+* Result counts added.
+* Reset filters button added.
+* Filtered-out empty state added.
+* Open and closed sections now respect filters/grouping.
+* No new API calls.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No route/auth changes.
+* No OpenAPI/codegen changes.
+* No F&O signal/entry/exit/stop/target/sizing/gate change.
+* No paper-trade execution change.
+* No P25 tracker or threshold change.
+* No MFE/MAE calculation change.
+* No swing logic change.
+* No `replit.md`, memory, or docs change.
+* 242/242 scanner tests passed.
+* Scanner typecheck clean.
+* Full workspace typecheck clean.
+* Architect review passed after ID key-normalization fix.
+* Visual QA remains blocked by owner login, which is acceptable.
+
+Current verdict:
+
+```text id="02xi52"
+W3-P6 = accepted
+F&O cockpit filters/sorting/grouping = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W3-P7 only**.
+
+# W3-P7: F&O Cockpit Final Regression + Safe Polish Review
+
+Purpose:
+
+Perform a final regression, scope audit, and safe polish review for the full W3 F&O cockpit work.
+
+This is verification and minor frontend polish only.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change P25 tracker logic.
+
+Do not change paper-trade execution.
+
+---
+
+## W3 completed phases to verify
+
+Verify that all accepted phases still work together:
+
+```text id="0j2r3y"
+W3-P1: pure F&O cockpit helpers
+W3-P2: summary cards + safety/freshness banner
+W3-P3: open F&O trades table/cards
+W3-P4: P25 evidence detail panel
+W3-P5: closed trades review + why-this-trade drawer
+W3-P6: filters/sorting/grouping/result counts
+```
+
+---
+
+# Part 1 — Final regression checks
+
+Run:
+
+```text id="0zzc1k"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+Also run any existing build command if available and safe, such as:
+
+```text id="u8toqc"
+pnpm --filter @workspace/scanner run build
+```
+
+If build is not available or not safe in the environment, report clearly.
+
+---
+
+# Part 2 — Scope audit
+
+Confirm no changes were made to:
+
+```text id="ckz59l"
+artifacts/api-server/**
+lib/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+DB schema
+OpenAPI/codegen
+replit.md
+memory/docs
+```
+
+Confirm W3 remained frontend/read-only except pure helper/test files.
+
+---
+
+# Part 3 — Functional audit
+
+Verify the following from code/tests:
+
+## Summary / banner
+
+* Paper trading only label visible.
+* No live order placement label visible.
+* P25 threshold remains 20.
+* Evidence gate status displays from official source.
+* Freshness state handles missing data safely.
+
+## P25 evidence
+
+* Official count uses `mfeAvailableCount`.
+* Raw rows are context only.
+* `14/20` is not shown as official.
+* `processedRowCount - mfeAvailableCount` is labeled safely as “excluded / not MFE-available rows”.
+* Low-sample warning works.
+* Auth/network/disabled states are safe.
+
+## Open trades
+
+* Desktop table works.
+* Mobile cards work.
+* P&L %, MFE, MAE display safely.
+* Risk badges are display-only.
+* Manual close behavior is unchanged.
+* Per-row close pending state remains safe.
+
+## Closed trades
+
+* Closed trades review works.
+* Mobile cards work.
+* Why-this-trade drawer works.
+* P25 per-trade eligibility is not fabricated when MFE/MAE are missing.
+* Exit reason / realised P&L / time-in-trade show safely.
+
+## Filters / sorting / grouping
+
+* Filters are client-side only.
+* Sorting is client-side only.
+* Grouping is client-side only.
+* Reset filters works.
+* Result counts are accurate.
+* No rows-after-filter state is correct.
+* No input mutation.
+
+---
+
+# Part 4 — Visual/runtime smoke
+
+Check `/paper-trading`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify summary cards render,
+* verify safety banner renders,
+* verify P25 evidence panel renders,
+* verify open trades table/cards render,
+* verify closed trades review renders,
+* verify why-this-trade drawer opens/closes,
+* verify controls/filter/sort/grouping render,
+* verify mobile layout,
+* verify no console/runtime errors.
+
+---
+
+# Part 5 — Allowed minor polish only
+
+Only if obvious from code/smoke, make tiny frontend-only polish fixes.
+
+Allowed:
+
+* wording clarity,
+* spacing,
+* badge label clarity,
+* empty-state wording,
+* minor responsive class fix,
+* avoiding overflow,
+* obvious typo.
+
+Not allowed:
+
+* new endpoints,
+* backend changes,
+* trading/scoring changes,
+* schema changes,
+* route/auth changes,
+* OpenAPI/codegen changes,
+* P25 logic changes,
+* threshold changes.
+
+If no obvious issue is found, make no changes.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stop logic,
+* F&O target logic,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option selection,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* MTM sweep logic,
+* live order logic,
+* Kite logic,
+* swing scoring,
+* swing recommendations,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+---
+
+# Output required
+
+Produce a **W3-P7 Final F&O Cockpit Regression Report** with:
+
+A. Regression commands run
+B. Test/typecheck/build results
+C. Scope audit result
+D. Summary/banner verification
+E. P25 evidence verification
+F. Open trades verification
+G. Closed trades verification
+H. Filters/sorting/grouping verification
+I. Visual smoke result
+J. Any polish changes made, if any
+K. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+L. Remaining limitations
+M. Recommended next safe phase after W3
+
+After W3-P7, stop and wait for approval.
