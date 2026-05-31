@@ -1,0 +1,103 @@
+S2b Live Intraday Refresh Verification is accepted.
+
+Good work.
+
+Accepted findings:
+
+* Market was live during verification.
+* Refresh correctly targeted latest available scan date: `2026-05-28`.
+* Scheduled refresh cycle fired naturally at around `10:46 IST`.
+* `intraday_last` populated for 473/476 rows.
+* `intraday_change_pct` populated.
+* `intraday_updated_at` populated.
+* `trigger_hit` latch populated correctly.
+* 184 trigger hits latched.
+* 3 rows skipped due to no quote.
+* Errors = 0.
+* No false negatives found where LTP was above trigger but `trigger_hit=false`.
+* Pullback-safe latch behavior confirmed.
+* No plan drift:
+
+  * score unchanged,
+  * action unchanged,
+  * entry unchanged,
+  * stop unchanged,
+  * target1 unchanged,
+  * target2 unchanged,
+  * RR unchanged.
+* No paper-equity behavior changed.
+* No F&O behavior changed.
+* No code/schema/scheduler/route/auth/UI/workflow change.
+* No `replit.md` or memory/docs change.
+* Owner diagnostic endpoint body was not captured due owner-session unavailability, but DB + logs are sufficient for S2b verification.
+
+Final S2b verdict:
+
+```text id="oc5eyz"
+S2b live verified
+```
+
+Now stop.
+
+Do not run S3b yet.
+
+Do not run F&O P25 yet.
+
+Do not run any implementation task.
+
+## Next allowed triggers only
+
+### 1. After post-15:35 IST deep scan completes
+
+Run:
+
+```text id="nr6117"
+S3b RS Benchmark Post-Scan Verification
+```
+
+Purpose:
+
+Verify S3a benchmark fallback fixed RS population on latest completed scan.
+
+### 2. After 16:30 IST on active trading day
+
+Run:
+
+```text id="oa8j4d"
+F&O P25 EOD Evidence Check
+```
+
+Purpose:
+
+Update MFE-available live trade evidence count toward 20-trade gate.
+
+### 3. If owner session becomes available
+
+Run:
+
+```text id="82aq6r"
+H10d owner payload verification
+```
+
+Purpose:
+
+Capture owner-authenticated 200 response for B1/B3 shadow diagnostic endpoint.
+
+## Explicitly not approved
+
+* No live swing scoring change.
+* No B1/B3 live activation.
+* No action-label change.
+* No paper-equity change.
+* No S4c/S4d/S4e/S4f.
+* No F&O exit change.
+* No partial booking.
+* No breakeven trail.
+* No stop/target change.
+* No sector scoring.
+* No delivery scoring.
+* No schema change.
+* No route/auth change.
+* No `replit.md` edit.
+
+Stand by until one of the approved triggers is available.
