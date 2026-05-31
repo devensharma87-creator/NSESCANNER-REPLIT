@@ -2673,6 +2673,7 @@ export const PaperTradeFODetailExitReason = {
   STOPPED: "STOPPED",
   EXPIRED: "EXPIRED",
   MANUAL_OVERRIDE: "MANUAL_OVERRIDE",
+  TIME_EXIT_1520: "TIME_EXIT_1520",
 } as const;
 
 export interface PaperTradeFODetail {

@@ -147,7 +147,7 @@ interface TradeDetailRow {
   plannedRiskPerShare: number;
   achievedPerShare: number;
   rMultiple: number;
-  exitReason: "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE";
+  exitReason: "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE" | "TIME_EXIT_1520";
   durationSec: number;
   journal?: string | null;
   tags?: string[];
@@ -418,11 +418,24 @@ function OverviewSection() {
   // Performance tables + best/worst derive from the closed-trade rows already
   // present in the FO/EQ monthly reports (no extra fetch). No fabrication.
   const reportsLoading = foReportQ.isLoading || eqReportQ.isLoading;
-  const reportsError =
-    foReportQ.isError || eqReportQ.isError
-      ? ((foReportQ.error ?? eqReportQ.error) instanceof Error
-          ? ((foReportQ.error ?? eqReportQ.error) as Error).message
-          : "Unable to load reports")
+  // Partial-failure handling: a single segment failing must NOT blank the whole
+  // section. Only surface a hard error when BOTH report segments fail; when just
+  // one fails, show the rows we do have plus a clear, non-silent warning. We do
+  // not fabricate the missing segment or treat it as zero — it simply
+  // contributes no rows.
+  const foReportFailed = foReportQ.isError;
+  const eqReportFailed = eqReportQ.isError;
+  const bothReportsFailed = foReportFailed && eqReportFailed;
+  const reportsError = bothReportsFailed
+    ? ((foReportQ.error ?? eqReportQ.error) instanceof Error
+        ? ((foReportQ.error ?? eqReportQ.error) as Error).message
+        : "Unable to load reports")
+    : null;
+  const partialReportWarning =
+    !reportsLoading && !bothReportsFailed && (foReportFailed || eqReportFailed)
+      ? foReportFailed
+        ? "F&O report data unavailable. Showing available Equity rows only."
+        : "Equity report data unavailable. Showing available F&O rows only."
       : null;
   const perfRows = useMemo<NormalizedReportRow[]>(() => {
     const fo = (foReportQ.data?.trades ?? []).map(normalizeFoTradeRow);
@@ -532,6 +545,11 @@ function OverviewSection() {
           Performance analytics are for review only — no strategy or trading
           behavior changes.
         </p>
+        {partialReportWarning && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+            {partialReportWarning}
+          </div>
+        )}
         {!reportsLoading && !reportsError && perfRows.length > 0 && (
           <ReportsControls
             filters={reportFilters}
@@ -990,6 +1008,7 @@ const REASON_TONE: Record<TradeDetailRow["exitReason"], string> = {
   STOPPED:     "bg-rose-500/15 text-rose-200 border-rose-500/30",
   EXPIRED:     "bg-amber-500/10 text-amber-200 border-amber-500/30",
   MANUAL_OVERRIDE: "bg-slate-500/15 text-slate-200 border-slate-500/30",
+  TIME_EXIT_1520: "bg-sky-500/10 text-sky-200 border-sky-500/30",
 };
 
 const FO_TRADE_COLSPAN = 16;
@@ -1180,7 +1199,7 @@ function TradeRow({ t, expanded, onToggle }: {
           "text-xs px-2 py-0.5 rounded-full border",
           REASON_TONE[t.exitReason],
         )}>
-          {t.exitReason.replace("_HIT", "").replace("_OVERRIDE", "").replace("_", " ")}
+          {t.exitReason.replace("_HIT", "").replace("_OVERRIDE", "").replace(/_/g, " ")}
         </span>
       </Td>
       <Td align="right" tone={undefined}>{dur}</Td>

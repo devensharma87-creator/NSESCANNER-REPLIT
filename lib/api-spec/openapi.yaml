@@ -3516,7 +3516,7 @@ components:
         plannedRiskPerShare: { type: number }
         achievedPerShare:    { type: number }
         rMultiple:           { type: number, description: "Achieved R = (exit-entry) / |entry-stop| per share" }
-        exitReason:          { type: string, enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED, MANUAL_OVERRIDE] }
+        exitReason:          { type: string, enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED, MANUAL_OVERRIDE, TIME_EXIT_1520] }
         durationSec:         { type: integer }
         journal:             { type: string, nullable: true }
         tags:

@@ -3378,6 +3378,7 @@ export const GetPaperReportFoMonthlyResponse = zod.object({
         "STOPPED",
         "EXPIRED",
         "MANUAL_OVERRIDE",
+        "TIME_EXIT_1520",
       ]),
       durationSec: zod.number(),
       journal: zod.string().nullish(),

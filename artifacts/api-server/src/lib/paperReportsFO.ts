@@ -121,7 +121,8 @@ export interface TradeDetailRow {
     | "TARGET2_HIT"
     | "STOPPED"
     | "EXPIRED"
-    | "MANUAL_OVERRIDE";
+    | "MANUAL_OVERRIDE"
+    | "TIME_EXIT_1520";
   durationSec: number;
 }
 
@@ -133,7 +134,7 @@ function istDateOf(d: Date): string {
   return new Date(d.getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-function rowToDetail(r: PaperTradeFoRow): TradeDetailRow {
+export function rowToDetail(r: PaperTradeFoRow): TradeDetailRow {
   // CLOSED rows are written by closePaperTradeForSignal as a single
   // transaction with all six exit fields populated. If we ever read a
   // CLOSED row missing any of them, that is a ledger integrity bug —

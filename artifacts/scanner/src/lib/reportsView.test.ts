@@ -960,3 +960,73 @@ describe("collectReportFilterOptions", () => {
     expect(JSON.stringify(rows)).toBe(snapshot);
   });
 });
+
+// ---------------------------------------------------------------------------
+// W5-P2: TIME_EXIT_1520 exit-reason + partial-segment Overview rows
+// ---------------------------------------------------------------------------
+
+describe("W5-P2 TIME_EXIT_1520 + partial-segment report rows", () => {
+  it("normalizeFoTradeRow preserves a TIME_EXIT_1520 exit reason verbatim (no remap)", () => {
+    const input = deepFreeze({
+      id: "f-1520",
+      indexSymbol: "NIFTY",
+      indexName: "Nifty 50",
+      setupKey: "BASELINE",
+      realizedPnl: "750.25",
+      durationSec: "21000",
+      exitReason: "TIME_EXIT_1520",
+      signalDate: "2026-05-08",
+    });
+    const r = normalizeFoTradeRow(input);
+    expect(r.segment).toBe("FNO");
+    expect(r.exitReason).toBe("TIME_EXIT_1520");
+    expect(r.realizedPnl).toBe(750.25);
+  });
+
+  it("builds combined rows from the F&O segment alone when Equity is unavailable (no fabricated equity rows)", () => {
+    // Simulates eqReportQ failing: only foReportQ.data?.trades contribute.
+    const foRows = [
+      normalizeFoTradeRow({
+        id: "f1",
+        indexSymbol: "NIFTY",
+        setupKey: "BASELINE",
+        realizedPnl: "500",
+        exitReason: "TIME_EXIT_1520",
+        signalDate: "2026-05-08",
+      }),
+    ];
+    const eqRows: NormalizedReportRow[] = []; // missing segment → zero rows, not zeroed-out trades
+    const combined = [...foRows, ...eqRows];
+    expect(combined).toHaveLength(1);
+    expect(combined.every((r) => r.segment === "FNO")).toBe(true);
+    expect(combined.some((r) => r.segment === "EQUITY")).toBe(false);
+  });
+
+  it("builds combined rows from the Equity segment alone when F&O is unavailable (no fabricated F&O rows)", () => {
+    const foRows: NormalizedReportRow[] = [];
+    const eqRows = [
+      normalizeEqTradeRow({
+        id: "e1",
+        symbol: "TCS",
+        realizedPnl: -300,
+        exitReason: "STOPPED",
+      }),
+    ];
+    const combined = [...foRows, ...eqRows];
+    expect(combined).toHaveLength(1);
+    expect(combined.every((r) => r.segment === "EQUITY")).toBe(true);
+    expect(combined.some((r) => r.segment === "FNO")).toBe(false);
+  });
+
+  it("performance tables + best/worst handle a single-segment (F&O-only, incl. TIME_EXIT_1520) row set", () => {
+    const rows = deepFreeze<NormalizedReportRow[]>([
+      row({ id: "1", segment: "FNO", setupKey: "BASELINE", index: "NIFTY", exitReason: "TIME_EXIT_1520", realizedPnl: 750, signalDate: "2026-05-08" }),
+      row({ id: "2", segment: "FNO", setupKey: "VWAP_RECLAIM", index: "BANKNIFTY", exitReason: "STOPPED", realizedPnl: -300, signalDate: "2026-05-09" }),
+    ]);
+    const perf = buildReportPerformanceRows(rows, "setup");
+    expect(perf.length).toBeGreaterThan(0);
+    const bw = selectBestWorstTrades(rows, 1);
+    expect(bw.best[0]?.id).toBe("1");
+    expect(bw.worst[0]?.id).toBe("2");
+  });
+});
