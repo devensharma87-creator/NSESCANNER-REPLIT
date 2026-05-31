@@ -1,0 +1,273 @@
+Friday Retroactive Post-Session Verification Report is accepted.
+
+Accepted findings:
+
+* Target date was Friday, 2026-05-29.
+* S3b Friday RS benchmark verification passed.
+* Friday scan existed with 476 rows.
+* `rs20`, `rs50`, `rs120` populated 476/476.
+* `rs_score > 0` on 411/476 rows.
+* Average RS score was non-zero.
+* No Friday RS collapse found.
+* Top-20 Friday sample had RS values and sector/industry populated.
+* Friday F&O P25 check found 0 F&O paper trades.
+* Friday added 0 MFE/MAE evidence trades.
+* P25 count is unchanged.
+* No code/schema/scoring/trading behavior changed.
+
+Accepted verdicts:
+
+```text id="oa3oig"
+S3b Friday verified
+P25 Friday no new evidence — count unchanged
+```
+
+Important unresolved reconciliation:
+
+```text id="q6m1iq"
+P25 accepted baseline = 3/20
+Raw prod lifetime CLOSED trades with MFE/MAE = 14
+```
+
+Do not treat 14 as the official gate count yet.
+
+Do not close the P25 gate.
+
+Do not reduce the 20-trade threshold.
+
+Do not implement any F&O exit change.
+
+Now proceed with a read-only reconciliation task:
+
+# P25R: F&O P25 Evidence Count Reconciliation — Read-Only
+
+Purpose:
+
+Resolve why the accepted P25 evidence baseline says `3` MFE-available trades while the raw production lifetime query shows `14` CLOSED trades with MFE/MAE populated.
+
+This is reconciliation only.
+
+No code changes.
+
+No DB writes.
+
+No schema changes.
+
+No trading behavior changes.
+
+No exit-rule changes.
+
+No partial booking.
+
+No breakeven trail.
+
+No stop/target change.
+
+## Objective
+
+Determine the official P25 gate-count logic.
+
+Specifically answer:
+
+```text id="5y5on2"
+Should the official P25 count be 3, 14, or another filtered number?
+```
+
+Do not assume.
+
+Find the exact intended P25 filter.
+
+## Checks required
+
+### 1. Locate the existing P25 evidence tracker logic
+
+Read the existing P25 evidence tracker/report/query bundle.
+
+Identify:
+
+* date cursor,
+* start date,
+* deployment cutoff,
+* eligible trade filters,
+* status filters,
+* setup/tier filters if any,
+* exit reason filters if any,
+* MFE/MAE availability filter,
+* whether only post-P22/P23 trades count,
+* whether historical backfilled/reconstructed trades are excluded,
+* whether only live post-fix trades count,
+* whether only trades after `2026-05-26` cursor count.
+
+Do not modify the tracker.
+
+### 2. Reproduce official count
+
+Run the official P25 query exactly as intended.
+
+Report:
+
+* official count,
+* official eligible trade IDs,
+* official excluded trade IDs,
+* reason each excluded trade was excluded.
+
+### 3. Compare against raw lifetime count
+
+Run raw lifetime count:
+
+```sql id="x90z73"
+SELECT COUNT(*) AS raw_closed_with_mfe_mae
+FROM paper_trade_fo
+WHERE status = 'CLOSED'
+  AND max_runup IS NOT NULL
+  AND max_drawdown IS NOT NULL;
+```
+
+Then list the raw 14 trades:
+
+```sql id="hjt8uh"
+SELECT id, signal_date, index_symbol, setup_key, direction,
+       option_type, strike, entry_premium, exit_premium,
+       realized_pnl, exit_reason,
+       max_runup, max_drawdown, opened_at, exited_at
+FROM paper_trade_fo
+WHERE status = 'CLOSED'
+  AND max_runup IS NOT NULL
+  AND max_drawdown IS NOT NULL
+ORDER BY signal_date, opened_at;
+```
+
+### 4. Explain 3 vs 14
+
+For each of the 14 raw trades, classify:
+
+```text id="1i4gec"
+officially eligible
+excluded_pre_fix
+excluded_pre_cursor
+excluded_wrong_tier
+excluded_wrong_exit_reason
+excluded_reconstructed_or_backfilled
+excluded_data_quality
+excluded_other
+```
+
+Use actual evidence.
+
+Do not invent reasons.
+
+### 5. Reconcile with P25 baseline
+
+Report whether the current official baseline should remain:
+
+```text id="vl06c3"
+3/20
+```
+
+or should be revised to:
+
+```text id="2zu6pq"
+14/20
+```
+
+or another number.
+
+If revision is recommended, mark it as:
+
+```text id="e1ahmm"
+recommendation only — owner approval required
+```
+
+Do not update the gate automatically.
+
+### 6. Friday 2026-05-29 confirmation
+
+Confirm again that Friday added zero eligible trades under both:
+
+* official P25 filter,
+* raw lifetime filter.
+
+### 7. Impact statement
+
+If the official count remains 3:
+
+* explain why the other 11 raw MFE/MAE trades do not count.
+
+If the official count should be 14:
+
+* explain why earlier baseline was too conservative.
+* state remaining to 20 would become 6, but only after owner approval.
+
+If another number:
+
+* explain exact filter.
+
+## Output required
+
+Produce a **P25R Evidence Count Reconciliation Report** with:
+
+A. Existing official P25 gate logic found
+B. Raw lifetime count
+C. Official filtered count
+D. Side-by-side trade classification table
+E. Explanation of 3 vs 14 discrepancy
+F. Friday 2026-05-29 contribution under both definitions
+G. Recommended official count
+H. Whether owner approval is needed to revise the baseline
+I. Gate status under accepted baseline
+J. Gate status under recommended baseline
+K. Confirmation that no code/schema/DB/trading behavior changed
+
+## Verdict rules
+
+Use one:
+
+```text id="a91p3u"
+P25 baseline 3 confirmed
+```
+
+or
+
+```text id="38u6lt"
+P25 baseline revision recommended — owner approval required
+```
+
+or
+
+```text id="zh2ysx"
+P25 count unresolved — tracker logic ambiguous
+```
+
+## Guardrails
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* realised P&L,
+* DD/circuit breakers,
+* swing scoring,
+* swing recommendations,
+* B1/B3 shadow logic,
+* sector scoring,
+* delivery scoring,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* schema,
+* routes,
+* auth,
+* UI,
+* workflows,
+* `replit.md`,
+* memory/docs.
+
+After P25R, stop and wait for instruction.
