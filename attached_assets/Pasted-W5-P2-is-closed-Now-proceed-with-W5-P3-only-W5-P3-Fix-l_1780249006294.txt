@@ -1,0 +1,210 @@
+W5-P2 is closed.
+
+Now proceed with **W5-P3 only**.
+
+# W5-P3: Fix latent `PaperTradeFOClosed` TIME_EXIT_1520 enum contract issue
+
+Purpose:
+
+Fix the known latent OpenAPI/codegen enum issue for the closed F&O paper-trade response path.
+
+This is a **contract correction only**.
+
+This is not a trading logic change.
+
+This is not an exit logic change.
+
+This is not a paper-trade execution change.
+
+---
+
+## Background
+
+W5-P2 fixed the `/paper-reports` runtime 500 by adding:
+
+```text id="cxptjb"
+TIME_EXIT_1520
+```
+
+to:
+
+```text id="zv7n0l"
+PaperTradeFODetail.exitReason
+```
+
+That solved the F&O monthly report contract issue.
+
+During W5-P2, a separate latent issue was identified but intentionally not fixed:
+
+```text id="t9mw3a"
+PaperTradeFOClosed.exitReason does not include TIME_EXIT_1520.
+```
+
+Known affected response paths may include:
+
+```text id="zo72p6"
+PaperTradesFOResponse
+closePaperPositionFO response
+```
+
+This could ZodError if those responses return a closed F&O paper trade with `TIME_EXIT_1520`.
+
+Now this separate surface is explicitly approved for a minimal fix.
+
+---
+
+# Approved change
+
+Add `TIME_EXIT_1520` only to:
+
+```text id="m5zryz"
+PaperTradeFOClosed.exitReason
+```
+
+in `openapi.yaml`.
+
+Then regenerate codegen using the existing project command.
+
+Do not change any other enum unless the exact same schema reference requires it.
+
+Do not change `PaperTradeFODetail` again unless codegen requires it to remain consistent.
+
+Do not change yearly report schemas.
+
+Do not change report logic.
+
+---
+
+# Strict guardrails
+
+Do not change:
+
+* F&O signal generation,
+* F&O entry logic,
+* F&O exit logic,
+* force-exit timing,
+* stop logic,
+* target logic,
+* sizing logic,
+* gates,
+* option selection,
+* paper-trade execution,
+* P25 tracker,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* DB schema,
+* scheduler,
+* auth/LoginGate,
+* public mode,
+* secrets,
+* `replit.md`,
+* memory/docs.
+
+Do not remap `TIME_EXIT_1520` to another reason.
+
+Do not fabricate a label.
+
+Display should remain truthful:
+
+```text id="yrtyki"
+TIME EXIT 1520
+```
+
+or equivalent clean underscore-to-space label.
+
+---
+
+# Required investigation before edit
+
+Before changing, confirm and report:
+
+1. Exact OpenAPI component containing `PaperTradeFOClosed.exitReason`.
+2. Exact response schemas that reference it.
+3. Whether generated Zod currently rejects `TIME_EXIT_1520` on this path.
+4. Whether any frontend union/type needs the enum added to compile cleanly.
+
+---
+
+# Required tests
+
+Add focused tests only.
+
+At minimum:
+
+1. Generated contract accepts `TIME_EXIT_1520` in `PaperTradesFOResponse`.
+2. Generated contract accepts `TIME_EXIT_1520` in the close-position response if that response uses `PaperTradeFOClosed`.
+3. Generated contract still rejects unknown invalid exit reasons.
+4. Legacy exit reasons still pass.
+5. UI label, if touched, displays `TIME EXIT 1520` truthfully.
+6. No input mutation if helper tests are added.
+
+Do not add broad unrelated tests.
+
+---
+
+# Commands to run
+
+Run:
+
+```text id="iz2ozb"
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+If the repo has a specific codegen/typecheck command, run it and report the exact command.
+
+---
+
+# Scope audit
+
+After the fix, run a git diff/status audit.
+
+Expected possible files:
+
+```text id="n70vql"
+openapi.yaml
+generated codegen files
+small dependent frontend/backend type/test files only if needed
+```
+
+Forbidden files:
+
+```text id="x8i62e"
+trading execution logic
+strategy/scoring logic
+F&O entry/exit logic
+P25 logic
+MFE/MAE calculation logic
+DB schema
+scheduler
+auth
+replit.md
+memory/docs
+```
+
+If any forbidden file changes, revert and report.
+
+---
+
+# Output required
+
+Produce **W5-P3 PaperTradeFOClosed Enum Contract Fix Report** with:
+
+A. Exact affected schema/component
+B. Exact response paths referencing it
+C. Root cause confirmed
+D. Files changed
+E. Codegen command run
+F. Tests added/updated
+G. Test/typecheck/build results
+H. Scope audit result
+I. Confirmation `TIME_EXIT_1520` is accepted on closed-trades path
+J. Confirmation invalid unknown reasons still reject
+K. Confirmation no trading/scoring/exit/paper-execution behavior changed
+L. Remaining issues, if any
+
+After W5-P3, stop and wait for approval.

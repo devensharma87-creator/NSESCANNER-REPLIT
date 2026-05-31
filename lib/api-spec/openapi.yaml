@@ -3379,7 +3379,7 @@ components:
         exitPremium:     { type: number }
         capitalDeployed: { type: number }
         realizedPnl:     { type: number }
-        exitReason:      { type: string, enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED, MANUAL_OVERRIDE] }
+        exitReason:      { type: string, enum: [TARGET1_HIT, TARGET2_HIT, STOPPED, EXPIRED, MANUAL_OVERRIDE, TIME_EXIT_1520] }
         openedAt:        { type: string, format: date-time }
         exitedAt:        { type: string, format: date-time }
         journal:         { type: string, nullable: true }

@@ -148,7 +148,7 @@ interface ClosedTrade {
   exitPremium: number;
   capitalDeployed: number;
   realizedPnl: number;
-  exitReason: "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE";
+  exitReason: "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE" | "TIME_EXIT_1520";
   openedAt: string;
   exitedAt: string;
   journal?: string | null;
@@ -175,6 +175,7 @@ const REASON_TONE: Record<ClosedTrade["exitReason"], string> = {
   STOPPED:     "bg-rose-500/15 text-rose-200 border-rose-500/30",
   EXPIRED:     "bg-amber-500/10 text-amber-200 border-amber-500/30",
   MANUAL_OVERRIDE: "bg-slate-500/15 text-slate-200 border-slate-500/30",
+  TIME_EXIT_1520: "bg-sky-500/15 text-sky-200 border-sky-500/30",
 };
 
 type EqExitReason =
@@ -2566,7 +2567,7 @@ function TradesCard({ trades, loading, error }: {
                       </td>
                       <td className="py-2 pr-3">
                         <span className={`px-2 py-0.5 rounded border text-[11px] ${REASON_TONE[t.exitReason]}`}>
-                          {t.exitReason}
+                          {t.exitReason.replace(/_/g, " ")}
                         </span>
                       </td>
                       <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtTime(t.openedAt)}</td>

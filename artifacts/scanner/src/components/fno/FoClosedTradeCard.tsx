@@ -36,7 +36,7 @@ export interface FoClosedTrade {
   exitPremium: number;
   capitalDeployed: number;
   realizedPnl: number;
-  exitReason: "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE";
+  exitReason: "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE" | "TIME_EXIT_1520";
   openedAt: string;
   exitedAt: string;
   journal?: string | null;
@@ -108,6 +108,7 @@ const REASON_LABEL: Record<FoClosedTrade["exitReason"], string> = {
   STOPPED: "Stopped out",
   EXPIRED: "Expired",
   MANUAL_OVERRIDE: "Manual close",
+  TIME_EXIT_1520: "Time exit 1520",
 };
 
 export function fmtExitReason(reason: string | null | undefined): string {
