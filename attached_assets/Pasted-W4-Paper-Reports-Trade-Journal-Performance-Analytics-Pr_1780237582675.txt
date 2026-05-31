@@ -1,0 +1,528 @@
+W4 Paper Reports / Trade Journal / Performance Analytics Pro Upgrade Plan is accepted.
+
+Proceed with **W4-P1 only**.
+
+# W4-P1: Reports / Journal Analytics Pure View Helpers + Tests Only
+
+Purpose:
+
+Create the pure frontend helper layer for the future `/paper-reports` pro analytics upgrade.
+
+This phase must not render new UI yet.
+
+This phase must not modify backend, trading, scoring, execution, exits, entries, stops, targets, sizing, gates, scheduler, schema, auth, OpenAPI, or `replit.md`.
+
+This is helper/test work only.
+
+---
+
+## Approved files
+
+Create only:
+
+```text id="hj1jx4"
+artifacts/scanner/src/lib/reportsView.ts
+artifacts/scanner/src/lib/reportsView.test.ts
+```
+
+Do not modify `/paper-reports` yet.
+
+Do not create components yet.
+
+Do not wire UI yet.
+
+Do not touch backend.
+
+---
+
+## Helper scope
+
+Implement pure helper functions and types for existing paper report / journal / analytics data.
+
+The helper should support future report sections:
+
+* overview summary cards,
+* equity vs F&O comparison,
+* equity curve display shaping,
+* drawdown cards,
+* MFE/MAE review,
+* best/worst trades review,
+* setup-wise performance,
+* index-wise performance if field exists,
+* exit-reason analytics,
+* tag/journal analytics,
+* client-side filters,
+* sorting,
+* grouping,
+* date range narrowing,
+* client-side CSV export serializer.
+
+All helpers must be deterministic and side-effect free.
+
+No API calls inside helpers.
+
+No DB calls.
+
+No route calls.
+
+No backend assumptions beyond existing payload fields.
+
+No mutation of input arrays/objects.
+
+---
+
+# Existing data sources to model
+
+Support data already available from:
+
+```text id="bx9k5m"
+/api/paper/reports/fo/monthly
+/api/paper/reports/fo/yearly
+/api/paper/reports/eq/monthly
+/api/paper/reports/eq/yearly
+/api/paper/trades/fo
+/api/paper/trades/eq
+/api/paper/analytics/fo
+/api/paper/journal-analytics
+/api/paper/analytics/fo/shadow-exits
+/api/paper/account
+```
+
+Do not add new endpoints.
+
+Do not assume unavailable fields.
+
+If a field is missing, helper output must safely use `null`, `—`, or an empty collection.
+
+---
+
+# Required helper features
+
+## 1. Safe numeric/date primitives
+
+Implement safe helpers for:
+
+```text id="gnlmi3"
+toNum
+parseTs
+safePct
+sumNums
+avgNums
+clampNumber
+```
+
+Rules:
+
+* handle strings, numbers, null, undefined,
+* ignore malformed values safely,
+* never throw on malformed data,
+* never mutate input.
+
+---
+
+## 2. Report summary helpers
+
+Implement helpers to derive summary cards from existing report/analytics payloads.
+
+Suggested function:
+
+```text id="edm52v"
+summarizeReportsOverview({ foAnalytics, eqAnalytics, foReport, eqReport, foAccount, eqAccount, shadowExits })
+```
+
+Support output fields such as:
+
+* F&O realised P&L,
+* equity realised P&L,
+* total realised P&L,
+* F&O win rate,
+* F&O profit factor,
+* expectancy,
+* average R,
+* best trade,
+* worst trade,
+* max drawdown,
+* current drawdown,
+* peak equity,
+* average MFE,
+* average MAE,
+* trade count,
+* scratches count,
+* data availability flags.
+
+Use only available payload fields.
+
+No fabricated metrics.
+
+---
+
+## 3. Date-range narrowing
+
+Implement pure client-side date filter.
+
+Suggested:
+
+```text id="xj1vlo"
+filterReportRowsByDate(rows, { from, to, dateField })
+```
+
+Rules:
+
+* inclusive date range,
+* handle invalid/missing dates safely,
+* no mutation,
+* if no date range is selected, return all valid rows.
+
+---
+
+## 4. Trade filters
+
+Implement filters for report/trade rows:
+
+* segment,
+* setup,
+* index/symbol if field exists,
+* exit reason,
+* tag,
+* P&L sign,
+* date range,
+* journal present/missing.
+
+Suggested:
+
+```text id="rnyyno"
+DEFAULT_REPORT_FILTERS
+applyReportFilters(rows, filters)
+countActiveReportFilters(filters)
+```
+
+Important:
+
+* If index field is missing, do not fabricate index grouping.
+* Tag filter should use existing `tags[]` only.
+* Journal filter should use existing `journal` only.
+
+---
+
+## 5. Sorting
+
+Implement sorting for:
+
+* date,
+* realised P&L,
+* R multiple,
+* setup,
+* exit reason,
+* symbol/index,
+* time in trade if field exists,
+* MFE,
+* MAE.
+
+Suggested:
+
+```text id="e8h542"
+sortReportRows(rows, sortKey, sortDir)
+```
+
+Rules:
+
+* null/NaN last,
+* no mutation,
+* safe fallback for missing fields.
+
+---
+
+## 6. Grouping / aggregation
+
+Implement grouping helpers for:
+
+* setup,
+* index/symbol if available,
+* exit reason,
+* tag,
+* P&L sign,
+* month,
+* segment.
+
+Suggested:
+
+```text id="yn856w"
+groupReportRows(rows, groupBy)
+aggregateReportGroup(rows)
+```
+
+Aggregate fields should include where available:
+
+* trade count,
+* realised P&L,
+* wins,
+* losses,
+* win rate,
+* average P&L,
+* best/worst,
+* average MFE,
+* average MAE.
+
+Do not fabricate unavailable fields.
+
+---
+
+## 7. MFE/MAE review helpers
+
+Use only existing shadow-exits data.
+
+Implement helpers for:
+
+* average MFE,
+* average MAE,
+* eligible sample count,
+* give-back review candidates if data supports it.
+
+Suggested:
+
+```text id="mot1vl"
+deriveMfeMaeReview(shadowExits)
+```
+
+Rules:
+
+* Only use server-provided MFE/MAE fields.
+* If per-trade MFE/MAE rows are unavailable, output summary only.
+* Do not compute from closed-trades payload if MFE/MAE is absent.
+* Do not alter P25 logic.
+
+---
+
+## 8. Equity curve / drawdown shaping
+
+Use existing `/api/paper/analytics/fo` fields only.
+
+Implement:
+
+```text id="cd7j8l"
+shapeEquityCurve(analytics)
+deriveDrawdownSummary(analytics)
+```
+
+Handle:
+
+* equityCurve,
+* maxDrawdown,
+* currentDrawdown,
+* peakEquity.
+
+If unavailable, return safe empty model.
+
+---
+
+## 9. CSV export serializer
+
+Implement a client-side CSV serializer for already-fetched rows.
+
+Suggested:
+
+```text id="7dhkhs"
+serializeReportRowsToCsv(rows, columns)
+```
+
+Rules:
+
+* deterministic column order,
+* escape quotes/commas/newlines correctly,
+* no backend call,
+* no file write inside helper,
+* no mutation,
+* safe placeholders for missing fields.
+
+Do not use backend `csvExport.ts` in W4-P1.
+
+---
+
+## 10. Empty-state helper
+
+Implement:
+
+```text id="xqt7u2"
+deriveReportsEmptyState({ loading, error, rows, filtersActive })
+```
+
+Must distinguish:
+
+* loading,
+* error,
+* no data,
+* no rows after filters,
+* ready.
+
+---
+
+# Tests required
+
+Create a strong test suite in:
+
+```text id="db51o4"
+artifacts/scanner/src/lib/reportsView.test.ts
+```
+
+Test at minimum:
+
+## Safe primitives
+
+* string/number/null parsing,
+* malformed number handling,
+* percent safety,
+* average ignores bad values,
+* no mutation.
+
+## Summary
+
+* F&O + equity combined summary,
+* missing payloads handled safely,
+* MFE/MAE summary only from shadow-exits,
+* no fabricated values.
+
+## Filters
+
+* date range inclusive,
+* setup filter,
+* exit reason filter,
+* tag filter,
+* P&L sign filter,
+* journal present/missing filter,
+* combined filters,
+* active filter count,
+* no input mutation.
+
+## Sorting
+
+* date,
+* P&L,
+* R multiple,
+* setup,
+* exit reason,
+* MFE,
+* MAE,
+* null/NaN last,
+* no mutation.
+
+## Grouping
+
+* setup grouping,
+* exit reason grouping,
+* tag grouping,
+* P&L sign grouping,
+* month grouping,
+* segment grouping,
+* aggregate win rate,
+* aggregate average P&L,
+* no fabricated index grouping if index missing.
+
+## MFE/MAE
+
+* summary from shadow-exits,
+* empty model if unavailable,
+* give-back candidates only when per-trade rows exist,
+* no closed-trade MFE/MAE fabrication.
+
+## Equity curve / drawdown
+
+* curve shaping,
+* empty curve handling,
+* drawdown summary,
+* malformed values safe.
+
+## CSV
+
+* deterministic output,
+* quotes escaped,
+* commas escaped,
+* newlines escaped,
+* missing fields safe,
+* no input mutation.
+
+## Empty state
+
+* loading,
+* error,
+* no data,
+* no rows after filters,
+* ready.
+
+---
+
+# Commands to run
+
+Run:
+
+```text id="c8qe14"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+If command names differ, run the closest existing commands and report exact command used.
+
+---
+
+# Strict guardrails
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="uf2ezu"
+artifacts/api-server/**
+lib/**
+lib-api-spec/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+paper report execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W4-P1 Reports / Journal Analytics Pure Helper Implementation Report** with:
+
+A. Files created/changed
+B. Helper functions added
+C. Summary helpers implemented
+D. Filters/sorting/grouping implemented
+E. MFE/MAE helpers implemented
+F. Equity curve/drawdown helpers implemented
+G. CSV serializer implemented
+H. Empty-state helper implemented
+I. Tests added
+J. Test/typecheck results
+K. Confirmation no UI wiring was done
+L. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+M. Limitations/follow-up for W4-P2
+
+After W4-P1, stop and wait for approval.
