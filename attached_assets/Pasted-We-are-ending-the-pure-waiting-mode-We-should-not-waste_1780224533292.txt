@@ -1,0 +1,229 @@
+We are ending the pure waiting mode.
+
+We should not waste more days only waiting for live evidence.
+
+New working mode:
+
+```text
+Continue live evidence gates in background,
+but start safe non-trading implementation work now.
+```
+
+Current accepted status:
+
+* S2b live intraday refresh is verified.
+* Friday S3b RS benchmark verification passed.
+* P25 baseline is officially corrected to `5/20`.
+* P25 gate remains open; 15 more eligible trades are still required.
+* H10b B1/B3 shadow diagnostic is route/auth verified but owner payload remains pending.
+* No live scoring/trading change is approved.
+
+Important distinction:
+
+```text
+Evidence gates are still required for live strategy changes.
+But safe platform/dashboard/data visibility work can start now.
+```
+
+Proceed with:
+
+# W1: Safe Pro Platform Upgrade — Planning Only First
+
+Purpose:
+
+Start improving the product now without touching trading/scoring logic.
+
+This phase is allowed to improve UI/readability/diagnostic visibility using already available data.
+
+This phase must not change scanner scoring, F&O strategy, swing action labels, paper trading, exits, entries, stops, targets, or live behavior.
+
+## Approved scope
+
+Build a safe implementation plan for read-only, user-facing improvements around existing data.
+
+Allowed areas:
+
+1. Improve dashboard visibility for:
+
+* swing intraday refresh status,
+* latest scan date,
+* RS coverage,
+* sector strength diagnostic,
+* B1/B3 shadow score diagnostic if owner-auth payload is available,
+* P25 evidence count,
+* F&O open/closed paper trade evidence,
+* data freshness status.
+
+2. Improve UI presentation:
+
+* better cards,
+* clearer tables,
+* better labels,
+* better risk badges,
+* better empty states,
+* better warning states,
+* cleaner layout,
+* premium/pro look.
+
+3. Add owner-only visibility panels for diagnostics already implemented:
+
+* intraday refresh health,
+* RS benchmark health,
+* sector-strength diagnostic,
+* B1/B3 shadow diagnostic,
+* P25 evidence tracker.
+
+4. Add clear gate-status display:
+
+```text
+S2b: verified
+S3b: Friday verified
+P25: 5/20, 15 remaining, gate open
+H10b: partially verified
+H10d: owner payload pending
+S4c/S4d/S4e/S4f: not approved
+```
+
+5. Add clear “not live active” labels:
+
+* B1/B3 shadow score is diagnostic only,
+* sector strength is diagnostic only,
+* P25 exit rules are evidence only,
+* no live exit change,
+* no auto-trade change.
+
+## Strictly not allowed
+
+Do not change:
+
+* swing scoring formula,
+* swing score weights,
+* swing recommendations,
+* swing action labels,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* B1/B3 live activation,
+* sector scoring in live code,
+* delivery scoring,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* P25 threshold,
+* P25 tracker logic,
+* DB schema,
+* scheduler,
+* route auth model,
+* `replit.md`,
+* memory/docs.
+
+## First task inside W1
+
+Before coding, produce a **W1 implementation plan only**.
+
+Do not start coding yet.
+
+The plan must include:
+
+A. Pages/components to improve
+B. Existing endpoints/data sources to use
+C. New UI sections proposed
+D. Owner-only vs public sections
+E. Exact data fields to display
+F. Empty/error/loading states
+G. Visual design improvements
+H. Safety labels to prevent confusion
+I. Files likely to change
+J. Tests needed
+K. Confirmation no trading/scoring behavior will change
+
+## Recommended UI sections
+
+### 1. Evidence & Gate Status Panel
+
+Show:
+
+```text
+S2b Intraday Refresh: Verified
+S3b RS Benchmark: Friday verified
+P25 F&O Evidence: 5/20, 15 remaining, gate open
+H10b B1/B3 Diagnostic: Partially verified
+Owner Payload: Pending
+```
+
+### 2. Swing Data Freshness Panel
+
+Show:
+
+* latest scan date,
+* latest intraday refresh time,
+* rows updated,
+* trigger hits,
+* RS coverage,
+* RS score average,
+* missing quote count.
+
+### 3. F&O Evidence Panel
+
+Show:
+
+* current official P25 count,
+* threshold,
+* remaining trades,
+* eligible trades,
+* excluded pre-fix trades,
+* last evidence date,
+* gate status.
+
+### 4. Shadow Diagnostics Panel
+
+Owner-only.
+
+Show:
+
+* current live score,
+* B1 shadow score,
+* B3 shadow score,
+* promoted/demoted rows,
+* reason codes,
+* clear label: `Diagnostic only — not live scoring`.
+
+### 5. Sector Strength Panel
+
+Owner-only first.
+
+Show:
+
+* sector rank,
+* member count,
+* average score,
+* average RS,
+* top sector stocks,
+* low-confidence sectors.
+
+## Output required now
+
+Produce:
+
+```text
+W1 Safe Pro Platform Upgrade Plan
+```
+
+Do not implement until I approve the plan.
+
+## Final reminder
+
+We are starting real work now, but only in safe read-only/UI/diagnostic layers.
+
+Live strategy changes remain evidence-gated.
+
+After W1 plan, stop and wait for approval.
