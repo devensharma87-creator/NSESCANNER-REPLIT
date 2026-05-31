@@ -1,0 +1,268 @@
+W1A Safe Pro Platform Upgrade is accepted.
+
+Good work.
+
+Accepted final state:
+
+* Frontend-only work.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No OpenAPI/codegen changes.
+* No route/auth changes.
+* No scoring/trading behavior changed.
+* No F&O logic changed.
+* No swing logic changed.
+* No paper-equity execution changed.
+* No `replit.md` or memory/docs changes.
+* `/infra-health` now has owner-only Operations Console panels.
+* `/stocks-to-watch` now has public-safe freshness strip.
+* P25 panel uses official `mfeAvailableCount`, not raw MFE/MAE count.
+* B1/B3 and sector panels clearly show diagnostic-only labels.
+* 82/82 scanner tests passed.
+* Full typecheck passed.
+* Architect review passed.
+
+Current verdict:
+
+```text id="pzbm0h"
+W1A = accepted
+Safe read-only UI layer = implemented
+Live trading/scoring = unchanged
+```
+
+Now proceed with the next safe phase:
+
+# W1B + W2 Planning: UI Smoke Verification + Stocks-to-Watch Pro Upgrade Plan
+
+Purpose:
+
+First verify W1A frontend behavior with browser/smoke checks. Then prepare the next implementation plan for improving the main `/stocks-to-watch` page into a more professional scanner view.
+
+This remains frontend/read-only/planning-only.
+
+Do not change trading/scoring logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change scheduler.
+
+Do not change F&O/swing/paper-equity behavior.
+
+---
+
+# Part 1 — W1B: Frontend Smoke Verification
+
+## Verify `/infra-health`
+
+Check:
+
+* page loads without runtime crash,
+* owner-only gate behaves correctly,
+* non-owner/anonymous does not see owner diagnostics,
+* no blank panels,
+* loading/error states are safe,
+* no stack traces,
+* no unhandled console errors from the new panels,
+* new components do not break existing infra-health sections.
+
+If owner session is unavailable, do not bypass auth and do not request secrets. Mark owner visual verification as unavailable.
+
+## Verify `/stocks-to-watch`
+
+Check:
+
+* page loads,
+* public freshness strip renders,
+* public strip does not expose owner-only data,
+* public strip shows only:
+
+  * latest scan date,
+  * intraday refresh/freshness state,
+  * safe freshness label,
+* existing stocks-to-watch scanner/table still renders,
+* no layout break,
+* no runtime crash,
+* no console error related to the new strip.
+
+## Verify tests again
+
+Run:
+
+```text id="7mnv5x"
+pnpm --filter @workspace/scanner run test
+pnpm run typecheck
+```
+
+If additional frontend smoke/test command exists, run it and report exact command.
+
+## W1B output required
+
+Produce a **W1B Frontend Smoke Verification Report** with:
+
+A. `/infra-health` smoke result
+B. `/stocks-to-watch` smoke result
+C. Owner-gated visual verification status
+D. Console/runtime errors, if any
+E. Test/typecheck results
+F. Defects found, if any
+G. Confirmation no backend/scoring/trading behavior changed
+
+---
+
+# Part 2 — W2: Stocks-to-Watch Pro Scanner Upgrade Plan Only
+
+After W1B smoke is complete, produce a plan only.
+
+Do not implement W2 yet.
+
+## Purpose
+
+Upgrade the main `/stocks-to-watch` scanner page into a more professional, readable, data-rich scanner view using existing data only.
+
+This should improve usability and presentation, not scoring logic.
+
+## W2 approved planning areas
+
+Plan improvements for:
+
+1. Better stock row/card readability.
+2. Clearer action labels:
+
+   * BUY BREAKOUT,
+   * RETEST ONLY,
+   * WATCHLIST,
+   * WAIT,
+   * AVOID,
+   * NO TRADE.
+3. Stronger risk badges:
+
+   * overextended,
+   * near resistance,
+   * weak RS,
+   * poor RR,
+   * stale data,
+   * no intraday quote.
+4. Better data grouping:
+
+   * action,
+   * sector,
+   * score bucket,
+   * RS strength,
+   * trigger status.
+5. Better filter/sort controls:
+
+   * action filter,
+   * sector filter,
+   * score range,
+   * RS range,
+   * trigger hit,
+   * intraday freshness,
+   * only actionable names.
+6. Better top summary cards:
+
+   * total scanned,
+   * actionable count,
+   * trigger hits,
+   * top sector,
+   * average RS,
+   * last refresh time.
+7. Better “why this stock?” explanation area:
+
+   * score,
+   * RS score,
+   * sector,
+   * trigger price,
+   * entry,
+   * stop,
+   * target,
+   * RR,
+   * warning reasons,
+   * diagnostic labels.
+8. Better mobile/responsive layout.
+9. Better empty state:
+
+   * no scan yet,
+   * market closed,
+   * intraday refresh not fired yet,
+   * data stale,
+   * owner-only data unavailable.
+10. Clear safety labels:
+
+* scanner is analysis support,
+* not live auto-trading,
+* B1/B3 is diagnostic only if shown anywhere,
+* sector strength diagnostic only.
+
+## Strictly not allowed in W2
+
+Do not change:
+
+* swing scoring formula,
+* swing score weights,
+* swing recommendation logic,
+* action-label generation,
+* entry calculation,
+* stop calculation,
+* target calculation,
+* RR calculation,
+* trigger latch logic,
+* intraday refresh logic,
+* B1/B3 activation,
+* sector scoring,
+* delivery scoring,
+* paper-equity execution,
+* F&O logic,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+## Existing data only
+
+Use only data already available on `/stocks-to-watch` and existing safe endpoints.
+
+If a desired field is not available, mark it as:
+
+```text id="m6qkg1"
+not available yet — do not implement
+```
+
+Do not add backend APIs in W2 planning.
+
+## W2 plan output required
+
+Produce a **W2 Stocks-to-Watch Pro Scanner Upgrade Plan** with:
+
+A. Current page issues observed
+B. Proposed layout changes
+C. Proposed summary cards
+D. Proposed table/card improvements
+E. Proposed filters and sorting
+F. Proposed action/risk badge system
+G. Proposed “why this stock?” explanation
+H. Public vs owner-only data boundary
+I. Existing fields/endpoints to use
+J. Fields not available yet
+K. Files likely to change
+L. Tests needed
+M. Safety guardrails
+N. Implementation phases
+O. Confirmation no trading/scoring behavior will change
+
+## Final instruction
+
+For this turn:
+
+1. Run W1B smoke verification.
+2. Produce W1B report.
+3. Produce W2 plan.
+4. Do not implement W2 yet.
+5. Stop and wait for approval.
