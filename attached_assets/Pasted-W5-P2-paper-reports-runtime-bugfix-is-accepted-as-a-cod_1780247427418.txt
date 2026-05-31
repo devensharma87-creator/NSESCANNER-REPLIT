@@ -1,0 +1,156 @@
+W5-P2 `/paper-reports` runtime bugfix is accepted as a code fix.
+
+Good work.
+
+Accepted findings:
+
+* Root cause was confirmed:
+
+  * `/api/paper/reports/fo/monthly?month=2026-05` failed because `GetPaperReportFoMonthlyResponse.parse()` rejected `TIME_EXIT_1520`.
+* Correct schema was identified:
+
+  * `PaperReportFoMonthly.trades[] → PaperTradeFODetail`.
+* Out-of-scope schema edit was correctly reverted:
+
+  * `PaperTradeFOClosed` live closed-trades path was not changed.
+* Yearly report was correctly confirmed not to need this fix because it has monthly buckets only and no per-trade `exitReason`.
+* `TIME_EXIT_1520` was added only to the report-detail enum.
+* Codegen was regenerated.
+* UI label renders truthfully as `TIME EXIT 1520`.
+* Partial failure fallback was added:
+
+  * if F&O fails but Equity succeeds, Overview can still show Equity rows with a warning;
+  * if Equity fails but F&O succeeds, Overview can still show F&O rows with a warning;
+  * if both fail, a real error remains visible.
+* No fabricated exit reason mapping was added.
+* No trading logic changed.
+* No paper-trade execution changed.
+* No P25/MFE/MAE logic changed.
+* No auth/schema/scheduler changes.
+* Scanner tests passed: 337/337.
+* API-server tests passed: 658/658.
+* Full typecheck clean.
+* Scanner build passed.
+* Architect review passed.
+
+Current verdict:
+
+```text id="ew6gpq"
+W5-P2 code fix = accepted
+Owner visual retest = pending
+```
+
+Do **not** proceed to a new code change yet.
+
+Now wait for owner visual confirmation.
+
+# Owner Retest Required
+
+Ask the owner to re-open `/paper-reports` after the latest fix and verify these exact items:
+
+## 1. F&O tab
+
+Confirm the F&O tab no longer shows:
+
+```text id="r1tcv0"
+Failed to load report
+internal_server_error
+```
+
+Expected:
+
+```text id="b30s00"
+F&O monthly report loads normally
+```
+
+or, if no data:
+
+```text id="k7o0v1"
+No closed F&O trades for this period
+```
+
+## 2. Overview Performance tables
+
+Confirm Overview no longer shows:
+
+```text id="t7xf9c"
+Failed to load performance tables
+internal_server_error
+```
+
+Expected:
+
+```text id="zk1ne7"
+Performance tables render
+```
+
+or a clean partial warning if one segment is unavailable.
+
+## 3. Overview Best/Worst trades
+
+Confirm Overview no longer shows:
+
+```text id="q81epv"
+Failed to load best/worst trades
+internal_server_error
+```
+
+Expected:
+
+```text id="xegsl2"
+Best/worst trades render
+```
+
+or clean empty state.
+
+## 4. TIME_EXIT_1520 display
+
+If any such row appears, confirm it displays truthfully as:
+
+```text id="fbtyto"
+TIME EXIT 1520
+```
+
+not as:
+
+```text id="4d036q"
+TIME_EXIT_1520
+```
+
+and not mapped to another reason.
+
+## 5. Regression checks
+
+Confirm these still work:
+
+* Overview tab
+* safety banner
+* summary cards
+* equity curve
+* drawdown cards
+* MFE/MAE review
+* Equity tab
+* Journal tab
+* console has no red errors
+
+---
+
+# Important follow-up note
+
+Do **not** fix the latent `PaperTradeFOClosed` enum issue yet.
+
+That is a separate surface and should be handled only after owner retest confirms W5-P2 is fully resolved.
+
+After owner retest, report one of these:
+
+```text id="qqlt1e"
+Owner retest passed — W5-P2 can be closed.
+```
+
+or:
+
+```text id="ei8g06"
+Owner retest failed — here are the screenshots/errors.
+```
+
+Stop here and wait for owner retest.
