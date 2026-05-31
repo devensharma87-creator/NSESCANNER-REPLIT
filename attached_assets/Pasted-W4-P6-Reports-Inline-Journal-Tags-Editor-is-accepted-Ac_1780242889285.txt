@@ -1,0 +1,410 @@
+W4-P6 Reports Inline Journal / Tags Editor is accepted.
+
+Accepted final state:
+
+* Inline journal editor added for closed F&O trades.
+* Inline journal editor added for closed Equity trades.
+* Tags editor added.
+* Mistake/review tag filter added.
+* Journal presence filter added.
+* Save/cancel/saving/saved/error states added.
+* Only existing PATCH endpoints used:
+
+  * `PATCH /api/paper/trades/fo/:id/journal`
+  * `PATCH /api/paper/trades/eq/:id/journal`
+* Request body is strictly `{ journal, tags }`.
+* No trading logic changed.
+* No backend route changed.
+* No DB/schema changed.
+* No OpenAPI/codegen changed.
+* No paper-trade execution changed.
+* No P25/MFE/MAE logic changed.
+* No `replit.md`, memory, or docs changed.
+* 330/330 scanner tests passed.
+* Scanner typecheck clean.
+* Full repo typecheck clean.
+* Architect review passed.
+* Visual smoke remains blocked by owner login, which is acceptable.
+
+Current verdict:
+
+```text id="zt7m3x"
+W4-P6 = accepted
+Reports journal/tags workflow = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W4-P7 only**.
+
+# W4-P7: Reports Filters / Date Range / Client-Side CSV Export
+
+Purpose:
+
+Add final reports controls for filtering, sorting, date-range narrowing, and client-side CSV export on `/paper-reports`.
+
+This is frontend/read-only UI work except for the already-accepted journal PATCH flow from W4-P6.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change P25 tracker logic.
+
+Do not change paper-trade execution.
+
+---
+
+## Approved scope
+
+Add:
+
+1. Reports controls bar.
+2. Date-range narrowing.
+3. Segment filter.
+4. Setup filter.
+5. Index/symbol filter if field exists.
+6. Exit-reason filter.
+7. Tag filter.
+8. P&L sign filter.
+9. Sort controls.
+10. Reset filters button.
+11. Client-side CSV export of currently displayed rows.
+12. Safe empty/loading/error states.
+
+Do **not** use backend CSV export.
+
+Do **not** add backend endpoints.
+
+Do **not** change endpoint payloads.
+
+Do **not** modify OpenAPI.
+
+Do **not** run codegen.
+
+---
+
+## Existing helpers to use
+
+Use accepted helper:
+
+```text id="1gww35"
+artifacts/scanner/src/lib/reportsView.ts
+```
+
+Use helpers such as:
+
+```text id="p7q7lq"
+DEFAULT_REPORT_FILTERS
+applyReportFilters
+countActiveReportFilters
+sortReportRows
+groupReportRows
+filterReportRowsByDate
+serializeReportRowsToCsv
+collectTagsFromRows
+```
+
+Only add small pure helpers if required.
+
+Do not duplicate existing logic.
+
+---
+
+## Data source
+
+Use existing in-memory report rows already fetched on `/paper-reports`.
+
+Do not add new API calls.
+
+Do not add backend endpoints.
+
+Do not modify OpenAPI.
+
+Do not use backend `csvExport.ts`.
+
+CSV must be generated in-browser from already-fetched rows.
+
+---
+
+# UI requirements
+
+## 1. Reports controls bar
+
+Add controls for:
+
+* segment,
+* setup,
+* index/symbol,
+* exit reason,
+* tag,
+* P&L sign,
+* journal present/missing,
+* date from,
+* date to,
+* sort key,
+* sort direction,
+* reset filters,
+* export current rows as CSV.
+
+Controls should be compact and mobile-safe.
+
+## 2. Filtering behavior
+
+Filters must be client-side only.
+
+Apply to already-fetched normalized report rows.
+
+Rules:
+
+* missing field should not be fabricated,
+* missing index/symbol should not be guessed,
+* journal/tag filters use only existing fields,
+* date range is inclusive,
+* no input mutation.
+
+## 3. Sorting behavior
+
+Sort client-side only.
+
+Allowed sort keys:
+
+* date,
+* realised P&L,
+* R multiple,
+* setup,
+* exit reason,
+* symbol/index,
+* MFE,
+* MAE if available.
+
+Null/NaN last.
+
+No mutation.
+
+## 4. CSV export
+
+Add a button:
+
+```text id="dx5yab"
+Export visible rows CSV
+```
+
+CSV must include only currently displayed/filtered rows.
+
+Suggested columns:
+
+* date,
+* segment,
+* symbol/index,
+* setup,
+* exit reason,
+* realised P&L,
+* R multiple,
+* journal,
+* tags.
+
+Rules:
+
+* use `serializeReportRowsToCsv`,
+* deterministic column order,
+* escape commas/quotes/newlines,
+* generate browser download only,
+* no backend call,
+* no file write on server,
+* no raw DB access.
+
+If no rows are visible, disable export and show hint.
+
+## 5. Result counts
+
+Show:
+
+```text id="46xh67"
+Showing X of Y report rows
+Filters active: N
+```
+
+If rows are filtered out, show:
+
+```text id="emh6dg"
+No report rows match the selected filters. Reset filters to view all.
+```
+
+## 6. Scope of application
+
+Prefer applying controls to the Overview performance sections and best/worst review first.
+
+Do not break existing Equity / F&O / Journal tabs.
+
+If applying controls globally is risky, keep W4-P7 controls scoped to the Overview performance rows only and state clearly.
+
+## 7. Safety label
+
+Add:
+
+```text id="c26ra8"
+Filters and CSV export are review tools only — they do not affect trading logic or paper-trade execution.
+```
+
+## 8. Empty/loading/error states
+
+Handle:
+
+* loading reports,
+* endpoint error,
+* no rows,
+* no rows after filters,
+* malformed values,
+* no exportable rows.
+
+No blank tables.
+
+No runtime crash.
+
+No stack trace.
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="cuq2qb"
+artifacts/scanner/src/pages/paper-reports.tsx
+artifacts/scanner/src/components/reports/ReportsControls.tsx
+artifacts/scanner/src/components/reports/ReportsPerformanceTables.tsx
+artifacts/scanner/src/components/reports/ReportsBestWorstTrades.tsx
+artifacts/scanner/src/lib/reportsView.ts
+artifacts/scanner/src/lib/reportsView.test.ts
+```
+
+Only modify `reportsView.ts` if a small pure helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add/update pure helper tests if helper logic changes.
+
+At minimum verify:
+
+1. Date range filter is inclusive.
+2. Segment filter works.
+3. Setup filter works.
+4. Exit-reason filter works.
+5. Tag filter works.
+6. P&L sign filter works.
+7. Journal present/missing filter works.
+8. Combined filters work.
+9. Sort after filter works.
+10. CSV serializer output is deterministic.
+11. CSV escapes commas, quotes, and newlines.
+12. CSV handles missing fields safely.
+13. No input mutation.
+
+If existing tests already cover some items, do not duplicate unnecessarily.
+
+Run:
+
+```text id="pt6qgf"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-reports`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify controls render,
+* verify reset filters works,
+* verify CSV export button is present,
+* verify no export when zero rows,
+* verify existing Overview sections still render,
+* verify existing Equity/F&O/Journal tabs still render,
+* verify no layout break,
+* verify no console errors.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="6czhc3"
+artifacts/api-server/**
+lib/**
+lib-api-spec/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+paper report execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W4-P7 Reports Filters / CSV Export Implementation Report** with:
+
+A. Files changed
+B. Components/helpers added or updated
+C. Filters/date range behavior
+D. Sorting behavior
+E. CSV export behavior
+F. Result-count behavior
+G. Empty/loading/error states
+H. Tests added/updated
+I. Test/typecheck results
+J. Visual smoke result
+K. Confirmation W4-P2/P3/P4/P5/P6 still work
+L. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+M. Limitations/follow-up for W4-P8
+
+After W4-P7, stop and wait for approval.

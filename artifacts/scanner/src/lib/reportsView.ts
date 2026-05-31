@@ -719,6 +719,42 @@ export function filterRowsByTagAndJournal<
   });
 }
 
+export interface ReportFilterOptions {
+  setups: string[];
+  indexes: string[];
+  exitReasons: string[];
+  tags: string[];
+}
+
+/**
+ * Collect the unique, sorted option sets that drive the report controls'
+ * dropdowns — derived ONLY from values actually present in the rows. Rows
+ * missing a field contribute nothing to that option set (never fabricated).
+ * Tags reuse collectTagsFromRows. Pure — does not mutate the input.
+ */
+export function collectReportFilterOptions(
+  rows: readonly NormalizedReportRow[],
+): ReportFilterOptions {
+  const setups = new Set<string>();
+  const indexes = new Set<string>();
+  const exitReasons = new Set<string>();
+  for (const r of rows) {
+    const s = strOrNull(r.setupKey);
+    if (s != null) setups.add(s);
+    const i = strOrNull(r.index);
+    if (i != null) indexes.add(i);
+    const e = strOrNull(r.exitReason);
+    if (e != null) exitReasons.add(e);
+  }
+  const byLocale = (a: string, b: string) => a.localeCompare(b);
+  return {
+    setups: Array.from(setups).sort(byLocale),
+    indexes: Array.from(indexes).sort(byLocale),
+    exitReasons: Array.from(exitReasons).sort(byLocale),
+    tags: collectTagsFromRows(rows),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 5. Sorting
 // ---------------------------------------------------------------------------

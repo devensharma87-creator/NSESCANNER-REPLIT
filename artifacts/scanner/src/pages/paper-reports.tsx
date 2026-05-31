@@ -42,6 +42,7 @@ import { ReportsDrawdownCards } from "@/components/reports/ReportsDrawdownCards"
 import { ReportsMfeMaeReview } from "@/components/reports/ReportsMfeMaeReview";
 import { ReportsPerformanceTables } from "@/components/reports/ReportsPerformanceTables";
 import { ReportsBestWorstTrades } from "@/components/reports/ReportsBestWorstTrades";
+import { ReportsControls } from "@/components/reports/ReportsControls";
 import {
   ReportsJournalEditor,
   ReportsJournalFilterBar,
@@ -55,11 +56,18 @@ import {
   normalizeEqTradeRow,
   collectTagsFromRows,
   filterRowsByTagAndJournal,
+  applyReportFilters,
+  sortReportRows,
+  countActiveReportFilters,
+  DEFAULT_REPORT_FILTERS,
   type FoAnalyticsLike,
   type ShadowExitReportLike,
   type AccountLike,
   type NormalizedReportRow,
   type JournalFilter,
+  type ReportFilters,
+  type ReportSortKey,
+  type SortDir,
 } from "@/lib/reportsView";
 
 const BASE = import.meta.env.BASE_URL;
@@ -422,6 +430,29 @@ function OverviewSection() {
     return [...fo, ...eq];
   }, [foReportQ.data, eqReportQ.data]);
 
+  // W4-P7: client-side controls scoped to the Overview performance + best/worst
+  // sections only. Filtering and sorting run over the already-fetched rows via
+  // the accepted pure helpers — no extra fetch, no fabrication, no mutation.
+  const [reportFilters, setReportFilters] =
+    useState<ReportFilters>(DEFAULT_REPORT_FILTERS);
+  const [sortKey, setSortKey] = useState<ReportSortKey>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const visibleRows = useMemo(
+    () =>
+      sortReportRows(
+        applyReportFilters(perfRows, reportFilters),
+        sortKey,
+        sortDir,
+      ),
+    [perfRows, reportFilters, sortKey, sortDir],
+  );
+  const activeFilterCount = countActiveReportFilters(reportFilters);
+  const hasNoMatch =
+    !reportsLoading &&
+    !reportsError &&
+    perfRows.length > 0 &&
+    visibleRows.length === 0;
+
   return (
     <div className="space-y-5">
       <ReportsSafetyBanner
@@ -501,19 +532,57 @@ function OverviewSection() {
           Performance analytics are for review only — no strategy or trading
           behavior changes.
         </p>
-        <ReportsPerformanceTables
-          rows={perfRows}
-          loading={reportsLoading}
-          error={reportsError}
-        />
-        <ReportsBestWorstTrades
-          rows={perfRows}
-          loading={reportsLoading}
-          error={reportsError}
-        />
+        {!reportsLoading && !reportsError && perfRows.length > 0 && (
+          <ReportsControls
+            filters={reportFilters}
+            onFiltersChange={setReportFilters}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSortKeyChange={setSortKey}
+            onSortDirChange={setSortDir}
+            onReset={() => {
+              setReportFilters(DEFAULT_REPORT_FILTERS);
+              setSortKey("date");
+              setSortDir("desc");
+            }}
+            allRows={perfRows}
+            visibleRows={visibleRows}
+          />
+        )}
+        {hasNoMatch ? (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            No report rows match the selected filters.{" "}
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-amber-100"
+              onClick={() => {
+                setReportFilters(DEFAULT_REPORT_FILTERS);
+                setSortKey("date");
+                setSortDir("desc");
+              }}
+            >
+              Reset filters
+            </button>{" "}
+            to view all.
+          </div>
+        ) : (
+          <>
+            <ReportsPerformanceTables
+              rows={visibleRows}
+              loading={reportsLoading}
+              error={reportsError}
+            />
+            <ReportsBestWorstTrades
+              rows={visibleRows}
+              loading={reportsLoading}
+              error={reportsError}
+            />
+          </>
+        )}
         <p className="text-[10px] text-slate-500">
           These tables summarise closed paper trades for review only and do not
           change strategy, exits, stops, targets, or paper-trade execution.
+          {activeFilterCount > 0 && ` · ${activeFilterCount} filter(s) active`}
         </p>
       </div>
     </div>

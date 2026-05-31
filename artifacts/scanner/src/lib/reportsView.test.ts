@@ -22,6 +22,7 @@ import {
   selectBestWorstTrades,
   collectTagsFromRows,
   filterRowsByTagAndJournal,
+  collectReportFilterOptions,
   deriveMfeMaeReview,
   shapeEquityCurve,
   deriveDrawdownSummary,
@@ -901,5 +902,61 @@ describe("filterRowsByTagAndJournal", () => {
     const input = rows.slice();
     filterRowsByTagAndJournal(input, { tags: ["fomo"] });
     expect(input.map((r) => r.id)).toEqual(["a", "b", "c", "d"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7e. Report filter option collection (W4-P7)
+// ---------------------------------------------------------------------------
+describe("collectReportFilterOptions", () => {
+  it("collects unique sorted setups/indexes/exitReasons/tags from data only", () => {
+    const rows = [
+      {
+        id: "1",
+        segment: "FNO" as const,
+        setupKey: "VWAP_RECLAIM",
+        index: "NIFTY",
+        exitReason: "T1_HIT",
+        tags: ["fomo"],
+      },
+      {
+        id: "2",
+        segment: "EQUITY" as const,
+        setupKey: "EMA_PULLBACK",
+        index: "TCS",
+        exitReason: "STOP_HIT",
+        tags: ["discipline", "fomo"],
+      },
+      {
+        id: "3",
+        segment: "FNO" as const,
+        setupKey: "VWAP_RECLAIM",
+        index: "NIFTY",
+        exitReason: "T1_HIT",
+      },
+    ];
+    const opts = collectReportFilterOptions(rows);
+    expect(opts.setups).toEqual(["EMA_PULLBACK", "VWAP_RECLAIM"]);
+    expect(opts.indexes).toEqual(["NIFTY", "TCS"]);
+    expect(opts.exitReasons).toEqual(["STOP_HIT", "T1_HIT"]);
+    expect(opts.tags).toEqual(["discipline", "fomo"]);
+  });
+
+  it("omits missing/blank fields without fabrication", () => {
+    const rows = [
+      { id: "1", segment: "FNO" as const, setupKey: null, index: "  ", exitReason: undefined },
+      { id: "2", segment: "EQUITY" as const },
+    ];
+    const opts = collectReportFilterOptions(rows);
+    expect(opts).toEqual({ setups: [], indexes: [], exitReasons: [], tags: [] });
+  });
+
+  it("does not mutate the input rows", () => {
+    const rows = [
+      { id: "1", segment: "FNO" as const, setupKey: "A", index: "X", exitReason: "E", tags: ["t"] },
+    ];
+    const snapshot = JSON.stringify(rows);
+    collectReportFilterOptions(rows);
+    expect(JSON.stringify(rows)).toBe(snapshot);
   });
 });
