@@ -119,6 +119,19 @@ describe("safe primitives", () => {
     expect(dateKeyOf("nonsense")).toBeNull();
     expect(dateKeyOf(null)).toBeNull();
   });
+
+  it("dateKeyOf normalises offset timestamps to the UTC day", () => {
+    // +/- offsets that cross the day boundary must shift the UTC day.
+    expect(dateKeyOf("2026-05-31T23:30:00-02:00")).toBe("2026-06-01");
+    expect(dateKeyOf("2026-06-01T00:30:00+02:00")).toBe("2026-05-31");
+  });
+
+  it("dateKeyOf rejects malformed calendar dates", () => {
+    expect(dateKeyOf("2026-99-99")).toBeNull();
+    expect(dateKeyOf("2026-02-30")).toBeNull();
+    expect(dateKeyOf("2026-00-10")).toBeNull();
+    expect(dateKeyOf("2026-13-01")).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -568,6 +581,20 @@ describe("shapeEquityCurve / deriveDrawdownSummary", () => {
     expect(shaped[0]!.date).toBe("2026-05-01");
     expect(shaped[1]!.dailyPnl).toBeNull();
     expect(shaped[1]!.cumulativePnl).toBe(50);
+  });
+
+  it("drops points with malformed dates and normalises offset timestamps", () => {
+    const analytics: FoAnalyticsLike = {
+      equityCurve: [
+        { date: "2026-05-01", dailyPnl: 1, cumulativePnl: 1, drawdown: 0 },
+        { date: "2026-99-99", dailyPnl: 2, cumulativePnl: 3, drawdown: 0 }, // dropped
+        { date: "2026-05-31T23:30:00-02:00", dailyPnl: 4, cumulativePnl: 7, drawdown: 0 },
+      ],
+    };
+    const shaped = shapeEquityCurve(analytics);
+    expect(shaped).toHaveLength(2);
+    expect(shaped[0]!.date).toBe("2026-05-01");
+    expect(shaped[1]!.date).toBe("2026-06-01");
   });
 
   it("returns empty array when curve missing", () => {

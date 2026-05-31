@@ -140,14 +140,30 @@ function isoDay(ms: number): string {
 
 /**
  * Extract a `YYYY-MM-DD` day key from a date-like value, or `null`.
- * Pure `YYYY-MM-DD` strings are taken verbatim (no timezone shift); full
- * ISO timestamps are normalised to their UTC day deterministically.
+ * A strict, calendar-valid `YYYY-MM-DD` string is taken verbatim (no timezone
+ * shift); full ISO timestamps are normalised to their UTC day deterministically.
+ * Malformed calendar dates (e.g. `2026-99-99`, `2026-02-30`) yield `null`.
  */
 export function dateKeyOf(v: unknown): string | null {
   if (typeof v === "string") {
     const t = v.trim();
-    const m = /^(\d{4}-\d{2}-\d{2})/.exec(t);
-    if (m) return m[1] as string;
+    const exact = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+    if (exact) {
+      const y = Number(exact[1]);
+      const mo = Number(exact[2]);
+      const d = Number(exact[3]);
+      const ms = Date.UTC(y, mo - 1, d);
+      const dt = new Date(ms);
+      // Reject impossible calendar dates (NaN months/days, overflow rollover).
+      if (
+        dt.getUTCFullYear() === y &&
+        dt.getUTCMonth() === mo - 1 &&
+        dt.getUTCDate() === d
+      ) {
+        return t;
+      }
+      return null;
+    }
     const ms = Date.parse(t);
     return Number.isNaN(ms) ? null : isoDay(ms);
   }
@@ -987,7 +1003,7 @@ export function shapeEquityCurve(
   if (!Array.isArray(curve)) return [];
   const out: ShapedEquityPoint[] = [];
   for (const p of curve) {
-    const date = strOrNull(p?.date ?? null);
+    const date = dateKeyOf(p?.date ?? null);
     if (date == null) continue;
     out.push({
       date,
