@@ -1,0 +1,381 @@
+W3-P1 F&O Cockpit Pure Helper Implementation is accepted.
+
+Good work.
+
+Accepted final state:
+
+* Only two files created:
+
+  * `artifacts/scanner/src/lib/foCockpitView.ts`
+  * `artifacts/scanner/src/lib/foCockpitView.test.ts`
+* No UI wiring was done.
+* No `/paper-trading` page change.
+* No backend change.
+* No DB/schema change.
+* No scheduler change.
+* No route/auth change.
+* No OpenAPI/codegen change.
+* No F&O signal/entry/exit/stop/target/sizing/gate change.
+* No P25 tracker or threshold change.
+* No MFE/MAE calculation change.
+* No swing logic change.
+* No `replit.md`, memory, or docs change.
+* 181/181 scanner tests passed.
+* Scanner typecheck clean.
+* Full workspace typecheck clean.
+* Architect review passed.
+
+Current verdict:
+
+```text id="rfqq8u"
+W3-P1 = accepted
+F&O cockpit pure helper layer = implemented
+UI wiring = not started
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W3-P2 only**.
+
+# W3-P2: F&O Cockpit Summary Cards + Safety/Freshness Banner
+
+Purpose:
+
+Start wiring the F&O cockpit UI safely by adding summary cards and a safety/freshness banner to `/paper-trading`.
+
+This is frontend/read-only UI work only.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change P25 tracker logic.
+
+Do not change threshold.
+
+Do not change paper-trade execution.
+
+---
+
+## Approved scope
+
+Modify the owner-only `/paper-trading` page to add:
+
+1. F&O cockpit safety/freshness banner.
+2. Summary cards derived from existing open/closed F&O paper trade data.
+3. P25 headline state using the accepted helper logic and/or existing shadow-exits endpoint if already available on the page.
+
+This phase is summary/banners only.
+
+Do not build the full open trades table yet.
+
+Do not build the closed trades review yet.
+
+Do not build the “Why this trade?” drawer yet.
+
+Do not add filters/sorting/grouping yet.
+
+Those come later.
+
+---
+
+## Existing helper to use
+
+Use the accepted W3-P1 helper:
+
+```text id="znhyjy"
+artifacts/scanner/src/lib/foCockpitView.ts
+```
+
+Use helpers such as:
+
+```text id="1s1qz5"
+summarizeFoCockpit
+deriveP25Summary
+deriveFoRiskBadges
+getFoLastActivityAt
+deriveFoEmptyState
+```
+
+Do not duplicate logic if helper already exists.
+
+---
+
+## Existing data sources only
+
+Use data already fetched by `/paper-trading` if available.
+
+Allowed existing endpoints/data sources:
+
+```text id="eeynfx"
+/paper/positions/fo
+/paper/trades/fo
+/paper/account
+/paper/analytics/fo/shadow-exits
+/paper/diagnostics/fo/mtm-sweep
+```
+
+Use only existing endpoints.
+
+Do not add new backend endpoints.
+
+Do not change endpoint payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+---
+
+# UI additions required
+
+## 1. Safety / mode banner
+
+Add a clear top banner for the F&O paper trading area.
+
+Must show:
+
+```text id="jkw9gq"
+Paper trading only
+No live order placement
+Evidence gate open
+No exit-rule change approved
+P25 threshold unchanged at 20
+```
+
+If available, show freshness info:
+
+* last MTM sweep time,
+* last open-trade evaluation time,
+* last closed-trade time,
+* stale/healthy state.
+
+If data unavailable, show safe placeholder.
+
+Do not treat unavailable diagnostics as a crash.
+
+---
+
+## 2. Summary cards
+
+Add summary cards above the open/closed F&O sections.
+
+Use existing data.
+
+Cards should include:
+
+* open F&O trades,
+* closed trades today,
+* realised P&L,
+* unrealised/MTM P&L,
+* win/loss count,
+* average MFE,
+* average MAE,
+* best trade,
+* worst trade,
+* P25 evidence count,
+* remaining to threshold,
+* gate status,
+* last activity time.
+
+Use clear colors/badges for positive/negative P&L.
+
+Use monospace formatting for numbers.
+
+Use clean placeholders for missing values.
+
+---
+
+## 3. P25 evidence headline
+
+Show:
+
+```text id="3jqt41"
+Official P25 count: N/20
+Remaining: 20 - N
+Gate: OPEN / THRESHOLD MET
+```
+
+Important:
+
+* Use official rule only.
+* Do not use raw `IS NOT NULL` MFE/MAE count.
+* Do not show 14/20 as official.
+* Accepted current baseline is:
+
+```text id="ltbxob"
+5/20
+15 remaining
+gate open
+```
+
+If live data differs from accepted baseline, report clearly in implementation report and explain source.
+
+Do not automatically change threshold.
+
+Do not change tracker logic.
+
+Label:
+
+```text id="hsh3em"
+Evidence only — no live exit change approved
+```
+
+---
+
+## 4. Empty/loading/error states
+
+Handle:
+
+* loading open trades,
+* loading closed trades,
+* loading account,
+* loading shadow exits,
+* error from any endpoint,
+* no open trades,
+* no closed trades today,
+* paper trading disabled,
+* data unavailable.
+
+No blank cards.
+
+No runtime crash.
+
+No stack traces.
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="1zggpq"
+artifacts/scanner/src/pages/paper-trading.tsx
+artifacts/scanner/src/components/fno/FoCockpitSummaryCards.tsx
+artifacts/scanner/src/components/fno/FoCockpitSafetyBanner.tsx
+artifacts/scanner/src/lib/foCockpitView.ts
+artifacts/scanner/src/lib/foCockpitView.test.ts
+```
+
+Only modify `foCockpitView.ts` if a small missing pure helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add or update frontend tests for any new pure helper logic.
+
+At minimum ensure:
+
+1. Summary cards use `summarizeFoCockpit`.
+2. P25 remaining uses official eligible count.
+3. P25 does not use raw MFE/MAE non-null count.
+4. Safety banner labels are driven from safe display state.
+5. Empty state helper handles no open and no closed trades.
+6. Missing diagnostics do not produce crash-prone values.
+
+Run:
+
+```text id="j7cej9"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-trading`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify banner renders,
+* summary cards render,
+* no layout break,
+* no console errors,
+* existing open/closed trade sections still render.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stop logic,
+* F&O target logic,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option selection,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* MTM sweep logic,
+* live order logic,
+* Kite logic,
+* swing scoring,
+* swing recommendations,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="drrg9e"
+artifacts/api-server/**
+lib/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W3-P2 F&O Cockpit Summary UI Implementation Report** with:
+
+A. Files changed
+B. Components added/updated
+C. Summary cards added
+D. Safety/freshness banner added
+E. P25 evidence headline behavior
+F. Data sources used
+G. Empty/loading/error states
+H. Tests added/updated
+I. Test/typecheck results
+J. Visual smoke result
+K. Confirmation existing open/closed trade UI still works
+L. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+M. Limitations/follow-up for W3-P3
+
+After W3-P2, stop and wait for approval.

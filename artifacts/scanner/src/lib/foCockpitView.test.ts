@@ -21,6 +21,9 @@ import {
   uniqueIndexes,
   uniqueSetups,
   uniqueExitReasons,
+  deriveP25Headline,
+  deriveFoFreshness,
+  FO_SAFETY_STATIC_LINES,
   type FoTradeRow,
   type FoFilters,
 } from "./foCockpitView";
@@ -623,5 +626,103 @@ describe("empty-state and option lists", () => {
     expect(uniqueIndexes(rows)).toEqual(["BANKNIFTY", "NIFTY"]);
     expect(uniqueSetups(rows)).toEqual(["TREND", "VWAP"]);
     expect(uniqueExitReasons(rows)).toEqual(["STOP_LOSS", "TARGET1"]);
+  });
+});
+
+// ── P25 evidence headline ───────────────────────────────────────────────────────
+
+describe("deriveP25Headline", () => {
+  it("uses the official eligible count and default threshold 20", () => {
+    const h = deriveP25Headline({ officialCount: 5 });
+    expect(h.available).toBe(true);
+    expect(h.officialCount).toBe(5);
+    expect(h.threshold).toBe(20);
+    expect(h.remaining).toBe(15);
+    expect(h.thresholdMet).toBe(false);
+    expect(h.gateStatus).toBe("OPEN");
+    expect(h.gateLabel).toBe("Evidence gate open");
+    expect(h.ratioLabel).toBe("5/20");
+  });
+
+  it("baseline 5/20 → 15 remaining, gate open (official rule)", () => {
+    const h = deriveP25Headline({ officialCount: 5, threshold: 20 });
+    expect(h.ratioLabel).toBe("5/20");
+    expect(h.remaining).toBe(15);
+    expect(h.gateStatus).toBe("OPEN");
+  });
+
+  it("never goes negative and flips to THRESHOLD_MET at/above the threshold", () => {
+    const met = deriveP25Headline({ officialCount: 20 });
+    expect(met.remaining).toBe(0);
+    expect(met.thresholdMet).toBe(true);
+    expect(met.gateStatus).toBe("THRESHOLD_MET");
+    expect(met.gateLabel).toBe("Evidence gate: threshold met");
+
+    const over = deriveP25Headline({ officialCount: 25 });
+    expect(over.remaining).toBe(0);
+    expect(over.thresholdMet).toBe(true);
+  });
+
+  it("treats null/undefined/NaN count as unavailable (safe placeholder, gate stays OPEN)", () => {
+    for (const v of [null, undefined, NaN]) {
+      const h = deriveP25Headline({ officialCount: v as number });
+      expect(h.available).toBe(false);
+      expect(h.officialCount).toBe(0);
+      expect(h.remaining).toBe(20);
+      expect(h.thresholdMet).toBe(false);
+      expect(h.gateStatus).toBe("OPEN");
+      expect(h.ratioLabel).toBe("—/20");
+    }
+  });
+
+  it("does NOT change the threshold of 20 by default", () => {
+    expect(deriveP25Headline({ officialCount: 0 }).threshold).toBe(20);
+  });
+});
+
+// ── Safety / freshness banner state ─────────────────────────────────────────────
+
+describe("deriveFoFreshness + FO_SAFETY_STATIC_LINES", () => {
+  const now = Date.parse("2026-05-31T10:00:00.000Z");
+
+  it("exposes the fixed compliance lines", () => {
+    expect(FO_SAFETY_STATIC_LINES).toContain("Paper trading only");
+    expect(FO_SAFETY_STATIC_LINES).toContain("No live order placement");
+    expect(FO_SAFETY_STATIC_LINES).toContain("No exit-rule change approved");
+  });
+
+  it("is healthy when the MTM sweep is recent", () => {
+    const r = deriveFoFreshness({
+      now,
+      mtmSweepLastSuccessAt: new Date(now - 60_000).toISOString(),
+    });
+    expect(r.level).toBe("healthy");
+    expect(r.lastMtmSweepAt).not.toBeNull();
+  });
+
+  it("is stale when the MTM sweep is older than the window", () => {
+    const r = deriveFoFreshness({
+      now,
+      mtmSweepLastSuccessAt: new Date(now - 60 * 60_000).toISOString(),
+      staleMinutes: 20,
+    });
+    expect(r.level).toBe("stale");
+  });
+
+  it("falls back to last open-eval timestamp when sweep is missing", () => {
+    const r = deriveFoFreshness({
+      now,
+      mtmSweepLastSuccessAt: null,
+      lastOpenEvalAt: new Date(now - 30_000).toISOString(),
+    });
+    expect(r.level).toBe("healthy");
+  });
+
+  it("is unknown when no timestamp or no now (safe placeholder, never throws)", () => {
+    expect(deriveFoFreshness({ now }).level).toBe("unknown");
+    expect(
+      deriveFoFreshness({ mtmSweepLastSuccessAt: new Date().toISOString() }).level,
+    ).toBe("unknown");
+    expect(deriveFoFreshness({ now, mtmSweepLastSuccessAt: "not-a-date" }).level).toBe("unknown");
   });
 });

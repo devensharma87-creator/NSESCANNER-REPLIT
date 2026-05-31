@@ -20,6 +20,14 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PaperComboSegment } from "@/components/paper-combo-segment";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { FoCockpitSafetyBanner } from "@/components/fno/FoCockpitSafetyBanner";
+import { FoCockpitSummaryCards } from "@/components/fno/FoCockpitSummaryCards";
+import {
+  summarizeFoCockpit,
+  deriveP25Headline,
+  deriveFoFreshness,
+  type FoTradeRow,
+} from "@/lib/foCockpitView";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -1326,10 +1334,79 @@ function FOSegment() {
     queryFn: () => api<{ missed: MissedSignalRow[]; generatedAt: string }>(`/paper/missed/fo`),
     refetchInterval: 30_000,
   });
-  // Closed/historical trades + analytics intentionally NOT fetched here.
-  // Paper tab is live-only — Reports tab (/paper-reports) carries the
-  // cumulative analytics, equity curve, by-setup breakdown and closed
-  // trade log.
+  // Closed trades for the day power the read-only cockpit summary tiles.
+  // The full historical analytics, equity curve and by-setup breakdown
+  // still live on the Reports tab (/paper-reports) — this stays live-only.
+  const trades = useQuery({
+    queryKey: QK_TRADES,
+    queryFn: () =>
+      api<{ date: string; trades: ClosedTrade[]; generatedAt: string }>(`/paper/trades/fo`),
+    refetchInterval: 30_000,
+  });
+  // Official P25 evidence count = server-computed `mfeAvailableCount`.
+  const shadowExits = useQuery({
+    queryKey: ["paper", "analytics", "fo", "shadow-exits"] as const,
+    queryFn: () =>
+      api<{ enabled: boolean; mfeAvailableCount: number }>(`/paper/analytics/fo/shadow-exits`),
+    refetchInterval: 60_000,
+  });
+  const mtmSweep = useQuery({
+    queryKey: ["paper", "diagnostics", "fo", "mtm-sweep"] as const,
+    queryFn: () => api<{ lastSuccessAt: string | null }>(`/paper/diagnostics/fo/mtm-sweep`),
+    refetchInterval: 30_000,
+  });
+
+  const openRows = useMemo<FoTradeRow[]>(
+    () => (positions.data?.positions ?? []).map((p) => ({ ...p, status: "OPEN" })),
+    [positions.data],
+  );
+  const closedRows = useMemo<FoTradeRow[]>(
+    () => (trades.data?.trades ?? []).map((t) => ({ ...t, status: "CLOSED" })),
+    [trades.data],
+  );
+  const cockpitSummary = useMemo(
+    () => summarizeFoCockpit({ openTrades: openRows, closedTrades: closedRows }),
+    [openRows, closedRows],
+  );
+  const p25 = useMemo(
+    () =>
+      deriveP25Headline({
+        officialCount:
+          shadowExits.data?.enabled === false
+            ? null
+            : shadowExits.data?.mfeAvailableCount,
+      }),
+    [shadowExits.data],
+  );
+  const lastClosedAt = useMemo<string | null>(() => {
+    let best: string | null = null;
+    let bestMs = -Infinity;
+    for (const t of trades.data?.trades ?? []) {
+      const ms = Date.parse(t.exitedAt);
+      if (Number.isFinite(ms) && ms > bestMs) {
+        bestMs = ms;
+        best = t.exitedAt;
+      }
+    }
+    return best;
+  }, [trades.data]);
+  const freshness = useMemo(
+    () =>
+      deriveFoFreshness({
+        now: Date.now(),
+        mtmSweepLastSuccessAt: mtmSweep.data?.lastSuccessAt ?? null,
+        lastOpenEvalAt: cockpitSummary.lastEvaluatedAt,
+        lastClosedAt,
+      }),
+    [mtmSweep.data, cockpitSummary.lastEvaluatedAt, lastClosedAt],
+  );
+  const summaryLoading = positions.isLoading || trades.isLoading;
+  const summaryError =
+    positions.error instanceof Error
+      ? positions.error.message
+      : trades.error instanceof Error
+        ? trades.error.message
+        : null;
 
   const handleTopupSuccess = useCallback(() => {
     void qc.invalidateQueries({ queryKey: QK_ACCOUNT });
@@ -1337,6 +1414,13 @@ function FOSegment() {
 
   return (
     <div className="space-y-6">
+      <FoCockpitSafetyBanner p25={p25} freshness={freshness} />
+      <FoCockpitSummaryCards
+        summary={summaryLoading ? null : cockpitSummary}
+        p25={p25}
+        loading={summaryLoading}
+        error={summaryError}
+      />
       <AccountCard
         data={account.data}
         loading={account.isLoading}

@@ -212,6 +212,100 @@ export function deriveP25Summary(rows: FoTradeRow[], threshold = 20): P25Summary
   };
 }
 
+// ── P25 evidence headline (display state for the cockpit banner/card) ─────────
+//
+// The OFFICIAL eligible count is supplied by the caller — in W3-P2 it comes from
+// the server-computed `mfeAvailableCount` on `/paper/analytics/fo/shadow-exits`,
+// which already applies the accepted rule (CLOSED + exit!=null + entry>0 + qty>0
+// + NOT 0/0 MFE/MAE). This helper does NOT recompute the count, change the
+// threshold (default 20), or touch the tracker — it only derives display labels.
+
+export interface P25Headline {
+  /** True when an official count was available from the source. */
+  available: boolean;
+  /** The official eligible count (0 when unavailable). */
+  officialCount: number;
+  threshold: number;
+  /** Math.max(0, threshold − officialCount). */
+  remaining: number;
+  thresholdMet: boolean;
+  gateStatus: "OPEN" | "THRESHOLD_MET";
+  /** "Evidence gate open" | "Evidence gate: threshold met". */
+  gateLabel: string;
+  /** "5/20" when available, else "—/20". */
+  ratioLabel: string;
+}
+
+export function deriveP25Headline(args: {
+  officialCount: number | null | undefined;
+  threshold?: number;
+}): P25Headline {
+  const threshold = args.threshold ?? 20;
+  const n = toNum(args.officialCount);
+  const available = Number.isFinite(n);
+  const officialCount = available ? n : 0;
+  const thresholdMet = available && officialCount >= threshold;
+  return {
+    available,
+    officialCount,
+    threshold,
+    remaining: Math.max(0, threshold - officialCount),
+    thresholdMet,
+    gateStatus: thresholdMet ? "THRESHOLD_MET" : "OPEN",
+    gateLabel: thresholdMet ? "Evidence gate: threshold met" : "Evidence gate open",
+    ratioLabel: available ? `${officialCount}/${threshold}` : `—/${threshold}`,
+  };
+}
+
+// ── Safety / freshness banner display state ───────────────────────────────────
+
+/** Fixed compliance lines for the cockpit safety banner (display-only). */
+export const FO_SAFETY_STATIC_LINES: readonly string[] = [
+  "Paper trading only",
+  "No live order placement",
+  "No exit-rule change approved",
+];
+
+export type FoFreshnessLevel = "healthy" | "stale" | "unknown";
+
+export interface FoFreshnessState {
+  lastMtmSweepAt: string | null;
+  lastOpenEvalAt: string | null;
+  lastClosedAt: string | null;
+  level: FoFreshnessLevel;
+}
+
+/**
+ * Derive a freshness verdict for the cockpit banner. Primary signal is the last
+ * successful MTM sweep; falls back to the last open-trade evaluation. When no
+ * timestamp or `now` is available the level is "unknown" (a safe placeholder,
+ * never a crash). Pure.
+ */
+export function deriveFoFreshness(args: {
+  now?: number;
+  mtmSweepLastSuccessAt?: string | null;
+  lastOpenEvalAt?: string | null;
+  lastClosedAt?: string | null;
+  staleMinutes?: number;
+}): FoFreshnessState {
+  const { now, mtmSweepLastSuccessAt = null, lastOpenEvalAt = null, lastClosedAt = null } = args;
+  const staleMinutes = args.staleMinutes ?? 20;
+
+  const primaryIso = mtmSweepLastSuccessAt ?? lastOpenEvalAt;
+  let level: FoFreshnessLevel = "unknown";
+  const primaryMs = parseTs(primaryIso);
+  if (now != null && Number.isFinite(now) && Number.isFinite(primaryMs)) {
+    level = now - primaryMs > staleMinutes * 60_000 ? "stale" : "healthy";
+  }
+
+  return {
+    lastMtmSweepAt: mtmSweepLastSuccessAt,
+    lastOpenEvalAt,
+    lastClosedAt,
+    level,
+  };
+}
+
 // ── 2. Summary aggregation ────────────────────────────────────────────────────
 
 export interface FoCockpitSummary {
