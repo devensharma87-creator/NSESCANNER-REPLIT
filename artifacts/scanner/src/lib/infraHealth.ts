@@ -206,3 +206,191 @@ export function deriveSnapshotSectionSeverity(
 
   return rollUp([diagSev, analyticsSev]);
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// W1A: Pro Operations Console pure helpers
+//
+// All read-only/display logic. None of these touch a fetch, a write, a
+// trade path, scoring, gates, thresholds, or scheduler. They exist so the
+// new owner-only panels (Gate Status, Swing Freshness, F&O Evidence) and
+// the public freshness strip have unit-testable logic.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Human-accepted verification states for the static gate-status config,
+ * plus the two live-derived P25 states. Mapped to a display Severity for
+ * badge colouring only.
+ */
+export type GateState =
+  | "verified"
+  | "partial"
+  | "pending"
+  | "not_approved"
+  | "live_open"
+  | "live_closed";
+
+export function gateStateToSeverity(g: GateState): Severity {
+  switch (g) {
+    case "verified":
+    case "live_closed":
+      return "ok";
+    case "partial":
+    case "live_open":
+      return "warn";
+    case "pending":
+    case "not_approved":
+      return "disabled";
+  }
+}
+
+/**
+ * Official P25 evidence gate, derived ONLY from the shadow-exit report's
+ * official counter (`mfeAvailableCount`). NEVER from raw `rowCount` /
+ * `rawRowCount` (those include pre-P20-fix 0/0 placeholder rows).
+ *
+ *   official     = mfeAvailableCount
+ *   threshold    = lowSampleThreshold (fallback 20)
+ *   remaining    = max(0, threshold - official)
+ *   excludedPreFix = processedRowCount - official (rows passing entry/qty
+ *                    but sitting at max_runup=0 AND max_drawdown=0)
+ *   gateOpen     = lowSampleWarning (fallback official < threshold)
+ *
+ * `enabled === false` (feature flag off) → "disabled".
+ */
+export interface ShadowExitReportLite {
+  enabled?: boolean | null;
+  mfeAvailableCount?: number | null;
+  lowSampleThreshold?: number | null;
+  lowSampleWarning?: boolean | null;
+  processedRowCount?: number | null;
+  rawRowCount?: number | null;
+  rowCount?: number | null;
+}
+export interface P25Gate {
+  enabled: boolean;
+  official: number;
+  threshold: number;
+  remaining: number;
+  excludedPreFix: number | null;
+  rawRowCount: number | null;
+  gateOpen: boolean;
+  severity: Severity;
+}
+export function deriveP25Gate(r: ShadowExitReportLite | null | undefined): P25Gate {
+  const threshold =
+    r?.lowSampleThreshold != null && Number.isFinite(r.lowSampleThreshold)
+      ? (r.lowSampleThreshold as number)
+      : 20;
+  if (!r || r.enabled === false) {
+    return {
+      enabled: false,
+      official: 0,
+      threshold,
+      remaining: threshold,
+      excludedPreFix: null,
+      rawRowCount: null,
+      gateOpen: true,
+      severity: "disabled",
+    };
+  }
+  const official =
+    r.mfeAvailableCount != null && Number.isFinite(r.mfeAvailableCount)
+      ? (r.mfeAvailableCount as number)
+      : 0;
+  const remaining = Math.max(0, threshold - official);
+  const gateOpen = r.lowSampleWarning != null ? !!r.lowSampleWarning : official < threshold;
+  const processed =
+    r.processedRowCount != null && Number.isFinite(r.processedRowCount)
+      ? (r.processedRowCount as number)
+      : null;
+  const excludedPreFix = processed != null ? Math.max(0, processed - official) : null;
+  const rawRowCount =
+    r.rawRowCount != null && Number.isFinite(r.rawRowCount) ? (r.rawRowCount as number) : null;
+  return {
+    enabled: true,
+    official,
+    threshold,
+    remaining,
+    excludedPreFix,
+    rawRowCount,
+    gateOpen,
+    severity: gateOpen ? "warn" : "ok",
+  };
+}
+
+/**
+ * Return the most-recent parseable timestamp from a list, or null. Used to
+ * collapse per-row `intradayUpdatedAt` into a single "last refresh" time.
+ */
+export function latestTimestamp(values: Array<string | null | undefined>): string | null {
+  let bestMs: number | null = null;
+  let bestStr: string | null = null;
+  for (const v of values) {
+    if (!v) continue;
+    const t = Date.parse(v);
+    if (!Number.isFinite(t)) continue;
+    if (bestMs === null || t > bestMs) {
+      bestMs = t;
+      bestStr = v;
+    }
+  }
+  return bestStr;
+}
+
+/**
+ * RS coverage over swing-scan rows. `rsScore` is persisted as a string
+ * (numeric column) or number; null means RS was not computed for that row.
+ */
+export function deriveRsCoverage(
+  rows: Array<{ rsScore: string | number | null | undefined }>,
+): { total: number; withRs: number; coveragePct: number; avgRsScore: number | null } {
+  let withRs = 0;
+  let sum = 0;
+  for (const row of rows) {
+    const raw = row.rsScore;
+    const v = raw == null ? null : typeof raw === "number" ? raw : parseFloat(raw);
+    if (v != null && Number.isFinite(v)) {
+      withRs += 1;
+      sum += v;
+    }
+  }
+  const total = rows.length;
+  const coveragePct = total > 0 ? (withRs / total) * 100 : 0;
+  const avgRsScore = withRs > 0 ? sum / withRs : null;
+  return { total, withRs, coveragePct, avgRsScore };
+}
+
+/**
+ * Public-safe freshness summary for the `/stocks-to-watch` strip.
+ *
+ * IMPORTANT: returns ONLY non-sensitive fields (scan date, last intraday
+ * refresh time, a coarse severity + label). No evidence counts, shadow
+ * scores, sector internals, or any owner-only diagnostic ever flows through
+ * here — guaranteed by the return type. Unit-tested to enforce this.
+ */
+export interface PublicFreshness {
+  scanDate: string | null;
+  lastIntradayRefreshAt: string | null;
+  severity: Severity;
+  label: string;
+}
+export function derivePublicFreshness(
+  input: { scanDate: string | null; intradayTimestamps: Array<string | null | undefined> },
+  nowMs: number,
+  intradayThresholdMin = 30,
+): PublicFreshness {
+  const lastIntradayRefreshAt = latestTimestamp(input.intradayTimestamps);
+  let severity: Severity;
+  let label: string;
+  if (lastIntradayRefreshAt) {
+    severity = deriveAgeSeverity(lastIntradayRefreshAt, nowMs, intradayThresholdMin);
+    label = severity === "ok" ? "Live" : severity === "stale" ? "Slightly stale" : "Stale";
+  } else if (input.scanDate) {
+    severity = "disabled";
+    label = "Daily scan only";
+  } else {
+    severity = "fail";
+    label = "No scan yet";
+  }
+  return { scanDate: input.scanDate, lastIntradayRefreshAt, severity, label };
+}

@@ -7,6 +7,12 @@ import {
   deriveSnapshotSectionSeverity,
   formatAge,
   rollUp,
+  deriveP25Gate,
+  gateStateToSeverity,
+  deriveRsCoverage,
+  latestTimestamp,
+  derivePublicFreshness,
+  type GateState,
   type SnapshotDiagnostics,
 } from "./infraHealth";
 
@@ -195,5 +201,138 @@ describe("rollUp", () => {
     expect(rollUp(["ok", "warn", "disabled"])).toBe("warn");
     expect(rollUp(["stale", "warn", "ok"])).toBe("stale");
     expect(rollUp(["stale", "fail", "ok"])).toBe("fail");
+  });
+});
+
+// ── W1A helpers ──────────────────────────────────────────────────────────────
+
+describe("deriveP25Gate", () => {
+  it("derives official from mfeAvailableCount, NOT raw row counts", () => {
+    const g = deriveP25Gate({
+      enabled: true,
+      mfeAvailableCount: 5,
+      rawRowCount: 41,
+      processedRowCount: 14,
+      lowSampleThreshold: 20,
+      lowSampleWarning: true,
+    });
+    expect(g.official).toBe(5); // from mfeAvailableCount, not 41 or 14
+    expect(g.threshold).toBe(20);
+    expect(g.remaining).toBe(15);
+    expect(g.excludedPreFix).toBe(9); // processedRowCount(14) - official(5)
+    expect(g.rawRowCount).toBe(41);
+    expect(g.gateOpen).toBe(true);
+    expect(g.severity).toBe("warn");
+  });
+
+  it("falls back to threshold 20 and computes gateOpen when lowSampleWarning absent", () => {
+    const g = deriveP25Gate({ enabled: true, mfeAvailableCount: 25, processedRowCount: 25 });
+    expect(g.threshold).toBe(20);
+    expect(g.remaining).toBe(0);
+    expect(g.gateOpen).toBe(false); // 25 >= 20
+    expect(g.severity).toBe("ok");
+    expect(g.excludedPreFix).toBe(0);
+  });
+
+  it("returns disabled when the feature flag is off or report missing", () => {
+    expect(deriveP25Gate({ enabled: false }).severity).toBe("disabled");
+    expect(deriveP25Gate({ enabled: false }).enabled).toBe(false);
+    expect(deriveP25Gate(null).severity).toBe("disabled");
+    expect(deriveP25Gate(undefined).excludedPreFix).toBeNull();
+  });
+
+  it("never returns negative remaining or excludedPreFix", () => {
+    const g = deriveP25Gate({
+      enabled: true,
+      mfeAvailableCount: 30,
+      processedRowCount: 10,
+      lowSampleThreshold: 20,
+    });
+    expect(g.remaining).toBe(0);
+    expect(g.excludedPreFix).toBe(0); // max(0, 10 - 30)
+  });
+});
+
+describe("gateStateToSeverity", () => {
+  it("maps every GateState to a display severity", () => {
+    const cases: Array<[GateState, string]> = [
+      ["verified", "ok"],
+      ["live_closed", "ok"],
+      ["partial", "warn"],
+      ["live_open", "warn"],
+      ["pending", "disabled"],
+      ["not_approved", "disabled"],
+    ];
+    for (const [state, sev] of cases) {
+      expect(gateStateToSeverity(state)).toBe(sev);
+    }
+  });
+});
+
+describe("deriveRsCoverage", () => {
+  it("counts string and numeric rsScore, skips null/non-numeric", () => {
+    const r = deriveRsCoverage([
+      { rsScore: "60" },
+      { rsScore: 80 },
+      { rsScore: null },
+      { rsScore: undefined },
+      { rsScore: "not-a-number" },
+    ]);
+    expect(r.total).toBe(5);
+    expect(r.withRs).toBe(2);
+    expect(r.coveragePct).toBe(40);
+    expect(r.avgRsScore).toBe(70);
+  });
+
+  it("handles an empty list without dividing by zero", () => {
+    const r = deriveRsCoverage([]);
+    expect(r.total).toBe(0);
+    expect(r.coveragePct).toBe(0);
+    expect(r.avgRsScore).toBeNull();
+  });
+});
+
+describe("latestTimestamp", () => {
+  it("returns the most recent parseable timestamp, ignoring blanks", () => {
+    expect(
+      latestTimestamp([null, "2026-05-10T10:00:00Z", undefined, "2026-05-12T10:00:00Z", ""]),
+    ).toBe("2026-05-12T10:00:00Z");
+    expect(latestTimestamp([null, undefined, "bad"])).toBeNull();
+    expect(latestTimestamp([])).toBeNull();
+  });
+});
+
+describe("derivePublicFreshness", () => {
+  it("returns ONLY public-safe fields (no owner diagnostics can leak)", () => {
+    const f = derivePublicFreshness(
+      { scanDate: "2026-05-15", intradayTimestamps: ["2026-05-15T12:55:00Z"] },
+      NOW,
+    );
+    expect(Object.keys(f).sort()).toEqual(
+      ["label", "lastIntradayRefreshAt", "scanDate", "severity"].sort(),
+    );
+  });
+
+  it("is Live when intraday refresh is within the threshold", () => {
+    const f = derivePublicFreshness(
+      { scanDate: "2026-05-15", intradayTimestamps: ["2026-05-15T12:55:00Z"] },
+      NOW,
+    );
+    expect(f.severity).toBe("ok");
+    expect(f.label).toBe("Live");
+    expect(f.lastIntradayRefreshAt).toBe("2026-05-15T12:55:00Z");
+  });
+
+  it("falls back to daily-scan-only when no intraday timestamps exist", () => {
+    const f = derivePublicFreshness({ scanDate: "2026-05-15", intradayTimestamps: [] }, NOW);
+    expect(f.severity).toBe("disabled");
+    expect(f.label).toBe("Daily scan only");
+    expect(f.lastIntradayRefreshAt).toBeNull();
+  });
+
+  it("reports no scan when both scan date and intraday are absent", () => {
+    const f = derivePublicFreshness({ scanDate: null, intradayTimestamps: [] }, NOW);
+    expect(f.severity).toBe("fail");
+    expect(f.label).toBe("No scan yet");
   });
 });

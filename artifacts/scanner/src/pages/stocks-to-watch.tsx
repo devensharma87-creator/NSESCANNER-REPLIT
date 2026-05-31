@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ExternalLink, TrendingUp, TrendingDown, RefreshCw, Calendar, Newspaper, BarChart3, ArrowUpDown } from "lucide-react";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
+import { derivePublicFreshness, formatAge } from "@/lib/infraHealth";
 
 interface WatchSignal {
   symbol: string;
@@ -208,6 +209,41 @@ function TechScanSection({ data, isLoading, error, scoreBySymbol: _scoreBySymbol
           {data?.scanDate ? `Scan ${data.scanDate}` : "—"} · {rows.length} shown
         </span>
       </div>
+
+      {(() => {
+        const now = Date.now();
+        const f = derivePublicFreshness(
+          {
+            scanDate: data?.scanDate ?? null,
+            intradayTimestamps: (data?.rows ?? []).map((r) => r.intradayUpdatedAt),
+          },
+          now,
+        );
+        const dot =
+          f.severity === "ok"
+            ? "bg-emerald-500"
+            : f.severity === "stale" || f.severity === "warn"
+              ? "bg-amber-500"
+              : f.severity === "disabled"
+                ? "bg-muted-foreground"
+                : "bg-rose-500";
+        return (
+          <div
+            className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono text-muted-foreground"
+            data-testid="swing-freshness-strip"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <span className={`h-2 w-2 rounded-full ${dot}`} />
+              {f.label}
+            </span>
+            <span>· Scan {f.scanDate ?? "—"}</span>
+            <span>
+              · Updated{" "}
+              {f.lastIntradayRefreshAt ? formatAge(f.lastIntradayRefreshAt, now) : "—"}
+            </span>
+          </div>
+        );
+      })()}
 
       {data?.runMeta && (
         <div className="text-[11px] font-mono text-muted-foreground">

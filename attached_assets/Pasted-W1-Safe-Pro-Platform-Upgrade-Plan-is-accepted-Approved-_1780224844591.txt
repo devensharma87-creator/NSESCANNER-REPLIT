@@ -1,0 +1,390 @@
+W1 Safe Pro Platform Upgrade Plan is accepted.
+
+Approved decisions:
+
+1. **Data-access pattern**
+
+Use the existing untyped `useEndpoint` / `credentials: "include"` fetch pattern.
+
+Do **not** modify OpenAPI.
+
+Do **not** run codegen.
+
+Do **not** add typed generated hooks in this phase.
+
+2. **Gate-status source**
+
+Static frontend verification-status config is approved for human-accepted states:
+
+```text id="fj1ce8"
+S2b = Verified
+S3b = Friday verified
+H10b = Partially verified
+H10d = Owner payload pending
+S4c/S4d/S4e/S4f = Not approved
+```
+
+P25 numbers must be pulled live from the official endpoint/official counter, not hardcoded.
+
+Official P25 state:
+
+```text id="kzv8vb"
+P25 official count = 5/20
+Remaining = 15
+Gate = OPEN
+```
+
+3. **Public exposure**
+
+Public `/stocks-to-watch` strip is approved, but keep it minimal.
+
+Public can show only:
+
+```text id="dzz3s5"
+latest scan date
+last intraday refresh time
+basic freshness status
+```
+
+Do **not** expose:
+
+* P25 evidence count,
+* B1/B3 shadow scores,
+* sector-strength internals,
+* owner diagnostics,
+* gate history,
+* F&O diagnostic internals,
+* promotion/demotion rows.
+
+Now proceed with:
+
+# W1A: Safe Pro Platform Upgrade Implementation — Read-Only UI Only
+
+Purpose:
+
+Implement the approved W1 UI/dashboard improvements.
+
+This is presentation/read-only work only.
+
+No trading/scoring behavior may change.
+
+## Approved implementation scope
+
+Implement:
+
+1. `/infra-health` owner-only Operations Console panels:
+
+* Evidence & Gate Status Panel
+* Swing Data Freshness Panel
+* F&O Evidence Panel
+* Shadow Diagnostics Panel
+* Sector Strength Panel
+
+2. `/stocks-to-watch` public-safe freshness strip:
+
+* latest scan date,
+* last intraday refresh time,
+* basic freshness/availability label only.
+
+3. Shared UI components if useful:
+
+```text id="8655m0"
+StatCard
+StatusBadge
+EmptyState
+PanelHeader
+FreshnessBadge
+GateStatusPanel
+SwingFreshnessPanel
+FoEvidencePanel
+ShadowDiagnosticsPanel
+SectorStrengthPanel
+```
+
+4. Pure helper/config files if useful:
+
+```text id="e2v9he"
+artifacts/scanner/src/config/verificationStatus.ts
+artifacts/scanner/src/lib/infraHealth.ts
+```
+
+## Existing data sources to use
+
+Use existing endpoints only.
+
+Do not add new backend endpoints.
+
+Expected endpoints:
+
+```text id="y2mep0"
+/api/stocks-to-watch/diagnostics/intraday-refresh
+/api/stocks-to-watch/diagnostics/swing-benchmark
+/api/stocks-to-watch/diagnostics/sector-coverage
+/api/stocks-to-watch/diagnostics/sector-strength
+/api/stocks-to-watch/diagnostics/swing-shadow-score
+/api/paper/analytics/fo/shadow-exits
+/api/paper/diagnostics/daily-summary/fo
+/api/paper/diagnostics/fo/mtm-sweep
+/api/stocks-to-watch/analysis
+```
+
+Use only whichever of these are already available and stable.
+
+If any endpoint is unavailable due owner auth or feature flag, show a safe empty/error state.
+
+Do not patch backend unless there is a small clearly broken UI-only issue, and stop for approval before backend changes.
+
+## Evidence & Gate Status Panel
+
+Show:
+
+```text id="f48mfk"
+S2b Intraday Refresh: Verified
+S3b RS Benchmark: Friday verified
+P25 F&O Evidence: 5/20, 15 remaining, gate open
+H10b B1/B3 Diagnostic: Partially verified
+H10d Owner Payload: Pending
+S4c/S4d/S4e/S4f: Not approved
+```
+
+Important:
+
+* P25 count must use official `mfeAvailableCount`.
+* Do **not** use raw `IS NOT NULL` MFE/MAE count.
+* Do **not** show 14/20 as the gate count.
+* If live endpoint says a different count, show it but include clear label that official tracker count is the source.
+
+## Swing Data Freshness Panel
+
+Show:
+
+* latest scan date,
+* last intraday refresh time,
+* rows updated,
+* trigger hits latched,
+* skipped no quote,
+* RS coverage,
+* average RS score if available,
+* RS benchmark source if available,
+* benchmark error if any.
+
+Include stale/healthy badges.
+
+## F&O Evidence Panel
+
+Show:
+
+* official P25 count,
+* threshold,
+* remaining trades,
+* eligible trades,
+* excluded pre-fix rows if endpoint supports it,
+* last evidence date,
+* gate status,
+* clear label:
+
+```text id="r0ppw2"
+Evidence only — no live exit change approved
+```
+
+## Shadow Diagnostics Panel
+
+Owner-only.
+
+Use B1/B3 shadow endpoint.
+
+Show:
+
+* live score,
+* B1 shadow score,
+* B3 shadow score,
+* B1/B3 deltas,
+* promoted/demoted counts,
+* reason codes,
+* data-quality summary.
+
+Always show clear safety label:
+
+```text id="h2vo9b"
+Diagnostic only — not live scoring
+```
+
+If owner payload is unavailable or endpoint returns auth/disabled state, show:
+
+```text id="c4d663"
+Owner payload pending / diagnostic unavailable
+```
+
+Do not treat this as a system failure.
+
+## Sector Strength Panel
+
+Owner-only.
+
+Show:
+
+* sector rank,
+* member count,
+* average score,
+* average RS,
+* top stocks,
+* low-confidence sectors,
+* clear label:
+
+```text id="ckhb0c"
+Diagnostic only — not live scoring
+```
+
+## Public `/stocks-to-watch` freshness strip
+
+Show only:
+
+* latest scan date,
+* latest intraday refresh time if available,
+* simple freshness status.
+
+Do not show owner-only internals publicly.
+
+## UI/visual design direction
+
+Make the dashboard look premium/pro:
+
+* consistent cards,
+* clean stat grid,
+* readable tables,
+* compact status badges,
+* clear empty states,
+* amber/red stale/error badges,
+* green verified badges,
+* monospace for numbers,
+* better spacing,
+* dark professional operations-console look matching existing design.
+
+Do not overcomplicate the UI.
+
+Keep it readable.
+
+## Loading / empty / error states
+
+Every panel must handle:
+
+* loading,
+* empty,
+* 401/403,
+* endpoint disabled,
+* stale data,
+* missing fields,
+* network error.
+
+No blank panels.
+
+No stack traces.
+
+No uncaught runtime errors.
+
+## Tests required
+
+Add or update tests for:
+
+1. P25 remaining count uses official `mfeAvailableCount`.
+2. P25 gate status derives from official threshold/count.
+3. Static gate-status config renders correct states.
+4. Public strip does not expose owner-only data.
+5. Owner panels handle loading/empty/error.
+6. Shadow panel clearly labels diagnostic-only status.
+7. Sector panel clearly labels diagnostic-only status.
+8. Stale/fresh badge helpers work.
+9. No backend/F&O/swing scoring files are touched.
+10. Typecheck passes.
+
+Run:
+
+```text id="zmdylv"
+pnpm --filter @workspace/scanner run test
+pnpm run typecheck
+```
+
+If the scanner test command differs, use the project’s existing frontend test command and report the exact command.
+
+## Files allowed to change
+
+Frontend only, preferably:
+
+```text id="1q8x64"
+artifacts/scanner/src/pages/infra-health.tsx
+artifacts/scanner/src/pages/stocks-to-watch.tsx
+artifacts/scanner/src/components/infra/*
+artifacts/scanner/src/config/verificationStatus.ts
+artifacts/scanner/src/lib/infraHealth.ts
+artifacts/scanner/src/lib/infraHealth.test.ts
+```
+
+Avoid backend changes.
+
+Do not touch:
+
+```text id="8n0yjf"
+artifacts/api-server/**
+lib/db/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+## Strict guardrails
+
+Do not change:
+
+* live swing scoring,
+* swing recommendations,
+* swing action labels,
+* swing entries,
+* swing stops,
+* swing targets,
+* swing RR,
+* B1/B3 live activation,
+* sector scoring in live code,
+* delivery scoring,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* P25 threshold,
+* P25 tracker logic,
+* DB schema,
+* scheduler,
+* route auth model,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+## Output required
+
+Produce a **W1A Safe Pro Platform Upgrade Implementation Report** with:
+
+A. Files changed
+B. New/updated components
+C. Endpoints used
+D. Public vs owner-only surfaces
+E. Gate-status behavior
+F. P25 count source confirmation
+G. Loading/empty/error states implemented
+H. Tests added/updated
+I. Typecheck/test results
+J. Screenshots or concise visual summary if available
+K. Confirmation that no backend/scoring/trading/schema/scheduler/auth behavior changed
+L. Any limitations or follow-up items
+
+After W1A, stop and wait for approval.
+
+Proceed with W1A implementation only.
