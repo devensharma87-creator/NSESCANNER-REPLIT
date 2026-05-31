@@ -1,0 +1,232 @@
+W5-P3 is accepted.
+
+Accepted final state:
+
+* `TIME_EXIT_1520` added to `PaperTradeFOClosed.exitReason`.
+* Codegen regenerated.
+* Closed F&O response paths now accept `TIME_EXIT_1520`.
+* `PaperTradeFODetail` from W5-P2 remains untouched.
+* Labels are truthful:
+
+  * `TIME_EXIT_1520` → `TIME EXIT 1520`
+* No remap to another exit reason.
+* No trading logic changed.
+* No exit logic changed.
+* No force-exit timing changed.
+* No paper-trade execution changed.
+* No P25/MFE/MAE logic changed.
+* No schema/auth/scheduler changes.
+* No `replit.md`, memory, or docs changes.
+* API-server tests passed: 664/664.
+* Scanner tests passed: 337/337.
+* Full repo typecheck clean.
+* Scanner build passed.
+* Architect review passed.
+
+Current verdict:
+
+```text id="zhq8o7"
+W5-P3 = closed
+PaperTradeFOClosed TIME_EXIT_1520 contract issue = fixed
+Trading/scoring/backend execution behavior = unchanged
+```
+
+Now proceed with **W5-P4 only**.
+
+# W5-P4: Final Platform Regression / Production Readiness Closure
+
+Purpose:
+
+Perform final regression and production-readiness verification after the W5 enum-contract fixes.
+
+This is a verification/closure phase.
+
+Do not build a new feature.
+
+Do not change strategy logic.
+
+Do not change trading logic.
+
+Do not change backend behavior unless a real regression is found.
+
+---
+
+## Approved scope
+
+Verify:
+
+1. W5-P2 report enum fix remains stable.
+2. W5-P3 closed-trade enum fix remains stable.
+3. `/paper-reports` remains healthy.
+4. `/paper-trading` closed F&O trade path remains healthy.
+5. No new 500s from report/closed-trade response validation.
+6. No forbidden files changed.
+7. Build/test/typecheck remain green.
+8. Owner-only boundary remains intact.
+
+---
+
+## No code changes by default
+
+Make no code changes unless a real defect is found.
+
+A fix is allowed only if:
+
+* it is directly related to W5 regression,
+* minimal,
+* does not alter trading/scoring/strategy behavior,
+* does not alter entry/exit/stop/target/sizing logic,
+* does not alter P25/MFE/MAE calculations,
+* does not alter auth,
+* does not alter DB schema,
+* does not add dependencies.
+
+If a real defect is found, stop and report before making broad changes.
+
+---
+
+# Required verification
+
+## 1. Contract verification
+
+Confirm generated contracts accept `TIME_EXIT_1520` in both surfaces:
+
+```text id="xpyv3m"
+PaperTradeFODetail.exitReason
+PaperTradeFOClosed.exitReason
+```
+
+Confirm invalid unknown exit reasons still reject.
+
+Confirm legacy reasons still pass.
+
+---
+
+## 2. Runtime route verification
+
+Where possible, verify:
+
+```text id="s1rtaw"
+/api/paper/reports/fo/monthly?month=2026-05
+/api/paper/positions/fo
+```
+
+Expected:
+
+* no ZodError,
+* no `internal_server_error`,
+* no enum validation failure,
+* no auth bypass,
+* owner-only behavior preserved.
+
+If owner auth blocks direct route testing, report it honestly.
+
+---
+
+## 3. Page verification
+
+Verify these pages do not regress:
+
+```text id="8kpmwz"
+/paper-reports
+/paper-trading
+```
+
+If authenticated visual access is blocked by owner login, do not bypass auth.
+
+Report:
+
+```text id="i4x2em"
+Authenticated visual QA blocked by owner login wall.
+```
+
+But still verify tests, typecheck, build, and unauthenticated owner boundary.
+
+---
+
+## 4. W5 known fixes checklist
+
+Confirm:
+
+* F&O reports no longer fail due to `TIME_EXIT_1520`.
+* Overview performance tables no longer fail due to F&O report enum.
+* Overview best/worst no longer fails due to F&O report enum.
+* Closed F&O position response contract no longer fails due to `TIME_EXIT_1520`.
+* Closed F&O trades list response contract no longer fails due to `TIME_EXIT_1520`.
+* `TIME_EXIT_1520` displays truthfully as `TIME EXIT 1520`.
+* No fabricated mapping is used.
+
+---
+
+# Commands to run
+
+Run:
+
+```text id="yf7krh"
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+Also restart/confirm API server boot if possible.
+
+---
+
+# Scope audit
+
+Run git diff/status audit.
+
+Allowed W5 changes should remain limited to:
+
+```text id="5cemn0"
+openapi.yaml
+generated codegen files
+W5-specific report/closed-trade UI type/label files
+W5-specific focused tests
+```
+
+Forbidden:
+
+```text id="g1ez4n"
+trading execution logic
+strategy/scoring logic
+F&O entry/exit logic
+force-exit timing logic
+stop/target/sizing/gate logic
+P25 logic
+MFE/MAE calculation logic
+DB schema
+scheduler
+auth/LoginGate
+public mode
+secrets
+replit.md
+memory/docs
+```
+
+If any forbidden file changed, stop and report.
+
+---
+
+# Output required
+
+Produce **W5-P4 Final Platform Regression / Production Readiness Report** with:
+
+A. Contract verification result
+B. Route verification result
+C. `/paper-reports` status
+D. `/paper-trading` status
+E. Test results
+F. Typecheck result
+G. Build result
+H. API server boot result
+I. Scope audit result
+J. Owner/auth boundary result
+K. Confirmation W5-P2 remains fixed
+L. Confirmation W5-P3 remains fixed
+M. Confirmation no trading/scoring/strategy/schema/auth behavior changed
+N. Remaining risks or limitations
+O. Recommended next step
+
+Do not proceed beyond this report.
