@@ -1,0 +1,493 @@
+W3 F&O Paper Trading / Options Cockpit Pro Upgrade Plan is accepted.
+
+Proceed with **W3-P1 only**.
+
+# W3-P1: F&O Cockpit Pure View Helpers + Tests Only
+
+Purpose:
+
+Create the pure frontend helper layer for the future F&O cockpit UI.
+
+This phase must not render new UI yet.
+
+This phase must not modify backend, trading, scoring, execution, exits, entries, stops, targets, sizing, gates, scheduler, schema, auth, OpenAPI, or `replit.md`.
+
+This is helper/test work only.
+
+---
+
+## Approved files
+
+Create only:
+
+```text id="g3i9yq"
+artifacts/scanner/src/lib/foCockpitView.ts
+artifacts/scanner/src/lib/foCockpitView.test.ts
+```
+
+Do not modify `/paper-trading` page yet.
+
+Do not create components yet.
+
+Do not wire UI yet.
+
+Do not touch backend.
+
+---
+
+## Helper scope
+
+Implement pure helper functions and types for existing F&O paper trading data.
+
+The helper should support future cockpit sections:
+
+* summary cards,
+* open trades table/cards,
+* closed trades review,
+* P25 evidence panel,
+* “Why this trade?” drawer,
+* risk badges,
+* filters,
+* sorting,
+* grouping,
+* empty-state logic.
+
+All helpers must be deterministic and side-effect free.
+
+No API calls inside helpers.
+
+No DB calls.
+
+No date/time mutation.
+
+No trading logic mutation.
+
+---
+
+## Existing fields to model
+
+Use existing frontend-safe fields only.
+
+Support open/closed trade-like rows with fields such as:
+
+```text id="q20xdb"
+id
+signalDate
+indexSymbol
+indexName
+setupKey
+direction
+optionType
+strike
+lots
+lotSize
+entryPremium
+stopPremium
+target1Premium
+target2Premium
+capitalDeployed
+lastPremium
+unrealizedPnl
+maxRunup
+maxDrawdown
+openedAt
+lastEvaluatedAt
+status
+exitPremium
+exitedAt
+realizedPnl
+exitReason
+journal
+tags
+```
+
+Handle missing fields safely.
+
+---
+
+# Required helper features
+
+## 1. P25 official eligibility helper
+
+Implement a display-only predicate matching the accepted official P25 rule:
+
+```text id="avwiby"
+status = CLOSED
+exit_premium IS NOT NULL
+entry_premium > 0
+qty > 0
+NOT (max_runup = 0 AND max_drawdown = 0)
+```
+
+Frontend field mapping:
+
+```text id="u4ksgd"
+status === CLOSED
+exitPremium != null
+entryPremium > 0
+quantity = lots * lotSize > 0
+NOT (maxRunup === 0 AND maxDrawdown === 0)
+```
+
+Important:
+
+* Do not use raw `IS NOT NULL` MFE/MAE logic.
+* Do not count 0/0 placeholder rows.
+* Do not change P25 tracker logic.
+* Do not change threshold.
+* This helper is for UI classification only.
+
+Suggested function names:
+
+```text id="fx7eqn"
+isP25EligibleTrade(row)
+getP25EligibilityReason(row)
+deriveP25Summary(rows, threshold = 20)
+```
+
+Reasons should include:
+
+```text id="upii8z"
+eligible
+not_closed
+missing_exit_premium
+invalid_entry_premium
+invalid_quantity
+excluded_zero_zero_mfe_mae
+missing_mfe_mae
+```
+
+---
+
+## 2. Summary aggregation helpers
+
+Implement summary helpers for:
+
+* open trade count,
+* closed trade count,
+* closed today count if date supplied,
+* realised P&L,
+* unrealised/MTM P&L,
+* win count,
+* loss count,
+* average MFE,
+* average MAE,
+* best trade,
+* worst trade,
+* last signal/open time,
+* last evaluation time,
+* official P25 count,
+* remaining to threshold,
+* gate open/closed.
+
+Suggested function:
+
+```text id="tu5ov4"
+summarizeFoCockpit({ openTrades, closedTrades, threshold })
+```
+
+Use safe numeric parsing.
+
+Handle `null`, `undefined`, strings, and invalid numbers safely.
+
+---
+
+## 3. Risk badge helpers
+
+Implement display-only risk badges derived from existing fields only.
+
+Allowed badges:
+
+```text id="vde41h"
+paper-only
+evidence-eligible
+evidence-excluded-0/0
+no-MFE-data
+high-drawdown
+time-exit
+stop-exit
+target-exit
+stale-quote
+missing-option-snapshot
+low-sample-warning
+open-position
+closed-position
+profit
+loss
+```
+
+Do not create trading logic.
+
+Do not infer new signals.
+
+Do not recompute strategies.
+
+Suggested function:
+
+```text id="8lev6x"
+deriveFoRiskBadges(row, options)
+```
+
+Options can include:
+
+```text id="40ilou"
+now
+staleMinutes
+lowSampleWarning
+snapshotMissing
+```
+
+---
+
+## 4. Filters
+
+Implement client-side filters for:
+
+* index,
+* setup,
+* direction,
+* option type,
+* status,
+* date range,
+* P&L positive/negative,
+* P25 eligible,
+* exit reason,
+* evidence available,
+* paper-only.
+
+Suggested:
+
+```text id="qc1m76"
+DEFAULT_FO_FILTERS
+applyFoFilters(rows, filters)
+```
+
+Must not mutate input arrays.
+
+---
+
+## 5. Sorting
+
+Implement sorting for:
+
+* entry time,
+* exit time,
+* realised P&L,
+* unrealised P&L,
+* MFE,
+* MAE,
+* confidence if field exists,
+* time in trade,
+* symbol/index.
+
+Suggested:
+
+```text id="e94k8v"
+sortFoRows(rows, sortKey, sortDir)
+```
+
+Rules:
+
+* no mutation,
+* nulls/NaN last,
+* stable enough for UI,
+* safe fallback for missing fields.
+
+---
+
+## 6. Grouping
+
+Implement grouping for:
+
+* index,
+* setup,
+* exit reason,
+* status,
+* P25 status,
+* P&L sign.
+
+Suggested:
+
+```text id="0mjreb"
+groupFoRows(rows, groupBy)
+```
+
+---
+
+## 7. Time helpers
+
+Implement pure helpers for:
+
+* time in trade,
+* last activity timestamp,
+* stale quote detection.
+
+Suggested:
+
+```text id="mqq551"
+getTimeInTradeMs(row)
+getFoLastActivityAt(row)
+isFoQuoteStale(row, now, staleMinutes)
+```
+
+---
+
+# Tests required
+
+Create a strong test suite in:
+
+```text id="wpwqer"
+artifacts/scanner/src/lib/foCockpitView.test.ts
+```
+
+Test at minimum:
+
+## P25 eligibility
+
+* eligible closed trade with non-zero MFE/MAE passes,
+* closed trade with `maxRunup=0` and `maxDrawdown=0` is excluded,
+* raw non-null MFE/MAE is not enough,
+* open trade excluded,
+* missing exit premium excluded,
+* invalid entry premium excluded,
+* invalid quantity excluded,
+* missing MFE/MAE excluded,
+* official summary count uses only eligible trades,
+* remaining = `20 - eligibleCount`.
+
+## Summary aggregation
+
+* open count,
+* closed count,
+* realised P&L,
+* unrealised P&L,
+* win/loss count,
+* average MFE,
+* average MAE,
+* best trade,
+* worst trade,
+* last open/evaluation time,
+* handles empty arrays.
+
+## Risk badges
+
+* evidence eligible,
+* evidence excluded 0/0,
+* no MFE data,
+* high drawdown,
+* time exit,
+* stop exit,
+* target exit,
+* stale quote,
+* profit/loss,
+* paper-only.
+
+## Filters
+
+* each individual filter,
+* combined filters,
+* P25 eligible filter,
+* P&L sign filter,
+* date range filter,
+* does not mutate input.
+
+## Sorting
+
+* realised P&L,
+* unrealised P&L,
+* MFE,
+* MAE,
+* entry time,
+* exit time,
+* time in trade,
+* NaN/null last,
+* no input mutation.
+
+## Grouping
+
+* index grouping,
+* setup grouping,
+* status grouping,
+* exit reason grouping,
+* P25 status grouping,
+* P&L sign grouping.
+
+---
+
+# Commands to run
+
+Run:
+
+```text id="v6yvwh"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+If command names differ, run the closest existing commands and report exact command used.
+
+---
+
+# Strict guardrails
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stop logic,
+* F&O target logic,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option selection,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* MTM sweep logic,
+* live order logic,
+* Kite logic,
+* swing scoring,
+* swing recommendations,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="3hdgld"
+artifacts/api-server/**
+lib/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+```
+
+---
+
+# Output required
+
+Produce a **W3-P1 F&O Cockpit Pure Helper Implementation Report** with:
+
+A. Files created/changed
+B. Helper functions added
+C. P25 eligibility logic implemented
+D. Summary helpers implemented
+E. Risk badges implemented
+F. Filters/sorting/grouping implemented
+G. Tests added
+H. Test/typecheck results
+I. Confirmation no UI wiring was done
+J. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+K. Limitations/follow-up for W3-P2
+
+After W3-P1, stop and wait for approval.
