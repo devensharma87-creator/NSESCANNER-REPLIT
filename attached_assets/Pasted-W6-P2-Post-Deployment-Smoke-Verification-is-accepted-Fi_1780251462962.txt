@@ -1,0 +1,210 @@
+W6-P2 Post-Deployment Smoke Verification is accepted.
+
+Final release status:
+
+```text id="zln38c"
+W6-P2 = PASS
+Production deployment = healthy
+W5 TIME_EXIT_1520 contract fix = healthy
+Owner/auth boundary = intact
+Trading/scoring/execution behavior = unchanged
+```
+
+Accepted findings:
+
+* No `TIME_EXIT_1520` ZodError in production logs.
+* No `internal_server_error` on paper routes in production logs.
+* No repeated W5-related 500s.
+* `/api/paper/reports/fo/monthly` remains owner-gated.
+* `/api/paper/positions/fo` remains owner-gated.
+* No auth bypass.
+* No public-mode change.
+* No code/env/secret/DNS change made during smoke.
+* W6-P2 is closed.
+
+Now proceed with **W6-P3 only**.
+
+# W6-P3: Background Ingestion / DB Timeout Diagnostics — Read-Only Investigation
+
+Purpose:
+
+Investigate the non-blocking production warnings seen during W6-P2:
+
+```text id="79hmzy"
+background-ingestion DB connection timeouts
+global_screener_presets preset scheduler timeout
+participant_oi_daily backfill timeout
+Kite ECONNABORTED / session-read failures
+Yahoo chart timeout
+```
+
+This is **read-only diagnostics only**.
+
+Do not change code.
+
+Do not change env/secrets.
+
+Do not change scheduler.
+
+Do not change DB schema.
+
+Do not change trading/scoring logic.
+
+Do not change paper execution.
+
+---
+
+## Important context
+
+W6-P2 confirmed these warnings are **not related to W5** and did not break the production deployment.
+
+This task is only to understand:
+
+1. whether these warnings are harmless cold-start/autoscale behavior,
+2. whether they indicate DB pool exhaustion,
+3. whether background jobs are too aggressive on boot,
+4. whether external data calls need better timeout/backoff,
+5. whether any future fix is needed.
+
+---
+
+# Approved scope
+
+Read-only inspection of:
+
+* production logs,
+* dev logs,
+* scheduler startup behavior,
+* DB connection pool configuration,
+* participant OI backfill scheduling,
+* global screener preset scheduler,
+* Kite session read path,
+* Yahoo fallback timeout behavior,
+* autoscale/cold-start behavior,
+* fail-open behavior.
+
+No implementation.
+
+No config changes.
+
+No deployment.
+
+---
+
+# Required investigation
+
+## 1. Log classification
+
+Classify each warning/error:
+
+```text id="o4tt7s"
+A. DB connection timeout
+B. Preset scheduler load failure
+C. Participant OI backfill failure
+D. Kite session read failure
+E. Yahoo timeout
+F. Other
+```
+
+For each, report:
+
+* timestamp,
+* route/job name,
+* error text,
+* severity,
+* user impact,
+* whether app continued serving,
+* whether it repeated or was one-time at boot.
+
+## 2. DB pool check
+
+Inspect current DB connection/pool setup.
+
+Report:
+
+* pool max,
+* idle timeout,
+* connection timeout,
+* whether jobs share the same pool as web requests,
+* whether boot jobs can starve route requests,
+* whether autoscale cold start can trigger concurrent jobs.
+
+Do not change pool settings yet.
+
+## 3. Scheduler startup check
+
+Inspect scheduler startup behavior.
+
+Report:
+
+* which jobs start on boot,
+* whether they run immediately,
+* whether they run concurrently,
+* whether they have locking/debounce,
+* whether they have retry/backoff,
+* whether they fail open.
+
+Do not change scheduler code yet.
+
+## 4. Participant OI backfill check
+
+Inspect participant OI backfill path.
+
+Report:
+
+* when it runs,
+* data source,
+* whether failure is expected outside market/data availability windows,
+* whether it blocks user routes,
+* whether it logs too noisily,
+* whether it should be deferred after boot in a future fix.
+
+## 5. Kite session check
+
+Inspect Kite session read behavior.
+
+Report:
+
+* whether missing/expired Kite session causes user-facing failure,
+* whether it is fail-open,
+* whether it retries aggressively,
+* whether it affects paper-only mode,
+* whether session errors are expected outside trading hours.
+
+Do not access or expose secrets.
+
+## 6. Yahoo timeout check
+
+Inspect Yahoo fallback timeout behavior.
+
+Report:
+
+* timeout duration,
+* retry behavior,
+* whether failures are isolated per symbol,
+* whether timeouts block page load,
+* whether better caching/backoff may be needed later.
+
+---
+
+# Output required
+
+Produce **W6-P3 Background Ingestion Diagnostics Report** with:
+
+A. Summary verdict
+B. Log classification table
+C. DB pool findings
+D. Scheduler startup findings
+E. Participant OI backfill findings
+F. Kite session findings
+G. Yahoo timeout findings
+H. User impact assessment
+I. Whether production deployment is still healthy
+J. Whether any urgent fix is needed
+K. Recommended future fix, if any
+L. Exact files inspected
+M. Confirmation no code/env/secret/schema/scheduler/trading changes were made
+
+Stop after the diagnostic report.
+
+Do not implement fixes in W6-P3.
