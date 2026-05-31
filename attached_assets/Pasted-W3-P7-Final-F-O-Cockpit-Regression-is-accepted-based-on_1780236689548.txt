@@ -1,0 +1,170 @@
+W3-P7 Final F&O Cockpit Regression is accepted based on the visible report.
+
+Accepted findings:
+
+* `pnpm --filter @workspace/scanner run test` passed.
+* 242/242 scanner tests passed.
+* Full typecheck passed.
+* Scanner build succeeded.
+* Scope audit was clean.
+* No forbidden backend/trading/scoring/schema/auth/scheduler paths were touched.
+* P25 panel uses official `mfeAvailableCount` only.
+* Raw rows remain context only.
+* `14/20` is not shown as official.
+* Threshold remains 20.
+* Safety labels are present:
+
+  * Paper trading only
+  * No live order placement
+  * No exit-rule change approved
+* Closed-trade P25 eligibility is not fabricated when MFE/MAE is absent.
+* Browser console had no runtime/React errors.
+* No speculative polish was made.
+* `replit.md`, memory, and docs remain untouched.
+
+Current verdict:
+
+```text id="uwiv8f"
+W3 = accepted
+F&O cockpit safe frontend upgrade = complete
+Trading/scoring/backend behavior = unchanged
+```
+
+Please now produce one short final W3 closure note confirming:
+
+A. Final test command results
+B. Final typecheck result
+C. Build result
+D. Exact files changed during W3
+E. Confirmation no backend/trading/scoring/schema/auth/scheduler behavior changed
+F. Remaining limitation: authenticated visual QA still blocked by owner login
+G. Recommended next safe phase
+
+Do not make code changes for this closure note.
+
+---
+
+# Next safe phase: W4 Planning Only
+
+After the closure note, proceed with **W4 planning only**.
+
+# W4: Paper Reports / Trade Journal / Performance Analytics Pro Upgrade Plan
+
+Purpose:
+
+Plan the next safe upgrade for the reporting and journal area.
+
+This should improve review, analytics, trade learning, and decision-quality visibility using existing data only.
+
+This is planning only.
+
+Do not implement yet.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change P25 tracker.
+
+Do not change paper-trade execution.
+
+## Areas to inspect
+
+Review existing frontend pages/components/endpoints for:
+
+* `/paper-reports`,
+* trade journal,
+* closed F&O history,
+* equity paper trades,
+* F&O paper trades,
+* realised P&L,
+* daily/weekly/monthly P&L,
+* win/loss analytics,
+* best/worst trades,
+* setup-wise performance,
+* index-wise performance,
+* exit-reason analytics,
+* MFE/MAE analytics if available,
+* drawdown analytics,
+* calendar view,
+* trade notes/journal/tags,
+* export/download options if any.
+
+## W4 plan should cover
+
+1. Performance dashboard summary cards.
+2. Calendar-style P&L view.
+3. Setup-wise performance table.
+4. Index-wise performance table.
+5. Exit-reason analysis.
+6. Best/worst trade review.
+7. Mistake/review journal.
+8. MFE/MAE review if existing data supports it.
+9. Equity vs F&O separation.
+10. Filter/sort/date-range controls.
+11. Export/reporting possibilities using existing data.
+12. Mobile layout.
+13. Empty/loading/error states.
+14. Owner-only/private boundary.
+15. Safety labels:
+
+* paper trading only,
+* analytics only,
+* no live order placement,
+* no strategy change.
+
+## Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+## Output required
+
+Produce:
+
+```text id="zbecjt"
+W4 Paper Reports / Trade Journal / Performance Analytics Pro Upgrade Plan
+```
+
+The plan must include:
+
+A. Current pages/components found
+B. Existing endpoints/data sources found
+C. Current fields available
+D. Current UI/reporting issues
+E. Proposed dashboard layout
+F. Proposed summary cards
+G. Proposed trade journal improvements
+H. Proposed performance analytics
+I. Proposed filters/sorting/date controls
+J. Proposed export/reporting options if supported by existing data
+K. Owner-only/private boundary
+L. Files likely to change
+M. Tests needed
+N. Fields not available yet
+O. Implementation phases
+P. Confirmation no trading/scoring/backend behavior will change
+
+After W4 plan, stop and wait for approval.
