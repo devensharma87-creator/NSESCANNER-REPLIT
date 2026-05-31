@@ -1,0 +1,258 @@
+W4-P7 Reports Filters / CSV Export is accepted.
+
+Accepted final state:
+
+* Reports controls bar added.
+* Date-range narrowing added.
+* Segment/setup/index-exit/tag/P&L/journal filters added.
+* Sort controls added.
+* Result counts added.
+* Reset filters added.
+* Client-side CSV export added.
+* CSV export uses already-fetched visible rows only.
+* No backend CSV export used.
+* Controls scoped safely to Overview performance + best/worst sections.
+* Existing W4 sections preserved:
+
+  * safety banner,
+  * summary cards,
+  * equity curve,
+  * drawdown cards,
+  * MFE/MAE review,
+  * performance tables,
+  * best/worst review,
+  * journal editor.
+* Existing Intraday / Equity / F&O / Journal tabs preserved.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No route/auth changes.
+* No OpenAPI/codegen changes.
+* No trading/scoring/P25/MFE-MAE logic changes.
+* No `replit.md`, memory, or docs changes.
+* 333/333 scanner tests passed.
+* Scanner typecheck clean.
+* Full repo typecheck clean.
+* Architect false-positive was only the system-added pasted spec under `attached_assets`, not implementation code.
+
+Current verdict:
+
+```text id="ojjz5v"
+W4-P7 = accepted
+Reports filters + date range + client-side CSV export = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W4-P8 only**.
+
+# W4-P8: Final Regression / Scope Audit / Visual Smoke / Safe Polish
+
+Purpose:
+
+Close W4 safely by performing final regression checks, scope audit, visual smoke, and only minimal safe polish if a real UI issue is found.
+
+This is a closure and verification phase.
+
+Do not start a new feature.
+
+Do not change backend.
+
+Do not change trading/scoring logic.
+
+---
+
+## Approved scope
+
+Perform:
+
+1. Full test run.
+2. Scanner typecheck.
+3. Full repo typecheck.
+4. Production build if available.
+5. Git scope audit.
+6. Confirm changed files.
+7. Confirm owner-only boundary.
+8. Browser smoke for `/paper-reports`.
+9. Confirm W4 sections still coexist.
+10. Confirm no console errors.
+11. Minimal frontend polish only if necessary.
+
+---
+
+## W4 sections to verify
+
+Verify `/paper-reports` still contains or preserves:
+
+```text id="izzzo6"
+Overview tab
+Reports safety banner
+Summary cards
+F&O vs Equity comparison
+Equity curve
+Drawdown cards
+MFE/MAE review
+Setup performance table
+Exit-reason performance table
+Index/symbol performance table
+Best/worst trade review
+Reports controls/date filters/sort
+Client-side CSV export
+Inline journal/tags editor
+Mistake/review filters
+Intraday tab
+Equity tab
+F&O tab
+Journal tab
+```
+
+Do not remove or rewrite existing sections.
+
+---
+
+## Commands to run
+
+Run:
+
+```text id="ihdrj7"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+If build command differs, use the closest existing build command and report exact command.
+
+---
+
+## Scope audit
+
+Run a git diff/status audit and confirm no forbidden files changed.
+
+Allowed W4 frontend files may include:
+
+```text id="0qotgg"
+artifacts/scanner/src/pages/paper-reports.tsx
+artifacts/scanner/src/lib/reportsView.ts
+artifacts/scanner/src/lib/reportsView.test.ts
+artifacts/scanner/src/components/reports/**
+```
+
+Forbidden:
+
+```text id="rd4gam"
+artifacts/api-server/**
+lib/**
+lib-api-spec/**
+lib/api-spec/**
+DB schema files
+scheduler files
+auth middleware
+trading/scoring files
+paper-trade execution files
+P25 tracker files
+MFE/MAE calculation files
+replit.md
+memory/docs
+```
+
+If any forbidden file changed, stop and report.
+
+Do not modify `replit.md`.
+
+Do not modify memory/docs.
+
+Ignore only system-added `attached_assets` pasted instruction files, but clearly separate them from actual code changes.
+
+---
+
+## Visual/runtime smoke
+
+Open/check `/paper-reports`.
+
+If owner login wall appears:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked by auth,
+* confirm login wall renders without console errors.
+
+If authenticated page is accessible:
+
+Verify:
+
+* Overview renders,
+* safety banner renders,
+* all W4 sections render,
+* filters render,
+* reset filters button renders,
+* CSV export button renders,
+* no export when zero rows,
+* tabs render,
+* journal editor opens/closes,
+* no console errors,
+* no broken layout,
+* mobile/responsive layout is acceptable.
+
+---
+
+## Safe polish rule
+
+Only make a code change if:
+
+* it is frontend-only,
+* it fixes a real visible issue,
+* it does not change data calculations,
+* it does not touch backend/trading/scoring/schema/auth,
+* it does not introduce new dependencies.
+
+If no issue is found, make no code changes.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+---
+
+# Output required
+
+Produce a **W4 Final Closure Report** with:
+
+A. Final command results
+B. Build result
+C. Exact code files changed in W4
+D. Whether any forbidden files changed
+E. Whether any `attached_assets` files are only system/user paste artifacts
+F. `/paper-reports` sections verified
+G. Visual smoke result
+H. Browser console result
+I. Owner-only/auth boundary confirmation
+J. CSV export confirmation
+K. Journal editor confirmation
+L. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+M. Remaining limitations
+N. Recommended next phase
+
+After W4-P8, stop and wait for approval.
