@@ -24,6 +24,7 @@ import { FoCockpitSafetyBanner } from "@/components/fno/FoCockpitSafetyBanner";
 import { FoCockpitSummaryCards } from "@/components/fno/FoCockpitSummaryCards";
 import { FoOpenTradesTable } from "@/components/fno/FoOpenTradesTable";
 import { FoP25EvidencePanel } from "@/components/fno/FoP25EvidencePanel";
+import { FoClosedTradesReview } from "@/components/fno/FoClosedTradesReview";
 import {
   summarizeFoCockpit,
   deriveP25Headline,
@@ -1509,6 +1510,11 @@ function FOSegment() {
         now={Date.now()}
         onClose={handleCloseFo}
         closingIds={closingIds}
+      />
+      <FoClosedTradesReview
+        trades={trades.data?.trades}
+        loading={trades.isLoading}
+        error={trades.error instanceof Error ? trades.error.message : null}
       />
       <MissedSignalsCard
         missed={missed.data?.missed ?? []}

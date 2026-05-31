@@ -8,6 +8,8 @@ import {
   deriveFoPnlPct,
   getP25EligibilityReason,
   isP25EligibleTrade,
+  deriveP25Display,
+  formatDurationShort,
   deriveP25Summary,
   summarizeFoCockpit,
   deriveFoRiskBadges,
@@ -961,5 +963,146 @@ describe("deriveFoPnlPct", () => {
     const snap = JSON.stringify(r);
     deriveFoPnlPct(r);
     expect(JSON.stringify(r)).toBe(snap);
+  });
+});
+
+// ── W3-P5: closed-trades review display helpers ─────────────────────────────────
+
+// A closed row as it ACTUALLY arrives from `/paper/trades/fo` (MFE/MAE omitted).
+const closedPayloadRow = (over: Partial<FoTradeRow> = {}): FoTradeRow => ({
+  id: "p1",
+  signalDate: "2026-05-29",
+  indexSymbol: "NIFTY",
+  indexName: "Nifty 50",
+  setupKey: "TREND_CONTINUATION",
+  direction: "LONG",
+  optionType: "CE",
+  strike: 23000,
+  lots: 10,
+  lotSize: 50,
+  entryPremium: 100,
+  exitPremium: 130,
+  capitalDeployed: 50000,
+  realizedPnl: 15000,
+  exitReason: "TARGET1",
+  openedAt: "2026-05-29T04:00:00.000Z",
+  exitedAt: "2026-05-29T06:00:00.000Z",
+  status: "CLOSED",
+  ...over,
+});
+
+describe("deriveP25Display", () => {
+  it("returns unavailable when MFE/MAE is not in the payload — even if fields happen to be present", () => {
+    // The real closed payload omits MFE/MAE; honour the flag, never guess.
+    const withEvidence = deriveP25Display(closedEligible(), { mfeMaeInPayload: false });
+    expect(withEvidence.status).toBe("unavailable_from_payload");
+    expect(withEvidence.label).toBe("P25 eligibility unavailable from this payload");
+    expect(withEvidence.tone).toBe("muted");
+
+    const noEvidence = deriveP25Display(closedPayloadRow(), { mfeMaeInPayload: false });
+    expect(noEvidence.status).toBe("unavailable_from_payload");
+  });
+
+  it("classifies eligible when MFE/MAE fields exist and are valid", () => {
+    const d = deriveP25Display(closedEligible({ maxRunup: 18000, maxDrawdown: -4000 }), {
+      mfeMaeInPayload: true,
+    });
+    expect(d.status).toBe("eligible");
+    expect(d.label).toBe("P25 eligible");
+    expect(d.tone).toBe("success");
+  });
+
+  it("classifies the 0/0 MFE/MAE exclusion", () => {
+    const d = deriveP25Display(closedEligible({ maxRunup: 0, maxDrawdown: 0 }), {
+      mfeMaeInPayload: true,
+    });
+    expect(d.status).toBe("excluded_zero_zero");
+    expect(d.label).toBe("Excluded: 0/0 MFE/MAE");
+  });
+
+  it("classifies missing MFE/MAE when present-but-null and the flag claims presence", () => {
+    const d = deriveP25Display(closedEligible({ maxRunup: null, maxDrawdown: -10 }), {
+      mfeMaeInPayload: true,
+    });
+    expect(d.status).toBe("missing_mfe_mae");
+    expect(d.label).toBe("Missing MFE/MAE");
+  });
+
+  it("classifies missing exit premium", () => {
+    const d = deriveP25Display(closedEligible({ exitPremium: null }), { mfeMaeInPayload: true });
+    expect(d.status).toBe("missing_exit_premium");
+    expect(d.label).toBe("Missing exit premium");
+  });
+
+  it("classifies invalid entry/quantity", () => {
+    const d = deriveP25Display(closedEligible({ entryPremium: 0 }), { mfeMaeInPayload: true });
+    expect(d.status).toBe("invalid_entry_quantity");
+    expect(d.label).toBe("Invalid entry/quantity");
+  });
+
+  it("falls back to not-eligible for a still-open row when the flag claims presence", () => {
+    const d = deriveP25Display(openRow(), { mfeMaeInPayload: true });
+    expect(d.status).toBe("not_eligible");
+    expect(d.label).toBe("Not eligible");
+  });
+
+  it("does not mutate the input row", () => {
+    const r = closedPayloadRow();
+    const snap = JSON.stringify(r);
+    deriveP25Display(r, { mfeMaeInPayload: false });
+    deriveP25Display(r, { mfeMaeInPayload: true });
+    expect(JSON.stringify(r)).toBe(snap);
+  });
+});
+
+describe("formatDurationShort", () => {
+  it("formats hours+minutes for >= 1h", () => {
+    expect(formatDurationShort(2 * 3600_000 + 14 * 60_000)).toBe("2h 14m");
+    expect(formatDurationShort(2 * 3600_000)).toBe("2h 0m");
+  });
+
+  it("formats minutes+seconds for < 1h", () => {
+    expect(formatDurationShort(7 * 60_000 + 3_000)).toBe("7m 3s");
+  });
+
+  it("formats seconds-only for < 1m", () => {
+    expect(formatDurationShort(12_000)).toBe("12s");
+    expect(formatDurationShort(0)).toBe("0s");
+  });
+
+  it("returns the dash for NaN / negative, honouring a custom dash", () => {
+    expect(formatDurationShort(NaN)).toBe("—");
+    expect(formatDurationShort(-1)).toBe("—");
+    expect(formatDurationShort(Infinity)).toBe("—");
+    expect(formatDurationShort(NaN, "n/a")).toBe("n/a");
+  });
+
+  it("is the time-in-trade formatting basis for a closed row", () => {
+    // exited 06:00 − opened 04:00 = 2h exactly.
+    expect(formatDurationShort(getTimeInTradeMs(closedPayloadRow()))).toBe("2h 0m");
+  });
+});
+
+describe("closed-trade badge derivation (payload without MFE/MAE)", () => {
+  it("marks a profitable closed trade with closed-position, profit, paper-only, no-MFE-data and no fabricated evidence/stale badges", () => {
+    const labels = deriveFoRiskBadges(closedPayloadRow({ realizedPnl: 15000 })).map((b) => b.label);
+    expect(labels).toContain("paper-only");
+    expect(labels).toContain("closed-position");
+    expect(labels).toContain("profit");
+    expect(labels).toContain("no-MFE-data");
+    expect(labels).not.toContain("loss");
+    expect(labels).not.toContain("evidence-eligible");
+    expect(labels).not.toContain("evidence-excluded-0/0");
+    expect(labels).not.toContain("open-position");
+  });
+
+  it("marks a losing closed trade with the loss badge", () => {
+    const labels = deriveFoRiskBadges(closedPayloadRow({ realizedPnl: -8000 })).map((b) => b.label);
+    expect(labels).toContain("loss");
+    expect(labels).not.toContain("profit");
+  });
+
+  it("never flags a closed row as a stale quote regardless of now", () => {
+    expect(isFoQuoteStale(closedPayloadRow(), Date.now())).toBe(false);
   });
 });

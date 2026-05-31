@@ -159,6 +159,66 @@ export function isP25EligibleTrade(row: FoTradeRow): boolean {
   return getP25EligibilityReason(row) === "eligible";
 }
 
+// ── 1b. Per-trade P25 eligibility DISPLAY (closed-trade review) ────────────────
+
+export type P25DisplayStatus =
+  | "eligible"
+  | "excluded_zero_zero"
+  | "missing_mfe_mae"
+  | "missing_exit_premium"
+  | "invalid_entry_quantity"
+  | "not_eligible"
+  | "unavailable_from_payload";
+
+export interface P25Display {
+  status: P25DisplayStatus;
+  label: string;
+  tone: FoBadgeTone;
+}
+
+/**
+ * Map a single trade row to a DISPLAY-ONLY P25 eligibility chip for the closed
+ * trades review. This never feeds the official gate count — that always comes
+ * from the server's `mfeAvailableCount` (`/paper/analytics/fo/shadow-exits`).
+ *
+ * CRITICAL: when the payload that produced this row does NOT carry MFE/MAE
+ * fields (`opts.mfeMaeInPayload === false` — true for `/paper/trades/fo`, whose
+ * closed-trade shape omits `maxRunup`/`maxDrawdown`), eligibility is genuinely
+ * unknowable. We must NOT pretend otherwise — we return
+ * `"unavailable_from_payload"` rather than guessing "not eligible".
+ *
+ * Only when MFE/MAE fields are actually present do we classify via the accepted
+ * `getP25EligibilityReason` rule. Pure; does not mutate `row`.
+ */
+export function deriveP25Display(
+  row: FoTradeRow,
+  opts: { mfeMaeInPayload: boolean },
+): P25Display {
+  if (!opts.mfeMaeInPayload) {
+    return {
+      status: "unavailable_from_payload",
+      label: "P25 eligibility unavailable from this payload",
+      tone: "muted",
+    };
+  }
+  switch (getP25EligibilityReason(row)) {
+    case "eligible":
+      return { status: "eligible", label: "P25 eligible", tone: "success" };
+    case "excluded_zero_zero_mfe_mae":
+      return { status: "excluded_zero_zero", label: "Excluded: 0/0 MFE/MAE", tone: "warn" };
+    case "missing_mfe_mae":
+      return { status: "missing_mfe_mae", label: "Missing MFE/MAE", tone: "muted" };
+    case "missing_exit_premium":
+      return { status: "missing_exit_premium", label: "Missing exit premium", tone: "warn" };
+    case "invalid_entry_premium":
+    case "invalid_quantity":
+      return { status: "invalid_entry_quantity", label: "Invalid entry/quantity", tone: "warn" };
+    case "not_closed":
+    default:
+      return { status: "not_eligible", label: "Not eligible", tone: "muted" };
+  }
+}
+
 export interface P25Summary {
   threshold: number;
   eligibleCount: number;
@@ -714,6 +774,21 @@ export function getTimeInTradeMs(row: FoTradeRow, nowMs?: number): number {
   else endMs = parseTs(row.lastEvaluatedAt);
   if (!Number.isFinite(endMs)) return NaN;
   return endMs - openMs;
+}
+
+/**
+ * Format a duration in ms as a compact human string ("2h 14m", "7m 3s", "12s").
+ * Returns the dash placeholder for NaN / negative input. Display-only, pure.
+ */
+export function formatDurationShort(ms: number, dash = "—"): string {
+  if (!Number.isFinite(ms) || ms < 0) return dash;
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
 
 /** The most recent activity timestamp (exitedAt ▸ lastEvaluatedAt ▸ openedAt), or null. */

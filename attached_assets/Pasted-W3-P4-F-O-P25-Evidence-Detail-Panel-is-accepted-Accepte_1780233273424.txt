@@ -1,0 +1,408 @@
+W3-P4 F&O P25 Evidence Detail Panel is accepted.
+
+Accepted final state:
+
+* P25 detail panel added.
+* Official count uses only `mfeAvailableCount`.
+* Raw rows and processed rows are context only.
+* `14/20` is not shown as official.
+* Threshold remains 20.
+* Gate remains open.
+* Safety labels added.
+* Breakdown tables added where endpoint data exists.
+* Loading/error/auth/disabled/malformed states handled safely.
+* Auth-error classification issue was found and fixed.
+* No backend endpoint change.
+* No DB/schema change.
+* No scheduler change.
+* No route/auth middleware change.
+* No OpenAPI/codegen change.
+* No F&O signal/entry/exit/stop/target/sizing/gate change.
+* No P25 tracker or threshold change.
+* No MFE/MAE calculation change.
+* No paper-trade execution change.
+* No swing logic change.
+* No `replit.md`, memory, or docs change.
+* 212/212 scanner tests passed.
+* Full workspace typecheck clean.
+* Architect review passed.
+* Visual QA remains blocked by owner login, which is acceptable.
+
+Current verdict:
+
+```text id="a31njo"
+W3-P4 = accepted
+F&O P25 evidence detail panel = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W3-P5 only**.
+
+# W3-P5: F&O Closed Trades Review + “Why This Trade?” Drawer
+
+Purpose:
+
+Upgrade the closed F&O trades review area on `/paper-trading` and add a read-only “Why this trade?” drawer/panel for F&O trades.
+
+This is frontend/read-only UI work only.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change P25 tracker logic.
+
+Do not change paper-trade execution.
+
+---
+
+## Approved scope
+
+Improve the closed F&O trades review display only.
+
+Allowed:
+
+1. Better closed-trade table/card readability.
+2. Mobile closed-trade cards.
+3. Exit-reason display.
+4. Realised P&L display.
+5. Time-in-trade display.
+6. P25 eligibility display where derivable.
+7. Risk/status badges using existing data.
+8. “Why this trade?” expandable drawer using existing fields only.
+9. Safe empty/loading/error states.
+
+Do **not** implement filters/sorting/grouping yet.
+
+Do **not** change manual close behavior.
+
+Do **not** add backend endpoints.
+
+Do **not** change endpoint payloads.
+
+---
+
+## Existing helpers to use
+
+Use accepted helper:
+
+```text id="qqrflk"
+artifacts/scanner/src/lib/foCockpitView.ts
+```
+
+Use helpers if useful:
+
+```text id="k7vyzz"
+deriveFoRiskBadges
+getTimeInTradeMs
+getP25EligibilityReason
+isP25EligibleTrade
+deriveFoEmptyState
+toNum
+effectivePnl
+```
+
+Only add small pure helper additions if required.
+
+---
+
+## Existing data sources
+
+Use existing closed trades data already available or approved:
+
+```text id="dyebm7"
+/paper/trades/fo
+/paper/diagnostics/fno-reasoning
+/paper/diagnostics/fno-reasoning/analytics
+```
+
+Use `/paper/diagnostics/fno-reasoning` only if already available and stable on the frontend.
+
+If reasoning data cannot be safely joined by existing fields, do not force it. Show clean placeholders.
+
+Do not add backend endpoints.
+
+Do not change backend payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+---
+
+# UI requirements
+
+## 1. Closed F&O trades table/card fields
+
+Show clearly:
+
+* index symbol/name,
+* direction,
+* option type,
+* strike,
+* setup key,
+* lots,
+* lot size,
+* total quantity,
+* entry premium,
+* exit premium,
+* realised P&L,
+* exit reason,
+* opened time,
+* exited time,
+* time in trade,
+* journal/tags if available,
+* P25 eligibility status if derivable,
+* status.
+
+Use clean placeholders for missing values.
+
+No crash on missing fields.
+
+## 2. P25 eligibility display
+
+For each closed trade, show a display-only eligibility badge:
+
+```text id="yajdat"
+P25 eligible
+Excluded: 0/0 MFE/MAE
+Not eligible
+Missing MFE/MAE
+Missing exit premium
+Invalid entry/quantity
+```
+
+Important:
+
+* If `/paper/trades/fo` does not contain `maxRunup/maxDrawdown`, do not pretend eligibility is known.
+* In that case show:
+
+```text id="kjdogv"
+P25 eligibility unavailable from this payload
+```
+
+* Official P25 count continues to come from `/paper/analytics/fo/shadow-exits`.
+* Do not recompute official gate count from closed-trade rows if MFE/MAE is absent.
+
+## 3. “Why this trade?” drawer
+
+Add row/card expansion.
+
+Show only existing fields:
+
+* index,
+* setup,
+* direction,
+* option contract,
+* lots/quantity,
+* entry premium,
+* exit premium,
+* realised P&L,
+* exit reason,
+* opened time,
+* exited time,
+* time in trade,
+* journal,
+* tags,
+* P25 eligibility/reason if known,
+* confidence if available,
+* signal reasoning if joinable,
+* skip/gate notes if available,
+* data-source notes if available.
+
+If a field is unavailable, show clean placeholder.
+
+Do not fabricate signal reasoning.
+
+Do not add new strategy logic.
+
+Do not compute new trade decisions.
+
+## 4. Risk/status badges
+
+Display-only badges derived from existing fields only.
+
+Allowed badges:
+
+```text id="ehcp4h"
+paper-only
+closed-position
+profit
+loss
+time-exit
+stop-exit
+target-exit
+evidence-eligible
+evidence-excluded-0/0
+no-MFE-data
+```
+
+If MFE/MAE not present, do not show fake MFE/MAE badges.
+
+## 5. Empty/loading/error states
+
+Handle:
+
+* loading closed trades,
+* closed trades endpoint error,
+* no closed F&O trades today,
+* missing exit premium,
+* missing realised P&L,
+* missing exit reason,
+* reasoning unavailable,
+* malformed fields.
+
+No blank table.
+
+No stack trace.
+
+No runtime crash.
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="epajjb"
+artifacts/scanner/src/pages/paper-trading.tsx
+artifacts/scanner/src/components/fno/FoClosedTradesReview.tsx
+artifacts/scanner/src/components/fno/FoClosedTradeCard.tsx
+artifacts/scanner/src/components/fno/FoWhyThisTrade.tsx
+artifacts/scanner/src/components/fno/FoRiskBadges.tsx
+artifacts/scanner/src/lib/foCockpitView.ts
+artifacts/scanner/src/lib/foCockpitView.test.ts
+```
+
+Only modify `foCockpitView.ts` if a small pure helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add or update pure helper tests if helper logic changes.
+
+At minimum verify:
+
+1. Time-in-trade helper for closed trades.
+2. Closed trade badge derivation.
+3. P25 eligibility unavailable when MFE/MAE is absent.
+4. P25 eligibility known when MFE/MAE fields exist.
+5. Exit-reason badge mapping.
+6. Profit/loss badge mapping.
+7. Missing fields produce safe display model.
+8. No input mutation.
+
+If a display model helper is added, test:
+
+* closed trade display model,
+* P25 display text,
+* time-in-trade formatting basis,
+* unavailable reasoning handling.
+
+Run:
+
+```text id="6e5kau"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-trading`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify closed trades review renders,
+* verify “Why this trade?” drawer expands/collapses,
+* verify no owner-only/public boundary issue,
+* verify no layout break,
+* verify no console errors.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stop logic,
+* F&O target logic,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option selection,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* MTM sweep logic,
+* live order logic,
+* Kite logic,
+* swing scoring,
+* swing recommendations,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="x1iomx"
+artifacts/api-server/**
+lib/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W3-P5 F&O Closed Trades Review Implementation Report** with:
+
+A. Files changed
+B. Components added/updated
+C. Closed-trade fields displayed
+D. “Why this trade?” drawer behavior
+E. P25 eligibility display behavior
+F. Risk/status badges added
+G. Empty/loading/error states
+H. Tests added/updated
+I. Test/typecheck results
+J. Visual smoke result
+K. Confirmation W3-P2/W3-P3/W3-P4 still work
+L. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+M. Limitations/follow-up for W3-P6
+
+After W3-P5, stop and wait for approval.
