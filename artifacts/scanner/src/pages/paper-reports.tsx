@@ -35,6 +35,14 @@ import {
 } from "@/components/ui/select";
 import { ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ReportsSafetyBanner } from "@/components/reports/ReportsSafetyBanner";
+import { ReportsOverviewCards } from "@/components/reports/ReportsOverviewCards";
+import {
+  summarizeReportsOverview,
+  type FoAnalyticsLike,
+  type ShadowExitReportLike,
+  type AccountLike,
+} from "@/lib/reportsView";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -246,7 +254,7 @@ function shiftFY(fy: string, delta: number): string {
 
 // ---------- main ----------
 export default function PaperReports() {
-  const [tab, setTab] = useState<"INTRADAY" | "EQUITY" | "FNO" | "JOURNAL">("FNO");
+  const [tab, setTab] = useState<"OVERVIEW" | "INTRADAY" | "EQUITY" | "FNO" | "JOURNAL">("OVERVIEW");
   return (
     <div className="container mx-auto px-4 py-6 max-w-6xl">
       <Seo path="/paper-reports" title="Paper P&L Reports" noindex />
@@ -258,12 +266,16 @@ export default function PaperReports() {
         </p>
       </div>
       <Tabs value={tab} onValueChange={v => setTab(v as typeof tab)}>
-        <TabsList className="mb-4 grid grid-cols-4 max-w-lg">
+        <TabsList className="mb-4 grid grid-cols-5 max-w-2xl">
+          <TabsTrigger value="OVERVIEW">Overview</TabsTrigger>
           <TabsTrigger value="INTRADAY">Intraday</TabsTrigger>
           <TabsTrigger value="EQUITY">Equity</TabsTrigger>
           <TabsTrigger value="FNO">F&amp;O</TabsTrigger>
           <TabsTrigger value="JOURNAL">Journal</TabsTrigger>
         </TabsList>
+        <TabsContent value="OVERVIEW">
+          <OverviewSection />
+        </TabsContent>
         <TabsContent value="INTRADAY">
           <ComingSoon
             title="Intraday equity — coming next"
@@ -280,6 +292,85 @@ export default function PaperReports() {
           <JournalAnalytics />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ---------- Overview (W4-P2): safety banner + summary cards ----------
+function OverviewSection() {
+  const month = currentIstMonth();
+
+  const foAnalyticsQ = useQuery({
+    queryKey: ["paper", "analytics", "fo"],
+    queryFn: () => api<FoAnalyticsLike>(`/paper/analytics/fo`),
+  });
+  const shadowExitsQ = useQuery({
+    queryKey: ["paper", "analytics", "fo", "shadow-exits"],
+    queryFn: () => api<ShadowExitReportLike>(`/paper/analytics/fo/shadow-exits`),
+  });
+  const foReportQ = useQuery({
+    queryKey: ["paper", "report", "fo", "monthly", month],
+    queryFn: () => api<MonthlyReport>(`/paper/reports/fo/monthly?month=${month}`),
+  });
+  const eqReportQ = useQuery({
+    queryKey: ["paper", "report", "eq", "monthly", month],
+    queryFn: () => api<EqMonthlyReport>(`/paper/reports/eq/monthly?month=${month}`),
+  });
+  const foAccountQ = useQuery({
+    queryKey: ["paper", "account", "FNO"],
+    queryFn: () => api<AccountLike>(`/paper/account?segment=FNO`),
+  });
+  const eqAccountQ = useQuery({
+    queryKey: ["paper", "account", "EQUITY"],
+    queryFn: () => api<AccountLike>(`/paper/account?segment=EQUITY`),
+  });
+
+  const queries = [foAnalyticsQ, shadowExitsQ, foReportQ, eqReportQ, foAccountQ, eqAccountQ];
+  const loading = queries.some(q => q.isLoading);
+  // Every owner-only endpoint failing (e.g. not logged in) is a hard error;
+  // a partial failure degrades to "unavailable" cards via the helper instead.
+  const allErrored = queries.every(q => q.isError);
+  const firstError = queries.find(q => q.isError)?.error;
+  const errorMessage = allErrored
+    ? (firstError instanceof Error ? firstError.message : "Unable to load reports")
+    : null;
+
+  const summary = useMemo(
+    () =>
+      summarizeReportsOverview({
+        foAnalytics: foAnalyticsQ.data ?? null,
+        foReport: foReportQ.data ?? null,
+        eqReport: eqReportQ.data ?? null,
+        foAccount: foAccountQ.data ?? null,
+        eqAccount: eqAccountQ.data ?? null,
+        shadowExits: shadowExitsQ.data ?? null,
+      }),
+    [
+      foAnalyticsQ.data,
+      foReportQ.data,
+      eqReportQ.data,
+      foAccountQ.data,
+      eqAccountQ.data,
+      shadowExitsQ.data,
+    ],
+  );
+
+  const generatedAt = foReportQ.data?.generatedAt ?? eqReportQ.data?.generatedAt ?? null;
+
+  return (
+    <div className="space-y-5">
+      <ReportsSafetyBanner
+        periodLabel={monthLong(month)}
+        generatedAt={generatedAt}
+        availability={summary.availability}
+        loading={loading}
+        error={!!errorMessage}
+      />
+      <ReportsOverviewCards
+        summary={summary}
+        loading={loading}
+        error={errorMessage}
+      />
     </div>
   );
 }

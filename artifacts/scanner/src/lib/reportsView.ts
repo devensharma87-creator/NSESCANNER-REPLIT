@@ -412,6 +412,8 @@ export interface ReportsOverviewSummary {
   avgMae: number | null;
   foTradeCount: number | null;
   foScratches: number | null;
+  eqTradeCount: number | null;
+  eqWinRatePct: number | null; // 0..100
   availability: ReportsOverviewAvailability;
 }
 
@@ -462,10 +464,15 @@ export function summarizeReportsOverview(
     eqAccount?.lifetimeRealizedPnl,
     eqAccount?.realizedPnl,
   );
+  // Strict: a combined total is only meaningful when BOTH segments' data is
+  // present. If either side is absent we cannot imply a zero contribution, so
+  // the total stays null (rendered as "—"). A segment that loaded with zero
+  // activity returns 0 here, so the common "only one segment traded" case
+  // still computes correctly — null only when a whole segment is missing.
   const totalRealizedPnl =
-    foRealizedPnl == null && eqRealizedPnl == null
+    foRealizedPnl == null || eqRealizedPnl == null
       ? null
-      : (foRealizedPnl ?? 0) + (eqRealizedPnl ?? 0);
+      : foRealizedPnl + eqRealizedPnl;
 
   // win rate: analytics is a 0..1 ratio; report totals already a percent.
   const foWinRatePct = (() => {
@@ -505,6 +512,15 @@ export function summarizeReportsOverview(
       foReport?.totals?.tradeCount,
     ),
     foScratches: toNum(foAnalytics?.scratches),
+    eqTradeCount: firstNum(
+      eqAnalytics?.totalTrades,
+      eqReport?.totals?.tradeCount,
+    ),
+    eqWinRatePct: (() => {
+      const ratio = toNum(eqAnalytics?.winRate);
+      if (ratio != null) return ratio * 100;
+      return toNum(eqReport?.totals?.winRatePct);
+    })(),
     availability: {
       foAnalytics: foAnalytics != null,
       foReport: foReport?.totals != null,

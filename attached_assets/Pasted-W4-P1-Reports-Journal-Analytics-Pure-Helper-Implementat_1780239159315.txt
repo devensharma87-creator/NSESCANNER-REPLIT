@@ -1,0 +1,385 @@
+W4-P1 Reports / Journal Analytics Pure Helper Implementation is accepted.
+
+Good work.
+
+Accepted final state:
+
+* Only two files were created:
+
+  * `artifacts/scanner/src/lib/reportsView.ts`
+  * `artifacts/scanner/src/lib/reportsView.test.ts`
+* No UI wiring was done.
+* No `/paper-reports` page change.
+* No backend change.
+* No DB/schema change.
+* No scheduler change.
+* No route/auth change.
+* No OpenAPI/codegen change.
+* No trading/scoring/P25/MFE-MAE logic change.
+* No `replit.md`, memory, or docs change.
+* Initial architect review correctly found date-handling issues.
+* Those issues were fixed inside the helper/test files only.
+* `dateKeyOf` now handles strict valid dates, rejects impossible dates, and normalizes zoned ISO timestamps to UTC day.
+* `shapeEquityCurve` now validates dates through `dateKeyOf`.
+* 310/310 scanner tests passed.
+* Scanner typecheck clean.
+* Full workspace typecheck clean.
+
+Current verdict:
+
+```text id="k4dkqs"
+W4-P1 = accepted
+Reports helper layer = implemented
+UI wiring = not started
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W4-P2 only**.
+
+# W4-P2: Paper Reports Safety Banner + Overview Tab Summary Cards
+
+Purpose:
+
+Start wiring the `/paper-reports` UI safely by adding a reports safety banner and an Overview tab/section with summary cards.
+
+This is frontend/read-only UI work only.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change P25 tracker logic.
+
+Do not change paper-trade execution.
+
+---
+
+## Approved scope
+
+Modify the owner-only `/paper-reports` page to add:
+
+1. Reports safety banner.
+2. Overview tab or overview section.
+3. Summary cards using existing fetched report/analytics/account/shadow-exits data.
+4. Safe loading/error/empty states.
+
+This phase is overview/banner only.
+
+Do not build equity-curve chart yet.
+
+Do not build drawdown visualization yet.
+
+Do not build MFE/MAE review section yet.
+
+Do not build journal editor yet.
+
+Do not build CSV export yet.
+
+Those come later.
+
+---
+
+## Existing helper to use
+
+Use the accepted W4-P1 helper:
+
+```text id="il30fl"
+artifacts/scanner/src/lib/reportsView.ts
+```
+
+Use helpers such as:
+
+```text id="aljpuq"
+summarizeReportsOverview
+deriveReportsEmptyState
+toNum
+safePct
+```
+
+Do not duplicate logic if helper already exists.
+
+---
+
+## Existing data sources only
+
+Use existing endpoints already known from W4 planning:
+
+```text id="mtq4j0"
+/api/paper/reports/fo/monthly
+/api/paper/reports/eq/monthly
+/api/paper/analytics/fo
+/api/paper/analytics/fo/shadow-exits
+/api/paper/account?segment=FNO
+/api/paper/account?segment=EQUITY
+/api/paper/journal-analytics?segment=FNO
+/api/paper/journal-analytics?segment=EQUITY
+```
+
+Use only existing endpoints.
+
+Do not add backend endpoints.
+
+Do not change endpoint payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+If some endpoint is not already fetched on `/paper-reports`, add only frontend read-only fetches using the existing fetch/query pattern.
+
+---
+
+# UI requirements
+
+## 1. Reports safety banner
+
+Add a clear top banner for `/paper-reports`.
+
+Must show:
+
+```text id="6mjc7l"
+Paper trading analytics only
+No live order placement
+No strategy change
+No P25 threshold change
+Reports are review/support tools only
+```
+
+If available, show:
+
+* current selected month/FY,
+* data freshness/generation time,
+* segment availability,
+* owner-only/private status.
+
+If data is unavailable, show a safe placeholder.
+
+No crash.
+
+---
+
+## 2. Overview tab / section
+
+Add a new Overview area at the top of the reports page or as a new tab.
+
+Recommended:
+
+```text id="4rfbe2"
+Overview | Intraday | Equity | F&O | Journal
+```
+
+If changing tabs is risky, add Overview section above existing tabs instead.
+
+Do not remove existing tabs.
+
+Do not break existing Equity/F&O/Journal tabs.
+
+---
+
+## 3. Summary cards
+
+Show compact summary cards for:
+
+* F&O realised P&L,
+* Equity realised P&L,
+* total realised P&L,
+* F&O win rate,
+* F&O profit factor,
+* expectancy,
+* average R,
+* best trade,
+* worst trade,
+* max drawdown,
+* current drawdown,
+* peak equity,
+* average MFE,
+* average MAE if available,
+* trade count,
+* scratches count,
+* data availability.
+
+Important:
+
+* Use only available fields.
+* If `avgMae` is not available, show `—`.
+* Do not synthesize MAE.
+* Do not compute MFE/MAE from closed-trade payload if absent.
+* Clearly label unavailable metrics.
+
+---
+
+## 4. F&O vs Equity comparison
+
+Add simple comparison cards/table:
+
+```text id="jz3n1t"
+F&O P&L
+Equity P&L
+Combined P&L
+F&O trade count
+Equity trade count
+F&O win rate if available
+Equity win rate if available
+```
+
+Only use available fields.
+
+Do not fabricate missing values.
+
+---
+
+## 5. Empty/loading/error states
+
+Handle:
+
+* loading reports,
+* loading analytics,
+* loading accounts,
+* loading shadow-exits,
+* endpoint error,
+* no report data,
+* no analytics data,
+* missing MFE/MAE,
+* malformed values.
+
+No blank cards.
+
+No runtime crash.
+
+No stack traces.
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="kfoc0j"
+artifacts/scanner/src/pages/paper-reports.tsx
+artifacts/scanner/src/components/reports/ReportsSafetyBanner.tsx
+artifacts/scanner/src/components/reports/ReportsOverviewCards.tsx
+artifacts/scanner/src/lib/reportsView.ts
+artifacts/scanner/src/lib/reportsView.test.ts
+```
+
+Only modify `reportsView.ts` if a small pure helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add or update pure helper tests if helper logic changes.
+
+At minimum verify:
+
+1. Overview summary uses existing fields.
+2. F&O + Equity combined P&L math is safe.
+3. Missing MAE shows unavailable/null, not fabricated.
+4. Missing analytics produce safe empty model.
+5. Summary cards can handle malformed numbers.
+6. Safety banner display state is safe with missing data.
+7. No input mutation.
+
+Run:
+
+```text id="cd4hnr"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-reports`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify safety banner renders,
+* verify overview section/cards render,
+* verify existing tabs still render,
+* verify existing Equity/F&O/Journal reports still render,
+* verify no layout break,
+* verify no console errors.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="u3gwpx"
+artifacts/api-server/**
+lib/**
+lib-api-spec/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+paper report execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W4-P2 Reports Overview UI Implementation Report** with:
+
+A. Files changed
+B. Components added/updated
+C. Safety banner added
+D. Overview section/tab added
+E. Summary cards added
+F. F&O vs Equity comparison behavior
+G. Data sources used
+H. Empty/loading/error states
+I. Tests added/updated
+J. Test/typecheck results
+K. Visual smoke result
+L. Confirmation existing Equity/F&O/Journal tabs still work
+M. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+N. Limitations/follow-up for W4-P3
+
+After W4-P2, stop and wait for approval.

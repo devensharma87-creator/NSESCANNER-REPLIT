@@ -212,6 +212,50 @@ describe("summarizeReportsOverview", () => {
     expect(s.availability.shadowExits).toBe(false);
   });
 
+  it("derives equity comparison fields (count + win rate) from report totals", () => {
+    const s = summarizeReportsOverview({
+      foAnalytics,
+      eqReport: {
+        totals: { realizedPnl: 1500, tradeCount: 4, winRatePct: 75 },
+      },
+    });
+    expect(s.eqTradeCount).toBe(4);
+    expect(s.eqWinRatePct).toBe(75);
+    // F&O comparison fields stay sourced from F&O inputs.
+    expect(s.foTradeCount).toBe(10);
+    expect(s.foWinRatePct).toBeCloseTo(60);
+  });
+
+  it("leaves equity comparison fields null when equity payloads absent", () => {
+    const s = summarizeReportsOverview({ foAnalytics });
+    expect(s.eqTradeCount).toBeNull();
+    expect(s.eqWinRatePct).toBeNull();
+  });
+
+  it("does not fabricate a combined total when one segment is missing", () => {
+    // F&O present, equity entirely absent -> total cannot imply equity = 0.
+    const foOnly = summarizeReportsOverview({ foAnalytics });
+    expect(foOnly.foRealizedPnl).toBe(5000);
+    expect(foOnly.eqRealizedPnl).toBeNull();
+    expect(foOnly.totalRealizedPnl).toBeNull();
+
+    // Equity present, F&O entirely absent -> still null.
+    const eqOnly = summarizeReportsOverview({
+      eqReport: { totals: { realizedPnl: 1500 } },
+    });
+    expect(eqOnly.eqRealizedPnl).toBe(1500);
+    expect(eqOnly.foRealizedPnl).toBeNull();
+    expect(eqOnly.totalRealizedPnl).toBeNull();
+  });
+
+  it("sums the total when a segment loaded with zero activity", () => {
+    const s = summarizeReportsOverview({
+      foAnalytics,
+      eqReport: { totals: { realizedPnl: 0 } },
+    });
+    expect(s.totalRealizedPnl).toBe(5000);
+  });
+
   it("handles entirely missing payloads without fabrication", () => {
     const s = summarizeReportsOverview({});
     expect(s.foRealizedPnl).toBeNull();
