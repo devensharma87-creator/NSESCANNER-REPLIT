@@ -1,0 +1,357 @@
+W1B smoke verification is accepted.
+
+W2 Stocks-to-Watch Pro Scanner Upgrade Plan is accepted.
+
+Accepted findings:
+
+* `/infra-health` loads without runtime crash.
+* `/stocks-to-watch` loads without runtime crash.
+* Owner-gated visual verification was unavailable in dev, which is acceptable.
+* No console/runtime errors from W1A changes.
+* 82/82 scanner tests passed.
+* Full workspace typecheck passed.
+* W2 plan is correctly frontend-only.
+* W2 uses existing `/stocks-to-watch` and `/stocks-to-watch/analysis` payloads only.
+* No backend changes are approved.
+* No scoring/trading changes are approved.
+
+Now proceed with:
+
+# W2A: Stocks-to-Watch Pro Scanner Upgrade Implementation — Frontend Only
+
+Purpose:
+
+Upgrade the main `/stocks-to-watch` page into a more professional, readable, data-rich scanner view using existing data only.
+
+This is presentation, filtering, grouping, explanation, and UI readability work only.
+
+No trading/scoring behavior may change.
+
+## Approved implementation scope
+
+Implement the W2 plan in frontend only.
+
+Allowed:
+
+1. Better summary cards.
+2. Better filters and sorting.
+3. Better action display labels.
+4. Risk badges from existing `warnings[]` and purely derived freshness/quote fields.
+5. “Why this stock?” expand panel.
+6. Better desktop table readability.
+7. Mobile-friendly card layout.
+8. Better empty/error/loading/stale states.
+9. Safety labels.
+
+## Data sources
+
+Use existing frontend data only:
+
+```text id="kuiz5s"
+/api/stocks-to-watch
+/api/stocks-to-watch/analysis?limit=500
+```
+
+Do not add backend endpoints.
+
+Do not change backend payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+## Approved frontend files
+
+Prefer changes only in:
+
+```text id="y3zity"
+artifacts/scanner/src/pages/stocks-to-watch.tsx
+artifacts/scanner/src/lib/stocksToWatchView.ts
+artifacts/scanner/src/lib/stocksToWatchView.test.ts
+artifacts/scanner/src/components/stocks/*
+```
+
+You may reuse:
+
+```text id="azxg85"
+artifacts/scanner/src/lib/infraHealth.ts
+artifacts/scanner/src/components/infra/*
+```
+
+if useful, but do not create coupling that exposes owner-only diagnostics publicly.
+
+## Summary cards
+
+Add top summary cards above the Technical Analysis table.
+
+Show:
+
+* total scanned,
+* actionable count,
+* trigger hits,
+* top sector,
+* average RS,
+* last refresh/freshness.
+
+All must be derived from existing payload.
+
+Do not show owner-only diagnostics.
+
+## Filters and sorting
+
+Add client-side controls for:
+
+* action,
+* sector,
+* score range,
+* RS range,
+* trigger hit,
+* freshness,
+* only actionable names.
+
+Sorting/grouping can include:
+
+* score,
+* RS,
+* RR,
+* action,
+* sector,
+* trigger status.
+
+All client-side only.
+
+No backend query changes required unless already supported.
+
+## Action display labels
+
+Use display-only mapping.
+
+Do not change backend action strings.
+
+Approved display map:
+
+```text id="v4cxci"
+BUY ZONE → BUY ZONE
+BREAKOUT → BUY BREAKOUT
+PULLBACK/RECLAIM → RETEST ONLY
+CONFIRMATION → WAIT
+WATCH → WATCHLIST
+AVOID → AVOID
+```
+
+Important:
+
+`NO TRADE` is not available yet because no backend action maps to it.
+
+Do not invent or implement `NO TRADE`.
+
+Mark as:
+
+```text id="0twqdd"
+not available yet — do not implement
+```
+
+## Risk badges
+
+Use existing `warnings[]` first.
+
+Render warning badges clearly.
+
+Allowed purely derived badges:
+
+```text id="ix9h5l"
+stale data
+no intraday quote
+trigger hit
+trigger pending
+```
+
+Do not create new risk/scoring logic.
+
+If a desired risk badge is not present in `warnings[]` and cannot be derived from existing row fields, mark it as not available.
+
+## “Why this stock?” expand panel
+
+Add row/card expansion that shows:
+
+* score,
+* technical score,
+* SMC score,
+* volume score,
+* momentum score,
+* fundamental score,
+* risk score,
+* context score,
+* RS score,
+* rs20,
+* rs50,
+* rs120,
+* sector,
+* industry,
+* trigger text,
+* trigger price,
+* entry,
+* stop loss,
+* stop basis,
+* target1,
+* target2,
+* target basis,
+* RR to T1,
+* buy-zone lower/upper/basis,
+* reasons[],
+* warnings[],
+* weekly trend,
+* candle signal,
+* market structure,
+* fundamental status.
+
+Show only fields that exist.
+
+If a field is missing, show a clean placeholder, not a crash.
+
+## Public vs owner-only boundary
+
+The `/stocks-to-watch` page must not expose owner-only diagnostics.
+
+Do not show:
+
+* B1/B3 shadow diagnostics,
+* P25 evidence,
+* owner gate status,
+* sector-strength diagnostic internals,
+* H10/H11 status,
+* F&O evidence internals.
+
+Keep those on `/infra-health`.
+
+## Safety labels
+
+Add clear label near scanner results:
+
+```text id="xxfvww"
+Scanner is analysis support only — not live auto-trading.
+```
+
+If any diagnostic wording appears, label it clearly as diagnostic only.
+
+## Empty/error/loading states
+
+Improve states for:
+
+* no scan yet,
+* market closed,
+* intraday refresh not fired yet,
+* stale data,
+* no intraday quote,
+* network error,
+* no rows after filters.
+
+No blank table.
+
+No stack trace.
+
+No runtime crash.
+
+## Tests required
+
+Add pure helper tests for:
+
+1. Summary aggregation.
+2. Actionable count.
+3. Trigger-hit count.
+4. Top sector selection.
+5. Average RS calculation.
+6. Action display mapping.
+7. Unknown action fallback.
+8. Risk badge derivation from warnings.
+9. Stale-data badge.
+10. No-intraday-quote badge.
+11. Filter predicates.
+12. Combined filters.
+13. Sorting comparators.
+14. Grouping helpers if implemented.
+15. Public helper output does not include owner-only fields.
+
+Run:
+
+```text id="1myl5v"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+If any command differs, report exact command used.
+
+## Visual smoke check
+
+After implementation:
+
+* open `/stocks-to-watch`,
+* confirm no runtime crash,
+* confirm no console errors from new code,
+* confirm auth/public mode behavior is unchanged,
+* confirm layout is readable,
+* confirm existing table/data still appears.
+
+If visual access is blocked by login, report that clearly and rely on tests/typecheck.
+
+## Strict guardrails
+
+Do not change:
+
+* swing scoring formula,
+* swing score weights,
+* swing recommendation logic,
+* backend action-label generation,
+* entry calculation,
+* stop calculation,
+* target calculation,
+* RR calculation,
+* trigger latch logic,
+* intraday refresh logic,
+* B1/B3 activation,
+* sector scoring,
+* delivery scoring,
+* paper-equity execution,
+* F&O logic,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not touch:
+
+```text id="i5766h"
+artifacts/api-server/**
+lib/db/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+## Output required
+
+Produce a **W2A Stocks-to-Watch Pro Scanner Upgrade Implementation Report** with:
+
+A. Files changed
+B. New/updated components/helpers
+C. Summary cards added
+D. Filters/sorting/grouping added
+E. Action display mapping
+F. Risk badges added
+G. “Why this stock?” explanation added
+H. Public vs owner-only boundary confirmation
+I. Loading/empty/error states
+J. Tests added/updated
+K. Test/typecheck results
+L. Visual smoke result
+M. Confirmation that no backend/scoring/trading/schema/scheduler/auth behavior changed
+N. Limitations / follow-up items
+
+After W2A, stop and wait for approval.

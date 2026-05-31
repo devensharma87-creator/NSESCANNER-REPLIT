@@ -1,13 +1,34 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ExternalLink, TrendingUp, TrendingDown, RefreshCw, Calendar, Newspaper, BarChart3, ArrowUpDown } from "lucide-react";
+import { ExternalLink, TrendingUp, TrendingDown, RefreshCw, Calendar, Newspaper, BarChart3, ChevronDown, ChevronRight, Info } from "lucide-react";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
-import { derivePublicFreshness, formatAge } from "@/lib/infraHealth";
+import { formatAge } from "@/lib/infraHealth";
+import {
+  num,
+  actionDisplayLabel,
+  summarize,
+  applyFilters,
+  sortRows,
+  groupRows,
+  uniqueSectors,
+  deriveRowBadges,
+  DEFAULT_FILTERS,
+  type SwingRow,
+  type AnalysisPayload,
+  type SwingFilters,
+  type SortKey,
+  type SortDir,
+  type GroupBy,
+} from "@/lib/stocksToWatchView";
+import { SummaryCards } from "@/components/stocks/SummaryCards";
+import { ControlsBar } from "@/components/stocks/ControlsBar";
+import { RiskBadges } from "@/components/stocks/RiskBadges";
+import { WhyThisStock } from "@/components/stocks/WhyThisStock";
 
 interface WatchSignal {
   symbol: string;
@@ -34,42 +55,6 @@ interface Payload {
   sources: { source: string; count: number }[];
 }
 
-interface SwingRow {
-  symbol: string;
-  scanDate: string;
-  action: string;
-  setup: string;
-  qualityGrade: string;
-  potential: string;
-  score: string;
-  technicalScore: string; smcScore: string; volumeScore: string;
-  momentumScore: string; fundamentalScore: string; riskScore: string;
-  contextScore: string; rsScore: string | null;
-  closePrice: string; entry: string; stopLoss: string;
-  target1: string; target2: string;
-  rrToT1: string | null;
-  buyZoneLower: string; buyZoneUpper: string; buyZoneBasis: string;
-  triggerText: string; triggerPrice: string;
-  stopBasis: string; targetBasis: string;
-  rsi14: string | null; adx14: string | null; atr14: string | null;
-  atrPct: string | null; volRatio: string | null; avgValueLakhs: string | null;
-  pctFrom52wLow: string | null; pctFrom52wHigh: string | null;
-  weeklyTrend: string; candleSignal: string; marketStructure: string;
-  rs20: string | null; rs50: string | null; rs120: string | null;
-  sector: string | null; industry: string | null; fundamentalStatus: string | null;
-  reasons: string[]; warnings: string[];
-  intradayLast: string | null; intradayChangePct: string | null;
-  triggerHit: boolean | null; intradayUpdatedAt: string | null;
-}
-
-interface AnalysisPayload {
-  asOf: string;
-  scanDate: string | null;
-  runMeta: { scannedCount: number; errorCount: number; durationMs: number; startedAt: string; finishedAt: string } | null;
-  scheduler: { lastDeepScanDate: string | null; lastDeepScanError: string | null; deepScanInflight: boolean };
-  rows: SwingRow[];
-}
-
 async function fetchPayload(): Promise<Payload> {
   const r = await fetch("/api/stocks-to-watch", { credentials: "include" });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -92,8 +77,7 @@ function ConfidenceDots({ confidence }: { confidence: number }) {
   );
 }
 
-/* ---------- Tech-scan helpers ---------- */
-const num = (s: string | null | undefined): number => (s == null ? NaN : Number(s));
+/* ---------- Tech-scan display helpers ---------- */
 const fmtN = (s: string | null | undefined, dp = 2): string => {
   const n = num(s);
   return Number.isFinite(n) ? n.toFixed(dp) : "—";
@@ -125,19 +109,6 @@ function gradeTone(g: string): string {
   return "text-rose-500 border-rose-500/40 bg-rose-500/10";
 }
 
-const ACTION_FILTERS: Array<{ key: string; label: string; matches: (a: string) => boolean }> = [
-  { key: "ALL", label: "All", matches: () => true },
-  { key: "BUY_ZONE", label: "Buy Zone", matches: a => a.includes("BUY ZONE") },
-  { key: "BREAKOUT", label: "Breakout", matches: a => a.includes("BREAKOUT") },
-  { key: "PULLBACK", label: "Pullback / Reclaim", matches: a => a.includes("PULLBACK") || a.includes("RECLAIM") },
-  { key: "CONFIRM", label: "Wait for Confirmation", matches: a => a.includes("CONFIRMATION") },
-  { key: "WATCH", label: "Watchlist", matches: a => a.includes("WATCH") },
-  { key: "AVOID", label: "Avoid", matches: a => a.includes("AVOID") },
-];
-const GRADE_FILTERS = ["ALL", "A", "B+", "B", "C / Watch Only", "D / Avoid"];
-
-type SortKey = "score" | "symbol" | "rrToT1" | "rsi14" | "atrPct";
-
 function ScoreBar({ score }: { score: number }) {
   const pct = Math.max(0, Math.min(100, score));
   const tone = pct >= 75 ? "bg-emerald-500" : pct >= 60 ? "bg-sky-500" : pct >= 50 ? "bg-amber-500" : "bg-rose-500";
@@ -151,99 +122,78 @@ function ScoreBar({ score }: { score: number }) {
   );
 }
 
-function SortHeader({ label, k, sortKey, setSort, dir, alignRight }: { label: string; k: SortKey; sortKey: SortKey; setSort: (k: SortKey) => void; dir: "asc" | "desc"; alignRight?: boolean }) {
-  const active = k === sortKey;
-  return (
-    <button
-      onClick={() => setSort(k)}
-      className={`inline-flex items-center gap-1 hover:text-foreground transition-colors ${active ? "text-foreground" : "text-muted-foreground"} ${alignRight ? "justify-end w-full" : ""}`}
-    >
-      {label}
-      <ArrowUpDown className={`h-3 w-3 ${active ? "opacity-100" : "opacity-40"}`} />
-      {active && <span className="text-[10px] opacity-70">{dir === "desc" ? "↓" : "↑"}</span>}
-    </button>
-  );
-}
-
-function TechScanSection({ data, isLoading, error, scoreBySymbol: _scoreBySymbol }: {
+function TechScanSection({ data, isLoading, error }: {
   data: AnalysisPayload | undefined;
   isLoading: boolean;
   error: Error | null;
-  scoreBySymbol: Map<string, number>;
 }) {
-  const [actionFilter, setActionFilter] = useState<string>("ALL");
-  const [gradeFilter, setGradeFilter] = useState<string>("ALL");
+  const [filters, setFilters] = useState<SwingFilters>(DEFAULT_FILTERS);
   const [sortKey, setSortKey] = useState<SortKey>("score");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [groupBy, setGroupBy] = useState<GroupBy>("none");
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  const setSort = (k: SortKey) => {
-    if (k === sortKey) setSortDir(d => d === "desc" ? "asc" : "desc");
+  const now = Date.now();
+  const allRows = useMemo(() => data?.rows ?? [], [data]);
+
+  const onSort = (k: SortKey) => {
+    if (k === sortKey) setSortDir(d => (d === "desc" ? "asc" : "desc"));
     else { setSortKey(k); setSortDir(k === "symbol" ? "asc" : "desc"); }
   };
 
-  const rows = useMemo(() => {
-    if (!data?.rows) return [] as SwingRow[];
-    const af = ACTION_FILTERS.find(f => f.key === actionFilter) ?? ACTION_FILTERS[0]!;
-    let rs = data.rows.filter(r => af.matches(r.action));
-    if (gradeFilter !== "ALL") rs = rs.filter(r => r.qualityGrade === gradeFilter);
-    rs = [...rs].sort((a, b) => {
-      const av = sortKey === "symbol" ? a.symbol : num((a as unknown as Record<string, string | null>)[sortKey] ?? null);
-      const bv = sortKey === "symbol" ? b.symbol : num((b as unknown as Record<string, string | null>)[sortKey] ?? null);
-      if (typeof av === "string" || typeof bv === "string") {
-        const cmp = String(av).localeCompare(String(bv));
-        return sortDir === "asc" ? cmp : -cmp;
-      }
-      const aN = Number.isFinite(av) ? av : -Infinity;
-      const bN = Number.isFinite(bv) ? bv : -Infinity;
-      return sortDir === "desc" ? bN - aN : aN - bN;
-    });
-    return rs;
-  }, [data, actionFilter, gradeFilter, sortKey, sortDir]);
+  const sectors = useMemo(() => uniqueSectors(allRows), [allRows]);
+  const summary = useMemo(() => summarize(data, now), [data, now]);
+  const sorted = useMemo(
+    () => sortRows(applyFilters(allRows, filters, now), sortKey, sortDir),
+    [allRows, filters, sortKey, sortDir, now],
+  );
+  const groups = useMemo(() => groupRows(sorted, groupBy), [sorted, groupBy]);
+
+  const toggle = (sym: string) => setExpanded(s => (s === sym ? null : sym));
+
+  const COLSPAN = 13;
+  const emptyMsg = !data
+    ? "Loading…"
+    : !data.scanDate && allRows.length === 0
+      ? "No scan available yet — the first deep scan runs after 15:35 IST or on next boot."
+      : allRows.length === 0
+        ? "Scan ran but returned no rows — the market may be closed or no names qualified."
+        : "No rows match these filters — adjust or reset the controls above.";
 
   return (
     <div className="space-y-4">
+      {/* header */}
       <div className="flex items-center gap-2 px-4 py-2.5 rounded-md font-mono text-sm font-semibold uppercase tracking-wider text-primary bg-primary/10 border border-primary/30">
         <BarChart3 className="h-4 w-4" />
         Technical Analysis — NIFTY 500
         <span className="ml-auto text-xs opacity-80 font-mono">
-          {data?.scanDate ? `Scan ${data.scanDate}` : "—"} · {rows.length} shown
+          {data?.scanDate ? `Scan ${data.scanDate}` : "—"} · {sorted.length} shown
         </span>
       </div>
 
+      {/* public freshness strip (leak-safe — only scan date + intraday freshness + label) */}
       {(() => {
-        const now = Date.now();
-        const f = derivePublicFreshness(
-          {
-            scanDate: data?.scanDate ?? null,
-            intradayTimestamps: (data?.rows ?? []).map((r) => r.intradayUpdatedAt),
-          },
-          now,
-        );
-        const dot =
-          f.severity === "ok"
-            ? "bg-emerald-500"
-            : f.severity === "stale" || f.severity === "warn"
-              ? "bg-amber-500"
-              : f.severity === "disabled"
-                ? "bg-muted-foreground"
-                : "bg-rose-500";
+        const f = summary.freshness;
+        const dot = f.severity === "ok" ? "bg-emerald-500"
+          : f.severity === "stale" || f.severity === "warn" ? "bg-amber-500"
+            : f.severity === "disabled" ? "bg-muted-foreground" : "bg-rose-500";
         return (
-          <div
-            className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono text-muted-foreground"
-            data-testid="swing-freshness-strip"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <span className={`h-2 w-2 rounded-full ${dot}`} />
-              {f.label}
-            </span>
+          <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono text-muted-foreground" data-testid="swing-freshness-strip">
+            <span className="inline-flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${dot}`} />{f.label}</span>
             <span>· Scan {f.scanDate ?? "—"}</span>
-            <span>
-              · Updated{" "}
-              {f.lastIntradayRefreshAt ? formatAge(f.lastIntradayRefreshAt, now) : "—"}
-            </span>
+            <span>· Updated {f.lastIntradayRefreshAt ? formatAge(f.lastIntradayRefreshAt, now) : "—"}</span>
           </div>
         );
       })()}
+
+      {/* summary cards */}
+      {!isLoading && data && <SummaryCards summary={summary} nowMs={now} />}
+
+      {/* safety label */}
+      <div className="flex items-start gap-1.5 text-[11px] text-muted-foreground" data-testid="swing-safety-label">
+        <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+        <span>Scanner is analysis support only — not live auto-trading. Levels are computed from end-of-day data; verify before acting.</span>
+      </div>
 
       {data?.runMeta && (
         <div className="text-[11px] font-mono text-muted-foreground">
@@ -256,115 +206,172 @@ function TechScanSection({ data, isLoading, error, scoreBySymbol: _scoreBySymbol
       {error && (
         <Card className="border-destructive/40 bg-destructive/5">
           <CardContent className="p-4 text-sm text-destructive">
-            Couldn't load the technical scan — {error.message}.
+            Couldn't load the technical scan — {error.message}. Click Refresh above to retry.
           </CardContent>
         </Card>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
-        <span className="text-muted-foreground uppercase tracking-wider">Action:</span>
-        {ACTION_FILTERS.map(f => (
-          <button
-            key={f.key}
-            onClick={() => setActionFilter(f.key)}
-            className={`px-2.5 py-1 rounded-md border transition-colors ${actionFilter === f.key ? "border-primary bg-primary/15 text-primary" : "border-border hover:bg-accent"}`}
-          >{f.label}</button>
-        ))}
-        <span className="text-muted-foreground uppercase tracking-wider ml-3">Quality:</span>
-        {GRADE_FILTERS.map(g => (
-          <button
-            key={g}
-            onClick={() => setGradeFilter(g)}
-            className={`px-2.5 py-1 rounded-md border transition-colors ${gradeFilter === g ? "border-primary bg-primary/15 text-primary" : "border-border hover:bg-accent"}`}
-          >{g === "ALL" ? "All" : g}</button>
-        ))}
-      </div>
+      {/* controls */}
+      {!isLoading && !error && allRows.length > 0 && (
+        <ControlsBar
+          filters={filters}
+          setFilters={setFilters}
+          sectors={sectors}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSort={onSort}
+          groupBy={groupBy}
+          setGroupBy={setGroupBy}
+          resultCount={sorted.length}
+        />
+      )}
 
-      {/* Table */}
-      <Card>
-        <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-xs font-mono">
-            <thead className="bg-muted/30 border-b border-border">
-              <tr className="text-muted-foreground uppercase tracking-wider">
-                <th className="px-3 py-2 text-left"><SortHeader label="Symbol" k="symbol" sortKey={sortKey} setSort={setSort} dir={sortDir} /></th>
-                <th className="px-3 py-2 text-left">Action</th>
-                <th className="px-3 py-2 text-left">Setup</th>
-                <th className="px-3 py-2 text-left">Quality</th>
-                <th className="px-3 py-2 text-left"><SortHeader label="Score" k="score" sortKey={sortKey} setSort={setSort} dir={sortDir} /></th>
-                <th className="px-3 py-2 text-right">Close</th>
-                <th className="px-3 py-2 text-right">Entry</th>
-                <th className="px-3 py-2 text-right">Stop</th>
-                <th className="px-3 py-2 text-right">T1</th>
-                <th className="px-3 py-2 text-right">T2</th>
-                <th className="px-3 py-2 text-right"><SortHeader label="R:R" k="rrToT1" sortKey={sortKey} setSort={setSort} dir={sortDir} alignRight /></th>
-                <th className="px-3 py-2 text-right"><SortHeader label="RSI" k="rsi14" sortKey={sortKey} setSort={setSort} dir={sortDir} alignRight /></th>
-                <th className="px-3 py-2 text-right"><SortHeader label="ATR%" k="atrPct" sortKey={sortKey} setSort={setSort} dir={sortDir} alignRight /></th>
-                <th className="px-3 py-2 text-left">Buy Zone</th>
-                <th className="px-3 py-2 text-left">Weekly</th>
-                <th className="px-3 py-2 text-right">Live</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && new Array(8).fill(0).map((_, i) => (
-                <tr key={i} className="border-b border-border/40">
-                  <td colSpan={16} className="px-3 py-2"><Skeleton className="h-5 w-full" /></td>
-                </tr>
-              ))}
-              {!isLoading && rows.length === 0 && (
-                <tr><td colSpan={16} className="px-3 py-6 text-center text-muted-foreground">
-                  {data?.scanDate ? "No rows match these filters." : "No scan available yet — the first deep scan runs after 15:35 IST or on next boot."}
-                </td></tr>
-              )}
-              {rows.map(r => {
-                const live = num(r.intradayLast);
-                const pct = num(r.intradayChangePct);
-                return (
-                  <tr key={r.symbol} className="border-b border-border/30 hover:bg-accent/30 transition-colors">
-                    <td className="px-3 py-1.5">
-                      <Link href={`/stock/${r.symbol}`} className="font-semibold text-primary hover:underline">{r.symbol}</Link>
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${actionTone(r.action)}`}>
-                        <span>{actionEmoji(r.action)}</span>{r.action}
-                      </span>
-                      {r.triggerHit && <span className="ml-1.5 text-[10px] text-emerald-500">★ trigger hit</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-foreground/80 max-w-[180px] truncate" title={r.setup}>{r.setup}</td>
-                    <td className="px-3 py-1.5">
-                      <span className={`inline-flex px-1.5 py-0.5 rounded border text-[10px] ${gradeTone(r.qualityGrade)}`}>{r.qualityGrade}</span>
-                    </td>
-                    <td className="px-3 py-1.5"><ScoreBar score={num(r.score)} /></td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{fmtN(r.closePrice)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{fmtN(r.entry)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-rose-500/80">{fmtN(r.stopLoss)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-emerald-500/80">{fmtN(r.target1)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-emerald-500/60">{fmtN(r.target2)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{fmtN(r.rrToT1)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{fmtN(r.rsi14, 1)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{fmtN(r.atrPct, 2)}</td>
-                    <td className="px-3 py-1.5 text-foreground/70 tabular-nums">
-                      {fmtN(r.buyZoneLower)} – {fmtN(r.buyZoneUpper)}
-                      <span className="block text-[10px] text-muted-foreground truncate max-w-[160px]" title={r.buyZoneBasis}>{r.buyZoneBasis}</span>
-                    </td>
-                    <td className="px-3 py-1.5 text-foreground/70">{r.weeklyTrend}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">
-                      {Number.isFinite(live) ? (
-                        <>
-                          {live.toFixed(2)}
-                          <span className={`block text-[10px] ${pct >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                            {Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}
-                          </span>
-                        </>
-                      ) : <span className="text-muted-foreground">—</span>}
-                    </td>
+      {/* loading */}
+      {isLoading && (
+        <div className="space-y-2">{[0, 1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-10 w-full" />)}</div>
+      )}
+
+      {/* empty */}
+      {!isLoading && !error && sorted.length === 0 && (
+        <Card><CardContent className="p-6 text-center text-sm text-muted-foreground">{emptyMsg}</CardContent></Card>
+      )}
+
+      {/* results */}
+      {!isLoading && !error && sorted.length > 0 && (
+        <>
+          {/* desktop table */}
+          <Card className="hidden md:block">
+            <CardContent className="p-0 overflow-x-auto">
+              <table className="w-full text-xs font-mono">
+                <thead className="bg-muted/30 border-b border-border">
+                  <tr className="text-muted-foreground uppercase tracking-wider text-left">
+                    <th className="px-2 py-2 w-6"></th>
+                    <th className="px-3 py-2">Symbol</th>
+                    <th className="px-3 py-2">Action</th>
+                    <th className="px-3 py-2">Quality</th>
+                    <th className="px-3 py-2">Score</th>
+                    <th className="px-3 py-2 text-right">Close</th>
+                    <th className="px-3 py-2 text-right">Entry</th>
+                    <th className="px-3 py-2 text-right">Stop</th>
+                    <th className="px-3 py-2 text-right">T1</th>
+                    <th className="px-3 py-2 text-right">R:R</th>
+                    <th className="px-3 py-2 text-right">RS</th>
+                    <th className="px-3 py-2 text-right">Live</th>
+                    <th className="px-3 py-2">Risk</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+                </thead>
+                <tbody>
+                  {groups.map(g => (
+                    <Fragment key={g.key}>
+                      {groupBy !== "none" && (
+                        <tr className="bg-muted/40">
+                          <td colSpan={COLSPAN} className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+                            {g.key} · {g.rows.length}
+                          </td>
+                        </tr>
+                      )}
+                      {g.rows.map(r => {
+                        const live = num(r.intradayLast);
+                        const pct = num(r.intradayChangePct);
+                        const badges = deriveRowBadges(r, now);
+                        const isOpen = expanded === r.symbol;
+                        return (
+                          <Fragment key={r.symbol}>
+                            <tr className="border-b border-border/30 hover:bg-accent/30 transition-colors cursor-pointer" onClick={() => toggle(r.symbol)}>
+                              <td className="px-2 py-1.5 text-muted-foreground">{isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}</td>
+                              <td className="px-3 py-1.5"><Link href={`/stock/${r.symbol}`} onClick={e => e.stopPropagation()} className="font-semibold text-primary hover:underline">{r.symbol}</Link></td>
+                              <td className="px-3 py-1.5">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${actionTone(r.action)}`}>
+                                  <span>{actionEmoji(r.action)}</span>{actionDisplayLabel(r.action)}
+                                </span>
+                              </td>
+                              <td className="px-3 py-1.5"><span className={`inline-flex px-1.5 py-0.5 rounded border text-[10px] ${gradeTone(r.qualityGrade)}`}>{r.qualityGrade}</span></td>
+                              <td className="px-3 py-1.5"><ScoreBar score={num(r.score)} /></td>
+                              <td className="px-3 py-1.5 text-right tabular-nums">{fmtN(r.closePrice)}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums">{fmtN(r.entry)}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-rose-500/80">{fmtN(r.stopLoss)}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-emerald-500/80">{fmtN(r.target1)}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums">{fmtN(r.rrToT1)}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums">{fmtN(r.rsScore, 1)}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums">
+                                {Number.isFinite(live) ? (
+                                  <>
+                                    {live.toFixed(2)}
+                                    <span className={`block text-[10px] ${pct >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                                      {Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}
+                                    </span>
+                                  </>
+                                ) : <span className="text-muted-foreground">—</span>}
+                              </td>
+                              <td className="px-3 py-1.5"><RiskBadges badges={badges} max={2} /></td>
+                            </tr>
+                            {isOpen && (
+                              <tr className="border-b border-border/30 bg-muted/20">
+                                <td colSpan={COLSPAN} className="px-4 py-3"><WhyThisStock row={r} /></td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+
+          {/* mobile cards */}
+          <div className="md:hidden space-y-2">
+            {groups.map(g => (
+              <div key={g.key} className="space-y-2">
+                {groupBy !== "none" && (
+                  <div className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground px-1 pt-1">{g.key} · {g.rows.length}</div>
+                )}
+                {g.rows.map(r => {
+                  const live = num(r.intradayLast);
+                  const pct = num(r.intradayChangePct);
+                  const badges = deriveRowBadges(r, now);
+                  const isOpen = expanded === r.symbol;
+                  return (
+                    <Card key={r.symbol}>
+                      <CardContent className="p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <Link href={`/stock/${r.symbol}`} className="font-mono font-semibold text-primary hover:underline">{r.symbol}</Link>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${actionTone(r.action)}`}>
+                            <span>{actionEmoji(r.action)}</span>{actionDisplayLabel(r.action)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex px-1.5 py-0.5 rounded border text-[10px] ${gradeTone(r.qualityGrade)}`}>{r.qualityGrade}</span>
+                          <ScoreBar score={num(r.score)} />
+                        </div>
+                        <div className="grid grid-cols-4 gap-2 text-[11px] font-mono tabular-nums">
+                          <div><div className="text-[9px] uppercase text-muted-foreground">Entry</div>{fmtN(r.entry)}</div>
+                          <div><div className="text-[9px] uppercase text-muted-foreground">Stop</div><span className="text-rose-500/80">{fmtN(r.stopLoss)}</span></div>
+                          <div><div className="text-[9px] uppercase text-muted-foreground">T1</div><span className="text-emerald-500/80">{fmtN(r.target1)}</span></div>
+                          <div><div className="text-[9px] uppercase text-muted-foreground">R:R</div>{fmtN(r.rrToT1)}</div>
+                          <div><div className="text-[9px] uppercase text-muted-foreground">RS</div>{fmtN(r.rsScore, 1)}</div>
+                          <div className="col-span-3">
+                            <div className="text-[9px] uppercase text-muted-foreground">Live</div>
+                            {Number.isFinite(live) ? (
+                              <>{live.toFixed(2)} <span className={pct >= 0 ? "text-emerald-500" : "text-rose-500"}>{Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}</span></>
+                            ) : "—"}
+                          </div>
+                        </div>
+                        {badges.length > 0 && <RiskBadges badges={badges} max={4} />}
+                        <button onClick={() => toggle(r.symbol)} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+                          {isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />} Why this stock?
+                        </button>
+                        {isOpen && <div className="pt-1 border-t border-border/40"><WhyThisStock row={r} /></div>}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -553,7 +560,6 @@ export default function StocksToWatchPage() {
         data={analysis.data}
         isLoading={analysis.isLoading}
         error={(analysis.error as Error | null) ?? null}
-        scoreBySymbol={scoreBySymbol}
       />
     </div>
   );
