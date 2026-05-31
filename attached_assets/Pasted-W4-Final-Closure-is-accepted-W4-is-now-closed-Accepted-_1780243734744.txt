@@ -1,0 +1,291 @@
+W4 Final Closure is accepted.
+
+W4 is now closed.
+
+Accepted final state:
+
+* `/paper-reports` Overview tab added.
+* Safety banner added.
+* Summary cards added.
+* F&O vs Equity comparison added.
+* Equity curve added.
+* Drawdown cards added.
+* MFE/MAE review added.
+* Performance tables added.
+* Best/worst trade review added.
+* Filters/date range/sort controls added.
+* Client-side CSV export added.
+* Inline journal/tags editor added.
+* Mistake/review filter added.
+* Existing Intraday / Equity / F&O / Journal tabs preserved.
+* 333/333 scanner tests passed.
+* Full repo typecheck clean.
+* Production build passed.
+* Scope audit clean.
+* No forbidden files changed.
+* No backend/scoring/trading/schema/scheduler/auth behavior changed.
+* `replit.md`, memory, and docs untouched.
+
+Current verdict:
+
+```text id="086h1n"
+W4 = closed
+Reports / Journal / Performance Analytics upgrade = completed safely
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W5-P1 only**.
+
+# W5-P1: Authenticated Runtime QA / Visual QA for `/paper-reports`
+
+Purpose:
+
+Run an authenticated runtime QA pass on `/paper-reports` to verify the W4 UI actually works in the browser with owner access.
+
+This is QA only.
+
+Do not build new features.
+
+Do not change backend.
+
+Do not change trading/scoring logic.
+
+Do not change schema.
+
+Do not change auth.
+
+---
+
+## Approved scope
+
+Verify runtime behavior for:
+
+1. `/paper-reports` authenticated page load.
+2. Overview tab.
+3. Safety banner.
+4. Summary cards.
+5. F&O vs Equity comparison.
+6. Equity curve.
+7. Drawdown cards.
+8. MFE/MAE review.
+9. Performance tables.
+10. Best/worst trade review.
+11. Filters/date range/sort controls.
+12. Reset filters.
+13. Client-side CSV export.
+14. Inline journal/tags editor.
+15. Save/cancel journal flow.
+16. Mistake/review tag filter.
+17. Intraday / Equity / F&O / Journal tabs.
+18. Browser console.
+19. Mobile/responsive layout if possible.
+
+---
+
+## Authentication rule
+
+Use only an approved owner session if already available in the local/dev environment.
+
+Do not bypass auth.
+
+Do not hardcode credentials.
+
+Do not request secrets.
+
+Do not disable LoginGate.
+
+Do not weaken owner-only protection.
+
+If authenticated access is not available, stop and report:
+
+```text id="o9l4rl"
+Authenticated runtime QA blocked by owner login wall.
+```
+
+Then provide the exact list of checks that remain pending.
+
+---
+
+## No code changes by default
+
+This phase should make **no code changes** unless a real runtime UI bug is found.
+
+A code change is allowed only if:
+
+* frontend-only,
+* minimal,
+* fixes a real visible/runtime defect,
+* does not change calculations,
+* does not change API payloads,
+* does not touch backend,
+* does not touch trading/scoring/schema/auth,
+* does not introduce dependencies.
+
+If any code change is made, re-run full verification.
+
+---
+
+# Runtime checks
+
+## 1. Overview checks
+
+Verify:
+
+```text id="bo7lvp"
+Overview tab loads
+Safety banner visible
+Summary cards visible
+F&O vs Equity comparison visible
+Equity curve section visible
+Drawdown cards visible
+MFE/MAE review visible
+Performance tables visible
+Best/worst review visible
+Reports controls visible
+CSV export button visible
+```
+
+## 2. Filter/sort checks
+
+Test:
+
+* segment filter,
+* setup filter if options exist,
+* index/symbol filter if options exist,
+* exit-reason filter if options exist,
+* tag filter if options exist,
+* P&L sign filter,
+* journal present/missing filter,
+* date-from/date-to filter,
+* sort key,
+* sort direction,
+* reset filters.
+
+Verify:
+
+```text id="a6v5px"
+Showing X of Y rows updates correctly
+No-match state appears correctly
+Reset returns rows
+No console errors
+```
+
+## 3. CSV export checks
+
+Verify:
+
+* export button is disabled when no rows are visible,
+* export button is enabled when rows are visible,
+* CSV is generated client-side only,
+* no backend CSV request is made,
+* CSV columns are deterministic,
+* journal/tags fields are included if present.
+
+Do not use backend CSV export.
+
+## 4. Journal editor checks
+
+Verify:
+
+* journal editor opens,
+* existing note displays,
+* tags display,
+* edit mode opens,
+* cancel works without saving,
+* save sends only `{ journal, tags }`,
+* save success updates UI,
+* error state is handled if request fails,
+* mistake/review tag filter works.
+
+Do not modify trading fields.
+
+Do not send any field other than `journal` and `tags`.
+
+If using a real save would create unwanted test data, use a harmless test note/tag and clearly report it, or stop before save and report save not executed.
+
+## 5. Tabs
+
+Verify existing tabs still render:
+
+```text id="bkjghj"
+Intraday
+Equity
+F&O
+Journal
+```
+
+Do not remove or rewrite any tab.
+
+## 6. Console/network
+
+Verify:
+
+* no runtime console errors,
+* no repeated failing requests,
+* no unauthorized data leak,
+* no backend CSV call,
+* no unexpected PATCH payload fields.
+
+---
+
+## Commands to run
+
+Run at minimum:
+
+```text id="rs64me"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+If no code change is made and these were just run in W4-P8, still run at least a smoke validation and report whether command reruns were performed or skipped with reason.
+
+---
+
+## Scope audit
+
+If any code change is made, run a git scope audit.
+
+Forbidden:
+
+```text id="hhmelu"
+artifacts/api-server/**
+lib/**
+lib-api-spec/**
+lib/api-spec/**
+DB schema files
+scheduler files
+auth middleware
+trading/scoring files
+paper-trade execution files
+P25 tracker files
+MFE/MAE calculation files
+replit.md
+memory/docs
+```
+
+---
+
+# Output required
+
+Produce a **W5-P1 Authenticated Runtime QA Report** with:
+
+A. Whether authenticated access was available
+B. Environment tested
+C. `/paper-reports` load result
+D. Overview section results
+E. Filter/sort results
+F. CSV export result
+G. Journal editor result
+H. Tab navigation result
+I. Console/network result
+J. Mobile/responsive result if tested
+K. Any bugs found
+L. Any code changes made, if any
+M. Test/typecheck/build results if rerun
+N. Scope audit result if any code changed
+O. Remaining blocked/pending checks
+P. Recommended next phase
+
+After W5-P1, stop and wait for approval.
