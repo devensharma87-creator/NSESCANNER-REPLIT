@@ -1,0 +1,125 @@
+W4-P5 Reports Performance Tables is accepted.
+
+Accepted final state:
+
+* Setup-wise performance table added.
+* Exit-reason performance table added.
+* Index/symbol performance table added only where field exists.
+* Best/worst trade review added.
+* Missing index/symbol state is honest and not fabricated.
+* Existing Overview sections still work:
+
+  * safety banner,
+  * summary cards,
+  * equity curve,
+  * drawdown cards,
+  * MFE/MAE review.
+* Existing Intraday / Equity / F&O / Journal tabs preserved.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No route/auth changes.
+* No OpenAPI/codegen changes.
+* No trading/scoring/P25/MFE-MAE logic changes.
+* No `replit.md`, memory, or docs changes.
+* 322/322 scanner tests passed.
+* Scanner typecheck clean.
+* Full repo typecheck clean.
+* Architect review passed.
+* Visual smoke remains blocked by owner login, which is acceptable.
+
+Current verdict:
+
+```text id="7cfxl8"
+W4-P5 = accepted
+Reports performance tables + best/worst review = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W4-P6 only**.
+
+# W4-P6: Reports Inline Journal / Tags Editor + Mistake Review Filter
+
+Purpose:
+
+Add a safe journal/tags review workflow to `/paper-reports` using the already-existing journal PATCH endpoints.
+
+This is **journal-only UI work**.
+
+It may update only journal notes and tags through existing endpoints.
+
+It must not change trading logic, scoring, entries, exits, stops, targets, P25, MFE/MAE, paper-trade execution, backend routes, schema, or auth.
+
+---
+
+## Approved scope
+
+Add or improve:
+
+1. Inline journal note editor for closed F&O trades.
+2. Inline journal note editor for closed Equity trades.
+3. Tags editor for closed trades.
+4. Mistake/review filter using existing tags.
+5. Clear save/cancel states.
+6. Safe loading/error/success states.
+7. Owner-only/private boundary preserved.
+
+This phase is **not** trading logic.
+
+This phase is **not** strategy logic.
+
+This phase is only for reviewing and annotating paper trades.
+
+---
+
+## Existing endpoints allowed
+
+Use only existing endpoints:
+
+```text id="aj61po"
+PATCH /api/paper/trades/fo/:id/journal
+PATCH /api/paper/trades/eq/:id/journal
+```
+
+Existing contract:
+
+```text id="fcokcu"
+{
+  journal: string,
+  tags: string[]
+}
+```
+
+Do not add new backend endpoints.
+
+Do not change endpoint payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+If these endpoints are unavailable or unstable, stop and report.
+
+---
+
+# UI requirements
+
+## 1. Journal editor
+
+For each closed trade row/card where journal/tags are available, allow:
+
+* view journal note,
+* edit journal note,
+* save,
+* cancel,
+* show saving state,
+* show saved state,
+* show error state.
+
+Use existing trade `journal` field only.
+
+Do not create new fields.
+
+Do not auto-generate journal notes.
+
+Do not use

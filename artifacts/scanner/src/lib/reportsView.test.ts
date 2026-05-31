@@ -20,6 +20,8 @@ import {
   aggregateReportGroup,
   buildReportPerformanceRows,
   selectBestWorstTrades,
+  collectTagsFromRows,
+  filterRowsByTagAndJournal,
   deriveMfeMaeReview,
   shapeEquityCurve,
   deriveDrawdownSummary,
@@ -826,5 +828,78 @@ describe("deriveReportsEmptyState", () => {
 
   it("ready when rows present", () => {
     expect(deriveReportsEmptyState({ rows: [{ id: "1" }] }).kind).toBe("ready");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7d. Journal tag collection + mistake/review filter (W4-P6)
+// ---------------------------------------------------------------------------
+describe("collectTagsFromRows", () => {
+  it("returns unique sorted tags and ignores missing/blank/non-array", () => {
+    const rows = [
+      { tags: ["revenge", "fomo"] },
+      { tags: ["fomo", "  ", "discipline"] },
+      { tags: null },
+      {},
+      { tags: ["revenge"] },
+    ];
+    expect(collectTagsFromRows(rows)).toEqual(["discipline", "fomo", "revenge"]);
+  });
+
+  it("returns empty array when no rows carry tags", () => {
+    expect(collectTagsFromRows([{}, { tags: null }, { tags: [] }])).toEqual([]);
+  });
+});
+
+describe("filterRowsByTagAndJournal", () => {
+  const rows = [
+    { id: "a", tags: ["fomo"], journal: "missed the plan" },
+    { id: "b", tags: ["discipline"], journal: null },
+    { id: "c", tags: [], journal: "clean entry" },
+    { id: "d", journal: null },
+  ];
+
+  it("returns all rows when no predicate is active", () => {
+    expect(filterRowsByTagAndJournal(rows, {}).map((r) => r.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+  });
+
+  it("matches ANY selected tag", () => {
+    expect(
+      filterRowsByTagAndJournal(rows, { tags: ["fomo", "discipline"] }).map(
+        (r) => r.id,
+      ),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("PRESENT keeps only rows with a non-empty journal", () => {
+    expect(
+      filterRowsByTagAndJournal(rows, { journal: "PRESENT" }).map((r) => r.id),
+    ).toEqual(["a", "c"]);
+  });
+
+  it("MISSING keeps only rows without a journal", () => {
+    expect(
+      filterRowsByTagAndJournal(rows, { journal: "MISSING" }).map((r) => r.id),
+    ).toEqual(["b", "d"]);
+  });
+
+  it("combines tag and journal predicates", () => {
+    expect(
+      filterRowsByTagAndJournal(rows, {
+        tags: ["fomo", "discipline"],
+        journal: "PRESENT",
+      }).map((r) => r.id),
+    ).toEqual(["a"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = rows.slice();
+    filterRowsByTagAndJournal(input, { tags: ["fomo"] });
+    expect(input.map((r) => r.id)).toEqual(["a", "b", "c", "d"]);
   });
 });

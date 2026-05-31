@@ -20,7 +20,7 @@
  * F&O option fee schedule. No mocks, no synthetic days, no silent empty
  * fallbacks — failures render as a visible red error block.
  */
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Seo } from "@/components/seo";
 import {
@@ -33,7 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, NotebookPen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReportsSafetyBanner } from "@/components/reports/ReportsSafetyBanner";
 import { ReportsOverviewCards } from "@/components/reports/ReportsOverviewCards";
@@ -43,16 +43,23 @@ import { ReportsMfeMaeReview } from "@/components/reports/ReportsMfeMaeReview";
 import { ReportsPerformanceTables } from "@/components/reports/ReportsPerformanceTables";
 import { ReportsBestWorstTrades } from "@/components/reports/ReportsBestWorstTrades";
 import {
+  ReportsJournalEditor,
+  ReportsJournalFilterBar,
+} from "@/components/reports/ReportsJournalEditor";
+import {
   summarizeReportsOverview,
   shapeEquityCurve,
   deriveDrawdownSummary,
   deriveMfeMaeReview,
   normalizeFoTradeRow,
   normalizeEqTradeRow,
+  collectTagsFromRows,
+  filterRowsByTagAndJournal,
   type FoAnalyticsLike,
   type ShadowExitReportLike,
   type AccountLike,
   type NormalizedReportRow,
+  type JournalFilter,
 } from "@/lib/reportsView";
 
 const BASE = import.meta.env.BASE_URL;
@@ -134,6 +141,8 @@ interface TradeDetailRow {
   rMultiple: number;
   exitReason: "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED" | "MANUAL_OVERRIDE";
   durationSec: number;
+  journal?: string | null;
+  tags?: string[];
 }
 interface MonthlyReport {
   month: string;
@@ -184,6 +193,8 @@ interface EqTradeDetailRow {
   exitReason: EqExitReason;
   daysHeld: number;
   trailedToT1: boolean;
+  journal?: string | null;
+  tags?: string[];
 }
 interface EqMonthlyReport {
   month: string;
@@ -912,14 +923,50 @@ const REASON_TONE: Record<TradeDetailRow["exitReason"], string> = {
   MANUAL_OVERRIDE: "bg-slate-500/15 text-slate-200 border-slate-500/30",
 };
 
+const FO_TRADE_COLSPAN = 16;
+
 function TradeDetailTable({ trades }: { trades: TradeDetailRow[] }) {
+  const [overrides, setOverrides] = useState<
+    Record<string, { journal: string | null; tags: string[] }>
+  >({});
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [journalFilter, setJournalFilter] = useState<JournalFilter>("ALL");
+
+  const merged = useMemo(
+    () =>
+      trades.map((t) =>
+        overrides[t.id] ? { ...t, ...overrides[t.id] } : t,
+      ),
+    [trades, overrides],
+  );
+  const availableTags = useMemo(() => collectTagsFromRows(merged), [merged]);
+  const visible = useMemo(
+    () =>
+      filterRowsByTagAndJournal(merged, {
+        tags: selectedTags,
+        journal: journalFilter,
+      }),
+    [merged, selectedTags, journalFilter],
+  );
+
+  const toggleTag = (tag: string) =>
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+    );
+  const clearFilters = () => {
+    setSelectedTags([]);
+    setJournalFilter("ALL");
+  };
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Trade detail</CardTitle>
         <CardDescription>
           Every closed paper trade in this month. R achieved =
-          (exit − entry) ÷ |entry − stop| per share.
+          (exit − entry) ÷ |entry − stop| per share. Add a private review note
+          or tag per trade — review only, never affects trading.
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0">
@@ -928,32 +975,80 @@ function TradeDetailTable({ trades }: { trades: TradeDetailRow[] }) {
             No closed trades in this month yet.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs uppercase text-slate-400 bg-slate-900/40">
-                <tr>
-                  <Th>Date</Th>
-                  <Th>Index</Th>
-                  <Th>Setup</Th>
-                  <Th>Side</Th>
-                  <Th>Strike</Th>
-                  <Th align="right">Lots</Th>
-                  <Th align="right">Entry</Th>
-                  <Th align="right">Exit</Th>
-                  <Th align="right">Stop</Th>
-                  <Th align="right">R achieved</Th>
-                  <Th align="right">Gross P&amp;L</Th>
-                  <Th align="right">Charges</Th>
-                  <Th align="right">Net P&amp;L</Th>
-                  <Th>Reason</Th>
-                  <Th align="right">Held</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {trades.map(t => <TradeRow key={t.id} t={t} />)}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <ReportsJournalFilterBar
+              availableTags={availableTags}
+              selectedTags={selectedTags}
+              onToggleTag={toggleTag}
+              journalFilter={journalFilter}
+              onChangeJournalFilter={setJournalFilter}
+              showing={visible.length}
+              total={merged.length}
+              onClear={clearFilters}
+            />
+            {visible.length === 0 ? (
+              <div className="px-6 py-8 text-sm text-muted-foreground text-center">
+                No trades match the selected review filters.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase text-slate-400 bg-slate-900/40">
+                    <tr>
+                      <Th>Date</Th>
+                      <Th>Index</Th>
+                      <Th>Setup</Th>
+                      <Th>Side</Th>
+                      <Th>Strike</Th>
+                      <Th align="right">Lots</Th>
+                      <Th align="right">Entry</Th>
+                      <Th align="right">Exit</Th>
+                      <Th align="right">Stop</Th>
+                      <Th align="right">R achieved</Th>
+                      <Th align="right">Gross P&amp;L</Th>
+                      <Th align="right">Charges</Th>
+                      <Th align="right">Net P&amp;L</Th>
+                      <Th>Reason</Th>
+                      <Th align="right">Held</Th>
+                      <Th>Journal</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((t) => (
+                      <Fragment key={t.id}>
+                        <TradeRow
+                          t={t}
+                          expanded={openId === t.id}
+                          onToggle={() =>
+                            setOpenId((cur) => (cur === t.id ? null : t.id))
+                          }
+                        />
+                        {openId === t.id && (
+                          <tr className="border-t border-slate-800/60 bg-slate-900/30">
+                            <td colSpan={FO_TRADE_COLSPAN} className="px-4 py-3">
+                              <ReportsJournalEditor
+                                segment="FNO"
+                                tradeId={t.id}
+                                journal={t.journal ?? null}
+                                tags={t.tags ?? []}
+                                suggestedTags={availableTags}
+                                onSaved={(next) =>
+                                  setOverrides((prev) => ({
+                                    ...prev,
+                                    [t.id]: next,
+                                  }))
+                                }
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
@@ -976,12 +1071,14 @@ function Td({ children, align = "left", tone }: {
   );
 }
 
-function TradeRow({ t }: { t: TradeDetailRow }) {
+function TradeRow({ t, expanded, onToggle }: {
+  t: TradeDetailRow; expanded: boolean; onToggle: () => void;
+}) {
   const dur = formatDuration(t.durationSec);
   const rTone = t.rMultiple > 0 ? "good" : t.rMultiple < 0 ? "bad" : undefined;
   const pnlTone = t.netPnl > 0 ? "good" : t.netPnl < 0 ? "bad" : undefined;
   return (
-    <tr className="border-t border-slate-800/60">
+    <tr className={cn("border-t border-slate-800/60", expanded && "bg-slate-900/20")}>
       <Td>{t.signalDate}</Td>
       <Td>{t.indexSymbol}</Td>
       <Td>{t.setupKey}</Td>
@@ -1018,7 +1115,43 @@ function TradeRow({ t }: { t: TradeDetailRow }) {
         </span>
       </Td>
       <Td align="right" tone={undefined}>{dur}</Td>
+      <Td>
+        <JournalCell
+          expanded={expanded}
+          onToggle={onToggle}
+          hasNote={(t.journal ?? "").trim().length > 0}
+          tagCount={(t.tags ?? []).length}
+        />
+      </Td>
     </tr>
+  );
+}
+
+function JournalCell({ expanded, onToggle, hasNote, tagCount }: {
+  expanded: boolean; onToggle: () => void; hasNote: boolean; tagCount: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors",
+        expanded
+          ? "border-sky-500 text-sky-300 bg-sky-500/10"
+          : "border-slate-700 text-slate-300 hover:bg-slate-800",
+      )}
+    >
+      <NotebookPen className="h-3.5 w-3.5" />
+      {hasNote || tagCount > 0 ? (
+        <span className="flex items-center gap-1">
+          {hasNote && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+          {tagCount > 0 && <span>{tagCount}</span>}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">Add</span>
+      )}
+    </button>
   );
 }
 
@@ -1139,7 +1272,42 @@ function EqYearlyView({ fy, onChangeFy }: {
   );
 }
 
+const EQ_TRADE_COLSPAN = 13;
+
 function EqTradeDetailTable({ trades }: { trades: EqTradeDetailRow[] }) {
+  const [overrides, setOverrides] = useState<
+    Record<string, { journal: string | null; tags: string[] }>
+  >({});
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [journalFilter, setJournalFilter] = useState<JournalFilter>("ALL");
+
+  const merged = useMemo(
+    () =>
+      trades.map((t) =>
+        overrides[t.id] ? { ...t, ...overrides[t.id] } : t,
+      ),
+    [trades, overrides],
+  );
+  const availableTags = useMemo(() => collectTagsFromRows(merged), [merged]);
+  const visible = useMemo(
+    () =>
+      filterRowsByTagAndJournal(merged, {
+        tags: selectedTags,
+        journal: journalFilter,
+      }),
+    [merged, selectedTags, journalFilter],
+  );
+
+  const toggleTag = (tag: string) =>
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+    );
+  const clearFilters = () => {
+    setSelectedTags([]);
+    setJournalFilter("ALL");
+  };
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -1148,6 +1316,8 @@ function EqTradeDetailTable({ trades }: { trades: EqTradeDetailRow[] }) {
           Every closed equity paper trade in this month. R achieved =
           (exit − entry) ÷ |entry − stop| per share. Charges include
           STT, NSE transaction, SEBI, GST, stamp duty and DP charges.
+          Add a private review note or tag per trade — review only, never
+          affects trading.
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0">
@@ -1156,36 +1326,86 @@ function EqTradeDetailTable({ trades }: { trades: EqTradeDetailRow[] }) {
             No closed equity trades in this month yet.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs uppercase text-slate-400 bg-slate-900/40">
-                <tr>
-                  <Th>Closed</Th>
-                  <Th>Symbol</Th>
-                  <Th align="right">Qty</Th>
-                  <Th align="right">Entry</Th>
-                  <Th align="right">Exit</Th>
-                  <Th align="right">Stop</Th>
-                  <Th align="right">R achieved</Th>
-                  <Th align="right">Gross P&amp;L</Th>
-                  <Th align="right">Charges</Th>
-                  <Th align="right">Net P&amp;L</Th>
-                  <Th>Reason</Th>
-                  <Th align="right">Days</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {trades.map(t => <EqTradeRow key={t.id} t={t} />)}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <ReportsJournalFilterBar
+              availableTags={availableTags}
+              selectedTags={selectedTags}
+              onToggleTag={toggleTag}
+              journalFilter={journalFilter}
+              onChangeJournalFilter={setJournalFilter}
+              showing={visible.length}
+              total={merged.length}
+              onClear={clearFilters}
+            />
+            {visible.length === 0 ? (
+              <div className="px-6 py-8 text-sm text-muted-foreground text-center">
+                No trades match the selected review filters.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase text-slate-400 bg-slate-900/40">
+                    <tr>
+                      <Th>Closed</Th>
+                      <Th>Symbol</Th>
+                      <Th align="right">Qty</Th>
+                      <Th align="right">Entry</Th>
+                      <Th align="right">Exit</Th>
+                      <Th align="right">Stop</Th>
+                      <Th align="right">R achieved</Th>
+                      <Th align="right">Gross P&amp;L</Th>
+                      <Th align="right">Charges</Th>
+                      <Th align="right">Net P&amp;L</Th>
+                      <Th>Reason</Th>
+                      <Th align="right">Days</Th>
+                      <Th>Journal</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((t) => (
+                      <Fragment key={t.id}>
+                        <EqTradeRow
+                          t={t}
+                          expanded={openId === t.id}
+                          onToggle={() =>
+                            setOpenId((cur) => (cur === t.id ? null : t.id))
+                          }
+                        />
+                        {openId === t.id && (
+                          <tr className="border-t border-slate-800/60 bg-slate-900/30">
+                            <td colSpan={EQ_TRADE_COLSPAN} className="px-4 py-3">
+                              <ReportsJournalEditor
+                                segment="EQUITY"
+                                tradeId={t.id}
+                                journal={t.journal ?? null}
+                                tags={t.tags ?? []}
+                                suggestedTags={availableTags}
+                                onSaved={(next) =>
+                                  setOverrides((prev) => ({
+                                    ...prev,
+                                    [t.id]: next,
+                                  }))
+                                }
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
   );
 }
 
-function EqTradeRow({ t }: { t: EqTradeDetailRow }) {
+function EqTradeRow({ t, expanded, onToggle }: {
+  t: EqTradeDetailRow; expanded: boolean; onToggle: () => void;
+}) {
   const rTone = t.rMultiple > 0 ? "good" : t.rMultiple < 0 ? "bad" : undefined;
   const pnlTone = t.netPnl > 0 ? "good" : t.netPnl < 0 ? "bad" : undefined;
   const exitDate = (() => {
@@ -1196,7 +1416,7 @@ function EqTradeRow({ t }: { t: EqTradeDetailRow }) {
     } catch { return t.exitedAt; }
   })();
   return (
-    <tr className="border-t border-slate-800/60">
+    <tr className={cn("border-t border-slate-800/60", expanded && "bg-slate-900/20")}>
       <Td>{exitDate}</Td>
       <Td>
         <div className="font-medium">{t.symbol}</div>
@@ -1221,6 +1441,14 @@ function EqTradeRow({ t }: { t: EqTradeDetailRow }) {
         </span>
       </Td>
       <Td align="right">{t.daysHeld}</Td>
+      <Td>
+        <JournalCell
+          expanded={expanded}
+          onToggle={onToggle}
+          hasNote={(t.journal ?? "").trim().length > 0}
+          tagCount={(t.tags ?? []).length}
+        />
+      </Td>
     </tr>
   );
 }

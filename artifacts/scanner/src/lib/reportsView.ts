@@ -669,6 +669,56 @@ export function countActiveReportFilters(filters: ReportFilters): number {
   return n;
 }
 
+/**
+ * Collect the unique, sorted set of tags present across the given rows.
+ * Drives the mistake/review tag filter — only tags that actually exist in
+ * the data appear (never a fabricated taxonomy). Pure.
+ */
+export function collectTagsFromRows(
+  rows: ReadonlyArray<{ tags?: readonly string[] | null }>,
+): string[] {
+  const set = new Set<string>();
+  for (const r of rows) {
+    if (!Array.isArray(r.tags)) continue;
+    for (const t of r.tags) {
+      const s = strOrNull(t);
+      if (s != null) set.add(s);
+    }
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Filter raw trade rows by tag selection and journal presence. Generic so it
+ * works on the FO / EQ detail-row shapes (which differ from
+ * NormalizedReportRow). A row matches the tag predicate when it carries ANY
+ * of the selected tags (review filter = "show trades flagged with any of
+ * these"). Journal presence reuses the existing JournalFilter contract. Rows
+ * missing the targeted field are excluded by an active predicate — never
+ * invented. Pure — returns a new array.
+ */
+export function filterRowsByTagAndJournal<
+  T extends { tags?: readonly string[] | null; journal?: string | null },
+>(
+  rows: readonly T[],
+  opts: { tags?: readonly string[]; journal?: JournalFilter },
+): T[] {
+  const tags = opts.tags ?? [];
+  const journal = opts.journal ?? "ALL";
+  return rows.filter((r) => {
+    if (tags.length > 0) {
+      const rt = Array.isArray(r.tags) ? r.tags : [];
+      if (!tags.some((t) => rt.includes(t))) return false;
+    }
+    if (journal !== "ALL") {
+      const has = strOrNull(r.journal) != null;
+      if (journal === "PRESENT" && !has) return false;
+      if (journal === "MISSING" && has) return false;
+    }
+    return true;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 5. Sorting
 // ---------------------------------------------------------------------------
