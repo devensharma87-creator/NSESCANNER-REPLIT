@@ -1,0 +1,144 @@
+W5-P1 Authenticated Runtime QA report is accepted.
+
+Current status:
+
+```text
+W5-P1 = blocked by owner login wall
+Reason = no legitimate owner session available in dev
+Code changes = none
+Tests = 333/333 passing
+Full repo typecheck = clean
+Owner-only boundary = working correctly
+```
+
+Do **not** access secrets.
+
+Do **not** read or expose `APP_ACCESS_PASSWORD`.
+
+Do **not** disable auth.
+
+Do **not** enable public mode.
+
+Do **not** bypass LoginGate.
+
+Next proceed with **W5-P1A only: Owner-Assisted Authenticated QA**.
+
+# W5-P1A: Owner-Assisted `/paper-reports` Runtime QA
+
+Purpose:
+
+Run the same authenticated runtime QA only after the owner has legitimately logged in through the normal UI.
+
+## Required condition before starting
+
+Wait until the owner confirms:
+
+```text
+I have logged in to the dev preview with owner access.
+```
+
+After that, use the existing browser/dev preview session only.
+
+Do not ask for password.
+
+Do not inspect secrets.
+
+Do not hardcode credentials.
+
+Do not weaken auth.
+
+## Runtime checks
+
+Verify:
+
+1. `/paper-reports` authenticated page loads.
+2. Overview tab renders.
+3. Safety banner renders.
+4. Summary cards render.
+5. F&O vs Equity comparison renders.
+6. Equity curve renders.
+7. Drawdown cards render.
+8. MFE/MAE review renders.
+9. Setup/exit/index-symbol performance tables render.
+10. Best/worst trade review renders.
+11. Filter controls render.
+12. Date range works.
+13. Sort works.
+14. Reset filters works.
+15. CSV export button behavior works.
+16. CSV export is client-side only.
+17. Journal editor opens.
+18. Cancel works.
+19. Save sends only `{ journal, tags }` if a harmless test save is approved.
+20. Mistake/review tag filter works.
+21. Intraday / Equity / F&O / Journal tabs render.
+22. Browser console has no errors.
+23. No unexpected network failures.
+24. Mobile/responsive layout if possible.
+
+## Journal save safety
+
+Do not create unwanted journal data.
+
+Before save testing, use either:
+
+```text
+QA test note — safe to delete
+```
+
+and tag:
+
+```text
+qa-test
+```
+
+Or skip save and report:
+
+```text
+Journal save not executed to avoid modifying real paper-trade notes.
+```
+
+## No code changes by default
+
+Make no code change unless a real runtime UI bug appears.
+
+If a code change is needed:
+
+* frontend-only,
+* minimal,
+* no calculation change,
+* no backend change,
+* no trading/scoring change,
+* no schema/auth change,
+* no dependency change.
+
+Then rerun:
+
+```text
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+## Output required
+
+Produce **W5-P1A Owner-Assisted Runtime QA Report** with:
+
+A. Whether owner session was available
+B. `/paper-reports` load result
+C. Overview result
+D. Section-by-section result
+E. Filter/sort result
+F. CSV export result
+G. Journal editor result
+H. Tabs result
+I. Console/network result
+J. Mobile/responsive result if tested
+K. Bugs found
+L. Code changes made, if any
+M. Test/typecheck/build results if rerun
+N. Remaining issues
+O. Recommended next phase
+
+Stop after this report.
