@@ -1,0 +1,382 @@
+W2B Visual QA + UI Polish Report is accepted.
+
+Accepted findings:
+
+* `/stocks-to-watch` route loads cleanly.
+* Auth gate is intact.
+* Authenticated visual QA is blocked by login wall.
+* No runtime crash.
+* No console errors from W2A code.
+* No speculative polish was made.
+* 113/113 scanner tests passed.
+* Scanner typecheck clean.
+* Full workspace typecheck clean.
+* No backend/scoring/trading/schema/auth behavior changed.
+* No `replit.md`, memory, or docs changes.
+
+Important decision:
+
+```text id="uuqwu4"
+Do not wait for visual access.
+Do not make blind cosmetic changes.
+Move to the next safe read-only upgrade phase.
+```
+
+Now proceed with:
+
+# W3: F&O Paper Trading / Options Cockpit Pro Upgrade Plan — Planning Only
+
+Purpose:
+
+Prepare the next safe upgrade plan for the F&O paper trading and options cockpit area.
+
+This must improve the visibility, readability, dashboard structure, risk explanation, evidence tracking, and paper-trade review experience using existing data only.
+
+This is planning only.
+
+Do not implement yet.
+
+Do not change F&O logic.
+
+Do not change entries.
+
+Do not change exits.
+
+Do not change stops.
+
+Do not change targets.
+
+Do not change sizing.
+
+Do not change gates.
+
+Do not change P25 tracker.
+
+Do not change paper-trade execution.
+
+Do not change backend behavior.
+
+---
+
+## Current accepted F&O state
+
+Use this accepted state:
+
+```text id="1mrsgi"
+Official P25 count = 5/20
+Remaining = 15
+Gate = OPEN
+Threshold = 20
+No F&O exit change approved
+No partial booking approved
+No breakeven trail approved
+No stop/target change approved
+```
+
+P25 counting rule:
+
+```text id="i2qa1r"
+status = CLOSED
+exit_premium IS NOT NULL
+entry_premium > 0
+qty > 0
+NOT (max_runup = 0 AND max_drawdown = 0)
+```
+
+Do not use raw `IS NOT NULL` MFE/MAE count as the official gate count.
+
+---
+
+# W3 planning scope
+
+Explore the existing F&O / paper trading / options pages, components, endpoints, and data shapes.
+
+Then produce a plan to upgrade the UI into a more professional options trading cockpit.
+
+## Areas to review
+
+Find and inspect the current frontend surfaces for:
+
+* F&O paper trades,
+* options cockpit,
+* index signals,
+* open F&O trades,
+* closed F&O trades,
+* P&L display,
+* MFE/MAE display,
+* option snapshots,
+* signal confidence,
+* setup type,
+* exit reason,
+* risk/reward,
+* daily summary,
+* evidence tracker,
+* MTM sweep diagnostic,
+* shadow exit report,
+* infra-health F&O sections.
+
+Also inspect existing endpoints/data already available for:
+
+* paper F&O trades,
+* open positions,
+* closed positions,
+* daily F&O summary,
+* shadow exits,
+* P25 evidence count,
+* option snapshots,
+* MTM sweep,
+* signal history,
+* index/underlying movement,
+* paper P&L,
+* MFE/MAE.
+
+Use existing data only.
+
+Do not add new endpoints in this planning step.
+
+---
+
+# Proposed W3 upgrade goals
+
+Plan improvements for:
+
+## 1. F&O Cockpit Summary Cards
+
+Possible cards:
+
+* open F&O trades,
+* closed trades today,
+* realised P&L,
+* unrealised/MTM P&L if available,
+* win/loss count,
+* average MFE,
+* average MAE,
+* best trade,
+* worst trade,
+* P25 evidence count,
+* remaining trades to gate,
+* last signal time,
+* data freshness.
+
+## 2. Trade Evidence Panel
+
+Show:
+
+* official P25 count,
+* threshold,
+* remaining,
+* eligible trades,
+* excluded 0/0 pre-fix rows,
+* last eligible evidence trade,
+* gate status,
+* clear label:
+
+```text id="xysz0y"
+Evidence only — no live exit change approved
+```
+
+## 3. Open Trades Table
+
+Improve readability for:
+
+* index,
+* option type,
+* strike,
+* direction,
+* setup,
+* entry premium,
+* current premium,
+* quantity/lots,
+* entry time,
+* current P&L,
+* MFE,
+* MAE,
+* stop/target if available,
+* risk badge,
+* freshness badge.
+
+## 4. Closed Trades Review
+
+Improve:
+
+* realised P&L,
+* exit reason,
+* MFE/MAE,
+* missed opportunity,
+* drawdown before exit,
+* time in trade,
+* setup quality,
+* signal confidence,
+* whether trade counts for P25 evidence,
+* why included/excluded.
+
+## 5. Signal Explanation / Why This Trade?
+
+For each signal/trade, plan an explanation drawer:
+
+* index,
+* setup,
+* direction,
+* confidence,
+* technical reasons,
+* option selected,
+* entry premium,
+* exit premium,
+* MFE/MAE,
+* exit reason,
+* market condition if available,
+* P25 eligibility status.
+
+## 6. Risk Badges
+
+Plan display-only badges:
+
+* evidence eligible,
+* evidence excluded 0/0,
+* no MFE data,
+* high drawdown,
+* time exit,
+* stop exit,
+* target exit,
+* stale quote,
+* missing option snapshot,
+* low sample warning,
+* paper-only.
+
+Do not create new trading logic.
+
+Badges must be display-only and derived from existing fields.
+
+## 7. Filters and Sorting
+
+Plan filters:
+
+* index,
+* setup,
+* direction,
+* option type,
+* status,
+* date range,
+* P&L positive/negative,
+* P25 eligible,
+* exit reason,
+* evidence available,
+* paper-only.
+
+Plan sorting:
+
+* entry time,
+* exit time,
+* realised P&L,
+* MFE,
+* MAE,
+* confidence,
+* time in trade.
+
+## 8. Data Freshness and Safety Labels
+
+Show clearly:
+
+```text id="cd5y59"
+Paper trading only
+No live order placement
+Evidence gate open
+No exit-rule change approved
+```
+
+Also show:
+
+* last option snapshot time,
+* last MTM sweep time,
+* data-source status,
+* Kite/Yahoo/TrueData source if already available.
+
+## 9. Mobile / responsive layout
+
+Plan desktop table + mobile trade cards.
+
+## 10. Empty states
+
+Plan states for:
+
+* no open trades,
+* no closed trades today,
+* market closed,
+* data unavailable,
+* option snapshot missing,
+* P25 evidence still low sample,
+* paper trading disabled.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stop logic,
+* F&O target logic,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option selection,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* MTM sweep logic,
+* live order logic,
+* Kite logic,
+* swing scoring,
+* swing recommendations,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+---
+
+# Output required
+
+Produce:
+
+```text id="fucaxl"
+W3 F&O Paper Trading / Options Cockpit Pro Upgrade Plan
+```
+
+The plan must include:
+
+A. Current F&O pages/components found
+B. Current endpoints/data sources found
+C. Current fields available
+D. Current UI issues observed
+E. Proposed cockpit layout
+F. Proposed summary cards
+G. Proposed open-trades table/card improvements
+H. Proposed closed-trades review improvements
+I. Proposed P25 evidence panel
+J. Proposed “Why this trade?” explanation drawer
+K. Proposed risk badges
+L. Proposed filters/sorting/grouping
+M. Proposed empty/loading/error states
+N. Public vs owner-only boundary
+O. Files likely to change
+P. Tests needed
+Q. Fields not available yet
+R. Implementation phases
+S. Confirmation no trading/scoring/backend behavior will change
+
+## Final instruction
+
+This is planning only.
+
+Do not implement W3 yet.
+
+After the W3 plan, stop and wait for approval.
