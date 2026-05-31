@@ -1,0 +1,406 @@
+W3-P3 F&O Open Trades UI Implementation is accepted.
+
+Accepted final state:
+
+* Open F&O trades table upgraded.
+* Mobile open-trade cards added.
+* Risk/status badges added.
+* P&L %, MFE, MAE display added.
+* Missing values handled safely.
+* Existing manual close behavior preserved.
+* Per-row close pending-state regression was found and fixed.
+* W3-P2 summary/banner still works.
+* P25 headline still uses official `mfeAvailableCount`.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No route/auth changes.
+* No OpenAPI/codegen changes.
+* No F&O signal/entry/exit/stop/target/sizing/gate change.
+* No paper-trade execution change.
+* No P25 tracker or threshold change.
+* No MFE/MAE calculation change.
+* No swing logic change.
+* No `replit.md`, memory, or docs change.
+* 197/197 scanner tests passed.
+* Full workspace typecheck clean.
+* Architect review passed.
+* Visual QA remains blocked by owner login, which is acceptable.
+
+Current verdict:
+
+```text id="6n8ein"
+W3-P3 = accepted
+F&O open-trades cockpit UI = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W3-P4 only**.
+
+# W3-P4: F&O P25 Evidence Detail Panel
+
+Purpose:
+
+Add a detailed P25 evidence panel to the F&O cockpit on `/paper-trading`.
+
+This is frontend/read-only UI work only.
+
+The panel must explain the current official P25 evidence count, threshold, remaining trades, eligible trades, excluded rows, and gate status.
+
+Do not change F&O logic.
+
+Do not change backend.
+
+Do not change P25 tracker logic.
+
+Do not change the threshold.
+
+Do not change trades.
+
+Do not backfill MFE/MAE.
+
+---
+
+## Current accepted P25 state
+
+Use this accepted state:
+
+```text id="5yv03y"
+Official P25 count = 5/20
+Remaining = 15
+Gate = OPEN
+Threshold = 20
+No F&O exit change approved
+No partial booking approved
+No breakeven trail approved
+No stop/target change approved
+```
+
+Official rule:
+
+```text id="1sfhum"
+status = CLOSED
+exit_premium IS NOT NULL
+entry_premium > 0
+qty > 0
+NOT (max_runup = 0 AND max_drawdown = 0)
+```
+
+Frontend display must use the server’s official `mfeAvailableCount` from:
+
+```text id="6g7f4g"
+/paper/analytics/fo/shadow-exits
+```
+
+Do **not** use raw MFE/MAE non-null count.
+
+Do **not** show `14/20` as official.
+
+Do **not** reduce threshold.
+
+---
+
+# Approved scope
+
+Add a detailed evidence panel below the W3-P2 summary/banner area and above or near the open trades section.
+
+The panel should show:
+
+1. Official P25 count.
+2. Threshold.
+3. Remaining trades.
+4. Gate status.
+5. Low-sample warning if present.
+6. Raw row count if endpoint provides it.
+7. Processed row count if endpoint provides it.
+8. Eligible MFE-available count.
+9. Excluded 0/0 pre-fix rows if derivable from endpoint fields.
+10. By-index breakdown if endpoint provides it.
+11. By-setup breakdown if endpoint provides it.
+12. By-tier breakdown if endpoint provides it.
+13. Last eligible trade date if endpoint provides it.
+14. Clear evidence-only safety label.
+
+If any field is not available from existing endpoint payload, show clean placeholder or omit that line.
+
+Do not add backend endpoints.
+
+Do not modify endpoint payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+---
+
+# Required safety label
+
+Panel must clearly show:
+
+```text id="m1x36d"
+Evidence only — no live exit change approved
+```
+
+Also show:
+
+```text id="fcfkpy"
+P25 gate remains open until 20 eligible MFE/MAE trades are collected.
+```
+
+And:
+
+```text id="f2vojr"
+This panel does not activate partial booking, breakeven trail, stop changes, or target changes.
+```
+
+---
+
+# UI requirements
+
+## 1. Main headline
+
+Show:
+
+```text id="1ec8dv"
+Official P25 Evidence: N/20
+Remaining: 20 - N
+Gate: OPEN / THRESHOLD MET
+```
+
+Use color/badge:
+
+* OPEN = amber,
+* THRESHOLD MET = green,
+* unavailable = neutral.
+
+## 2. Evidence math section
+
+Show:
+
+* official eligible count,
+* threshold,
+* remaining,
+* raw rows,
+* processed rows,
+* excluded 0/0 rows if available/derivable,
+* low-sample warning.
+
+Important:
+
+If endpoint provides `rawRowCount`, `processedRowCount`, and `mfeAvailableCount`, derive:
+
+```text id="f8eatw"
+excludedPotential = processedRowCount - mfeAvailableCount
+```
+
+Label it carefully as:
+
+```text id="86v0sx"
+Excluded / not MFE-available rows
+```
+
+Do not overclaim that all excluded rows are definitely 0/0 unless the endpoint explicitly provides that breakdown.
+
+## 3. Breakdown tables
+
+If data exists, show compact breakdown tables for:
+
+* index,
+* setup,
+* tier.
+
+Columns should include only available fields such as:
+
+* name,
+* trade count,
+* eligible count,
+* P&L,
+* average MFE,
+* average MAE,
+* win/loss,
+* sample count.
+
+Use flexible rendering based on actual endpoint shape.
+
+No crash if a field is missing.
+
+## 4. Explanation box
+
+Add simple explanation:
+
+```text id="kc77g0"
+A trade counts for P25 only when it is closed, has valid exit premium, valid entry premium, valid quantity, and real MFE/MAE movement. 0/0 placeholder rows do not count.
+```
+
+## 5. Empty/loading/error states
+
+Handle:
+
+* loading shadow-exits,
+* endpoint disabled,
+* 401/403,
+* network error,
+* no evidence rows,
+* malformed/missing fields.
+
+No blank panel.
+
+No stack trace.
+
+No runtime crash.
+
+---
+
+## Existing data source
+
+Use only:
+
+```text id="vz2si6"
+/paper/analytics/fo/shadow-exits
+```
+
+You may reuse data already fetched by W3-P2 on `/paper-trading` if available.
+
+Do not fetch raw DB.
+
+Do not add SQL.
+
+Do not add backend query.
+
+Do not change endpoint.
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="bkitnl"
+artifacts/scanner/src/pages/paper-trading.tsx
+artifacts/scanner/src/components/fno/FoP25EvidencePanel.tsx
+artifacts/scanner/src/lib/foCockpitView.ts
+artifacts/scanner/src/lib/foCockpitView.test.ts
+```
+
+Only modify `foCockpitView.ts` if a small pure display helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add/update pure helper tests if helper logic is added.
+
+At minimum verify:
+
+1. P25 panel math derives remaining from official count.
+2. P25 panel does not use raw non-null count.
+3. `processedRowCount - mfeAvailableCount` is labeled safely.
+4. Missing endpoint fields do not produce crash-prone values.
+5. Gate OPEN/THRESHOLD MET display derives from official count and threshold.
+6. Threshold defaults to 20 if missing.
+7. Negative remaining is clamped to zero.
+8. Malformed values produce safe placeholders.
+
+Run:
+
+```text id="5yh0w7"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-trading`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify P25 evidence panel renders,
+* verify official count displays correctly,
+* verify no `14/20` official display,
+* verify no layout break,
+* verify no console errors.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stop logic,
+* F&O target logic,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option selection,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* MTM sweep logic,
+* live order logic,
+* Kite logic,
+* swing scoring,
+* swing recommendations,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="x1upvw"
+artifacts/api-server/**
+lib/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W3-P4 F&O P25 Evidence Panel Implementation Report** with:
+
+A. Files changed
+B. Component/helper added
+C. Endpoint/data source used
+D. Official P25 count source confirmation
+E. Evidence math displayed
+F. Breakdown tables added, if available
+G. Safety labels added
+H. Empty/loading/error states
+I. Tests added/updated
+J. Test/typecheck results
+K. Visual smoke result
+L. Confirmation no `14/20` official count is shown
+M. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+N. Limitations/follow-up for W3-P5
+
+After W3-P4, stop and wait for approval.

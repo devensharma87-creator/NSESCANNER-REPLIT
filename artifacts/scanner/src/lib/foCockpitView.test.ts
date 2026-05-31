@@ -23,6 +23,8 @@ import {
   uniqueSetups,
   uniqueExitReasons,
   deriveP25Headline,
+  deriveP25EvidenceDetail,
+  classifyP25PanelError,
   deriveFoFreshness,
   FO_SAFETY_STATIC_LINES,
   type FoTradeRow,
@@ -678,6 +680,197 @@ describe("deriveP25Headline", () => {
 
   it("does NOT change the threshold of 20 by default", () => {
     expect(deriveP25Headline({ officialCount: 0 }).threshold).toBe(20);
+  });
+});
+
+// ── P25 evidence detail ─────────────────────────────────────────────────────────
+
+describe("deriveP25EvidenceDetail", () => {
+  it("derives remaining from the official count and default threshold 20", () => {
+    const d = deriveP25EvidenceDetail({
+      enabled: true,
+      mfeAvailableCount: 5,
+      rawRowCount: 18,
+      processedRowCount: 16,
+    });
+    expect(d.available).toBe(true);
+    expect(d.officialCount).toBe(5);
+    expect(d.threshold).toBe(20);
+    expect(d.remaining).toBe(15);
+    expect(d.thresholdMet).toBe(false);
+    expect(d.gateStatus).toBe("OPEN");
+    expect(d.ratioLabel).toBe("5/20");
+  });
+
+  it("uses ONLY the official mfeAvailableCount, never a raw non-null count", () => {
+    // rawRowCount (14) must not become the official ratio.
+    const d = deriveP25EvidenceDetail({
+      enabled: true,
+      mfeAvailableCount: 5,
+      rawRowCount: 14,
+      processedRowCount: 14,
+    });
+    expect(d.officialCount).toBe(5);
+    expect(d.ratioLabel).toBe("5/20");
+    expect(d.ratioLabel).not.toBe("14/20");
+  });
+
+  it("derives excluded/not-MFE-available rows as processed − eligible, clamped to ≥ 0", () => {
+    const d = deriveP25EvidenceDetail({
+      enabled: true,
+      mfeAvailableCount: 5,
+      processedRowCount: 16,
+    });
+    expect(d.excludedNotMfeAvailable).toBe(11);
+
+    // processed < eligible (malformed) clamps to 0, never negative.
+    const clamped = deriveP25EvidenceDetail({
+      enabled: true,
+      mfeAvailableCount: 9,
+      processedRowCount: 4,
+    });
+    expect(clamped.excludedNotMfeAvailable).toBe(0);
+  });
+
+  it("returns null excluded count when processed or eligible is missing", () => {
+    expect(
+      deriveP25EvidenceDetail({ enabled: true, mfeAvailableCount: 5 })
+        .excludedNotMfeAvailable,
+    ).toBeNull();
+    expect(
+      deriveP25EvidenceDetail({ enabled: true, processedRowCount: 10 })
+        .excludedNotMfeAvailable,
+    ).toBeNull();
+  });
+
+  it("does not crash and yields safe placeholders for missing/malformed fields", () => {
+    for (const input of [null, undefined, {}, { enabled: true }] as const) {
+      const d = deriveP25EvidenceDetail(input);
+      expect(d.rawRowCount).toBeNull();
+      expect(d.processedRowCount).toBeNull();
+      expect(d.excludedNotMfeAvailable).toBeNull();
+      expect(d.lowSampleWarning).toBeNull();
+      expect(d.byIndex).toEqual([]);
+      expect(d.bySetup).toEqual([]);
+      expect(d.byTier).toEqual([]);
+    }
+
+    const malformed = deriveP25EvidenceDetail({
+      enabled: true,
+      mfeAvailableCount: Number.NaN,
+      rawRowCount: "x" as unknown as number,
+      processedRowCount: undefined,
+    });
+    expect(malformed.available).toBe(false);
+    expect(malformed.ratioLabel).toBe("—/20");
+    expect(malformed.gateStatus).toBe("UNAVAILABLE");
+  });
+
+  it("flips gate to THRESHOLD_MET at/above the threshold, OPEN below", () => {
+    expect(
+      deriveP25EvidenceDetail({ enabled: true, mfeAvailableCount: 20 }).gateStatus,
+    ).toBe("THRESHOLD_MET");
+    expect(
+      deriveP25EvidenceDetail({ enabled: true, mfeAvailableCount: 25 }).gateStatus,
+    ).toBe("THRESHOLD_MET");
+    expect(
+      deriveP25EvidenceDetail({ enabled: true, mfeAvailableCount: 19 }).gateStatus,
+    ).toBe("OPEN");
+  });
+
+  it("defaults threshold to 20 and honours an explicit override", () => {
+    expect(
+      deriveP25EvidenceDetail({ enabled: true, mfeAvailableCount: 5 }).threshold,
+    ).toBe(20);
+    const custom = deriveP25EvidenceDetail(
+      { enabled: true, mfeAvailableCount: 5 },
+      { threshold: 30 },
+    );
+    expect(custom.threshold).toBe(30);
+    expect(custom.remaining).toBe(25);
+  });
+
+  it("clamps negative remaining to zero", () => {
+    expect(
+      deriveP25EvidenceDetail({ enabled: true, mfeAvailableCount: 999 }).remaining,
+    ).toBe(0);
+  });
+
+  it("treats the disabled endpoint branch as unavailable (gate UNAVAILABLE)", () => {
+    const d = deriveP25EvidenceDetail({ enabled: false, mfeAvailableCount: 0 });
+    expect(d.enabled).toBe(false);
+    expect(d.available).toBe(false);
+    expect(d.officialCount).toBeNull();
+    expect(d.gateStatus).toBe("UNAVAILABLE");
+    expect(d.ratioLabel).toBe("—/20");
+  });
+
+  it("normalizes breakdown rows and tolerates malformed group entries", () => {
+    const d = deriveP25EvidenceDetail({
+      enabled: true,
+      mfeAvailableCount: 3,
+      byIndex: [
+        { key: "NIFTY", trades: 4, mfeAvailableCount: 2, actualPnl: 1500 },
+        { key: "", trades: null, mfeAvailableCount: undefined, actualPnl: "x" as unknown as number },
+      ],
+      bySetup: "not-an-array" as unknown as never,
+    });
+    expect(d.byIndex).toHaveLength(2);
+    expect(d.byIndex[0]).toEqual({
+      name: "NIFTY",
+      trades: 4,
+      eligible: 2,
+      pnl: 1500,
+    });
+    expect(d.byIndex[1]).toEqual({
+      name: "—",
+      trades: null,
+      eligible: null,
+      pnl: null,
+    });
+    expect(d.bySetup).toEqual([]);
+  });
+
+  it("does not mutate its input", () => {
+    const input = {
+      enabled: true,
+      mfeAvailableCount: 5,
+      rawRowCount: 18,
+      processedRowCount: 16,
+      byIndex: [{ key: "NIFTY", trades: 4, mfeAvailableCount: 2, actualPnl: 1500 }],
+    };
+    const snapshot = JSON.stringify(input);
+    deriveP25EvidenceDetail(input);
+    expect(JSON.stringify(input)).toBe(snapshot);
+  });
+});
+
+describe("classifyP25PanelError", () => {
+  it("returns null when there is no error", () => {
+    expect(classifyP25PanelError({})).toBeNull();
+    expect(classifyP25PanelError({ status: null, message: null })).toBeNull();
+    expect(classifyP25PanelError({ message: "" })).toBeNull();
+  });
+
+  it("classifies 401/403 by HTTP status even when the message is textual", () => {
+    // The shared api() helper replaces "HTTP 401" with the server body text.
+    expect(classifyP25PanelError({ status: 401, message: "Unauthorized" })).toBe("auth");
+    expect(classifyP25PanelError({ status: 403, message: "Forbidden" })).toBe("auth");
+    expect(classifyP25PanelError({ status: 403, message: "owner only" })).toBe("auth");
+  });
+
+  it("falls back to message text for auth when status is absent", () => {
+    expect(classifyP25PanelError({ message: "HTTP 401" })).toBe("auth");
+    expect(classifyP25PanelError({ message: "Forbidden" })).toBe("auth");
+    expect(classifyP25PanelError({ message: "Unauthorized" })).toBe("auth");
+  });
+
+  it("classifies non-auth failures as network", () => {
+    expect(classifyP25PanelError({ status: 500, message: "HTTP 500" })).toBe("network");
+    expect(classifyP25PanelError({ message: "Failed to fetch" })).toBe("network");
+    expect(classifyP25PanelError({ status: 503, message: "Service Unavailable" })).toBe(
+      "network",
+    );
   });
 });
 

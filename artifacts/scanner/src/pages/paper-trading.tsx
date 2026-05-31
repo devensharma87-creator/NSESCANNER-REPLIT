@@ -23,11 +23,14 @@ import { useToast } from "@/hooks/use-toast";
 import { FoCockpitSafetyBanner } from "@/components/fno/FoCockpitSafetyBanner";
 import { FoCockpitSummaryCards } from "@/components/fno/FoCockpitSummaryCards";
 import { FoOpenTradesTable } from "@/components/fno/FoOpenTradesTable";
+import { FoP25EvidencePanel } from "@/components/fno/FoP25EvidencePanel";
 import {
   summarizeFoCockpit,
   deriveP25Headline,
+  deriveP25EvidenceDetail,
   deriveFoFreshness,
   type FoTradeRow,
+  type FoShadowExitsResponse,
 } from "@/lib/foCockpitView";
 
 const BASE = import.meta.env.BASE_URL;
@@ -44,9 +47,20 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
       const body = await r.json();
       if (body?.error) msg = String(body.error);
     } catch { /* ignore */ }
-    throw new Error(msg);
+    throw new ApiError(msg, r.status);
   }
   return (await r.json()) as T;
+}
+
+/** Error carrying the HTTP status so consumers can classify 401/403 reliably
+ *  even when the server replaces the numeric code with a textual `error` body. */
+class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
 }
 
 const QK_ACCOUNT = ["paper", "account", "FNO"] as const;
@@ -1348,7 +1362,7 @@ function FOSegment() {
   const shadowExits = useQuery({
     queryKey: ["paper", "analytics", "fo", "shadow-exits"] as const,
     queryFn: () =>
-      api<{ enabled: boolean; mfeAvailableCount: number }>(`/paper/analytics/fo/shadow-exits`),
+      api<FoShadowExitsResponse>(`/paper/analytics/fo/shadow-exits`),
     refetchInterval: 60_000,
   });
   const mtmSweep = useQuery({
@@ -1377,6 +1391,10 @@ function FOSegment() {
             ? null
             : shadowExits.data?.mfeAvailableCount,
       }),
+    [shadowExits.data],
+  );
+  const p25Detail = useMemo(
+    () => deriveP25EvidenceDetail(shadowExits.data),
     [shadowExits.data],
   );
   const lastClosedAt = useMemo<string | null>(() => {
@@ -1469,6 +1487,12 @@ function FOSegment() {
         p25={p25}
         loading={summaryLoading}
         error={summaryError}
+      />
+      <FoP25EvidencePanel
+        detail={p25Detail}
+        loading={shadowExits.isLoading}
+        error={shadowExits.error instanceof Error ? shadowExits.error.message : null}
+        errorStatus={shadowExits.error instanceof ApiError ? shadowExits.error.status : null}
       />
       <AccountCard
         data={account.data}

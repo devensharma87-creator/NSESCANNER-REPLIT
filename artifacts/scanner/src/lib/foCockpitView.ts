@@ -269,6 +269,173 @@ export function deriveP25Headline(args: {
   };
 }
 
+// ── P25 evidence detail (display-only) ────────────────────────────────────────
+
+/**
+ * Defensive client-side read type for the `/paper/analytics/fo/shadow-exits`
+ * payload. Every field is optional because the server's disabled branch omits
+ * several of them, and we must never crash on a missing/malformed field. This
+ * mirrors fields the server ALREADY returns — it adds nothing to the payload.
+ */
+export interface FoShadowExitsGroupRow {
+  key?: string | null;
+  trades?: number | null;
+  mfeAvailableCount?: number | null;
+  actualPnl?: number | null;
+}
+
+export interface FoShadowExitsResponse {
+  enabled?: boolean;
+  /** Official P25 eligible count (server-computed). The ONLY count we trust. */
+  mfeAvailableCount?: number | null;
+  rawRowCount?: number | null;
+  processedRowCount?: number | null;
+  rowCount?: number | null;
+  lowSampleWarning?: boolean | null;
+  lowSampleThreshold?: number | null;
+  byIndex?: FoShadowExitsGroupRow[] | null;
+  bySetup?: FoShadowExitsGroupRow[] | null;
+  byTier?: FoShadowExitsGroupRow[] | null;
+}
+
+/** Normalized breakdown row for compact display tables. */
+export interface P25BreakdownRow {
+  name: string;
+  trades: number | null;
+  eligible: number | null;
+  pnl: number | null;
+}
+
+export interface P25EvidenceDetail {
+  /** True when an official eligible count was usable from the payload. */
+  available: boolean;
+  /** Server `enabled` flag; false means reporting is suppressed. */
+  enabled: boolean;
+  /** Official eligible count (mfeAvailableCount), null when unavailable. */
+  officialCount: number | null;
+  threshold: number;
+  /** Math.max(0, threshold − officialCount). */
+  remaining: number;
+  thresholdMet: boolean;
+  gateStatus: "OPEN" | "THRESHOLD_MET" | "UNAVAILABLE";
+  gateLabel: string;
+  /** "5/20" when available, else "—/20". */
+  ratioLabel: string;
+  rawRowCount: number | null;
+  processedRowCount: number | null;
+  /**
+   * processedRowCount − mfeAvailableCount, clamped to ≥ 0. Null when either
+   * input is missing. Labeled "Excluded / not MFE-available rows" — it does NOT
+   * claim every excluded row is a 0/0 placeholder.
+   */
+  excludedNotMfeAvailable: number | null;
+  lowSampleWarning: boolean | null;
+  lowSampleThreshold: number | null;
+  byIndex: P25BreakdownRow[];
+  bySetup: P25BreakdownRow[];
+  byTier: P25BreakdownRow[];
+}
+
+function normalizeP25Breakdown(
+  rows: FoShadowExitsGroupRow[] | null | undefined,
+): P25BreakdownRow[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => {
+    const trades = toNum(r?.trades);
+    const eligible = toNum(r?.mfeAvailableCount);
+    const pnl = toNum(r?.actualPnl);
+    return {
+      name: typeof r?.key === "string" && r.key.length > 0 ? r.key : "—",
+      trades: Number.isFinite(trades) ? trades : null,
+      eligible: Number.isFinite(eligible) ? eligible : null,
+      pnl: Number.isFinite(pnl) ? pnl : null,
+    };
+  });
+}
+
+/**
+ * Derive the P25 evidence detail display model from the shadow-exits payload.
+ *
+ * Pure. Reuses {@link deriveP25Headline} for the official ratio/remaining/gate
+ * so there is a single source of truth for the count math. The ONLY count read
+ * is the server's official `mfeAvailableCount`; raw non-null MFE/MAE counts are
+ * never consulted. Threshold defaults to 20, negative remaining is clamped, and
+ * every missing/malformed field collapses to a safe placeholder (null).
+ */
+export function deriveP25EvidenceDetail(
+  report: FoShadowExitsResponse | null | undefined,
+  opts?: { threshold?: number },
+): P25EvidenceDetail {
+  const threshold = opts?.threshold ?? 20;
+  const headline = deriveP25Headline({
+    officialCount: report?.enabled === false ? null : report?.mfeAvailableCount,
+    threshold,
+  });
+
+  const raw = toNum(report?.rawRowCount);
+  const processed = toNum(report?.processedRowCount);
+  const mfe = toNum(report?.mfeAvailableCount);
+  const lowThr = toNum(report?.lowSampleThreshold);
+
+  const rawRowCount = Number.isFinite(raw) ? raw : null;
+  const processedRowCount = Number.isFinite(processed) ? processed : null;
+  const excludedNotMfeAvailable =
+    Number.isFinite(processed) && Number.isFinite(mfe)
+      ? Math.max(0, processed - mfe)
+      : null;
+
+  return {
+    available: headline.available,
+    enabled: report?.enabled !== false,
+    officialCount: headline.available ? headline.officialCount : null,
+    threshold: headline.threshold,
+    remaining: headline.remaining,
+    thresholdMet: headline.thresholdMet,
+    gateStatus: headline.available ? headline.gateStatus : "UNAVAILABLE",
+    gateLabel: headline.available
+      ? headline.gateLabel
+      : "Evidence gate status unavailable",
+    ratioLabel: headline.ratioLabel,
+    rawRowCount,
+    processedRowCount,
+    excludedNotMfeAvailable,
+    lowSampleWarning:
+      typeof report?.lowSampleWarning === "boolean"
+        ? report.lowSampleWarning
+        : null,
+    lowSampleThreshold: Number.isFinite(lowThr) ? lowThr : null,
+    byIndex: normalizeP25Breakdown(report?.byIndex),
+    bySetup: normalizeP25Breakdown(report?.bySetup),
+    byTier: normalizeP25Breakdown(report?.byTier),
+  };
+}
+
+/**
+ * Classify a fetch failure for the P25 evidence panel into a friendly state.
+ * Prefers the HTTP status (reliable) and falls back to message text, because
+ * the shared `api()` helper may replace `HTTP 401/403` with the server's textual
+ * `error` body. Returns null when no error is present. Pure.
+ */
+export function classifyP25PanelError(args: {
+  status?: number | null;
+  message?: string | null;
+}): "auth" | "network" | null {
+  const status = args.status ?? null;
+  const message = args.message ?? null;
+  if (status == null && (message == null || message === "")) return null;
+  if (status === 401 || status === 403) return "auth";
+  if (message && /\b(401|403)\b/.test(message)) return "auth";
+  if (
+    message &&
+    /(unauthor|forbidden|owner[- ]only|not authori|requires? (owner|login|sign))/i.test(
+      message,
+    )
+  ) {
+    return "auth";
+  }
+  return "network";
+}
+
 // ── Safety / freshness banner display state ───────────────────────────────────
 
 /** Fixed compliance lines for the cockpit safety banner (display-only). */
