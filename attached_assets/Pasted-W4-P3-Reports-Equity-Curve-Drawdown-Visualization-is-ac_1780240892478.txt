@@ -1,0 +1,338 @@
+W4-P3 Reports Equity Curve + Drawdown Visualization is accepted.
+
+Accepted final state:
+
+* Equity curve section added.
+* Drawdown cards added.
+* Existing `shapeEquityCurve` and `deriveDrawdownSummary` helpers reused.
+* No unnecessary helper changes were made.
+* No new package dependency added.
+* Existing recharts/chart wrapper reused.
+* Overview tab still works.
+* Safety banner and summary cards still work.
+* `/api/paper/analytics/fo` is the only data source used.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No route/auth changes.
+* No OpenAPI/codegen changes.
+* No trading/scoring/P25/MFE-MAE logic changes.
+* No `replit.md`, memory, or docs changes.
+* 314/314 scanner tests passed.
+* Scanner typecheck clean.
+* Full repo typecheck clean.
+* Architect review passed.
+* Visual smoke remains blocked by owner login, which is acceptable.
+
+Current verdict:
+
+```text id="zw7ewr"
+W4-P3 = accepted
+Reports equity curve + drawdown visualization = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W4-P4 only**.
+
+# W4-P4: Reports MFE / MAE Review Section
+
+Purpose:
+
+Add a safe frontend-only MFE/MAE review section to `/paper-reports`.
+
+This is read-only analytics display work only.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change P25 tracker logic.
+
+Do not change MFE/MAE calculation.
+
+Do not change paper-trade execution.
+
+---
+
+## Approved scope
+
+Add an MFE/MAE analytics review section using existing F&O shadow-exits data only.
+
+Allowed:
+
+1. MFE summary card.
+2. MAE placeholder card if not available.
+3. Eligible sample count.
+4. Give-back / missed-opportunity review only if existing payload supports it.
+5. Clear safety labels.
+6. Safe empty/loading/error states.
+
+Do **not** build journal editor yet.
+
+Do **not** build CSV export yet.
+
+Do **not** change backend endpoints.
+
+Do **not** infer MAE if payload does not provide it.
+
+---
+
+## Existing helper to use
+
+Use accepted helper:
+
+```text id="8d2s1h"
+artifacts/scanner/src/lib/reportsView.ts
+```
+
+Use helper:
+
+```text id="n29fz4"
+deriveMfeMaeReview
+```
+
+Important current limitation:
+
+```text id="g6jkov"
+avgMae is null because the current payload does not expose MAE.
+```
+
+Do not synthesize MAE.
+
+Do not compute MAE from closed trades if MFE/MAE fields are absent.
+
+---
+
+## Existing data source
+
+Use existing endpoint only:
+
+```text id="xj5l5y"
+/api/paper/analytics/fo/shadow-exits
+```
+
+Use only fields available in that payload.
+
+Do not add backend endpoints.
+
+Do not change endpoint payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+---
+
+# UI requirements
+
+## 1. MFE/MAE review section
+
+Add section under the Reports Overview area or F&O analytics area.
+
+Show:
+
+* average MFE if available,
+* average MAE as `—` if unavailable,
+* eligible sample count,
+* low-sample warning if available,
+* P25 evidence count if already available in the payload,
+* brief explanation of MFE/MAE.
+
+Use clear labels:
+
+```text id="qz03p8"
+MFE = Maximum Favorable Excursion
+MAE = Maximum Adverse Excursion
+```
+
+## 2. MAE truthfulness
+
+If MAE is not exposed in the payload, show:
+
+```text id="i6e8gm"
+MAE unavailable — current shadow-exits payload does not expose MAE.
+```
+
+Do not fabricate MAE.
+
+Do not infer MAE.
+
+Do not show a fake zero.
+
+## 3. Give-back review
+
+Only show give-back candidates if `deriveMfeMaeReview` can safely derive them from existing per-trade shadow-exit rows.
+
+If the payload does not support it, show:
+
+```text id="a74bhe"
+Give-back review unavailable from current payload.
+```
+
+Do not fabricate candidates.
+
+## 4. Safety labels
+
+Add:
+
+```text id="ypfq34"
+Analytics only — this does not change exits, stops, targets, or paper-trade execution.
+```
+
+and:
+
+```text id="96b360"
+This review is for learning and post-trade analysis only.
+```
+
+## 5. Empty/loading/error states
+
+Handle:
+
+* loading shadow-exits,
+* endpoint error,
+* disabled shadow-exits report,
+* no eligible MFE data,
+* missing MAE,
+* malformed values.
+
+No blank panel.
+
+No runtime crash.
+
+No stack trace.
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="v5tq3k"
+artifacts/scanner/src/pages/paper-reports.tsx
+artifacts/scanner/src/components/reports/ReportsMfeMaeReview.tsx
+artifacts/scanner/src/lib/reportsView.ts
+artifacts/scanner/src/lib/reportsView.test.ts
+```
+
+Only modify `reportsView.ts` if a small pure helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add or update pure helper tests only if helper logic changes.
+
+At minimum verify existing helpers cover:
+
+1. MFE summary from shadow-exits.
+2. Empty model if unavailable.
+3. Give-back candidates only when per-trade rows exist.
+4. No closed-trade MFE/MAE fabrication.
+5. MAE remains null when not exposed.
+
+If no helper changes are needed, do not add unnecessary tests.
+
+Run:
+
+```text id="bsg4g3"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-reports`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify MFE/MAE review section renders,
+* verify MAE unavailable message is shown when MAE is absent,
+* verify no fake MAE value,
+* verify Overview tab still works,
+* verify existing Equity/F&O/Journal tabs still render,
+* verify no layout break,
+* verify no console errors.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="suzhg4"
+artifacts/api-server/**
+lib/**
+lib-api-spec/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+paper report execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W4-P4 Reports MFE/MAE Review Implementation Report** with:
+
+A. Files changed
+B. Component/helper added or updated
+C. MFE behavior
+D. MAE unavailable behavior
+E. Give-back review behavior
+F. Data source used
+G. Empty/loading/error states
+H. Tests added/updated
+I. Test/typecheck results
+J. Visual smoke result
+K. Confirmation W4-P2/W4-P3 Overview still works
+L. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+M. Limitations/follow-up for W4-P5
+
+After W4-P4, stop and wait for approval.

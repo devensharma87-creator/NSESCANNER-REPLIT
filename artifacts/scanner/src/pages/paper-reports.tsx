@@ -39,10 +39,12 @@ import { ReportsSafetyBanner } from "@/components/reports/ReportsSafetyBanner";
 import { ReportsOverviewCards } from "@/components/reports/ReportsOverviewCards";
 import { ReportsEquityCurve } from "@/components/reports/ReportsEquityCurve";
 import { ReportsDrawdownCards } from "@/components/reports/ReportsDrawdownCards";
+import { ReportsMfeMaeReview } from "@/components/reports/ReportsMfeMaeReview";
 import {
   summarizeReportsOverview,
   shapeEquityCurve,
   deriveDrawdownSummary,
+  deriveMfeMaeReview,
   type FoAnalyticsLike,
   type ShadowExitReportLike,
   type AccountLike,
@@ -377,6 +379,18 @@ function OverviewSection() {
     [foAnalyticsQ.data],
   );
 
+  // MFE/MAE review derives purely from F&O shadow-exits.
+  const shadowLoading = shadowExitsQ.isLoading;
+  const shadowError = shadowExitsQ.isError
+    ? (shadowExitsQ.error instanceof Error
+        ? shadowExitsQ.error.message
+        : "Unable to load shadow-exits")
+    : null;
+  const mfeMaeReview = useMemo(
+    () => deriveMfeMaeReview(shadowExitsQ.data ?? null),
+    [shadowExitsQ.data],
+  );
+
   return (
     <div className="space-y-5">
       <ReportsSafetyBanner
@@ -417,6 +431,29 @@ function OverviewSection() {
         <p className="text-[10px] text-slate-500">
           This visualization does not change strategy, exits, stops, targets, or
           paper-trade execution.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-200">
+            MFE / MAE review
+          </h2>
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            F&amp;O shadow-exit analytics
+          </span>
+        </div>
+        <p className="text-xs text-sky-200/80">
+          Analytics only — this does not change exits, stops, targets, or
+          paper-trade execution.
+        </p>
+        <ReportsMfeMaeReview
+          review={mfeMaeReview}
+          loading={shadowLoading}
+          error={shadowError}
+        />
+        <p className="text-[10px] text-slate-500">
+          This review is for learning and post-trade analysis only.
         </p>
       </div>
     </div>
