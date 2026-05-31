@@ -1,0 +1,197 @@
+W5-P4 is accepted.
+
+Final W5 verdict:
+
+```text id="y8mhq7"
+W5 = closed
+TIME_EXIT_1520 report contract fix = stable
+TIME_EXIT_1520 closed-trades contract fix = stable
+/paper-reports = fixed
+/paper-trading closed F&O contract path = fixed
+Trading/scoring/execution behavior = unchanged
+```
+
+Accepted verification:
+
+* API-server tests passed: 664/664.
+* Scanner tests passed: 337/337.
+* Full repo typecheck clean.
+* Scanner production build passed.
+* API server booted cleanly.
+* Owner/auth boundary preserved.
+* `/api/paper/reports/fo/monthly` remains owner-gated.
+* `/api/paper/positions/fo` remains owner-gated.
+* `PaperTradeFODetail.exitReason` includes `TIME_EXIT_1520`.
+* `PaperTradeFOClosed.exitReason` includes `TIME_EXIT_1520`.
+* Invalid unknown exit reasons still reject.
+* Legacy exit reasons still pass.
+* `TIME_EXIT_1520` displays truthfully as `TIME EXIT 1520`.
+* No auth bypass.
+* No public-mode change.
+* No DB schema change.
+* No scheduler change.
+* No trading/strategy/scoring/entry/exit/stop/target/sizing/P25/MFE/MAE behavior change.
+* No `replit.md`, memory, or docs change.
+
+Now proceed with **W6-P1 only**.
+
+# W6-P1: Production Release Plan / Deployment Checklist Only
+
+Purpose:
+
+Prepare a clean production release plan for the completed W1–W5 work.
+
+This is planning/checklist only.
+
+Do not deploy yet unless owner explicitly approves deployment.
+
+Do not make new code changes.
+
+Do not start a new feature.
+
+---
+
+## Scope
+
+Prepare a production release checklist covering:
+
+1. Final build status.
+2. Final test status.
+3. Final typecheck status.
+4. Final API boot status.
+5. Git status / clean working tree.
+6. Backup requirements.
+7. Environment variable checklist.
+8. Owner-only route checklist.
+9. Deployment steps.
+10. Post-deployment smoke tests.
+11. Rollback plan.
+12. Known limitations.
+
+---
+
+## Release contents to summarize
+
+Include the completed safe upgrades:
+
+```text id="znoylg"
+W1: Operations / infra-health UI
+W2: Stocks-to-watch pro scanner UI
+W3: F&O cockpit upgrade
+W4: Paper reports / journal / performance analytics upgrade
+W5: TIME_EXIT_1520 contract fixes and final regression
+```
+
+Do not modify these now.
+
+---
+
+## Deployment plan should include
+
+### Pre-deployment
+
+* Confirm latest code is committed.
+* Confirm working tree has no uncommitted code changes.
+* Ignore only system/user paste artifacts under `attached_assets` if present.
+* Confirm `.env` and secrets are not committed.
+* Confirm database backup is taken.
+* Confirm build artifacts are fresh.
+* Confirm API server boots.
+* Confirm owner auth still enabled.
+* Confirm live trading remains disabled unless explicitly intended.
+
+### Deployment
+
+Prepare steps for the current hosting flow only.
+
+If the deployment target is unclear, stop and ask:
+
+```text id="rds3k0"
+Please confirm deployment target: Replit / Railway / Render / VPS / other.
+```
+
+Do not assume.
+
+Do not change domain/DNS.
+
+Do not modify GoDaddy settings unless separately approved.
+
+### Post-deployment smoke
+
+Checklist should include:
+
+```text id="xikb5e"
+/paper-reports
+/paper-trading
+/stocks-to-watch
+/infra-health
+F&O cockpit
+Equity report
+F&O report
+Journal tab
+CSV export button visibility
+Owner login
+Unauthenticated route protection
+No console errors
+No repeated 500s
+```
+
+### Rollback
+
+Include:
+
+* previous deployment identifier,
+* last known good commit,
+* DB backup location,
+* how to revert code deployment,
+* how to restore env safely,
+* what not to touch during rollback.
+
+---
+
+## Strictly not allowed
+
+Do not change:
+
+* trading logic,
+* scoring logic,
+* paper execution,
+* exits,
+* entries,
+* stops,
+* targets,
+* sizing,
+* P25,
+* MFE/MAE,
+* scheduler,
+* DB schema,
+* auth,
+* OpenAPI,
+* codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not deploy without owner approval.
+
+Do not access or expose secrets.
+
+---
+
+## Output required
+
+Produce **W6-P1 Production Release Plan** with:
+
+A. Release summary
+B. Final verification status from W5-P4
+C. Files/features included
+D. Pre-deployment checklist
+E. Deployment target clarification if needed
+F. Deployment steps
+G. Post-deployment smoke checklist
+H. Owner-auth verification checklist
+I. Data/DB backup checklist
+J. Rollback plan
+K. Known limitations
+L. Exact owner approval needed before deployment
+
+Stop after the plan.
