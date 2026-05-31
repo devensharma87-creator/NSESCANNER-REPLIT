@@ -1,0 +1,275 @@
+W6-P3 Background Ingestion Diagnostics Report is accepted.
+
+Accepted findings:
+
+* Production deployment remains healthy.
+* No W5 regression found.
+* No paper-route 500s.
+* No `TIME_EXIT_1520` ZodError.
+* Owner/auth boundary remains intact.
+* Background warnings are fail-open.
+* Main cause appears to be cold-start/background-job pile-up against the shared 10-connection DB pool.
+* External-feed timeouts from Yahoo/Kite are expected fail-open behavior.
+* No urgent fix is required.
+* No code/env/secret/schema/scheduler/trading changes were made in W6-P3.
+
+Current verdict:
+
+```text id="9ez3u5"
+W6-P3 = accepted
+Production release = healthy
+Background ingestion warnings = non-blocking
+Urgent fix = not required
+```
+
+Now proceed with **W6-P4 only**.
+
+# W6-P4: Background Ingestion Hardening Plan — Planning Only
+
+Purpose:
+
+Convert the W6-P3 diagnostic findings into a safe future hardening plan.
+
+This is **planning only**.
+
+Do not implement anything.
+
+Do not change code.
+
+Do not change env/secrets.
+
+Do not change scheduler.
+
+Do not change DB pool.
+
+Do not change trading/scoring/paper execution.
+
+---
+
+## Background
+
+W6-P3 found these non-blocking production warnings:
+
+```text id="6zvdp9"
+DB connection timeout
+Preset scheduler load failure
+Participant OI backfill failure
+Kite session read failure
+Yahoo chart timeout
+scanAll partial/cached fallback
+```
+
+Root pattern:
+
+```text id="mz0rsa"
+Cold autoscale boot + multiple background jobs starting together + shared 10-connection DB pool + slow external feeds.
+```
+
+Production remains healthy.
+
+This plan should reduce future warning noise and protect user-facing routes from background-job contention.
+
+---
+
+# Planning goals
+
+Create a phased, approval-gated hardening plan for:
+
+1. Boot job staggering.
+2. Participant OI boot backfill deferral.
+3. Background-job DB concurrency cap.
+4. Optional dedicated ingestion DB pool.
+5. Preset scheduler retry/backoff.
+6. Yahoo timeout/log-noise reduction.
+7. Kite session read fail-open log cleanup.
+8. Production observability and health metrics.
+9. Safe rollback strategy.
+
+---
+
+# Strict rules
+
+This is plan only.
+
+Do not edit files.
+
+Do not run codegen.
+
+Do not deploy.
+
+Do not change env.
+
+Do not change secrets.
+
+Do not change DB schema.
+
+Do not change scheduler behavior yet.
+
+Do not change trading/scoring logic.
+
+Do not change paper-trade execution.
+
+Do not change auth.
+
+Do not touch:
+
+```text id="gpfldw"
+replit.md
+memory/docs
+```
+
+---
+
+# Required plan sections
+
+## A. Executive summary
+
+Explain whether the issue is urgent or non-urgent.
+
+Expected conclusion:
+
+```text id="wl7r2y"
+Non-urgent hardening recommended; production is currently healthy.
+```
+
+## B. Root cause summary
+
+Summarize:
+
+* shared DB pool,
+* 10-connection cap,
+* cold-start concurrent jobs,
+* Yahoo/Kite external feed slowness,
+* fail-open behavior,
+* no user-facing 5xx confirmed.
+
+## C. Recommended phased implementation
+
+Prepare phases like:
+
+```text id="o3eupz"
+W6-P4A: Scheduler boot staggering only
+W6-P4B: Participant OI boot deferral / reduced initial window
+W6-P4C: Background job concurrency limiter
+W6-P4D: Yahoo/Kite timeout log-noise/backoff cleanup
+W6-P4E: Observability panel/log counters
+W6-P4F: Final production smoke
+```
+
+Each phase must be independently shippable.
+
+## D. Risk ranking
+
+For each proposed fix, rank:
+
+```text id="5ud04m"
+risk level
+expected benefit
+files likely touched
+rollback difficulty
+test requirement
+production impact
+```
+
+## E. Recommended first implementation phase
+
+Recommend the safest first phase.
+
+Preferred likely first phase:
+
+```text id="sj9xy6"
+W6-P4A: boot staggering only
+```
+
+Rationale:
+
+* low risk,
+* no DB schema change,
+* no trading change,
+* reduces cold-start pile-up,
+* easy rollback.
+
+## F. Files likely to be touched later
+
+List likely files only, such as:
+
+```text id="jxhnnh"
+artifacts/api-server/src/app.ts
+artifacts/api-server/src/lib/global/presetScheduler.ts
+artifacts/api-server/src/lib/instFlows.ts
+artifacts/api-server/src/lib/yahoo.ts
+artifacts/api-server/src/lib/kiteAuth.ts
+lib/db/src/index.ts
+```
+
+Do not modify them in this phase.
+
+## G. Tests needed later
+
+For each future phase, propose tests:
+
+* scheduler start timing,
+* fail-open behavior,
+* concurrency limiter,
+* no route blocking,
+* participant OI backfill skip/defer behavior,
+* Yahoo timeout/backoff behavior,
+* Kite session no-secret/no-crash behavior.
+
+## H. Production validation plan
+
+Include:
+
+* deployment log checks,
+* no repeated DB pool timeout,
+* no repeated Yahoo spam,
+* no paper-route 500s,
+* owner route 401 unauthenticated,
+* app health after cold boot,
+* scanner still returns partial/cached instead of crashing.
+
+## I. Rollback plan
+
+Include:
+
+* revert phase commit,
+* restart deployment,
+* no DB restore needed unless future schema change is introduced,
+* do not touch secrets,
+* do not touch Kite session,
+* do not touch GoDaddy/DNS.
+
+## J. What should NOT be done
+
+Explicitly reject:
+
+* increasing DB pool blindly,
+* disabling background jobs entirely,
+* hiding all logs,
+* weakening auth,
+* changing trading logic,
+* changing paper-trade execution,
+* changing scheduler frequency without evidence,
+* schema changes at this stage.
+
+---
+
+# Output required
+
+Produce **W6-P4 Background Ingestion Hardening Plan** with:
+
+A. Executive summary
+B. Root cause summary
+C. Proposed phased roadmap
+D. Risk/benefit table
+E. Recommended first phase
+F. Files likely touched in future phases
+G. Tests required for future phases
+H. Production validation checklist
+I. Rollback plan
+J. Items explicitly out of scope
+K. Exact approval needed before implementation
+
+Stop after the plan.
+
+Do not implement fixes in W6-P4.
