@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { FoCockpitSafetyBanner } from "@/components/fno/FoCockpitSafetyBanner";
 import { FoCockpitSummaryCards } from "@/components/fno/FoCockpitSummaryCards";
+import { FoOpenTradesTable } from "@/components/fno/FoOpenTradesTable";
 import {
   summarizeFoCockpit,
   deriveP25Headline,
@@ -1412,6 +1413,54 @@ function FOSegment() {
     void qc.invalidateQueries({ queryKey: QK_ACCOUNT });
   }, [qc]);
 
+  // Pre-existing manual close, lifted here so the upgraded open-positions
+  // table/cards stay presentational. Same endpoint, same invalidations, same
+  // toast as before — no new close semantics introduced. A per-id pending set
+  // preserves the old per-row lock so concurrent closes on different rows each
+  // stay disabled until their own request settles (single-flight per row).
+  const { toast } = useToast();
+  const [closingIds, setClosingIds] = useState<ReadonlySet<string>>(() => new Set());
+  const closeMut = useMutation({
+    mutationFn: (id: string) =>
+      api<ClosedTrade>(`/paper/positions/fo/${encodeURIComponent(id)}/close`, {
+        method: "POST",
+      }),
+    onMutate: (id) => {
+      setClosingIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+    },
+    onSuccess: (_res, id) => {
+      const pos = positions.data?.positions.find((p) => p.id === id);
+      toast({
+        title: "Position closed",
+        description: pos ? `${pos.indexSymbol} ${pos.optionType} ${pos.strike}` : undefined,
+      });
+      void qc.invalidateQueries({ queryKey: QK_POSITIONS });
+      void qc.invalidateQueries({ queryKey: QK_ACCOUNT });
+      void qc.invalidateQueries({ queryKey: QK_TRADES });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Close failed", description: err.message, variant: "destructive" });
+    },
+    onSettled: (_res, _err, id) => {
+      setClosingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    },
+  });
+  const handleCloseFo = useCallback(
+    (id: string) => {
+      if (closingIds.has(id)) return;
+      closeMut.mutate(id);
+    },
+    [closingIds, closeMut],
+  );
+
   return (
     <div className="space-y-6">
       <FoCockpitSafetyBanner p25={p25} freshness={freshness} />
@@ -1429,10 +1478,13 @@ function FOSegment() {
       />
       {account.data && <FnoDrawdownCard data={account.data} />}
       {account.data && <GuardrailStatusCard account={account.data} />}
-      <PositionsCard
-        positions={positions.data?.positions ?? []}
+      <FoOpenTradesTable
+        positions={positions.data?.positions}
         loading={positions.isLoading}
         error={positions.error instanceof Error ? positions.error.message : null}
+        now={Date.now()}
+        onClose={handleCloseFo}
+        closingIds={closingIds}
       />
       <MissedSignalsCard
         missed={missed.data?.missed ?? []}
@@ -2182,133 +2234,6 @@ function HeatIndicator({ deployed, total }: { deployed: number; total: number })
         <div className={`h-full rounded-full transition-all ${heatColor}`} style={{ width: `${clamped}%` }} />
       </div>
     </div>
-  );
-}
-
-function PositionsCard({
-  positions, loading, error,
-}: {
-  positions: OpenPosition[];
-  loading: boolean;
-  error: string | null;
-}) {
-  if (error) {
-    return (
-      <Card>
-        <CardHeader><CardTitle>Portfolio</CardTitle></CardHeader>
-        <CardContent><ErrorBlock message={error} /></CardContent>
-      </Card>
-    );
-  }
-  if (loading) {
-    return (
-      <Card>
-        <CardHeader><CardTitle>Portfolio</CardTitle></CardHeader>
-        <CardContent><Skeleton className="h-32 w-full" /></CardContent>
-      </Card>
-    );
-  }
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Portfolio</CardTitle>
-        <CardDescription>
-          Live mark-to-market. LTP is pulled fresh from the option chain on
-          every refresh (every 10s), independent of the signal cycle. Use the
-          close button to force-exit at the latest LTP.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {positions.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">
-            No open paper positions right now. Auto-opens on the next qualifying signal trigger.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
-                <tr>
-                  <th className="py-2 pr-3">Symbol</th>
-                  <th className="py-2 pr-3">Side</th>
-                  <th className="py-2 pr-3">Lots</th>
-                  <th className="py-2 pr-3 text-right">Entry</th>
-                  <th className="py-2 pr-3 text-right">SL</th>
-                  <th className="py-2 pr-3 text-right">T1</th>
-                  <th className="py-2 pr-3 text-right">T2</th>
-                  <th className="py-2 pr-3 text-right" title="Last Traded Price — refreshed live from the option chain on every poll (10s)">LTP</th>
-                  <th className="py-2 pr-3 text-right">Capital</th>
-                  <th className="py-2 pr-3 text-right">U.P&amp;L</th>
-                  <th className="py-2 pr-3">Opened</th>
-                  <th className="py-2 pr-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map(p => <PositionRow key={p.id} p={p} />)}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function PositionRow({ p }: { p: OpenPosition }) {
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const closeMut = useMutation({
-    mutationFn: () =>
-      api<ClosedTrade>(`/paper/positions/fo/${encodeURIComponent(p.id)}/close`, {
-        method: "POST",
-      }),
-    onSuccess: () => {
-      toast({ title: "Position closed", description: `${p.indexSymbol} ${p.optionType} ${p.strike}` });
-      void qc.invalidateQueries({ queryKey: QK_POSITIONS });
-      void qc.invalidateQueries({ queryKey: QK_ACCOUNT });
-      void qc.invalidateQueries({ queryKey: QK_TRADES });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Close failed", description: err.message, variant: "destructive" });
-    },
-  });
-  const upnlTone =
-    p.unrealizedPnl > 0 ? "text-emerald-300" :
-    p.unrealizedPnl < 0 ? "text-rose-300" : "text-foreground";
-  return (
-    <tr className="border-b border-border/40">
-      <td className="py-2 pr-3">
-        <div className="font-medium">{p.indexSymbol}</div>
-        <div className="text-[11px] text-muted-foreground">
-          {p.optionType} {p.strike} · {p.setupKey}
-        </div>
-      </td>
-      <td className="py-2 pr-3">
-        <Badge variant={p.direction === "BULLISH" ? "default" : "destructive"}>
-          {p.direction}
-        </Badge>
-      </td>
-      <td className="py-2 pr-3 tabular-nums">{p.lots} × {p.lotSize}</td>
-      <td className="py-2 pr-3 text-right tabular-nums">{p.entryPremium.toFixed(2)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums text-rose-300">{p.stopPremium.toFixed(2)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums text-emerald-300">{p.target1Premium.toFixed(2)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums text-emerald-300">{p.target2Premium.toFixed(2)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums">{p.lastPremium.toFixed(2)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums">{inr(p.capitalDeployed)}</td>
-      <td className={`py-2 pr-3 text-right tabular-nums font-medium ${upnlTone}`}>
-        {inrDec(p.unrealizedPnl)}
-      </td>
-      <td className="py-2 pr-3 text-[12px] text-muted-foreground">{fmtTime(p.openedAt)}</td>
-      <td className="py-2 pr-3 text-right">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={closeMut.isPending}
-          onClick={() => closeMut.mutate()}
-        >
-          {closeMut.isPending ? "Closing…" : "Close"}
-        </Button>
-      </td>
-    </tr>
   );
 }
 

@@ -1,0 +1,374 @@
+W3-P2 F&O Cockpit Summary UI is accepted.
+
+Accepted final state:
+
+* `/paper-trading` F&O segment now has safety/freshness banner.
+* Summary cards added.
+* P25 headline uses official `mfeAvailableCount`.
+* P25 shows `5/20`, `15 remaining`, gate open.
+* Threshold remains 20.
+* No P25 tracker change.
+* No backend change.
+* No DB/schema change.
+* No scheduler change.
+* No route/auth change.
+* No OpenAPI/codegen change.
+* No F&O signal/entry/exit/stop/target/sizing/gate change.
+* No paper-trade execution change.
+* No swing logic change.
+* No `replit.md`, memory, or docs change.
+* 191/191 scanner tests passed.
+* Full workspace typecheck clean.
+* Architect review passed.
+* Visual QA remains blocked by owner login, which is acceptable.
+
+Current verdict:
+
+```text id="cykdlv"
+W3-P2 = accepted
+F&O cockpit summary/banner layer = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W3-P3 only**.
+
+# W3-P3: F&O Open Trades Table/Card Upgrade
+
+Purpose:
+
+Upgrade the open F&O trades section on `/paper-trading` into a clearer professional cockpit view.
+
+This is frontend/read-only UI work only.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change P25 tracker logic.
+
+Do not change paper-trade execution.
+
+---
+
+## Approved scope
+
+Improve the existing open F&O trades display only.
+
+Allowed:
+
+1. Better open-trade table readability.
+2. Mobile open-trade cards.
+3. Risk/status badges using existing data.
+4. Freshness badge using existing `lastEvaluatedAt`.
+5. Clear P&L, MFE, MAE display.
+6. Clear option contract display.
+7. Clear entry/current/stop/target display.
+8. Safe empty/loading/error states.
+
+Do **not** implement closed trades review yet.
+
+Do **not** implement “Why this trade?” drawer yet.
+
+Do **not** implement filters/sorting/grouping yet.
+
+Those come later.
+
+---
+
+## Existing helper to use
+
+Use accepted helper:
+
+```text id="81l3fi"
+artifacts/scanner/src/lib/foCockpitView.ts
+```
+
+Use helpers if useful:
+
+```text id="gdhqjx"
+deriveFoRiskBadges
+getFoLastActivityAt
+isFoQuoteStale
+getTimeInTradeMs
+deriveFoEmptyState
+toNum
+```
+
+Only add small pure helper additions if required.
+
+---
+
+## Existing data source
+
+Use existing open positions already fetched from:
+
+```text id="osq2fv"
+/paper/positions/fo
+```
+
+Do not add backend endpoints.
+
+Do not change backend payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+---
+
+# UI requirements
+
+## 1. Open F&O table/card fields
+
+Show clearly:
+
+* index symbol/name,
+* direction,
+* option type,
+* strike,
+* setup key,
+* lots,
+* lot size,
+* total quantity,
+* entry premium,
+* current/last premium,
+* stop premium,
+* target1 premium,
+* target2 premium,
+* capital deployed,
+* unrealised P&L,
+* MFE / max runup,
+* MAE / max drawdown,
+* opened time,
+* last evaluated time,
+* freshness state,
+* status.
+
+Use clean placeholders for missing values.
+
+No crash on missing fields.
+
+## 2. Risk/status badges
+
+Display-only badges derived from existing fields only.
+
+Allowed badges:
+
+```text id="qdwdgf"
+paper-only
+open-position
+profit
+loss
+high-drawdown
+stale-quote
+no-MFE-data
+missing-option-snapshot if already available
+```
+
+Do not create new trading logic.
+
+Do not infer new signals.
+
+Do not recompute strategy.
+
+## 3. P&L presentation
+
+Use clear positive/negative formatting.
+
+Show:
+
+* unrealised P&L,
+* capital deployed,
+* P&L % if safely derivable as `unrealisedPnl / capitalDeployed`,
+* MFE,
+* MAE.
+
+This is display-only.
+
+Do not write P&L anywhere.
+
+## 4. Mobile layout
+
+Add mobile-friendly cards for open trades.
+
+Desktop can keep table layout.
+
+Mobile cards should show:
+
+* contract,
+* direction,
+* setup,
+* entry/current premium,
+* unrealised P&L,
+* MFE/MAE,
+* risk badges,
+* last evaluated.
+
+## 5. Empty/loading/error states
+
+Handle:
+
+* loading open trades,
+* open trades endpoint error,
+* no open F&O trades,
+* stale evaluation,
+* missing premium,
+* missing MFE/MAE.
+
+No blank table.
+
+No stack trace.
+
+No runtime crash.
+
+## 6. Safety label
+
+Keep or add clear label:
+
+```text id="2iq9wf"
+Paper trading only — no live order placement
+```
+
+Do not expose any live-order action.
+
+Do not add a new close button.
+
+Do not change existing manual close behavior if it already exists.
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="1gsoq9"
+artifacts/scanner/src/pages/paper-trading.tsx
+artifacts/scanner/src/components/fno/FoOpenTradesTable.tsx
+artifacts/scanner/src/components/fno/FoOpenTradeCard.tsx
+artifacts/scanner/src/components/fno/FoRiskBadges.tsx
+artifacts/scanner/src/lib/foCockpitView.ts
+artifacts/scanner/src/lib/foCockpitView.test.ts
+```
+
+Only modify `foCockpitView.ts` if a small pure helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add or update pure helper tests if helper logic changes.
+
+At minimum verify:
+
+1. Open-trade badge derivation.
+2. Stale quote detection.
+3. P&L percent helper if added.
+4. Missing MFE/MAE handling.
+5. Empty state helper for no open trades.
+6. No input mutation.
+
+Run:
+
+```text id="57xvt7"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-trading`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify open trades table/cards render,
+* verify existing open/closed sections still appear,
+* verify no layout break,
+* verify no console errors.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O partial booking,
+* F&O breakeven trail,
+* F&O stop logic,
+* F&O target logic,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option selection,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* MTM sweep logic,
+* live order logic,
+* Kite logic,
+* swing scoring,
+* swing recommendations,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="1dvgvn"
+artifacts/api-server/**
+lib/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W3-P3 F&O Open Trades UI Implementation Report** with:
+
+A. Files changed
+B. Components added/updated
+C. Open trades fields displayed
+D. Risk/status badges added
+E. P&L/MFE/MAE display behavior
+F. Mobile card behavior
+G. Empty/loading/error states
+H. Tests added/updated
+I. Test/typecheck results
+J. Visual smoke result
+K. Confirmation existing summary/banner still works
+L. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+M. Limitations/follow-up for W3-P4
+
+After W3-P3, stop and wait for approval.

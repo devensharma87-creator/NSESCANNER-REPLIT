@@ -103,6 +103,18 @@ export const hasMfeMaeEvidence = (row: Pick<FoTradeRow, "maxRunup" | "maxDrawdow
   return !(up === 0 && down === 0);
 };
 
+/**
+ * P&L as a fraction of capital deployed (`effectivePnl ÷ capitalDeployed`).
+ * Returns null when capital is not a finite positive number or the P&L is not
+ * finite — never throws, never divides by zero. Display-only.
+ */
+export const deriveFoPnlPct = (row: FoTradeRow): number | null => {
+  const pnl = effectivePnl(row);
+  const cap = toNum(row.capitalDeployed);
+  if (!Number.isFinite(pnl) || !Number.isFinite(cap) || cap <= 0) return null;
+  return pnl / cap;
+};
+
 // ── 1. P25 official eligibility (UI classification only) ──────────────────────
 
 export type P25Reason =

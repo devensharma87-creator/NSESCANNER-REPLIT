@@ -5,6 +5,7 @@ import {
   getQuantity,
   effectivePnl,
   hasMfeMaeEvidence,
+  deriveFoPnlPct,
   getP25EligibilityReason,
   isP25EligibleTrade,
   deriveP25Summary,
@@ -724,5 +725,48 @@ describe("deriveFoFreshness + FO_SAFETY_STATIC_LINES", () => {
       deriveFoFreshness({ mtmSweepLastSuccessAt: new Date().toISOString() }).level,
     ).toBe("unknown");
     expect(deriveFoFreshness({ now, mtmSweepLastSuccessAt: "not-a-date" }).level).toBe("unknown");
+  });
+});
+
+// ── deriveFoPnlPct ──────────────────────────────────────────────────────────────
+
+describe("deriveFoPnlPct", () => {
+  it("returns unrealisedPnl / capitalDeployed for an open trade", () => {
+    const r: FoTradeRow = {
+      status: "OPEN", unrealizedPnl: 1500, capitalDeployed: 30000,
+    };
+    expect(deriveFoPnlPct(r)).toBeCloseTo(0.05, 10);
+  });
+
+  it("uses realizedPnl for a closed trade", () => {
+    const r: FoTradeRow = {
+      status: "CLOSED", realizedPnl: -600, capitalDeployed: 12000,
+    };
+    expect(deriveFoPnlPct(r)).toBeCloseTo(-0.05, 10);
+  });
+
+  it("coerces numeric strings safely", () => {
+    const r: FoTradeRow = {
+      status: "OPEN", unrealizedPnl: "750", capitalDeployed: "15000",
+    };
+    expect(deriveFoPnlPct(r)).toBeCloseTo(0.05, 10);
+  });
+
+  it("returns null on zero / missing / non-finite capital (no divide-by-zero)", () => {
+    expect(deriveFoPnlPct({ status: "OPEN", unrealizedPnl: 100, capitalDeployed: 0 })).toBeNull();
+    expect(deriveFoPnlPct({ status: "OPEN", unrealizedPnl: 100 })).toBeNull();
+    expect(deriveFoPnlPct({ status: "OPEN", unrealizedPnl: 100, capitalDeployed: -5 })).toBeNull();
+    expect(deriveFoPnlPct({ status: "OPEN", unrealizedPnl: 100, capitalDeployed: "x" })).toBeNull();
+  });
+
+  it("returns null when P&L is missing/non-finite", () => {
+    expect(deriveFoPnlPct({ status: "OPEN", capitalDeployed: 10000 })).toBeNull();
+  });
+
+  it("does not mutate the input row", () => {
+    const r: FoTradeRow = { status: "OPEN", unrealizedPnl: 1500, capitalDeployed: 30000 };
+    const snap = JSON.stringify(r);
+    deriveFoPnlPct(r);
+    expect(JSON.stringify(r)).toBe(snap);
   });
 });
