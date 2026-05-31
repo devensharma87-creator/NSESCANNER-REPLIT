@@ -1,0 +1,267 @@
+W6-P4B5 DB Pool Observability Implementation is accepted.
+
+Accepted final state:
+
+* `getDbPoolStats()` added as read-only pool-counter snapshot.
+* Stats collected:
+
+  * total
+  * idle
+  * waiting
+  * max
+  * label
+  * uptimeSec
+* Three snapshots scheduled:
+
+  * 30s
+  * 75s
+  * 120s
+* No DB query added.
+* No DB connection checkout added.
+* No connection string or secret logged.
+* No DB pool size/config change.
+* No DB schema change.
+* No scheduler cadence change.
+* No trading/scoring/paper-execution change.
+* No auth/public-mode change.
+* No OpenAPI/codegen change.
+* No scanner UI change.
+* No `replit.md`, memory, or docs change.
+* API-server tests passed: 679/679.
+* Scanner tests passed: 337/337.
+* Full typecheck clean.
+* Scanner build clean.
+* Local API boot log confirmed:
+
+  * `post-boot db pool stats`
+  * `total=10`
+  * `idle=10`
+  * `waiting=0`
+  * `max=10`
+* Architect review passed.
+
+Current verdict:
+
+```text id="orwxt3"
+W6-P4B5 code = accepted
+Production deployment = pending owner approval/smoke
+Do not start W6-P4B2 yet
+```
+
+Proceed with **W6-P4B5-Deploy only** after owner approval.
+
+# W6-P4B5-Deploy: Deploy DB Pool Observability Patch + Production Snapshot Review
+
+Purpose:
+
+Deploy the accepted W6-P4B5 observability-only patch and verify production post-boot DB pool snapshots.
+
+This is deployment + smoke only.
+
+No new feature.
+
+No new code change unless a real production issue appears.
+
+Do not start W6-P4B2 yet.
+
+---
+
+## Pre-deploy checks
+
+Before deploy, confirm:
+
+1. Latest code is committed.
+2. Working tree has no uncommitted code changes except harmless `attached_assets` paste artifacts.
+3. No `.env` or secrets are committed.
+4. No DB schema migration is needed.
+5. No DNS/domain change is needed.
+6. Paper trading remains paper-only.
+7. No real-money execution path is enabled.
+8. The patch contains observability only.
+
+---
+
+## Deployment target
+
+```text id="ywgotl"
+Replit production
+```
+
+Do not change GoDaddy/DNS/domain.
+
+Do not change env/secrets.
+
+---
+
+## Deploy only this patch
+
+Deploy only the accepted W6-P4B5 patch.
+
+Do not include W6-P4B2.
+
+Do not modify:
+
+```text id="ztu2d1"
+snapshot ingestor
+candle warehouse
+bootstrapKite
+swing scheduler
+DB pool size
+scheduler cadence
+participant OI window
+trading logic
+paper execution
+auth
+schema
+OpenAPI/codegen
+replit.md
+memory/docs
+```
+
+---
+
+# Production smoke after deploy
+
+After deploy, verify:
+
+## 1. API boot and health
+
+Confirm:
+
+```text id="vvj1hk"
+/api/healthz returns healthy
+owner-only routes return 401 AUTH_REQUIRED when unauthenticated
+```
+
+Examples:
+
+```text id="mgqqkd"
+/api/paper/positions/fo
+/api/paper/reports/fo/monthly
+```
+
+Do not bypass auth.
+
+## 2. Staggered boot still present
+
+Confirm W6-P4A still works:
+
+```text id="6hw2ml"
+global-data-pump delay 15000
+preset-scheduler delay 25000
+inst-flows-refresher delay 60000
+```
+
+If early logs roll off before capture, report honestly.
+
+## 3. DB pool snapshot logs
+
+Check production logs for:
+
+```text id="z2og0a"
+post-boot db pool stats
+```
+
+Expected snapshots:
+
+```text id="1v659t"
+post-boot+30s
+post-boot+75s
+post-boot+120s
+```
+
+For each snapshot, capture:
+
+```text id="37t5ek"
+total
+idle
+waiting
+max
+uptimeSec
+```
+
+Important:
+
+* no secrets,
+* no connection string,
+* no DB query,
+* no crash,
+* no 500 caused by logging.
+
+## 4. Contention assessment
+
+Classify production snapshots:
+
+```text id="lsf5yg"
+waiting = 0 and total below/at max safely → no current pool contention seen
+waiting > 0 or total pinned at max=10 → potential contention remains
+```
+
+This decides whether W6-P4B2 is needed.
+
+Do not implement W6-P4B2 in this step.
+
+## 5. Error/log scan
+
+Check first 2–5 minutes after boot for:
+
+* no repeated `Connection terminated due to connection timeout`,
+* no `DrizzleQueryError`,
+* no crash/restart loop,
+* no `ZodError`,
+* no `TIME_EXIT_1520` enum error,
+* no paper-route 500.
+
+Any Yahoo/Kite timeout should be classified as external-feed warning.
+
+---
+
+# Commands/checks
+
+If possible, rerun or confirm:
+
+```text id="o8znne"
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+If these were already run immediately before deploy and no code changed after, state that clearly.
+
+---
+
+# If issue found
+
+If a production issue appears:
+
+1. Stop.
+2. Report exact log/error.
+3. Do not make broad fixes.
+4. Recommend either:
+
+   * rollback W6-P4B5 commit, or
+   * minimal fix only if directly related to observability logging.
+
+---
+
+# Output required
+
+Produce **W6-P4B5 Deployment / Production Pool Snapshot Report** with:
+
+A. Deployment commit
+B. Deployment target
+C. Pre-deploy checks
+D. Health/auth result
+E. W6-P4A stagger still present?
+F. Pool snapshot results at 30s/75s/120s
+G. Contention assessment
+H. DB timeout/log result
+I. Paper route result
+J. Production log result
+K. Bugs found, if any
+L. Rollback needed? yes/no
+M. Whether W6-P4B2 is still recommended
+N. Final W6-P4B5 verdict
+
+Stop after the report.
