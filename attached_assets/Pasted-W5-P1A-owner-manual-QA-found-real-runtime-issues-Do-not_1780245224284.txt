@@ -1,0 +1,357 @@
+W5-P1A owner-manual QA found real runtime issues.
+
+Do not proceed to any new feature.
+
+Proceed with **W5-P2 only: Runtime Bugfix for `/paper-reports` internal_server_error**.
+
+# W5-P2: Fix `/paper-reports` Runtime Errors
+
+## Owner manual QA result
+
+The owner logged in and tested `/paper-reports`.
+
+Observed results:
+
+### Passed
+
+* Owner login works.
+* `/paper-reports` loads.
+* Overview tab renders.
+* Safety banner renders.
+* Summary cards render.
+* F&O vs Equity comparison renders.
+* Equity curve renders.
+* Drawdown cards render.
+* MFE/MAE review renders.
+* Equity monthly tab renders.
+* Journal tab renders for both Equity and F&O.
+
+### Failed
+
+On the **F&O tab**:
+
+```text
+Failed to load report
+internal_server_error
+```
+
+On the **Overview tab**, near the bottom:
+
+```text
+Failed to load performance tables
+internal_server_error
+```
+
+and:
+
+```text
+Failed to load best/worst trades
+internal_server_error
+```
+
+These are real runtime defects and must be fixed before W5 QA can be closed.
+
+---
+
+# Primary objective
+
+Find and fix the exact cause of the `internal_server_error` on the F&O monthly report and the dependent Overview sections.
+
+Likely areas to inspect first:
+
+```text
+/api/paper/reports/fo/monthly?month=2026-05
+/api/paper/reports/fo/yearly
+/api/paper/reports/eq/monthly
+/api/paper/reports/eq/yearly
+/paper-reports Overview report fetches
+ReportsPerformanceTables input rows
+ReportsBestWorstTrades input rows
+```
+
+Do not guess.
+
+Use browser Network tab, server logs, and stack traces to identify the exact failing route and line.
+
+---
+
+# Required investigation
+
+## 1. Capture failing requests
+
+In authenticated dev session, open `/paper-reports`.
+
+Capture:
+
+* failing endpoint URL,
+* HTTP status,
+* response body,
+* server stack trace,
+* exact selected tab/month,
+* whether Equity endpoint succeeds,
+* whether F&O endpoint fails,
+* whether Overview fails because the F&O report query fails.
+
+Report the exact failing route before fixing.
+
+---
+
+## 2. Fix F&O monthly report error
+
+The F&O tab must not show `internal_server_error` for May 2026.
+
+If the backend route is failing due to malformed/null data, fix the report serialization defensively.
+
+Allowed backend fix only if the defect is inside the owner-only report route or report serializer.
+
+Do not touch trading logic.
+
+Do not touch paper-trade execution logic.
+
+Do not touch strategy/scoring/entry/exit logic.
+
+Do not touch P25 logic.
+
+Do not change MFE/MAE calculations.
+
+The report route should handle safely:
+
+* null setup,
+* null exit reason,
+* missing R multiple,
+* missing charges,
+* missing P&L fields,
+* malformed timestamps,
+* expired/manual/stop exit reason strings,
+* missing index symbol,
+* empty rows,
+* mixed old/new trade records.
+
+No internal server error should reach the UI for valid owner requests.
+
+---
+
+## 3. Fix Overview partial failure behavior
+
+Currently the Overview performance tables and best/worst sections fail when report data errors.
+
+Improve safely:
+
+If F&O report fails but Equity report succeeds, Overview should still show Equity-derived performance rows and show a small warning:
+
+```text
+F&O report data unavailable. Showing available Equity rows only.
+```
+
+If Equity fails but F&O succeeds, show F&O-derived rows and warning.
+
+If both fail, then show a clear error.
+
+Do not hide errors silently.
+
+Do not fabricate missing segment data.
+
+Do not treat missing segment as zero.
+
+Do not break the strict-null behavior added earlier.
+
+---
+
+## 4. Preserve existing working sections
+
+Do not break:
+
+* safety banner,
+* summary cards,
+* F&O vs Equity comparison,
+* equity curve,
+* drawdown cards,
+* MFE/MAE review,
+* Equity tab,
+* Journal tab,
+* journal editor,
+* CSV export,
+* filters/date/sort controls.
+
+---
+
+# UI behavior after fix
+
+Expected after fix:
+
+## F&O tab
+
+Should render one of these safely:
+
+```text
+F&O monthly report data
+```
+
+or, if truly no records:
+
+```text
+No closed F&O trades for this period.
+```
+
+It must not show:
+
+```text
+Failed to load report
+internal_server_error
+```
+
+unless there is a genuine server outage.
+
+## Overview performance tables
+
+Should render using available rows.
+
+If partial data is missing, show warning but not full failure.
+
+## Overview best/worst trades
+
+Should render using available rows.
+
+If no valid rows, show clean empty state.
+
+No blank panel.
+
+No runtime crash.
+
+No stack trace in UI.
+
+---
+
+# Files allowed to change
+
+Prefer minimal changes.
+
+Possible frontend files:
+
+```text
+artifacts/scanner/src/pages/paper-reports.tsx
+artifacts/scanner/src/components/reports/ReportsPerformanceTables.tsx
+artifacts/scanner/src/components/reports/ReportsBestWorstTrades.tsx
+artifacts/scanner/src/lib/reportsView.ts
+artifacts/scanner/src/lib/reportsView.test.ts
+```
+
+Possible backend files only if root cause is confirmed there:
+
+```text
+artifacts/api-server/**/paper reports route or serializer only
+```
+
+Do not touch backend unless the actual failing stack trace proves the backend route is the cause.
+
+---
+
+# Tests required
+
+Add focused tests for the exact bug.
+
+At minimum:
+
+1. F&O report serializer handles the problematic May 2026 row shape.
+2. Missing/null fields do not throw.
+3. Malformed or old F&O trade rows do not crash report generation.
+4. Overview can build performance rows from Equity only when F&O is unavailable.
+5. Overview can build performance rows from F&O only when Equity is unavailable.
+6. Best/worst handles partial segment data safely.
+7. Missing segment is not treated as zero.
+8. No input mutation.
+
+If backend route is changed, add or update backend/report tests if available.
+
+If frontend fallback is changed, add helper/component-safe tests.
+
+---
+
+# Commands to run
+
+Run:
+
+```text
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+If backend files are changed, also run the relevant backend/API tests if available.
+
+---
+
+# Manual QA after fix
+
+After fixing, run authenticated `/paper-reports` again and verify:
+
+1. F&O tab no longer shows `internal_server_error`.
+2. Overview performance tables no longer show `internal_server_error`.
+3. Overview best/worst trades no longer show `internal_server_error`.
+4. Equity tab still works.
+5. Journal tab still works.
+6. Overview summary still works.
+7. CSV export still works if rows exist.
+8. Console has no red errors.
+9. Network has no repeated 500s.
+
+If owner login is required and unavailable to your automated browser, ask the owner to retest with screenshots.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* option selection,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* DB schema,
+* scheduler,
+* auth/LoginGate,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not bypass auth.
+
+Do not enable public mode.
+
+Do not access or expose secrets.
+
+---
+
+# Output required
+
+Produce **W5-P2 `/paper-reports` Runtime Bugfix Report** with:
+
+A. Exact failing endpoint(s) found
+B. Exact server/browser error found
+C. Root cause
+D. Files changed
+E. Fix applied
+F. Backend changed? yes/no
+G. Frontend fallback changed? yes/no
+H. Tests added/updated
+I. Test/typecheck/build results
+J. Authenticated manual/runtime QA result
+K. Confirmation F&O tab no longer fails
+L. Confirmation Overview performance tables no longer fail
+M. Confirmation Overview best/worst no longer fails
+N. Confirmation Equity and Journal tabs still work
+O. Confirmation no trading/scoring/P25/MFE-MAE/schema/auth behavior changed
+P. Remaining issues, if any
+
+After W5-P2, stop and wait for approval.
