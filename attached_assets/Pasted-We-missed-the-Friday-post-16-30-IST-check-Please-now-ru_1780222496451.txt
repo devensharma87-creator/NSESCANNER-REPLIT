@@ -1,0 +1,336 @@
+We missed the Friday post-16:30 IST check.
+
+Please now run a **retroactive Friday post-session verification** using only Friday’s completed data.
+
+Target trading date:
+
+```text id="rkpvb6"
+Friday, 2026-05-29
+```
+
+Proceed with two read-only checks:
+
+1. **S3b RS Benchmark Post-Scan Verification for 2026-05-29**
+2. **F&O P25 EOD Evidence Check for 2026-05-29**
+
+This is retrospective verification only.
+
+Do not change code.
+
+Do not change schema.
+
+Do not change scoring.
+
+Do not change trading behavior.
+
+Do not modify `replit.md`, memory/docs, routes, auth, scheduler, workflow, or UI.
+
+---
+
+# Part 1 — S3b Friday RS Benchmark Post-Scan Verification
+
+Purpose:
+
+Verify whether the Friday post-15:35 IST swing deep scan completed and whether S3a fixed RS population for the Friday scan.
+
+## Step 1 — Confirm Friday scan exists
+
+Run:
+
+```sql id="61ibxq"
+SELECT scan_date, COUNT(*) AS total
+FROM swing_scan_result
+WHERE scan_date = DATE '2026-05-29'
+GROUP BY scan_date;
+```
+
+If no row exists for `2026-05-29`, report:
+
+```text id="zmd04o"
+S3b Friday verification deferred/failed — no 2026-05-29 swing deep scan row found
+```
+
+Do not substitute Sunday/latest date.
+
+## Step 2 — RS coverage for Friday
+
+Run:
+
+```sql id="64gm6t"
+SELECT scan_date,
+       COUNT(*) AS total,
+       COUNT(rs20) AS with_rs20,
+       COUNT(rs50) AS with_rs50,
+       COUNT(rs120) AS with_rs120,
+       COUNT(*) FILTER (WHERE rs_score > 0) AS with_rs_score,
+       AVG(rs_score) AS avg_rs_score
+FROM swing_scan_result
+WHERE scan_date = DATE '2026-05-29'
+GROUP BY scan_date;
+```
+
+Acceptance expectation:
+
+* `with_rs20`, `with_rs50`, `with_rs120` should be close to `total`.
+* `with_rs_score` should be meaningfully above zero.
+* `avg_rs_score` should be non-zero.
+* No silent all-zero RS collapse.
+
+## Step 3 — Compare against pre-S3a bad days
+
+Use reference:
+
+```text id="o1lfr7"
+2026-05-27: 1/450 RS coverage
+2026-05-20: 0/463 RS coverage
+2026-05-26: 476/476 healthy RS coverage
+```
+
+State whether Friday behaves like a healthy RS day or a bad RS-collapse day.
+
+## Step 4 — Top-20 Friday sample
+
+Run:
+
+```sql id="bnwfcf"
+SELECT symbol, scan_date, action, score, rs_score,
+       rs20, rs50, rs120, sector, industry
+FROM swing_scan_result
+WHERE scan_date = DATE '2026-05-29'
+ORDER BY score DESC
+LIMIT 20;
+```
+
+Check:
+
+* RS values are populated.
+* Sector/industry are present.
+* No all-zero RS collapse.
+* No scoring/action change was made by this verification.
+
+## S3b Friday output
+
+Produce section:
+
+```text id="qo28lp"
+S3b Friday RS Benchmark Verification
+```
+
+Include:
+
+A. Whether Friday scan exists
+B. RS coverage table
+C. Comparison vs bad/healthy historical days
+D. Top-20 sample summary
+E. Verdict:
+
+Use one:
+
+```text id="6nshl3"
+S3b Friday verified
+```
+
+or
+
+```text id="75ux9h"
+S3b Friday failed — RS collapse still present
+```
+
+or
+
+```text id="u76cnf"
+S3b Friday deferred — no Friday scan row found
+```
+
+---
+
+# Part 2 — F&O P25 Friday EOD Evidence Check
+
+Purpose:
+
+Run the missed Friday post-16:30 IST P25 evidence check for live F&O paper trades.
+
+This must use Friday data only.
+
+Target date:
+
+```text id="qqg8lq"
+2026-05-29
+```
+
+## Step 1 — Confirm Friday F&O trades/signals
+
+Run existing P25 evidence queries for Friday only.
+
+At minimum check:
+
+* Friday F&O paper trades opened/closed,
+* whether any closed trade has MFE/MAE populated,
+* whether Friday adds to the live MFE-available count,
+* whether cursor/gate count changes.
+
+Use the existing P25 evidence tracker logic.
+
+Do not modify the gate.
+
+Do not change the threshold.
+
+Current accepted baseline:
+
+```text id="d987to"
+P25 live MFE-available baseline before Friday = 3
+P25 required threshold = 20
+Remaining before Friday = 17
+```
+
+## Step 2 — Friday closed trade count
+
+Run or adapt:
+
+```sql id="2l61v4"
+SELECT signal_date,
+       COUNT(*) AS total_closed,
+       COUNT(*) FILTER (
+         WHERE max_runup IS NOT NULL
+           AND max_drawdown IS NOT NULL
+       ) AS mfe_mae_available
+FROM paper_trade_fo
+WHERE status = 'CLOSED'
+  AND signal_date = DATE '2026-05-29'
+GROUP BY signal_date;
+```
+
+If column names differ, use the project’s actual P25 query bundle and report the exact query adjustment.
+
+## Step 3 — Friday trade details
+
+Run or adapt:
+
+```sql id="1t1fm7"
+SELECT id, signal_date, index_symbol, setup_key, direction,
+       option_type, strike, entry_premium, exit_premium,
+       realized_pnl, exit_reason,
+       max_runup, max_drawdown, opened_at, exited_at
+FROM paper_trade_fo
+WHERE signal_date = DATE '2026-05-29'
+ORDER BY opened_at;
+```
+
+## Step 4 — Update evidence count
+
+Report:
+
+* previous live MFE-available count,
+* Friday new MFE-available count,
+* updated total,
+* remaining trades needed to reach 20,
+* whether gate remains open or closed.
+
+Expected format:
+
+```text id="9gbf3n"
+Previous MFE-available count: 3
+Friday additions: X
+Updated MFE-available count: 3 + X
+Remaining to 20: 20 - updated_count
+Gate status: OPEN / CLOSED
+```
+
+## Step 5 — No-trade handling
+
+If Friday had no F&O trades, report:
+
+```text id="sg37rt"
+Friday P25: no new F&O paper trades; evidence count unchanged
+```
+
+Do not treat no-trade as failure unless the existing no-trade diagnostic rule is triggered separately.
+
+## P25 Friday output
+
+Produce section:
+
+```text id="x17c28"
+F&O P25 Friday EOD Evidence Check
+```
+
+Include:
+
+A. Friday trade/signals found
+B. Friday closed trade count
+C. Friday MFE/MAE availability
+D. Updated P25 evidence count
+E. Remaining trades needed
+F. Gate status
+G. Whether any follow-up diagnostic is needed
+H. Confirmation that no live F&O exit/target/stop/partial/trail change was made
+
+Use verdict:
+
+```text id="jd2cxv"
+P25 Friday evidence updated
+```
+
+or
+
+```text id="ae8gnn"
+P25 Friday no new evidence — count unchanged
+```
+
+or
+
+```text id="n3pklz"
+P25 Friday failed — data defect found
+```
+
+---
+
+# Final combined report required
+
+Produce a **Friday Retroactive Post-Session Verification Report** with:
+
+A. Target trading date
+B. S3b Friday RS benchmark result
+C. F&O P25 Friday evidence result
+D. Updated open gates
+E. What remains pending
+F. Defects found, if any
+G. Confirmation that no code/schema/scoring/trading behavior changed
+
+## Guardrails
+
+Do not change:
+
+* live swing scoring,
+* swing recommendations,
+* action labels,
+* entries,
+* stops,
+* targets,
+* RR,
+* B1/B3 shadow logic,
+* sector scoring,
+* delivery scoring,
+* intraday refresh logic,
+* trigger-latch logic,
+* paper-equity execution,
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O targets,
+* F&O stops,
+* F&O sizing,
+* F&O gates,
+* F&O confluence,
+* option snapshots,
+* candle warehouse,
+* scheduler,
+* schema,
+* routes,
+* auth,
+* UI,
+* workflows,
+* `replit.md`,
+* memory/docs.
+
+After this Friday retroactive report, stop and wait for instruction.
