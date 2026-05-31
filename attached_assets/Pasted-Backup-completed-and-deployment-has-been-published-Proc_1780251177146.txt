@@ -1,0 +1,195 @@
+Backup completed and deployment has been published.
+
+Proceed with **W6-P2 only: Post-Deployment Smoke Verification**.
+
+No new feature.
+
+No code change unless a real production issue is found.
+
+No env/secret/DNS change.
+
+No `replit.md`, memory, or docs change.
+
+# W6-P2: Post-Deployment Smoke Verification
+
+## Current status
+
+```text
+DB backup = completed
+Deployment = published
+Target = Replit production
+Paper trading = paper-only
+Real-money execution = not enabled
+Domain/DNS = unchanged
+```
+
+---
+
+## Objective
+
+Verify the published deployment is healthy after W1–W5 release.
+
+Check only.
+
+Do not build anything new.
+
+---
+
+## Required checks
+
+Verify these pages/routes:
+
+```text
+/paper-reports
+/paper-trading
+/stocks-to-watch
+/infra-health
+```
+
+Also verify:
+
+```text
+Owner login
+Unauthenticated owner-route protection
+F&O cockpit
+Equity report
+F&O report
+Journal tab
+CSV export button visibility
+TIME_EXIT_1520 display if present
+No console errors
+No repeated 500s
+```
+
+---
+
+## Specific `/paper-reports` checks
+
+Confirm:
+
+1. Overview tab loads.
+2. Safety banner loads.
+3. Summary cards load.
+4. F&O vs Equity comparison loads.
+5. Equity curve loads.
+6. Drawdown cards load.
+7. MFE/MAE review loads.
+8. Performance tables load.
+9. Best/worst trade review loads.
+10. Filters/date/sort controls appear if rows exist.
+11. CSV export button appears if rows exist.
+12. Equity tab loads.
+13. F&O tab loads.
+14. Journal tab loads.
+15. No `internal_server_error`.
+
+---
+
+## Specific `/paper-trading` checks
+
+Confirm:
+
+1. F&O cockpit loads.
+2. Open trades section loads.
+3. Closed trades section loads.
+4. P25 evidence panel loads.
+5. If `TIME_EXIT_1520` appears, it displays as:
+
+```text
+TIME EXIT 1520
+```
+
+not remapped and not shown as raw broken enum.
+
+---
+
+## Auth checks
+
+Confirm unauthenticated owner routes remain protected.
+
+Expected:
+
+```text
+401 AUTH_REQUIRED
+```
+
+for owner-only API routes when not logged in.
+
+Do not disable auth.
+
+Do not enable public mode.
+
+Do not bypass login.
+
+---
+
+## Logs/network checks
+
+Check production logs/network for:
+
+```text
+No repeated 500s
+No ZodError from TIME_EXIT_1520
+No internal_server_error on paper reports
+No auth leak
+No missing env error
+No build/runtime crash
+```
+
+---
+
+## Commands/checks if available
+
+Run or confirm equivalent production checks:
+
+```text
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+If already verified immediately before deploy and no code changed, state that clearly.
+
+---
+
+## If a bug is found
+
+Stop and report before broad fixes.
+
+A fix is allowed only if:
+
+* directly tied to deployment smoke failure,
+* minimal,
+* no trading/scoring/strategy change,
+* no paper execution change,
+* no P25/MFE/MAE change,
+* no DB schema change,
+* no auth weakening,
+* no dependency change.
+
+---
+
+# Output required
+
+Produce **W6-P2 Post-Deployment Smoke Verification Report** with:
+
+A. Deployment URL tested
+B. Owner login result
+C. `/paper-reports` result
+D. `/paper-trading` result
+E. `/stocks-to-watch` result
+F. `/infra-health` result
+G. F&O report result
+H. Equity report result
+I. Journal tab result
+J. CSV export visibility result
+K. `TIME_EXIT_1520` result if present
+L. Console/network result
+M. Production log result
+N. Auth/owner boundary result
+O. Bugs found, if any
+P. Code changes made, if any
+Q. Final release verdict
+
+Stop after the report.
