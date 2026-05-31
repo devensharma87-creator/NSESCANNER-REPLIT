@@ -64,4 +64,55 @@ pool.on("error", (err) => {
 
 export const db = drizzle(pool, { schema });
 
+/**
+ * Read-only snapshot of the pg pool's in-memory counters.
+ *
+ * W6-P4B5: lets the api-server log cold-start pool utilization to verify the
+ * W6-P4A boot staggering actually relieved contention — WITHOUT running a query
+ * or acquiring a connection. `pg.Pool` maintains `totalCount` / `idleCount` /
+ * `waitingCount` as plain in-memory numbers, and `options.max` is the configured
+ * ceiling; reading them is free and side-effect-free.
+ *
+ * Only the four numeric counters are returned — never `options` itself (which
+ * holds the connection string). Fail-open: returns `null` if any counter is
+ * missing or reading throws, so a stats read can never crash a caller.
+ */
+export interface DbPoolStats {
+  /** Total clients currently created by the pool (idle + in-use). */
+  total: number;
+  /** Clients currently idle (available for immediate checkout). */
+  idle: number;
+  /** Pending checkout requests waiting for a free client (contention signal). */
+  waiting: number;
+  /** Configured pool ceiling (`max`). */
+  max: number;
+}
+
+interface PoolStatsSource {
+  totalCount?: number;
+  idleCount?: number;
+  waitingCount?: number;
+  options?: { max?: number };
+}
+
+export function getDbPoolStats(src: PoolStatsSource = pool): DbPoolStats | null {
+  try {
+    const total = src.totalCount;
+    const idle = src.idleCount;
+    const waiting = src.waitingCount;
+    const max = src.options?.max;
+    if (
+      typeof total !== "number" ||
+      typeof idle !== "number" ||
+      typeof waiting !== "number" ||
+      typeof max !== "number"
+    ) {
+      return null;
+    }
+    return { total, idle, waiting, max };
+  } catch {
+    return null;
+  }
+}
+
 export * from "./schema";

@@ -1,0 +1,254 @@
+W6-P4B Remaining Boot Job Hardening Plan is accepted.
+
+Proceed with **W6-P4B5 only**.
+
+# W6-P4B5: Post-Boot DB Pool Observability Log Only
+
+Purpose:
+
+Add a tiny, read-only post-boot DB pool utilization log so we can measure whether cold-start contention is actually gone before changing more boot jobs.
+
+This is observability only.
+
+Do not stagger any additional jobs yet.
+
+Do not touch `bootstrapKite`.
+
+Do not change scheduler cadence.
+
+Do not change DB pool size.
+
+Do not change DB schema.
+
+Do not change trading/scoring/paper execution.
+
+---
+
+## Background
+
+W6-P4A already staggered:
+
+```text id="hlngsv"
+global-data-pump       → 15000ms
+preset-scheduler       → 25000ms
+inst-flows-refresher   → 60000ms
+```
+
+W6-P4B planning identified the next measurable step:
+
+```text id="5jga6b"
+Add one-time post-boot DB pool utilization log before deciding whether to stagger more jobs.
+```
+
+The goal is to observe, not change behavior.
+
+---
+
+# Approved scope
+
+Add a lightweight post-boot log that reports DB pool utilization from the existing pool object, if available.
+
+Suggested metrics:
+
+```text id="56brez"
+pool total count
+pool idle count
+pool waiting count
+pool max
+timestamp / uptime
+label
+```
+
+Use only in-memory pool counters if exposed by the existing DB pool library.
+
+Do **not** execute a DB query just to collect metrics.
+
+Do **not** acquire a DB connection.
+
+Do **not** change pool config.
+
+Do **not** add new dependency.
+
+---
+
+## Suggested timing
+
+Schedule one or more read-only log snapshots after boot, for example:
+
+```text id="lb2w8z"
+30s after boot
+75s after boot
+120s after boot
+```
+
+If keeping it strictly one-time is cleaner, use:
+
+```text id="q1poar"
+120s after boot
+```
+
+Choose the simplest safe version and report exact timing.
+
+The log should be low-noise and owner/operator-facing only.
+
+---
+
+# Preferred implementation shape
+
+If current DB pool object supports it, create a helper such as:
+
+```text id="fy2t35"
+getDbPoolStats()
+logDbPoolStats(label)
+scheduleDbPoolStatsLog(label, delayMs)
+```
+
+Expected behavior:
+
+* does not throw if pool stats are unavailable,
+* logs unavailable state instead of crashing,
+* never blocks server startup,
+* never queries DB,
+* never leaks secrets,
+* never logs connection strings,
+* fail-open.
+
+If the DB pool is not accessible without risky changes, stop and report instead of forcing it.
+
+---
+
+## Files likely allowed
+
+Prefer minimal changes in:
+
+```text id="i12nzs"
+lib/db/src/index.ts
+artifacts/api-server/src/app.ts
+artifacts/api-server/src/lib/bootScheduler.ts
+artifacts/api-server/src/lib/bootScheduler.test.ts
+```
+
+Only touch files required for this observability log.
+
+Do not touch:
+
+```text id="6g47l7"
+trading/scoring files
+paper execution files
+DB schema files
+auth files
+scheduler cadence files unless only adding the log call
+OpenAPI/codegen
+scanner UI
+replit.md
+memory/docs
+```
+
+---
+
+# Required tests
+
+Add focused tests if structure allows.
+
+At minimum test:
+
+1. DB pool stats helper returns safe fields when pool counters exist.
+2. Helper does not expose secrets/connection strings.
+3. Helper handles unavailable stats safely.
+4. Scheduled log does not throw.
+5. No DB query or connection acquisition is required.
+6. Existing boot scheduler behavior remains unchanged.
+
+Do not add broad unrelated tests.
+
+---
+
+# Commands to run
+
+Run:
+
+```text id="qyoq75"
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+Also restart API server locally and confirm boot logs show the new pool stats line at the chosen delay.
+
+---
+
+# Production validation expectation
+
+After later deploy approval, production logs should show:
+
+```text id="7ls67r"
+post-boot db pool stats
+```
+
+with safe counters only.
+
+Expected:
+
+* no secrets in logs,
+* no DB query caused by the log,
+* no crash,
+* no auth change,
+* no trading behavior change.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* trading logic,
+* scoring logic,
+* signal generation,
+* paper execution,
+* F&O entries/exits,
+* force-exit timing,
+* stops,
+* targets,
+* sizing,
+* gates,
+* DB pool size,
+* DB schema,
+* scheduler cadence,
+* participant OI window,
+* option snapshot cadence,
+* candle warehouse cadence,
+* bootstrapKite behavior,
+* auth/LoginGate,
+* public mode,
+* env/secrets,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not hide logs.
+
+Do not suppress errors globally.
+
+Do not add a dashboard yet.
+
+---
+
+# Output required
+
+Produce **W6-P4B5 DB Pool Observability Implementation Report** with:
+
+A. Files changed
+B. Exact stats collected
+C. Exact log timing
+D. Confirmation no DB query/connection acquisition was added
+E. Failure/fail-open behavior
+F. Tests added/updated
+G. Test/typecheck/build results
+H. API boot log result
+I. Scope audit result
+J. Confirmation no DB pool/schema/auth/trading/paper-exec/scheduler-cadence behavior changed
+K. Whether W6-P4B2 snapshot-ingestor staggering is still recommended after this
+L. Recommended next phase
+
+Stop after the report.

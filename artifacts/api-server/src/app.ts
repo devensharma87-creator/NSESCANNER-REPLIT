@@ -12,7 +12,8 @@ import { requireAuth, logAuthBootState } from "./lib/auth";
 import { logGlobalAuthBootState } from "./lib/global/auth";
 import { startGlobalDataPump } from "./lib/global/dataLayer";
 import { startScreenerPresetScheduler } from "./lib/global/presetScheduler";
-import { scheduleBootJob, BOOT_STAGGER_MS } from "./lib/bootScheduler";
+import { scheduleBootJob, BOOT_STAGGER_MS, scheduleDbPoolStatsLog, POOL_STATS_LOG_DELAYS_MS } from "./lib/bootScheduler";
+import { getDbPoolStats } from "@workspace/db";
 
 const app: Express = express();
 
@@ -228,5 +229,13 @@ scheduleBootJob("global-data-pump", BOOT_STAGGER_MS.globalDataPump, () =>
 // from the data pump — it reads cached live prices / candles so it never
 // directly hits upstream sources itself. (Internal 30s tick cadence unchanged.)
 scheduleBootJob("preset-scheduler", BOOT_STAGGER_MS.presetScheduler, startScreenerPresetScheduler);
+
+// W6-P4B5 observability only: read-only post-boot DB pool utilization snapshots
+// that bracket the W6-P4A stagger window. These ONLY read the pg pool's
+// in-memory counters — they never run a query, never acquire a connection, and
+// never change pool config or cadence. Fail-open inside the helper.
+for (const delayMs of POOL_STATS_LOG_DELAYS_MS) {
+  scheduleDbPoolStatsLog(`post-boot+${delayMs / 1000}s`, delayMs, getDbPoolStats);
+}
 
 export default app;
