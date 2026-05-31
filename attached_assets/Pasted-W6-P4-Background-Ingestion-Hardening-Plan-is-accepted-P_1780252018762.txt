@@ -1,0 +1,226 @@
+W6-P4 Background Ingestion Hardening Plan is accepted.
+
+Proceed with **W6-P4A only**.
+
+# W6-P4A: Scheduler Boot Staggering Only
+
+Purpose:
+
+Reduce cold-start background-job pile-up by staggering background job startup timing.
+
+This is a low-risk hardening change.
+
+Do not change trading logic.
+
+Do not change paper execution.
+
+Do not change DB schema.
+
+Do not change DB pool size.
+
+Do not change scheduler frequency/cadence after startup.
+
+Do not change env/secrets.
+
+Do not change auth.
+
+---
+
+## Approved scope
+
+Implement only boot-time staggering for existing background subsystems so they do not all start in the same cold-start window.
+
+Known boot subsystems from W6-P3/W6-P4:
+
+```text id="mc907i"
+startGlobalDataPump()
+startScreenerPresetScheduler()
+instFlows self-scheduler / participant OI boot tick
+```
+
+Goal:
+
+```text id="b4tj0n"
+Avoid all heavy background jobs hitting the shared 10-connection DB pool immediately at boot.
+```
+
+---
+
+## Allowed behavior change
+
+Allowed:
+
+* delay/stagger initial startup of background jobs,
+* add small deterministic boot offsets,
+* add clear startup logs showing stagger timing,
+* keep each job fail-open,
+* keep existing periodic intervals unchanged after startup.
+
+Not allowed:
+
+* changing 30s preset scheduler frequency,
+* changing 15-min participant-OI interval,
+* changing OI lookback window,
+* disabling jobs,
+* changing DB pool,
+* adding a new DB pool,
+* changing Yahoo/Kite timeout behavior,
+* changing trading/paper-exec logic.
+
+---
+
+## Preferred implementation shape
+
+Use a small, simple, testable helper if useful, for example:
+
+```text id="6ceh35"
+scheduleBootJob(label, delayMs, fn)
+```
+
+The helper should:
+
+* log scheduled delay,
+* run the job after delay,
+* catch/log errors,
+* preserve fail-open behavior,
+* not block API server startup,
+* not crash the app if the job fails.
+
+Suggested boot spacing:
+
+```text id="jlh9ig"
+0–5 seconds: lightweight app/server boot only
+10–20 seconds: global data pump
+25–40 seconds: preset scheduler first tick
+45–75 seconds: participant OI / instFlows initial tick
+```
+
+Exact values can differ if existing code structure requires it, but they must be clearly reported.
+
+---
+
+## Files likely allowed
+
+Prefer minimal changes in:
+
+```text id="i8rwx1"
+artifacts/api-server/src/app.ts
+artifacts/api-server/src/lib/global/presetScheduler.ts
+artifacts/api-server/src/lib/instFlows.ts
+```
+
+Only touch files required for boot staggering.
+
+Do not touch:
+
+```text id="fsw3fg"
+lib/db/src/index.ts
+artifacts/scanner/**
+trading/scoring files
+paper execution files
+schema files
+auth files
+OpenAPI/codegen
+replit.md
+memory/docs
+```
+
+---
+
+## Required tests
+
+Add focused tests if test structure allows.
+
+At minimum test or verify:
+
+1. boot jobs are scheduled with offsets,
+2. boot job failure is caught/logged and does not throw,
+3. periodic cadence remains unchanged after initial scheduling,
+4. no job is dropped,
+5. no route startup blocking.
+
+If unit tests are difficult due to current structure, add the smallest safe test seam and explain why.
+
+Do not add broad unrelated tests.
+
+---
+
+## Commands to run
+
+Run:
+
+```text id="dtsv3c"
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+Also confirm API server boot logs show the staggered schedule.
+
+---
+
+## Production validation expectation
+
+After implementation and deploy approval later, validation should check:
+
+```text id="3gq4fb"
+No boot pile-up
+No repeated DB connection timeout during cold boot
+No paper-route 500s
+Owner routes still 401 unauthenticated
+App still serves while background jobs start later
+```
+
+Do not deploy in W6-P4A unless explicitly approved separately.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* trading logic,
+* signal generation,
+* F&O entries,
+* F&O exits,
+* force-exit timing,
+* stops,
+* targets,
+* sizing,
+* gates,
+* option selection,
+* paper-trade execution,
+* P25 tracker,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* DB schema,
+* DB pool size,
+* auth/LoginGate,
+* public mode,
+* env/secrets,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+---
+
+# Output required
+
+Produce **W6-P4A Boot Staggering Implementation Report** with:
+
+A. Files changed
+B. Existing boot order before change
+C. New staggered boot order and delay values
+D. Whether periodic scheduler cadence changed
+E. Failure/fail-open behavior
+F. Tests added/updated
+G. Test/typecheck/build results
+H. API boot log result
+I. Scope audit result
+J. Confirmation no DB pool/schema/auth/trading/paper-exec behavior changed
+K. Remaining limitations
+L. Recommended next phase
+
+Stop after the report.

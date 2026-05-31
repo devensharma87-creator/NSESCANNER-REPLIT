@@ -20,6 +20,7 @@ import optionChainSnapshotRouter from "./optionChainSnapshot";
 import candleWarehouseRouter from "./candleWarehouse";
 import equitySizingRouter from "./equitySizing";
 import { startInstFlowsRefresher } from "../lib/instFlows";
+import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
 import { bootstrapKite } from "../lib/kiteFeed";
 import { startSwingScanScheduler } from "../lib/swingScannerStore";
 import { startOptionSnapshotIngestor } from "../lib/optionChainSnapshotIngestor";
@@ -49,7 +50,10 @@ router.use(candleWarehouseRouter);     // /candles/* — owner-only diagnostics 
 router.use(equitySizingRouter);        // /paper/eq/sizing-preview + /paper/eq/candidates-diagnostic — owner-only read-only sizing helper (Priority 5)
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
-startInstFlowsRefresher();
+// W6-P4A: staggered to the back of the cold-start window (heaviest boot job —
+// 45-day NSE backfill) so it doesn't contend with the other boot jobs for the
+// shared DB pool. Internal 15-min refresh cadence + OI lookback unchanged.
+scheduleBootJob("inst-flows-refresher", BOOT_STAGGER_MS.instFlowsRefresher, startInstFlowsRefresher);
 // Try to resume Kite live feed if a valid session is already in the DB.
 void bootstrapKite();
 // Swing-scanner scheduler — once-per-IST-day deep scan after 15:35 +

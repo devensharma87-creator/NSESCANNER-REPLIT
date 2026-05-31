@@ -12,6 +12,7 @@ import { requireAuth, logAuthBootState } from "./lib/auth";
 import { logGlobalAuthBootState } from "./lib/global/auth";
 import { startGlobalDataPump } from "./lib/global/dataLayer";
 import { startScreenerPresetScheduler } from "./lib/global/presetScheduler";
+import { scheduleBootJob, BOOT_STAGGER_MS } from "./lib/bootScheduler";
 
 const app: Express = express();
 
@@ -206,15 +207,26 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction): void =
 
 logAuthBootState();
 logGlobalAuthBootState();
+// W6-P4A boot staggering: spread heavy background subsystems out of the
+// cold-start window so they don't all contend for the shared 10-connection DB
+// pool at once. Only the *initial* start is delayed; each subsystem keeps its
+// own periodic cadence once started.
+//
 // Start the background data refresher for the global scanner. Best-effort —
 // pump errors are logged into `global_sync_logs` and surfaced via
 // /api/global/status, never thrown out of boot.
-void startGlobalDataPump().catch((err: unknown) => {
-  logger.error({ err: (err as Error).message }, "startGlobalDataPump failed at boot");
-});
+scheduleBootJob("global-data-pump", BOOT_STAGGER_MS.globalDataPump, () =>
+  startGlobalDataPump().catch((err: unknown) => {
+    logger.error({ err: (err as Error).message }, "startGlobalDataPump failed at boot");
+    // Re-throw so scheduleBootJob's fail-open handler logs an accurate
+    // outcome instead of a misleading "boot job started". Still fail-open —
+    // the helper swallows it; boot is never blocked or crashed.
+    throw err;
+  }),
+);
 // Background scheduler for "auto-run every N minutes" presets. Independent
 // from the data pump — it reads cached live prices / candles so it never
-// directly hits upstream sources itself.
-startScreenerPresetScheduler();
+// directly hits upstream sources itself. (Internal 30s tick cadence unchanged.)
+scheduleBootJob("preset-scheduler", BOOT_STAGGER_MS.presetScheduler, startScreenerPresetScheduler);
 
 export default app;
