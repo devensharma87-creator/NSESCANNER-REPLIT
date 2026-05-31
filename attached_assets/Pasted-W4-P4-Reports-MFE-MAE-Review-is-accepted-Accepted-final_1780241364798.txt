@@ -1,0 +1,390 @@
+W4-P4 Reports MFE/MAE Review is accepted.
+
+Accepted final state:
+
+* MFE/MAE review section added.
+* MFE comes only from existing `shadow-exits` data.
+* MAE is correctly shown as unavailable.
+* No fake MAE value.
+* No MAE inference.
+* Give-back candidates are shown only when existing payload supports them.
+* Overview tab still works.
+* Safety banner, summary cards, equity curve, drawdown cards, and MFE/MAE section all coexist.
+* Existing Intraday / Equity / F&O / Journal tabs preserved.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No route/auth changes.
+* No OpenAPI/codegen changes.
+* No trading/scoring/P25/MFE-MAE logic changes.
+* No `replit.md`, memory, or docs changes.
+* 314/314 scanner tests passed.
+* Scanner typecheck clean.
+* Full repo typecheck clean.
+* Architect review passed.
+* Visual smoke remains blocked by owner login, which is acceptable.
+
+Current verdict:
+
+```text id="2n0idz"
+W4-P4 = accepted
+Reports MFE/MAE review = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W4-P5 only**.
+
+# W4-P5: Reports Performance Tables — Setup, Exit Reason, Index/Symbol, Best/Worst
+
+Purpose:
+
+Improve the performance analytics tables on `/paper-reports` using existing report and journal analytics data only.
+
+This is frontend/read-only display work only.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change P25 tracker logic.
+
+Do not change paper-trade execution.
+
+---
+
+## Approved scope
+
+Add or improve report sections for:
+
+1. Setup-wise performance.
+2. Exit-reason performance.
+3. Index/symbol-wise performance if existing fields support it.
+4. Best/worst trade review.
+5. Existing tag/journal analytics display polish if already available.
+6. Safe empty/loading/error states.
+
+Do **not** build journal editor yet.
+
+Do **not** build CSV export yet.
+
+Do **not** add backend endpoints.
+
+Do **not** infer unavailable fields.
+
+---
+
+## Existing helper to use
+
+Use accepted helper:
+
+```text id="8hp3gm"
+artifacts/scanner/src/lib/reportsView.ts
+```
+
+Use helpers such as:
+
+```text id="9he91r"
+normalizeFoTradeRow
+normalizeEqTradeRow
+groupReportRows
+aggregateReportGroup
+sortReportRows
+applyReportFilters
+toNum
+safePct
+```
+
+Only add small pure helpers if required.
+
+Do not duplicate existing helper logic.
+
+---
+
+## Existing data sources
+
+Use existing data already available from:
+
+```text id="5n7h97"
+/api/paper/reports/fo/monthly
+/api/paper/reports/eq/monthly
+/api/paper/analytics/fo
+/api/paper/journal-analytics?segment=FNO
+/api/paper/journal-analytics?segment=EQUITY
+/api/paper/trades/fo
+/api/paper/trades/eq
+```
+
+Use only existing endpoints.
+
+Do not add backend endpoints.
+
+Do not change endpoint payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+---
+
+# UI requirements
+
+## 1. Setup-wise performance table
+
+Show setup performance using existing available data.
+
+Columns can include:
+
+* setup name,
+* trade count,
+* realised P&L,
+* win rate,
+* average P&L,
+* best trade,
+* worst trade,
+* average R if available,
+* segment if available.
+
+If setup field is missing, show clean placeholder or omit that row.
+
+Do not fabricate setup.
+
+## 2. Exit-reason performance table
+
+Show exit-reason performance using existing data.
+
+Columns can include:
+
+* exit reason,
+* trade count,
+* realised P&L,
+* win rate,
+* average P&L,
+* best trade,
+* worst trade.
+
+Use existing journal analytics or report rows.
+
+Do not invent exit reasons.
+
+## 3. Index/symbol-wise table
+
+Add only if the existing row payload has `index`, `indexSymbol`, `symbol`, or equivalent.
+
+Rules:
+
+* F&O index grouping can use existing `indexSymbol` only if present.
+* Equity symbol grouping can use existing `symbol` only if present.
+* If the field is missing, show:
+
+```text id="76w2qv"
+Index/symbol performance unavailable from current payload.
+```
+
+Do not fabricate index/symbol from text.
+
+Do not parse it from journal notes.
+
+## 4. Best/worst trade review
+
+Show compact best/worst trade lists using existing rows.
+
+Display:
+
+* date,
+* segment,
+* symbol/index if available,
+* setup,
+* exit reason,
+* realised P&L,
+* R multiple if available,
+* tags if available.
+
+Use clean placeholders for missing fields.
+
+No crash on malformed rows.
+
+## 5. Existing analytics polish
+
+If current `/paper-reports` already has setup/exit/time/tag tables, polish their placement and visual consistency.
+
+Allowed:
+
+* clearer headings,
+* better labels,
+* better empty states,
+* compact badges,
+* table spacing,
+* mobile responsiveness.
+
+Not allowed:
+
+* changing the underlying calculations,
+* changing endpoint data,
+* adding backend.
+
+## 6. Safety label
+
+Add or keep clear label:
+
+```text id="glvbxo"
+Performance analytics are for review only — no strategy or trading behavior changes.
+```
+
+## 7. Empty/loading/error states
+
+Handle:
+
+* loading reports,
+* loading journal analytics,
+* endpoint error,
+* no closed trades,
+* no setup field,
+* no exit-reason field,
+* no index/symbol field,
+* malformed values.
+
+No blank tables.
+
+No runtime crash.
+
+No stack trace.
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="0jy15f"
+artifacts/scanner/src/pages/paper-reports.tsx
+artifacts/scanner/src/components/reports/ReportsPerformanceTables.tsx
+artifacts/scanner/src/components/reports/ReportsBestWorstTrades.tsx
+artifacts/scanner/src/lib/reportsView.ts
+artifacts/scanner/src/lib/reportsView.test.ts
+```
+
+Only modify `reportsView.ts` if a small pure helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add/update pure helper tests if helper logic changes.
+
+At minimum verify if new helpers are added:
+
+1. Setup aggregation.
+2. Exit-reason aggregation.
+3. Index/symbol aggregation only when field exists.
+4. Missing index/symbol does not fabricate grouping.
+5. Best/worst trade selection.
+6. Malformed P&L handled safely.
+7. No input mutation.
+
+Run:
+
+```text id="ryp80a"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+If no helper logic changes, do not add unnecessary tests.
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-reports`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify performance tables render,
+* verify best/worst trade section renders,
+* verify missing index/symbol state is honest,
+* verify Overview tab still works,
+* verify existing Equity/F&O/Journal tabs still render,
+* verify no layout break,
+* verify no console errors.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="z6buvo"
+artifacts/api-server/**
+lib/**
+lib-api-spec/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+paper report execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W4-P5 Reports Performance Tables Implementation Report** with:
+
+A. Files changed
+B. Components/helpers added or updated
+C. Setup-wise performance behavior
+D. Exit-reason performance behavior
+E. Index/symbol performance behavior
+F. Best/worst trade review behavior
+G. Existing analytics polish done
+H. Data sources used
+I. Empty/loading/error states
+J. Tests added/updated
+K. Test/typecheck results
+L. Visual smoke result
+M. Confirmation W4-P2/P3/P4 Overview still works
+N. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+O. Limitations/follow-up for W4-P6
+
+After W4-P5, stop and wait for approval.

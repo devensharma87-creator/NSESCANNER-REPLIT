@@ -40,14 +40,19 @@ import { ReportsOverviewCards } from "@/components/reports/ReportsOverviewCards"
 import { ReportsEquityCurve } from "@/components/reports/ReportsEquityCurve";
 import { ReportsDrawdownCards } from "@/components/reports/ReportsDrawdownCards";
 import { ReportsMfeMaeReview } from "@/components/reports/ReportsMfeMaeReview";
+import { ReportsPerformanceTables } from "@/components/reports/ReportsPerformanceTables";
+import { ReportsBestWorstTrades } from "@/components/reports/ReportsBestWorstTrades";
 import {
   summarizeReportsOverview,
   shapeEquityCurve,
   deriveDrawdownSummary,
   deriveMfeMaeReview,
+  normalizeFoTradeRow,
+  normalizeEqTradeRow,
   type FoAnalyticsLike,
   type ShadowExitReportLike,
   type AccountLike,
+  type NormalizedReportRow,
 } from "@/lib/reportsView";
 
 const BASE = import.meta.env.BASE_URL;
@@ -391,6 +396,21 @@ function OverviewSection() {
     [shadowExitsQ.data],
   );
 
+  // Performance tables + best/worst derive from the closed-trade rows already
+  // present in the FO/EQ monthly reports (no extra fetch). No fabrication.
+  const reportsLoading = foReportQ.isLoading || eqReportQ.isLoading;
+  const reportsError =
+    foReportQ.isError || eqReportQ.isError
+      ? ((foReportQ.error ?? eqReportQ.error) instanceof Error
+          ? ((foReportQ.error ?? eqReportQ.error) as Error).message
+          : "Unable to load reports")
+      : null;
+  const perfRows = useMemo<NormalizedReportRow[]>(() => {
+    const fo = (foReportQ.data?.trades ?? []).map(normalizeFoTradeRow);
+    const eq = (eqReportQ.data?.trades ?? []).map(normalizeEqTradeRow);
+    return [...fo, ...eq];
+  }, [foReportQ.data, eqReportQ.data]);
+
   return (
     <div className="space-y-5">
       <ReportsSafetyBanner
@@ -454,6 +474,35 @@ function OverviewSection() {
         />
         <p className="text-[10px] text-slate-500">
           This review is for learning and post-trade analysis only.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-200">
+            Performance tables
+          </h2>
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Closed trades · selected month
+          </span>
+        </div>
+        <p className="text-xs text-sky-200/80">
+          Performance analytics are for review only — no strategy or trading
+          behavior changes.
+        </p>
+        <ReportsPerformanceTables
+          rows={perfRows}
+          loading={reportsLoading}
+          error={reportsError}
+        />
+        <ReportsBestWorstTrades
+          rows={perfRows}
+          loading={reportsLoading}
+          error={reportsError}
+        />
+        <p className="text-[10px] text-slate-500">
+          These tables summarise closed paper trades for review only and do not
+          change strategy, exits, stops, targets, or paper-trade execution.
         </p>
       </div>
     </div>

@@ -18,6 +18,8 @@ import {
   sortReportRows,
   groupReportRows,
   aggregateReportGroup,
+  buildReportPerformanceRows,
+  selectBestWorstTrades,
   deriveMfeMaeReview,
   shapeEquityCurve,
   deriveDrawdownSummary,
@@ -604,6 +606,99 @@ describe("deriveMfeMaeReview", () => {
     expect(r.avgMfe).toBeNull();
     expect(r.avgMfeSampleCount).toBe(0);
     expect(r.giveBackCandidates).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7b. Performance tables (setup / exit-reason / index) + best/worst
+// ---------------------------------------------------------------------------
+
+describe("buildReportPerformanceRows", () => {
+  it("aggregates setup-wise with avg R, ordered by realised P&L desc", () => {
+    const rows = deepFreeze([
+      row({ id: "1", setupKey: "VWAP_RECLAIM", realizedPnl: 100, rMultiple: 1 }),
+      row({ id: "2", setupKey: "VWAP_RECLAIM", realizedPnl: -40, rMultiple: -0.5 }),
+      row({ id: "3", setupKey: "EMA_PULLBACK", realizedPnl: 500, rMultiple: 2 }),
+    ]);
+    const out = buildReportPerformanceRows(rows, "setup");
+    expect(out.map((r) => r.key)).toEqual(["EMA_PULLBACK", "VWAP_RECLAIM"]);
+    const vwap = out.find((r) => r.key === "VWAP_RECLAIM")!;
+    expect(vwap.aggregate.tradeCount).toBe(2);
+    expect(vwap.aggregate.realizedPnl).toBe(60);
+    expect(vwap.aggregate.bestTrade).toBe(100);
+    expect(vwap.aggregate.worstTrade).toBe(-40);
+    expect(vwap.aggregate.winRatePct).toBe(50);
+    expect(vwap.avgRMultiple).toBeCloseTo(0.25);
+  });
+
+  it("aggregates exit-reason-wise", () => {
+    const rows = [
+      row({ id: "1", exitReason: "STOPPED", realizedPnl: -100 }),
+      row({ id: "2", exitReason: "TARGET1_HIT", realizedPnl: 300 }),
+      row({ id: "3", exitReason: "STOPPED", realizedPnl: -50 }),
+    ];
+    const out = buildReportPerformanceRows(rows, "exitReason");
+    expect(out.map((r) => r.key)).toEqual(["TARGET1_HIT", "STOPPED"]);
+    const stopped = out.find((r) => r.key === "STOPPED")!;
+    expect(stopped.aggregate.tradeCount).toBe(2);
+    expect(stopped.aggregate.realizedPnl).toBe(-150);
+  });
+
+  it("aggregates index/symbol only when the field exists", () => {
+    const rows = [
+      row({ id: "1", index: "NIFTY", realizedPnl: 200 }),
+      row({ id: "2", index: "BANKNIFTY", realizedPnl: 100 }),
+      row({ id: "3", index: "NIFTY", realizedPnl: -50 }),
+    ];
+    const out = buildReportPerformanceRows(rows, "index");
+    expect(out.map((r) => r.key)).toEqual(["NIFTY", "BANKNIFTY"]);
+    expect(out.find((r) => r.key === "NIFTY")!.aggregate.realizedPnl).toBe(150);
+  });
+
+  it("does not fabricate grouping when index/symbol field is missing", () => {
+    const rows = [
+      row({ id: "1", setupKey: "X", realizedPnl: 10 }),
+      row({ id: "2", setupKey: "Y", realizedPnl: 20 }),
+    ];
+    expect(buildReportPerformanceRows(rows, "index")).toEqual([]);
+  });
+
+  it("handles malformed P&L safely and never mutates input", () => {
+    const rows = deepFreeze([
+      row({ id: "1", setupKey: "A", realizedPnl: "oops" as unknown as number }),
+      row({ id: "2", setupKey: "A", realizedPnl: 100 }),
+    ]);
+    const out = buildReportPerformanceRows(rows, "setup");
+    const a = out.find((r) => r.key === "A")!;
+    expect(a.aggregate.tradeCount).toBe(2);
+    expect(a.aggregate.realizedPnl).toBe(100); // malformed excluded from P&L
+  });
+});
+
+describe("selectBestWorstTrades", () => {
+  it("selects best and worst by realised P&L, excluding malformed rows", () => {
+    const rows = deepFreeze([
+      row({ id: "a", realizedPnl: 100 }),
+      row({ id: "b", realizedPnl: -200 }),
+      row({ id: "c", realizedPnl: 50 }),
+      row({ id: "d", realizedPnl: "x" as unknown as number }),
+    ]);
+    const { best, worst } = selectBestWorstTrades(rows, 2);
+    expect(best.map((r) => r.id)).toEqual(["a", "c"]);
+    expect(worst.map((r) => r.id)).toEqual(["b", "c"]);
+  });
+
+  it("returns empty lists when no rows have valid P&L", () => {
+    const rows = [row({ id: "a" }), row({ id: "b", realizedPnl: null })];
+    expect(selectBestWorstTrades(rows, 5)).toEqual({ best: [], worst: [] });
+  });
+
+  it("does not mutate the input array", () => {
+    const rows = deepFreeze([
+      row({ id: "a", realizedPnl: 1 }),
+      row({ id: "b", realizedPnl: 2 }),
+    ]);
+    expect(() => selectBestWorstTrades(rows, 5)).not.toThrow();
   });
 });
 

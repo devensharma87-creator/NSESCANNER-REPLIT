@@ -898,6 +898,66 @@ export function aggregateReportGroup(
   };
 }
 
+export interface ReportPerformanceRow {
+  key: string;
+  aggregate: ReportGroupAggregate;
+  /** Average R multiple over rows carrying a valid rMultiple; null otherwise. */
+  avgRMultiple: number | null;
+}
+
+/**
+ * Build a per-group performance table from normalized rows. Pure orchestration
+ * over `groupReportRows` + `aggregateReportGroup` — no aggregation logic is
+ * duplicated. Adds an average R multiple via `avgNums`. Rows missing the
+ * grouping field are skipped by `groupReportRows` (never bucketed under a
+ * fabricated key); when no row supplies the dimension the result is empty.
+ * Ordered by realised P&L descending, with null-P&L groups last. Never mutates
+ * the input.
+ */
+export function buildReportPerformanceRows(
+  rows: readonly NormalizedReportRow[],
+  groupBy: ReportGroupBy,
+): ReportPerformanceRow[] {
+  const out = groupReportRows(rows, groupBy).map((g) => ({
+    key: g.key,
+    aggregate: aggregateReportGroup(g.rows),
+    avgRMultiple: avgNums(g.rows.map((r) => r.rMultiple)),
+  }));
+  out.sort((a, b) => {
+    const ap = a.aggregate.realizedPnl;
+    const bp = b.aggregate.realizedPnl;
+    if (ap == null && bp == null) return 0;
+    if (ap == null) return 1;
+    if (bp == null) return -1;
+    return bp - ap;
+  });
+  return out;
+}
+
+export interface BestWorstTrades {
+  best: NormalizedReportRow[];
+  worst: NormalizedReportRow[];
+}
+
+/**
+ * Select the best and worst trades by realised P&L. Only rows with a valid
+ * `realizedPnl` are eligible (malformed/absent P&L rows are excluded, never
+ * fabricated into the lists). Ordering reuses `sortReportRows("pnl")`. Never
+ * mutates the input.
+ */
+export function selectBestWorstTrades(
+  rows: readonly NormalizedReportRow[],
+  limit = 5,
+): BestWorstTrades {
+  const n = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 0;
+  const eligible = rows.filter((r) => toNum(r.realizedPnl) != null);
+  if (n === 0 || eligible.length === 0) return { best: [], worst: [] };
+  return {
+    best: sortReportRows(eligible, "pnl", "desc").slice(0, n),
+    worst: sortReportRows(eligible, "pnl", "asc").slice(0, n),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 7. MFE/MAE review (shadow-exits ONLY)
 // ---------------------------------------------------------------------------
