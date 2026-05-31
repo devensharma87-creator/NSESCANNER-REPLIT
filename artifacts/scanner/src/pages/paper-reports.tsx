@@ -37,8 +37,12 @@ import { ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReportsSafetyBanner } from "@/components/reports/ReportsSafetyBanner";
 import { ReportsOverviewCards } from "@/components/reports/ReportsOverviewCards";
+import { ReportsEquityCurve } from "@/components/reports/ReportsEquityCurve";
+import { ReportsDrawdownCards } from "@/components/reports/ReportsDrawdownCards";
 import {
   summarizeReportsOverview,
+  shapeEquityCurve,
+  deriveDrawdownSummary,
   type FoAnalyticsLike,
   type ShadowExitReportLike,
   type AccountLike,
@@ -357,6 +361,22 @@ function OverviewSection() {
 
   const generatedAt = foReportQ.data?.generatedAt ?? eqReportQ.data?.generatedAt ?? null;
 
+  // Equity-curve + drawdown viz derive purely from F&O analytics.
+  const foLoading = foAnalyticsQ.isLoading;
+  const foError = foAnalyticsQ.isError
+    ? (foAnalyticsQ.error instanceof Error
+        ? foAnalyticsQ.error.message
+        : "Unable to load F&O analytics")
+    : null;
+  const equityPoints = useMemo(
+    () => shapeEquityCurve(foAnalyticsQ.data ?? null),
+    [foAnalyticsQ.data],
+  );
+  const drawdownSummary = useMemo(
+    () => deriveDrawdownSummary(foAnalyticsQ.data ?? null),
+    [foAnalyticsQ.data],
+  );
+
   return (
     <div className="space-y-5">
       <ReportsSafetyBanner
@@ -371,6 +391,34 @@ function OverviewSection() {
         loading={loading}
         error={errorMessage}
       />
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-200">
+            Equity curve &amp; drawdown
+          </h2>
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            F&amp;O paper analytics
+          </span>
+        </div>
+        <p className="text-xs text-sky-200/80">
+          Paper trading analytics only — historical review, not live trading.
+        </p>
+        <ReportsEquityCurve
+          points={equityPoints}
+          loading={foLoading}
+          error={foError}
+        />
+        <ReportsDrawdownCards
+          summary={drawdownSummary}
+          loading={foLoading}
+          error={foError}
+        />
+        <p className="text-[10px] text-slate-500">
+          This visualization does not change strategy, exits, stops, targets, or
+          paper-trade execution.
+        </p>
+      </div>
     </div>
   );
 }

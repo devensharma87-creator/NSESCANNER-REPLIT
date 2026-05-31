@@ -1,0 +1,321 @@
+W4-P2 Reports Overview UI Implementation is accepted.
+
+Accepted final state:
+
+* Overview tab added to `/paper-reports`.
+* Reports safety banner added.
+* Overview summary cards added.
+* F&O vs Equity comparison added.
+* Existing Intraday / Equity / F&O / Journal tabs preserved.
+* Combined P&L and combined trade count use strict-null handling.
+* Missing segment data is not treated as zero.
+* Avg MAE correctly shows unavailable because payload does not expose it.
+* MFE is sourced only from `shadow-exits.avgMfe`.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No route/auth changes.
+* No OpenAPI/codegen changes.
+* No trading/scoring/P25/MFE-MAE logic changes.
+* No `replit.md`, memory, or docs changes.
+* Architect issue was valid and fixed.
+* 314/314 scanner tests passed.
+* Scanner typecheck clean.
+* Full repo typecheck clean.
+* Visual smoke shows owner login wall, which is acceptable.
+
+Current verdict:
+
+```text id="xqfn3p"
+W4-P2 = accepted
+Reports overview tab/banner/cards = implemented
+Trading/scoring/backend behavior = unchanged
+```
+
+Now proceed with **W4-P3 only**.
+
+# W4-P3: Reports Equity Curve + Drawdown Visualization
+
+Purpose:
+
+Add safe frontend-only equity curve and drawdown visualization to `/paper-reports`.
+
+This is read-only display work only.
+
+Do not change trading logic.
+
+Do not change backend.
+
+Do not change schema.
+
+Do not change routes/auth.
+
+Do not change paper-trade execution.
+
+---
+
+## Approved scope
+
+Add report visual sections using existing F&O analytics data only:
+
+1. Equity curve display.
+2. Drawdown summary cards.
+3. Safe empty/loading/error states.
+4. Clear paper-trading analytics label.
+
+Do **not** build MFE/MAE review yet.
+
+Do **not** build journal editor yet.
+
+Do **not** build CSV export yet.
+
+Do **not** change backend endpoints.
+
+---
+
+## Existing helper to use
+
+Use accepted helper:
+
+```text id="zotdwe"
+artifacts/scanner/src/lib/reportsView.ts
+```
+
+Use helpers:
+
+```text id="n1k71k"
+shapeEquityCurve
+deriveDrawdownSummary
+deriveReportsEmptyState
+toNum
+safePct
+```
+
+Do not duplicate logic if helper already exists.
+
+---
+
+## Existing data source
+
+Use existing endpoint:
+
+```text id="jo4ega"
+/api/paper/analytics/fo
+```
+
+Use only fields already available from that payload:
+
+```text id="z1ilfu"
+equityCurve
+maxDrawdown
+currentDrawdown
+peakEquity
+```
+
+Do not add backend endpoints.
+
+Do not change endpoint payloads.
+
+Do not modify OpenAPI.
+
+Do not run codegen.
+
+---
+
+# UI requirements
+
+## 1. Equity curve section
+
+Add a clean chart/card section in the Reports Overview area or F&O analytics area.
+
+Show:
+
+* equity curve line/list if charting is already available,
+* date,
+* equity value,
+* realised P&L if available,
+* drawdown if available.
+
+If chart library is already used in the frontend, use it.
+
+If not, use a simple responsive table/list/sparkline-like visual without adding heavy dependency.
+
+Do not add new package dependency.
+
+No crash if `equityCurve` is empty or malformed.
+
+## 2. Drawdown summary
+
+Show cards for:
+
+* max drawdown,
+* current drawdown,
+* peak equity,
+* max drawdown percentage if derivable,
+* drawdown status.
+
+Use existing helper output.
+
+If unavailable, show `—`.
+
+## 3. Safety label
+
+Add clear text:
+
+```text id="ov2s82"
+Paper trading analytics only — historical review, not live trading.
+```
+
+and:
+
+```text id="yy5l9y"
+This visualization does not change strategy, exits, stops, targets, or paper-trade execution.
+```
+
+## 4. Empty/loading/error states
+
+Handle:
+
+* loading analytics,
+* analytics endpoint error,
+* empty equity curve,
+* malformed dates,
+* missing drawdown values,
+* no F&O analytics yet.
+
+No blank panel.
+
+No runtime crash.
+
+No stack trace.
+
+---
+
+## Files allowed to change
+
+Prefer only:
+
+```text id="9xvpsy"
+artifacts/scanner/src/pages/paper-reports.tsx
+artifacts/scanner/src/components/reports/ReportsEquityCurve.tsx
+artifacts/scanner/src/components/reports/ReportsDrawdownCards.tsx
+artifacts/scanner/src/lib/reportsView.ts
+artifacts/scanner/src/lib/reportsView.test.ts
+```
+
+Only modify `reportsView.ts` if a small pure helper is needed.
+
+Do not touch backend.
+
+Do not touch trading/scoring files.
+
+---
+
+## Tests required
+
+Add or update pure helper tests only if helper logic changes.
+
+At minimum verify existing helpers cover:
+
+1. Equity curve shaping.
+2. Malformed date dropping.
+3. Empty curve handling.
+4. Drawdown summary.
+5. Missing peak equity does not fabricate percentage.
+6. No input mutation.
+
+If no helper changes are needed, do not add unnecessary tests.
+
+Run:
+
+```text id="v8c7eo"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+---
+
+## Visual/runtime smoke
+
+After implementation, check `/paper-reports`.
+
+If authenticated visual access is blocked by login:
+
+* do not bypass auth,
+* do not request credentials,
+* report visual QA as blocked,
+* rely on tests/typecheck/browser login-wall smoke.
+
+If accessible:
+
+* verify equity curve section renders,
+* verify drawdown cards render,
+* verify Overview tab still works,
+* verify existing Equity/F&O/Journal tabs still render,
+* verify no layout break,
+* verify no console errors.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* F&O signal generation,
+* F&O entries,
+* F&O exits,
+* F&O stops,
+* F&O targets,
+* F&O sizing,
+* F&O gates,
+* paper-trade execution,
+* P25 tracker logic,
+* P25 threshold,
+* MFE/MAE calculation,
+* equity scoring,
+* swing scoring,
+* backend endpoints,
+* DB schema,
+* scheduler,
+* route/auth,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+Do not modify:
+
+```text id="s07wm6"
+artifacts/api-server/**
+lib/**
+lib-api-spec/**
+lib/api-spec/**
+scheduler files
+auth middleware
+trading/scoring files
+paper trading execution files
+paper report execution files
+```
+
+If a backend change appears necessary, stop and ask first.
+
+---
+
+# Output required
+
+Produce a **W4-P3 Reports Equity Curve + Drawdown Implementation Report** with:
+
+A. Files changed
+B. Components added/updated
+C. Equity curve behavior
+D. Drawdown card behavior
+E. Data source used
+F. Empty/loading/error states
+G. Tests added/updated
+H. Test/typecheck results
+I. Visual smoke result
+J. Confirmation W4-P2 Overview still works
+K. Confirmation no backend/scoring/trading/schema/scheduler/auth behavior changed
+L. Limitations/follow-up for W4-P4
+
+After W4-P3, stop and wait for approval.
