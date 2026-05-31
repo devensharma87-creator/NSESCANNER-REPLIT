@@ -1,0 +1,138 @@
+W2A Stocks-to-Watch Pro Scanner Upgrade is accepted.
+
+Good work.
+
+Accepted final state:
+
+* Frontend-only implementation.
+* No backend changes.
+* No DB/schema changes.
+* No scheduler changes.
+* No route/auth changes.
+* No OpenAPI/codegen changes.
+* No scoring changes.
+* No swing recommendation/action-generation changes.
+* No entry/stop/target/RR logic changes.
+* No trigger-latch/intraday-refresh changes.
+* No paper-equity changes.
+* No F&O changes.
+* No `replit.md` or memory/docs changes.
+* Summary cards added.
+* Filters/sorting/grouping added.
+* Display-only action mapping added.
+* Risk badges added from existing `warnings[]` and safe derived fields.
+* “Why this stock?” explanation panel added.
+* Public vs owner-only boundary respected.
+* 113/113 scanner tests passed.
+* Scanner typecheck clean.
+* Full workspace typecheck clean.
+* Architect review passed.
+
+Current verdict:
+
+```text id="scaplu"
+W2A = accepted
+Stocks-to-Watch UI upgraded
+Live trading/scoring = unchanged
+```
+
+Now proceed with the next safe step:
+
+# W2B: Stocks-to-Watch Visual QA + Minor UI Polish Pass
+
+Purpose:
+
+Verify the W2A UI from a browser/runtime perspective and make only small frontend polish fixes if needed.
+
+This is frontend-only.
+
+Do not change backend.
+
+Do not change scoring.
+
+Do not change trading behavior.
+
+Do not add routes.
+
+Do not add schema.
+
+Do not touch `replit.md`.
+
+## Part 1 — Visual/runtime smoke
+
+Check `/stocks-to-watch`.
+
+If authenticated visual access is available:
+
+* verify summary cards render correctly,
+* verify filters render correctly,
+* verify sorting works,
+* verify grouping works,
+* verify “Why this stock?” expand panel works,
+* verify mobile/responsive layout,
+* verify no public owner-only diagnostic data is shown,
+* verify no console/runtime errors.
+
+If authenticated visual access is unavailable:
+
+* do not bypass auth,
+* do not request secrets,
+* do not create test credentials,
+* report visual QA as blocked by auth,
+* rely on tests/typecheck/browser login-wall smoke only.
+
+## Part 2 — Allowed polish fixes
+
+Only make small frontend UI polish fixes if clearly needed.
+
+Allowed:
+
+* spacing,
+* label clarity,
+* badge color consistency,
+* table/card readability,
+* mobile layout spacing,
+* empty-state wording,
+* minor sorting/filter UI text,
+* avoiding overflow,
+* avoiding unreadable dense text.
+
+Not allowed:
+
+* new backend endpoints,
+* scoring logic,
+* action generation,
+* entry/stop/target/RR changes,
+* trigger logic,
+* paper trading changes,
+* F&O logic,
+* schema changes,
+* route/auth changes,
+* OpenAPI/codegen.
+
+## Part 3 — Regression checks
+
+Run:
+
+```text id="efcxs3"
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/scanner run typecheck
+pnpm run typecheck
+```
+
+## Output required
+
+Produce a **W2B Visual QA + UI Polish Report** with:
+
+A. Authenticated visual access available or not
+B. `/stocks-to-watch` smoke result
+C. Summary cards visual check
+D. Filters/sorting/grouping visual check
+E. “Why this stock?” panel visual check
+F. Mobile/responsive check
+G. Console/runtime errors, if any
+H. Polish changes made, if any
+I. Tests/typecheck results
+J. Confirmation no backend/scoring/trading/schema/auth behavior changed
+
+After W2B, stop and wait for approval.
