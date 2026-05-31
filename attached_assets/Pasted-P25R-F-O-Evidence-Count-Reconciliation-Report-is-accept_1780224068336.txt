@@ -1,0 +1,138 @@
+P25R F&O Evidence Count Reconciliation Report is accepted.
+
+Good work.
+
+Owner approval is granted to revise the accepted P25 tracking baseline from:
+
+```text id="toxrh8"
+3/20
+```
+
+to:
+
+```text id="l1qfpn"
+5/20
+```
+
+Accepted findings:
+
+* Official tracker is `computeShadowExitReport()` in `fnoShadowExits.ts`.
+* Official evidence counter is `mfeAvailableCount`.
+* Official MFE-available predicate is:
+
+```text id="lhgivd"
+NOT (max_runup = 0 AND max_drawdown = 0)
+```
+
+* Raw lifetime count of 14 is not the official count.
+* 9 of the raw 14 are pre-P20/P22 placeholder rows with `max_runup = 0` and `max_drawdown = 0`.
+* Those 9 rows are correctly excluded.
+* Current official eligible trades = 5.
+* The previous 3/20 baseline was correct before the 2026-05-26 trades, but is now stale.
+* The two 2026-05-26 trades are valid official evidence and should count.
+* Friday 2026-05-29 added zero new evidence.
+* P25 gate remains open.
+* Threshold remains 20.
+* No F&O exit change is approved.
+
+Updated accepted P25 state:
+
+```text id="iytc3k"
+Official P25 count: 5/20
+Remaining to threshold: 15
+Gate status: OPEN
+```
+
+This is a tracking/baseline correction only.
+
+Do not change code.
+
+Do not change DB.
+
+Do not change schema.
+
+Do not change tracker logic.
+
+Do not change threshold.
+
+Do not backfill trades.
+
+Do not modify `paper_trade_fo`.
+
+Do not modify `max_runup` or `max_drawdown`.
+
+Do not implement any exit-rule change.
+
+Do not implement partial booking.
+
+Do not implement breakeven trail.
+
+Do not change stop/target logic.
+
+Do not change F&O signal logic.
+
+Do not change swing logic.
+
+## Future P25 reporting rule
+
+Going forward, all P25 evidence reports must use this official baseline:
+
+```text id="uudllw"
+Starting accepted count = 5/20
+Remaining = 15
+```
+
+Future additions should only count trades that satisfy the official tracker logic:
+
+```text id="xftztp"
+status = CLOSED
+exit_premium IS NOT NULL
+entry_premium > 0
+qty > 0
+NOT (max_runup = 0 AND max_drawdown = 0)
+```
+
+Do not use raw `IS NOT NULL` MFE/MAE count as the gate count.
+
+## Current open items
+
+Still pending:
+
+1. Next active trading day after 16:30 IST:
+
+```text id="gcgp84"
+Run F&O P25 EOD Evidence Check using official 5/20 baseline
+```
+
+2. Owner session available:
+
+```text id="cogk2n"
+Run H10d owner payload verification
+```
+
+3. Next completed post-15:35 IST deep scan:
+
+```text id="5fkc0n"
+Run S3b RS benchmark verification for that scan if needed
+```
+
+## Explicitly not approved
+
+* No F&O exit change.
+* No partial booking.
+* No breakeven trail.
+* No stop change.
+* No target change.
+* No sizing change.
+* No gate/confluence change.
+* No P25 threshold reduction.
+* No live swing scoring change.
+* No B1/B3 live activation.
+* No sector scoring.
+* No delivery scoring.
+* No schema change.
+* No route/auth change.
+* No `replit.md` edit.
+* No memory/docs edit.
+
+Stop here and wait for the next trigger.
