@@ -1,0 +1,143 @@
+W6-P4A Post-Publish Smoke is accepted.
+
+Final verdict:
+
+```text id="a0dcok"
+W6-P4A = COMPLETE & CLOSED
+Boot staggering = live in production
+Cold-boot DB timeout errors = gone/reduced in observed post-boot window
+Health/auth = intact
+Rollback = not needed
+```
+
+Accepted production findings:
+
+* Published build is live.
+* Health check passed.
+* Owner-only routes still return `401 AUTH_REQUIRED`.
+* `preset-scheduler` starts after delay `25000`.
+* `inst-flows-refresher` starts after delay `60000`.
+* Server was already serving requests before delayed jobs ran.
+* No `Connection terminated due to connection timeout` in the observed post-boot window.
+* No `DrizzleQueryError`.
+* No `ZodError`.
+* No `TIME_EXIT_1520` enum error.
+* No paper-route 500.
+* No crash/restart loop.
+* Remaining warnings are external-feed only.
+* No trading/scoring/paper-execution/schema/auth behavior changed.
+
+Now proceed with **W6-P4B planning only**.
+
+# W6-P4B: Remaining Boot Job Hardening Plan — Planning Only
+
+Purpose:
+
+Review whether any remaining production-active boot jobs should also be staggered or observed.
+
+This is **planning only**.
+
+Do not implement anything.
+
+Do not change code.
+
+Do not deploy.
+
+---
+
+## Background
+
+W6-P4A successfully staggered:
+
+```text id="c5r3ye"
+global-data-pump       → 15000ms
+preset-scheduler       → 25000ms
+inst-flows-refresher   → 60000ms
+```
+
+W6-P4A report noted that some other boot subsystems still start near `T≈0`, including:
+
+```text id="gludvr"
+bootstrapKite
+startSwingScanScheduler
+startOptionSnapshotIngestor
+startCandleWarehouse
+```
+
+These were intentionally left untouched because they were outside W6-P4A scope.
+
+---
+
+# Required investigation
+
+For each remaining boot subsystem, report:
+
+1. Where it starts.
+2. Whether it is enabled in production.
+3. Whether it touches DB at boot.
+4. Whether it calls external APIs at boot.
+5. Whether it can create cold-start pool contention.
+6. Whether it is fail-open.
+7. Whether it should be staggered later.
+8. Recommended delay if staggered.
+9. Risk level.
+10. Test requirement.
+
+---
+
+# Planning output
+
+Prepare a phased plan, for example:
+
+```text id="e4qud8"
+W6-P4B1: read-only boot job inventory
+W6-P4B2: stagger bootstrapKite if needed
+W6-P4B3: stagger swing scanner if production-active
+W6-P4B4: stagger snapshot/candle ingestors only if enabled
+W6-P4B5: add one-time post-boot observability log
+```
+
+Do not implement.
+
+---
+
+# Strictly not allowed
+
+Do not change:
+
+* trading logic,
+* scoring logic,
+* signal generation,
+* paper execution,
+* F&O entries/exits,
+* force-exit timing,
+* DB pool,
+* DB schema,
+* scheduler cadence,
+* auth,
+* env/secrets,
+* OpenAPI/codegen,
+* `replit.md`,
+* memory/docs.
+
+---
+
+# Output required
+
+Produce **W6-P4B Remaining Boot Job Hardening Plan** with:
+
+A. Executive summary
+B. Remaining boot jobs inventory
+C. Production-enabled status
+D. DB/external-feed risk assessment
+E. Recommended stagger plan, if needed
+F. Risk/benefit table
+G. Tests needed before implementation
+H. Production validation checklist
+I. Rollback plan
+J. Items explicitly out of scope
+K. Recommended next implementation phase
+
+Stop after the plan.
+
+Do not implement anything in W6-P4B.
