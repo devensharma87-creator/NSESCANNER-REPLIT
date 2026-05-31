@@ -1,0 +1,217 @@
+W6-P4A Boot Staggering Implementation is accepted.
+
+Accepted final state:
+
+* `scheduleBootJob` helper added.
+* Boot jobs now staggered:
+
+  * `global-data-pump` → 15s
+  * `preset-scheduler` → 25s
+  * `inst-flows-refresher` → 60s
+* API server starts immediately.
+* Background job failures remain fail-open.
+* Periodic cadence unchanged.
+* Preset scheduler interval unchanged.
+* InstFlows 15-min interval unchanged.
+* Participant OI lookback window unchanged.
+* DB pool unchanged.
+* No trading/scoring/paper-execution change.
+* No schema/auth/env/secret change.
+* No OpenAPI/codegen change.
+* No `replit.md`, memory, or docs change.
+* API-server tests passed: 669/669.
+* Scanner tests passed: 337/337.
+* Full typecheck clean.
+* Scanner build passed.
+* API boot logs confirm staggered schedule.
+* Architect review passed.
+
+Current verdict:
+
+```text id="tfe8e8"
+W6-P4A code = accepted
+Production deployment = pending owner approval/smoke
+Do not start W6-P4B yet
+```
+
+Proceed with **W6-P4A-Deploy only** after owner approval.
+
+# W6-P4A-Deploy: Deploy Boot Staggering Patch + Production Smoke
+
+Purpose:
+
+Deploy the accepted W6-P4A boot staggering patch and verify production cold-start behavior.
+
+This is deployment + smoke only.
+
+No new feature.
+
+No new code change unless a real production issue appears.
+
+---
+
+## Pre-deploy checks
+
+Before deploying:
+
+1. Confirm latest code is committed.
+2. Confirm working tree has no uncommitted code changes except harmless `attached_assets` paste artifacts.
+3. Confirm no `.env` or secrets are committed.
+4. Confirm no DB schema migration is needed.
+5. Confirm no DNS/domain change is needed.
+6. Confirm paper trading remains paper-only.
+7. Confirm no real-money execution path is enabled.
+
+---
+
+## Deployment target
+
+```text id="2qvap9"
+Replit production
+```
+
+Do not change GoDaddy/DNS/domain.
+
+Do not change env/secrets.
+
+---
+
+## Deploy only this patch
+
+Deploy only the accepted W6-P4A patch.
+
+Do not include W6-P4B or any new change.
+
+Do not modify:
+
+```text id="6ajdpe"
+DB pool
+scheduler cadence
+participant OI window
+trading logic
+paper execution
+auth
+schema
+OpenAPI/codegen
+replit.md
+memory/docs
+```
+
+---
+
+# Production smoke after deploy
+
+After deploy, verify:
+
+## 1. API boot
+
+Production logs should show:
+
+```text id="870r9t"
+boot job scheduled (staggered) job:"global-data-pump" delayMs:15000
+boot job scheduled (staggered) job:"preset-scheduler" delayMs:25000
+boot job scheduled (staggered) job:"inst-flows-refresher" delayMs:60000
+Server listening port:8080
+```
+
+Confirm server listens before delayed background jobs run.
+
+## 2. Health/auth
+
+Verify:
+
+```text id="4wp0so"
+/api/healthz returns healthy
+owner-only routes return 401 AUTH_REQUIRED when unauthenticated
+```
+
+Examples:
+
+```text id="4qsrhl"
+/api/paper/positions/fo
+/api/paper/reports/fo/monthly
+```
+
+Do not bypass auth.
+
+## 3. Error-log reduction check
+
+Check production logs for the first 2–5 minutes after boot:
+
+Confirm:
+
+* no immediate boot pile-up,
+* no repeated DB connection timeout during the first minute,
+* no crash/restart loop,
+* no `ZodError`,
+* no `TIME_EXIT_1520` enum error,
+* no paper-route 500.
+
+If some Yahoo/Kite timeouts remain, classify them honestly as external-feed warnings.
+
+## 4. Page smoke
+
+Where accessible:
+
+```text id="ca5ka5"
+/paper-reports
+/paper-trading
+/stocks-to-watch
+/infra-health
+```
+
+If authenticated visual QA is blocked by owner login wall, report that honestly.
+
+Do not bypass auth.
+
+---
+
+# Commands/checks
+
+If possible, rerun or confirm:
+
+```text id="b1plmr"
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+pnpm run typecheck
+pnpm --filter @workspace/scanner run build
+```
+
+If these were already run immediately before deploy and no code changed after, state that clearly.
+
+---
+
+# If issue found
+
+If a production issue appears:
+
+1. Stop.
+2. Report exact log/error.
+3. Do not make broad fixes.
+4. Recommend either:
+
+   * rollback W6-P4A commit, or
+   * minimal frontend/backend fix only if directly related.
+
+---
+
+# Output required
+
+Produce **W6-P4A Deployment / Production Smoke Report** with:
+
+A. Deployment commit
+B. Deployment target
+C. Pre-deploy checks
+D. Production boot log result
+E. Health/auth result
+F. Background job stagger verification
+G. DB timeout/log result
+H. Paper route result
+I. Page smoke result
+J. Console/log result
+K. Any bugs found
+L. Rollback needed? yes/no
+M. Confirmation no trading/scoring/paper-exec/schema/auth behavior changed
+N. Recommended next phase
+
+Stop after the report.
