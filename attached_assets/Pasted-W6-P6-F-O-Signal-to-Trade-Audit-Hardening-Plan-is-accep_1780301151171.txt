@@ -1,0 +1,73 @@
+W6-P6 F&O Signal-to-Trade Audit Hardening Plan is accepted and closed as a planning report.
+
+Final status:
+
+```text id="81fiub"
+W6-P6 planning = COMPLETE & CLOSED
+Implementation = not approved yet
+No code changes required now
+```
+
+Accepted final conclusions:
+
+* `HC_EMISSION_FLOOR = 65`, not 70.
+* There is no 70 vs 65 silent confidence gap.
+* Fail-open / fail-closed asymmetry is real and must be handled carefully.
+* Correct MTM diagnostic route is `/paper/diagnostics/fo/mtm-sweep`.
+* `fno_signal_reasoning.decision` and `reason_code` are free-text.
+* Signal → Trade Loss Ledger can be built without schema change.
+* `INFRA_MISSED_OPEN` can be recorded without new DB table/schema.
+* P25 evidence must separate:
+
+  * clean opened trades,
+  * infra-missed trades,
+  * paper-gate-blocked trades,
+  * strategy-filtered trades,
+  * manual trades,
+  * dirty/invalid evidence.
+* BASELINE detector vs BASELINE tier confusion should be solved by display/logging clarity, not enum changes.
+* MTM freshness needs visibility because `last_premium` affects force-exit settlement and baseline guardrails.
+* `TIME_EXIT_1520` protection checklist is accepted.
+
+Implementation sequence accepted:
+
+```text id="c4dsie"
+First: W6-P5 DB reliability
+Then: W6-P6 Phase 1b
+Then: W6-P6 Phase 2
+Then: W6-P6 Phase 3
+Only later: Phase 4 / Phase 5 with explicit owner approval
+```
+
+Approved later only after W6-P5 Phase 1 ships:
+
+```text id="pshw5e"
+W6-P6 Phase 1b = Signal → Trade Loss Ledger + INFRA_MISSED_OPEN
+W6-P6 Phase 2 = P25 evidence-quality buckets
+W6-P6 Phase 3 = F&O cockpit explainability
+```
+
+Not approved:
+
+```text id="cij9lo"
+Phase 4 fail-open/fail-closed behaviour changes
+Phase 5 strategy tuning
+Any confidence threshold change
+Any signal/scoring change
+Any entry/exit/sizing/stop/target change
+Any P25 calculation change
+```
+
+Current instruction:
+
+```text id="7ckxlh"
+Do not implement W6-P6 yet.
+No code changes.
+No env/secret/DNS changes.
+No DB schema changes.
+No scheduler changes.
+No trading/scoring/paper-execution changes.
+No replit.md/memory/docs changes.
+```
+
+W6-P6 is now closed as a planning artifact. Hold until W6-P5 DB reliability is completed and the owner gives explicit approval for W6-P6 Phase 1b.
