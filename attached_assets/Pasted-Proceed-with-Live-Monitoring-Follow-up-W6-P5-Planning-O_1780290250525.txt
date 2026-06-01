@@ -1,0 +1,242 @@
+Proceed with Live Monitoring Follow-up + W6-P5 Planning Only.
+
+This is observation and planning only.
+
+No implementation.
+
+No code change.
+
+No DB pool change.
+
+No scheduler change.
+
+No strategy/scoring change.
+
+No paper-execution change.
+
+No env/secret/DNS change.
+
+No replit.md, memory, or docs change.
+
+⸻
+
+Part A: Continue Live Market Observation Until After 15:20 IST
+
+Continue monitoring production during today’s live session and especially after the 15:20 IST force-exit window.
+
+Required checks after 15:20 IST
+
+Check:
+
+1. Whether any F&O paper trade opened today.
+2. Whether any F&O paper trade closed today.
+3. Whether any exit reason is:
+
+TIME_EXIT_1520
+
+4. If present, confirm UI displays it as:
+
+TIME EXIT 1520
+
+5. Confirm no:
+
+ZodError
+TIME_EXIT_1520 enum error
+internal_server_error
+paper-route 500
+
+6. Confirm /paper-reports still loads.
+7. Confirm /paper-trading still loads.
+8. Confirm F&O cockpit is not broken.
+9. Confirm P25 evidence status if accessible.
+10. Confirm no manual intervention or forced trade was done.
+
+Output for Part A
+
+Produce Post-15:20 Live Market Observation Follow-up with:
+
+A. Time observed
+B. Any F&O opens
+C. Any F&O closes
+D. TIME_EXIT_1520 result
+E. P25 evidence update if available
+F. /paper-reports result
+G. /paper-trading result
+H. Errors/warnings
+I. Whether any code fix is needed
+
+⸻
+
+Part B: W6-P5 Production DB Timeout Resilience Plan — Planning Only
+
+Purpose:
+
+The live observation showed repeated DB connection-timeout errors during market hours.
+
+These are not currently causing user-facing 500s, but they are recurring and now touch multiple areas:
+
+global_live_prices
+global_instrument_overrides
+Participant OI backfill
+loadSetupWinRates / LOW_WINRATE gate
+
+This task is planning only.
+
+Do not implement fixes.
+
+⸻
+
+Current live observation to classify
+
+Observed during live session:
+
+Connection terminated due to connection timeout
+DrizzleQueryError
+Participant OI initial backfill failed
+loadSetupWinRates: query failed
+Kite ticker disconnect/reconnect
+Yahoo chart timeout
+scanAll hard-timeout
+
+Important current status:
+
+* No user-facing 500 found.
+* Health endpoint OK.
+* Owner auth OK.
+* Market data live via Kite.
+* F&O signal pipeline running.
+* No auto F&O open yet.
+* LOW_WINRATE gate sometimes fails open because its DB query times out.
+
+⸻
+
+Required investigation for W6-P5 plan
+
+1. DB timeout classification
+
+For each DB timeout family, report:
+
+path/job
+query/table
+timestamp range
+frequency
+replica/pid if available
+user-facing impact
+fail-open/fail-soft behavior
+whether repeated
+
+Classify separately:
+
+global_live_prices writes
+global_instrument_overrides reads
+Participant OI backfill/upsert
+loadSetupWinRates / paper_trade_fo query
+
+2. External-feed warning classification
+
+Separate these from DB issues:
+
+Kite ticker disconnect/reconnect
+Yahoo chart timeout
+scanAll hard-timeout
+
+Report whether they are:
+
+external-feed warning
+fail-open
+user-facing
+repeated
+needs fix
+
+3. Safety impact of loadSetupWinRates
+
+This is important.
+
+Report:
+
+* what LOW_WINRATE gate does,
+* what happens when loadSetupWinRates fails,
+* whether fail-open is intentional,
+* whether it can allow lower-quality trades,
+* whether a future fix should cache last-known win rates,
+* whether future failure should be fail-open, fail-neutral, or fail-closed,
+* safest recommended behavior for paper-only mode.
+
+Do not change it now.
+
+4. Participant OI retry/backoff options
+
+Plan safe options:
+
+* retry once after short delay,
+* exponential backoff,
+* skip boot retry and wait for next interval,
+* reduce log noise,
+* keep fail-open,
+* defer heavy boot backfill,
+* avoid user-route contention.
+
+Do not implement now.
+
+5. Global live prices / overrides resilience
+
+Plan safe options:
+
+* batching,
+* retry/backoff,
+* reducing boot write pressure,
+* caching last successful reads,
+* isolating background writes,
+* avoiding blocking user routes,
+* not increasing DB pool blindly.
+
+Do not implement now.
+
+⸻
+
+Required output
+
+Produce W6-P5 Production DB Timeout Resilience Plan with:
+
+A. Executive summary
+B. DB timeout classification table
+C. External-feed warning classification
+D. User-facing impact assessment
+E. Safety impact assessment for loadSetupWinRates
+F. Participant OI retry/backoff options
+G. Global live-price / override resilience options
+H. Recommended phased roadmap
+I. Risk/benefit table
+J. Tests needed before implementation
+K. Production validation checklist
+L. Rollback plan
+M. Items explicitly out of scope
+N. Recommended first implementation phase
+
+⸻
+
+Strictly out of scope
+
+Do not change:
+
+trading logic
+signal generation
+F&O entry/exit logic
+force-exit timing
+stop/target/sizing
+P25
+MFE/MAE
+paper-trade execution
+DB schema
+auth
+env/secrets
+DNS
+OpenAPI/codegen
+replit.md
+memory/docs
+
+Do not implement W6-P5.
+
+Do not start any fix without approval.
+
+Stop after the two reports.
