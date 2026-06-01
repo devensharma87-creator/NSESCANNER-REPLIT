@@ -9,6 +9,7 @@ import {
   Sun, Moon, TrendingUp, TrendingDown, Globe2, Activity, AlertCircle, Calendar,
   ArrowUpRight, ArrowDownRight, Gauge, BarChart3, Layers, Target, Building2, Crosshair,
   ClipboardList, Shield, Package, Zap, Eye, Ban, ChevronDown, ChevronUp,
+  LineChart, RefreshCw, WifiOff, Scale, Coins, Repeat, Flame, Briefcase, History,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
@@ -41,15 +42,659 @@ const SENTIMENT_TONE: Record<string, string> = {
   STRONG_BEARISH: "bg-signal-strong-sell/20 text-signal-strong-sell border-signal-strong-sell/40",
 };
 
+// ───────── Phase B helpers (Pro Market Analyser) ─────────
+type CompositeBiasT = NonNullable<PreMarketReport["compositeBias"]>;
+type ParticipantOiT = NonNullable<PreMarketReport["participantOi"]>;
+type IndexOiBuildupT = NonNullable<PreMarketReport["indexOiBuildup"]>;
+type StrikeOiChangeT = NonNullable<PreMarketReport["strikeOiChanges"]>[number];
+type FiveDayFlowT = NonNullable<PreMarketReport["fiveDayFlows"]>;
+type MacroOverlayT = NonNullable<PreMarketReport["macroOverlay"]>;
+type SectorRotationT = NonNullable<PreMarketReport["sectorRotation"]>;
+type TradeSetupsT = NonNullable<PreMarketReport["tradeSetups"]>;
+
+const BIAS_LABEL: Record<string, string> = {
+  STRONGLY_BULLISH: "Strongly Bullish",
+  MILDLY_BULLISH: "Mildly Bullish",
+  NEUTRAL: "Neutral",
+  MILDLY_BEARISH: "Mildly Bearish",
+  STRONGLY_BEARISH: "Strongly Bearish",
+};
+
+const SIG_TONE: Record<string, string> = {
+  BULLISH: "bg-signal-strong-buy/15 text-signal-strong-buy border-signal-strong-buy/30",
+  BEARISH: "bg-signal-strong-sell/15 text-signal-strong-sell border-signal-strong-sell/30",
+  NEUTRAL: "bg-secondary/60 text-muted-foreground border-border/40",
+  INFLOW: "bg-signal-strong-buy/15 text-signal-strong-buy border-signal-strong-buy/30",
+  OUTFLOW: "bg-signal-strong-sell/15 text-signal-strong-sell border-signal-strong-sell/30",
+  ACCUMULATING: "bg-signal-strong-buy/15 text-signal-strong-buy border-signal-strong-buy/30",
+  DISTRIBUTING: "bg-signal-strong-sell/15 text-signal-strong-sell border-signal-strong-sell/30",
+  MIXED: "bg-secondary/60 text-muted-foreground border-border/40",
+  LONG: "bg-signal-strong-buy/15 text-signal-strong-buy border-signal-strong-buy/30",
+  SHORT: "bg-signal-strong-sell/15 text-signal-strong-sell border-signal-strong-sell/30",
+  RANGE: "bg-secondary/60 text-muted-foreground border-border/40",
+};
+function sigTone(k?: string | null) {
+  return SIG_TONE[k ?? "NEUTRAL"] ?? SIG_TONE["NEUTRAL"]!;
+}
+function Pill({ text, k }: { text: string; k?: string | null }) {
+  return (
+    <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${sigTone(k)}`}>
+      {text}
+    </span>
+  );
+}
+
+const OI_CLASS: Record<string, { label: string; tone: string; cellKey: string }> = {
+  LONG_BUILDUP: { label: "Long Buildup", tone: "text-signal-strong-buy", cellKey: "UP_UP" },
+  SHORT_COVERING: { label: "Short Covering", tone: "text-signal-strong-buy", cellKey: "UP_DOWN" },
+  SHORT_BUILDUP: { label: "Short Buildup", tone: "text-signal-strong-sell", cellKey: "DOWN_UP" },
+  LONG_UNWINDING: { label: "Long Unwinding", tone: "text-signal-strong-sell", cellKey: "DOWN_DOWN" },
+  NEUTRAL: { label: "Neutral", tone: "text-muted-foreground", cellKey: "" },
+  DATA_UNAVAILABLE: { label: "No live feed", tone: "text-muted-foreground", cellKey: "" },
+};
+
+function relTime(s?: string | null): string {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return formatDistanceToNow(d, { addSuffix: true });
+}
+function SourceTag({ source, asOf }: { source?: string | null; asOf?: string | null }) {
+  return (
+    <span className="text-[10px] font-mono text-muted-foreground/60 truncate">
+      {source ?? "—"}{asOf ? ` · ${relTime(asOf)}` : ""}
+    </span>
+  );
+}
+function fmtInt(n?: number | null) {
+  if (n == null) return "—";
+  return n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+}
+function fmtSignedInt(n?: number | null) {
+  if (n == null) return "—";
+  return `${n >= 0 ? "+" : ""}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+}
+function fmtCr(n?: number | null) {
+  if (n == null) return "—";
+  return `${n >= 0 ? "+" : ""}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr`;
+}
+
+function SectionShell({
+  icon, title, subtitle, right, children,
+}: {
+  icon?: React.ReactNode; title: string; subtitle?: string; right?: React.ReactNode; children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+          {icon}{title}
+        </h2>
+        {subtitle && <span className="text-[10px] text-muted-foreground/60 font-mono">{subtitle}</span>}
+        {right && <span className="ml-auto">{right}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function NoFeed({ label }: { label?: string }) {
+  return (
+    <Card className="border border-dashed border-border/50 bg-secondary/10">
+      <CardContent className="p-5 text-center">
+        <WifiOff className="w-5 h-5 mx-auto mb-2 text-muted-foreground/50" />
+        <div className="text-xs font-mono text-muted-foreground">No live feed{label ? ` — ${label}` : ""}</div>
+        <div className="text-[10px] text-muted-foreground/60 mt-1">
+          This block populates automatically when its upstream source is available.
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───────── Ticker strip ─────────
+function TickerStrip({ data }: { data: PreMarketReport }) {
+  const items: { label: string; value: number | null | undefined; chg: number | null | undefined }[] = [];
+  for (const ix of data.indexPreviews ?? []) {
+    items.push({ label: ix.name, value: ix.indicativePrice, chg: ix.indicativeChangePercent });
+  }
+  const vix = data.overnightCues?.find(c => c.label === "India VIX");
+  if (vix) items.push({ label: "India VIX", value: vix.value, chg: vix.changePercent });
+  for (const c of (data.overnightCues ?? []).filter(c => c.category === "proxy")) {
+    items.push({ label: c.label, value: c.value, chg: c.changePercent });
+  }
+  if (items.length === 0) return null;
+  return (
+    <div className="flex items-center gap-5 overflow-x-auto rounded-lg border border-border/50 bg-card/60 px-4 py-2 text-xs">
+      {items.map((it, i) => (
+        <div key={i} className="flex items-center gap-2 whitespace-nowrap shrink-0">
+          <span className="font-mono uppercase text-muted-foreground/80">{it.label}</span>
+          <span className="font-mono tabular-nums">{fmt(it.value)}</span>
+          <span className={`font-mono tabular-nums font-bold ${tone(it.chg)}`}>{pct(it.chg)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ───────── 1 · Composite Bias Hero ─────────
+function BiasBar({ b }: { b: CompositeBiasT["breakdown"][number] }) {
+  const s = b.score;
+  const has = s != null;
+  const clamped = has ? Math.max(-3, Math.min(3, s)) : 0;
+  const posPct = ((clamped + 3) / 6) * 100;
+  return (
+    <div className="grid grid-cols-[120px_1fr_auto] items-center gap-2 text-[11px]">
+      <span className="font-mono text-muted-foreground truncate" title={b.note}>{b.signal.replace(/_/g, " ")}</span>
+      <div className="relative h-2 rounded-full bg-secondary/50 overflow-hidden">
+        <div className="absolute inset-y-0 left-1/2 w-px bg-foreground/30" />
+        {has && (
+          <div
+            className={`absolute inset-y-0 ${clamped >= 0 ? "bg-signal-strong-buy/70" : "bg-signal-strong-sell/70"}`}
+            style={clamped >= 0 ? { left: "50%", width: `${posPct - 50}%` } : { left: `${posPct}%`, width: `${50 - posPct}%` }}
+          />
+        )}
+      </div>
+      <span className="font-mono tabular-nums w-20 text-right">
+        <span className={has ? tone(b.contribution) : "text-muted-foreground"}>
+          {has ? `${b.contribution >= 0 ? "+" : ""}${b.contribution.toFixed(1)}` : "—"}
+        </span>
+        <span className="text-muted-foreground/50"> ×{b.weight}</span>
+      </span>
+    </div>
+  );
+}
+
+function CompositeBiasHero({
+  data, modeLabel, ModeIcon, dataUpdatedAt, blurb,
+}: {
+  data: PreMarketReport;
+  modeLabel: string;
+  ModeIcon: React.ComponentType<{ className?: string }>;
+  dataUpdatedAt: number;
+  blurb: string;
+}) {
+  const cb = data.compositeBias;
+  const score = cb ? Math.max(-10, Math.min(10, cb.score)) : 0;
+  const gpos = ((score + 10) / 20) * 100;
+  const cardTone = cb ? bgTone(cb.score / 4) : bgTone(data.sentimentScore);
+
+  return (
+    <Card className={`border ${cardTone}`}>
+      <CardContent className="p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-6">
+          {/* Left — score + verdict */}
+          <div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono uppercase tracking-wider">
+              <ModeIcon className="w-4 h-4" />
+              <span>{modeLabel}</span>
+              <span>·</span>
+              <span>updated {formatDistanceToNow(new Date(data.generatedAt), { addSuffix: true })}</span>
+            </div>
+            <h1 className="text-2xl font-bold mt-2 tracking-tight">Composite Market Bias</h1>
+            <p className="text-[11px] text-muted-foreground/80 mt-0.5">{blurb}</p>
+
+            {cb ? (
+              <>
+                <div className="flex items-end gap-3 mt-4">
+                  <div className={`text-5xl font-bold tabular-nums ${tone(cb.score)}`}>
+                    {cb.score >= 0 ? "+" : ""}{cb.score.toFixed(1)}
+                  </div>
+                  <div className="pb-1">
+                    <div className={`text-sm font-bold ${tone(cb.score)}`}>{BIAS_LABEL[cb.label] ?? cb.label}</div>
+                    <div className="text-[10px] font-mono text-muted-foreground/70">scale −10 … +10</div>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <div className="relative h-3 rounded-full bg-secondary/60 overflow-hidden">
+                    <div className="absolute inset-y-0 left-1/2 w-px bg-foreground/40" />
+                    <div
+                      className={`absolute inset-y-0 ${cb.score >= 0 ? "bg-signal-strong-buy/70" : "bg-signal-strong-sell/70"}`}
+                      style={cb.score >= 0 ? { left: "50%", width: `${gpos - 50}%` } : { left: `${gpos}%`, width: `${50 - gpos}%` }}
+                    />
+                    <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-5 rounded bg-foreground" style={{ left: `${gpos}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[9px] font-mono text-muted-foreground/60 mt-1">
+                    <span>−10</span><span>0</span><span>+10</span>
+                  </div>
+                </div>
+                <p className="text-sm text-foreground/85 mt-3 leading-relaxed">{cb.verdict}</p>
+                <div className="text-[10px] font-mono text-muted-foreground/60 mt-2 flex items-center gap-2 flex-wrap">
+                  <span>Data completeness {(cb.dataCompleteness * 100).toFixed(0)}%</span>
+                  <span>·</span>
+                  <SourceTag source={cb.source} asOf={cb.asOf} />
+                </div>
+              </>
+            ) : (
+              <div className="mt-4">
+                <span className={`px-3 py-1.5 rounded border text-xs font-mono font-bold ${SENTIMENT_TONE[data.sentiment] ?? SENTIMENT_TONE["NEUTRAL"]}`}>
+                  {data.sentiment.replace("_", " ")}
+                </span>
+                <span className={`ml-2 text-xs font-mono ${tone(data.sentimentScore)}`}>
+                  Score {data.sentimentScore >= 0 ? "+" : ""}{data.sentimentScore.toFixed(1)}
+                </span>
+                <p className="text-[11px] text-muted-foreground/70 mt-3">
+                  Composite bias score has no live feed yet — showing the overnight sentiment read instead.
+                </p>
+              </div>
+            )}
+
+            <p className="text-sm text-foreground/80 mt-4">{data.narrative}</p>
+            {data.keyTakeaways && data.keyTakeaways.length > 0 && (
+              <ul className="mt-3 space-y-1 text-sm">
+                {data.keyTakeaways.map((t, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="text-muted-foreground mt-0.5">▸</span>
+                    <span className="text-foreground/90">{t}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Right — signal breakdown + invalidation */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">Signal Breakdown</div>
+              <DataSourceBadge source="mixed" status="delayed" lastUpdated={dataUpdatedAt} refreshMs={60_000} compact />
+            </div>
+            {cb && cb.breakdown.length > 0 ? (
+              <div className="space-y-1.5">
+                {cb.breakdown.map(b => <BiasBar key={b.signal} b={b} />)}
+              </div>
+            ) : (
+              <div className="text-xs font-mono text-muted-foreground/70 py-6 text-center">
+                No weighted-signal breakdown available.
+              </div>
+            )}
+
+            {cb && (
+              <div className="mt-4 pt-3 border-t border-border/40 space-y-2">
+                <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">Invalidation</div>
+                <div className="flex items-start gap-2 text-xs">
+                  <span className="text-signal-strong-buy mt-0.5 shrink-0">▲</span>
+                  <span className="text-foreground/85 leading-snug">{cb.invalidation.bullishFlip}</span>
+                </div>
+                <div className="flex items-start gap-2 text-xs">
+                  <span className="text-signal-strong-sell mt-0.5 shrink-0">▼</span>
+                  <span className="text-foreground/85 leading-snug">{cb.invalidation.bearishAcceleration}</span>
+                </div>
+                {cb.methodologyNote && (
+                  <p className="text-[10px] text-muted-foreground/60 italic leading-snug pt-1">{cb.methodologyNote}</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───────── 2 · Participant-wise OI ─────────
+function ParticipantOiSection({ p }: { p: ParticipantOiT }) {
+  const lsr = p.fiiLsrPct;
+  const lsrTone = lsr == null ? "text-muted-foreground" : lsr >= 60 ? "text-signal-strong-buy" : lsr <= 30 ? "text-signal-strong-sell" : "text-foreground";
+  return (
+    <Card className="border border-border/50">
+      <CardContent className="p-4">
+        <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-4">
+          {/* King metric */}
+          <div className="rounded-lg border border-border/50 bg-secondary/20 p-3">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">FII Long-Share (LSR)</div>
+            <div className={`text-3xl font-bold tabular-nums mt-1 ${lsrTone}`}>{lsr == null ? "—" : `${lsr.toFixed(1)}%`}</div>
+            <div className="mt-1.5"><Pill text={p.signal} k={p.signal} /></div>
+            <div className="text-[10px] font-mono text-muted-foreground/80 mt-2 leading-snug">≤30% bearish · ≥60% bullish</div>
+            <div className="mt-2 pt-2 border-t border-border/40 space-y-0.5 text-[11px] font-mono">
+              <div className="flex justify-between"><span className="text-muted-foreground">FII ΔNet</span><span className={tone(p.fiiNetChange)}>{fmtSignedInt(p.fiiNetChange)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Index Fut OI</span><span className="tabular-nums">{fmtInt(p.aggIndexFutOi)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">OI Δ%</span><span className={tone(p.aggIndexFutOiChgPct)}>{pct(p.aggIndexFutOiChgPct)}</span></div>
+            </div>
+          </div>
+          {/* Segment table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] font-mono uppercase text-muted-foreground/70 text-right">
+                  <th className="text-left font-normal pb-1">Participant</th>
+                  <th className="font-normal pb-1">Long</th>
+                  <th className="font-normal pb-1">Short</th>
+                  <th className="font-normal pb-1">Net</th>
+                  <th className="font-normal pb-1">LSR%</th>
+                  <th className="font-normal pb-1">ΔNet</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono tabular-nums">
+                {p.segments.length === 0 ? (
+                  <tr><td colSpan={6} className="text-center text-muted-foreground py-3">No participant rows.</td></tr>
+                ) : p.segments.map(s => (
+                  <tr key={s.clientType} className="text-right border-t border-border/30">
+                    <td className="text-left py-1 font-semibold">{s.clientType}</td>
+                    <td className="text-signal-strong-buy/90">{fmtInt(s.futureIndexLong)}</td>
+                    <td className="text-signal-strong-sell/90">{fmtInt(s.futureIndexShort)}</td>
+                    <td className={tone(s.futureIndexNet)}>{fmtSignedInt(s.futureIndexNet)}</td>
+                    <td>{s.lsrPct == null ? "—" : s.lsrPct.toFixed(0)}</td>
+                    <td className={tone(s.netChange)}>{fmtSignedInt(s.netChange)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {p.divergence && (
+          <p className="text-xs text-amber-400/90 mt-3 leading-snug">{p.divergence}</p>
+        )}
+        <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-border/40">
+          <p className="text-[11px] text-muted-foreground/80 leading-snug">{p.note}</p>
+          <SourceTag source={p.source} asOf={p.asOf} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───────── 3 · Index OI Buildup ─────────
+function IndexOiBuildupSection({ b }: { b: IndexOiBuildupT }) {
+  const cls = OI_CLASS[b.classification] ?? OI_CLASS["NEUTRAL"]!;
+  const matrix: { key: string; label: string; hint: string }[] = [
+    { key: "UP_UP", label: "Long Buildup", hint: "Price ↑ · OI ↑" },
+    { key: "UP_DOWN", label: "Short Covering", hint: "Price ↑ · OI ↓" },
+    { key: "DOWN_UP", label: "Short Buildup", hint: "Price ↓ · OI ↑" },
+    { key: "DOWN_DOWN", label: "Long Unwinding", hint: "Price ↓ · OI ↓" },
+  ];
+  return (
+    <Card className="border border-border/50">
+      <CardContent className="p-4">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-4">
+          <div>
+            <div className="flex items-baseline justify-between gap-2">
+              <div className="text-sm font-bold font-mono">{b.label}</div>
+              <Pill text={cls.label} k={b.bias} />
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3 text-xs">
+              <div>
+                <div className="text-[10px] font-mono uppercase text-muted-foreground">Price Δ%</div>
+                <div className={`font-mono tabular-nums text-lg font-bold ${tone(b.priceChgPct)}`}>{pct(b.priceChgPct)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-mono uppercase text-muted-foreground">OI Δ%</div>
+                <div className={`font-mono tabular-nums text-lg font-bold ${tone(b.oiChgPct)}`}>{pct(b.oiChgPct)}</div>
+              </div>
+            </div>
+            <p className="text-xs text-foreground/85 mt-3 leading-relaxed">{b.interpretation}</p>
+          </div>
+          {/* 2×2 matrix */}
+          <div className="grid grid-cols-2 gap-1.5 self-start">
+            {matrix.map(m => {
+              const active = m.key === cls.cellKey;
+              return (
+                <div
+                  key={m.key}
+                  className={`rounded border p-2 text-center ${active ? "border-foreground/60 bg-foreground/[0.06]" : "border-border/40 bg-secondary/15"}`}
+                >
+                  <div className={`text-[11px] font-semibold ${active ? cls.tone : "text-muted-foreground/70"}`}>{m.label}</div>
+                  <div className="text-[9px] font-mono text-muted-foreground/60 mt-0.5">{m.hint}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-border/40">
+          <p className="text-[11px] text-muted-foreground/80 leading-snug">{b.note}</p>
+          <SourceTag source={b.source} asOf={b.asOf} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───────── 4 · Strike-level OI changes ─────────
+function StrikeList({ title, entries, tone: t }: { title: string; entries: StrikeOiChangeT["topCallWriting"]; tone: string }) {
+  return (
+    <div>
+      <div className={`text-[10px] font-mono uppercase tracking-wider mb-1 ${t}`}>{title}</div>
+      {entries.length === 0 ? (
+        <div className="text-[11px] text-muted-foreground/60 font-mono">—</div>
+      ) : (
+        <ul className="space-y-1">
+          {entries.map((e, i) => (
+            <li key={i} className="flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums">
+              <span className="font-bold">{fmtInt(e.strike)}</span>
+              <span className="text-muted-foreground">{fmtSignedInt(e.chgOi)}{e.oiChgPct != null ? ` · ${pct(e.oiChgPct)}` : ""}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+function StrikeOiChangesSection({ list }: { list: StrikeOiChangeT[] }) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {list.map(s => (
+        <Card key={s.underlying} className="border border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-baseline justify-between gap-2 mb-3">
+              <div className="text-sm font-bold font-mono">{s.underlying}</div>
+              <div className="text-[10px] font-mono text-muted-foreground">spot {fmt(s.spot)} · {s.expiry}</div>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <StrikeList title="Call Writing (resistance)" entries={s.topCallWriting} tone="text-signal-strong-sell" />
+              <StrikeList title="Put Writing (support)" entries={s.topPutWriting} tone="text-signal-strong-buy" />
+              <StrikeList title="Call Unwinding" entries={s.topCallUnwinding} tone="text-signal-strong-buy/80" />
+              <StrikeList title="Put Unwinding" entries={s.topPutUnwinding} tone="text-signal-strong-sell/80" />
+            </div>
+            <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-border/40">
+              <p className="text-[11px] text-muted-foreground/80 leading-snug">{s.read}</p>
+              <SourceTag source={s.source} asOf={s.asOf} />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ───────── 5 · 5-day institutional flow ─────────
+function FiveDayFlowSection({ f }: { f: FiveDayFlowT }) {
+  return (
+    <Card className="border border-border/50">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          <span className="text-[10px] font-mono uppercase text-muted-foreground">FII</span>
+          <Pill text={f.fiiTrend} k={f.fiiTrend} />
+          <span className="text-[10px] font-mono uppercase text-muted-foreground ml-2">DII</span>
+          <Pill text={f.diiTrend} k={f.diiTrend} />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] font-mono uppercase text-muted-foreground/70 text-right">
+                <th className="text-left font-normal pb-1">Date</th>
+                <th className="font-normal pb-1">FII Net</th>
+                <th className="font-normal pb-1">DII Net</th>
+                <th className="font-normal pb-1">Nifty%</th>
+              </tr>
+            </thead>
+            <tbody className="font-mono tabular-nums">
+              {f.days.length === 0 ? (
+                <tr><td colSpan={4} className="text-center text-muted-foreground py-3">No flow rows.</td></tr>
+              ) : f.days.map((d, i) => (
+                <tr key={i} className="text-right border-t border-border/30">
+                  <td className="text-left py-1">{d.date}</td>
+                  <td className={tone(d.fiiNet)}>{fmtCr(d.fiiNet)}</td>
+                  <td className={tone(d.diiNet)}>{fmtCr(d.diiNet)}</td>
+                  <td className={tone(d.niftyChangePct)}>{pct(d.niftyChangePct)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="text-right border-t-2 border-border/50 font-bold">
+                <td className="text-left py-1">5-day Σ</td>
+                <td className={tone(f.cumFiiCr)}>{fmtCr(f.cumFiiCr)}</td>
+                <td className={tone(f.cumDiiCr)}>{fmtCr(f.cumDiiCr)}</td>
+                <td className="text-muted-foreground/50">—</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-border/40">
+          <p className="text-[11px] text-muted-foreground/80 leading-snug">{f.read}</p>
+          <SourceTag source={f.source} asOf={f.asOf} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───────── 6 · Macro overlay ─────────
+function MacroOverlaySection({ m }: { m: MacroOverlayT }) {
+  return (
+    <Card className="border border-border/50">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="text-[10px] font-mono uppercase text-muted-foreground">Global Macro Backdrop</div>
+          {m.macroScore != null && (
+            <span className={`text-xs font-mono font-bold ${tone(m.macroScore)}`}>
+              Macro score {m.macroScore >= 0 ? "+" : ""}{m.macroScore.toFixed(1)}
+            </span>
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] font-mono uppercase text-muted-foreground/70 text-right">
+                <th className="text-left font-normal pb-1">Indicator</th>
+                <th className="font-normal pb-1">Value</th>
+                <th className="font-normal pb-1">Chg%</th>
+                <th className="text-right font-normal pb-1">Impact</th>
+              </tr>
+            </thead>
+            <tbody className="font-mono tabular-nums">
+              {m.rows.length === 0 ? (
+                <tr><td colSpan={4} className="text-center text-muted-foreground py-3">No macro rows.</td></tr>
+              ) : m.rows.map((r, i) => (
+                <tr key={i} className="text-right border-t border-border/30" title={r.note}>
+                  <td className="text-left py-1 font-semibold">{r.label}</td>
+                  <td>{fmt(r.value)}</td>
+                  <td className={tone(r.changePercent)}>{pct(r.changePercent)}</td>
+                  <td className="text-right"><Pill text={r.impact} k={r.impact} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-border/40">
+          <p className="text-[11px] text-muted-foreground/80 leading-snug">{m.read}</p>
+          <SourceTag source={m.source} asOf={m.asOf} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───────── 7 · Sector rotation ─────────
+function RotationRow({ e, maxAbs }: { e: SectorRotationT["leaders"][number]; maxAbs: number }) {
+  const w = maxAbs > 0 ? Math.max(4, (Math.abs(e.avgChangePercent) / maxAbs) * 100) : 4;
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-28 truncate" title={e.topPickSymbol ? `top: ${e.topPickSymbol}` : undefined}>{e.sector}</span>
+      <div className="flex-1 h-2 rounded-full bg-secondary/40 overflow-hidden">
+        <div className={`h-full ${e.avgChangePercent >= 0 ? "bg-signal-strong-buy/70" : "bg-signal-strong-sell/70"}`} style={{ width: `${w}%` }} />
+      </div>
+      <span className={`w-16 text-right font-mono tabular-nums ${tone(e.avgChangePercent)}`}>{pct(e.avgChangePercent)}</span>
+    </div>
+  );
+}
+function SectorRotationSection({ r }: { r: SectorRotationT }) {
+  const maxAbs = Math.max(0, ...[...r.leaders, ...r.laggards].map(e => Math.abs(e.avgChangePercent)));
+  return (
+    <Card className="border border-border/50">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3 mb-3 text-[11px] font-mono">
+          <span className="text-signal-strong-buy">{r.breadthPositive} sectors up</span>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="text-signal-strong-sell">{r.breadthNegative} down</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-signal-strong-buy mb-2">Money Rotating In</div>
+            <div className="space-y-1.5">
+              {r.leaders.length === 0 ? <div className="text-[11px] text-muted-foreground/60 font-mono">—</div>
+                : r.leaders.map((e, i) => <RotationRow key={i} e={e} maxAbs={maxAbs} />)}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-signal-strong-sell mb-2">Money Rotating Out</div>
+            <div className="space-y-1.5">
+              {r.laggards.length === 0 ? <div className="text-[11px] text-muted-foreground/60 font-mono">—</div>
+                : r.laggards.map((e, i) => <RotationRow key={i} e={e} maxAbs={maxAbs} />)}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-border/40">
+          <p className="text-[11px] text-muted-foreground/80 leading-snug">{r.rotationRead}</p>
+          <SourceTag source={r.source} asOf={r.asOf} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───────── 8 · Trade setups (reporting only) ─────────
+function TradeSetupsSection({ t }: { t: TradeSetupsT }) {
+  return (
+    <Card className="border border-border/50">
+      <CardContent className="p-4">
+        <div className="text-[10px] font-mono uppercase tracking-wider text-amber-400/90 mb-3">
+          Reporting only — derived from pivots + composite bias · never placed, sized, or executed
+        </div>
+        {t.setups.length === 0 ? (
+          <div className="text-xs font-mono text-muted-foreground/70 py-3 text-center">No derived setups for the current bias.</div>
+        ) : (
+          <div className="space-y-3">
+            {t.setups.map((s, i) => (
+              <div key={i} className="rounded-lg border border-border/50 bg-secondary/15 p-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-sm">{s.symbol}</span>
+                    <Pill text={s.direction} k={s.direction} />
+                    <span className="text-xs text-muted-foreground">{s.label}</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    R:R {s.riskReward == null ? "—" : `${s.riskReward.toFixed(2)}×`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 mt-2 text-xs font-mono tabular-nums">
+                  <div><div className="text-[10px] text-muted-foreground uppercase">Entry</div><div className="font-bold">{fmt(s.entry)}</div></div>
+                  <div><div className="text-[10px] text-muted-foreground uppercase">Target</div><div className="text-signal-strong-buy">{fmt(s.target)}</div></div>
+                  <div><div className="text-[10px] text-muted-foreground uppercase">Stop</div><div className="text-signal-strong-sell">{fmt(s.stop)}</div></div>
+                </div>
+                <p className="text-[11px] text-foreground/80 mt-2 leading-snug">{s.rationale}</p>
+                <p className="text-[11px] text-muted-foreground/75 mt-1 leading-snug italic">Invalidation: {s.invalidation}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-border/40">
+          <span className="text-[11px] text-muted-foreground/80">Keyed off bias score {t.biasScore >= 0 ? "+" : ""}{t.biasScore.toFixed(1)}</span>
+          <SourceTag source={t.source} asOf={t.asOf} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function PreMarket() {
-  const { data, isLoading, error, dataUpdatedAt } = useGetPreMarket({
+  const { data, isLoading, error, dataUpdatedAt, refetch, isFetching } = useGetPreMarket({
     query: { staleTime: 30_000, refetchInterval: 60_000, queryKey: getGetPreMarketQueryKey() },
   });
 
   if (isLoading) {
     return (
       <div className="w-full px-4 py-6 space-y-4">
-        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-40 w-full" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Skeleton className="h-64" /><Skeleton className="h-64" />
         </div>
@@ -61,14 +706,31 @@ export default function PreMarket() {
       <div className="w-full px-4 py-12 text-center">
         <AlertCircle className="w-10 h-10 mx-auto mb-3 text-signal-strong-sell" />
         <p className="font-mono text-sm text-muted-foreground">Failed to load pre-market data. Please retry shortly.</p>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="mt-4 inline-flex items-center gap-1.5 rounded border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-mono hover:bg-secondary/70 transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Retry
+        </button>
       </div>
     );
   }
 
   const isPre = data.mode === "PRE_MARKET";
   const isPost = data.mode === "POST_MARKET";
+  const isLive = data.mode === "LIVE";
   const ModeIcon = isPre ? Sun : isPost ? Moon : Activity;
-  const modeLabel = isPre ? "Pre-Market Setup" : isPost ? "Post-Market Wrap" : "Live Session — Setup Recap";
+  const modeLabel = isPre ? "Pre-Market Setup" : isPost ? "Post-Market Wrap" : "Live Session";
+  const modeBlurb = isPre
+    ? "Preparation view — build the plan before the bell."
+    : isPost
+      ? "Review view — what the tape did and what it sets up next."
+      : "Confirmation view — is the morning plan playing out?";
+
+  const now = new Date();
+  const istTime = now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
+  const istDate = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "2-digit", month: "short" });
 
   // Group cues by category
   const cueByCat: Record<string, typeof data.overnightCues> = {};
@@ -78,130 +740,132 @@ export default function PreMarket() {
     cueByCat[cat]!.push(c);
   }
 
-  return (
-    <div className="w-full px-4 py-6">
-      <div className="flex gap-6">
-        {/* Main content */}
-        <div className="flex-1 min-w-0 space-y-6">
+  const nodes: Record<string, React.ReactNode> = {
+    scenarios: (data.scenarios && data.scenarios.length > 0) ? (
+      <section>
+        <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+          <Target className="w-4 h-4" /> Today's 3 Scenarios — Setup Plan
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          {data.scenarios.map(s => (<ScenarioCard key={s.kind} scenario={s} />))}
+        </div>
+        <p className="text-xs text-muted-foreground/70 mt-2 italic leading-snug">
+          Pros prepare all three plans, then trade the one the market actually picks. Probability is a heuristic from overnight cues + CPR width — never a forecast.
+        </p>
+      </section>
+    ) : null,
 
-      {/* Hero */}
-      <Card className={`border ${bgTone(data.sentimentScore)}`}>
-        <CardContent className="p-6">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono uppercase tracking-wider">
-                <ModeIcon className="w-4 h-4" />
-                <span>{modeLabel}</span>
-                <span>·</span>
-                <span>updated {formatDistanceToNow(new Date(data.generatedAt), { addSuffix: true })}</span>
-              </div>
-              <h1 className="text-2xl font-bold mt-2 tracking-tight">{modeLabel}</h1>
-              <p className="text-sm text-foreground/80 mt-1 max-w-3xl">{data.narrative}</p>
+    previews: (data.indexPreviews && data.indexPreviews.length > 0) ? (
+      <section>
+        <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3">
+          {isPre ? "Indicative Open" : "Index Snapshot"}
+        </h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {data.indexPreviews.map(ix => (
+            <Card key={ix.symbol} className={`border ${bgTone(ix.indicativeChangePercent)}`}>
+              <CardContent className="p-4">
+                <div className="text-xs font-mono text-muted-foreground uppercase">{ix.name}</div>
+                <div className="text-xl font-bold tabular-nums mt-1">{fmt(ix.indicativePrice)}</div>
+                <div className={`text-xs font-mono mt-0.5 ${tone(ix.indicativeChangePercent)}`}>
+                  {ix.indicativeChange != null && (ix.indicativeChange >= 0 ? "+" : "")}{fmt(ix.indicativeChange)} ({pct(ix.indicativeChangePercent)})
+                </div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-2">vs prev close {fmt(ix.previousClose)}</div>
+                {ix.source && <div className="text-[10px] text-muted-foreground/70 mt-0.5 italic">{ix.source}</div>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+    ) : null,
+
+    levels: (data.indexLevels && data.indexLevels.length > 0) ? (
+      <section>
+        <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+          <Layers className="w-4 h-4" /> Key Index Levels — CPR & Pivots
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+          {data.indexLevels.map(lv => <IndexLevelsCard key={lv.symbol} lv={lv} />)}
+        </div>
+        <p className="text-xs text-muted-foreground/70 mt-2 italic leading-snug">
+          Pivots from previous-session OHLC. CPR width — narrow (&lt;0.4%) tends to precede a trending day, wide (&gt;1.0%) precedes range/chop.
+        </p>
+      </section>
+    ) : null,
+
+    options: (data.optionSnapshots && data.optionSnapshots.length > 0) ? (
+      <section>
+        <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+          <Crosshair className="w-4 h-4" /> Option Chain Morning Snapshot
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {data.optionSnapshots.map(o => <OptionSnapshotCard key={o.underlying} snap={o} />)}
+        </div>
+        <p className="text-xs text-muted-foreground/70 mt-2 italic leading-snug">
+          Expected move = ATM straddle ÷ spot. Max-pain = strike where option writers lose least. Highest CE-OI is intraday resistance, highest PE-OI is intraday support.
+        </p>
+      </section>
+    ) : null,
+
+    internals: data.postMarketDigest ? (
+      <section>
+        <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+          <BarChart3 className="w-4 h-4" /> Market Internals
+        </h2>
+        <Card className={`border ${bgTone((data.postMarketDigest.marketBreadthScore ?? 0) / 30)}`}>
+          <CardContent className="p-5">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <Stat label="Advancers" value={String(data.postMarketDigest.advancers)} tone="text-signal-strong-buy" />
+              <Stat label="Decliners" value={String(data.postMarketDigest.decliners)} tone="text-signal-strong-sell" />
+              <Stat label="Unchanged" value={String(data.postMarketDigest.unchanged)} />
+              <Stat label="A/D Ratio" value={data.postMarketDigest.adRatio == null ? "∞" : data.postMarketDigest.adRatio.toFixed(2)} />
+              <Stat label="Breadth Score" value={`${(data.postMarketDigest.marketBreadthScore ?? 0) >= 0 ? "+" : ""}${(data.postMarketDigest.marketBreadthScore ?? 0).toFixed(0)}`}
+                tone={tone(data.postMarketDigest.marketBreadthScore ?? 0)} />
             </div>
-            <div className="flex flex-col items-end gap-1.5">
-              <span className={`px-3 py-1.5 rounded border text-xs font-mono font-bold ${SENTIMENT_TONE[data.sentiment] ?? SENTIMENT_TONE["NEUTRAL"]}`}>
-                {data.sentiment.replace("_", " ")}
-              </span>
-              <div className="flex items-center gap-1.5 text-xs font-mono">
-                <Gauge className="w-3 h-3 text-muted-foreground" />
-                <span className={tone(data.sentimentScore)}>Score {data.sentimentScore >= 0 ? "+" : ""}{data.sentimentScore.toFixed(1)}</span>
-              </div>
-              <DataSourceBadge
-                source="mixed"
-                status="delayed"
-                lastUpdated={dataUpdatedAt}
-                refreshMs={60_000}
-                note="overnight cues · global proxies"
-                compact
-              />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-border/40">
+              <Stat label="52W Highs" value={String(data.postMarketDigest.new52wHigh ?? 0)}
+                tone={(data.postMarketDigest.new52wHigh ?? 0) > 0 ? "text-signal-strong-buy" : undefined} />
+              <Stat label="52W Lows" value={String(data.postMarketDigest.new52wLow ?? 0)}
+                tone={(data.postMarketDigest.new52wLow ?? 0) > 0 ? "text-signal-strong-sell" : undefined} />
+              <Stat label="Upper Circuits" value={String(data.postMarketDigest.upperCircuits ?? 0)}
+                tone={(data.postMarketDigest.upperCircuits ?? 0) > 0 ? "text-signal-strong-buy" : undefined} />
+              <Stat label="Lower Circuits" value={String(data.postMarketDigest.lowerCircuits ?? 0)}
+                tone={(data.postMarketDigest.lowerCircuits ?? 0) > 0 ? "text-signal-strong-sell" : undefined} />
             </div>
-          </div>
+            <p className="text-sm text-foreground/85 mt-4">{data.postMarketDigest.narrative ?? ""}</p>
+          </CardContent>
+        </Card>
+      </section>
+    ) : null,
 
-          {data.keyTakeaways && data.keyTakeaways.length > 0 && (
-            <ul className="mt-4 space-y-1 text-sm">
-              {data.keyTakeaways.map((t, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <span className="text-muted-foreground mt-0.5">▸</span>
-                  <span className="text-foreground/90">{t}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+    heatmap: (data.sectorHeatmap && data.sectorHeatmap.length > 0) ? (
+      <section>
+        <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+          <BarChart3 className="w-4 h-4" /> Sector Heatmap — Leaders to Laggards
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+          {data.sectorHeatmap.map(s => <SectorTile key={s.sector} s={s} />)}
+        </div>
+      </section>
+    ) : null,
 
-      {/* Today's 3 scenarios — pre-planned trade book before the open */}
-      {data.scenarios && data.scenarios.length > 0 && (
-        <section>
-          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-            <Target className="w-4 h-4" /> Today's 3 Scenarios — Setup Plan
-          </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            {data.scenarios.map(s => (
-              <ScenarioCard key={s.kind} scenario={s} />
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground/70 mt-2 italic leading-snug">
-            Pros prepare all three plans, then trade the one the market actually picks. Probability is a heuristic from overnight cues + CPR width — never a forecast.
-          </p>
-        </section>
-      )}
+    movers: (
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <MoverList title="Top Gainers" icon={<TrendingUp className="w-4 h-4 text-signal-strong-buy" />} items={data.topGainers ?? []} positive />
+        <MoverList title="Top Losers" icon={<TrendingDown className="w-4 h-4 text-signal-strong-sell" />} items={data.topLosers ?? []} positive={false} />
+      </section>
+    ),
 
-      {/* Index previews */}
-      {data.indexPreviews && data.indexPreviews.length > 0 && (
-        <section>
-          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3">
-            {isPre ? "Indicative Open" : "Index Snapshot"}
-          </h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {data.indexPreviews.map(ix => (
-              <Card key={ix.symbol} className={`border ${bgTone(ix.indicativeChangePercent)}`}>
-                <CardContent className="p-4">
-                  <div className="text-xs font-mono text-muted-foreground uppercase">{ix.name}</div>
-                  <div className="text-xl font-bold tabular-nums mt-1">{fmt(ix.indicativePrice)}</div>
-                  <div className={`text-xs font-mono mt-0.5 ${tone(ix.indicativeChangePercent)}`}>
-                    {ix.indicativeChange != null && (ix.indicativeChange >= 0 ? "+" : "")}{fmt(ix.indicativeChange)} ({pct(ix.indicativeChangePercent)})
-                  </div>
-                  <div className="text-[10px] font-mono text-muted-foreground mt-2">vs prev close {fmt(ix.previousClose)}</div>
-                  {ix.source && <div className="text-[10px] text-muted-foreground/70 mt-0.5 italic">{ix.source}</div>}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
+    gappers: (data.gapUps?.length || data.gapDowns?.length) ? (
+      <section>
+        <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3">Gap Analysis (gap vs ATR)</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <GapList title="Gap Ups" icon={<ArrowUpRight className="w-4 h-4 text-signal-strong-buy" />} items={data.gapUps ?? []} />
+          <GapList title="Gap Downs" icon={<ArrowDownRight className="w-4 h-4 text-signal-strong-sell" />} items={data.gapDowns ?? []} />
+        </div>
+      </section>
+    ) : null,
 
-      {/* Key index levels — CPR + classic pivots + prev/weekly/52w bands */}
-      {data.indexLevels && data.indexLevels.length > 0 && (
-        <section>
-          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-            <Layers className="w-4 h-4" /> Key Index Levels — CPR & Pivots
-          </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-            {data.indexLevels.map(lv => <IndexLevelsCard key={lv.symbol} lv={lv} />)}
-          </div>
-          <p className="text-xs text-muted-foreground/70 mt-2 italic leading-snug">
-            Pivots from previous-session OHLC. CPR width — narrow (&lt;0.4%) tends to precede a trending day, wide (&gt;1.0%) precedes range/chop.
-          </p>
-        </section>
-      )}
-
-      {/* Option chain morning snapshot — for the 3 main F&O indices */}
-      {data.optionSnapshots && data.optionSnapshots.length > 0 && (
-        <section>
-          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-            <Crosshair className="w-4 h-4" /> Option Chain Morning Snapshot
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {data.optionSnapshots.map(o => <OptionSnapshotCard key={o.underlying} snap={o} />)}
-          </div>
-          <p className="text-xs text-muted-foreground/70 mt-2 italic leading-snug">
-            Expected move = ATM straddle ÷ spot. Max-pain = strike where option writers lose least. Highest CE-OI is intraday resistance, highest PE-OI is intraday support.
-          </p>
-        </section>
-      )}
-
-      {/* Overnight cues, grouped */}
+    cues: (
       <section>
         <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
           <Globe2 className="w-4 h-4" /> Overnight & Global Cues
@@ -222,9 +886,7 @@ export default function PreMarket() {
                         <span className="font-medium truncate" title={c.note ?? ""}>{c.label}{c.inverted && <span className="text-[9px] text-muted-foreground ml-1">(inv)</span>}</span>
                         <span className="flex items-center gap-2 shrink-0">
                           <span className="font-mono tabular-nums text-xs text-muted-foreground">{fmt(c.value)}</span>
-                          <span className={`font-mono tabular-nums text-xs font-bold ${tone(c.changePercent)}`}>
-                            {pct(c.changePercent)}
-                          </span>
+                          <span className={`font-mono tabular-nums text-xs font-bold ${tone(c.changePercent)}`}>{pct(c.changePercent)}</span>
                         </span>
                       </li>
                     ))}
@@ -235,121 +897,157 @@ export default function PreMarket() {
           })}
         </div>
       </section>
+    ),
 
-      {/* Post-market digest */}
-      {data.postMarketDigest && (
-        <section>
-          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4" /> Market Internals
-          </h2>
-          <Card className={`border ${bgTone((data.postMarketDigest.marketBreadthScore ?? 0) / 30)}`}>
-            <CardContent className="p-5">
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <Stat label="Advancers" value={String(data.postMarketDigest.advancers)} tone="text-signal-strong-buy" />
-                <Stat label="Decliners" value={String(data.postMarketDigest.decliners)} tone="text-signal-strong-sell" />
-                <Stat label="Unchanged" value={String(data.postMarketDigest.unchanged)} />
-                <Stat label="A/D Ratio" value={data.postMarketDigest.adRatio == null ? "∞" : data.postMarketDigest.adRatio.toFixed(2)} />
-                <Stat label="Breadth Score" value={`${(data.postMarketDigest.marketBreadthScore ?? 0) >= 0 ? "+" : ""}${(data.postMarketDigest.marketBreadthScore ?? 0).toFixed(0)}`}
-                  tone={tone(data.postMarketDigest.marketBreadthScore ?? 0)} />
+    eventsRow: (data.eventsToday?.length || data.earningsToday?.length || data.fiiDii) ? (
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {data.fiiDii && <FiiDiiCard f={data.fiiDii} />}
+        {data.eventsToday && data.eventsToday.length > 0 && (
+          <Card className="border border-border/50">
+            <CardContent className="p-4">
+              <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
+                <Calendar className="w-3.5 h-3.5" /> Macro Events Today
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-border/40">
-                <Stat label="52W Highs" value={String(data.postMarketDigest.new52wHigh ?? 0)}
-                  tone={(data.postMarketDigest.new52wHigh ?? 0) > 0 ? "text-signal-strong-buy" : undefined} />
-                <Stat label="52W Lows" value={String(data.postMarketDigest.new52wLow ?? 0)}
-                  tone={(data.postMarketDigest.new52wLow ?? 0) > 0 ? "text-signal-strong-sell" : undefined} />
-                <Stat label="Upper Circuits" value={String(data.postMarketDigest.upperCircuits ?? 0)}
-                  tone={(data.postMarketDigest.upperCircuits ?? 0) > 0 ? "text-signal-strong-buy" : undefined} />
-                <Stat label="Lower Circuits" value={String(data.postMarketDigest.lowerCircuits ?? 0)}
-                  tone={(data.postMarketDigest.lowerCircuits ?? 0) > 0 ? "text-signal-strong-sell" : undefined} />
-              </div>
-              <p className="text-sm text-foreground/85 mt-4">{data.postMarketDigest.narrative ?? ""}</p>
+              <ul className="space-y-1.5 text-sm">
+                {data.eventsToday.map((e, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-[9px] mt-0.5">{e.region ?? "—"}</Badge>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{e.name}</div>
+                      {e.description && <div className="text-[11px] text-muted-foreground truncate">{e.description}</div>}
+                    </div>
+                    {e.impact && <span className="text-[9px] font-mono uppercase text-muted-foreground">{e.impact}</span>}
+                  </li>
+                ))}
+              </ul>
             </CardContent>
           </Card>
-        </section>
-      )}
-
-      {/* Sector heatmap — full leader→laggard ranking */}
-      {data.sectorHeatmap && data.sectorHeatmap.length > 0 && (
-        <section>
-          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4" /> Sector Heatmap — Leaders to Laggards
-          </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-            {data.sectorHeatmap.map(s => <SectorTile key={s.sector} s={s} />)}
-          </div>
-        </section>
-      )}
-
-      {/* Movers */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <MoverList title="Top Gainers" icon={<TrendingUp className="w-4 h-4 text-signal-strong-buy" />} items={data.topGainers ?? []} positive />
-        <MoverList title="Top Losers" icon={<TrendingDown className="w-4 h-4 text-signal-strong-sell" />} items={data.topLosers ?? []} positive={false} />
+        )}
+        {data.earningsToday && data.earningsToday.length > 0 && (
+          <Card className="border border-border/50">
+            <CardContent className="p-4">
+              <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
+                <Activity className="w-3.5 h-3.5" /> Earnings Today
+              </div>
+              <ul className="space-y-1 text-sm">
+                {data.earningsToday.map((e) => (
+                  <li key={e.symbol}>
+                    <Link href={`/stock/${encodeURIComponent(e.symbol ?? "")}`} className="flex items-center justify-between hover-row px-2 py-1 rounded">
+                      <span className="font-mono font-bold">{e.symbol}</span>
+                      <span className="text-xs text-muted-foreground truncate ml-3">{e.name}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
       </section>
+    ) : null,
 
-      {/* Gappers */}
-      {(data.gapUps?.length || data.gapDowns?.length) ? (
-        <section>
-          <h2 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3">
-            Gap Analysis (gap vs ATR)
-          </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <GapList title="Gap Ups" icon={<ArrowUpRight className="w-4 h-4 text-signal-strong-buy" />} items={data.gapUps ?? []} />
-            <GapList title="Gap Downs" icon={<ArrowDownRight className="w-4 h-4 text-signal-strong-sell" />} items={data.gapDowns ?? []} />
+    participantOi: (
+      <SectionShell icon={<Scale className="w-4 h-4" />} title="Participant-wise OI" subtitle="FII / DII / Pro / Client index-futures positioning">
+        {data.participantOi ? <ParticipantOiSection p={data.participantOi} /> : <NoFeed label="participant OI" />}
+      </SectionShell>
+    ),
+
+    indexOiBuildup: (
+      <SectionShell icon={<Layers className="w-4 h-4" />} title="Index OI Buildup" subtitle="price × open-interest classifier">
+        {data.indexOiBuildup ? <IndexOiBuildupSection b={data.indexOiBuildup} /> : <NoFeed label="index OI buildup" />}
+      </SectionShell>
+    ),
+
+    strikeOi: (
+      <SectionShell icon={<Flame className="w-4 h-4" />} title="Strike-level OI Changes" subtitle="fresh writing / unwinding clusters">
+        {(data.strikeOiChanges && data.strikeOiChanges.length > 0) ? <StrikeOiChangesSection list={data.strikeOiChanges} /> : <NoFeed label="strike OI changes" />}
+      </SectionShell>
+    ),
+
+    fiveDayFlows: (
+      <SectionShell icon={<History className="w-4 h-4" />} title="5-Day Institutional Flow" subtitle="FII / DII cash (INR Cr)">
+        {data.fiveDayFlows ? <FiveDayFlowSection f={data.fiveDayFlows} /> : <NoFeed label="5-day flow" />}
+      </SectionShell>
+    ),
+
+    macro: (
+      <SectionShell icon={<Coins className="w-4 h-4" />} title="Macro Overlay" subtitle="DXY · US 10Y · USDINR · crude · gold">
+        {data.macroOverlay ? <MacroOverlaySection m={data.macroOverlay} /> : <NoFeed label="macro overlay" />}
+      </SectionShell>
+    ),
+
+    rotation: (
+      <SectionShell icon={<Repeat className="w-4 h-4" />} title="Sector Rotation" subtitle="where money is moving in / out">
+        {data.sectorRotation ? <SectorRotationSection r={data.sectorRotation} /> : <NoFeed label="sector rotation" />}
+      </SectionShell>
+    ),
+
+    tradeSetups: (
+      <SectionShell icon={<Briefcase className="w-4 h-4" />} title="Actionable Trade Setups" subtitle="derived · reporting only">
+        {data.tradeSetups ? <TradeSetupsSection t={data.tradeSetups} /> : <NoFeed label="trade setups" />}
+      </SectionShell>
+    ),
+  };
+
+  // Every section key appears in every mode (so no info is ever hidden when data
+  // exists); only the ORDER / emphasis changes per mode. Sections whose data is
+  // absent self-skip (legacy sections return null; Phase-A sections show NoFeed).
+  const order: string[] = isPre
+    ? ["scenarios", "previews", "levels", "options", "participantOi", "indexOiBuildup", "strikeOi", "fiveDayFlows", "macro", "rotation", "heatmap", "internals", "cues", "tradeSetups", "movers", "gappers", "eventsRow"]
+    : isPost
+      ? ["internals", "previews", "heatmap", "rotation", "movers", "gappers", "eventsRow", "fiveDayFlows", "participantOi", "strikeOi", "indexOiBuildup", "macro", "levels", "options", "scenarios", "tradeSetups", "cues"]
+      : ["previews", "scenarios", "internals", "levels", "options", "strikeOi", "participantOi", "indexOiBuildup", "heatmap", "rotation", "movers", "gappers", "macro", "fiveDayFlows", "tradeSetups", "cues", "eventsRow"];
+
+  return (
+    <div className="w-full px-4 py-6">
+      <div className="flex gap-6">
+        {/* Main content */}
+        <div className="flex-1 min-w-0 space-y-6">
+
+          {/* Topbar */}
+          <div className="flex items-center justify-between gap-4 flex-wrap rounded-lg border border-border/60 bg-gradient-to-r from-card/80 to-card/40 px-5 py-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                <LineChart className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <div className="text-sm font-bold tracking-tight leading-none">Pro Market Analyser</div>
+                <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 mt-1">Hrishi Associates</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1.5 text-xs font-mono">
+                <span className={`w-2 h-2 rounded-full ${isLive ? "bg-signal-strong-buy animate-pulse" : isPre ? "bg-amber-400" : "bg-muted-foreground"}`} />
+                <ModeIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="uppercase tracking-wider text-foreground/90">{modeLabel}</span>
+              </div>
+              <div className="hidden sm:flex flex-col items-end leading-tight">
+                <span className="text-xs font-mono tabular-nums">{istTime} IST</span>
+                <span className="text-[10px] font-mono text-muted-foreground/70">{istDate}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="flex items-center gap-1.5 rounded border border-border/60 bg-secondary/40 px-2.5 py-1.5 text-[11px] font-mono hover:bg-secondary/70 transition-colors disabled:opacity-60"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+                {isFetching ? "Refreshing" : "Refresh"}
+              </button>
+            </div>
           </div>
-        </section>
-      ) : null}
 
-      {/* Events / Earnings / FII-DII row */}
-      {(data.eventsToday?.length || data.earningsToday?.length || data.fiiDii) ? (
-        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {data.fiiDii && <FiiDiiCard f={data.fiiDii} />}
-          {data.eventsToday && data.eventsToday.length > 0 && (
-            <Card className="border border-border/50">
-              <CardContent className="p-4">
-                <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
-                  <Calendar className="w-3.5 h-3.5" /> Macro Events Today
-                </div>
-                <ul className="space-y-1.5 text-sm">
-                  {data.eventsToday.map((e, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <Badge variant="outline" className="text-[9px] mt-0.5">{e.region ?? "—"}</Badge>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">{e.name}</div>
-                        {e.description && <div className="text-[11px] text-muted-foreground truncate">{e.description}</div>}
-                      </div>
-                      {e.impact && <span className="text-[9px] font-mono uppercase text-muted-foreground">{e.impact}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
-          {data.earningsToday && data.earningsToday.length > 0 && (
-            <Card className="border border-border/50">
-              <CardContent className="p-4">
-                <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
-                  <Activity className="w-3.5 h-3.5" /> Earnings Today
-                </div>
-                <ul className="space-y-1 text-sm">
-                  {data.earningsToday.map((e) => (
-                    <li key={e.symbol}>
-                      <Link href={`/stock/${encodeURIComponent(e.symbol ?? "")}`} className="flex items-center justify-between hover-row px-2 py-1 rounded">
-                        <span className="font-mono font-bold">{e.symbol}</span>
-                        <span className="text-xs text-muted-foreground truncate ml-3">{e.name}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
-        </section>
-      ) : null}
+          {/* Ticker */}
+          <TickerStrip data={data} />
 
-      <p className="text-xs text-muted-foreground/70 font-mono text-center pt-4">
-        Data refreshes every 60s · Auto-detects pre/post mode by IST clock · Last updated {dataUpdatedAt ? formatDistanceToNow(dataUpdatedAt, { addSuffix: true }) : "—"}
-      </p>
+          {/* 1 · Composite bias hero */}
+          <CompositeBiasHero data={data} modeLabel={modeLabel} ModeIcon={ModeIcon} dataUpdatedAt={dataUpdatedAt} blurb={modeBlurb} />
 
+          {/* Mode-ordered sections */}
+          {order.map(k => (nodes[k] ? <div key={k}>{nodes[k]}</div> : null))}
+
+          <p className="text-xs text-muted-foreground/70 font-mono text-center pt-4">
+            Data refreshes every 60s · Auto-detects pre/live/post mode by IST clock · Last updated {dataUpdatedAt ? formatDistanceToNow(dataUpdatedAt, { addSuffix: true }) : "—"}
+          </p>
         </div>
 
         {/* Right sidebar — Setup for Tomorrow */}
@@ -367,6 +1065,7 @@ export default function PreMarket() {
     </div>
   );
 }
+
 
 function Stat({ label, value, tone: t }: { label: string; value: string; tone?: string }) {
   return (

@@ -1,0 +1,183 @@
+Phase A is accepted.
+
+Final accepted Phase A status:
+
+```text id="f49zb6"
+Backend/reporting upgrade = complete
+OpenAPI/codegen = complete
+Tests = 740/740 passed
+Typecheck = clean
+Trading/paper/scheduler/schema/env untouched
+```
+
+Proceed with **Phase B only**:
+
+```text id="k60n72"
+Pre/Post Market / Pro Market Analyser Phase B: Frontend Premium UI Rebuild
+```
+
+Use the new Phase A `PreMarketReport` fields and rebuild the existing `/premarket` page UI to match the provided mockup as closely as possible.
+
+---
+
+# Core rules
+
+```text id="e9z3l5"
+Do not change backend logic now.
+Do not add new API fields now.
+Do not change OpenAPI/codegen now unless TypeScript requires a generated type fix from Phase A.
+Do not change trading logic.
+Do not change F&O signal logic.
+Do not change equity/swing signal logic.
+Do not change paper-execution.
+Do not change entry/exit/sizing/stop/target.
+Do not change TIME_EXIT_1520.
+Do not change P25.
+Do not change DB schema.
+Do not change env/secret/DNS.
+Do not change scheduler cadence.
+Do not touch W6-P5/W6-P6 logic.
+Do not touch replit.md/memory/docs.
+```
+
+---
+
+# Required frontend behaviour
+
+Keep the existing automatic mode logic:
+
+```text id="ryyu5n"
+PRE before market
+LIVE during market
+POST after market
+IST-based auto switching
+```
+
+Do **not** convert the page into a static all-sections page.
+
+Use mode-aware rendering:
+
+* PRE shows preparation-focused sections.
+* LIVE shows live-confirmation sections.
+* POST shows review-focused sections.
+
+---
+
+# UI requirement
+
+Redesign `/premarket` into a premium, professional, data-rich **Pro Market Analyser**.
+
+Match the mockup style as closely as possible:
+
+```text id="qb5p59"
+dark premium layout
+top ticker strip
+summary bias cards
+numbered/structured sections
+clear bullish / bearish / neutral states
+data-source and freshness labels
+compact professional cards
+responsive desktop/tablet/mobile layout
+no horizontal overflow
+```
+
+---
+
+# Use Phase A fields
+
+Use the newly available read-only fields for:
+
+```text id="evak47"
+composite bias score
+participant-wise OI
+FII long-short ratio
+index OI buildup
+strike-level OI changes
+macro overlay
+5-day institutional flow trend
+sector rotation
+actionable trade setups
+invalidation criteria
+data freshness/source/fallback labels
+```
+
+Also preserve all existing fields/sections:
+
+```text id="lpoubq"
+overnight cues
+index previews
+levels / CPR / pivots
+option snapshots
+FII/DII
+sector heatmap
+scenarios
+movers/gaps
+market internals
+post-market digest
+tomorrow setup
+events/earnings
+```
+
+Do not remove existing information.
+
+---
+
+# Error/fallback UI
+
+Add clean display states for:
+
+```text id="jwaguk"
+loading
+partial data
+stale data
+unavailable data
+no live feed
+fallback source
+API error
+```
+
+Do not show:
+
+```text id="xz7wrh"
+undefined
+NaN
+null
+raw JSON
+broken empty cards
+```
+
+---
+
+# Required validation
+
+Run:
+
+```text id="j1fhyo"
+pnpm run typecheck
+```
+
+Run frontend/scanner build/test command if `/premarket` or scanner frontend files are touched.
+
+Run api-server tests only if backend files are touched again.
+
+---
+
+# Final Phase B report required
+
+Produce **Pre/Post Market Pro Analyser Phase B Frontend Report** with:
+
+A. Files changed
+B. Mockup UI elements implemented
+C. PRE/LIVE/POST automatic behaviour confirmation
+D. Existing sections preserved
+E. New Phase A data fields displayed
+F. Error/fallback states added
+G. Mobile/responsive validation
+H. Tests/command results
+I. Any data unavailable / displayed as no live feed
+J. Confirmation no backend/trading/scoring/paper-execution logic changed
+K. Whether safe to publish
+
+Stop after the Phase B report.
+
+Do not publish until I review and approve.
