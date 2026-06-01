@@ -140,15 +140,11 @@ function SectionShell({
 
 function NoFeed({ label }: { label?: string }) {
   return (
-    <Card className="border border-dashed border-border/50 bg-secondary/10">
-      <CardContent className="p-5 text-center">
-        <WifiOff className="w-5 h-5 mx-auto mb-2 text-muted-foreground/50" />
-        <div className="text-xs font-mono text-muted-foreground">No live feed{label ? ` — ${label}` : ""}</div>
-        <div className="text-[10px] text-muted-foreground/60 mt-1">
-          This block populates automatically when its upstream source is available.
-        </div>
-      </CardContent>
-    </Card>
+    <div className="flex items-center gap-2 rounded-md border border-dashed border-border/40 bg-secondary/10 px-3 py-1.5 text-[11px] font-mono text-muted-foreground/70">
+      <WifiOff className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+      <span>No live feed{label ? ` — ${label}` : ""}</span>
+      <span className="hidden sm:inline text-muted-foreground/40">· populates when upstream source is available</span>
+    </div>
   );
 }
 
@@ -226,13 +222,12 @@ function CompositeBiasHero({
           {/* Left — score + verdict */}
           <div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono uppercase tracking-wider">
-              <ModeIcon className="w-4 h-4" />
-              <span>{modeLabel}</span>
-              <span>·</span>
               <span>updated {formatDistanceToNow(new Date(data.generatedAt), { addSuffix: true })}</span>
             </div>
-            <h1 className="text-2xl font-bold mt-2 tracking-tight">Composite Market Bias</h1>
-            <p className="text-[11px] text-muted-foreground/80 mt-0.5">{blurb}</p>
+            <h1 className="text-2xl font-bold mt-2 tracking-tight flex items-center gap-2">
+              <ModeIcon className="w-5 h-5 text-amber-400 shrink-0" />{modeLabel}
+            </h1>
+            <p className="text-[11px] text-muted-foreground/80 mt-0.5">Composite Market Bias · {blurb}</p>
 
             {cb ? (
               <>
@@ -988,14 +983,18 @@ export default function PreMarket() {
     ),
   };
 
-  // Every section key appears in every mode (so no info is ever hidden when data
-  // exists); only the ORDER / emphasis changes per mode. Sections whose data is
-  // absent self-skip (legacy sections return null; Phase-A sections show NoFeed).
+  // Core trading-decision sections lead in every mode (the Composite Bias hero
+  // is rendered ABOVE this list): Market Internals → Index Snapshot → Scenario
+  // Plan → CPR/Pivot Levels → Option Chain. Data-rich Phase-A sections follow so
+  // they never bury the core. Every key appears in every mode (only order /
+  // emphasis changes); sections without data self-skip (legacy → null,
+  // Phase-A → compact NoFeed).
+  const CORE = ["internals", "previews", "scenarios", "levels", "options"];
   const order: string[] = isPre
-    ? ["scenarios", "previews", "levels", "options", "participantOi", "indexOiBuildup", "strikeOi", "fiveDayFlows", "macro", "rotation", "heatmap", "internals", "cues", "tradeSetups", "movers", "gappers", "eventsRow"]
+    ? [...CORE, "cues", "heatmap", "participantOi", "indexOiBuildup", "strikeOi", "fiveDayFlows", "macro", "rotation", "tradeSetups", "movers", "gappers", "eventsRow"]
     : isPost
-      ? ["internals", "previews", "heatmap", "rotation", "movers", "gappers", "eventsRow", "fiveDayFlows", "participantOi", "strikeOi", "indexOiBuildup", "macro", "levels", "options", "scenarios", "tradeSetups", "cues"]
-      : ["previews", "scenarios", "internals", "levels", "options", "strikeOi", "participantOi", "indexOiBuildup", "heatmap", "rotation", "movers", "gappers", "macro", "fiveDayFlows", "tradeSetups", "cues", "eventsRow"];
+      ? [...CORE, "heatmap", "rotation", "movers", "gappers", "fiveDayFlows", "participantOi", "strikeOi", "indexOiBuildup", "macro", "tradeSetups", "cues", "eventsRow"]
+      : [...CORE, "strikeOi", "participantOi", "indexOiBuildup", "heatmap", "rotation", "movers", "gappers", "macro", "fiveDayFlows", "tradeSetups", "cues", "eventsRow"];
 
   return (
     <div className="w-full px-4 py-6">
@@ -1646,6 +1645,14 @@ function SetupForTomorrow({ data }: { data: PreMarketReport }) {
     STOCKS: "F&O Stock Activity",
   };
 
+  // Per-group live/total counts so each divider reads at a glance.
+  const groupCounts: Record<string, { avail: number; total: number }> = {};
+  for (const it of items) {
+    const s = sectionFor(it.num);
+    (groupCounts[s] ??= { avail: 0, total: 0 }).total++;
+    if (it.available) groupCounts[s]!.avail++;
+  }
+
   return (
     <Card className="border-2 border-border/70 bg-card/80 backdrop-blur-sm shadow-sm">
       <CardContent className="p-4">
@@ -1662,14 +1669,19 @@ function SetupForTomorrow({ data }: { data: PreMarketReport }) {
             const sec = sectionFor(item.num);
             const prevSec = i > 0 ? sectionFor(items[i - 1]!.num) : null;
             const showHeader = sec !== prevSec;
+            const gc = groupCounts[sec];
             return (
               <div key={item.num}>
                 {showHeader && (
-                  <div className="flex items-center gap-2 mt-3 first:mt-0 mb-1.5">
-                    <div className="h-px flex-1 bg-border/40" />
-                    <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60">
+                  <div className="flex items-center gap-2 mt-5 first:mt-0 mb-2">
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/70 font-semibold">
                       {sectionTitle[sec]}
                     </span>
+                    {gc && (
+                      <span className="text-[9px] font-mono text-muted-foreground/50 tabular-nums shrink-0">
+                        {gc.avail}/{gc.total} live
+                      </span>
+                    )}
                     <div className="h-px flex-1 bg-border/40" />
                   </div>
                 )}
@@ -1722,7 +1734,7 @@ function SetupItem({
     >
       <button
         type="button"
-        className={`flex items-center gap-2 w-full text-left px-2.5 py-2 ${
+        className={`flex items-center gap-2.5 w-full text-left px-3 py-2.5 ${
           expandable && available
             ? "cursor-pointer hover:bg-secondary/30"
             : "cursor-default"

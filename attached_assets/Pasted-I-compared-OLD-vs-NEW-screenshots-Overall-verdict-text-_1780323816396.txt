@@ -1,0 +1,139 @@
+I compared OLD vs NEW screenshots.
+
+Overall verdict:
+
+```text
+No major data loss is visible.
+Most existing information appears preserved.
+New UI is better and more premium.
+But some important old sections are pushed too low and some new sections look empty/incomplete.
+```
+
+Please review and correct the following before final publish/closure.
+
+# 1. Do not bury high-priority trading sections
+
+In the old version, these were visible earlier:
+
+```text
+Today's Scenario Setup Plan
+Key Index Levels - CPR & Pivots
+Option Chain Morning Snapshot
+```
+
+In the new version, these still exist but are pushed too far down.
+
+Please improve the ordering so a trader can quickly see:
+
+```text
+Market Bias
+Market Internals
+Index Snapshot
+Scenario Setup Plan
+Key CPR / Pivot Levels
+Option Chain Snapshot
+```
+
+New data-rich sections can remain, but do not push core trading decision sections too far down.
+
+# 2. POST mode title/context
+
+The old version clearly showed:
+
+```text
+Post-Market Wrap
+```
+
+The new version starts with:
+
+```text
+Composite Market Bias
+```
+
+Composite Bias is good, but POST mode should still clearly show:
+
+```text
+Post-Market Wrap / Post-Market Review
+```
+
+Please preserve the mode context clearly.
+
+# 3. Empty / unavailable new sections
+
+Some new Phase A sections show unavailable/no-live-feed states.
+
+Examples:
+
+```text
+Sector Rotation
+5-Day Institutional Flow
+Participant-Wise OI
+Index OI Buildup
+Macro Overlay
+Actionable Trade Setups
+```
+
+If data is unavailable, keep the fallback, but make the empty state compact and professional so the page does not look broken or incomplete.
+
+Do not show big empty cards if no data exists.
+
+# 4. Sidebar density
+
+The right sidebar data is preserved, which is good, but it is dense.
+
+Please improve readability without removing data:
+
+```text
+better spacing
+clearer labels
+compact grouping
+no data removal
+```
+
+# 5. Preserve all old information
+
+Before final closure, confirm every old section is still present:
+
+```text
+Post-market narrative
+Today’s scenario setup plan
+Index snapshot
+Key Index Levels - CPR & Pivots
+Option Chain Morning Snapshot
+Overnight & Global Cues
+Market Internals
+Sector Heatmap
+Top Gainers
+Top Losers
+Gap Up / Gap Down
+FII / DII Flows
+Setup for Tomorrow sidebar
+```
+
+# 6. No logic changes
+
+Do not change:
+
+```text
+trading logic
+signal logic
+paper-execution
+backend fields
+DB schema
+scheduler
+env/secrets
+P25
+TIME_EXIT_1520
+```
+
+This is only UI ordering, readability, and fallback presentation refinement.
+
+After refinement, provide a short report confirming:
+
+A. Old sections preserved
+B. Section ordering improved
+C. Empty states made compact
+D. POST mode context restored
+E. No data removed
+F. Tests/typecheck result
+G. Whether safe to publish
