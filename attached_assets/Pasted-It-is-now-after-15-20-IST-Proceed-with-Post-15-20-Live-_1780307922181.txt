@@ -1,0 +1,230 @@
+It is now after 15:20 IST.
+
+Proceed with **Post-15:20 Live Market Observation Only**.
+
+No implementation.
+
+No code change.
+
+No trading/scoring change.
+
+No paper-execution change.
+
+No scheduler change.
+
+No env/secret/DNS change.
+
+No DB schema change.
+
+No `replit.md`, memory, or docs change.
+
+---
+
+# Task
+
+```text
+Post-15:20 IST TIME_EXIT_1520 Live Observation
+```
+
+Purpose:
+
+Verify that the 15:20 IST F&O force-exit process behaved correctly in production.
+
+---
+
+# Required checks
+
+## 1. Production health
+
+Check:
+
+```text
+/api/healthz
+production logs
+owner route protection
+```
+
+Confirm:
+
+```text
+health = 200
+owner routes = 401 AUTH_REQUIRED when unauthenticated
+no crash/restart loop
+no repeated 500s
+```
+
+---
+
+## 2. F&O paper trades today
+
+Check whether any F&O paper trades opened today.
+
+Report:
+
+```text
+index
+setup
+direction
+tier
+entry time
+entry premium
+status
+```
+
+If no successful F&O opens happened today, say clearly:
+
+```text
+No successful F&O paper opens today.
+```
+
+Also check whether any open attempts failed due to DB timeout, especially around earlier observed failures.
+
+---
+
+## 3. TIME_EXIT_1520 force-exit
+
+Check whether any open F&O trade existed at or after 15:20 IST.
+
+If yes, verify:
+
+```text
+forceCloseAllOpenFnoFor1520 ran
+exit_reason = TIME_EXIT_1520
+UI/report display = TIME EXIT 1520
+closed rows created correctly
+realized P&L calculated correctly
+no orphan OPEN F&O row remains
+```
+
+If no open F&O trade existed at 15:20, say clearly:
+
+```text
+No TIME_EXIT_1520 row expected because there were no open F&O trades at 15:20.
+```
+
+Do not force-create any trade.
+
+Do not replay missed trades.
+
+Do not manually close or modify anything.
+
+---
+
+## 4. Paper reports check
+
+Check `/paper-reports`.
+
+Confirm:
+
+```text
+page serves 200
+F&O monthly report does not 500
+F&O closed trades load if accessible
+TIME_EXIT_1520 does not cause enum/display error
+no ZodError
+no internal_server_error
+```
+
+---
+
+## 5. Paper trading page check
+
+Check `/paper-trading`.
+
+Confirm:
+
+```text
+page serves 200
+F&O cockpit does not break
+open F&O section works
+closed F&O section works
+no enum error
+no paper-route 500
+```
+
+---
+
+## 6. P25 evidence status
+
+If accessible, report:
+
+```text
+current eligible count
+whether new eligible trade was added today
+whether any infra-missed open should be excluded from clean P25 evidence
+whether evidence cleanliness was affected
+```
+
+If owner-gated and not accessible, say so without bypassing auth.
+
+---
+
+## 7. DB timeout / infra warnings after 15:20
+
+Scan logs after 15:20 IST for:
+
+```text
+Connection terminated due to connection timeout
+DrizzleQueryError
+Paper FO post-enrichment open failed
+loadSetupWinRates: query failed
+Participant OI initial backfill failed
+paper_trade_fo
+paper_trade_eq
+ZodError
+TIME_EXIT_1520 enum error
+internal_server_error
+statusCode 500
+```
+
+Classify each as:
+
+```text
+none
+one-time
+repeated
+background only
+paper-execution affecting
+user-facing
+needs fix
+```
+
+---
+
+# Output required
+
+Produce **Post-15:20 IST Live Observation Report** with:
+
+A. Time window observed
+B. Production health result
+C. F&O opens today
+D. F&O closes today
+E. TIME_EXIT_1520 result
+F. Whether TIME_EXIT_1520 was expected or not
+G. `/paper-reports` result
+H. `/paper-trading` result
+I. P25 evidence status
+J. DB timeout / infra warnings after 15:20
+K. Any user-facing issue found
+L. Whether code fix is needed
+M. Recommended next action
+
+---
+
+# Strict rules
+
+```text
+Observation only.
+No code changes.
+No trade replay.
+No manual trade creation.
+No manual close.
+No strategy changes.
+No scoring changes.
+No paper-execution changes.
+No scheduler changes.
+No env/secret/DNS changes.
+No DB schema changes.
+```
+
+Stop after the report.
