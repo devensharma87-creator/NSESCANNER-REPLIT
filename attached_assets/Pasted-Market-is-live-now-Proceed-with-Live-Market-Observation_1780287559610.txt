@@ -1,0 +1,230 @@
+Market is live now.
+
+Proceed with **Live Market Observation Only**.
+
+No new code.
+
+No strategy change.
+
+No scoring change.
+
+No paper-execution change.
+
+No backend change unless a real production error is found and I approve separately.
+
+# Live Market Observation Checklist
+
+Please monitor production during the live market session and report observations only.
+
+## 1. Production health
+
+Check:
+
+```text
+/api/healthz
+production logs
+owner route protection
+```
+
+Confirm:
+
+```text
+health = 200
+owner routes = 401 AUTH_REQUIRED when unauthenticated
+no crash/restart loop
+no repeated 500s
+```
+
+## 2. Paper trading / F&O cockpit
+
+Open/check `/paper-trading`.
+
+Observe:
+
+```text
+F&O cockpit loads
+open trades section loads
+closed trades section loads
+P25 evidence panel loads
+no internal_server_error
+no ZodError
+no TIME_EXIT_1520 enum error
+```
+
+Do not change any trade logic.
+
+Do not force any trade.
+
+Do not close any trade manually unless I explicitly approve.
+
+## 3. Live market data freshness
+
+Check whether market data is updating.
+
+Observe:
+
+```text
+NIFTY / BANKNIFTY / SENSEX quotes
+option chain freshness
+last updated time
+Kite status
+Yahoo fallback status
+```
+
+Report whether data is:
+
+```text
+live
+delayed
+fallback
+stale
+unavailable
+```
+
+Do not change data-source routing.
+
+## 4. F&O paper trade observation
+
+If any F&O paper trade appears, record:
+
+```text
+index
+symbol/option
+entry time
+entry price
+setup / signal reason
+confidence
+stop
+target
+current P&L
+MFE/MAE if available
+exit reason if closed
+```
+
+Do not modify strategy.
+
+Do not modify stop/target/exit rules.
+
+## 5. P25 evidence monitoring
+
+Check current P25 evidence status.
+
+Report:
+
+```text
+current eligible count
+remaining count
+new eligible trade added today? yes/no
+any MFE available? yes/no
+any P25-related error? yes/no
+```
+
+Do not change P25 threshold.
+
+Do not change P25 logic.
+
+## 6. `/paper-reports`
+
+Check `/paper-reports`.
+
+Confirm:
+
+```text
+Overview loads
+F&O report loads
+Equity report loads
+Journal tab loads
+Performance tables load
+Best/worst trades load
+no internal_server_error
+TIME_EXIT_1520 displays as TIME EXIT 1520 if present
+```
+
+## 7. Stocks to Watch
+
+Check `/stocks-to-watch`.
+
+Confirm:
+
+```text
+page loads
+scanner data renders
+freshness indicator visible
+no broken cards
+no NaN / undefined
+no internal_server_error
+```
+
+## 8. Background logs
+
+Watch for repeated errors:
+
+```text
+Connection terminated due to connection timeout
+DrizzleQueryError
+Participant OI backfill failed
+Kite ECONNABORTED
+Yahoo chart timed out
+ZodError
+internal_server_error
+```
+
+Classify each as:
+
+```text
+one-time
+repeated
+user-facing
+background fail-open
+needs fix
+```
+
+Do not implement fixes unless I approve.
+
+## 9. After 3:20 PM IST / TIME EXIT 1520
+
+After the 15:20 IST force-exit window, check whether any F&O trade exits with:
+
+```text
+TIME_EXIT_1520
+```
+
+Expected UI display:
+
+```text
+TIME EXIT 1520
+```
+
+Confirm no enum error and no report failure.
+
+## 10. Output required
+
+Produce **Live Market Observation Report** with:
+
+A. Time window observed
+B. Production health result
+C. Market data freshness result
+D. F&O cockpit result
+E. Any open F&O trades
+F. Any closed F&O trades
+G. P25 evidence status
+H. `/paper-reports` result
+I. `/stocks-to-watch` result
+J. Background log warnings/errors
+K. Any user-facing issue found
+L. Whether code fix is needed
+M. Recommended next action
+
+Important:
+
+```text
+Observation only.
+No code changes.
+No strategy changes.
+No paper-execution changes.
+No scheduler changes.
+No env/secret/DNS changes.
+No replit.md/memory/docs changes.
+```
+
+Stop after the report.
