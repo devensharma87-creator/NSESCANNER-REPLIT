@@ -39,6 +39,7 @@ import { fetchBinanceTickers, fetchBinanceKlines } from "./binance";
 import { fetchYahooCandles, fetchYahooQuoteSnapshot, type YfCandle } from "./yahoo";
 import { loadDisabledSet } from "./disabledSymbols";
 import { notifyDeadSymbol } from "../notifications/deadSymbolNotifier";
+import { safeFireAndForget } from "./safeDispatch";
 
 let booted = false;
 
@@ -56,52 +57,86 @@ let booted = false;
  */
 export const DEAD_SYMBOL_STREAK_THRESHOLD = 5;
 
+/**
+ * W6-P5 Phase 1G — soft-fail logger for global-scanner DB writes.
+ *
+ * Every DB helper in this module is best-effort: the global scanner is a
+ * read-mostly dashboard fed by background refreshers, and a transient DB
+ * timeout/rejection must degrade (stale data) rather than reject up the
+ * call stack — a rejection escaping a `setInterval` dispatch is an
+ * unhandled rejection, which Node treats as fatal and would crash the
+ * shared api-server (and every subsystem it hosts). We log a compact
+ * warning and return so the cycle continues / the next cycle retries.
+ */
+function logGlobalDbSoftFail(op: string, err: unknown): void {
+  logger.warn(
+    { op, err: err instanceof Error ? err.message : String(err) },
+    "global scanner DB write failed (fail-soft — degraded, not fatal)",
+  );
+}
+
 export async function seedGlobalUniverse(): Promise<void> {
   // Insert any missing rows; never delete (a row removed from code shouldn't
   // wipe existing watchlist references). Update display fields if changed.
+  // W6-P5 Phase 1G: per-row fail-soft so a single bad row / transient DB
+  // error can't abort the whole seed (which would reject startGlobalDataPump).
+  let seeded = 0;
   for (const inst of UNIVERSE) {
-    await db.insert(globalInstrumentsTable).values({
-      symbol: inst.symbol,
-      displayName: inst.displayName,
-      assetClass: inst.assetClass,
-      source: inst.source,
-      sourceSymbol: inst.sourceSymbol,
-      currency: inst.currency ?? null,
-      notes: inst.notes ?? null,
-    }).onConflictDoUpdate({
-      target: globalInstrumentsTable.symbol,
-      set: {
+    try {
+      await db.insert(globalInstrumentsTable).values({
+        symbol: inst.symbol,
         displayName: inst.displayName,
         assetClass: inst.assetClass,
         source: inst.source,
         sourceSymbol: inst.sourceSymbol,
         currency: inst.currency ?? null,
         notes: inst.notes ?? null,
-      },
-    });
+      }).onConflictDoUpdate({
+        target: globalInstrumentsTable.symbol,
+        set: {
+          displayName: inst.displayName,
+          assetClass: inst.assetClass,
+          source: inst.source,
+          sourceSymbol: inst.sourceSymbol,
+          currency: inst.currency ?? null,
+          notes: inst.notes ?? null,
+        },
+      });
+      seeded++;
+    } catch (err) {
+      logGlobalDbSoftFail("seedGlobalUniverse", err);
+    }
   }
-  logger.info({ count: UNIVERSE.length }, "Seeded global scanner universe");
+  logger.info({ count: UNIVERSE.length, seeded }, "Seeded global scanner universe");
 }
 
 async function recordSyncOk(source: GlobalDataSource, notes?: string): Promise<void> {
   const now = new Date();
-  await db.insert(globalSyncLogsTable).values({
-    source, lastOkAt: now, okCount: 1, notes: notes ?? null, updatedAt: now,
-  }).onConflictDoUpdate({
-    target: globalSyncLogsTable.source,
-    set: { lastOkAt: now, notes: notes ?? null, updatedAt: now },
-  });
+  try {
+    await db.insert(globalSyncLogsTable).values({
+      source, lastOkAt: now, okCount: 1, notes: notes ?? null, updatedAt: now,
+    }).onConflictDoUpdate({
+      target: globalSyncLogsTable.source,
+      set: { lastOkAt: now, notes: notes ?? null, updatedAt: now },
+    });
+  } catch (err) {
+    logGlobalDbSoftFail("recordSyncOk", err);
+  }
 }
 
 async function recordSyncErr(source: GlobalDataSource, err: unknown): Promise<void> {
   const now = new Date();
   const msg = err instanceof Error ? err.message : String(err);
-  await db.insert(globalSyncLogsTable).values({
-    source, lastErrorAt: now, lastError: msg, errCount: 1, updatedAt: now,
-  }).onConflictDoUpdate({
-    target: globalSyncLogsTable.source,
-    set: { lastErrorAt: now, lastError: msg, updatedAt: now },
-  });
+  try {
+    await db.insert(globalSyncLogsTable).values({
+      source, lastErrorAt: now, lastError: msg, errCount: 1, updatedAt: now,
+    }).onConflictDoUpdate({
+      target: globalSyncLogsTable.source,
+      set: { lastErrorAt: now, lastError: msg, updatedAt: now },
+    });
+  } catch (dbErr) {
+    logGlobalDbSoftFail("recordSyncErr", dbErr);
+  }
 }
 
 /**
@@ -121,9 +156,13 @@ async function recordTransientUpstreamError(
   source: GlobalDataSource,
   message: string,
 ): Promise<void> {
-  await db.update(globalLivePricesTable)
-    .set({ lastError: message, source })
-    .where(eq(globalLivePricesTable.symbol, symbol));
+  try {
+    await db.update(globalLivePricesTable)
+      .set({ lastError: message, source })
+      .where(eq(globalLivePricesTable.symbol, symbol));
+  } catch (err) {
+    logGlobalDbSoftFail("recordTransientUpstreamError", err);
+  }
 }
 
 /**
@@ -152,30 +191,40 @@ async function recordLivePriceError(
   // freshness budget always marks it stale and `buildDashboardRows` shows
   // nulls for the price columns.
   const NEVER_OK = new Date(0);
-  const result = await db
-    .insert(globalLivePricesTable)
-    .values({
-      symbol,
-      source,
-      price: null,
-      lastError: message,
-      failureStreak: 1,
-      lastFailureAt: new Date(),
-      updatedAt: NEVER_OK,
-    })
-    .onConflictDoUpdate({
-      target: globalLivePricesTable.symbol,
-      set: {
-        lastError: message,
+  let result: { failureStreak: number }[];
+  try {
+    result = await db
+      .insert(globalLivePricesTable)
+      .values({
+        symbol,
         source,
+        price: null,
+        lastError: message,
+        failureStreak: 1,
         lastFailureAt: new Date(),
-        // Increment atomically so concurrent chunks/workers don't race.
-        failureStreak: sql`${globalLivePricesTable.failureStreak} + 1`,
-        // DO NOT touch updatedAt — the freshness budget needs the existing
-        // (possibly old) value to compute `ageMs` / `stale` correctly.
-      },
-    })
-    .returning({ failureStreak: globalLivePricesTable.failureStreak });
+        updatedAt: NEVER_OK,
+      })
+      .onConflictDoUpdate({
+        target: globalLivePricesTable.symbol,
+        set: {
+          lastError: message,
+          source,
+          lastFailureAt: new Date(),
+          // Increment atomically so concurrent chunks/workers don't race.
+          failureStreak: sql`${globalLivePricesTable.failureStreak} + 1`,
+          // DO NOT touch updatedAt — the freshness budget needs the existing
+          // (possibly old) value to compute `ageMs` / `stale` correctly.
+        },
+      })
+      .returning({ failureStreak: globalLivePricesTable.failureStreak });
+  } catch (err) {
+    // W6-P5 Phase 1G: fail-soft. A DB failure here must not reject the
+    // refresher (→ unhandled rejection → process crash). We lose this
+    // cycle's streak increment + the dead-symbol threshold check; the next
+    // cycle re-attempts. Return BEFORE the notify fan-out.
+    logGlobalDbSoftFail("recordLivePriceError", err);
+    return;
+  }
 
   const newStreak = result[0]?.failureStreak ?? 0;
   if (newStreak === DEAD_SYMBOL_STREAK_THRESHOLD) {
@@ -213,22 +262,10 @@ async function upsertLivePrice(
   },
 ): Promise<void> {
   const now = new Date();
-  await db.insert(globalLivePricesTable).values({
-    symbol,
-    source,
-    price: patch.price,
-    prevClose: patch.prevClose ?? null,
-    changeAbs: patch.changeAbs ?? null,
-    changePct: patch.changePct ?? null,
-    dayHigh: patch.dayHigh ?? null,
-    dayLow: patch.dayLow ?? null,
-    volume: patch.volume ?? null,
-    updatedAt: now,
-    lastError: patch.lastError ?? null,
-    failureStreak: 0,
-  }).onConflictDoUpdate({
-    target: globalLivePricesTable.symbol,
-    set: {
+  try {
+    await db.insert(globalLivePricesTable).values({
+      symbol,
+      source,
       price: patch.price,
       prevClose: patch.prevClose ?? null,
       changeAbs: patch.changeAbs ?? null,
@@ -236,14 +273,34 @@ async function upsertLivePrice(
       dayHigh: patch.dayHigh ?? null,
       dayLow: patch.dayLow ?? null,
       volume: patch.volume ?? null,
-      source,
       updatedAt: now,
       lastError: patch.lastError ?? null,
-      // Reset the failure streak — a successful refresh ends any prior run
-      // of misses. `lastFailureAt` is preserved as historical context.
       failureStreak: 0,
-    },
-  });
+    }).onConflictDoUpdate({
+      target: globalLivePricesTable.symbol,
+      set: {
+        price: patch.price,
+        prevClose: patch.prevClose ?? null,
+        changeAbs: patch.changeAbs ?? null,
+        changePct: patch.changePct ?? null,
+        dayHigh: patch.dayHigh ?? null,
+        dayLow: patch.dayLow ?? null,
+        volume: patch.volume ?? null,
+        source,
+        updatedAt: now,
+        lastError: patch.lastError ?? null,
+        // Reset the failure streak — a successful refresh ends any prior run
+        // of misses. `lastFailureAt` is preserved as historical context.
+        failureStreak: 0,
+      },
+    });
+  } catch (err) {
+    // W6-P5 Phase 1G: fail-soft. The caller still increments its `ok`
+    // counter for this symbol even though the write was dropped — an
+    // accounting drift that only occurs while the DB is down, never a
+    // crash. The next cycle re-writes the fresh price.
+    logGlobalDbSoftFail("upsertLivePrice", err);
+  }
 }
 
 // ── Binance batch refresh ────────────────────────────────────────────
@@ -679,26 +736,27 @@ export async function startGlobalDataPump(): Promise<void> {
   // indices) doesn't slam Yahoo's per-IP throttle in a single boot
   // burst — that tripped the shared rate-limit breaker in `yahoo.ts`
   // reliably when they all fired simultaneously.
-  void refreshBinance();
-  TIMERS.push(setInterval(() => { void refreshBinance(); }, 30_000));
+  safeFireAndForget("binance", refreshBinance);
+  TIMERS.push(setInterval(() => { safeFireAndForget("binance", refreshBinance); }, 30_000));
 
   // Each Yahoo refresher's recurring interval is started from inside its
   // staggered boot kickoff, so the steady-state cycles stay phase-shifted
   // (not just the first one) and never all align on the same 90s tick.
   const startStaggered = (
+    label: string,
     boot: number,
     intervalMs: number,
     fn: () => Promise<void>,
   ): void => {
     setTimeout(() => {
-      void fn();
-      TIMERS.push(setInterval(() => { void fn(); }, intervalMs));
+      safeFireAndForget(label, fn);
+      TIMERS.push(setInterval(() => { safeFireAndForget(label, fn); }, intervalMs));
     }, boot);
   };
-  startStaggered(   500, 60_000, refreshCommodities);
-  startStaggered( 3_500, 90_000, refreshForex);
-  startStaggered( 7_000, 90_000, refreshEquities);
-  startStaggered(11_000, 90_000, refreshIndices);
+  startStaggered("commodities",   500, 60_000, refreshCommodities);
+  startStaggered("forex",       3_500, 90_000, refreshForex);
+  startStaggered("equities",    7_000, 90_000, refreshEquities);
+  startStaggered("indices",    11_000, 90_000, refreshIndices);
 
   logger.info(
     "Global scanner data pump started (binance 30s, commodities 60s, forex/equities/indices 90s; Yahoo cycles permanently staggered)",
