@@ -1,0 +1,249 @@
+This report is accepted. The diagnosis changed the conclusion clearly: this is not normal max_connections exhaustion; it looks more like Neon connection-establishment instability / cold connection churn, because production has max_connections = 450, only one DB pool in code, pool max 10 per API replica, and W6-P4B5 already showed in-process waiting = 0.
+
+The issue is now serious enough because two real F&O paper open attempts were dropped due to DB timeout. So the next step should be:
+
+1. Check whether Neon pooled endpoint is being used
+2. Prepare Phase 1 implementation plan
+3. Run post-15:20 TIME_EXIT_1520 observation later
+
+Send this to the coder:
+
+W6-P5 Phase 0 DB Connection Diagnosis Report is accepted.
+
+Important accepted conclusion:
+
+This is not max_connections exhaustion.
+This is not too many separate DB pools.
+The likely issue is Neon connection-establishment latency/instability + autoscale cold-start connection churn + short idle timeout.
+
+Also accepted:
+
+The issue is now affecting the paper-execution path.
+Two F&O paper open attempts were dropped due to DB timeout.
+loadSetupWinRates is repeatedly failing open.
+
+Proceed with the next step, but do not implement code yet.
+
+W6-P5 Phase 0A + Phase 1 Planning Only
+Part A — Operator check: Neon pooled endpoint verification
+
+Check whether production DATABASE_URL uses Neon’s pooled endpoint.
+
+Important rules:
+
+Do not print the DATABASE_URL.
+Do not expose secrets.
+Do not expose username/password/host in full.
+Do not change env/secrets.
+Do not change the DB URL.
+Do not restart production.
+
+Only report safely:
+
+DATABASE_URL checked: yes/no
+Endpoint type: pooled / direct / unable to confirm
+Port type: pooled 6543 / direct 5432 / unable to confirm
+Host pattern: contains "-pooler" yes/no / unable to confirm
+Recommended action if not pooled
+
+If production is already using pooled endpoint, say so.
+
+If production is using direct endpoint, recommend a controlled env-change plan separately, but do not change anything.
+
+If unable to inspect safely, say honestly.
+
+Part B — W6-P5 Phase 1 Implementation Plan Only
+
+Prepare a detailed implementation plan for Phase 1.
+
+No implementation.
+
+No code change.
+
+No env change.
+
+No DB schema change.
+
+No scheduler change.
+
+No trading/scoring/paper-execution semantics change.
+
+Phase 1 goal
+
+Make the app more tolerant of Neon transient connection-establishment failures without changing trading logic.
+
+Focus only on reliability wrappers and fail-neutral behavior.
+
+Phase 1 scope to plan
+1. Critical query retry/backoff wrapper
+
+Plan a bounded retry/backoff for transient DB connection-timeout failures only.
+
+Candidate paths:
+
+paper_trade_fo dedup open query
+paper_trade_eq open-status tick query
+loadSetupWinRates query
+
+Rules:
+
+Retry only transient connection-establishment errors.
+Do not retry logic errors.
+Do not create duplicate trades.
+Do not replay missed trades.
+Do not force trades.
+Do not change signal rules.
+
+Plan:
+
+where retry wrapper should live,
+how to detect retryable errors,
+retry count,
+jitter/backoff timing,
+logging format,
+how to avoid log spam,
+how to prove idempotency.
+2. F&O paper-open idempotency verification
+
+Before adding retry to the open path, verify existing protection.
+
+Report:
+
+dedup query protection
+unique constraint if any
+advisory lock if any
+CAS / transaction guard if any
+whether retry can double-open
+whether extra DB uniqueness is needed
+
+Do not change schema.
+
+Do not add constraints.
+
+Only verify and plan.
+
+3. loadSetupWinRates fail-neutral cache plan
+
+Plan a last-known win-rate cache so that LOW_WINRATE gate does not fail fully open when DB times out.
+
+Plan:
+
+cache source
+cache TTL
+trading-day reset
+empty-cache behavior
+stale-cache logging
+whether fail-neutral or fail-open should be used
+
+Expected target:
+
+If DB query succeeds: refresh cache.
+If DB query times out: use last-known cache.
+If no cache exists: conservative fallback to BASELINE/demote-only or current fail-open — explain recommendation.
+
+Do not implement.
+
+Do not change the gate now.
+
+4. DB pool idle timeout / warm connection plan
+
+The diagnosis suggests idleTimeoutMillis = 30s may be causing frequent cold redials.
+
+Plan options:
+
+increase idleTimeoutMillis
+small min warm pool if supported
+keep current pool max
+do not blindly increase max pool size
+
+Report risk/benefit.
+
+Do not change pool config yet.
+
+5. Participant OI boot backfill plan
+
+Plan safe mitigation only:
+
+defer heavy boot backfill
+avoid 30-day burst at cold start
+single retry/backoff if needed
+collapse noisy logs
+keep fail-soft
+
+Do not change scheduler now.
+
+6. Global live price / override resilience plan
+
+Plan only:
+
+global_instrument_overrides cache
+global_live_prices write batching
+bounded retry/backoff
+avoid blocking user routes
+avoid increasing DB pressure
+
+Do not implement.
+
+Required output
+
+Produce W6-P5 Phase 1 Implementation Plan with:
+
+A. Executive summary
+B. Confirmation of Neon pooled/direct endpoint check
+C. Root-cause conclusion after endpoint check
+D. Phase 1 proposed changes
+E. Exact files likely affected
+F. Retry/backoff design
+G. Error classification: retryable vs non-retryable
+H. F&O open idempotency verification
+I. loadSetupWinRates fail-neutral cache design
+J. Pool idle-timeout / warm connection recommendation
+K. Participant OI mitigation plan
+L. Global live-price / override mitigation plan
+M. Tests required before implementation
+N. Production validation checklist
+O. Rollback plan
+P. Items explicitly out of scope
+Q. Recommendation: implement now / wait / operator env fix first
+
+Strictly out of scope
+
+Do not change:
+
+trading logic
+signal generation
+F&O entry rules
+F&O exit rules
+force-exit timing
+stop/target/sizing
+P25
+MFE/MAE
+paper-trade execution semantics
+DB schema
+auth
+env/secrets
+DNS
+OpenAPI/codegen
+replit.md
+memory/docs
+
+Do not implement W6-P5 Phase 1 yet.
+
+Do not replay missed trades.
+
+Do not manually create trades.
+
+Stop after the Phase 1 plan.
+
+Separate pending task
+
+After 15:20 IST today, run the post-15:20 observation separately:
+
+TIME_EXIT_1520 verification
+/paper-reports check
+/paper-trading check
+no ZodError
+no enum error
+no paper-route 500
+
+Do not mix this with implementation.
