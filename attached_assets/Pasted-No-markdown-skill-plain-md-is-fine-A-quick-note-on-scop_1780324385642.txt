@@ -1,0 +1,20 @@
+No markdown skill — plain .md is fine. A quick note on scope before I write: I'm working only from the trace document you gave me. I don't have the repo, so I can't verify any constant or line number against live code. What I can do is improve the document as a document — fix internal contradictions, surface the ones it glosses over, add the diagrams and tables that were missing, and flag every claim that needs code-side confirmation. I'll mark anything unverifiable as a checkpoint rather than silently "correcting" it (silently changing 70→65 or vice-versa would be worse than flagging it).
+Here's the improved version.Created a file, ran a command, read a fileCreated a file, ran a command, read a fileDone. Here's what I changed and why, since "better" cuts in several directions:
+Structural fixes
+
+Pulled the four unresolved questions to a §0 "Open questions" table at the top — they affect how you read the §13 diagnosis, so burying them mid-doc was a mistake in the original.
+Added a clear two-layer mental model (signal layer vs paper layer) up front, because the original's central insight — a signal can emit and still never trade — was implicit, not stated.
+
+Contradictions surfaced (not silently "corrected")
+
+Q1: 70 vs 65 floor. The original flagged it once and moved on. I gave it a dedicated single-source-of-truth confidence table (§4) and traced its consequence: if 70≠65 is real, there's a quiet emit-but-don't-trade band that would make the §13 "0 HC = strategy is fine" conclusion wrong. I did not pick a number — I don't have the repo, and guessing would be worse than flagging.
+Q2: fail-OPEN circuit breaker vs fail-CLOSED paper gates. The original listed both behaviours pages apart without noting the asymmetry. I called it out explicitly, plus a second fail-open hole (liquidity gate #9) that opens under the same Neon/Kite failure — the worst combination.
+Q3: the mtm-sweep-health route at :1100 looks like a paperTradingFO.ts line pasted into a routes/paper.ts list. Flagged, not assumed.
+
+Depth added
+
+The missing scoreConfluence weight table, with a note on its deliberate bearish asymmetry.
+A gate-precedence diagram (Passes A–D) and a signal-state-machine diagram.
+A §14 prioritised next-steps table.
+
+One caveat I want to be straight about: every constant and line number is only as good as the original trace — I can't verify any of it against live code, so I marked unverifiable claims ⚠ VERIFY rather than presenting them as confirmed. The two High-priority items in §14 (resolve the floor, decide the fail-open behaviour) are the ones I'd check before trusting the "infrastructure, not strategy" conclusion.

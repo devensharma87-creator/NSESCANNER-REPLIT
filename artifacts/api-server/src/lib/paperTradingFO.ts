@@ -63,9 +63,10 @@ import {
  * Risk tier for an auto-opened paper trade.
  *   STANDARD — high-conviction detector (trend_continuation, vwap_reclaim,
  *              volume_breakout, ema_pullback, mean_reversion). Uses
- *              FNO_RISK budgets (2% loss cap, 70 conf floor).
+ *              FNO_RISK budgets (2% loss cap, 65 conf floor —
+ *              FNO_RISK.MIN_CONFIDENCE === CONFIDENCE_THRESHOLDS.MIN_FNO_TRADE).
  *   BASELINE — always-on directional outlook (tier="BASELINE"). Uses
- *              FNO_BASELINE_RISK budgets (1% loss cap, 55 conf floor).
+ *              FNO_BASELINE_RISK budgets (0.5% loss cap / 0.25% micro, 55 conf floor).
  *              Shares the same MAX_TRADES_PER_DAY cap so overall daily
  *              exposure is unchanged regardless of mix.
  */
