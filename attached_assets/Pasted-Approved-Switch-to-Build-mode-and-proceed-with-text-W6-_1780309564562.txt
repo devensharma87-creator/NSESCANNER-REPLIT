@@ -1,0 +1,123 @@
+Approved. Switch to Build mode and proceed with:
+
+```text
+W6-P5 Phase 1G: Global Scanner Failure Isolation
+```
+
+Scope is strictly limited to the accepted Phase 1G plan.
+
+# Approved implementation scope
+
+You may implement only:
+
+```text
+1. safeDispatch / safeFireAndForget utility
+2. guarded recurring timer dispatches
+3. fail-soft global scanner DB helpers
+4. presetScheduler boundary protection if needed
+5. tests for the above
+```
+
+Primary affected areas:
+
+```text
+artifacts/api-server/src/lib/global/dataLayer.ts
+artifacts/api-server/src/lib/global/presetScheduler.ts
+new safe dispatch utility if needed
+related tests only
+```
+
+# Goal
+
+A DB timeout or rejected promise inside the global scanner must not crash the shared `api-server`.
+
+The global scanner can degrade, stale, or log warnings, but it must not crash:
+
+```text
+F&O paper trader
+equity paper trader
+NSE scanner
+candle warehouse
+option snapshots
+paper reports
+api-server process
+```
+
+# Strictly out of scope
+
+Do not change:
+
+```text
+trading logic
+F&O signal logic
+equity signal logic
+scanner scoring
+paper-execution logic
+entry/exit rules
+stop/target/sizing
+TIME_EXIT_1520
+P25
+MFE/MAE
+DB schema
+env/secrets/DNS
+OpenAPI/codegen
+scheduler cadence
+pool size
+DATABASE_URL
+replit.md
+memory/docs
+```
+
+Do not implement broader W6-P5 DB retry/backoff in this task.
+
+Do not implement W6-P6.
+
+Do not replay missed trades.
+
+Do not manually create trades.
+
+Do not publish after implementation.
+
+# Required tests
+
+Add/update tests to prove:
+
+```text
+refreshBinance rejection is caught and does not escape
+refreshYahooBatch/source refresher rejection is caught and does not escape
+recordLivePriceError failure does not crash refresher
+recordTransientUpstreamError failure does not crash refresher
+recordSyncOk / recordSyncErr failure does not crash refresher
+presetScheduler tick/runOne rejection is caught if touched
+success path behavior remains unchanged
+scheduler cadence remains unchanged
+```
+
+Run:
+
+```text
+pnpm --filter @workspace/api-server run test
+pnpm run typecheck
+```
+
+Run scanner tests/build only if touched or if workspace requires it.
+
+# Final report required
+
+After implementation, provide:
+
+A. Files changed
+B. Exact scheduler boundaries guarded
+C. Exact DB helper failures made fail-soft
+D. Confirmation scheduler cadence unchanged
+E. Confirmation no trading/scoring/paper-execution logic changed
+F. Tests added/updated
+G. Full command results
+H. Any remaining known risk
+I. Production validation checklist
+J. Rollback plan
+K. Whether safe to publish
+
+Stop after the implementation report.
+
+Do not publish until I review and approve.

@@ -1,0 +1,229 @@
+W6-P5 Addendum: Global Scanner DB Failure Isolation Plan is accepted.
+
+Proceed with implementation of:
+
+```text id="mm8ioa"
+W6-P5 Phase 1G: Global Scanner Failure Isolation
+```
+
+Scope is strictly limited.
+
+# Goal
+
+Prevent global scanner DB timeout failures from crashing the shared `api-server` process.
+
+The global scanner may degrade, stale, or log warnings, but it must not crash:
+
+```text id="b8xgdu"
+api-server
+F&O paper trader
+equity paper trader
+NSE scanner
+candle warehouse
+option snapshots
+paper reports
+```
+
+# Accepted root cause
+
+The accepted crash mechanism is:
+
+```text id="aq7b4q"
+Recurring global scanner timers dispatch async refreshers using bare void calls.
+A DB timeout rejection can escape.
+There is no safe catch boundary at the interval dispatch.
+Node treats unhandled rejection as fatal.
+The whole api-server exits with status 1.
+```
+
+Affected areas include:
+
+```text id="xsnzcu"
+artifacts/api-server/src/lib/global/dataLayer.ts
+refreshBinance
+refreshCommodities
+refreshForex
+refreshEquities
+refreshIndices
+refreshYahooBatch
+loadDisabledSet
+upsertLivePrice
+recordLivePriceError
+recordTransientUpstreamError
+recordSyncOk
+recordSyncErr
+startGlobalDataPump
+```
+
+Also review the latent same-class boundary in:
+
+```text id="tvym4w"
+artifacts/api-server/src/lib/global/presetScheduler.ts
+tick
+runOne
+setInterval boundaries
+```
+
+---
+
+# Implementation scope
+
+## 1. Guard recurring scheduler boundaries
+
+Replace unsafe interval dispatches like:
+
+```text id="mg8k6h"
+void refreshBinance()
+void fn()
+void tick()
+void runOne(...)
+```
+
+with safe dispatch wrappers that:
+
+```text id="tvxz4c"
+attach .catch()
+log structured warning/error
+do not throw
+allow next interval to continue
+do not change interval cadence
+do not block the event loop
+```
+
+Do not change the scheduler timing.
+
+Do not change refresh frequency.
+
+---
+
+## 2. Make global scanner DB helpers fail-soft
+
+Ensure these helper failures cannot escape and crash the process:
+
+```text id="o3dapy"
+loadDisabledSet
+upsertLivePrice
+recordLivePriceError
+recordTransientUpstreamError
+recordSyncOk
+recordSyncErr
+seedGlobalUniverse if applicable
+```
+
+Expected behavior:
+
+```text id="dw698x"
+DB timeout in global scanner = log warning + mark/stale/failure count if possible + continue
+DB timeout while recording failure = log compact warning + continue
+No thrown rejection escapes refresher boundary
+```
+
+Important:
+
+```text id="duzwiu"
+If the failure-recording write itself fails, do not let that secondary failure crash the process.
+```
+
+---
+
+## 3. Keep boot behavior intact
+
+The boot call is already guarded.
+
+Do not redesign boot.
+
+Do not change boot staggering.
+
+Only ensure recurring timer cycles are guarded.
+
+---
+
+## 4. Preset scheduler boundary
+
+Review `presetScheduler.ts` for the same unsafe promise-dispatch pattern.
+
+Add the same style of boundary protection if needed.
+
+Do not change scheduler cadence or task selection.
+
+---
+
+# Strictly out of scope
+
+Do not change:
+
+```text id="4t081a"
+trading logic
+F&O signal logic
+equity signal logic
+scanner scoring
+paper-execution logic
+entry/exit rules
+stop/target/sizing
+TIME_EXIT_1520
+P25
+MFE/MAE
+DB schema
+env/secrets/DNS
+OpenAPI/codegen
+scheduler cadence
+pool size
+DATABASE_URL
+replit.md
+memory/docs
+```
+
+Do not implement broader W6-P5 DB retry/backoff in this task.
+
+Do not implement W6-P6.
+
+Do not replay missed trades.
+
+Do not manually create trades.
+
+---
+
+# Tests required
+
+Add or update tests for:
+
+```text id="3e7pcz"
+refreshBinance rejection is caught and does not escape
+refreshYahooBatch / source refresher rejection is caught and does not escape
+recordLivePriceError failure does not crash refresher
+recordTransientUpstreamError failure does not crash refresher
+recordSyncOk / recordSyncErr failure does not crash refresher
+presetScheduler tick/runOne rejection is caught
+success path behavior remains unchanged
+```
+
+Also run:
+
+```text id="9fng0s"
+pnpm --filter @workspace/api-server run test
+pnpm run typecheck
+```
+
+Run scanner tests/build if touched or if workspace requires it.
+
+---
+
+# Required final report
+
+Produce **W6-P5 Phase 1G Implementation Report** with:
+
+A. Files changed
+B. Exact scheduler boundaries guarded
+C. Exact DB helper failures made fail-soft
+D. Confirmation scheduler cadence unchanged
+E. Confirmation no trading/scoring/paper-execution logic changed
+F. Tests added/updated
+G. Full command results
+H. Any remaining known risk
+I. Production validation checklist
+J. Rollback plan
+K. Whether safe to publish
+
+Stop after the implementation report.
+
+Do not publish until I review and approve.

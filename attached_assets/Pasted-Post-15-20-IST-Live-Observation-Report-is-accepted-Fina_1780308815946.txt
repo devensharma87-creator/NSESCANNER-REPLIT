@@ -1,0 +1,86 @@
+Post-15:20 IST Live Observation Report is accepted.
+
+Final verdict:
+
+```text id="ayb9dk"
+TIME_EXIT_1520 = PASSED
+F&O paper force-exit = healthy
+No F&O enum/display issue
+No paper-route 500
+No ZodError
+No orphan OPEN F&O rows
+No action needed for TIME_EXIT_1520
+```
+
+Accepted production results:
+
+* Two F&O paper trades opened today.
+* Both were open at 15:20 IST.
+* `forceCloseAllOpenFnoFor1520` ran correctly.
+* Both trades closed with:
+
+```text id="vvu2ig"
+exit_reason = TIME_EXIT_1520
+```
+
+* Realized P&L math was correct.
+* Zero orphan `OPEN` F&O rows remained.
+* `/paper-trading` and F&O event stream stayed healthy.
+* No `TIME_EXIT_1520` enum error.
+* No `ZodError`.
+* No `/paper/*` 500.
+
+This closes the post-15:20 observation.
+
+---
+
+Important separate finding:
+
+```text id="2u3syu"
+A morning crash loop occurred due to unhandled DrizzleQueryError / connection timeout in the global scanner path.
+```
+
+Observed root area:
+
+```text id="j771vr"
+artifacts/api-server/src/lib/global/dataLayer.ts
+refreshCommodities
+refreshBinance
+refreshYahooBatch
+```
+
+This is separate from F&O force-exit, but it is important because the global scanner runs inside the shared API server process.
+
+Do not implement a fix yet.
+
+Please open a **planning-only addendum** under W6-P5:
+
+```text id="ivfvzr"
+W6-P5 Addendum: Global Scanner DB Failure Isolation Plan
+```
+
+Planning scope only:
+
+* Identify why `global/dataLayer.ts` DB connection timeouts can crash the shared API server.
+* Identify which global scanner write/read paths are not safely fail-soft.
+* Plan how to isolate global scanner failures so DB timeout degrades the global scanner only, not the whole app.
+* Include `refreshCommodities`, `refreshBinance`, `refreshYahooBatch`, `global_live_prices`, and related global scanner writes.
+* Classify whether this belongs in W6-P5 Phase 1 or a separate W6-P5 Phase 1G.
+* Recommend safest first fix.
+* Include tests and production validation.
+* Do not change trading, F&O, equity, scanner scoring, paper execution, DB schema, env/secrets/DNS, scheduler, or OpenAPI.
+
+Strict instruction:
+
+```text id="8hr9qh"
+Planning only.
+No code changes.
+No implementation.
+No env/secret/DNS changes.
+No scheduler changes.
+No DB schema changes.
+No trading/scoring/paper-execution changes.
+No replit.md/memory/docs changes.
+```
+
+Stop after the planning addendum.
