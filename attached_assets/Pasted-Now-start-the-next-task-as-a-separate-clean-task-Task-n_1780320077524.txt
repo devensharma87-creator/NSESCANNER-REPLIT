@@ -1,0 +1,381 @@
+Now start the next task as a **separate clean task**.
+
+Task name:
+
+```text id="uxqoh2"
+Pre/Post Market / Pro Market Analyser UI + Data-Rich Upgrade
+```
+
+Important context:
+
+The previous W6-P5 Phase 1G task is complete, published, and closed.
+
+Do not mix this with any previous task.
+
+Before starting, confirm:
+
+```text id="9gnskb"
+working tree is clean
+Task #35 changes are already merged/published
+no pending W6-P5 edits
+no pending W6-P6 edits
+```
+
+---
+
+# Main requirement
+
+Upgrade the existing Pre/Post Market analysis page into a professional, data-rich **Pro Market Analyser**.
+
+The UI should follow the provided attachment/mockup as closely as possible.
+
+Important decision already confirmed:
+
+```text id="su4lh2"
+Keep existing automatic PRE / LIVE / POST behaviour based on IST market time.
+Do NOT show all 11 sections in every mode unless the current mode requires them.
+```
+
+Meaning:
+
+* PRE mode should show pre-market relevant sections.
+* LIVE mode should show live-market relevant sections.
+* POST mode should show post-market relevant sections.
+* Keep the automatic mode switching logic.
+* Do not remove the existing mode logic.
+
+---
+
+# Core rules
+
+```text id="chgh09"
+Do not remove existing data.
+Do not compromise existing information.
+Do not reduce any current analysis.
+Do not change trading logic.
+Do not change signal/scoring logic.
+Do not change paper-trading logic.
+Do not change DB schema.
+Do not change env/secrets/DNS.
+Do not change scheduler cadence.
+Do not touch W6-P5/W6-P6 logic.
+```
+
+This is a **UI + data presentation + missing-information upgrade**, not a trading-engine rewrite.
+
+---
+
+# Required work
+
+## 1. Audit current page first
+
+Before coding, inspect the current Pre/Post Market page and identify:
+
+```text id="xyf5bt"
+current components
+current API calls
+current data fields
+current PRE/LIVE/POST mode logic
+current loading states
+current empty states
+current error states
+current responsive layout
+```
+
+Report any mismatch between current page and mockup before changing.
+
+---
+
+## 2. Preserve existing automatic mode behaviour
+
+Keep:
+
+```text id="r4mffh"
+PRE mode before market
+LIVE mode during market
+POST mode after market
+IST-based auto switching
+```
+
+Do not replace this with a static combined page.
+
+If the attachment shows all sections together, adapt it into mode-aware rendering.
+
+---
+
+## 3. Match the mockup UI style closely
+
+Redesign the page to look premium and professional.
+
+Focus on:
+
+```text id="whuy46"
+clean card layout
+clear section hierarchy
+readable typography
+premium spacing
+consistent colors
+important metrics highlighted
+risk / bullish / bearish / neutral states clearly separated
+mobile responsiveness
+desktop grid layout
+```
+
+The visual design should be close to the attachment, but should not remove existing content.
+
+---
+
+## 4. Add missing market-analysis data points if available
+
+Add or surface missing data points where existing APIs already provide them.
+
+Suggested sections/data points:
+
+```text id="wng9iy"
+Market mood / bias
+Gap up / gap down
+Global cues
+Gift Nifty / SGX equivalent if available
+US market cues
+Asian market cues
+India VIX
+FII / DII cash activity
+Participant-wise OI
+Index futures OI
+Index options OI
+PCR
+Advance-decline
+Sector breadth
+Top gaining sectors
+Top losing sectors
+NIFTY / BANKNIFTY / SENSEX trend
+Support / resistance
+Previous day high / low
+Previous close
+VWAP / CPR / pivot context
+Volume / breadth confirmation
+Key stocks to watch
+High-risk warning
+Trade plan summary
+No-trade zone warning
+Data freshness timestamp
+Source / fallback label
+```
+
+Important:
+
+```text id="bq2x6m"
+Only use data that already exists or is safely available.
+Do not fake any value.
+Do not hardcode live market values.
+If data is unavailable, show a clean unavailable/stale state.
+```
+
+---
+
+## 5. Mode-wise section plan
+
+### PRE mode
+
+Focus on preparation:
+
+```text id="o2nyea"
+global cues
+gap expectation
+FII/DII activity
+participant OI
+India VIX
+sector setup
+index support/resistance
+pre-market bias
+stocks to watch
+risk warnings
+pre-market trade plan
+```
+
+### LIVE mode
+
+Focus on real-time confirmation:
+
+```text id="6pp21i"
+live index trend
+market breadth
+sector rotation
+VWAP / CPR / intraday levels
+option chain / PCR / OI shift
+F&O signal context
+live risk status
+data freshness
+```
+
+### POST mode
+
+Focus on review:
+
+```text id="sio1xg"
+market close summary
+FII/DII interpretation
+sector performance
+breadth review
+index movement
+what worked / what failed
+paper-trade summary if available
+next-day watchlist preparation
+```
+
+---
+
+# Important UI requirements
+
+## 1. Data freshness
+
+Every major block should show:
+
+```text id="kl6im0"
+last updated time
+data source
+fresh / stale / unavailable status
+```
+
+## 2. Explainability
+
+Add simple labels like:
+
+```text id="e3dxj5"
+Bullish
+Bearish
+Neutral
+High Risk
+No Trade Zone
+Confirmation Needed
+Data Stale
+```
+
+## 3. Do not overload the user
+
+Even if the backend has many data points, organize them clearly:
+
+```text id="h4d0xn"
+Top summary cards
+Main market bias panel
+FII/DII and OI panel
+Index levels panel
+Sector breadth panel
+Stocks to watch panel
+Risk warning panel
+Action plan panel
+```
+
+## 4. Mobile responsiveness
+
+Ensure the page works on:
+
+```text id="4p2z9n"
+desktop
+tablet
+mobile
+```
+
+No horizontal overflow.
+
+No broken cards.
+
+No unreadable small text.
+
+---
+
+# Error and fallback handling
+
+Add clean UI for:
+
+```text id="qhj5rq"
+loading
+stale data
+API failed
+partial data
+market closed
+data unavailable
+fallback source active
+```
+
+Do not show:
+
+```text id="cocjtj"
+undefined
+NaN
+null
+blank broken cards
+raw JSON
+```
+
+---
+
+# Strictly out of scope
+
+Do not change:
+
+```text id="u95cu8"
+F&O signal logic
+equity/swing signal logic
+paper-trade execution
+entry/exit rules
+stop/target/sizing
+TIME_EXIT_1520
+P25
+MFE/MAE
+DB schema
+env/secrets/DNS
+DATABASE_URL
+scheduler cadence
+global scanner failure isolation
+OpenAPI/codegen unless an existing API type already requires it
+replit.md
+memory/docs
+```
+
+If you need a new API or backend field, stop and ask first.
+
+---
+
+# Tests and validation
+
+Run appropriate checks:
+
+```text id="tq3ts0"
+typecheck
+frontend build
+relevant component tests if available
+api-server tests only if backend touched
+scanner build/tests only if scanner package touched
+```
+
+At minimum run:
+
+```text id="j4gw8f"
+pnpm run typecheck
+```
+
+If frontend/scanner app is touched, run its build/test command.
+
+---
+
+# Required final report
+
+Produce **Pre/Post Market Pro Analyser Upgrade Report** with:
+
+A. Files changed
+B. Current page audited
+C. Mockup/UI elements implemented
+D. PRE/LIVE/POST automatic behaviour confirmation
+E. Data points preserved
+F. New/missing data points added
+G. Error/fallback states added
+H. Mobile/responsive validation
+I. Tests and command results
+J. Any data unavailable / not implemented and why
+K. Confirmation no trading/scoring/paper-execution logic changed
+L. Whether safe to publish
+
+Stop after the report.
+
+Do not publish until I review and approve.

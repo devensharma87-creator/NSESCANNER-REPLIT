@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hrishi Associates · Pro Market Analyser · Pre & Post Market</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --surface: #14171c;
+    --surface-2: #1a1e25;
+    --surface-3: #232831;
+    --border: rgba(255,255,255,0.07);
+    --border-2: rgba(255,255,255,0.12);
+    --text: #e6e8eb;
+    --text-2: #a3a8b0;
+    --text-3: #6b7079;
+    --pos: #4ade80;
+    --pos-bg: rgba(74, 222, 128, 0.12);
+    --neg: #f87171;
+    --neg-bg: rgba(248, 113, 113, 0.12);
+    --warn: #fbbf24;
+    --warn-bg: rgba(251, 191, 36, 0.12);
+    --info: #60a5fa;
+    --info-bg: rgba(96, 165, 250, 0.12);
+    --accent: #c084fc;
+    --accent-bg: rgba(192, 132, 252, 0.12);
+    --radius: 10px;
+    --radius-sm: 6px;
+    --mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+  /* Header */
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand h1 { font-family: 'Georgia', serif; font-size: 22px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .brand .tag { font-size: 11px; color: var(--text-3); letter-spacing: 0.12em; text-transform: uppercase; }
+  .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--pos); margin-right: 6px; box-shadow: 0 0 0 0 rgba(74,222,128,0.7); animation: pulse 2s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(74,222,128,0.7); } 70% { box-shadow: 0 0 0 8px rgba(74,222,128,0); } 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); } }
+  .top-actions { display: flex; gap: 8px; font-size: 12px; color: var(--text-2); }
+  .badge-time { background: var(--surface); padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+
+  /* Index ticker */
+  .ticker { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 24px; }
+  .ticker-item { background: var(--surface); padding: 12px 14px; }
+  .ticker-name { font-size: 10px; color: var(--text-3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; }
+  .ticker-val { font-family: var(--mono); font-size: 15px; font-weight: 500; }
+  .ticker-chg { font-family: var(--mono); font-size: 11px; margin-top: 2px; }
+
+  /* Sections */
+  .section { margin-bottom: 28px; }
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .section-title { display: flex; align-items: center; gap: 10px; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-2); }
+  .section-num { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border: 1px solid var(--border-2); border-radius: 4px; font-size: 10px; color: var(--text-3); font-family: var(--mono); }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .subcard { background: var(--surface-2); border-radius: var(--radius-sm); padding: 12px 14px; }
+  .card-title { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+  .card-sub { font-size: 11px; color: var(--text-3); margin-bottom: 14px; }
+
+  /* Grids */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .grid-1-2 { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; }
+
+  /* Labels and values */
+  .label { font-size: 10px; color: var(--text-3); letter-spacing: 0.1em; text-transform: uppercase; }
+  .mono { font-family: var(--mono); }
+  .pos { color: var(--pos); }
+  .neg { color: var(--neg); }
+  .warn { color: var(--warn); }
+  .muted { color: var(--text-3); }
+
+  /* Pills */
+  .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 500; letter-spacing: 0.04em; }
+  .pill-bear { background: var(--neg-bg); color: var(--neg); }
+  .pill-bull { background: var(--pos-bg); color: var(--pos); }
+  .pill-neut { background: var(--surface-3); color: var(--text-2); }
+  .pill-warn { background: var(--warn-bg); color: var(--warn); }
+  .pill-info { background: var(--info-bg); color: var(--info); }
+
+  /* Tables */
+  table.t { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.t th { text-align: left; font-weight: 500; color: var(--text-3); padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+  table.t td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  table.t tr:last-child td { border-bottom: none; }
+  table.t tr:hover { background: var(--surface-2); }
+  .right { text-align: right; }
+  .center { text-align: center; }
+
+  /* Composite bias hero */
+  .bias-hero { display: grid; grid-template-columns: 1fr 1.4fr; gap: 24px; align-items: center; }
+  .bias-score { font-size: 64px; font-weight: 300; font-family: var(--mono); letter-spacing: -0.02em; line-height: 1; }
+  .bias-scale { font-size: 12px; color: var(--text-3); }
+  .bias-summary { font-size: 13px; color: var(--text-2); line-height: 1.6; margin-top: 12px; }
+
+  /* Bar charts */
+  .bar-row { display: grid; grid-template-columns: 130px 1fr 50px 36px; gap: 10px; align-items: center; font-size: 12px; margin-bottom: 6px; }
+  .bar-row-2 { display: grid; grid-template-columns: 90px 1fr 60px; gap: 10px; align-items: center; font-size: 12px; margin-bottom: 6px; }
+  .bar-track { height: 5px; background: var(--surface-3); border-radius: 3px; position: relative; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; }
+
+  .divider { height: 1px; background: var(--border); margin: 14px 0; }
+  .footer-note { font-size: 11px; color: var(--text-3); margin-top: 12px; line-height: 1.5; }
+
+  /* Level chips */
+  .level-card { display: grid; grid-template-columns: 1fr; gap: 4px; }
+  .level-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+  .level-row:last-child { border-bottom: none; }
+  .level-row .lab { color: var(--text-3); font-size: 11px; }
+  .level-row .val { font-family: var(--mono); font-weight: 500; }
+
+  /* Stat grid */
+  .stat { background: var(--surface-2); border-radius: var(--radius-sm); padding: 12px; }
+  .stat-label { font-size: 10px; color: var(--text-3); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; }
+  .stat-value { font-family: var(--mono); font-size: 18px; font-weight: 500; }
+  .stat-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+
+  /* Checklist */
+  .checklist { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px 24px; font-size: 12px; }
+  .checklist-item { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; }
+  .check-icon { color: var(--pos); flex-shrink: 0; margin-top: 1px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="brand">
+    <h1>Hrishi Associates</h1>
+    <span class="tag">Pro Market Analyser · Pre &amp; Post</span>
+  </div>
+  <div class="top-actions">
+    <span class="badge-time"><span class="live-dot"></span>Live · 20 May 2026 · 08:45 IST</span>
+    <span class="badge-time">Last refresh · 2 min ago</span>
+  </div>
+</div>
+
+<!-- TICKER -->
+<div class="ticker">
+  <div class="ticker-item">
+    <div class="ticker-name">Nifty 50</div>
+    <div class="ticker-val">23,618.00</div>
+    <div class="ticker-chg neg">-31.95 (-0.14%)</div>
+  </div>
+  <div class="ticker-item">
+    <div class="ticker-name">Bank Nifty</div>
+    <div class="ticker-val">53,307.10</div>
+    <div class="ticker-chg neg">-101.85 (-0.19%)</div>
+  </div>
+  <div class="ticker-item">
+    <div class="ticker-name">Sensex</div>
+    <div class="ticker-val">74,904.15</div>
+    <div class="ticker-chg neg">-290.10 (-0.39%)</div>
+  </div>
+  <div class="ticker-item">
+    <div class="ticker-name">Nifty Auto</div>
+    <div class="ticker-val">25,910.10</div>
+    <div class="ticker-chg pos">+213.20 (+0.82%)</div>
+  </div>
+  <div class="ticker-item">
+    <div class="ticker-name">India VIX</div>
+    <div class="ticker-val">18.69</div>
+    <div class="ticker-chg pos">-0.96 (-4.87%)</div>
+  </div>
+  <div class="ticker-item">
+    <div class="ticker-name">GIFT Nifty</div>
+    <div class="ticker-val">23,515.00</div>
+    <div class="ticker-chg neg">-103.00 (-0.19%)</div>
+  </div>
+</div>
+
+<!-- SECTION 1: COMPOSITE BIAS -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">1</span><span>Composite bias score · today's verdict</span></div>
+    <span class="muted" style="font-size: 11px;">Weighted across 7 signals · refreshed pre-open</span>
+  </div>
+  <div class="card">
+    <div class="bias-hero">
+      <div>
+        <div class="label" style="margin-bottom: 6px;">Bias for 20 May 2026</div>
+        <div style="display: flex; align-items: baseline; gap: 12px;">
+          <div class="bias-score neg">-3.5</div>
+          <div class="bias-scale">/ scale -10 to +10</div>
+        </div>
+        <div style="margin-top: 10px;"><span class="pill pill-bear">Bearish · range-bound</span></div>
+        <div class="bias-summary">
+          Gap-down opening near 23,540 likely. Defend 23,400; resistance 23,720. Premium-selling and fade-rallies favoured over directional longs.
+        </div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom: 10px;">Signal breakdown</div>
+        <div class="bar-row"><span class="muted">GIFT Nifty</span><div class="bar-track"><div class="bar-fill" style="width: 25%; background: var(--neg); margin-left: 25%;"></div></div><span class="pill pill-bear right">Bearish</span><span class="mono right neg">-1.0</span></div>
+        <div class="bar-row"><span class="muted">FII cash</span><div class="bar-track"><div class="bar-fill" style="width: 25%; background: var(--neg); margin-left: 25%;"></div></div><span class="pill pill-bear right">Bearish</span><span class="mono right neg">-1.0</span></div>
+        <div class="bar-row"><span class="muted">DII cash</span><div class="bar-track"><div class="bar-fill" style="width: 30%; background: var(--pos); margin-left: 50%;"></div></div><span class="pill pill-bull right">Bullish</span><span class="mono right pos">+1.5</span></div>
+        <div class="bar-row"><span class="muted">FII fut OI ×2</span><div class="bar-track"><div class="bar-fill" style="width: 50%; background: var(--neg);"></div></div><span class="pill pill-bear right">Bearish</span><span class="mono right neg">-2.5</span></div>
+        <div class="bar-row"><span class="muted">Option PCR</span><div class="bar-track"><div class="bar-fill" style="width: 6%; background: var(--text-3); margin-left: 47%;"></div></div><span class="pill pill-neut right">Neutral</span><span class="mono right">-0.3</span></div>
+        <div class="bar-row"><span class="muted">India VIX</span><div class="bar-track"><div class="bar-fill" style="width: 15%; background: var(--pos); margin-left: 50%;"></div></div><span class="pill pill-bull right">Cooling</span><span class="mono right pos">+0.5</span></div>
+        <div class="bar-row"><span class="muted">Macro overlay</span><div class="bar-track"><div class="bar-fill" style="width: 25%; background: var(--neg); margin-left: 25%;"></div></div><span class="pill pill-bear right">Hostile</span><span class="mono right neg">-1.2</span></div>
+        <div class="footer-note">Weighting: FII futures OI ×2.0 · Cash flow ×1.5 · GIFT/VIX/PCR/Macro ×1.0. Score = Σ(signal × weight) / Σ(weights), clipped to [-10, +10].</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 2: PARTICIPANT-WISE OI -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">2</span><span>Participant-wise OI · institutional positioning grid</span></div>
+    <span class="muted" style="font-size: 11px;">NSE F&amp;O participant report · 19 May 2026 EOD</span>
+  </div>
+  <div class="card">
+    <div class="grid-1-2">
+      <div>
+        <div class="grid-4" style="grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="stat">
+            <div class="stat-label">FII LSR · index fut</div>
+            <div class="stat-value neg">17.8%</div>
+            <div class="stat-sub">below 30% · bearish</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">FII fut Δ 1D</div>
+            <div class="stat-value neg">+9,104</div>
+            <div class="stat-sub">added shorts</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Client fut net</div>
+            <div class="stat-value pos">+1.59L</div>
+            <div class="stat-sub">retail long</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Pro fut net</div>
+            <div class="stat-value">+25.8K</div>
+            <div class="stat-sub">mild long</div>
+          </div>
+        </div>
+        <div class="footer-note" style="margin-top: 12px;">
+          <span class="warn">Smart-money / retail divergence is HIGH.</span> Historically resolves in FIIs' favour unless price action confirms a short squeeze.
+        </div>
+      </div>
+      <div>
+        <table class="t">
+          <thead>
+            <tr>
+              <th>Segment</th>
+              <th class="right">FII</th>
+              <th class="right">DII</th>
+              <th class="right">Pro</th>
+              <th class="right">Client</th>
+              <th class="center">Signal</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Index futures</td>
+              <td class="right mono neg">-2,16,507</td>
+              <td class="right mono pos">+31,974</td>
+              <td class="right mono pos">+25,811</td>
+              <td class="right mono pos">+1,58,722</td>
+              <td class="center"><span class="pill pill-bear">FII short</span></td>
+            </tr>
+            <tr>
+              <td>Stock futures</td>
+              <td class="right mono pos">+18,42,310</td>
+              <td class="right mono pos">+45,210</td>
+              <td class="right mono neg">-2,18,540</td>
+              <td class="right mono neg">-16,68,980</td>
+              <td class="center"><span class="pill pill-neut">Stock-specific</span></td>
+            </tr>
+            <tr>
+              <td>Index call OI</td>
+              <td class="right mono neg">-1,84,220</td>
+              <td class="right mono">+1,820</td>
+              <td class="right mono neg">-92,410</td>
+              <td class="right mono pos">+2,74,810</td>
+              <td class="center"><span class="pill pill-bear">Call writing</span></td>
+            </tr>
+            <tr>
+              <td>Index put OI</td>
+              <td class="right mono pos">+1,42,610</td>
+              <td class="right mono">+3,210</td>
+              <td class="right mono neg">-86,720</td>
+              <td class="right mono neg">-59,100</td>
+              <td class="center"><span class="pill pill-bull">Put buying</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 3: OI BUILDUP -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">3</span><span>Index OI buildup · what kind of move was it?</span></div>
+    <span class="muted" style="font-size: 11px;">Price × OI matrix · current-month futures</span>
+  </div>
+  <div class="card">
+    <div class="grid-4">
+      <div class="subcard">
+        <div class="label">Nifty Fut</div>
+        <div style="margin-top: 6px;"><span class="pill pill-bear">Short buildup</span></div>
+        <div class="level-row" style="margin-top: 8px;"><span class="lab">Price Δ</span><span class="val neg">-0.14%</span></div>
+        <div class="level-row"><span class="lab">OI Δ</span><span class="val pos">+3.1%</span></div>
+        <div class="level-row"><span class="lab">Premium</span><span class="val">+8 pts</span></div>
+      </div>
+      <div class="subcard">
+        <div class="label">Bank Nifty Fut</div>
+        <div style="margin-top: 6px;"><span class="pill pill-bear">Short buildup</span></div>
+        <div class="level-row" style="margin-top: 8px;"><span class="lab">Price Δ</span><span class="val neg">-0.24%</span></div>
+        <div class="level-row"><span class="lab">OI Δ</span><span class="val pos">+2.4%</span></div>
+        <div class="level-row"><span class="lab">Premium</span><span class="val neg">-12 pts</span></div>
+      </div>
+      <div class="subcard">
+        <div class="label">FinNifty Fut</div>
+        <div style="margin-top: 6px;"><span class="pill pill-neut">Long unwinding</span></div>
+        <div class="level-row" style="margin-top: 8px;"><span class="lab">Price Δ</span><span class="val neg">-0.45%</span></div>
+        <div class="level-row"><span class="lab">OI Δ</span><span class="val neg">-1.8%</span></div>
+        <div class="level-row"><span class="lab">Premium</span><span class="val">+2 pts</span></div>
+      </div>
+      <div class="subcard">
+        <div class="label">Sensex Fut</div>
+        <div style="margin-top: 6px;"><span class="pill pill-bear">Short buildup</span></div>
+        <div class="level-row" style="margin-top: 8px;"><span class="lab">Price Δ</span><span class="val neg">-0.39%</span></div>
+        <div class="level-row"><span class="lab">OI Δ</span><span class="val pos">+1.6%</span></div>
+        <div class="level-row"><span class="lab">Premium</span><span class="val">+5 pts</span></div>
+      </div>
+    </div>
+    <div class="footer-note" style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px;">
+      <span><span class="pill pill-bear">Short buildup</span> &nbsp; Price ↓ + OI ↑ · bearish</span>
+      <span><span class="pill pill-bull">Long buildup</span> &nbsp; Price ↑ + OI ↑ · bullish</span>
+      <span><span class="pill pill-neut">Long unwinding</span> &nbsp; Price ↓ + OI ↓ · weak hands exit</span>
+      <span><span class="pill pill-warn">Short covering</span> &nbsp; Price ↑ + OI ↓ · squeeze</span>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 4: STRIKE-LEVEL OI -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">4</span><span>Strike-level OI changes · where the money moved today</span></div>
+    <span class="muted" style="font-size: 11px;">Nifty weekly · expiry 21 May 2026 · spot 23,618</span>
+  </div>
+  <div class="card">
+    <table class="t">
+      <thead>
+        <tr>
+          <th>Strike</th>
+          <th class="right">Call OI Δ</th>
+          <th class="right">Put OI Δ</th>
+          <th class="center">Action</th>
+          <th>Read</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">23,800</td>
+          <td class="right mono neg">+18.4 L</td>
+          <td class="right mono muted">-2.1 L</td>
+          <td class="center"><span class="pill pill-bear">Call writing</span></td>
+          <td class="muted">Hard ceiling · resistance reinforced</td>
+        </tr>
+        <tr>
+          <td class="mono">23,700</td>
+          <td class="right mono neg">+12.6 L</td>
+          <td class="right mono muted">+0.8 L</td>
+          <td class="center"><span class="pill pill-bear">Call writing</span></td>
+          <td class="muted">Aggressive immediate resistance</td>
+        </tr>
+        <tr>
+          <td class="mono">23,600</td>
+          <td class="right mono">+9.2 L</td>
+          <td class="right mono">+11.4 L</td>
+          <td class="center"><span class="pill pill-neut">Two-way</span></td>
+          <td class="muted">Battleground · max-pain zone</td>
+        </tr>
+        <tr>
+          <td class="mono">23,500</td>
+          <td class="right mono muted">+1.8 L</td>
+          <td class="right mono pos">+16.2 L</td>
+          <td class="center"><span class="pill pill-bull">Put writing</span></td>
+          <td class="muted">Max put OI · gravitational pivot</td>
+        </tr>
+        <tr>
+          <td class="mono">23,400</td>
+          <td class="right mono muted">-0.4 L</td>
+          <td class="right mono pos">+14.8 L</td>
+          <td class="center"><span class="pill pill-bull">Put writing</span></td>
+          <td class="muted">Immediate support floor</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SECTION 5: KEY LEVELS -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">5</span><span>Key levels · ready-to-trade map</span></div>
+  </div>
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-title">Nifty 50</div>
+      <div class="card-sub">23,618 close · gap-down expected</div>
+      <div class="level-row"><span class="lab">Strong resistance</span><span class="val neg">23,800</span></div>
+      <div class="level-row"><span class="lab">Immediate R</span><span class="val neg">23,720</span></div>
+      <div class="level-row"><span class="lab">Pivot</span><span class="val">23,550</span></div>
+      <div class="level-row"><span class="lab">Immediate S</span><span class="val pos">23,470</span></div>
+      <div class="level-row"><span class="lab">Strong support</span><span class="val pos">23,300</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Bank Nifty</div>
+      <div class="card-sub">53,307 close · sector weakness</div>
+      <div class="level-row"><span class="lab">Strong resistance</span><span class="val neg">54,000</span></div>
+      <div class="level-row"><span class="lab">Immediate R</span><span class="val neg">53,700</span></div>
+      <div class="level-row"><span class="lab">Pivot</span><span class="val">53,300</span></div>
+      <div class="level-row"><span class="lab">Immediate S</span><span class="val pos">53,000</span></div>
+      <div class="level-row"><span class="lab">Strong support</span><span class="val pos">52,650</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Sensex</div>
+      <div class="card-sub">74,904 close · cyclicals weak</div>
+      <div class="level-row"><span class="lab">Strong resistance</span><span class="val neg">75,500</span></div>
+      <div class="level-row"><span class="lab">Immediate R</span><span class="val neg">75,200</span></div>
+      <div class="level-row"><span class="lab">Pivot</span><span class="val">74,700</span></div>
+      <div class="level-row"><span class="lab">Immediate S</span><span class="val pos">74,400</span></div>
+      <div class="level-row"><span class="lab">Strong support</span><span class="val pos">74,000</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 6: 5-DAY FLOW TREND -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">6</span><span>5-day institutional flow · sustained pattern check</span></div>
+    <span class="muted" style="font-size: 11px;">₹ Crore · cash market net</span>
+  </div>
+  <div class="card">
+    <table class="t">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th class="right">FII</th>
+          <th class="right">DII</th>
+          <th class="right">Net</th>
+          <th class="right">Nifty Δ%</th>
+          <th class="center">Pattern</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">13 May</td><td class="right mono neg">-4,703</td><td class="right mono pos">+5,869</td><td class="right mono pos">+1,166</td><td class="right mono neg">-0.31%</td><td class="center"><span class="pill pill-neut">Tug-of-war</span></td></tr>
+        <tr><td class="mono">14 May</td><td class="right mono pos">+187</td><td class="right mono pos">+684</td><td class="right mono pos">+871</td><td class="right mono pos">+0.18%</td><td class="center"><span class="pill pill-bull">Both buy</span></td></tr>
+        <tr><td class="mono">15 May</td><td class="right mono pos">+1,329</td><td class="right mono neg">-1,959</td><td class="right mono neg">-630</td><td class="right mono">+0.05%</td><td class="center"><span class="pill pill-neut">Profit book</span></td></tr>
+        <tr><td class="mono">16 May</td><td class="right mono pos">+2,814</td><td class="right mono pos">+2,682</td><td class="right mono pos">+5,496</td><td class="right mono pos">+0.03%</td><td class="center"><span class="pill pill-bull">Strong buy</span></td></tr>
+        <tr style="background: var(--surface-2);"><td class="mono">19 May</td><td class="right mono neg">-2,457</td><td class="right mono pos">+3,802</td><td class="right mono pos">+1,345</td><td class="right mono neg">-0.14%</td><td class="center"><span class="pill pill-neut">Tug-of-war</span></td></tr>
+        <tr><td style="font-weight: 500;">5D total</td><td class="right mono neg">-2,830</td><td class="right mono pos">+11,078</td><td class="right mono pos">+8,248</td><td class="right mono neg">-0.19%</td><td class="center"><span class="pill pill-neut">DII-supported</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SECTION 7: MACRO OVERLAY -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">7</span><span>Macro overlay · yields, currency, commodities</span></div>
+  </div>
+  <div class="card">
+    <table class="t">
+      <thead>
+        <tr>
+          <th>Instrument</th>
+          <th class="right">Level</th>
+          <th class="right">Δ 1D</th>
+          <th class="right">Δ 5D</th>
+          <th>Impact on Indian equities</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>US 10-Yr yield</td><td class="right mono">5.17%</td><td class="right mono neg">+8 bps</td><td class="right mono neg">+22 bps</td><td><span class="pill pill-bear">FII outflow risk</span></td></tr>
+        <tr><td>India 10-Yr G-Sec</td><td class="right mono">7.21%</td><td class="right mono">+2 bps</td><td class="right mono">+6 bps</td><td><span class="pill pill-neut">Mild headwind</span></td></tr>
+        <tr><td>DXY (Dollar Index)</td><td class="right mono">99.36</td><td class="right mono neg">+0.06%</td><td class="right mono neg">+0.8%</td><td><span class="pill pill-bear">EM negative</span></td></tr>
+        <tr><td>USD / INR</td><td class="right mono">96.60</td><td class="right mono neg">+0.12%</td><td class="right mono neg">+0.4%</td><td><span class="pill pill-bear">Record low</span></td></tr>
+        <tr><td>Crude (WTI)</td><td class="right mono">$110.36</td><td class="right mono neg">+1.55%</td><td class="right mono neg">+3.2%</td><td><span class="pill pill-bear">Inflation push</span></td></tr>
+        <tr><td>Brent</td><td class="right mono">$114.20</td><td class="right mono neg">+1.40%</td><td class="right mono neg">+2.9%</td><td><span class="pill pill-bear">Inflation push</span></td></tr>
+        <tr><td>Gold (USD/oz)</td><td class="right mono">$4,467.70</td><td class="right mono neg">-0.86%</td><td class="right mono">-0.3%</td><td><span class="pill pill-neut">Risk-off proxy</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SECTION 8: SECTOR ROTATION -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">8</span><span>Sector rotation · where money is flowing</span></div>
+    <span class="muted" style="font-size: 11px;">5-day cumulative · sector index Δ%</span>
+  </div>
+  <div class="card">
+    <div class="grid-2">
+      <div>
+        <div class="label" style="margin-bottom: 10px;">Money flowing IN</div>
+        <div class="bar-row-2"><span>Auto</span><div class="bar-track"><div class="bar-fill" style="width: 78%; background: var(--pos);"></div></div><span class="mono pos right">+2.8%</span></div>
+        <div class="bar-row-2"><span>Real Estate</span><div class="bar-track"><div class="bar-fill" style="width: 62%; background: var(--pos);"></div></div><span class="mono pos right">+2.2%</span></div>
+        <div class="bar-row-2"><span>IT</span><div class="bar-track"><div class="bar-fill" style="width: 45%; background: var(--pos);"></div></div><span class="mono pos right">+1.6%</span></div>
+        <div class="bar-row-2"><span>Telecom</span><div class="bar-track"><div class="bar-fill" style="width: 32%; background: var(--pos);"></div></div><span class="mono pos right">+1.1%</span></div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom: 10px;">Money flowing OUT</div>
+        <div class="bar-row-2"><span>Pharma</span><div class="bar-track"><div class="bar-fill" style="width: 70%; background: var(--neg);"></div></div><span class="mono neg right">-3.1%</span></div>
+        <div class="bar-row-2"><span>Media</span><div class="bar-track"><div class="bar-fill" style="width: 60%; background: var(--neg);"></div></div><span class="mono neg right">-2.6%</span></div>
+        <div class="bar-row-2"><span>Healthcare</span><div class="bar-track"><div class="bar-fill" style="width: 48%; background: var(--neg);"></div></div><span class="mono neg right">-2.0%</span></div>
+        <div class="bar-row-2"><span>Energy</span><div class="bar-track"><div class="bar-fill" style="width: 28%; background: var(--neg);"></div></div><span class="mono neg right">-1.2%</span></div>
+      </div>
+    </div>
+    <div class="footer-note" style="margin-top: 14px;">
+      <strong style="color: var(--text);">Theme:</strong> Defensive-to-cyclical rotation. Auto + Realty leading; pharma being distributed. Bank Nifty internals mixed — private banks holding, PSU banks weak.
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 9: TRADE SETUPS -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">9</span><span>Actionable trade setups for 20 May</span></div>
+  </div>
+  <div class="card">
+    <table class="t">
+      <thead>
+        <tr>
+          <th>Setup</th>
+          <th>Entry zone</th>
+          <th class="right">Target</th>
+          <th class="right">Stop loss</th>
+          <th class="right">R:R</th>
+          <th class="center">Bias</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Nifty short on rally</td><td class="mono">23,700–23,720</td><td class="right mono pos">23,450</td><td class="right mono neg">23,800</td><td class="right mono">1:2.7</td><td class="center"><span class="pill pill-bear">Bearish</span></td></tr>
+        <tr><td>Iron condor 23,400–23,800</td><td class="mono">Sell 23,800 CE + 23,400 PE</td><td class="right mono pos">Expire flat</td><td class="right mono neg">Either-side breach</td><td class="right mono">1:3</td><td class="center"><span class="pill pill-neut">Range</span></td></tr>
+        <tr><td>Bank Nifty fade</td><td class="mono">53,650–53,700</td><td class="right mono pos">53,100</td><td class="right mono neg">54,000</td><td class="right mono">1:2.0</td><td class="center"><span class="pill pill-bear">Bearish</span></td></tr>
+        <tr><td>23,500 PE writing</td><td class="mono">Premium ≥ 60</td><td class="right mono pos">Decay to 20</td><td class="right mono neg">Break of 23,400</td><td class="right mono">1:2</td><td class="center"><span class="pill pill-bull">Premium</span></td></tr>
+      </tbody>
+    </table>
+    <div class="footer-note">
+      <span class="warn">⚠ Invalidation:</span> Bullish flip on sustained move above 23,720 + visible FII short covering · Bearish acceleration on close below 23,400 with rising VIX.
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 10: EVENT CALENDAR -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">10</span><span>Event calendar · known catalysts next 5 sessions</span></div>
+  </div>
+  <div class="card">
+    <table class="t">
+      <thead>
+        <tr>
+          <th>Date / time</th>
+          <th>Event</th>
+          <th>Impact area</th>
+          <th class="center">Risk level</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">20 May · 11:30 PM</td><td>FOMC minutes release</td><td>USD, yields, FII flows</td><td class="center"><span class="pill pill-warn">High · overnight</span></td></tr>
+        <tr><td class="mono">21 May · 03:30 PM</td><td>Nifty weekly expiry</td><td>Pin near max-pain 23,500</td><td class="center"><span class="pill pill-warn">Volatility</span></td></tr>
+        <tr><td class="mono">22 May · pre-mkt</td><td>Earnings — TCS, ITC, Tata Motors</td><td>Stock-specific + index</td><td class="center"><span class="pill pill-neut">Mild</span></td></tr>
+        <tr><td class="mono">23 May · 05:30 PM</td><td>RBI MPC minutes</td><td>Rate path, bond yields</td><td class="center"><span class="pill pill-neut">Mild</span></td></tr>
+        <tr><td class="mono">26 May · 05:30 PM</td><td>India Q4 GDP release</td><td>Growth direction · indices</td><td class="center"><span class="pill pill-warn">High</span></td></tr>
+        <tr><td class="mono">29 May · 05:30 PM</td><td>India fiscal deficit data</td><td>Bond yields, banks</td><td class="center"><span class="pill pill-neut">Mild</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SECTION 11: PRE-MARKET CHECKLIST -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-title"><span class="section-num">11</span><span>Pre-market 12-point checklist · before the bell</span></div>
+  </div>
+  <div class="card">
+    <div class="checklist">
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>Global cues</strong> · Dow / S&amp;P close + Asian live (Nikkei, Hang Seng)</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>GIFT Nifty</strong> · overnight gap + premium/discount to spot</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>FII / DII cash</strong> · yesterday + 5-day cumulative</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>Participant OI</strong> · FII futures + long-short ratio</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>OI buildup</strong> · long/short buildup classification</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>Option chain</strong> · max-pain, top call/put OI, PCR</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>Strike Δ</strong> · today's writing/unwinding at key strikes</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>India VIX</strong> · level + 1D &amp; 5D change</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>Macro overlay</strong> · DXY, USDINR, US10Y, crude, gold</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>Sector rotation</strong> · in-flow / out-flow leaders</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>Event calendar</strong> · scheduled risks today &amp; week</span></div>
+      <div class="checklist-item"><span class="check-icon">✓</span><span><strong>Synthesise</strong> · composite bias + key levels + invalidation</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-3);">
+  <span>Hrishi Associates · Market Scanner by Dev · Pro Edition</span>
+  <span>Educational only · not financial advice · always verify with live NSE data</span>
+</div>
+
+</div>
+</body>
+</html>
