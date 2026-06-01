@@ -1,0 +1,253 @@
+The live market observation and W6-P5 planning report are accepted.
+
+Important finding:
+
+DB connection timeouts are now affecting the paper-execution path.
+Two F&O paper open attempts were dropped around 10:07 IST due to DB timeout.
+loadSetupWinRates is repeatedly failing open.
+
+Do not implement a fix yet.
+
+Proceed with W6-P5 Phase 0 only: Read-Only DB Connection Diagnosis.
+
+W6-P5 Phase 0: Read-Only DB Connection Diagnosis
+
+Purpose:
+
+Confirm whether the recurring DB timeouts are caused by:
+
+A. Managed Postgres max_connections exhaustion
+B. Autoscale multi-replica connection fan-out
+C. Too many per-process pools
+D. Network/socket instability
+E. Specific heavy boot/live jobs
+F. Some combination of the above
+
+This is diagnosis only.
+
+No implementation.
+
+No code change.
+
+No env/secret change.
+
+No DB pool change.
+
+No DB schema change.
+
+No scheduler change.
+
+No trading/scoring/paper-execution change.
+
+⸻
+
+Current evidence to validate
+
+During the live market session:
+
+Connection terminated due to connection timeout
+DrizzleQueryError
+Participant OI initial backfill failed
+loadSetupWinRates: query failed
+Paper FO post-enrichment open failed
+Swing equity tick failed
+global_live_prices writes timing out
+global_instrument_overrides reads timing out
+
+Important:
+
+No user-facing 500
+No crash loop
+Health endpoint OK
+Owner auth OK
+Market data live via Kite
+But paper opens were dropped
+
+⸻
+
+Required investigation
+
+1. DB connection ceiling
+
+Using read-only DB inspection only, report:
+
+SHOW max_connections;
+SELECT count(*) FROM pg_stat_activity;
+SELECT state, count(*) FROM pg_stat_activity GROUP BY state;
+SELECT application_name, state, count(*) FROM pg_stat_activity GROUP BY application_name, state ORDER BY count DESC;
+SELECT client_addr, state, count(*) FROM pg_stat_activity GROUP BY client_addr, state ORDER BY count DESC;
+
+If any query is blocked or unavailable, report that honestly.
+
+Do not expose secrets.
+
+Do not log connection strings.
+
+Do not modify DB.
+
+⸻
+
+2. Autoscale / process fan-out
+
+Report:
+
+* number of production autoscale replicas observed,
+* active PIDs in logs,
+* whether each replica has its own pool,
+* known pool max per process,
+* estimated worst-case total connections:
+
+api-server replicas × 10
++ global artifact pool
++ scanner/workflow pool if applicable
++ any other process pool
+
+Compare this against max_connections.
+
+⸻
+
+3. pg_stat_activity snapshot during market hours
+
+Capture at least one live-market snapshot.
+
+If possible, capture two:
+
+Snapshot 1: immediately
+Snapshot 2: 5–10 minutes later
+
+Report:
+
+* total connections,
+* active connections,
+* idle connections,
+* waiting/blocked if visible,
+* oldest running query if visible,
+* whether connection count is near max.
+
+Use safe read-only queries only.
+
+⸻
+
+4. Timeout family correlation
+
+Correlate DB timeout logs by:
+
+timestamp IST
+pid / replica
+query/table
+job/path
+frequency
+whether user-facing
+fail-open/fail-soft behavior
+
+Specifically include:
+
+paper_trade_fo dedup open query
+paper_trade_fo loadSetupWinRates query
+paper_trade_eq open-status tick query
+global_live_prices writes
+global_instrument_overrides reads
+participant_oi_daily upserts
+
+⸻
+
+5. Paper-open failure impact
+
+For the two failed F&O paper open attempts, report:
+
+* exact timestamp,
+* index,
+* setup,
+* signal tier,
+* where in the open flow it failed,
+* whether the trade was skipped entirely,
+* whether any partial row was created,
+* whether retry would have safely preserved idempotency,
+* whether existing dedup/advisory-lock/CAS protects against double-open.
+
+Do not manually create or replay trades.
+
+Do not force a trade.
+
+⸻
+
+6. loadSetupWinRates safety impact
+
+Report:
+
+* how often it failed during the live observation window,
+* whether failures were every cycle or intermittent,
+* what gate was skipped,
+* whether any HC signal occurred while the gate was unavailable,
+* whether fail-open could allow lower-quality trades in future,
+* whether last-known-cache would be a safe future mitigation,
+* whether fail-neutral is better than fail-open for paper-only mode.
+
+Do not change the gate.
+
+⸻
+
+7. External-feed separation
+
+Keep these separate from DB diagnosis:
+
+Kite ticker disconnect/reconnect
+Yahoo chart timeout
+scanAll hard-timeout
+
+Classify them only as:
+
+external-feed warning
+fail-open
+user-facing/not user-facing
+needs separate action yes/no
+
+⸻
+
+Output required
+
+Produce W6-P5 Phase 0 DB Connection Diagnosis Report with:
+
+A. Executive summary
+B. DB max_connections and pg_stat_activity results
+C. Autoscale replica / process fan-out estimate
+D. Connection pressure conclusion
+E. Timeout family correlation table
+F. Paper-open failure impact
+G. loadSetupWinRates safety impact
+H. External-feed warning separation
+I. Whether root cause is likely max_connections / fan-out / network / job-specific
+J. Whether urgent code fix is needed
+K. Recommended first implementation phase after diagnosis
+L. Exact risks if no fix is done
+M. Confirmation no code/env/schema/scheduler/trading changes were made
+
+⸻
+
+Strictly out of scope
+
+Do not change:
+
+trading logic
+signal generation
+F&O entry/exit rules
+force-exit timing
+stop/target/sizing
+P25
+MFE/MAE
+paper-trade execution semantics
+DB schema
+auth
+env/secrets
+DNS
+OpenAPI/codegen
+replit.md
+memory/docs
+
+Do not implement W6-P5.
+
+Do not replay missed paper trades.
+
+Do not manually create trades.
+
+Stop after the diagnostic report.
