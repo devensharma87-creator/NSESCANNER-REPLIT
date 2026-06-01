@@ -1,0 +1,462 @@
+Please review the attached **F&O Signalling & Paper-Trade Complete Backend Roadmap / Audit**.
+
+This task is **read-only review + planning only**.
+
+No implementation.
+
+No code change.
+
+No trading logic change.
+
+No signal/scoring change.
+
+No confidence threshold change.
+
+No paper-execution change.
+
+No DB schema change.
+
+No env/secret/DNS change.
+
+No scheduler change.
+
+No `replit.md`, memory, or docs change.
+
+---
+
+# Task Name
+
+```text
+W6-P6 F&O Signal-to-Trade Audit Hardening Plan
+```
+
+# Purpose
+
+The audit has identified important areas in the F&O signal → paper trade journey:
+
+```text
+signal generation
+confidence/tiering
+demotion gates
+fail-open / fail-closed behavior
+paper-trade open gates
+DB timeout impact
+missed paper opens
+P25 evidence quality
+MTM safety
+TIME_EXIT_1520
+F&O cockpit explainability
+```
+
+The goal is to verify the audit, resolve open questions, and prepare a safe improvement plan.
+
+Do not implement anything yet.
+
+---
+
+# Important priority
+
+Before strategy tuning, keep this priority order:
+
+```text
+1. DB reliability / W6-P5 reliability must stay first
+2. F&O audit hardening / diagnostics second
+3. Strategy tuning third
+```
+
+Reason:
+
+```text
+DB timeouts have already dropped legitimate F&O paper open attempts.
+Strategy should not be tuned until infra-missed opens are fixed or clearly recorded.
+```
+
+---
+
+# Part A — Verify the audit’s open questions
+
+Please verify the following from live source only.
+
+## Q1 — Confidence floor mismatch
+
+Confirm actual values and enforcing lines for:
+
+```text
+HC_EMISSION_FLOOR
+MIN_FNO_TRADE
+FNO_RISK.MIN_CONFIDENCE
+FNO_BASELINE floor
+riskPctForConfidence cuts
+```
+
+Report whether:
+
+```text
+70 vs 65 is intentional
+70 vs 65 is stale documentation
+70 vs 65 is a real silent gap
+```
+
+Do not change any value.
+
+---
+
+## Q2 — Fail-open vs fail-closed asymmetry
+
+Verify:
+
+```text
+Circuit breaker failure behavior
+LOW_WINRATE failure behavior
+Liquidity chain fetch failure behavior
+openPaperTrade DB failure behavior
+baseline guardrail failure behavior
+```
+
+Report where the system currently:
+
+```text
+fails open
+fails closed
+fails soft
+fails neutral
+```
+
+Do not change behavior yet.
+
+---
+
+## Q3 — mtm-sweep-health route line
+
+Confirm the actual route/file/line for:
+
+```text
+/api/paper/mtm-sweep-health
+```
+
+Check whether the audit’s route line is accurate or copied from another file.
+
+No code change.
+
+---
+
+## Q4 — BASELINE detector vs BASELINE tier
+
+Verify whether logs/UI clearly distinguish:
+
+```text
+setup detector = BASELINE
+trade tier = BASELINE / HIGH_CONVICTION
+demoted high-conviction setup = original detector but BASELINE tier
+```
+
+Report confusion risk and recommended naming/display improvement.
+
+No code change.
+
+---
+
+# Part B — Design a Signal → Trade Loss Ledger
+
+Prepare a plan for a durable diagnostic ledger that explains every signal’s journey.
+
+The ledger should answer:
+
+```text
+Why did this signal not become a paper trade?
+```
+
+Suggested journey:
+
+```text
+signal generated
+HC or BASELINE classification
+trigger reached or not
+demotion gates applied
+vetoes applied
+paper gates checked
+trade opened or not opened
+reason if not opened
+exit result if opened
+```
+
+Suggested diagnostic reasons:
+
+```text
+DB_TIMEOUT_DEDUP_SELECT
+LOW_WINRATE_GATE_UNAVAILABLE
+CONFIDENCE_BELOW_FNO_MIN
+LIQUIDITY_FETCH_FAILED
+DAILY_TRADE_CAP
+BASELINE_GUARDRAIL
+TIME_CUTOFF
+MISSED_WINDOW
+OI_VETO
+HTF_CONFLICT
+ATM_OI_DEMOTION
+CIRCUIT_BREAKER
+VIX_SPIKE
+INFRA_MISSED_OPEN
+```
+
+Plan only.
+
+Do not add tables.
+
+Do not change schema.
+
+---
+
+# Part C — Infrastructure Missed Trade tracking
+
+Plan how to record infra-caused missed paper opens as first-class diagnostic events.
+
+Required event type:
+
+```text
+INFRA_MISSED_OPEN
+```
+
+Fields to consider:
+
+```text
+timestamp
+index
+setup
+direction
+tier
+confidence
+signal_fingerprint
+failure_stage
+error_class
+retry_attempted
+final_status
+whether partial row was created
+whether replay/manual creation is prohibited
+```
+
+Important rule:
+
+```text
+Do not replay missed trades.
+Do not manually create trades.
+Only record/diagnose them.
+```
+
+Explain how this should protect future P25 evidence.
+
+---
+
+# Part D — P25 evidence quality improvement
+
+Plan how P25 evidence should separate:
+
+```text
+eligible trades
+opened trades
+infra-missed trades
+paper-gate-blocked trades
+strategy-filtered trades
+manual trades
+invalid / dirty evidence
+```
+
+The goal is to prevent infrastructure issues from polluting strategy evidence.
+
+Do not change P25 logic now.
+
+---
+
+# Part E — Fail-open / fail-closed policy matrix
+
+Prepare a formal policy matrix.
+
+For each gate, report:
+
+```text
+current behavior
+risk of current behavior
+recommended future behavior
+implementation risk
+whether it changes trading behavior
+whether owner approval is required
+```
+
+Include at least:
+
+```text
+Circuit breaker
+VIX spike
+LOW_WINRATE
+Liquidity chain fetch
+Baseline guardrail stats
+Daily DD cap
+Weekly DD cap
+Participant OI
+Global scanner data
+Paper open dedup
+MTM chain fetch
+```
+
+Important:
+
+```text
+Do not change fail-open/fail-closed behavior in this task.
+```
+
+---
+
+# Part F — F&O cockpit explainability plan
+
+Plan a future UI/logging improvement so each F&O signal card can show:
+
+```text
+detector
+trade tier
+raw confidence
+final confidence
+demotion reasons
+veto reasons
+OI confirmation result
+win-rate gate status
+liquidity gate status
+paper-open eligibility
+paper-open result
+infra missed reason if any
+signal_fingerprint
+```
+
+No UI implementation now.
+
+---
+
+# Part G — MTM safety review
+
+Review the blast radius of:
+
+```text
+last_premium
+last_evaluated_at
+max_runup
+max_drawdown
+pickExitPremium
+getBaselineDayStats
+forceCloseAllOpenFnoFor1520
+```
+
+Plan safety improvements such as:
+
+```text
+MTM freshness badge
+last premium age
+MTM stale warning
+MTM source: chain / cached / unavailable
+policy for force-exit when premium is stale
+policy for baseline guardrail when MTM is stale
+```
+
+Do not change MTM logic now.
+
+---
+
+# Part H — TIME_EXIT_1520 protection
+
+Confirm the current path and required validation for:
+
+```text
+forceCloseAllOpenFnoFor1520
+TIME_EXIT_1520
+UI display: TIME EXIT 1520
+/paper-reports
+/paper-trading
+```
+
+This is review only.
+
+Do not change exit logic.
+
+---
+
+# Part I — Recommended phased roadmap
+
+Prepare a phased roadmap:
+
+```text
+Phase 0: Verification of audit open questions
+Phase 1: Diagnostic ledger + infra-missed-open visibility
+Phase 2: P25 evidence quality separation
+Phase 3: F&O cockpit explainability
+Phase 4: fail-open/fail-closed policy changes, only after approval
+Phase 5: actual strategy tuning, only after enough clean evidence
+```
+
+Keep W6-P5 DB reliability ahead of all F&O tuning.
+
+---
+
+# Required output
+
+Produce a report titled:
+
+```text
+W6-P6 F&O Signal-to-Trade Audit Hardening Plan
+```
+
+Include:
+
+A. Executive summary
+B. Audit points verified
+C. Open questions resolved / unresolved
+D. Confidence threshold source-of-truth table
+E. Fail-open / fail-closed policy matrix
+F. Signal → Trade Loss Ledger design
+G. INFRA_MISSED_OPEN event design
+H. P25 evidence-quality plan
+I. BASELINE detector vs BASELINE tier clarification
+J. F&O cockpit explainability plan
+K. MTM safety review
+L. TIME_EXIT_1520 protection checklist
+M. Files likely affected later
+N. Tests needed before implementation
+O. Production validation checklist
+P. Risks if ignored
+Q. Recommended phased roadmap
+R. Recommended first implementation phase
+S. Confirmation that no code/env/schema/trading changes were made
+
+---
+
+# Strictly out of scope
+
+Do not change:
+
+```text
+trading logic
+signal generation
+confidence thresholds
+HC emission floor
+BASELINE floor
+risk sizing
+entry logic
+exit logic
+stop/target logic
+force-exit timing
+P25 calculation
+MFE/MAE logic
+paper-trade execution semantics
+DB schema
+auth
+env/secrets
+DNS
+OpenAPI/codegen
+replit.md
+memory/docs
+```
+
+Do not implement W6-P6.
+
+Do not replay missed trades.
+
+Do not manually create trades.
+
+Stop after the planning report.
