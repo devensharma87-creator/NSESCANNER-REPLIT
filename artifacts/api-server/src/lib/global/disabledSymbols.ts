@@ -16,6 +16,7 @@
 import { db } from "@workspace/db";
 import { globalInstrumentOverridesTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "../logger";
 
 export interface InstrumentOverrideRow {
   symbol: string;
@@ -37,10 +38,22 @@ function rowToOut(r: typeof globalInstrumentOverridesTable.$inferSelect): Instru
 
 /** Fast lookup set of currently-disabled symbols (uppercase). */
 export async function loadDisabledSet(): Promise<Set<string>> {
-  const rows = await db.select({ symbol: globalInstrumentOverridesTable.symbol })
-    .from(globalInstrumentOverridesTable)
-    .where(eq(globalInstrumentOverridesTable.disabled, 1));
-  return new Set(rows.map(r => r.symbol.toUpperCase()));
+  // W6-P5 Phase 1G: fail-soft. This runs at the top of every refresher cycle,
+  // BEFORE the per-symbol try/catch. A DB timeout here must NOT reject the
+  // refresher (which would become an unhandled rejection and crash the shared
+  // process). Degrade to "nothing muted" for this cycle and log a warning.
+  try {
+    const rows = await db.select({ symbol: globalInstrumentOverridesTable.symbol })
+      .from(globalInstrumentOverridesTable)
+      .where(eq(globalInstrumentOverridesTable.disabled, 1));
+    return new Set(rows.map(r => r.symbol.toUpperCase()));
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "loadDisabledSet failed (fail-soft — treating all symbols as enabled this cycle)",
+    );
+    return new Set<string>();
+  }
 }
 
 /** Full list, including re-enabled rows (for the operator audit view). */

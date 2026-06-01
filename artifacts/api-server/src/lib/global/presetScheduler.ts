@@ -10,6 +10,7 @@ import { db } from "@workspace/db";
 import { globalScreenerPresetsTable } from "@workspace/db/schema";
 import { logger } from "../logger";
 import { runGlobalScreener, ScreenerBody, type ScreenerBodyInput } from "./screener";
+import { safeFireAndForget } from "./safeDispatch";
 
 const TICK_INTERVAL_MS = 30_000;
 
@@ -123,15 +124,21 @@ async function tick(): Promise<void> {
     // for every symbol that already qualifies the moment they enable
     // auto-run. Manual run-now still surfaces all hits.
     const silentBaseline = row.lastRunAt == null;
-    void runOne(row.id, parsed.data, prev, pending, { silentBaseline });
+    // W6-P5 Phase 1G: guard the dispatch boundary. `runOne` is already fully
+    // try/catch-wrapped (it never rejects today), but a bare `void` here would
+    // be a fatal unhandled-rejection vector if that ever regressed.
+    safeFireAndForget(
+      `presetScheduler.runOne:${row.id}`,
+      () => runOne(row.id, parsed.data, prev, pending, { silentBaseline }),
+    );
   }
 }
 
 export function startScreenerPresetScheduler(): void {
   if (booted) return;
   booted = true;
-  timer = setInterval(() => { void tick(); }, TICK_INTERVAL_MS);
-  setTimeout(() => { void tick(); }, 5_000);
+  timer = setInterval(() => { safeFireAndForget("presetScheduler.tick", tick); }, TICK_INTERVAL_MS);
+  setTimeout(() => { safeFireAndForget("presetScheduler.tick", tick); }, 5_000);
   logger.info("Screener preset scheduler started (30s tick)");
 }
 
