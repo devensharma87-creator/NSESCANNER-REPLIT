@@ -2657,6 +2657,222 @@ components:
         invalidation: { type: string, description: "Specific level/condition that proves this scenario is wrong — abandon the plan and switch to the appropriate alternative." }
         probability: { type: string, enum: [HIGH, MEDIUM, LOW], description: "Heuristic likelihood given current overnight setup" }
 
+    # ── Pro Market Analyser (Phase A) — reporting-only enrichments ──
+    # Every schema below is surfaced as an OPTIONAL field on PreMarketReport.
+    # Each carries source/asOf freshness labels and is failure-isolated server
+    # side, so any single upstream outage simply omits its block. None of these
+    # feed signal generation, paper-trade execution, or any trading decision.
+
+    ParticipantOiSegment:
+      type: object
+      required: [clientType, futureIndexLong, futureIndexShort, futureIndexNet, lsrPct, longShortRatio, netChange]
+      description: "One participant category's index-futures positioning for the session."
+      properties:
+        clientType:       { type: string, description: "FII / DII / Pro / Client" }
+        futureIndexLong:  { type: number, description: "Index-futures long contracts" }
+        futureIndexShort: { type: number, description: "Index-futures short contracts" }
+        futureIndexNet:   { type: number, description: "long − short" }
+        lsrPct:           { type: number, nullable: true, description: "Long-share % = long / (long+short) × 100" }
+        longShortRatio:   { type: number, nullable: true, description: "long / short" }
+        netChange:        { type: number, nullable: true, description: "futureIndexNet vs the previous session" }
+
+    ParticipantOiView:
+      type: object
+      required: [date, previousDate, segments, fiiLsrPct, fiiNetChange, aggIndexFutOi, aggIndexFutOiChgPct, divergence, signal, note, source, asOf]
+      description: "NSE participant-wise index-futures OI (EOD). FII long-share % is the headline 'king metric': ≤30% bearish, ≥60% bullish."
+      properties:
+        date:                { type: string, description: "Session date for the figures" }
+        previousDate:        { type: string, nullable: true }
+        segments:
+          type: array
+          items: { $ref: "#/components/schemas/ParticipantOiSegment" }
+        fiiLsrPct:           { type: number, nullable: true, description: "FII index-futures long-share %" }
+        fiiNetChange:        { type: number, nullable: true }
+        aggIndexFutOi:       { type: number, nullable: true, description: "Aggregate index-futures OI (Σ longs across participants)" }
+        aggIndexFutOiChgPct: { type: number, nullable: true, description: "Day-over-day % change in aggregate index-futures OI" }
+        divergence:          { type: string, nullable: true, description: "FII-vs-Client positioning divergence note, when present" }
+        signal:              { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
+        note:                { type: string }
+        source:              { type: string }
+        asOf:                { type: string }
+
+    IndexOiBuildup:
+      type: object
+      required: [label, priceChgPct, oiChgPct, classification, bias, interpretation, note, source, asOf]
+      description: "Price × OI buildup classification for aggregate index futures (same-session NIFTY move vs aggregate futures-OI change)."
+      properties:
+        label:          { type: string }
+        priceChgPct:    { type: number, nullable: true }
+        oiChgPct:       { type: number, nullable: true }
+        classification: { type: string, enum: [LONG_BUILDUP, SHORT_BUILDUP, SHORT_COVERING, LONG_UNWINDING, NEUTRAL, DATA_UNAVAILABLE] }
+        bias:           { type: string, enum: [BULLISH, BEARISH, NEUTRAL, UNKNOWN] }
+        interpretation: { type: string, description: "Human-readable one-liner from the classifier" }
+        note:           { type: string, description: "Context / data-availability note" }
+        source:         { type: string }
+        asOf:           { type: string }
+
+    StrikeOiChangeEntry:
+      type: object
+      required: [strike, chgOi, oiChgPct, action]
+      properties:
+        strike:   { type: number }
+        chgOi:    { type: number, description: "Change in open interest (contracts)" }
+        oiChgPct: { type: number, nullable: true }
+        action:   { type: string, description: "Plain-English read e.g. 'Call writing (resistance building)'" }
+
+    StrikeOiChange:
+      type: object
+      required: [underlying, spot, expiry, topCallWriting, topPutWriting, topCallUnwinding, topPutUnwinding, read, source, asOf]
+      description: "Top strike-level OI-change clusters for one underlying — fresh call/put writing (range edges) and unwinding."
+      properties:
+        underlying:       { type: string }
+        spot:             { type: number }
+        expiry:           { type: string }
+        topCallWriting:   { type: array, items: { $ref: "#/components/schemas/StrikeOiChangeEntry" } }
+        topPutWriting:    { type: array, items: { $ref: "#/components/schemas/StrikeOiChangeEntry" } }
+        topCallUnwinding: { type: array, items: { $ref: "#/components/schemas/StrikeOiChangeEntry" } }
+        topPutUnwinding:  { type: array, items: { $ref: "#/components/schemas/StrikeOiChangeEntry" } }
+        read:             { type: string }
+        source:           { type: string }
+        asOf:             { type: string }
+
+    FiveDayFlowDay:
+      type: object
+      required: [date, fiiNet, diiNet, niftyChangePct]
+      properties:
+        date:           { type: string }
+        fiiNet:         { type: number, description: "FII cash net (INR Cr)" }
+        diiNet:         { type: number, description: "DII cash net (INR Cr)" }
+        niftyChangePct: { type: number, nullable: true }
+
+    FiveDayFlow:
+      type: object
+      required: [days, cumFiiCr, cumDiiCr, fiiTrend, diiTrend, read, source, asOf]
+      description: "Trailing 5-session FII/DII cash flow trend with cumulative totals (INR Cr)."
+      properties:
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/FiveDayFlowDay" }
+          description: "Chronological, oldest → newest"
+        cumFiiCr: { type: number }
+        cumDiiCr: { type: number }
+        fiiTrend: { type: string, enum: [ACCUMULATING, DISTRIBUTING, MIXED] }
+        diiTrend: { type: string, enum: [ACCUMULATING, DISTRIBUTING, MIXED] }
+        read:     { type: string }
+        source:   { type: string }
+        asOf:     { type: string }
+
+    MacroOverlayRow:
+      type: object
+      required: [label, symbol, value, changePercent, impact, note]
+      properties:
+        label:         { type: string }
+        symbol:        { type: string, nullable: true }
+        value:         { type: number, nullable: true }
+        changePercent: { type: number, nullable: true }
+        impact:        { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
+        note:          { type: string }
+
+    MacroOverlay:
+      type: object
+      required: [rows, macroScore, read, source, asOf]
+      description: "Global macro backdrop (DXY / US 10Y / USDINR / crude / gold). macroScore is a -3..+3 composite fed into the bias score; null when no inputs are live."
+      properties:
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/MacroOverlayRow" }
+        macroScore: { type: number, nullable: true }
+        read:       { type: string }
+        source:     { type: string }
+        asOf:       { type: string }
+
+    SectorRotationEntry:
+      type: object
+      required: [sector, avgChangePercent, flow]
+      properties:
+        sector:           { type: string }
+        avgChangePercent: { type: number }
+        flow:             { type: string, enum: [INFLOW, OUTFLOW, NEUTRAL] }
+        topPickSymbol:    { type: string }
+
+    SectorRotation:
+      type: object
+      required: [leaders, laggards, breadthPositive, breadthNegative, rotationRead, source, asOf]
+      description: "Sector rotation read derived from the live sector heatmap — leaders, laggards, breadth."
+      properties:
+        leaders:
+          type: array
+          items: { $ref: "#/components/schemas/SectorRotationEntry" }
+        laggards:
+          type: array
+          items: { $ref: "#/components/schemas/SectorRotationEntry" }
+        breadthPositive: { type: integer }
+        breadthNegative: { type: integer }
+        rotationRead:    { type: string }
+        source:          { type: string }
+        asOf:            { type: string }
+
+    BiasSignalBreakdown:
+      type: object
+      required: [signal, weight, rawValue, score, contribution, note]
+      properties:
+        signal:       { type: string }
+        weight:       { type: number }
+        rawValue:     { type: number, nullable: true }
+        score:        { type: number, nullable: true, description: "Per-signal score -3..+3" }
+        contribution: { type: number, description: "score × weight" }
+        note:         { type: string }
+
+    CompositeBias:
+      type: object
+      required: [score, label, verdict, breakdown, totalWeightUsed, dataCompleteness, invalidation, source, asOf, methodologyNote]
+      description: "Composite next-day bias score (-10..+10) synthesised from GIFT / FII-DII cash / participant OI / PCR / VIX / macro. Reporting-only; null feeds are excluded from numerator and denominator."
+      properties:
+        score:            { type: number, description: "-10..+10, 1 decimal" }
+        label:            { type: string, enum: [STRONGLY_BULLISH, MILDLY_BULLISH, NEUTRAL, MILDLY_BEARISH, STRONGLY_BEARISH] }
+        verdict:          { type: string }
+        breakdown:
+          type: array
+          items: { $ref: "#/components/schemas/BiasSignalBreakdown" }
+        totalWeightUsed:  { type: number, description: "Sum of weights for signals with data (max 9.0)" }
+        dataCompleteness: { type: number, description: "usedWeight / 9.0, 0..1" }
+        invalidation:
+          type: object
+          required: [bullishFlip, bearishAcceleration]
+          properties:
+            bullishFlip:         { type: string }
+            bearishAcceleration: { type: string }
+        source:           { type: string }
+        asOf:             { type: string }
+        methodologyNote:  { type: string }
+
+    TradeSetup:
+      type: object
+      required: [symbol, direction, label, entry, target, stop, riskReward, rationale, invalidation]
+      description: "Derived actionable trade setup from classical pivots + composite bias. REPORTING ONLY — never placed, sized, or executed."
+      properties:
+        symbol:       { type: string }
+        direction:    { type: string, enum: [LONG, SHORT, RANGE] }
+        label:        { type: string }
+        entry:        { type: number, description: "Suggested entry reference (price)" }
+        target:       { type: number }
+        stop:         { type: number }
+        riskReward:   { type: number, nullable: true, description: "Reward-to-risk multiple; null when degenerate (zero risk)" }
+        rationale:    { type: string }
+        invalidation: { type: string }
+
+    TradeSetups:
+      type: object
+      required: [setups, biasScore, source, asOf]
+      description: "Bundle of derived trade setups keyed off the composite bias score."
+      properties:
+        setups:
+          type: array
+          items: { $ref: "#/components/schemas/TradeSetup" }
+        biasScore: { type: number }
+        source:    { type: string }
+        asOf:      { type: string }
+
     PreMarketReport:
       type: object
       required: [mode, sentiment, sentimentScore, narrative, overnightCues, indexPreviews, generatedAt]
@@ -2717,6 +2933,17 @@ components:
               date: { type: string, format: date }
         postMarketDigest: { $ref: "#/components/schemas/PostMarketDigest" }
         tomorrowSetup: { $ref: "#/components/schemas/TomorrowSetup" }
+        participantOi: { $ref: "#/components/schemas/ParticipantOiView" }
+        indexOiBuildup: { $ref: "#/components/schemas/IndexOiBuildup" }
+        strikeOiChanges:
+          type: array
+          items: { $ref: "#/components/schemas/StrikeOiChange" }
+          description: "Top strike-level OI-change clusters per F&O underlying (Pro Market Analyser)"
+        fiveDayFlows: { $ref: "#/components/schemas/FiveDayFlow" }
+        macroOverlay: { $ref: "#/components/schemas/MacroOverlay" }
+        sectorRotation: { $ref: "#/components/schemas/SectorRotation" }
+        compositeBias: { $ref: "#/components/schemas/CompositeBias" }
+        tradeSetups: { $ref: "#/components/schemas/TradeSetups" }
         generatedAt: { type: string, format: date-time }
 
     OiBuildupStockRow:

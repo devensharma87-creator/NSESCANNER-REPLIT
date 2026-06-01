@@ -5317,6 +5317,303 @@ export const GetPreMarketResponse = zod.object({
     .describe(
       "Condensed 'Setup for Tomorrow' data — Moneycontrol-style '15 things to know'. OI buildup summary, high-delivery stocks, and F&O ban list. Other items (PCR, VIX, key levels, FII\/DII) are in sibling fields.",
     ),
+  participantOi: zod
+    .object({
+      date: zod.string().describe("Session date for the figures"),
+      previousDate: zod.string().nullable(),
+      segments: zod.array(
+        zod
+          .object({
+            clientType: zod.string().describe("FII \/ DII \/ Pro \/ Client"),
+            futureIndexLong: zod
+              .number()
+              .describe("Index-futures long contracts"),
+            futureIndexShort: zod
+              .number()
+              .describe("Index-futures short contracts"),
+            futureIndexNet: zod.number().describe("long − short"),
+            lsrPct: zod
+              .number()
+              .nullable()
+              .describe("Long-share % = long \/ (long+short) × 100"),
+            longShortRatio: zod.number().nullable().describe("long \/ short"),
+            netChange: zod
+              .number()
+              .nullable()
+              .describe("futureIndexNet vs the previous session"),
+          })
+          .describe(
+            "One participant category's index-futures positioning for the session.",
+          ),
+      ),
+      fiiLsrPct: zod
+        .number()
+        .nullable()
+        .describe("FII index-futures long-share %"),
+      fiiNetChange: zod.number().nullable(),
+      aggIndexFutOi: zod
+        .number()
+        .nullable()
+        .describe("Aggregate index-futures OI (Σ longs across participants)"),
+      aggIndexFutOiChgPct: zod
+        .number()
+        .nullable()
+        .describe("Day-over-day % change in aggregate index-futures OI"),
+      divergence: zod
+        .string()
+        .nullable()
+        .describe("FII-vs-Client positioning divergence note, when present"),
+      signal: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]),
+      note: zod.string(),
+      source: zod.string(),
+      asOf: zod.string(),
+    })
+    .optional()
+    .describe(
+      "NSE participant-wise index-futures OI (EOD). FII long-share % is the headline 'king metric': ≤30% bearish, ≥60% bullish.",
+    ),
+  indexOiBuildup: zod
+    .object({
+      label: zod.string(),
+      priceChgPct: zod.number().nullable(),
+      oiChgPct: zod.number().nullable(),
+      classification: zod.enum([
+        "LONG_BUILDUP",
+        "SHORT_BUILDUP",
+        "SHORT_COVERING",
+        "LONG_UNWINDING",
+        "NEUTRAL",
+        "DATA_UNAVAILABLE",
+      ]),
+      bias: zod.enum(["BULLISH", "BEARISH", "NEUTRAL", "UNKNOWN"]),
+      interpretation: zod
+        .string()
+        .describe("Human-readable one-liner from the classifier"),
+      note: zod.string().describe("Context \/ data-availability note"),
+      source: zod.string(),
+      asOf: zod.string(),
+    })
+    .optional()
+    .describe(
+      "Price × OI buildup classification for aggregate index futures (same-session NIFTY move vs aggregate futures-OI change).",
+    ),
+  strikeOiChanges: zod
+    .array(
+      zod
+        .object({
+          underlying: zod.string(),
+          spot: zod.number(),
+          expiry: zod.string(),
+          topCallWriting: zod.array(
+            zod.object({
+              strike: zod.number(),
+              chgOi: zod
+                .number()
+                .describe("Change in open interest (contracts)"),
+              oiChgPct: zod.number().nullable(),
+              action: zod
+                .string()
+                .describe(
+                  "Plain-English read e.g. 'Call writing (resistance building)'",
+                ),
+            }),
+          ),
+          topPutWriting: zod.array(
+            zod.object({
+              strike: zod.number(),
+              chgOi: zod
+                .number()
+                .describe("Change in open interest (contracts)"),
+              oiChgPct: zod.number().nullable(),
+              action: zod
+                .string()
+                .describe(
+                  "Plain-English read e.g. 'Call writing (resistance building)'",
+                ),
+            }),
+          ),
+          topCallUnwinding: zod.array(
+            zod.object({
+              strike: zod.number(),
+              chgOi: zod
+                .number()
+                .describe("Change in open interest (contracts)"),
+              oiChgPct: zod.number().nullable(),
+              action: zod
+                .string()
+                .describe(
+                  "Plain-English read e.g. 'Call writing (resistance building)'",
+                ),
+            }),
+          ),
+          topPutUnwinding: zod.array(
+            zod.object({
+              strike: zod.number(),
+              chgOi: zod
+                .number()
+                .describe("Change in open interest (contracts)"),
+              oiChgPct: zod.number().nullable(),
+              action: zod
+                .string()
+                .describe(
+                  "Plain-English read e.g. 'Call writing (resistance building)'",
+                ),
+            }),
+          ),
+          read: zod.string(),
+          source: zod.string(),
+          asOf: zod.string(),
+        })
+        .describe(
+          "Top strike-level OI-change clusters for one underlying — fresh call\/put writing (range edges) and unwinding.",
+        ),
+    )
+    .optional()
+    .describe(
+      "Top strike-level OI-change clusters per F&O underlying (Pro Market Analyser)",
+    ),
+  fiveDayFlows: zod
+    .object({
+      days: zod
+        .array(
+          zod.object({
+            date: zod.string(),
+            fiiNet: zod.number().describe("FII cash net (INR Cr)"),
+            diiNet: zod.number().describe("DII cash net (INR Cr)"),
+            niftyChangePct: zod.number().nullable(),
+          }),
+        )
+        .describe("Chronological, oldest → newest"),
+      cumFiiCr: zod.number(),
+      cumDiiCr: zod.number(),
+      fiiTrend: zod.enum(["ACCUMULATING", "DISTRIBUTING", "MIXED"]),
+      diiTrend: zod.enum(["ACCUMULATING", "DISTRIBUTING", "MIXED"]),
+      read: zod.string(),
+      source: zod.string(),
+      asOf: zod.string(),
+    })
+    .optional()
+    .describe(
+      "Trailing 5-session FII\/DII cash flow trend with cumulative totals (INR Cr).",
+    ),
+  macroOverlay: zod
+    .object({
+      rows: zod.array(
+        zod.object({
+          label: zod.string(),
+          symbol: zod.string().nullable(),
+          value: zod.number().nullable(),
+          changePercent: zod.number().nullable(),
+          impact: zod.enum(["BULLISH", "BEARISH", "NEUTRAL"]),
+          note: zod.string(),
+        }),
+      ),
+      macroScore: zod.number().nullable(),
+      read: zod.string(),
+      source: zod.string(),
+      asOf: zod.string(),
+    })
+    .optional()
+    .describe(
+      "Global macro backdrop (DXY \/ US 10Y \/ USDINR \/ crude \/ gold). macroScore is a -3..+3 composite fed into the bias score; null when no inputs are live.",
+    ),
+  sectorRotation: zod
+    .object({
+      leaders: zod.array(
+        zod.object({
+          sector: zod.string(),
+          avgChangePercent: zod.number(),
+          flow: zod.enum(["INFLOW", "OUTFLOW", "NEUTRAL"]),
+          topPickSymbol: zod.string().optional(),
+        }),
+      ),
+      laggards: zod.array(
+        zod.object({
+          sector: zod.string(),
+          avgChangePercent: zod.number(),
+          flow: zod.enum(["INFLOW", "OUTFLOW", "NEUTRAL"]),
+          topPickSymbol: zod.string().optional(),
+        }),
+      ),
+      breadthPositive: zod.number(),
+      breadthNegative: zod.number(),
+      rotationRead: zod.string(),
+      source: zod.string(),
+      asOf: zod.string(),
+    })
+    .optional()
+    .describe(
+      "Sector rotation read derived from the live sector heatmap — leaders, laggards, breadth.",
+    ),
+  compositeBias: zod
+    .object({
+      score: zod.number().describe("-10..+10, 1 decimal"),
+      label: zod.enum([
+        "STRONGLY_BULLISH",
+        "MILDLY_BULLISH",
+        "NEUTRAL",
+        "MILDLY_BEARISH",
+        "STRONGLY_BEARISH",
+      ]),
+      verdict: zod.string(),
+      breakdown: zod.array(
+        zod.object({
+          signal: zod.string(),
+          weight: zod.number(),
+          rawValue: zod.number().nullable(),
+          score: zod.number().nullable().describe("Per-signal score -3..+3"),
+          contribution: zod.number().describe("score × weight"),
+          note: zod.string(),
+        }),
+      ),
+      totalWeightUsed: zod
+        .number()
+        .describe("Sum of weights for signals with data (max 9.0)"),
+      dataCompleteness: zod.number().describe("usedWeight \/ 9.0, 0..1"),
+      invalidation: zod.object({
+        bullishFlip: zod.string(),
+        bearishAcceleration: zod.string(),
+      }),
+      source: zod.string(),
+      asOf: zod.string(),
+      methodologyNote: zod.string(),
+    })
+    .optional()
+    .describe(
+      "Composite next-day bias score (-10..+10) synthesised from GIFT \/ FII-DII cash \/ participant OI \/ PCR \/ VIX \/ macro. Reporting-only; null feeds are excluded from numerator and denominator.",
+    ),
+  tradeSetups: zod
+    .object({
+      setups: zod.array(
+        zod
+          .object({
+            symbol: zod.string(),
+            direction: zod.enum(["LONG", "SHORT", "RANGE"]),
+            label: zod.string(),
+            entry: zod.number().describe("Suggested entry reference (price)"),
+            target: zod.number(),
+            stop: zod.number(),
+            riskReward: zod
+              .number()
+              .nullable()
+              .describe(
+                "Reward-to-risk multiple; null when degenerate (zero risk)",
+              ),
+            rationale: zod.string(),
+            invalidation: zod.string(),
+          })
+          .describe(
+            "Derived actionable trade setup from classical pivots + composite bias. REPORTING ONLY — never placed, sized, or executed.",
+          ),
+      ),
+      biasScore: zod.number(),
+      source: zod.string(),
+      asOf: zod.string(),
+    })
+    .optional()
+    .describe(
+      "Bundle of derived trade setups keyed off the composite bias score.",
+    ),
   generatedAt: zod.coerce.date(),
 });
 

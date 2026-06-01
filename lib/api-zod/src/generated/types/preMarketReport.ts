@@ -5,12 +5,17 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { CompositeBias } from "./compositeBias";
 import type { EconomicEvent } from "./economicEvent";
 import type { FiiDiiSnapshot } from "./fiiDiiSnapshot";
+import type { FiveDayFlow } from "./fiveDayFlow";
 import type { GapStock } from "./gapStock";
+import type { IndexOiBuildup } from "./indexOiBuildup";
 import type { KeyIndexLevels } from "./keyIndexLevels";
+import type { MacroOverlay } from "./macroOverlay";
 import type { OptionSnapshot } from "./optionSnapshot";
 import type { OvernightCue } from "./overnightCue";
+import type { ParticipantOiView } from "./participantOiView";
 import type { PostMarketDigest } from "./postMarketDigest";
 import type { PreMarketIndexPreview } from "./preMarketIndexPreview";
 import type { PreMarketMover } from "./preMarketMover";
@@ -18,7 +23,10 @@ import type { PreMarketReportEarningsTodayItem } from "./preMarketReportEarnings
 import type { PreMarketReportMode } from "./preMarketReportMode";
 import type { PreMarketSentiment } from "./preMarketSentiment";
 import type { SectorHeatmapEntry } from "./sectorHeatmapEntry";
+import type { SectorRotation } from "./sectorRotation";
+import type { StrikeOiChange } from "./strikeOiChange";
 import type { TomorrowSetup } from "./tomorrowSetup";
+import type { TradeSetups } from "./tradeSetups";
 import type { TradingScenario } from "./tradingScenario";
 
 export interface PreMarketReport {
@@ -50,5 +58,14 @@ export interface PreMarketReport {
   earningsToday?: PreMarketReportEarningsTodayItem[];
   postMarketDigest?: PostMarketDigest;
   tomorrowSetup?: TomorrowSetup;
+  participantOi?: ParticipantOiView;
+  indexOiBuildup?: IndexOiBuildup;
+  /** Top strike-level OI-change clusters per F&O underlying (Pro Market Analyser) */
+  strikeOiChanges?: StrikeOiChange[];
+  fiveDayFlows?: FiveDayFlow;
+  macroOverlay?: MacroOverlay;
+  sectorRotation?: SectorRotation;
+  compositeBias?: CompositeBias;
+  tradeSetups?: TradeSetups;
   generatedAt: Date;
 }

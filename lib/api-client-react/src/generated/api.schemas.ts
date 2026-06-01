@@ -1625,6 +1625,304 @@ export interface TradingScenario {
 }
 
 /**
+ * One participant category's index-futures positioning for the session.
+ */
+export interface ParticipantOiSegment {
+  /** FII / DII / Pro / Client */
+  clientType: string;
+  /** Index-futures long contracts */
+  futureIndexLong: number;
+  /** Index-futures short contracts */
+  futureIndexShort: number;
+  /** long − short */
+  futureIndexNet: number;
+  /** Long-share % = long / (long+short) × 100 */
+  lsrPct: number | null;
+  /** long / short */
+  longShortRatio: number | null;
+  /** futureIndexNet vs the previous session */
+  netChange: number | null;
+}
+
+export type ParticipantOiViewSignal =
+  (typeof ParticipantOiViewSignal)[keyof typeof ParticipantOiViewSignal];
+
+export const ParticipantOiViewSignal = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+/**
+ * NSE participant-wise index-futures OI (EOD). FII long-share % is the headline 'king metric': ≤30% bearish, ≥60% bullish.
+ */
+export interface ParticipantOiView {
+  /** Session date for the figures */
+  date: string;
+  previousDate: string | null;
+  segments: ParticipantOiSegment[];
+  /** FII index-futures long-share % */
+  fiiLsrPct: number | null;
+  fiiNetChange: number | null;
+  /** Aggregate index-futures OI (Σ longs across participants) */
+  aggIndexFutOi: number | null;
+  /** Day-over-day % change in aggregate index-futures OI */
+  aggIndexFutOiChgPct: number | null;
+  /** FII-vs-Client positioning divergence note, when present */
+  divergence: string | null;
+  signal: ParticipantOiViewSignal;
+  note: string;
+  source: string;
+  asOf: string;
+}
+
+export type IndexOiBuildupClassification =
+  (typeof IndexOiBuildupClassification)[keyof typeof IndexOiBuildupClassification];
+
+export const IndexOiBuildupClassification = {
+  LONG_BUILDUP: "LONG_BUILDUP",
+  SHORT_BUILDUP: "SHORT_BUILDUP",
+  SHORT_COVERING: "SHORT_COVERING",
+  LONG_UNWINDING: "LONG_UNWINDING",
+  NEUTRAL: "NEUTRAL",
+  DATA_UNAVAILABLE: "DATA_UNAVAILABLE",
+} as const;
+
+export type IndexOiBuildupBias =
+  (typeof IndexOiBuildupBias)[keyof typeof IndexOiBuildupBias];
+
+export const IndexOiBuildupBias = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+  UNKNOWN: "UNKNOWN",
+} as const;
+
+/**
+ * Price × OI buildup classification for aggregate index futures (same-session NIFTY move vs aggregate futures-OI change).
+ */
+export interface IndexOiBuildup {
+  label: string;
+  priceChgPct: number | null;
+  oiChgPct: number | null;
+  classification: IndexOiBuildupClassification;
+  bias: IndexOiBuildupBias;
+  /** Human-readable one-liner from the classifier */
+  interpretation: string;
+  /** Context / data-availability note */
+  note: string;
+  source: string;
+  asOf: string;
+}
+
+export interface StrikeOiChangeEntry {
+  strike: number;
+  /** Change in open interest (contracts) */
+  chgOi: number;
+  oiChgPct: number | null;
+  /** Plain-English read e.g. 'Call writing (resistance building)' */
+  action: string;
+}
+
+/**
+ * Top strike-level OI-change clusters for one underlying — fresh call/put writing (range edges) and unwinding.
+ */
+export interface StrikeOiChange {
+  underlying: string;
+  spot: number;
+  expiry: string;
+  topCallWriting: StrikeOiChangeEntry[];
+  topPutWriting: StrikeOiChangeEntry[];
+  topCallUnwinding: StrikeOiChangeEntry[];
+  topPutUnwinding: StrikeOiChangeEntry[];
+  read: string;
+  source: string;
+  asOf: string;
+}
+
+export interface FiveDayFlowDay {
+  date: string;
+  /** FII cash net (INR Cr) */
+  fiiNet: number;
+  /** DII cash net (INR Cr) */
+  diiNet: number;
+  niftyChangePct: number | null;
+}
+
+export type FiveDayFlowFiiTrend =
+  (typeof FiveDayFlowFiiTrend)[keyof typeof FiveDayFlowFiiTrend];
+
+export const FiveDayFlowFiiTrend = {
+  ACCUMULATING: "ACCUMULATING",
+  DISTRIBUTING: "DISTRIBUTING",
+  MIXED: "MIXED",
+} as const;
+
+export type FiveDayFlowDiiTrend =
+  (typeof FiveDayFlowDiiTrend)[keyof typeof FiveDayFlowDiiTrend];
+
+export const FiveDayFlowDiiTrend = {
+  ACCUMULATING: "ACCUMULATING",
+  DISTRIBUTING: "DISTRIBUTING",
+  MIXED: "MIXED",
+} as const;
+
+/**
+ * Trailing 5-session FII/DII cash flow trend with cumulative totals (INR Cr).
+ */
+export interface FiveDayFlow {
+  /** Chronological, oldest → newest */
+  days: FiveDayFlowDay[];
+  cumFiiCr: number;
+  cumDiiCr: number;
+  fiiTrend: FiveDayFlowFiiTrend;
+  diiTrend: FiveDayFlowDiiTrend;
+  read: string;
+  source: string;
+  asOf: string;
+}
+
+export type MacroOverlayRowImpact =
+  (typeof MacroOverlayRowImpact)[keyof typeof MacroOverlayRowImpact];
+
+export const MacroOverlayRowImpact = {
+  BULLISH: "BULLISH",
+  BEARISH: "BEARISH",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+export interface MacroOverlayRow {
+  label: string;
+  symbol: string | null;
+  value: number | null;
+  changePercent: number | null;
+  impact: MacroOverlayRowImpact;
+  note: string;
+}
+
+/**
+ * Global macro backdrop (DXY / US 10Y / USDINR / crude / gold). macroScore is a -3..+3 composite fed into the bias score; null when no inputs are live.
+ */
+export interface MacroOverlay {
+  rows: MacroOverlayRow[];
+  macroScore: number | null;
+  read: string;
+  source: string;
+  asOf: string;
+}
+
+export type SectorRotationEntryFlow =
+  (typeof SectorRotationEntryFlow)[keyof typeof SectorRotationEntryFlow];
+
+export const SectorRotationEntryFlow = {
+  INFLOW: "INFLOW",
+  OUTFLOW: "OUTFLOW",
+  NEUTRAL: "NEUTRAL",
+} as const;
+
+export interface SectorRotationEntry {
+  sector: string;
+  avgChangePercent: number;
+  flow: SectorRotationEntryFlow;
+  topPickSymbol?: string;
+}
+
+/**
+ * Sector rotation read derived from the live sector heatmap — leaders, laggards, breadth.
+ */
+export interface SectorRotation {
+  leaders: SectorRotationEntry[];
+  laggards: SectorRotationEntry[];
+  breadthPositive: number;
+  breadthNegative: number;
+  rotationRead: string;
+  source: string;
+  asOf: string;
+}
+
+export interface BiasSignalBreakdown {
+  signal: string;
+  weight: number;
+  rawValue: number | null;
+  /** Per-signal score -3..+3 */
+  score: number | null;
+  /** score × weight */
+  contribution: number;
+  note: string;
+}
+
+export type CompositeBiasLabel =
+  (typeof CompositeBiasLabel)[keyof typeof CompositeBiasLabel];
+
+export const CompositeBiasLabel = {
+  STRONGLY_BULLISH: "STRONGLY_BULLISH",
+  MILDLY_BULLISH: "MILDLY_BULLISH",
+  NEUTRAL: "NEUTRAL",
+  MILDLY_BEARISH: "MILDLY_BEARISH",
+  STRONGLY_BEARISH: "STRONGLY_BEARISH",
+} as const;
+
+export type CompositeBiasInvalidation = {
+  bullishFlip: string;
+  bearishAcceleration: string;
+};
+
+/**
+ * Composite next-day bias score (-10..+10) synthesised from GIFT / FII-DII cash / participant OI / PCR / VIX / macro. Reporting-only; null feeds are excluded from numerator and denominator.
+ */
+export interface CompositeBias {
+  /** -10..+10, 1 decimal */
+  score: number;
+  label: CompositeBiasLabel;
+  verdict: string;
+  breakdown: BiasSignalBreakdown[];
+  /** Sum of weights for signals with data (max 9.0) */
+  totalWeightUsed: number;
+  /** usedWeight / 9.0, 0..1 */
+  dataCompleteness: number;
+  invalidation: CompositeBiasInvalidation;
+  source: string;
+  asOf: string;
+  methodologyNote: string;
+}
+
+export type TradeSetupDirection =
+  (typeof TradeSetupDirection)[keyof typeof TradeSetupDirection];
+
+export const TradeSetupDirection = {
+  LONG: "LONG",
+  SHORT: "SHORT",
+  RANGE: "RANGE",
+} as const;
+
+/**
+ * Derived actionable trade setup from classical pivots + composite bias. REPORTING ONLY — never placed, sized, or executed.
+ */
+export interface TradeSetup {
+  symbol: string;
+  direction: TradeSetupDirection;
+  label: string;
+  /** Suggested entry reference (price) */
+  entry: number;
+  target: number;
+  stop: number;
+  /** Reward-to-risk multiple; null when degenerate (zero risk) */
+  riskReward: number | null;
+  rationale: string;
+  invalidation: string;
+}
+
+/**
+ * Bundle of derived trade setups keyed off the composite bias score.
+ */
+export interface TradeSetups {
+  setups: TradeSetup[];
+  biasScore: number;
+  source: string;
+  asOf: string;
+}
+
+/**
  * Auto-detected based on IST time
  */
 export type PreMarketReportMode =
@@ -1708,6 +2006,15 @@ export interface PreMarketReport {
   earningsToday?: PreMarketReportEarningsTodayItem[];
   postMarketDigest?: PostMarketDigest;
   tomorrowSetup?: TomorrowSetup;
+  participantOi?: ParticipantOiView;
+  indexOiBuildup?: IndexOiBuildup;
+  /** Top strike-level OI-change clusters per F&O underlying (Pro Market Analyser) */
+  strikeOiChanges?: StrikeOiChange[];
+  fiveDayFlows?: FiveDayFlow;
+  macroOverlay?: MacroOverlay;
+  sectorRotation?: SectorRotation;
+  compositeBias?: CompositeBias;
+  tradeSetups?: TradeSetups;
   generatedAt: string;
 }
 

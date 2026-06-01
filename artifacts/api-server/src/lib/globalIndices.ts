@@ -30,8 +30,13 @@ export const GLOBAL_INDICES: GlobalCfg[] = [
   { yahoo: "^VIX", name: "VIX", region: "US" },
   { yahoo: "DX-Y.NYB", name: "Dollar Index", region: "Global" },
   { yahoo: "CL=F", name: "Crude Oil", region: "Global" },
+  { yahoo: "BZ=F", name: "Brent Crude", region: "Global" },
   { yahoo: "GC=F", name: "Gold", region: "Global" },
   { yahoo: "INR=X", name: "USD/INR", region: "FX" },
+  // US 10-Year Treasury yield (Yahoo ^TNX quotes yield ×10, e.g. 51.7 = 5.17%).
+  // The macro-overlay builder divides by 10. India 10Y has no reliable free
+  // live feed and is surfaced as null ("no live feed") in the macro builder.
+  { yahoo: "^TNX", name: "US 10Y Yield", region: "US" },
 ];
 
 let cache: { ts: number; data: IndexQuote[] } | null = null;

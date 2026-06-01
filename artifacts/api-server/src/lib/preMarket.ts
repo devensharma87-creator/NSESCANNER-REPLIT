@@ -25,9 +25,12 @@ import { logger } from "./logger";
 import { pivots } from "./indicators";
 import { fetchOptionChain } from "./optionChain";
 import { computeAnalytics } from "./optionAnalytics";
-import { getFiiDiiMonthly } from "./instFlows";
+import { getFiiDiiMonthly, getParticipantOi, type ParticipantOiRowDto } from "./instFlows";
 import { getLatestHeatmapCache, fetchOiHeatmap, type OiHeatmapRow } from "./oiLab";
 import { getDeliveryMap } from "./nseBhavcopy";
+import { classifyOiBuildup, type OiBuildupResult } from "./oiBuildup";
+import { computeCompositeBias, type CompositeBiasResult } from "./compositeBias";
+import { deriveTradeSetups, type SetupLevels, type TradeSetup } from "./tradeSetups";
 
 export type Mode = "PRE_MARKET" | "POST_MARKET" | "LIVE";
 export type Sentiment = "STRONG_BULLISH" | "BULLISH" | "NEUTRAL" | "BEARISH" | "STRONG_BEARISH";
@@ -877,6 +880,496 @@ async function buildTomorrowSetup(): Promise<TomorrowSetupData> {
   };
 }
 
+// ═════════════════════════════════════════════════════════════════
+// Pro Market Analyser — Phase A data builders (REPORTING ONLY).
+//
+// Each builder is failure-isolated by its own .catch in
+// getPreMarketReport (or a try/catch at the call site for the pure
+// synthesisers) and returns a nullable/empty view, so a single
+// upstream outage (NSE participant CSV, Yahoo macro feed, option-chain
+// geo-block) can never break the report. Nothing here feeds signal
+// generation, paper-trade execution, sizing, stops, targets, gates, or
+// any trading decision — these surfaces are display-only. Every view
+// carries `source` + `asOf` freshness/fallback labels.
+// ═════════════════════════════════════════════════════════════════
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// ── Participant-wise OI + FII long-short ratio ────────────────────
+interface ParticipantOiSegment {
+  clientType: string; // FII / DII / Pro / Client
+  futureIndexLong: number;
+  futureIndexShort: number;
+  futureIndexNet: number;
+  /** long / (long+short) × 100. */
+  lsrPct: number | null;
+  /** long / short. */
+  longShortRatio: number | null;
+  /** futureIndexNet vs the previous session, null when no prior row. */
+  netChange: number | null;
+}
+interface ParticipantOiView {
+  date: string;
+  previousDate: string | null;
+  segments: ParticipantOiSegment[];
+  fiiLsrPct: number | null;
+  fiiNetChange: number | null;
+  /** Aggregate index-futures OI (Σ longs across participants) for the day. */
+  aggIndexFutOi: number | null;
+  /** Day-over-day % change in aggregate index-futures OI. */
+  aggIndexFutOiChgPct: number | null;
+  divergence: string | null;
+  signal: "BULLISH" | "BEARISH" | "NEUTRAL";
+  note: string;
+  source: string;
+  asOf: string;
+}
+
+const PARTICIPANT_SEGMENTS = ["FII", "DII", "Pro", "Client"];
+
+function lsrOf(long: number, short: number): { lsrPct: number | null; ratio: number | null } {
+  const denom = long + short;
+  return {
+    lsrPct: denom > 0 ? round2((long / denom) * 100) : null,
+    ratio: short > 0 ? round2(long / short) : null,
+  };
+}
+
+async function buildParticipantOi(): Promise<ParticipantOiView | null> {
+  const day = await getParticipantOi();
+  if (!day || day.rows.length === 0) return null;
+  const byType = (rows: ParticipantOiRowDto[], ct: string) =>
+    rows.find(r => r.clientType.toLowerCase() === ct.toLowerCase()) ?? null;
+
+  const segments: ParticipantOiSegment[] = [];
+  for (const ct of PARTICIPANT_SEGMENTS) {
+    const cur = byType(day.rows, ct);
+    if (!cur) continue;
+    const prev = byType(day.previousRows, ct);
+    const { lsrPct, ratio } = lsrOf(cur.futureIndexLong, cur.futureIndexShort);
+    segments.push({
+      clientType: ct,
+      futureIndexLong: cur.futureIndexLong,
+      futureIndexShort: cur.futureIndexShort,
+      futureIndexNet: cur.futureIndexNet,
+      lsrPct,
+      longShortRatio: ratio,
+      netChange: prev ? cur.futureIndexNet - prev.futureIndexNet : null,
+    });
+  }
+
+  const fii = segments.find(s => s.clientType === "FII") ?? null;
+  const client = segments.find(s => s.clientType === "Client") ?? null;
+
+  // Aggregate index-futures OI ≈ Σ longs across the four participant segments
+  // (one participant's long is another's short, so Σlongs ≈ open interest).
+  const sumLong = (rows: ParticipantOiRowDto[]) =>
+    PARTICIPANT_SEGMENTS.reduce((a, ct) => {
+      const r = byType(rows, ct);
+      return a + (r ? r.futureIndexLong : 0);
+    }, 0);
+  const aggNow = sumLong(day.rows);
+  const aggPrev = day.previousRows.length > 0 ? sumLong(day.previousRows) : null;
+  const aggIndexFutOi = aggNow > 0 ? aggNow : null;
+  const aggIndexFutOiChgPct =
+    aggPrev != null && aggPrev > 0 ? round2(((aggNow - aggPrev) / aggPrev) * 100) : null;
+
+  // FII index-futures long-share is the headline "king metric":
+  // ≤30% bearish, ≥60% bullish, between = balanced.
+  let signal: ParticipantOiView["signal"] = "NEUTRAL";
+  if (fii?.lsrPct != null) {
+    if (fii.lsrPct >= 60) signal = "BULLISH";
+    else if (fii.lsrPct <= 30) signal = "BEARISH";
+  }
+
+  // Divergence read: FII and Client are structurally opposite counterparties;
+  // flag when their net index-futures positioning points opposite ways.
+  let divergence: string | null = null;
+  if (fii && client) {
+    if (fii.futureIndexNet > 0 && client.futureIndexNet < 0)
+      divergence = "FII net long while Client net short — smart money leaning up against retail.";
+    else if (fii.futureIndexNet < 0 && client.futureIndexNet > 0)
+      divergence = "FII net short while Client net long — smart money leaning down against retail.";
+  }
+
+  const note =
+    fii?.lsrPct == null
+      ? "FII index-futures long-share unavailable for this session."
+      : `FII index-futures long-share ${fii.lsrPct.toFixed(1)}% — ${signal === "BULLISH" ? "net long, bullish" : signal === "BEARISH" ? "net short, bearish" : "balanced"}.`;
+
+  return {
+    date: day.date,
+    previousDate: day.previousDate,
+    segments,
+    fiiLsrPct: fii?.lsrPct ?? null,
+    fiiNetChange: fii?.netChange ?? null,
+    aggIndexFutOi,
+    aggIndexFutOiChgPct,
+    divergence,
+    signal,
+    note,
+    source: "NSE participant-wise OI (EOD)",
+    asOf: day.date,
+  };
+}
+
+// ── Index OI buildup (price × OI classifier) ──────────────────────
+interface IndexOiBuildupView {
+  label: string;
+  priceChgPct: number | null;
+  oiChgPct: number | null;
+  classification: OiBuildupResult["classification"];
+  bias: OiBuildupResult["bias"];
+  interpretation: string;
+  note: string;
+  source: string;
+  asOf: string;
+}
+
+// Pure synthesiser: pairs EOD aggregate index-futures OI change (from
+// participant data) with the SAME-session NIFTY close-to-close move.
+function buildIndexOiBuildup(
+  participant: ParticipantOiView | null,
+  niftyChgPctForDate: number | null,
+): IndexOiBuildupView | null {
+  if (!participant) return null;
+  const oiChgPct = participant.aggIndexFutOiChgPct;
+  const res = classifyOiBuildup(niftyChgPctForDate, oiChgPct);
+  return {
+    label: "Index futures (aggregate)",
+    priceChgPct: niftyChgPctForDate,
+    oiChgPct,
+    classification: res.classification,
+    bias: res.bias,
+    interpretation: res.note,
+    note:
+      res.classification === "DATA_UNAVAILABLE"
+        ? "Needs both same-session NIFTY price change and aggregate futures-OI change to classify buildup."
+        : "Aggregate NSE index-futures OI paired with the same-session NIFTY close-to-close move.",
+    source: "NSE participant-wise OI + NIFTY EOD",
+    asOf: participant.asOf,
+  };
+}
+
+// ── Strike-level OI changes ───────────────────────────────────────
+interface StrikeOiChangeEntry {
+  strike: number;
+  chgOi: number;
+  oiChgPct: number | null;
+  action: string;
+}
+interface StrikeOiChangeView {
+  underlying: string;
+  spot: number;
+  expiry: string;
+  topCallWriting: StrikeOiChangeEntry[];
+  topPutWriting: StrikeOiChangeEntry[];
+  topCallUnwinding: StrikeOiChangeEntry[];
+  topPutUnwinding: StrikeOiChangeEntry[];
+  read: string;
+  source: string;
+  asOf: string;
+}
+
+const STRIKE_OI_UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY"];
+
+async function buildStrikeOiChanges(): Promise<StrikeOiChangeView[]> {
+  const settled = await Promise.allSettled(
+    STRIKE_OI_UNDERLYINGS.map(async (u): Promise<StrikeOiChangeView | null> => {
+      const chain = await fetchOptionChain(u).catch(() => null);
+      if (!chain || chain.rows.length === 0) return null;
+
+      const ce = chain.rows
+        .filter(r => r.ce?.chgOi != null)
+        .map(r => ({ strike: r.strike, chgOi: r.ce!.chgOi!, oiChgPct: r.ce!.oiChgPct ?? null }));
+      const pe = chain.rows
+        .filter(r => r.pe?.chgOi != null)
+        .map(r => ({ strike: r.strike, chgOi: r.pe!.chgOi!, oiChgPct: r.pe!.oiChgPct ?? null }));
+
+      const topN = (
+        arr: Array<{ strike: number; chgOi: number; oiChgPct: number | null }>,
+        dir: "pos" | "neg",
+        action: string,
+        n = 3,
+      ): StrikeOiChangeEntry[] =>
+        arr
+          .filter(e => (dir === "pos" ? e.chgOi > 0 : e.chgOi < 0))
+          .sort((a, b) => (dir === "pos" ? b.chgOi - a.chgOi : a.chgOi - b.chgOi))
+          .slice(0, n)
+          .map(e => ({ strike: e.strike, chgOi: e.chgOi, oiChgPct: e.oiChgPct, action }));
+
+      const topCallWriting = topN(ce, "pos", "Call writing (resistance building)");
+      const topPutWriting = topN(pe, "pos", "Put writing (support building)");
+      const topCallUnwinding = topN(ce, "neg", "Call unwinding (resistance easing)");
+      const topPutUnwinding = topN(pe, "neg", "Put unwinding (support weakening)");
+
+      const resistance = topCallWriting[0]?.strike ?? null;
+      const support = topPutWriting[0]?.strike ?? null;
+      const read =
+        resistance != null && support != null
+          ? `Heaviest fresh call writing at ${resistance} (resistance), heaviest put writing at ${support} (support) — likely intraday range.`
+          : "Insufficient fresh OI to define a clear writing range this cycle.";
+
+      return {
+        underlying: u,
+        spot: chain.spot,
+        expiry: chain.expiry,
+        topCallWriting,
+        topPutWriting,
+        topCallUnwinding,
+        topPutUnwinding,
+        read,
+        source: "NSE/Kite option chain (ΔOI)",
+        asOf: new Date().toISOString(),
+      };
+    }),
+  );
+  return settled
+    .map(r => (r.status === "fulfilled" ? r.value : null))
+    .filter((x): x is StrikeOiChangeView => x != null);
+}
+
+// ── 5-day institutional flow trend ────────────────────────────────
+type FlowTrend = "ACCUMULATING" | "DISTRIBUTING" | "MIXED";
+interface FiveDayFlowDay {
+  date: string;
+  fiiNet: number;
+  diiNet: number;
+  niftyChangePct: number | null;
+}
+interface FiveDayFlowView {
+  days: FiveDayFlowDay[]; // chronological (oldest → newest)
+  cumFiiCr: number;
+  cumDiiCr: number;
+  fiiTrend: FlowTrend;
+  diiTrend: FlowTrend;
+  read: string;
+  source: string;
+  asOf: string;
+}
+
+function flowTrend(days: FiveDayFlowDay[], side: "fii" | "dii"): FlowTrend {
+  const vals = days.map(d => (side === "fii" ? d.fiiNet : d.diiNet));
+  const pos = vals.filter(v => v > 0).length;
+  const neg = vals.filter(v => v < 0).length;
+  if (pos >= 4) return "ACCUMULATING";
+  if (neg >= 4) return "DISTRIBUTING";
+  return "MIXED";
+}
+
+async function buildFiveDayFlows(): Promise<FiveDayFlowView | null> {
+  const months = await getFiiDiiMonthly(2);
+  const all = months.flatMap(m => m.days).sort((a, b) => a.date.localeCompare(b.date));
+  if (all.length === 0) return null;
+  const last5 = all.slice(-5).map(d => ({
+    date: d.date,
+    fiiNet: round2(d.fiiNet),
+    diiNet: round2(d.diiNet),
+    niftyChangePct: d.niftyChangePct ?? null,
+  }));
+  const cumFiiCr = round2(last5.reduce((a, d) => a + d.fiiNet, 0));
+  const cumDiiCr = round2(last5.reduce((a, d) => a + d.diiNet, 0));
+  const fiiTrend = flowTrend(last5, "fii");
+  const diiTrend = flowTrend(last5, "dii");
+  const read = `Over the last ${last5.length} sessions FII are net ${cumFiiCr >= 0 ? "buyers" : "sellers"} (₹${cumFiiCr.toLocaleString("en-IN")} Cr, ${fiiTrend.toLowerCase()}) and DII net ${cumDiiCr >= 0 ? "buyers" : "sellers"} (₹${cumDiiCr.toLocaleString("en-IN")} Cr, ${diiTrend.toLowerCase()}).`;
+  return {
+    days: last5,
+    cumFiiCr,
+    cumDiiCr,
+    fiiTrend,
+    diiTrend,
+    read,
+    source: "NSE FII/DII cash (EOD)",
+    asOf: last5[last5.length - 1]!.date,
+  };
+}
+
+// ── Macro overlay (DXY / yields / crude / USDINR / gold) ──────────
+interface MacroOverlayRow {
+  label: string;
+  symbol: string | null;
+  value: number | null;
+  changePercent: number | null;
+  impact: "BULLISH" | "BEARISH" | "NEUTRAL";
+  note: string;
+}
+interface MacroOverlayView {
+  rows: MacroOverlayRow[];
+  /** -3..+3 composite fed to the bias score; null when no inputs available. */
+  macroScore: number | null;
+  read: string;
+  source: string;
+  asOf: string;
+}
+
+async function buildMacroOverlay(): Promise<MacroOverlayView | null> {
+  const idx = await getGlobalIndices();
+  if (!idx || idx.length === 0) return null;
+  const find = (sym: string) => idx.find(q => q.symbol === sym) ?? null;
+
+  const dxy = find("DX-Y.NYB");
+  const wti = find("CL=F");
+  const brent = find("BZ=F");
+  const gold = find("GC=F");
+  const usdinr = find("INR=X");
+  const tnx = find("^TNX");
+
+  // Each scored component contributes a [-1,+1] partial; the four are summed
+  // and clamped to the [-3,+3] band the composite-bias macroScore expects.
+  // For India, a STRONGER dollar / RISING US yields / WEAKER rupee / HIGHER
+  // crude are all headwinds, so each is scored as bearish-when-up (negative).
+  const unit = (x: number) => Math.max(-1, Math.min(1, x));
+  const impactFor = (chg: number | null | undefined): MacroOverlayRow["impact"] => {
+    if (chg == null || Math.abs(chg) < 0.15) return "NEUTRAL";
+    return chg > 0 ? "BEARISH" : "BULLISH"; // up = headwind for all scored rows
+  };
+
+  const rows: MacroOverlayRow[] = [];
+  let score = 0;
+  let any = false;
+
+  if (dxy) {
+    rows.push({ label: "Dollar Index (DXY)", symbol: dxy.symbol, value: dxy.price, changePercent: dxy.changePercent, impact: impactFor(dxy.changePercent), note: "Dollar strength pressures EM / India flows." });
+    if (dxy.changePercent != null) { score += unit(-dxy.changePercent / 0.5); any = true; }
+  }
+  if (tnx) {
+    // ^TNX quotes the yield ×10 (e.g. 51.7 → 5.17%); divide for display.
+    const yieldPct = tnx.price != null ? round2(tnx.price / 10) : null;
+    rows.push({ label: "US 10Y Yield", symbol: tnx.symbol, value: yieldPct, changePercent: tnx.changePercent, impact: impactFor(tnx.changePercent), note: "Rising US yields draw flows out of EM equities." });
+    if (tnx.changePercent != null) { score += unit(-tnx.changePercent / 1.0); any = true; }
+  }
+  if (usdinr) {
+    rows.push({ label: "USD/INR", symbol: usdinr.symbol, value: usdinr.price, changePercent: usdinr.changePercent, impact: impactFor(usdinr.changePercent), note: "Rupee weakness (pair up) deters foreign inflows." });
+    if (usdinr.changePercent != null) { score += unit(-usdinr.changePercent / 0.3); any = true; }
+  }
+  if (wti) {
+    rows.push({ label: "Crude Oil (WTI)", symbol: wti.symbol, value: wti.price, changePercent: wti.changePercent, impact: impactFor(wti.changePercent), note: "Higher crude widens India's import bill." });
+    if (wti.changePercent != null) { score += unit(-wti.changePercent / 2.0); any = true; }
+  }
+  // Brent + Gold are context-only and deliberately NOT scored (Brent is
+  // collinear with WTI; gold's equity signal is ambiguous), so they never
+  // double-count into macroScore.
+  if (brent) {
+    rows.push({ label: "Brent Crude", symbol: brent.symbol, value: brent.price, changePercent: brent.changePercent, impact: impactFor(brent.changePercent), note: "Global oil benchmark (context; not double-counted)." });
+  }
+  if (gold) {
+    rows.push({ label: "Gold", symbol: gold.symbol, value: gold.price, changePercent: gold.changePercent, impact: "NEUTRAL", note: "Safe-haven demand; context only." });
+  }
+  // India 10Y has no reliable free live feed — surfaced explicitly as null.
+  rows.push({ label: "India 10Y Yield", symbol: null, value: null, changePercent: null, impact: "NEUTRAL", note: "No live feed available." });
+
+  const macroScore = any ? round2(Math.max(-3, Math.min(3, score))) : null;
+  const read =
+    macroScore == null
+      ? "Macro feeds unavailable this cycle."
+      : `Macro backdrop is ${macroScore > 0.5 ? "supportive" : macroScore < -0.5 ? "hostile" : "broadly neutral"} for Indian equities (composite ${macroScore >= 0 ? "+" : ""}${macroScore}).`;
+
+  return { rows, macroScore, read, source: "Yahoo Finance (delayed)", asOf: new Date().toISOString() };
+}
+
+// ── Sector rotation (pure, derived from the sector heatmap) ───────
+interface SectorRotationEntry {
+  sector: string;
+  avgChangePercent: number;
+  flow: "INFLOW" | "OUTFLOW" | "NEUTRAL";
+  topPickSymbol?: string;
+}
+interface SectorRotationView {
+  leaders: SectorRotationEntry[];
+  laggards: SectorRotationEntry[];
+  breadthPositive: number;
+  breadthNegative: number;
+  rotationRead: string;
+  source: string;
+  asOf: string;
+}
+
+function buildSectorRotation(heatmap: SectorHeatmapEntry[]): SectorRotationView | null {
+  if (heatmap.length === 0) return null;
+  const flowFor = (avg: number): SectorRotationEntry["flow"] =>
+    avg > 0.3 ? "INFLOW" : avg < -0.3 ? "OUTFLOW" : "NEUTRAL";
+  const mapped: SectorRotationEntry[] = heatmap.map(h => ({
+    sector: h.sector,
+    avgChangePercent: h.avgChangePercent,
+    flow: flowFor(h.avgChangePercent),
+    topPickSymbol: h.topPickSymbol,
+  }));
+  const sorted = mapped.slice().sort((a, b) => b.avgChangePercent - a.avgChangePercent);
+  const leaders = sorted.slice(0, 3);
+  const laggards = sorted.slice(-3).reverse();
+  const breadthPositive = mapped.filter(s => s.avgChangePercent > 0).length;
+  const breadthNegative = mapped.filter(s => s.avgChangePercent < 0).length;
+  const rotationRead =
+    leaders.length > 0
+      ? `Money rotating into ${leaders.map(l => l.sector).join(", ")}; out of ${laggards.map(l => l.sector).join(", ")}.`
+      : "No clear sector rotation this cycle.";
+  return {
+    leaders,
+    laggards,
+    breadthPositive,
+    breadthNegative,
+    rotationRead,
+    source: "Derived from live scan rows",
+    asOf: new Date().toISOString(),
+  };
+}
+
+// ── Composite bias (pure synthesiser over compositeBias.ts) ───────
+interface CompositeBiasView extends CompositeBiasResult {
+  source: string;
+  asOf: string;
+  methodologyNote: string;
+}
+
+function buildCompositeBias(args: {
+  giftCue: Cue | undefined;
+  fiiDii: FiiDiiSnapshot | null;
+  participant: ParticipantOiView | null;
+  niftySnapshot: OptionSnapshot | undefined;
+  vixCue: Cue | undefined;
+  macro: MacroOverlayView | null;
+}): CompositeBiasView {
+  const result = computeCompositeBias({
+    giftNiftyChangePct: args.giftCue?.changePercent ?? null,
+    fiiCashCr: args.fiiDii?.fiiCashCr ?? null,
+    diiCashCr: args.fiiDii?.diiCashCr ?? null,
+    fiiFutLsrPct: args.participant?.fiiLsrPct ?? null,
+    pcr: args.niftySnapshot?.pcrOi ?? null,
+    vixChangePct: args.vixCue?.changePercent ?? null,
+    macroScore: args.macro?.macroScore ?? null,
+  });
+  return {
+    ...result,
+    source: "Synthesised from GIFT / FII-DII cash / participant OI / PCR / VIX / macro",
+    asOf: new Date().toISOString(),
+    methodologyNote:
+      "Weighted -10..+10 composite; null feeds excluded from numerator and denominator. See compositeBias.ts for the documented scaling deviation.",
+  };
+}
+
+// ── Actionable trade setups (pure, derived from levels + bias) ────
+interface TradeSetupsView {
+  setups: TradeSetup[];
+  biasScore: number;
+  source: string;
+  asOf: string;
+}
+
+const TRADE_SETUP_SYMBOLS = ["^NSEI", "^NSEBANK", "^BSESN"];
+
+function buildTradeSetups(indexLevels: KeyIndexLevels[], biasScore: number): TradeSetupsView {
+  const levels: SetupLevels[] = indexLevels
+    .filter(l => TRADE_SETUP_SYMBOLS.includes(l.symbol))
+    .map(l => ({ symbol: l.name, pivot: l.pivot, r1: l.r1, r2: l.r2, s1: l.s1, s2: l.s2 }));
+  const setups = deriveTradeSetups({ biasScore, levels });
+  return {
+    setups,
+    biasScore,
+    source: "Derived from classical pivots + composite bias",
+    asOf: new Date().toISOString(),
+  };
+}
+
 function todayISO(): string { return istParts().dateISO; }
 
 interface Cached { ts: number; data: PreMarketReportData; }
@@ -904,6 +1397,15 @@ export interface PreMarketReportData {
   earningsToday: Array<{ symbol: string; name: string; date: string }>;
   postMarketDigest?: ReturnType<typeof buildPostMarketDigest>;
   tomorrowSetup?: TomorrowSetupData;
+  // ── Pro Market Analyser (Phase A) — all optional/nullable, reporting-only ──
+  participantOi?: ParticipantOiView;
+  indexOiBuildup?: IndexOiBuildupView;
+  strikeOiChanges?: StrikeOiChangeView[];
+  fiveDayFlows?: FiveDayFlowView;
+  macroOverlay?: MacroOverlayView;
+  sectorRotation?: SectorRotationView;
+  compositeBias?: CompositeBiasView;
+  tradeSetups?: TradeSetupsView;
   generatedAt: Date;
 }
 
@@ -928,6 +1430,10 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
     optionSnapshots,
     fiiDii,
     tomorrowSetup,
+    participantOi,
+    strikeOiChanges,
+    fiveDayFlows,
+    macroOverlay,
   ] = await Promise.all([
     buildOvernightCues().catch(e => { logger.warn({ e }, "preMarket: overnightCues failed"); return { cues: [] as Cue[], score: 0 }; }),
     buildIndexPreviews().catch(e => { logger.warn({ e }, "preMarket: indexPreviews failed"); return [] as Awaited<ReturnType<typeof buildIndexPreviews>>; }),
@@ -937,6 +1443,10 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
     buildOptionSnapshots().catch(e => { logger.warn({ e }, "preMarket: optionSnapshots failed"); return [] as OptionSnapshot[]; }),
     buildFiiDiiSnapshot().catch(e => { logger.warn({ e }, "preMarket: fiiDii failed"); return null; }),
     buildTomorrowSetup().catch(e => { logger.warn({ e }, "preMarket: tomorrowSetup failed"); return { oiBuildupSummary: null, highDeliveryStocks: [], foBanStocks: [] } as TomorrowSetupData; }),
+    buildParticipantOi().catch(e => { logger.warn({ e }, "preMarket: participantOi failed"); return null; }),
+    buildStrikeOiChanges().catch(e => { logger.warn({ e }, "preMarket: strikeOiChanges failed"); return [] as StrikeOiChangeView[]; }),
+    buildFiveDayFlows().catch(e => { logger.warn({ e }, "preMarket: fiveDayFlows failed"); return null; }),
+    buildMacroOverlay().catch(e => { logger.warn({ e }, "preMarket: macroOverlay failed"); return null; }),
   ]);
   const { cues, score } = cuesResult;
 
@@ -1022,6 +1532,45 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
     niftyLevels,
   });
 
+  // ── Pro Market Analyser synthesisers (pure; each try/catch-isolated) ──
+  // Sector rotation is derived from the heatmap computed just above.
+  let sectorRotation: SectorRotationView | undefined;
+  try {
+    sectorRotation = buildSectorRotation(sectorHeatmap) ?? undefined;
+  } catch (e) { logger.warn({ e }, "preMarket: sectorRotation failed"); }
+
+  // Index OI buildup pairs EOD aggregate futures-OI change with the SAME-session
+  // NIFTY move, looked up by the participant-OI date in the 5-day flow series
+  // (both are EOD same-day data, so the pairing is honest).
+  let indexOiBuildup: IndexOiBuildupView | undefined;
+  try {
+    const partDate = participantOi?.date;
+    const niftyChgForBuildup =
+      partDate != null
+        ? (fiveDayFlows?.days.find(d => d.date === partDate)?.niftyChangePct ?? null)
+        : null;
+    indexOiBuildup = buildIndexOiBuildup(participantOi, niftyChgForBuildup) ?? undefined;
+  } catch (e) { logger.warn({ e }, "preMarket: indexOiBuildup failed"); }
+
+  // Composite bias synthesises the already-fetched signals.
+  let compositeBias: CompositeBiasView | undefined;
+  try {
+    compositeBias = buildCompositeBias({
+      giftCue,
+      fiiDii,
+      participant: participantOi,
+      niftySnapshot: optionSnapshots.find(s => s.underlying === "NIFTY"),
+      vixCue,
+      macro: macroOverlay,
+    });
+  } catch (e) { logger.warn({ e }, "preMarket: compositeBias failed"); }
+
+  // Trade setups derive from index pivots + the composite bias score.
+  let tradeSetups: TradeSetupsView | undefined;
+  try {
+    tradeSetups = buildTradeSetups(indexLevels, compositeBias?.score ?? 0);
+  } catch (e) { logger.warn({ e }, "preMarket: tradeSetups failed"); }
+
   const data: PreMarketReportData = {
     mode,
     sentiment,
@@ -1043,6 +1592,14 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
     earningsToday,
     postMarketDigest: movers.allRows.length > 0 ? buildPostMarketDigest(movers.allRows) : undefined,
     tomorrowSetup,
+    participantOi: participantOi ?? undefined,
+    indexOiBuildup,
+    strikeOiChanges,
+    fiveDayFlows: fiveDayFlows ?? undefined,
+    macroOverlay: macroOverlay ?? undefined,
+    sectorRotation,
+    compositeBias,
+    tradeSetups,
     generatedAt: new Date(),
   };
 
