@@ -1,0 +1,76 @@
+F&O verification confirmation is accepted and closed.
+
+Accepted status:
+
+```text id="yykkdl"
+paperTradingFO.ts change = comment-only
+docs/fno-backend-roadmap.md = documentation-only
+attached_assets files = non-executable uploaded reference files
+runtime logic changed = NO
+signal/scoring changed = NO
+paper-execution changed = NO
+confidence thresholds changed = NO
+fail-open/fail-closed behaviour changed = NO
+circuit breaker changed = NO
+api-server typecheck = clean
+production publish = not done
+```
+
+Do not do any further F&O work now.
+
+Do not change:
+
+```text id="xwklxo"
+F&O logic
+signal/scoring logic
+paper-execution
+confidence thresholds
+fail-open/fail-closed behaviour
+circuit breaker behaviour
+liquidity gates
+entry/exit/sizing/stop/target
+TIME_EXIT_1520
+P25
+```
+
+Now resume the actual pending priority:
+
+```text id="i5mo4x"
+Pro Market Analyser publish + post-publish smoke
+```
+
+Before publish, note the unrelated API-server workflow issue:
+
+```text id="46j1da"
+API-server workflow showed FAILED due to Kite ticker WebSocket 429 / auto-reconnect exhausted.
+This is not caused by the comment/doc change.
+```
+
+During post-publish smoke, include this as a separate observation and verify that the app is still healthy.
+
+Proceed to publish the accepted Pro Market Analyser build only after confirming the deploy diff contains no unexpected runtime F&O changes.
+
+After publish, provide **Pro Market Analyser Post-Publish Smoke Report** with:
+
+A. Deployment live and latest Pro Market Analyser build confirmed
+B. `/api/healthz` returns `200`
+C. `/premarket` serves `200`
+D. Page loads without frontend crash
+E. PRE / LIVE / POST mode logic still works based on IST
+F. Old sections still present
+G. New Phase A sections render or show compact unavailable state
+H. No `undefined`, `NaN`, `null`, raw JSON, or broken cards
+I. Core section order verified
+J. POST mode context verified
+K. Sidebar data still present
+L. No `/premarket` API `500`
+M. No `/paper/*` route regression
+N. No `ZodError`
+O. No auth/security regression
+P. API-server workflow/Kite 429 status noted separately
+Q. No env/secret/DNS/schema/scheduler change
+R. Rollback needed? yes/no
+
+Strictly no code changes during smoke unless there is a real blocking production issue.
+
+Stop after the smoke report.
