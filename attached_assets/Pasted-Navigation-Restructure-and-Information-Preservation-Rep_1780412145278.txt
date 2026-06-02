@@ -1,0 +1,76 @@
+Navigation Restructure and Information Preservation Report is accepted.
+
+Accepted status:
+
+```text id="984qno"
+Grouped navigation implemented
+All existing routes preserved
+All existing pages preserved
+No information removed
+No data blocks removed
+No metrics removed
+No tables removed
+No charts removed
+No filters removed
+No reports removed
+Owner/admin visibility preserved
+No auth bypass
+No public route exposure
+No trading/signal/paper/exit logic changed
+No DB schema/env/scheduler change
+Typecheck clean
+Scanner tests 395/395 passed
+Architect review PASS
+```
+
+Proceed with controlled publish, but first confirm deploy diff.
+
+Expected deploy diff should be limited to:
+
+```text id="5s89kt"
+artifacts/scanner/src/components/layout.tsx
+docs/navigation-restructure-2026-06-02.md
+replit.md additive note
+.local/.commit_message if applicable
+```
+
+Before publish, confirm:
+
+```text id="2elnto"
+No API files changed
+No trading logic files changed
+No F&O files changed
+No paper-trading files changed
+No scanner scoring files changed
+No DB/schema files changed
+No env/secret files changed
+No scheduler files changed
+No route deletion
+No auth/access downgrade
+```
+
+After publish, run **Navigation Restructure Post-Publish Smoke Report**.
+
+Required checks:
+
+A. Deployment live
+B. `/api/healthz` returns 200
+C. Home loads
+D. Grouped nav visible
+E. Stock Intelligence group opens
+F. Derivatives group opens
+G. Trading Desk group opens
+H. Market Pulse group opens
+I. Charting route opens
+J. Portfolio route opens
+K. Learn route opens
+L. Admin group visible only for owner/admin
+M. Existing old routes still work: `/scanner`, `/deep-scan`, `/option-chain`, `/oi-lab`, `/pre-post`, `/watchlist`, `/sectors`, `/fii-dii`, `/market-info`, `/live-feed`, `/paper`, `/reports`, `/charting`, `/portfolio-analyser`
+N. No blank screen
+O. No console crash
+P. No auth leak
+Q. No paper/F&O route regression
+R. No data/information missing from pages
+S. Rollback needed? yes/no
+
+Stop after the smoke report.

@@ -1,0 +1,95 @@
+Clarification accepted.
+
+We now understand there are two completed but unpublished items:
+
+```text id="edr3x3"
+1. Portfolio Analyser Phase 1
+2. Website Navigation Restructure — No Information Loss
+```
+
+Before publish, run a combined deploy-diff confirmation.
+
+Confirm whether the next publish will deploy:
+
+```text id="rdy5x9"
+Portfolio Analyser Phase 1
+Navigation Restructure
+both together
+or only Navigation Restructure
+```
+
+Do not publish until this is clear.
+
+## Combined pre-publish confirmation required
+
+Confirm exact deploy diff since last production publish.
+
+Expected possible files:
+
+### Portfolio Analyser
+
+```text id="fy62ai"
+artifacts/scanner/src/pages/portfolio-analyser.tsx
+artifacts/scanner/src/lib/portfolio/*
+artifacts/scanner/src/components/portfolio/*
+artifacts/scanner/src/App.tsx
+artifacts/scanner/src/components/layout.tsx
+artifacts/scanner/src/lib/auth-api.ts
+artifacts/scanner/src/pages/admin.tsx
+lib/db/src/schema/users.ts allow-list only
+replit.md additive note
+```
+
+### Navigation Restructure
+
+```text id="bo21ld"
+artifacts/scanner/src/components/layout.tsx
+docs/navigation-restructure-2026-06-02.md
+replit.md additive note
+```
+
+Confirm:
+
+```text id="zvvr9u"
+No api-server files changed
+No trading logic files changed
+No F&O files changed
+No paper-trading files changed
+No scanner scoring files changed
+No DB migration
+No DB table/column change
+No env/secret change
+No scheduler change
+No route deletion
+No auth/access downgrade
+No public exposure of owner/admin pages
+```
+
+## Required tests before publish
+
+Run:
+
+```text id="45eogl"
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/scanner run test
+```
+
+Confirm:
+
+```text id="bqd6lo"
+typecheck clean
+scanner tests 395/395 pass
+architect review PASS
+```
+
+## Publish decision
+
+If deploy diff includes both Portfolio Analyser and Navigation Restructure, explicitly state:
+
+```text id="vr3kxo"
+Publishing will ship BOTH Portfolio Analyser Phase 1 and Navigation Restructure.
+```
+
+Then stop and wait for approval.
+
+Do not publish yet.
