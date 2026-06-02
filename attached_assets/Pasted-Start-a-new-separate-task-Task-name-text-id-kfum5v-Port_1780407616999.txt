@@ -1,0 +1,663 @@
+Start a new separate task.
+
+Task name:
+
+```text id="kfum5v"
+Portfolio Analyser Phase 1 — React MVP from Approved HTML Design
+```
+
+I have provided an HTML design file:
+
+```text id="pumqeo"
+portfolio-analyser (1).html
+```
+
+Use this as the **visual and functional reference**, but do **not** copy-paste the standalone HTML/JS directly into the React app.
+
+Port it properly into the existing website architecture.
+
+---
+
+# Goal
+
+Build a new website tab:
+
+```text id="fwkhya"
+Portfolio Analyser
+```
+
+Route:
+
+```text id="i7gqf5"
+/portfolio-analyser
+```
+
+This tab should allow the user to upload or manually enter a stock portfolio and generate:
+
+```text id="d3h9ik"
+portfolio summary
+stock-wise analysis
+sector-wise allocation
+risk flags
+selected stock deep-dive
+technical/fundamental/news observations where data is available
+CSV template download
+```
+
+This is a **read-only portfolio analytics/reporting feature**.
+
+---
+
+# Strict rules
+
+```text id="og0vqy"
+No trading execution changes.
+No F&O logic changes.
+No equity/swing signal logic changes.
+No paper-trading execution changes.
+No stop/target/sizing changes.
+No DB schema change unless you stop and ask first.
+No env/secret/DNS change.
+No scheduler change.
+No existing tab breakage.
+No publish until reviewed.
+```
+
+This is not a trading engine task.
+
+---
+
+# Important compliance rule
+
+Keep the compliance stance from the uploaded HTML:
+
+```text id="ejc8dj"
+Analytics, not advice.
+No direct buy/sell recommendation.
+No guaranteed target.
+No guaranteed stop-loss.
+Use factual observations and action-view labels only.
+```
+
+Allowed wording:
+
+```text id="9mktwb"
+Strong structure
+Mixed / watch
+Weak structure
+Hold with Review
+Reduce Review
+Exit Review
+Avoid Fresh Buy
+Support zone
+Resistance zone
+Risk zone
+```
+
+Avoid dangerous wording:
+
+```text id="yl8voo"
+Buy now
+Sell immediately
+Guaranteed target
+Guaranteed stop-loss
+100% bullish
+Perfect report
+```
+
+If target/stop-like levels are shown, label them as:
+
+```text id="8eo9rf"
+objective technical zones
+support zone
+resistance zone
+risk/invalidation zone
+```
+
+Do not present them as investment advice.
+
+---
+
+# Build approach
+
+## Phase 1 MVP should be client-side/session based
+
+For v1:
+
+```text id="8iu3zi"
+CSV upload
+CSV template download
+manual add holding
+client-side parsing/calculation
+live CMP/metadata enrichment where existing APIs support it
+no DB persistence
+no saved portfolio table
+```
+
+If saving portfolios to DB is required, stop and ask first.
+
+Do not introduce portfolio DB schema in this phase.
+
+---
+
+# Design reference to port
+
+Port the uploaded HTML design into React/Tailwind/project style.
+
+Preserve the main visual ideas:
+
+```text id="n5talr"
+dark premium UI
+Portfolio Analyser header
+action buttons: CSV Template, Upload CSV, Load from Database
+compliance banner
+KPI cards
+holdings table
+sector allocation panel
+donut/sector visual
+selected stock detail drawer
+fundamental/technical/analytics sections
+news/order-flow observations section
+CSV upload modal
+responsive layout
+```
+
+Do not use mock data in production silently.
+
+If using sample data for empty state/demo, clearly label:
+
+```text id="mt6qex"
+Sample data / design preview only
+```
+
+---
+
+# Required CSV template
+
+Add a downloadable CSV template.
+
+Template columns:
+
+```text id="30y3nk"
+Symbol
+Stock Name
+Exchange
+Sector
+Date of Purchase
+Qty
+Rate
+ISIN
+Broker
+Tag
+Notes
+```
+
+Minimum accepted upload columns:
+
+```text id="xvqamj"
+Symbol
+Stock Name
+Date of Purchase
+Qty
+Rate
+```
+
+Optional upload columns:
+
+```text id="3f5c2x"
+Exchange
+Sector
+ISIN
+Broker
+Tag
+Notes
+Target Price
+Stop Loss
+Dividend Received
+Realised P&L
+```
+
+---
+
+# Formula correctness
+
+Implement these formulas correctly:
+
+```text id="6wr195"
+Invested Value = Qty * Rate
+Current Value = Qty * CMP
+Day Change = Qty * (CMP - Previous Close)
+Day % Change = ((CMP - Previous Close) / Previous Close) * 100
+Total Return = Current Value - Invested Value
+Total Return % = (Total Return / Invested Value) * 100
+Portfolio Weight % = (Current Value / Total Portfolio Current Value) * 100
+```
+
+Important:
+
+```text id="zhcc3i"
+Do NOT calculate Total Return as Invested Value - Current Value.
+That is wrong.
+```
+
+---
+
+# Required page sections
+
+## 1. Header
+
+Show:
+
+```text id="h2hc0h"
+Portfolio Analyser
+Sector-wise holdings analytics
+fundamentals
+technicals
+news/global cues
+last updated
+data source badges
+```
+
+Buttons:
+
+```text id="eaxtvy"
+CSV Template
+Upload CSV
+Load from Database
+Generate Report / Recalculate
+```
+
+If Load from Database is not ready, keep it disabled or show:
+
+```text id="7k7ip5"
+Database portfolio loading not configured in v1
+```
+
+Do not fake DB loading.
+
+---
+
+## 2. Compliance banner
+
+Add a clear banner:
+
+```text id="69n5fu"
+Analytics, not advice.
+This tool presents data-driven observations only.
+It does not issue investment advice.
+Consult a SEBI-registered Investment Adviser before transactions.
+```
+
+---
+
+## 3. KPI cards
+
+Show:
+
+```text id="u9c80s"
+Invested Value
+Current Value
+Total Return
+Total Return %
+Day Change
+Day Change %
+Approx XIRR if feasible
+Number of holdings
+Winning positions
+Losing positions
+Risk level
+Portfolio view
+```
+
+If XIRR is not implemented properly, do not fake it. Show:
+
+```text id="wnw6m0"
+XIRR unavailable in v1
+```
+
+or implement a clearly labelled approximate calculation.
+
+---
+
+## 4. Holdings table
+
+Columns:
+
+```text id="t0vggt"
+Stock
+Symbol
+Sector
+Qty
+Avg Rate
+Invested
+CMP
+Current Value
+Day %
+Total Return
+Return %
+Portfolio Weight
+Analytics Score
+Action View
+```
+
+Sortable columns:
+
+```text id="ydqjgc"
+Stock
+Qty
+Invested
+CMP
+Current Value
+Day %
+Total Return
+Return %
+Weight
+Score
+```
+
+Row click should open selected-stock deep dive.
+
+---
+
+## 5. Sector allocation
+
+Show:
+
+```text id="6y65xv"
+sector allocation %
+sector current value
+sector P&L
+overweight / underweight / inline status
+benchmark comparison if available
+```
+
+If Nifty 500 benchmark sector weights are not available live, do not fake it.
+
+Allowed:
+
+```text id="z9p1t7"
+Use static benchmark placeholder only if clearly labelled as sample / approximate.
+```
+
+Better:
+
+```text id="74iwke"
+Show benchmark unavailable until data source is wired.
+```
+
+---
+
+## 6. Selected stock deep dive
+
+For selected stock, show:
+
+```text id="9b0hr8"
+Position details
+Fundamentals
+Technicals
+Analytics score
+Support zone
+Resistance zone
+Distance to 50 DMA
+Distance to 200 DMA
+RSI
+News / order-flow observations
+Final factual observations
+```
+
+If fundamentals/news are unavailable, show:
+
+```text id="n4fu54"
+Fundamental data unavailable
+News feed not configured
+Order-flow data unavailable
+```
+
+Do not use mock news in production without label.
+
+---
+
+# Data sources to inspect/reuse
+
+Inspect and reuse existing data where available:
+
+```text id="r3bolv"
+Kite live CMP / quote data
+existing instrument master
+existing /api/chart/instruments
+existing /api/chart/candles
+existing stock history endpoint
+existing scanner scores
+existing sector data
+existing technical indicator utilities
+existing fundamentals if available
+existing news/announcements if available
+```
+
+Do not create new vendor dependencies without asking.
+
+Do not expose secrets.
+
+---
+
+# Analytics scoring
+
+Create transparent v1 scoring.
+
+Suggested score inputs:
+
+```text id="cl1fb7"
+Technical Score
+Portfolio Weight Risk
+Sector Concentration Risk
+Return Quality
+Price vs moving averages
+RSI condition
+Data availability penalty
+```
+
+If fundamentals/news are unavailable, do not pretend the score includes them.
+
+Instead show:
+
+```text id="cpefoy"
+Fundamental score unavailable
+News sentiment unavailable
+Composite score based on available data only
+```
+
+Action labels:
+
+```text id="ld725z"
+Strong Structure
+Hold with Review
+Mixed / Watch
+Weak Structure
+Reduce Review
+Exit Review
+Avoid Fresh Buy
+```
+
+Every action label must include reason text.
+
+---
+
+# Risk flags
+
+Detect and display:
+
+```text id="ul8jvu"
+single stock weight > 20%
+sector weight > 35%
+stock below 50 DMA
+stock below 200 DMA
+negative return > 10%
+RSI overbought
+RSI oversold
+high concentration
+missing CMP/data
+invalid CSV row
+duplicate symbol
+```
+
+---
+
+# CSV upload behaviour
+
+Implement robust CSV handling:
+
+```text id="j2ugxe"
+download template
+upload CSV
+parse CSV
+validate required columns
+validate numeric Qty/Rate
+validate date format
+handle duplicate symbols
+show invalid row errors
+show missing symbol errors
+allow user to remove holding
+allow user to recalculate
+```
+
+Do not crash on bad CSV.
+
+---
+
+# Manual add behaviour
+
+Manual add should allow:
+
+```text id="napwfo"
+search/select symbol
+date of purchase
+qty
+rate
+tag
+notes
+add row
+remove row
+```
+
+If symbol search backend is already available, use it.
+
+---
+
+# Loading / empty / error states
+
+Add:
+
+```text id="n8q7j1"
+empty portfolio state
+CSV parse error state
+symbol lookup error state
+CMP unavailable state
+fundamentals unavailable state
+news unavailable state
+loading/recalculating state
+```
+
+Do not show `undefined`, `NaN`, `null`, raw JSON, or broken cards.
+
+---
+
+# Export
+
+For v1, add at least:
+
+```text id="74esd7"
+Download CSV template
+Export analysed portfolio CSV
+```
+
+Optional if simple:
+
+```text id="p993om"
+Export HTML/PDF report
+```
+
+Do not add PDF generation if it complicates the task. Report as deferred.
+
+---
+
+# Tests required
+
+Add tests for:
+
+```text id="bmo7tg"
+CSV template generation
+CSV parsing
+required column validation
+invalid quantity/rate handling
+invalid date handling
+duplicate symbol handling
+Invested Value formula
+Current Value formula
+Total Return formula
+Total Return % formula
+Portfolio Weight formula
+sector allocation calculation
+risk flag detection
+empty portfolio state
+manual add calculation
+missing CMP handling
+no NaN/undefined display helpers
+```
+
+Run:
+
+```text id="tqftw2"
+pnpm run typecheck
+pnpm --filter @workspace/scanner run test
+```
+
+If backend touched:
+
+```text id="if5osi"
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run test
+```
+
+---
+
+# Implementation preference
+
+Preferred v1:
+
+```text id="ey3qf2"
+Frontend/client-side Portfolio Analyser
+No persistent DB save
+Reuse existing data APIs
+No new schema
+```
+
+Only add backend API if existing endpoints cannot provide CMP/metadata safely.
+
+If backend API is needed, explain why in the report.
+
+---
+
+# Required final report
+
+Provide **Portfolio Analyser Phase 1 MVP Report** with:
+
+A. Files changed
+B. Route/nav added
+C. CSV template implementation
+D. CSV upload/parse behaviour
+E. Manual add behaviour
+F. Formula implementation
+G. Data sources used
+H. What is live vs unavailable
+I. Sector allocation logic
+J. Stock deep-dive logic
+K. Risk flags implemented
+L. Export features
+M. Tests and results
+N. Confirmation no trading/signal/paper execution logic changed
+O. Confirmation no DB schema/env/scheduler change
+P. Whether safe to publish
+
+Stop after the report.
+
+Do not publish until reviewed.

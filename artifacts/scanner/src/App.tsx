@@ -23,6 +23,7 @@ import IndexDetail from "@/pages/index-detail";
 import News from "@/pages/news";
 import StocksToWatch from "@/pages/stocks-to-watch";
 import Charting from "@/pages/charting";
+import PortfolioAnalyser from "@/pages/portfolio-analyser";
 import Options from "@/pages/options";
 import OptionChain from "@/pages/option-chain";
 import OiLab from "@/pages/oi-lab";
@@ -80,6 +81,7 @@ function Router() {
       <Route path="/flows" component={guarded(Flows, { tab: "FLOWS" })} />
       <Route path="/stocks-to-watch" component={guarded(StocksToWatch, { tab: "STOCKS_TO_WATCH" })} />
       <Route path="/charting" component={guarded(Charting, { tab: "CHARTING" })} />
+      <Route path="/portfolio-analyser" component={guarded(PortfolioAnalyser, { tab: "PORTFOLIO_ANALYSER" })} />
       <Route path="/news" component={guarded(News, { tab: "NEWS" })} />
       <Route path="/learn" component={guarded(LearnPage, { tab: "LEARN" })} />
 

@@ -44,6 +44,7 @@ const TAB_LABELS: Record<AllowedTabKey, string> = {
   NEWS: "Market Info",
   LEARN: "Learn",
   CHARTING: "Charting",
+  PORTFOLIO_ANALYSER: "Portfolio Analyser",
 };
 
 function fmtDate(iso: string | null): string {

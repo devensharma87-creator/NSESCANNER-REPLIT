@@ -1,0 +1,40 @@
+I need to flag something important before building this, because it directly affects how the "Portfolio Analyser" tab should be designed.
+The core feature you've described — generating a conclusion on whether to hold or sell a particular stock, with targets and stop losses — is exactly the kind of directive, advice-style output that SEBI's Research Analyst regulations restrict. This is the same compliance issue you already worked through for the rest of the Market Scanner, where you replaced "BUY / TARGET / Confidence 93%" with neutral analytics framing. A Portfolio Analyser that tells a user "SELL this, target ₹X, stop loss ₹Y" reintroduces that exact risk, and arguably in a sharper form, because it's now personalised to a user's holdings, which looks even more like individual investment advice.
+So the design I'm giving you keeps all the analytical depth you want (sector exposure, fundamentals, technicals, news, global cues) but frames the output as analytics and observations, not recommendations. Instead of "HOLD/SELL," it surfaces things like "Technical structure: below 200-DMA," "Sector exposure: 38% (overweight vs Nifty)," "Valuation: P/E above 3-yr median," and a neutral composite score — and lets the user draw the conclusion. I'd strongly suggest you keep it this way.
+Here's the plan, then the page.
+Plan
+Data input
+
+Two paths: pull from your existing database, or upload a CSV.
+Downloadable CSV template (button generates it client-side).
+Columns you specified, plus a few I'd add (see below).
+
+Your columns — with corrections
+A couple of your formulas are flipped. Total Return should be Current − Invested (you wrote Invested − Current, which gives the negative). I've corrected these:
+ColumnFormulaInvested ValueQty × RateCurrent ValueQty × CMPDay Change(CMP − Prev Close) × QtyDay % Change(CMP − Prev Close) / Prev Close × 100Total ReturnCurrent Value − Invested ValueTotal Return %(Current − Invested) / Invested × 100
+Columns I'd add (you asked me to apply my mind):
+
+Sector — essential, since the whole tab is sector-wise. Better to have it in the CSV than guess.
+Exchange / Symbol (NSE) — needed to fetch CMP, prev close, fundamentals reliably.
+Weight % — each holding as % of total portfolio (computed).
+Unrealised P&L is your Total Return; I'd also show portfolio-level XIRR if you have purchase dates (you do), which is far more meaningful than simple return % across holdings bought on different dates.
+
+Analytical report structure (per the neutral framing)
+
+Portfolio summary — invested, current, absolute & % return, day change, XIRR.
+Sector allocation — pie/bar + overweight/underweight vs a benchmark (Nifty sector weights).
+Per-stock analytics card — fundamentals (P/E, P/B vs sector median), technicals (price vs 50/200-DMA, RSI, support/resistance zones), recent news/order-flow flags, global-cue sensitivity tag.
+Composite analytics score (0–100) per holding — labelled neutrally ("Strong structure / Weak structure"), never "buy/sell."
+Concentration & risk observations — single-stock concentration, sector concentration, beta.
+
+Backend you'll need to wire up (the HTML is the front end + mock logic): CMP & prev-close feed, fundamentals API, your existing technical engine, and a news source. I've stubbed these with clearly-marked mock data so the page is fully functional for design review.
+Let me build the page matching your dark OI-Lab aesthetic.Reading frontend-design skill before building the pageReading frontend-design skill before building the pageNow I'll build the page. Given your existing dark OI-Lab aesthetic and the SEBI-neutral framing, I'll create a polished, functional front end with mock data clearly marked for the backend wiring.Building the Portfolio Analyser tab as a standalone dark-themed HTML pageBuilding the Portfolio Analyser tab as a standalone dark-themed HTML pageI left a stray typo in a CSS variable. Let me fix it.Edited a file, ran a command, read a fileEdited a file, ran a command, read a fileThe page is ready. A few notes to close the loop:
+What's built and working — KPI strip (invested, current, total return, day change, approx XIRR), sortable holdings table with all your columns, a sector-allocation donut with overweight/underweight tags vs a benchmark, a per-stock detail drawer (position, fundamentals vs sector median, technicals, composite analytics score, support/resistance zones, neutral data observations, and a news/order-flow feed), a working CSV-template download, and an upload modal with a front-end CSV parser.
+The two changes I made to your spec, flagged again so they don't surprise you:
+
+Corrected the formulas — Total Return is Current − Invested (you had it reversed), and Return % divides by Invested, not Current.
+Added Symbol and Sector to the CSV — the analyser is sector-wise, so sector can't be guessed reliably, and the NSE symbol is what every data feed keys off. The template reflects this: only Symbol, Stock Name, Sector, Date of Purchase, Qty, Rate are user-supplied; CMP, prev close, fundamentals, technicals and news get auto-fetched.
+
+The SEBI framing — the per-stock output deliberately stops at observations ("below 200-DMA," "premium to sector median P/E," "concentration is 24% of portfolio") and objective price zones, with no hold/sell verdict and no targets or stop-losses. I'd keep it there. The moment a personalised tool says "sell this, target X," it reads as individual investment advice, which is the exact line your audit was steering the rest of the terminal away from. If you want, the composite score labels ("Strong / Mixed / Weak structure") can be tuned further, but they should stay descriptive.
+What you still need to wire (all stubbed with clearly-marked mock data): a CMP + previous-close quote feed, a fundamentals source (P/E, P/B, RoE), your existing technical engine for DMA/RSI/levels, a news source, and the database query behind "Load from Database." The handleFile and loadFromDB functions mark exactly where the live enrichment hooks in.
+One thing worth a real decision before you ship: the XIRR is currently a crude proxy. Since you already capture purchase dates, a proper XIRR (Newton-Raphson over dated cash flows) is the honest number to show across holdings bought at different times — I can write that calculation if you want it accurate rather than indicative.

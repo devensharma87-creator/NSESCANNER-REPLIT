@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Analyser — Hrishi Associates</title>
+<style>
+  :root{
+    --bg:#0a0e14; --bg2:#0f1520; --panel:#121a26; --panel2:#16202f;
+    --line:#1e2b3d; --line2:#283950;
+    --txt:#e6edf5; --muted:#8aa0b8; --dim:#5e7088;
+    --accent:#3ba9ff; --accent2:#0d6efd;
+    --pos:#1fbf75; --neg:#ff5470; --warn:#ffb02e; --neutral:#9aa7b8;
+    --chipbg:#142233;
+    --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
+    --sans:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(59,169,255,.08), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(13,110,253,.06), transparent 55%),
+      var(--bg);
+    color:var(--txt); font-family:var(--sans); font-size:14px; line-height:1.5;
+    min-height:100vh; padding:24px;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  .wrap{max-width:1320px;margin:0 auto}
+
+  /* Header */
+  .head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:22px}
+  .title{display:flex;align-items:center;gap:14px}
+  .title .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+  .title h1{font-size:22px;font-weight:800;letter-spacing:-.4px}
+  .title .sub{color:var(--muted);font-size:12px;font-weight:500}
+  .actions{display:flex;gap:10px;flex-wrap:wrap}
+  .btn{
+    background:var(--panel2);border:1px solid var(--line2);color:var(--txt);
+    padding:9px 14px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;
+    display:inline-flex;align-items:center;gap:7px;transition:.18s;font-family:var(--sans);
+  }
+  .btn:hover{border-color:var(--accent);background:var(--chipbg)}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff}
+  .btn.primary:hover{filter:brightness(1.1)}
+  .btn svg{width:15px;height:15px}
+
+  /* compliance banner */
+  .compliance{
+    background:rgba(255,176,46,.07);border:1px solid rgba(255,176,46,.25);
+    border-radius:10px;padding:10px 14px;margin-bottom:20px;font-size:11.5px;color:#e3c79a;
+    display:flex;gap:9px;align-items:flex-start;line-height:1.45;
+  }
+  .compliance b{color:var(--warn)}
+
+  /* KPI row */
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;position:relative;overflow:hidden}
+  .kpi::after{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
+  .kpi .lbl{color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+  .kpi .val{font-family:var(--mono);font-size:20px;font-weight:600;letter-spacing:-.5px}
+  .kpi .delta{font-size:11.5px;font-weight:600;margin-top:3px;font-family:var(--mono)}
+  .pos{color:var(--pos)} .neg{color:var(--neg)} .neu{color:var(--neutral)}
+
+  /* layout */
+  .grid{display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .panel .ph{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+  .panel .ph h2{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .panel .ph .tag{font-size:10px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.6px}
+
+  /* table */
+  .tbl-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  thead th{
+    text-align:right;padding:11px 12px;color:var(--muted);font-weight:600;font-size:10.5px;
+    text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--line);white-space:nowrap;
+    background:var(--bg2);position:sticky;top:0;cursor:pointer;user-select:none;
+  }
+  thead th:first-child,tbody td:first-child{text-align:left;padding-left:18px}
+  thead th:hover{color:var(--accent)}
+  tbody td{padding:11px 12px;text-align:right;border-bottom:1px solid var(--line);font-family:var(--mono);white-space:nowrap}
+  tbody tr{cursor:pointer;transition:.12s}
+  tbody tr:hover{background:var(--panel2)}
+  tbody tr.sel{background:rgba(59,169,255,.08)}
+  .stk{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+  .stk .nm{font-family:var(--sans);font-weight:700;font-size:13px}
+  .stk .sec{font-family:var(--sans);font-size:10px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .score{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end}
+  .score .bar{width:42px;height:5px;border-radius:3px;background:var(--line2);overflow:hidden}
+  .score .bar i{display:block;height:100%;border-radius:3px}
+  .badge{font-family:var(--sans);font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;letter-spacing:.3px}
+  .b-strong{background:rgba(31,191,117,.14);color:var(--pos)}
+  .b-neutral{background:rgba(154,167,184,.12);color:var(--neutral)}
+  .b-weak{background:rgba(255,84,112,.12);color:var(--neg)}
+  .b-watch{background:rgba(255,176,46,.12);color:var(--warn)}
+
+  /* sector panel */
+  .sec-row{display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid var(--line);font-size:12px}
+  .sec-row:last-child{border:none}
+  .sec-row .dot{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+  .sec-row .nm{flex:1;font-weight:600}
+  .sec-row .pct{font-family:var(--mono);font-weight:600;width:48px;text-align:right}
+  .sec-row .ow{font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:5px;width:78px;text-align:center}
+  .donut-wrap{padding:18px;display:flex;justify-content:center}
+
+  /* detail drawer */
+  .detail{margin-top:16px}
+  .detail .hd{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+  .detail .hd .l h3{font-size:18px;font-weight:800}
+  .detail .hd .l .meta{color:var(--muted);font-size:11.5px;margin-top:2px}
+  .detail .hd .r{text-align:right;font-family:var(--mono)}
+  .detail .hd .r .cmp{font-size:20px;font-weight:600}
+  .det-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+  .det-col{padding:16px 18px;border-right:1px solid var(--line)}
+  .det-col:last-child{border:none}
+  .det-col h4{font-size:10.5px;color:var(--accent);text-transform:uppercase;letter-spacing:.6px;margin-bottom:11px;font-weight:700}
+  .det-line{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px;border-bottom:1px dashed var(--line)}
+  .det-line:last-child{border:none}
+  .det-line .k{color:var(--muted)}
+  .det-line .v{font-family:var(--mono);font-weight:600}
+  .obs{padding:16px 18px;border-top:1px solid var(--line)}
+  .obs h4{font-size:10.5px;color:var(--accent);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;font-weight:700}
+  .obs ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+  .obs li{display:flex;gap:9px;font-size:12.5px;color:var(--txt);line-height:1.45}
+  .obs li .ic{width:6px;height:6px;border-radius:50%;margin-top:6px;flex-shrink:0}
+  .levels{display:flex;gap:10px;padding:14px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .lvl{flex:1;min-width:120px;background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  .lvl .lbl{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+  .lvl .num{font-family:var(--mono);font-size:15px;font-weight:600;margin-top:3px}
+
+  /* upload modal */
+  .ovl{position:fixed;inset:0;background:rgba(5,8,12,.78);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:50;padding:24px}
+  .ovl.on{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line2);border-radius:16px;width:100%;max-width:560px;overflow:hidden}
+  .modal .mh{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .modal .mh h3{font-size:16px;font-weight:800}
+  .modal .mb{padding:20px}
+  .drop{border:2px dashed var(--line2);border-radius:12px;padding:34px;text-align:center;cursor:pointer;transition:.18s}
+  .drop:hover{border-color:var(--accent);background:rgba(59,169,255,.04)}
+  .drop svg{width:34px;height:34px;color:var(--muted);margin-bottom:10px}
+  .drop p{color:var(--muted);font-size:13px}
+  .drop b{color:var(--accent)}
+  .close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;line-height:1}
+  .tmpl-note{margin-top:16px;font-size:11.5px;color:var(--muted);background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;line-height:1.5}
+  .tmpl-note code{font-family:var(--mono);color:var(--accent);font-size:11px}
+
+  .foot{margin-top:18px;color:var(--dim);font-size:10.5px;text-align:center;line-height:1.6}
+  @media(max-width:1080px){.grid{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}.det-grid{grid-template-columns:repeat(2,1fr)}.det-col:nth-child(2){border-right:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <div class="head">
+    <div class="title">
+      <span class="dot"></span>
+      <div>
+        <h1>Portfolio Analyser</h1>
+        <div class="sub">Sector-wise holdings analytics · fundamentals · technicals · news &amp; global cues</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="downloadTemplate()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        CSV Template
+      </button>
+      <button class="btn" onclick="openUpload()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9m0 0l-4 4m4-4l4 4M4 7V5a2 2 0 012-2h12a2 2 0 012 2v2"/></svg>
+        Upload CSV
+      </button>
+      <button class="btn primary" onclick="loadFromDB()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+        Load from Database
+      </button>
+    </div>
+  </div>
+
+  <!-- COMPLIANCE -->
+  <div class="compliance">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;color:var(--warn)"><path d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+    <div><b>Analytics, not advice.</b> This tool presents data-driven observations on your holdings (valuation, price structure, exposure, flow). It does not issue buy/sell recommendations, targets, or stop-losses. Outputs are for informational and educational purposes only. Levels shown are objective technical price-zones, not trading calls. Consult a SEBI-registered Investment Adviser before any transaction.</div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpis" id="kpis"></div>
+
+  <!-- MAIN GRID -->
+  <div class="grid">
+    <!-- holdings table -->
+    <div class="panel">
+      <div class="ph">
+        <h2><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg> Holdings</h2>
+        <span class="tag" id="holdcount">— positions</span>
+      </div>
+      <div class="tbl-wrap">
+        <table id="tbl">
+          <thead><tr>
+            <th data-k="name">Stock</th>
+            <th data-k="qty">Qty</th>
+            <th data-k="rate">Avg Rate</th>
+            <th data-k="invested">Invested</th>
+            <th data-k="cmp">CMP</th>
+            <th data-k="curr">Current</th>
+            <th data-k="dchg">Day %</th>
+            <th data-k="ret">Tot. Return</th>
+            <th data-k="retpct">Return %</th>
+            <th data-k="wt">Weight</th>
+            <th data-k="score">Analytics</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- sector allocation -->
+    <div class="panel">
+      <div class="ph">
+        <h2><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 2a10 10 0 1010 10H12V2z"/><path d="M12 2v10h10A10 10 0 0012 2z"/></svg> Sector Allocation</h2>
+        <span class="tag">vs Nifty 500</span>
+      </div>
+      <div class="donut-wrap"><svg id="donut" viewBox="0 0 200 200" width="190" height="190"></svg></div>
+      <div id="sectors"></div>
+    </div>
+  </div>
+
+  <!-- DETAIL -->
+  <div class="panel detail" id="detail" style="display:none"></div>
+
+  <div class="foot">
+    Hrishi Associates · Market Scanner — Portfolio Analyser module &nbsp;|&nbsp; Data feeds (CMP, fundamentals, technicals, news) shown below are <b>mock samples for design review</b> and must be wired to live sources before deployment.
+  </div>
+</div>
+
+<!-- UPLOAD MODAL -->
+<div class="ovl" id="ovl">
+  <div class="modal">
+    <div class="mh"><h3>Upload Portfolio CSV</h3><button class="close" onclick="closeUpload()">&times;</button></div>
+    <div class="mb">
+      <label class="drop" for="file">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        <p>Drop CSV here or <b>browse</b></p>
+        <p style="font-size:11px;margin-top:4px;color:var(--dim)">Must match the template columns</p>
+      </label>
+      <input type="file" id="file" accept=".csv" style="display:none" onchange="handleFile(event)">
+      <div class="tmpl-note">
+        <b style="color:var(--txt)">Required columns:</b><br>
+        <code>Symbol, Stock Name, Sector, Date of Purchase, Qty, Rate</code><br>
+        CMP, Prev Close, fundamentals &amp; technicals are auto-fetched. Download the template above to get the exact format with sample rows.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   MOCK DATA — replace with live DB / API feeds before deploy.
+   Each holding carries the raw inputs (qty, rate) + fetched
+   fields (cmp, prevClose, fundamentals, technicals, news).
+   ============================================================ */
+const SECTOR_COLORS = {
+  'IT':'#3ba9ff','Banking':'#1fbf75','FMCG':'#ffb02e','Auto':'#ff5470',
+  'Pharma':'#9b7bff','Energy':'#ff8a3b','Metals':'#5ad1cd','Infra':'#e35bb0'
+};
+// Nifty 500 benchmark sector weights (mock reference)
+const BENCH = {'IT':13,'Banking':28,'FMCG':9,'Auto':7,'Pharma':6,'Energy':12,'Metals':5,'Infra':6};
+
+let PORTFOLIO = [
+  {sym:'TCS', name:'Tata Consultancy', sec:'IT', date:'2023-06-12', qty:40, rate:3180, cmp:3402, prev:3450,
+    fund:{pe:28.4,peMed:26.1,pb:12.1,roe:'46%',div:'1.4%'}, tech:{r50:3360,r200:3290,rsi:54,sup:3310,res:3480},
+    score:72, news:['Q4 deal TCV at multi-quarter high','BSNL ramp-down a near-term drag'], gl:'High USD/INR sensitivity'},
+  {sym:'HDFCBANK', name:'HDFC Bank', sec:'Banking', date:'2022-11-03', qty:90, rate:1490, cmp:1712, prev:1698,
+    fund:{pe:18.9,peMed:21.0,pb:2.8,roe:'17%',div:'1.1%'}, tech:{r50:1660,r200:1620,rsi:61,sup:1655,res:1745},
+    score:81, news:['Deposit growth outpacing system','NIM stable QoQ'], gl:'Tracks FII flows, India rate cycle'},
+  {sym:'MARUTI', name:'Maruti Suzuki', sec:'Auto', date:'2024-01-20', qty:8, rate:11200, cmp:10780, prev:10920,
+    fund:{pe:24.2,peMed:27.5,pb:4.2,roe:'17%',div:'1.0%'}, tech:{r50:11050,r200:11600,rsi:38,sup:10600,res:11200},
+    score:41, news:['Entry-level demand soft','SUV mix improving margins'], gl:'JPY input-cost exposure'},
+  {sym:'SUNPHARMA', name:'Sun Pharma', sec:'Pharma', date:'2023-09-08', qty:50, rate:1120, cmp:1648, prev:1640,
+    fund:{pe:36.1,peMed:30.4,pb:5.9,roe:'16%',div:'0.6%'}, tech:{r50:1590,r200:1480,rsi:67,sup:1580,res:1690},
+    score:74, news:['Specialty (Ilumya) traction','US generic pricing pressure persists'], gl:'USD revenue exposure'},
+  {sym:'RELIANCE', name:'Reliance Inds', sec:'Energy', date:'2022-07-15', qty:60, rate:2380, cmp:2890, prev:2905,
+    fund:{pe:25.7,peMed:24.0,pb:2.3,roe:'9%',div:'0.4%'}, tech:{r50:2940,r200:2870,rsi:47,sup:2820,res:2980},
+    score:63, news:['Retail/Jio steady','O2C margins range-bound'], gl:'Crude &amp; refining-margin linked'},
+  {sym:'ITC', name:'ITC Ltd', sec:'FMCG', date:'2023-02-28', qty:200, rate:340, cmp:432, prev:430,
+    fund:{pe:24.8,peMed:23.2,pb:7.1,roe:'28%',div:'3.0%'}, tech:{r50:440,r200:452,rsi:43,sup:418,res:448},
+    score:58, news:['Cig volumes resilient','Hotels demerger value unlock'], gl:'Largely domestic, low global beta'},
+  {sym:'TATASTEEL', name:'Tata Steel', sec:'Metals', date:'2024-03-11', qty:300, rate:148, cmp:132, prev:135,
+    fund:{pe:0,peMed:11.5,pb:1.8,roe:'-4%',div:'2.6%'}, tech:{r50:140,r200:152,rsi:33,sup:126,res:142},
+    score:34, news:['UK losses narrowing','China oversupply weighs on prices'], gl:'High global commodity beta'},
+];
+
+/* ---------- compute derived fields ---------- */
+function compute(p){
+  const invested = p.qty*p.rate;
+  const curr = p.qty*p.cmp;
+  const dayChg = (p.cmp-p.prev)*p.qty;
+  const dayPct = (p.cmp-p.prev)/p.prev*100;
+  const ret = curr-invested;                 // Current − Invested (corrected)
+  const retPct = ret/invested*100;
+  return {...p, invested, curr, dayChg, dayPct, ret, retPct};
+}
+function fmt(n){return n.toLocaleString('en-IN',{maximumFractionDigits:0})}
+function fmt2(n){return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function sign(n){return (n>=0?'+':'')+n}
+function scoreColor(s){return s>=70?'var(--pos)':s>=50?'var(--warn)':'var(--neg)'}
+function scoreBadge(s){
+  if(s>=70)return['Strong structure','b-strong'];
+  if(s>=50)return['Mixed / watch','b-watch'];
+  return['Weak structure','b-weak'];
+}
+
+let DATA=[], sortKey='wt', sortDir=-1, selected=null;
+
+function recompute(){
+  DATA = PORTFOLIO.map(compute);
+  const totInv = DATA.reduce((a,b)=>a+b.invested,0);
+  const totCur = DATA.reduce((a,b)=>a+b.curr,0);
+  DATA.forEach(d=>d.wt = d.curr/totCur*100);
+  renderKPIs(totInv,totCur);
+  renderTable();
+  renderSectors(totCur);
+}
+
+/* ---------- KPIs ---------- */
+function renderKPIs(inv,cur){
+  const ret=cur-inv, retPct=ret/inv*100;
+  const day=DATA.reduce((a,b)=>a+b.dayChg,0);
+  const prevTot=DATA.reduce((a,b)=>a+b.qty*b.prev,0);
+  const dayPct=(cur-prevTot)/prevTot*100;
+  // crude XIRR proxy (mock) — annualised simple return weighted by oldest holding
+  const xirr=(retPct/2.1).toFixed(1);
+  const k=[
+    ['Invested','₹'+fmt(inv),'',''],
+    ['Current Value','₹'+fmt(cur),'',''],
+    ['Total Return','₹'+fmt(ret), sign(retPct.toFixed(2))+'%', ret>=0?'pos':'neg'],
+    ["Today's Change",'₹'+fmt(day), sign(dayPct.toFixed(2))+'%', day>=0?'pos':'neg'],
+    ['XIRR (approx)',xirr+'%','annualised','neu'],
+  ];
+  document.getElementById('kpis').innerHTML=k.map(([l,v,d,c])=>`
+    <div class="kpi"><div class="lbl">${l}</div><div class="val ${c}">${v}</div>
+    ${d?`<div class="delta ${c}">${d}</div>`:''}</div>`).join('');
+}
+
+/* ---------- table ---------- */
+function renderTable(){
+  document.getElementById('holdcount').textContent=DATA.length+' positions';
+  const keymap={name:'name',qty:'qty',rate:'rate',invested:'invested',cmp:'cmp',curr:'curr',dchg:'dayPct',ret:'ret',retpct:'retPct',wt:'wt',score:'score'};
+  const sk=keymap[sortKey];
+  const sorted=[...DATA].sort((a,b)=> typeof a[sk]==='string' ? a[sk].localeCompare(b[sk])*sortDir : (a[sk]-b[sk])*sortDir);
+  document.getElementById('tbody').innerHTML=sorted.map(d=>{
+    const [bl,bc]=scoreBadge(d.score);
+    return `<tr onclick="select('${d.sym}')" class="${selected===d.sym?'sel':''}">
+      <td><div class="stk"><span class="nm">${d.name}</span><span class="sec">${d.sym} · ${d.sec}</span></div></td>
+      <td>${d.qty}</td>
+      <td>${fmt2(d.rate)}</td>
+      <td>${fmt(d.invested)}</td>
+      <td>${fmt2(d.cmp)}</td>
+      <td>${fmt(d.curr)}</td>
+      <td class="${d.dayPct>=0?'pos':'neg'}">${sign(d.dayPct.toFixed(2))}%</td>
+      <td class="${d.ret>=0?'pos':'neg'}">${d.ret>=0?'+':''}${fmt(d.ret)}</td>
+      <td class="${d.retPct>=0?'pos':'neg'}">${sign(d.retPct.toFixed(1))}%</td>
+      <td>${d.wt.toFixed(1)}%</td>
+      <td><div class="score">
+        <span class="bar"><i style="width:${d.score}%;background:${scoreColor(d.score)}"></i></span>
+        <span class="badge ${bc}" style="min-width:96px">${bl}</span>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+document.querySelectorAll('thead th').forEach(th=>th.onclick=()=>{
+  const k=th.dataset.k; if(sortKey===k)sortDir*=-1; else{sortKey=k;sortDir=-1;} renderTable();
+});
+
+/* ---------- sectors + donut ---------- */
+function renderSectors(totCur){
+  const map={};
+  DATA.forEach(d=>map[d.sec]=(map[d.sec]||0)+d.curr);
+  const arr=Object.entries(map).map(([s,v])=>({s,pct:v/totCur*100})).sort((a,b)=>b.pct-a.pct);
+  // donut
+  let off=0, segs='';
+  const C=2*Math.PI*70;
+  arr.forEach(a=>{
+    const len=a.pct/100*C;
+    segs+=`<circle cx="100" cy="100" r="70" fill="none" stroke="${SECTOR_COLORS[a.s]||'#888'}" stroke-width="26"
+      stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 100 100)"/>`;
+    off+=len;
+  });
+  document.getElementById('donut').innerHTML=segs+
+    `<text x="100" y="95" text-anchor="middle" fill="var(--muted)" font-size="10" font-family="var(--sans)">SECTORS</text>
+     <text x="100" y="114" text-anchor="middle" fill="var(--txt)" font-size="20" font-weight="700" font-family="var(--sans)">${arr.length}</text>`;
+  document.getElementById('sectors').innerHTML=arr.map(a=>{
+    const b=BENCH[a.s]||0, diff=a.pct-b;
+    const ow=diff>3?['OVERWEIGHT','rgba(255,84,112,.14)','#ff5470']:diff<-3?['UNDERWEIGHT','rgba(31,191,117,.14)','#1fbf75']:['IN-LINE','rgba(154,167,184,.12)','#9aa7b8'];
+    return `<div class="sec-row">
+      <span class="dot" style="background:${SECTOR_COLORS[a.s]||'#888'}"></span>
+      <span class="nm">${a.s}</span>
+      <span class="ow" style="background:${ow[1]};color:${ow[2]}">${ow[0]}</span>
+      <span class="pct">${a.pct.toFixed(1)}%</span>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- detail drawer ---------- */
+function select(sym){
+  selected=sym; renderTable();
+  const d=DATA.find(x=>x.sym===sym);
+  const [bl,bc]=scoreBadge(d.score);
+  const obs=buildObservations(d);
+  document.getElementById('detail').style.display='block';
+  document.getElementById('detail').innerHTML=`
+    <div class="hd">
+      <div class="l">
+        <h3>${d.name} <span class="badge ${bc}" style="font-size:11px;vertical-align:middle">${bl}</span></h3>
+        <div class="meta">${d.sym} · ${d.sec} · Held since ${new Date(d.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})} · Weight ${d.wt.toFixed(1)}%</div>
+      </div>
+      <div class="r">
+        <div class="cmp">₹${fmt2(d.cmp)}</div>
+        <div class="${d.dayPct>=0?'pos':'neg'}" style="font-size:12px">${sign(d.dayPct.toFixed(2))}% today</div>
+      </div>
+    </div>
+    <div class="det-grid">
+      <div class="det-col">
+        <h4>Position</h4>
+        ${line('Qty',d.qty)}${line('Avg Rate','₹'+fmt2(d.rate))}${line('Invested','₹'+fmt(d.invested))}
+        ${line('Current','₹'+fmt(d.curr))}${line('Unrealised P&L','<span class="'+(d.ret>=0?'pos':'neg')+'">'+(d.ret>=0?'+':'')+fmt(d.ret)+' ('+sign(d.retPct.toFixed(1))+'%)</span>')}
+      </div>
+      <div class="det-col">
+        <h4>Fundamentals</h4>
+        ${line('P/E',d.fund.pe||'—')}${line('Sector median P/E',d.fund.peMed)}
+        ${line('P/B',d.fund.pb)}${line('RoE',d.fund.roe)}${line('Div yield',d.fund.div)}
+      </div>
+      <div class="det-col">
+        <h4>Technicals</h4>
+        ${line('vs 50-DMA','<span class="'+(d.cmp>=d.tech.r50?'pos':'neg')+'">'+(d.cmp>=d.tech.r50?'Above':'Below')+'</span>')}
+        ${line('vs 200-DMA','<span class="'+(d.cmp>=d.tech.r200?'pos':'neg')+'">'+(d.cmp>=d.tech.r200?'Above':'Below')+'</span>')}
+        ${line('RSI (14)','<span class="'+(d.tech.rsi>70?'neg':d.tech.rsi<35?'warn':'')+'">'+d.tech.rsi+'</span>')}
+        ${line('50-DMA','₹'+fmt(d.tech.r50))}${line('200-DMA','₹'+fmt(d.tech.r200))}
+      </div>
+      <div class="det-col">
+        <h4>Analytics Score</h4>
+        ${line('Composite','<b style="color:'+scoreColor(d.score)+'">'+d.score+' / 100</b>')}
+        ${line('Global cue',d.gl)}
+        <div style="margin-top:10px;font-size:11px;color:var(--muted);line-height:1.5">Weighted blend of valuation gap, price-structure, momentum &amp; sector flow. Descriptive only.</div>
+      </div>
+    </div>
+    <div class="levels">
+      <div class="lvl"><div class="lbl">Support zone</div><div class="num">₹${fmt(d.tech.sup)}</div></div>
+      <div class="lvl"><div class="lbl">Resistance zone</div><div class="num">₹${fmt(d.tech.res)}</div></div>
+      <div class="lvl"><div class="lbl">Distance to 200-DMA</div><div class="num ${d.cmp>=d.tech.r200?'pos':'neg'}">${sign(((d.cmp-d.tech.r200)/d.tech.r200*100).toFixed(1))}%</div></div>
+    </div>
+    <div class="obs">
+      <h4>Data observations</h4>
+      <ul>${obs.map(o=>`<li><span class="ic" style="background:${o.c}"></span><span>${o.t}</span></li>`).join('')}</ul>
+      <div style="margin-top:12px;font-size:10.5px;color:var(--dim);font-style:italic">Observations are factual readings of the data above — not recommendations to transact.</div>
+    </div>
+    <div class="obs" style="border-top:1px solid var(--line)">
+      <h4>Recent news &amp; order flow</h4>
+      <ul>${d.news.map(n=>`<li><span class="ic" style="background:var(--accent)"></span><span>${n}</span></li>`).join('')}</ul>
+    </div>`;
+  document.getElementById('detail').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function line(k,v){return `<div class="det-line"><span class="k">${k}</span><span class="v">${v}</span></div>`}
+
+/* Neutral, factual observation generator (no buy/sell/target/SL) */
+function buildObservations(d){
+  const o=[];
+  // valuation
+  if(d.fund.pe){
+    if(d.fund.pe>d.fund.peMed*1.1) o.push({c:'var(--neg)',t:`Trading at a premium — P/E ${d.fund.pe} vs sector median ${d.fund.peMed}.`});
+    else if(d.fund.pe<d.fund.peMed*0.9) o.push({c:'var(--pos)',t:`Trading at a discount — P/E ${d.fund.pe} vs sector median ${d.fund.peMed}.`});
+    else o.push({c:'var(--neutral)',t:`Valuation broadly in line with sector (P/E ${d.fund.pe} vs ${d.fund.peMed}).`});
+  } else o.push({c:'var(--warn)',t:'P/E not meaningful — company reported a loss in the trailing period.'});
+  // structure
+  if(d.cmp>=d.tech.r50 && d.cmp>=d.tech.r200) o.push({c:'var(--pos)',t:'Price holds above both 50- and 200-DMA — constructive longer-term structure.'});
+  else if(d.cmp<d.tech.r50 && d.cmp<d.tech.r200) o.push({c:'var(--neg)',t:'Price below both 50- and 200-DMA — structurally weak.'});
+  else o.push({c:'var(--warn)',t:'Price between its 50- and 200-DMA — structure is undecided.'});
+  // momentum
+  if(d.tech.rsi>70) o.push({c:'var(--neg)',t:`RSI at ${d.tech.rsi} — momentum stretched into overbought territory.`});
+  else if(d.tech.rsi<35) o.push({c:'var(--warn)',t:`RSI at ${d.tech.rsi} — momentum in oversold territory.`});
+  else o.push({c:'var(--neutral)',t:`RSI at ${d.tech.rsi} — momentum neutral.`});
+  // return + concentration
+  if(d.wt>22) o.push({c:'var(--warn)',t:`Single-stock concentration: this position is ${d.wt.toFixed(1)}% of the portfolio.`});
+  if(d.retPct<-10) o.push({c:'var(--neg)',t:`Position is down ${Math.abs(d.retPct).toFixed(1)}% on cost.`});
+  else if(d.retPct>40) o.push({c:'var(--pos)',t:`Position is up ${d.retPct.toFixed(1)}% on cost — meaningful unrealised gain.`});
+  return o;
+}
+
+/* ---------- CSV template ---------- */
+function downloadTemplate(){
+  const rows=[
+    ['Symbol','Stock Name','Sector','Date of Purchase','Qty','Rate'],
+    ['TCS','Tata Consultancy Services','IT','2023-06-12','40','3180'],
+    ['HDFCBANK','HDFC Bank','Banking','2022-11-03','90','1490'],
+    ['RELIANCE','Reliance Industries','Energy','2022-07-15','60','2380'],
+  ];
+  const csv=rows.map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='hrishi_portfolio_template.csv'; a.click();
+}
+
+/* ---------- upload (front-end demo) ---------- */
+function openUpload(){document.getElementById('ovl').classList.add('on')}
+function closeUpload(){document.getElementById('ovl').classList.remove('on')}
+function handleFile(e){
+  const f=e.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{
+    // In production: parse CSV → fetch CMP/prev/fundamentals/technicals/news per symbol.
+    // Demo just confirms parse and reuses mock enrichment.
+    const lines=r.result.trim().split('\n').slice(1);
+    alert(`Parsed ${lines.length} holdings.\n\nIn production these symbols would be enriched with live CMP, fundamentals, technicals & news, then scored. For this design build, the sample portfolio remains loaded.`);
+    closeUpload();
+  };
+  r.readAsText(f);
+}
+function loadFromDB(){ recompute(); select('HDFCBANK'); }
+
+recompute();
+select('HDFCBANK');
+</script>
+</body>
+</html>
