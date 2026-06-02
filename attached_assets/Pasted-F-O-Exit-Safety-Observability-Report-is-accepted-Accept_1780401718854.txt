@@ -1,0 +1,77 @@
+F&O Exit Safety Observability Report is accepted.
+
+Accepted status:
+
+```text id="d75kob"
+GET /api/paper/diagnostics/fo/exit-safety added
+owner-only route confirmed
+premium overlay health exposed
+orphan-exit health exposed
+MTM sweep health exposed
+TIME_EXIT_1520 health counters added
+api-server tests 787/787 passed
+typecheck clean
+architect review passed
+no trading behaviour changed
+```
+
+Approved for controlled publish.
+
+Before publish, confirm deploy diff contains only:
+
+```text id="sxo4y0"
+paperTradingFO.ts TIME_EXIT_1520 health counters
+paper.ts owner-only diagnostic route
+exitSafetyDiagnosticRoute.test.ts
+```
+
+Confirm again:
+
+```text id="pg2aw4"
+No trading logic changes
+No signal/scoring changes
+No entry/sizing/threshold changes
+No stop/target formula changes
+No premium profit-protection live rule
+No partial/breakeven/trailing/max-giveback rule
+No DB schema/env/secret/scheduler change
+No public route exposure
+No auth bypass
+```
+
+Proceed with controlled publish.
+
+After publish, run **F&O Exit Safety Observability Post-Publish Smoke Report**.
+
+Required checks:
+
+A. Deployment live and latest build confirmed
+B. `/api/healthz` returns `200`
+C. API-server healthy, no crash loop
+D. `/api/paper/diagnostics/fo/exit-safety` is protected for unauthenticated users
+E. Subscriber/non-owner cannot access if testable
+F. Owner access returns `200` if owner session available
+G. Response contains four sections:
+
+```text id="gu6ctv"
+premiumOverlay
+orphanExit
+mtmSweep
+timeExit1520
+```
+
+H. No secrets or sensitive env values exposed
+I. No paper route `500`
+J. No `ZodError`
+K. No unhandled exception
+L. Premium hard-stop overlay still deployed
+M. Profit-protection remains simulation-only
+N. P0 orphan-exit hotfix remains intact
+O. TIME_EXIT_1520 behaviour unchanged
+P. No signal/scoring/entry/sizing/threshold changes
+Q. No DB schema/env/scheduler change
+R. Rollback needed? yes/no
+
+Stop after the smoke report.
+
+Do not start any new strategy or exit-rule work.
