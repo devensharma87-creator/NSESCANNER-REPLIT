@@ -109,7 +109,15 @@ export function normalizeChart(chart: YahooChart): ChartCandlePoint[] {
     });
   }
   out.sort((a, b) => a.t - b.t);
-  return out;
+  // Collapse any duplicate timestamps (keep the last occurrence) so the chart
+  // library always receives a strictly-ascending, unique series.
+  const deduped: ChartCandlePoint[] = [];
+  for (const c of out) {
+    const prev = deduped[deduped.length - 1];
+    if (prev && prev.t === c.t) deduped[deduped.length - 1] = c;
+    else deduped.push(c);
+  }
+  return deduped;
 }
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;

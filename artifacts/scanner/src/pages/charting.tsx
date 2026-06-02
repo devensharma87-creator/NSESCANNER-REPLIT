@@ -360,16 +360,20 @@ export default function ChartingPage() {
               className="text-[10px] uppercase font-mono"
               data-testid="badge-source"
             >
-              {source === "kite" ? "Kite (live)" : source === "yahoo" ? "Yahoo (delayed)" : "No data"}
+              {source === "kite" ? "Kite" : source === "yahoo" ? "Yahoo · delayed" : "Data unavailable"}
             </Badge>
           )}
           {hasData && (
             <Badge
-              variant={resp?.fresh ? "default" : "outline"}
+              variant={source === "kite" && resp?.fresh ? "default" : "outline"}
               className="text-[10px] uppercase font-mono"
               data-testid="badge-fresh"
             >
-              {resp?.fresh ? "Fresh" : "Stale"} · {fmtAge(resp?.asOf)}
+              {source === "kite"
+                ? resp?.fresh
+                  ? "Live"
+                  : `Stale · ${fmtAge(resp?.asOf)}`
+                : `Last updated ${fmtAge(resp?.asOf)}`}
             </Badge>
           )}
         </div>
@@ -425,8 +429,9 @@ export default function ChartingPage() {
       </Card>
 
       <p className="px-1 text-[11px] text-muted-foreground">
-        Read-only charting. Data sourced live from Kite where available, otherwise delayed Yahoo Finance.
-        Indicators are computed locally for visualization only and are not trading advice.
+        Read-only charting. Price data is sourced live from Zerodha Kite where available, otherwise from
+        delayed Yahoo Finance. All indicators (EMA, VWAP, RSI) are computed client-side in your browser
+        for visualization only — this is not trading advice.
       </p>
     </div>
   );

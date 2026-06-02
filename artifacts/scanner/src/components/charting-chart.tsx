@@ -17,11 +17,31 @@ import {
   HistogramSeries,
   CrosshairMode,
   LineStyle,
+  TickMarkType,
   type IChartApi,
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { EmaPeriod } from "@/lib/charting/indicators";
+
+// All candle timestamps are epoch-UTC seconds. The instruments are Indian /
+// global exchange data, so axis + crosshair labels are rendered in IST
+// (Asia/Kolkata) rather than the browser's locale or UTC.
+const IST = "Asia/Kolkata";
+const istTime = new Intl.DateTimeFormat("en-GB", { timeZone: IST, hour: "2-digit", minute: "2-digit", hour12: false });
+const istDay = new Intl.DateTimeFormat("en-GB", { timeZone: IST, day: "2-digit", month: "short" });
+const istMonth = new Intl.DateTimeFormat("en-GB", { timeZone: IST, month: "short" });
+const istYear = new Intl.DateTimeFormat("en-GB", { timeZone: IST, year: "numeric" });
+const istDayYear = new Intl.DateTimeFormat("en-GB", { timeZone: IST, day: "2-digit", month: "short", year: "numeric" });
+const istFull = new Intl.DateTimeFormat("en-GB", {
+  timeZone: IST,
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
 
 export interface RenderCandle {
   t: number;
@@ -116,10 +136,32 @@ export function ChartingChart({
         borderColor: "rgba(120, 120, 140, 0.25)",
         scaleMargins: { top: 0.08, bottom: showVolume ? 0.24 : 0.08 },
       },
+      localization: {
+        timeFormatter: (t: UTCTimestamp) => {
+          const ms = (t as number) * 1000;
+          return showTime ? istFull.format(ms) : istDayYear.format(ms);
+        },
+      },
       timeScale: {
         borderColor: "rgba(120, 120, 140, 0.25)",
         timeVisible: showTime,
         secondsVisible: false,
+        tickMarkFormatter: (t: UTCTimestamp, tickMarkType: TickMarkType) => {
+          const ms = (t as number) * 1000;
+          switch (tickMarkType) {
+            case TickMarkType.Year:
+              return istYear.format(ms);
+            case TickMarkType.Month:
+              return istMonth.format(ms);
+            case TickMarkType.DayOfMonth:
+              return istDay.format(ms);
+            case TickMarkType.Time:
+            case TickMarkType.TimeWithSeconds:
+              return istTime.format(ms);
+            default:
+              return istDay.format(ms);
+          }
+        },
       },
       crosshair: { mode: CrosshairMode.Normal },
       autoSize: false,

@@ -1,0 +1,130 @@
+Charting Tab Phase 2 MVP report is accepted.
+
+Accepted status:
+
+```text id="60ebsw"
+Charting tab = built
+/charting route = added
+nav entry = added
+Lightweight Charts = implemented
+Kite-first candles = implemented
+Yahoo fallback = implemented
+symbol search = implemented
+candlestick / line = implemented
+volume bars = implemented
+EMA 11/20/50/100/200 = implemented
+VWAP = implemented
+RSI pane = implemented
+freshness/source badges = implemented
+api-server tests = 812 passed
+scanner tests = 356 passed
+typecheck = clean
+read-only scope preserved
+```
+
+Before publish, do one final polish/verification pass only.
+
+## Final checks before publish
+
+### 1. Freshness/source label clarity
+
+The screenshot shows:
+
+```text id="123inx"
+KITE (LIVE)
+STALE · 3H AGO
+```
+
+This may be correct after market close, but verify the wording is not misleading.
+
+Expected behaviour:
+
+```text id="gf7sub"
+During market hours with live Kite data: show Fresh / Live clearly.
+After market close or old candle: show Stale / Last updated clearly.
+If Yahoo fallback is used: show Yahoo fallback / delayed clearly.
+If no data: show Data unavailable.
+```
+
+Do not show contradictory labels.
+
+### 2. Indicator computation wording
+
+Confirm whether indicators are computed:
+
+```text id="w4qucj"
+client-side
+server-side
+or mixed
+```
+
+Make the footer accurate.
+
+If the report says client-side but UI says server-side, correct the UI text.
+
+### 3. Data integrity
+
+Verify:
+
+```text id="5gyv91"
+no fake candles
+no duplicate candles
+IST timestamps correct
+1W / 1M aggregation works
+unsupported global 1m / 3m shows clean unavailable state
+source/fallback label correct
+```
+
+### 4. Scope confirmation
+
+Confirm again:
+
+```text id="ycj09d"
+No signal logic changed.
+No paper-trading logic changed.
+No stop/target/sizing logic changed.
+No premium hard-stop/orphan-exit logic changed.
+No DB schema/env/scheduler change.
+No secrets exposed.
+```
+
+## Validation
+
+Run if any polish edit is made:
+
+```text id="ygkmek"
+pnpm run typecheck
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/api-server run test
+```
+
+## Final report required
+
+Provide **Charting Phase 2 Final Polish Report** with:
+
+A. Files changed, if any
+B. Freshness/source label check
+C. Indicator-computation wording check
+D. Data integrity check
+E. Tests/result
+F. Confirmation no trading/paper/signal/exit logic changed
+G. Whether safe to publish
+
+Do not start Phase 3.
+
+Do not implement:
+
+```text id="u84rn6"
+SMC
+FVG
+BOS/CHOCH
+Fixed Volume Profile
+signal overlays
+paper-trade overlays
+alerts
+save layout
+multi-chart
+TradingView account integration
+```
+
+Stop after the final polish report.
