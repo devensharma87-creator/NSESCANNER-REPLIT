@@ -35,7 +35,8 @@ export function StockDeepDive({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
-  const symbol = row?.raw.symbol ?? "";
+  const symbol = row?.resolution.resolvedSymbol ?? row?.raw.symbol ?? "";
+  const fundamentalsApplicable = row?.resolution.fundamentalsApplicable ?? true;
   const detailQ = useGetStockDetail(symbol, {
     query: { enabled: open && !!symbol, queryKey: getGetStockDetailQueryKey(symbol) },
   });
@@ -111,7 +112,9 @@ export function StockDeepDive({
                 </h4>
                 {row.analytics.score == null ? (
                   <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
-                    Live data unavailable — composite structure score not computed.
+                    {row.resolution.reason
+                      ? `${row.resolution.reason} — composite structure score not computed.`
+                      : "Live data unavailable — composite structure score not computed."}
                   </div>
                 ) : (
                   <>
@@ -179,7 +182,12 @@ export function StockDeepDive({
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Fundamentals <span className="font-normal normal-case">(display only)</span>
                 </h4>
-                {detailQ.isLoading ? (
+                {!fundamentalsApplicable ? (
+                  <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-400">
+                    Fundamentals not applicable for {row.resolution.instrumentType.toLowerCase()} —
+                    ratios like P/E, RoE and D/E describe individual companies, not baskets.
+                  </div>
+                ) : detailQ.isLoading ? (
                   <div className="text-xs text-muted-foreground">Loading…</div>
                 ) : (
                   <div className="grid grid-cols-3 gap-2">

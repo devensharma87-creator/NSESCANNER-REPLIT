@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import {
   getStockDetail,
-  getGetStockDetailQueryKey,
-  type StockDetail,
+  searchChartInstruments,
+  getChartCandles,
 } from "@workspace/api-client-react";
-import { Plus, RefreshCw, Database, FlaskConical, X, FolderOpen } from "lucide-react";
+import { Plus, RefreshCw, Database, FlaskConical, X, FolderOpen, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ComplianceBanner } from "@/components/portfolio/compliance-banner";
 import { KpiStrip } from "@/components/portfolio/kpi-strip";
@@ -13,8 +13,8 @@ import { HoldingsTable } from "@/components/portfolio/holdings-table";
 import { SectorAllocationPanel } from "@/components/portfolio/sector-allocation";
 import { StockDeepDive } from "@/components/portfolio/stock-deepdive";
 import { UploadModal } from "@/components/portfolio/upload-modal";
-import { fmtAge } from "@/components/portfolio/format";
-import type { RawHolding, LiveMetrics, EnrichedRow } from "@/lib/portfolio/types";
+import { fmtAge, fmtINR } from "@/components/portfolio/format";
+import type { RawHolding, LiveMetrics, EnrichedRow, EnrichmentMeta } from "@/lib/portfolio/types";
 import {
   computeHoldingMetrics,
   computeSummary,
@@ -22,48 +22,26 @@ import {
   totalCurrentValue,
 } from "@/lib/portfolio/calc";
 import { computeAnalytics } from "@/lib/portfolio/score";
+import {
+  resolveHolding,
+  pendingMeta,
+  EMPTY_LIVE,
+  type EnrichFetchers,
+  type EnrichmentResult,
+} from "@/lib/portfolio/enrich";
 
-const EMPTY_LIVE: LiveMetrics = {
-  available: false,
-  sector: null,
-  cmp: null,
-  previousClose: null,
-  rsi14: null,
-  dma50: null,
-  dma200: null,
-  supportZone: null,
-  resistanceZone: null,
-  trendStrength: null,
-  peRatio: null,
-  pbRatio: null,
-  roe: null,
-  marketCapCr: null,
-  beta: null,
+type ChartSegment = "index" | "equity" | "global";
+
+/**
+ * Live read-only fetchers composing the three existing endpoints. Module-level
+ * so the reference is stable across renders.
+ */
+const FETCHERS: EnrichFetchers = {
+  stockDetail: symbol => getStockDetail(symbol),
+  searchInstruments: async q => (await searchChartInstruments({ q })).instruments,
+  candles: async (symbol, segment) =>
+    (await getChartCandles({ symbol, segment: segment as ChartSegment, tf: "1D" })).candles,
 };
-
-function toLive(detail: StockDetail | undefined): LiveMetrics {
-  if (!detail) return EMPTY_LIVE;
-  const { quote, indicators, profile } = detail;
-  const ks = profile.keyStats;
-  const num = (v: number | undefined): number | null => (v != null && Number.isFinite(v) ? v : null);
-  return {
-    available: num(quote?.price) != null,
-    sector: profile?.sector ?? null,
-    cmp: num(quote?.price),
-    previousClose: num(quote?.previousClose),
-    rsi14: num(indicators?.rsi14),
-    dma50: num(ks?.fiftyDayAverage),
-    dma200: num(ks?.twoHundredDayAverage),
-    supportZone: num(indicators?.supportLevel),
-    resistanceZone: num(indicators?.resistanceLevel),
-    trendStrength: num(indicators?.trendStrength),
-    peRatio: num(ks?.peRatio),
-    pbRatio: num(ks?.pbRatio),
-    roe: num(ks?.roe),
-    marketCapCr: num(ks?.marketCapCr),
-    beta: num(ks?.beta),
-  };
-}
 
 /** Real, well-known NSE tickers — only qty/rate/date are sample values for preview. */
 const SAMPLE_HOLDINGS: RawHolding[] = [
@@ -82,14 +60,17 @@ export default function PortfolioAnalyser() {
 
   const results = useQueries({
     queries: holdings.map(h => ({
-      queryKey: getGetStockDetailQueryKey(h.symbol),
-      queryFn: () => getStockDetail(h.symbol),
+      queryKey: ["portfolio-enrich", h.symbol.toUpperCase()],
+      queryFn: () => resolveHolding(h, FETCHERS),
       staleTime: 60_000,
     })),
   });
 
   const enriched = useMemo<EnrichedRow[]>(() => {
-    const lives = holdings.map((_, i) => toLive(results[i]?.data));
+    const lives: LiveMetrics[] = holdings.map((_, i) => results[i]?.data?.live ?? EMPTY_LIVE);
+    const metas: EnrichmentMeta[] = holdings.map(
+      (h, i) => (results[i]?.data as EnrichmentResult | undefined)?.meta ?? pendingMeta(h),
+    );
     const rows = holdings.map((raw, i) => ({ raw, live: lives[i] }));
     const totalCurrent = totalCurrentValue(rows);
     const allocation = computeSectorAllocation(rows);
@@ -109,6 +90,7 @@ export default function PortfolioAnalyser() {
         live,
         metrics,
         analytics,
+        resolution: metas[i],
         loading: results[i]?.isLoading ?? false,
         errored: results[i]?.isError ?? false,
       };
@@ -117,15 +99,13 @@ export default function PortfolioAnalyser() {
   }, [holdings, results.map(r => r.dataUpdatedAt).join(","), results.map(r => r.status).join(",")]);
 
   const summary = useMemo(
-    () => computeSummary(holdings.map((raw, i) => ({ raw, live: toLive(results[i]?.data) }))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [holdings, results.map(r => r.dataUpdatedAt).join(",")],
+    () => computeSummary(enriched.map(r => ({ raw: r.raw, live: r.live }))),
+    [enriched],
   );
 
   const allocation = useMemo(
-    () => computeSectorAllocation(holdings.map((raw, i) => ({ raw, live: toLive(results[i]?.data) }))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [holdings, results.map(r => r.dataUpdatedAt).join(",")],
+    () => computeSectorAllocation(enriched.map(r => ({ raw: r.raw, live: r.live }))),
+    [enriched],
   );
 
   const lastUpdated = useMemo(() => {
@@ -244,6 +224,26 @@ export default function PortfolioAnalyser() {
       ) : (
         <>
           <KpiStrip summary={summary} />
+          {summary.missingCount > 0 && (
+            <div
+              className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-400"
+              data-testid="enrichment-warning"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <strong>
+                  {summary.missingCount} of {summary.holdingsCount} holding(s) could not be
+                  price-enriched.
+                </strong>{" "}
+                Your uploaded quantities and rates are preserved — returns are calculated only where a
+                live CMP is available. Hover the dash in each row for the precise reason.
+                <div className="mt-0.5 text-amber-400/80">
+                  {summary.enrichedCount} enriched · {summary.missingCount} missing live price ·{" "}
+                  {fmtINR(summary.investedNotEnriched)} invested not currently enriched.
+                </div>
+              </div>
+            </div>
+          )}
           <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
             <HoldingsTable rows={enriched} onSelect={setSelected} onRemove={removeOne} />
             <SectorAllocationPanel allocation={allocation} />

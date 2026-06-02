@@ -1,0 +1,369 @@
+Start a controlled hotfix task.
+
+Task name:
+
+```text id="ydu9ke"
+Portfolio Analyser — Missing Stock Information / Data Enrichment Fix
+```
+
+Issue:
+
+In the Portfolio Analyser page, some holdings are not catching stock information. Several rows show:
+
+```text id="eyol6n"
+CMP = —
+Current Value = —
+Day P&L = —
+Total P&L = —
+Return % = —
+Weight = —
+Structure = —
+Action View = data unavailable
+```
+
+This is visible after uploading/loading the portfolio. Some holdings enrich correctly, but others do not.
+
+This must be fixed without compromising any existing portfolio data, calculations, or uploaded information.
+
+---
+
+# Strict rules
+
+```text id="stp3fn"
+Do not remove any portfolio row.
+Do not silently drop failed symbols.
+Do not fake CMP.
+Do not fake sector.
+Do not fake fundamentals.
+Do not fake technical score.
+Do not change trading logic.
+Do not change F&O logic.
+Do not change paper-trading logic.
+Do not change stop/target/sizing logic.
+Do not change scanner scoring.
+Do not change DB schema unless stopped and approved.
+Do not change env/secrets/scheduler.
+Do not publish until reviewed.
+```
+
+This is a **Portfolio Analyser data-enrichment reliability fix only**.
+
+---
+
+# Main goal
+
+For every uploaded/manual holding:
+
+```text id="r0ykjp"
+preserve the original CSV row
+preserve original user-entered symbol/name/qty/rate/date
+resolve the best matching tradable/quoted instrument
+fetch CMP where genuinely available
+calculate current value/returns only when CMP is available
+show clear reason when data is unavailable
+```
+
+No row should disappear.
+
+---
+
+# First: reproduce and diagnose
+
+Use the portfolio shown in the current screenshot and inspect failed rows.
+
+Create a diagnostic table with:
+
+```text id="bvx9k2"
+originalSymbol
+displaySymbol
+stockName
+exchange
+segment/type
+normalisedSymbol
+matchedInstrumentSymbol
+instrumentToken if available
+dataSource used
+stockDetail status
+chartInstrument status
+quote/CMP status
+reasonForFailure
+```
+
+For every row showing `data unavailable`, explain exactly why.
+
+---
+
+# Suspected causes to inspect
+
+Check for these issues:
+
+```text id="xt7pgg"
+1. Symbol mismatch between CSV and Kite/NSE instrument master
+2. Symbols with special characters getting stripped incorrectly
+3. ETF symbols not supported by /api/stocks/:symbol
+4. Index/ETF/Depository instruments not handled as equity
+5. Stock Name being used instead of Symbol
+6. Exchange missing or wrong
+7. NSE/BSE mismatch
+8. Instrument search endpoint finds symbol but stock detail endpoint fails
+9. CMP available from chart/Kite route but not from stock-detail route
+10. fallback not attempted after stock-detail failure
+```
+
+Special attention:
+
+```text id="vpwh9i"
+symbols with & or hyphen
+ETF symbols
+international ETF symbols
+depository/capital market stocks
+recently listed stocks
+symbols where CSV display name differs from NSE symbol
+```
+
+---
+
+# Required fix: robust enrichment cascade
+
+Do not rely on only one endpoint.
+
+For each holding, use this cascade:
+
+```text id="q6jyuj"
+1. Try exact symbol match from existing instrument master / chart instrument search.
+2. Try NSE equity exact symbol.
+3. Try BSE equity exact symbol if exchange says BSE or NSE fails.
+4. Try alias/canonical symbol mapping.
+5. Try existing /api/stocks/:symbol detail.
+6. If stock detail fails but instrument is found, try chart/quote/candle endpoint for CMP.
+7. If CMP is still unavailable, preserve row and show precise unavailable reason.
+```
+
+Do not fabricate data.
+
+---
+
+# Symbol normalisation rules
+
+Implement a safe symbol resolver.
+
+Rules:
+
+```text id="zbp37z"
+trim spaces
+uppercase symbols
+preserve meaningful special characters like &, -, numbers
+do not blindly strip & or hyphen
+support aliases/canonical mapping
+keep original user symbol visible
+store resolved symbol separately
+```
+
+Example structure:
+
+```text id="a2jex1"
+originalSymbol = ARE&M
+normalisedSymbol = ARE&M
+resolvedSymbol = ARE&M
+displaySymbol = ARE&M
+```
+
+Do not convert special symbols into broken versions unless the instrument master confirms that form.
+
+---
+
+# Add alias/canonical mapping support
+
+Create a small safe mapping layer for known problematic symbols.
+
+Example type:
+
+```text id="lswerd"
+{
+  inputSymbol: string
+  canonicalSymbol: string
+  exchange: NSE/BSE
+  instrumentType: equity/etf/index/other
+  reason: string
+}
+```
+
+Do not hardcode blindly. Use it only after verifying against the existing instrument master.
+
+If alias mapping is needed, report every alias added.
+
+---
+
+# ETF handling
+
+Portfolio may contain ETFs.
+
+ETF rows should not be treated as failed stocks if market data is available.
+
+Add classification:
+
+```text id="vuvctz"
+Equity
+ETF
+Index ETF
+Gold ETF
+International ETF
+Sector ETF
+Unavailable/Unknown
+```
+
+For ETFs:
+
+```text id="70ikrv"
+fetch CMP if available
+calculate invested/current/return
+do not require fundamentals
+do not show fake P/E, ROE, debt/equity
+show fundamentals unavailable for ETF
+show structure score based only on price data if candle data exists
+```
+
+Action View for ETF should be data-aware:
+
+```text id="cb7vnf"
+ETF price data available — technical structure only
+ETF fundamentals not applicable
+Data unavailable — symbol mapping required
+```
+
+---
+
+# Current value and weight logic
+
+Fix calculation behaviour for missing CMP.
+
+Rules:
+
+```text id="xoipxs"
+If CMP is available:
+  Current Value = Qty * CMP
+  Total P&L = Current Value - Invested Value
+  Return % = Total P&L / Invested Value * 100
+  Portfolio Weight = Current Value / total current value of enriched holdings
+
+If CMP is unavailable:
+  keep Invested Value
+  Current Value = unavailable
+  P&L = unavailable
+  Weight = unavailable or estimated separately
+  do not include in current-value-based allocation unless clearly labelled
+```
+
+Add summary note:
+
+```text id="ewcbgs"
+X holdings enriched
+Y holdings missing live price
+₹Z invested value currently not enriched
+```
+
+---
+
+# UI improvement required
+
+For failed rows, do not just show `data unavailable`.
+
+Show a compact reason:
+
+```text id="aj7g72"
+Symbol not found
+CMP unavailable
+ETF fundamentals unavailable
+Kite quote unavailable
+No instrument match
+Exchange mismatch
+Awaiting data source
+```
+
+Add hover/detail reason if possible.
+
+Add top warning card:
+
+```text id="ehrb1c"
+Some holdings could not be enriched. Your uploaded quantities and rates are preserved. Returns are calculated only where live CMP is available.
+```
+
+---
+
+# Data integrity requirement
+
+Do not compromise uploaded data.
+
+For each row, keep:
+
+```text id="1fmhws"
+original symbol
+stock name
+qty
+rate
+date of purchase
+invested value
+notes/tag if any
+enrichment status
+enrichment reason
+```
+
+Even when no live data is found.
+
+---
+
+# Required tests
+
+Add or update tests for:
+
+```text id="0fva1w"
+symbol normalisation preserves special characters
+failed enrichment does not drop row
+missing CMP does not produce NaN
+missing CMP does not fake current value
+ETF row can calculate P&L when CMP is available
+ETF fundamentals show not applicable
+alias mapping works only when confirmed
+duplicate symbols merge or remain clearly separated as designed
+portfolio summary counts enriched vs missing rows
+sector allocation excludes or labels missing CMP correctly
+reasonForFailure displays safely
+```
+
+Run:
+
+```text id="vvtmmr"
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/scanner run test
+```
+
+If backend/API touched:
+
+```text id="b9f4h6"
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run test
+```
+
+---
+
+# Required final report
+
+Provide **Portfolio Analyser Missing Data Fix Report** with:
+
+A. Failed symbols found
+B. Root cause for each failed group
+C. Symbol resolver changes
+D. Alias/canonical mappings added, if any
+E. ETF handling changes
+F. Enrichment cascade implemented
+G. UI changes for unavailable data
+H. Formula/data integrity confirmation
+I. Tests run and results
+J. Files changed
+K. Confirmation no trading/signal/paper/F&O logic changed
+L. Confirmation no DB/env/scheduler change
+M. Whether safe to publish
+
+Stop after the report.
+
+Do not publish until reviewed.

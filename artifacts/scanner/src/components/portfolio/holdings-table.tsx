@@ -104,7 +104,18 @@ export function HoldingsTable({
         </thead>
         <tbody>
           {sorted.map(row => {
-            const { raw, live, metrics, analytics, loading, errored } = row;
+            const { raw, live, metrics, analytics, loading, errored, resolution } = row;
+            const reasonText = resolution.reason ?? (errored ? "data error" : "data unavailable");
+            const provenance = [
+              resolution.resolvedSymbol && resolution.resolvedSymbol !== resolution.originalSymbol
+                ? `resolved → ${resolution.resolvedSymbol}`
+                : null,
+              resolution.dataSource ? `source: ${resolution.dataSource}` : null,
+              resolution.instrumentType !== "Equity" ? resolution.instrumentType : null,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            const isEtf = !resolution.fundamentalsApplicable && resolution.instrumentType !== "Equity";
             return (
               <tr
                 key={raw.symbol}
@@ -113,7 +124,17 @@ export function HoldingsTable({
                 data-testid={`row-${raw.symbol}`}
               >
                 <td className="px-2 py-2">
-                  <div className="font-mono font-semibold">{raw.symbol}</div>
+                  <div className="flex items-center gap-1 font-mono font-semibold">
+                    {raw.symbol}
+                    {isEtf && (
+                      <span
+                        className="rounded border border-sky-500/40 bg-sky-500/10 px-1 text-[9px] font-medium text-sky-400"
+                        title={`${resolution.instrumentType} — fundamentals not applicable`}
+                      >
+                        ETF
+                      </span>
+                    )}
+                  </div>
                   <div className="max-w-[150px] truncate text-[10px] text-muted-foreground">
                     {live.sector || raw.sector || raw.name}
                   </div>
@@ -126,7 +147,10 @@ export function HoldingsTable({
                   ) : live.cmp != null ? (
                     fmtINR(live.cmp, 2)
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-amber-500" title="Live price unavailable">
+                    <span
+                      className="inline-flex items-center gap-1 text-amber-500"
+                      title={provenance ? `${reasonText} (${provenance})` : reasonText}
+                    >
                       <AlertTriangle className="h-3 w-3" />—
                     </span>
                   )}
@@ -160,8 +184,11 @@ export function HoldingsTable({
                       {analytics.label}
                     </span>
                   ) : (
-                    <span className="text-[10px] text-muted-foreground">
-                      {errored ? "data error" : "data unavailable"}
+                    <span
+                      className="text-[10px] text-muted-foreground"
+                      title={provenance ? `${reasonText} (${provenance})` : reasonText}
+                    >
+                      {reasonText}
                     </span>
                   )}
                 </td>

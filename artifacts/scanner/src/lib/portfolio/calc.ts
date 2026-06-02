@@ -98,6 +98,9 @@ export function computeSummary(
   let anyDay = false;
   let winners = 0;
   let losers = 0;
+  let enrichedCount = 0;
+  let missingCount = 0;
+  let investedNotEnriched = 0;
 
   const cashflows: CashFlow[] = [];
   let xirrExcluded = 0;
@@ -111,9 +114,13 @@ export function computeSummary(
     if (cv != null) {
       totalCurrent += cv;
       anyCurrent = true;
+      enrichedCount += 1;
       const ret = cv - invested;
       if (ret > 0) winners += 1;
       else if (ret < 0) losers += 1;
+    } else {
+      missingCount += 1;
+      investedNotEnriched += invested;
     }
 
     const dc = dayChange(raw.qty, live.cmp, live.previousClose);
@@ -146,6 +153,9 @@ export function computeSummary(
     losers,
     approxXirr: xirr(cashflows),
     xirrExcluded,
+    enrichedCount,
+    missingCount,
+    investedNotEnriched,
   };
 }
 

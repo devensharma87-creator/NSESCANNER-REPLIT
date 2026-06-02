@@ -5,6 +5,7 @@
  * a guaranteed target, or a stop-loss. "Action views" are review-oriented,
  * factual labels; price levels are surfaced only as objective technical zones.
  */
+import type { InstrumentClass } from "./symbol";
 
 /** A single holding as supplied by the user (CSV row or manual entry). */
 export interface RawHolding {
@@ -68,6 +69,44 @@ export interface LiveMetrics {
   beta: number | null;
 }
 
+/** Which endpoint ultimately supplied the live CMP (null when none did). */
+export type DataSource = "stock-detail" | "chart-candles" | null;
+
+/**
+ * Precise, user-facing reason a holding could not be (fully) enriched. Replaces
+ * the old generic "data unavailable" so the user knows the row was preserved
+ * and exactly why a live price is missing — never implies the row was dropped.
+ */
+export type UnavailableReason =
+  | "No instrument match"
+  | "Symbol not found"
+  | "CMP unavailable"
+  | "Kite quote unavailable"
+  | "ETF fundamentals unavailable"
+  | "Awaiting data source"
+  | null;
+
+/** Resolution metadata produced by the enrichment cascade (provenance, never fabricated). */
+export interface EnrichmentMeta {
+  /** Exactly what the user typed/uploaded. */
+  originalSymbol: string;
+  /** After normalizeSymbol(). */
+  normalisedSymbol: string;
+  /** Symbol the instrument search resolved to, or null. */
+  resolvedSymbol: string | null;
+  /** What to show in the table header (resolved if present, else original). */
+  displaySymbol: string;
+  exchange: string | null;
+  /** index | equity | global, when resolved. */
+  segment: string | null;
+  instrumentType: InstrumentClass;
+  /** False for ETFs/funds — fundamentals are not applicable, not "missing". */
+  fundamentalsApplicable: boolean;
+  dataSource: DataSource;
+  /** Null when fully enriched; otherwise the precise reason live price is absent. */
+  reason: UnavailableReason;
+}
+
 export interface HoldingMetrics {
   invested: number;
   currentValue: number | null;
@@ -93,6 +132,12 @@ export interface PortfolioSummary {
   approxXirr: number | null;
   /** Number of holdings excluded from XIRR (missing date or current value). */
   xirrExcluded: number;
+  /** Holdings with a live CMP successfully resolved. */
+  enrichedCount: number;
+  /** Holdings preserved but without a live CMP (shown with a precise reason). */
+  missingCount: number;
+  /** Total invested rupees across holdings that could not be price-enriched. */
+  investedNotEnriched: number;
 }
 
 export interface SectorAllocation {
@@ -146,6 +191,8 @@ export interface EnrichedRow {
   live: LiveMetrics;
   metrics: HoldingMetrics;
   analytics: AnalyticsResult;
+  /** Provenance of the enrichment (resolved symbol, data source, reason). */
+  resolution: EnrichmentMeta;
   /** True while the underlying live query is still in flight. */
   loading: boolean;
   /** True when the live query errored. */
