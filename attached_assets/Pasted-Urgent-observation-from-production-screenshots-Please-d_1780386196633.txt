@@ -1,0 +1,229 @@
+Urgent observation from production screenshots.
+
+Please do a **read-only diagnostic first**.
+
+Task name:
+
+```text id="2g2x9d"
+F&O Paper Exit / Stop-Loss / Target Geometry Diagnostic
+```
+
+Market may still be live, so do not make blind changes.
+
+Strict rules first:
+
+```text id="62m76a"
+Do not change trading logic immediately.
+Do not change signal/scoring logic immediately.
+Do not change stop/target logic immediately.
+Do not change paper-execution logic immediately.
+Do not manually open or close trades.
+Do not change DB schema/env/secrets/scheduler.
+Do not publish.
+First diagnose and report.
+```
+
+## Issues observed from screenshots
+
+### Issue 1 — Preview vs production mismatch
+
+Preview/dev page shows:
+
+```text id="exzf0d"
+Development preview — read-only auto-trader off
+Open positions: 0
+Trades opened today: 0/4
+No open paper positions right now
+```
+
+Production website shows:
+
+```text id="kye9y8"
+Production live paper trading
+Open F&O positions: 2
+Trades opened today: 2/4
+SENSEX PUT 74200 open
+NIFTY PUT 23350 open
+```
+
+Please verify whether this is expected because preview/dev and production use different environment/database/session state.
+
+Confirm:
+
+A. Is preview connected to dev DB and production connected to production DB?
+B. Is preview intentionally read-only with auto-trader off?
+C. Should preview show production paper positions or not?
+D. Are filters hiding positions in preview?
+E. Are open positions API responses different between preview and production?
+F. Add/confirm clear UI label explaining preview vs production data separation if needed.
+
+Do not treat this as a bug until environment/data-source difference is confirmed.
+
+---
+
+### Issue 2 — Stop-loss appears hit but paper exit did not happen
+
+Production screenshot shows two open positions:
+
+```text id="wz8y6z"
+SENSEX PUT 74200
+Entry approx 356.16
+Current approx 214.25
+Stop approx 249.31
+Position still OPEN
+```
+
+```text id="fb9lfj"
+NIFTY PUT 23350
+Entry approx 163.52
+Current approx 14.45
+Stop approx 127.90
+Position still OPEN
+```
+
+For long option premium paper trades, if current premium is below stop premium, stop-loss should normally be considered hit.
+
+Please verify urgently:
+
+A. Are these trades still OPEN in `paper_trade_fo`?
+B. What are their `entry_premium`, `last_premium`, `stop_premium`, `target1_premium`, `target2_premium`, `status`, `last_evaluated_at`, `exit_reason`?
+C. Did MTM update `last_premium` correctly?
+D. Did the exit evaluator check stop-loss after MTM update?
+E. Does exit logic use `current premium`, `last_premium`, option-chain premium, candle high/low, or signal lifecycle spot levels?
+F. Is the UI displaying one price source while the exit engine uses another?
+G. Is the exit evaluator running only for active signal cohort and missing open rows that dropped out of the signal cycle?
+H. Did `markAllOpenFnoTradesToMarket` run today?
+I. Did `TIME_EXIT_1520` scheduler/evaluator remain healthy?
+J. Are there any logs showing stop-hit detection skipped, stale chain, missing option strike, or failed DB update?
+
+If current/last premium is truly below stop premium and trade remains OPEN, classify this as:
+
+```text id="hmolbt"
+P0 paper-exit correctness bug
+```
+
+But do not patch blindly. First report exact root cause and smallest safe hotfix plan.
+
+---
+
+### Issue 3 — Target and stop-loss geometry may be too wide / not practical
+
+User observation:
+
+```text id="2bzmom"
+SENSEX PUT 74200 moved nearly +100 premium points after trigger.
+User took the same real trade from website signal and booked around +100 premium points profit.
+System did not exit or capture this profit, and later position fell back.
+```
+
+Please audit the target/SL calculation for these exact two trades.
+
+For each trade, reconstruct:
+
+```text id="mw8j7p"
+signal time
+entry time
+entry premium
+highest premium after entry
+lowest premium after entry
+MFE
+MAE
+stop premium
+target1 premium
+target2 premium
+R-risk
+R-multiple reached
+whether +100 premium move reached 0.75R / 1R / target threshold
+why T1 was not hit
+why no partial profit / breakeven / trail was triggered
+```
+
+Important: Do not change strategy yet.
+
+This is a diagnostic to determine whether current target/SL geometry is too wide for intraday options.
+
+Please verify whether target/SL is currently derived from:
+
+```text id="z3j0pu"
+spot structure
+ATR
+Black-Scholes delta projection
+option premium movement
+clampPlanForIntraday
+fixed R:R
+```
+
+Then report if the system needs any of the following later:
+
+```text id="xisgv0"
+premium-based emergency stop
+premium-based T1
+1R partial exit
+move stop to breakeven after +1R
+trailing stop after strong MFE
+time-based profit protection
+max adverse reversal from MFE
+different target/SL rules for SENSEX/NIFTY options
+```
+
+Do not implement these now. Report only.
+
+---
+
+## High-priority diagnostic checks
+
+Please inspect these areas:
+
+```text id="zk33t2"
+paperTradingFO exit evaluator
+markOpenFnoTradesToMarket
+markAllOpenFnoTradesToMarket
+pickLtpFromChain
+pickExitPremium
+forceCloseAllOpenFnoFor1520
+open F&O rows query
+signal cohort filtering
+option chain strike matching
+last_premium freshness
+last_evaluated_at freshness
+paper_trade_fo status transition
+exit_reason update
+realized_pnl update
+```
+
+Also check if there is any mismatch between:
+
+```text id="lrh60e"
+UI current premium
+DB last_premium
+chain LTP
+exit engine premium
+broker/market real LTP
+```
+
+---
+
+## Required report
+
+Provide **F&O Paper Exit / Stop-Loss Diagnostic Report** with:
+
+A. Observation time in IST
+B. Preview vs production data-source finding
+C. Whether preview 0 open vs production 2 open is expected
+D. Exact DB/API state of both open trades
+E. Whether stop-loss was actually breached according to engine source
+F. Whether stop-loss should have closed the trades
+G. Why exit did not happen, if confirmed
+H. MTM freshness / last_premium status
+I. Whether evaluator is missing open rows outside current signal cohort
+J. Logs/errors around exit/MTM/chain/DB
+K. Reconstruction of SENSEX PUT move after entry
+L. MFE/MAE vs target/stop analysis
+M. Whether target/SL geometry is too wide or impractical
+N. Smallest safe hotfix plan if stop-exit bug is confirmed
+O. Separate later strategy-improvement plan for profit protection / trailing / partial exit
+P. Confirmation no code/trading logic was changed during diagnostic
+
+Stop after the report.
+
+Do not publish or patch until I review.
