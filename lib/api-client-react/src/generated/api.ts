@@ -17,11 +17,14 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  ChartCandlesResponse,
+  ChartInstrumentsResponse,
   CustomStrategyRequest,
   CustomStrategyResponse,
   ExportOptionSignalReportParams,
   FiiDiiResponse,
   FnoBanListResponse,
+  GetChartCandlesParams,
   GetFiiDiiParams,
   GetGlobalCandlesParams,
   GetGlobalDashboardParams,
@@ -107,6 +110,7 @@ import type {
   PostOptionStrategyCustom400,
   PreMarketReport,
   RefreshInstFlows200,
+  SearchChartInstrumentsParams,
   SectorDetail,
   SectorSummary,
   StockDetail,
@@ -1040,6 +1044,203 @@ export function useGetStockHistory<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetStockHistoryQueryOptions(symbol, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Unified instrument search for the charting tab
+ */
+export const getSearchChartInstrumentsUrl = (
+  params?: SearchChartInstrumentsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/chart/instruments?${stringifiedParams}`
+    : `/api/chart/instruments`;
+};
+
+export const searchChartInstruments = async (
+  params?: SearchChartInstrumentsParams,
+  options?: RequestInit,
+): Promise<ChartInstrumentsResponse> => {
+  return customFetch<ChartInstrumentsResponse>(
+    getSearchChartInstrumentsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getSearchChartInstrumentsQueryKey = (
+  params?: SearchChartInstrumentsParams,
+) => {
+  return [`/api/chart/instruments`, ...(params ? [params] : [])] as const;
+};
+
+export const getSearchChartInstrumentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof searchChartInstruments>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: SearchChartInstrumentsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof searchChartInstruments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getSearchChartInstrumentsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof searchChartInstruments>>
+  > = ({ signal }) =>
+    searchChartInstruments(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof searchChartInstruments>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type SearchChartInstrumentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof searchChartInstruments>>
+>;
+export type SearchChartInstrumentsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Unified instrument search for the charting tab
+ */
+
+export function useSearchChartInstruments<
+  TData = Awaited<ReturnType<typeof searchChartInstruments>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: SearchChartInstrumentsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof searchChartInstruments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getSearchChartInstrumentsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Normalized OHLCV candles for a charting instrument
+ */
+export const getGetChartCandlesUrl = (params: GetChartCandlesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/chart/candles?${stringifiedParams}`
+    : `/api/chart/candles`;
+};
+
+export const getChartCandles = async (
+  params: GetChartCandlesParams,
+  options?: RequestInit,
+): Promise<ChartCandlesResponse> => {
+  return customFetch<ChartCandlesResponse>(getGetChartCandlesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetChartCandlesQueryKey = (params?: GetChartCandlesParams) => {
+  return [`/api/chart/candles`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetChartCandlesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getChartCandles>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetChartCandlesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getChartCandles>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetChartCandlesQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getChartCandles>>> = ({
+    signal,
+  }) => getChartCandles(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getChartCandles>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetChartCandlesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getChartCandles>>
+>;
+export type GetChartCandlesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Normalized OHLCV candles for a charting instrument
+ */
+
+export function useGetChartCandles<
+  TData = Awaited<ReturnType<typeof getChartCandles>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetChartCandlesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getChartCandles>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetChartCandlesQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

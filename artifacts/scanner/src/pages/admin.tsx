@@ -43,6 +43,7 @@ const TAB_LABELS: Record<AllowedTabKey, string> = {
   STOCKS_TO_WATCH: "To Watch",
   NEWS: "Market Info",
   LEARN: "Learn",
+  CHARTING: "Charting",
 };
 
 function fmtDate(iso: string | null): string {

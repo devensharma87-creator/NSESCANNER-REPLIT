@@ -201,6 +201,58 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/StockHistory" }
 
+  /chart/instruments:
+    get:
+      operationId: searchChartInstruments
+      tags: [chart]
+      summary: Unified instrument search for the charting tab
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Free-text match against symbol or name (case-insensitive).
+        - in: query
+          name: segment
+          schema:
+            type: string
+            enum: [index, equity, global]
+          description: Optional segment filter.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChartInstrumentsResponse" }
+
+  /chart/candles:
+    get:
+      operationId: getChartCandles
+      tags: [chart]
+      summary: Normalized OHLCV candles for a charting instrument
+      parameters:
+        - in: query
+          name: symbol
+          required: true
+          schema: { type: string }
+        - in: query
+          name: segment
+          required: true
+          schema:
+            type: string
+            enum: [index, equity, global]
+        - in: query
+          name: tf
+          required: true
+          schema:
+            type: string
+            enum: ["1m", "3m", "5m", "15m", "30m", "1h", "1D", "1W", "1M"]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChartCandlesResponse" }
+
   /scan/top:
     get:
       operationId: getTopScans
@@ -1521,6 +1573,67 @@ components:
         rsiSeries:
           type: array
           items: { type: number, nullable: true }
+
+    ChartCandle:
+      type: object
+      required: [t, o, h, l, c]
+      properties:
+        t: { type: integer, description: "Epoch seconds (UTC) of the candle open." }
+        o: { type: number }
+        h: { type: number }
+        l: { type: number }
+        c: { type: number }
+        v: { type: number, nullable: true }
+
+    ChartCandlesResponse:
+      type: object
+      required: [symbol, segment, timeframe, source, fresh, candles]
+      properties:
+        symbol: { type: string }
+        segment:
+          type: string
+          enum: [index, equity, global]
+        timeframe:
+          type: string
+          enum: ["1m", "3m", "5m", "15m", "30m", "1h", "1D", "1W", "1M"]
+        source:
+          type: string
+          enum: [kite, yahoo, none]
+          description: "Origin of the candles. 'none' means no data was available (never fabricated)."
+        fresh:
+          type: boolean
+          description: "True when the newest candle is recent enough for the timeframe."
+        asOf:
+          type: integer
+          nullable: true
+          description: "Epoch seconds (UTC) of the newest candle, or null when empty."
+        message:
+          type: string
+          description: "Human-readable note when data is unavailable for this timeframe/source."
+        candles:
+          type: array
+          items: { $ref: "#/components/schemas/ChartCandle" }
+
+    ChartInstrument:
+      type: object
+      required: [symbol, name, segment, type]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        segment:
+          type: string
+          enum: [index, equity, global]
+        exchange: { type: string, nullable: true }
+        type: { type: string, description: "Display type label, e.g. Index / Equity / Global Index." }
+
+    ChartInstrumentsResponse:
+      type: object
+      required: [query, instruments]
+      properties:
+        query: { type: string }
+        instruments:
+          type: array
+          items: { $ref: "#/components/schemas/ChartInstrument" }
 
     QuarterlyFinancial:
       type: object

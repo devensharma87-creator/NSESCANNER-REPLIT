@@ -53,6 +53,7 @@ export const ALLOWED_TAB_KEYS = [
   "STOCKS_TO_WATCH",
   "NEWS",
   "LEARN",
+  "CHARTING",
 ] as const;
 export type AllowedTabKey = (typeof ALLOWED_TAB_KEYS)[number];
 

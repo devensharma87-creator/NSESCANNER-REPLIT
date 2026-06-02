@@ -2105,6 +2105,80 @@ export const GetStockHistoryResponse = zod.object({
 });
 
 /**
+ * @summary Unified instrument search for the charting tab
+ */
+export const SearchChartInstrumentsQueryParams = zod.object({
+  q: zod.coerce
+    .string()
+    .optional()
+    .describe("Free-text match against symbol or name (case-insensitive)."),
+  segment: zod
+    .enum(["index", "equity", "global"])
+    .optional()
+    .describe("Optional segment filter."),
+});
+
+export const SearchChartInstrumentsResponse = zod.object({
+  query: zod.string(),
+  instruments: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      name: zod.string(),
+      segment: zod.enum(["index", "equity", "global"]),
+      exchange: zod.string().nullish(),
+      type: zod
+        .string()
+        .describe("Display type label, e.g. Index \/ Equity \/ Global Index."),
+    }),
+  ),
+});
+
+/**
+ * @summary Normalized OHLCV candles for a charting instrument
+ */
+export const GetChartCandlesQueryParams = zod.object({
+  symbol: zod.coerce.string(),
+  segment: zod.enum(["index", "equity", "global"]),
+  tf: zod.enum(["1m", "3m", "5m", "15m", "30m", "1h", "1D", "1W", "1M"]),
+});
+
+export const GetChartCandlesResponse = zod.object({
+  symbol: zod.string(),
+  segment: zod.enum(["index", "equity", "global"]),
+  timeframe: zod.enum(["1m", "3m", "5m", "15m", "30m", "1h", "1D", "1W", "1M"]),
+  source: zod
+    .enum(["kite", "yahoo", "none"])
+    .describe(
+      "Origin of the candles. 'none' means no data was available (never fabricated).",
+    ),
+  fresh: zod
+    .boolean()
+    .describe(
+      "True when the newest candle is recent enough for the timeframe.",
+    ),
+  asOf: zod
+    .number()
+    .nullish()
+    .describe("Epoch seconds (UTC) of the newest candle, or null when empty."),
+  message: zod
+    .string()
+    .optional()
+    .describe(
+      "Human-readable note when data is unavailable for this timeframe\/source.",
+    ),
+  candles: zod.array(
+    zod.object({
+      t: zod.number().describe("Epoch seconds (UTC) of the candle open."),
+      o: zod.number(),
+      h: zod.number(),
+      l: zod.number(),
+      c: zod.number(),
+      v: zod.number().nullish(),
+    }),
+  ),
+});
+
+/**
  * @summary Top buy and sell ideas right now
  */
 export const GetTopScansResponse = zod.object({

@@ -29,6 +29,7 @@ export const ALLOWED_TAB_KEYS = [
   "STOCKS_TO_WATCH",
   "NEWS",
   "LEARN",
+  "CHARTING",
 ] as const;
 export type AllowedTabKey = (typeof ALLOWED_TAB_KEYS)[number];
 
@@ -48,6 +49,7 @@ export const TAB_PATH: Record<AllowedTabKey, string> = {
   STOCKS_TO_WATCH: "/stocks-to-watch",
   NEWS: "/news",
   LEARN: "/learn",
+  CHARTING: "/charting",
 };
 
 /** Reverse: URL prefix → tab key. Returns null for owner-only / detail routes. */

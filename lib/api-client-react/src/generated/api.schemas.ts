@@ -270,6 +270,90 @@ export interface StockHistory {
   rsiSeries?: (number | null)[];
 }
 
+export interface ChartCandle {
+  /** Epoch seconds (UTC) of the candle open. */
+  t: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v?: number | null;
+}
+
+export type ChartCandlesResponseSegment =
+  (typeof ChartCandlesResponseSegment)[keyof typeof ChartCandlesResponseSegment];
+
+export const ChartCandlesResponseSegment = {
+  index: "index",
+  equity: "equity",
+  global: "global",
+} as const;
+
+export type ChartCandlesResponseTimeframe =
+  (typeof ChartCandlesResponseTimeframe)[keyof typeof ChartCandlesResponseTimeframe];
+
+export const ChartCandlesResponseTimeframe = {
+  "1m": "1m",
+  "3m": "3m",
+  "5m": "5m",
+  "15m": "15m",
+  "30m": "30m",
+  "1h": "1h",
+  "1D": "1D",
+  "1W": "1W",
+  "1M": "1M",
+} as const;
+
+/**
+ * Origin of the candles. 'none' means no data was available (never fabricated).
+ */
+export type ChartCandlesResponseSource =
+  (typeof ChartCandlesResponseSource)[keyof typeof ChartCandlesResponseSource];
+
+export const ChartCandlesResponseSource = {
+  kite: "kite",
+  yahoo: "yahoo",
+  none: "none",
+} as const;
+
+export interface ChartCandlesResponse {
+  symbol: string;
+  segment: ChartCandlesResponseSegment;
+  timeframe: ChartCandlesResponseTimeframe;
+  /** Origin of the candles. 'none' means no data was available (never fabricated). */
+  source: ChartCandlesResponseSource;
+  /** True when the newest candle is recent enough for the timeframe. */
+  fresh: boolean;
+  /** Epoch seconds (UTC) of the newest candle, or null when empty. */
+  asOf?: number | null;
+  /** Human-readable note when data is unavailable for this timeframe/source. */
+  message?: string;
+  candles: ChartCandle[];
+}
+
+export type ChartInstrumentSegment =
+  (typeof ChartInstrumentSegment)[keyof typeof ChartInstrumentSegment];
+
+export const ChartInstrumentSegment = {
+  index: "index",
+  equity: "equity",
+  global: "global",
+} as const;
+
+export interface ChartInstrument {
+  symbol: string;
+  name: string;
+  segment: ChartInstrumentSegment;
+  exchange?: string | null;
+  /** Display type label, e.g. Index / Equity / Global Index. */
+  type: string;
+}
+
+export interface ChartInstrumentsResponse {
+  query: string;
+  instruments: ChartInstrument[];
+}
+
 export interface QuarterlyFinancial {
   period: string;
   revenue?: number;
@@ -3766,6 +3850,56 @@ export const GetStockHistoryRange = {
   "6mo": "6mo",
   "1y": "1y",
   "2y": "2y",
+} as const;
+
+export type SearchChartInstrumentsParams = {
+  /**
+   * Free-text match against symbol or name (case-insensitive).
+   */
+  q?: string;
+  /**
+   * Optional segment filter.
+   */
+  segment?: SearchChartInstrumentsSegment;
+};
+
+export type SearchChartInstrumentsSegment =
+  (typeof SearchChartInstrumentsSegment)[keyof typeof SearchChartInstrumentsSegment];
+
+export const SearchChartInstrumentsSegment = {
+  index: "index",
+  equity: "equity",
+  global: "global",
+} as const;
+
+export type GetChartCandlesParams = {
+  symbol: string;
+  segment: GetChartCandlesSegment;
+  tf: GetChartCandlesTf;
+};
+
+export type GetChartCandlesSegment =
+  (typeof GetChartCandlesSegment)[keyof typeof GetChartCandlesSegment];
+
+export const GetChartCandlesSegment = {
+  index: "index",
+  equity: "equity",
+  global: "global",
+} as const;
+
+export type GetChartCandlesTf =
+  (typeof GetChartCandlesTf)[keyof typeof GetChartCandlesTf];
+
+export const GetChartCandlesTf = {
+  "1m": "1m",
+  "3m": "3m",
+  "5m": "5m",
+  "15m": "15m",
+  "30m": "30m",
+  "1h": "1h",
+  "1D": "1D",
+  "1W": "1W",
+  "1M": "1M",
 } as const;
 
 export type GetOptionSignalReportParams = {

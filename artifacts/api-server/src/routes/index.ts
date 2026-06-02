@@ -19,6 +19,7 @@ import homeRouter from "./home";
 import optionChainSnapshotRouter from "./optionChainSnapshot";
 import candleWarehouseRouter from "./candleWarehouse";
 import equitySizingRouter from "./equitySizing";
+import chartRouter from "./chart";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
 import { bootstrapKite } from "../lib/kiteFeed";
@@ -48,6 +49,7 @@ router.use(homeRouter);       // /home/enrichment — aggregated home dashboard 
 router.use(optionChainSnapshotRouter); // /option-snapshots/* — owner-only diagnostics for write-only F&O snapshot store
 router.use(candleWarehouseRouter);     // /candles/* — owner-only diagnostics + manual sync for the candle warehouse
 router.use(equitySizingRouter);        // /paper/eq/sizing-preview + /paper/eq/candidates-diagnostic — owner-only read-only sizing helper (Priority 5)
+router.use(chartRouter);               // /chart/instruments + /chart/candles — read-only Charting tab datafeed (public-mode read like scanner)
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 // W6-P4A: staggered to the back of the cold-start window (heaviest boot job —
