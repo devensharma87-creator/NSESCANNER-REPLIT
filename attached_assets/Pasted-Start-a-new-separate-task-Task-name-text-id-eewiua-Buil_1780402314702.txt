@@ -1,0 +1,626 @@
+Start a new separate task.
+
+Task name:
+
+```text id="eewiua"
+Build New Website Tab — Professional Charting
+```
+
+Goal:
+
+Build a new website tab called:
+
+```text id="q22q8l"
+Charting
+```
+
+This tab should become a professional charting workspace for Indian markets, similar in usability to TradingView, but integrated with our existing website, Kite data pipeline, scanner, and paper-trading ecosystem.
+
+Important: do not randomly bolt a chart iframe and call it done. This must be designed properly.
+
+---
+
+# First: audit and choose charting architecture
+
+Before implementing, inspect the current project structure and recommend the safest architecture.
+
+Compare these options:
+
+## Option A — TradingView Advanced Chart Widget
+
+Pros:
+
+```text id="a9yr6h"
+fastest to implement
+good TradingView-style chart UX
+built-in chart tools
+good for MVP
+less backend work
+```
+
+Cons:
+
+```text id="p4acpr"
+limited control over custom indicators
+limited control over our own signal overlays
+not ideal for SMC/FVG/fixed volume profile custom logic
+may not connect directly to our Zerodha/Kite data
+personal TradingView account connection may not be possible/clean
+```
+
+## Option B — TradingView Charting Library with custom datafeed
+
+Pros:
+
+```text id="z54l42"
+best professional path
+can use our own Kite/Zerodha datafeed
+better control over indicators and overlays
+can integrate custom signals, FVG, SMC, support/resistance
+can grow into full professional charting platform
+```
+
+Cons:
+
+```text id="m2hquf"
+more implementation work
+requires correct library availability/licensing
+requires robust datafeed adapter
+requires candle aggregation and caching
+```
+
+## Option C — Lightweight Charts / custom chart engine
+
+Pros:
+
+```text id="d5ajfr"
+full control
+good performance
+can build our own custom overlays
+no TradingView dependency
+```
+
+Cons:
+
+```text id="ei9bp2"
+more work to reach TradingView-level UX
+drawing tools and indicators need custom implementation
+not ideal for first high-end charting release
+```
+
+Recommendation expectation:
+
+```text id="klm0ds"
+If TradingView Charting Library is available/licensed in the repo, prefer Option B.
+If not available, build Phase 1 using Advanced Chart Widget as MVP and design backend/datafeed for Phase 2.
+Do not fake TradingView account integration.
+Do not claim direct TradingView account connection unless officially supported and verified.
+```
+
+---
+
+# Strict rules
+
+```text id="oh2mkb"
+Do not change existing trading logic.
+Do not change F&O signal logic.
+Do not change equity/swing signal logic.
+Do not change paper-trading execution.
+Do not change stop/target/sizing logic.
+Do not change DB schema without asking first.
+Do not change env/secrets/DNS.
+Do not change scheduler cadence.
+Do not break existing tabs.
+Do not remove existing information.
+Do not publish until reviewed.
+```
+
+This task is a new Charting tab, not a rewrite of the platform.
+
+---
+
+# Required Charting tab features
+
+## 1. Market universe
+
+The Charting tab should support:
+
+```text id="n20wo8"
+NIFTY
+BANKNIFTY
+FINNIFTY
+SENSEX
+NSE equities
+BSE equities if data available
+F&O index instruments if supported
+Major global indices
+Major commodities/currencies if available from data source
+```
+
+Add proper symbol search.
+
+Symbol search should support:
+
+```text id="qa6s5p"
+symbol
+company name
+exchange
+segment
+index/equity/futures/options category
+```
+
+Do not hardcode only 10 symbols. Use existing instrument master if available.
+
+---
+
+## 2. Timeframes
+
+Support chart timeframes:
+
+```text id="dbzo6s"
+1m
+3m
+5m
+15m
+30m
+1h
+1D
+1W
+1M
+```
+
+If data is unavailable for a timeframe, show a clean unavailable message.
+
+No fake candles.
+
+No synthetic live data unless clearly labelled.
+
+---
+
+## 3. Chart types
+
+Support:
+
+```text id="bdtms6"
+Candlestick
+Line chart
+Volume bars
+```
+
+Optional later:
+
+```text id="ztcbzc"
+Heikin Ashi
+Area
+Bar chart
+```
+
+---
+
+## 4. Standard indicators
+
+Add built-in indicators:
+
+```text id="va1mrk"
+RSI
+EMA 11
+EMA 20
+EMA 50
+EMA 100
+EMA 200
+VWAP
+Volume bars
+```
+
+Indicators must be toggleable.
+
+Do not permanently clutter the chart.
+
+---
+
+## 5. Custom “Market Scanner Pro Indicator”
+
+Create a custom overlay group called:
+
+```text id="kdr54a"
+Market Scanner Pro Indicator
+```
+
+It should include toggles for:
+
+```text id="pkvj31"
+EMA 11 / 20 / 50
+VWAP
+Fixed Volume Profile / visible-range volume profile if technically possible
+Support and resistance
+Fair Value Gaps
+SMC structure
+Break of Structure
+Change of Character
+Demand/supply zones if available
+Swing high / swing low markers
+Trend bias label
+```
+
+Important:
+
+```text id="ii14ok"
+Do not fake SMC/FVG/volume profile.
+If a module does not exist, create a placeholder architecture and report missing backend logic.
+If implementation is possible with existing candle/volume data, implement read-only overlay.
+```
+
+---
+
+# Signal overlay
+
+The chart should show trading-signal overlays from our existing engine where available.
+
+For F&O/index charts:
+
+```text id="yhj3qb"
+CALL / PUT signal marker
+signal time
+entry level
+stop level
+target1
+target2
+confidence
+setup type
+reason
+status
+```
+
+For equity/swing charts:
+
+```text id="ty02ru"
+buy zone
+entry
+stop loss
+target
+trend rank
+scanner score
+risk label
+```
+
+Strict rule:
+
+```text id="qnb1l6"
+Chart overlays should display existing signal data.
+Do not create new trading signals inside the chart without separate approval.
+```
+
+---
+
+# Data architecture
+
+Use existing data infrastructure where possible.
+
+Check:
+
+```text id="isr1nu"
+Kite WebSocket live quotes
+Kite historical candle API
+existing instrument master
+existing candle storage/cache
+existing Yahoo fallback
+existing scanner API routes
+existing option signal history
+existing paper trade data
+```
+
+Required data behaviour:
+
+```text id="ddpvy3"
+live candles update correctly
+historical candles load correctly
+no duplicate candles
+no missing timestamps
+market session handling correct
+NSE holidays/weekends handled
+IST timezone correct
+stale data clearly labelled
+fallback source clearly labelled
+```
+
+If using Kite:
+
+```text id="sm8399"
+respect Kite rate limits
+cache historical candles
+avoid repeated heavy calls
+use WebSocket for live quote updates where possible
+aggregate live ticks into candles safely
+```
+
+---
+
+# UI/UX design
+
+Design this like a professional trading terminal.
+
+Layout:
+
+```text id="u2ipxv"
+top symbol search bar
+exchange/segment selector
+timeframe selector
+chart type selector
+indicator toolbar
+main chart canvas
+right-side symbol/watchlist panel
+bottom signal/event panel
+data freshness badge
+source badge
+fullscreen button
+save layout button if feasible
+```
+
+Theme:
+
+```text id="thj5m5"
+dark premium UI
+clear bullish/bearish colors
+clean crosshair
+readable axis labels
+compact toolbars
+mobile responsive fallback
+```
+
+Do not make it look like a toy dashboard.
+
+---
+
+# Required panels
+
+## Left/top toolbar
+
+```text id="vhymxx"
+Symbol search
+Timeframe selector
+Chart type selector
+Indicator toggle
+Reset chart
+Fullscreen
+```
+
+## Right panel
+
+```text id="v08j5m"
+Watchlist
+Index list
+Top gainers/losers if available
+Recently viewed symbols
+```
+
+## Bottom panel
+
+```text id="q3vata"
+Signal history
+Active paper trades linked to selected symbol/index
+Recent alerts
+Data status
+```
+
+---
+
+# Alerts and signals
+
+For v1, alerts should be visual only:
+
+```text id="bz757k"
+breakout marker
+trend signal marker
+paper trade marker
+stop/target lines
+VWAP reclaim marker if existing signal data supports it
+```
+
+No real-time notification system unless separately approved.
+
+---
+
+# TradingView integration rule
+
+Investigate whether we can:
+
+```text id="tf4hk3"
+embed TradingView Advanced Chart Widget
+or use TradingView Charting Library with custom datafeed
+or connect to TradingView account
+```
+
+Report clearly:
+
+```text id="ro58mi"
+what is possible
+what is not possible
+what requires license/access
+what can be done immediately
+what should be deferred
+```
+
+Do not assume direct TradingView account login integration is possible.
+
+Do not ask user for TradingView credentials.
+
+---
+
+# Zerodha/Kite integration rule
+
+Since Kite is already integrated, inspect current Kite setup.
+
+Confirm:
+
+```text id="n7gg3a"
+live tick source
+historical candle availability
+instrument token mapping
+session/token expiry handling
+rate-limit protection
+fallback source
+```
+
+Build charting data adapter only after confirming these.
+
+Do not expose Kite secrets.
+
+Do not add new Kite env variables without asking.
+
+---
+
+# Implementation phases
+
+## Phase 1 — Architecture report only
+
+Before building, provide:
+
+A. Recommended chart library
+B. Whether TradingView widget/library is feasible
+C. Whether TradingView account connection is feasible
+D. Whether Kite custom datafeed is feasible
+E. Existing data sources available
+F. Required API endpoints
+G. Required frontend components
+H. Missing backend/data gaps
+I. Risk list
+J. Proposed implementation phases
+
+Stop after Phase 1 unless the task is already approved to build.
+
+---
+
+## Phase 2 — MVP Charting tab
+
+Build:
+
+```text id="i4tm9i"
+new /charting route
+new Charting nav tab
+symbol selector
+timeframe selector
+candlestick/line switch
+volume bars
+RSI
+EMA 11/20/50/100/200
+VWAP
+data freshness/source badge
+basic watchlist
+```
+
+No advanced SMC/FVG if backend is not ready.
+
+---
+
+## Phase 3 — Pro overlays
+
+Add:
+
+```text id="i8wfw3"
+support/resistance
+FVG zones
+SMC BOS/CHOCH markers
+fixed/visible volume profile if feasible
+signal markers
+paper trade markers
+entry/stop/target lines
+```
+
+---
+
+## Phase 4 — Advanced workflow
+
+Add later:
+
+```text id="y0877e"
+save chart layouts
+multi-chart layout
+drawing persistence
+alert creation
+journal link
+paper-trade replay
+strategy replay
+```
+
+---
+
+# Tests and validation
+
+Run relevant checks:
+
+```text id="kfkhgg"
+pnpm run typecheck
+frontend/scanner tests
+api-server tests if backend touched
+```
+
+If chart data API is added, test:
+
+```text id="r76dq1"
+valid symbol/timeframe returns candles
+invalid symbol rejected safely
+no secret exposure
+stale data labelled
+rate-limit fallback
+empty data state
+IST session handling
+```
+
+If frontend chart tab is added, test:
+
+```text id="enf5eo"
+route renders
+symbol search works
+timeframe switch works
+chart type switch works
+indicator toggles work
+empty state works
+loading state works
+mobile layout not broken
+```
+
+---
+
+# Final report required
+
+Provide **Charting Tab Architecture / Implementation Report** with:
+
+A. Files changed
+B. Charting architecture chosen
+C. TradingView option feasibility
+D. Kite datafeed feasibility
+E. Features implemented
+F. Features deferred and why
+G. Data sources used
+H. Indicators added
+I. Custom overlay status
+J. Signal overlay status
+K. Tests and results
+L. Known limitations
+M. Whether safe to publish
+
+Do not publish until reviewed.
+
+---
+
+# Final warning
+
+Do not build a fake “perfect charting” page.
+
+If a feature is not truly supported by data, say so.
+
+If TradingView account integration is not feasible, say so.
+
+If FVG/SMC/volume profile needs a separate backend module, say so.
+
+The goal is:
+
+```text id="j3qlbc"
+professional, accurate, data-rich charting
+```
+
+Not:
+
+```text id="osukjr"
+a decorative chart page that looks nice but lies to the trader
+```

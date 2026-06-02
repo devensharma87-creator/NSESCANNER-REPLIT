@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Charting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+<div class="terminal">
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span>CHARTING<em>terminal</em></div>
+    <div class="searchwrap">
+      <input id="search" placeholder="Search NIFTY, BANKNIFTY, RELIANCE, S&P 500…" autocomplete="off" />
+      <div id="results" class="results"></div>
+    </div>
+    <button id="authBtn" class="auth">Connect Zerodha</button>
+  </header>
+
+  <div class="layout">
+    <!-- Left rail: indicators -->
+    <aside class="rail">
+      <div class="group"><h4>Type</h4>
+        <button id="typeToggle" class="pill wide">Candles</button>
+      </div>
+      <div class="group"><h4>Moving Avg (EMA)</h4>
+        <button class="pill on" data-toggle="ema11">EMA 11</button>
+        <button class="pill on" data-toggle="ema20">EMA 20</button>
+        <button class="pill on" data-toggle="ema50">EMA 50</button>
+        <button class="pill" data-toggle="ema100">EMA 100</button>
+        <button class="pill" data-toggle="ema200">EMA 200</button>
+      </div>
+      <div class="group"><h4>Studies</h4>
+        <button class="pill on" data-toggle="vwap">VWAP</button>
+        <button class="pill on" data-toggle="rsi">RSI 14</button>
+        <button class="pill on" data-toggle="volume">Volume</button>
+      </div>
+      <div class="group"><h4>Smart Suite</h4>
+        <button class="pill wide" data-toggle="custom">SMC · FVG · VP · S/R</button>
+        <button class="pill wide on" data-toggle="signals">Auto Signals</button>
+      </div>
+      <div class="group"><h4>Trend</h4>
+        <span id="trendBadge" class="badge">—</span>
+      </div>
+    </aside>
+
+    <!-- Center: charts -->
+    <main class="stage">
+      <div class="symbar">
+        <div class="sym"><b id="symName">—</b><small id="symExch"></small></div>
+        <div class="ltpwrap">LTP <span id="ltp">—</span></div>
+        <div class="tfs">
+          <button data-tf="1m">1m</button><button data-tf="5m" class="on">5m</button>
+          <button data-tf="15m">15m</button><button data-tf="60m">1h</button>
+          <button data-tf="1D">1D</button><button data-tf="1W">1W</button>
+        </div>
+      </div>
+      <div class="chartbox">
+        <div id="chart"></div>
+        <canvas id="vpCanvas" class="vp"></canvas>
+      </div>
+      <div id="rsi" class="rsibox"></div>
+    </main>
+
+    <!-- Right: signal feed -->
+    <aside class="feed">
+      <h4>Signal Feed</h4>
+      <div id="sigFeed" class="sigfeed"></div>
+      <div class="legend">
+        <p><span class="sw" style="background:#16c784"></span>Buy confluence</p>
+        <p><span class="sw" style="background:#ea3943"></span>Sell confluence</p>
+        <p><span class="sw" style="background:#00e0ff"></span>BOS</p>
+        <p><span class="sw" style="background:#b06bff"></span>CHoCH</p>
+        <p><span class="sw" style="background:#f0b90b"></span>POC / Value Area</p>
+      </div>
+    </aside>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<script src="js/indicators.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
