@@ -1,0 +1,154 @@
+Market is live now.
+
+Please do a **read-only live market observation**.
+
+Task name:
+
+```text id="eae22s"
+Live Market Observation — Pro Market Analyser + F&O / Paper Health
+```
+
+Strict rules:
+
+```text id="ysbn0b"
+No code changes.
+No logic changes.
+No trading/scoring changes.
+No paper-execution changes.
+No confidence threshold changes.
+No circuit breaker/fail-open/fail-closed changes.
+No env/secret/DNS/schema/scheduler changes.
+No publish.
+No manual trade action.
+No forced close/open.
+Observation only.
+```
+
+## What to observe during live market
+
+### 1. Pro Market Analyser `/premarket`
+
+Check during live market:
+
+```text id="q0w48e"
+page loads
+LIVE mode is detected correctly based on IST
+market bias section renders
+market internals render
+index snapshot renders
+scenario setup plan renders
+CPR / pivot levels render
+option chain snapshot renders
+new Phase A sections render or show compact unavailable state
+no undefined / NaN / null / raw JSON
+no broken cards
+no frontend crash
+```
+
+### 2. Data freshness
+
+Check:
+
+```text id="r5vivv"
+last updated timestamps
+data source labels
+fresh / stale / unavailable labels
+fallback source labels
+```
+
+Report if any card looks stale or misleading.
+
+### 3. F&O signal pipeline health
+
+Read-only check only:
+
+```text id="iwzokj"
+option signal sweep running
+current highConvictionCount / baselineCount
+any suppressedSummary reasons
+Kite data availability
+no unexpected HC suppression
+no unexpected paper-open failure
+no ZodError
+no unhandled exception
+```
+
+Do not tune signals.
+
+Do not change thresholds.
+
+### 4. Paper trading health
+
+Check only:
+
+```text id="c7xt4d"
+paper routes healthy
+open F&O positions if any
+MTM updating if open rows exist
+last_premium freshness if open rows exist
+paper diagnostics routes not 500
+no duplicate/open-row issue
+no TIME_EXIT_1520 regression risk
+```
+
+No manual intervention.
+
+### 5. API / logs
+
+Check:
+
+```text id="mpg5vs"
+api-server healthy
+/api/healthz 200
+/premarket 200
+/api/market/premarket not 500
+/paper/* no 500 regression
+no ZodError
+no auth/security regression
+no DB crash loop
+no Kite 429 causing production failure
+```
+
+### 6. Global scanner / DB warnings
+
+Check whether any warnings are fail-soft only:
+
+```text id="ss7xij"
+global scanner degraded warning
+Yahoo timeout warning
+DB write fail-soft warning
+connection timeout
+unhandledRejection
+uncaughtException
+process restart
+```
+
+If warning exists, classify:
+
+```text id="k9i4me"
+blocking
+non-blocking
+fail-soft
+needs later task
+```
+
+## Final report required
+
+Give **Live Market Observation Report** with:
+
+A. Observation time window in IST
+B. Market mode detected
+C. `/premarket` UI status
+D. Data freshness status
+E. Old sections visibility
+F. New Phase A sections status
+G. F&O signal sweep status
+H. Paper trading route/MTM status
+I. API health status
+J. Logs/errors found
+K. Kite 429 / DB warning status
+L. Any issue needing action
+M. Whether any code change is required later
+N. Confirmation no code/runtime/trading logic changed
+
+Stop after the report.
