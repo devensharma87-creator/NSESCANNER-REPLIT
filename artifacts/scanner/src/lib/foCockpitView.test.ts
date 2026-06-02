@@ -27,6 +27,8 @@ import {
   uniqueDirections,
   uniqueOptionTypes,
   countActiveFoFilters,
+  deriveOpenPositionRisk,
+  deriveTimeExit1520Ist,
   deriveP25Headline,
   deriveP25EvidenceDetail,
   classifyP25PanelError,
@@ -1243,5 +1245,75 @@ describe("W3-P6 no fabrication, no mutation", () => {
     const sorted = sortFoRows(filtered, "realizedPnl", "asc");
     groupFoRows(sorted, "index");
     expect(JSON.stringify(rows)).toBe(snapshot);
+  });
+});
+
+describe("deriveOpenPositionRisk (display-only)", () => {
+  const base = {
+    entryPremium: 100,
+    stopPremium: 80,
+    target1Premium: 130,
+    target2Premium: 160,
+    lastPremium: 110,
+    openedAt: "2026-06-02T04:00:00.000Z",
+  };
+
+  it("computes R-multiple, distances, and age from existing premium fields", () => {
+    const now = Date.parse("2026-06-02T06:30:00.000Z"); // 2h30m later
+    const r = deriveOpenPositionRisk(base, now);
+    // (110 − 100) / (100 − 80) = 0.5R
+    expect(r.rMultiple).toBeCloseTo(0.5, 6);
+    // 110 − 80 = 30 pts; 30/110 ≈ 27.27%
+    expect(r.distToStop).toBeCloseTo(30, 6);
+    expect(r.distToStopPct).toBeCloseTo(27.2727, 3);
+    // 130 − 110 = 20; 160 − 110 = 50
+    expect(r.distToT1).toBeCloseTo(20, 6);
+    expect(r.distToT2).toBeCloseTo(50, 6);
+    expect(r.ageMs).toBe(2.5 * 3_600_000);
+  });
+
+  it("returns null for R-multiple when risk-per-unit is not positive", () => {
+    const r = deriveOpenPositionRisk({ ...base, stopPremium: 100 }, undefined);
+    expect(r.rMultiple).toBeNull();
+  });
+
+  it("returns null fields (never NaN) when premiums are missing or non-numeric", () => {
+    const r = deriveOpenPositionRisk(
+      { entryPremium: null, stopPremium: "", target1Premium: undefined, lastPremium: "x" },
+      undefined,
+    );
+    expect(r.rMultiple).toBeNull();
+    expect(r.distToStop).toBeNull();
+    expect(r.distToStopPct).toBeNull();
+    expect(r.distToT1).toBeNull();
+    expect(r.ageMs).toBeNull();
+  });
+
+  it("age is null when nowMs is before openedAt or omitted", () => {
+    const before = Date.parse("2026-06-02T03:00:00.000Z");
+    expect(deriveOpenPositionRisk(base, before).ageMs).toBeNull();
+    expect(deriveOpenPositionRisk(base).ageMs).toBeNull();
+  });
+});
+
+describe("deriveTimeExit1520Ist (display-only)", () => {
+  it("counts down to today's 15:20 IST when before the window", () => {
+    // 15:00 IST = 09:30 UTC → 20 min remaining
+    const now = Date.parse("2026-06-02T09:30:00.000Z");
+    const t = deriveTimeExit1520Ist(now)!;
+    expect(t.passed).toBe(false);
+    expect(t.remainingMs).toBe(20 * 60_000);
+  });
+
+  it("reports passed once 15:20 IST has elapsed", () => {
+    // 15:30 IST = 10:00 UTC → 10 min past
+    const now = Date.parse("2026-06-02T10:00:00.000Z");
+    const t = deriveTimeExit1520Ist(now)!;
+    expect(t.passed).toBe(true);
+    expect(t.remainingMs).toBe(-10 * 60_000);
+  });
+
+  it("returns null for a non-finite clock", () => {
+    expect(deriveTimeExit1520Ist(NaN)).toBeNull();
   });
 });

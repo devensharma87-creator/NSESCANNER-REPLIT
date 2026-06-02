@@ -10,6 +10,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { FoBadge } from "@/lib/foCockpitView";
+import { deriveOpenPositionRisk } from "@/lib/foCockpitView";
 import { FoRiskBadges } from "./FoRiskBadges";
 
 export interface FoOpenPosition {
@@ -81,6 +82,25 @@ export function pnlTone(n: number | null | undefined): string {
   if (!Number.isFinite(n as number) || (n as number) === 0) return "text-foreground";
   return (n as number) > 0 ? "text-emerald-300" : "text-rose-300";
 }
+export function fmtAge(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return DASH;
+  const totalMin = Math.floor(ms / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+export function fmtR(r: number | null): string {
+  if (r == null || !Number.isFinite(r)) return DASH;
+  return `${r > 0 ? "+" : ""}${r.toFixed(2)}R`;
+}
+/** Signed premium-point distance, with optional % of current premium. */
+export function fmtDelta(points: number | null, pct: number | null): string {
+  if (points == null || !Number.isFinite(points)) return DASH;
+  const sign = points > 0 ? "+" : "";
+  const base = `${sign}${points.toFixed(2)}`;
+  if (pct == null || !Number.isFinite(pct)) return base;
+  return `${base} (${sign}${pct.toFixed(1)}%)`;
+}
 
 function Field({
   label,
@@ -106,6 +126,7 @@ export function FoOpenTradeCard({
   badges,
   pnlPct,
   stale,
+  now,
   onClose,
   closing,
 }: {
@@ -113,6 +134,7 @@ export function FoOpenTradeCard({
   badges: FoBadge[];
   pnlPct: number | null;
   stale: boolean;
+  now?: number;
   onClose: () => void;
   closing: boolean;
 }) {
@@ -121,6 +143,7 @@ export function FoOpenTradeCard({
     : NaN;
   const hasMfe = Number.isFinite(p.maxRunup as number);
   const hasMae = Number.isFinite(p.maxDrawdown as number);
+  const risk = deriveOpenPositionRisk(p, now);
   return (
     <div className="rounded-lg border border-border bg-card/40 p-3 space-y-3">
       <div className="flex items-start justify-between gap-2">
@@ -153,6 +176,27 @@ export function FoOpenTradeCard({
         <Field
           label="MFE / MAE"
           value={hasMfe || hasMae ? `${fmtInrDec(p.maxRunup)} / ${fmtInrDec(p.maxDrawdown)}` : DASH}
+        />
+        <Field label="Age" value={fmtAge(risk.ageMs)} />
+        <Field
+          label="R-multiple"
+          value={fmtR(risk.rMultiple)}
+          tone={pnlTone(risk.rMultiple)}
+        />
+        <Field
+          label="Δ to Stop"
+          value={fmtDelta(risk.distToStop, risk.distToStopPct)}
+          tone="text-rose-300"
+        />
+        <Field
+          label="Δ to T1"
+          value={fmtDelta(risk.distToT1, risk.distToT1Pct)}
+          tone="text-emerald-300"
+        />
+        <Field
+          label="Δ to T2"
+          value={fmtDelta(risk.distToT2, risk.distToT2Pct)}
+          tone="text-emerald-300"
         />
       </div>
 

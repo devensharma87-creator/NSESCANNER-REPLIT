@@ -774,6 +774,83 @@ const SKIP_REASON_COPY: Record<string, string> = {
     "Cash balance below the capital required for one lot.",
 };
 
+// Sticky-latch SkipReasons (vs transient gates like CONFIDENCE_FLOOR or
+// MISSED_WINDOW which can change tick to tick). These names MUST match the
+// `SkipReason` union in `paperTradingFO.ts`.
+const LATCH_REASON_COPY: Record<string, string> = {
+  BASELINE_DAILY_DD_CAP: "BASELINE 0.75% daily loss cap latched",
+  BASELINE_DAILY_CAP: "BASELINE 2-trades/day cap reached",
+  BASELINE_CONSECUTIVE_LOSSES: "BASELINE lane locked after 2 consecutive losses",
+  BASELINE_LATE: "BASELINE late-entry cutoff (after 14:45 IST)",
+  BASELINE_GUARDRAIL_STATS_UNAVAILABLE:
+    "BASELINE guardrail stats unavailable (fail-closed)",
+  DAILY_TRADE_CAP: "Daily F&O trade cap reached",
+  PORTFOLIO_HEAT: "Portfolio heat cap reached (6%)",
+  TIME_FILTER_LATE: "After 15:20 IST F&O cutoff",
+};
+
+/**
+ * Pure display helper — derives the list of ACTIVE guardrail latches from the
+ * account snapshot + daily F&O summary. Classification/labelling only: it reads
+ * nothing it does not already display and changes no trading decision, cap, or
+ * latch state (the real latches live server-side).
+ */
+function deriveGuardrailLatches(account: PaperAccount, s: FoDailySummary): string[] {
+  const tradeCap = account.dailyTradeCap;
+  const tradeCapReached = tradeCap > 0 && account.dayTradeCount >= tradeCap;
+  const dailyDdLatched =
+    account.dailyDrawdownPct != null &&
+    account.dailyDrawdownCapPct != null &&
+    account.dailyDrawdownPct >= account.dailyDrawdownCapPct;
+  const weeklyDdLatched =
+    account.weeklyDrawdownPct != null &&
+    account.weeklyDrawdownCapPct != null &&
+    account.weeklyDrawdownPct >= account.weeklyDrawdownCapPct;
+
+  const latches: string[] = [];
+  if (dailyDdLatched) latches.push("Daily DD cap latched");
+  if (weeklyDdLatched) latches.push("Weekly DD cap latched");
+  if (tradeCapReached) latches.push("Daily trade cap reached");
+  for (const r of s.skipped.byReason.slice(0, 5)) {
+    if (r.count > 0 && LATCH_REASON_COPY[r.key]) latches.push(LATCH_REASON_COPY[r.key]);
+  }
+  return latches;
+}
+
+/**
+ * Compact, high-visibility latch banner surfaced near the TOP of the F&O cockpit
+ * so an operator immediately sees WHY entries are blocked, without scrolling to
+ * the "Why no F&O trade?" detail card. Shares the daily-summary query key with
+ * that card, so React Query dedupes — no extra network fetch. Renders nothing
+ * when no latch is active.
+ */
+function FoGuardrailLatchBanner({ account }: { account: PaperAccount }) {
+  const summary = useQuery({
+    queryKey: ["paper", "fo", "daily-summary"] as const,
+    queryFn: () => api<FoDailySummary>(`/paper/diagnostics/daily-summary/fo`),
+    refetchInterval: 30_000,
+  });
+  if (!summary.data) return null;
+  const latches = deriveGuardrailLatches(account, summary.data);
+  if (latches.length === 0) return null;
+  return (
+    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+      <div className="font-semibold mb-1">
+        Active guardrail latch — F&amp;O entries are intentionally blocked
+      </div>
+      <ul className="list-disc list-inside text-amber-100/90 space-y-0.5">
+        {latches.map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+      </ul>
+      <div className="mt-2 text-xs text-amber-100/70">
+        Lane reopens on the next IST trading day. This is the safety net working
+        as designed — not a bug. Full breakdown in “Why no F&amp;O trade?” below.
+      </div>
+    </div>
+  );
+}
+
 function GuardrailStatusCard({ account }: { account: PaperAccount }) {
   const summary = useQuery({
     queryKey: ["paper", "fo", "daily-summary"] as const,
@@ -801,17 +878,7 @@ function GuardrailStatusCard({ account }: { account: PaperAccount }) {
   }
 
   const s = summary.data;
-  const tradesUsed = account.dayTradeCount;
   const tradeCap = account.dailyTradeCap;
-  const tradeCapReached = tradeCap > 0 && tradesUsed >= tradeCap;
-  const dailyDdLatched =
-    account.dailyDrawdownPct != null &&
-    account.dailyDrawdownCapPct != null &&
-    account.dailyDrawdownPct >= account.dailyDrawdownCapPct;
-  const weeklyDdLatched =
-    account.weeklyDrawdownPct != null &&
-    account.weeklyDrawdownCapPct != null &&
-    account.weeklyDrawdownPct >= account.weeklyDrawdownCapPct;
 
   // Top 5 skip reasons (already sorted desc on the server).
   const topReasons = s.skipped.byReason.slice(0, 5);
@@ -819,27 +886,7 @@ function GuardrailStatusCard({ account }: { account: PaperAccount }) {
     s.tradeOpenRate == null ? "—" : `${(s.tradeOpenRate * 100).toFixed(0)}%`;
 
   // Show a coloured headline only when something is actively gating.
-  const latches: string[] = [];
-  if (dailyDdLatched) latches.push("Daily DD cap latched");
-  if (weeklyDdLatched) latches.push("Weekly DD cap latched");
-  if (tradeCapReached) latches.push("Daily trade cap reached");
-  // Sticky-latch SkipReasons (vs transient gates like CONFIDENCE_FLOOR or
-  // MISSED_WINDOW which can change tick to tick). These names MUST match
-  // the `SkipReason` union in `paperTradingFO.ts`.
-  const latchReasonCopy: Record<string, string> = {
-    BASELINE_DAILY_DD_CAP: "BASELINE 0.75% daily loss cap latched",
-    BASELINE_DAILY_CAP: "BASELINE 2-trades/day cap reached",
-    BASELINE_CONSECUTIVE_LOSSES: "BASELINE lane locked after 2 consecutive losses",
-    BASELINE_LATE: "BASELINE late-entry cutoff (after 14:45 IST)",
-    BASELINE_GUARDRAIL_STATS_UNAVAILABLE:
-      "BASELINE guardrail stats unavailable (fail-closed)",
-    DAILY_TRADE_CAP: "Daily F&O trade cap reached",
-    PORTFOLIO_HEAT: "Portfolio heat cap reached (6%)",
-    TIME_FILTER_LATE: "After 15:20 IST F&O cutoff",
-  };
-  for (const r of topReasons) {
-    if (r.count > 0 && latchReasonCopy[r.key]) latches.push(latchReasonCopy[r.key]);
-  }
+  const latches = deriveGuardrailLatches(account, s);
 
   return (
     <Card>
@@ -880,7 +927,11 @@ function GuardrailStatusCard({ account }: { account: PaperAccount }) {
             value={openRatePct}
             sub={`${s.validCandidates} candidates`}
           />
-          <GuardrailStat label="Skipped today" value={String(s.skipped.total)} />
+          <GuardrailStat
+            label="Skipped today"
+            value={String(s.skipped.total)}
+            sub="durable daily summary"
+          />
         </div>
 
         {topReasons.length > 0 && (
@@ -1587,6 +1638,7 @@ function FOSegment() {
         loading={summaryLoading}
         error={summaryError}
       />
+      {account.data && <FoGuardrailLatchBanner account={account.data} />}
       <FoP25EvidencePanel
         detail={p25Detail}
         loading={shadowExits.isLoading}
@@ -1701,31 +1753,44 @@ function AccountCard({ data, loading, error, onTopupSuccess }: {
         </Button>
       </CardHeader>
       <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Stat label="Cash balance" value={inr(data.balance)} />
+        <Stat
+          label="Cash balance"
+          value={inr(data.balance)}
+          hint="Free cash in the F&O paper bankroll right now. Realised P&L from still-open positions is not folded in until they close."
+        />
         <Stat
           label="Realized P&L (today)"
           value={inrDec(data.dayRealizedPnl)}
           tone={data.dayRealizedPnl > 0 ? "pos" : data.dayRealizedPnl < 0 ? "neg" : undefined}
+          hint="Net booked profit/loss from F&O paper trades closed today (IST). Resets at the next IST day rollover."
         />
         <Stat
           label="Open positions"
           value={`${data.dayOpenCount}`}
+          hint="F&O paper positions currently open."
         />
         <Stat
           label="Trades opened today"
           value={`${data.dayTradeCount} / ${data.dailyTradeCap}`}
           tone={data.dayTradeCount >= data.dailyTradeCap ? "neg" : undefined}
+          hint="F&O paper trades opened today vs the daily trade cap. At the cap, no new auto-entries open until the next IST day."
         />
         <Stat
           label="Risk per trade"
           value={pct(data.maxLossPctPerTrade)}
+          hint="Max capital risked per F&O trade as a percent of bankroll (STANDARD-tier sizing baseline)."
         />
         <Stat
           label="Net vs. seed (lifetime)"
           value={inrDec(netVsSeed)}
           tone={netVsSeed > 0 ? "pos" : netVsSeed < 0 ? "neg" : undefined}
+          hint="Lifetime delta from the original seed capital: cash balance + today's realised P&L − seed capital."
         />
-        <Stat label="Seed capital" value={inr(data.seedCapital)} />
+        <Stat
+          label="Seed capital"
+          value={inr(data.seedCapital)}
+          hint="The original starting bankroll for the F&O paper account."
+        />
       </CardContent>
       <TopupDialog
         open={topupOpen}
@@ -2183,11 +2248,14 @@ function MissedSignalsCard({ missed, loading, error }: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Skipped &amp; missed signals</CardTitle>
+        <CardTitle>Skipped / missed (since server start)</CardTitle>
         <CardDescription>
           Every trigger the F&amp;O paper-trade engine declined this session,
-          with the precise reason. Use this to understand the gap between
-          what the scanner shows and what the engine actually executed:
+          with the precise reason. This is an in-memory session log — it resets
+          on server restart, so it is not a full-day total (see &ldquo;Skipped
+          today&rdquo; above for the durable daily count). Use this to understand
+          the gap between what the scanner shows and what the engine actually
+          executed:
           <br />
           <span className="text-amber-300">Missed window</span> — signal
           triggered &amp; hit T1/T2/SL inside one polling cycle (anti-phantom
@@ -2206,7 +2274,8 @@ function MissedSignalsCard({ missed, loading, error }: {
       <CardContent>
         {missed.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No skipped signals tracked since server start.
+            No skipped/missed signals tracked since server start. This in-memory
+            log resets on server restart.
           </p>
         ) : (
           <>
@@ -2342,14 +2411,14 @@ function WhyNoTradeSummary({ rows }: { rows: MissedSignalRow[] }) {
 }
 
 function Stat({
-  label, value, tone,
-}: { label: string; value: string; tone?: "pos" | "neg" }) {
+  label, value, tone, hint,
+}: { label: string; value: string; tone?: "pos" | "neg"; hint?: string }) {
   const color =
     tone === "pos" ? "text-emerald-300" :
     tone === "neg" ? "text-rose-300" :
     "text-foreground";
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1" title={hint}>
       <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className={`text-lg font-semibold tabular-nums ${color}`}>{value}</span>
     </div>

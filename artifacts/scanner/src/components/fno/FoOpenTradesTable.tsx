@@ -22,6 +22,8 @@ import {
   deriveFoRiskBadges,
   deriveFoPnlPct,
   isFoQuoteStale,
+  deriveOpenPositionRisk,
+  deriveTimeExit1520Ist,
   type FoTradeRow,
 } from "@/lib/foCockpitView";
 import {
@@ -32,6 +34,9 @@ import {
   fmtInrDec,
   fmtPct,
   fmtDateTime,
+  fmtAge,
+  fmtR,
+  fmtDelta,
   pnlTone,
   type FoOpenPosition,
 } from "./FoOpenTradeCard";
@@ -75,6 +80,7 @@ function DesktopRow({
   const badges = deriveFoRiskBadges(row, { now, staleMinutes: STALE_MINUTES });
   const pnlPct = deriveFoPnlPct(row);
   const stale = isFoQuoteStale(row, now, STALE_MINUTES);
+  const risk = deriveOpenPositionRisk(p, now);
   const totalQty =
     Number.isFinite(p.lots) && Number.isFinite(p.lotSize) ? p.lots * p.lotSize : NaN;
   const hasMfe = Number.isFinite(p.maxRunup as number);
@@ -99,13 +105,31 @@ function DesktopRow({
       </td>
       <td className="py-2 pr-3 text-right tabular-nums">{fmtPremium(p.entryPremium)}</td>
       <td className="py-2 pr-3 text-right tabular-nums">{fmtPremium(p.lastPremium)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums text-rose-300">{fmtPremium(p.stopPremium)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums text-emerald-300">{fmtPremium(p.target1Premium)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums text-emerald-300">{fmtPremium(p.target2Premium)}</td>
+      <td className="py-2 pr-3 text-right tabular-nums text-rose-300">
+        {fmtPremium(p.stopPremium)}
+        <div className="text-[11px] font-normal text-muted-foreground" title="Distance from current price to stop">
+          Δ {fmtDelta(risk.distToStop, risk.distToStopPct)}
+        </div>
+      </td>
+      <td className="py-2 pr-3 text-right tabular-nums text-emerald-300">
+        {fmtPremium(p.target1Premium)}
+        <div className="text-[11px] font-normal text-muted-foreground" title="Distance from current price to Target 1">
+          Δ {fmtDelta(risk.distToT1, risk.distToT1Pct)}
+        </div>
+      </td>
+      <td className="py-2 pr-3 text-right tabular-nums text-emerald-300">
+        {fmtPremium(p.target2Premium)}
+        <div className="text-[11px] font-normal text-muted-foreground" title="Distance from current price to Target 2">
+          Δ {fmtDelta(risk.distToT2, risk.distToT2Pct)}
+        </div>
+      </td>
       <td className="py-2 pr-3 text-right tabular-nums">{fmtInr(p.capitalDeployed)}</td>
       <td className={`py-2 pr-3 text-right tabular-nums font-medium ${pnlTone(p.unrealizedPnl)}`}>
         {fmtInrDec(p.unrealizedPnl)}
         <div className="text-[11px] font-normal text-muted-foreground">{fmtPct(pnlPct)}</div>
+        <div className={`text-[11px] font-normal ${pnlTone(risk.rMultiple)}`} title="R-multiple: (current − entry) ÷ (entry − stop)">
+          {fmtR(risk.rMultiple)}
+        </div>
       </td>
       <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
         {hasMfe || hasMae ? (
@@ -120,6 +144,9 @@ function DesktopRow({
       </td>
       <td className="py-2 pr-3 text-[12px] text-muted-foreground whitespace-nowrap">
         {fmtDateTime(p.openedAt)}
+        <div className="text-[11px]" title="Time elapsed since the position was opened">
+          age {fmtAge(risk.ageMs)}
+        </div>
       </td>
       <td className="py-2 pr-3 text-[12px] text-muted-foreground whitespace-nowrap">
         <span
@@ -139,6 +166,29 @@ function DesktopRow({
 }
 
 const OPEN_COLSPAN = 14;
+
+/**
+ * Display-only countdown to the documented 15:20 IST F&O force-exit window. This
+ * mirrors the cutoff for operator awareness; it does NOT trigger, schedule, or
+ * alter the real force-exit, which is owned server-side.
+ */
+function TimeExitNote({ now }: { now: number }) {
+  const t = deriveTimeExit1520Ist(now);
+  if (!t) return null;
+  if (t.passed) {
+    return (
+      <div className="mb-3 rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-1.5 text-[11px] text-slate-400">
+        15:20 IST auto force-exit window has passed for today.
+      </div>
+    );
+  }
+  return (
+    <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200">
+      Auto force-exit of all open F&amp;O positions at 15:20 IST — in{" "}
+      {fmtAge(t.remainingMs)}.
+    </div>
+  );
+}
 
 export interface FoOpenGroup {
   key: string;
@@ -205,6 +255,7 @@ export function FoOpenTradesTable({
 
   return (
     <HeaderShell>
+      <TimeExitNote now={now} />
       {/* Desktop table */}
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm">
@@ -279,6 +330,7 @@ export function FoOpenTradesTable({
                   badges={deriveFoRiskBadges(row, { now, staleMinutes: STALE_MINUTES })}
                   pnlPct={deriveFoPnlPct(row)}
                   stale={isFoQuoteStale(row, now, STALE_MINUTES)}
+                  now={now}
                   onClose={() => onClose(p.id)}
                   closing={closingIds.has(p.id)}
                 />

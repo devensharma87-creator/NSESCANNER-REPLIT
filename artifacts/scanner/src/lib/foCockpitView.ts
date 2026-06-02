@@ -1070,6 +1070,124 @@ export const uniqueOptionTypes = (rows: FoTradeRow[]): string[] =>
  * row (all rows are paper), so it would inflate the count without affecting
  * results. Pure; does not mutate input.
  */
+// ── 9. Open-position risk / time-exit display derivations ─────────────────────
+// Display-only arithmetic over already-shown premium fields. Long-premium
+// convention (we always BUY the option leg: CALL for bullish, PUT for bearish),
+// so entry > stop and targets > entry. These helpers change NO trading decision,
+// stop, target, exit, sizing, or the real 15:20 force-exit logic — they only
+// format what is already on screen. Callers pass `nowMs`; no clock read here.
+
+export interface OpenPositionRisk {
+  /** ms since openedAt (null if unknown / future / unparseable). */
+  ageMs: number | null;
+  /** (current − entry) / (entry − stop); null unless risk-per-unit > 0. */
+  rMultiple: number | null;
+  /** current − stop, in premium points (null if either missing). */
+  distToStop: number | null;
+  distToStopPct: number | null;
+  /** target1 − current, in premium points (null if either missing). */
+  distToT1: number | null;
+  distToT1Pct: number | null;
+  /** target2 − current, in premium points (null if either missing). */
+  distToT2: number | null;
+  distToT2Pct: number | null;
+}
+
+export function deriveOpenPositionRisk(
+  row: Pick<
+    FoTradeRow,
+    | "entryPremium"
+    | "stopPremium"
+    | "target1Premium"
+    | "target2Premium"
+    | "lastPremium"
+    | "openedAt"
+  >,
+  nowMs?: number,
+): OpenPositionRisk {
+  const entry = toNum(row.entryPremium);
+  const stop = toNum(row.stopPremium);
+  const t1 = toNum(row.target1Premium);
+  const t2 = toNum(row.target2Premium);
+  const cur = toNum(row.lastPremium);
+  const openMs = parseTs(row.openedAt);
+
+  const ageMs =
+    Number.isFinite(openMs) &&
+    nowMs != null &&
+    Number.isFinite(nowMs) &&
+    nowMs >= openMs
+      ? nowMs - openMs
+      : null;
+
+  const risk =
+    Number.isFinite(entry) && Number.isFinite(stop) ? entry - stop : NaN;
+  const rMultiple =
+    Number.isFinite(cur) && Number.isFinite(entry) && Number.isFinite(risk) && risk > 0
+      ? (cur - entry) / risk
+      : null;
+
+  const distToStop =
+    Number.isFinite(cur) && Number.isFinite(stop) ? cur - stop : null;
+  const distToStopPct =
+    distToStop != null && Number.isFinite(cur) && cur !== 0
+      ? (distToStop / cur) * 100
+      : null;
+  const distToT1 =
+    Number.isFinite(t1) && Number.isFinite(cur) ? t1 - cur : null;
+  const distToT1Pct =
+    distToT1 != null && Number.isFinite(cur) && cur !== 0
+      ? (distToT1 / cur) * 100
+      : null;
+  const distToT2 =
+    Number.isFinite(t2) && Number.isFinite(cur) ? t2 - cur : null;
+  const distToT2Pct =
+    distToT2 != null && Number.isFinite(cur) && cur !== 0
+      ? (distToT2 / cur) * 100
+      : null;
+
+  return {
+    ageMs,
+    rMultiple,
+    distToStop,
+    distToStopPct,
+    distToT1,
+    distToT1Pct,
+    distToT2,
+    distToT2Pct,
+  };
+}
+
+export interface TimeExit1520 {
+  /** ms remaining until today's 15:20 IST (negative once passed). */
+  remainingMs: number;
+  passed: boolean;
+}
+
+/**
+ * Time remaining until today's 15:20 IST force-exit window. DISPLAY-ONLY — this
+ * mirrors the documented 15:20 cutoff for the cockpit countdown; it does NOT
+ * trigger, schedule, or alter the real force-exit (owned server-side). Pure:
+ * caller passes `nowMs`.
+ */
+export function deriveTimeExit1520Ist(nowMs: number): TimeExit1520 | null {
+  if (!Number.isFinite(nowMs)) return null;
+  const IST_OFFSET_MS = 5.5 * 3_600_000;
+  const shifted = nowMs + IST_OFFSET_MS;
+  const d = new Date(shifted);
+  const target = Date.UTC(
+    d.getUTCFullYear(),
+    d.getUTCMonth(),
+    d.getUTCDate(),
+    15,
+    20,
+    0,
+    0,
+  );
+  const remainingMs = target - shifted;
+  return { remainingMs, passed: remainingMs <= 0 };
+}
+
 export function countActiveFoFilters(filters: FoFilters): number {
   let n = 0;
   if (filters.index !== "ALL") n++;

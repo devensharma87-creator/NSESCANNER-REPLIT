@@ -162,6 +162,11 @@ function SafetyLabels() {
   return (
     <div className="space-y-1 rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-300">
       <p>P25 gate remains open until 20 eligible MFE/MAE trades are collected.</p>
+      <p className="text-amber-200">
+        P25 is not conclusive yet. Below 20 eligible trades this is{" "}
+        <span className="font-medium">observation only</span> — not final edge
+        confirmation, and not a green light to change any exit rule.
+      </p>
       <p>
         This panel does not activate partial booking, breakeven trail, stop
         changes, or target changes.

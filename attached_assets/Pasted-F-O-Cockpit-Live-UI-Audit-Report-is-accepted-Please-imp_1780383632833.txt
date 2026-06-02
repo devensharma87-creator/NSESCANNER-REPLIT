@@ -1,0 +1,181 @@
+F&O Cockpit Live UI Audit Report is accepted.
+
+Please implement the approved improvements **after market close only**.
+
+Task name:
+
+```text id="oyqke6"
+Paper Trading F&O Cockpit — UI Clarity Refinement
+```
+
+This is UI/display clarity only.
+
+Strict rules:
+
+```text id="zpv4ua"
+No trading logic changes.
+No signal/scoring changes.
+No paper-execution changes.
+No confidence threshold changes.
+No circuit breaker changes.
+No fail-open/fail-closed behaviour changes.
+No liquidity gate changes.
+No entry/exit/sizing/stop/target changes.
+No TIME_EXIT_1520 logic changes.
+No P25 logic changes.
+No DB schema/env/secret/scheduler changes.
+No manual trade action.
+No publish until reviewed.
+```
+
+Accepted audit findings:
+
+```text id="z3va91"
+No functional bug found.
+BASELINE_DAILY_DD_CAP block is expected.
+Guardrail latch is correct but placed too low.
+Skipped-signal mismatch is durable summary vs in-memory since-restart source difference.
+P25 7/20 is not conclusive.
+Open-position MTM display is mostly good but can be clearer.
+Account summary labels can be clearer.
+Sticky/duplicate header appears to be screenshot artifact, not a real UI bug.
+```
+
+## Approved UI refinements
+
+### 1. Move active guardrail latch higher
+
+Move or duplicate a compact warning near the top of the F&O Cockpit, ideally directly below the F&O Cockpit Summary header.
+
+Show clearly:
+
+```text id="77b3cp"
+Active guardrail latch — entries are intentionally blocked.
+BASELINE: 0.75% daily loss cap latched.
+Lane reopens next IST trading day.
+This is a safety rule, not a bug.
+```
+
+Do not change latch logic.
+
+### 2. Clarify skipped signal sources
+
+Current confusion:
+
+```text id="3p2ncq"
+Skipped today = durable daily summary.
+No skipped signals since server start = in-memory ring buffer after restart.
+```
+
+Update labels/copy to make this obvious:
+
+```text id="44no46"
+Skipped today — durable daily summary
+Skipped / missed since server start — in-memory session log
+```
+
+Empty-state copy should say:
+
+```text id="21ajd5"
+No skipped/missed signals tracked since server start. This in-memory log resets on server restart.
+```
+
+No logic change.
+
+### 3. Sharpen P25 evidence wording
+
+Keep P25 logic unchanged.
+
+Improve copy so it clearly says:
+
+```text id="59e9yx"
+P25 is not conclusive yet.
+Below 20 eligible trades = observation only.
+Do not treat this as final edge confirmation.
+No partial booking / breakeven / stop / target behaviour is activated yet.
+```
+
+### 4. Improve open F&O position clarity
+
+For each open F&O position, add display-only fields where derivable from existing data:
+
+```text id="rhjfxn"
+position age
+distance to stop
+distance to target 1
+distance to target 2 if available
+R-multiple
+last evaluated / last MTM time
+MTM freshness status
+15:20 IST TIME_EXIT rule / countdown display
+```
+
+Important:
+
+```text id="p2bd1i"
+This is display-only.
+Do not alter exit logic.
+Do not alter MTM logic.
+Do not alter stop/target logic.
+```
+
+### 5. Improve account summary labels
+
+Clarify labels/tooltips for:
+
+```text id="fyq7i3"
+cash balance
+seed capital / soft capital
+realized P&L today
+net vs seed lifetime
+unrealized MTM
+open positions
+trades opened today
+risk per trade
+```
+
+Do not introduce a new account-equity calculation unless it is clearly labelled as indicative and derived only from already available displayed fields.
+
+For now, prefer:
+
+```text id="qcvsfm"
+Add tooltip/explanation first.
+If account equity tile needs a new derived calculation, report formula before implementing.
+```
+
+### 6. No sticky header fix needed unless reproduced
+
+Audit says duplicate nav/header is likely screenshot stitching artifact.
+
+Do not change sticky header/z-index unless you reproduce a real UI overlap issue.
+
+## Validation
+
+Run:
+
+```text id="bkajqn"
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/scanner run test
+```
+
+If only scanner UI files are touched, do not run unnecessary backend changes.
+
+## Final report required
+
+Provide **F&O Cockpit UI Clarity Refinement Report** with:
+
+A. Files changed
+B. Guardrail latch placement change
+C. Skipped/missed labels clarified
+D. P25 wording improved
+E. Open-position risk/MTM fields added
+F. Account-summary label/tooltip changes
+G. Sticky-header finding
+H. Tests/typecheck results
+I. Confirmation no trading/scoring/paper-execution logic changed
+J. Confirmation no DB/env/schema/scheduler change
+K. Whether safe to publish
+
+Stop after the report.
+
+Do not publish until I review and approve.

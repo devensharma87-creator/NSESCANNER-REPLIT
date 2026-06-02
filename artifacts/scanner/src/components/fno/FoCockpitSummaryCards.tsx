@@ -64,20 +64,27 @@ export function FoCockpitSummaryCards({
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Tile label="Open positions" value={String(summary.openCount)} />
+              <Tile
+                label="Open positions"
+                value={String(summary.openCount)}
+                title="F&O paper positions currently open."
+              />
               <Tile
                 label="Closed today"
                 value={String(summary.closedTodayCount ?? summary.closedCount)}
+                title="F&O paper trades closed today (IST)."
               />
               <Tile
                 label="Realised P&L"
                 value={signed(summary.realizedPnl)}
                 tone={toneOf(summary.realizedPnl)}
+                title="Net booked profit/loss from F&O paper trades closed today (IST). Locked in — no longer moves with price."
               />
               <Tile
                 label="Unrealised MTM"
                 value={signed(summary.unrealizedPnl)}
                 tone={toneOf(summary.unrealizedPnl)}
+                title="Mark-to-market profit/loss of still-open F&O positions at the latest live premium. Not yet booked — moves with price until close."
               />
               <Tile label="Wins" value={String(summary.winCount)} tone={summary.winCount > 0 ? "pos" : undefined} />
               <Tile label="Losses" value={String(summary.lossCount)} tone={summary.lossCount > 0 ? "neg" : undefined} />
@@ -144,14 +151,14 @@ function P25Headline25({ p25 }: { p25: P25Headline }) {
 }
 
 function Tile({
-  label, value, tone, hint,
-}: { label: string; value: string; tone?: "pos" | "neg"; hint?: string }) {
+  label, value, tone, hint, title,
+}: { label: string; value: string; tone?: "pos" | "neg"; hint?: string; title?: string }) {
   const color =
     tone === "pos" ? "text-emerald-300" :
     tone === "neg" ? "text-rose-300" :
     "text-foreground";
   return (
-    <div className="flex flex-col gap-1 rounded-md bg-slate-800/30 px-3 py-2">
+    <div className="flex flex-col gap-1 rounded-md bg-slate-800/30 px-3 py-2" title={title}>
       <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className={`text-lg font-semibold tabular-nums ${color}`}>{value}</span>
       {hint && <span className="text-[10px] text-slate-500">{hint}</span>}
