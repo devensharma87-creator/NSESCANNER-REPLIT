@@ -401,8 +401,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <IndianStrip />
-      <GlobalStrip />
+      {location === "/" && (
+        <>
+          <IndianStrip />
+          <GlobalStrip />
+        </>
+      )}
       </div>
 
       <main className="flex-1">
