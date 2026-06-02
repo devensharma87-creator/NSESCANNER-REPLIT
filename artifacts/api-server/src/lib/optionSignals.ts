@@ -2457,6 +2457,24 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     logger.warn({ err: (err as Error).message }, "evaluateOrphanedOpenTrades failed"),
   );
 
+  // F&O Premium Exit Overlay v1 — premium HARD-STOP backstop (LIVE).
+  // Runs AFTER the spot-driven orphan sweep (so spot exits get first claim on a
+  // row) and BEFORE the 15:20 force-exit. Closes any OPEN long-option row whose
+  // live premium has fallen to/through its locked stop premium — the case where
+  // the option premium collapses without the SPOT breaching the spot stop, so no
+  // spot-driven stop fires and a defined-risk trade would otherwise ride to
+  // 15:20 at far worse than -1R. Settles at the locked stop premium via the
+  // existing close (reason STOPPED; granular tags in tags[]/journal — no new
+  // exit_reason enum). Close-only (not gated by PAPER_TRADING_ENABLED, like the
+  // orphan / 15:20 nets); fail-safe and idempotent. Profit-protection rules are
+  // NOT wired here — they remain simulation/diagnostic only (see overlay module).
+  {
+    const { runPremiumHardStopSweep } = await import("./fnoPremiumExitOverlay");
+    await runPremiumHardStopSweep(signalDate).catch((err) =>
+      logger.warn({ err: (err as Error).message }, "runPremiumHardStopSweep failed"),
+    );
+  }
+
   // Sweep open rows to EXPIRED after market close (no-op intra-session).
   await expireOpenSignalsForToday().catch(() => 0);
 
