@@ -1,0 +1,168 @@
+App is published.
+
+Now run the full **Combined Post-Publish Smoke Report** for:
+
+```text id="iu3k6h"
+1. Navigation Restructure
+2. Portfolio Analyser Phase 1
+```
+
+No code changes.
+No trading changes.
+No paper-trading changes.
+No route changes.
+No publish retry unless rollback is required.
+
+---
+
+# A. Deployment / health
+
+Check:
+
+```text id="wvdujc"
+Production build is live
+Latest bundle is served
+/api/healthz returns 200
+No crash loop
+No blank screen
+No frontend console crash
+```
+
+---
+
+# B. Navigation Restructure smoke
+
+Verify grouped navigation is visible and working:
+
+```text id="9yh4vz"
+Home
+Stock Intelligence
+Derivatives
+Trading Desk
+Market Pulse
+Charting
+Portfolio
+Learn
+Admin
+```
+
+Check each group opens correctly.
+
+Check old routes still work and are not broken.
+
+Use actual app routes where aliases differ:
+
+```text id="pcax3r"
+Scanner route
+Deep Scan route
+Option Chain route
+OI Lab route
+Pre/Post route, actual app route may be /premarket
+FII/DII route, actual app route may be /flows
+Market Info route, actual app route may be /news
+Live Feed route, actual app route may be /kite
+Paper route, actual app route may be /paper-trading
+Reports route, actual app route may be /paper-reports
+Charting route
+Portfolio Analyser route
+```
+
+Confirm:
+
+```text id="wkfmte"
+No old route deleted
+No deep link broken
+No page hidden without logical group
+No information removed
+No table/card/chart/filter/report removed
+```
+
+---
+
+# C. Admin/security smoke
+
+Verify:
+
+```text id="t1jeqr"
+Admin group visible only to owner/admin
+Owner-only pages remain owner-only
+Subscriber/non-owner does not see owner-only leaves
+No auth bypass
+No public exposure of Admin/Audit/Status/Infra/Diagnostics
+```
+
+---
+
+# D. Portfolio Analyser smoke
+
+Check `/portfolio-analyser`.
+
+Verify:
+
+```text id="d5jdao"
+Page loads
+Portfolio nav item appears under Portfolio group
+Compliance banner visible
+CSV Template button works
+CSV upload modal opens
+Manual add section works or renders safely
+Sample portfolio is clearly labelled preview-only
+No mock data silently shown as live
+Live data enrichment uses existing APIs only
+Missing data is labelled unavailable
+No buy/sell advice
+No target/stop-loss advice
+Sector allocation renders
+Holdings table renders
+Stock deep-dive opens
+Risk flags render
+No NaN / undefined / null shown in UI
+```
+
+---
+
+# E. Regression smoke
+
+Check important existing areas:
+
+```text id="l4zy7q"
+Home
+Scanner
+Option Chain
+OI Lab
+Charting
+Paper Trading
+Paper Reports
+F&O/diagnostics environment route
+```
+
+Confirm:
+
+```text id="2ou22u"
+No paper/F&O route regression
+No ZodError
+No API 500
+No trading/signal/paper/exit logic changed
+No DB migration
+No env/secret/scheduler change
+```
+
+---
+
+# F. Final report required
+
+Provide **Combined Post-Publish Smoke Report** with:
+
+A. Deployment status
+B. Healthz result
+C. Navigation group verification
+D. Route preservation verification
+E. Admin/owner visibility verification
+F. Portfolio Analyser verification
+G. Existing page regression check
+H. Console/API errors, if any
+I. Any missing data/information issue
+J. Any auth/security issue
+K. Rollback needed? yes/no
+
+Stop after report.
