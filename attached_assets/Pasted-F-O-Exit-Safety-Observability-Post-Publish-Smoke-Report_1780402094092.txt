@@ -1,0 +1,75 @@
+F&O Exit Safety Observability Post-Publish Smoke Report is accepted.
+
+Accepted status:
+
+```text id="k6b7zg"
+Deployment live = YES
+/api/healthz = 200
+API-server healthy = YES
+No crash loop = YES
+/api/paper/diagnostics/fo/exit-safety deployed = YES
+Anon access returns 401 AUTH_REQUIRED = YES
+No public route exposure = YES
+No auth bypass = YES
+No paper route 500 = YES
+No ZodError = YES
+No unhandled exception = YES
+No secrets exposed = YES
+Premium hard-stop overlay intact = YES
+Profit-protection remains simulation-only = YES
+P0 orphan-exit hotfix intact = YES
+TIME_EXIT_1520 behaviour unchanged = YES
+No DB schema/env/scheduler change = YES
+Rollback needed = NO
+```
+
+Accepted limitation:
+
+```text id="fd5qdd"
+Owner-session live 200 response was not tested from this context.
+Subscriber/non-owner live 403 was not tested from this context.
+Pre-publish test matrix covered those cases, so this is acceptable for closure.
+```
+
+This task is now closed.
+
+Do not make further observability changes now.
+
+Do not start:
+
+```text id="z0cr1e"
+premium-based T1
+partial exit
+breakeven live exit
+trailing stop
+max-giveback live rule
+target/SL strategy tuning
+new PREMIUM_* exit reasons
+```
+
+Next required work is tomorrow’s live-market validation:
+
+```text id="xd5xzn"
+Next Market Session — F&O Exit Safety Live Validation
+```
+
+During the next market session, run read-only validation and report:
+
+A. F&O signal sweep running
+B. Premium hard-stop overlay cycle count increasing
+C. Orphan-exit evaluator cycle count increasing
+D. MTM sweep updating rows
+E. TIME_EXIT_1520 health remains normal
+F. Any new F&O paper trade opened
+G. Any row stopped by premium hard-stop
+H. Whether STOPPED + PREMIUM_STOP_HIT / PREMIUM_BACKSTOP tags/journal render cleanly
+I. Any orphan row evaluated and closed
+J. No duplicate close
+K. No paper route 500
+L. No ZodError
+M. No unhandled exception
+N. No manual trade action
+O. No strategy/scoring/entry/sizing/threshold change
+P. Rollback needed? yes/no
+
+Stop here for now.
