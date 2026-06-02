@@ -2419,7 +2419,7 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // Paper-trade opens MUST run AFTER enrichment so that signal.optionEntry
   // etc. are populated.  The lifecycle hook (recordLifecycle → onLifecycleUpsert)
   // only handles MTM + close; opens are deferred here.
-  const { tryOpenPaperTrades, markOpenFnoTradesToMarket, markAllOpenFnoTradesToMarket } = await import("./paperTradingFO");
+  const { tryOpenPaperTrades, markOpenFnoTradesToMarket, markAllOpenFnoTradesToMarket, evaluateOrphanedOpenTrades } = await import("./paperTradingFO");
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const signalDate = istNow.toISOString().slice(0, 10);
   await tryOpenPaperTrades(allSignals, signalDate).catch((err) =>
@@ -2443,6 +2443,18 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // avoids duplicating cohort-path work. Fail-safe and idempotent.
   await markAllOpenFnoTradesToMarket(signalDate).catch((err) =>
     logger.warn({ err: (err as Error).message }, "markAllOpenFnoTradesToMarket failed"),
+  );
+
+  // P0 hotfix: re-evaluate EVERY OPEN paper row against fresh spot using the
+  // same pure evaluateTransition + locked spot levels the live lifecycle uses,
+  // and close those that have breached their stop/target. Catches the
+  // exit-freeze gap for rows the cohort path abandoned when the signal cohort
+  // flipped direction (frozen at TRIGGERED, exited_at=null). Settles STOPPED at
+  // the locked stop premium / TARGET2 at the locked T2 premium — immune to the
+  // stale-last_premium anomaly. Close-only (not gated by PAPER_TRADING_ENABLED,
+  // like reconcile / 15:20 force-exit); fail-safe and idempotent.
+  await evaluateOrphanedOpenTrades(signalDate).catch((err) =>
+    logger.warn({ err: (err as Error).message }, "evaluateOrphanedOpenTrades failed"),
   );
 
   // Sweep open rows to EXPIRED after market close (no-op intra-session).

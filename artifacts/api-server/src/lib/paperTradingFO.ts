@@ -28,6 +28,7 @@ import {
   db,
   paperAccountTable,
   paperTradeFoTable,
+  optionSignalHistoryTable,
 } from "@workspace/db";
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
@@ -1403,6 +1404,427 @@ export async function reconcileOrphanedPaperTrades(): Promise<number> {
     logger.info({ closed }, "Reconciled orphaned paper F&O trades against lifecycle");
   }
   return closed;
+}
+
+/**
+ * P0 hotfix — per-cycle stats for the orphaned-OPEN spot-exit sweep.
+ * Process-local; resets on restart. Observability only.
+ */
+export interface OrphanExitCycleStats {
+  /** OPEN paper_trade_fo rows examined for the IST day. */
+  considered: number;
+  /** OPEN paper rows with no matching option_signal_history row. */
+  lifecycleNotFound: number;
+  /** Lifecycle already terminal/exited — left to reconcileOrphanedPaperTrades. */
+  alreadyTerminal: number;
+  /** Closed at the locked stop premium (STOPPED). */
+  stopped: number;
+  /** Closed at the locked T2 premium (TARGET2_HIT). */
+  target2: number;
+  /** Lifecycle advanced to TARGET1_HIT (runner stays OPEN — no close). */
+  target1Advanced: number;
+  /** Evaluated, no exit/advance this cycle. */
+  noExit: number;
+  /** Leg had no usable fresh chain LTP — frozen MTM telemetry (no decision impact). */
+  staleMtm: number;
+  errors: number;
+}
+
+let orphanExitLastCycle: OrphanExitCycleStats | null = null;
+let orphanExitLastSuccessAt: Date | null = null;
+let orphanExitLastErrorAt: Date | null = null;
+let orphanExitLastErrorClass: string | null = null;
+let orphanExitLastErrorMessage: string | null = null;
+let orphanExitCyclesTotal = 0;
+let orphanExitClosedTotal = 0;
+let orphanExitLifecycleAdvanceFailures = 0;
+
+export interface OrphanExitSweepHealth {
+  cyclesTotal: number;
+  closedTotal: number;
+  /**
+   * Count of post-close lifecycle-advance failures (close succeeded but the
+   * best-effort lifecycle bookkeeping update threw). Pure cosmetic residue —
+   * the paper trade is already settled — but tracked so a stale non-terminal
+   * lifecycle row is measurable in diagnostics rather than silent.
+   */
+  lifecycleAdvanceFailures: number;
+  lastCycle: OrphanExitCycleStats | null;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorClass: string | null;
+  lastErrorMessage: string | null;
+}
+
+export function getOrphanExitSweepHealth(): OrphanExitSweepHealth {
+  return {
+    cyclesTotal: orphanExitCyclesTotal,
+    closedTotal: orphanExitClosedTotal,
+    lifecycleAdvanceFailures: orphanExitLifecycleAdvanceFailures,
+    lastCycle: orphanExitLastCycle,
+    lastSuccessAt: orphanExitLastSuccessAt ? orphanExitLastSuccessAt.toISOString() : null,
+    lastErrorAt: orphanExitLastErrorAt ? orphanExitLastErrorAt.toISOString() : null,
+    lastErrorClass: orphanExitLastErrorClass,
+    lastErrorMessage: orphanExitLastErrorMessage,
+  };
+}
+
+/** Test-only reset of the orphan-exit sweep-health counters. */
+export function __resetOrphanExitSweepHealthForTests(): void {
+  orphanExitLastCycle = null;
+  orphanExitLastSuccessAt = null;
+  orphanExitLastErrorAt = null;
+  orphanExitLastErrorClass = null;
+  orphanExitLastErrorMessage = null;
+  orphanExitCyclesTotal = 0;
+  orphanExitClosedTotal = 0;
+  orphanExitLifecycleAdvanceFailures = 0;
+}
+
+/**
+ * P0 hotfix — Orphaned-OPEN spot-exit re-evaluation.
+ *
+ * Closes the exit-freeze gap: when the live signal cohort flips direction
+ * (or otherwise drops a setup), `recordOrUpdate()` stops re-evaluating that
+ * lifecycle row, so a TRIGGERED row whose spot has since breached its locked
+ * stop/target stays frozen (`exited_at IS NULL`) — and the existing
+ * `reconcileOrphanedPaperTrades` only fires once the lifecycle is ALREADY
+ * terminal. The paper trade therefore stays OPEN, missing its stop, until the
+ * 15:20 force-exit settles it at a (possibly stale) lastPremium.
+ *
+ * This sweep independently re-evaluates EVERY OPEN paper_trade_fo row for the
+ * IST day against fresh spot, reusing the SAME pure `evaluateTransition()` the
+ * live lifecycle uses, with the SAME locked spot levels persisted on the
+ * `option_signal_history` row. On a stop/target exit it CLOSES the paper trade
+ * FIRST via `closePaperTradeForSignal` — settling STOPPED at the locked
+ * `stop_premium` and TARGET2_HIT at the locked `target2_premium`, which are
+ * immune to the stale-`last_premium` anomaly — and only THEN advances the
+ * lifecycle row (CAS-guarded, best-effort bookkeeping). This close-first
+ * ordering is failure-safe: if the close throws, the lifecycle stays
+ * non-terminal so the next sweep retries the row instead of skipping it as
+ * `alreadyTerminal`, so there is never a window where the lifecycle is terminal
+ * while the paper trade is still OPEN (which 15:20 would settle at stale LTP). A
+ * T1 touch only advances the lifecycle (the runner stays OPEN, no close),
+ * matching the live state machine.
+ *
+ * Spot source: the fresh option-chain underlying (`chain.spot`). No bar
+ * high/low is available here, so the snapshot falls back to spot — the same
+ * conservative, non-synthetic envelope `evaluateTransition` documents. This is
+ * marginally less sensitive than wick-based detection but never fabricates an
+ * extreme; the live cohort path (with bar high/low) remains the primary
+ * evaluator, and this sweep is the safety net for rows it has abandoned.
+ *
+ * NOT gated by `isPaperAutoTradingEnabled()`: like `forceCloseAllOpenFnoFor1520`
+ * and `reconcileOrphanedPaperTrades`, it only ever CLOSES existing trades — the
+ * dev-vs-prod isolation rule gates OPENs, not corrective exits. In dev there
+ * are no open rows so it is a no-op.
+ *
+ * Fail-safe: per-row and top-level try/catch; always resolves. `chainFetcher`,
+ * `dbHandle` and `closer` are injectable for tests (mirrors the
+ * `markAllOpenFnoTradesToMarket` seam); production passes nothing.
+ */
+export async function evaluateOrphanedOpenTrades(
+  signalDate: string,
+  chainFetcher: (
+    underlying: string,
+  ) => Promise<OcResponse | null> = (sym) => fetchOptionChain(sym),
+  dbHandle: Pick<typeof db, "select" | "update"> = db,
+  closer: (
+    signalDate: string,
+    indexSymbol: string,
+    setupKey: string,
+    direction: "BULLISH" | "BEARISH",
+    reason: CloseReason,
+  ) => Promise<PaperTradeFoRow | null> = closePaperTradeForSignal,
+): Promise<OrphanExitCycleStats> {
+  const stats: OrphanExitCycleStats = {
+    considered: 0,
+    lifecycleNotFound: 0,
+    alreadyTerminal: 0,
+    stopped: 0,
+    target2: 0,
+    target1Advanced: 0,
+    noExit: 0,
+    staleMtm: 0,
+    errors: 0,
+  };
+  orphanExitCyclesTotal += 1;
+  try {
+    // Dynamic import avoids a static circular import: optionSignalLifecycle
+    // imports this module at top level. evaluateTransition is pure and only
+    // used at call time, so the runtime cycle is benign.
+    const { evaluateTransition } = await import("./optionSignalLifecycle");
+
+    const openRows = await dbHandle
+      .select({
+        id: paperTradeFoTable.id,
+        signalDate: paperTradeFoTable.signalDate,
+        indexSymbol: paperTradeFoTable.indexSymbol,
+        setupKey: paperTradeFoTable.setupKey,
+        direction: paperTradeFoTable.direction,
+        optionType: paperTradeFoTable.optionType,
+        strike: paperTradeFoTable.strike,
+      })
+      .from(paperTradeFoTable)
+      .where(
+        and(
+          eq(paperTradeFoTable.signalDate, signalDate),
+          eq(paperTradeFoTable.status, "OPEN"),
+        ),
+      );
+
+    stats.considered = openRows.length;
+    if (openRows.length === 0) {
+      orphanExitLastCycle = stats;
+      orphanExitLastSuccessAt = new Date();
+      return stats;
+    }
+
+    const chainByIndex = new Map<string, OcResponse | null>();
+
+    for (const row of openRows) {
+      try {
+        const dir: "BULLISH" | "BEARISH" =
+          row.direction === "BEARISH" ? "BEARISH" : "BULLISH";
+
+        // Load the locked lifecycle plan for this paper trade (4-tuple key).
+        const lc = await dbHandle
+          .select({
+            status: optionSignalHistoryTable.status,
+            entry: optionSignalHistoryTable.entry,
+            stopLoss: optionSignalHistoryTable.stopLoss,
+            target1: optionSignalHistoryTable.target1,
+            target2: optionSignalHistoryTable.target2,
+            exitedAt: optionSignalHistoryTable.exitedAt,
+          })
+          .from(optionSignalHistoryTable)
+          .where(
+            and(
+              eq(optionSignalHistoryTable.signalDate, row.signalDate),
+              eq(optionSignalHistoryTable.indexSymbol, row.indexSymbol),
+              eq(optionSignalHistoryTable.setupKey, row.setupKey),
+              eq(optionSignalHistoryTable.direction, row.direction),
+            ),
+          )
+          .limit(1);
+
+        if (lc.length === 0) {
+          stats.lifecycleNotFound += 1;
+          logger.warn(
+            { id: row.id, idx: row.indexSymbol, setup: row.setupKey, dir },
+            "evaluateOrphanedOpenTrades: ORPHAN_OPEN_LIFECYCLE_NOT_FOUND — OPEN paper trade has no lifecycle row; skipping",
+          );
+          continue;
+        }
+        const h = lc[0]!;
+        const currentStatus = (h.status as LifecycleStatus) ?? "PENDING";
+
+        // Already-terminal lifecycle (with recorded exit) belongs to
+        // reconcileOrphanedPaperTrades — never double-process here.
+        if (
+          h.exitedAt != null ||
+          currentStatus === "STOPPED" ||
+          currentStatus === "TARGET2_HIT" ||
+          currentStatus === "EXPIRED"
+        ) {
+          stats.alreadyTerminal += 1;
+          continue;
+        }
+
+        // Fresh chain (cached per index): gives spot + a staleness probe.
+        let chain = chainByIndex.get(row.indexSymbol);
+        if (chain === undefined) {
+          chain = await chainFetcher(row.indexSymbol).catch(() => null);
+          chainByIndex.set(row.indexSymbol, chain);
+        }
+        const spot = chain?.spot;
+        if (spot == null || !Number.isFinite(spot) || spot <= 0) {
+          // No fresh spot → cannot evaluate this cycle; the 15:20 / EOD nets
+          // remain the backstop. Counted as a stale-MTM signal.
+          stats.staleMtm += 1;
+          continue;
+        }
+
+        // Telemetry only: a leg with no usable chain LTP means the MTM sweep
+        // has frozen last_premium (deep-OTM / illiquid). Does NOT affect the
+        // exit decision — stop/target settle at the locked premium plan.
+        const ot = (row.optionType === "PE" ? "PE" : "CE") as "CE" | "PE";
+        if (pickLtpFromChain(chain, num(row.strike), ot) == null) {
+          stats.staleMtm += 1;
+        }
+
+        const entry = num(h.entry);
+        const stop = num(h.stopLoss);
+        const t1 = num(h.target1);
+        const t2 = num(h.target2);
+        const trans = evaluateTransition(currentStatus, dir, entry, stop, t1, t2, {
+          spot,
+        });
+
+        const now = new Date();
+
+        // Exit (STOPPED / TARGET2_HIT). Ordering is deliberately CLOSE-FIRST,
+        // then advance the lifecycle — the reverse of the advance-then-close
+        // flow elsewhere. This is failure-safe: if the close throws, the
+        // lifecycle stays non-terminal so the NEXT sweep retries this row
+        // instead of skipping it as `alreadyTerminal`. That eliminates any
+        // window where the lifecycle is terminal but the paper trade is still
+        // OPEN — the exact state the 15:20 force-exit would otherwise settle at
+        // the stale last_premium. closePaperTradeForSignal settles at the
+        // locked stop/T2 premium and never reads the lifecycle row, so closing
+        // before the advance is correct.
+        if (trans.exited && (trans.next === "STOPPED" || trans.next === "TARGET2_HIT")) {
+          const reason: CloseReason =
+            trans.next === "STOPPED" ? "STOPPED" : "TARGET2_HIT";
+          const out = await closer(
+            row.signalDate,
+            row.indexSymbol,
+            row.setupKey,
+            dir,
+            reason,
+          );
+          if (out) {
+            if (reason === "STOPPED") stats.stopped += 1;
+            else stats.target2 += 1;
+            orphanExitClosedTotal += 1;
+            logger.info(
+              {
+                id: row.id,
+                idx: row.indexSymbol,
+                setup: row.setupKey,
+                dir,
+                reason,
+                spot,
+                stop,
+                t2,
+              },
+              reason === "STOPPED"
+                ? "evaluateOrphanedOpenTrades: ORPHAN_OPEN_STOP_HIT — closed frozen orphan at locked stop"
+                : "evaluateOrphanedOpenTrades: ORPHAN_OPEN_TARGET2_HIT — closed frozen orphan at locked T2",
+            );
+            // Best-effort lifecycle advance — bookkeeping ONLY. The paper trade
+            // is already settled, so a 0-row CAS (concurrent path advanced it)
+            // or a failure here cannot reintroduce the wrong-settlement class;
+            // isolated try/catch keeps it from polluting the row error counter.
+            try {
+              await dbHandle
+                .update(optionSignalHistoryTable)
+                .set({
+                  status: trans.next,
+                  exitedAt: now,
+                  exitReason: trans.exitReason ?? trans.next,
+                  exitPrice:
+                    trans.exitPrice != null ? toDbNumeric(trans.exitPrice, 4) : null,
+                  lastSpot: toDbNumeric(spot, 4),
+                  lastEvaluatedAt: now,
+                })
+                .where(
+                  and(
+                    eq(optionSignalHistoryTable.signalDate, row.signalDate),
+                    eq(optionSignalHistoryTable.indexSymbol, row.indexSymbol),
+                    eq(optionSignalHistoryTable.setupKey, row.setupKey),
+                    eq(optionSignalHistoryTable.direction, row.direction),
+                    eq(optionSignalHistoryTable.status, currentStatus),
+                    sql`${optionSignalHistoryTable.exitedAt} IS NULL`,
+                  ),
+                );
+            } catch (lcErr) {
+              orphanExitLifecycleAdvanceFailures += 1;
+              logger.warn(
+                { err: (lcErr as Error).message, id: row.id },
+                "evaluateOrphanedOpenTrades: lifecycle advance failed AFTER a successful close (paper already settled; cosmetic only)",
+              );
+            }
+          }
+          continue;
+        }
+
+        // T1 touch (runner stays OPEN): advance lifecycle, no close.
+        if (
+          !trans.exited &&
+          trans.next === "TARGET1_HIT" &&
+          currentStatus === "TRIGGERED"
+        ) {
+          const advanced = await dbHandle
+            .update(optionSignalHistoryTable)
+            .set({
+              status: "TARGET1_HIT",
+              lastSpot: toDbNumeric(spot, 4),
+              lastEvaluatedAt: now,
+            })
+            .where(
+              and(
+                eq(optionSignalHistoryTable.signalDate, row.signalDate),
+                eq(optionSignalHistoryTable.indexSymbol, row.indexSymbol),
+                eq(optionSignalHistoryTable.setupKey, row.setupKey),
+                eq(optionSignalHistoryTable.direction, row.direction),
+                eq(optionSignalHistoryTable.status, "TRIGGERED"),
+                sql`${optionSignalHistoryTable.exitedAt} IS NULL`,
+              ),
+            )
+            .returning();
+          if (advanced.length > 0) {
+            stats.target1Advanced += 1;
+            logger.info(
+              { id: row.id, idx: row.indexSymbol, setup: row.setupKey, dir, spot, t1 },
+              "evaluateOrphanedOpenTrades: ORPHAN_OPEN_TARGET1_HIT — advanced frozen orphan to T1 (runner stays open)",
+            );
+          }
+          continue;
+        }
+
+        // Any other non-exit advance (e.g. PENDING→TRIGGERED): keep the
+        // lifecycle honest, no close.
+        if (!trans.exited && trans.next !== currentStatus) {
+          await dbHandle
+            .update(optionSignalHistoryTable)
+            .set({
+              status: trans.next,
+              ...(trans.triggered ? { triggeredAt: now } : {}),
+              lastSpot: toDbNumeric(spot, 4),
+              lastEvaluatedAt: now,
+            })
+            .where(
+              and(
+                eq(optionSignalHistoryTable.signalDate, row.signalDate),
+                eq(optionSignalHistoryTable.indexSymbol, row.indexSymbol),
+                eq(optionSignalHistoryTable.setupKey, row.setupKey),
+                eq(optionSignalHistoryTable.direction, row.direction),
+                eq(optionSignalHistoryTable.status, currentStatus),
+                sql`${optionSignalHistoryTable.exitedAt} IS NULL`,
+              ),
+            );
+          stats.noExit += 1;
+          continue;
+        }
+
+        stats.noExit += 1;
+      } catch (err) {
+        stats.errors += 1;
+        orphanExitLastErrorAt = new Date();
+        orphanExitLastErrorClass = (err as Error).name ?? "Error";
+        orphanExitLastErrorMessage = String((err as Error).message ?? "").slice(0, 200);
+        logger.warn(
+          { err: (err as Error).message, id: row.id, idx: row.indexSymbol },
+          "evaluateOrphanedOpenTrades: per-row evaluation failed, continuing",
+        );
+      }
+    }
+    orphanExitLastCycle = stats;
+    orphanExitLastSuccessAt = new Date();
+    return stats;
+  } catch (err) {
+    stats.errors += 1;
+    orphanExitLastCycle = stats;
+    orphanExitLastErrorAt = new Date();
+    orphanExitLastErrorClass = (err as Error).name ?? "Error";
+    orphanExitLastErrorMessage = String((err as Error).message ?? "").slice(0, 200);
+    logger.warn(
+      { err: (err as Error).message },
+      "evaluateOrphanedOpenTrades: top-level failure, swallowed (safety-net)",
+    );
+    return stats;
+  }
 }
 
 /**

@@ -140,7 +140,7 @@ function toDbNumeric(n: number): string {
  * direction, and the latest bar's high/low + spot. Uses bar high/low so a
  * wick that touched a level still counts as a hit.
  */
-function evaluateTransition(
+export function evaluateTransition(
   current: LifecycleStatus,
   direction: "BULLISH" | "BEARISH",
   entry: number,

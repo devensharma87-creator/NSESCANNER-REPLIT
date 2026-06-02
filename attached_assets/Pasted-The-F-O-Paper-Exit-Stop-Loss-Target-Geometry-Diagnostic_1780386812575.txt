@@ -1,0 +1,279 @@
+The F&O Paper Exit / Stop-Loss / Target Geometry Diagnostic Report is accepted.
+
+This is now classified as:
+
+```text id="gvap5q"
+P0 paper-exit correctness bug
+```
+
+Accepted findings:
+
+```text id="7wzpqp"
+Preview vs production mismatch is expected due to separate dev/prod DBs.
+Production has 2 open F&O paper positions.
+Stop/target evaluation is spot-lifecycle driven.
+Open paper rows can become orphaned when the signal cohort flips direction.
+MTM continues updating open rows, but MTM does not trigger exits.
+Older bearish PUT lifecycles froze after the cohort flipped bullish.
+Spot stop was breached but STOPPED exit was not recorded.
+Premium stop is not currently used as an exit trigger.
+SENSEX PUT had strong MFE but no partial/trailing/profit protection.
+```
+
+Proceed with a **smallest safe hotfix plan**, not a strategy rewrite.
+
+Task name:
+
+```text id="gxhepp"
+P0 Hotfix — F&O Orphaned Open Paper Exit Evaluation
+```
+
+---
+
+# Strict scope
+
+Allowed now:
+
+```text id="qkt4c2"
+Fix existing intended paper-exit correctness.
+Ensure OPEN F&O paper rows continue to be evaluated for stop/target even after they leave the current signal cohort.
+Improve MTM/exit diagnostics.
+Add tests.
+```
+
+Not allowed now:
+
+```text id="s1kdly"
+No signal entry logic changes.
+No detector/scoring changes.
+No confidence threshold changes.
+No new strategy tuning.
+No new premium-based profit booking yet.
+No partial exit yet.
+No trailing stop yet.
+No breakeven stop yet.
+No circuit breaker behaviour change.
+No fail-open/fail-closed policy change.
+No DB schema/env/secret/scheduler change unless explicitly required and approved first.
+No manual trade open/close.
+No publish until reviewed.
+```
+
+---
+
+# Required hotfix objective
+
+Fix this exact failure mode:
+
+```text id="r1zhlr"
+An OPEN F&O paper trade must continue to be exit-evaluated against its stored stop/target levels even if its original signal is no longer emitted in the current live signal cohort.
+```
+
+In simple terms:
+
+```text id="ssn50n"
+If a paper trade is OPEN, it must not become invisible to the stop/target evaluator.
+```
+
+---
+
+# Phase 1 — Data correctness check first
+
+Before changing exit behaviour, verify the MTM source issue.
+
+The diagnostic flagged possible `last_premium` anomaly:
+
+```text id="kr1h3u"
+SENSEX PUT last_premium looked implausibly high compared with screenshot.
+NIFTY PUT premium also showed inconsistencies.
+Open row stores strike/type but may not store expiry.
+pickLtpFromChain may be using current nearest-expiry chain and wrong/stale quote for orphaned rows.
+```
+
+Please verify:
+
+A. Which chain expiry is used by `markAllOpenFnoTradesToMarket` for each open row
+B. Whether stored trade has enough information to identify the intended option contract
+C. Whether `pickLtpFromChain` is matching correct strike + option type + intended expiry
+D. Whether UI current premium, DB `last_premium`, chain LTP, and exit settlement source match
+E. Whether `last_premium` can become stale/wrong for rows outside live cohort
+
+If wrong quote/expiry risk is confirmed, propose the smallest safe fix first.
+
+Do not change schema unless absolutely required. If schema change is needed, stop and ask.
+
+---
+
+# Phase 2 — Restore intended stop/target exit evaluation for orphaned OPEN rows
+
+Implement a safe exit-evaluation path for all OPEN F&O paper rows.
+
+Expected behaviour:
+
+```text id="9bzqej"
+Every OPEN F&O paper row should be checked against stored spot stop/target levels using fresh underlying spot/index price.
+```
+
+The fix should reuse the existing intended spot-level logic as much as possible.
+
+Please inspect and use existing structures:
+
+```text id="1w5zoy"
+paper_trade_fo
+option_signal_history
+signal_date
+index_symbol
+setup_key
+direction
+option_type
+strike
+entry
+stop_loss
+target1
+target2
+status
+exited_at
+exit_reason
+last_premium
+last_evaluated_at
+pickExitPremium
+evaluateTransition
+recordOrUpdate
+reconcileOrphanedPaperTrades
+markAllOpenFnoTradesToMarket
+forceCloseAllOpenFnoFor1520
+```
+
+Preferred safe design:
+
+```text id="ua1ec5"
+During all-open F&O sweep or a dedicated reconciliation step, load every OPEN paper_trade_fo row.
+Find its matching option_signal_history row.
+Read the stored spot stop/target levels from that lifecycle row.
+Fetch fresh underlying spot/index price.
+Evaluate whether stop/target should have been hit.
+If hit, close the paper trade using existing exit reasons and settlement logic.
+```
+
+Important:
+
+```text id="nlc4ih"
+This should restore existing intended stop/target exits.
+It should not introduce new strategy thresholds.
+It should not create new entry signals.
+It should not change target/stop calculation.
+```
+
+---
+
+# Phase 3 — Logging and diagnostics
+
+Add clear logs/reasoning rows for this specific path.
+
+Suggested reason tags:
+
+```text id="je064b"
+ORPHAN_OPEN_EXIT_EVALUATED
+ORPHAN_OPEN_STOP_HIT
+ORPHAN_OPEN_TARGET1_HIT
+ORPHAN_OPEN_TARGET2_HIT
+ORPHAN_OPEN_NO_EXIT
+ORPHAN_OPEN_LIFECYCLE_NOT_FOUND
+ORPHAN_OPEN_STALE_MTM
+ORPHAN_OPEN_CHAIN_LTP_MISMATCH
+```
+
+The goal is that if this happens again, the dashboard/logs should clearly explain:
+
+```text id="3l89l4"
+open row evaluated
+which price source was used
+stored stop/target levels
+fresh spot price
+exit decision
+why it closed or stayed open
+```
+
+---
+
+# Phase 4 — Tests required
+
+Add tests covering at least:
+
+```text id="v0i083"
+Bearish PUT open row closes when fresh spot crosses spot stop.
+Bearish PUT open row closes when fresh spot reaches target.
+Bullish CALL open row closes when fresh spot crosses stop.
+Bullish CALL open row closes when fresh spot reaches target.
+Open row not in current signal cohort is still evaluated.
+No duplicate close if row already CLOSED.
+No exit when matching lifecycle is missing; logs diagnostic only.
+MTM update still works separately.
+TIME_EXIT_1520 path remains unchanged.
+```
+
+Also test null/stale data handling:
+
+```text id="usebkq"
+missing chain LTP
+missing lifecycle
+stale last_premium
+invalid strike
+DB update failure
+```
+
+---
+
+# Phase 5 — Validation
+
+Run:
+
+```text id="4jhf9l"
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run test
+```
+
+Run broader tests if touched files require them.
+
+---
+
+# Required report
+
+Provide **P0 F&O Orphaned Exit Hotfix Report** with:
+
+A. Files changed
+B. Exact root cause confirmed
+C. Whether MTM/last_premium quote anomaly was real
+D. How orphaned OPEN rows are now exit-evaluated
+E. How stop/target hit is determined
+F. Which price source is used
+G. How settlement premium is selected
+H. Logs/reason tags added
+I. Tests added and results
+J. Confirmation `TIME_EXIT_1520` unchanged
+K. Confirmation entry/signal/scoring/thresholds unchanged
+L. Confirmation no DB schema/env/scheduler change
+M. Any remaining risk
+N. Whether safe to publish
+
+Stop after the report.
+
+Do not publish until I review.
+
+---
+
+# Separate later task — do not implement now
+
+After this P0 bug is fixed and verified, we will open a separate paper-only strategy-improvement task for:
+
+```text id="y2qh35"
+premium-based T1
+1R partial exit
+move SL to breakeven after +1R
+trailing stop after strong MFE
+max giveback protection
+time-based profit protection
+SENSEX/NIFTY-specific option premium R:R
+```
+
+Do not start that now.
