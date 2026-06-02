@@ -1,0 +1,82 @@
+F&O Premium Hard-Stop Post-Publish Smoke Report is accepted.
+
+Accepted production status:
+
+```text id="amsofu"
+Deployment live = YES
+/api/healthz = 200
+API-server healthy = YES
+No crash loop = YES
+Paper routes not 500 = YES
+No ZodError = YES
+No unhandled exception = YES
+STOPPED contract compatibility = clean
+No OpenAPI/Zod issue from tags/journal = YES
+Profit-protection remains simulation-only = YES
+TIME_EXIT_1520 unchanged = YES
+P0 orphan-exit hotfix intact = YES
+No signal/scoring/entry/sizing/threshold changes = YES
+No DB schema/env/scheduler changes = YES
+Rollback needed = NO
+```
+
+Important clarification:
+
+```text id="acatss"
+The premium hard-stop overlay is deployed, but live functional validation is still pending.
+```
+
+Reason:
+
+```text id="8kzqy4"
+The publish happened after market close.
+F&O sweep is idle post-close.
+No live market cycle has exercised the new hard-stop path yet.
+```
+
+Do not make any code changes now.
+
+Do not start:
+
+```text id="m3xnu1"
+premium-based T1
+partial exit
+breakeven live exit
+max-giveback live exit
+trailing stop
+time-based profit tightening
+new PREMIUM_* exit reasons
+```
+
+Next required task for the next live market session:
+
+```text id="dy5zro"
+Next Market Session — Premium Hard-Stop Live Validation
+```
+
+During tomorrow’s live session, run read-only validation and report:
+
+A. F&O sweep running
+B. Any new F&O paper trade opened
+C. Whether premium overlay cycle runs
+D. Premium overlay health counters
+E. Whether any row qualified for premium hard-stop
+F. Whether any trade closed as `STOPPED` with `PREMIUM_STOP_HIT` / `PREMIUM_BACKSTOP` in tags/journal
+G. Whether `STOPPED` renders cleanly in UI/reports
+H. Whether no ZodError / 500 occurs
+I. Whether P0 orphan-exit still runs before premium overlay
+J. Whether `TIME_EXIT_1520` remains unchanged
+K. Whether no duplicate close occurs
+L. Whether profit-protection rules remain simulation-only
+M. Whether no manual trade action was taken
+N. Whether rollback is needed
+
+Health counter follow-up:
+
+```text id="am3xzm"
+getPremiumOverlayHealth() exists in-process but has no HTTP/UI surface yet.
+Do not implement now.
+Keep it as a future infra-health/dashboard task.
+```
+
+Stop here.
