@@ -1,0 +1,112 @@
+F&O Premium Hard-Stop + Profit-Protection Simulation Report is accepted.
+
+Accepted status:
+
+```text id="zovmlv"
+Premium hard-stop backstop = accepted
+Profit-protection = simulation only
+No new exit_reason enum = accepted
+STOPPED reused with PREMIUM_STOP_HIT / PREMIUM_BACKSTOP tags-journal = accepted
+api-server tests = 773/773 passed
+Typecheck = clean
+Architect review = passed
+No DB schema/env/scheduler change
+No signal/scoring/entry/sizing/threshold change
+```
+
+Important clarification:
+
+```text id="i81oew"
+This is risk-control improvement, not full profit-capture implementation.
+```
+
+Accepted live behaviour:
+
+```text id="vf1jx1"
+For OPEN long-option F&O paper trades:
+if last_premium <= stop_premium
+and MTM is fresh
+and data is valid
+then close as STOPPED using existing CAS/close safety.
+```
+
+Accepted reporting behaviour:
+
+```text id="3m4h9i"
+exit_reason = STOPPED
+tags/journal include PREMIUM_STOP_HIT / PREMIUM_BACKSTOP detail
+No new PREMIUM_* exit reason for now
+No OpenAPI/Zod/codegen change
+```
+
+Rejected for live implementation right now:
+
+```text id="wtktw7"
+premium-based T1
+partial exit
+breakeven protection
+max-giveback exit
+time-based tightening
+trailing stop
+new PREMIUM_* exit reasons
+```
+
+Reason:
+
+```text id="g5a9f6"
+Only 18 closed F&O trades exist in 60 days.
+Only 9 have usable MFE/MAE.
+That is not enough to safely tune live profit-protection thresholds.
+Profit-protection remains simulation/diagnostic only.
+```
+
+## Controlled publish
+
+This is approved for controlled publish.
+
+Before publish, confirm deploy diff contains:
+
+```text id="b61p4m"
+fnoPremiumExitOverlay.ts
+fnoPremiumExitOverlay.test.ts
+one optionSignals.ts call-site wiring
+no unrelated runtime changes
+```
+
+Also confirm:
+
+```text id="haeasr"
+No signal/scoring/entry changes
+No sizing/threshold changes
+No target/SL formula changes
+No profit-protection live rules
+No DB schema/env/secret/scheduler changes
+No OpenAPI/Zod/codegen changes
+No manual trade actions
+```
+
+After publish, run **F&O Premium Hard-Stop Post-Publish Smoke Report**.
+
+Required checks:
+
+A. Deployment live and latest build confirmed
+B. `/api/healthz` returns `200`
+C. API-server healthy, no crash loop
+D. F&O sweep runs normally
+E. Paper routes not returning `500`
+F. No `ZodError`
+G. No unhandled exception
+H. `STOPPED` still renders correctly in reports/UI
+I. No OpenAPI/Zod validation issue from tags/journal
+J. Existing paper trades unaffected unless valid premium hard-stop condition occurs
+K. Premium hard-stop diagnostics/health counters available
+L. Confirmation profit-protection rules are simulation-only and not live
+M. Confirmation `TIME_EXIT_1520` unchanged
+N. Confirmation P0 orphan-exit hotfix remains intact
+O. Confirmation no signal/scoring/entry/sizing/threshold changes
+P. Confirmation no DB schema/env/scheduler changes
+Q. Rollback needed? yes/no
+
+Stop after the smoke report.
+
+Do not start breakeven/giveback/partial/trailing implementation yet.
