@@ -1,0 +1,177 @@
+Please review the attached Paper Trading → F&O Cockpit screenshot.
+
+This is a **read-only audit first**.
+
+Important:
+
+```text id="xj5oc0"
+Do not change trading logic.
+Do not change signal/scoring logic.
+Do not change paper-execution.
+Do not change confidence thresholds.
+Do not change circuit breaker behaviour.
+Do not change fail-open/fail-closed behaviour.
+Do not manually open or close trades.
+Do not change DB schema/env/scheduler.
+```
+
+Market is live, so do not make risky runtime changes.
+
+## Observed current state from screenshot
+
+```text id="c5fvlx"
+Production live paper-trading is active.
+F&O cockpit data is fresh.
+Open F&O positions: 2.
+Closed today: 0.
+Unrealized MTM: around -₹6,701.
+Trades opened today: 2 / 4.
+P25 evidence: 7 / 20.
+P25 sample is still too small.
+Baseline daily DD cap is latched.
+Baseline lane is blocked until tomorrow IST.
+Skipped today: 1 due to BASELINE_DAILY_DD_CAP.
+```
+
+## Required audit/corrections
+
+### 1. Move active guardrail warning higher
+
+The most important live status is:
+
+```text id="s161cv"
+Active guardrail latch — entries are intentionally blocked.
+BASELINE: 0.75% daily loss cap latched.
+```
+
+This should appear near the top of the F&O Cockpit Summary, not lower down.
+
+Please check whether we can show this directly below the F&O summary header.
+
+### 2. Clarify P25 evidence state
+
+P25 currently shows:
+
+```text id="w8khoq"
+Official P25 evidence: 7 / 20
+Remaining: 13
+Low sample warning
+```
+
+Please make the language very clear:
+
+```text id="9bg6b8"
+P25 is not conclusive yet.
+Below 20 eligible trades = observation only.
+Do not treat this as final edge confirmation.
+```
+
+Do not change P25 logic. UI/copy clarity only.
+
+### 3. Reconcile skipped signal panels
+
+There appears to be a possible mismatch:
+
+```text id="z9j7i1"
+Top guardrail section: skipped today = 1, reason BASELINE_DAILY_DD_CAP.
+Lower Skipped & Missed Signals section: no skipped signals tracked since server start.
+```
+
+Please verify whether this is because one source is durable daily summary and the other is in-memory since server restart.
+
+If yes, update labels so the user understands:
+
+```text id="c38q9l"
+Skipped today from durable summary
+Skipped since server start
+Missed signals since server start
+```
+
+No logic change unless a real bug is found. Report first.
+
+### 4. Improve open F&O position clarity
+
+For each open position, please check whether we can show:
+
+```text id="2tuy9d"
+entry premium
+current premium
+stop premium
+target premium
+unrealized P&L
+position age
+last evaluated / last MTM time
+distance to stop
+distance to target
+R-multiple
+TIME_EXIT_1520 exit rule / countdown
+MTM freshness status
+```
+
+This should help understand live risk without changing trading logic.
+
+### 5. Verify account summary labels
+
+Please verify the display and labels for:
+
+```text id="rdv4io"
+cash balance
+soft capital
+net P&L lifetime
+unrealized MTM
+realized P&L today
+account equity
+risk per trade
+trades opened today
+```
+
+Make sure the numbers are not misleading. If account equity is not shown, suggest whether it should be displayed as:
+
+```text id="ynox28"
+soft capital + realized P&L + unrealized MTM
+```
+
+Report before implementation if any calculation change is required.
+
+### 6. Check sticky header / duplicate nav issue
+
+The long screenshot appears to show the header/nav repeated in the middle of the page.
+
+Please verify whether this is only due to screenshot capture or a real sticky header overlap issue.
+
+If it is a UI issue, fix spacing/z-index only.
+
+### 7. Improve readability without removing data
+
+Do not remove any existing information.
+
+Improve only:
+
+```text id="brrz1i"
+section priority
+labels
+tooltips
+warning placement
+empty-state wording
+spacing
+contrast
+risk explanation
+```
+
+## Final report required
+
+Provide **Paper Trading F&O Cockpit Live UI Audit Report** with:
+
+A. Whether guardrail latch is correctly shown
+B. Whether baseline daily DD cap block is expected
+C. Whether skipped-signal panel mismatch is real or just label/source difference
+D. Whether P25 7/20 is correctly treated as non-conclusive
+E. Open position MTM/freshness status
+F. Account summary label/calculation clarity
+G. Sticky header/duplicate nav finding
+H. Recommended UI-only improvements
+I. Any real bug found
+J. Confirmation no trading/scoring/paper-execution logic changed
+K. Whether implementation should wait until after market hours
+
+Stop after the audit report.
