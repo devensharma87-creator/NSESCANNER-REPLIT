@@ -46,7 +46,10 @@ import {
   closePaperTradeForSignal,
   getMissedSignals,
   getMtmSweepHealth,
+  getOrphanExitSweepHealth,
+  getTimeExit1520Health,
 } from "../lib/paperTradingFO";
+import { getPremiumOverlayHealth } from "../lib/fnoPremiumExitOverlay";
 import {
   getReasoningLoggerHealth,
   normaliseFilters,
@@ -1099,6 +1102,33 @@ router.get("/paper/diagnostics/daily-summary/fo/history", requireOwner, async (r
  */
 router.get("/paper/diagnostics/fo/mtm-sweep", requireOwner, (_req, res) => {
   res.json(getMtmSweepHealth());
+});
+
+/**
+ * F&O Exit Safety Observability — owner-only read-only roll-up.
+ *
+ * Aggregates the four existing in-process exit-safety health snapshots into
+ * one payload so tomorrow's live validation is a single GET:
+ *
+ *   - premiumOverlay  → getPremiumOverlayHealth()   (premium hard-stop backstop)
+ *   - orphanExit      → getOrphanExitSweepHealth()  (P0 orphaned-OPEN spot-exit)
+ *   - mtmSweep        → getMtmSweepHealth()          (all-open MTM refresh)
+ *   - timeExit1520    → getTimeExit1520Health()      (15:20 IST force-exit)
+ *
+ * Pure passthrough of the in-memory counters — does NOT trigger any sweep,
+ * query Kite, touch the DB, or mutate trading state. Owner-gated like every
+ * other `/paper/diagnostics/*` route. All counters are process-local and
+ * reset on api-server restart (see each *Health declaration). `generatedAt`
+ * is the read timestamp, NOT a sweep timestamp.
+ */
+router.get("/paper/diagnostics/fo/exit-safety", requireOwner, (_req, res) => {
+  res.json({
+    generatedAt: new Date().toISOString(),
+    premiumOverlay: getPremiumOverlayHealth(),
+    orphanExit: getOrphanExitSweepHealth(),
+    mtmSweep: getMtmSweepHealth(),
+    timeExit1520: getTimeExit1520Health(),
+  });
 });
 
 router.get("/paper/analytics/fo", requireOwner, async (req, res, next) => {

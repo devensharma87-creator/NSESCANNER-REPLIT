@@ -1,0 +1,180 @@
+Start a new separate task.
+
+Task name:
+
+```text id="kd2mvd"
+F&O Exit Safety Observability — Premium Overlay + Orphan Exit Health Surface
+```
+
+Purpose:
+
+```text id="ngwzdt"
+Prepare tomorrow’s live validation by exposing read-only diagnostics for the P0 orphan-exit evaluator and premium hard-stop overlay.
+```
+
+This is **observability only**.
+
+Do not change trading behaviour.
+
+---
+
+# Strict rules
+
+```text id="df05us"
+No trading logic changes.
+No signal/scoring changes.
+No entry logic changes.
+No sizing/threshold changes.
+No stop/target formula changes.
+No premium profit-protection live rules.
+No partial exit.
+No breakeven exit.
+No trailing stop.
+No max-giveback exit.
+No circuit breaker/fail-open policy change.
+No DB schema/env/secret/scheduler change.
+No manual trade action.
+No publish until reviewed.
+```
+
+---
+
+# Required work
+
+## 1. Expose existing health counters read-only
+
+Expose health from existing in-process counters where available:
+
+```text id="xgzk7d"
+getPremiumOverlayHealth()
+orphan-exit evaluator health/counters if available
+MTM sweep health if available
+TIME_EXIT_1520 health if available
+```
+
+If orphan-exit health counters do not exist, do not invent complex new logic. Add only minimal in-process counters if safe and read-only.
+
+Suggested fields:
+
+```text id="c9fdfn"
+premiumOverlay.cycles
+premiumOverlay.rowsScanned
+premiumOverlay.rowsStopped
+premiumOverlay.rowsSkippedStaleMtm
+premiumOverlay.wouldStopButStale
+premiumOverlay.lastRunAt
+premiumOverlay.lastError
+
+orphanExit.cycles
+orphanExit.rowsScanned
+orphanExit.rowsEvaluated
+orphanExit.rowsClosed
+orphanExit.lifecycleMissing
+orphanExit.lastRunAt
+orphanExit.lastError
+
+mtmSweep.lastRunAt
+mtmSweep.openRowsSeen
+mtmSweep.rowsUpdated
+mtmSweep.staleRows
+mtmSweep.lastError
+
+timeExit1520.lastRunDate
+timeExit1520.lastRunAt
+timeExit1520.rowsClosed
+```
+
+## 2. Owner-only route
+
+Add an owner-only diagnostic endpoint if a suitable pattern already exists.
+
+Suggested route:
+
+```text id="zxgb9z"
+/api/paper/diagnostics/fo/exit-safety
+```
+
+Must be auth/owner-gated like other sensitive paper diagnostics.
+
+No public leakage.
+
+No secrets.
+
+No DB mutation.
+
+## 3. UI display if low-risk
+
+If there is an existing diagnostics/cockpit area where this can be shown cleanly, add a compact panel:
+
+```text id="k0m7na"
+F&O Exit Safety Health
+Premium hard-stop overlay
+Orphan exit evaluator
+MTM freshness
+TIME_EXIT_1520 status
+```
+
+Keep it compact. Do not clutter the cockpit.
+
+If UI work is risky or time-consuming, backend diagnostic route is enough for v1.
+
+## 4. Tomorrow validation readiness
+
+The output should make tomorrow’s live validation easy:
+
+```text id="6v4apm"
+Did premium overlay run?
+Did it scan rows?
+Did it close any row?
+Did it skip any row due to stale MTM?
+Did orphan-exit evaluator run before premium overlay?
+Did TIME_EXIT_1520 remain unchanged?
+```
+
+## 5. Tests
+
+Add tests for:
+
+```text id="mt48ah"
+diagnostic route returns expected shape
+route is owner/auth protected
+premium overlay health shape is stable
+missing counters return safe zero/null values
+no mutation occurs
+no Zod/OpenAPI issue if route is typed
+```
+
+Run:
+
+```text id="06fryz"
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run test
+```
+
+If scanner UI touched:
+
+```text id="4sfdy5"
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/scanner run test
+```
+
+---
+
+# Required report
+
+Provide **F&O Exit Safety Observability Report** with:
+
+A. Files changed
+B. Endpoint/panel added
+C. Health fields exposed
+D. Auth/owner protection confirmation
+E. Tests added and results
+F. Confirmation no trading/scoring/entry/sizing/threshold logic changed
+G. Confirmation no stop/target formula changed
+H. Confirmation no premium profit-protection live rule added
+I. Confirmation no DB schema/env/scheduler change
+J. Whether safe to publish
+
+Stop after the report.
+
+Do not publish until reviewed.

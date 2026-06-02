@@ -1481,6 +1481,70 @@ export function __resetOrphanExitSweepHealthForTests(): void {
   orphanExitLifecycleAdvanceFailures = 0;
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// TIME_EXIT_1520 force-exit health (read-only, process-local).
+//
+// Minimal observability counters for the 15:20 IST force-exit. Mirrors the
+// existing MTM / orphan / premium-overlay health pattern: pure in-process
+// counters, reset on api-server restart, NEVER alter trading behaviour. Only
+// `forceCloseAllOpenFnoFor1520` writes these; `getTimeExit1520Health` reads.
+// ───────────────────────────────────────────────────────────────────────────
+
+let timeExit1520RunsTotal = 0;
+let timeExit1520RowsClosedTotal = 0;
+let timeExit1520LastRunAt: Date | null = null;
+let timeExit1520LastRunDate: string | null = null; // IST yyyy-mm-dd of last run
+let timeExit1520LastRowsClosed: number | null = null;
+let timeExit1520LastErrorAt: Date | null = null;
+let timeExit1520LastErrorClass: string | null = null;
+let timeExit1520LastErrorMessage: string | null = null;
+
+export interface TimeExit1520Health {
+  runsTotal: number;
+  rowsClosedTotal: number;
+  lastRunAt: string | null;
+  lastRunDate: string | null;
+  lastRowsClosed: number | null;
+  lastErrorAt: string | null;
+  lastErrorClass: string | null;
+  lastErrorMessage: string | null;
+}
+
+export function getTimeExit1520Health(): TimeExit1520Health {
+  return {
+    runsTotal: timeExit1520RunsTotal,
+    rowsClosedTotal: timeExit1520RowsClosedTotal,
+    lastRunAt: timeExit1520LastRunAt ? timeExit1520LastRunAt.toISOString() : null,
+    lastRunDate: timeExit1520LastRunDate,
+    lastRowsClosed: timeExit1520LastRowsClosed,
+    lastErrorAt: timeExit1520LastErrorAt ? timeExit1520LastErrorAt.toISOString() : null,
+    lastErrorClass: timeExit1520LastErrorClass,
+    lastErrorMessage: timeExit1520LastErrorMessage,
+  };
+}
+
+/** Test-only reset of the 15:20 force-exit health counters. */
+export function __resetTimeExit1520HealthForTests(): void {
+  timeExit1520RunsTotal = 0;
+  timeExit1520RowsClosedTotal = 0;
+  timeExit1520LastRunAt = null;
+  timeExit1520LastRunDate = null;
+  timeExit1520LastRowsClosed = null;
+  timeExit1520LastErrorAt = null;
+  timeExit1520LastErrorClass = null;
+  timeExit1520LastErrorMessage = null;
+}
+
+/** IST (Asia/Kolkata) calendar date as yyyy-mm-dd. Read-only, no side effects. */
+function istDateString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
 /**
  * P0 hotfix — Orphaned-OPEN spot-exit re-evaluation.
  *
@@ -1983,38 +2047,56 @@ function pickExitPremium(r: PaperTradeFoRow, reason: CloseReason): number {
  * Returns the count of trades actually closed by this call.
  */
 export async function forceCloseAllOpenFnoFor1520(): Promise<number> {
-  const openRows = await db
-    .select({
-      signalDate: paperTradeFoTable.signalDate,
-      indexSymbol: paperTradeFoTable.indexSymbol,
-      setupKey: paperTradeFoTable.setupKey,
-      direction: paperTradeFoTable.direction,
-    })
-    .from(paperTradeFoTable)
-    .where(eq(paperTradeFoTable.status, "OPEN"));
-  if (openRows.length === 0) return 0;
-  let closed = 0;
-  for (const r of openRows) {
-    try {
-      const out = await closePaperTradeForSignal(
-        r.signalDate,
-        r.indexSymbol,
-        r.setupKey,
-        r.direction as "BULLISH" | "BEARISH",
-        "TIME_EXIT_1520",
-      );
-      if (out) closed++;
-    } catch (err) {
-      logger.warn(
-        { err: (err as Error).message, indexSymbol: r.indexSymbol, setupKey: r.setupKey },
-        "forceCloseAllOpenFnoFor1520: close failed for one row, continuing",
-      );
+  // Read-only observability: record the run BEFORE any work so a throwing
+  // select is still reflected as an attempted run. Behaviour is unchanged —
+  // the catch re-throws so the caller's success-latch semantics are preserved.
+  timeExit1520RunsTotal++;
+  timeExit1520LastRunAt = new Date();
+  timeExit1520LastRunDate = istDateString(timeExit1520LastRunAt);
+  try {
+    const openRows = await db
+      .select({
+        signalDate: paperTradeFoTable.signalDate,
+        indexSymbol: paperTradeFoTable.indexSymbol,
+        setupKey: paperTradeFoTable.setupKey,
+        direction: paperTradeFoTable.direction,
+      })
+      .from(paperTradeFoTable)
+      .where(eq(paperTradeFoTable.status, "OPEN"));
+    if (openRows.length === 0) {
+      timeExit1520LastRowsClosed = 0;
+      return 0;
     }
+    let closed = 0;
+    for (const r of openRows) {
+      try {
+        const out = await closePaperTradeForSignal(
+          r.signalDate,
+          r.indexSymbol,
+          r.setupKey,
+          r.direction as "BULLISH" | "BEARISH",
+          "TIME_EXIT_1520",
+        );
+        if (out) closed++;
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error).message, indexSymbol: r.indexSymbol, setupKey: r.setupKey },
+          "forceCloseAllOpenFnoFor1520: close failed for one row, continuing",
+        );
+      }
+    }
+    if (closed > 0) {
+      logger.info({ closed }, "Paper FO 15:20 force-exit completed");
+    }
+    timeExit1520LastRowsClosed = closed;
+    timeExit1520RowsClosedTotal += closed;
+    return closed;
+  } catch (err) {
+    timeExit1520LastErrorAt = new Date();
+    timeExit1520LastErrorClass = (err as Error)?.constructor?.name ?? "Error";
+    timeExit1520LastErrorMessage = String((err as Error)?.message ?? err).slice(0, 200);
+    throw err;
   }
-  if (closed > 0) {
-    logger.info({ closed }, "Paper FO 15:20 force-exit completed");
-  }
-  return closed;
 }
 
 /**
