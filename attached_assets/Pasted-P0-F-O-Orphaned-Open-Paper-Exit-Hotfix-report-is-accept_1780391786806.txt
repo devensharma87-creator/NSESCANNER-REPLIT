@@ -1,0 +1,92 @@
+P0 F&O Orphaned Open Paper Exit Hotfix report is accepted.
+
+Accepted status:
+
+```text id="mfmrww"
+Root fix implemented.
+Orphaned OPEN F&O paper rows are now exit-evaluated.
+Existing spot stop/target lifecycle logic reused.
+Close-first ordering implemented.
+Architect review passed.
+api-server tests 755/755 passed.
+Full typecheck clean.
+No DB schema/env/scheduler change.
+No signal/entry/sizing/threshold change.
+```
+
+This task is now approved for **controlled hotfix publish**, but please follow the safe deployment process.
+
+## Publish timing
+
+If market is still live, prefer publishing **after market close** unless there is a production emergency.
+
+Reason:
+
+```text id="wpq2vk"
+This touches paper-exit execution.
+It may immediately close orphaned open paper rows if stored stop/target conditions are already breached.
+That is correct behaviour, but should be observed carefully.
+```
+
+## Before publish
+
+Confirm:
+
+```text id="dy7h3b"
+deploy diff contains only the accepted P0 orphan-exit hotfix
+no unrelated F&O strategy changes
+no entry/signal/scoring/sizing/threshold changes
+no DB schema/env/secret/scheduler changes
+no premium profit-booking/partial/trailing changes
+```
+
+## Publish
+
+Proceed with controlled publish of:
+
+```text id="to8oj7"
+P0 Hotfix — F&O Orphaned Open Paper Exit Evaluation
+```
+
+## Post-publish smoke report required
+
+After publish, provide **P0 F&O Orphaned Exit Hotfix Post-Publish Smoke Report**.
+
+Check:
+
+A. Deployment live and latest hotfix build confirmed
+B. `/api/healthz` returns `200`
+C. API-server healthy, no crash loop
+D. F&O signal sweep still running
+E. Paper routes not returning `500`
+F. No `ZodError`
+G. No unhandled exception
+H. Existing open F&O rows checked after hotfix
+I. Whether orphaned rows were evaluated
+J. Whether any rows closed as `STOPPED`, `TARGET1_HIT`, or `TARGET2_HIT`
+K. Whether `last_premium` / settlement premium is correct
+L. Whether `TIME_EXIT_1520` remains unchanged
+M. Whether paper account P&L updated correctly
+N. Whether diagnostics/log tags show orphan-exit evaluation
+O. Confirmation no manual trade open/close was done
+P. Confirmation no signal/scoring/entry/sizing/threshold logic changed
+Q. Confirmation no DB schema/env/scheduler change
+R. Rollback needed? yes/no
+
+## Important
+
+Do not implement the next strategy-improvement items now:
+
+```text id="c3890a"
+premium-based T1
+partial exit
+breakeven stop
+trailing stop
+max giveback protection
+time-based profit protection
+index-specific premium R:R
+```
+
+Those are separate future paper-only strategy improvements.
+
+Stop after the post-publish smoke report.
