@@ -1,0 +1,501 @@
+Start a new separate task now.
+
+Task name:
+
+```text id="xzz0l4"
+F&O Paper Exit Strategy Upgrade — Premium-Based Profit Capture Overlay
+```
+
+This task is required because the current F&O system has a real weakness:
+
+```text id="fszkdo"
+Signal direction can be useful, but profit capture is weak.
+Current target/SL geometry is mostly spot-derived and too wide for fast intraday option premium movement.
+The system allowed good premium MFE to round-trip instead of protecting profit.
+```
+
+The recent P0 hotfix fixed the **orphaned open paper trade exit-evaluation bug**. It did **not** fix premium-based profit booking, breakeven, trailing, or max-giveback protection.
+
+This task is to improve **F&O paper-trade exit management only**.
+
+---
+
+# Strict scope
+
+Allowed:
+
+```text id="ajxryp"
+Paper-only premium-based exit overlay.
+Premium hard-stop backstop.
+Premium-based profit protection.
+Breakeven protection after meaningful MFE.
+Max-giveback protection after strong MFE.
+Time-based profit tightening.
+Replay/backtest-style evidence on recent paper trades.
+UI/reporting labels only if required.
+Tests.
+```
+
+Not allowed:
+
+```text id="cmhdbs"
+No signal entry logic changes.
+No detector/scoring changes.
+No confidence threshold changes.
+No position sizing changes.
+No strike selection changes.
+No target/SL generation rewrite yet.
+No circuit breaker change.
+No fail-open/fail-closed policy change.
+No live broker execution.
+No manual trade open/close.
+No DB schema change unless you stop and ask first.
+No env/secret/scheduler change.
+No publish until reviewed.
+```
+
+Important:
+
+```text id="ag7roe"
+Do not destroy the existing spot lifecycle exit logic.
+Do not replace the P0 orphan-exit hotfix.
+Add a premium-based paper exit overlay on top of existing exits.
+Existing spot stop/target logic remains the primary structural engine.
+Premium overlay is for practical option premium risk/profit protection.
+```
+
+---
+
+# Phase 1 — Understand current F&O exit architecture
+
+Before coding, confirm the current architecture:
+
+```text id="bnl4od"
+Signal engine is spot/index-direction based.
+CALL for bullish, PUT for bearish.
+Entry/stop/target are generated from spot structure, ATR, VWAP/EMA/price action.
+Premium levels are projected using option premium/delta/Black-Scholes style mapping.
+Paper exits currently rely heavily on spot lifecycle stop/target.
+P0 hotfix added orphaned open-trade exit evaluation.
+Premium movement is not yet used as a proper active profit-capture engine.
+```
+
+Report if any of the above is wrong.
+
+---
+
+# Phase 2 — Evidence replay first
+
+Do not guess thresholds blindly.
+
+Replay today’s trades and recent F&O paper trades.
+
+Required trades:
+
+```text id="z4lpgm"
+SENSEX PUT 74200
+NIFTY PUT 23350
+```
+
+For each trade, reconstruct:
+
+```text id="q25acs"
+signal time
+entry time
+entry premium
+stop premium
+target1 premium
+target2 premium
+exit premium
+exit reason
+highest premium after entry
+lowest premium after entry
+MFE premium points
+MAE premium points
+MFE as % of entry
+MAE as % of entry
+premium risk = entry - stop
+MFE in R
+MAE in R
+time to MFE
+time from MFE to giveback
+whether +0.5R, +0.75R, +1R, +1.5R were reached
+whether +20%, +25%, +30% premium gain were reached
+whether existing T1/T2 was practical
+whether profit fully or partly round-tripped
+```
+
+For the SENSEX PUT specifically, verify:
+
+```text id="auehyj"
+entry around 356
+premium moved roughly +100 points at one stage
+manual profit booking was possible
+system did not book
+current T1 was much farther than practical intraday profit
+```
+
+Then replay recent closed F&O trades and show:
+
+```text id="z3cww1"
+how many reached +0.5R
+how many reached +0.75R
+how many reached +1R
+how many reached +20% premium gain
+how many later gave back more than 40% of MFE
+how many ended TIME_EXIT despite meaningful MFE earlier
+how many would have improved with premium protection
+how many would have worsened
+```
+
+Do not implement until this replay is done.
+
+---
+
+# Phase 3 — Candidate rules to evaluate
+
+Evaluate these rules using replay evidence.
+
+## Rule A — Premium hard stop backstop
+
+For long option paper trades:
+
+```text id="pgocgv"
+if last_premium <= stop_premium:
+    close paper trade as STOPPED
+```
+
+Purpose:
+
+```text id="z1tew1"
+Defense-in-depth when premium collapses faster than spot lifecycle or when spot lifecycle misses.
+```
+
+This must not replace spot stop logic. It is a backstop.
+
+---
+
+## Rule B — Profit protection arming
+
+Calculate:
+
+```text id="uojexw"
+premiumRisk = entryPremium - stopPremium
+premiumGain = currentPremium - entryPremium
+mfePremium = maxPremiumSeen - entryPremium
+```
+
+Candidate arming conditions:
+
+```text id="q4whx0"
+Arm protection at +0.75R
+Arm protection at +1R
+Arm protection at +20% premium gain
+Arm protection at +25% premium gain
+```
+
+Replay all and recommend which one is best.
+
+Do not randomly choose.
+
+---
+
+## Rule C — Breakeven protection
+
+Once protection is armed:
+
+```text id="r9foch"
+If premium falls back to entryPremium or slightly above entryPremium, close to prevent winner becoming loser.
+```
+
+Candidate close levels:
+
+```text id="h82hfl"
+entryPremium
+entryPremium + 0.1R
+entryPremium + 5% premium
+```
+
+Replay and recommend.
+
+---
+
+## Rule D — Max giveback protection
+
+If MFE is strong:
+
+```text id="smygau"
+if MFE >= 1R and current premium gives back 40% to 50% of MFE:
+    close to protect profit
+```
+
+Replay:
+
+```text id="vzzb2v"
+40% giveback
+50% giveback
+60% giveback
+```
+
+Choose the least overfitted practical rule.
+
+---
+
+## Rule E — Time-based tightening
+
+For intraday options:
+
+```text id="qh6snq"
+after 13:30 IST: tighten if trade had meaningful MFE
+after 14:45 IST: tighten further
+15:20 TIME_EXIT remains unchanged
+```
+
+Candidate rule:
+
+```text id="flllfy"
+After 13:30, if MFE >= 0.75R and current premium gives back 35%-50%, close.
+After 14:45, if trade is profitable and weakening, protect profit.
+```
+
+Do not interfere with existing `TIME_EXIT_1520`.
+
+---
+
+# Phase 4 — Exit reason / enum / schema safety
+
+Before implementation, inspect current allowed exit reasons.
+
+If adding new exit reasons requires DB enum/schema migration, **stop and ask first**.
+
+Preferred options:
+
+```text id="gtbgrb"
+Use existing safe textual/free-text reason if supported.
+Or use existing compatible reason only if semantically correct.
+Or report required schema/enum change before touching it.
+```
+
+Do not fake exit reasons.
+
+Do not stuff premium exits under wrong reasons if it will corrupt reporting.
+
+Suggested premium exit reason names if allowed:
+
+```text id="ky8efu"
+PREMIUM_STOP_HIT
+PREMIUM_BREAKEVEN_PROTECT
+PREMIUM_MAX_GIVEBACK
+PREMIUM_TIME_PROTECT
+```
+
+---
+
+# Phase 5 — Implementation design
+
+If replay supports implementation and no schema blocker exists, implement a **paper-only premium exit overlay**.
+
+Preferred design:
+
+```text id="wmzkvo"
+Run during the existing F&O open-position sweep.
+Evaluate every OPEN F&O paper trade.
+Use existing stored entry_premium, stop_premium, target1_premium, target2_premium, last_premium, max_runup, max_drawdown.
+Do not fetch unnecessary new data if existing MTM is fresh.
+Use last_premium only if fresh.
+If last_premium stale, log and skip premium exit rather than making a bad close.
+```
+
+The premium overlay should run:
+
+```text id="6vri03"
+after MTM refresh
+after orphan spot exit evaluation or in a clearly ordered safe place
+before TIME_EXIT_1520
+```
+
+Prevent duplicate exits:
+
+```text id="w0ekbo"
+Use existing OPEN-row CAS / transaction safety.
+Do not close already CLOSED rows.
+Do not double-close if spot lifecycle already closed the trade.
+```
+
+---
+
+# Phase 6 — Minimum acceptable rule set
+
+Do not overbuild.
+
+The minimum acceptable first version should include:
+
+```text id="en5mre"
+1. Premium hard stop backstop
+2. Profit protection arming after evidence-approved threshold
+3. Max-giveback or breakeven protection after arming
+4. Time-based tightening after 13:30 / 14:45 only if replay supports it
+```
+
+If replay data is insufficient, implement only:
+
+```text id="yw8myd"
+Premium hard stop backstop
+Diagnostic/simulation report for profit protection
+```
+
+Do not invent weak strategy from insufficient data.
+
+---
+
+# Phase 7 — Diagnostics and logs
+
+Add clear diagnostics.
+
+Suggested tags:
+
+```text id="v9u25y"
+PREMIUM_EXIT_EVALUATED
+PREMIUM_EXIT_NO_ACTION
+PREMIUM_STOP_HIT
+PREMIUM_PROTECT_ARMED
+PREMIUM_BREAKEVEN_EXIT
+PREMIUM_MAX_GIVEBACK_EXIT
+PREMIUM_TIME_PROTECT_EXIT
+PREMIUM_EXIT_STALE_MTM
+PREMIUM_EXIT_DATA_MISSING
+PREMIUM_EXIT_ALREADY_CLOSED
+```
+
+Logs should show:
+
+```text id="ds2084"
+trade id
+index
+option type
+strike
+entry premium
+stop premium
+last premium
+premium risk
+MFE
+MFE in R
+giveback %
+decision
+reason
+```
+
+---
+
+# Phase 8 — UI / reporting
+
+If implemented, update F&O cockpit display only if needed.
+
+Show:
+
+```text id="qhsswz"
+Premium protection status
+Armed/not armed
+MFE in R
+Giveback %
+Premium exit reason
+MTM freshness
+```
+
+No UI clutter. Keep it readable.
+
+---
+
+# Phase 9 — Tests required
+
+Add tests for:
+
+```text id="a4fjpl"
+premium hard stop closes CALL long option
+premium hard stop closes PUT long option
+no stop if last premium above stop
+profit protection arms at chosen threshold
+no arming before threshold
+breakeven/protect exit after armed state
+max-giveback exit after strong MFE
+time-based protection after 13:30
+time-based protection after 14:45
+no time protection before time window
+stale MTM skips premium exit
+missing last_premium skips premium exit
+invalid premium risk skips premium exit
+already CLOSED row is ignored
+spot lifecycle exit still works
+orphan-exit evaluator still works
+TIME_EXIT_1520 unchanged
+no duplicate close
+```
+
+Run:
+
+```text id="rtws76"
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run test
+```
+
+If scanner UI touched:
+
+```text id="h5s677"
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/scanner run test
+```
+
+---
+
+# Final report required
+
+Provide **F&O Premium Profit Capture Overlay Report** with:
+
+A. Files changed
+B. Current exit architecture verified
+C. Replay of SENSEX PUT 74200
+D. Replay of NIFTY PUT 23350
+E. Replay summary of recent F&O trades
+F. MFE/MAE/R findings
+G. Whether current T1/T2 is too wide
+H. Candidate rules tested
+I. Final rules selected and why
+J. Rules rejected and why
+K. Whether implementation was done or only simulated
+L. Exit reasons/tags used
+M. Any DB schema/enum issue found
+N. Tests added and results
+O. Confirmation no signal/scoring/entry/sizing/threshold changes
+P. Confirmation existing spot lifecycle exit remains intact
+Q. Confirmation orphan-exit hotfix remains intact
+R. Confirmation `TIME_EXIT_1520` unchanged
+S. Confirmation no live broker execution
+T. Whether safe to publish
+
+Stop after the report.
+
+Do not publish until I review.
+
+---
+
+# Very important instruction
+
+Do not make a trash overfitted rule from two trades.
+
+Use the two trades as evidence, but also replay recent trades if possible.
+
+The goal is:
+
+```text id="x7gunb"
+protect meaningful intraday option profit
+avoid winners becoming losers
+avoid fantasy targets
+avoid overfitting
+keep signal engine unchanged
+```
+
+Not:
+
+```text id="libzxf"
+randomly book profit early and destroy good trend trades
+```
