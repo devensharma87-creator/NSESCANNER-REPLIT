@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, ChevronLeft, ChevronRight, ShieldCheck, LogOut } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, ChevronDown, ShieldCheck, LogOut } from "lucide-react";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,14 @@ import { isSeoManagedPath } from "@/lib/seo-config";
 import { useAuth } from "@/hooks/use-auth";
 import { logout, type AllowedTabKey } from "@/lib/auth-api";
 import { PublicModeBanner } from "@/components/public-mode-banner";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
@@ -220,59 +228,142 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Link>
           <div className="relative flex-1 min-w-0">
             {(() => {
-              // Each tab is tagged with either:
+              // Grouped navigation. Every leaf carries either:
               //   tab: AllowedTabKey  → visible only if subscriber has that grant (always shown to owner)
               //   ownerOnly: true     → visible only to the site owner
-              type NavTab = {
+              // Grouping is presentation-only: each leaf still points at its
+              // original route, and route-level <AccessGuard> remains the real
+              // gate. No route, page, or access level is changed here.
+              type NavLeaf = {
                 href: string;
                 label: string;
+                desc: string;
                 isActive: (l: string) => boolean;
                 tab?: AllowedTabKey;
                 ownerOnly?: boolean;
               };
-              const allTabs: NavTab[] = [
-                { href: "/", label: "Home", isActive: l => l === "/", tab: "HOME" },
-                { href: "/scanner", label: "Scanner", isActive: l => l.startsWith("/scanner"), tab: "SCANNER" },
-                { href: "/deep-scan", label: "Deep Scan", isActive: l => l.startsWith("/deep-scan"), tab: "DEEP_SCAN" },
-                { href: "/options", label: "F\u00A0&\u00A0O Intraday", isActive: l => l === "/options", tab: "FNO" },
-                { href: "/strategies", label: "Strategies", isActive: l => l.startsWith("/strategies"), tab: "STRATEGIES" },
-                { href: "/option-chain", label: "Option Chain", isActive: l => l.startsWith("/option-chain"), tab: "OPTION_CHAIN" },
-                { href: "/oi-lab", label: "OI Lab", isActive: l => l.startsWith("/oi-lab"), tab: "OI_LAB" },
-                { href: "/premarket", label: "Pre / Post", isActive: l => l.startsWith("/premarket"), tab: "PREMARKET" },
-                { href: "/watchlist", label: "Watchlist", isActive: l => l.startsWith("/watchlist"), tab: "WATCHLIST" },
-                { href: "/sectors", label: "Sectors", isActive: l => l.startsWith("/sectors"), tab: "SECTORS" },
-                { href: "/flows", label: "FII / DII", isActive: l => l.startsWith("/flows"), tab: "FLOWS" },
-                { href: "/stocks-to-watch", label: "To Watch", isActive: l => l.startsWith("/stocks-to-watch"), tab: "STOCKS_TO_WATCH" },
-                { href: "/charting", label: "Charting", isActive: l => l.startsWith("/charting"), tab: "CHARTING" },
-                { href: "/portfolio-analyser", label: "Portfolio", isActive: l => l.startsWith("/portfolio-analyser"), tab: "PORTFOLIO_ANALYSER" },
-                { href: "/news", label: "Market Info", isActive: l => l === "/news", tab: "NEWS" },
-                { href: "/kite", label: "Live Feed", isActive: l => l.startsWith("/kite"), ownerOnly: true },
-                { href: "/learn", label: "Learn", isActive: l => l.startsWith("/learn"), tab: "LEARN" },
-                { href: "/audit", label: "Audit", isActive: l => l.startsWith("/audit"), ownerOnly: true },
-                { href: "/status", label: "Status", isActive: l => l.startsWith("/status"), ownerOnly: true },
-                { href: "/paper-trading", label: "Paper", isActive: l => l.startsWith("/paper-trading"), ownerOnly: true },
-                { href: "/paper-reports", label: "Reports", isActive: l => l.startsWith("/paper-reports"), ownerOnly: true },
+              type NavEntry =
+                | ({ kind: "link" } & NavLeaf)
+                | { kind: "group"; label: string; items: NavLeaf[] };
+
+              const entries: NavEntry[] = [
+                { kind: "link", href: "/", label: "Home", desc: "Market dashboard overview", isActive: l => l === "/", tab: "HOME" },
+                {
+                  kind: "group",
+                  label: "Stock Intelligence",
+                  items: [
+                    { href: "/scanner", label: "Full Scanner", desc: "Fast sortable universe scan", isActive: l => l.startsWith("/scanner"), tab: "SCANNER" },
+                    { href: "/deep-scan", label: "Deep Scan", desc: "Single-symbol deep technical & fundamental analysis", isActive: l => l.startsWith("/deep-scan"), tab: "DEEP_SCAN" },
+                    { href: "/watchlist", label: "Watchlist", desc: "Saved baskets & short-term trend view", isActive: l => l.startsWith("/watchlist"), tab: "WATCHLIST" },
+                    { href: "/sectors", label: "Sector Rotation", desc: "Sector rotation & industry strength", isActive: l => l.startsWith("/sectors"), tab: "SECTORS" },
+                    { href: "/stocks-to-watch", label: "To Watch", desc: "Curated high-interest stocks & catalysts", isActive: l => l.startsWith("/stocks-to-watch"), tab: "STOCKS_TO_WATCH" },
+                  ],
+                },
+                {
+                  kind: "group",
+                  label: "Derivatives",
+                  items: [
+                    { href: "/option-chain", label: "Option Chain", desc: "Live chain — PCR, max pain, S/R zones", isActive: l => l.startsWith("/option-chain"), tab: "OPTION_CHAIN" },
+                    { href: "/oi-lab", label: "OI Lab", desc: "Open-interest analytics, heatmaps & delta flow", isActive: l => l.startsWith("/oi-lab"), tab: "OI_LAB" },
+                  ],
+                },
+                {
+                  kind: "group",
+                  label: "Trading Desk",
+                  items: [
+                    { href: "/options", label: "F\u00A0&\u00A0O Intraday", desc: "Live F&O setup board", isActive: l => l === "/options", tab: "FNO" },
+                    { href: "/strategies", label: "Strategies", desc: "Strategy idea simulator & education", isActive: l => l.startsWith("/strategies"), tab: "STRATEGIES" },
+                    { href: "/paper-trading", label: "Paper Trading", desc: "Paper positions & live trades", isActive: l => l.startsWith("/paper-trading"), ownerOnly: true },
+                    { href: "/paper-reports", label: "P&L Reports", desc: "P&L, drawdown, MFE/MAE & journal analytics", isActive: l => l.startsWith("/paper-reports"), ownerOnly: true },
+                  ],
+                },
+                {
+                  kind: "group",
+                  label: "Market Pulse",
+                  items: [
+                    { href: "/premarket", label: "Pre / Post", desc: "Pre-market & post-market analysis", isActive: l => l.startsWith("/premarket"), tab: "PREMARKET" },
+                    { href: "/news", label: "Market Info", desc: "News, earnings, holidays & events", isActive: l => l === "/news", tab: "NEWS" },
+                    { href: "/flows", label: "FII / DII", desc: "Foreign & domestic institutional cash flows", isActive: l => l.startsWith("/flows"), tab: "FLOWS" },
+                    { href: "/kite", label: "Live Feed", desc: "Zerodha Kite live data feed", isActive: l => l.startsWith("/kite"), ownerOnly: true },
+                  ],
+                },
+                { kind: "link", href: "/charting", label: "Charting", desc: "Interactive charting workspace", isActive: l => l.startsWith("/charting"), tab: "CHARTING" },
+                { kind: "link", href: "/portfolio-analyser", label: "Portfolio", desc: "Portfolio health & risk analysis", isActive: l => l.startsWith("/portfolio-analyser"), tab: "PORTFOLIO_ANALYSER" },
+                { kind: "link", href: "/learn", label: "Learn", desc: "Trading education & methodology", isActive: l => l.startsWith("/learn"), tab: "LEARN" },
+                {
+                  kind: "group",
+                  label: "Admin",
+                  items: [
+                    { href: "/admin", label: "Admin Console", desc: "Subscriber & access management", isActive: l => l.startsWith("/admin"), ownerOnly: true },
+                    { href: "/audit", label: "Audit", desc: "Security & compliance audit", isActive: l => l.startsWith("/audit"), ownerOnly: true },
+                    { href: "/status", label: "Status", desc: "System & data-source status", isActive: l => l.startsWith("/status"), ownerOnly: true },
+                    { href: "/infra-health", label: "Infra", desc: "Data infrastructure health", isActive: l => l.startsWith("/infra-health"), ownerOnly: true },
+                  ],
+                },
               ];
-              const tabs = allTabs.filter(t => {
+
+              const canSee = (t: { tab?: AllowedTabKey; ownerOnly?: boolean }) => {
                 if (role === "owner") return true;
                 if (t.ownerOnly) return false;
                 if (t.tab) return allowedTabs.includes(t.tab);
                 return false;
-              });
+              };
+              const linkCls = (active: boolean) =>
+                `transition-colors hover:text-foreground ${active ? "text-foreground" : "text-foreground/60"}`;
+
               return (
                 <div ref={navScrollRef} className="overflow-x-auto no-scrollbar scroll-smooth">
                   <nav ref={navRef} className="flex items-center gap-x-4 lg:gap-x-5 text-[13.5px] lg:text-[14px] font-semibold whitespace-nowrap pl-7 pr-7">
-                    {tabs.map(t => {
-                      const active = t.isActive(location);
+                    {entries.map(entry => {
+                      if (entry.kind === "link") {
+                        if (!canSee(entry)) return null;
+                        const active = entry.isActive(location);
+                        return (
+                          <Link
+                            key={entry.href}
+                            href={entry.href}
+                            title={entry.desc}
+                            data-active={active ? "true" : undefined}
+                            className={linkCls(active)}
+                          >
+                            {entry.label}
+                          </Link>
+                        );
+                      }
+                      const items = entry.items.filter(canSee);
+                      if (items.length === 0) return null;
+                      const groupActive = items.some(i => i.isActive(location));
                       return (
-                        <Link
-                          key={t.href}
-                          href={t.href}
-                          data-active={active ? "true" : undefined}
-                          className={`transition-colors hover:text-foreground ${active ? "text-foreground" : "text-foreground/60"}`}
-                        >
-                          {t.label}
-                        </Link>
+                        <DropdownMenu key={entry.label}>
+                          <DropdownMenuTrigger
+                            data-active={groupActive ? "true" : undefined}
+                            className={`inline-flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm ${linkCls(groupActive)}`}
+                          >
+                            {entry.label}
+                            <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-64">
+                            <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                              {entry.label}
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {items.map(i => {
+                              const active = i.isActive(location);
+                              return (
+                                <DropdownMenuItem key={i.href} asChild className={active ? "bg-accent" : ""}>
+                                  <Link
+                                    href={i.href}
+                                    data-active={active ? "true" : undefined}
+                                    className="flex flex-col items-start gap-0.5 cursor-pointer"
+                                  >
+                                    <span className={`text-[13px] font-semibold ${active ? "text-foreground" : ""}`}>{i.label}</span>
+                                    <span className="text-[11px] font-normal text-muted-foreground leading-snug whitespace-normal">{i.desc}</span>
+                                  </Link>
+                                </DropdownMenuItem>
+                              );
+                            })}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       );
                     })}
                   </nav>

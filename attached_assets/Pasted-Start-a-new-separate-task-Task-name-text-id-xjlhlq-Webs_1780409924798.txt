@@ -1,0 +1,430 @@
+Start a new separate task.
+
+Task name:
+
+```text id="xjlhlq"
+Website Navigation Restructure — No Information Loss
+```
+
+Goal:
+
+Reorganise the website navigation into a cleaner, professional structure while preserving **100% of existing information, pages, data, routes, features, reports, and workflows**.
+
+This is a **navigation / layout / information architecture task only**.
+
+No data or existing information should be compromised, removed, hidden, broken, or made harder to find.
+
+---
+
+# Absolute instruction
+
+```text id="hlha69"
+Do not delete any page.
+Do not delete any route.
+Do not remove any data block.
+Do not remove any table.
+Do not remove any metric.
+Do not remove any chart.
+Do not remove any report.
+Do not remove any filter.
+Do not remove any export.
+Do not remove any explanation text.
+Do not remove any diagnostics/admin feature.
+Do not compromise any existing information.
+```
+
+The purpose is to place everything **smartly and logically**, not to cut features.
+
+---
+
+# Current problem
+
+The website currently has many top-level tabs:
+
+```text id="uoybcj"
+Home
+Scanner
+Deep Scan
+F&O Intraday
+Strategies
+Option Chain
+OI Lab
+Pre/Post
+Watchlist
+Sectors
+FII/DII
+To Watch
+Market Info
+Live Feed
+Learn
+Audit
+Status
+Paper
+Reports
+Charting
+Portfolio Analyser planned
+Admin
+Infra
+```
+
+This creates a crowded navigation bar and makes the platform look less organised.
+
+The task is to group related pages into meaningful sections while keeping all existing routes accessible.
+
+---
+
+# Required new navigation structure
+
+Create a professional grouped navigation structure:
+
+```text id="b2onpw"
+Home
+
+Stock Intelligence
+  - Full Scanner
+  - Deep Scan
+  - Watchlist
+  - Sector Rotation
+  - To Watch
+
+Derivatives
+  - Option Chain
+  - OI Lab
+  - OI Heatmap / Delta Tracker if already existing
+  - FII/DII Participant OI if already existing
+
+Trading Desk
+  - F&O Intraday
+  - Strategies
+  - Paper Trading
+  - P&L Reports
+  - Trade Journal if existing
+
+Market Pulse
+  - Pre/Post Market
+  - Market Info
+  - Live Feed
+  - FII/DII Cash
+  - Events / Earnings / Holidays if existing
+
+Charting
+  - Charting
+
+Portfolio
+  - Portfolio Analyser when built
+  - Holdings Report / Sector Exposure later
+
+Learn
+  - Learn / education content
+
+Admin
+  - Audit
+  - Status
+  - Infra
+  - Diagnostics
+  - Owner-only controls
+```
+
+Important:
+
+```text id="ltk5m1"
+If a listed sub-page does not exist, do not create fake pages.
+If a current page exists but is not listed above, include it in the most logical group and report where it was placed.
+```
+
+---
+
+# Core principle
+
+Every existing item must have a home.
+
+For every current tab/page, prepare a mapping:
+
+```text id="hae4e6"
+Old tab name
+Old route
+New group
+New menu label
+Whether old route still works
+Any alias/redirect added
+```
+
+No page should become orphaned.
+
+---
+
+# Route preservation
+
+Existing URLs must continue to work.
+
+Example:
+
+```text id="eiw82m"
+Existing /scanner should still work.
+Existing /deep-scan should still work.
+Existing /option-chain should still work.
+Existing /oi-lab should still work.
+Existing /paper should still work.
+Existing /reports should still work.
+Existing /charting should still work.
+```
+
+Allowed:
+
+```text id="fw4gpm"
+Move the visible nav item under a dropdown/group
+Add grouped menu labels
+Add breadcrumbs
+Add section headers
+Add redirects/aliases only if safe
+```
+
+Not allowed:
+
+```text id="ufq9qv"
+Breaking deep links
+Removing routes
+Renaming routes without aliases
+Moving owner-only pages into public view
+```
+
+---
+
+# Strict technical guardrails
+
+```text id="yjt4a8"
+No signal logic changes.
+No F&O strategy logic changes.
+No scanner scoring changes.
+No paper-trading execution changes.
+No stop/target/sizing changes.
+No premium hard-stop/orphan-exit changes.
+No market-data fetching logic changes.
+No Kite session/auth changes.
+No DB schema change.
+No env/secret change.
+No scheduler change.
+No API response shape change unless strictly UI-only and approved.
+No publish until reviewed.
+```
+
+This task must not touch trading correctness.
+
+---
+
+# Admin/security rules
+
+Admin, Audit, Status, Infra, Diagnostics must be grouped under an owner/admin area.
+
+```text id="f7i4ru"
+Admin-only pages must remain admin-only.
+Owner-only pages must remain owner-only.
+Subscriber/user pages must not expose admin controls.
+No auth bypass.
+No public route exposure.
+```
+
+If any admin route is currently visible in public/user nav, report it.
+
+---
+
+# Data preservation rules
+
+Every page must retain:
+
+```text id="h2j74t"
+all tables
+all metrics
+all cards
+all charts
+all filters
+all export buttons
+all data freshness badges
+all explanation notes
+all warnings
+all report sections
+```
+
+You may improve placement, labels, grouping, and hierarchy, but do not remove the information.
+
+If you believe something is duplicate, do **not** delete it. Instead:
+
+```text id="bqz0ch"
+move it to a better group
+or show it as a sub-tab
+or report it for later consolidation approval
+```
+
+---
+
+# Empty-state improvement
+
+Some screenshots show large blank/skeleton blocks.
+
+Inspect pages:
+
+```text id="dbx3pr"
+Sectors
+Watchlist
+F&O Intraday
+Home lower panels
+any other page with empty grey blocks
+```
+
+Replace permanent-looking blank skeletons with proper states:
+
+```text id="kxax0p"
+Loading...
+No data available
+Data source unavailable
+Market closed
+Waiting for next refresh
+No symbols found
+API returned empty response
+Click Refresh
+Last updated timestamp
+```
+
+Do not show big empty boxes without explanation.
+
+---
+
+# Ticker strip rule
+
+The market ticker strip is useful but consumes vertical space.
+
+Do not remove it.
+
+Improve only if safe:
+
+```text id="zhm1cm"
+make it compact
+make it collapsible
+keep it consistent across pages
+allow important pages to use compact ticker mode
+```
+
+If implementation is not safe now, only report recommendation.
+
+---
+
+# Page purpose labels
+
+Add or improve short purpose text for each major page.
+
+Examples:
+
+```text id="lkuxdk"
+Scanner = fast sortable universe scan.
+Deep Scan = single-symbol deep technical/fundamental analysis.
+Watchlist = saved/preloaded baskets and short-term trend view.
+Sectors = sector rotation and industry strength.
+Option Chain = live option chain with PCR, max pain, support/resistance.
+OI Lab = open-interest analytics, heatmaps, delta/participant flow.
+F&O Intraday = live F&O setup board.
+Strategies = strategy idea simulator/education.
+Paper Trading = paper positions and closed trades.
+Reports = P&L, drawdown, MFE/MAE and trade analytics.
+Market Info = news, earnings, holidays and events.
+Pre/Post = pre-market/post-market analysis.
+Charting = interactive charting workspace.
+Portfolio Analyser = portfolio health and risk analysis.
+```
+
+Keep descriptions short.
+
+---
+
+# Data-source badge consistency
+
+Every important page should clearly show:
+
+```text id="n1we7e"
+Source
+Freshness
+Last updated
+Fallback status
+```
+
+Use consistent wording:
+
+```text id="i0e83a"
+Kite
+Yahoo delayed
+Stale
+Unavailable
+Fallback
+Market closed
+Live
+```
+
+Do not show contradictory labels like:
+
+```text id="7bbm6v"
+Live + stale at the same time
+```
+
+---
+
+# Implementation approach
+
+Proceed in two steps.
+
+## Step 1 — Audit and mapping
+
+First inspect current routing/nav files and produce:
+
+```text id="b4txa1"
+complete current tab inventory
+current routes
+current auth/access level
+proposed new group
+information-preservation mapping
+risk list
+files likely to change
+```
+
+## Step 2 — Implement only safe navigation changes
+
+Implement grouped navigation only if the mapping is clear.
+
+Allowed implementation:
+
+```text id="kn2iyr"
+top-level grouped dropdowns
+admin grouping
+breadcrumb/section labels
+page purpose descriptions
+empty-state improvements
+compact/collapsible ticker only if safe
+```
+
+Do not merge page internals in this phase unless it is purely presentation and does not remove data.
+
+---
+
+# Required final report
+
+Provide **Navigation Restructure and Information Preservation Report** with:
+
+A. Current tabs found
+B. Current routes found
+C. New grouped navigation implemented/proposed
+D. Old-to-new mapping table
+E. Pages moved under each group
+F. Routes preserved
+G. Admin/owner-only pages preserved
+H. Empty-state fixes made
+I. Data-source badge consistency changes made
+J. Ticker strip changes made, if any
+K. Files changed
+L. Tests run and results
+M. Confirmation no data/information removed
+N. Confirmation no trading/signal/paper/exit logic changed
+O. Confirmation no DB/env/scheduler change
+P. Known limitations
+Q. Whether safe to publish
+
+Stop after the report.
+
+Do not publish until reviewed.
