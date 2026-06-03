@@ -33,9 +33,13 @@ import {
   benchmarkReturnFromCloses,
   compareSectorWeights,
   BENCHMARK_OPTIONS,
-  type BenchmarkOption,
 } from "@/lib/portfolio/benchmark";
 import { buildPortfolioCsv } from "@/lib/portfolio/csv";
+import {
+  resolveBenchmarkPref,
+  saveBenchmarkPref,
+  type BenchmarkKey,
+} from "@/lib/portfolio/benchmarkPref";
 import { usePortfolios, rawToInput, holdingToRaw } from "@/lib/portfolio/persistence";
 import {
   resolveHolding,
@@ -78,7 +82,7 @@ export default function PortfolioAnalyser() {
   const [isSample, setIsSample] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  const [benchmarkKey, setBenchmarkKey] = useState<BenchmarkOption["key"]>("NIFTY");
+  const [benchmarkKey, setBenchmarkKey] = useState<BenchmarkKey>(() => resolveBenchmarkPref(null));
 
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [currentName, setCurrentName] = useState<string | null>(null);
@@ -104,6 +108,7 @@ export default function PortfolioAnalyser() {
         setCurrentName(full.name);
         setSavedSig(signature(raws));
         setIsSample(false);
+        setBenchmarkKey(resolveBenchmarkPref(full.id));
       } catch {
         /* honest no-op: a failed auto-load leaves the empty state visible */
       }
@@ -257,6 +262,7 @@ export default function PortfolioAnalyser() {
     setCurrentId(null);
     setCurrentName(null);
     setSavedSig(signature([]));
+    setBenchmarkKey(resolveBenchmarkPref(null));
   }
 
   function clearAll() {
@@ -276,6 +282,7 @@ export default function PortfolioAnalyser() {
     setCurrentId(null);
     setCurrentName(null);
     setSavedSig(signature([]));
+    setBenchmarkKey(resolveBenchmarkPref(null));
   }
 
   async function switchTo(id: string) {
@@ -287,9 +294,17 @@ export default function PortfolioAnalyser() {
       setCurrentName(full.name);
       setSavedSig(signature(raws));
       setIsSample(false);
+      setBenchmarkKey(resolveBenchmarkPref(full.id));
     } catch {
       /* leave current view untouched on load failure */
     }
+  }
+
+  // Persist the benchmark selection so it survives refresh/session. Scoped to
+  // the current portfolio (or the shared default scope when nothing is loaded).
+  function selectBenchmark(key: BenchmarkKey) {
+    setBenchmarkKey(key);
+    saveBenchmarkPref(currentId, key);
   }
 
   async function saveCurrent() {
@@ -309,6 +324,7 @@ export default function PortfolioAnalyser() {
       setCurrentName(created.name);
       setSavedSig(signature(holdings));
       setIsSample(false);
+      saveBenchmarkPref(created.id, benchmarkKey);
     } catch {
       /* no-op */
     }
@@ -321,6 +337,7 @@ export default function PortfolioAnalyser() {
       setCurrentName(created.name);
       setSavedSig(signature(holdings));
       setIsSample(false);
+      saveBenchmarkPref(created.id, benchmarkKey);
     } catch {
       /* no-op */
     }
@@ -530,7 +547,7 @@ export default function PortfolioAnalyser() {
               sectorComparison={sectorComparison}
               options={BENCHMARK_OPTIONS}
               selectedKey={benchmarkKey}
-              onSelect={setBenchmarkKey}
+              onSelect={selectBenchmark}
             />
           </div>
           <Methodology />
