@@ -15,7 +15,7 @@ import {
   type AllocationMode,
 } from "@/lib/portfolio/allocation";
 import type { HoldingPeriodView, DividendView } from "@/lib/portfolio/holdingPeriod";
-import type { BenchmarkComparison } from "@/lib/portfolio/benchmark";
+import type { BenchmarkComparison, BenchmarkOption } from "@/lib/portfolio/benchmark";
 import { fmtINR, fmtSignedINR, fmtPct, fmtNum, pnlClass } from "./format";
 
 function Row({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
@@ -248,12 +248,40 @@ export function CostBasisPanel({
   );
 }
 
-export function BenchmarkPanel({ comparison }: { comparison: BenchmarkComparison }) {
+export function BenchmarkPanel({
+  comparison,
+  options,
+  selectedKey,
+  onSelect,
+}: {
+  comparison: BenchmarkComparison;
+  options: readonly BenchmarkOption[];
+  selectedKey: BenchmarkOption["key"];
+  onSelect: (key: BenchmarkOption["key"]) => void;
+}) {
   return (
     <Card className="p-3" data-testid="benchmark-panel">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Benchmark</h3>
-        <span className="text-[10px] text-muted-foreground">{comparison.benchmarkName}</span>
+        <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5" role="group" aria-label="Benchmark index">
+          {options.map(o => (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => onSelect(o.key)}
+              aria-pressed={o.key === selectedKey}
+              data-testid={`benchmark-select-${o.key}`}
+              className={
+                "rounded px-1.5 py-0.5 text-[10px] transition-colors " +
+                (o.key === selectedKey
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground")
+              }
+            >
+              {o.name}
+            </button>
+          ))}
+        </div>
       </div>
       {comparison.returnUnavailable ? (
         <div className="flex items-start gap-1.5 text-xs text-amber-400">
@@ -275,9 +303,9 @@ export function BenchmarkPanel({ comparison }: { comparison: BenchmarkComparison
         </div>
       )}
       <p className="mt-2 border-t border-border pt-2 text-[10px] text-muted-foreground">
-        Benchmark uses the real NIFTY 50 daily series. NIFTY 500 and sector-index comparisons are{" "}
-        <span className="text-amber-400">unavailable</span> — those index series are not wired in this
-        build and would require a new data source.
+        Benchmark uses the real {comparison.benchmarkName} daily series. NIFTY 500 and sector-index
+        comparisons are <span className="text-amber-400">unavailable</span> — those index series are not
+        wired in this build and would require a new data source.
       </p>
       <p className="mt-1 text-[10px] text-amber-400">{comparison.sectorWeightUnavailable}</p>
     </Card>

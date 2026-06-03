@@ -28,7 +28,12 @@ import {
 import { computeAnalytics } from "@/lib/portfolio/score";
 import { computeRiskAnalytics } from "@/lib/portfolio/risk";
 import { computeHoldingPeriods, computeDividends, LONG_TERM_THRESHOLD_DAYS } from "@/lib/portfolio/holdingPeriod";
-import { compareToBenchmark, benchmarkReturnFromCloses } from "@/lib/portfolio/benchmark";
+import {
+  compareToBenchmark,
+  benchmarkReturnFromCloses,
+  BENCHMARK_OPTIONS,
+  type BenchmarkOption,
+} from "@/lib/portfolio/benchmark";
 import { buildPortfolioCsv } from "@/lib/portfolio/csv";
 import { usePortfolios, rawToInput, holdingToRaw } from "@/lib/portfolio/persistence";
 import {
@@ -72,6 +77,7 @@ export default function PortfolioAnalyser() {
   const [isSample, setIsSample] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [benchmarkKey, setBenchmarkKey] = useState<BenchmarkOption["key"]>("NIFTY");
 
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [currentName, setCurrentName] = useState<string | null>(null);
@@ -174,14 +180,17 @@ export default function PortfolioAnalyser() {
     return ts.length ? new Date(Math.min(...ts)) : null;
   }, [holdings]);
 
-  // Real NIFTY 50 daily series via the existing chart endpoint (Kite→Yahoo).
-  // Never fabricated: if the fetch yields no closes, the comparison falls back
-  // to an explicit "unavailable" state inside compareToBenchmark.
+  // Real index daily series via the existing chart endpoint (Kite→Yahoo) for the
+  // user-selected benchmark (NIFTY 50 / Bank Nifty / Sensex). Never fabricated:
+  // if the fetch yields no closes, the comparison falls back to an explicit
+  // per-index "unavailable" state inside compareToBenchmark.
+  const benchmarkOption =
+    BENCHMARK_OPTIONS.find(o => o.key === benchmarkKey) ?? BENCHMARK_OPTIONS[0];
   const benchmarkQ = useQuery({
-    queryKey: ["portfolio-benchmark", "NIFTY", "1D"],
+    queryKey: ["portfolio-benchmark", benchmarkOption.symbol, "1D"],
     enabled: holdings.length > 0,
     staleTime: 5 * 60_000,
-    queryFn: () => getChartCandles({ symbol: "NIFTY", segment: "index", tf: "1D" }),
+    queryFn: () => getChartCandles({ symbol: benchmarkOption.symbol, segment: "index", tf: "1D" }),
   });
 
   const benchmark = useMemo(() => {
@@ -211,10 +220,10 @@ export default function PortfolioAnalyser() {
     return compareToBenchmark({
       portfolioReturnPct: summary.totalReturnPct,
       benchmarkReturnPct,
-      benchmarkName: "NIFTY 50",
+      benchmarkName: benchmarkOption.name,
       windowLabel,
     });
-  }, [benchmarkQ.data, earliestPurchase, summary.totalReturnPct]);
+  }, [benchmarkQ.data, earliestPurchase, summary.totalReturnPct, benchmarkOption.name]);
 
   const lastUpdated = useMemo(() => {
     const ts = results.map(r => r.dataUpdatedAt).filter(t => t > 0);
@@ -507,7 +516,12 @@ export default function PortfolioAnalyser() {
             <RiskPanel risk={risk} />
             <AllocationPanel rows={analyticsRows} />
             <CostBasisPanel holdingPeriod={holdingPeriod} dividends={dividends} />
-            <BenchmarkPanel comparison={benchmark} />
+            <BenchmarkPanel
+              comparison={benchmark}
+              options={BENCHMARK_OPTIONS}
+              selectedKey={benchmarkKey}
+              onSelect={setBenchmarkKey}
+            />
           </div>
           <Methodology />
         </>

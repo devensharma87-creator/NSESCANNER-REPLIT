@@ -7,6 +7,27 @@
  * build. The function NEVER fabricates a benchmark weight or return.
  */
 
+/**
+ * Selectable benchmark indices. Each maps to a real index series fetched via the
+ * existing chart endpoint (segment "index", Kite→Yahoo). No fabricated series:
+ * if a given index returns no closes, the comparison falls back to the explicit
+ * "unavailable" state per index.
+ */
+export interface BenchmarkOption {
+  /** Stable selector key. */
+  key: "NIFTY" | "BANKNIFTY" | "SENSEX";
+  /** Chart-endpoint symbol (segment "index"). */
+  symbol: string;
+  /** Human label shown in the panel. */
+  name: string;
+}
+
+export const BENCHMARK_OPTIONS: readonly BenchmarkOption[] = [
+  { key: "NIFTY", symbol: "NIFTY", name: "NIFTY 50" },
+  { key: "BANKNIFTY", symbol: "BANKNIFTY", name: "Bank Nifty" },
+  { key: "SENSEX", symbol: "SENSEX", name: "Sensex" },
+] as const;
+
 export interface BenchmarkInput {
   /** Portfolio total return over the comparison window (%), null if unknown. */
   portfolioReturnPct: number | null;

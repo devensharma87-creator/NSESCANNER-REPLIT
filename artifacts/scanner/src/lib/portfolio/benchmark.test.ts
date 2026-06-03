@@ -1,5 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { compareToBenchmark, benchmarkReturnFromCloses } from "./benchmark";
+import { compareToBenchmark, benchmarkReturnFromCloses, BENCHMARK_OPTIONS } from "./benchmark";
+
+describe("BENCHMARK_OPTIONS", () => {
+  it("exposes the three selectable indices with stable keys/symbols", () => {
+    expect(BENCHMARK_OPTIONS.map(o => o.key)).toEqual(["NIFTY", "BANKNIFTY", "SENSEX"]);
+    expect(BENCHMARK_OPTIONS.map(o => o.symbol)).toEqual(["NIFTY", "BANKNIFTY", "SENSEX"]);
+    expect(BENCHMARK_OPTIONS.map(o => o.name)).toEqual(["NIFTY 50", "Bank Nifty", "Sensex"]);
+  });
+
+  it("flows the selected benchmark name through the comparison verbatim", () => {
+    for (const o of BENCHMARK_OPTIONS) {
+      const c = compareToBenchmark({
+        portfolioReturnPct: 5,
+        benchmarkReturnPct: null,
+        benchmarkName: o.name,
+        windowLabel: null,
+      });
+      expect(c.benchmarkName).toBe(o.name);
+      expect(c.returnUnavailable).toContain(o.name);
+    }
+  });
+});
 
 describe("benchmarkReturnFromCloses", () => {
   it("computes buy-and-hold percentage return", () => {
