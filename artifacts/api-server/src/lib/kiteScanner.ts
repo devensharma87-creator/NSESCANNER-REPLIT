@@ -74,6 +74,15 @@ interface InstrumentCache {
   fetchedAt: number;
   bySymbol: Map<string, KiteScannerInstrument>;
   list: KiteScannerInstrument[];
+  /**
+   * Set of tradingsymbols (upper-case) recognised as ETFs in the live Kite NSE
+   * instrument master. Built data-driven from `looksLikeEtf` over the RAW rows
+   * (i.e. BEFORE the `isLikelyTradeableEquity` filter, so ETFs the equity
+   * scanner intentionally drops — IETF-suffixed, LIQUIDBEES, etc. — are still
+   * captured here). Powers `isRecognisedEtf` so the portfolio analyser can
+   * quote any genuine NSE ETF without hand-maintaining a whitelist.
+   */
+  etfSymbols: Set<string>;
 }
 
 let instrumentsCache: InstrumentCache | null = null;
@@ -134,6 +143,31 @@ function isLikelyTradeableEquity(sym: string, name?: string): boolean {
 }
 
 /**
+ * Pure heuristic: does this NSE instrument look like a tradeable ETF unit?
+ *
+ * Detects ETFs data-driven from a Kite instrument row (tradingsymbol + the
+ * descriptive `name` field) so we don't have to hand-maintain a per-symbol
+ * whitelist. Recognises:
+ *   - Nippon "BeES" family               → `*BEES`        (NIFTYBEES, GOLDBEES, LIQUIDBEES …)
+ *   - issuer ETF naming                   → `*ETF`/`*IETF` (CPSEETF, NIFTYIETF, SETFGOLD …)
+ *   - anything whose name says "ETF" / "EXCHANGE TRADED" (covers MON100, ICICIB22, …)
+ *
+ * Explicitly EXCLUDES `*INAV` rows — those are indicative-NAV feed
+ * instruments, not tradeable units, and would never return a real quote.
+ */
+export function looksLikeEtf(symbol: string, name?: string): boolean {
+  const s = (symbol ?? "").trim().toUpperCase();
+  if (!s) return false;
+  const n = (name ?? "").toUpperCase();
+  if (/INAV$/.test(s)) return false;     // indicative-NAV feed, not a tradeable unit
+  if (/BEES$/.test(s)) return true;      // Nippon BeES family
+  if (/I?ETF$/.test(s)) return true;     // ...ETF or ...IETF issuer naming
+  if (/\bETF\b/.test(n)) return true;    // descriptive name says ETF
+  if (/EXCHANGE\s+TRADED/.test(n)) return true;
+  return false;
+}
+
+/**
  * Load (or return cached) NSE EQ instrument list from Kite.
  * Returns null if Kite isn't logged in or the call fails — caller decides
  * how to fall back.
@@ -154,11 +188,19 @@ export async function loadKiteNseEqInstruments(): Promise<InstrumentCache | null
       const raw = (await ctx.kc.getInstruments("NSE")) as KiteRawInstrument[];
       const bySymbol = new Map<string, KiteScannerInstrument>();
       const list: KiteScannerInstrument[] = [];
+      const etfSymbols = new Set<string>();
       let dropped = 0;
       for (const ins of raw) {
         // Only cash-segment EQ — exclude indices, ETFs handled separately, BE-series etc.
         if (ins.segment !== "NSE" || ins.instrument_type !== "EQ") continue;
         if (!ins.tradingsymbol) continue;
+        // Data-driven ETF capture: detect ETFs from the RAW row BEFORE the
+        // tradeable-equity filter below (which intentionally drops *IETF,
+        // LIQUIDBEES, etc.). This powers the portfolio analyser's ETF quote
+        // path without a hand-maintained whitelist.
+        if (looksLikeEtf(ins.tradingsymbol, ins.name)) {
+          etfSymbols.add(ins.tradingsymbol.toUpperCase());
+        }
         // Kite's "NSE EQ" bucket includes ~7000 non-tradeable instruments —
         // mutual-fund NAV trackers (HDF100INAV, HDFCLIQUID, *INAV/*IETF),
         // Sovereign Gold Bonds (SGBxxx), Govt-securities (GS*), T-Bills (TB*),
@@ -179,8 +221,11 @@ export async function loadKiteNseEqInstruments(): Promise<InstrumentCache | null
         list.push(item);
       }
       list.sort((a, b) => a.tradingsymbol.localeCompare(b.tradingsymbol));
-      instrumentsCache = { fetchedAt: Date.now(), bySymbol, list };
-      logger.info({ count: list.length, dropped }, "Kite NSE EQ instruments loaded (post-filter)");
+      instrumentsCache = { fetchedAt: Date.now(), bySymbol, list, etfSymbols };
+      logger.info(
+        { count: list.length, dropped, etfs: etfSymbols.size },
+        "Kite NSE EQ instruments loaded (post-filter)",
+      );
       return instrumentsCache;
     } catch (err) {
       logger.warn({ err: (err as Error).message }, "Kite NSE EQ instruments fetch failed");
@@ -196,12 +241,16 @@ export async function loadKiteNseEqInstruments(): Promise<InstrumentCache | null
 }
 
 /**
- * Whitelist of well-known, liquid NSE ETFs the portfolio analyser can resolve
- * a live CMP for. These ETFs are present in Kite's NSE instrument master (and
- * pass `isLikelyTradeableEquity`), so `getQuote` returns a real LTP — but they
- * are NOT in the curated/scored equity catalog, so the `/stocks/:symbol`
- * detail endpoint 404s on them. This list powers the lightweight Kite-quote
- * branch (`GET /etf/:symbol/quote`).
+ * Curated SEED of well-known, liquid NSE ETFs the portfolio analyser can
+ * resolve a live CMP for. The primary recognition path is now data-driven
+ * (`isRecognisedEtf` validates against the live Kite instrument master via
+ * `InstrumentCache.etfSymbols`); this seed is the OFFLINE fallback — when Kite
+ * is logged out the master can't be loaded, so we still recognise these
+ * household-name ETFs (and then 503 because the quote source itself is down).
+ *
+ * These ETFs are NOT in the curated/scored equity catalog, so `/stocks/:symbol`
+ * 404s on them — that's why the lightweight `GET /etf/:symbol/quote` branch
+ * exists.
  *
  * Keep this to genuinely liquid, actively-traded ETFs. Never widen it to thin
  * scrips whose `getQuote` returns zeros — those would surface as faked rows.
@@ -216,9 +265,34 @@ export const ETF_WHITELIST: ReadonlySet<string> = new Set<string>([
   "NIFTYIETF", "BANKIETF", "GOLDIETF", "SILVERIETF",
 ]);
 
-/** True when `symbol` is a recognised, whitelisted liquid NSE ETF. */
+/** True when `symbol` is in the curated offline seed of liquid NSE ETFs. */
 export function isWhitelistedEtf(symbol: string): boolean {
   return ETF_WHITELIST.has(symbol.trim().toUpperCase());
+}
+
+/**
+ * Decide whether `symbol` is a recognised NSE ETF the portfolio analyser may
+ * resolve a live CMP for. Data-driven by default, with an honest offline
+ * fallback:
+ *
+ *   1. Curated seed (`ETF_WHITELIST`) → always recognised.
+ *   2. Otherwise validate against the live Kite instrument master — recognised
+ *      iff the symbol is in `InstrumentCache.etfSymbols` (built via
+ *      `looksLikeEtf`). This is the data-driven expansion: ANY genuine NSE ETF
+ *      in Kite's dump is recognised, no per-symbol maintenance.
+ *   3. If the master can't be loaded (Kite logged out), fall back to the pure
+ *      `looksLikeEtf` symbol heuristic so genuinely-unknown non-ETF symbols
+ *      still 404, while plausible ETFs proceed (and then 503 from the quote
+ *      step because Kite is offline). We never fabricate a price either way.
+ */
+export async function isRecognisedEtf(symbol: string): Promise<boolean> {
+  const sym = symbol.trim().toUpperCase();
+  if (!sym) return false;
+  if (ETF_WHITELIST.has(sym)) return true;
+  const inst = await loadKiteNseEqInstruments();
+  if (inst) return inst.etfSymbols.has(sym);
+  // Kite offline — can't validate against the master; use the pure heuristic.
+  return looksLikeEtf(sym);
 }
 
 /**

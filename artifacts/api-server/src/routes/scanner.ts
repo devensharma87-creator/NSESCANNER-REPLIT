@@ -20,7 +20,7 @@ import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground } from "../lib/scanner";
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
-import { isWhitelistedEtf, loadKiteEtfQuote } from "../lib/kiteScanner";
+import { isRecognisedEtf, loadKiteEtfQuote } from "../lib/kiteScanner";
 import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { pivots } from "../lib/indicators";
@@ -468,7 +468,7 @@ router.get("/stocks/:symbol", async (req, res, next) => {
 router.get("/etf/:symbol/quote", async (req, res, next) => {
   try {
     const symbol = String(req.params["symbol"] ?? "").trim().toUpperCase();
-    if (!isWhitelistedEtf(symbol)) {
+    if (!(await isRecognisedEtf(symbol))) {
       res.status(404).json({ error: "Not a recognised ETF" });
       return;
     }
