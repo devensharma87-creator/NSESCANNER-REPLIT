@@ -144,6 +144,71 @@ export const NIFTY500_SECTOR_REFERENCE_SOURCE =
   "NSE NIFTY 500 sector weights (published constituent industry weights)";
 
 /**
+ * NSE reconstitutes the NIFTY 500 semi-annually (and weights drift continuously
+ * with price moves between reconstitutions). Past this age the static reference
+ * is flagged stale so the panel prompts a refresh instead of silently drifting.
+ */
+export const NIFTY500_SECTOR_REFERENCE_MAX_AGE_DAYS = 180;
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────
+ * HOW TO REFRESH THE NIFTY 500 SECTOR REFERENCE (low-friction manual update)
+ * ─────────────────────────────────────────────────────────────────────────
+ * The over/under-weight comparison is honest only while these weights track
+ * the live index. Refresh roughly every quarter (or whenever the panel shows
+ * the amber "reference may be stale" note). The whole job is editing this one
+ * file — no backend, schema, or migration changes.
+ *
+ * 1. SOURCE the current weights. Use NSE's published "NIFTY 500" factsheet /
+ *    index methodology page (niftyindices.com) and take its **industry / sector
+ *    representation** (% weightage) table. That table is the authority; every
+ *    number below must trace back to one of its rows.
+ * 2. ROLL UP each NSE industry row into exactly ONE app bucket using the map in
+ *    the `NIFTY500_SECTOR_REFERENCE` doc comment directly below. Keep it a true
+ *    partition: every NSE row lands in one bucket, nothing is double-counted,
+ *    and anything that fits no bucket goes to `Other`.
+ * 3. UPDATE three things in lock-step:
+ *      a. the weights in `NIFTY500_SECTOR_REFERENCE` (they must still sum to
+ *         ~100% — the `benchmark.test.ts` partition-sum guard enforces this),
+ *      b. `NIFTY500_SECTOR_REFERENCE_AS_OF` → the real capture date (ISO), and
+ *      c. `NIFTY500_SECTOR_REFERENCE_SOURCE` if the provenance wording changes.
+ *    Do NOT bump the as-of date without actually updating the weights — the
+ *    label must reflect the TRUE capture date, never "now".
+ * 4. VERIFY: `pnpm --filter @workspace/scanner run test` (partition-sum + this
+ *    file's tests) and `pnpm run typecheck`. The panel's as-of label and the
+ *    staleness note both read from the constants above automatically.
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+
+/** Reported staleness of the static reference relative to `now`. */
+export interface SectorReferenceStaleness {
+  asOf: string;
+  /** Whole days since the reference was captured (0 when capture date is in the future). */
+  ageDays: number;
+  maxAgeDays: number;
+  /** True once `ageDays` exceeds `maxAgeDays` — UI should prompt a refresh. */
+  stale: boolean;
+}
+
+/**
+ * Compute how old the static NIFTY 500 sector reference is. Pure given `now`
+ * (defaults to the current date) so the panel can surface an honest "may be
+ * stale" prompt rather than letting the comparison drift silently.
+ */
+export function sectorReferenceStaleness(now: Date = new Date()): SectorReferenceStaleness {
+  const asOfMs = Date.parse(`${NIFTY500_SECTOR_REFERENCE_AS_OF}T00:00:00Z`);
+  const ageDays = Number.isFinite(asOfMs)
+    ? Math.max(0, Math.floor((now.getTime() - asOfMs) / 86_400_000))
+    : 0;
+  return {
+    asOf: NIFTY500_SECTOR_REFERENCE_AS_OF,
+    ageDays,
+    maxAgeDays: NIFTY500_SECTOR_REFERENCE_MAX_AGE_DAYS,
+    stale: ageDays > NIFTY500_SECTOR_REFERENCE_MAX_AGE_DAYS,
+  };
+}
+
+/**
  * NIFTY 500 sector weights (% of index), rolled up to THIS app's sector
  * vocabulary. Every number traces to the published NSE NIFTY 500 industry
  * weightage table captured on `NIFTY500_SECTOR_REFERENCE_AS_OF`; each NSE

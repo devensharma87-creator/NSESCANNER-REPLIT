@@ -35,6 +35,7 @@ import type {
   BenchmarkSeriesPoint,
   SectorWeightComparison,
 } from "@/lib/portfolio/benchmark";
+import { sectorReferenceStaleness } from "@/lib/portfolio/benchmark";
 import { fmtINR, fmtSignedINR, fmtPct, fmtNum, pnlClass } from "./format";
 
 /**
@@ -528,12 +529,23 @@ export function BenchmarkPanel({
       <div className="mt-2 border-t border-border pt-2">
         <div className="mb-1 flex items-center justify-between gap-2">
           <span className="text-xs font-semibold">Sector over/under-weight vs NIFTY 500</span>
-          <span
-            className="text-[10px] text-muted-foreground"
-            title={sectorComparison.source}
-          >
-            ref {sectorComparison.asOf}
-          </span>
+          {(() => {
+            const staleness = sectorReferenceStaleness();
+            return (
+              <span
+                className={`text-[10px] ${staleness.stale ? "text-amber-400" : "text-muted-foreground"}`}
+                title={
+                  staleness.stale
+                    ? `Reference is ${staleness.ageDays} days old (max ${staleness.maxAgeDays}) — consider refreshing the NIFTY 500 sector weights. Source: ${sectorComparison.source}`
+                    : sectorComparison.source
+                }
+                data-testid="sector-ref-asof"
+              >
+                {staleness.stale ? "ref may be stale · " : "ref "}
+                {sectorComparison.asOf}
+              </span>
+            );
+          })()}
         </div>
         {sectorComparison.unavailable ? (
           <div className="flex items-start gap-1.5 text-xs text-amber-400">

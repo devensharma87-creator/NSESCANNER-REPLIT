@@ -7,9 +7,12 @@ import {
   normalizeSectorKey,
   sectorIndexFor,
   sectorIndexesForSectors,
+  sectorReferenceStaleness,
   SECTOR_INDEX_MAP,
   BENCHMARK_OPTIONS,
   NIFTY500_SECTOR_REFERENCE,
+  NIFTY500_SECTOR_REFERENCE_AS_OF,
+  NIFTY500_SECTOR_REFERENCE_MAX_AGE_DAYS,
 } from "./benchmark";
 
 describe("BENCHMARK_OPTIONS", () => {
@@ -122,6 +125,34 @@ describe("NIFTY500_SECTOR_REFERENCE", () => {
     const total = Object.values(NIFTY500_SECTOR_REFERENCE).reduce((a, b) => a + b, 0);
     expect(total).toBeGreaterThan(99);
     expect(total).toBeLessThan(101);
+  });
+});
+
+describe("sectorReferenceStaleness", () => {
+  it("reports fresh within the max-age window", () => {
+    const asOfMs = Date.parse(`${NIFTY500_SECTOR_REFERENCE_AS_OF}T00:00:00Z`);
+    const tenDaysLater = new Date(asOfMs + 10 * 86_400_000);
+    const s = sectorReferenceStaleness(tenDaysLater);
+    expect(s.asOf).toBe(NIFTY500_SECTOR_REFERENCE_AS_OF);
+    expect(s.ageDays).toBe(10);
+    expect(s.maxAgeDays).toBe(NIFTY500_SECTOR_REFERENCE_MAX_AGE_DAYS);
+    expect(s.stale).toBe(false);
+  });
+
+  it("flags stale once past the max-age window", () => {
+    const asOfMs = Date.parse(`${NIFTY500_SECTOR_REFERENCE_AS_OF}T00:00:00Z`);
+    const wayLater = new Date(asOfMs + (NIFTY500_SECTOR_REFERENCE_MAX_AGE_DAYS + 1) * 86_400_000);
+    const s = sectorReferenceStaleness(wayLater);
+    expect(s.ageDays).toBe(NIFTY500_SECTOR_REFERENCE_MAX_AGE_DAYS + 1);
+    expect(s.stale).toBe(true);
+  });
+
+  it("clamps a future capture date to zero age (never negative)", () => {
+    const asOfMs = Date.parse(`${NIFTY500_SECTOR_REFERENCE_AS_OF}T00:00:00Z`);
+    const before = new Date(asOfMs - 5 * 86_400_000);
+    const s = sectorReferenceStaleness(before);
+    expect(s.ageDays).toBe(0);
+    expect(s.stale).toBe(false);
   });
 });
 
