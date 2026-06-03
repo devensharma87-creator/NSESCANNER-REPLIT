@@ -18,6 +18,12 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import type { EnrichedRow } from "@/lib/portfolio/types";
 import { sma } from "@/lib/portfolio/indicators";
+import {
+  lookupEtfReference,
+  etfCategory,
+  describeEtfTrend,
+  ETF_REFERENCE_AS_OF,
+} from "@/lib/portfolio/etf";
 import { fmtINR, fmtPct, fmtSignedINR, fmtNum, pnlClass, actionViewClass } from "./format";
 
 const numOrNull = (v: number | null | undefined): number | null =>
@@ -96,6 +102,14 @@ export function StockDeepDive({
     .filter((c): c is number => Number.isFinite(c));
   const dma50 = dma50Detail ?? sma(closes, 50);
   const dma200 = dma200Detail ?? sma(closes, 200);
+
+  // ETF-relevant context (only used when fundamentals are not applicable).
+  const isEtf = !fundamentalsApplicable;
+  const etfRef = isEtf ? lookupEtfReference(symbol) : null;
+  const etfCat = isEtf
+    ? etfCategory(symbol, row?.resolution.instrumentType ?? "ETF")
+    : null;
+  const etfTrend = isEtf ? describeEtfTrend(numOrNull(row?.live.cmp), dma50, dma200) : null;
 
   function dmaProps(
     val: number | null,
@@ -258,17 +272,54 @@ export function StockDeepDive({
                 </p>
               </section>
 
-              {/* Fundamentals (display only) */}
+              {/* ETF profile (shown instead of equity fundamentals for baskets) */}
+              {isEtf && (
+                <section>
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    ETF Profile
+                  </h4>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Stat label="Category" value={etfCat ?? "—"} />
+                    <Stat
+                      label="Tracks"
+                      value={etfRef?.trackedIndex ?? "—"}
+                      unavailableLabel="not identified"
+                      hint="The index/benchmark this ETF is mandated to track. Not in the curated reference table."
+                    />
+                    <Stat
+                      label="Asset class"
+                      value={etfRef?.assetClass ?? "—"}
+                      unavailableLabel="not identified"
+                      hint="Resolved from the curated ETF reference table."
+                    />
+                    <Stat
+                      label="Trend (CMP vs DMA)"
+                      value={etfTrend?.text ?? "—"}
+                      unavailableLabel="Insufficient history"
+                      hint="Derived from this ETF's own real daily closes. Descriptive structure context — not a target or stop."
+                    />
+                  </div>
+                  {etfRef && (
+                    <p className="mt-1.5 text-[10px] text-muted-foreground">
+                      Reference verified {ETF_REFERENCE_AS_OF}. NAV and expense ratio are not
+                      tracked by this app.
+                    </p>
+                  )}
+                  <div className="mt-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-400">
+                    Equity fundamentals not applicable for{" "}
+                    {row.resolution.instrumentType.toLowerCase()} — ratios like P/E, RoE and D/E
+                    describe individual companies, not baskets.
+                  </div>
+                </section>
+              )}
+
+              {/* Fundamentals (display only) — equities only */}
+              {!isEtf && (
               <section>
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Fundamentals <span className="font-normal normal-case">(display only)</span>
                 </h4>
-                {!fundamentalsApplicable ? (
-                  <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-400">
-                    Fundamentals not applicable for {row.resolution.instrumentType.toLowerCase()} —
-                    ratios like P/E, RoE and D/E describe individual companies, not baskets.
-                  </div>
-                ) : detailQ.isLoading ? (
+                {detailQ.isLoading ? (
                   <div className="text-xs text-muted-foreground">Loading…</div>
                 ) : (
                   <div className="grid grid-cols-3 gap-2">
@@ -286,6 +337,7 @@ export function StockDeepDive({
                   </div>
                 )}
               </section>
+              )}
 
               {/* News */}
               <section>
