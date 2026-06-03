@@ -5,6 +5,9 @@ import {
   buildBenchmarkSeries,
   compareSectorWeights,
   normalizeSectorKey,
+  sectorIndexFor,
+  sectorIndexesForSectors,
+  SECTOR_INDEX_MAP,
   BENCHMARK_OPTIONS,
   NIFTY500_SECTOR_REFERENCE,
 } from "./benchmark";
@@ -187,5 +190,59 @@ describe("compareSectorWeights", () => {
       { sector: "FMCG", weightPct: 9 },
     ]);
     expect(Math.abs(c.rows[0].diffPct)).toBeGreaterThanOrEqual(Math.abs(c.rows[1].diffPct));
+  });
+});
+
+describe("SECTOR_INDEX_MAP / sectorIndexFor", () => {
+  it("each entry's `sector` field matches its map key and references a real bucket", () => {
+    for (const [key, ref] of Object.entries(SECTOR_INDEX_MAP)) {
+      expect(ref.sector).toBe(key);
+      expect(ref.symbol).toBeTruthy();
+      expect(ref.name).toBeTruthy();
+      // The bucket the index represents must be a known reference bucket.
+      expect(Object.keys(NIFTY500_SECTOR_REFERENCE)).toContain(key);
+    }
+  });
+
+  it("resolves direct buckets and aliases to the correct sector index", () => {
+    expect(sectorIndexFor("IT")?.symbol).toBe("NIFTYIT");
+    expect(sectorIndexFor("Banking")?.symbol).toBe("BANKNIFTY");
+    // Alias: Pharma normalises to Healthcare → NIFTY PHARMA.
+    expect(sectorIndexFor("Pharma")?.symbol).toBe("NIFTYPHARMA");
+    expect(sectorIndexFor("Pharma")?.name).toBe("NIFTY PHARMA");
+    // Alias: Oil & Gas normalises to Energy → NIFTY ENERGY.
+    expect(sectorIndexFor("Oil & Gas")?.symbol).toBe("NIFTYENERGY");
+  });
+
+  it("returns null for sectors with no published NSE sector index (never invents one)", () => {
+    expect(sectorIndexFor("Insurance")).toBeNull(); // mapped bucket but no index
+    expect(sectorIndexFor("Telecom")).toBeNull();
+    expect(sectorIndexFor("Consumer Internet")).toBeNull(); // unmapped entirely
+    expect(sectorIndexFor("")).toBeNull();
+  });
+});
+
+describe("sectorIndexesForSectors", () => {
+  it("returns one ref per held, mapped sector and de-duplicates", () => {
+    const refs = sectorIndexesForSectors([
+      { sector: "IT", weightPct: 30 },
+      { sector: "Banking", weightPct: 20 },
+      { sector: "Pharma", weightPct: 10 }, // alias → Healthcare bucket
+      { sector: "Healthcare", weightPct: 5 }, // same bucket → de-duplicated
+      { sector: "Insurance", weightPct: 15 }, // no index → omitted
+      { sector: "Cash", weightPct: 5 }, // unmapped → omitted
+    ]);
+    const symbols = refs.map(r => r.symbol).sort();
+    expect(symbols).toEqual(["BANKNIFTY", "NIFTYIT", "NIFTYPHARMA"]);
+  });
+
+  it("ignores zero-weight, null, and non-finite sectors", () => {
+    const refs = sectorIndexesForSectors([
+      { sector: "IT", weightPct: 0 },
+      { sector: "Auto", weightPct: null },
+      { sector: "Metals", weightPct: Number.NaN },
+      { sector: "Energy", weightPct: 12 },
+    ]);
+    expect(refs.map(r => r.symbol)).toEqual(["NIFTYENERGY"]);
   });
 });

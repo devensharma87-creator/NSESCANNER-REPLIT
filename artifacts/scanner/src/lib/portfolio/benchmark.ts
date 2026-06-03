@@ -288,6 +288,71 @@ export function normalizeSectorKey(sector: string): string | null {
   return SECTOR_ALIASES[low] ?? null;
 }
 
+// ---------------------------------------------------------------------------
+// Per-sector index return — each held sector vs its OWN NSE sectoral index
+// ---------------------------------------------------------------------------
+
+/** An NSE sectoral index that represents one of this app's sector buckets. */
+export interface SectorIndexRef {
+  /** Canonical app sector bucket this index represents. */
+  sector: string;
+  /** Chart-endpoint symbol (segment "index"). */
+  symbol: string;
+  /** Human label shown in the panel. */
+  name: string;
+}
+
+/**
+ * Map this app's sector buckets → their NSE sectoral index. Only buckets that
+ * have a clean, single published sectoral index are listed; everything else
+ * (Insurance, Construction, Capital Goods, Telecom, Consumer Discretionary,
+ * Defence, Chemicals, Logistics, Aviation, Other) has NO standard NSE sector
+ * index and is therefore honestly reported as "no sector index" — never mapped
+ * to an unrelated index. Symbols MUST exist in the server's CURATED_INDICES so
+ * the existing chart endpoint can resolve a real daily series (Kite→Yahoo).
+ */
+export const SECTOR_INDEX_MAP: Readonly<Record<string, SectorIndexRef>> = {
+  Banking: { sector: "Banking", symbol: "BANKNIFTY", name: "NIFTY BANK" },
+  Financials: { sector: "Financials", symbol: "FINNIFTY", name: "NIFTY FIN SERVICE" },
+  IT: { sector: "IT", symbol: "NIFTYIT", name: "NIFTY IT" },
+  Auto: { sector: "Auto", symbol: "NIFTYAUTO", name: "NIFTY AUTO" },
+  Healthcare: { sector: "Healthcare", symbol: "NIFTYPHARMA", name: "NIFTY PHARMA" },
+  Metals: { sector: "Metals", symbol: "NIFTYMETAL", name: "NIFTY METAL" },
+  Energy: { sector: "Energy", symbol: "NIFTYENERGY", name: "NIFTY ENERGY" },
+  FMCG: { sector: "FMCG", symbol: "NIFTYFMCG", name: "NIFTY FMCG" },
+  "Real Estate": { sector: "Real Estate", symbol: "NIFTYREALTY", name: "NIFTY REALTY" },
+  Media: { sector: "Media", symbol: "NIFTYMEDIA", name: "NIFTY MEDIA" },
+};
+
+/**
+ * Resolve a raw portfolio sector label to its NSE sectoral index, or null when
+ * the sector does not confidently map to a published sector index. Reuses the
+ * same alias normalisation as the over/under-weight comparison so e.g. "Pharma"
+ * resolves to NIFTY PHARMA via the Healthcare bucket — no fuzzy guessing.
+ */
+export function sectorIndexFor(sector: string): SectorIndexRef | null {
+  const key = normalizeSectorKey(sector);
+  if (!key) return null;
+  return SECTOR_INDEX_MAP[key] ?? null;
+}
+
+/**
+ * Distinct sector indices needed for the sectors actually held (weight > 0).
+ * Lets the page fetch one series per relevant index, de-duplicated. Sectors
+ * with no mapped index are omitted (surfaced as "no sector index" in the UI).
+ */
+export function sectorIndexesForSectors(
+  sectors: { sector: string; weightPct: number | null }[],
+): SectorIndexRef[] {
+  const seen = new Map<string, SectorIndexRef>();
+  for (const s of sectors) {
+    if (s.weightPct == null || !(s.weightPct > 0)) continue;
+    const ref = sectorIndexFor(s.sector);
+    if (ref && !seen.has(ref.symbol)) seen.set(ref.symbol, ref);
+  }
+  return Array.from(seen.values());
+}
+
 export interface SectorWeightRow {
   /** Canonical reference bucket label. */
   sector: string;

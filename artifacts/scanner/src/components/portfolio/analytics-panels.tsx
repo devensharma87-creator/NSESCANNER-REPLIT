@@ -37,6 +37,20 @@ import type {
 } from "@/lib/portfolio/benchmark";
 import { fmtINR, fmtSignedINR, fmtPct, fmtNum, pnlClass } from "./format";
 
+/**
+ * Per-sector index return, keyed by canonical sector bucket. `returnPct` is the
+ * real buy-and-hold return of that sector's own NSE index over the comparison
+ * window, or null when no series is available (rendered honestly, never faked).
+ */
+export interface SectorIndexReturn {
+  /** Sector index label, e.g. "NIFTY IT". */
+  name: string;
+  /** Buy-and-hold return over the window (%), null when unavailable. */
+  returnPct: number | null;
+  /** True while the series is still loading. */
+  loading: boolean;
+}
+
 function Row({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
   return (
     <div className="flex items-center justify-between gap-2 text-xs">
@@ -278,6 +292,48 @@ function fmtSignedPP(diff: number): string {
   return `${sign}${fmtNum(diff, 1)} pp`;
 }
 
+/**
+ * Per-sector index return cell. Honest states: a dash with a reason title when
+ * the sector has no mapped NSE index, "…" while the series loads, or "n/a" when
+ * the series yielded no closes for the window — the figure is never fabricated.
+ */
+function SectorIndexCell({ info }: { info: SectorIndexReturn | undefined }) {
+  if (!info) {
+    return (
+      <span
+        className="text-right font-mono text-muted-foreground/60"
+        title="No published NSE sector index for this sector"
+      >
+        —
+      </span>
+    );
+  }
+  if (info.loading) {
+    return (
+      <span className="text-right font-mono text-muted-foreground/60" title={`${info.name} loading`}>
+        …
+      </span>
+    );
+  }
+  if (info.returnPct == null) {
+    return (
+      <span
+        className="text-right font-mono text-muted-foreground/60"
+        title={`${info.name} series unavailable for this window`}
+      >
+        n/a
+      </span>
+    );
+  }
+  const sign = info.returnPct > 0 ? "+" : "";
+  return (
+    <span className={`text-right font-mono ${pnlClass(info.returnPct)}`} title={info.name}>
+      {sign}
+      {fmtNum(info.returnPct, 1)}%
+    </span>
+  );
+}
+
 const benchmarkChartConfig = {
   indexPct: { label: "Index", color: "hsl(199 89% 60%)" },
 } satisfies ChartConfig;
@@ -401,6 +457,7 @@ function BenchmarkChart({
 export function BenchmarkPanel({
   comparison,
   sectorComparison,
+  sectorIndexReturns,
   series,
   seriesLoading,
   options,
@@ -409,6 +466,8 @@ export function BenchmarkPanel({
 }: {
   comparison: BenchmarkComparison;
   sectorComparison: SectorWeightComparison;
+  /** Per-sector index return keyed by canonical sector bucket. */
+  sectorIndexReturns: Map<string, SectorIndexReturn>;
   series: BenchmarkSeriesPoint[];
   seriesLoading: boolean;
   options: readonly BenchmarkOption[];
@@ -483,34 +542,41 @@ export function BenchmarkPanel({
           </div>
         ) : (
           <>
-            <div className="mb-1 grid grid-cols-[1fr_auto_auto_auto] gap-x-3 text-[10px] text-muted-foreground">
+            <div className="mb-1 grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-3 text-[10px] text-muted-foreground">
               <span>Sector</span>
               <span className="text-right">Port.</span>
               <span className="text-right">N500</span>
               <span className="text-right">+/−</span>
+              <span className="text-right" title="Return of this sector's own NSE index over the comparison window">
+                Idx ret.
+              </span>
             </div>
             <div className="space-y-0.5">
               {sectorComparison.rows
                 .filter(r => r.portfolioPct > 0 || r.stance !== "in line")
                 .slice(0, 8)
-                .map(r => (
-                  <div
-                    key={r.sector}
-                    className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 text-[11px]"
-                    data-testid={`sector-weight-${r.sector}`}
-                  >
-                    <span className="truncate text-muted-foreground" title={r.sector}>
-                      {r.sector}
-                    </span>
-                    <span className="text-right font-mono">{fmtNum(r.portfolioPct, 1)}%</span>
-                    <span className="text-right font-mono text-muted-foreground">
-                      {fmtNum(r.benchmarkPct, 1)}%
-                    </span>
-                    <span className={`text-right font-mono ${diffClass(r.stance)}`}>
-                      {fmtSignedPP(r.diffPct)}
-                    </span>
-                  </div>
-                ))}
+                .map(r => {
+                  const sectorIdx = sectorIndexReturns.get(r.sector);
+                  return (
+                    <div
+                      key={r.sector}
+                      className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-3 text-[11px]"
+                      data-testid={`sector-weight-${r.sector}`}
+                    >
+                      <span className="truncate text-muted-foreground" title={r.sector}>
+                        {r.sector}
+                      </span>
+                      <span className="text-right font-mono">{fmtNum(r.portfolioPct, 1)}%</span>
+                      <span className="text-right font-mono text-muted-foreground">
+                        {fmtNum(r.benchmarkPct, 1)}%
+                      </span>
+                      <span className={`text-right font-mono ${diffClass(r.stance)}`}>
+                        {fmtSignedPP(r.diffPct)}
+                      </span>
+                      <SectorIndexCell info={sectorIdx} />
+                    </div>
+                  );
+                })}
             </div>
             {sectorComparison.coveragePct < 99.5 && (
               <p className="mt-1 text-[10px] text-muted-foreground">
@@ -530,6 +596,8 @@ export function BenchmarkPanel({
         Return uses the real {comparison.benchmarkName} daily series. Sector weights are a dated,
         published NIFTY 500 reference ({sectorComparison.asOf}) rolled up to this app's sector
         taxonomy — never fabricated; sectors outside that reference are listed as not benchmarked.
+        "Idx ret." is each sector's own NSE index return over the same window (real series, Kite→Yahoo);
+        sectors with no published sector index show "—".
       </p>
     </Card>
   );

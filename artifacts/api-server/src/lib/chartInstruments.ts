@@ -41,6 +41,17 @@ export const CURATED_INDICES: ChartInstrumentMeta[] = [
   { symbol: "SENSEX",     name: "SENSEX",              segment: "index", exchange: "BSE", type: "Index", yahoo: "^BSESN" },
   { symbol: "BANKEX",     name: "BANKEX",              segment: "index", exchange: "BSE", type: "Index", yahoo: "BSE-BANK.BO" },
   { symbol: "INDIAVIX",   name: "INDIA VIX",           segment: "index", exchange: "NSE", type: "Index", yahoo: "^INDIAVIX" },
+  // NSE sectoral indices. Kite has no historical token for these here, so the
+  // daily series resolves via the Yahoo fallback (same pattern as NIFTY500).
+  // Used by the Portfolio Analyser to show each held sector's own index return.
+  { symbol: "NIFTYIT",     name: "NIFTY IT",        segment: "index", exchange: "NSE", type: "Sector Index", yahoo: "^CNXIT" },
+  { symbol: "NIFTYAUTO",   name: "NIFTY AUTO",      segment: "index", exchange: "NSE", type: "Sector Index", yahoo: "^CNXAUTO" },
+  { symbol: "NIFTYPHARMA", name: "NIFTY PHARMA",    segment: "index", exchange: "NSE", type: "Sector Index", yahoo: "^CNXPHARMA" },
+  { symbol: "NIFTYFMCG",   name: "NIFTY FMCG",      segment: "index", exchange: "NSE", type: "Sector Index", yahoo: "^CNXFMCG" },
+  { symbol: "NIFTYMETAL",  name: "NIFTY METAL",     segment: "index", exchange: "NSE", type: "Sector Index", yahoo: "^CNXMETAL" },
+  { symbol: "NIFTYENERGY", name: "NIFTY ENERGY",    segment: "index", exchange: "NSE", type: "Sector Index", yahoo: "^CNXENERGY" },
+  { symbol: "NIFTYREALTY", name: "NIFTY REALTY",    segment: "index", exchange: "NSE", type: "Sector Index", yahoo: "^CNXREALTY" },
+  { symbol: "NIFTYMEDIA",  name: "NIFTY MEDIA",     segment: "index", exchange: "NSE", type: "Sector Index", yahoo: "^CNXMEDIA" },
 ];
 
 /** Major global indices. Yahoo-only — Kite has no instrument for these. */

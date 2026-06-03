@@ -33,8 +33,10 @@ import {
   benchmarkReturnFromCloses,
   buildBenchmarkSeries,
   compareSectorWeights,
+  sectorIndexesForSectors,
   BENCHMARK_OPTIONS,
 } from "@/lib/portfolio/benchmark";
+import type { SectorIndexReturn } from "@/components/portfolio/analytics-panels";
 import { buildPortfolioCsv } from "@/lib/portfolio/csv";
 import {
   resolveBenchmarkPref,
@@ -250,6 +252,48 @@ export default function PortfolioAnalyser() {
     () => compareSectorWeights(allocation.map(a => ({ sector: a.sector, weightPct: a.weightPct }))),
     [allocation],
   );
+
+  // Per-sector index return: for each HELD sector that maps to a published NSE
+  // sectoral index (NIFTY BANK / IT / AUTO / PHARMA / ...), fetch the index's
+  // real daily series (Kite→Yahoo) and compute its buy-and-hold return over the
+  // SAME window as the headline benchmark. Honest by construction: sectors with
+  // no mapped index are simply omitted (shown as "no index" in the panel), and
+  // a fetch that yields no closes falls back to an explicit "unavailable".
+  const sectorIndexRefs = useMemo(
+    () => sectorIndexesForSectors(allocation.map(a => ({ sector: a.sector, weightPct: a.weightPct }))),
+    [allocation],
+  );
+  const sectorIndexQueries = useQueries({
+    queries: sectorIndexRefs.map(ref => ({
+      queryKey: ["portfolio-sector-index", ref.symbol, "1D"],
+      enabled: holdings.length > 0,
+      staleTime: 5 * 60_000,
+      queryFn: () => getChartCandles({ symbol: ref.symbol, segment: "index" as ChartSegment, tf: "1D" }),
+    })),
+  });
+  const sectorIndexReturns = useMemo(() => {
+    const map = new Map<string, SectorIndexReturn>();
+    const cutoff = earliestPurchase ? Math.floor(earliestPurchase.getTime() / 1000) : null;
+    sectorIndexRefs.forEach((ref, i) => {
+      const q = sectorIndexQueries[i];
+      const all = q?.data?.candles ?? [];
+      const windowed = cutoff == null ? all : all.filter(c => c.t >= cutoff);
+      const closes = windowed.map(c => c.c).filter((c): c is number => Number.isFinite(c));
+      const returnPct = benchmarkReturnFromCloses(closes);
+      map.set(ref.sector, {
+        name: ref.name,
+        returnPct,
+        loading: q?.isLoading ?? false,
+      });
+    });
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sectorIndexRefs,
+    earliestPurchase,
+    sectorIndexQueries.map(q => q.dataUpdatedAt).join(","),
+    sectorIndexQueries.map(q => q.status).join(","),
+  ]);
 
   const lastUpdated = useMemo(() => {
     const ts = results.map(r => r.dataUpdatedAt).filter(t => t > 0);
@@ -557,6 +601,7 @@ export default function PortfolioAnalyser() {
             <BenchmarkPanel
               comparison={benchmark}
               sectorComparison={sectorComparison}
+              sectorIndexReturns={sectorIndexReturns}
               series={benchmarkSeries}
               seriesLoading={benchmarkQ.isLoading}
               options={BENCHMARK_OPTIONS}
