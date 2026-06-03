@@ -15,7 +15,11 @@ import {
   type AllocationMode,
 } from "@/lib/portfolio/allocation";
 import type { HoldingPeriodView, DividendView } from "@/lib/portfolio/holdingPeriod";
-import type { BenchmarkComparison, BenchmarkOption } from "@/lib/portfolio/benchmark";
+import type {
+  BenchmarkComparison,
+  BenchmarkOption,
+  SectorWeightComparison,
+} from "@/lib/portfolio/benchmark";
 import { fmtINR, fmtSignedINR, fmtPct, fmtNum, pnlClass } from "./format";
 
 function Row({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
@@ -248,13 +252,26 @@ export function CostBasisPanel({
   );
 }
 
+function diffClass(stance: "overweight" | "underweight" | "in line"): string {
+  if (stance === "overweight") return "text-emerald-400";
+  if (stance === "underweight") return "text-amber-400";
+  return "text-muted-foreground";
+}
+
+function fmtSignedPP(diff: number): string {
+  const sign = diff > 0 ? "+" : "";
+  return `${sign}${fmtNum(diff, 1)} pp`;
+}
+
 export function BenchmarkPanel({
   comparison,
+  sectorComparison,
   options,
   selectedKey,
   onSelect,
 }: {
   comparison: BenchmarkComparison;
+  sectorComparison: SectorWeightComparison;
   options: readonly BenchmarkOption[];
   selectedKey: BenchmarkOption["key"];
   onSelect: (key: BenchmarkOption["key"]) => void;
@@ -302,12 +319,71 @@ export function BenchmarkPanel({
           />
         </div>
       )}
-      <p className="mt-2 border-t border-border pt-2 text-[10px] text-muted-foreground">
-        Benchmark uses the real {comparison.benchmarkName} daily series. NIFTY 500 and sector-index
-        comparisons are <span className="text-amber-400">unavailable</span> — those index series are not
-        wired in this build and would require a new data source.
+      <div className="mt-2 border-t border-border pt-2">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold">Sector over/under-weight vs NIFTY 500</span>
+          <span
+            className="text-[10px] text-muted-foreground"
+            title={sectorComparison.source}
+          >
+            ref {sectorComparison.asOf}
+          </span>
+        </div>
+        {sectorComparison.unavailable ? (
+          <div className="flex items-start gap-1.5 text-xs text-amber-400">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{sectorComparison.unavailable}</span>
+          </div>
+        ) : (
+          <>
+            <div className="mb-1 grid grid-cols-[1fr_auto_auto_auto] gap-x-3 text-[10px] text-muted-foreground">
+              <span>Sector</span>
+              <span className="text-right">Port.</span>
+              <span className="text-right">N500</span>
+              <span className="text-right">+/−</span>
+            </div>
+            <div className="space-y-0.5">
+              {sectorComparison.rows
+                .filter(r => r.portfolioPct > 0 || r.stance !== "in line")
+                .slice(0, 8)
+                .map(r => (
+                  <div
+                    key={r.sector}
+                    className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 text-[11px]"
+                    data-testid={`sector-weight-${r.sector}`}
+                  >
+                    <span className="truncate text-muted-foreground" title={r.sector}>
+                      {r.sector}
+                    </span>
+                    <span className="text-right font-mono">{fmtNum(r.portfolioPct, 1)}%</span>
+                    <span className="text-right font-mono text-muted-foreground">
+                      {fmtNum(r.benchmarkPct, 1)}%
+                    </span>
+                    <span className={`text-right font-mono ${diffClass(r.stance)}`}>
+                      {fmtSignedPP(r.diffPct)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+            {sectorComparison.coveragePct < 99.5 && (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                {fmtNum(sectorComparison.coveragePct, 0)}% of portfolio value mapped to the reference
+                taxonomy
+                {sectorComparison.unmapped.length > 0 &&
+                  ` · not benchmarked: ${sectorComparison.unmapped
+                    .map(u => u.sector)
+                    .join(", ")}`}
+                .
+              </p>
+            )}
+          </>
+        )}
+      </div>
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Return uses the real {comparison.benchmarkName} daily series. Sector weights are a dated,
+        published NIFTY 500 reference ({sectorComparison.asOf}) rolled up to this app's sector
+        taxonomy — never fabricated; sectors outside that reference are listed as not benchmarked.
       </p>
-      <p className="mt-1 text-[10px] text-amber-400">{comparison.sectorWeightUnavailable}</p>
     </Card>
   );
 }

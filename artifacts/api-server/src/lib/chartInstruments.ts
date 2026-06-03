@@ -33,6 +33,7 @@ export interface ChartInstrumentMeta {
  */
 export const CURATED_INDICES: ChartInstrumentMeta[] = [
   { symbol: "NIFTY",      name: "NIFTY 50",            segment: "index", exchange: "NSE", type: "Index", yahoo: "^NSEI" },
+  { symbol: "NIFTY500",   name: "NIFTY 500",           segment: "index", exchange: "NSE", type: "Index", yahoo: "^CRSLDX" },
   { symbol: "BANKNIFTY",  name: "NIFTY BANK",          segment: "index", exchange: "NSE", type: "Index", yahoo: "^NSEBANK" },
   { symbol: "FINNIFTY",   name: "NIFTY FIN SERVICE",   segment: "index", exchange: "NSE", type: "Index", yahoo: "^CNXFIN" },
   { symbol: "MIDCPNIFTY", name: "NIFTY MIDCAP SELECT", segment: "index", exchange: "NSE", type: "Index", yahoo: "NIFTY_MID_SELECT.NS" },

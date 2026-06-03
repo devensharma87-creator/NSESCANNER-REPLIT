@@ -31,6 +31,7 @@ import { computeHoldingPeriods, computeDividends, LONG_TERM_THRESHOLD_DAYS } fro
 import {
   compareToBenchmark,
   benchmarkReturnFromCloses,
+  compareSectorWeights,
   BENCHMARK_OPTIONS,
   type BenchmarkOption,
 } from "@/lib/portfolio/benchmark";
@@ -224,6 +225,14 @@ export default function PortfolioAnalyser() {
       windowLabel,
     });
   }, [benchmarkQ.data, earliestPurchase, summary.totalReturnPct, benchmarkOption.name]);
+
+  // Sector over/under-weight vs the dated, real NIFTY 500 sector reference.
+  // Never fabricated: unmapped sectors are surfaced explicitly, and the whole
+  // comparison reports unavailable when no live sector weights exist.
+  const sectorComparison = useMemo(
+    () => compareSectorWeights(allocation.map(a => ({ sector: a.sector, weightPct: a.weightPct }))),
+    [allocation],
+  );
 
   const lastUpdated = useMemo(() => {
     const ts = results.map(r => r.dataUpdatedAt).filter(t => t > 0);
@@ -518,6 +527,7 @@ export default function PortfolioAnalyser() {
             <CostBasisPanel holdingPeriod={holdingPeriod} dividends={dividends} />
             <BenchmarkPanel
               comparison={benchmark}
+              sectorComparison={sectorComparison}
               options={BENCHMARK_OPTIONS}
               selectedKey={benchmarkKey}
               onSelect={setBenchmarkKey}
