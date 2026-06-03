@@ -28,7 +28,14 @@ const EMPTY_LIVE: LiveMetrics = {
 
 function row(
   symbol: string,
-  opts: { date?: string; div?: number; ret?: number | null; qty?: number; rate?: number },
+  opts: {
+    date?: string;
+    div?: number;
+    ret?: number | null;
+    qty?: number;
+    rate?: number;
+    realised?: number;
+  },
 ): CostBasisRow {
   const qty = opts.qty ?? 1;
   const rate = opts.rate ?? 100;
@@ -39,6 +46,7 @@ function row(
     rate,
     purchaseDate: opts.date,
     dividendReceived: opts.div,
+    realisedPnl: opts.realised,
   };
   const metrics: HoldingMetrics = {
     invested: qty * rate,
@@ -102,5 +110,25 @@ describe("computeDividends", () => {
     const v = computeDividends([row("A", { ret: 100 })]);
     expect(v.hasData).toBe(false);
     expect(v.totalDividends).toBe(0);
+  });
+
+  it("includes realised P&L in total return incl dividends", () => {
+    // Current value + dividends + realised P&L − invested.
+    const v = computeDividends([
+      row("A", { div: 200, ret: 500, realised: 300, qty: 10, rate: 100 }), // invested 1000
+      row("B", { div: 0, ret: -100, realised: 50, qty: 5, rate: 100 }), // invested 500
+    ]);
+    expect(v.capitalReturn).toBe(400); // 500 − 100 (unrealised only)
+    expect(v.totalDividends).toBe(200);
+    expect(v.totalRealisedPnl).toBe(350); // 300 + 50
+    expect(v.totalReturnInclDiv).toBe(950); // 400 + 200 + 350
+    expect(v.totalReturnInclDivPct).toBeCloseTo((950 / 1500) * 100);
+  });
+
+  it("ignores realised P&L when no live capital return exists", () => {
+    const v = computeDividends([row("A", { div: 100, realised: 500, qty: 10, rate: 100 })]);
+    expect(v.capitalReturn).toBe(null);
+    expect(v.totalRealisedPnl).toBe(500);
+    expect(v.totalReturnInclDiv).toBe(null); // anyCapital false → null
   });
 });

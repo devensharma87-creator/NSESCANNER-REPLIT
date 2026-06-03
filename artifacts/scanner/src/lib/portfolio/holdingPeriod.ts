@@ -98,18 +98,24 @@ export interface DividendView {
   /** True when at least one holding carries a user-entered dividend amount. */
   hasData: boolean;
   totalDividends: number;
+  /** Sum of user-entered realised P&L across holdings (0 when none entered). */
+  totalRealisedPnl: number;
   totalInvested: number;
   /** Dividends / invested (%), null when invested is zero. */
   yieldOnCostPct: number | null;
   /** Capital return (current − invested) summed where available, null if none. */
   capitalReturn: number | null;
-  /** Capital return + dividends, null when capital return is unavailable. */
+  /**
+   * Total return including income: current value + dividends + realised P&L −
+   * invested. Null when no live capital return could be computed.
+   */
   totalReturnInclDiv: number | null;
   totalReturnInclDivPct: number | null;
 }
 
 export function computeDividends(rows: CostBasisRow[]): DividendView {
   let totalDividends = 0;
+  let totalRealisedPnl = 0;
   let totalInvested = 0;
   let capitalReturn = 0;
   let anyDividend = false;
@@ -126,6 +132,10 @@ export function computeDividends(rows: CostBasisRow[]): DividendView {
       // Zero is still "entered data".
       anyDividend = anyDividend || false;
     }
+    const realised = r.raw.realisedPnl;
+    if (realised != null && Number.isFinite(realised)) {
+      totalRealisedPnl += realised;
+    }
     const ret = r.metrics.totalReturn;
     if (ret != null) {
       capitalReturn += ret;
@@ -133,14 +143,19 @@ export function computeDividends(rows: CostBasisRow[]): DividendView {
     }
   }
 
+  // Total Return Including Dividends = Current Value + Dividend Received +
+  // Realised P&L − Invested Value. capitalReturn already equals
+  // Σ(currentValue − invested), so we add dividends and realised P&L on top.
+  const income = totalDividends + totalRealisedPnl;
   const yieldOnCostPct = totalInvested > 0 ? (totalDividends / totalInvested) * 100 : null;
-  const totalReturnInclDiv = anyCapital ? capitalReturn + totalDividends : null;
+  const totalReturnInclDiv = anyCapital ? capitalReturn + income : null;
   const totalReturnInclDivPct =
-    anyCapital && totalInvested > 0 ? ((capitalReturn + totalDividends) / totalInvested) * 100 : null;
+    anyCapital && totalInvested > 0 ? ((capitalReturn + income) / totalInvested) * 100 : null;
 
   return {
     hasData: anyDividend,
     totalDividends,
+    totalRealisedPnl,
     totalInvested,
     yieldOnCostPct,
     capitalReturn: anyCapital ? capitalReturn : null,

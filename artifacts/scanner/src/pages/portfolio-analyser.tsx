@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   getStockDetail,
   searchChartInstruments,
@@ -27,7 +27,7 @@ import {
 import { computeAnalytics } from "@/lib/portfolio/score";
 import { computeRiskAnalytics } from "@/lib/portfolio/risk";
 import { computeHoldingPeriods, computeDividends, LONG_TERM_THRESHOLD_DAYS } from "@/lib/portfolio/holdingPeriod";
-import { compareToBenchmark } from "@/lib/portfolio/benchmark";
+import { compareToBenchmark, benchmarkReturnFromCloses } from "@/lib/portfolio/benchmark";
 import { usePortfolios, rawToInput, holdingToRaw } from "@/lib/portfolio/persistence";
 import {
   resolveHolding,
@@ -160,17 +160,58 @@ export default function PortfolioAnalyser() {
     [analyticsRows],
   );
   const dividends = useMemo(() => computeDividends(analyticsRows), [analyticsRows]);
-  const benchmark = useMemo(
-    () =>
-      compareToBenchmark({
-        portfolioReturnPct: summary.totalReturnPct,
-        // No index close-series is wired in this build → honestly unavailable.
-        benchmarkReturnPct: null,
-        benchmarkName: "NIFTY 50",
-        windowLabel: null,
-      }),
-    [summary.totalReturnPct],
-  );
+
+  // Earliest purchase date across holdings → benchmark comparison window.
+  const earliestPurchase = useMemo(() => {
+    const ts = holdings
+      .map(h => h.purchaseDate)
+      .filter((d): d is string => !!d)
+      .map(d => new Date(d).getTime())
+      .filter(t => Number.isFinite(t));
+    return ts.length ? new Date(Math.min(...ts)) : null;
+  }, [holdings]);
+
+  // Real NIFTY 50 daily series via the existing chart endpoint (Kite→Yahoo).
+  // Never fabricated: if the fetch yields no closes, the comparison falls back
+  // to an explicit "unavailable" state inside compareToBenchmark.
+  const benchmarkQ = useQuery({
+    queryKey: ["portfolio-benchmark", "NIFTY", "1D"],
+    enabled: holdings.length > 0,
+    staleTime: 5 * 60_000,
+    queryFn: () => getChartCandles({ symbol: "NIFTY", segment: "index", tf: "1D" }),
+  });
+
+  const benchmark = useMemo(() => {
+    const all = benchmarkQ.data?.candles ?? [];
+    let windowed = all;
+    if (earliestPurchase) {
+      const cutoff = Math.floor(earliestPurchase.getTime() / 1000);
+      windowed = all.filter(c => c.t >= cutoff);
+    }
+    const closes = windowed.map(c => c.c).filter((c): c is number => Number.isFinite(c));
+    const benchmarkReturnPct = benchmarkReturnFromCloses(closes);
+    // Label the window with the ACTUAL first covered date so the comparison is
+    // never overstated when available history is shorter than the holding period.
+    let windowLabel: string | null = null;
+    if (windowed.length > 0) {
+      const actualStart = new Date(windowed[0].t * 1000).toISOString().slice(0, 10);
+      if (earliestPurchase) {
+        const wanted = earliestPurchase.toISOString().slice(0, 10);
+        windowLabel =
+          actualStart === wanted
+            ? `since earliest purchase (${wanted})`
+            : `from ${actualStart} (earliest purchase ${wanted}; limited by available history)`;
+      } else {
+        windowLabel = `from ${actualStart} (full available range — purchase dates missing)`;
+      }
+    }
+    return compareToBenchmark({
+      portfolioReturnPct: summary.totalReturnPct,
+      benchmarkReturnPct,
+      benchmarkName: "NIFTY 50",
+      windowLabel,
+    });
+  }, [benchmarkQ.data, earliestPurchase, summary.totalReturnPct]);
 
   const lastUpdated = useMemo(() => {
     const ts = results.map(r => r.dataUpdatedAt).filter(t => t > 0);

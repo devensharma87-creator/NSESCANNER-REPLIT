@@ -1,9 +1,11 @@
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   useGetStockDetail,
   useGetNews,
   getGetStockDetailQueryKey,
   getGetNewsQueryKey,
+  getChartCandles,
 } from "@workspace/api-client-react";
 import {
   Sheet,
@@ -15,9 +17,23 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import type { EnrichedRow } from "@/lib/portfolio/types";
+import { sma } from "@/lib/portfolio/indicators";
 import { fmtINR, fmtPct, fmtSignedINR, fmtNum, pnlClass, actionViewClass } from "./format";
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+const numOrNull = (v: number | null | undefined): number | null =>
+  v != null && Number.isFinite(v) ? v : null;
+
+function Stat({
+  label,
+  value,
+  hint,
+  unavailableLabel,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  unavailableLabel?: string;
+}) {
   const unavailable = value === "—";
   return (
     <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
@@ -27,7 +43,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
           className="font-mono text-sm text-muted-foreground/70"
           title={hint ?? "Not reported by the data source for this symbol."}
         >
-          n/a
+          {unavailableLabel ?? "n/a"}
         </div>
       ) : (
         <div className="font-mono text-sm">{value}</div>
@@ -61,6 +77,56 @@ export function StockDeepDive({
   const indicators = detail?.indicators;
   const quote = detail?.quote;
   const news = newsQ.data ?? [];
+
+  // DMA sourcing hierarchy: enriched/keyStats first, then a candle-derived
+  // fallback computed from real daily closes (never fabricated). When neither
+  // resolves we label why (insufficient history vs not reported).
+  const dma50Detail = numOrNull(row?.live.dma50) ?? numOrNull(keyStats?.fiftyDayAverage);
+  const dma200Detail = numOrNull(row?.live.dma200) ?? numOrNull(keyStats?.twoHundredDayAverage);
+  const segment = (row?.resolution.segment ?? "equity") as "index" | "equity" | "global";
+  const needDma = open && !!symbol && (dma50Detail == null || dma200Detail == null);
+  const candlesQ = useQuery({
+    queryKey: ["portfolio-dma-candles", symbol, segment],
+    enabled: needDma,
+    staleTime: 60_000,
+    queryFn: () => getChartCandles({ symbol, segment, tf: "1D" }),
+  });
+  const closes = (candlesQ.data?.candles ?? [])
+    .map(c => c.c)
+    .filter((c): c is number => Number.isFinite(c));
+  const dma50 = dma50Detail ?? sma(closes, 50);
+  const dma200 = dma200Detail ?? sma(closes, 200);
+
+  function dmaProps(
+    val: number | null,
+    fromDetail: number | null,
+    period: number,
+  ): { value: string; hint?: string; unavailableLabel?: string } {
+    if (val != null) {
+      return {
+        value: fmtINR(val, 2),
+        hint:
+          fromDetail != null
+            ? undefined
+            : `Computed from ${closes.length} real daily closes — not reported by the data source.`,
+      };
+    }
+    if (needDma && candlesQ.isLoading) {
+      return { value: "—", unavailableLabel: "Loading…", hint: "Fetching candle history…" };
+    }
+    if (closes.length > 0 && closes.length < period) {
+      return {
+        value: "—",
+        unavailableLabel: "Insufficient history",
+        hint: `Only ${closes.length} daily bars available; ${period} needed for this average.`,
+      };
+    }
+    return {
+      value: "—",
+      unavailableLabel: "n/a",
+      hint: "Not reported by the data source and no candle history available.",
+    };
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -179,8 +245,8 @@ export function StockDeepDive({
                 ) : (
                   <div className="grid grid-cols-3 gap-2">
                     <Stat label="RSI (14)" value={fmtNum(indicators?.rsi14, 0)} />
-                    <Stat label="50-DMA" value={fmtINR(keyStats?.fiftyDayAverage, 2)} />
-                    <Stat label="200-DMA" value={fmtINR(keyStats?.twoHundredDayAverage, 2)} />
+                    <Stat label="50-DMA" {...dmaProps(dma50, dma50Detail, 50)} />
+                    <Stat label="200-DMA" {...dmaProps(dma200, dma200Detail, 200)} />
                     <Stat label="Support zone" value={fmtINR(indicators?.supportLevel, 2)} />
                     <Stat label="Resistance zone" value={fmtINR(indicators?.resistanceLevel, 2)} />
                     <Stat label="Trend strength" value={fmtNum(indicators?.trendStrength, 0)} />
