@@ -70,6 +70,31 @@ export function buildCsvTemplate(): string {
   return rows.map(csvRow).join("\n") + "\n";
 }
 
+/**
+ * Serialize the current holdings back to a CSV using the same column set as the
+ * template, so an exported file round-trips cleanly through `parsePortfolioCsv`.
+ * Only user-entered book-keeping fields are written — never derived/live data.
+ */
+export function buildPortfolioCsv(holdings: RawHolding[]): string {
+  const rows: string[][] = [[...CSV_TEMPLATE_COLUMNS] as string[]];
+  for (const h of holdings) {
+    rows.push([
+      h.symbol,
+      h.name ?? "",
+      h.exchange ?? "",
+      h.sector ?? "",
+      h.purchaseDate ?? "",
+      String(h.qty),
+      String(h.rate),
+      h.isin ?? "",
+      h.broker ?? "",
+      h.tag ?? "",
+      h.notes ?? "",
+    ]);
+  }
+  return rows.map(csvRow).join("\n") + "\n";
+}
+
 /** Tokenize one CSV document into rows of string cells. */
 export function parseCsvRows(text: string): string[][] {
   const rows: string[][] = [];

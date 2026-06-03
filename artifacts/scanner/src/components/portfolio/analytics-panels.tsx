@@ -49,6 +49,26 @@ export function RiskPanel({ risk }: { risk: RiskAnalytics }) {
           }
         />
         <Row
+          label="Top-3 holdings"
+          value={risk.top3WeightPct == null ? "unavailable" : `${fmtNum(risk.top3WeightPct, 1)}%`}
+          valueClass={
+            risk.top3WeightPct != null && risk.top3WeightPct > 60 ? "text-amber-400" : undefined
+          }
+        />
+        <Row
+          label="Top sector"
+          value={
+            risk.topSectorName
+              ? `${risk.topSectorName} ${fmtNum(risk.topSectorWeightPct, 1)}% (${risk.sectorCoveragePct.toFixed(0)}% cov.)`
+              : "unavailable"
+          }
+          valueClass={
+            risk.topSectorWeightPct != null && risk.topSectorWeightPct > 35
+              ? "text-amber-400"
+              : undefined
+          }
+        />
+        <Row
           label="Weighted beta"
           value={
             risk.weightedBeta == null
@@ -254,9 +274,12 @@ export function BenchmarkPanel({ comparison }: { comparison: BenchmarkComparison
           />
         </div>
       )}
-      <p className="mt-2 border-t border-border pt-2 text-[10px] text-amber-400">
-        {comparison.sectorWeightUnavailable}
+      <p className="mt-2 border-t border-border pt-2 text-[10px] text-muted-foreground">
+        Benchmark uses the real NIFTY 50 daily series. NIFTY 500 and sector-index comparisons are{" "}
+        <span className="text-amber-400">unavailable</span> — those index series are not wired in this
+        build and would require a new data source.
       </p>
+      <p className="mt-1 text-[10px] text-amber-400">{comparison.sectorWeightUnavailable}</p>
     </Card>
   );
 }

@@ -28,6 +28,7 @@ import { computeAnalytics } from "@/lib/portfolio/score";
 import { computeRiskAnalytics } from "@/lib/portfolio/risk";
 import { computeHoldingPeriods, computeDividends, LONG_TERM_THRESHOLD_DAYS } from "@/lib/portfolio/holdingPeriod";
 import { compareToBenchmark, benchmarkReturnFromCloses } from "@/lib/portfolio/benchmark";
+import { buildPortfolioCsv } from "@/lib/portfolio/csv";
 import { usePortfolios, rawToInput, holdingToRaw } from "@/lib/portfolio/persistence";
 import {
   resolveHolding,
@@ -324,6 +325,20 @@ export default function PortfolioAnalyser() {
     }
   }
 
+  function exportCsv() {
+    if (holdings.length === 0) return;
+    const blob = new Blob([buildPortfolioCsv(holdings)], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const base = (currentName ?? "portfolio").replace(/[^a-z0-9-_]+/gi, "_");
+    a.download = `${base}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   async function deleteCurrent() {
     if (!currentId) return;
     if (!window.confirm(`Delete "${currentName ?? "this portfolio"}"? This cannot be undone.`)) return;
@@ -405,6 +420,7 @@ export default function PortfolioAnalyser() {
           onRename={rename}
           onSetDefault={setDefault}
           onDelete={deleteCurrent}
+          onExport={exportCsv}
         />
         {dirty && currentId && (
           <span className="text-[11px] text-amber-400" data-testid="dirty-indicator">

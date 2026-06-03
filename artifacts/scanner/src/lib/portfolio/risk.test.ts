@@ -97,4 +97,55 @@ describe("computeRiskAnalytics", () => {
     expect(r.dataAvailabilityPct).toBeLessThan(RISK_THRESHOLDS.DATA_AVAILABILITY_PCT);
     expect(r.flags.some(f => f.code === "LOW_DATA_AVAILABILITY")).toBe(true);
   });
+
+  it("computes combined top-3 weight and flags when above threshold", () => {
+    // weights 40/30/20/5/5 → top-3 = 90% > 60%, with > 3 rows.
+    const r = computeRiskAnalytics([
+      row("A", 40, 1),
+      row("B", 30, 1),
+      row("C", 20, 1),
+      row("D", 5, 1),
+      row("E", 5, 1),
+    ]);
+    expect(r.top3WeightPct).toBeCloseTo(90);
+    expect(r.flags.some(f => f.code === "TOP3_CONCENTRATION")).toBe(true);
+  });
+
+  it("does not flag top-3 concentration when 3 or fewer holdings", () => {
+    const r = computeRiskAnalytics([row("A", 80, 1), row("B", 15, 1), row("C", 5, 1)]);
+    expect(r.top3WeightPct).toBeCloseTo(100);
+    expect(r.flags.some(f => f.code === "TOP3_CONCENTRATION")).toBe(false);
+  });
+
+  it("aggregates sector weight over covered value and flags concentration", () => {
+    // IT = 70 of 100 sector-covered → 70% > 35%.
+    const r = computeRiskAnalytics([
+      row("A", 50, 1, { sector: "IT" }),
+      row("B", 20, 1, { sector: "IT" }),
+      row("C", 30, 1, { sector: "Banking" }),
+    ]);
+    expect(r.topSectorName).toBe("IT");
+    expect(r.topSectorWeightPct).toBeCloseTo(70);
+    expect(r.sectorCoveragePct).toBeCloseTo(100);
+    expect(r.flags.some(f => f.code === "SECTOR_CONCENTRATION")).toBe(true);
+  });
+
+  it("reports sector coverage honestly when some holdings lack a sector", () => {
+    const r = computeRiskAnalytics([
+      row("A", 60, 1, { sector: "IT" }),
+      row("B", 40, 1, { sector: null }),
+    ]);
+    // Only 60 of 100 current value has a sector label.
+    expect(r.sectorCoveragePct).toBeCloseTo(60);
+    expect(r.topSectorName).toBe("IT");
+    expect(r.topSectorWeightPct).toBeCloseTo(100); // 100% of the COVERED value
+  });
+
+  it("leaves sector/top-3 unavailable when no live value", () => {
+    const r = computeRiskAnalytics([row("A", null, null, { sector: "IT" })]);
+    expect(r.top3WeightPct).toBeNull();
+    expect(r.topSectorWeightPct).toBeNull();
+    expect(r.topSectorName).toBeNull();
+    expect(r.sectorCoveragePct).toBe(0);
+  });
 });

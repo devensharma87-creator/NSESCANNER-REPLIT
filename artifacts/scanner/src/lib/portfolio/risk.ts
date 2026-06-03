@@ -23,6 +23,13 @@ export interface RiskAnalytics {
   /** Largest single-stock weight (% of current value), null when no live value. */
   topHoldingWeightPct: number | null;
   topHoldingSymbol: string | null;
+  /** Combined weight (%) of the top-3 holdings by current value, null when no live value. */
+  top3WeightPct: number | null;
+  /** Largest single-sector weight (% of the current value that HAS a sector), null when no sector. */
+  topSectorWeightPct: number | null;
+  topSectorName: string | null;
+  /** Share of current value (%) for which a sector was available. */
+  sectorCoveragePct: number;
   /** Herfindahl-Hirschman Index on current-value weights, 0–10000. */
   hhi: number | null;
   hhiLabel: "Diversified" | "Moderately concentrated" | "Highly concentrated" | "Unavailable";
@@ -46,6 +53,10 @@ export interface RiskAnalytics {
 export const RISK_THRESHOLDS = {
   /** Single-stock weight above this is flagged. */
   SINGLE_STOCK_PCT: 20,
+  /** Combined top-3 weight above this is flagged. */
+  TOP3_PCT: 60,
+  /** Single-sector weight above this is flagged. */
+  SECTOR_PCT: 35,
   /** HHI above this is "highly concentrated". */
   HHI_HIGH: 2500,
   /** HHI above this is "moderately concentrated". */
@@ -67,6 +78,10 @@ export function computeRiskAnalytics(rows: RiskRow[]): RiskAnalytics {
     return {
       topHoldingWeightPct: null,
       topHoldingSymbol: null,
+      top3WeightPct: null,
+      topSectorWeightPct: null,
+      topSectorName: null,
+      sectorCoveragePct: 0,
       hhi: null,
       hhiLabel: "Unavailable",
       weightedBeta: null,
@@ -94,20 +109,50 @@ export function computeRiskAnalytics(rows: RiskRow[]): RiskAnalytics {
   // Concentration + HHI on current-value weights.
   let topWeight: number | null = null;
   let topSymbol: string | null = null;
+  let top3WeightPct: number | null = null;
+  let topSectorWeightPct: number | null = null;
+  let topSectorName: string | null = null;
+  let sectorCoveragePct = 0;
   let hhi: number | null = null;
   if (anyCurrent && totalCurrent > 0) {
     let sumSq = 0;
+    const stockWeightsPct: number[] = [];
+    const sectorValue = new Map<string, number>();
+    let sectorCovered = 0;
     for (const r of rows) {
       if (r.metrics.currentValue == null) continue;
       const w = r.metrics.currentValue / totalCurrent;
       sumSq += w * w;
       const wPct = w * 100;
+      stockWeightsPct.push(wPct);
       if (topWeight == null || wPct > topWeight) {
         topWeight = wPct;
         topSymbol = r.raw.symbol;
       }
+      // Sector aggregation over the value that HAS a sector label.
+      const sector = r.live.sector ?? r.raw.sector ?? null;
+      if (sector && sector.trim() !== "") {
+        sectorValue.set(sector, (sectorValue.get(sector) ?? 0) + r.metrics.currentValue);
+        sectorCovered += r.metrics.currentValue;
+      }
     }
     hhi = Math.round(sumSq * 10000);
+
+    // Top-3 combined weight.
+    const sortedDesc = [...stockWeightsPct].sort((a, b) => b - a);
+    top3WeightPct = sortedDesc.slice(0, 3).reduce((s, w) => s + w, 0);
+
+    // Largest sector as a share of the SECTOR-COVERED value (honest about coverage).
+    if (sectorCovered > 0) {
+      sectorCoveragePct = (sectorCovered / totalCurrent) * 100;
+      for (const [name, val] of sectorValue) {
+        const sPct = (val / sectorCovered) * 100;
+        if (topSectorWeightPct == null || sPct > topSectorWeightPct) {
+          topSectorWeightPct = sPct;
+          topSectorName = name;
+        }
+      }
+    }
   }
 
   // Weighted beta over the current value that HAS a beta.
@@ -160,6 +205,24 @@ export function computeRiskAnalytics(rows: RiskRow[]): RiskAnalytics {
       message: `${topSymbol} is ${topWeight.toFixed(1)}% of the portfolio (> ${RISK_THRESHOLDS.SINGLE_STOCK_PCT}%).`,
     });
   }
+  if (top3WeightPct != null && top3WeightPct > RISK_THRESHOLDS.TOP3_PCT && rows.length > 3) {
+    flags.push({
+      code: "TOP3_CONCENTRATION",
+      severity: "high",
+      message: `Top-3 holdings are ${top3WeightPct.toFixed(1)}% of the portfolio (> ${RISK_THRESHOLDS.TOP3_PCT}%).`,
+    });
+  }
+  if (
+    topSectorWeightPct != null &&
+    topSectorWeightPct > RISK_THRESHOLDS.SECTOR_PCT &&
+    topSectorName
+  ) {
+    flags.push({
+      code: "SECTOR_CONCENTRATION",
+      severity: "high",
+      message: `${topSectorName} is ${topSectorWeightPct.toFixed(1)}% of sector-classified value (> ${RISK_THRESHOLDS.SECTOR_PCT}%).`,
+    });
+  }
   if (hhi != null && hhi >= RISK_THRESHOLDS.HHI_HIGH) {
     flags.push({
       code: "HHI_HIGH",
@@ -178,6 +241,10 @@ export function computeRiskAnalytics(rows: RiskRow[]): RiskAnalytics {
   return {
     topHoldingWeightPct: topWeight,
     topHoldingSymbol: topSymbol,
+    top3WeightPct,
+    topSectorWeightPct,
+    topSectorName,
+    sectorCoveragePct,
     hhi,
     hhiLabel: hhiLabel(hhi),
     weightedBeta,

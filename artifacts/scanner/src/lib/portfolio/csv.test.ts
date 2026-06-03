@@ -5,8 +5,10 @@ import {
   parseDate,
   parsePortfolioCsv,
   buildCsvTemplate,
+  buildPortfolioCsv,
   CSV_TEMPLATE_COLUMNS,
 } from "./csv";
+import type { RawHolding } from "./types";
 
 describe("parseCsvRows", () => {
   it("handles quoted fields with embedded commas and escaped quotes", () => {
@@ -107,5 +109,64 @@ describe("parsePortfolioCsv", () => {
   it("errors on an empty file", () => {
     const r = parsePortfolioCsv("");
     expect(r.errors[0].message).toMatch(/empty/i);
+  });
+});
+
+describe("buildPortfolioCsv", () => {
+  it("writes the template header and only user-entered fields", () => {
+    const holdings: RawHolding[] = [
+      {
+        symbol: "TCS",
+        name: "Tata Consultancy",
+        exchange: "NSE",
+        sector: "IT",
+        purchaseDate: "2024-01-15",
+        qty: 10,
+        rate: 3000,
+        isin: "INE467B01029",
+        broker: "Zerodha",
+        tag: "core",
+        notes: "long term",
+        // Derived/advisory fields must NOT appear in the export.
+        targetPrice: 4000,
+        stopLoss: 2500,
+        dividendReceived: 500,
+        realisedPnl: 1200,
+      },
+    ];
+    const csv = buildPortfolioCsv(holdings);
+    const lines = csv.trim().split("\n");
+    expect(lines[0]).toBe(CSV_TEMPLATE_COLUMNS.join(","));
+    expect(csv).toContain("TCS");
+    expect(csv).toContain("INE467B01029");
+    // Advisory / derived fields must NOT be exported.
+    expect(csv).not.toContain("4000"); // targetPrice
+    expect(csv).not.toContain("2500"); // stopLoss
+    expect(csv).not.toContain("1200"); // realisedPnl
+  });
+
+  it("round-trips cleanly through parsePortfolioCsv", () => {
+    const holdings: RawHolding[] = [
+      { symbol: "INFY", name: "Infosys", exchange: "NSE", sector: "IT", purchaseDate: "2023-06-01", qty: 5, rate: 1400 },
+      { symbol: "HDFCBANK", name: "HDFC Bank", exchange: "NSE", sector: "Banking", purchaseDate: "2022-11-20", qty: 8, rate: 1500 },
+    ];
+    const parsed = parsePortfolioCsv(buildPortfolioCsv(holdings));
+    expect(parsed.errors.filter(e => e.field === "Qty" || e.field === "Rate")).toHaveLength(0);
+    expect(parsed.holdings).toHaveLength(2);
+    expect(parsed.holdings[0]).toMatchObject({ symbol: "INFY", qty: 5, rate: 1400, sector: "IT" });
+    expect(parsed.holdings[1]).toMatchObject({ symbol: "HDFCBANK", qty: 8, rate: 1500 });
+  });
+
+  it("quotes fields containing commas so notes survive the round-trip", () => {
+    const holdings: RawHolding[] = [
+      { symbol: "RELI", name: "Reliance", qty: 1, rate: 2500, notes: "buy more, on dips" },
+    ];
+    const parsed = parsePortfolioCsv(buildPortfolioCsv(holdings));
+    expect(parsed.holdings[0].notes).toBe("buy more, on dips");
+  });
+
+  it("produces a header-only file for an empty portfolio", () => {
+    const csv = buildPortfolioCsv([]);
+    expect(csv.trim()).toBe(CSV_TEMPLATE_COLUMNS.join(","));
   });
 });

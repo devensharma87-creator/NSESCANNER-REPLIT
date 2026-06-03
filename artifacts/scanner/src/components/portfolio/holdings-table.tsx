@@ -34,6 +34,15 @@ function valueFor(row: EnrichedRow, key: SortKey): number | string {
   }
 }
 
+/** Explicit, labelled unavailable cell — never a bare em-dash. */
+function Unavailable({ reason }: { reason: string }) {
+  return (
+    <span className="text-muted-foreground" title={reason}>
+      n/a
+    </span>
+  );
+}
+
 export function HoldingsTable({
   rows,
   onSelect,
@@ -151,25 +160,30 @@ export function HoldingsTable({
                       className="inline-flex items-center gap-1 text-amber-500"
                       title={provenance ? `${reasonText} (${provenance})` : reasonText}
                     >
-                      <AlertTriangle className="h-3 w-3" />—
+                      <AlertTriangle className="h-3 w-3" />
+                      n/a
                     </span>
                   )}
                 </td>
                 <td className="px-2 py-2 text-right font-mono">{fmtINR(metrics.invested)}</td>
-                <td className="px-2 py-2 text-right font-mono">{fmtINR(metrics.currentValue)}</td>
+                <td className="px-2 py-2 text-right font-mono">
+                  {metrics.currentValue == null ? <Unavailable reason={reasonText} /> : fmtINR(metrics.currentValue)}
+                </td>
                 <td className={`px-2 py-2 text-right font-mono ${pnlClass(metrics.dayChange)}`}>
-                  {fmtSignedINR(metrics.dayChange)}
+                  {metrics.dayChange == null ? <Unavailable reason={reasonText} /> : fmtSignedINR(metrics.dayChange)}
                 </td>
                 <td className={`px-2 py-2 text-right font-mono ${pnlClass(metrics.totalReturn)}`}>
-                  {fmtSignedINR(metrics.totalReturn)}
+                  {metrics.totalReturn == null ? <Unavailable reason={reasonText} /> : fmtSignedINR(metrics.totalReturn)}
                 </td>
                 <td className={`px-2 py-2 text-right font-mono ${pnlClass(metrics.totalReturnPct)}`}>
-                  {fmtPct(metrics.totalReturnPct)}
+                  {metrics.totalReturnPct == null ? <Unavailable reason={reasonText} /> : fmtPct(metrics.totalReturnPct)}
                 </td>
-                <td className="px-2 py-2 text-right font-mono">{fmtPct(metrics.weightPct, 1)}</td>
+                <td className="px-2 py-2 text-right font-mono">
+                  {metrics.weightPct == null ? <Unavailable reason={reasonText} /> : fmtPct(metrics.weightPct, 1)}
+                </td>
                 <td className="px-2 py-2 text-right font-mono">
                   {analytics.score == null ? (
-                    <span className="text-muted-foreground">—</span>
+                    <Unavailable reason="Structure score needs live data" />
                   ) : (
                     analytics.score
                   )}

@@ -15,6 +15,7 @@ import {
   Trash2,
   FolderOpen,
   Check,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +54,7 @@ export interface PortfolioToolbarProps {
   onRename: (name: string) => void;
   onSetDefault: () => void;
   onDelete: () => void;
+  onExport: () => void;
 }
 
 type NameMode = "create" | "saveas" | "rename" | null;
@@ -171,6 +173,13 @@ export function PortfolioToolbar(props: PortfolioToolbarProps) {
             data-testid="portfolio-setdefault"
           >
             <Star className="mr-2 h-3.5 w-3.5" /> Set as default
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={props.onExport}
+            disabled={!props.hasHoldings}
+            data-testid="portfolio-export"
+          >
+            <Download className="mr-2 h-3.5 w-3.5" /> Export CSV
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
