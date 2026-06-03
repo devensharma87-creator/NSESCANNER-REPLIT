@@ -17,6 +17,61 @@ const PALETTE = [
   "#c084fc",
 ];
 
+type SectorSlice = { name: string; value: number; color: string };
+
+type SectorTooltipPayloadEntry = {
+  name?: string;
+  value?: number;
+  payload?: SectorSlice;
+};
+
+function SectorTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: SectorTooltipPayloadEntry[];
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const entry = payload[0];
+  const name = entry?.payload?.name ?? entry?.name ?? "";
+  const value = typeof entry?.value === "number" ? entry.value : entry?.payload?.value;
+  const color = entry?.payload?.color;
+  return (
+    <div
+      style={{
+        background: "#0f172a",
+        color: "#e5edf8",
+        border: "1px solid rgba(148,163,184,0.35)",
+        borderRadius: 8,
+        padding: "8px 10px",
+        fontSize: 12,
+        lineHeight: 1.3,
+        boxShadow: "0 4px 14px rgba(0,0,0,0.45)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        {color && (
+          <span
+            style={{
+              display: "inline-block",
+              width: 8,
+              height: 8,
+              borderRadius: 2,
+              background: color,
+            }}
+          />
+        )}
+        <span style={{ fontWeight: 600 }}>{name}</span>
+        {typeof value === "number" && (
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>{value.toFixed(1)}%</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 export function SectorAllocationPanel({ allocation }: { allocation: SectorAllocation[] }) {
   const chartData = allocation
     .filter(a => a.weightPct != null && a.weightPct > 0)
@@ -52,13 +107,9 @@ export function SectorAllocationPanel({ allocation }: { allocation: SectorAlloca
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(v: number, n: string) => [`${v.toFixed(1)}%`, n]}
-                  contentStyle={{
-                    background: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 6,
-                    fontSize: 11,
-                  }}
+                  content={<SectorTooltip />}
+                  wrapperStyle={{ zIndex: 50, outline: "none" }}
+                  allowEscapeViewBox={{ x: false, y: true }}
                 />
               </PieChart>
             </ResponsiveContainer>

@@ -1,0 +1,98 @@
+Start a small controlled UI hotfix.
+
+Task name:
+
+Portfolio Analyser — Sector Allocation Tooltip Visibility Fix
+
+Issue:
+
+In the Portfolio Analyser page, the Sector Allocation donut tooltip is not readable. The tooltip shown on hover, for example:
+
+IT: 42.2%
+
+has poor contrast / dark text / bad background visibility. It is visible in the screenshot but the user cannot read it clearly.
+
+This is a UI-only fix.
+
+Strict rules
+Do not change portfolio calculations.
+Do not change saved portfolio logic.
+Do not change DB schema.
+Do not change portfolio API routes.
+Do not change enrichment logic.
+Do not change benchmark logic.
+Do not change risk analytics.
+Do not change trading/F&O/paper/scanner logic.
+Do not change Kite/session logic.
+Do not publish until reviewed.
+Required fix
+
+Fix the tooltip used in:
+
+Portfolio Analyser → Sector Allocation donut/chart
+
+Expected tooltip behaviour:
+
+Readable text
+High contrast background
+Clear border
+Proper padding
+Proper font size
+No clipping
+Correct z-index
+Works in dark theme
+Works on hover
+Works on smaller screens
+
+Suggested style:
+
+background: #0f172a or existing dark panel token
+text: #e5edf8 / white
+border: 1px solid rgba(148,163,184,0.35)
+border-radius: 8px
+padding: 8px 10px
+box-shadow: subtle dark shadow
+z-index above chart
+
+If this uses Recharts default tooltip, replace it with a custom tooltip component instead of relying on the default browser/Recharts styling.
+
+Scope
+
+Apply this fix to all Portfolio Analyser chart tooltips if there are multiple chart views:
+
+Sector allocation
+Stock allocation
+Market-cap allocation
+P&L contribution
+Win/Loss allocation
+
+But only change tooltip presentation, not chart data.
+
+Validation
+
+Check visually:
+
+hover over sector donut
+tooltip text clearly readable
+tooltip does not hide behind chart
+tooltip does not overflow badly
+tooltip works in dark mode
+no chart crash
+
+Run:
+
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/scanner run test
+Final report
+
+Provide:
+
+A. Files changed
+B. Tooltip component/style changed
+C. Charts affected
+D. Visual verification
+E. Tests run and result
+F. Confirmation no portfolio data/calculation/API/DB/trading logic changed
+G. Safe to publish yes/no
+
+Stop after report.
