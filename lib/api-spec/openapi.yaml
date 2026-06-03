@@ -20,6 +20,7 @@ tags:
   - name: global-watchlist
   - name: global-screener
   - name: global-status
+  - name: portfolio
 paths:
   /healthz:
     get:
@@ -1069,6 +1070,107 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/GlobalWatchlistDeleteResponse" }
+
+  /portfolios:
+    get:
+      operationId: listPortfolios
+      tags: [portfolio]
+      summary: List the current user's saved portfolios (metadata only)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PortfolioListResponse" }
+    post:
+      operationId: createPortfolio
+      tags: [portfolio]
+      summary: Create a named portfolio (optionally seeded with holdings)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PortfolioCreateBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Portfolio" }
+
+  /portfolios/{id}:
+    get:
+      operationId: getPortfolio
+      tags: [portfolio]
+      summary: Get one portfolio with its holdings
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Portfolio" }
+    patch:
+      operationId: updatePortfolio
+      tags: [portfolio]
+      summary: Rename a portfolio and/or set it as the user's default
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PortfolioPatchBody" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Portfolio" }
+    delete:
+      operationId: deletePortfolio
+      tags: [portfolio]
+      summary: Delete a portfolio and all its holdings
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PortfolioDeleteResponse" }
+
+  /portfolios/{id}/holdings:
+    put:
+      operationId: replacePortfolioHoldings
+      tags: [portfolio]
+      summary: Replace all holdings in a portfolio (bulk save)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PortfolioHoldingsReplaceBody" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Portfolio" }
 
   /global/screener-presets:
     get:
@@ -4372,6 +4474,111 @@ components:
         symbol: { type: string }
 
     GlobalWatchlistDeleteResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+
+    PortfolioHolding:
+      type: object
+      description: "A single saved holding. Stores ONLY user-supplied figures — never any live-market or fabricated value."
+      required: [id, symbol, qty, rate, sortIndex]
+      properties:
+        id: { type: string, format: uuid }
+        symbol: { type: string }
+        name: { type: string, nullable: true }
+        exchange: { type: string, nullable: true }
+        sector: { type: string, nullable: true }
+        purchaseDate:
+          type: string
+          nullable: true
+          description: "ISO yyyy-mm-dd (stored as text to avoid timezone shifts)."
+        qty: { type: number }
+        rate: { type: number }
+        isin: { type: string, nullable: true }
+        broker: { type: string, nullable: true }
+        tag: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        dividendReceived: { type: number, nullable: true }
+        realisedPnl: { type: number, nullable: true }
+        sortIndex: { type: number }
+
+    PortfolioHoldingInput:
+      type: object
+      required: [symbol, qty, rate]
+      properties:
+        symbol: { type: string }
+        name: { type: string, nullable: true }
+        exchange: { type: string, nullable: true }
+        sector: { type: string, nullable: true }
+        purchaseDate: { type: string, nullable: true }
+        qty: { type: number }
+        rate: { type: number }
+        isin: { type: string, nullable: true }
+        broker: { type: string, nullable: true }
+        tag: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        dividendReceived: { type: number, nullable: true }
+        realisedPnl: { type: number, nullable: true }
+
+    PortfolioSummary:
+      type: object
+      required: [id, name, isDefault, holdingsCount, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        isDefault: { type: boolean }
+        holdingsCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Portfolio:
+      type: object
+      required: [id, name, isDefault, createdAt, updatedAt, holdings]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        isDefault: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        holdings:
+          type: array
+          items: { $ref: "#/components/schemas/PortfolioHolding" }
+
+    PortfolioListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PortfolioSummary" }
+
+    PortfolioCreateBody:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        isDefault: { type: boolean }
+        holdings:
+          type: array
+          items: { $ref: "#/components/schemas/PortfolioHoldingInput" }
+
+    PortfolioPatchBody:
+      type: object
+      description: "Provide `name` to rename and/or `isDefault: true` to make this the user's default portfolio."
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        isDefault: { type: boolean }
+
+    PortfolioHoldingsReplaceBody:
+      type: object
+      required: [holdings]
+      properties:
+        holdings:
+          type: array
+          items: { $ref: "#/components/schemas/PortfolioHoldingInput" }
+
+    PortfolioDeleteResponse:
       type: object
       required: [ok]
       properties:

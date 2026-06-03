@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import {
   getStockDetail,
   searchChartInstruments,
   getChartCandles,
 } from "@workspace/api-client-react";
-import { Plus, RefreshCw, Database, FlaskConical, X, FolderOpen, AlertTriangle } from "lucide-react";
+import { Plus, RefreshCw, FlaskConical, X, FolderOpen, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ComplianceBanner } from "@/components/portfolio/compliance-banner";
 import { KpiStrip } from "@/components/portfolio/kpi-strip";
@@ -13,6 +13,9 @@ import { HoldingsTable } from "@/components/portfolio/holdings-table";
 import { SectorAllocationPanel } from "@/components/portfolio/sector-allocation";
 import { StockDeepDive } from "@/components/portfolio/stock-deepdive";
 import { UploadModal } from "@/components/portfolio/upload-modal";
+import { PortfolioToolbar } from "@/components/portfolio/portfolio-toolbar";
+import { RiskPanel, AllocationPanel, CostBasisPanel, BenchmarkPanel } from "@/components/portfolio/analytics-panels";
+import { Methodology } from "@/components/portfolio/methodology";
 import { fmtAge, fmtINR } from "@/components/portfolio/format";
 import type { RawHolding, LiveMetrics, EnrichedRow, EnrichmentMeta } from "@/lib/portfolio/types";
 import {
@@ -22,6 +25,10 @@ import {
   totalCurrentValue,
 } from "@/lib/portfolio/calc";
 import { computeAnalytics } from "@/lib/portfolio/score";
+import { computeRiskAnalytics } from "@/lib/portfolio/risk";
+import { computeHoldingPeriods, computeDividends, LONG_TERM_THRESHOLD_DAYS } from "@/lib/portfolio/holdingPeriod";
+import { compareToBenchmark } from "@/lib/portfolio/benchmark";
+import { usePortfolios, rawToInput, holdingToRaw } from "@/lib/portfolio/persistence";
 import {
   resolveHolding,
   pendingMeta,
@@ -52,11 +59,46 @@ const SAMPLE_HOLDINGS: RawHolding[] = [
   { symbol: "ITC", name: "ITC", sector: "FMCG", qty: 120, rate: 410, purchaseDate: "2023-08-05" },
 ];
 
+/** Stable signature of the holdings working-set for dirty tracking. */
+function signature(holdings: RawHolding[]): string {
+  return JSON.stringify(holdings.map(rawToInput));
+}
+
 export default function PortfolioAnalyser() {
   const [holdings, setHoldings] = useState<RawHolding[]>([]);
   const [isSample, setIsSample] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [currentName, setCurrentName] = useState<string | null>(null);
+  const [savedSig, setSavedSig] = useState<string>(signature([]));
+  const autoLoadedRef = useRef(false);
+
+  const pf = usePortfolios();
+  const currentSummary = pf.list.find(p => p.id === currentId) ?? null;
+  const isDefault = currentSummary?.isDefault ?? false;
+  const dirty = !isSample && signature(holdings) !== savedSig;
+
+  // Load the default portfolio once on first successful list fetch.
+  useEffect(() => {
+    if (autoLoadedRef.current || !pf.listReady) return;
+    autoLoadedRef.current = true;
+    if (!pf.defaultId) return;
+    void (async () => {
+      try {
+        const full = await pf.loadPortfolio(pf.defaultId!);
+        const raws = full.holdings.map(holdingToRaw);
+        setHoldings(raws);
+        setCurrentId(full.id);
+        setCurrentName(full.name);
+        setSavedSig(signature(raws));
+        setIsSample(false);
+      } catch {
+        /* honest no-op: a failed auto-load leaves the empty state visible */
+      }
+    })();
+  }, [pf.listReady, pf.defaultId, pf]);
 
   const results = useQueries({
     queries: holdings.map(h => ({
@@ -108,6 +150,28 @@ export default function PortfolioAnalyser() {
     [enriched],
   );
 
+  const analyticsRows = useMemo(
+    () => enriched.map(r => ({ raw: r.raw, live: r.live, metrics: r.metrics })),
+    [enriched],
+  );
+  const risk = useMemo(() => computeRiskAnalytics(analyticsRows), [analyticsRows]);
+  const holdingPeriod = useMemo(
+    () => computeHoldingPeriods(analyticsRows, LONG_TERM_THRESHOLD_DAYS),
+    [analyticsRows],
+  );
+  const dividends = useMemo(() => computeDividends(analyticsRows), [analyticsRows]);
+  const benchmark = useMemo(
+    () =>
+      compareToBenchmark({
+        portfolioReturnPct: summary.totalReturnPct,
+        // No index close-series is wired in this build → honestly unavailable.
+        benchmarkReturnPct: null,
+        benchmarkName: "NIFTY 50",
+        windowLabel: null,
+      }),
+    [summary.totalReturnPct],
+  );
+
   const lastUpdated = useMemo(() => {
     const ts = results.map(r => r.dataUpdatedAt).filter(t => t > 0);
     return ts.length ? Math.max(...ts) : null;
@@ -128,6 +192,9 @@ export default function PortfolioAnalyser() {
   function loadSample() {
     setHoldings(SAMPLE_HOLDINGS);
     setIsSample(true);
+    setCurrentId(null);
+    setCurrentName(null);
+    setSavedSig(signature([]));
   }
 
   function clearAll() {
@@ -140,13 +207,101 @@ export default function PortfolioAnalyser() {
     if (selected === symbol) setSelected(null);
   }
 
+  // ----- Persistence actions -----
+  function newEmpty() {
+    setHoldings([]);
+    setIsSample(false);
+    setCurrentId(null);
+    setCurrentName(null);
+    setSavedSig(signature([]));
+  }
+
+  async function switchTo(id: string) {
+    try {
+      const full = await pf.loadPortfolio(id);
+      const raws = full.holdings.map(holdingToRaw);
+      setHoldings(raws);
+      setCurrentId(full.id);
+      setCurrentName(full.name);
+      setSavedSig(signature(raws));
+      setIsSample(false);
+    } catch {
+      /* leave current view untouched on load failure */
+    }
+  }
+
+  async function saveCurrent() {
+    if (!currentId) return;
+    try {
+      await pf.saveHoldings(currentId, holdings);
+      setSavedSig(signature(holdings));
+    } catch {
+      /* network error: dirty flag stays set so the user can retry */
+    }
+  }
+
+  async function createNamed(name: string) {
+    try {
+      const created = await pf.create(name, holdings, pf.list.length === 0);
+      setCurrentId(created.id);
+      setCurrentName(created.name);
+      setSavedSig(signature(holdings));
+      setIsSample(false);
+    } catch {
+      /* no-op */
+    }
+  }
+
+  async function saveAs(name: string) {
+    try {
+      const created = await pf.create(name, holdings, false);
+      setCurrentId(created.id);
+      setCurrentName(created.name);
+      setSavedSig(signature(holdings));
+      setIsSample(false);
+    } catch {
+      /* no-op */
+    }
+  }
+
+  async function rename(name: string) {
+    if (!currentId) return;
+    try {
+      const updated = await pf.rename(currentId, name);
+      setCurrentName(updated.name);
+    } catch {
+      /* no-op */
+    }
+  }
+
+  async function setDefault() {
+    if (!currentId) return;
+    try {
+      await pf.setDefault(currentId);
+    } catch {
+      /* no-op */
+    }
+  }
+
+  async function deleteCurrent() {
+    if (!currentId) return;
+    if (!window.confirm(`Delete "${currentName ?? "this portfolio"}"? This cannot be undone.`)) return;
+    try {
+      await pf.remove(currentId);
+      newEmpty();
+    } catch {
+      /* no-op */
+    }
+  }
+
   return (
     <div className="space-y-4" data-testid="page-portfolio-analyser">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold">Portfolio Analyser</h1>
           <p className="text-xs text-muted-foreground">
-            Read-only structure analytics for your holdings · live prices via Kite / Yahoo
+            Read-only structure analytics for your holdings · live prices via Kite / Yahoo · saved
+            privately to your account
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -171,6 +326,35 @@ export default function PortfolioAnalyser() {
       </div>
 
       <ComplianceBanner />
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <PortfolioToolbar
+          list={pf.list}
+          listReady={pf.listReady}
+          currentId={currentId}
+          currentName={currentName}
+          isDefault={isDefault}
+          dirty={dirty}
+          saving={pf.saving}
+          hasHoldings={holdings.length > 0 && !isSample}
+          onSwitch={switchTo}
+          onNew={newEmpty}
+          onSave={saveCurrent}
+          onSaveAs={saveAs}
+          onCreateNamed={createNamed}
+          onRename={rename}
+          onSetDefault={setDefault}
+          onDelete={deleteCurrent}
+        />
+        {dirty && currentId && (
+          <span className="text-[11px] text-amber-400" data-testid="dirty-indicator">
+            Unsaved changes
+          </span>
+        )}
+        {isSample && (
+          <span className="text-[11px] text-amber-400">Sample data — saving is disabled</span>
+        )}
+      </div>
 
       {isSample && (
         <div
@@ -199,8 +383,10 @@ export default function PortfolioAnalyser() {
           <div>
             <p className="text-sm font-medium">No holdings loaded</p>
             <p className="text-xs text-muted-foreground">
-              Import a CSV or add holdings manually. Nothing is fabricated — every figure is computed
-              from your input and live market data.
+              {pf.list.length > 0
+                ? "Pick a saved portfolio from the switcher, import a CSV, or add holdings manually."
+                : "Import a CSV or add holdings manually, then Save to keep it on your account."}{" "}
+              Nothing is fabricated — every figure is computed from your input and live market data.
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
@@ -209,15 +395,6 @@ export default function PortfolioAnalyser() {
             </Button>
             <Button variant="outline" size="sm" onClick={loadSample} data-testid="btn-load-sample">
               <FlaskConical className="mr-1 h-3.5 w-3.5" /> Load sample (preview only)
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled
-              title="Database-backed portfolios are not configured in v1"
-              data-testid="btn-load-db"
-            >
-              <Database className="mr-1 h-3.5 w-3.5" /> Load from Database
             </Button>
           </div>
         </div>
@@ -248,6 +425,13 @@ export default function PortfolioAnalyser() {
             <HoldingsTable rows={enriched} onSelect={setSelected} onRemove={removeOne} />
             <SectorAllocationPanel allocation={allocation} />
           </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <RiskPanel risk={risk} />
+            <AllocationPanel rows={analyticsRows} />
+            <CostBasisPanel holdingPeriod={holdingPeriod} dividends={dividends} />
+            <BenchmarkPanel comparison={benchmark} />
+          </div>
+          <Methodology />
         </>
       )}
 

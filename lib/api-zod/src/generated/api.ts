@@ -6231,6 +6231,222 @@ export const DeleteGlobalWatchlistResponse = zod.object({
 });
 
 /**
+ * @summary List the current user's saved portfolios (metadata only)
+ */
+export const ListPortfoliosResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      name: zod.string(),
+      isDefault: zod.boolean(),
+      holdingsCount: zod.number(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a named portfolio (optionally seeded with holdings)
+ */
+export const createPortfolioBodyNameMax = 80;
+
+export const CreatePortfolioBody = zod.object({
+  name: zod.string().min(1).max(createPortfolioBodyNameMax),
+  isDefault: zod.boolean().optional(),
+  holdings: zod
+    .array(
+      zod.object({
+        symbol: zod.string(),
+        name: zod.string().nullish(),
+        exchange: zod.string().nullish(),
+        sector: zod.string().nullish(),
+        purchaseDate: zod.string().nullish(),
+        qty: zod.number(),
+        rate: zod.number(),
+        isin: zod.string().nullish(),
+        broker: zod.string().nullish(),
+        tag: zod.string().nullish(),
+        notes: zod.string().nullish(),
+        dividendReceived: zod.number().nullish(),
+        realisedPnl: zod.number().nullish(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * @summary Get one portfolio with its holdings
+ */
+export const GetPortfolioParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const GetPortfolioResponse = zod.object({
+  id: zod.string().uuid(),
+  name: zod.string(),
+  isDefault: zod.boolean(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  holdings: zod.array(
+    zod
+      .object({
+        id: zod.string().uuid(),
+        symbol: zod.string(),
+        name: zod.string().nullish(),
+        exchange: zod.string().nullish(),
+        sector: zod.string().nullish(),
+        purchaseDate: zod
+          .string()
+          .nullish()
+          .describe(
+            "ISO yyyy-mm-dd (stored as text to avoid timezone shifts).",
+          ),
+        qty: zod.number(),
+        rate: zod.number(),
+        isin: zod.string().nullish(),
+        broker: zod.string().nullish(),
+        tag: zod.string().nullish(),
+        notes: zod.string().nullish(),
+        dividendReceived: zod.number().nullish(),
+        realisedPnl: zod.number().nullish(),
+        sortIndex: zod.number(),
+      })
+      .describe(
+        "A single saved holding. Stores ONLY user-supplied figures — never any live-market or fabricated value.",
+      ),
+  ),
+});
+
+/**
+ * @summary Rename a portfolio and/or set it as the user's default
+ */
+export const UpdatePortfolioParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const updatePortfolioBodyNameMax = 80;
+
+export const UpdatePortfolioBody = zod
+  .object({
+    name: zod.string().min(1).max(updatePortfolioBodyNameMax).optional(),
+    isDefault: zod.boolean().optional(),
+  })
+  .describe(
+    "Provide `name` to rename and\/or `isDefault: true` to make this the user's default portfolio.",
+  );
+
+export const UpdatePortfolioResponse = zod.object({
+  id: zod.string().uuid(),
+  name: zod.string(),
+  isDefault: zod.boolean(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  holdings: zod.array(
+    zod
+      .object({
+        id: zod.string().uuid(),
+        symbol: zod.string(),
+        name: zod.string().nullish(),
+        exchange: zod.string().nullish(),
+        sector: zod.string().nullish(),
+        purchaseDate: zod
+          .string()
+          .nullish()
+          .describe(
+            "ISO yyyy-mm-dd (stored as text to avoid timezone shifts).",
+          ),
+        qty: zod.number(),
+        rate: zod.number(),
+        isin: zod.string().nullish(),
+        broker: zod.string().nullish(),
+        tag: zod.string().nullish(),
+        notes: zod.string().nullish(),
+        dividendReceived: zod.number().nullish(),
+        realisedPnl: zod.number().nullish(),
+        sortIndex: zod.number(),
+      })
+      .describe(
+        "A single saved holding. Stores ONLY user-supplied figures — never any live-market or fabricated value.",
+      ),
+  ),
+});
+
+/**
+ * @summary Delete a portfolio and all its holdings
+ */
+export const DeletePortfolioParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const DeletePortfolioResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Replace all holdings in a portfolio (bulk save)
+ */
+export const ReplacePortfolioHoldingsParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const ReplacePortfolioHoldingsBody = zod.object({
+  holdings: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      name: zod.string().nullish(),
+      exchange: zod.string().nullish(),
+      sector: zod.string().nullish(),
+      purchaseDate: zod.string().nullish(),
+      qty: zod.number(),
+      rate: zod.number(),
+      isin: zod.string().nullish(),
+      broker: zod.string().nullish(),
+      tag: zod.string().nullish(),
+      notes: zod.string().nullish(),
+      dividendReceived: zod.number().nullish(),
+      realisedPnl: zod.number().nullish(),
+    }),
+  ),
+});
+
+export const ReplacePortfolioHoldingsResponse = zod.object({
+  id: zod.string().uuid(),
+  name: zod.string(),
+  isDefault: zod.boolean(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  holdings: zod.array(
+    zod
+      .object({
+        id: zod.string().uuid(),
+        symbol: zod.string(),
+        name: zod.string().nullish(),
+        exchange: zod.string().nullish(),
+        sector: zod.string().nullish(),
+        purchaseDate: zod
+          .string()
+          .nullish()
+          .describe(
+            "ISO yyyy-mm-dd (stored as text to avoid timezone shifts).",
+          ),
+        qty: zod.number(),
+        rate: zod.number(),
+        isin: zod.string().nullish(),
+        broker: zod.string().nullish(),
+        tag: zod.string().nullish(),
+        notes: zod.string().nullish(),
+        dividendReceived: zod.number().nullish(),
+        realisedPnl: zod.number().nullish(),
+        sortIndex: zod.number(),
+      })
+      .describe(
+        "A single saved holding. Stores ONLY user-supplied figures — never any live-market or fabricated value.",
+      ),
+  ),
+});
+
+/**
  * @summary List the current user's saved screener presets
  */
 

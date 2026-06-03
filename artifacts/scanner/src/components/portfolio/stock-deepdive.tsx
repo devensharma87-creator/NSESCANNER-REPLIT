@@ -17,11 +17,21 @@ import { AlertTriangle, ExternalLink } from "lucide-react";
 import type { EnrichedRow } from "@/lib/portfolio/types";
 import { fmtINR, fmtPct, fmtSignedINR, fmtNum, pnlClass, actionViewClass } from "./format";
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  const unavailable = value === "—";
   return (
     <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="font-mono text-sm">{value}</div>
+      {unavailable ? (
+        <div
+          className="font-mono text-sm text-muted-foreground/70"
+          title={hint ?? "Not reported by the data source for this symbol."}
+        >
+          n/a
+        </div>
+      ) : (
+        <div className="font-mono text-sm">{value}</div>
+      )}
     </div>
   );
 }
@@ -120,7 +130,12 @@ export function StockDeepDive({
                   <>
                     <div className="mb-2 flex items-center gap-2">
                       <div className="font-mono text-2xl font-semibold">{row.analytics.score}</div>
-                      <div className="text-xs text-muted-foreground">/ 100 structure score</div>
+                      <div
+                        className="cursor-help text-xs text-muted-foreground"
+                        title="0–100 transparent blend of available objective signals (price-vs-DMA structure, RSI, realised-return quality, concentration). Bands: 0–39 weak · 40–59 mixed · 60–79 constructive · 80–100 strong. Fundamentals are NOT scored. Analytics, not advice."
+                      >
+                        / 100 structure score ⓘ
+                      </div>
                     </div>
                     <ul className="space-y-1 text-xs text-muted-foreground">
                       {row.analytics.reasons.map((r, i) => (
@@ -208,8 +223,11 @@ export function StockDeepDive({
 
               {/* News */}
               <section>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Recent News
+                  <span className="rounded bg-muted px-1 text-[9px] font-normal normal-case text-muted-foreground">
+                    {row.raw.symbol} only
+                  </span>
                 </h4>
                 {newsQ.isLoading ? (
                   <div className="text-xs text-muted-foreground">Loading…</div>

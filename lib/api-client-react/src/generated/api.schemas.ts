@@ -3587,6 +3587,96 @@ export interface GlobalWatchlistDeleteResponse {
 }
 
 /**
+ * A single saved holding. Stores ONLY user-supplied figures — never any live-market or fabricated value.
+ */
+export interface PortfolioHolding {
+  id: string;
+  symbol: string;
+  name?: string | null;
+  exchange?: string | null;
+  sector?: string | null;
+  /** ISO yyyy-mm-dd (stored as text to avoid timezone shifts). */
+  purchaseDate?: string | null;
+  qty: number;
+  rate: number;
+  isin?: string | null;
+  broker?: string | null;
+  tag?: string | null;
+  notes?: string | null;
+  dividendReceived?: number | null;
+  realisedPnl?: number | null;
+  sortIndex: number;
+}
+
+export interface PortfolioHoldingInput {
+  symbol: string;
+  name?: string | null;
+  exchange?: string | null;
+  sector?: string | null;
+  purchaseDate?: string | null;
+  qty: number;
+  rate: number;
+  isin?: string | null;
+  broker?: string | null;
+  tag?: string | null;
+  notes?: string | null;
+  dividendReceived?: number | null;
+  realisedPnl?: number | null;
+}
+
+export interface PortfolioSummary {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  holdingsCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Portfolio {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+  holdings: PortfolioHolding[];
+}
+
+export interface PortfolioListResponse {
+  items: PortfolioSummary[];
+}
+
+export interface PortfolioCreateBody {
+  /**
+   * @minLength 1
+   * @maxLength 80
+   */
+  name: string;
+  isDefault?: boolean;
+  holdings?: PortfolioHoldingInput[];
+}
+
+/**
+ * Provide `name` to rename and/or `isDefault: true` to make this the user's default portfolio.
+ */
+export interface PortfolioPatchBody {
+  /**
+   * @minLength 1
+   * @maxLength 80
+   */
+  name?: string;
+  isDefault?: boolean;
+}
+
+export interface PortfolioHoldingsReplaceBody {
+  holdings: PortfolioHoldingInput[];
+}
+
+export interface PortfolioDeleteResponse {
+  ok: boolean;
+}
+
+/**
  * An instrument that has failed >= threshold consecutive refresh cycles — likely delisted upstream and a candidate for pruning from `universe.ts`.
  */
 export interface GlobalDeadCandidate {
