@@ -286,9 +286,28 @@ export default function PortfolioAnalyser() {
   async function deleteCurrent() {
     if (!currentId) return;
     if (!window.confirm(`Delete "${currentName ?? "this portfolio"}"? This cannot be undone.`)) return;
+    const deletedId = currentId;
+    const wasDefault = isDefault;
     try {
-      await pf.remove(currentId);
-      newEmpty();
+      await pf.remove(deletedId);
+      // Promote a fallback so the user keeps a loaded portfolio and the
+      // auto-load-on-refresh path (which keys off the default) still works.
+      const remaining = pf.list.filter(p => p.id !== deletedId);
+      const next = remaining.find(p => p.isDefault) ?? remaining[0] ?? null;
+      if (next) {
+        // If we deleted the default, promote the next one server-side so a
+        // refresh reloads it instead of an empty view.
+        if (wasDefault) {
+          try {
+            await pf.setDefault(next.id);
+          } catch {
+            /* non-fatal: switch still loads it for this session */
+          }
+        }
+        await switchTo(next.id);
+      } else {
+        newEmpty();
+      }
     } catch {
       /* no-op */
     }
