@@ -1,0 +1,184 @@
+Portfolio Analyser Phase 2 implementation appears complete.
+
+Before publish, provide the final controlled release report.
+
+Task:
+
+Portfolio Analyser Phase 2 — Final Release Gate Report
+
+Do not start any queued follow-up tasks yet.
+
+Do not publish yet.
+
+Do not apply production DB migration yet unless already explicitly approved.
+
+1. Final implementation summary
+
+Confirm what is now implemented:
+
+Saved portfolio persistence
+Create portfolio
+Save portfolio
+Load after refresh
+Edit holding
+Delete holding
+Clear portfolio and save empty
+Delete default portfolio fallback
+CSV import then save
+Manual add then save
+CSV export
+Default portfolio handling
+Owner/user portfolio isolation
+Risk analytics
+Sector concentration
+Top-3 concentration
+Dividend + realised P&L handling
+Annualised return / XIRR correction
+DMA fallback
+NIFTY 50 benchmark where feasible
+NIFTY 500/sector benchmark unavailable labelling
+ETF unavailable handling
+Methodology documentation
+2. DB schema / migration report
+
+Give exact DB details:
+
+Tables added
+Columns added
+Indexes added
+Foreign keys, if any
+Owner/user scoping field
+Migration file name
+Whether migration is additive
+Whether migration is non-destructive
+Whether any existing table/column was modified
+Whether production migration has already been applied
+Whether schema push was dev-only
+Production migration steps required
+Rollback plan if migration fails
+
+Critical confirmation:
+
+No destructive migration.
+No existing user data affected.
+No portfolio data shared across users.
+3. API report
+
+List all new/changed portfolio API endpoints.
+
+For each endpoint, confirm:
+
+method
+path
+purpose
+auth required yes/no
+ownerKey/user scoping yes/no
+validation used
+error handling
+
+Confirm:
+
+No public portfolio access.
+No auth bypass.
+No cross-user portfolio leak.
+4. Persistence proof
+
+Provide proof for:
+
+Create portfolio works
+Save portfolio works
+Refresh reloads saved portfolio
+Edit holding persists
+Delete holding persists
+Clear portfolio persists
+Delete default portfolio safely falls back
+Duplicate portfolio name protection works
+Portfolio limit protection works
+CSV import then save works
+Manual add then save works
+Export analysed CSV works
+5. Data and analytics corrections
+
+Confirm:
+
+50-DMA / 200-DMA now populate from detail endpoint or candle fallback
+Insufficient history is labelled properly
+Fundamentals populate where available
+Missing fundamentals show meaningful unavailable state
+ETF fundamentals show not applicable
+Trend / structure score has 0–100 explanation
+Day P&L formula uses previous close
+Total P&L formula uses current value - invested value
+Dividend + realised P&L are included where applicable
+No NaN / undefined / null / bare broken fields
+6. Benchmark and ETF status
+
+Confirm:
+
+NIFTY 50 benchmark implemented where feasible
+NIFTY 500 benchmark unavailable if not in source
+Sector benchmark unavailable if not in source
+No fake benchmark weights
+ETF CMP status
+NIFTYBEES / GOLDBEES / BANKBEES status
+No fake ETF CMP
+ETF rows preserved
+7. Files changed
+
+List files by category:
+
+DB/schema
+API server
+OpenAPI/codegen
+Portfolio frontend page
+Portfolio components
+Portfolio libs
+Tests
+Docs/replit note
+8. Tests and review
+
+Report exact results:
+
+pnpm run typecheck
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/api-server run test
+architect review
+browser/runtime check
+
+Include final counts:
+
+Scanner tests: ___ / ___
+API-server tests: ___ / ___
+Typecheck: pass/fail
+Architect review: pass/fail
+9. Guardrail confirmation
+
+Confirm:
+
+No trading logic changed
+No F&O logic changed
+No paper-trading execution changed
+No scanner scoring changed
+No Kite auth/session logic changed
+No env/secret change
+No scheduler change
+No public portfolio exposure
+No auth downgrade
+No destructive migration
+10. Publish readiness
+
+End the report with:
+
+Safe to publish: YES/NO
+Production DB migration required: YES/NO
+Rollback risk: LOW/MEDIUM/HIGH
+Known limitations:
+1.
+2.
+3.
+
+Stop after this report.
+
+Do not publish.
+
+Do not start queued follow-up tasks.
