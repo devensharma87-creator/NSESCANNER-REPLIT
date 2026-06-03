@@ -1,0 +1,733 @@
+Start a new separate controlled task.
+
+Task name:
+
+```text id="pbjuhy"
+Portfolio Analyser Phase 2 — Save Portfolio, Data Completeness, Corrections, and Risk Analytics
+```
+
+Context:
+
+The Portfolio Analyser is live and useful, but there are important gaps:
+
+```text id="hci26d"
+1. User-added portfolio disappears after refresh.
+2. Some detail-drawer fields show em-dashes.
+3. 50-DMA / 200-DMA / fundamentals are not consistently populated.
+4. XIRR label may be misleading if only average cost + single purchase date are available.
+5. Trend Strength number lacks scale/meaning.
+6. Day P&L calculation must be verified.
+7. Portfolio risk/concentration analytics are missing.
+8. Benchmark comparison is unavailable.
+9. ETF CMP coverage remains unresolved.
+10. News must be symbol-specific and timestamped.
+```
+
+Kite live session is now live again, so use available live market data where genuinely supported.
+
+---
+
+# Primary goal
+
+Upgrade Portfolio Analyser so the user can:
+
+```text id="ym4i1f"
+save a portfolio
+reload the saved portfolio after refresh
+edit holdings
+delete holdings
+upload CSV and save it
+manually add holdings and save them
+recalculate/enrich holdings using live data
+see complete and honest analytics
+```
+
+The module must preserve every user-entered holding and must never fabricate data.
+
+---
+
+# Absolute rules
+
+```text id="pj5srj"
+Do not drop any portfolio row.
+Do not fake CMP.
+Do not fake fundamentals.
+Do not fake DMA values.
+Do not fake XIRR.
+Do not fake news.
+Do not fake benchmark data.
+Do not show mock data as live.
+Do not expose user portfolio data publicly.
+Do not change trading logic.
+Do not change F&O logic.
+Do not change paper-trading execution.
+Do not change stop/target/sizing.
+Do not change scanner scoring.
+Do not change Kite auth/session logic.
+Do not change scheduler.
+Do not publish until reviewed.
+```
+
+This task is for Portfolio Analyser only.
+
+---
+
+# Part 1 — Save portfolio permanently
+
+The current portfolio vanishes after refresh because it is client/session state. Fix this properly.
+
+## Required persistence behaviour
+
+Implement database-backed saved portfolios.
+
+User should be able to:
+
+```text id="g6t3xl"
+create portfolio
+save portfolio
+load saved portfolio after refresh
+edit holding
+delete holding
+clear portfolio
+import CSV into portfolio
+manually add holding
+rename portfolio
+set default portfolio
+export portfolio CSV
+```
+
+After browser refresh:
+
+```text id="wpmjtv"
+saved portfolio must remain available
+all holdings must reload
+all original CSV/user-entered fields must be preserved
+```
+
+## Data to preserve per holding
+
+Save:
+
+```text id="zklhmv"
+originalSymbol
+resolvedSymbol
+stockName
+exchange
+segment/type
+ISIN if available
+dateOfPurchase
+qty
+rate
+investedValue
+broker
+tag
+notes
+dividendReceived if provided
+realisedPnl if provided
+createdAt
+updatedAt
+```
+
+Do not save only enriched values. Save the user’s original inputs also.
+
+---
+
+# Database/schema rule
+
+This task requires persistence, so a DB schema change is expected.
+
+But keep it minimal and controlled.
+
+Before applying migration, provide schema plan.
+
+Suggested tables:
+
+```text id="ez22wy"
+portfolio_accounts / portfolios
+portfolio_holdings
+```
+
+Suggested structure:
+
+```text id="q3tvx3"
+portfolios:
+  id
+  user_id / owner_id / account_id based on existing auth model
+  name
+  currency default INR
+  is_default
+  created_at
+  updated_at
+
+portfolio_holdings:
+  id
+  portfolio_id
+  original_symbol
+  resolved_symbol
+  stock_name
+  exchange
+  instrument_type
+  isin
+  purchase_date
+  qty
+  rate
+  broker
+  tag
+  notes
+  dividend_received
+  realised_pnl
+  created_at
+  updated_at
+```
+
+Important:
+
+```text id="b8w45u"
+Use existing auth/user model.
+Do not invent a new auth system.
+Do not expose saved portfolio across users.
+Do not store secrets.
+Do not log full portfolio payload unnecessarily.
+```
+
+If the current app does not have a reliable user identity for persistence, stop and report options before implementing.
+
+---
+
+# Required API endpoints
+
+Add minimal portfolio APIs only if needed.
+
+Expected endpoints:
+
+```text id="39z3ce"
+GET /api/portfolio
+POST /api/portfolio
+PUT /api/portfolio/:id
+DELETE /api/portfolio/:id
+
+GET /api/portfolio/:id/holdings
+POST /api/portfolio/:id/holdings
+PUT /api/portfolio/:id/holdings/:holdingId
+DELETE /api/portfolio/:id/holdings/:holdingId
+```
+
+Alternative endpoint design is acceptable if it fits existing project patterns.
+
+All routes must be authenticated.
+
+No public access.
+
+---
+
+# Part 2 — Fix missing detail drawer fields
+
+Current issue:
+
+```text id="xeux5t"
+50-DMA, 200-DMA, fundamentals, beta, D/E, ROE, ROCE, P/E, P/B often show —
+```
+
+Fix behaviour:
+
+```text id="gov2yh"
+If data exists, populate it.
+If data does not exist, show clear unavailable reason.
+Do not leave a wall of bare em-dashes.
+```
+
+## Technicals
+
+For each stock, populate where possible:
+
+```text id="fr2xjw"
+50-DMA
+200-DMA
+RSI
+VWAP if available/applicable
+support zone
+resistance zone
+trend/structure score
+distance from 50-DMA
+distance from 200-DMA
+52-week high/low distance if available
+```
+
+If 50-DMA/200-DMA are not provided by stock detail endpoint:
+
+```text id="dgbbie"
+calculate from candle history using existing chart/candle data
+use daily candles
+use real candle closes
+do not invent history
+if insufficient bars, show Insufficient history
+```
+
+## Fundamentals
+
+Populate if existing APIs provide:
+
+```text id="h5n6eg"
+P/E
+P/B
+ROE
+ROCE
+Debt/Equity
+Beta
+Market Cap
+Dividend Yield
+Sector
+Industry
+```
+
+If unavailable:
+
+```text id="03mrfh"
+show "Fundamental data unavailable"
+show source/freshness if available
+do not show plain —
+```
+
+For ETFs:
+
+```text id="bahwte"
+show "Fundamentals not applicable for ETF"
+do not show fake PE/ROE/Debt/Equity
+```
+
+---
+
+# Part 3 — Correct XIRR / annualised return label
+
+Do not mislabel average-cost returns as XIRR.
+
+Rule:
+
+```text id="8kxndh"
+If only single purchase date + avg rate are available:
+  show Annualised Return Estimate, not XIRR.
+
+If transaction-level cashflows exist:
+  show XIRR.
+
+If dividends/realised exits are missing:
+  show XIRR unavailable / requires transaction history.
+```
+
+Add explanation tooltip:
+
+```text id="kfi90z"
+XIRR requires dated cashflows such as buys, sells, and dividends. With only average price and one purchase date, the system shows an annualised return estimate.
+```
+
+---
+
+# Part 4 — Define Trend Strength / Structure Score
+
+Current issue:
+
+```text id="5z63qh"
+Trend Strength 34 has no unit or meaning.
+```
+
+Fix:
+
+```text id="9h23jk"
+Rename clearly or explain scale.
+```
+
+Allowed labels:
+
+```text id="q65mms"
+Structure Score: 0–100
+Trend Strength: 0–100 proprietary structure score
+ADX: only if actually calculated as ADX
+```
+
+Add tooltip/methodology:
+
+```text id="nkexng"
+Score uses available technical structure, price vs moving averages, RSI, return quality, and data availability. Missing data reduces confidence.
+```
+
+Do not call it ADX unless ADX is actually implemented.
+
+---
+
+# Part 5 — Verify Day P&L formula
+
+Confirm Day P&L uses previous close, not average cost.
+
+Formula:
+
+```text id="lm2295"
+Day P&L = Qty * (CMP - Previous Close)
+Day % Change = ((CMP - Previous Close) / Previous Close) * 100
+```
+
+Total P&L:
+
+```text id="ftw3xn"
+Total P&L = Current Value - Invested Value
+```
+
+Add tests to prevent formula regression.
+
+---
+
+# Part 6 — Add Portfolio Risk Analytics panel
+
+Add a new panel:
+
+```text id="5ihzqe"
+Portfolio Risk Analytics
+```
+
+Include:
+
+```text id="bky376"
+single-stock concentration
+sector concentration
+Herfindahl-Hirschman Index / concentration score
+weighted portfolio beta if beta data exists
+top P&L contributor
+worst P&L drag
+winner/loser count
+unrealised gain/loss distribution
+data availability score
+```
+
+## Concentration rules
+
+Flag:
+
+```text id="co4h7h"
+single holding > 20%
+single sector > 35%
+top 3 holdings > 60%
+too many correlated stocks in same sector
+high missing-data percentage
+```
+
+## Correlation clustering
+
+Only implement if data is available and clean.
+
+Preferred:
+
+```text id="0w1dth"
+Use daily returns from candle data.
+Calculate correlation between holdings.
+Show high-correlation clusters.
+```
+
+If not feasible in this phase:
+
+```text id="5ehnwp"
+Show "Correlation clustering unavailable — requires sufficient daily history."
+```
+
+Do not fake correlation.
+
+---
+
+# Part 7 — Add benchmark comparison
+
+Add benchmark comparison where feasible.
+
+Preferred benchmarks:
+
+```text id="xgqyei"
+NIFTY 50
+NIFTY 500 if available
+sector index where available
+```
+
+Show:
+
+```text id="89tyx7"
+portfolio return vs benchmark return for same holding period
+portfolio relative performance
+sector overweight/underweight if benchmark sector weights are available
+```
+
+If NIFTY 500 sector weights are not available:
+
+```text id="ag7slg"
+show "Benchmark sector weights unavailable"
+```
+
+Do not use fake benchmark weights.
+
+---
+
+# Part 8 — Add allocation views
+
+Add allocation toggles:
+
+```text id="6u7fau"
+Sector allocation
+Stock weight allocation
+Market-cap allocation if market-cap category exists
+P&L contribution
+Winner/loser view
+```
+
+If market cap category is missing:
+
+```text id="fwzjzr"
+show Market-cap allocation unavailable
+```
+
+Do not guess large/mid/small cap unless reliable market-cap data exists.
+
+---
+
+# Part 9 — Add cost-basis / tax-lot factual view
+
+Add factual holding-period classification.
+
+For Indian listed equity, do not give tax advice. Show only factual holding period.
+
+Display:
+
+```text id="dtyzh0"
+holding days
+holding period bucket
+short-term / long-term classification based on configured rule
+days until long-term bucket if applicable
+```
+
+Important:
+
+```text id="cmahc9"
+Do not show tax payable.
+Do not give tax advice.
+Verify current Indian tax rules before hardcoding thresholds.
+Make threshold configurable.
+```
+
+---
+
+# Part 10 — Dividend tracking
+
+Add optional fields:
+
+```text id="nylptt"
+dividend received
+yield on cost
+total return including dividends
+```
+
+Formula:
+
+```text id="dpfpcn"
+Total Return Including Dividends = Current Value + Dividend Received + Realised P&L - Invested Value
+```
+
+If dividend data is not entered:
+
+```text id="30v7mg"
+show Dividend data not provided
+```
+
+---
+
+# Part 11 — News improvements
+
+Current issue:
+
+```text id="le0abj"
+News may be generic sector news, not stock-specific.
+```
+
+Fix:
+
+```text id="fw9l0p"
+show timestamp / relative time
+show source
+label whether news is stock-specific, sector-wide, or market-wide
+do not show generic news as if company-specific
+```
+
+If symbol-specific news unavailable:
+
+```text id="2b77ng"
+show Symbol-specific news unavailable
+```
+
+---
+
+# Part 12 — Empty-state design
+
+Replace bare em-dashes with meaningful labels.
+
+Examples:
+
+```text id="p4gh6a"
+Data unavailable
+Insufficient history
+ETF fundamentals not applicable
+Benchmark unavailable
+News source unavailable
+CMP unavailable
+No instrument match
+Kite unavailable
+Fallback source used
+```
+
+Avoid:
+
+```text id="3t7pgs"
+large empty panels
+bare —
+undefined
+null
+NaN
+```
+
+---
+
+# Part 13 — Methodology documentation
+
+Add or update methodology section/page.
+
+Document:
+
+```text id="9y04zl"
+how structure score is calculated
+what data is included
+what data is excluded
+what action-view labels mean
+why some data may be unavailable
+how annualised return estimate differs from XIRR
+how concentration risk is calculated
+what benchmark comparison means
+compliance disclaimer: analytics, not advice
+```
+
+This is important for audit/compliance.
+
+---
+
+# Part 14 — ETF live CMP issue
+
+Known limitation:
+
+```text id="q6b7nr"
+NIFTYBEES / GOLDBEES / BANKBEES currently return empty from upstream instrument search.
+```
+
+Investigate separately inside this task only if it does not require new vendor integration.
+
+Check:
+
+```text id="hjeaoq"
+instrument master contains ETFs
+symbol search filters are excluding ETFs
+exchange/segment classification issue
+ETF symbols need a different endpoint
+Kite instrument tokens exist but are not exposed to search
+```
+
+If a simple fix exists, implement.
+
+If not, report:
+
+```text id="ch5gam"
+ETF CMP coverage requires upstream instrument search/data-source enhancement.
+```
+
+Do not fake ETF prices.
+
+---
+
+# Required tests
+
+Add/update tests for:
+
+```text id="51jg6y"
+saved portfolio survives reload
+portfolio CRUD permissions
+holding add/edit/delete
+CSV import then save
+manual add then save
+formula correctness
+Day P&L formula
+Annualised Return vs XIRR label
+DMA calculation from candles
+insufficient history handling
+ETF fundamentals not applicable
+no bare NaN/undefined/null
+risk concentration flags
+HHI/concentration score
+P&L contribution
+benchmark unavailable handling
+news classification labels
+methodology text presence
+```
+
+Run:
+
+```text id="jhp21i"
+pnpm run typecheck
+pnpm --filter @workspace/scanner run test
+```
+
+If backend/API/DB touched:
+
+```text id="t5e54b"
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run test
+```
+
+If DB schema/migration touched:
+
+```text id="wo4lpk"
+verify migration
+verify no destructive migration
+verify existing users unaffected
+```
+
+---
+
+# Required final report
+
+Provide:
+
+```text id="ta21tf"
+Portfolio Analyser Phase 2 Persistence and Corrections Report
+```
+
+Report must include:
+
+A. Files changed
+B. DB schema/migration details
+C. API endpoints added/changed
+D. Save/load behaviour
+E. Refresh persistence verification
+F. CSV import/save verification
+G. Manual add/save verification
+H. Detail drawer field fixes
+I. DMA/fundamentals status
+J. XIRR/annualised return correction
+K. Trend/structure score label correction
+L. Day P&L formula verification
+M. Risk analytics implemented
+N. Benchmark comparison status
+O. Allocation views implemented
+P. Cost-basis/tax-lot factual view status
+Q. Dividend tracking status
+R. News improvements
+S. Empty-state improvements
+T. ETF CMP investigation result
+U. Methodology documentation
+V. Tests and results
+W. Confirmation no trading/F&O/paper/scanner-score logic changed
+X. Confirmation no env/secret/scheduler change
+Y. Whether safe to publish
+Z. Known limitations
+
+Stop after the report.
+
+Do not publish until reviewed.
