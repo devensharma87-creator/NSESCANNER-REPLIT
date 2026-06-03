@@ -1,0 +1,99 @@
+Market is live now.
+
+Run live-market validation only.
+
+No code changes.
+No publish.
+No trading changes.
+No paper-trading changes.
+No manual trades.
+No strategy/scoring changes.
+
+⸻
+
+Part A — F&O Exit Safety Live Validation
+
+Validate the already-deployed F&O safety systems during live market.
+
+Check:
+
+premium hard-stop overlay cycle count
+orphan-exit evaluator cycle count
+MTM sweep cycle count
+TIME_EXIT_1520 health state
+open F&O paper rows
+closed F&O paper rows today
+STOPPED exit rows, if any
+PREMIUM_STOP_HIT / PREMIUM_BACKSTOP tags, if any
+duplicate close prevention
+paper route health
+
+Use available diagnostics:
+
+/api/paper/diagnostics/fo/exit-safety
+/api/paper/diagnostics/environment
+paper trading routes
+paper reports routes
+
+Confirm:
+
+F&O sweep is running
+MTM is updating
+orphan-exit evaluator is running
+premium hard-stop overlay is running
+no duplicate close
+no ZodError
+no API 500
+no unhandled exception
+no paper/F&O report breakage
+
+If no F&O paper trade is open, say so clearly. Do not fake validation.
+
+⸻
+
+Part B — Portfolio Analyser Enrichment Evidence
+
+Since market is live, validate the missing-stock enrichment hotfix with live data.
+
+Use the same portfolio that showed missing rows.
+
+For each previously missing row, report:
+
+originalSymbol
+resolvedSymbol
+instrumentType
+CMP fetched: yes/no
+source used: stockDetail / instrumentSearch / chartCandles / none
+current value calculated: yes/no
+reason if unavailable
+row preserved: yes/no
+
+Confirm:
+
+no row dropped
+no fake CMP
+no fake current value
+no NaN / undefined / null
+ETF rows handled correctly
+unavailable rows show clear reason
+enrichment warning card works
+
+⸻
+
+Final report required
+
+Provide Live Market Validation Report with:
+
+A. F&O exit safety status
+B. Premium hard-stop overlay status
+C. Orphan-exit evaluator status
+D. MTM sweep status
+E. TIME_EXIT_1520 status
+F. Any live F&O paper trade affected
+G. Any errors / API 500 / ZodError
+H. Portfolio enrichment status
+I. Previously missing symbols result
+J. Whether Portfolio hotfix is safe to publish
+K. Whether any rollback/hotfix is needed
+
+Stop after the report.
