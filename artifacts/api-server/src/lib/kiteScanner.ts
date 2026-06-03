@@ -196,6 +196,46 @@ export async function loadKiteNseEqInstruments(): Promise<InstrumentCache | null
 }
 
 /**
+ * Whitelist of well-known, liquid NSE ETFs the portfolio analyser can resolve
+ * a live CMP for. These ETFs are present in Kite's NSE instrument master (and
+ * pass `isLikelyTradeableEquity`), so `getQuote` returns a real LTP — but they
+ * are NOT in the curated/scored equity catalog, so the `/stocks/:symbol`
+ * detail endpoint 404s on them. This list powers the lightweight Kite-quote
+ * branch (`GET /etf/:symbol/quote`).
+ *
+ * Keep this to genuinely liquid, actively-traded ETFs. Never widen it to thin
+ * scrips whose `getQuote` returns zeros — those would surface as faked rows.
+ */
+export const ETF_WHITELIST: ReadonlySet<string> = new Set<string>([
+  // Nippon (Benchmark) "BeES" family
+  "NIFTYBEES", "BANKBEES", "GOLDBEES", "JUNIORBEES", "LIQUIDBEES",
+  "PSUBNKBEES", "SILVERBEES", "ITBEES", "PHARMABEES", "CPSEETF",
+  // Other large, liquid index/sector/gold ETFs
+  "SETFNIF50", "SETFNIFBK", "SETFGOLD", "ICICIB22",
+  "MON100", "MAFANG", "MASPTOP50",
+  "NIFTYIETF", "BANKIETF", "GOLDIETF", "SILVERIETF",
+]);
+
+/** True when `symbol` is a recognised, whitelisted liquid NSE ETF. */
+export function isWhitelistedEtf(symbol: string): boolean {
+  return ETF_WHITELIST.has(symbol.trim().toUpperCase());
+}
+
+/**
+ * Fetch a single live ETF quote from Kite. Returns the quote, or `null` when
+ * Kite is logged out / unreachable (caller should surface "live quote
+ * unavailable" rather than fake a price). A logged-in Kite that simply has no
+ * quote for the symbol resolves to `undefined` inside the map — the caller
+ * distinguishes the two via the outer `null`.
+ */
+export async function loadKiteEtfQuote(symbol: string): Promise<KiteScannerQuote | null> {
+  const sym = symbol.trim().toUpperCase();
+  const quotes = await loadKiteQuotes([sym]);
+  if (!quotes) return null; // Kite offline — never fabricate
+  return quotes.get(sym) ?? null;
+}
+
+/**
  * Batched quote loader. Returns a Map<symbol, KiteScannerQuote> for every
  * symbol Kite returned a usable LTP for. Symbols that fail (delisted,
  * suspended, no trades today) are simply omitted from the map — never

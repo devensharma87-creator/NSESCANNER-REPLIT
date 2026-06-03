@@ -2105,6 +2105,35 @@ export const GetStockHistoryResponse = zod.object({
 });
 
 /**
+ * Resolves a real live CMP (via Kite) for liquid NSE ETFs (e.g. NIFTYBEES / GOLDBEES / BANKBEES) that are not in the curated/scored equity catalog and therefore 404 on /stocks/{symbol}. Quote-only — no fundamentals or recommendation (not applicable to ETFs). Never returns fabricated prices: 404 for non-whitelisted symbols, 503 when the live quote source is offline.
+
+ * @summary Lightweight live quote for a whitelisted NSE ETF
+ */
+export const GetEtfQuoteParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const GetEtfQuoteResponse = zod
+  .object({
+    symbol: zod.string(),
+    name: zod.string(),
+    exchange: zod.string(),
+    price: zod.number(),
+    change: zod.number(),
+    changePercent: zod.number(),
+    open: zod.number(),
+    high: zod.number(),
+    low: zod.number(),
+    previousClose: zod.number(),
+    volume: zod.number(),
+    instrumentType: zod.string().describe("Always 'ETF' for this endpoint"),
+    updatedAt: zod.coerce.date(),
+  })
+  .describe(
+    "Quote-only payload for a whitelisted NSE ETF. Fundamentals and recommendations are intentionally absent (not applicable to ETFs).\n",
+  );
+
+/**
  * @summary Unified instrument search for the charting tab
  */
 export const SearchChartInstrumentsQueryParams = zod.object({

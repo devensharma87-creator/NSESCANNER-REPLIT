@@ -202,6 +202,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/StockHistory" }
 
+  /etf/{symbol}/quote:
+    get:
+      operationId: getEtfQuote
+      tags: [stocks]
+      summary: Lightweight live quote for a whitelisted NSE ETF
+      description: >
+        Resolves a real live CMP (via Kite) for liquid NSE ETFs (e.g.
+        NIFTYBEES / GOLDBEES / BANKBEES) that are not in the curated/scored
+        equity catalog and therefore 404 on /stocks/{symbol}. Quote-only — no
+        fundamentals or recommendation (not applicable to ETFs). Never returns
+        fabricated prices: 404 for non-whitelisted symbols, 503 when the live
+        quote source is offline.
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EtfQuote" }
+        "404":
+          description: Not a recognised ETF, or no live quote available
+        "503":
+          description: Live quote source (Kite) unavailable
+
   /chart/instruments:
     get:
       operationId: searchChartInstruments
@@ -1463,6 +1491,27 @@ components:
         yearRange: { type: string }
         fiftyTwoWeekHigh: { type: number }
         fiftyTwoWeekLow: { type: number }
+        updatedAt: { type: string, format: date-time }
+
+    EtfQuote:
+      type: object
+      required: [symbol, name, exchange, price, change, changePercent, open, high, low, previousClose, volume, instrumentType, updatedAt]
+      description: >
+        Quote-only payload for a whitelisted NSE ETF. Fundamentals and
+        recommendations are intentionally absent (not applicable to ETFs).
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        exchange: { type: string }
+        price: { type: number }
+        change: { type: number }
+        changePercent: { type: number }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        previousClose: { type: number }
+        volume: { type: number }
+        instrumentType: { type: string, description: "Always 'ETF' for this endpoint" }
         updatedAt: { type: string, format: date-time }
 
     Indicators:

@@ -21,6 +21,7 @@ import type {
   ChartInstrumentsResponse,
   CustomStrategyRequest,
   CustomStrategyResponse,
+  EtfQuote,
   ExportOptionSignalReportParams,
   FiiDiiResponse,
   FnoBanListResponse,
@@ -1050,6 +1051,95 @@ export function useGetStockHistory<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetStockHistoryQueryOptions(symbol, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Resolves a real live CMP (via Kite) for liquid NSE ETFs (e.g. NIFTYBEES / GOLDBEES / BANKBEES) that are not in the curated/scored equity catalog and therefore 404 on /stocks/{symbol}. Quote-only — no fundamentals or recommendation (not applicable to ETFs). Never returns fabricated prices: 404 for non-whitelisted symbols, 503 when the live quote source is offline.
+
+ * @summary Lightweight live quote for a whitelisted NSE ETF
+ */
+export const getGetEtfQuoteUrl = (symbol: string) => {
+  return `/api/etf/${symbol}/quote`;
+};
+
+export const getEtfQuote = async (
+  symbol: string,
+  options?: RequestInit,
+): Promise<EtfQuote> => {
+  return customFetch<EtfQuote>(getGetEtfQuoteUrl(symbol), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetEtfQuoteQueryKey = (symbol: string) => {
+  return [`/api/etf/${symbol}/quote`] as const;
+};
+
+export const getGetEtfQuoteQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEtfQuote>>,
+  TError = ErrorType<void>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEtfQuote>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetEtfQuoteQueryKey(symbol);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getEtfQuote>>> = ({
+    signal,
+  }) => getEtfQuote(symbol, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!symbol,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEtfQuote>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetEtfQuoteQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEtfQuote>>
+>;
+export type GetEtfQuoteQueryError = ErrorType<void>;
+
+/**
+ * @summary Lightweight live quote for a whitelisted NSE ETF
+ */
+
+export function useGetEtfQuote<
+  TData = Awaited<ReturnType<typeof getEtfQuote>>,
+  TError = ErrorType<void>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEtfQuote>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEtfQuoteQueryOptions(symbol, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

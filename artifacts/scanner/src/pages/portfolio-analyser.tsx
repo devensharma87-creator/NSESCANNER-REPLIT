@@ -4,6 +4,7 @@ import {
   getStockDetail,
   searchChartInstruments,
   getChartCandles,
+  getEtfQuote,
 } from "@workspace/api-client-react";
 import { Plus, RefreshCw, FlaskConical, X, FolderOpen, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ const FETCHERS: EnrichFetchers = {
   searchInstruments: async q => (await searchChartInstruments({ q })).instruments,
   candles: async (symbol, segment) =>
     (await getChartCandles({ symbol, segment: segment as ChartSegment, tf: "1D" })).candles,
+  etfQuote: symbol => getEtfQuote(symbol),
 };
 
 /** Real, well-known NSE tickers — only qty/rate/date are sample values for preview. */

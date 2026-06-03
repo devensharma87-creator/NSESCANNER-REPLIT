@@ -70,7 +70,7 @@ export interface LiveMetrics {
 }
 
 /** Which endpoint ultimately supplied the live CMP (null when none did). */
-export type DataSource = "stock-detail" | "chart-candles" | null;
+export type DataSource = "stock-detail" | "chart-candles" | "etf-quote" | null;
 
 /**
  * Precise, user-facing reason a holding could not be (fully) enriched. Replaces

@@ -18,6 +18,7 @@ import {
   normalizeSymbol,
   classifyInstrument,
   lookupAlias,
+  isEtfClass,
   fundamentalsApplicable as classFundamentalsApplicable,
   type InstrumentClass,
 } from "./symbol";
@@ -86,10 +87,24 @@ export interface CandleLike {
   c: number;
 }
 
+/** Lightweight ETF quote (mirrors the EtfQuote DTO; only the fields we use). */
+export interface EtfQuoteLike {
+  price?: number | null;
+  previousClose?: number | null;
+}
+
 export interface EnrichFetchers {
   stockDetail: (symbol: string) => Promise<DetailLike | null>;
   searchInstruments: (q: string) => Promise<InstrumentLike[]>;
   candles: (symbol: string, segment: string) => Promise<CandleLike[]>;
+  /**
+   * Optional lightweight Kite-quote branch for whitelisted ETFs (NIFTYBEES,
+   * GOLDBEES, BANKBEES, …). ETFs are not in the curated/scored equity catalog,
+   * so `stockDetail`/`searchInstruments` come back empty for them. Resolves a
+   * real CMP without fundamentals (not applicable to ETFs); returns null when
+   * the symbol is not a recognised ETF or the quote source is offline.
+   */
+  etfQuote?: (symbol: string) => Promise<EtfQuoteLike | null>;
 }
 
 export interface EnrichmentResult {
@@ -153,6 +168,25 @@ export function liveFromCandles(
     rsi14: rsi14(closes),
     dma50: sma(closes, 50),
     dma200: sma(closes, 200),
+  };
+}
+
+/**
+ * Price-only enrichment from a lightweight ETF quote. CMP + previous close are
+ * real (Kite); fundamentals/indicators are intentionally absent — they are not
+ * applicable to an ETF, never "missing".
+ */
+export function liveFromEtfQuote(
+  quote: EtfQuoteLike | null | undefined,
+  sector: string | null = null,
+): LiveMetrics {
+  if (!quote) return { ...EMPTY_LIVE, sector };
+  return {
+    ...EMPTY_LIVE,
+    available: num(quote.price) != null,
+    sector,
+    cmp: num(quote.price),
+    previousClose: num(quote.previousClose),
   };
 }
 
@@ -241,6 +275,34 @@ export async function resolveHolding(
         reason: null,
       }),
     };
+  }
+
+  // --- Step 1b: lightweight Kite-quote branch for whitelisted ETFs --------
+  // ETFs (NIFTYBEES/GOLDBEES/BANKBEES, …) are not in the curated/scored equity
+  // catalog, so stockDetail above 404s and the search below comes back empty.
+  // The dedicated ETF quote endpoint resolves a real CMP for them. Gate on the
+  // heuristic ETF classification so we never fire it for plain equities.
+  const etfCls = alias?.instrumentType ?? classifyInstrument(primarySymbol, holding.name);
+  if (fx.etfQuote && isEtfClass(etfCls)) {
+    const quote = await safe(() => fx.etfQuote!(primarySymbol));
+    const etfLive = liveFromEtfQuote(quote);
+    if (etfLive.available) {
+      return {
+        live: etfLive,
+        meta: meta({
+          originalSymbol,
+          normalisedSymbol,
+          resolvedSymbol: primarySymbol,
+          displaySymbol: primarySymbol,
+          exchange: alias?.exchange ?? holding.exchange ?? "NSE",
+          segment: "equity",
+          instrumentType: etfCls,
+          fundamentalsApplicable: false,
+          dataSource: "etf-quote",
+          reason: null,
+        }),
+      };
+    }
   }
 
   // --- Step 2: resolve the canonical instrument via search ----------------

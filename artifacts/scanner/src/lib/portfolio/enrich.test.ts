@@ -146,6 +146,42 @@ describe("resolveHolding cascade", () => {
     expect(r.live.cmp).toBe(254);
   });
 
+  it("Step 1b: resolves a whitelisted ETF via the lightweight etfQuote branch", async () => {
+    const stockDetail = vi.fn(async () => null); // ETF 404s on the curated detail endpoint
+    const searchInstruments = vi.fn(async () => []); // ETFs absent from the chart universe
+    const etfQuote = vi.fn(async () => ({ price: 285.4, previousClose: 283.1 }));
+    const fx = makeFetchers({ stockDetail, searchInstruments, etfQuote });
+    const r = await resolveHolding({ symbol: "NIFTYBEES" }, fx);
+    expect(etfQuote).toHaveBeenCalledWith("NIFTYBEES");
+    expect(searchInstruments).not.toHaveBeenCalled(); // short-circuits before search
+    expect(r.live.cmp).toBe(285.4);
+    expect(r.live.previousClose).toBe(283.1);
+    expect(r.live.peRatio).toBeNull(); // no fundamentals from an ETF quote
+    expect(r.meta.dataSource).toBe("etf-quote");
+    expect(r.meta.instrumentType).toBe("Index ETF");
+    expect(r.meta.fundamentalsApplicable).toBe(false);
+    expect(r.meta.reason).toBeNull();
+  });
+
+  it("Step 1b: ETF quote unavailable (Kite offline) falls through to the preserved state", async () => {
+    const etfQuote = vi.fn(async () => null); // 503 / no quote
+    const fx = makeFetchers({ etfQuote });
+    const r = await resolveHolding({ symbol: "GOLDBEES" }, fx);
+    expect(etfQuote).toHaveBeenCalledWith("GOLDBEES");
+    expect(r.live.available).toBe(false);
+    expect(r.meta.reason).toBe("No instrument match");
+  });
+
+  it("Step 1b: never fires the ETF branch for a plain equity", async () => {
+    const etfQuote = vi.fn(async () => ({ price: 999 }));
+    const stockDetail = vi.fn(async () => detailWithPrice(2500));
+    const fx = makeFetchers({ stockDetail, etfQuote });
+    const r = await resolveHolding({ symbol: "RELIANCE" }, fx);
+    expect(etfQuote).not.toHaveBeenCalled();
+    expect(r.meta.dataSource).toBe("stock-detail");
+    expect(r.live.cmp).toBe(2500);
+  });
+
   it("Step 4: preserves the holding with 'No instrument match' when search is empty", async () => {
     const r = await resolveHolding({ symbol: "ZZZZ" }, makeFetchers());
     expect(r.live).toEqual({ ...EMPTY_LIVE, sector: null });

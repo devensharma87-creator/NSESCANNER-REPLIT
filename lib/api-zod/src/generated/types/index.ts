@@ -53,6 +53,7 @@ export * from "./economicEventCategory";
 export * from "./economicEventImpact";
 export * from "./economicEventRegion";
 export * from "./entryPlan";
+export * from "./etfQuote";
 export * from "./exportOptionSignalReportParams";
 export * from "./fiiDiiDay";
 export * from "./fiiDiiMonth";

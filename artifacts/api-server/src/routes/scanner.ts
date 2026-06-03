@@ -14,11 +14,13 @@ import {
   GetTopScansResponse,
   ListSectorsResponse,
   ListStocksResponse,
+  GetEtfQuoteResponse,
 } from "@workspace/api-zod";
 import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground } from "../lib/scanner";
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
+import { isWhitelistedEtf, loadKiteEtfQuote } from "../lib/kiteScanner";
 import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { pivots } from "../lib/indicators";
@@ -453,6 +455,45 @@ router.get("/stocks/:symbol", async (req, res, next) => {
       financials,
       holdings,
       news,
+    });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Lightweight live-quote branch for whitelisted NSE ETFs (NIFTYBEES /
+// GOLDBEES / BANKBEES, …). These are not in the curated/scored equity catalog,
+// so `/stocks/:symbol` 404s on them — but they DO have a real Kite quote.
+// Quote-only: no fundamentals / no recommendation (not applicable to ETFs),
+// and never a fabricated price (404 unknown, 503 when Kite is offline).
+router.get("/etf/:symbol/quote", async (req, res, next) => {
+  try {
+    const symbol = String(req.params["symbol"] ?? "").trim().toUpperCase();
+    if (!isWhitelistedEtf(symbol)) {
+      res.status(404).json({ error: "Not a recognised ETF" });
+      return;
+    }
+    const q = await loadKiteEtfQuote(symbol);
+    if (!q) {
+      // Distinguish "Kite offline" (null map upstream) from "no quote": both
+      // surface here as null. A logged-out Kite is the common cause, so treat
+      // as 503 (transient) rather than 404 — the UI can retry/explain.
+      res.status(503).json({ error: "Live quote source unavailable", code: "KITE_OFFLINE" });
+      return;
+    }
+    const data = GetEtfQuoteResponse.parse({
+      symbol: q.symbol,
+      name: q.name,
+      exchange: "NSE",
+      price: round2(q.lastPrice),
+      change: round2(q.change),
+      changePercent: round2(q.changePercent),
+      open: round2(q.open),
+      high: round2(q.high),
+      low: round2(q.low),
+      previousClose: round2(q.close),
+      volume: q.volume,
+      instrumentType: "ETF",
+      updatedAt: new Date(q.ts).toISOString(),
     });
     res.json(data);
   } catch (err) { next(err); }

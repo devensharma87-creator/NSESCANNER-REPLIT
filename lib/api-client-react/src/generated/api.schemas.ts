@@ -41,6 +41,27 @@ export interface Quote {
 }
 
 /**
+ * Quote-only payload for a whitelisted NSE ETF. Fundamentals and recommendations are intentionally absent (not applicable to ETFs).
+
+ */
+export interface EtfQuote {
+  symbol: string;
+  name: string;
+  exchange: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  open: number;
+  high: number;
+  low: number;
+  previousClose: number;
+  volume: number;
+  /** Always 'ETF' for this endpoint */
+  instrumentType: string;
+  updatedAt: string;
+}
+
+/**
  * Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)
  */
 export type IndicatorsFutOiBuildup =
