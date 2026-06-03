@@ -130,7 +130,13 @@ export function PortfolioToolbar(props: PortfolioToolbarProps) {
       <Button
         size="sm"
         onClick={() => (props.currentId ? props.onSave() : openName("create"))}
-        disabled={!props.hasHoldings || props.saving || (props.currentId != null && !props.dirty)}
+        disabled={
+          props.saving ||
+          // Existing saved portfolio: save whenever dirty — empty holdings IS a
+          // savable state (clear + save + reload must persist the empty set).
+          // New (unsaved) portfolio: require at least one holding before naming.
+          (props.currentId != null ? !props.dirty : !props.hasHoldings)
+        }
         data-testid="portfolio-save"
       >
         <Save className="mr-1 h-3.5 w-3.5" />
