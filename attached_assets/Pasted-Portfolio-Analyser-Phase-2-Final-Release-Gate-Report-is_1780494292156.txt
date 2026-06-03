@@ -1,0 +1,95 @@
+Portfolio Analyser Phase 2 Final Release Gate Report is accepted.
+
+Proceed with controlled production release, but follow this exact order.
+
+Step 1 — Pre-migration confirmation
+
+Before touching production DB, confirm:
+
+Production DATABASE_URL is correctly targeted
+Migration is additive only
+Only two new tables will be created:
+  portfolios
+  portfolio_holdings
+No existing table/column will be modified
+No existing data will be touched
+No destructive SQL
+Rollback SQL is ready:
+  DROP TABLE portfolio_holdings;
+  DROP TABLE portfolios;
+
+Do not start queued follow-up tasks.
+
+Do not change code.
+
+Step 2 — Production DB migration
+
+Run the additive production DB migration only after confirming the above.
+
+Expected:
+
+Create portfolios table
+Create portfolio_holdings table
+Create indexes
+Create FK with ON DELETE CASCADE
+
+After migration, verify:
+
+tables exist
+indexes exist
+FK exists
+no existing tables modified
+API server can access the tables
+Step 3 — Pre-publish app verification
+
+After migration and before publish, run:
+
+pnpm run typecheck
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/api-server run test
+
+Expected:
+
+typecheck PASS
+scanner tests 487/487 PASS
+api-server tests 852/852 PASS
+Step 4 — Publish
+
+Publish only after DB migration verification and tests pass.
+
+Step 5 — Post-publish smoke report
+
+Run Portfolio Analyser Phase 2 Post-Publish Smoke Report.
+
+Required checks:
+
+A. Deployment live
+B. /api/healthz returns 200
+C. /portfolio-analyser loads
+D. Portfolio API routes return authenticated responses
+E. Create portfolio works
+F. Save portfolio works
+G. Refresh reloads saved portfolio
+H. Edit holding persists
+I. Delete holding persists
+J. Clear portfolio and save empty works
+K. CSV import then save works
+L. Manual add then save works
+M. CSV export works
+N. Duplicate-name protection returns safe error
+O. Portfolio limit protection works
+P. Owner/user isolation verified
+Q. ETF live quotes work where supported
+R. NIFTY 500 / sector benchmark panel renders
+S. Risk analytics renders
+T. Detail drawer values/unavailable labels render correctly
+U. No NaN / undefined / null visible
+V. No public portfolio exposure
+W. No auth bypass
+X. No trading/F&O/paper/scanner-score regression
+Y. No API 500 / ZodError
+Z. Rollback needed? yes/no
+
+Stop after the smoke report.
+
+Do not start follow-up tasks #46–#51 during this release.
