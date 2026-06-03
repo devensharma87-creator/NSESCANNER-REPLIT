@@ -449,14 +449,25 @@ router.put("/portfolios/:id/holdings", requireSubscriberOrOwner(), async (req, r
   res.json(full);
 });
 
-/** Postgres unique-violation detection (SQLSTATE 23505). */
+/**
+ * Postgres unique-violation detection (SQLSTATE 23505). Drizzle wraps the
+ * underlying pg error, so the `23505` code can live on the thrown error OR on
+ * its `cause` chain — we walk it so duplicate-name inserts reliably surface as
+ * 409, never a 500.
+ */
 function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code?: string }).code === "23505"
-  );
+  let cur: unknown = err;
+  for (let depth = 0; depth < 5 && cur != null; depth++) {
+    if (
+      typeof cur === "object" &&
+      "code" in cur &&
+      (cur as { code?: string }).code === "23505"
+    ) {
+      return true;
+    }
+    cur = typeof cur === "object" && "cause" in cur ? (cur as { cause?: unknown }).cause : null;
+  }
+  return false;
 }
 
 export default router;
