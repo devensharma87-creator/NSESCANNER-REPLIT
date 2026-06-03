@@ -1,0 +1,96 @@
+Report reviewed.
+
+Accepted with limitations.
+
+## Accepted
+
+```text id="xd5x6w"
+Portfolio Analyser enrichment hotfix implementation = accepted
+Frontend-only scope = accepted
+No row dropped = accepted
+No fake CMP/current value/return = accepted
+Unavailable reason display = accepted
+ETF fundamentals not applicable = accepted
+Typecheck clean = accepted
+Scanner tests 434/434 = accepted
+Architect review PASS = accepted
+Browser logs clean = accepted
+```
+
+## Important limitation
+
+```text id="x8zvn4"
+ETF live CMP coverage is still not solved.
+NIFTYBEES / GOLDBEES / BANKBEES still show unavailable because upstream instrument search returns empty.
+```
+
+This is acceptable only because the UI now preserves the rows and shows a clear reason instead of silently failing.
+
+Do not claim ETF pricing is fixed.
+
+## F&O validation limitation
+
+The F&O exit-safety validation is not a full live behavioural validation because:
+
+```text id="sj59lu"
+Production had 0 open F&O paper trades.
+Kite was offline in production.
+No F&O trade opened today.
+No premium hard-stop triggered.
+No orphan-exit close triggered.
+Production in-process counters were not directly queried.
+```
+
+So the correct status is:
+
+```text id="bu97f5"
+F&O exit-safety = healthy / no errors observed / not fully live-exercised
+```
+
+Do not mark it as fully behaviour-validated.
+
+## Next step
+
+Proceed with controlled publish of the **Portfolio Analyser enrichment hotfix only**, provided the deploy diff is limited to the portfolio enrichment files.
+
+Before publish, confirm deploy diff:
+
+```text id="hm4g7a"
+No api-server files
+No trading logic files
+No F&O files
+No paper-trading files
+No scanner scoring files
+No DB migration/schema change
+No env/secret change
+No scheduler change
+No route/auth downgrade
+```
+
+After publish, run **Portfolio Hotfix Post-Publish Smoke Report**:
+
+A. Deployment live
+B. `/api/healthz` 200
+C. `/portfolio-analyser` loads
+D. Portfolio rows preserved
+E. Enriched rows show CMP/current value/return
+F. Missing rows show clear reason
+G. No fake CMP
+H. No fake current value
+I. No `NaN`, `undefined`, or `null` visible
+J. ETF rows show ETF badge / fundamentals not applicable
+K. Enrichment warning card appears if rows are missing
+L. No frontend crash
+M. No API 500
+N. No ZodError
+O. No paper/F&O regression
+P. Rollback needed? yes/no
+
+Also separately note:
+
+```text id="u9ujqv"
+Kite production session is offline and needs reconnecting.
+This is an operational issue, not part of this hotfix.
+```
+
+Stop after post-publish smoke report.

@@ -1,3 +1,4 @@
 - [replit.md is not to be trimmed](replit-md-do-not-trim.md) — owner has explicitly forbidden trimming/reorganizing replit.md; ignore all auto-trim suggestions.
 - [Architect includeGitDiff false scope-fail](architect-gitdiff-false-scope-fail.md) — code-review can FAIL on unrelated committed files; trust working-tree `git diff --stat` over its scope claim.
 - [Corrective-sweep close-first ordering](corrective-sweep-close-first-ordering.md) — sweeps that close a paper trade AND advance its lifecycle must close FIRST, else a close failure freezes the row OPEN for stale 15:20 settlement.
+- [Autoscale cold-start 500](autoscale-coldstart-500.md) — prod autoscale first request can return a one-off 500 then recover; retry before flagging an API-500 regression in smoke tests.
