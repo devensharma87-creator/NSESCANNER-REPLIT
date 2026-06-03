@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   compareToBenchmark,
   benchmarkReturnFromCloses,
+  buildBenchmarkSeries,
   compareSectorWeights,
   normalizeSectorKey,
   BENCHMARK_OPTIONS,
@@ -44,6 +45,46 @@ describe("benchmarkReturnFromCloses", () => {
     expect(benchmarkReturnFromCloses([100])).toBeNull();
     expect(benchmarkReturnFromCloses([])).toBeNull();
     expect(benchmarkReturnFromCloses([0, 50])).toBeNull();
+  });
+});
+
+describe("buildBenchmarkSeries", () => {
+  it("rebases closes to % change from the first covered point", () => {
+    const pts = buildBenchmarkSeries([
+      { t: 1_700_000_000, c: 100 },
+      { t: 1_700_086_400, c: 110 },
+      { t: 1_700_172_800, c: 95 },
+    ]);
+    expect(pts.map(p => p.indexPct)).toEqual([0, 10, -5]);
+    expect(pts[0].date).toBe(new Date(1_700_000_000 * 1000).toISOString().slice(0, 10));
+  });
+
+  it("agrees with benchmarkReturnFromCloses on the final point", () => {
+    const candles = [
+      { t: 1, c: 200 },
+      { t: 2, c: 230 },
+      { t: 3, c: 250 },
+    ];
+    const pts = buildBenchmarkSeries(candles);
+    expect(pts[pts.length - 1].indexPct).toBeCloseTo(
+      benchmarkReturnFromCloses(candles.map(c => c.c))!,
+    );
+  });
+
+  it("drops non-finite points before rebasing", () => {
+    const pts = buildBenchmarkSeries([
+      { t: 1, c: 100 },
+      { t: 2, c: Number.NaN },
+      { t: 3, c: 120 },
+    ]);
+    expect(pts).toHaveLength(2);
+    expect(pts.map(p => p.indexPct)).toEqual([0, 20]);
+  });
+
+  it("returns empty (honest) on insufficient or zero-base data", () => {
+    expect(buildBenchmarkSeries([])).toEqual([]);
+    expect(buildBenchmarkSeries([{ t: 1, c: 100 }])).toEqual([]);
+    expect(buildBenchmarkSeries([{ t: 1, c: 0 }, { t: 2, c: 50 }])).toEqual([]);
   });
 });
 

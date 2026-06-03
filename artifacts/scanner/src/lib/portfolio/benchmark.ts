@@ -99,6 +99,39 @@ export function benchmarkReturnFromCloses(closes: number[]): number | null {
   return ((last - first) / first) * 100;
 }
 
+/** A single plottable point of the index series, rebased to % from window start. */
+export interface BenchmarkSeriesPoint {
+  /** Epoch seconds (UTC) of the candle. */
+  t: number;
+  /** ISO yyyy-mm-dd date for the X axis. */
+  date: string;
+  /** Index % change from the first covered close (first point is always 0). */
+  indexPct: number;
+}
+
+/**
+ * Build a rebased index series (% change from the window's first close) for a
+ * small benchmark line chart. HONEST: returns an empty array when fewer than
+ * two finite closes are available or the first close is zero — never a guess.
+ * The final point's `indexPct` equals `benchmarkReturnFromCloses` over the same
+ * closes, so the chart and the headline number agree by construction.
+ */
+export function buildBenchmarkSeries(
+  candles: { t: number; c: number }[],
+): BenchmarkSeriesPoint[] {
+  const finite = candles.filter(
+    c => Number.isFinite(c.t) && Number.isFinite(c.c),
+  );
+  if (finite.length < 2) return [];
+  const first = finite[0].c;
+  if (first === 0) return [];
+  return finite.map(c => ({
+    t: c.t,
+    date: new Date(c.t * 1000).toISOString().slice(0, 10),
+    indexPct: ((c.c - first) / first) * 100,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Sector over/under-weight vs a REAL, dated NIFTY 500 reference
 // ---------------------------------------------------------------------------

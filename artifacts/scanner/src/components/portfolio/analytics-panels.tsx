@@ -6,7 +6,21 @@
  * than a fabricated figure when the underlying data is missing.
  */
 import { useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Card } from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { AlertTriangle } from "lucide-react";
 import type { RiskAnalytics } from "@/lib/portfolio/risk";
 import {
@@ -18,6 +32,7 @@ import type { HoldingPeriodView, DividendView } from "@/lib/portfolio/holdingPer
 import type {
   BenchmarkComparison,
   BenchmarkOption,
+  BenchmarkSeriesPoint,
   SectorWeightComparison,
 } from "@/lib/portfolio/benchmark";
 import { fmtINR, fmtSignedINR, fmtPct, fmtNum, pnlClass } from "./format";
@@ -263,15 +278,139 @@ function fmtSignedPP(diff: number): string {
   return `${sign}${fmtNum(diff, 1)} pp`;
 }
 
+const benchmarkChartConfig = {
+  indexPct: { label: "Index", color: "hsl(199 89% 60%)" },
+} satisfies ChartConfig;
+
+function shortDate(iso: string): string {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      day: "2-digit",
+      month: "short",
+      timeZone: "Asia/Kolkata",
+    }).format(new Date(ms));
+  } catch {
+    return iso;
+  }
+}
+
+/**
+ * Small line chart of the selected index rebased to % from the window start.
+ * The portfolio's own path is NOT reconstructable from a single live CMP per
+ * holding, so we draw its known total return over the same window as a labelled
+ * horizontal reference — honest about what is a real time-series (the index)
+ * versus a single endpoint figure (the portfolio).
+ */
+function BenchmarkChart({
+  series,
+  loading,
+  benchmarkName,
+  portfolioReturnPct,
+}: {
+  series: BenchmarkSeriesPoint[];
+  loading: boolean;
+  benchmarkName: string;
+  portfolioReturnPct: number | null;
+}) {
+  if (loading && series.length === 0) {
+    return (
+      <div
+        className="h-[140px] animate-pulse rounded-md border border-border bg-muted/30"
+        data-testid="benchmark-chart-loading"
+      />
+    );
+  }
+  if (series.length === 0) {
+    return (
+      <div
+        className="flex h-[140px] items-center justify-center rounded-md border border-dashed border-border px-3 text-center text-[11px] text-muted-foreground"
+        data-testid="benchmark-chart-empty"
+      >
+        No index series available for this window — chart hidden rather than
+        fabricated.
+      </div>
+    );
+  }
+  const hasPortfolio = portfolioReturnPct != null && Number.isFinite(portfolioReturnPct);
+  return (
+    <ChartContainer
+      config={benchmarkChartConfig}
+      className="aspect-auto h-[140px] w-full"
+      data-testid="benchmark-chart"
+    >
+      <LineChart data={series} margin={{ left: 4, right: 8, top: 6, bottom: 0 }}>
+        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+        <XAxis
+          dataKey="date"
+          tickFormatter={shortDate}
+          tickLine={false}
+          axisLine={false}
+          minTickGap={28}
+          tick={{ fontSize: 10 }}
+        />
+        <YAxis
+          width={40}
+          tickLine={false}
+          axisLine={false}
+          tick={{ fontSize: 10 }}
+          tickFormatter={(v) => `${typeof v === "number" ? v.toFixed(0) : v}%`}
+        />
+        <ReferenceLine y={0} stroke="hsl(215 16% 47%)" strokeDasharray="2 2" />
+        {hasPortfolio && (
+          <ReferenceLine
+            y={portfolioReturnPct as number}
+            stroke="hsl(152 60% 52%)"
+            strokeDasharray="4 2"
+            label={{
+              value: `Portfolio ${(portfolioReturnPct as number) > 0 ? "+" : ""}${fmtNum(portfolioReturnPct, 1)}%`,
+              position: "insideTopLeft",
+              fontSize: 10,
+              fill: "hsl(152 60% 52%)",
+            }}
+          />
+        )}
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              labelFormatter={(label) => shortDate(String(label))}
+              formatter={(value) => [
+                `${typeof value === "number" && value > 0 ? "+" : ""}${fmtNum(
+                  typeof value === "number" ? value : null,
+                  2,
+                )}%`,
+                ` ${benchmarkName}`,
+              ]}
+            />
+          }
+        />
+        <Line
+          type="monotone"
+          dataKey="indexPct"
+          stroke="var(--color-indexPct)"
+          strokeWidth={2}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ChartContainer>
+  );
+}
+
 export function BenchmarkPanel({
   comparison,
   sectorComparison,
+  series,
+  seriesLoading,
   options,
   selectedKey,
   onSelect,
 }: {
   comparison: BenchmarkComparison;
   sectorComparison: SectorWeightComparison;
+  series: BenchmarkSeriesPoint[];
+  seriesLoading: boolean;
   options: readonly BenchmarkOption[];
   selectedKey: BenchmarkOption["key"];
   onSelect: (key: BenchmarkOption["key"]) => void;
@@ -319,6 +458,14 @@ export function BenchmarkPanel({
           />
         </div>
       )}
+      <div className="mt-2">
+        <BenchmarkChart
+          series={series}
+          loading={seriesLoading}
+          benchmarkName={comparison.benchmarkName}
+          portfolioReturnPct={comparison.portfolioReturnPct}
+        />
+      </div>
       <div className="mt-2 border-t border-border pt-2">
         <div className="mb-1 flex items-center justify-between gap-2">
           <span className="text-xs font-semibold">Sector over/under-weight vs NIFTY 500</span>

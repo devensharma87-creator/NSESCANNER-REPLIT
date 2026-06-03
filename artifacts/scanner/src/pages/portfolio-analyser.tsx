@@ -31,6 +31,7 @@ import { computeHoldingPeriods, computeDividends, LONG_TERM_THRESHOLD_DAYS } fro
 import {
   compareToBenchmark,
   benchmarkReturnFromCloses,
+  buildBenchmarkSeries,
   compareSectorWeights,
   BENCHMARK_OPTIONS,
 } from "@/lib/portfolio/benchmark";
@@ -199,13 +200,24 @@ export default function PortfolioAnalyser() {
     queryFn: () => getChartCandles({ symbol: benchmarkOption.symbol, segment: "index", tf: "1D" }),
   });
 
-  const benchmark = useMemo(() => {
+  // Index candles windowed to the comparison period (earliest purchase → now).
+  // Shared by both the headline return and the line chart so they always agree.
+  const benchmarkWindowed = useMemo(() => {
     const all = benchmarkQ.data?.candles ?? [];
-    let windowed = all;
-    if (earliestPurchase) {
-      const cutoff = Math.floor(earliestPurchase.getTime() / 1000);
-      windowed = all.filter(c => c.t >= cutoff);
-    }
+    if (!earliestPurchase) return all;
+    const cutoff = Math.floor(earliestPurchase.getTime() / 1000);
+    return all.filter(c => c.t >= cutoff);
+  }, [benchmarkQ.data, earliestPurchase]);
+
+  // Rebased (% from window start) index series for the small line chart. Empty
+  // (honest) when fewer than two covered closes exist — never fabricated.
+  const benchmarkSeries = useMemo(
+    () => buildBenchmarkSeries(benchmarkWindowed.map(c => ({ t: c.t, c: c.c }))),
+    [benchmarkWindowed],
+  );
+
+  const benchmark = useMemo(() => {
+    const windowed = benchmarkWindowed;
     const closes = windowed.map(c => c.c).filter((c): c is number => Number.isFinite(c));
     const benchmarkReturnPct = benchmarkReturnFromCloses(closes);
     // Label the window with the ACTUAL first covered date so the comparison is
@@ -229,7 +241,7 @@ export default function PortfolioAnalyser() {
       benchmarkName: benchmarkOption.name,
       windowLabel,
     });
-  }, [benchmarkQ.data, earliestPurchase, summary.totalReturnPct, benchmarkOption.name]);
+  }, [benchmarkWindowed, earliestPurchase, summary.totalReturnPct, benchmarkOption.name]);
 
   // Sector over/under-weight vs the dated, real NIFTY 500 sector reference.
   // Never fabricated: unmapped sectors are surfaced explicitly, and the whole
@@ -545,6 +557,8 @@ export default function PortfolioAnalyser() {
             <BenchmarkPanel
               comparison={benchmark}
               sectorComparison={sectorComparison}
+              series={benchmarkSeries}
+              seriesLoading={benchmarkQ.isLoading}
               options={BENCHMARK_OPTIONS}
               selectedKey={benchmarkKey}
               onSelect={selectBenchmark}
