@@ -21,11 +21,13 @@ import type {
   ChartInstrumentsResponse,
   CustomStrategyRequest,
   CustomStrategyResponse,
+  EtfNav,
   EtfQuote,
   ExportOptionSignalReportParams,
   FiiDiiResponse,
   FnoBanListResponse,
   GetChartCandlesParams,
+  GetEtfNavParams,
   GetFiiDiiParams,
   GetGlobalCandlesParams,
   GetGlobalDashboardParams,
@@ -1140,6 +1142,112 @@ export function useGetEtfQuote<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetEtfQuoteQueryOptions(symbol, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Resolves the latest published end-of-day Net Asset Value (NAV) for an NSE ETF from the official AMFI NAVAll feed, keyed by ISIN. The NAV is END-OF-DAY (latest published session, see `navDate`), not a live intraday iNAV, so a premium/discount computed against a live CMP is approximate and slightly lagged. Never fabricates a NAV: 404 when the symbol has no ISIN mapping or the ISIN is absent from the feed, 503 when the AMFI feed is unreachable. An optional `isin` query overrides the curated map (e.g. the user's own holding ISIN).
+
+ * @summary Latest published NAV for an ETF (AMFI feed)
+ */
+export const getGetEtfNavUrl = (symbol: string, params?: GetEtfNavParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/etf/${symbol}/nav?${stringifiedParams}`
+    : `/api/etf/${symbol}/nav`;
+};
+
+export const getEtfNav = async (
+  symbol: string,
+  params?: GetEtfNavParams,
+  options?: RequestInit,
+): Promise<EtfNav> => {
+  return customFetch<EtfNav>(getGetEtfNavUrl(symbol, params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetEtfNavQueryKey = (
+  symbol: string,
+  params?: GetEtfNavParams,
+) => {
+  return [`/api/etf/${symbol}/nav`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetEtfNavQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEtfNav>>,
+  TError = ErrorType<void>,
+>(
+  symbol: string,
+  params?: GetEtfNavParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEtfNav>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetEtfNavQueryKey(symbol, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getEtfNav>>> = ({
+    signal,
+  }) => getEtfNav(symbol, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!symbol,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getEtfNav>>, TError, TData> & {
+    queryKey: QueryKey;
+  };
+};
+
+export type GetEtfNavQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEtfNav>>
+>;
+export type GetEtfNavQueryError = ErrorType<void>;
+
+/**
+ * @summary Latest published NAV for an ETF (AMFI feed)
+ */
+
+export function useGetEtfNav<
+  TData = Awaited<ReturnType<typeof getEtfNav>>,
+  TError = ErrorType<void>,
+>(
+  symbol: string,
+  params?: GetEtfNavParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEtfNav>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEtfNavQueryOptions(symbol, params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

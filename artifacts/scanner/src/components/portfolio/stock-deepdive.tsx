@@ -3,8 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import {
   useGetStockDetail,
   useGetNews,
+  useGetEtfNav,
   getGetStockDetailQueryKey,
   getGetNewsQueryKey,
+  getGetEtfNavQueryKey,
   getChartCandles,
 } from "@workspace/api-client-react";
 import {
@@ -22,6 +24,7 @@ import {
   lookupEtfReference,
   etfCategory,
   describeEtfTrend,
+  computeNavPremiumDiscount,
   ETF_REFERENCE_AS_OF,
 } from "@/lib/portfolio/etf";
 import { fmtINR, fmtPct, fmtSignedINR, fmtNum, pnlClass, actionViewClass } from "./format";
@@ -54,6 +57,54 @@ function Stat({
       ) : (
         <div className="font-mono text-sm">{value}</div>
       )}
+    </div>
+  );
+}
+
+function PremiumDiscountStat({
+  premDisc,
+  loading,
+}: {
+  premDisc: import("@/lib/portfolio/etf").NavPremiumDiscount | null;
+  loading: boolean;
+}) {
+  const hint =
+    "Live market price vs latest published end-of-day NAV: positive = premium (price above NAV), negative = discount (below NAV). Approximate — NAV is end-of-day, not a live iNAV.";
+  if (!premDisc) {
+    return (
+      <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Prem / Disc
+        </div>
+        <div className="font-mono text-sm text-muted-foreground/70" title={hint}>
+          {loading ? "Loading…" : "n/a"}
+        </div>
+      </div>
+    );
+  }
+  const cls =
+    premDisc.stance === "premium"
+      ? "text-red-400"
+      : premDisc.stance === "discount"
+        ? "text-emerald-400"
+        : "text-muted-foreground";
+  const sign = premDisc.premiumPct > 0 ? "+" : "";
+  const label =
+    premDisc.stance === "premium"
+      ? "premium"
+      : premDisc.stance === "discount"
+        ? "discount"
+        : "at fair value";
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        Prem / Disc
+      </div>
+      <div className={`font-mono text-sm ${cls}`} title={hint}>
+        {sign}
+        {premDisc.premiumPct.toFixed(2)}%
+      </div>
+      <div className="text-[9px] text-muted-foreground">{label}</div>
     </div>
   );
 }
@@ -110,6 +161,22 @@ export function StockDeepDive({
     ? etfCategory(symbol, row?.resolution.instrumentType ?? "ETF")
     : null;
   const etfTrend = isEtf ? describeEtfTrend(numOrNull(row?.live.cmp), dma50, dma200) : null;
+
+  // ETF NAV (premium/discount). Real AMFI end-of-day NAV keyed by ISIN; the
+  // user's own holding ISIN (when present) overrides the curated map. Never
+  // fabricated — 404/503 surface an explicit "NAV unavailable".
+  const navIsin = row?.raw.isin?.trim() || undefined;
+  const navParams = navIsin ? { isin: navIsin } : undefined;
+  const navQ = useGetEtfNav(symbol, navParams, {
+    query: {
+      enabled: open && !!symbol && isEtf,
+      queryKey: getGetEtfNavQueryKey(symbol, navParams),
+      retry: false,
+      staleTime: 5 * 60_000,
+    },
+  });
+  const nav = numOrNull(navQ.data?.nav);
+  const navPremDisc = isEtf ? computeNavPremiumDiscount(numOrNull(row?.live.cmp), nav) : null;
 
   function dmaProps(
     val: number | null,
@@ -293,16 +360,41 @@ export function StockDeepDive({
                       hint="Resolved from the curated ETF reference table."
                     />
                     <Stat
+                      label={navQ.data?.navDate ? `NAV (${navQ.data.navDate})` : "NAV"}
+                      value={nav != null ? fmtINR(nav, 2) : "—"}
+                      unavailableLabel={navQ.isLoading ? "Loading…" : "unavailable"}
+                      hint={
+                        navQ.isLoading
+                          ? "Fetching the latest published NAV from AMFI…"
+                          : nav != null
+                            ? `Official end-of-day NAV from AMFI (${navQ.data?.source ?? "AMFI"})${
+                                navQ.data?.schemeName ? ` — ${navQ.data.schemeName}` : ""
+                              }.`
+                            : "No published NAV available from the AMFI feed for this ETF (or the feed is offline). Never a fabricated value."
+                      }
+                    />
+                    <PremiumDiscountStat
+                      premDisc={navPremDisc}
+                      loading={navQ.isLoading}
+                    />
+                    <Stat
                       label="Trend (CMP vs DMA)"
                       value={etfTrend?.text ?? "—"}
                       unavailableLabel="Insufficient history"
                       hint="Derived from this ETF's own real daily closes. Descriptive structure context — not a target or stop."
                     />
                   </div>
+                  {nav != null && navPremDisc && (
+                    <p className="mt-1.5 text-[10px] text-muted-foreground">
+                      Premium/discount compares the live market price to the latest published
+                      end-of-day NAV{navQ.data?.navDate ? ` (${navQ.data.navDate})` : ""}, so it
+                      is approximate and slightly lagged — not a live intraday iNAV.
+                    </p>
+                  )}
                   {etfRef && (
                     <p className="mt-1.5 text-[10px] text-muted-foreground">
-                      Reference verified {ETF_REFERENCE_AS_OF}. NAV and expense ratio are not
-                      tracked by this app.
+                      Reference verified {ETF_REFERENCE_AS_OF}. Expense ratio is not tracked by
+                      this app.
                     </p>
                   )}
                   <div className="mt-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-400">

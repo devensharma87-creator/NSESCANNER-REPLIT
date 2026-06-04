@@ -230,6 +230,40 @@ paths:
         "503":
           description: Live quote source (Kite) unavailable
 
+  /etf/{symbol}/nav:
+    get:
+      operationId: getEtfNav
+      tags: [stocks]
+      summary: Latest published NAV for an ETF (AMFI feed)
+      description: >
+        Resolves the latest published end-of-day Net Asset Value (NAV) for an
+        NSE ETF from the official AMFI NAVAll feed, keyed by ISIN. The NAV is
+        END-OF-DAY (latest published session, see `navDate`), not a live
+        intraday iNAV, so a premium/discount computed against a live CMP is
+        approximate and slightly lagged. Never fabricates a NAV: 404 when the
+        symbol has no ISIN mapping or the ISIN is absent from the feed, 503 when
+        the AMFI feed is unreachable. An optional `isin` query overrides the
+        curated map (e.g. the user's own holding ISIN).
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+        - in: query
+          name: isin
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EtfNav" }
+        "404":
+          description: No ISIN mapping for this ETF, or NAV absent from the feed
+        "503":
+          description: AMFI NAV feed unavailable
+
   /chart/instruments:
     get:
       operationId: searchChartInstruments
@@ -1513,6 +1547,20 @@ components:
         volume: { type: number }
         instrumentType: { type: string, description: "Always 'ETF' for this endpoint" }
         updatedAt: { type: string, format: date-time }
+
+    EtfNav:
+      type: object
+      required: [symbol, isin, nav, navDate, source]
+      description: >
+        Latest published end-of-day NAV for an ETF from the AMFI feed. NAV is
+        from the latest published session (navDate), not a live intraday iNAV.
+      properties:
+        symbol: { type: string }
+        isin: { type: string }
+        nav: { type: number, description: "Net asset value per unit (INR)" }
+        navDate: { type: string, description: "Published NAV date, e.g. '03-Jun-2026'" }
+        schemeName: { type: string, description: "AMFI scheme name for the matched ISIN" }
+        source: { type: string, description: "Always 'AMFI' for this endpoint" }
 
     Indicators:
       type: object

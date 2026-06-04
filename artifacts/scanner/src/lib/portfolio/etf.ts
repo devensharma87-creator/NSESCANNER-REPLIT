@@ -90,6 +90,40 @@ export function etfCategory(symbol: string, instrumentType: InstrumentClass): st
   return instrumentType === "ETF" ? "Exchange-traded fund" : instrumentType;
 }
 
+export interface NavPremiumDiscount {
+  /** Signed % of CMP vs NAV: positive = premium, negative = discount. */
+  premiumPct: number;
+  /** "premium" when CMP > NAV, "discount" when CMP < NAV, "fair" within tolerance. */
+  stance: "premium" | "discount" | "fair";
+}
+
+/** ETFs trading within ±this % of NAV are treated as "at fair value". */
+export const NAV_FAIR_TOLERANCE_PCT = 0.1;
+
+/**
+ * Compute the live premium/discount of an ETF's market price (CMP) versus its
+ * NAV. premiumPct = (CMP − NAV) / NAV × 100. Returns null when either input is
+ * missing/non-finite or NAV is non-positive — never fabricates a verdict.
+ *
+ * NOTE: the NAV is end-of-day (latest published AMFI session), so this is an
+ * approximate, slightly-lagged premium/discount — the UI labels the NAV date.
+ */
+export function computeNavPremiumDiscount(
+  cmp: number | null,
+  nav: number | null,
+): NavPremiumDiscount | null {
+  if (cmp == null || !Number.isFinite(cmp)) return null;
+  if (nav == null || !Number.isFinite(nav) || nav <= 0) return null;
+  const premiumPct = ((cmp - nav) / nav) * 100;
+  const stance =
+    Math.abs(premiumPct) <= NAV_FAIR_TOLERANCE_PCT
+      ? "fair"
+      : premiumPct > 0
+        ? "premium"
+        : "discount";
+  return { premiumPct, stance };
+}
+
 export type TrendTone = "pos" | "neg" | "neutral";
 
 export interface EtfTrend {

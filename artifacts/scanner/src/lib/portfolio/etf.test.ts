@@ -5,7 +5,37 @@ import {
   lookupEtfReference,
   etfCategory,
   describeEtfTrend,
+  computeNavPremiumDiscount,
+  NAV_FAIR_TOLERANCE_PCT,
 } from "./etf";
+
+describe("computeNavPremiumDiscount", () => {
+  it("reports a premium when CMP is above NAV", () => {
+    const r = computeNavPremiumDiscount(102, 100);
+    expect(r).not.toBeNull();
+    expect(r!.stance).toBe("premium");
+    expect(r!.premiumPct).toBeCloseTo(2, 6);
+  });
+
+  it("reports a discount when CMP is below NAV", () => {
+    const r = computeNavPremiumDiscount(98, 100);
+    expect(r!.stance).toBe("discount");
+    expect(r!.premiumPct).toBeCloseTo(-2, 6);
+  });
+
+  it("treats tiny deviations within tolerance as fair value", () => {
+    const r = computeNavPremiumDiscount(100 + NAV_FAIR_TOLERANCE_PCT / 100 * 100 * 0.5, 100);
+    expect(r!.stance).toBe("fair");
+  });
+
+  it("returns null for missing or non-positive inputs", () => {
+    expect(computeNavPremiumDiscount(null, 100)).toBeNull();
+    expect(computeNavPremiumDiscount(100, null)).toBeNull();
+    expect(computeNavPremiumDiscount(100, 0)).toBeNull();
+    expect(computeNavPremiumDiscount(NaN, 100)).toBeNull();
+    expect(computeNavPremiumDiscount(100, -5)).toBeNull();
+  });
+});
 
 describe("ETF_REFERENCE table", () => {
   it("has a verified-as-of date", () => {

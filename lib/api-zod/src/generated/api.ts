@@ -2134,6 +2134,35 @@ export const GetEtfQuoteResponse = zod
   );
 
 /**
+ * Resolves the latest published end-of-day Net Asset Value (NAV) for an NSE ETF from the official AMFI NAVAll feed, keyed by ISIN. The NAV is END-OF-DAY (latest published session, see `navDate`), not a live intraday iNAV, so a premium/discount computed against a live CMP is approximate and slightly lagged. Never fabricates a NAV: 404 when the symbol has no ISIN mapping or the ISIN is absent from the feed, 503 when the AMFI feed is unreachable. An optional `isin` query overrides the curated map (e.g. the user's own holding ISIN).
+
+ * @summary Latest published NAV for an ETF (AMFI feed)
+ */
+export const GetEtfNavParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const GetEtfNavQueryParams = zod.object({
+  isin: zod.coerce.string().optional(),
+});
+
+export const GetEtfNavResponse = zod
+  .object({
+    symbol: zod.string(),
+    isin: zod.string(),
+    nav: zod.number().describe("Net asset value per unit (INR)"),
+    navDate: zod.string().describe("Published NAV date, e.g. '03-Jun-2026'"),
+    schemeName: zod
+      .string()
+      .optional()
+      .describe("AMFI scheme name for the matched ISIN"),
+    source: zod.string().describe("Always 'AMFI' for this endpoint"),
+  })
+  .describe(
+    "Latest published end-of-day NAV for an ETF from the AMFI feed. NAV is from the latest published session (navDate), not a live intraday iNAV.\n",
+  );
+
+/**
  * @summary Unified instrument search for the charting tab
  */
 export const SearchChartInstrumentsQueryParams = zod.object({

@@ -15,12 +15,14 @@ import {
   ListSectorsResponse,
   ListStocksResponse,
   GetEtfQuoteResponse,
+  GetEtfNavResponse,
 } from "@workspace/api-zod";
 import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground } from "../lib/scanner";
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
 import { isRecognisedEtf, loadKiteEtfQuote, getEtfRecognitionDiagnostics, checkEtfRecognition } from "../lib/kiteScanner";
+import { loadEtfNav } from "../lib/etfNav";
 import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { pivots } from "../lib/indicators";
@@ -511,6 +513,39 @@ router.get("/etf/:symbol/quote", async (req, res, next) => {
       volume: q.volume,
       instrumentType: "ETF",
       updatedAt: new Date(q.ts).toISOString(),
+    });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// ETF NAV (premium/discount) — latest published end-of-day NAV from the AMFI
+// feed, keyed by ISIN (curated map, or the user's holding ISIN via `?isin=`).
+// NAV is end-of-day, not a live iNAV, so the caller labels the navDate. Never
+// fabricates: 404 for no-mapping/not-in-feed, 503 when the AMFI feed is down.
+router.get("/etf/:symbol/nav", async (req, res, next) => {
+  try {
+    const symbol = String(req.params["symbol"] ?? "").trim().toUpperCase();
+    const isinOverride = typeof req.query["isin"] === "string" ? req.query["isin"] : null;
+    const result = await loadEtfNav(symbol, isinOverride);
+    if (result.status === "feed_unavailable") {
+      res.status(503).json({ error: "AMFI NAV feed unavailable", code: "NAV_FEED_OFFLINE" });
+      return;
+    }
+    if (result.status === "no_mapping") {
+      res.status(404).json({ error: "No NAV mapping for this ETF" });
+      return;
+    }
+    if (result.status === "not_found") {
+      res.status(404).json({ error: "NAV not found in the AMFI feed for this ISIN" });
+      return;
+    }
+    const data = GetEtfNavResponse.parse({
+      symbol: result.symbol,
+      isin: result.isin,
+      nav: result.nav,
+      navDate: result.navDate,
+      schemeName: result.schemeName,
+      source: "AMFI",
     });
     res.json(data);
   } catch (err) { next(err); }

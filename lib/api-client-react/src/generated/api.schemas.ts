@@ -62,6 +62,23 @@ export interface EtfQuote {
 }
 
 /**
+ * Latest published end-of-day NAV for an ETF from the AMFI feed. NAV is from the latest published session (navDate), not a live intraday iNAV.
+
+ */
+export interface EtfNav {
+  symbol: string;
+  isin: string;
+  /** Net asset value per unit (INR) */
+  nav: number;
+  /** Published NAV date, e.g. '03-Jun-2026' */
+  navDate: string;
+  /** AMFI scheme name for the matched ISIN */
+  schemeName?: string;
+  /** Always 'AMFI' for this endpoint */
+  source: string;
+}
+
+/**
  * Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)
  */
 export type IndicatorsFutOiBuildup =
@@ -3962,6 +3979,10 @@ export const GetStockHistoryRange = {
   "1y": "1y",
   "2y": "2y",
 } as const;
+
+export type GetEtfNavParams = {
+  isin?: string;
+};
 
 export type SearchChartInstrumentsParams = {
   /**
