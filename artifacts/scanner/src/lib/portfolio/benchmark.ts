@@ -352,31 +352,40 @@ export const NIFTY500_SECTOR_REFERENCE_MAX_AGE_DAYS = 180;
 
 /**
  * ─────────────────────────────────────────────────────────────────────────
- * HOW TO REFRESH THE NIFTY 500 SECTOR REFERENCE (low-friction manual update)
+ * HOW TO REFRESH THE NIFTY 500 SECTOR REFERENCE
  * ─────────────────────────────────────────────────────────────────────────
  * The over/under-weight comparison is honest only while these weights track
  * the live index. Refresh roughly every quarter (or whenever the panel shows
- * the amber "reference may be stale" note). The whole job is editing this one
- * file — no backend, schema, or migration changes.
+ * the amber "reference may be stale" note).
  *
- * 1. SOURCE the current weights. Use NSE's published "NIFTY 500" factsheet /
- *    index methodology page (niftyindices.com) and take its **industry / sector
- *    representation** (% weightage) table. That table is the authority; every
- *    number below must trace back to one of its rows.
- * 2. ROLL UP each NSE industry row into exactly ONE app bucket using the map in
- *    the `NIFTY500_SECTOR_REFERENCE` doc comment directly below. Keep it a true
- *    partition: every NSE row lands in one bucket, nothing is double-counted,
- *    and anything that fits no bucket goes to `Other`.
- * 3. UPDATE three things in lock-step:
- *      a. the weights in `NIFTY500_SECTOR_REFERENCE` (they must still sum to
- *         ~100% — the `benchmark.test.ts` partition-sum guard enforces this),
- *      b. `NIFTY500_SECTOR_REFERENCE_AS_OF` → the real capture date (ISO), and
- *      c. `NIFTY500_SECTOR_REFERENCE_SOURCE` if the provenance wording changes.
- *    Do NOT bump the as-of date without actually updating the weights — the
- *    label must reflect the TRUE capture date, never "now".
- * 4. VERIFY: `pnpm --filter @workspace/scanner run test` (partition-sum + this
- *    file's tests) and `pnpm run typecheck`. The panel's as-of label and the
- *    staleness note both read from the constants above automatically.
+ * PREFERRED: the repeatable ingest script
+ *   `scripts/src/refreshNifty500SectorReference.ts` does the deterministic
+ *   roll-up + partition validation + codegen for you, so a refresh is no longer
+ *   a hand edit:
+ *     1. Export NSE's published "NIFTY 500" **industry / sector representation**
+ *        (% weightage) table (niftyindices.com factsheet/methodology) into a
+ *        two-column CSV: `industry,weight`. That table is the only authority.
+ *     2. Dry-run (prints the new constant + as-of for review; changes nothing):
+ *          pnpm --filter @workspace/scripts run refresh-nifty500-sectors -- \
+ *            --in path/to/nse-nifty500-industry-weights.csv --as-of YYYY-MM-DD
+ *        Pass the TRUE capture date as --as-of, never "now" for old data. The
+ *        script refuses to emit if the source is missing, the weights do not sum
+ *        to ~100%, or the date is malformed — in which case the snapshot below
+ *        stays untouched (no fabricated weights). Any NSE industry it does not
+ *        recognise is reported and dropped into `Other`; extend its
+ *        `NSE_INDUSTRY_TO_BUCKET` map if a row belongs in a real bucket.
+ *     3. Apply in place with `--write`, then VERIFY:
+ *          pnpm --filter @workspace/scanner run test   (partition-sum guard)
+ *          pnpm run typecheck
+ *
+ * MANUAL FALLBACK (same result, by hand): roll each NSE industry row into
+ * exactly ONE app bucket per the map in the `NIFTY500_SECTOR_REFERENCE` doc
+ * comment below (true partition, no double-counting, leftovers → `Other`), then
+ * update `NIFTY500_SECTOR_REFERENCE` (must still sum to ~100%),
+ * `NIFTY500_SECTOR_REFERENCE_AS_OF` (real capture date), and
+ * `NIFTY500_SECTOR_REFERENCE_SOURCE` (if wording changes) in lock-step, and run
+ * the same verify commands. The panel's as-of label and staleness note read
+ * from the constants above automatically.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
