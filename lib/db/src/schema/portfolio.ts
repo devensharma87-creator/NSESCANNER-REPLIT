@@ -8,8 +8,11 @@
  *
  *  - `portfoliosTable`         — one row per named portfolio per user.
  *    Names are unique per ownerKey so the UI can list them in a switcher.
- *    At most one portfolio per user is flagged `isDefault` (enforced in the
- *    route layer, not by a partial unique index, to keep the toggle simple).
+ *    At most one portfolio per user is flagged `isDefault`. This is enforced
+ *    BOTH in the route layer (clear-then-set inside one transaction) AND by a
+ *    partial unique index on `(ownerKey) WHERE is_default` — the DB-level
+ *    guarantee makes the invariant impossible to violate under concurrent
+ *    set-default requests or a future multi-replica deployment.
  *  - `portfolioHoldingsTable`  — the holdings belonging to a portfolio,
  *    FK CASCADE on delete. Stores exactly the user-supplied figures
  *    (qty/rate/date/etc.) — NEVER any fabricated or live-market value;
@@ -21,6 +24,7 @@
  * ledger, so we deliberately avoid the numeric→string round-trip.
  */
 
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -39,7 +43,7 @@ export const portfoliosTable = pgTable(
     /** "owner" or "u:<userId>". Opaque key — no FK, unifies owner/subscriber. */
     ownerKey: text("owner_key").notNull(),
     name: text("name").notNull(),
-    /** At most one default per ownerKey (enforced in the route layer). */
+    /** At most one default per ownerKey (route-layer toggle + partial unique index below). */
     isDefault: boolean("is_default").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -47,6 +51,11 @@ export const portfoliosTable = pgTable(
   (t) => ({
     byOwner: index("portfolios_owner_idx").on(t.ownerKey),
     uniqNamePerOwner: uniqueIndex("portfolios_owner_name_uniq").on(t.ownerKey, t.name),
+    // At most one default portfolio per owner — enforced at the DB level so the
+    // invariant survives concurrent set-default requests / multi-replica deploys.
+    uniqDefaultPerOwner: uniqueIndex("portfolios_owner_default_uniq")
+      .on(t.ownerKey)
+      .where(sql`${t.isDefault}`),
   }),
 );
 

@@ -385,6 +385,65 @@ describeDb("Portfolio routes — limits & integrity (live DB)", () => {
   });
 
   // -------------------------------------------------------------------------
+  // DB-level guarantee: the partial unique index makes two defaults for the
+  // SAME owner physically impossible — even if the route-layer clear-then-set
+  // toggle were ever bypassed (concurrent set-default / multi-replica race).
+  // -------------------------------------------------------------------------
+
+  it("rejects a forced double-default insert at the DB level (unique violation)", async () => {
+    // First default lands fine via the normal route.
+    const first = await createPortfolio(cookieA, "Primary"); // first → default
+    expect(first.status).toBe(201);
+    expect(first.body["isDefault"]).toBe(true);
+
+    // Bypass the route's clear-then-set toggle entirely and try to write a
+    // SECOND is_default row directly for the same owner. The partial unique
+    // index on (owner_key) WHERE is_default must reject it (SQLSTATE 23505).
+    await expect(
+      db.insert(portfoliosTable).values({
+        ownerKey: `u:${userIdA}`,
+        name: `forced-default-${RUN}`,
+        isDefault: true,
+      }),
+    ).rejects.toMatchObject({});
+
+    // The owner still has exactly one default — the forced insert never landed.
+    const list = await req("GET", "/portfolios", { cookie: cookieA });
+    const items =
+      (list.body["items"] as Array<{ name: string; isDefault: boolean }>) ?? [];
+    expect(defaultsOf(items)).toEqual(["Primary"]);
+  });
+
+  it("allows a forced default for a DIFFERENT owner (index is partial per-ownerKey)", async () => {
+    const a = await createPortfolio(cookieA, "A-default"); // A's default
+    expect(a.body["isDefault"]).toBe(true);
+
+    // A non-default extra for A is always fine (index only covers is_default rows).
+    await db.insert(portfoliosTable).values({
+      ownerKey: `u:${userIdA}`,
+      name: `a-extra-${RUN}`,
+      isDefault: false,
+    });
+
+    // A default for B coexists — the index scopes uniqueness per owner_key.
+    await db.insert(portfoliosTable).values({
+      ownerKey: `u:${userIdB}`,
+      name: `b-default-${RUN}`,
+      isDefault: true,
+    });
+
+    const listA = await req("GET", "/portfolios", { cookie: cookieA });
+    const itemsA =
+      (listA.body["items"] as Array<{ name: string; isDefault: boolean }>) ?? [];
+    expect(defaultsOf(itemsA)).toEqual(["A-default"]);
+
+    const listB = await req("GET", "/portfolios", { cookie: cookieB });
+    const itemsB =
+      (listB.body["items"] as Array<{ name: string; isDefault: boolean }>) ?? [];
+    expect(defaultsOf(itemsB)).toEqual([`b-default-${RUN}`]);
+  });
+
+  // -------------------------------------------------------------------------
   // Atomic validation — invalid rows reject the whole bulk save.
   // -------------------------------------------------------------------------
 
