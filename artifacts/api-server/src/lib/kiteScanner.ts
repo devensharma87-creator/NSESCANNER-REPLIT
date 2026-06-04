@@ -286,13 +286,85 @@ export function isWhitelistedEtf(symbol: string): boolean {
  *      step because Kite is offline). We never fabricate a price either way.
  */
 export async function isRecognisedEtf(symbol: string): Promise<boolean> {
+  return (await checkEtfRecognition(symbol)).recognised;
+}
+
+/**
+ * How a symbol came to be recognised (or not) as an NSE ETF. Mirrors the
+ * decision tree in {@link checkEtfRecognition} so the owner-only diagnostic
+ * can explain exactly why a given symbol prices (or doesn't).
+ *
+ *   - "seed"              → in the curated offline `ETF_WHITELIST`
+ *   - "master"            → found in the live Kite instrument master
+ *   - "not_etf"           → master loaded, symbol absent (genuinely not an ETF)
+ *   - "kite_offline"      → master unavailable; result is the pure-heuristic
+ *                           fallback (recognised iff `looksLikeEtf` matches)
+ */
+export type EtfRecognitionSource = "seed" | "master" | "not_etf" | "kite_offline";
+
+export interface EtfSymbolRecognition {
+  symbol: string;
+  recognised: boolean;
+  source: EtfRecognitionSource;
+  kiteInstrumentsLoaded: boolean;
+  instrumentsFetchedAt: string | null;
+}
+
+/**
+ * Resolve a single symbol's ETF-recognition outcome, reusing the live Kite
+ * instrument cache (no extra Kite calls beyond the 24h instrument load). This
+ * is the single source of truth for {@link isRecognisedEtf}; the owner-only
+ * diagnostic uses it to answer "why is my ETF showing unavailable?".
+ */
+export async function checkEtfRecognition(symbol: string): Promise<EtfSymbolRecognition> {
   const sym = symbol.trim().toUpperCase();
-  if (!sym) return false;
-  if (ETF_WHITELIST.has(sym)) return true;
+  // Seed short-circuit FIRST — matches the original `isRecognisedEtf` and
+  // avoids triggering an instrument load just to recognise a household-name
+  // ETF. Report the cache freshness only if the master is already warm.
+  if (sym && ETF_WHITELIST.has(sym)) {
+    return {
+      symbol: sym,
+      recognised: true,
+      source: "seed",
+      kiteInstrumentsLoaded: instrumentsCache != null,
+      instrumentsFetchedAt: instrumentsCache ? new Date(instrumentsCache.fetchedAt).toISOString() : null,
+    };
+  }
   const inst = await loadKiteNseEqInstruments();
-  if (inst) return inst.etfSymbols.has(sym);
+  const kiteInstrumentsLoaded = inst != null;
+  const instrumentsFetchedAt = inst ? new Date(inst.fetchedAt).toISOString() : null;
+  if (inst) {
+    const inMaster = sym ? inst.etfSymbols.has(sym) : false;
+    return { symbol: sym, recognised: inMaster, source: inMaster ? "master" : "not_etf", kiteInstrumentsLoaded, instrumentsFetchedAt };
+  }
   // Kite offline — can't validate against the master; use the pure heuristic.
-  return looksLikeEtf(sym);
+  return { symbol: sym, recognised: sym ? looksLikeEtf(sym) : false, source: "kite_offline", kiteInstrumentsLoaded: false, instrumentsFetchedAt: null };
+}
+
+/**
+ * Read-only snapshot of the ETF-recognition data plane for the owner-only
+ * Infra Health dashboard: how many NSE ETFs the live Kite master currently
+ * recognises, the curated offline seed size, and the instrument-cache
+ * freshness. Reuses the existing 24h instrument cache — no extra Kite calls.
+ *
+ * `detectedCount`/`instrumentsFetchedAt` are null when Kite is logged out
+ * (the master can't be loaded) — never faked.
+ */
+export interface EtfRecognitionDiagnostics {
+  seedCount: number;
+  detectedCount: number | null;
+  instrumentsFetchedAt: string | null;
+  kiteInstrumentsLoaded: boolean;
+}
+
+export async function getEtfRecognitionDiagnostics(): Promise<EtfRecognitionDiagnostics> {
+  const inst = await loadKiteNseEqInstruments();
+  return {
+    seedCount: ETF_WHITELIST.size,
+    detectedCount: inst ? inst.etfSymbols.size : null,
+    instrumentsFetchedAt: inst ? new Date(inst.fetchedAt).toISOString() : null,
+    kiteInstrumentsLoaded: inst != null,
+  };
 }
 
 /**

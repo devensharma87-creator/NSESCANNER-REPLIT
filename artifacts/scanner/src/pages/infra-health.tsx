@@ -614,6 +614,137 @@ function EquitySection({
   );
 }
 
+// ── ETF recognition diagnostic (data-driven priceability) ──────────────────
+
+type EtfRecognitionSource = "seed" | "master" | "not_etf" | "kite_offline";
+interface EtfSymbolRecognition {
+  symbol: string;
+  recognised: boolean;
+  source: EtfRecognitionSource;
+  kiteInstrumentsLoaded: boolean;
+  instrumentsFetchedAt: string | null;
+}
+interface EtfDiagnosticsResp {
+  seedCount: number;
+  detectedCount: number | null;
+  instrumentsFetchedAt: string | null;
+  kiteInstrumentsLoaded: boolean;
+  check: EtfSymbolRecognition | null;
+}
+
+const ETF_SOURCE_LABEL: Record<EtfRecognitionSource, string> = {
+  seed: "Recognised via curated seed",
+  master: "Recognised via live Kite master",
+  not_etf: "Not a recognised ETF",
+  kite_offline: "Kite offline — heuristic fallback",
+};
+
+function EtfRecognitionSection({
+  diag, nowMs,
+}: {
+  diag: FetchState<EtfDiagnosticsResp>;
+  nowMs: number;
+}): React.ReactElement {
+  // A green section means the live Kite master loaded and ETF detection ran.
+  // Kite logged out → "disabled" (expected outside market hours / dev), not a
+  // failure. A hard fetch error → "fail".
+  let severity: Severity = "ok";
+  if (diag.loading && !diag.data) severity = "disabled";
+  else if (diag.error) severity = "fail";
+  else if (diag.data && !diag.data.kiteInstrumentsLoaded) severity = "disabled";
+
+  // On-demand single-symbol recognition check (read-only).
+  const [symbol, setSymbol] = useState("");
+  const [checkState, setCheckState] = useState<FetchState<EtfDiagnosticsResp>>({ data: null, error: null, loading: false });
+  const base = import.meta.env.BASE_URL;
+
+  async function runCheck() {
+    const sym = symbol.trim().toUpperCase();
+    if (!sym) {
+      setCheckState({ data: null, error: "Enter a symbol to check.", loading: false });
+      return;
+    }
+    setCheckState({ data: null, error: null, loading: true });
+    try {
+      const url = `${base}api/etf/diagnostics?symbol=${encodeURIComponent(sym)}`;
+      const r = await fetch(url, { credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = (await r.json()) as EtfDiagnosticsResp;
+      setCheckState({ data: j, error: null, loading: false });
+    } catch (e) {
+      setCheckState({ data: null, error: e instanceof Error ? e.message : "fetch failed", loading: false });
+    }
+  }
+
+  const check = checkState.data?.check ?? null;
+
+  return (
+    <SectionShell
+      title="ETF Priceability"
+      icon={Layers}
+      severity={severity}
+      description="Which NSE ETFs the app can price live. Detection is data-driven off the live Kite instrument master (no hardcoded list). Read-only; reuses the 24h instrument cache."
+      testId="section-etf"
+    >
+      {diag.error && <div className="text-sm text-rose-500">Diagnostics failed: {diag.error}</div>}
+      {diag.loading && !diag.data && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {diag.data && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+            <Stat
+              label="Detected (live master)"
+              value={diag.data.detectedCount == null ? "—" : diag.data.detectedCount}
+              tone={diag.data.detectedCount == null ? "warn" : diag.data.detectedCount > 0 ? "ok" : "warn"}
+            />
+            <Stat label="Curated seed" value={diag.data.seedCount} tone="info" />
+            <Stat label="Master age" value={formatAge(diag.data.instrumentsFetchedAt, nowMs)} tone="info" />
+          </div>
+          {!diag.data.kiteInstrumentsLoaded && (
+            <div className="text-xs text-muted-foreground">
+              <Info className="inline h-3 w-3 mr-1 align-middle" />
+              Kite logged out — the live instrument master can't be loaded, so only the curated
+              seed of {diag.data.seedCount} ETFs is recognised right now. Count refreshes once Kite reconnects.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* On-demand single-symbol recognition check — read-only */}
+      <div className="border-t border-border/50 pt-3 mt-3">
+        <div className="text-xs font-semibold mb-2">Check a symbol (read-only)</div>
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex-1 min-w-[120px]">
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wide">ETF symbol</label>
+            <Input
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void runCheck(); }}
+              placeholder="NIFTYBEES"
+              className="h-8 text-xs"
+              data-testid="input-etf-symbol"
+            />
+          </div>
+          <Button size="sm" variant="outline" onClick={() => void runCheck()} disabled={checkState.loading} data-testid="button-etf-check">
+            {checkState.loading ? "Checking…" : "Check"}
+          </Button>
+        </div>
+        {checkState.error && <div className="text-xs text-rose-500 mt-2">{checkState.error}</div>}
+        {check && (
+          <div className="mt-2 text-xs border border-border/50 rounded p-2" data-testid="etf-check-result">
+            <div className="flex items-center gap-2">
+              <SeverityIcon s={check.recognised ? "ok" : "warn"} className="h-3.5 w-3.5" />
+              <span className="font-medium font-mono">{check.symbol}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-medium">{check.recognised ? "Priceable" : "Not priceable"}</span>
+            </div>
+            <div className="mt-1 text-muted-foreground">{ETF_SOURCE_LABEL[check.source]}</div>
+          </div>
+        )}
+      </div>
+    </SectionShell>
+  );
+}
+
 // ── P15: F&O Reasoning Analytics section ───────────────────────────────────
 
 interface KeyCountRow { key: string; count: number }
@@ -1866,6 +1997,7 @@ export default function InfraHealthPage(): React.ReactElement {
   );
   const analytics = useEndpoint<AnalyticsResp>("api/option-snapshots/analytics", auto, tick);
   const candidates = useEndpoint<CandidatesDiag>("api/paper/eq/candidates-diagnostic", auto, tick);
+  const etf = useEndpoint<EtfDiagnosticsResp>("api/etf/diagnostics", auto, tick);
   const reasoning = useEndpoint<ReasoningAnalyticsResp>("api/paper/diagnostics/fno-reasoning/analytics", auto, tick);
   const observability = useEndpoint<ObservabilityResp>("api/paper/diagnostics/fno-observability", auto, tick);
   const shadowCosts = useEndpoint<ShadowCostsResp>("api/paper/analytics/fo/shadow-costs", auto, tick);
@@ -1946,6 +2078,9 @@ export default function InfraHealthPage(): React.ReactElement {
         <SnapshotSection diag={snapshot} analytics={analytics} nowMs={nowMs} />
         <div className="md:col-span-2">
           <EquitySection cand={candidates} nowMs={nowMs} refresh={refresh} />
+        </div>
+        <div className="md:col-span-2">
+          <EtfRecognitionSection diag={etf} nowMs={nowMs} />
         </div>
         <div className="md:col-span-2">
           <ObservabilitySection {...observability} />

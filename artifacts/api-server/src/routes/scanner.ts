@@ -20,7 +20,7 @@ import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground } from "../lib/scanner";
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
-import { isRecognisedEtf, loadKiteEtfQuote } from "../lib/kiteScanner";
+import { isRecognisedEtf, loadKiteEtfQuote, getEtfRecognitionDiagnostics, checkEtfRecognition } from "../lib/kiteScanner";
 import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
 import { pivots } from "../lib/indicators";
@@ -457,6 +457,23 @@ router.get("/stocks/:symbol", async (req, res, next) => {
       news,
     });
     res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Owner-only ETF-recognition diagnostic for the Infra Health dashboard.
+// Surfaces how many NSE ETFs the live Kite instrument master currently
+// recognises (data-driven detection via `looksLikeEtf`), the curated offline
+// seed size, and the instrument-cache freshness. Optional `?symbol=` resolves
+// a single symbol's recognition outcome (seed / live master / not an ETF /
+// Kite offline) so support can answer "why is my ETF showing unavailable?".
+// READ-ONLY: reuses the existing 24h instrument cache, no extra Kite calls,
+// no trading / schema / scheduler effect.
+router.get("/etf/diagnostics", requireOwner, async (req, res, next) => {
+  try {
+    const symbolParam = typeof req.query["symbol"] === "string" ? req.query["symbol"] : "";
+    const diagnostics = await getEtfRecognitionDiagnostics();
+    const check = symbolParam.trim() ? await checkEtfRecognition(symbolParam) : null;
+    res.json({ ...diagnostics, check });
   } catch (err) { next(err); }
 });
 
