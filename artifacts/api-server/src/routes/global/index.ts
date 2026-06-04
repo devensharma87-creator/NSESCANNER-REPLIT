@@ -442,20 +442,24 @@ const PresetUpdateBody = z.object({
 const UuidParam = z.string().uuid();
 
 /**
- * Detect a Postgres unique-constraint violation regardless of whether the
- * error bubbles up as a raw `pg` error (with `.code === "23505"`) or wrapped
- * inside a drizzle `Failed query: …` error whose `.cause` carries the code.
+ * Detect a Postgres unique-constraint violation (SQLSTATE 23505) regardless of
+ * whether the error bubbles up as a raw `pg` error (with `.code === "23505"`)
+ * or wrapped inside a drizzle `Failed query: …` error whose `.cause` carries
+ * the code. Drizzle can nest the original pg error one or more levels down, so
+ * we walk the whole `.cause` chain (mirrors `isUniqueViolation` in
+ * routes/portfolio.ts) before falling back to a message heuristic.
  */
 function isUniqueViolation(err: unknown): boolean {
-  const candidates: unknown[] = [err];
-  if (err && typeof err === "object" && "cause" in err) {
-    candidates.push((err as { cause?: unknown }).cause);
-  }
-  for (const c of candidates) {
-    if (c && typeof c === "object" && "code" in c) {
-      const code = (c as { code?: unknown }).code;
-      if (code === "23505") return true;
+  let cur: unknown = err;
+  for (let depth = 0; depth < 5 && cur != null; depth++) {
+    if (
+      typeof cur === "object" &&
+      "code" in cur &&
+      (cur as { code?: unknown }).code === "23505"
+    ) {
+      return true;
     }
+    cur = typeof cur === "object" && "cause" in cur ? (cur as { cause?: unknown }).cause : null;
   }
   return /unique|duplicate/i.test((err as Error)?.message ?? "");
 }
