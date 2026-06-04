@@ -41,6 +41,7 @@ import { buildPortfolioCsv } from "@/lib/portfolio/csv";
 import {
   resolveBenchmarkPref,
   saveBenchmarkPref,
+  isBenchmarkKey,
   type BenchmarkKey,
 } from "@/lib/portfolio/benchmarkPref";
 import { usePortfolios, rawToInput, holdingToRaw } from "@/lib/portfolio/persistence";
@@ -80,6 +81,16 @@ function signature(holdings: RawHolding[]): string {
   return JSON.stringify(holdings.map(rawToInput));
 }
 
+/**
+ * Resolve the benchmark to show for a just-loaded saved portfolio. Prefers the
+ * server-stored choice (so it follows the user across devices/browsers); falls
+ * back to the per-device localStorage preference for portfolios saved before
+ * server-side persistence existed.
+ */
+function benchmarkForLoaded(full: { id: string; benchmark?: string | null }): BenchmarkKey {
+  return isBenchmarkKey(full.benchmark) ? full.benchmark : resolveBenchmarkPref(full.id);
+}
+
 export default function PortfolioAnalyser() {
   const [holdings, setHoldings] = useState<RawHolding[]>([]);
   const [isSample, setIsSample] = useState(false);
@@ -111,7 +122,7 @@ export default function PortfolioAnalyser() {
         setCurrentName(full.name);
         setSavedSig(signature(raws));
         setIsSample(false);
-        setBenchmarkKey(resolveBenchmarkPref(full.id));
+        setBenchmarkKey(benchmarkForLoaded(full));
       } catch {
         /* honest no-op: a failed auto-load leaves the empty state visible */
       }
@@ -356,11 +367,18 @@ export default function PortfolioAnalyser() {
     }
   }
 
-  // Persist the benchmark selection so it survives refresh/session. Scoped to
-  // the current portfolio (or the shared default scope when nothing is loaded).
+  // Persist the benchmark selection so it survives refresh/session. For a saved
+  // portfolio the choice is stored server-side (per portfolio) so it follows the
+  // user across devices/browsers; localStorage is still written as a per-device
+  // fallback (and is the only store for unsaved/sample working sets).
   function selectBenchmark(key: BenchmarkKey) {
     setBenchmarkKey(key);
     saveBenchmarkPref(currentId, key);
+    if (currentId && !isSample) {
+      pf.setBenchmark(currentId, key).catch(() => {
+        /* network error: localStorage fallback already holds the choice */
+      });
+    }
   }
 
   async function saveCurrent() {
@@ -375,7 +393,7 @@ export default function PortfolioAnalyser() {
 
   async function createNamed(name: string) {
     try {
-      const created = await pf.create(name, holdings, pf.list.length === 0);
+      const created = await pf.create(name, holdings, pf.list.length === 0, benchmarkKey);
       setCurrentId(created.id);
       setCurrentName(created.name);
       setSavedSig(signature(holdings));
@@ -388,7 +406,7 @@ export default function PortfolioAnalyser() {
 
   async function saveAs(name: string) {
     try {
-      const created = await pf.create(name, holdings, false);
+      const created = await pf.create(name, holdings, false, benchmarkKey);
       setCurrentId(created.id);
       setCurrentName(created.name);
       setSavedSig(signature(holdings));

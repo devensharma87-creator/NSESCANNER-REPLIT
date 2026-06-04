@@ -7,7 +7,7 @@
  */
 
 /**
- * Provide `name` to rename and/or `isDefault: true` to make this the user's default portfolio.
+ * Provide `name` to rename, `isDefault: true` to make this the user's default portfolio, and/or `benchmark` to persist the chosen benchmark index.
  */
 export interface PortfolioPatchBody {
   /**
@@ -16,4 +16,6 @@ export interface PortfolioPatchBody {
    */
   name?: string;
   isDefault?: boolean;
+  /** Chosen benchmark index key (e.g. NIFTY, NIFTY500). Pass null to clear. */
+  benchmark?: string | null;
 }

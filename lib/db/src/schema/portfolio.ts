@@ -45,6 +45,14 @@ export const portfoliosTable = pgTable(
     name: text("name").notNull(),
     /** At most one default per ownerKey (route-layer toggle + partial unique index below). */
     isDefault: boolean("is_default").notNull().default(false),
+    /**
+     * The user's chosen benchmark index key for this portfolio (e.g. "NIFTY",
+     * "NIFTY500"). Stored server-side so the selection follows the user across
+     * devices/browsers. Opaque string — the frontend validates the key against
+     * its known options on read, so a stale/unknown key degrades gracefully.
+     * Null when the user has never explicitly chosen one for this portfolio.
+     */
+    benchmark: text("benchmark"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

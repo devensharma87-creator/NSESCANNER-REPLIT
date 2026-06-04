@@ -11,6 +11,8 @@ export interface Portfolio {
   id: string;
   name: string;
   isDefault: boolean;
+  /** The user's chosen benchmark index key (e.g. NIFTY, NIFTY500). Null when none chosen. Persisted so the choice follows the user across devices. */
+  benchmark?: string | null;
   createdAt: Date;
   updatedAt: Date;
   holdings: PortfolioHolding[];

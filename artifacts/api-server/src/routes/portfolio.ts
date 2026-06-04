@@ -90,6 +90,20 @@ function finiteOrNull(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+const BENCHMARK_RE = /^[A-Z0-9]{1,32}$/;
+
+/**
+ * Normalise a chosen benchmark key. Opaque to the server — the frontend
+ * validates against its known options on read, so we only enforce a safe
+ * shape here. Returns null for absent/blank/invalid values so a stale or
+ * malformed key never sticks.
+ */
+function benchmarkOrNull(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim().toUpperCase();
+  return BENCHMARK_RE.test(t) ? t : null;
+}
+
 /**
  * Validate + normalise an array of holding inputs. Returns an error string on
  * the first invalid row so the whole bulk save is rejected atomically (no
@@ -172,6 +186,7 @@ async function loadPortfolio(owner: string, id: string) {
     id: p.id,
     name: p.name,
     isDefault: p.isDefault,
+    benchmark: p.benchmark,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
     holdings: holdings.map(mapHolding),
@@ -242,6 +257,7 @@ router.post("/portfolios", requireSubscriberOrOwner(), async (req, res) => {
     return;
   }
   const wantDefault = parsed.data.isDefault === true;
+  const benchmark = benchmarkOrNull(parsed.data.benchmark);
   const clean = sanitizeHoldings((parsed.data.holdings ?? []) as HoldingInput[]);
   if (!clean.ok) {
     res.status(400).json({ error: clean.error });
@@ -270,7 +286,7 @@ router.post("/portfolios", requireSubscriberOrOwner(), async (req, res) => {
       }
       const [p] = await tx
         .insert(portfoliosTable)
-        .values({ ownerKey: owner, name, isDefault: makeDefault })
+        .values({ ownerKey: owner, name, isDefault: makeDefault, benchmark })
         .returning();
       if (clean.holdings.length > 0) {
         await tx.insert(portfolioHoldingsTable).values(
@@ -330,7 +346,10 @@ router.patch("/portfolios/:id", requireSubscriberOrOwner(), async (req, res) => 
   const id = paramId(req);
   const name = parsed.data.name?.trim();
   const setDefault = parsed.data.isDefault === true;
-  if (name === undefined && !setDefault) {
+  // `benchmark` is present in the body (vs. omitted) → user wants to set/clear it.
+  const benchmarkProvided = "benchmark" in (parsed.data as Record<string, unknown>);
+  const benchmark = benchmarkProvided ? benchmarkOrNull(parsed.data.benchmark) : null;
+  if (name === undefined && !setDefault && !benchmarkProvided) {
     res.status(400).json({ error: "nothing_to_update" });
     return;
   }
@@ -353,11 +372,17 @@ router.patch("/portfolios/:id", requireSubscriberOrOwner(), async (req, res) => 
           .set({ isDefault: false })
           .where(eq(portfoliosTable.ownerKey, owner));
       }
-      const patch: { name?: string; isDefault?: boolean; updatedAt: Date } = {
+      const patch: {
+        name?: string;
+        isDefault?: boolean;
+        benchmark?: string | null;
+        updatedAt: Date;
+      } = {
         updatedAt: new Date(),
       };
       if (name !== undefined) patch.name = name;
       if (setDefault) patch.isDefault = true;
+      if (benchmarkProvided) patch.benchmark = benchmark;
       await tx.update(portfoliosTable).set(patch).where(eq(portfoliosTable.id, id));
       return true;
     });

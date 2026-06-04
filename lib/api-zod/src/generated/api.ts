@@ -6478,6 +6478,12 @@ export const createPortfolioBodyNameMax = 80;
 export const CreatePortfolioBody = zod.object({
   name: zod.string().min(1).max(createPortfolioBodyNameMax),
   isDefault: zod.boolean().optional(),
+  benchmark: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional chosen benchmark index key (e.g. NIFTY, NIFTY500) to persist with the new portfolio.",
+    ),
   holdings: zod
     .array(
       zod.object({
@@ -6510,6 +6516,12 @@ export const GetPortfolioResponse = zod.object({
   id: zod.string().uuid(),
   name: zod.string(),
   isDefault: zod.boolean(),
+  benchmark: zod
+    .string()
+    .nullish()
+    .describe(
+      "The user's chosen benchmark index key (e.g. NIFTY, NIFTY500). Null when none chosen. Persisted so the choice follows the user across devices.",
+    ),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   holdings: zod.array(
@@ -6555,15 +6567,27 @@ export const UpdatePortfolioBody = zod
   .object({
     name: zod.string().min(1).max(updatePortfolioBodyNameMax).optional(),
     isDefault: zod.boolean().optional(),
+    benchmark: zod
+      .string()
+      .nullish()
+      .describe(
+        "Chosen benchmark index key (e.g. NIFTY, NIFTY500). Pass null to clear.",
+      ),
   })
   .describe(
-    "Provide `name` to rename and\/or `isDefault: true` to make this the user's default portfolio.",
+    "Provide `name` to rename, `isDefault: true` to make this the user's default portfolio, and\/or `benchmark` to persist the chosen benchmark index.",
   );
 
 export const UpdatePortfolioResponse = zod.object({
   id: zod.string().uuid(),
   name: zod.string(),
   isDefault: zod.boolean(),
+  benchmark: zod
+    .string()
+    .nullish()
+    .describe(
+      "The user's chosen benchmark index key (e.g. NIFTY, NIFTY500). Null when none chosen. Persisted so the choice follows the user across devices.",
+    ),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   holdings: zod.array(
@@ -6638,6 +6662,12 @@ export const ReplacePortfolioHoldingsResponse = zod.object({
   id: zod.string().uuid(),
   name: zod.string(),
   isDefault: zod.boolean(),
+  benchmark: zod
+    .string()
+    .nullish()
+    .describe(
+      "The user's chosen benchmark index key (e.g. NIFTY, NIFTY500). Null when none chosen. Persisted so the choice follows the user across devices.",
+    ),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   holdings: zod.array(

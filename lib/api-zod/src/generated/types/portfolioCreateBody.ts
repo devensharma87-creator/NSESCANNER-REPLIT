@@ -14,5 +14,7 @@ export interface PortfolioCreateBody {
    */
   name: string;
   isDefault?: boolean;
+  /** Optional chosen benchmark index key (e.g. NIFTY, NIFTY500) to persist with the new portfolio. */
+  benchmark?: string | null;
   holdings?: PortfolioHoldingInput[];
 }

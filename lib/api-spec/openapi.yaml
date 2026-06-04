@@ -4672,6 +4672,10 @@ components:
         id: { type: string, format: uuid }
         name: { type: string }
         isDefault: { type: boolean }
+        benchmark:
+          type: string
+          nullable: true
+          description: "The user's chosen benchmark index key (e.g. NIFTY, NIFTY500). Null when none chosen. Persisted so the choice follows the user across devices."
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         holdings:
@@ -4692,16 +4696,24 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
         isDefault: { type: boolean }
+        benchmark:
+          type: string
+          nullable: true
+          description: "Optional chosen benchmark index key (e.g. NIFTY, NIFTY500) to persist with the new portfolio."
         holdings:
           type: array
           items: { $ref: "#/components/schemas/PortfolioHoldingInput" }
 
     PortfolioPatchBody:
       type: object
-      description: "Provide `name` to rename and/or `isDefault: true` to make this the user's default portfolio."
+      description: "Provide `name` to rename, `isDefault: true` to make this the user's default portfolio, and/or `benchmark` to persist the chosen benchmark index."
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
         isDefault: { type: boolean }
+        benchmark:
+          type: string
+          nullable: true
+          description: "Chosen benchmark index key (e.g. NIFTY, NIFTY500). Pass null to clear."
 
     PortfolioHoldingsReplaceBody:
       type: object

@@ -3712,6 +3712,8 @@ export interface Portfolio {
   id: string;
   name: string;
   isDefault: boolean;
+  /** The user's chosen benchmark index key (e.g. NIFTY, NIFTY500). Null when none chosen. Persisted so the choice follows the user across devices. */
+  benchmark?: string | null;
   createdAt: string;
   updatedAt: string;
   holdings: PortfolioHolding[];
@@ -3728,11 +3730,13 @@ export interface PortfolioCreateBody {
    */
   name: string;
   isDefault?: boolean;
+  /** Optional chosen benchmark index key (e.g. NIFTY, NIFTY500) to persist with the new portfolio. */
+  benchmark?: string | null;
   holdings?: PortfolioHoldingInput[];
 }
 
 /**
- * Provide `name` to rename and/or `isDefault: true` to make this the user's default portfolio.
+ * Provide `name` to rename, `isDefault: true` to make this the user's default portfolio, and/or `benchmark` to persist the chosen benchmark index.
  */
 export interface PortfolioPatchBody {
   /**
@@ -3741,6 +3745,8 @@ export interface PortfolioPatchBody {
    */
   name?: string;
   isDefault?: boolean;
+  /** Chosen benchmark index key (e.g. NIFTY, NIFTY500). Pass null to clear. */
+  benchmark?: string | null;
 }
 
 export interface PortfolioHoldingsReplaceBody {

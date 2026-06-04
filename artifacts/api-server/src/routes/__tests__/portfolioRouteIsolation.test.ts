@@ -415,4 +415,85 @@ describeDb("Portfolio routes — cross-user isolation (live DB)", () => {
     expect(holding).not.toHaveProperty("targetPrice");
     expect(holding).not.toHaveProperty("stopLoss");
   });
+
+  // -------------------------------------------------------------------------
+  // Benchmark choice persists per-portfolio (follows the user across devices).
+  // -------------------------------------------------------------------------
+
+  it("persists the benchmark on CREATE and returns it on read", async () => {
+    const r = await req("POST", "/portfolios", {
+      cookie: cookieA,
+      body: { name: "A-benchmark-create", benchmark: "NIFTY500", holdings: [] },
+    });
+    expect(r.status).toBe(201);
+    expect(r.body["benchmark"]).toBe("NIFTY500");
+    const get = await req("GET", `/portfolios/${r.body["id"]}`, { cookie: cookieA });
+    expect(get.body["benchmark"]).toBe("NIFTY500");
+  });
+
+  it("defaults benchmark to null when none supplied on CREATE", async () => {
+    const id = await createPortfolioFor(cookieA, "A-benchmark-none");
+    const get = await req("GET", `/portfolios/${id}`, { cookie: cookieA });
+    expect(get.body["benchmark"]).toBeNull();
+  });
+
+  it("PATCH can set the benchmark on its own (no rename / set-default needed)", async () => {
+    const id = await createPortfolioFor(cookieA, "A-benchmark-patch");
+    const patch = await req("PATCH", `/portfolios/${id}`, {
+      cookie: cookieA,
+      body: { benchmark: "BANKNIFTY" },
+    });
+    expect(patch.status).toBe(200);
+    expect(patch.body["benchmark"]).toBe("BANKNIFTY");
+    // Name is untouched by a benchmark-only patch.
+    expect(patch.body["name"]).toBe("A-benchmark-patch");
+  });
+
+  it("PATCH with benchmark:null clears a previously-stored choice", async () => {
+    const r = await req("POST", "/portfolios", {
+      cookie: cookieA,
+      body: { name: "A-benchmark-clear", benchmark: "SENSEX", holdings: [] },
+    });
+    const id = r.body["id"] as string;
+    const patch = await req("PATCH", `/portfolios/${id}`, {
+      cookie: cookieA,
+      body: { benchmark: null },
+    });
+    expect(patch.status).toBe(200);
+    expect(patch.body["benchmark"]).toBeNull();
+  });
+
+  it("rejects a malformed benchmark key by storing null (opaque, never sticks)", async () => {
+    const r = await req("POST", "/portfolios", {
+      cookie: cookieA,
+      body: { name: "A-benchmark-bad", benchmark: "not a key!!", holdings: [] },
+    });
+    expect(r.status).toBe(201);
+    expect(r.body["benchmark"]).toBeNull();
+  });
+
+  it("benchmark survives a PUT holdings replace (replace does not touch it)", async () => {
+    const r = await req("POST", "/portfolios", {
+      cookie: cookieA,
+      body: { name: "A-benchmark-survive", benchmark: "NIFTY", holdings: [] },
+    });
+    const id = r.body["id"] as string;
+    await req("PUT", `/portfolios/${id}/holdings`, {
+      cookie: cookieA,
+      body: { holdings: [{ symbol: "TCS", qty: 1, rate: 100 }] },
+    });
+    const get = await req("GET", `/portfolios/${id}`, { cookie: cookieA });
+    expect(get.body["benchmark"]).toBe("NIFTY");
+  });
+
+  it("cannot read another user's stored benchmark (isolation holds)", async () => {
+    const r = await req("POST", "/portfolios", {
+      cookie: cookieA,
+      body: { name: "A-benchmark-private", benchmark: "NIFTY500", holdings: [] },
+    });
+    const idA = r.body["id"] as string;
+    const get = await req("GET", `/portfolios/${idA}`, { cookie: cookieB });
+    expect(get.status).toBe(404);
+    expect(get.body["benchmark"]).toBeUndefined();
+  });
 });

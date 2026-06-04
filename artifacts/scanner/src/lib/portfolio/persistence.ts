@@ -88,9 +88,16 @@ export interface UsePortfoliosResult {
   listReady: boolean;
   defaultId: string | null;
   loadPortfolio: (id: string) => Promise<Portfolio>;
-  create: (name: string, holdings: RawHolding[], isDefault: boolean) => Promise<Portfolio>;
+  create: (
+    name: string,
+    holdings: RawHolding[],
+    isDefault: boolean,
+    benchmark?: string | null,
+  ) => Promise<Portfolio>;
   rename: (id: string, name: string) => Promise<Portfolio>;
   setDefault: (id: string) => Promise<Portfolio>;
+  /** Persist the chosen benchmark index for a saved portfolio (follows the user across devices). */
+  setBenchmark: (id: string, benchmark: string | null) => Promise<Portfolio>;
   remove: (id: string) => Promise<void>;
   saveHoldings: (id: string, holdings: RawHolding[]) => Promise<Portfolio>;
   saving: boolean;
@@ -116,19 +123,37 @@ export function usePortfolios(): UsePortfoliosResult {
   );
 
   const createMut = useMutation({
-    mutationFn: (body: { name: string; holdings: RawHolding[]; isDefault: boolean }) =>
+    mutationFn: (body: {
+      name: string;
+      holdings: RawHolding[];
+      isDefault: boolean;
+      benchmark?: string | null;
+    }) =>
       createPortfolio({
         name: body.name,
         isDefault: body.isDefault,
+        benchmark: body.benchmark ?? null,
         holdings: body.holdings.map(rawToInput),
       }),
     onSuccess: () => invalidateList(),
   });
 
   const patchMut = useMutation({
-    mutationFn: (body: { id: string; name?: string; isDefault?: boolean }) =>
-      updatePortfolio(body.id, { name: body.name, isDefault: body.isDefault }),
-    onSuccess: () => invalidateList(),
+    mutationFn: (body: {
+      id: string;
+      name?: string;
+      isDefault?: boolean;
+      benchmark?: string | null;
+    }) =>
+      updatePortfolio(body.id, {
+        name: body.name,
+        isDefault: body.isDefault,
+        benchmark: body.benchmark,
+      }),
+    onSuccess: portfolio => {
+      qc.setQueryData(portfolioKey(portfolio.id), portfolio);
+      invalidateList();
+    },
   });
 
   const deleteMut = useMutation({
@@ -155,10 +180,11 @@ export function usePortfolios(): UsePortfoliosResult {
     listReady: listQuery.isSuccess,
     defaultId,
     loadPortfolio,
-    create: (name, holdings, isDefault) =>
-      createMut.mutateAsync({ name, holdings, isDefault }),
+    create: (name, holdings, isDefault, benchmark) =>
+      createMut.mutateAsync({ name, holdings, isDefault, benchmark }),
     rename: (id, name) => patchMut.mutateAsync({ id, name }),
     setDefault: id => patchMut.mutateAsync({ id, isDefault: true }),
+    setBenchmark: (id, benchmark) => patchMut.mutateAsync({ id, benchmark }),
     remove: async id => {
       await deleteMut.mutateAsync(id);
     },
