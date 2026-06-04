@@ -1,0 +1,54 @@
+The user wants a pre-publish deploy-diff confirmation and explicitly says do not publish. Crucially, since my task merged, two more tasks (#56 ETF, #57 benchmark-sync) also merged into main — so a publish now would deploy more than just my reporting/layout files. Let me gather the exact git facts.
+
+
+4 actions
+I have the merge picture. The key risk: my task is no longer the only thing on main — #56 (ETF) and #57 (benchmark, which adds a DB column) merged after it. I need to determine production's current state to compute the true deploy diff. Let me check when Portfolio Phase 2 persistence landed and how to identify the deployed commit.
+
+
+3 actions
+Let me confirm the live deployment status before reporting.
+
+
+2 actions
+The app is live (autoscale, healthy) at marketscannerbydev.in. The deploy diff is clearly not only my reporting/layout files — #56 (ETF) and #57 (benchmark, +DB column) merged after mine. Let me definitively verify whether production's DB already has the Phase 2 tables/column rather than infer it. Let me read the database skill's production-query method.
+
+
+2 actions
+Let me run a read-only production query to definitively confirm whether prod's DB has the Phase 2 tables and the new benchmark column.
+
+
+4 actions
+Definitive result: production's database does not have the Phase 2 tables at all (portfolios, portfolio_holdings both absent; benchmark column absent), while dev has all three. Let me enumerate the full unpublished window so the confirmation is complete.
+
+
+2 actions
+Confirmed via git + a read-only production DB query. Here is the pre-publish deploy-diff confirmation. I have not published, and I'm stopping here as instructed.
+
+Deploy-diff confirmation
+The most important finding: publishing now would NOT deploy only my reporting/layout files. Production is currently running a build from before Portfolio Analyser Phase 2. Since my task merged, the live main (HEAD 37dd2ee) also contains every Portfolio Phase 2 + ETF + benchmark commit that has accumulated unpublished. A publish deploys the whole of main, not a single task.
+
+Unpublished window: 31 commits (30bb056 Phase 2 → 37dd2ee HEAD), 93 files, ~12,427 insertions.
+
+Answers to your 6 required points
+1. Exact files changed
+
+My reporting/layout task (4ffa4a2) = 25 files: fnoSpotLifecycle.ts(+test), paperReportsFO.ts, routes/paper.ts, the Fo* card components + FoTargetStatusView.tsx, targetStatus.ts(+test), foCockpitView.ts, paper-trading.tsx, portfolio-analyser.tsx (CSS), openapi.yaml + generated client/zod, memory files.
+But the actual deploy diff = all 93 files across the 31-commit window (Phase 2 persistence, ETF work, benchmark sync, plus mine).
+2. Any ETF task files included? — YES. holdings-table.tsx + format.ts (#56 2e19ad4), ETF NAV deep-dive (#55 bbce904), ETF live-quote/detection (dcaee55, bf2b4cb), ETF Infra-Health diagnostic (3b5d1f1).
+
+3. Any Portfolio Phase 2 persistence files included? — YES. The entire Phase 2 lands here: lib/db/src/schema/portfolio.ts (new portfolios + portfolio_holdings tables and the new benchmark column), schema/index.ts, routes/portfolio.ts, persistence.ts, plus OpenAPI/generated DTOs.
+
+4. Production DB migration still pending? — YES (verified, not inferred). Read-only query against the production replica:
+
+portfolios → absent, portfolio_holdings → absent, benchmark column → absent.
+Dev has all three. The post-merge drizzle-kit push only ever touched the dev DB.
+5. Would this publish also deploy DB-backed Portfolio Phase 2? — YES. This publish is the first deployment of the entire DB-backed Phase 2 surface, not just the benchmark column.
+
+6. Requires Replit managed schema sync? — YES. Production schema is applied by Replit's Publish flow (it diffs dev vs prod and applies at publish; you confirm any renames in the Publish UI). I must not hand-run a migration against prod. When you publish, review the schema diff — expect new portfolios + portfolio_holdings tables, the benchmark column, and associated indexes/constraints.
+
+Recommendation (per your own rule)
+The deploy diff includes DB-backed Portfolio Phase 2, so this is not the low-risk reporting/layout-only case. Follow the DB-backed release process: at Publish, let Replit's managed schema sync apply the new tables/column to production and confirm the diff in the Publish UI before going live. Code and DB ship together, so there's no code-without-table window if you publish through that flow.
+
+No publish performed. Awaiting your go-ahead.
+
+(Leaving replit.md untouched — per your standing instruction it's never to be trimmed, so I'm disregarding the auto-trim reminder.)
