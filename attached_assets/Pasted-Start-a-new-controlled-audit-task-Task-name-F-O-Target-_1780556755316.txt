@@ -1,0 +1,242 @@
+Start a new controlled audit task.
+
+Task name:
+
+F&O Target Exit Reliability Audit + Portfolio Layout Review
+
+This is a read-only audit first.
+
+Do not change trading logic yet.
+
+Do not publish.
+
+Do not apply DB/schema/env/scheduler changes.
+
+Part A — F&O target/exit reliability audit
+Issue observed
+
+In Paper Trading, BANKNIFTY CALL 53700 was open with:
+
+Entry around 1330.76
+T1 around 1517.08
+T2 around 1647.54
+Current around 1631.20 in screenshot
+Unrealised P&L around +₹9,013
+
+Later it closed by:
+
+exit_reason = TIME_EXIT_1520
+realised P&L around +₹8,377
+
+User observed that target may have been hit but exit was not taken.
+
+Important: from the screenshot alone, T1 is clearly crossed, but T2 is not proven because current appears below T2. So do not assume. Verify from server-side evidence.
+
+Required F&O audit
+
+Reconstruct the full lifecycle of this trade.
+
+Use production/read-only data only.
+
+Check:
+
+trade id
+symbol
+underlying
+side
+entry time
+entry premium
+stop premium
+T1 premium
+T2 premium
+all MTM/current premium updates
+max premium reached
+max_runup / MFE
+whether T1 was crossed
+whether T2 was crossed
+time of T1 touch
+time of T2 touch, if any
+quote freshness at touch time
+last_evaluated_at
+exit_reason
+exit time
+exit premium
+realised P&L
+tags / journal / diagnostic notes
+
+Also inspect code path:
+
+Does live exit engine actually close at T1?
+Does live exit engine actually close at T2?
+Are T1/T2 premium levels actionable or display-only?
+Are exits spot-driven or premium-driven?
+Does premium hard-stop only handle stop, not targets?
+Is there a premium target-exit sweep?
+Is target exit blocked by stale MTM?
+Is target exit blocked by cycle order?
+Is target exit skipped if P25 evidence is not official?
+Is there a decimal/lot-size/premium formatting issue?
+Core questions to answer
+
+Answer clearly:
+
+1. Did T1 actually trigger server-side?
+2. Did T2 actually trigger server-side?
+3. If T2 triggered, why was no target exit taken?
+4. If T2 did not trigger, why did the UI/user perception suggest it did?
+5. Are T1/T2 meant to be real exit levels or only informational levels?
+6. Why did the trade close only at TIME_EXIT_1520?
+7. Was any exit missed due to stale data, no evaluator cycle, or unimplemented target logic?
+
+Do not guess. Use DB/log/code evidence.
+
+If target-exit is missing
+
+If target-exit is not currently implemented, report it honestly.
+
+Expected wording:
+
+T1/T2 are currently displayed levels, but live premium-based target exit is not wired.
+
+or:
+
+T2 exit exists but did not fire because _____.
+
+Do not hide this.
+
+Required F&O reporting improvements to propose
+
+Regardless of whether code changes are made later, propose reporting improvements:
+
+Target Status column:
+  T1 untouched / T1 touched / T2 touched / target exit fired / target skipped
+
+Per-trade lifecycle timeline:
+  signal created
+  trade opened
+  highest premium
+  lowest premium
+  T1 touch time
+  T2 touch time
+  stop touch time
+  exit rule triggered
+  final exit reason
+
+Exit eligibility panel:
+  shouldExitNow
+  targetHit
+  stopHit
+  staleQuote
+  evaluatorSkipped
+  reason
+
+Missed-exit detector:
+  if current premium crosses stop/T1/T2 but trade remains open for more than one cycle, show diagnostic warning
+
+Closed-trade explanation:
+  why it exited
+  why it did not exit earlier
+  max favourable excursion
+  giveback from peak
+  target/stop distance
+
+Do not implement these yet unless separately approved. First report.
+
+Part B — Portfolio Analyser layout/alignment audit
+
+The Portfolio Analyser page currently has layout issues.
+
+Observed problems:
+
+holdings table dominates the page
+right-side Sector Allocation panel is squeezed
+donut + legend are cramped
+many rows show n/a / no instrument match in a visually noisy way
+right column has uneven empty space
+KPI/header/action area feels crowded
+sample-data warning and nav/header spacing need better hierarchy
+table columns are dense and hard to scan
+Portfolio Risk / Allocation / Benchmark panels need better alignment
+
+This is a UI/layout audit first.
+
+Do not change portfolio formulas.
+
+Do not change saved portfolio logic.
+
+Do not change portfolio APIs.
+
+Do not change DB schema.
+
+Portfolio layout improvements to propose
+
+Audit and propose improvements for:
+
+1. Better two-column layout
+2. Wider main content or better table scroll
+3. Sticky first Symbol column
+4. Horizontal scroll only inside table, not whole page
+5. Cleaner right-side panel sizing
+6. Sector Allocation legend placement
+7. Donut tooltip readability already fixed — verify it remains correct
+8. Better handling of unavailable rows
+9. Better grouping of ETF unavailable rows
+10. Better n/a styling
+11. Clear warning: "X holdings not priced"
+12. KPI cards alignment
+13. Portfolio Risk / Allocation / Benchmark panel spacing
+14. Mobile/tablet responsive layout
+Important Portfolio UI rules
+Do not hide unavailable holdings.
+Do not drop ETF rows.
+Do not fake CMP.
+Do not fake returns.
+Do not fake benchmark data.
+Do not fake fundamentals.
+Do not remove any portfolio information.
+
+Improve visual hierarchy only.
+
+Deliverables
+
+Provide one report:
+
+F&O Target Exit Reliability + Portfolio Layout Audit Report
+
+Report must include:
+
+F&O section
+
+A. Trade reconstructed
+B. T1 crossed yes/no
+C. T2 crossed yes/no
+D. Exit engine behaviour
+E. Root cause if target was missed
+F. Whether T1/T2 are actionable or display-only
+G. Data freshness / evaluator timing findings
+H. Recommended fixes
+I. Recommended reporting improvements
+J. Whether any urgent hotfix is required
+
+Portfolio section
+
+K. Layout/alignment problems found
+L. Information-density problems found
+M. Table improvements proposed
+N. Sector Allocation panel improvements proposed
+O. Unavailable-data display improvements proposed
+P. Responsive/mobile improvements proposed
+Q. Files likely to change if approved
+R. Safe implementation plan
+
+Guardrails
+
+Confirm:
+
+No code changed unless explicitly stated
+No trading logic changed
+No portfolio logic changed
+No DB/schema/env/scheduler changed
+No publish done
+
+Stop after the audit report.
