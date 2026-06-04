@@ -13,9 +13,15 @@
  * Cost assumptions (Indian retail F&O options, Zerodha-style, NSE):
  *   - Brokerage: flat ₹20 per executed order side
  *     (we assume one order per side → ₹40 per round trip).
- *   - STT: 0.0625% on the SELL-side premium turnover for options
- *     (post Apr-2023 rate; ignores exercise-day ITM 0.125% on intrinsic,
- *     because paper trades close on premium, not on exercise).
+ *   - STT: 0.15% on the SELL-side premium turnover for options
+ *     (statutory rate effective 2026-04-01 per Budget 2026 — see
+ *     `FNO_COST_PARAMS_ASOF`; raised from the prior 0.10% Oct-2024 era
+ *     and the 0.0625% pre-Oct-2024 era). Index option paper trades close
+ *     on premium, so the exercise-day ITM rate (0.15% on intrinsic, see
+ *     `STT_RATE_EXERCISE_INTRINSIC`) is published as a constant but not
+ *     applied. Futures are not traded by this paper book; the futures
+ *     sell-side rate (0.05%, see `STT_RATE_SELL_FUTURES`) is published
+ *     for completeness only.
  *   - Exchange transaction charges (NSE option turnover): 0.03503%
  *     on premium turnover, applied to BOTH sides.
  *   - SEBI charges: ₹10 per crore = 0.0001% on total premium turnover.
@@ -45,13 +51,25 @@
  * Test coverage in `fnoCostModel.test.ts`.
  */
 
+/**
+ * As-of date for the statutory STT rates encoded below. Kept OUTSIDE
+ * `FNO_COST_PARAMS` because that block is asserted to be numeric-only.
+ */
+export const FNO_COST_PARAMS_ASOF = "2026-04-01" as const;
+
 /* ─────────────────── Cost parameters (single source of truth) ────────── */
 export const FNO_COST_PARAMS = {
   /** Flat brokerage charged per executed order side. */
   BROKERAGE_PER_SIDE_INR: 20,
 
-  /** STT rate on SELL-side premium turnover for options. */
-  STT_RATE_SELL_PREMIUM: 0.000625,
+  /** STT rate on SELL-side premium turnover for options (0.15%, eff 2026-04-01). */
+  STT_RATE_SELL_PREMIUM: 0.0015,
+
+  /** STT rate on SELL-side futures turnover (0.05%, eff 2026-04-01). Published for completeness — futures are not traded by this paper book. */
+  STT_RATE_SELL_FUTURES: 0.0005,
+
+  /** STT rate on intrinsic value of ITM options exercised at expiry (0.15%, eff 2026-04-01). Published only — paper trades close on premium, not exercise. */
+  STT_RATE_EXERCISE_INTRINSIC: 0.0015,
 
   /** NSE exchange transaction-charge rate on premium turnover. */
   EXCHANGE_TXN_RATE: 0.0003503,

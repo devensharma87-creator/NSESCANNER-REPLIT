@@ -1,0 +1,1438 @@
+Full Website Audit, Bug Fix, F&O Rebuild Validation & Data Accuracy Improvement Prompt
+
+You are assigned to perform a complete source-code-level audit, bug fix, data accuracy repair, trading logic validation, and improvement implementation for my personal Indian market scanner / analyser website.
+
+This is my personal owner-only project. Do not treat this as a public advisory product. Do not waste time on SEBI/public-facing compliance conversion unless a route is unintentionally public. The focus is:
+
+Fix every real bug
+Verify every formula
+Repair every misleading or stale data issue
+Audit and improve F&O from scratch to end
+Audit and improve swing trading from scratch to end
+Audit market direction, market analysis, portfolio, charting, UI, database, data sync, and data sources
+Make the platform reliable for my personal decision support
+Keep all execution paper-only unless separately approved
+
+Do not do a superficial audit. Do not only check if the website opens. Do not only improve UI. This is a full technical + financial + trading-logic audit and repair task.
+
+0. Non-Negotiable Rules
+
+Follow these strictly:
+
+Take a full backup first
+Backup DB
+Backup current source
+Backup .env separately without exposing it
+Do not make destructive DB changes without migration + rollback
+First audit, then fix
+Do not blindly rewrite working areas.
+First list findings.
+Then implement fixes in controlled phases.
+No fake data
+No mock data shown as live.
+No stale data shown as fresh.
+No cached data shown as live.
+No Yahoo-delayed data feeding F&O signals.
+If data is unavailable, show it clearly.
+Paper-only
+Do not enable live order placement.
+Do not add broker order execution.
+Do not change Kite from data/session usage to live execution.
+Existing features must not be removed
+Do not remove tabs, reports, dashboards, data points, scanner rows, portfolio tools, or strategy pages unless they are broken and replacement is provided.
+Improve and fix, do not downgrade.
+Every fix must have proof
+File changed
+Function changed
+Issue fixed
+Test added or manual verification done
+Before/after behavior
+Risk of regression
+Run full validation
+pnpm run typecheck
+API tests
+Scanner/frontend tests
+Relevant DB migration test
+Manual smoke test of every major tab
+1. Source Code Inventory & Baseline Health Check
+
+Before fixing anything, inspect the complete repo.
+
+Check these areas:
+
+artifacts/api-server/
+artifacts/scanner/
+artifacts/global/
+lib/db/src/schema/
+lib/api-spec/openapi.yaml
+lib/api-client-react/
+lib/api-zod/
+scripts/
+all route handlers
+all trading logic files
+all scanner logic files
+all portfolio logic files
+all charting components
+all data provider modules
+all scheduler/background jobs
+all config files
+all tests
+
+Run:
+
+pnpm install
+pnpm run typecheck
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/api-spec run codegen
+pnpm run typecheck
+
+If any test or typecheck fails, document it before fixing.
+
+Create this first report:
+
+BASELINE STATUS REPORT
+
+1. Repo structure found
+2. Build/typecheck result
+3. API test result
+4. Frontend test result
+5. DB connection status
+6. Kite session status
+7. Data provider status
+8. Current open F&O paper trades
+9. Current open equity paper trades
+10. Current portfolio persistence status
+11. Broken files/imports/routes
+12. Immediate red flags
+2. Critical Known Issues to Fix First
+2.1 F&O STT / Cost Model Bug
+
+Audit and fix:
+
+artifacts/api-server/src/lib/fnoCostModel.ts
+fnoShadowCosts.ts
+paperReportsFO.ts
+paperTradingFO.ts
+any realized P&L calculation
+any gross-vs-net report
+any “flipped-to-loss” report
+any paper-trade charges display
+
+Current documented issue:
+
+STT appears documented as 0.0625% on option sell premium.
+Update F&O cost constants to current rates:
+Options sell-side premium STT: 0.15%
+Futures sell-side STT: 0.05%
+Options exercise STT if modeled: 0.15% intrinsic value
+Add asOfDate: "2026-04-01" or similar constant.
+Add unit tests proving:
+option sell premium STT calculation
+future sell-side STT calculation
+zero-STT on option buy entry where applicable
+expired worthless behavior
+gross vs net P&L
+flipped-to-loss detection
+
+Do not just update the report overlay. If realized P&L, DD caps, heat, or reports still use old gross assumptions, make the whole system consistent.
+
+2.2 In-Memory State / Single-Replica Risk
+
+Audit all process-local state:
+
+lastForceExit1520Date
+missed signal rings
+daily counters
+weekly counters
+force-exit latches
+cold-start latches
+scan-run latches
+dedup keys
+open-trade caps
+baseline lane lock
+post-stop cooldown
+F&O daily loss cap
+weekly loss cap
+swing scan run latch
+any scheduler flags
+any let / module-level state used for trading decisions
+
+Fix rule:
+
+Anything that affects trading state, deduplication, forced exit, risk blocking, or scan scheduling must be persisted in PostgreSQL or protected with advisory locks.
+If any part cannot be migrated immediately, document it and force deployment to single replica.
+
+Add DB-backed tables if required:
+
+system_latches
+trading_day_state
+fno_daily_state
+fno_weekly_state
+signal_dedup_state
+scheduled_job_runs
+
+Acceptance criteria:
+
+Restart server during market hours should not duplicate signals.
+Restart server should not miss 15:20 F&O force-exit.
+Restart server should not reset daily/weekly risk caps.
+Multiple instances should not open duplicate trades.
+Cold start should reconcile existing open positions.
+2.3 Kite / F&O Data Single Point of Failure
+
+Audit:
+
+kiteAuth.ts
+kiteFeed.ts
+kiteOptionChain.ts
+kiteFnoInstruments.ts
+kiteIndexQuotes.ts
+optionChain.ts
+optionSignals.ts
+dataProvider.ts
+Kite offline UI components
+/api/kite/*
+/api/options/*
+/api/option-chain/*
+/api/oi-lab/*
+
+Rules:
+
+F&O signals must require fresh Kite or approved live source.
+F&O must not use Yahoo-delayed data for entry/exit decisions.
+If Kite is disconnected, stale, or partial:
+no new F&O trade
+no fake signal
+clear UI warning
+diagnostics entry
+owner alert/log counter
+Option chain data must show:
+source
+timestamp
+freshness
+expiry
+spot used
+ATM strike
+number of strikes loaded
+missing fields
+stale reason if any
+
+Add a dedicated F&O data health endpoint:
+
+GET /api/fno/data-health
+
+It should return:
+
+{
+  "status": "OK|WARN|FAIL",
+  "kiteSession": {},
+  "websocket": {},
+  "optionChain": {},
+  "indexQuotes": {},
+  "instrumentMaster": {},
+  "freshness": {},
+  "warnings": [],
+  "blockingReasons": []
+}
+3. Full F&O Audit and Repair — From Scratch to End
+
+This is the most important part. Audit and fix the complete F&O journey:
+
+Market Data
+→ Context Builder
+→ Market Regime
+→ Option Chain
+→ OI / IV / PCR / VIX
+→ Signal Detectors
+→ Confluence Engine
+→ Data Quality Gate
+→ Risk Gate
+→ Liquidity Gate
+→ Strike Selection
+→ Entry Rule
+→ Stop Loss Rule
+→ Target Rule
+→ Trade Open
+→ MTM
+→ Exit Rule
+→ Force Exit
+→ Trade Close
+→ Net P&L
+→ Reports
+→ Diagnostics
+→ UI Explanation
+3.1 F&O Source Files to Audit
+
+Audit at minimum:
+
+artifacts/api-server/src/lib/optionSignals.ts
+artifacts/api-server/src/lib/optionSignalLifecycle.ts
+artifacts/api-server/src/lib/paperTradingFO.ts
+artifacts/api-server/src/lib/paperReportsFO.ts
+artifacts/api-server/src/lib/paperAccount.ts
+artifacts/api-server/src/lib/optionChain.ts
+artifacts/api-server/src/lib/kiteOptionChain.ts
+artifacts/api-server/src/lib/kiteFeed.ts
+artifacts/api-server/src/lib/kiteIntraday.ts
+artifacts/api-server/src/lib/kiteIndexQuotes.ts
+artifacts/api-server/src/lib/kiteFnoInstruments.ts
+artifacts/api-server/src/lib/oiLab.ts
+artifacts/api-server/src/lib/optionAnalytics.ts
+artifacts/api-server/src/lib/optionStrategies.ts
+artifacts/api-server/src/lib/blackScholes.ts
+artifacts/api-server/src/lib/tradingConfig.ts
+artifacts/api-server/src/lib/marketEvents.ts
+artifacts/api-server/src/lib/liveBias.ts
+artifacts/api-server/src/lib/marketTrend.ts
+artifacts/api-server/src/lib/fnoCostModel.ts
+artifacts/api-server/src/lib/fnoShadowCosts.ts
+artifacts/api-server/src/routes/optionChain.ts
+artifacts/api-server/src/routes/oiLab.ts
+artifacts/api-server/src/routes/paper.ts
+artifacts/scanner/src/pages/options.tsx
+artifacts/scanner/src/pages/option-chain.tsx
+artifacts/scanner/src/pages/oi-lab.tsx
+artifacts/scanner/src/pages/paper-trading.tsx
+artifacts/scanner/src/pages/paper-reports.tsx
+artifacts/scanner/src/pages/strategies.tsx
+lib/db/src/schema/*
+3.2 F&O Data Point Audit
+
+For NIFTY, BANKNIFTY, and SENSEX, verify:
+
+spot price
+futures price
+futures premium/discount
+option chain
+expiry selected
+weekly vs monthly expiry
+ATM strike
+ITM/ATM/OTM strike classification
+CE/PE LTP
+CE/PE bid/ask
+CE/PE volume
+CE/PE OI
+CE/PE change in OI
+CE/PE IV
+CE/PE spread
+lot size
+tick size
+instrument token
+contract symbol mapping
+index mapping
+BFO/NFO handling
+PCR by OI
+PCR by volume
+PCR by change in OI
+max pain
+IV skew
+IV rank / IV percentile
+ATM straddle
+expected move
+India VIX
+realized volatility
+implied volatility
+OI buildup
+long buildup
+short buildup
+short covering
+long unwinding
+support/resistance from OI
+option chain staleness
+missing strike detection
+abnormal IV detection
+abnormal spread detection
+
+For each data point, produce this table:
+
+| Data Point | Source | File/API | Formula/Logic | Freshness Rule | UI Location | DB Storage | Issue Found | Fix |
+3.3 F&O Signal Generation Audit
+
+Audit all detectors:
+
+trend continuation
+VWAP reclaim
+volume breakout
+EMA pullback
+mean reversion
+baseline directional detector
+any legacy detector
+any hidden detector
+
+For each detector, document:
+
+1. Purpose
+2. Bullish condition
+3. Bearish condition
+4. Required data
+5. Confirmation rules
+6. Confidence formula
+7. Invalidating condition
+8. When it should not fire
+9. How it behaves when data is missing
+10. Whether it creates false positives
+11. Whether it creates no-trade drought
+12. Whether it duplicates another detector
+13. Whether it should be kept, adjusted, merged, or removed
+
+Do not assume current rules are correct. Rebuild the logic review from first principles.
+
+3.4 F&O Market Regime Audit
+
+Audit regime classification:
+
+trending bullish
+trending bearish
+range-bound
+volatile
+expiry-day
+low volatility
+high volatility
+event-risk
+gap day
+compression day
+breakout day
+mean reversion day
+
+Check inputs:
+
+index trend
+EMA stack
+VWAP
+CPR
+previous day high/low
+opening range
+volume
+VIX
+realized volatility
+IV regime
+OI buildup
+PCR
+breadth
+FII/DII
+global cues
+
+Fix if:
+
+regime is too noisy
+regime changes too frequently
+regime ignores contradictory data
+regime drives wrong strategy selection
+regime does not explain why
+
+Output must include:
+
+{
+  "regime": "...",
+  "confidence": 0-100,
+  "drivers": [],
+  "contradictions": [],
+  "invalidatingConditions": [],
+  "dataQuality": {}
+}
+3.5 F&O Entry Rule Audit
+
+Audit every entry rule.
+
+Check:
+
+entry trigger
+entry price
+whether premium or underlying level is used
+confirmation candle
+false breakout filter
+trend confirmation
+OI confirmation
+IV confirmation
+VIX confirmation
+VWAP confirmation
+support/resistance confirmation
+volume confirmation
+time-of-day filter
+spread filter
+liquidity filter
+duplicate trade prevention
+re-entry rule
+post-stop cooldown
+maximum open trades
+daily cap
+heat cap
+expiry-day behavior
+late-entry block
+
+Fix target:
+
+Every F&O signal must show:
+
+Entry Type: Pullback / Breakout / Reversal / Continuation / Mean Reversion
+Entry Trigger:
+Entry Premium:
+Underlying Trigger Level:
+Strike:
+Expiry:
+Lot Size:
+Liquidity Check:
+Spread Check:
+Data Freshness:
+Why Entry Is Valid:
+Why Entry Can Fail:
+3.6 F&O Strike Selection Audit
+
+Audit:
+
+CE/PE choice
+ATM/ITM/OTM logic
+premium range
+delta selection if used
+spread
+OI
+volume
+IV
+expiry
+nearest expiry vs next expiry
+expiry-day special rule
+lot size
+instrument availability
+stale strike quotes
+missing strikes
+
+Fix rule:
+
+Do not select a strike only because it is ATM. Select by:
+
+1. trade direction
+2. liquidity
+3. spread
+4. OI
+5. volume
+6. premium range
+7. delta / moneyness
+8. IV risk
+9. expiry risk
+10. slippage risk
+
+Output must explain why that strike was selected and why alternatives were rejected.
+
+3.7 F&O Stop Loss Audit
+
+Audit all stop-loss logic.
+
+Check if stop is based on:
+
+option premium %
+underlying level
+ATR
+structure
+VWAP
+previous swing high/low
+invalidation level
+IV expansion/crush
+time stop
+max loss cap
+trailing stop
+
+Fix weak stop-loss logic.
+
+Required stop framework:
+
+Hard SL: maximum allowed loss
+Technical SL: underlying invalidation level
+Premium SL: option premium stop
+Time SL: exit if no movement after X minutes
+Volatility SL: exit if IV/spread behavior becomes abnormal
+Trailing SL: starts only after profit threshold
+
+Every trade must store:
+
+initialStopPremium
+initialUnderlyingStop
+currentStopPremium
+trailingStopPremium
+stopReason
+stopLastUpdatedAt
+riskPerLot
+totalRisk
+
+Reject trades where stop is:
+
+too tight
+too wide
+below minimum logical premium
+above max loss limit
+not tied to invalidation
+impossible to execute due to spread
+3.8 F&O Target and Exit Audit
+
+Audit all target/exit rules:
+
+target 1
+target 2
+full exit
+partial exit
+trailing exit
+time exit
+15:20 exit
+expiry-day exit
+premium decay exit
+opposite signal exit
+market regime flip exit
+SL exit
+manual close
+risk cap close
+no-liquidity close
+stale-data close behavior
+
+Fix target logic so every trade has:
+
+Target 1:
+Target 2:
+Final Target:
+R:R:
+Expected Move Justification:
+Exit Before 15:20:
+Invalidation Exit:
+Trailing Rule:
+Partial Booking Rule:
+
+Do not show unrealistic targets. Targets must be grounded in:
+
+premium structure
+underlying levels
+ATR
+option chain resistance/support
+expected move
+time left
+liquidity
+3.9 F&O MTM and P&L Audit
+
+Audit:
+
+open premium
+last premium
+exit premium
+gross P&L
+brokerage
+STT
+exchange charges
+SEBI charges
+GST
+stamp duty
+slippage
+spread cost
+net P&L
+R multiple
+MFE
+MAE
+realized vs unrealized
+day P&L
+monthly/yearly report
+equity curve
+drawdown
+setup-wise expectancy
+
+Fix:
+
+all F&O reports must show both gross and net P&L
+net must use updated cost model
+every closed trade must have exit reason
+every trade must link to signal source and setup key
+every report must group by:
+index
+setup key
+detector
+regime
+direction
+tier
+expiry-day vs non-expiry
+entry time bucket
+exit reason
+
+Add report:
+
+F&O Edge Report
+- total trades
+- win rate
+- avg win
+- avg loss
+- expectancy
+- net expectancy after costs
+- max drawdown
+- profit factor
+- setup-wise expectancy
+- false signal rate
+- stop-loss hit rate
+- target hit rate
+- time-exit rate
+- no-trade reasons
+3.10 F&O Diagnostics and No-Trade Audit
+
+The system must explain both signals and no-signals.
+
+Add / improve:
+
+GET /api/fno/diagnostics/today
+GET /api/fno/diagnostics/gate-waterfall
+GET /api/fno/diagnostics/no-trade-reasons
+GET /api/fno/diagnostics/setup-performance
+
+Gate waterfall:
+
+Raw candidates
+→ data-quality rejected
+→ liquidity rejected
+→ spread rejected
+→ regime rejected
+→ HTF rejected/demoted
+→ OI conflict rejected/demoted
+→ confidence rejected
+→ risk rejected
+→ duplicate rejected
+→ cooldown rejected
+→ final signals
+→ paper trades opened
+
+This is mandatory. I do not want a black-box signal engine.
+
+4. F&O Database Audit
+
+Audit all F&O-related tables:
+
+paper_trade_fo
+option_signal_history
+fno_signal_reasoning
+paper_daily_summary_fo
+optionChainSnapshot
+combo tables if applicable
+account/risk tables
+any new latch/state table
+
+Verify:
+
+correct columns
+correct data types
+not-null constraints
+check constraints
+indexes
+FK consistency
+duplicate prevention
+IST timestamp handling
+source/freshness fields
+setup key
+detector
+regime
+entry reason
+exit reason
+stop/target storage
+MFE/MAE
+cost fields
+audit fields
+
+Required indexes:
+
+paper_trade_fo(status, index_symbol, created_at)
+paper_trade_fo(status, signal_id)
+paper_trade_fo(setup_key, exit_reason, created_at)
+option_signal_history(index_symbol, status, created_at)
+option_signal_history(setup_key, created_at)
+fno_signal_reasoning(decision, created_at)
+option_chain_snapshot(underlying, expiry, captured_at)
+
+Add missing indexes after checking actual query plans.
+
+5. Swing Trading Full Audit and Repair
+
+Audit:
+
+swingSignals.ts
+paperTradingEq.ts
+paperReportsEq.ts
+fullNseScanner.ts
+scanner.ts
+scoring.ts
+indicators.ts
+universe.ts
+watchlist.ts
+watchlistLists.ts
+nseBhavcopy.ts
+financials.ts
+deepscan.ts
+marketTrend.ts
+sectorMap.ts
+swingScanner.ts
+swingScannerData.ts
+swingScannerStore.ts
+paper EQ routes
+scanner pages
+stock detail page
+deep scan page
+watchlist page
+5.1 Swing Data Audit
+
+Verify:
+
+NSE/BSE symbol mapping
+instrument token
+CMP
+previous close
+OHLC
+volume
+delivery %
+sector
+industry
+market cap if available
+52-week high/low
+RSI
+MACD
+ADX
+ATR
+EMA/SMA
+VWAP
+support/resistance
+volume breakout
+relative strength
+sector strength
+result/event risk
+fundamentals if used
+candle history sufficiency
+5.2 Swing Signal Rules
+
+Audit:
+
+trend continuation
+pullback
+breakout
+reversal
+momentum
+range breakout
+support bounce
+52-week setup
+sector leadership
+relative strength
+delivery/volume confirmation
+
+Every swing candidate must show:
+
+Setup Type:
+Entry Zone:
+Buy Trigger:
+Stop Loss:
+Target 1:
+Target 2:
+R:R:
+Holding Period:
+Data Source:
+Sector Confirmation:
+Market Direction Confirmation:
+Risk Flags:
+Why Selected:
+Why Avoid:
+5.3 Swing Stop / Target / Exit
+
+Audit and fix:
+
+ATR stop
+swing low stop
+structure stop
+support invalidation
+moving average invalidation
+time stop
+target based on resistance
+trailing stop
+partial profit
+exit on weakness
+exit on market regime deterioration
+gap risk handling
+event/result risk handling
+
+Reject swing trades if:
+
+R:R below threshold
+stop too tight/wide
+stock is illiquid
+data unavailable
+sector weak
+price extended too far
+near major resistance without breakout
+no valid exit logic
+6. Market Direction / Bias / Analysis Audit
+
+Audit:
+
+liveBias.ts
+marketTrend.ts
+preMarket.ts
+indicesBoard.ts
+giftNifty.ts
+globalIndices.ts
+instFlows.ts
+optionAnalytics.ts
+oiLab.ts
+marketEvents.ts
+home.ts
+premarket.tsx
+index detail pages
+home components
+
+The market direction engine must use:
+
+NIFTY
+BANKNIFTY
+SENSEX
+India VIX
+breadth
+advance/decline
+sector strength
+FII/DII
+participant OI
+PCR
+max pain
+OI support/resistance
+futures premium
+global cues
+GIFT Nifty
+previous day levels
+opening range
+VWAP
+CPR
+trend structure
+gap
+volatility regime
+
+Output must not be just bullish/bearish. It must show:
+
+Direction:
+Regime:
+Confidence:
+Tradeability:
+Key Supports:
+Key Resistances:
+Invalidation:
+Bullish Drivers:
+Bearish Drivers:
+Neutral/Conflicting Drivers:
+Data Missing:
+Final Interpretation:
+
+Fix overconfidence. If data conflicts, show conflict.
+
+7. Data Source, Freshness and Sync Audit
+
+Create a universal data-quality standard.
+
+For every market API response, add or verify:
+
+{
+  "_source": "KITE|TRUEDATA|YAHOO|NSE|CACHE|MANUAL|DB|SYNTHETIC|UNAVAILABLE",
+  "_freshness_sec": 0,
+  "_asof": "ISO_TIMESTAMP",
+  "_server_time": "ISO_TIMESTAMP",
+  "_market_phase": "PRE|LIVE|POST|CLOSED|HOLIDAY",
+  "_data_quality": "OK|WARN|STALE|ERROR|PARTIAL",
+  "_warnings": []
+}
+
+Audit data sync for:
+
+index quotes
+option chain
+OI snapshots
+candles
+stock scanner
+swing scanner
+FII/DII
+participant OI
+sector data
+portfolio CMP
+watchlist
+news
+GIFT Nifty
+global cues
+Yahoo fallback
+disk cache
+DB cache
+
+Fix:
+
+stale cache with no warning
+missing timestamp
+duplicate writes
+silent sync failure
+UTC/IST mismatch
+refresh button not updating
+API returning success with partial data
+UI not showing source
+8. Portfolio Management and Analysis Audit
+
+Audit:
+
+portfolio.ts schema
+portfolio routes
+portfolio persistence.ts
+portfolio csv.ts
+portfolio calc.ts
+portfolio score.ts
+portfolio risk.ts
+portfolio allocation.ts
+portfolio holdingPeriod.ts
+portfolio benchmark.ts
+portfolio analyser page
+portfolio toolbar
+holdings table
+analytics panels
+benchmark chart
+methodology UI
+
+Verify:
+
+portfolio survives refresh
+save works
+save-as works
+rename works
+set default works
+delete works
+CSV import works
+CSV export works
+edit works
+clear works
+duplicate symbol handling
+invalid rows rejected
+formula injection blocked in CSV
+user privacy
+no advisory fields accidentally persisted unless intended
+CMP source shown
+unavailable data labelled
+XIRR logic correct
+annualized estimate label correct
+allocation % correct
+sector exposure correct
+HHI correct
+top 3 concentration correct
+benchmark comparison correct
+benchmark chart not fabricated
+dividend and realized P&L included correctly
+corporate actions/demerger handling documented
+
+Add if missing:
+
+Corporate Action / Demerger Manual Adjustment Notes
+Portfolio Audit Log
+Source/Freshness in Holdings Table
+Portfolio Risk Explainability
+9. UI / UX Audit and Fix
+
+Audit all pages:
+
+home/dashboard
+scanner
+options
+option chain
+OI Lab
+paper trading
+paper reports
+flows
+strategies
+strategy builder
+deep scan
+premarket
+watchlist
+admin
+kite
+news
+index detail
+stock detail
+portfolio analyser
+infra-health
+global scanner pages
+
+Fix:
+
+broken tabs
+hidden errors
+loading forever
+empty states
+stale data not visible
+no source badge
+hard-to-read tables
+bad mobile layout
+bad chart scaling
+duplicated numbers
+misleading colors
+overconfident text
+missing tooltips
+unformatted rupee/percent/points
+inconsistent dates
+incorrect expiry display
+table/chart mismatch
+console errors
+
+Every major market card must show:
+
+Value
+Source
+As of
+Freshness
+Status
+Warning if stale/partial
+10. Charting Audit
+
+Audit all charts:
+
+candlestick charts
+index charts
+stock charts
+option payoff charts
+OI charts
+IV skew charts
+sector heatmaps
+portfolio charts
+P&L charts
+benchmark chart
+equity curve
+drawdown chart
+
+Verify:
+
+data source
+timeframe
+candle interval
+OHLC correctness
+indicator correctness
+axis labels
+timestamp timezone
+tooltip values
+buy/sell markers
+SL/target markers
+stale data warning
+no fake points
+no misleading scale
+mobile responsiveness
+chart agrees with table
+11. Database Audit
+
+Audit full DB:
+
+all tables
+migrations
+schema files
+indexes
+constraints
+foreign keys
+enum values
+stale old tables
+duplicate tables
+unused tables
+missing audit logs
+unsafe deletes
+cascade behavior
+query performance
+timezone handling
+seed/demo data
+backup scripts
+
+Produce:
+
+DATABASE AUDIT REPORT
+
+| Table | Purpose | Row Count | Key Columns | Issues | Index Needed | Constraint Needed | Fix |
+
+Before DB migration:
+
+backup
+migration script
+rollback script
+test in dev
+verify no data loss
+12. API Audit
+
+Audit all API endpoints.
+
+For every endpoint:
+
+Route
+Method
+Auth
+Input schema
+Output schema
+Data source
+Freshness metadata
+Error handling
+Empty state
+Frontend consumer
+Performance risk
+Security risk
+Test coverage
+
+Fix:
+
+500 errors
+missing validation
+stale data
+fake success
+missing freshness
+missing source
+hidden partial failure
+inconsistent response names
+route/client/OpenAPI mismatch
+generated client mismatch
+Express 5 params issue
+unauthorized access
+destructive action without confirmation
+
+After OpenAPI changes:
+
+regenerate API client
+regenerate Zod schemas
+run typecheck
+13. Security and Secrets Audit
+
+Even though this is personal, security still matters.
+
+Audit:
+
+.env not committed
+API keys not logged
+Kite token not exposed
+DB URL not exposed
+session secret not exposed
+TradingView secret not exposed
+CORS allowlist
+Helmet config
+cookie flags
+admin route protection
+Kite export route protection
+rate limiting
+CSV injection
+XSS in user notes/watchlist/portfolio
+SQL injection
+public read-only access cannot mutate anything
+logs do not include secrets
+
+Fix any exposure immediately and rotate affected secrets if needed.
+
+14. Performance Audit
+
+Profile:
+
+OI Lab
+Option chain
+Options signals page
+Paper reports
+Portfolio analyser
+Scanner
+Deep scan
+Full NSE scan
+API response time
+DB query time
+chart render time
+repeated React Query calls
+N+1 API calls
+huge table rendering
+repeated option-chain fetches
+unbounded DB reads
+
+Fix without reducing data richness:
+
+pagination
+virtualization
+memoization
+server-side aggregation
+query indexes
+caching with visible freshness
+bounded fetches
+background jobs
+debouncing
+15. Testing Requirements
+
+Add or update tests for:
+
+F&O Tests
+cost model with current STT
+option chain parsing
+ATM strike selection
+expiry selection
+strike selection
+PCR
+max pain
+expected move
+IV skew
+detector rules
+regime classification
+confluence scoring
+demotion gates
+data quality block
+liquidity block
+spread block
+duplicate prevention
+entry rule
+stop rule
+target rule
+trailing stop
+time exit
+15:20 force exit
+MTM update
+net P&L
+reports
+diagnostics waterfall
+Swing Tests
+indicators
+entry safety
+swing scoring
+sector strength
+relative strength
+entry/SL/target
+R:R rejection
+duplicate prevention
+paper trade open/close
+reports
+Portfolio Tests
+CSV import/export
+persistence
+duplicate symbols
+invalid rows
+XIRR
+allocation
+concentration
+benchmark
+dividend/realized P&L
+API Tests
+health
+data provider status
+option chain
+F&O signals
+paper trades
+swing scanner
+portfolio CRUD
+reports
+infra health
+auth/permissions
+stale/error response behavior
+Frontend Tests
+every page renders
+no console errors
+source badges visible
+stale warnings visible
+empty states visible
+charts render
+tables render
+portfolio survives refresh
+F&O diagnostics visible
+mobile layout check
+16. Final Deliverables
+
+Provide these deliverables:
+
+A. Full Audit Report
+FULL SOURCE-CODE AUDIT REPORT
+
+1. Executive Summary
+2. Critical Bugs Fixed
+3. Critical Bugs Still Open
+4. F&O Signal Engine Audit
+5. F&O Data Audit
+6. F&O Entry/SL/Target/Exit Audit
+7. F&O DB Audit
+8. Swing Signal Audit
+9. Market Direction Audit
+10. Data Source/Freshness Audit
+11. Portfolio Audit
+12. UI Audit
+13. Charting Audit
+14. API Audit
+15. DB Audit
+16. Security Audit
+17. Performance Audit
+18. Test Results
+19. Remaining Risk
+20. Final Go/No-Go Verdict
+B. Fix Log
+| Priority | Issue | File Changed | Function Changed | Fix Done | Test Added | Status |
+C. F&O Specific Final Report
+F&O ENGINE FINAL VALIDATION
+
+1. Data source reliability
+2. Signal detector logic
+3. Market regime logic
+4. Entry logic
+5. Strike selection logic
+6. Stop-loss logic
+7. Target logic
+8. Exit logic
+9. MTM logic
+10. Net P&L logic
+11. Setup-wise expectancy
+12. No-trade reasons
+13. Remaining weaknesses
+14. Recommended next improvements
+D. Commands Run
+
+Include exact output summary for:
+
+pnpm run typecheck
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+pnpm --filter @workspace/api-spec run codegen
+pnpm run typecheck
+E. Manual Smoke Test Checklist
+
+Confirm manually:
+
+Home loads
+Scanner loads
+Options loads
+Option chain loads
+OI Lab loads
+Paper trading loads
+Paper reports loads
+Portfolio loads and survives refresh
+Watchlist loads
+Deep scan loads
+Premarket loads
+Strategies loads
+Infra health loads
+Kite page loads
+Admin page loads
+No console errors
+No 500 errors
+No fake data
+No stale data without warning
+F&O no-trade reasons visible
+F&O trade details show entry/SL/target/exit/net P&L
+17. Final Instruction
+
+Be brutally honest. Do not say “all good” unless it is actually tested.
+
+Special focus must be on:
+
+F&O signal quality
+F&O data accuracy
+F&O entry/SL/target/exit correctness
+F&O net P&L after current costs
+No-trade diagnostics
+Market direction reliability
+Swing signal quality
+Data freshness/source honesty
+Portfolio persistence and accuracy
+Database safety
+UI clarity
+Chart correctness
+
+This is not a cosmetic task. This is a full reliability, accuracy, and trading-logic hardening task.
+
+Final outcome should be:
+
+A personal-use Indian market analysis platform that is:
+- data honest
+- source labelled
+- F&O logic explainable
+- swing logic explainable
+- paper-trading safe
+- portfolio reliable
+- charting accurate
+- database persistent
+- no fake data
+- no hidden stale data
+- no silent failures
+- fully tested
+
+Do not start any unrelated feature work until this audit-and-fix cycle is complete.

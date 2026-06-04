@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   FNO_COST_PARAMS,
+  FNO_COST_PARAMS_ASOF,
   computeFnoTradeCost,
   isShadowCostsEnabled,
 } from "./fnoCostModel";
@@ -28,6 +29,35 @@ describe("FNO_COST_PARAMS — constants block (locked formula inputs)", () => {
       expect(v).toBeGreaterThan(0);
       expect(k).toMatch(/^[A-Z_]+$/);
     }
+  });
+});
+
+describe("Statutory STT rates — current as of 2026-04-01 (Budget 2026)", () => {
+  it("pins the as-of date the rates were captured at", () => {
+    expect(FNO_COST_PARAMS_ASOF).toBe("2026-04-01");
+  });
+
+  it("options sale-of-premium STT is 0.15% (not the stale 0.0625% / 0.10%)", () => {
+    expect(FNO_COST_PARAMS.STT_RATE_SELL_PREMIUM).toBe(0.0015);
+    expect(FNO_COST_PARAMS.STT_RATE_SELL_PREMIUM).not.toBe(0.000625);
+  });
+
+  it("futures sell-side STT is 0.05% (published constant, futures not traded here)", () => {
+    expect(FNO_COST_PARAMS.STT_RATE_SELL_FUTURES).toBe(0.0005);
+    // illustrative: sell 1 lot @ contract value ₹7,50,000 → ₹375
+    expect(750_000 * FNO_COST_PARAMS.STT_RATE_SELL_FUTURES).toBeCloseTo(375, 6);
+  });
+
+  it("ITM-exercise STT is 0.15% on intrinsic (published constant, paper closes on premium)", () => {
+    expect(FNO_COST_PARAMS.STT_RATE_EXERCISE_INTRINSIC).toBe(0.0015);
+  });
+});
+
+describe("Option sell-side STT — exact rupee value at the current rate", () => {
+  it("charges 0.15% of sell turnover (₹45 on a 120×250 sell leg)", () => {
+    const r = computeFnoTradeCost({ entryPremium: 100, exitPremium: 120, lots: 10, lotSize: 25 });
+    // sell turnover = 120 × 250 = 30,000 → STT = 0.15% = ₹45 (was ₹18.75 at 0.0625%)
+    expect(r.stt).toBeCloseTo(45, 6);
   });
 });
 
