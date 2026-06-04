@@ -1,5 +1,6 @@
 /** Portfolio Analyser — display formatting helpers (presentation only). */
 import type { ActionView } from "@/lib/portfolio/types";
+import type { TrendTone } from "@/lib/portfolio/etf";
 
 const inr0 = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 const inr2 = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -49,6 +50,18 @@ export function actionViewClass(label: ActionView | null): string {
       return "bg-red-500/15 text-red-400 border-red-500/30";
     case "Avoid Fresh Buy":
       return "bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30";
+    default:
+      return "bg-muted text-muted-foreground border-border";
+  }
+}
+
+/** Tailwind classes for the compact ETF trend chip (CMP vs 50/200-DMA). */
+export function trendChipClass(tone: TrendTone): string {
+  switch (tone) {
+    case "pos":
+      return "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+    case "neg":
+      return "bg-red-500/15 text-red-400 border-red-500/30";
     default:
       return "bg-muted text-muted-foreground border-border";
   }

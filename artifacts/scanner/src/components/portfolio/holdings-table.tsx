@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
 import { ArrowUpDown, Trash2, AlertTriangle } from "lucide-react";
 import type { EnrichedRow } from "@/lib/portfolio/types";
-import { fmtINR, fmtSignedINR, fmtPct, fmtNum, pnlClass, actionViewClass } from "./format";
+import { etfCategory, describeEtfTrend } from "@/lib/portfolio/etf";
+import {
+  fmtINR,
+  fmtSignedINR,
+  fmtPct,
+  fmtNum,
+  pnlClass,
+  actionViewClass,
+  trendChipClass,
+} from "./format";
 
 type SortKey =
   | "symbol"
@@ -125,6 +134,11 @@ export function HoldingsTable({
               .filter(Boolean)
               .join(" · ");
             const isEtf = !resolution.fundamentalsApplicable && resolution.instrumentType !== "Equity";
+            const etfSymbol = resolution.resolvedSymbol ?? raw.symbol;
+            const etfCat = isEtf ? etfCategory(etfSymbol, resolution.instrumentType) : null;
+            const etfTrend = isEtf
+              ? describeEtfTrend(live.cmp, live.dma50, live.dma200)
+              : null;
             return (
               <tr
                 key={raw.symbol}
@@ -182,14 +196,34 @@ export function HoldingsTable({
                   {metrics.weightPct == null ? <Unavailable reason={reasonText} /> : fmtPct(metrics.weightPct, 1)}
                 </td>
                 <td className="px-2 py-2 text-right font-mono">
-                  {analytics.score == null ? (
+                  {isEtf ? (
+                    etfTrend ? (
+                      <span
+                        className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${trendChipClass(
+                          etfTrend.tone,
+                        )}`}
+                        title="CMP vs 50/200-DMA — descriptive trend, not advice"
+                      >
+                        {etfTrend.text}
+                      </span>
+                    ) : (
+                      <Unavailable reason="ETF trend needs 50/200-DMA (not available)" />
+                    )
+                  ) : analytics.score == null ? (
                     <Unavailable reason="Structure score needs live data" />
                   ) : (
                     analytics.score
                   )}
                 </td>
                 <td className="px-2 py-2">
-                  {analytics.label ? (
+                  {isEtf ? (
+                    <span
+                      className="inline-block whitespace-nowrap rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-400"
+                      title={`ETF category — tracks ${etfSymbol}'s mandate; equity action view not applicable`}
+                    >
+                      {etfCat}
+                    </span>
+                  ) : analytics.label ? (
                     <span
                       className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${actionViewClass(
                         analytics.label,
