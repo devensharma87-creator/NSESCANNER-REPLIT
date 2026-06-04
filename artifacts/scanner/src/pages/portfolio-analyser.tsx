@@ -32,6 +32,8 @@ import {
   compareToBenchmark,
   benchmarkReturnFromCloses,
   buildBenchmarkSeries,
+  buildPortfolioValueSeries,
+  mergeBenchmarkAndPortfolio,
   compareSectorWeights,
   sectorIndexesForSectors,
   BENCHMARK_OPTIONS,
@@ -228,6 +230,50 @@ export default function PortfolioAnalyser() {
     () => buildBenchmarkSeries(benchmarkWindowed.map(c => ({ t: c.t, c: c.c }))),
     [benchmarkWindowed],
   );
+
+  // Per-holding daily close history (segment "equity"), used to reconstruct a
+  // real portfolio value path over the comparison window. Each holding fetched
+  // once via the existing chart endpoint (Kite→Yahoo); a symbol with no candles
+  // is surfaced honestly as missing rather than imputed.
+  const holdingCandleQueries = useQueries({
+    queries: holdings.map(h => ({
+      queryKey: ["portfolio-holding-candles", h.symbol.toUpperCase(), "1D"],
+      enabled: holdings.length > 0,
+      staleTime: 5 * 60_000,
+      queryFn: () =>
+        getChartCandles({ symbol: h.symbol.toUpperCase(), segment: "equity" as ChartSegment, tf: "1D" }),
+    })),
+  });
+
+  // Reconstructed portfolio value path = Σ qty × daily close, windowed to the
+  // comparison period and rebased to % from window start — never fabricated.
+  const portfolioValue = useMemo(() => {
+    const cutoff = earliestPurchase ? Math.floor(earliestPurchase.getTime() / 1000) : null;
+    const histories = holdings.map((h, i) => {
+      const all = holdingCandleQueries[i]?.data?.candles ?? [];
+      const windowed = cutoff == null ? all : all.filter(c => c.t >= cutoff);
+      return {
+        symbol: h.symbol.toUpperCase(),
+        qty: h.qty,
+        candles: windowed.map(c => ({ t: c.t, c: c.c })),
+      };
+    });
+    return buildPortfolioValueSeries(histories);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    holdings,
+    earliestPurchase,
+    holdingCandleQueries.map(q => q.dataUpdatedAt).join(","),
+    holdingCandleQueries.map(q => q.status).join(","),
+  ]);
+
+  // Index + portfolio paths merged onto one date axis for the combined chart.
+  const combinedSeries = useMemo(
+    () => mergeBenchmarkAndPortfolio(benchmarkSeries, portfolioValue.points),
+    [benchmarkSeries, portfolioValue.points],
+  );
+
+  const holdingCandlesLoading = holdingCandleQueries.some(q => q.isLoading);
 
   const benchmark = useMemo(() => {
     const windowed = benchmarkWindowed;
@@ -622,8 +668,9 @@ export default function PortfolioAnalyser() {
               comparison={benchmark}
               sectorComparison={sectorComparison}
               sectorIndexReturns={sectorIndexReturns}
-              series={benchmarkSeries}
-              seriesLoading={benchmarkQ.isLoading}
+              series={combinedSeries}
+              seriesLoading={benchmarkQ.isLoading || holdingCandlesLoading}
+              portfolioPath={portfolioValue}
               options={BENCHMARK_OPTIONS}
               selectedKey={benchmarkKey}
               onSelect={selectBenchmark}

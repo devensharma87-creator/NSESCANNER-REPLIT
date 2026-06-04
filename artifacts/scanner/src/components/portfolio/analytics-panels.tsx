@@ -32,7 +32,8 @@ import type { HoldingPeriodView, DividendView } from "@/lib/portfolio/holdingPer
 import type {
   BenchmarkComparison,
   BenchmarkOption,
-  BenchmarkSeriesPoint,
+  CombinedSeriesPoint,
+  PortfolioValueSeries,
   SectorWeightComparison,
 } from "@/lib/portfolio/benchmark";
 import { sectorReferenceStaleness } from "@/lib/portfolio/benchmark";
@@ -337,6 +338,7 @@ function SectorIndexCell({ info }: { info: SectorIndexReturn | undefined }) {
 
 const benchmarkChartConfig = {
   indexPct: { label: "Index", color: "hsl(199 89% 60%)" },
+  portfolioPct: { label: "Portfolio", color: "hsl(152 60% 52%)" },
 } satisfies ChartConfig;
 
 function shortDate(iso: string): string {
@@ -354,24 +356,30 @@ function shortDate(iso: string): string {
 }
 
 /**
- * Small line chart of the selected index rebased to % from the window start.
- * The portfolio's own path is NOT reconstructable from a single live CMP per
- * holding, so we draw its known total return over the same window as a labelled
- * horizontal reference — honest about what is a real time-series (the index)
- * versus a single endpoint figure (the portfolio).
+ * Small line chart of the selected index rebased to % from the window start,
+ * with the portfolio's reconstructed value path (Σ qty × daily close, rebased to
+ * % from the same start) drawn as a second line so out/under-performance over
+ * time is directly readable.
+ *
+ * HONEST: the portfolio line is only drawn when a real, fully-covered value
+ * path could be reconstructed. When it cannot (holdings lack overlapping daily
+ * history) we fall back to the known total return as a single labelled
+ * horizontal reference — never a fabricated path.
  */
 function BenchmarkChart({
-  series,
+  data,
   loading,
   benchmarkName,
+  hasPortfolioPath,
   portfolioReturnPct,
 }: {
-  series: BenchmarkSeriesPoint[];
+  data: CombinedSeriesPoint[];
   loading: boolean;
   benchmarkName: string;
+  hasPortfolioPath: boolean;
   portfolioReturnPct: number | null;
 }) {
-  if (loading && series.length === 0) {
+  if (loading && data.length === 0) {
     return (
       <div
         className="h-[140px] animate-pulse rounded-md border border-border bg-muted/30"
@@ -379,7 +387,7 @@ function BenchmarkChart({
       />
     );
   }
-  if (series.length === 0) {
+  if (data.length === 0) {
     return (
       <div
         className="flex h-[140px] items-center justify-center rounded-md border border-dashed border-border px-3 text-center text-[11px] text-muted-foreground"
@@ -390,14 +398,15 @@ function BenchmarkChart({
       </div>
     );
   }
-  const hasPortfolio = portfolioReturnPct != null && Number.isFinite(portfolioReturnPct);
+  const showReference =
+    !hasPortfolioPath && portfolioReturnPct != null && Number.isFinite(portfolioReturnPct);
   return (
     <ChartContainer
       config={benchmarkChartConfig}
       className="aspect-auto h-[140px] w-full"
       data-testid="benchmark-chart"
     >
-      <LineChart data={series} margin={{ left: 4, right: 8, top: 6, bottom: 0 }}>
+      <LineChart data={data} margin={{ left: 4, right: 8, top: 6, bottom: 0 }}>
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
         <XAxis
           dataKey="date"
@@ -415,7 +424,7 @@ function BenchmarkChart({
           tickFormatter={(v) => `${typeof v === "number" ? v.toFixed(0) : v}%`}
         />
         <ReferenceLine y={0} stroke="hsl(215 16% 47%)" strokeDasharray="2 2" />
-        {hasPortfolio && (
+        {showReference && (
           <ReferenceLine
             y={portfolioReturnPct as number}
             stroke="hsl(152 60% 52%)"
@@ -432,12 +441,12 @@ function BenchmarkChart({
           content={
             <ChartTooltipContent
               labelFormatter={(label) => shortDate(String(label))}
-              formatter={(value) => [
+              formatter={(value, name) => [
                 `${typeof value === "number" && value > 0 ? "+" : ""}${fmtNum(
                   typeof value === "number" ? value : null,
                   2,
                 )}%`,
-                ` ${benchmarkName}`,
+                ` ${name === "portfolioPct" ? "Portfolio" : benchmarkName}`,
               ]}
             />
           }
@@ -449,7 +458,19 @@ function BenchmarkChart({
           strokeWidth={2}
           dot={false}
           isAnimationActive={false}
+          connectNulls
         />
+        {hasPortfolioPath && (
+          <Line
+            type="monotone"
+            dataKey="portfolioPct"
+            stroke="var(--color-portfolioPct)"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+            connectNulls
+          />
+        )}
       </LineChart>
     </ChartContainer>
   );
@@ -461,6 +482,7 @@ export function BenchmarkPanel({
   sectorIndexReturns,
   series,
   seriesLoading,
+  portfolioPath,
   options,
   selectedKey,
   onSelect,
@@ -469,12 +491,16 @@ export function BenchmarkPanel({
   sectorComparison: SectorWeightComparison;
   /** Per-sector index return keyed by canonical sector bucket. */
   sectorIndexReturns: Map<string, SectorIndexReturn>;
-  series: BenchmarkSeriesPoint[];
+  /** Index + portfolio paths merged onto a single date axis. */
+  series: CombinedSeriesPoint[];
   seriesLoading: boolean;
+  /** Reconstructed portfolio value path (for the second line + honest labelling). */
+  portfolioPath: PortfolioValueSeries;
   options: readonly BenchmarkOption[];
   selectedKey: BenchmarkOption["key"];
   onSelect: (key: BenchmarkOption["key"]) => void;
 }) {
+  const hasPortfolioPath = portfolioPath.points.length > 0;
   return (
     <Card className="p-3" data-testid="benchmark-panel">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -520,11 +546,34 @@ export function BenchmarkPanel({
       )}
       <div className="mt-2">
         <BenchmarkChart
-          series={series}
+          data={series}
           loading={seriesLoading}
           benchmarkName={comparison.benchmarkName}
+          hasPortfolioPath={hasPortfolioPath}
           portfolioReturnPct={comparison.portfolioReturnPct}
         />
+        {hasPortfolioPath ? (
+          <div className="mt-1 text-[10px] text-muted-foreground">
+            Portfolio line = current holdings' market value rebased to % from{" "}
+            {portfolioPath.firstFullCoverageDate ?? "window start"} (not cost basis).
+            {portfolioPath.partial && (
+              <span className="text-amber-400">
+                {" "}
+                Partial history
+                {portfolioPath.missingSymbols.length > 0
+                  ? ` — ${portfolioPath.missingSymbols.length} holding(s) without daily data excluded (${portfolioPath.missingSymbols.join(", ")})`
+                  : " — path starts when all holdings first have data"}
+                .
+              </span>
+            )}
+          </div>
+        ) : (
+          portfolioPath.unavailable && (
+            <div className="mt-1 text-[10px] text-amber-400">
+              {portfolioPath.unavailable} Showing total return as a flat reference instead.
+            </div>
+          )
+        )}
       </div>
       <div className="mt-2 border-t border-border pt-2">
         <div className="mb-1 flex items-center justify-between gap-2">

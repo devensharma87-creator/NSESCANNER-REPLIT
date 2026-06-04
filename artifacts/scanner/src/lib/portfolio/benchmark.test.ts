@@ -3,6 +3,8 @@ import {
   compareToBenchmark,
   benchmarkReturnFromCloses,
   buildBenchmarkSeries,
+  buildPortfolioValueSeries,
+  mergeBenchmarkAndPortfolio,
   compareSectorWeights,
   normalizeSectorKey,
   sectorIndexFor,
@@ -275,5 +277,106 @@ describe("sectorIndexesForSectors", () => {
       { sector: "Energy", weightPct: 12 },
     ]);
     expect(refs.map(r => r.symbol)).toEqual(["NIFTYENERGY"]);
+  });
+});
+
+describe("buildPortfolioValueSeries", () => {
+  // Two trading days, two holdings, both fully covered.
+  const D1 = Date.parse("2024-01-01T00:00:00Z") / 1000;
+  const D2 = Date.parse("2024-01-02T00:00:00Z") / 1000;
+  const D3 = Date.parse("2024-01-03T00:00:00Z") / 1000;
+
+  it("builds a rebased value path from Σ qty × close over fully-covered days", () => {
+    const out = buildPortfolioValueSeries([
+      { symbol: "A", qty: 10, candles: [{ t: D1, c: 100 }, { t: D2, c: 110 }] },
+      { symbol: "B", qty: 5, candles: [{ t: D1, c: 200 }, { t: D2, c: 200 }] },
+    ]);
+    // Day1 value = 10*100 + 5*200 = 2000; Day2 = 10*110 + 5*200 = 2100 → +5%
+    expect(out.unavailable).toBeNull();
+    expect(out.points.map(p => p.date)).toEqual(["2024-01-01", "2024-01-02"]);
+    expect(out.points[0].portfolioPct).toBe(0);
+    expect(out.points[1].portfolioPct).toBeCloseTo(5, 9);
+    expect(out.coveredHoldings).toBe(2);
+    expect(out.totalHoldings).toBe(2);
+    expect(out.partial).toBe(false);
+    expect(out.missingSymbols).toEqual([]);
+    expect(out.firstFullCoverageDate).toBe("2024-01-01");
+  });
+
+  it("only plots days where every covered holding has a close (constant basket)", () => {
+    const out = buildPortfolioValueSeries([
+      { symbol: "A", qty: 1, candles: [{ t: D1, c: 100 }, { t: D2, c: 100 }, { t: D3, c: 100 }] },
+      // B has no D1 close → D1 is not full-coverage; path starts at D2.
+      { symbol: "B", qty: 1, candles: [{ t: D2, c: 50 }, { t: D3, c: 60 }] },
+    ]);
+    expect(out.points.map(p => p.date)).toEqual(["2024-01-02", "2024-01-03"]);
+    expect(out.points[0].portfolioPct).toBe(0);
+    // Day2 = 150, Day3 = 160 → +6.667%
+    expect(out.points[1].portfolioPct).toBeCloseTo((160 / 150 - 1) * 100, 9);
+    expect(out.partial).toBe(true); // started later than earliest covered data
+    expect(out.firstFullCoverageDate).toBe("2024-01-02");
+  });
+
+  it("flags missing symbols and excludes them, but still plots the covered basket", () => {
+    const out = buildPortfolioValueSeries([
+      { symbol: "A", qty: 2, candles: [{ t: D1, c: 100 }, { t: D2, c: 120 }] },
+      { symbol: "NOHIST", qty: 9, candles: [] },
+    ]);
+    expect(out.missingSymbols).toEqual(["NOHIST"]);
+    expect(out.coveredHoldings).toBe(1);
+    expect(out.totalHoldings).toBe(2);
+    expect(out.partial).toBe(true);
+    expect(out.points.map(p => p.portfolioPct)).toEqual([0, 20]);
+  });
+
+  it("reports unavailable when no holding has any history", () => {
+    const out = buildPortfolioValueSeries([
+      { symbol: "A", qty: 1, candles: [] },
+      { symbol: "B", qty: 1, candles: [] },
+    ]);
+    expect(out.points).toEqual([]);
+    expect(out.unavailable).toMatch(/no holdings have daily price history/i);
+    expect(out.missingSymbols).toEqual(["A", "B"]);
+  });
+
+  it("reports unavailable when there is no overlapping full-coverage day", () => {
+    const out = buildPortfolioValueSeries([
+      { symbol: "A", qty: 1, candles: [{ t: D1, c: 100 }] },
+      { symbol: "B", qty: 1, candles: [{ t: D2, c: 100 }] },
+    ]);
+    expect(out.points).toEqual([]);
+    expect(out.unavailable).toMatch(/no overlapping daily history/i);
+  });
+
+  it("never fabricates: non-finite closes/qty are ignored", () => {
+    const out = buildPortfolioValueSeries([
+      { symbol: "A", qty: Number.NaN, candles: [{ t: D1, c: 100 }, { t: D2, c: 110 }] },
+      { symbol: "B", qty: 1, candles: [{ t: D1, c: 100 }, { t: D2, c: Number.NaN }] },
+    ]);
+    // A has NaN qty → no usable candles → missing. B has a NaN close on D2 → only D1 usable → <2 full days.
+    expect(out.missingSymbols).toContain("A");
+    expect(out.unavailable).not.toBeNull();
+  });
+});
+
+describe("mergeBenchmarkAndPortfolio", () => {
+  it("aligns index and portfolio points on a shared, sorted date axis with honest nulls", () => {
+    const index = [
+      { t: 100, date: "2024-01-01", indexPct: 0 },
+      { t: 200, date: "2024-01-02", indexPct: 2 },
+    ];
+    const portfolio = [
+      { t: 200, date: "2024-01-02", portfolioPct: 0 },
+      { t: 300, date: "2024-01-03", portfolioPct: 5 },
+    ];
+    const merged = mergeBenchmarkAndPortfolio(index, portfolio);
+    expect(merged.map(p => p.date)).toEqual(["2024-01-01", "2024-01-02", "2024-01-03"]);
+    expect(merged[0]).toMatchObject({ indexPct: 0, portfolioPct: null });
+    expect(merged[1]).toMatchObject({ indexPct: 2, portfolioPct: 0 });
+    expect(merged[2]).toMatchObject({ indexPct: null, portfolioPct: 5 });
+  });
+
+  it("returns an empty axis when both inputs are empty", () => {
+    expect(mergeBenchmarkAndPortfolio([], [])).toEqual([]);
   });
 });

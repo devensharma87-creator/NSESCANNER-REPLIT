@@ -133,6 +133,206 @@ export function buildBenchmarkSeries(
 }
 
 // ---------------------------------------------------------------------------
+// Portfolio value path — Σ qty × daily close, rebased to % from window start
+// ---------------------------------------------------------------------------
+
+/** Daily close history for one holding (current quantity + its candles). */
+export interface PortfolioHoldingHistory {
+  symbol: string;
+  /** Current quantity of shares held. */
+  qty: number;
+  /** Daily candles (epoch seconds + close). Empty when no history is available. */
+  candles: { t: number; c: number }[];
+}
+
+/** A single plottable point of the portfolio value path, rebased to % from start. */
+export interface PortfolioValuePoint {
+  /** Epoch seconds (UTC) of the day. */
+  t: number;
+  /** ISO yyyy-mm-dd date for the X axis. */
+  date: string;
+  /** Portfolio market-value % change from the first fully-covered day (first point is 0). */
+  portfolioPct: number;
+}
+
+export interface PortfolioValueSeries {
+  /** Rebased value path; empty when no honest path can be built. */
+  points: PortfolioValuePoint[];
+  /** Total holdings considered. */
+  totalHoldings: number;
+  /** Holdings that contributed at least one usable daily close. */
+  coveredHoldings: number;
+  /** Symbols with no usable daily history (excluded from the path). */
+  missingSymbols: string[];
+  /** First date where every covered holding has data (the path's start), null if none. */
+  firstFullCoverageDate: string | null;
+  /** True when some holdings lack full history over the window (path is a partial view). */
+  partial: boolean;
+  /** Non-null when no honest path can be drawn at all. */
+  unavailable: string | null;
+}
+
+function isoDay(t: number): string {
+  return new Date(t * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Build the portfolio's market-value path (Σ qty × daily close) rebased to %
+ * change from the first fully-covered trading day, so it shares the index
+ * chart's Y axis.
+ *
+ * HONEST BY CONSTRUCTION:
+ *  - Only holdings with real daily closes contribute; those with no history are
+ *    surfaced in `missingSymbols` and never imputed.
+ *  - The path is only drawn over days where EVERY covered holding has a close,
+ *    so the basket composition is constant and the % move is a true return —
+ *    no fabricated values and no artificial jumps when a holding's history
+ *    starts mid-window.
+ *  - `partial` flags when the view omits holdings (missing history) or starts
+ *    later than the earliest available data, so the UI can label it plainly.
+ *  - Returns an empty `points` array (with a reason) rather than guessing when
+ *    there is no overlapping history to plot.
+ */
+export function buildPortfolioValueSeries(
+  holdings: PortfolioHoldingHistory[],
+): PortfolioValueSeries {
+  const totalHoldings = holdings.length;
+  const missingSymbols: string[] = [];
+
+  // Per-holding date→close maps (dedup per day, last close wins).
+  const perHolding: { qty: number; byDate: Map<string, { t: number; c: number }> }[] = [];
+  for (const h of holdings) {
+    const byDate = new Map<string, { t: number; c: number }>();
+    if (Number.isFinite(h.qty)) {
+      for (const k of h.candles) {
+        if (!Number.isFinite(k.t) || !Number.isFinite(k.c)) continue;
+        byDate.set(isoDay(k.t), { t: k.t, c: k.c });
+      }
+    }
+    if (byDate.size === 0) {
+      missingSymbols.push(h.symbol);
+    } else {
+      perHolding.push({ qty: h.qty, byDate });
+    }
+  }
+
+  const coveredHoldings = perHolding.length;
+  const base = {
+    totalHoldings,
+    coveredHoldings,
+    missingSymbols,
+    firstFullCoverageDate: null as string | null,
+    partial: missingSymbols.length > 0,
+  };
+
+  if (coveredHoldings === 0) {
+    return {
+      ...base,
+      points: [],
+      unavailable:
+        "Portfolio value path unavailable — no holdings have daily price history for this window.",
+    };
+  }
+
+  // Union of all dates seen across covered holdings.
+  const dates = new Map<string, number>(); // date → representative epoch seconds
+  for (const ph of perHolding) {
+    for (const [date, { t }] of ph.byDate) {
+      const prev = dates.get(date);
+      dates.set(date, prev == null ? t : Math.min(prev, t));
+    }
+  }
+
+  // Days where every covered holding has a close (constant-basket days).
+  const fullDays: { date: string; t: number; value: number }[] = [];
+  let earliestCoveredT = Infinity;
+  for (const [date, t] of dates) {
+    if (t < earliestCoveredT) earliestCoveredT = t;
+    let value = 0;
+    let covered = 0;
+    for (const ph of perHolding) {
+      const hit = ph.byDate.get(date);
+      if (!hit) continue;
+      covered += 1;
+      value += ph.qty * hit.c;
+    }
+    if (covered === coveredHoldings) fullDays.push({ date, t, value });
+  }
+  fullDays.sort((a, b) => a.t - b.t);
+
+  if (fullDays.length < 2) {
+    return {
+      ...base,
+      points: [],
+      unavailable:
+        "Portfolio value path unavailable — holdings have no overlapping daily history to plot.",
+    };
+  }
+
+  const baseValue = fullDays[0].value;
+  if (baseValue === 0) {
+    return {
+      ...base,
+      points: [],
+      unavailable:
+        "Portfolio value path unavailable — starting value is zero, cannot rebase to %.",
+    };
+  }
+
+  const points: PortfolioValuePoint[] = fullDays.map(d => ({
+    t: d.t,
+    date: d.date,
+    portfolioPct: ((d.value - baseValue) / baseValue) * 100,
+  }));
+
+  const firstFullCoverageDate = points[0].date;
+  const partial =
+    missingSymbols.length > 0 || points[0].t > earliestCoveredT;
+
+  return {
+    ...base,
+    points,
+    firstFullCoverageDate,
+    partial,
+    unavailable: null,
+  };
+}
+
+/** A point on the combined chart: index and portfolio % on a shared date axis. */
+export interface CombinedSeriesPoint {
+  t: number;
+  date: string;
+  /** Index % change from window start; null when the index has no point that day. */
+  indexPct: number | null;
+  /** Portfolio % change from window start; null when the portfolio has no point that day. */
+  portfolioPct: number | null;
+}
+
+/**
+ * Merge the index series and the portfolio value path onto a single, sorted
+ * date axis so Recharts can plot both lines together. Missing values stay null
+ * (the chart uses `connectNulls`) — never fabricated to fill gaps.
+ */
+export function mergeBenchmarkAndPortfolio(
+  indexSeries: BenchmarkSeriesPoint[],
+  portfolioPoints: PortfolioValuePoint[],
+): CombinedSeriesPoint[] {
+  const byDate = new Map<string, CombinedSeriesPoint>();
+  for (const p of indexSeries) {
+    byDate.set(p.date, { t: p.t, date: p.date, indexPct: p.indexPct, portfolioPct: null });
+  }
+  for (const p of portfolioPoints) {
+    const existing = byDate.get(p.date);
+    if (existing) {
+      existing.portfolioPct = p.portfolioPct;
+    } else {
+      byDate.set(p.date, { t: p.t, date: p.date, indexPct: null, portfolioPct: p.portfolioPct });
+    }
+  }
+  return Array.from(byDate.values()).sort((a, b) => a.t - b.t);
+}
+
+// ---------------------------------------------------------------------------
 // Sector over/under-weight vs a REAL, dated NIFTY 500 reference
 // ---------------------------------------------------------------------------
 
