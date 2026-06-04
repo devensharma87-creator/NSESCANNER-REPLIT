@@ -11,7 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { FoBadge } from "@/lib/foCockpitView";
 import { deriveOpenPositionRisk } from "@/lib/foCockpitView";
+import {
+  deriveFoTargetStatus,
+  type SpotLifecycleLike,
+} from "@/lib/fno/targetStatus";
 import { FoRiskBadges } from "./FoRiskBadges";
+import { FoTargetStatusView } from "./FoTargetStatusView";
 
 export interface FoOpenPosition {
   id: string;
@@ -35,6 +40,7 @@ export interface FoOpenPosition {
   maxDrawdown?: number | null;
   openedAt: string;
   lastEvaluatedAt: string;
+  spotLifecycle?: SpotLifecycleLike | null;
 }
 
 const DASH = "—";
@@ -144,6 +150,19 @@ export function FoOpenTradeCard({
   const hasMfe = Number.isFinite(p.maxRunup as number);
   const hasMae = Number.isFinite(p.maxDrawdown as number);
   const risk = deriveOpenPositionRisk(p, now);
+  const targetStatus = deriveFoTargetStatus({
+    direction: p.direction,
+    entryPremium: p.entryPremium,
+    lastPremium: p.lastPremium,
+    stopPremium: p.stopPremium,
+    target1Premium: p.target1Premium,
+    target2Premium: p.target2Premium,
+    maxRunup: p.maxRunup,
+    maxDrawdown: p.maxDrawdown,
+    lots: p.lots,
+    lotSize: p.lotSize,
+    spot: p.spotLifecycle,
+  });
   return (
     <div className="rounded-lg border border-border bg-card/40 p-3 space-y-3">
       <div className="flex items-start justify-between gap-2">
@@ -198,6 +217,10 @@ export function FoOpenTradeCard({
           value={fmtDelta(risk.distToT2, risk.distToT2Pct)}
           tone="text-emerald-300"
         />
+      </div>
+
+      <div className="border-t border-border/60 pt-2">
+        <FoTargetStatusView status={targetStatus} />
       </div>
 
       <div className="flex items-center justify-between gap-2 pt-1">

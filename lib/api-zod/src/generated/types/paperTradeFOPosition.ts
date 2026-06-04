@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { FnoSpotLifecycle } from "./fnoSpotLifecycle";
 import type { PaperTradeFOPositionDirection } from "./paperTradeFOPositionDirection";
 import type { PaperTradeFOPositionOptionType } from "./paperTradeFOPositionOptionType";
 import type { PaperTradeFOPositionStatus } from "./paperTradeFOPositionStatus";
@@ -37,4 +38,5 @@ export interface PaperTradeFOPosition {
   openedAt: Date;
   lastEvaluatedAt: Date;
   status: PaperTradeFOPositionStatus;
+  spotLifecycle?: FnoSpotLifecycle | null;
 }

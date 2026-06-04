@@ -17,6 +17,11 @@
 import { db, paperTradeFoTable } from "@workspace/db";
 import { and, eq, gte, lt } from "drizzle-orm";
 import type { PaperTradeFoRow } from "@workspace/db";
+import {
+  loadSpotLifecycleByKey,
+  lifecycleKeyOf,
+  type FnoSpotLifecycle,
+} from "./fnoSpotLifecycle";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -124,6 +129,12 @@ export interface TradeDetailRow {
     | "MANUAL_OVERRIDE"
     | "TIME_EXIT_1520";
   durationSec: number;
+  /** Read-only: highest unrealized P&L observed (peak); null when not recorded. */
+  maxRunup: number | null;
+  /** Read-only: lowest unrealized P&L observed (≤ 0); null when not recorded. */
+  maxDrawdown: number | null;
+  /** Read-only spot lifecycle joined from option_signal_history; null when absent. */
+  spotLifecycle: FnoSpotLifecycle | null;
 }
 
 /**
@@ -134,7 +145,10 @@ function istDateOf(d: Date): string {
   return new Date(d.getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-export function rowToDetail(r: PaperTradeFoRow): TradeDetailRow {
+export function rowToDetail(
+  r: PaperTradeFoRow,
+  spotLifecycle?: FnoSpotLifecycle | null,
+): TradeDetailRow {
   // CLOSED rows are written by closePaperTradeForSignal as a single
   // transaction with all six exit fields populated. If we ever read a
   // CLOSED row missing any of them, that is a ledger integrity bug —
@@ -191,6 +205,10 @@ export function rowToDetail(r: PaperTradeFoRow): TradeDetailRow {
     rMultiple,
     exitReason: r.exitReason as TradeDetailRow["exitReason"],
     durationSec: Math.max(0, Math.round((exitedAtMs - openedAtMs) / 1000)),
+    maxRunup: r.maxRunup == null ? null : requireNum(r.maxRunup, "maxRunup", r.id),
+    maxDrawdown:
+      r.maxDrawdown == null ? null : requireNum(r.maxDrawdown, "maxDrawdown", r.id),
+    spotLifecycle: spotLifecycle ?? null,
   };
 }
 
@@ -359,7 +377,8 @@ async function fetchClosedTradesByExit(
       ),
     )
     .orderBy(paperTradeFoTable.exitedAt);
-  return rows.map(rowToDetail);
+  const lifecycles = await loadSpotLifecycleByKey(rows);
+  return rows.map((r) => rowToDetail(r, lifecycles.get(lifecycleKeyOf(r))));
 }
 
 export interface MonthlyReport {

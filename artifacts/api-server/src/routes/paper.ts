@@ -71,6 +71,11 @@ import {
   persistDailySummaryFo,
 } from "../lib/paperDailySummaryFo";
 import { paperDailySummaryFoTable } from "@workspace/db";
+import {
+  loadSpotLifecycleByKey,
+  lifecycleKeyOf,
+  type FnoSpotLifecycle,
+} from "../lib/fnoSpotLifecycle";
 import { fetchOptionChain } from "../lib/optionChain";
 import { getFoAnalytics } from "../lib/paperAnalyticsFO";
 import { getMonthlyReport, getYearlyReport } from "../lib/paperReportsFO";
@@ -97,7 +102,11 @@ function istDateKey(d: Date = new Date()): string {
   return ist.toISOString().slice(0, 10);
 }
 
-function toOpenPosition(r: PaperTradeFoRow, liveLtp?: number | null) {
+function toOpenPosition(
+  r: PaperTradeFoRow,
+  liveLtp?: number | null,
+  spotLifecycle?: FnoSpotLifecycle | null,
+) {
   const entry = num(r.entryPremium);
   // Prefer the freshly-fetched chain LTP when present and valid; fall back
   // to the lifecycle-stored last_premium otherwise. This keeps the UI
@@ -139,6 +148,7 @@ function toOpenPosition(r: PaperTradeFoRow, liveLtp?: number | null) {
     openedAt: r.openedAt.toISOString(),
     lastEvaluatedAt: evaluatedAt.toISOString(),
     status: "OPEN" as const,
+    spotLifecycle: spotLifecycle ?? null,
   };
 }
 
@@ -199,7 +209,7 @@ async function fetchLiveLtpForOpenRows(
   return out;
 }
 
-function toClosedTrade(r: PaperTradeFoRow) {
+function toClosedTrade(r: PaperTradeFoRow, spotLifecycle?: FnoSpotLifecycle | null) {
   return {
     id: r.id,
     signalDate: r.signalDate,
@@ -220,11 +230,19 @@ function toClosedTrade(r: PaperTradeFoRow) {
       | "TARGET2_HIT"
       | "STOPPED"
       | "EXPIRED"
-      | "MANUAL_OVERRIDE",
+      | "MANUAL_OVERRIDE"
+      | "TIME_EXIT_1520",
     openedAt: r.openedAt.toISOString(),
     exitedAt: (r.exitedAt ?? r.openedAt).toISOString(),
     journal: r.journal ?? null,
     tags: r.tags ?? [],
+    // Read-only reporting fields (premium plan + MFE/MAE) for exit-clarity UI.
+    stopPremium: r.stopPremium == null ? null : num(r.stopPremium),
+    target1Premium: r.target1Premium == null ? null : num(r.target1Premium),
+    target2Premium: r.target2Premium == null ? null : num(r.target2Premium),
+    maxRunup: r.maxRunup == null ? null : num(r.maxRunup),
+    maxDrawdown: r.maxDrawdown == null ? null : num(r.maxDrawdown),
+    spotLifecycle: spotLifecycle ?? null,
   };
 }
 
@@ -305,8 +323,11 @@ router.get("/paper/positions/fo", requireOwner, async (_req, res, next) => {
     // UI polling does ~1 cache-hit + ~1/3 fetches per underlying per
     // minute on average.
     const liveLtps = await fetchLiveLtpForOpenRows(rows);
+    const lifecycles = await loadSpotLifecycleByKey(rows);
     const data = GetPaperPositionsFOResponse.parse({
-      positions: rows.map((r) => toOpenPosition(r, liveLtps.get(r.id))),
+      positions: rows.map((r) =>
+        toOpenPosition(r, liveLtps.get(r.id), lifecycles.get(lifecycleKeyOf(r))),
+      ),
       generatedAt: new Date().toISOString(),
     });
     return res.json(data);
@@ -332,9 +353,10 @@ router.get("/paper/trades/fo", requireOwner, async (req, res, next) => {
         ),
       )
       .orderBy(desc(paperTradeFoTable.exitedAt));
+    const lifecycles = await loadSpotLifecycleByKey(rows);
     const data = GetPaperTradesFOResponse.parse({
       date,
-      trades: rows.map(toClosedTrade),
+      trades: rows.map((r) => toClosedTrade(r, lifecycles.get(lifecycleKeyOf(r)))),
       generatedAt: new Date().toISOString(),
     });
     return res.json(data);

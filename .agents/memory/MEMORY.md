@@ -3,3 +3,4 @@
 - [Corrective-sweep close-first ordering](corrective-sweep-close-first-ordering.md) — sweeps that close a paper trade AND advance its lifecycle must close FIRST, else a close failure freezes the row OPEN for stale 15:20 settlement.
 - [Autoscale cold-start 500](autoscale-coldstart-500.md) — prod autoscale first request can return a one-off 500 then recover; retry before flagging an API-500 regression in smoke tests.
 - [Drizzle wraps pg errors under .cause](drizzle-pg-error-cause.md) — SQLSTATE codes (e.g. 23505) live on err.cause not err.code through drizzle; SQLSTATE classifiers must walk the cause chain.
+- [api-server vitest pool / sandbox bg jobs](api-server-vitest-pool.md) — run the api-server suite with `--pool=threads` (~33s); default forks pool exceeds 120s with buffered/lost output; detached bg jobs die when the bash call returns.

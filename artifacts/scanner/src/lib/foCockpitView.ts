@@ -51,6 +51,16 @@ export interface FoTradeRow {
   tags?: string[] | null;
   /** Optional — only present on some reasoning-joined rows; never required. */
   confidence?: Num;
+  /** Read-only spot lifecycle joined server-side from option_signal_history; never required. */
+  spotLifecycle?: {
+    status?: string | null;
+    spotEntry?: number | null;
+    spotStop?: number | null;
+    spotTarget1?: number | null;
+    spotTarget2?: number | null;
+    lastSpot?: number | null;
+    maxFavorableExcursionPts?: number | null;
+  } | null;
 }
 
 // ── safe primitives ──────────────────────────────────────────────────────────

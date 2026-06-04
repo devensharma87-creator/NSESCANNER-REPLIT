@@ -8,6 +8,7 @@
  * NO orders and exposes NO close/modify action — closed trades are immutable.
  */
 import type { FoBadge, FoBadgeTone, P25Display, FoTradeRow } from "@/lib/foCockpitView";
+import type { SpotLifecycleLike } from "@/lib/fno/targetStatus";
 import { FoRiskBadges } from "./FoRiskBadges";
 import {
   fmtPremium,
@@ -41,6 +42,14 @@ export interface FoClosedTrade {
   exitedAt: string;
   journal?: string | null;
   tags?: string[];
+  // Read-only exit-clarity fields (now provided by /paper/trades/fo). All optional
+  // so the card stays backward-compatible if a caller omits them.
+  stopPremium?: number | null;
+  target1Premium?: number | null;
+  target2Premium?: number | null;
+  maxRunup?: number | null;
+  maxDrawdown?: number | null;
+  spotLifecycle?: SpotLifecycleLike | null;
 }
 
 /** Map a closed-trade payload row to the shared `FoTradeRow` shape. */

@@ -3836,6 +3836,23 @@ components:
         weeklyDrawdownPct: { type: number, description: "Phase-1 realised loss for IST week-to-date as fraction of seed (0-1). FNO only." }
         weeklyDrawdownCapPct: { type: number, description: "Configured weekly DD cap fraction (0-1)." }
 
+    FnoSpotLifecycle:
+      type: object
+      description: >-
+        READ-ONLY spot-underlying lifecycle for an F&O paper trade, joined from
+        option_signal_history by the 4-tuple (signalDate, indexSymbol, setupKey,
+        direction). Reporting-only: it NEVER feeds any entry, exit, target, stop,
+        or sizing decision. Every field is nullable — null when the signal row is
+        absent or the column was not recorded.
+      properties:
+        status:                   { type: string, nullable: true, description: "Signal lifecycle status (PENDING/TRIGGERED/EXITED/...)." }
+        spotEntry:                { type: number, nullable: true, description: "Spot underlying level at signal entry." }
+        spotStop:                 { type: number, nullable: true, description: "Spot stop level." }
+        spotTarget1:              { type: number, nullable: true, description: "Spot target-1 level." }
+        spotTarget2:              { type: number, nullable: true, description: "Spot target-2 level." }
+        lastSpot:                 { type: number, nullable: true, description: "Most recent observed spot underlying level." }
+        maxFavorableExcursionPts: { type: number, nullable: true, description: "Max favourable spot excursion, in index points." }
+
     PaperTradeFOPosition:
       type: object
       required:
@@ -3882,6 +3899,10 @@ components:
         openedAt:        { type: string, format: date-time }
         lastEvaluatedAt: { type: string, format: date-time }
         status:          { type: string, enum: [OPEN] }
+        spotLifecycle:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/FnoSpotLifecycle"
 
     PaperTradeFOClosed:
       type: object
@@ -3926,6 +3947,15 @@ components:
           type: array
           nullable: true
           items: { type: string }
+        stopPremium:     { type: number, nullable: true, description: "Read-only: option-premium stop locked at entry." }
+        target1Premium:  { type: number, nullable: true, description: "Read-only: option-premium target 1 locked at entry." }
+        target2Premium:  { type: number, nullable: true, description: "Read-only: option-premium target 2 locked at entry." }
+        maxRunup:        { type: number, nullable: true, description: "Read-only: highest unrealized P&L observed for this position (peak)." }
+        maxDrawdown:     { type: number, nullable: true, description: "Read-only: lowest unrealized P&L observed for this position (≤ 0)." }
+        spotLifecycle:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/FnoSpotLifecycle"
 
     PaperPositionsFOResponse:
       type: object
@@ -4062,6 +4092,12 @@ components:
           type: array
           nullable: true
           items: { type: string }
+        maxRunup:            { type: number, nullable: true, description: "Read-only: highest unrealized P&L observed (peak)." }
+        maxDrawdown:         { type: number, nullable: true, description: "Read-only: lowest unrealized P&L observed (≤ 0)." }
+        spotLifecycle:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/FnoSpotLifecycle"
 
     PaperReportFoMonthly:
       type: object

@@ -65,6 +65,7 @@ export * from "./fiveDayFlowDay";
 export * from "./fiveDayFlowDiiTrend";
 export * from "./fiveDayFlowFiiTrend";
 export * from "./fnoBanListResponse";
+export * from "./fnoSpotLifecycle";
 export * from "./gapStock";
 export * from "./gapStockGapDirection";
 export * from "./gapStockSignal";

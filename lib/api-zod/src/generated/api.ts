@@ -3340,6 +3340,34 @@ export const GetPaperPositionsFOResponse = zod.object({
       openedAt: zod.coerce.date(),
       lastEvaluatedAt: zod.coerce.date(),
       status: zod.enum(["OPEN"]),
+      spotLifecycle: zod
+        .object({
+          status: zod
+            .string()
+            .nullish()
+            .describe(
+              "Signal lifecycle status (PENDING\/TRIGGERED\/EXITED\/...).",
+            ),
+          spotEntry: zod
+            .number()
+            .nullish()
+            .describe("Spot underlying level at signal entry."),
+          spotStop: zod.number().nullish().describe("Spot stop level."),
+          spotTarget1: zod.number().nullish().describe("Spot target-1 level."),
+          spotTarget2: zod.number().nullish().describe("Spot target-2 level."),
+          lastSpot: zod
+            .number()
+            .nullish()
+            .describe("Most recent observed spot underlying level."),
+          maxFavorableExcursionPts: zod
+            .number()
+            .nullish()
+            .describe("Max favourable spot excursion, in index points."),
+        })
+        .describe(
+          "READ-ONLY spot-underlying lifecycle for an F&O paper trade, joined from option_signal_history by the 4-tuple (signalDate, indexSymbol, setupKey, direction). Reporting-only: it NEVER feeds any entry, exit, target, stop, or sizing decision. Every field is nullable — null when the signal row is absent or the column was not recorded.",
+        )
+        .nullish(),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -3382,6 +3410,58 @@ export const GetPaperTradesFOResponse = zod.object({
       exitedAt: zod.coerce.date(),
       journal: zod.string().nullish(),
       tags: zod.array(zod.string()).nullish(),
+      stopPremium: zod
+        .number()
+        .nullish()
+        .describe("Read-only: option-premium stop locked at entry."),
+      target1Premium: zod
+        .number()
+        .nullish()
+        .describe("Read-only: option-premium target 1 locked at entry."),
+      target2Premium: zod
+        .number()
+        .nullish()
+        .describe("Read-only: option-premium target 2 locked at entry."),
+      maxRunup: zod
+        .number()
+        .nullish()
+        .describe(
+          "Read-only: highest unrealized P&L observed for this position (peak).",
+        ),
+      maxDrawdown: zod
+        .number()
+        .nullish()
+        .describe(
+          "Read-only: lowest unrealized P&L observed for this position (≤ 0).",
+        ),
+      spotLifecycle: zod
+        .object({
+          status: zod
+            .string()
+            .nullish()
+            .describe(
+              "Signal lifecycle status (PENDING\/TRIGGERED\/EXITED\/...).",
+            ),
+          spotEntry: zod
+            .number()
+            .nullish()
+            .describe("Spot underlying level at signal entry."),
+          spotStop: zod.number().nullish().describe("Spot stop level."),
+          spotTarget1: zod.number().nullish().describe("Spot target-1 level."),
+          spotTarget2: zod.number().nullish().describe("Spot target-2 level."),
+          lastSpot: zod
+            .number()
+            .nullish()
+            .describe("Most recent observed spot underlying level."),
+          maxFavorableExcursionPts: zod
+            .number()
+            .nullish()
+            .describe("Max favourable spot excursion, in index points."),
+        })
+        .describe(
+          "READ-ONLY spot-underlying lifecycle for an F&O paper trade, joined from option_signal_history by the 4-tuple (signalDate, indexSymbol, setupKey, direction). Reporting-only: it NEVER feeds any entry, exit, target, stop, or sizing decision. Every field is nullable — null when the signal row is absent or the column was not recorded.",
+        )
+        .nullish(),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -3421,6 +3501,56 @@ export const ClosePaperPositionFOResponse = zod.object({
   exitedAt: zod.coerce.date(),
   journal: zod.string().nullish(),
   tags: zod.array(zod.string()).nullish(),
+  stopPremium: zod
+    .number()
+    .nullish()
+    .describe("Read-only: option-premium stop locked at entry."),
+  target1Premium: zod
+    .number()
+    .nullish()
+    .describe("Read-only: option-premium target 1 locked at entry."),
+  target2Premium: zod
+    .number()
+    .nullish()
+    .describe("Read-only: option-premium target 2 locked at entry."),
+  maxRunup: zod
+    .number()
+    .nullish()
+    .describe(
+      "Read-only: highest unrealized P&L observed for this position (peak).",
+    ),
+  maxDrawdown: zod
+    .number()
+    .nullish()
+    .describe(
+      "Read-only: lowest unrealized P&L observed for this position (≤ 0).",
+    ),
+  spotLifecycle: zod
+    .object({
+      status: zod
+        .string()
+        .nullish()
+        .describe("Signal lifecycle status (PENDING\/TRIGGERED\/EXITED\/...)."),
+      spotEntry: zod
+        .number()
+        .nullish()
+        .describe("Spot underlying level at signal entry."),
+      spotStop: zod.number().nullish().describe("Spot stop level."),
+      spotTarget1: zod.number().nullish().describe("Spot target-1 level."),
+      spotTarget2: zod.number().nullish().describe("Spot target-2 level."),
+      lastSpot: zod
+        .number()
+        .nullish()
+        .describe("Most recent observed spot underlying level."),
+      maxFavorableExcursionPts: zod
+        .number()
+        .nullish()
+        .describe("Max favourable spot excursion, in index points."),
+    })
+    .describe(
+      "READ-ONLY spot-underlying lifecycle for an F&O paper trade, joined from option_signal_history by the 4-tuple (signalDate, indexSymbol, setupKey, direction). Reporting-only: it NEVER feeds any entry, exit, target, stop, or sizing decision. Every field is nullable — null when the signal row is absent or the column was not recorded.",
+    )
+    .nullish(),
 });
 
 /**
@@ -3517,6 +3647,42 @@ export const GetPaperReportFoMonthlyResponse = zod.object({
       durationSec: zod.number(),
       journal: zod.string().nullish(),
       tags: zod.array(zod.string()).nullish(),
+      maxRunup: zod
+        .number()
+        .nullish()
+        .describe("Read-only: highest unrealized P&L observed (peak)."),
+      maxDrawdown: zod
+        .number()
+        .nullish()
+        .describe("Read-only: lowest unrealized P&L observed (≤ 0)."),
+      spotLifecycle: zod
+        .object({
+          status: zod
+            .string()
+            .nullish()
+            .describe(
+              "Signal lifecycle status (PENDING\/TRIGGERED\/EXITED\/...).",
+            ),
+          spotEntry: zod
+            .number()
+            .nullish()
+            .describe("Spot underlying level at signal entry."),
+          spotStop: zod.number().nullish().describe("Spot stop level."),
+          spotTarget1: zod.number().nullish().describe("Spot target-1 level."),
+          spotTarget2: zod.number().nullish().describe("Spot target-2 level."),
+          lastSpot: zod
+            .number()
+            .nullish()
+            .describe("Most recent observed spot underlying level."),
+          maxFavorableExcursionPts: zod
+            .number()
+            .nullish()
+            .describe("Max favourable spot excursion, in index points."),
+        })
+        .describe(
+          "READ-ONLY spot-underlying lifecycle for an F&O paper trade, joined from option_signal_history by the 4-tuple (signalDate, indexSymbol, setupKey, direction). Reporting-only: it NEVER feeds any entry, exit, target, stop, or sizing decision. Every field is nullable — null when the signal row is absent or the column was not recorded.",
+        )
+        .nullish(),
     }),
   ),
   generatedAt: zod.coerce.date(),

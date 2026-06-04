@@ -1,0 +1,198 @@
+Audit report is accepted.
+
+Proceed with a controlled implementation task.
+
+Task name:
+
+F&O Exit Reporting Clarity + Portfolio Layout Polish
+
+This task has two parts:
+
+Part A: F&O exit reporting / target-status clarity
+Part B: Portfolio Analyser layout and alignment polish
+
+Important: this is not a strategy-change task.
+
+Part A — F&O exit reporting / target-status clarity
+Finding accepted
+
+For the BANKNIFTY CALL 53700 trade:
+
+Premium T2 was crossed.
+Spot T2 was not crossed.
+The engine exits on spot lifecycle, not premium target touch.
+T1 is a runner milestone, not a closing rule.
+The trade closed via TIME_EXIT_1520.
+
+This is not a stale-data issue or evaluator-cycle miss. It is a reporting/UX clarity issue.
+
+Required UI/reporting fixes
+
+Add clear reporting so the user can understand:
+
+spot T1 touched
+spot T2 touched / not touched
+premium T1 touched
+premium T2 touched
+whether target exit fired
+why target exit did not fire
+why final exit happened
+MFE / peak premium
+giveback from peak
+exit reason
+Add Target Status display
+
+For open and closed F&O trades, show a compact target-status section:
+
+Spot T1: touched / untouched
+Spot T2: touched / untouched
+Premium T1: touched / untouched
+Premium T2: touched / untouched
+Exit trigger: spot target / stop / premium stop / time exit / manual / none
+Add closed-trade explanation
+
+For closed F&O trade detail, add:
+
+Why this trade exited:
+  TIME_EXIT_1520 at 15:20 / 15:21
+
+Why it did not exit earlier:
+  Spot T2 was not reached.
+  Premium T2 was touched, but premium target exit is not currently an active exit rule.
+Add MFE/giveback fields
+
+Show:
+
+Peak premium
+Peak unrealised P&L
+Realised P&L
+Giveback from peak
+Exit premium
+Exit reason
+
+Use existing DB fields where available. Do not invent data.
+
+Add divergence warning
+
+If:
+
+premium >= premium T2
+but spot < spot T2
+and trade remains open
+
+show:
+
+Premium target touched, but spot target not reached. Current engine exits targets by spot lifecycle, not premium target touch.
+Important wording
+
+Use honest language:
+
+Premium target touched
+Spot target not reached
+Premium target is informational under current engine
+Spot target controls official exit
+
+Avoid misleading language:
+
+Target missed
+System failed
+Guaranteed target
+
+unless evidence proves an actual missed engine rule.
+
+Strict F&O rules
+Do not change F&O entry logic.
+Do not change signal logic.
+Do not change target/stop calculation.
+Do not add premium target auto-exit.
+Do not add partial exit.
+Do not add trailing stop.
+Do not add breakeven.
+Do not change premium hard-stop.
+Do not change orphan-exit.
+Do not change paper-trading execution.
+
+This is reporting clarity only.
+
+If any backend field/API is needed, add read-only data only.
+
+Part B — Portfolio Analyser layout and alignment polish
+Accepted layout issues
+
+Fix the current Portfolio Analyser layout problems:
+
+Holdings table dominates the page.
+Right-side Sector Allocation panel is squeezed.
+Table min-width is forcing the grid wider.
+Sector Allocation / legend spacing is cramped.
+Portfolio Risk / Allocation / Benchmark panels are uneven.
+Table is hard to scan.
+Unpriced rows create visual noise.
+Sector allocation note contradicts benchmark panel.
+Required layout fixes
+
+Implement:
+
+1. Add min-w-0 to the main grid/table container so table scroll stays inside the table.
+2. Use grid tracks like minmax(0,1fr) and a sane right-column width.
+3. Add sticky Symbol column in holdings table.
+4. Keep horizontal scroll inside holdings table only.
+5. Improve Sector Allocation panel spacing.
+6. Make legend placement responsive.
+7. Reconcile stale sector allocation copy that says benchmark unavailable if benchmark panel now supports it.
+8. Improve n/a / unavailable row styling without hiding rows.
+9. Add clearer "X holdings not priced" visual treatment.
+10. Improve KPI/header/action alignment.
+11. Improve Portfolio Risk / Allocation / Benchmark card spacing.
+12. Keep mobile/tablet responsive behaviour clean.
+Portfolio rules
+Do not hide unavailable holdings.
+Do not drop ETF rows.
+Do not fake CMP.
+Do not fake returns.
+Do not fake benchmark data.
+Do not fake fundamentals.
+Do not change portfolio formulas.
+Do not change saved portfolio persistence.
+Do not change portfolio APIs.
+Do not change DB schema.
+
+This is UI/layout only.
+
+Tests
+
+Run:
+
+pnpm run typecheck
+pnpm --filter @workspace/scanner run test
+
+If any API/server file is touched:
+
+pnpm --filter @workspace/api-server run test
+Required final report
+
+Provide:
+
+F&O Reporting Clarity + Portfolio Layout Polish Report
+
+Report must include:
+
+A. Files changed
+B. F&O target-status fields added
+C. F&O closed-trade explanation changes
+D. MFE/giveback reporting changes
+E. Divergence warning implementation
+F. Confirmation no F&O execution/strategy logic changed
+G. Portfolio layout fixes made
+H. Portfolio table/sticky-column changes
+I. Sector allocation panel changes
+J. Unavailable-data display changes
+K. Responsive checks
+L. Tests run and results
+M. Confirmation no DB/schema/env/scheduler changes
+N. Confirmation no trading/paper execution changes
+O. Safe to publish yes/no
+
+Stop after the report.
+
+Do not publish.

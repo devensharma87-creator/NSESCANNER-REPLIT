@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { FnoSpotLifecycle } from "./fnoSpotLifecycle";
 import type { PaperTradeFODetailDirection } from "./paperTradeFODetailDirection";
 import type { PaperTradeFODetailExitReason } from "./paperTradeFODetailExitReason";
 import type { PaperTradeFODetailOptionType } from "./paperTradeFODetailOptionType";
@@ -38,4 +39,9 @@ export interface PaperTradeFODetail {
   durationSec: number;
   journal?: string | null;
   tags?: string[] | null;
+  /** Read-only: highest unrealized P&L observed (peak). */
+  maxRunup?: number | null;
+  /** Read-only: lowest unrealized P&L observed (≤ 0). */
+  maxDrawdown?: number | null;
+  spotLifecycle?: FnoSpotLifecycle | null;
 }

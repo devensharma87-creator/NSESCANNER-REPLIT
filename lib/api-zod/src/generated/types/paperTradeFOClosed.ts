@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { FnoSpotLifecycle } from "./fnoSpotLifecycle";
 import type { PaperTradeFOClosedDirection } from "./paperTradeFOClosedDirection";
 import type { PaperTradeFOClosedExitReason } from "./paperTradeFOClosedExitReason";
 import type { PaperTradeFOClosedOptionType } from "./paperTradeFOClosedOptionType";
@@ -29,4 +30,15 @@ export interface PaperTradeFOClosed {
   exitedAt: Date;
   journal?: string | null;
   tags?: string[] | null;
+  /** Read-only: option-premium stop locked at entry. */
+  stopPremium?: number | null;
+  /** Read-only: option-premium target 1 locked at entry. */
+  target1Premium?: number | null;
+  /** Read-only: option-premium target 2 locked at entry. */
+  target2Premium?: number | null;
+  /** Read-only: highest unrealized P&L observed for this position (peak). */
+  maxRunup?: number | null;
+  /** Read-only: lowest unrealized P&L observed for this position (≤ 0). */
+  maxDrawdown?: number | null;
+  spotLifecycle?: FnoSpotLifecycle | null;
 }

@@ -8,10 +8,12 @@
  * pure helpers in `foCockpitView.ts`. This component derives NO trading logic,
  * recomputes NO strategy, joins NO reasoning, and places/modifies NO orders.
  *
- * P25 NOTE: `/paper/trades/fo` omits `maxRunup`/`maxDrawdown`, so per-trade P25
- * eligibility is genuinely unknowable here. We pass `mfeMaeInPayload: false` to
- * `deriveP25Display`, which honestly renders "unavailable from this payload"
- * instead of guessing. The OFFICIAL P25 count remains the server's
+ * P25 NOTE: `/paper/trades/fo` now carries read-only `maxRunup`/`maxDrawdown`
+ * (added for the exit-clarity UI), but per-trade P25 eligibility is intentionally
+ * still treated as unknowable here — flipping that is a separate, out-of-scope
+ * behaviour change. We keep passing `mfeMaeInPayload: false` to `deriveP25Display`,
+ * which honestly renders "unavailable from this payload" instead of guessing. The
+ * OFFICIAL P25 count remains the server's
  * `mfeAvailableCount` shown by the separate evidence panel — never recomputed
  * from these rows.
  */

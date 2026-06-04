@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PaperComboSegment } from "@/components/paper-combo-segment";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import type { SpotLifecycleLike } from "@/lib/fno/targetStatus";
 import { FoCockpitSafetyBanner } from "@/components/fno/FoCockpitSafetyBanner";
 import { FoCockpitSummaryCards } from "@/components/fno/FoCockpitSummaryCards";
 import { FoOpenTradesTable, type FoOpenGroup } from "@/components/fno/FoOpenTradesTable";
@@ -131,6 +132,7 @@ interface OpenPosition {
   maxDrawdown?: number;
   openedAt: string;
   lastEvaluatedAt: string;
+  spotLifecycle?: SpotLifecycleLike | null;
 }
 
 interface ClosedTrade {
@@ -153,6 +155,12 @@ interface ClosedTrade {
   exitedAt: string;
   journal?: string | null;
   tags?: string[];
+  stopPremium?: number | null;
+  target1Premium?: number | null;
+  target2Premium?: number | null;
+  maxRunup?: number | null;
+  maxDrawdown?: number | null;
+  spotLifecycle?: SpotLifecycleLike | null;
 }
 
 const inr = (n: number) =>

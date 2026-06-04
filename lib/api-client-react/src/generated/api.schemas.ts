@@ -2916,6 +2916,26 @@ export interface PaperAccountState {
   weeklyDrawdownCapPct?: number;
 }
 
+/**
+ * READ-ONLY spot-underlying lifecycle for an F&O paper trade, joined from option_signal_history by the 4-tuple (signalDate, indexSymbol, setupKey, direction). Reporting-only: it NEVER feeds any entry, exit, target, stop, or sizing decision. Every field is nullable — null when the signal row is absent or the column was not recorded.
+ */
+export interface FnoSpotLifecycle {
+  /** Signal lifecycle status (PENDING/TRIGGERED/EXITED/...). */
+  status?: string | null;
+  /** Spot underlying level at signal entry. */
+  spotEntry?: number | null;
+  /** Spot stop level. */
+  spotStop?: number | null;
+  /** Spot target-1 level. */
+  spotTarget1?: number | null;
+  /** Spot target-2 level. */
+  spotTarget2?: number | null;
+  /** Most recent observed spot underlying level. */
+  lastSpot?: number | null;
+  /** Max favourable spot excursion, in index points. */
+  maxFavorableExcursionPts?: number | null;
+}
+
 export type PaperTradeFOPositionDirection =
   (typeof PaperTradeFOPositionDirection)[keyof typeof PaperTradeFOPositionDirection];
 
@@ -2967,6 +2987,7 @@ export interface PaperTradeFOPosition {
   openedAt: string;
   lastEvaluatedAt: string;
   status: PaperTradeFOPositionStatus;
+  spotLifecycle?: FnoSpotLifecycle | null;
 }
 
 export type PaperTradeFOClosedDirection =
@@ -3017,6 +3038,17 @@ export interface PaperTradeFOClosed {
   exitedAt: string;
   journal?: string | null;
   tags?: string[] | null;
+  /** Read-only: option-premium stop locked at entry. */
+  stopPremium?: number | null;
+  /** Read-only: option-premium target 1 locked at entry. */
+  target1Premium?: number | null;
+  /** Read-only: option-premium target 2 locked at entry. */
+  target2Premium?: number | null;
+  /** Read-only: highest unrealized P&L observed for this position (peak). */
+  maxRunup?: number | null;
+  /** Read-only: lowest unrealized P&L observed for this position (≤ 0). */
+  maxDrawdown?: number | null;
+  spotLifecycle?: FnoSpotLifecycle | null;
 }
 
 export interface PaperPositionsFOResponse {
@@ -3135,6 +3167,11 @@ export interface PaperTradeFODetail {
   durationSec: number;
   journal?: string | null;
   tags?: string[] | null;
+  /** Read-only: highest unrealized P&L observed (peak). */
+  maxRunup?: number | null;
+  /** Read-only: lowest unrealized P&L observed (≤ 0). */
+  maxDrawdown?: number | null;
+  spotLifecycle?: FnoSpotLifecycle | null;
 }
 
 export interface PaperReportFoMonthly {

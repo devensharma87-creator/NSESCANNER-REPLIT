@@ -590,11 +590,13 @@ export default function PortfolioAnalyser() {
               </div>
             </div>
           )}
-          <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+          <div className="grid gap-4 lg:grid-cols-[1fr_340px] lg:items-start">
             <HoldingsTable rows={enriched} onSelect={setSelected} onRemove={removeOne} />
-            <SectorAllocationPanel allocation={allocation} />
+            <div className="lg:sticky lg:top-4">
+              <SectorAllocationPanel allocation={allocation} />
+            </div>
           </div>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
             <RiskPanel risk={risk} />
             <AllocationPanel rows={analyticsRows} />
             <CostBasisPanel holdingPeriod={holdingPeriod} dividends={dividends} />

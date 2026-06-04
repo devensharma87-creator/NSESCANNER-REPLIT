@@ -10,8 +10,13 @@
  */
 import type { P25Display, FoTradeRow } from "@/lib/foCockpitView";
 import { toNum } from "@/lib/foCockpitView";
+import {
+  deriveFoTargetStatus,
+  buildClosedExplanation,
+} from "@/lib/fno/targetStatus";
 import { P25Badge, fmtExitReason, type FoClosedTrade } from "./FoClosedTradeCard";
 import { fmtPremium, fmtInt, fmtInr, fmtInrDec, fmtDateTime, pnlTone } from "./FoOpenTradeCard";
+import { FoTargetStatusView } from "./FoTargetStatusView";
 
 const DASH = "—";
 
@@ -47,6 +52,25 @@ export function FoWhyThisTrade({
 }) {
   const row = { ...t, status: "CLOSED" } as FoTradeRow;
   const confidence = toNum((row as { confidence?: unknown }).confidence as never);
+  const targetStatus = deriveFoTargetStatus({
+    direction: t.direction,
+    entryPremium: t.entryPremium,
+    exitPremium: t.exitPremium,
+    lastPremium: t.exitPremium,
+    stopPremium: t.stopPremium,
+    target1Premium: t.target1Premium,
+    target2Premium: t.target2Premium,
+    maxRunup: t.maxRunup,
+    maxDrawdown: t.maxDrawdown,
+    lots: t.lots,
+    lotSize: t.lotSize,
+    exitReason: t.exitReason,
+    spot: t.spotLifecycle,
+  });
+  const explanation = buildClosedExplanation({
+    exitReason: t.exitReason,
+    status: targetStatus,
+  });
   const totalQty =
     Number.isFinite(t.lots) && Number.isFinite(t.lotSize) ? t.lots * t.lotSize : NaN;
   const tags = (t.tags ?? []).filter((x) => typeof x === "string" && x.trim() !== "");
@@ -87,6 +111,20 @@ export function FoWhyThisTrade({
           label="Confidence"
           value={Number.isFinite(confidence) ? confidence.toFixed(0) : DASH}
         />
+      </div>
+
+      {/* Target status (spot + premium) & honest exit explanation */}
+      <div className="border-t border-border/60 pt-2 space-y-2">
+        <FoTargetStatusView status={targetStatus} />
+        {explanation.length > 0 && (
+          <div className="space-y-1">
+            {explanation.map((line, i) => (
+              <p key={i} className="text-[11px] leading-relaxed text-foreground/80">
+                {line}
+              </p>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Evidence & journal */}
