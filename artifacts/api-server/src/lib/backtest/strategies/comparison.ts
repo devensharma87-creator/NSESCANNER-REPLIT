@@ -210,6 +210,7 @@ export function buildComparison(
 
   // Aggregate per strategy across all indices.
   const accum = new Map<string, AggAccum>();
+  const dataBlockedByStrategy = new Map<string, number>();
   for (const u of units) {
     const a = accum.get(u.strategyId) ?? {
       strategyId: u.strategyId,
@@ -218,6 +219,13 @@ export function buildComparison(
     };
     for (const t of u.trades) a.nts.push(toNetTrade(t, o));
     accum.set(u.strategyId, a);
+    const dataBlocked = u.blocked
+      .filter((b) => b.category === "DATA")
+      .reduce((s, b) => s + b.count, 0);
+    dataBlockedByStrategy.set(
+      u.strategyId,
+      (dataBlockedByStrategy.get(u.strategyId) ?? 0) + dataBlocked,
+    );
   }
 
   const aggRaw = Array.from(accum.values()).map((a) => {
@@ -237,6 +245,9 @@ export function buildComparison(
     const sd = stdev(nets);
     const avgNet = mean(nets);
     const consistency = sd != null && sd > 0 && avgNet != null ? avgNet / sd : null;
+    const dataBlocked = dataBlockedByStrategy.get(a.strategyId) ?? 0;
+    const opportunities = total + dataBlocked;
+    const dataQuality = opportunities > 0 ? total / opportunities : null;
     const eligible = total >= MIN_TRADES_TO_RANK;
     return {
       strategyId: a.strategyId,
@@ -248,6 +259,7 @@ export function buildComparison(
       dd,
       avgR,
       consistency,
+      dataQuality,
       eligible,
     };
   });
@@ -262,7 +274,8 @@ export function buildComparison(
   const nDd = normalize(pick((a) => (a.dd != null ? -a.dd : null))); // less DD = better
   const nR = normalize(pick((a) => a.avgR));
   const nCons = normalize(pick((a) => a.consistency));
-  const W = { net: 0.3, pf: 0.2, win: 0.15, dd: 0.15, r: 0.1, cons: 0.1 };
+  const nDq = normalize(pick((a) => a.dataQuality)); // more executed-vs-data-blocked = better
+  const W = { net: 0.25, pf: 0.2, win: 0.15, dd: 0.15, r: 0.1, cons: 0.1, dq: 0.05 };
   const composite = new Map<string, number>();
   eligibleIdx.forEach((idx, k) => {
     const parts: Array<[number, number]> = [
@@ -272,6 +285,7 @@ export function buildComparison(
       [nDd[k]!, W.dd],
       [nR[k]!, W.r],
       [nCons[k]!, W.cons],
+      [nDq[k]!, W.dq],
     ];
     let num = 0;
     let den = 0;
@@ -294,6 +308,8 @@ export function buildComparison(
       profitFactor: a.pf,
       maxDrawdown: a.dd,
       avgR: a.avgR,
+      consistency: a.consistency,
+      dataQuality: a.dataQuality,
       compositeScore: composite.has(a.strategyId) ? composite.get(a.strategyId)! : null,
       eligible: a.eligible,
     }))
@@ -388,6 +404,17 @@ function buildRanking(
   const bestR = best((a) => a.avgR, 1);
   cards.push(card("AVG_R", "Best Avg R", bestR, bestR?.avgR != null ? `${bestR.avgR.toFixed(2)}R` : null, null));
 
+  const mostStable = best((a) => a.consistency, 1);
+  cards.push(
+    card(
+      "MOST_STABLE",
+      "Most Stable",
+      mostStable,
+      mostStable?.consistency != null ? `${mostStable.consistency.toFixed(2)}` : null,
+      "Mean per-trade net ÷ stdev — steadiest equity, not biggest.",
+    ),
+  );
+
   // Best strategy per index (by net P&L of that strategy×index row).
   for (const idx of ["NIFTY", "BANKNIFTY", "SENSEX"]) {
     const idxRows = rows.filter((r) => r.indexSymbol === idx && r.totalTrades > 0);
@@ -409,6 +436,33 @@ function buildRanking(
     cards.push(
       card("TIMEFRAME", "Timeframe Coverage", null, timeframes[0] ?? null, "Single timeframe tested — no best/worst timeframe comparison."),
     );
+  } else {
+    // Net P&L summed per timeframe (across every strategy×index row on that tf).
+    const byTf = new Map<string, number>();
+    for (const r of rows) byTf.set(r.timeframe, (byTf.get(r.timeframe) ?? 0) + r.netPnl);
+    const tfRanked = Array.from(byTf.entries()).sort((a, b) => b[1] - a[1]);
+    const top = tfRanked[0];
+    const bottom = tfRanked[tfRanked.length - 1];
+    if (top) {
+      cards.push({
+        key: "BEST_TIMEFRAME",
+        label: "Best Timeframe",
+        strategyId: null,
+        strategyName: null,
+        value: `${top[0]} (₹${top[1].toFixed(0)})`,
+        note: "Summed net P&L across all strategies on this timeframe.",
+      });
+    }
+    if (bottom && bottom[0] !== top?.[0]) {
+      cards.push({
+        key: "WORST_TIMEFRAME",
+        label: "Worst Timeframe",
+        strategyId: null,
+        strategyName: null,
+        value: `${bottom[0]} (₹${bottom[1].toFixed(0)})`,
+        note: "Summed net P&L across all strategies on this timeframe.",
+      });
+    }
   }
 
   return cards;

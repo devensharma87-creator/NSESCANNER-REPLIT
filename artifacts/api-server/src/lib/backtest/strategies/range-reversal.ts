@@ -4,16 +4,22 @@ import {
   clamp,
   isBearRejection,
   isBullRejection,
+  paramNum,
   type StrategyContext,
   type StrategyEntry,
   type StrategyModule,
+  type StrategyParams,
 } from "./base";
 
 const OPTION_PREMIUM_NOTE =
   "Option-premium confirmation unavailable (no historical option data) — evaluated on spot only.";
 
-function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
+function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyEntry | null {
   if (i < 2) return null;
+  const t1R = paramNum(p, "target1R", 1);
+  const t2R = paramNum(p, "target2R", 2);
+  const rsiOversold = paramNum(p, "rsiOversold", 35);
+  const rsiOverbought = paramNum(p, "rsiOverbought", 65);
   const a = ctx.atr14[i];
   const ax = ctx.adx14[i];
   const rsiV = ctx.rsi14[i];
@@ -38,7 +44,7 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
     : ctx.prevDayHigh[i] ?? ctx.cprHigh[i];
 
   // ---- CE: oversold rejection at the lower edge of the range ---------------
-  if (support != null && l <= support + tol && rsiV <= 35 && isBullRejection(o, h, l, c) && c > prevHi) {
+  if (support != null && l <= support + tol && rsiV <= rsiOversold && isBullRejection(o, h, l, c) && c > prevHi) {
     const stop = l - 0.1 * a;
     const risk = c - stop;
     if (risk <= 0) return null;
@@ -48,8 +54,8 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
       optionType: "CALL",
       entrySpot: c,
       stop,
-      target1: c + risk,
-      target2: c + 2 * risk,
+      target1: c + t1R * risk,
+      target2: c + t2R * risk,
       confidence: conf,
       entryReason: "CE: oversold bullish rejection at range support in a low-ADX tape.",
       passedConditions: [
@@ -65,7 +71,7 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
   }
 
   // ---- PE: overbought rejection at the upper edge of the range -------------
-  if (resistance != null && h >= resistance - tol && rsiV >= 65 && isBearRejection(o, h, l, c) && c < prevLo) {
+  if (resistance != null && h >= resistance - tol && rsiV >= rsiOverbought && isBearRejection(o, h, l, c) && c < prevLo) {
     const stop = h + 0.1 * a;
     const risk = stop - c;
     if (risk <= 0) return null;
@@ -75,8 +81,8 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
       optionType: "PUT",
       entrySpot: c,
       stop,
-      target1: c - risk,
-      target2: c - 2 * risk,
+      target1: c - t1R * risk,
+      target2: c - t2R * risk,
       confidence: conf,
       entryReason: "PE: overbought bearish rejection at range resistance in a low-ADX tape.",
       passedConditions: [

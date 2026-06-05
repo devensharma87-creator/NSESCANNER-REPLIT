@@ -531,9 +531,88 @@ function StrategyPicker({
                 {s.bestCondition}
               </span>
             </div>
+            {(s.suitableIndices.length > 0 || s.recommendedTimeframes.length > 0) && (
+              <div className="mt-1 space-y-0.5 text-[9px] text-muted-foreground">
+                {s.suitableIndices.length > 0 && (
+                  <div title="Indices this strategy suits best">
+                    <span className="text-muted-foreground/70">Indices: </span>
+                    {s.suitableIndices.join(", ")}
+                  </div>
+                )}
+                {s.recommendedTimeframes.length > 0 && (
+                  <div title="Recommended timeframes (only 15m has real candles in this environment)">
+                    <span className="text-muted-foreground/70">TFs: </span>
+                    {s.recommendedTimeframes.join(", ")}
+                  </div>
+                )}
+              </div>
+            )}
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ───────────── advanced per-strategy params ─────────────
+
+function AdvancedParamsPanel({
+  strategies,
+  selected,
+  overrides,
+  onChange,
+}: {
+  strategies: BacktestStrategyMeta[];
+  selected: Set<string>;
+  overrides: Record<string, Record<string, number>>;
+  onChange: (next: Record<string, Record<string, number>>) => void;
+}) {
+  const chosen = strategies.filter((s) => selected.has(s.id) && s.id !== OFFICIAL_STRATEGY_ID);
+  const withParams = chosen.filter((s) => Object.keys(s.defaultParams ?? {}).length > 0);
+  if (withParams.length === 0) return null;
+
+  function setParam(stratId: string, key: string, raw: string, fallback: number) {
+    const val = raw.trim() === "" ? fallback : Number(raw);
+    const safe = Number.isFinite(val) ? val : fallback;
+    const nextStrat = { ...(overrides[stratId] ?? {}), [key]: safe };
+    onChange({ ...overrides, [stratId]: nextStrat });
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        Advanced params (selected strategies)
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {withParams.map((s) => {
+          const defaults = s.defaultParams ?? {};
+          const ov = overrides[s.id] ?? {};
+          return (
+            <div key={s.id} className="rounded-lg border border-border bg-card/40 p-2.5">
+              <div className="mb-1.5 text-xs font-semibold">{s.name}</div>
+              <div className="space-y-1.5">
+                {Object.entries(defaults).map(([key, def]) => {
+                  const cur = ov[key] ?? (def as number);
+                  return (
+                    <label key={key} className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="text-muted-foreground" title={`Default ${def}`}>
+                        {key}
+                      </span>
+                      <input
+                        type="number"
+                        value={cur}
+                        step={0.25}
+                        onChange={(e) => setParam(s.id, key, e.target.value, def as number)}
+                        className="w-20 rounded border border-border bg-background px-1 py-0.5 text-[11px] tabular-nums"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -612,6 +691,9 @@ const RANK_TONE: Record<string, string> = {
   BEST_PROFIT_FACTOR: "border-violet-500/40 bg-violet-500/10",
   LOWEST_DRAWDOWN: "border-amber-500/40 bg-amber-500/10",
   MOST_CONSISTENT: "border-teal-500/40 bg-teal-500/10",
+  MOST_STABLE: "border-teal-500/40 bg-teal-500/10",
+  BEST_TIMEFRAME: "border-indigo-500/40 bg-indigo-500/10",
+  WORST_TIMEFRAME: "border-rose-500/40 bg-rose-500/10",
 };
 
 function RankingCards({ cards }: { cards: BacktestRankingCard[] }) {
@@ -659,6 +741,18 @@ function AggregateTable({ rows }: { rows: BacktestStrategyAggregate[] }) {
             <th className="px-2 py-1.5 text-right font-medium">Net P&L</th>
             <th className="px-2 py-1.5 text-right font-medium">PF</th>
             <th className="px-2 py-1.5 text-right font-medium">Avg R</th>
+            <th
+              className="px-2 py-1.5 text-right font-medium"
+              title="Consistency = mean per-trade net ÷ stdev (higher = steadier). n/a with <2 trades."
+            >
+              Cons.
+            </th>
+            <th
+              className="px-2 py-1.5 text-right font-medium"
+              title="Data quality = executed ÷ (executed + data-blocked) opportunities. n/a with no opportunities."
+            >
+              Data
+            </th>
             <th className="px-2 py-1.5 text-right font-medium">Max DD</th>
           </tr>
         </thead>
@@ -699,6 +793,20 @@ function AggregateTable({ rows }: { rows: BacktestStrategyAggregate[] }) {
               </td>
               <td className="px-2 py-1.5 text-right tabular-nums">{num(r.profitFactor)}</td>
               <td className="px-2 py-1.5 text-right tabular-nums">{num(r.avgR)}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">
+                {r.consistency == null ? (
+                  <span className="text-muted-foreground" title="Need ≥2 trades">n/a</span>
+                ) : (
+                  num(r.consistency)
+                )}
+              </td>
+              <td className="px-2 py-1.5 text-right tabular-nums">
+                {r.dataQuality == null ? (
+                  <span className="text-muted-foreground" title="No opportunities recorded">n/a</span>
+                ) : (
+                  pct(r.dataQuality)
+                )}
+              </td>
               <td className="px-2 py-1.5 text-right tabular-nums text-rose-400">{money(r.maxDrawdown)}</td>
             </tr>
           ))}
@@ -791,8 +899,9 @@ function ComparisonDashboard({ comparison }: { comparison: BacktestStrategyCompa
         <CardContent className="space-y-3">
           <RankingCards cards={comparison.ranking} />
           <p className="text-[10px] text-muted-foreground">
-            Ranking is multi-factor (composite of win-rate, profit factor, expectancy/avg-R, and
-            drawdown) — never net-profit alone. Strategies with too few trades are not ranked.
+            Ranking is multi-factor (composite of net P&amp;L, profit factor, win-rate,
+            expectancy/avg-R, drawdown, consistency, and data quality) — never net-profit alone.
+            Strategies with too few trades are not ranked.
           </p>
         </CardContent>
       </Card>
@@ -991,6 +1100,7 @@ export default function BacktestLab() {
   const [capital, setCapital] = useState(1_000_000);
   const [riskPct, setRiskPct] = useState(1);
   const [selectedStrategies, setSelectedStrategies] = useState<Set<string>>(new Set());
+  const [strategyParams, setStrategyParams] = useState<Record<string, Record<string, number>>>({});
   const [filters, setFilters] = useState<Required<BacktestFilterConfig>>(DEFAULT_FILTERS);
   const [maxTradesPerDay, setMaxTradesPerDay] = useState(3);
   const [includeCharges, setIncludeCharges] = useState(true);
@@ -1070,6 +1180,15 @@ export default function BacktestLab() {
                 maxTradesPerDay,
                 includeCharges,
                 includeSlippage,
+                ...(() => {
+                  // Only send overrides for selected strategies that actually carry params.
+                  const sp: Record<string, Record<string, number>> = {};
+                  for (const id of selectedStrategies) {
+                    const ov = strategyParams[id];
+                    if (ov && Object.keys(ov).length > 0) sp[id] = ov;
+                  }
+                  return Object.keys(sp).length > 0 ? { strategyParams: sp } : {};
+                })(),
               }
             : {}),
         },
@@ -1177,6 +1296,12 @@ export default function BacktestLab() {
                 error={strategiesQ.isError}
               />
               <FilterToggles filters={filters} onChange={setFilters} />
+              <AdvancedParamsPanel
+                strategies={strategies}
+                selected={selectedStrategies}
+                overrides={strategyParams}
+                onChange={setStrategyParams}
+              />
               <div className="flex flex-wrap items-end gap-3">
                 <label className="text-xs">
                   <span className="mb-1 block text-muted-foreground">Max trades / day</span>

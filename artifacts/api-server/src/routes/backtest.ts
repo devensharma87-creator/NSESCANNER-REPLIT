@@ -384,6 +384,7 @@ async function runStrategyResearch(params: {
   maxTradesPerDay: number;
   includeCharges: boolean;
   includeSlippage: boolean;
+  paramOverride?: Record<string, Record<string, number>> | null;
 }): Promise<{
   trades: BacktestTradeOut[];
   blocked: BacktestBlockedOut[];
@@ -436,6 +437,7 @@ async function runStrategyResearch(params: {
           maxTradesPerDay: params.maxTradesPerDay,
           includeCharges: params.includeCharges,
           includeSlippage: params.includeSlippage,
+          paramOverride: params.paramOverride?.[id] ?? null,
         });
         for (const k of result.autoDisabledFilters) autoDisabled.add(k);
         trades.push(...result.trades);
@@ -568,6 +570,7 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
         maxTradesPerDay,
         includeCharges,
         includeSlippage,
+        paramOverride: body.strategyParams ?? null,
       });
       trades = r.trades;
       blocked = r.blocked;
@@ -595,6 +598,7 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
         maxTradesPerDay,
         includeCharges,
         includeSlippage,
+        paramOverride: body.strategyParams ?? null,
       });
       trades = [...officialTrades, ...strat.trades].sort(
         (a, b) => (a.entryAt ? Date.parse(a.entryAt) : 0) - (b.entryAt ? Date.parse(b.entryAt) : 0),

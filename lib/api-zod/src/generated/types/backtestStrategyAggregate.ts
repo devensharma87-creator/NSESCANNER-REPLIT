@@ -18,6 +18,10 @@ export interface BacktestStrategyAggregate {
   profitFactor?: number | null;
   maxDrawdown: number;
   avgR?: number | null;
+  /** Mean per-trade net ÷ stdev of per-trade net (higher = steadier). Null when fewer than 2 trades. */
+  consistency?: number | null;
+  /** Executed ÷ (executed + data-blocked) opportunities — how much edge survived missing-data bars. Null when no opportunities. */
+  dataQuality?: number | null;
   compositeScore?: number | null;
   eligible: boolean;
 }

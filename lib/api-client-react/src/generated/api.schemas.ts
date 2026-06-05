@@ -3788,6 +3788,13 @@ export const BacktestRunRequestBacktestMode = {
 } as const;
 
 /**
+ * Per-strategy advanced-param overrides, keyed by strategy id (e.g. { ORB_BREAKOUT: { target2R: 3 } }). Only numeric keys present in the strategy's defaultParams are honored; everything else is ignored.
+ */
+export type BacktestRunRequestStrategyParams = {
+  [key: string]: { [key: string]: number };
+} | null;
+
+/**
  * Confirmation-filter toggles. Option/spread/volume filters are auto-disabled in the backtest (no historical option data) and reported as such — never silently applied.
  */
 export interface BacktestFilterConfig {
@@ -3833,6 +3840,8 @@ export interface BacktestRunRequest {
   includeCharges?: boolean | null;
   /** Subtract modeled slippage from net P&L (estimate). */
   includeSlippage?: boolean | null;
+  /** Per-strategy advanced-param overrides, keyed by strategy id (e.g. { ORB_BREAKOUT: { target2R: 3 } }). Only numeric keys present in the strategy's defaultParams are honored; everything else is ignored. */
+  strategyParams?: BacktestRunRequestStrategyParams;
 }
 
 export interface BacktestEquityPoint {
@@ -3963,6 +3972,10 @@ export interface BacktestStrategyAggregate {
   profitFactor?: number | null;
   maxDrawdown: number;
   avgR?: number | null;
+  /** Mean per-trade net ÷ stdev of per-trade net (higher = steadier). Null when fewer than 2 trades. */
+  consistency?: number | null;
+  /** Executed ÷ (executed + data-blocked) opportunities — how much edge survived missing-data bars. Null when no opportunities. */
+  dataQuality?: number | null;
   compositeScore?: number | null;
   eligible: boolean;
 }

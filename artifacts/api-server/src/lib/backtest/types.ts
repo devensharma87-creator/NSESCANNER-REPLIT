@@ -200,6 +200,10 @@ export interface BacktestStrategyAggregateOut {
   profitFactor: number | null;
   maxDrawdown: number;
   avgR: number | null;
+  /** Stability = mean per-trade net ÷ stdev of per-trade net (higher = steadier); null when <2 trades. */
+  consistency: number | null;
+  /** Executed ÷ (executed + data-blocked) — how much of the strategy's edge survived data gaps; null when no opportunities. */
+  dataQuality: number | null;
   /** Multi-factor composite score (0–100), null when not enough trades to rank. */
   compositeScore: number | null;
   eligible: boolean;

@@ -163,10 +163,41 @@ export interface StrategyContext {
   cprLow: (number | null)[];
 }
 
+/** Resolved numeric strategy parameters (defaults merged with any user override). */
+export type StrategyParams = Record<string, number>;
+
 export interface StrategyModule {
   meta: import("../types").BacktestStrategyMetaOut;
-  /** Pure, causal: may read ctx series only at index ≤ i. Returns null = no setup. */
-  evaluate(ctx: StrategyContext, i: number): StrategyEntry | null;
+  /**
+   * Pure, causal: may read ctx series only at index ≤ i. Returns null = no setup.
+   * `params` are the resolved numeric params (defaults ∪ honored overrides).
+   */
+  evaluate(ctx: StrategyContext, i: number, params: StrategyParams): StrategyEntry | null;
+}
+
+/**
+ * Merge a user-supplied param override onto a strategy's defaults. ONLY keys that
+ * already exist in `defaults` are honored, and only finite numbers — anything else
+ * is ignored (defense-in-depth: a stray/garbage key can never change behaviour).
+ */
+export function resolveParams(
+  defaults: Record<string, number>,
+  override?: Record<string, unknown> | null,
+): StrategyParams {
+  const out: StrategyParams = { ...defaults };
+  if (override) {
+    for (const k of Object.keys(defaults)) {
+      const v = override[k];
+      if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+    }
+  }
+  return out;
+}
+
+/** Read a numeric param with a hard fallback (never returns NaN/Infinity). */
+export function paramNum(p: StrategyParams, key: string, fallback: number): number {
+  const v = p[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
 
 // ---- small pure candle helpers shared by the strategy modules ----------------

@@ -9,6 +9,7 @@ import type { BacktestFilterConfig } from "./backtestFilterConfig";
 import type { BacktestRunRequestBacktestMode } from "./backtestRunRequestBacktestMode";
 import type { BacktestRunRequestInstrument } from "./backtestRunRequestInstrument";
 import type { BacktestRunRequestMode } from "./backtestRunRequestMode";
+import type { BacktestRunRequestStrategyParams } from "./backtestRunRequestStrategyParams";
 
 /**
  * Parameters for an F&O backtest. REAL_REPLAY reads the engine's actual captured history; DIRECTIONAL replays the reconstructable directional layer on historical spot candles with a clearly-labeled delta-proxy option P&L.
@@ -38,4 +39,6 @@ export interface BacktestRunRequest {
   includeCharges?: boolean | null;
   /** Subtract modeled slippage from net P&L (estimate). */
   includeSlippage?: boolean | null;
+  /** Per-strategy advanced-param overrides, keyed by strategy id (e.g. { ORB_BREAKOUT: { target2R: 3 } }). Only numeric keys present in the strategy's defaultParams are honored; everything else is ignored. */
+  strategyParams?: BacktestRunRequestStrategyParams;
 }

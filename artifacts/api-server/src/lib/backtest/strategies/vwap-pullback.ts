@@ -3,9 +3,11 @@ import {
   clamp,
   isBearRejection,
   isBullRejection,
+  paramNum,
   type StrategyContext,
   type StrategyEntry,
   type StrategyModule,
+  type StrategyParams,
 } from "./base";
 
 const OPTION_PREMIUM_NOTE =
@@ -15,8 +17,10 @@ function nearLevel(low: number, high: number, level: number, tol: number): boole
   return level >= low - tol && level <= high + tol;
 }
 
-function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
+function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyEntry | null {
   if (i < 2) return null;
+  const t1R = paramNum(p, "target1R", 1);
+  const t2R = paramNum(p, "target2R", 2);
   const a = ctx.atr14[i];
   const sm = ctx.sessionMean[i];
   const e20 = ctx.ema20[i];
@@ -45,8 +49,8 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
         optionType: "CALL",
         entrySpot: c,
         stop,
-        target1: c + risk,
-        target2: c + 2 * risk,
+        target1: c + t1R * risk,
+        target2: c + t2R * risk,
         confidence: conf,
         entryReason: "CE: uptrend pullback into VWAP/EMA20, bullish rejection, break of rejection high.",
         passedConditions: [
@@ -76,8 +80,8 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
         optionType: "PUT",
         entrySpot: c,
         stop,
-        target1: c - risk,
-        target2: c - 2 * risk,
+        target1: c - t1R * risk,
+        target2: c - t2R * risk,
         confidence: conf,
         entryReason: "PE: downtrend pullback into VWAP/EMA20, bearish rejection, break of rejection low.",
         passedConditions: [

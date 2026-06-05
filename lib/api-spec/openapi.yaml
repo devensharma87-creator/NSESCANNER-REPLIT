@@ -4878,6 +4878,13 @@ components:
         maxTradesPerDay: { type: integer, nullable: true, description: "Cap on strategy entries per index per day. Defaults to a sane internal value." }
         includeCharges: { type: boolean, nullable: true, description: "Subtract modeled round-trip brokerage/taxes from net P&L (estimate)." }
         includeSlippage: { type: boolean, nullable: true, description: "Subtract modeled slippage from net P&L (estimate)." }
+        strategyParams:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: object
+            additionalProperties: { type: number }
+          description: "Per-strategy advanced-param overrides, keyed by strategy id (e.g. { ORB_BREAKOUT: { target2R: 3 } }). Only numeric keys present in the strategy's defaultParams are honored; everything else is ignored."
 
     BacktestEquityPoint:
       type: object
@@ -5216,6 +5223,8 @@ components:
         profitFactor: { type: number, nullable: true }
         maxDrawdown: { type: number }
         avgR: { type: number, nullable: true }
+        consistency: { type: number, nullable: true, description: "Mean per-trade net ÷ stdev of per-trade net (higher = steadier). Null when fewer than 2 trades." }
+        dataQuality: { type: number, nullable: true, description: "Executed ÷ (executed + data-blocked) opportunities — how much edge survived missing-data bars. Null when no opportunities." }
         compositeScore: { type: number, nullable: true }
         eligible: { type: boolean }
 

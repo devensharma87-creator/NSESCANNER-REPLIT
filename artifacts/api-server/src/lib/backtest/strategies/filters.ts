@@ -21,6 +21,14 @@ export interface FilterRejection {
   key: FilterKey;
   failedCondition: string;
   blockedRule: string;
+  /**
+   * FILTER = the confirmation was evaluated and the setup failed it.
+   * DATA   = the confirmation was enabled but could NOT be evaluated because the
+   *          required indicator series was unavailable at this bar (insufficient
+   *          history). We block instead of silently passing — an enabled filter we
+   *          cannot evaluate must never count as a confirmed trade.
+   */
+  category: "FILTER" | "DATA";
 }
 
 export interface FilterResult {
@@ -82,8 +90,16 @@ export function applyFilters(
             ? "Price not above session VWAP at entry"
             : "Price not below session VWAP at entry",
           blockedRule: "VWAP confirmation filter",
+          category: "FILTER",
         });
       }
+    } else {
+      rejections.push({
+        key: "vwapFilter",
+        failedCondition: "Session VWAP unavailable at this bar (insufficient history)",
+        blockedRule: "VWAP filter — data unavailable",
+        category: "DATA",
+      });
     }
   }
 
@@ -97,19 +113,37 @@ export function applyFilters(
           key: "emaTrendFilter",
           failedCondition: isBull ? "EMA20 not above EMA50" : "EMA20 not below EMA50",
           blockedRule: "EMA trend confirmation filter",
+          category: "FILTER",
         });
       }
+    } else {
+      rejections.push({
+        key: "emaTrendFilter",
+        failedCondition: "EMA20/EMA50 unavailable at this bar (insufficient history)",
+        blockedRule: "EMA trend filter — data unavailable",
+        category: "DATA",
+      });
     }
   }
 
   // Avoid chop zone --------------------------------------------------------
   if (config.avoidChopZone && !ignoredSet.has("avoidChopZone")) {
     appliedFilters.push(LABEL.avoidChopZone);
-    if (ax != null && ax < CHOP_ADX_FLOOR) {
+    if (ax != null) {
+      if (ax < CHOP_ADX_FLOOR) {
+        rejections.push({
+          key: "avoidChopZone",
+          failedCondition: `ADX ${ax.toFixed(1)} below chop floor ${CHOP_ADX_FLOOR}`,
+          blockedRule: "Avoid chop-zone filter",
+          category: "FILTER",
+        });
+      }
+    } else {
       rejections.push({
         key: "avoidChopZone",
-        failedCondition: `ADX ${ax.toFixed(1)} below chop floor ${CHOP_ADX_FLOOR}`,
-        blockedRule: "Avoid chop-zone filter",
+        failedCondition: "ADX unavailable at this bar (insufficient history)",
+        blockedRule: "Avoid chop-zone filter — data unavailable",
+        category: "DATA",
       });
     }
   }
@@ -122,6 +156,7 @@ export function applyFilters(
         key: "avoidLast15Minutes",
         failedCondition: "Entry inside the final 15 minutes of the session",
         blockedRule: "Avoid last-15-minutes filter",
+        category: "FILTER",
       });
     }
   }
@@ -140,6 +175,7 @@ export function applyFilters(
         key: "minimumRiskReward",
         failedCondition: `Reward:risk ${rr.toFixed(2)} below minimum ${config.minimumRiskReward}`,
         blockedRule: "Minimum risk:reward filter",
+        category: "FILTER",
       });
     }
   }

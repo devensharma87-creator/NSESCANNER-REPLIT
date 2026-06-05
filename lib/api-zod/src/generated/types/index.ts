@@ -24,6 +24,7 @@ export * from "./backtestRunRequest";
 export * from "./backtestRunRequestBacktestMode";
 export * from "./backtestRunRequestInstrument";
 export * from "./backtestRunRequestMode";
+export * from "./backtestRunRequestStrategyParams";
 export * from "./backtestRunStatus";
 export * from "./backtestSnapshotCoverage";
 export * from "./backtestStrategiesResponse";

@@ -6809,6 +6809,12 @@ export const CreateBacktestRunBody = zod
       .boolean()
       .nullish()
       .describe("Subtract modeled slippage from net P&L (estimate)."),
+    strategyParams: zod
+      .record(zod.string(), zod.record(zod.string(), zod.number()))
+      .nullish()
+      .describe(
+        "Per-strategy advanced-param overrides, keyed by strategy id (e.g. { ORB_BREAKOUT: { target2R: 3 } }). Only numeric keys present in the strategy's defaultParams are honored; everything else is ignored.",
+      ),
   })
   .describe(
     "Parameters for an F&O backtest. REAL_REPLAY reads the engine's actual captured history; DIRECTIONAL replays the reconstructable directional layer on historical spot candles with a clearly-labeled delta-proxy option P&L.",
@@ -6975,6 +6981,18 @@ export const GetBacktestRunResponse = zod.object({
             profitFactor: zod.number().nullish(),
             maxDrawdown: zod.number(),
             avgR: zod.number().nullish(),
+            consistency: zod
+              .number()
+              .nullish()
+              .describe(
+                "Mean per-trade net ÷ stdev of per-trade net (higher = steadier). Null when fewer than 2 trades.",
+              ),
+            dataQuality: zod
+              .number()
+              .nullish()
+              .describe(
+                "Executed ÷ (executed + data-blocked) opportunities — how much edge survived missing-data bars. Null when no opportunities.",
+              ),
             compositeScore: zod.number().nullish(),
             eligible: zod.boolean(),
           })

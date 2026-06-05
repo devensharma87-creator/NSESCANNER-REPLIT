@@ -2,10 +2,12 @@
 import {
   clamp,
   hasRealBody,
+  paramNum,
   range,
   type StrategyContext,
   type StrategyEntry,
   type StrategyModule,
+  type StrategyParams,
 } from "./base";
 
 const VOLUME_NOTE =
@@ -27,8 +29,10 @@ function isInside(ctx: StrategyContext, j: number): boolean {
   return ctx.highs[j]! < ctx.highs[j - 1]! && ctx.lows[j]! > ctx.lows[j - 1]!;
 }
 
-function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
+function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyEntry | null {
   if (i < 7) return null;
+  const t1R = paramNum(p, "target1R", 1);
+  const t2R = paramNum(p, "target2R", 2);
   const a = ctx.atr14[i];
   const sm = ctx.sessionMean[i];
   if (a == null || a <= 0 || !Number.isFinite(sm)) return null;
@@ -58,8 +62,8 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
       optionType: "CALL",
       entrySpot: c,
       stop,
-      target1: c + risk,
-      target2: c + 2 * risk,
+      target1: c + t1R * risk,
+      target2: c + t2R * risk,
       confidence: conf,
       entryReason: "CE: break above a volatility-compression bar with range expansion.",
       passedConditions: [
@@ -84,8 +88,8 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
       optionType: "PUT",
       entrySpot: c,
       stop,
-      target1: c - risk,
-      target2: c - 2 * risk,
+      target1: c - t1R * risk,
+      target2: c - t2R * risk,
       confidence: conf,
       entryReason: "PE: break below a volatility-compression bar with range expansion.",
       passedConditions: [

@@ -2,17 +2,21 @@
 import {
   clamp,
   lowerWick,
+  paramNum,
   upperWick,
   type StrategyContext,
   type StrategyEntry,
   type StrategyModule,
+  type StrategyParams,
 } from "./base";
 
 const OPTION_PREMIUM_NOTE =
   "Option-premium failure unavailable (no historical option data) — evaluated on spot only.";
 
-function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
+function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyEntry | null {
   if (i < 2) return null;
+  const t1R = paramNum(p, "target1R", 1);
+  const t2R = paramNum(p, "target2R", 2);
   const a = ctx.atr14[i];
   const sm = ctx.sessionMean[i];
   const e9 = ctx.ema9[i];
@@ -41,8 +45,8 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
         optionType: "PUT",
         entrySpot: c,
         stop,
-        target1: c - risk,
-        target2: c - 2 * risk,
+        target1: c - t1R * risk,
+        target2: c - t2R * risk,
         confidence: conf,
         entryReason: "PE: upside breakout swept the level then reclaimed back below with wick rejection.",
         passedConditions: [
@@ -71,8 +75,8 @@ function evaluate(ctx: StrategyContext, i: number): StrategyEntry | null {
         optionType: "CALL",
         entrySpot: c,
         stop,
-        target1: c + risk,
-        target2: c + 2 * risk,
+        target1: c + t1R * risk,
+        target2: c + t2R * risk,
         confidence: conf,
         entryReason: "CE: downside breakdown swept the level then reclaimed back above with wick rejection.",
         passedConditions: [

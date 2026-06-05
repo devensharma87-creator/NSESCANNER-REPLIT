@@ -17,6 +17,7 @@ import {
   ATM_DELTA,
   FORCE_EXIT_MIN,
   MARKET_OPEN_MIN,
+  resolveParams,
   WARMUP_BARS,
   type FilterConfig,
   type FilterKey,
@@ -31,6 +32,8 @@ export interface RunOptions {
   maxTradesPerDay: number;
   includeCharges: boolean;
   includeSlippage: boolean;
+  /** Per-strategy advanced-param override (only keys in defaultParams are honored). */
+  paramOverride?: Record<string, unknown> | null;
 }
 
 export interface StrategyRunResult {
@@ -76,6 +79,9 @@ export function runStrategy(
   const appliedSet = new Set<string>();
   const lotSize = LOT_SIZES[ctx.indexSymbol] ?? 1;
   const ignored = module.meta.ignoredFilters as FilterKey[];
+  // Resolve advanced params once (defaults ∪ honored overrides). Threaded into
+  // evaluate so the control actually affects results — never a no-op dial.
+  const params = resolveParams(module.meta.defaultParams, opts.paramOverride);
 
   const n = ctx.candles.length;
   let open: OpenPosition | null = null;
@@ -139,6 +145,41 @@ export function runStrategy(
       historicalSetupMatch: null,
       passedConditions: pos.entry.passedConditions,
       failedConditions: pos.entry.failedConditions,
+    });
+  };
+
+  const recordBlock = (
+    dedupeKey: string,
+    reasonCode: string,
+    failedCondition: string,
+    blockedRule: string,
+    category: "FILTER" | "DATA" | "RISK",
+    direction: "LONG" | "SHORT",
+    confidence: number,
+  ): void => {
+    const existing = blockedByRule.get(dedupeKey);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+    blockedByRule.set(dedupeKey, {
+      id: randomUUID(),
+      indexSymbol: ctx.indexSymbol,
+      setupKey: module.meta.id,
+      direction,
+      decision: "BLOCKED",
+      reasonCode,
+      confidence,
+      confluenceScore: null,
+      regime: null,
+      count: 1,
+      note: failedCondition,
+      strategyId: module.meta.id,
+      strategyName: module.meta.name,
+      signalSource: "STRATEGY",
+      failedCondition,
+      blockedRule,
+      category,
     });
   };
 
@@ -209,41 +250,39 @@ export function runStrategy(
       i >= WARMUP_BARS &&
       minute >= MARKET_OPEN_MIN &&
       !forceExit &&
-      !lastBar &&
-      tradesToday < opts.maxTradesPerDay
+      !lastBar
     ) {
-      const entry = module.evaluate(ctx, i);
+      const entry = module.evaluate(ctx, i, params);
       if (entry) {
+        const dir = entry.direction === "BULL" ? "LONG" : "SHORT";
         const fr = applyFilters(ctx, i, entry, filters, ignored);
         for (const k of fr.autoDisabled) autoDisabled.add(k);
         for (const f of fr.appliedFilters) appliedSet.add(f);
         if (!fr.ok) {
+          // A confirmation either failed (FILTER) or could not be evaluated
+          // because its data was unavailable (DATA). Attribute precisely.
           const rej = fr.rejections[0]!;
-          const key = rej.blockedRule;
-          const existing = blockedByRule.get(key);
-          if (existing) {
-            existing.count += 1;
-          } else {
-            blockedByRule.set(key, {
-              id: randomUUID(),
-              indexSymbol: ctx.indexSymbol,
-              setupKey: module.meta.id,
-              direction: entry.direction === "BULL" ? "LONG" : "SHORT",
-              decision: "BLOCKED",
-              reasonCode: rej.key,
-              confidence: entry.confidence,
-              confluenceScore: null,
-              regime: null,
-              count: 1,
-              note: rej.failedCondition,
-              strategyId: module.meta.id,
-              strategyName: module.meta.name,
-              signalSource: "STRATEGY",
-              failedCondition: rej.failedCondition,
-              blockedRule: rej.blockedRule,
-              category: "FILTER",
-            });
-          }
+          recordBlock(
+            rej.blockedRule,
+            rej.key,
+            rej.failedCondition,
+            rej.blockedRule,
+            rej.category,
+            dir,
+            entry.confidence,
+          );
+        } else if (tradesToday >= opts.maxTradesPerDay) {
+          // The setup AND its confirmations passed — this is a risk-budget block,
+          // not a strategy/filter rejection. Tracked separately as RISK.
+          recordBlock(
+            "RISK:MAX_TRADES_PER_DAY",
+            "MAX_TRADES_PER_DAY",
+            `Daily trade cap reached (${opts.maxTradesPerDay}/day)`,
+            "Max trades per day",
+            "RISK",
+            dir,
+            entry.confidence,
+          );
         } else {
           const lots = 1;
           const qty = lots * lotSize;
