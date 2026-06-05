@@ -50,6 +50,7 @@ import {
   pctOrNa,
   rateOrNa,
   formatExpectedMove,
+  formatEnvLabel,
   summarizeReadiness,
   type Severity,
 } from "@/lib/fno/diagnostics-format";
@@ -165,6 +166,7 @@ export default function FnODiagnosticsPage() {
   }
 
   const perIndex: PerIndexHealth[] = health.data?.perIndex ?? [];
+  const envInfo = health.data ? formatEnvLabel(health.data.environment) : null;
 
   // ── A. Data Health roll-up severity ──
   const dataHealthSeverity: Severity = useMemo(() => {
@@ -205,8 +207,14 @@ export default function FnODiagnosticsPage() {
           </p>
           {health.data && (
             <p className="text-xs text-muted-foreground mt-1">
-              Environment: <span className="font-mono">{health.data.environment}</span> · Generated{" "}
-              {new Date(health.data.generatedAt).toLocaleTimeString()}
+              Environment:{" "}
+              <span className="font-mono" title={envInfo?.reason ?? undefined}>
+                {envInfo?.label ?? "n/a"}
+              </span>
+              {envInfo?.autoTrading != null && (
+                <> · Auto-trading {envInfo.autoTrading ? "on" : "off"}</>
+              )}{" "}
+              · Generated {new Date(health.data.generatedAt).toLocaleTimeString()}
             </p>
           )}
         </div>

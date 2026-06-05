@@ -54,9 +54,18 @@ export interface PerIndexHealth {
   missingFields: string[];
   expectedMove: ExpectedMove;
 }
+/**
+ * Backend `getEnvironmentLabel()` returns this structured object (not a string).
+ * Rendered via `formatEnvLabel` — never as a raw React child. `unknown` is
+ * tolerated defensively so a shape change can never crash the page again.
+ */
+export type EnvironmentLabel =
+  | string
+  | ({ env: "production" | "development"; autoTradingEnabled: boolean; reason: string } & Record<string, unknown>);
+
 export interface DataHealthResponse {
   generatedAt: string;
-  environment: string;
+  environment: EnvironmentLabel;
   universe: string[];
   kite: {
     session: { present: boolean } & Record<string, unknown>;
@@ -74,7 +83,7 @@ export interface KeyCount {
 export interface TodayResponse {
   generatedAt: string;
   signalDate: string;
-  environment: string;
+  environment: EnvironmentLabel;
   decisions: KeyCount[];
   funnel: Array<{ stage: string; count: number }>;
   conversion: { openRate: number | null; decisiveWinRate: number | null } & Record<string, unknown>;

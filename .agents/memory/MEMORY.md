@@ -5,3 +5,4 @@
 - [Drizzle wraps pg errors under .cause](drizzle-pg-error-cause.md) — SQLSTATE codes (e.g. 23505) live on err.cause not err.code through drizzle; SQLSTATE classifiers must walk the cause chain.
 - [F&O cost model scope](fno-cost-model-scope.md) — fnoCostModel is shadow/reporting-only; realized P&L/DD/heat are GROSS, so "make costs consistent" is a trading-logic change needing sign-off. Current STT 0.15%/0.05% eff 2026-04-01.
 - [api-server vitest pool / sandbox bg jobs](api-server-vitest-pool.md) — run the api-server suite with `--pool=threads` (~33s); default forks pool exceeds 120s with buffered/lost output; detached bg jobs die when the bash call returns.
+- [getEnvironmentLabel returns an object (React #31 trap)](fno-env-label-object-react31.md) — `/api/fno/*` `environment` field is `{env,autoTradingEnabled,reason}`, not a string; never render `/api/fno/*` fields raw in JSX.

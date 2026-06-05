@@ -149,6 +149,52 @@ export function formatExpectedMove(em: ExpectedMoveLike | null | undefined): {
   };
 }
 
+/**
+ * Environment label. The backend `getEnvironmentLabel()` returns a structured
+ * object `{ env, autoTradingEnabled, reason }`; older/other surfaces may pass a
+ * plain string. This formatter renders honestly as a SHORT string and NEVER
+ * returns the raw object (rendering an object as a React child throws React #31).
+ */
+export function formatEnvLabel(env: unknown): {
+  label: string;
+  reason: string | null;
+  autoTrading: boolean | null;
+} {
+  if (env == null) return { label: "n/a", reason: null, autoTrading: null };
+  if (typeof env === "string") {
+    return { label: env.length > 0 ? env : "n/a", reason: null, autoTrading: null };
+  }
+  if (typeof env === "object") {
+    const o = env as { env?: unknown; autoTradingEnabled?: unknown; reason?: unknown };
+    return {
+      label: typeof o.env === "string" && o.env.length > 0 ? o.env : "n/a",
+      reason: typeof o.reason === "string" && o.reason.length > 0 ? o.reason : null,
+      autoTrading: typeof o.autoTradingEnabled === "boolean" ? o.autoTradingEnabled : null,
+    };
+  }
+  return { label: String(env), reason: null, autoTrading: null };
+}
+
+/**
+ * Defensive last-resort renderer: guarantees a React-safe string for any value.
+ * Primitives render directly; objects/arrays collapse to compact JSON (debug
+ * use only). Use this anywhere a loosely-typed value might otherwise reach JSX
+ * as a raw object/array and trigger React #31.
+ */
+export function formatDiagnosticValue(value: unknown): string {
+  if (value == null) return "n/a";
+  const t = typeof value;
+  if (t === "string") return (value as string).length > 0 ? (value as string) : "n/a";
+  if (t === "number") return Number.isFinite(value as number) ? String(value) : "n/a";
+  if (t === "boolean") return value ? "true" : "false";
+  if (t === "bigint") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 /** One-line human summary of why a signal is blocked (or that it is allowed). */
 export function summarizeReadiness(input: {
   signalAllowed: boolean;

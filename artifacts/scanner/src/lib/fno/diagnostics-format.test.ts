@@ -10,6 +10,8 @@ import {
   pctOrNa,
   rateOrNa,
   formatExpectedMove,
+  formatEnvLabel,
+  formatDiagnosticValue,
   summarizeReadiness,
 } from "./diagnostics-format";
 
@@ -105,6 +107,57 @@ describe("formatExpectedMove", () => {
     const r = formatExpectedMove(null);
     expect(r.available).toBe(false);
     expect(r.reason).toBe("UNAVAILABLE");
+  });
+});
+
+describe("formatEnvLabel (React #31 guard)", () => {
+  it("renders the structured object the backend actually returns as a short string, never the raw object", () => {
+    const r = formatEnvLabel({
+      env: "production",
+      autoTradingEnabled: true,
+      reason: "PAPER_TRADING_ENABLED override is set to a truthy value",
+    });
+    expect(r.label).toBe("production");
+    expect(r.autoTrading).toBe(true);
+    expect(r.reason).toMatch(/truthy/);
+    // The returned label must be a primitive string (safe to render in JSX).
+    expect(typeof r.label).toBe("string");
+  });
+  it("accepts a plain string label too", () => {
+    expect(formatEnvLabel("development")).toEqual({
+      label: "development",
+      reason: null,
+      autoTrading: null,
+    });
+  });
+  it("is honest about missing/empty/unknown shapes (no fabricated env)", () => {
+    expect(formatEnvLabel(null).label).toBe("n/a");
+    expect(formatEnvLabel(undefined).label).toBe("n/a");
+    expect(formatEnvLabel("").label).toBe("n/a");
+    expect(formatEnvLabel({}).label).toBe("n/a");
+    expect(formatEnvLabel({ env: 123 }).label).toBe("n/a");
+    expect(formatEnvLabel({ autoTradingEnabled: "yes" }).autoTrading).toBeNull();
+  });
+});
+
+describe("formatDiagnosticValue (defensive React-safe renderer)", () => {
+  it("renders primitives directly", () => {
+    expect(formatDiagnosticValue("hello")).toBe("hello");
+    expect(formatDiagnosticValue(42)).toBe("42");
+    expect(formatDiagnosticValue(true)).toBe("true");
+    expect(formatDiagnosticValue(false)).toBe("false");
+  });
+  it("is honest about null/empty/NaN", () => {
+    expect(formatDiagnosticValue(null)).toBe("n/a");
+    expect(formatDiagnosticValue(undefined)).toBe("n/a");
+    expect(formatDiagnosticValue("")).toBe("n/a");
+    expect(formatDiagnosticValue(Number.NaN)).toBe("n/a");
+  });
+  it("never returns a raw object/array — collapses to a string (React #31 guard)", () => {
+    expect(typeof formatDiagnosticValue({ a: 1 })).toBe("string");
+    expect(formatDiagnosticValue({ a: 1 })).toBe('{"a":1}');
+    expect(typeof formatDiagnosticValue([1, 2])).toBe("string");
+    expect(formatDiagnosticValue([1, 2])).toBe("[1,2]");
   });
 });
 
