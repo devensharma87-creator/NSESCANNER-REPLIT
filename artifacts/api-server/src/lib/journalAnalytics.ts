@@ -7,7 +7,8 @@ export interface SetupStats {
   trades: number;
   wins: number;
   losses: number;
-  winRate: number;
+  /** Win % over trades; null when no trades (honest "—" instead of a fake 0%). */
+  winRate: number | null;
   totalPnl: number;
   avgPnl: number;
 }
@@ -22,7 +23,8 @@ export interface HourBucket {
   hour: number;
   trades: number;
   wins: number;
-  winRate: number;
+  /** Win % over trades; null when no trades. */
+  winRate: number | null;
   totalPnl: number;
 }
 
@@ -32,7 +34,7 @@ export interface JournalAnalyticsResult {
   setupStats: SetupStats[];
   exitReasonStats: ExitReasonStats[];
   hourBuckets: HourBucket[];
-  tagStats: { tag: string; count: number; winRate: number; avgPnl: number }[];
+  tagStats: { tag: string; count: number; winRate: number | null; avgPnl: number }[];
 }
 
 export async function getJournalAnalytics(segment: "FNO" | "EQUITY"): Promise<JournalAnalyticsResult> {
@@ -70,7 +72,7 @@ async function getEqJournalAnalytics(): Promise<JournalAnalyticsResult> {
   return buildAnalytics("EQUITY", rows);
 }
 
-function buildAnalytics(
+export function buildAnalytics(
   segment: "FNO" | "EQUITY",
   rows: { setupKey: string; exitReason: string | null; realizedPnl: string | null; openedAt: Date; tags: string[] | null }[],
 ): JournalAnalyticsResult {
@@ -119,7 +121,7 @@ function buildAnalytics(
       trades: s.trades,
       wins: s.wins,
       losses: s.losses,
-      winRate: s.trades > 0 ? +(s.wins / s.trades * 100).toFixed(1) : 0,
+      winRate: s.trades > 0 ? +(s.wins / s.trades * 100).toFixed(1) : null,
       totalPnl: +s.totalPnl.toFixed(2),
       avgPnl: s.trades > 0 ? +(s.totalPnl / s.trades).toFixed(2) : 0,
     }))
@@ -138,7 +140,7 @@ function buildAnalytics(
       hour,
       trades: hb.trades,
       wins: hb.wins,
-      winRate: hb.trades > 0 ? +(hb.wins / hb.trades * 100).toFixed(1) : 0,
+      winRate: hb.trades > 0 ? +(hb.wins / hb.trades * 100).toFixed(1) : null,
       totalPnl: +hb.totalPnl.toFixed(2),
     }))
     .sort((a, b) => a.hour - b.hour);
@@ -147,7 +149,7 @@ function buildAnalytics(
     .map(([tag, tb]) => ({
       tag,
       count: tb.count,
-      winRate: tb.count > 0 ? +(tb.wins / tb.count * 100).toFixed(1) : 0,
+      winRate: tb.count > 0 ? +(tb.wins / tb.count * 100).toFixed(1) : null,
       avgPnl: tb.count > 0 ? +(tb.totalPnl / tb.count).toFixed(2) : 0,
     }))
     .sort((a, b) => b.count - a.count);

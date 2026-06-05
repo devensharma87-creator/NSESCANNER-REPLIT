@@ -27,8 +27,23 @@ import {
   logUpstreamReasoningBatch,
   normaliseFilters,
   parseSuppressionReason,
+  commitUpstreamDedupeState,
+  reasoningDedupeIdentity,
+  reasoningStateKey,
+  selectUpstreamRowsToWrite,
   type FnoReasoningPayload,
 } from "./fnoSignalReasoningLogger";
+
+/** Simulate the writer: select, then commit each row as if the write
+ *  succeeded. Mirrors `logUpstreamReasoningBatch`'s ok→commit loop. */
+function selectAndCommit(
+  rows: ReadonlyArray<FnoReasoningPayload>,
+  state: Map<string, string>,
+): FnoReasoningPayload[] {
+  const toWrite = selectUpstreamRowsToWrite(rows, state);
+  for (const r of toWrite) commitUpstreamDedupeState(r, state);
+  return toWrite;
+}
 
 const SKIPPED_BASE: FnoReasoningPayload = {
   decision: "SKIPPED",
@@ -444,7 +459,7 @@ describe("logFnoReasoning — non-blocking safety contract", () => {
         indexSymbol: "NIFTY",
         reasonCode: "LIQUIDITY_OI",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
 
     spy.mockRestore();
   });
@@ -466,8 +481,99 @@ describe("logFnoReasoning — non-blocking safety contract", () => {
         optionEntry: Infinity,
         spotStop: -Infinity,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(true);
 
     spy.mockRestore();
+  });
+});
+
+describe("upstream reasoning dedupe — pure identity / state / selection", () => {
+  const baseEmitted = (over: Partial<FnoReasoningPayload> = {}): FnoReasoningPayload => ({
+    decision: "EMITTED",
+    signalDate: "2026-05-15",
+    indexSymbol: "NIFTY",
+    setupKey: "TREND_CONTINUATION",
+    direction: "BULLISH",
+    optionType: "CE",
+    selectedStrike: 23000,
+    tier: "STANDARD",
+    confidence: 72,
+    ...over,
+  });
+
+  it("identity is stable across repeated identical payloads and differs by leg", () => {
+    const a = reasoningDedupeIdentity(baseEmitted());
+    const b = reasoningDedupeIdentity(baseEmitted());
+    expect(a).toBe(b);
+    const otherStrike = reasoningDedupeIdentity(baseEmitted({ selectedStrike: 23100 }));
+    expect(otherStrike).not.toBe(a);
+    const otherSide = reasoningDedupeIdentity(baseEmitted({ optionType: "PE" }));
+    expect(otherSide).not.toBe(a);
+  });
+
+  it("a pre-supplied valid fingerprint is trusted; leg-less rows fall back to a px: proxy", () => {
+    const withFp = reasoningDedupeIdentity({ signalFingerprint: "0123456789abcdef" });
+    expect(withFp).toBe("fp:0123456789abcdef");
+    const legless = reasoningDedupeIdentity({
+      decision: "PRE_EMISSION_REJECTED",
+      signalDate: "2026-05-15",
+      indexSymbol: "BANKNIFTY",
+      setupKey: "VWAP_REVERSION",
+      direction: "BEARISH",
+    } as FnoReasoningPayload);
+    expect(legless.startsWith("px:")).toBe(true);
+    expect(legless).toContain("BANKNIFTY");
+  });
+
+  it("state key normalises decision + reason_code and is case/whitespace stable", () => {
+    expect(reasoningStateKey({ decision: "emitted", reasonCode: " ok " })).toBe("EMITTED|OK");
+    expect(reasoningStateKey({ decision: "EMITTED" })).toBe("EMITTED|");
+    expect(reasoningStateKey({ decision: "EMITTED", reasonCode: null })).toBe("EMITTED|");
+  });
+
+  it("repeated (identity, state) is written once; a changed reason writes a new row", () => {
+    const state = new Map<string, string>();
+    // First sighting → written (and committed as if the write succeeded).
+    expect(selectAndCommit([baseEmitted()], state)).toHaveLength(1);
+    // Same identity + same state on the next tick → suppressed (the 88x killer).
+    expect(selectAndCommit([baseEmitted()], state)).toHaveLength(0);
+    // Same identity, NEW reason_code → a fresh transition row is written.
+    expect(
+      selectAndCommit([baseEmitted({ decision: "PRE_EMISSION_REJECTED", reasonCode: "HEAT_CAP" })], state),
+    ).toHaveLength(1);
+    // ...and that new state is now itself deduped.
+    expect(
+      selectAndCommit([baseEmitted({ decision: "PRE_EMISSION_REJECTED", reasonCode: "HEAT_CAP" })], state),
+    ).toHaveLength(0);
+  });
+
+  it("does NOT advance state when the write is not committed (fail-open retry)", () => {
+    const state = new Map<string, string>();
+    // Selection alone (a write that then FAILS → no commit) must leave the
+    // map untouched so the very next cycle retries the same transition.
+    expect(selectUpstreamRowsToWrite([baseEmitted()], state)).toHaveLength(1);
+    expect(state.size).toBe(0);
+    expect(selectUpstreamRowsToWrite([baseEmitted()], state)).toHaveLength(1);
+  });
+
+  it("collapses duplicates WITHIN a single batch", () => {
+    const state = new Map<string, string>();
+    const batch = [baseEmitted(), baseEmitted(), baseEmitted({ selectedStrike: 23100 })];
+    const written = selectUpstreamRowsToWrite(batch, state);
+    expect(written).toHaveLength(2); // two distinct legs, the dup is dropped
+  });
+
+  it("a realistic multi-leg signal day lands within the 2-6 rows/signal target", () => {
+    const state = new Map<string, string>();
+    // One signal that transitions through a few distinct states across ticks,
+    // each tick re-sending the prior states (which must be suppressed).
+    let total = 0;
+    total += selectAndCommit([baseEmitted({ reasonCode: "NEW" })], state).length;
+    total += selectAndCommit([baseEmitted({ reasonCode: "NEW" })], state).length;
+    total += selectAndCommit([baseEmitted({ decision: "PRE_EMISSION_REJECTED", reasonCode: "HTF1H_CONFLICT" })], state).length;
+    total += selectAndCommit([baseEmitted({ decision: "PRE_EMISSION_REJECTED", reasonCode: "HTF1H_CONFLICT" })], state).length;
+    total += selectAndCommit([baseEmitted({ reasonCode: "NEW" })], state).length;
+    expect(total).toBeGreaterThanOrEqual(2);
+    expect(total).toBeLessThanOrEqual(6);
   });
 });

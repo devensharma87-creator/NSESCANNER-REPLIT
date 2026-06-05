@@ -1112,7 +1112,7 @@ function ReportTab() {
                 </table>
               </div>
               <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
-                Win rate counts only decided trades (T1/T2 hit vs stopped). Signals that ran past 15:30 IST without resolving are tagged EXPIRED and excluded from the rate. MFE / MAE are the maximum points the underlying moved in your favour / against you from the locked entry.
+                <strong className="text-foreground">Triggered</strong> means the market reached this signal's entry level in the signal-history feed — it is <em>not</em> a paper trade the system took. Trades the system actually risked capital on (and <strong className="text-foreground">Closed</strong>) live under <span className="text-foreground">Paper Trading</span>. Win rate here counts only decided trades (T1/T2 hit vs stopped). Signals that ran past 15:30 IST without resolving are tagged EXPIRED and excluded from the rate. MFE / MAE are the maximum points the underlying moved in your favour / against you from the locked entry.
               </p>
             </CardContent>
           </Card>

@@ -1554,13 +1554,19 @@ interface JSetupStats {
   trades: number;
   wins: number;
   losses: number;
-  winRate: number;
+  winRate: number | null;
   totalPnl: number;
   avgPnl: number;
 }
 interface JExitReasonStats { reason: string; count: number; pct: number }
-interface JHourBucket { hour: number; trades: number; wins: number; winRate: number; totalPnl: number }
-interface JTagStats { tag: string; count: number; winRate: number; avgPnl: number }
+interface JHourBucket { hour: number; trades: number; wins: number; winRate: number | null; totalPnl: number }
+interface JTagStats { tag: string; count: number; winRate: number | null; avgPnl: number }
+
+// Honest win-rate display: a null win rate (no trades / no decided trades)
+// renders "—" instead of a misleading 0% / 100%.
+const wrText = (v: number | null): string => (v == null ? "—" : `${v}%`);
+const wrTone = (v: number | null): "good" | "bad" | undefined =>
+  v == null ? undefined : v >= 50 ? "good" : "bad";
 interface JournalData {
   segment: "FNO" | "EQUITY";
   totalTrades: number;
@@ -1639,7 +1645,7 @@ function JSetupTable({ stats }: { stats: JSetupStats[] }) {
                   <Td><span className="font-medium">{s.setupKey.replace(/_/g, " ")}</span></Td>
                   <Td align="right">{s.trades}</Td>
                   <Td align="right">{s.wins} / {s.losses}</Td>
-                  <Td align="right" tone={s.winRate >= 50 ? "good" : "bad"}>{s.winRate}%</Td>
+                  <Td align="right" tone={wrTone(s.winRate)}>{wrText(s.winRate)}</Td>
                   <Td align="right" tone={s.avgPnl > 0 ? "good" : s.avgPnl < 0 ? "bad" : undefined}>{inr0(s.avgPnl)}</Td>
                   <Td align="right" tone={s.totalPnl > 0 ? "good" : s.totalPnl < 0 ? "bad" : undefined}>{inr0(s.totalPnl)}</Td>
                 </tr>
@@ -1702,13 +1708,14 @@ function JHourPerformance({ buckets }: { buckets: JHourBucket[] }) {
                 className="h-full rounded transition-all"
                 style={{
                   width: `${(b.trades / maxTrades) * 100}%`,
-                  backgroundColor: b.winRate >= 60 ? "#10b981" : b.winRate >= 40 ? "#f59e0b" : "#ef4444",
+                  backgroundColor:
+                    b.winRate == null ? "#64748b" : b.winRate >= 60 ? "#10b981" : b.winRate >= 40 ? "#f59e0b" : "#ef4444",
                   opacity: 0.7,
                 }}
               />
             </div>
             <span className="w-8 text-right">{b.trades}</span>
-            <span className={cn("w-12 text-right", b.winRate >= 50 ? "text-emerald-400" : "text-rose-400")}>{b.winRate}%</span>
+            <span className={cn("w-12 text-right", b.winRate == null ? "text-muted-foreground" : b.winRate >= 50 ? "text-emerald-400" : "text-rose-400")}>{wrText(b.winRate)}</span>
           </div>
         ))}
         {buckets.length === 0 && <div className="text-center text-muted-foreground py-4 text-sm">No data</div>}
@@ -1740,7 +1747,7 @@ function JTagTable({ stats }: { stats: JTagStats[] }) {
                 <tr key={s.tag} className="border-t border-slate-800/60">
                   <Td><Badge variant="outline" className="text-xs">{s.tag}</Badge></Td>
                   <Td align="right">{s.count}</Td>
-                  <Td align="right" tone={s.winRate >= 50 ? "good" : "bad"}>{s.winRate}%</Td>
+                  <Td align="right" tone={wrTone(s.winRate)}>{wrText(s.winRate)}</Td>
                   <Td align="right" tone={s.avgPnl > 0 ? "good" : s.avgPnl < 0 ? "bad" : undefined}>{inr0(s.avgPnl)}</Td>
                 </tr>
               ))}

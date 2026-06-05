@@ -362,13 +362,14 @@ export function buildReasoningRow(p: FnoReasoningPayload): NewFnoSignalReasoning
  * On failure, emits one `logger.warn` so the operator sees substrate
  * outages explicitly without spamming the request log.
  */
-export async function logFnoReasoning(payload: FnoReasoningPayload): Promise<void> {
+export async function logFnoReasoning(payload: FnoReasoningPayload): Promise<boolean> {
   HEALTH.writesAttempted += 1;
   try {
     const row = buildReasoningRow(payload);
     await db.insert(fnoSignalReasoningTable).values(row);
     HEALTH.writesSucceeded += 1;
     HEALTH.lastSuccessAt = new Date().toISOString();
+    return true;
   } catch (err) {
     // Swallowed — diagnostics MUST NOT influence trading. One WARN per
     // failure keeps the issue visible in logs without crashing the
@@ -392,6 +393,7 @@ export async function logFnoReasoning(payload: FnoReasoningPayload): Promise<voi
       },
       "fno_signal_reasoning write failed (diagnostics-only; trading unaffected)",
     );
+    return false;
   }
 }
 
@@ -639,11 +641,184 @@ export function buildUpstreamReasoningRows(args: {
   return rows;
 }
 
+/* ─────────────── Upstream once-per-transition dedupe (2026-06-05) ───────────
+ *
+ * The orchestrator calls `logUpstreamReasoningBatch` on every ~30s poll. The
+ * old contract wrote an EMITTED / PRE_EMISSION_REJECTED row EVERY tick, so a
+ * single signal in one unchanged state produced ~88 duplicate rows (worst case
+ * 307×), which broke every count and win-rate derived from the table.
+ *
+ * Fix (per `signal_logging_fix_spec.md` §2): write a row ONLY when a signal's
+ * (identity, state) changes. State = (decision, reason_code) so a genuine
+ * reason-change is preserved but the same reason repeating is collapsed.
+ *
+ * Scope: this gate governs ONLY the upstream batch (EMITTED /
+ * PRE_EMISSION_REJECTED). The downstream OPENED / SKIPPED / CLOSED_* writers
+ * are already deduped by their own once-per-day / once-per-lifecycle contracts
+ * and are left untouched.
+ *
+ * Pure-testable: `reasoningDedupeIdentity`, `reasoningStateKey`, and
+ * `selectUpstreamRowsToWrite` have no I/O. Boot hydration seeds the in-memory
+ * map from today's already-written upstream rows so a mid-day restart does not
+ * re-write existing transitions. The whole gate fails OPEN — any hydration
+ * error just means we might write a few duplicate rows once, never that we
+ * block a write or throw. */
+
+/** Loose shape covering both the write payload and a persisted row, enough to
+ *  derive the dedupe identity. */
+export interface DedupeIdentityInput {
+  signalFingerprint?: string | null;
+  signalDate?: string | null;
+  indexSymbol?: string | null;
+  setupKey?: string | null;
+  direction?: string | null;
+  optionType?: string | null;
+  selectedStrike?: number | string | null;
+}
+
+/**
+ * Stable dedupe identity for a reasoning event: the SHA-256 fingerprint when
+ * available (computed from the 6-tuple, or trusted if pre-supplied), else a
+ * `px:` proxy over the stable identity fields for leg-less rows (e.g.
+ * PRE_EMISSION_REJECTED). Pure.
+ */
+export function reasoningDedupeIdentity(p: DedupeIdentityInput): string {
+  const supplied =
+    typeof p.signalFingerprint === "string" && /^[0-9a-f]{16}$/.test(p.signalFingerprint)
+      ? p.signalFingerprint
+      : null;
+  const strikeNum = p.selectedStrike == null ? null : Number(p.selectedStrike);
+  const fp =
+    supplied ??
+    computeSignalFingerprint({
+      signalDate: p.signalDate ?? null,
+      indexSymbol: p.indexSymbol ?? null,
+      setupKey: p.setupKey ?? null,
+      direction: p.direction ?? null,
+      optionType: p.optionType ?? null,
+      selectedStrike: strikeNum != null && Number.isFinite(strikeNum) ? strikeNum : null,
+    });
+  if (fp) return `fp:${fp}`;
+  return (
+    "px:" +
+    [p.signalDate, p.indexSymbol, p.setupKey, p.direction]
+      .map((x) => String(x ?? "").trim().toUpperCase())
+      .join("|")
+  );
+}
+
+/** Dedupe state key = (decision, reason_code), normalised. Pure. */
+export function reasoningStateKey(p: { decision: string; reasonCode?: string | null }): string {
+  return `${String(p.decision).trim().toUpperCase()}|${String(p.reasonCode ?? "").trim().toUpperCase()}`;
+}
+
+/**
+ * Given candidate upstream rows and the per-identity last-logged-state map,
+ * return only the rows whose (identity, state) differs from the last
+ * SUCCESSFULLY-written state, collapsing duplicates WITHIN the batch too.
+ *
+ * PURE — it does NOT mutate `lastState`. The caller commits each identity's
+ * new state into the map only after the write actually succeeds
+ * (`commitUpstreamDedupeState`), so a transient DB failure leaves the state
+ * un-advanced and the transition is retried on the next cycle. This is the
+ * fail-OPEN contract: we would rather write one duplicate row than silently
+ * drop a transition from the diagnostics substrate.
+ */
+export function selectUpstreamRowsToWrite(
+  rows: ReadonlyArray<FnoReasoningPayload>,
+  lastState: ReadonlyMap<string, string>,
+): FnoReasoningPayload[] {
+  const out: FnoReasoningPayload[] = [];
+  const seenInBatch = new Set<string>();
+  for (const r of rows) {
+    const id = reasoningDedupeIdentity(r);
+    const sk = reasoningStateKey(r);
+    if (lastState.get(id) === sk) continue; // unchanged since last write — the 88× killer
+    const batchKey = `${id}\u0000${sk}`;
+    if (seenInBatch.has(batchKey)) continue; // collapse exact dups within the batch
+    seenInBatch.add(batchKey);
+    out.push(r);
+  }
+  return out;
+}
+
+/** Record a successfully-written row's (identity → state) into the dedupe map.
+ *  Called by the writer ONLY after the insert succeeds. Pure aside from the
+ *  explicit, intended map mutation. */
+export function commitUpstreamDedupeState(
+  row: FnoReasoningPayload,
+  lastState: Map<string, string>,
+): void {
+  lastState.set(reasoningDedupeIdentity(row), reasoningStateKey(row));
+}
+
+const UPSTREAM_DEDUPE_DECISIONS = new Set<string>(["EMITTED", "PRE_EMISSION_REJECTED"]);
+
+/* Process-local dedupe state for the upstream batch. Reset on restart; that is
+ * the desired semantic — hydration re-seeds it from the DB for the current day
+ * so a restart doesn't re-duplicate already-written transitions. */
+const upstreamLastState = new Map<string, string>();
+let upstreamHydratedForDate: string | null = null;
+
+/** Test-only reset of the upstream dedupe state. */
+export function __resetUpstreamReasoningDedupeForTests(): void {
+  upstreamLastState.clear();
+  upstreamHydratedForDate = null;
+}
+
+/**
+ * Seed `upstreamLastState` from the upstream rows already written for
+ * `signalDate`, latest-state-per-identity wins. Runs once per date (a new
+ * trading day clears yesterday's keys). Fails OPEN — on any error we leave the
+ * map as-is and mark the date hydrated so we don't spin retrying.
+ */
+async function hydrateUpstreamDedupe(signalDate: string): Promise<void> {
+  if (upstreamHydratedForDate === signalDate) return;
+  upstreamLastState.clear();
+  try {
+    const rows = await db
+      .select({
+        signalFingerprint: fnoSignalReasoningTable.signalFingerprint,
+        signalDate: fnoSignalReasoningTable.signalDate,
+        indexSymbol: fnoSignalReasoningTable.indexSymbol,
+        setupKey: fnoSignalReasoningTable.setupKey,
+        direction: fnoSignalReasoningTable.direction,
+        optionType: fnoSignalReasoningTable.optionType,
+        selectedStrike: fnoSignalReasoningTable.selectedStrike,
+        decision: fnoSignalReasoningTable.decision,
+        reasonCode: fnoSignalReasoningTable.reasonCode,
+      })
+      .from(fnoSignalReasoningTable)
+      .where(eq(fnoSignalReasoningTable.signalDate, signalDate))
+      .orderBy(asc(fnoSignalReasoningTable.capturedAt), asc(fnoSignalReasoningTable.id));
+    for (const r of rows) {
+      // Only the decisions this gate governs — downstream rows have their own
+      // dedupe and must not pollute the upstream identity→state map.
+      if (!UPSTREAM_DEDUPE_DECISIONS.has(String(r.decision).trim().toUpperCase())) continue;
+      upstreamLastState.set(
+        reasoningDedupeIdentity(r),
+        reasoningStateKey({ decision: r.decision, reasonCode: r.reasonCode }),
+      );
+    }
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, signalDate },
+      "fno_signal_reasoning upstream dedupe hydration failed (diagnostics-only; fail-open)",
+    );
+  }
+  upstreamHydratedForDate = signalDate;
+}
+
 /**
  * Non-throwing batch writer used by the orchestrator hook. Each row is
  * dispatched via `logFnoReasoning` (already non-throwing) so a single
  * bad row never poisons the batch and a DB outage emits a single WARN
  * per row without disturbing the caller.
+ *
+ * Once-per-transition deduped: rows whose (identity, state) is unchanged since
+ * the last write are skipped (see the dedupe block above). Hydrates the dedupe
+ * map from the DB once per `signalDate` so a mid-day restart doesn't re-write
+ * existing transitions.
  *
  * Caller idiom: `void logUpstreamReasoningBatch({...})` — fire-and-forget.
  */
@@ -663,10 +838,21 @@ export async function logUpstreamReasoningBatch(args: {
     );
     return;
   }
+
+  // Seed dedupe state from the DB once per day so a restart doesn't re-dup.
+  await hydrateUpstreamDedupe(args.signalDate);
+
+  // Collapse to genuine transitions only — this is the fix for the ~88×
+  // duplicate inflation. Selection is PURE (does not advance the map); the
+  // per-identity state is committed below only after the write succeeds, so a
+  // transient DB failure is retried next cycle rather than silently dropped.
+  const toWrite = selectUpstreamRowsToWrite(rows, upstreamLastState);
+
   // Sequential await — count is small (signals + suppressed ≈ <50/cycle),
   // and we'd rather not flood the connection pool from a diagnostic path.
-  for (const r of rows) {
-    await logFnoReasoning(r);
+  for (const r of toWrite) {
+    const ok = await logFnoReasoning(r);
+    if (ok) commitUpstreamDedupeState(r, upstreamLastState);
   }
 }
 

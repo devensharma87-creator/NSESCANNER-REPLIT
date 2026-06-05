@@ -1377,7 +1377,7 @@ interface FoAnalytics {
   wins: number;
   losses: number;
   scratches: number;
-  winRate: number;
+  winRate: number | null;
   totalRealizedPnl: number;
   avgWin: number;
   avgLoss: number;
@@ -1396,7 +1396,7 @@ interface FoAnalytics {
     trades: number;
     wins: number;
     losses: number;
-    winRate: number;
+    winRate: number | null;
     totalPnl: number;
     avgPnl: number;
     bestTrade: number;
@@ -2085,8 +2085,8 @@ function AnalyticsCard({ data, loading, error }: {
           />
           <Stat
             label="Win rate"
-            value={`${(data.winRate * 100).toFixed(1)}%`}
-            tone={data.winRate >= 0.5 ? "pos" : data.winRate > 0 ? "neg" : undefined}
+            value={data.winRate == null ? "—" : `${(data.winRate * 100).toFixed(1)}%`}
+            tone={data.winRate == null ? undefined : data.winRate >= 0.5 ? "pos" : data.winRate > 0 ? "neg" : undefined}
           />
           <Stat
             label="Expectancy / trade"
@@ -2158,7 +2158,7 @@ function AnalyticsCard({ data, loading, error }: {
                   <tr key={s.setupKey} className="border-b border-border/40">
                     <td className="py-2 pr-3 font-medium">{s.setupKey}</td>
                     <td className="py-2 pr-3 text-right tabular-nums">{s.trades}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{(s.winRate * 100).toFixed(1)}%</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{s.winRate == null ? "—" : `${(s.winRate * 100).toFixed(1)}%`}</td>
                     <td className={`py-2 pr-3 text-right tabular-nums font-medium ${s.totalPnl > 0 ? "text-emerald-300" : s.totalPnl < 0 ? "text-rose-300" : ""}`}>
                       {inrDec(s.totalPnl)}
                     </td>

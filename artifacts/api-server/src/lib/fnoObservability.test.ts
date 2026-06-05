@@ -100,7 +100,11 @@ describe("P17a — reasoning logger health counters", () => {
       signalDate: 12345,
     } as unknown as FnoReasoningPayload;
     const before = getReasoningLoggerHealth();
-    await expect(logFnoReasoning(badPayload)).resolves.toBeUndefined();
+    // Non-blocking contract: never throws. Returns a boolean success flag
+    // (true if the insert landed, false if it was swallowed) — the exact
+    // value depends on DB availability in this env, so we only assert the
+    // type and that no throw escaped.
+    await expect(logFnoReasoning(badPayload)).resolves.toBeTypeOf("boolean");
     const after = getReasoningLoggerHealth();
     expect(after.writesAttempted).toBe(before.writesAttempted + 1);
   });

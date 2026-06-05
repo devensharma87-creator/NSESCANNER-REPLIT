@@ -22,12 +22,23 @@ function num(v: string | number | null | undefined): number {
   return typeof v === "number" ? v : parseFloat(v);
 }
 
+/**
+ * Honest win-rate as a 0..1 fraction (4-dp), or `null` when there are no
+ * decided trades (wins + losses === 0). Returning null — never a fabricated
+ * 0% or 100% — lets the UI render "—" for an empty/undecided bucket. Pure.
+ */
+export function foWinRate(wins: number, losses: number): number | null {
+  const decided = wins + losses;
+  return decided > 0 ? +(wins / decided).toFixed(4) : null;
+}
+
 export interface FoAnalyticsBySetup {
   setupKey: string;
   trades: number;
   wins: number;
   losses: number;
-  winRate: number;
+  /** wins / (wins + losses); null when no decided trades (honest "—" in UI). */
+  winRate: number | null;
   totalPnl: number;
   avgPnl: number;
   bestTrade: number;
@@ -46,7 +57,7 @@ export interface FoAnalyticsResponse {
   wins: number;
   losses: number;
   scratches: number;
-  winRate: number;          // 0..1
+  winRate: number | null;   // 0..1; null when no decided trades
   totalRealizedPnl: number;
   avgWin: number;
   avgLoss: number;          // signed (negative)
@@ -153,8 +164,7 @@ export async function getFoAnalytics(opts: {
     dailyPnlMap.set(date, (dailyPnlMap.get(date) ?? 0) + pnl);
   }
 
-  const decided = wins + losses;
-  const winRate = decided > 0 ? wins / decided : 0;
+  const winRate = foWinRate(wins, losses);
   const avgWin = wins > 0 ? sumWins / wins : 0;
   const avgLoss = losses > 0 ? sumLosses / losses : 0;
   const profitFactor =
@@ -191,10 +201,9 @@ export async function getFoAnalytics(opts: {
   // Finalize per-setup stats
   const bySetup = Array.from(bySetupMap.values())
     .map(s => {
-      const dec = s.wins + s.losses;
       return {
         ...s,
-        winRate: dec > 0 ? +(s.wins / dec).toFixed(4) : 0,
+        winRate: foWinRate(s.wins, s.losses),
         totalPnl: round2(s.totalPnl),
         avgPnl: round2(s.trades > 0 ? s.totalPnl / s.trades : 0),
         bestTrade: round2(s.bestTrade),
@@ -208,7 +217,7 @@ export async function getFoAnalytics(opts: {
     wins,
     losses,
     scratches,
-    winRate: +winRate.toFixed(4),
+    winRate: winRate == null ? null : +winRate.toFixed(4),
     totalRealizedPnl: round2(totalRealizedPnl),
     avgWin: round2(avgWin),
     avgLoss: round2(avgLoss),
