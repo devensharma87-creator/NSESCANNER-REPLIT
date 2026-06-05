@@ -1,0 +1,472 @@
+Add F&O Engine Backtesting Tab — “Backtest Lab”
+
+I want to add a new separate tab to the website named Backtest Lab.
+
+This tab should allow me to backtest the existing official F&O engine using historical data for up to 2 years, without disturbing any current live/paper-trading features, existing F&O engine logic, swing engine, portfolio, reports, database, or UI flow.
+
+This is a serious engine-validation feature, not just a dummy report table. The backtest must replay historical market conditions candle-by-candle and show what trades the engine would have taken based only on data available at that time. There must be no look-ahead bias, no fake trades, no synthetic result generation, and no hidden assumptions.
+
+1. New Tab Requirement
+
+Add a new tab in the main navigation:
+
+Tab Name: Backtest Lab
+Alternative label if better: F&O Backtest Lab
+
+The tab should be visually consistent with the existing premium UI.
+
+It should not break or duplicate any existing tab.
+
+2. Backtest Scope
+
+The tab should backtest only the official F&O engine, not the legacy/display-only engine.
+
+The supported instruments should include:
+
+NIFTY options
+BANKNIFTY options
+SENSEX options
+
+The backtest should be based on historical index data and historical option premium/option-chain data wherever available.
+
+Important:
+If 2-year historical option-chain or option premium data is not available from the current data providers, the system must clearly show:
+
+Historical option data unavailable for selected period/source.
+
+Do not fabricate option prices. Do not silently substitute fake data.
+
+3. User Input Controls
+
+The Backtest Lab should have clean filters/options:
+
+A. Instrument Selection
+
+User should be able to select:
+
+NIFTY
+BANKNIFTY
+SENSEX
+All selected indices together
+B. Backtest Period
+
+User should be able to choose:
+
+Last 7 days
+Last 15 days
+Last 30 days
+Last 3 months
+Last 6 months
+Last 1 year
+Last 2 years
+Custom date range
+
+Custom date range should have:
+
+Start date
+End date
+
+Validation required:
+
+Start date cannot be after end date
+Future date should not be allowed
+Period should not exceed available historical data
+If data is missing, show proper warning
+C. Timeframe Selection
+
+User should be able to select candle timeframe:
+
+5 minute
+15 minute
+30 minute
+Daily
+Weekly
+
+Important:
+For intraday F&O backtesting, 5m/15m/30m should be supported only if historical intraday option premium data is available.
+
+D. Strategy/Engine Mode
+
+Use existing official F&O engine logic.
+
+Add selection if already available:
+
+Conservative
+Balanced
+Aggressive
+
+If such modes do not currently exist, do not invent them. Keep the engine mode as:
+
+Official F&O Engine
+E. Capital Settings
+
+Allow user to enter:
+
+Starting capital
+Capital per trade
+Max trades per day
+Max open trades
+Risk per trade %
+Brokerage/slippage/cost model toggle
+
+Default values should be safe and realistic.
+
+4. Backtest Engine Logic
+
+The backtest should reuse the existing official F&O signal engine as much as possible.
+
+Do not create a totally separate signal logic unless absolutely required.
+
+The historical backtest should simulate:
+
+Historical candle replay
+Market direction/bias calculation
+Option strike selection
+Entry trigger
+Target 1
+Target 2
+Stop loss
+Exit condition
+Holding time
+Realistic P&L after brokerage/slippage
+
+The backtest must record both:
+
+Trades that were taken
+Trades that were rejected/blocked, with reason
+
+Example blocked reasons:
+
+No clean signal
+Market regime not suitable
+Premium data unavailable
+Option chain unavailable
+Risk blocked
+Time/session blocked
+Liquidity/spread issue
+Expiry risk
+Data quality issue
+Duplicate signal avoided
+5. Trade Report Columns
+
+The backtest report table must include the following columns:
+
+Trade Identity
+Trade ID
+Index traded: NIFTY / BANKNIFTY / SENSEX
+Option type: CE / PE
+Strike price
+Expiry date
+Lot size
+Quantity/lots
+Entry Details
+Date of entry
+Time of entry
+Entry price
+Entry candle timeframe
+Entry signal type
+Capital deployed
+Reason why trade was taken
+Engine score/confidence at entry
+Market bias at entry
+Trend/regime at entry
+Risk/Reward Details
+Stop loss
+Target 1
+Target 2
+Risk per lot
+Reward to Target 1
+Reward to Target 2
+Risk-reward ratio
+Exit Details
+Date of closing
+Time of closing
+Exit price
+Holding time in minutes/hours
+Holding time in days, wherever applicable
+Exit reason:
+Target 1 achieved
+Target 2 achieved
+Stop loss hit
+Time exit
+Manual/session exit
+Expiry exit
+Data unavailable exit
+Engine reversal exit
+P&L Details
+Gross profit/loss
+Brokerage and charges
+Slippage impact
+Net realised profit/loss
+Unrealised profit/loss for open trades
+Final trade status:
+Closed
+Open
+Cancelled
+Rejected
+Data blocked
+Reasoning / Audit
+Why trade was taken
+Why strike was selected
+Why trade was closed
+Which engine conditions passed
+Which risk conditions passed
+Any warnings or data-quality issues
+6. Summary Dashboard
+
+Above the trade table, show a summary dashboard with:
+
+Total trades
+Winning trades
+Losing trades
+Open trades
+Rejected/blocked setups
+Win rate %
+Average profit per winning trade
+Average loss per losing trade
+Net realised P&L
+Unrealised P&L
+Total P&L
+Max drawdown
+Max profit
+Max loss
+Profit factor
+Average holding time
+Best trade
+Worst trade
+Most profitable index
+Least profitable index
+Best timeframe
+Worst timeframe
+Capital used
+Return on capital %
+Charges paid
+Slippage cost
+7. Charts Required
+
+Add useful visual charts inside the Backtest Lab:
+
+Equity curve
+Drawdown curve
+Daily P&L chart
+Index-wise P&L chart
+Win/loss distribution
+Timeframe-wise performance
+CE vs PE performance
+Target hit vs stop loss hit breakdown
+
+Charts should be clean and premium-looking.
+
+Do not overload the UI. Use expandable sections if needed.
+
+8. Export Options
+
+Provide export buttons:
+
+Export trade report as CSV
+Export summary as CSV
+Export full backtest report as PDF, if PDF export is already supported
+Copy report summary
+
+Exported file should include all trade-level reasoning and P&L details.
+
+9. Data Quality Rules
+
+This is very important.
+
+For every backtest run, show a Data Quality Panel containing:
+
+Data source used
+Historical period available
+Candle timeframe availability
+Option-chain availability
+Premium candle availability
+Missing dates
+Missing candles
+Stale data warnings
+Number of skipped trades due to missing data
+Number of rejected signals due to data issue
+
+If data is incomplete, the report must clearly say:
+
+Backtest result is partial due to missing historical data.
+
+Do not show misleading performance numbers.
+
+10. Backend/API Requirements
+
+Create proper backend endpoints, for example:
+
+POST /api/backtest/fno/run
+GET  /api/backtest/fno/runs
+GET  /api/backtest/fno/runs/:id
+GET  /api/backtest/fno/runs/:id/trades
+GET  /api/backtest/fno/runs/:id/summary
+GET  /api/backtest/fno/runs/:id/export
+
+The run endpoint should accept:
+
+{
+  "indices": ["NIFTY", "BANKNIFTY", "SENSEX"],
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD",
+  "timeframe": "15m",
+  "startingCapital": 500000,
+  "capitalPerTrade": 50000,
+  "riskPerTradePct": 1,
+  "maxTradesPerDay": 3,
+  "maxOpenTrades": 2,
+  "includeCharges": true,
+  "includeSlippage": true
+}
+
+Return response should include:
+
+{
+  "runId": "unique_id",
+  "status": "completed",
+  "summary": {},
+  "trades": [],
+  "blockedSetups": [],
+  "dataQuality": {},
+  "warnings": []
+}
+11. Database Requirements
+
+Create proper tables if not already available:
+
+backtest_runs
+
+Should store:
+
+run_id
+created_at
+indices
+start_date
+end_date
+timeframe
+starting_capital
+capital_per_trade
+risk_per_trade_pct
+max_trades_per_day
+max_open_trades
+include_charges
+include_slippage
+status
+summary_json
+data_quality_json
+warnings_json
+backtest_trades
+
+Should store:
+
+run_id
+trade_id
+index_symbol
+option_type
+strike_price
+expiry_date
+lot_size
+quantity
+entry_datetime
+exit_datetime
+holding_minutes
+holding_days
+entry_price
+exit_price
+target_1
+target_2
+stop_loss
+capital_deployed
+gross_pnl
+charges
+slippage
+net_realised_pnl
+unrealised_pnl
+status
+exit_reason
+entry_reason
+close_reason
+engine_score
+market_bias
+regime
+warnings_json
+backtest_blocked_setups
+
+Should store:
+
+run_id
+datetime
+index_symbol
+reason_code
+reason_text
+data_available
+engine_snapshot_json
+12. UI Behaviour
+
+When user clicks Run Backtest:
+
+Validate all inputs
+Show loading/progress state
+Run backtest safely
+Display summary dashboard
+Display charts
+Display trade report table
+Display blocked/rejected setups
+Display data-quality warnings
+Allow export
+
+There should be no page freeze.
+
+For long backtests like 1 year or 2 years, use background-style processing if the current architecture supports it. If not, show progress and handle timeout safely.
+
+13. Important Guardrails
+
+Do not break existing working features.
+
+Do not remove current F&O engine, swing scanner, reports, portfolio, data feed, watchlist, or paper trade book.
+
+Do not create fake historical options data.
+
+Do not show backtest performance unless the data is valid.
+
+Do not use future candle data while making historical decisions.
+
+Do not mix legacy F&O engine with official engine.
+
+Do not place any live order.
+
+This feature is for analysis and validation only.
+
+14. Acceptance Criteria
+
+This task is complete only when:
+
+A new Backtest Lab tab is visible in the UI.
+User can select index, period, timeframe, capital, and risk settings.
+Backtest runs using official F&O engine logic.
+Report shows every trade with entry, exit, strike, target, stop loss, capital, P&L, and reasoning.
+Open trades show unrealised P&L.
+Closed trades show realised P&L.
+Blocked/rejected setups are visible with reasons.
+Data-quality panel is visible.
+Export to CSV works.
+No fake data is generated.
+Existing tabs and features remain untouched.
+Final test report is provided with screenshots/API responses.
+15. Final Deliverable Required From Coder
+
+After implementation, provide:
+
+Files changed
+New APIs added
+New database tables/migrations added
+Screenshots of Backtest Lab
+Sample backtest result
+Sample exported CSV
+Data-source limitations
+Test report
+Confirmation that existing features were not broken
+Strict Instruction
+
+Build this properly. A weak table showing random historical trades is not acceptable. This must be a real backtesting module for the official F&O engine with full audit trail, data quality checks, realistic charges/slippage, and clear reasoning for every trade.
