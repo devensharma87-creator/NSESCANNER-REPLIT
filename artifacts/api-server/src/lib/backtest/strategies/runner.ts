@@ -26,6 +26,7 @@ import {
   type StrategyModule,
 } from "./base";
 import { applyFilters } from "./filters";
+import { candleUtcIso } from "../time";
 
 export interface RunOptions {
   timeframe: string;
@@ -108,7 +109,7 @@ export function runStrategy(
       optionType: pos.entry.optionType,
       strike: null,
       entryAt: pos.entryTimeIso,
-      exitAt: ctx.candles[exitIndex]!.t.toISOString(),
+      exitAt: candleUtcIso(ctx.candles[exitIndex]!.t),
       entrySpot: pos.entry.entrySpot,
       exitSpot,
       optionEntry: null,
@@ -290,7 +291,7 @@ export function runStrategy(
           open = {
             entry,
             entryIndex: i,
-            entryTimeIso: iso,
+            entryTimeIso: candleUtcIso(ctx.candles[i]!.t),
             lots,
             lotSize,
             qty,

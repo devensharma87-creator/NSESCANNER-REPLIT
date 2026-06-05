@@ -1,0 +1,13 @@
+Understood — I'll fold in everything at once: trailing stops, partial exits, plus the remaining professional touches that make sense for this system. Let me build v3 as the complete version.Created a file, read a fileCreated a file, read a fileDone. v3 is the complete version — everything from v1/v2 plus every addition I had in mind, all wired in at once.
+New in v3:
+Exit management — Partial exit at 1R (default books 50%, configurable), then the runner gets its stop moved to breakeven and trailed on either the EMA21 or VWAP (you pick). This is the single biggest upgrade to expectancy: you lock in a win early and let the rest run on a trail instead of a fixed target.
+Regime filter — Uses ADX to classify the day. Above the threshold (default 20) → trend mode, takes the ORB/VWAP/EMA confluence entries. Below → range mode, which flips the logic and fades stretched moves back to VWAP using std-dev bands (plotted as dots so you can see them). This is what the original plan called "decide the regime first" — now automated.
+Risk guardrails — Daily loss limit (stops trading once realised loss crosses ₹5,000 default), max trades/day cap (default 4), and a cooldown that blocks re-entry for N bars after a loss. These three together prevent the revenge-trading / death-by-a-thousand-cuts pattern that kills intraday F&O accounts.
+Dashboard — Now shows live regime, ADX, VIX/qty, trades today, day P&L, total trades, win rate, and profit factor.
+A few honest notes:
+
+The trailing logic updates the runner's stop bar-by-bar via repeated strategy.exit calls — standard Pine pattern, but in the backtester a trail referenced to EMA/VWAP can exit later than you'd expect on fast reversals. Compare trailed vs. fixed-target results before committing.
+The range-fade mode is the least-tested idea here conceptually — fading is lower win-rate by nature and depends heavily on the ADX threshold. Backtest trend-only first (set ADX threshold very low to force trend mode always), then enable regime and see if the fade trades actually add or subtract.
+All the v2 caveats still hold: backtest the futures contract, the ₹20 commission understates real F&O cost, and don't curve-fit the parameters to maximize a small-sample backtest.
+
+Load it, open the Strategy Tester, and start with regime off + partial/trail on to isolate the exit improvements against your v2 baseline.

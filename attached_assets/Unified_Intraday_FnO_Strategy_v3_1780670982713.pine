@@ -1,0 +1,278 @@
+//@version=5
+// =============================================================================
+// Unified Intraday F&O STRATEGY v3 (Complete)  —  ORB + VWAP + EMA Pullback
+// For Nifty 50, Bank Nifty, Sensex (Indian index F&O, intraday)
+// -----------------------------------------------------------------------------
+// Carried from v1/v2:
+//   - ORB + VWAP + EMA pullback confluence (configurable 1/2/3 threshold)
+//   - Index-aware ATR multiplier & breakout buffer (auto-detect)
+//   - RSI momentum filter, configurable time windows, date-range backtest filter
+//   - VIX-based position sizing (3-band)
+// New in v3:
+//   - Partial exit at 1R, runner trailed on EMA21 or VWAP (selectable)
+//   - Move stop to breakeven after partial booked
+//   - Regime filter: ADX trend-strength gate + range-day VWAP-fade mode
+//   - Risk guardrails: daily loss limit, max trades/day, cooldown after a loss
+//   - Richer dashboard
+// NOTE: Educational / research tool. Not investment advice. Always use a hard SL.
+//       Backtest the FUTURES contract (not spot). Commission here understates
+//       real F&O costs (STT, slippage, spread). Treat P&L as optimistic.
+// =============================================================================
+strategy("Unified Intraday F&O Strategy v3", overlay=true,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=200000, commission_type=strategy.commission.cash_per_order,
+     commission_value=20, calc_on_every_tick=false, process_orders_on_close=true,
+     pyramiding=0, max_labels_count=500)
+
+// ============================ INPUTS =========================================
+grpIdx   = "Index Selection"
+idxMode  = input.string("Auto", "Index parameter set", options=["Auto","Nifty","BankNifty","Sensex"], group=grpIdx)
+
+grpOR    = "Opening Range"
+orMins   = input.int(15, "Opening Range minutes", minval=5, maxval=60, group=grpOR)
+sessStart= input.session("0915-1530", "Session", group=grpOR)
+
+grpEnt   = "Entry / Filters"
+minScore = input.int(2, "Confluence threshold (of 3)", minval=1, maxval=3, group=grpEnt, tooltip="How many of ORB / VWAP / EMA must agree.")
+rsiLen   = input.int(14, "RSI length", group=grpEnt)
+rsiLong  = input.int(55, "RSI long threshold", group=grpEnt)
+rsiShort = input.int(45, "RSI short threshold", group=grpEnt)
+useRsi   = input.bool(true, "Use RSI momentum filter", group=grpEnt)
+
+grpReg   = "Regime Filter"
+useRegime= input.bool(true, "Enable regime detection", group=grpReg, tooltip="Trend day -> breakouts/pullbacks. Range day -> fade extremes back to VWAP.")
+adxLen   = input.int(14, "ADX length", group=grpReg)
+adxTrend = input.float(20.0, "ADX trend threshold", step=1.0, group=grpReg, tooltip="ADX above this = trend mode; below = range mode.")
+fadeSdev = input.float(1.5, "Range fade VWAP std-dev", step=0.1, group=grpReg, tooltip="In range mode, fade price this many std-devs from VWAP.")
+
+grpTime  = "Time Windows (exchange time)"
+blockLunch = input.bool(true, "Block lunch window", group=grpTime)
+lunchStart = input.session("1200-1330", "Lunch no-trade window", group=grpTime)
+useTimeStop= input.bool(true, "Square off at time stop", group=grpTime)
+timeStop   = input.session("1500-1530", "Square-off window", group=grpTime)
+
+grpExit  = "Risk / Exits"
+atrLen   = input.int(14, "ATR length", group=grpExit)
+rMultTP  = input.float(1.5, "Final target (R multiple)", step=0.1, group=grpExit)
+usePartial = input.bool(true, "Partial exit at 1R", group=grpExit)
+partialPct = input.int(50, "Partial exit % of position", minval=10, maxval=90, group=grpExit)
+useTrail   = input.bool(true, "Trail runner after 1R", group=grpExit)
+trailRef   = input.string("EMA21", "Trail reference", options=["EMA21","VWAP"], group=grpExit)
+moveBE     = input.bool(true, "Move stop to breakeven after 1R", group=grpExit)
+
+grpVix   = "VIX Position Sizing"
+useVix     = input.bool(true, "Enable VIX-based sizing", group=grpVix)
+vixSym     = input.symbol("NSE:INDIAVIX", "VIX symbol", group=grpVix)
+baseQty    = input.int(1, "Base quantity (lots)", minval=1, group=grpVix)
+vixLow     = input.float(13.0, "Low VIX threshold", step=0.5, group=grpVix)
+vixHigh    = input.float(20.0, "High VIX threshold", step=0.5, group=grpVix)
+vixHighQty = input.int(1, "Qty when VIX >= high", minval=1, group=grpVix)
+vixMidQty  = input.int(2, "Qty when VIX in mid band", minval=1, group=grpVix)
+vixLowQty  = input.int(3, "Qty when VIX <= low", minval=1, group=grpVix)
+
+grpGuard = "Risk Guardrails"
+useDayLoss = input.bool(true, "Daily loss limit", group=grpGuard)
+dayLossRs  = input.float(5000.0, "Max daily loss (Rs)", step=500, group=grpGuard, tooltip="Stop trading for the day once realised loss exceeds this.")
+useMaxTr   = input.bool(true, "Max trades per day", group=grpGuard)
+maxTrades  = input.int(4, "Max trades/day", minval=1, group=grpGuard)
+useCooldown= input.bool(true, "Cooldown after a loss", group=grpGuard)
+cooldownBars=input.int(3, "Cooldown bars", minval=0, group=grpGuard)
+
+grpDate  = "Backtest Date Range"
+useDates = input.bool(false, "Limit backtest to date range", group=grpDate)
+startDate= input.time(timestamp("01 Jan 2024 00:00"), "Start", group=grpDate)
+endDate  = input.time(timestamp("01 Jan 2099 00:00"), "End", group=grpDate)
+
+// ====================== INDEX-AWARE PARAMS ===================================
+sym = syminfo.ticker
+isBN  = idxMode=="BankNifty" or (idxMode=="Auto" and (str.contains(sym,"BANKNIFTY") or str.contains(sym,"BANKNIF")))
+isSX  = idxMode=="Sensex"    or (idxMode=="Auto" and str.contains(sym,"SENSEX"))
+isNF  = not isBN and not isSX
+atrMult = isBN ? 1.3 : isSX ? 1.2 : 1.0
+buffer  = isBN ? 30.0 : isSX ? 30.0 : 10.0
+
+// ====================== CORE INDICATORS ======================================
+ema9   = ta.ema(close, 9)
+ema21  = ta.ema(close, 21)
+vwapV  = ta.vwap(hlc3)
+rsiV   = ta.rsi(close, rsiLen)
+atrV   = ta.atr(atrLen)
+[diP, diM, adxV] = ta.dmi(adxLen, adxLen)
+
+// VWAP std-dev bands (for range-fade mode)
+vwapDev = ta.stdev(close - vwapV, 20)
+vwapUp  = vwapV + vwapDev * fadeSdev
+vwapDn  = vwapV - vwapDev * fadeSdev
+
+// ====================== VIX SIZING ===========================================
+vixVal = useVix ? request.security(vixSym, "D", close, ignore_invalid_symbol=true) : na
+qtyByVix() =>
+    q = baseQty
+    if useVix and not na(vixVal)
+        q := vixVal >= vixHigh ? vixHighQty : vixVal <= vixLow ? vixLowQty : vixMidQty
+    q
+tradeQty = qtyByVix()
+
+// ====================== SESSION & OPENING RANGE ==============================
+inSession = not na(time(timeframe.period, sessStart))
+isNewDay  = ta.change(time("D")) != 0
+var float orHigh = na
+var float orLow  = na
+var int   orEndT = na
+var bool  orDone = false
+if isNewDay
+    orHigh := high
+    orLow  := low
+    orEndT := time + orMins * 60 * 1000
+    orDone := false
+else if inSession and not orDone
+    if time < orEndT
+        orHigh := math.max(orHigh, high)
+        orLow  := math.min(orLow, low)
+    else
+        orDone := true
+
+plot(orDone ? orHigh : na, "OR High", color=color.new(color.gray,40), style=plot.style_linebr)
+plot(orDone ? orLow  : na, "OR Low",  color=color.new(color.gray,40), style=plot.style_linebr)
+plot(vwapV, "VWAP", color=color.new(color.orange,0), linewidth=2)
+plot(ema9,  "EMA9",  color=color.new(color.aqua,0))
+plot(ema21, "EMA21", color=color.new(color.fuchsia,0))
+plot(useRegime and not (adxV>adxTrend) ? vwapUp : na, "VWAP+band", color=color.new(color.teal,50), style=plot.style_circles)
+plot(useRegime and not (adxV>adxTrend) ? vwapDn : na, "VWAP-band", color=color.new(color.teal,50), style=plot.style_circles)
+
+// ====================== TIME / DATE FILTERS ==================================
+inLunch       = blockLunch and not na(time(timeframe.period, lunchStart))
+afterTimeStop = useTimeStop and not na(time(timeframe.period, timeStop))
+inDateRange   = not useDates or (time >= startDate and time <= endDate)
+
+// ====================== REGIME ===============================================
+trendMode = not useRegime or adxV > adxTrend
+rangeMode = useRegime and adxV <= adxTrend
+
+// ====================== SIGNAL COMPONENTS ====================================
+aboveVWAP = close > vwapV
+belowVWAP = close < vwapV
+emaUp     = ema9 > ema21
+emaDn     = ema9 < ema21
+orbLong   = orDone and close > orHigh + buffer
+orbShort  = orDone and close < orLow  - buffer
+pbLong    = emaUp and low <= ema21 and close > ema21 and close > open
+pbShort   = emaDn and high >= ema21 and close < ema21 and close < open
+rsiOkL    = not useRsi or rsiV > rsiLong
+rsiOkS    = not useRsi or rsiV < rsiShort
+
+longScore  = (orbLong?1:0) + (aboveVWAP?1:0) + ((emaUp or pbLong)?1:0)
+shortScore = (orbShort?1:0)+ (belowVWAP?1:0) + ((emaDn or pbShort)?1:0)
+
+// Trend-mode entries (confluence) vs range-mode entries (fade extremes to VWAP)
+trendLong  = trendMode and longScore  >= minScore and rsiOkL
+trendShort = trendMode and shortScore >= minScore and rsiOkS
+fadeLong   = rangeMode and close <= vwapDn and close > open   // oversold stretch below VWAP
+fadeShort  = rangeMode and close >= vwapUp and close < open   // overbought stretch above VWAP
+
+// ====================== GUARDRAILS ===========================================
+var float dayStartEquity = na
+var int   tradesToday     = 0
+var int   lastLossBar     = na
+if isNewDay
+    dayStartEquity := strategy.equity
+    tradesToday    := 0
+dayPnL    = strategy.equity - dayStartEquity
+lossHit   = useDayLoss and dayPnL <= -dayLossRs
+maxHit    = useMaxTr and tradesToday >= maxTrades
+coolingDn = useCooldown and not na(lastLossBar) and (bar_index - lastLossBar) < cooldownBars
+
+canTrade = orDone and inSession and not inLunch and not afterTimeStop and inDateRange and not lossHit and not maxHit and not coolingDn
+
+longSig  = canTrade and (trendLong  or fadeLong)
+shortSig = canTrade and (trendShort or fadeShort)
+
+// ====================== SL / TP ==============================================
+slLongPx  = close - atrV * atrMult
+slShortPx = close + atrV * atrMult
+riskUnit  = atrV * atrMult
+tp1Long   = close + riskUnit            // 1R partial
+tp1Short  = close - riskUnit
+tpFinalL  = close + riskUnit * rMultTP
+tpFinalS  = close - riskUnit * rMultTP
+
+flat = strategy.position_size == 0
+
+// track entry context for management
+var float entryStop = na
+var bool   partialDone = false
+
+if longSig and flat
+    strategy.entry("L", strategy.long, qty=tradeQty)
+    entryStop := slLongPx
+    partialDone := false
+    tradesToday += 1
+    if usePartial
+        strategy.exit("L-p", from_entry="L", qty_percent=partialPct, stop=slLongPx, limit=tp1Long)
+        strategy.exit("L-r", from_entry="L", stop=slLongPx, limit=tpFinalL)
+    else
+        strategy.exit("L-x", from_entry="L", stop=slLongPx, limit=tpFinalL)
+
+if shortSig and flat
+    strategy.entry("S", strategy.short, qty=tradeQty)
+    entryStop := slShortPx
+    partialDone := false
+    tradesToday += 1
+    if usePartial
+        strategy.exit("S-p", from_entry="S", qty_percent=partialPct, stop=slShortPx, limit=tp1Short)
+        strategy.exit("S-r", from_entry="S", stop=slShortPx, limit=tpFinalS)
+    else
+        strategy.exit("S-x", from_entry="S", stop=slShortPx, limit=tpFinalS)
+
+// ----- Manage open position: detect 1R hit -> BE + trail the runner -----
+inLong  = strategy.position_size > 0
+inShort = strategy.position_size < 0
+avgPx   = strategy.position_avg_price
+
+reached1R_L = inLong  and high >= avgPx + riskUnit
+reached1R_S = inShort and low  <= avgPx - riskUnit
+if (reached1R_L or reached1R_S) and not partialDone
+    partialDone := true
+
+trailLine = trailRef=="VWAP" ? vwapV : ema21
+if useTrail and partialDone and inLong
+    beStop  = moveBE ? math.max(avgPx, entryStop) : entryStop
+    newStop = math.max(beStop, trailLine)
+    strategy.exit("L-r", from_entry="L", stop=newStop, limit=tpFinalL)
+if useTrail and partialDone and inShort
+    beStop  = moveBE ? math.min(avgPx, entryStop) : entryStop
+    newStop = math.min(beStop, trailLine)
+    strategy.exit("S-r", from_entry="S", stop=newStop, limit=tpFinalS)
+
+// record losing exits for cooldown
+if strategy.closedtrades > strategy.closedtrades[1]
+    if strategy.closedtrades.profit(strategy.closedtrades - 1) < 0
+        lastLossBar := bar_index
+
+// hard square-off
+if afterTimeStop and not flat
+    strategy.close_all(comment="TimeStop")
+
+// ====================== DASHBOARD ============================================
+var table t = table.new(position.top_right, 2, 9, border_width=1)
+if barstate.islast
+    idxName = isBN ? "BankNifty" : isSX ? "Sensex" : "Nifty"
+    regTxt  = not useRegime ? "off" : trendMode ? "TREND" : "RANGE"
+    wr = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100 : 0.0
+    pf = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
+    f(r,k,v,bg)=>
+        table.cell(t,0,r,k,text_color=color.white,bgcolor=color.new(color.gray,30))
+        table.cell(t,1,r,v,text_color=color.white,bgcolor=bg)
+    f(0,"Index", idxName, color.new(color.blue,40))
+    f(1,"Regime", regTxt, trendMode?color.new(color.green,50):color.new(color.orange,50))
+    f(2,"ADX", str.tostring(adxV,"#.0"), color.new(color.gray,60))
+    f(3,"VIX | Qty", (na(vixVal)?"n/a":str.tostring(vixVal,"#.0"))+" | "+str.tostring(tradeQty), color.new(color.purple,50))
+    f(4,"Trades today", str.tostring(tradesToday), color.new(color.gray,60))
+    f(5,"Day P&L", str.tostring(dayPnL,"#"), dayPnL>=0?color.new(color.green,50):color.new(color.red,50))
+    f(6,"Total trades", str.tostring(strategy.closedtrades), color.new(color.gray,60))
+    f(7,"Win rate", str.tostring(wr,"#.0")+"%", color.new(color.green,50))
+    f(8,"Profit factor", na(pf)?"n/a":str.tostring(pf,"#.00"), color.new(color.blue,50))
+
+// ====================== ALERTS ===============================================
+alertcondition(longSig,  "Long Entry",  "Unified F&O v3: LONG")
+alertcondition(shortSig, "Short Entry", "Unified F&O v3: SHORT")

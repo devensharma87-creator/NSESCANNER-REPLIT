@@ -1,0 +1,475 @@
+Directional report P&L is ₹6,62,206, not ₹62,206.
+With starting capital ₹10,00,000, the displayed return 66.22% is mathematically correct.
+
+But the bigger issue you caught is serious: trade entry/exit times like 07:00 pm, 08:30 pm, 05:45 pm are invalid for Indian index F&O regular market session. Regular backtest trades should not open or close outside 09:15 AM to 03:30 PM IST. Your “3:30AM” is a typo — it should be 3:30 PM.
+
+Below is the prompt you can send to your coder.
+
+Prompt for Coder: Backtest Lab Audit, Improvement & Fixes
+
+We need a full audit, correction, and improvement of the Backtest Lab / F&O Backtesting Engine. Do not blindly rewrite the system. First audit, identify issues, then fix with proof. The current screen shows promising directional profitability, but there are serious data/time/session issues that must be fixed before I can trust the result.
+
+1. Main Problem Observed
+
+In the Backtest Lab, the Directional 2-year report is showing:
+
+Starting capital: ₹10,00,000
+Net P&L: ₹6,62,206
+Return: 66.22%
+Decided trades: 551
+Win rate: 43.92%
+Profit factor: 1.27
+Expectancy: ₹1,202
+Max DD: ₹1,72,588
+
+This return calculation appears correct because:
+
+₹6,62,206 / ₹10,00,000 = 66.22%
+
+So do not treat this as a return calculation bug unless the backend data proves otherwise.
+
+However, the trade table is showing entry and exit times beyond Indian market hours, for example:
+
+06 Jun, 07:00 pm
+08 Jun, 07:15 pm
+10 Jun, 07:45 pm
+19 Jun, 04:15 pm
+27 Jun, 06:15 pm
+28 Jun, 05:45 pm
+28 Jun, 08:00 pm
+
+This is invalid for Indian index F&O trading. Regular market session should be:
+
+09:15 AM IST to 03:30 PM IST
+
+No backtest trade should enter, exit, hit target, hit stop loss, or close candle-based position outside the valid market session unless it is explicitly marked as synthetic / after-hours proxy, which it currently is not.
+
+This is a critical credibility issue.
+
+2. Required Audit Scope
+
+Please audit the entire Backtest Lab pipeline:
+
+Frontend display logic
+Backend backtest calculation logic
+Candle timestamp source
+Timezone conversion
+Market-session filter
+Entry and exit timestamp generation
+Trade close logic
+Real Replay mode
+Directional 2-year mode
+CSV export
+Equity curve
+P&L distribution
+Summary metrics
+Data quality panel
+Blocked/rejected setups table
+
+The goal is to ensure that every reported trade is honest, session-valid, reproducible, and clearly labelled.
+
+3. Mandatory Fix: Indian Market Session Validation
+
+Add a strict session validator for all Indian market backtesting.
+
+Valid regular session:
+Exchange timezone: Asia/Kolkata
+Entry allowed: 09:15 AM to 03:29 PM IST
+Exit allowed: 09:15 AM to 03:30 PM IST
+No new entry after configured cutoff
+Default new-entry cutoff should be configurable, suggested:
+Intraday F&O: no fresh entry after 03:00 PM
+Force square-off by 03:20 PM to 03:25 PM
+Final hard close by 03:30 PM
+Required behavior:
+If candle timestamp is outside market hours, exclude it from signal generation.
+If entry time is outside market hours, reject the trade.
+If exit time is outside market hours, correct it to the nearest valid candle only if logically valid, otherwise reject/flag the trade.
+Never fabricate after-hours entry/exit times.
+Do not allow PM trades after 03:30 PM.
+Do not allow next-day continuation unless strategy is explicitly marked as positional.
+If holding overnight is allowed, entry and exit must still happen during valid session candles only.
+4. Timezone Audit
+
+Check whether the system is accidentally treating UTC timestamps as IST or converting twice.
+
+Common bug possibilities to audit:
+
+UTC timestamp displayed as IST without conversion
+IST timestamp converted again as if UTC
+Candle provider timestamp is exchange-local but backend assumes UTC
+JavaScript Date() parsing changes timezone silently
+Database stores naive datetime without timezone
+Frontend formats timestamp in browser timezone incorrectly
+Backend uses server timezone instead of Asia/Kolkata
+
+Required fix:
+
+Store all candle timestamps with explicit timezone handling.
+Internal canonical format should be clear:
+either UTC in DB + convert to IST for display
+or exchange-local IST with explicit label
+Do not mix naive datetime and timezone-aware datetime.
+Every trade row should carry:
+entry_ts_utc
+entry_ts_ist
+exit_ts_utc
+exit_ts_ist
+timeframe
+source_provider
+session_valid: true/false
+5. Fix Trade Duration / Holding Logic
+
+The report must correctly show how long each trade was held.
+
+For each trade, calculate:
+
+Entry date and time
+Exit date and time
+Holding minutes
+Holding candles
+Holding days, if positional
+Whether it is intraday or positional
+Whether it was force-closed due to session end
+Whether it was closed by target, stop loss, trailing stop, expiry, EOD exit, or data unavailability
+
+Current outcomes like EOD_EXIT, STOP, TARGET, EXPIRED_TRIGGERED, and STOPPED should be standardized.
+
+Use a clean outcome enum:
+
+TARGET_1_HIT
+TARGET_2_HIT
+STOP_LOSS_HIT
+TRAILING_STOP_HIT
+EOD_EXIT
+EXPIRY_EXIT
+SIGNAL_REVERSAL_EXIT
+DATA_UNAVAILABLE_EXIT
+MANUAL_EXIT
+REJECTED_SESSION_INVALID
+REJECTED_DATA_INVALID
+6. Separate Real Replay and Directional Proxy Clearly
+
+The UI currently shows both Real Replay and Directional 2yr. These must be completely separated in logic and display.
+
+Real Replay
+
+This should use only actual captured option signal and option premium data.
+
+It must show:
+
+Actual option entry premium
+Actual option exit premium
+Actual strike
+Actual direction
+Actual quantity
+Actual charges
+Realized P&L
+Unrealized P&L for open trades
+Excluded trades where option exit is missing
+Reason for exclusion
+
+Do not include any trade in Real Replay P&L if option entry/exit premium is missing.
+
+Directional 2yr
+
+This is allowed to use spot/index candle-based proxy logic, but it must be clearly labelled:
+
+“Directional proxy backtest — not actual option P&L.”
+
+It must show:
+
+Proxy entry basis
+Proxy exit basis
+Option premium unavailable marker
+Modeled option risk assumption
+P&L method used
+Slippage assumption
+Whether strike was simulated or real
+Whether quantity was risk-based or fixed
+
+Do not mix actual option P&L and directional proxy P&L in one headline number.
+
+7. Fix / Verify Capital, Return, Drawdown, and P&L Metrics
+
+Audit every metric formula.
+
+Required formula checks:
+
+Net P&L = Sum of all closed trade net P&L
+
+Return % = Net P&L / Starting Capital × 100
+
+For the current Directional report:
+
+₹6,62,206 / ₹10,00,000 × 100 = 66.22%
+
+So this appears correct and should remain correct after audit.
+
+Also verify:
+Gross P&L
+Net P&L after charges
+Brokerage
+STT
+Exchange charges
+SEBI charges
+GST
+Stamp duty
+Slippage
+Profit factor
+Expectancy
+Win rate
+Average win
+Average loss
+Risk reward
+Max drawdown
+Max drawdown %
+Recovery factor
+Consecutive losses
+Consecutive wins
+Monthly P&L
+Strategy-wise P&L
+Index-wise P&L
+Timeframe-wise P&L
+
+Max DD should be clearly shown as both rupee and percentage:
+
+Max DD % = Max DD / Peak Equity × 100
+
+8. Add Strategy-Wise Breakdown
+
+The current table contains multiple setup names, such as:
+
+DIRECTIONAL_TREND
+BASELINE
+EMA_PULLBACK
+VWAP_RECLAIM
+VOLUME_BREAKOUT
+MEAN_REVERSION
+TREND_CONTINUATION
+
+Do not show only one combined result. Add strategy-wise performance.
+
+For each setup, show:
+
+Total trades
+Decided trades
+Rejected trades
+Win rate
+Net P&L
+Average P&L
+Profit factor
+Expectancy
+Max drawdown
+Best trade
+Worst trade
+Average holding time
+Target hit count
+Stop loss hit count
+EOD exit count
+Rejection reason count
+
+This is important because one profitable strategy may be hiding three bad strategies.
+
+9. Add Market-Hour Rejection Report
+
+Create a separate audit section called:
+
+Session Validity Audit
+
+It should show:
+
+Total candles scanned
+Candles inside market hours
+Candles outside market hours
+Trades rejected due to invalid entry time
+Trades rejected due to invalid exit time
+Trades adjusted due to timezone conversion
+Earliest valid trade time
+Latest valid trade time
+Any trade outside 09:15–15:30 IST
+
+If any invalid trade exists, show a red warning:
+
+“Backtest contains session-invalid trades. Do not trust this report until fixed.”
+
+10. Improve Trade Table
+
+The trade table must include these columns:
+
+Index
+Setup name
+Mode: Real / Directional
+Direction: Call / Put
+Strike price
+Entry date
+Entry time IST
+Exit date
+Exit time IST
+Holding time
+Timeframe
+Entry price
+Target 1
+Target 2
+Stop loss
+Exit price
+Quantity
+Capital deployed
+Gross P&L
+Charges
+Net P&L
+Outcome
+Exit reason
+Trade reason
+Data source
+Session valid
+Option premium available: Yes/No
+
+Add filters for:
+
+Index
+Strategy
+Mode
+Date range
+Timeframe
+Outcome
+Session valid / invalid
+Winning trades
+Losing trades
+11. Fix CSV Export
+
+CSV export must match exactly what is shown on screen and include all audit columns.
+
+CSV should include:
+
+Backtest run ID
+Run date/time
+Starting capital
+Risk %
+Instrument
+Timeframe
+Mode
+Data provider
+Strategy
+Entry/exit timestamps in IST
+Entry/exit timestamps in UTC
+Strike
+Direction
+Entry price
+Exit price
+SL
+T1
+T2
+Qty
+Capital deployed
+Gross P&L
+Charges
+Net P&L
+Outcome
+Exit reason
+Setup reason
+Data-quality flags
+Session-valid flag
+12. Add Backtest Run ID and Reproducibility
+
+Every backtest run must have a unique backtest_run_id.
+
+Store:
+
+Run ID
+Created timestamp
+Mode
+Instrument
+Strategy selected
+Timeframe
+Start date
+End date
+Starting capital
+Risk %
+Data source
+Candle count
+Trade count
+Excluded trade count
+Code version
+Config version
+
+This is required so that the same run can be verified later.
+
+13. UI Warning and Honesty Labels
+
+The Backtest Lab must show strong labels:
+
+For Real Replay:
+
+“Uses captured real option entries/exits only. Missing option exits are excluded from P&L.”
+
+For Directional 2yr:
+
+“Directional proxy only. This is not actual option premium P&L.”
+
+For invalid session data:
+
+“Invalid market-hour trades detected. Report is not reliable until corrected.”
+
+For small sample:
+
+“Sample size too small. Do not judge strategy profitability from this alone.”
+
+14. Acceptance Criteria
+
+The task is complete only when all of the following are true:
+
+No trade entry is before 09:15 AM IST.
+No trade entry is after 03:30 PM IST.
+No trade exit is before 09:15 AM IST.
+No trade exit is after 03:30 PM IST.
+Directional and Real Replay P&L are fully separated.
+Return calculation is verified and matches starting capital.
+₹6,62,206 on ₹10,00,000 correctly shows 66.22%.
+Max DD is verified and shown in rupees and percentage.
+Trade table includes session-valid flag.
+CSV export includes all audit columns.
+Strategy-wise performance is available.
+Rejected/blocked setup reasoning is visible.
+Data quality warnings are visible.
+Backend tests cover timezone/session validation.
+Frontend display does not convert IST incorrectly.
+A final audit report is provided with before/after screenshots.
+15. Required Tests
+
+Add automated tests for:
+
+IST timezone conversion
+UTC to IST conversion
+No double conversion
+Session open time: 09:15
+Session close time: 15:30
+Entry cutoff
+EOD forced exit
+Invalid after-hours candle rejection
+Weekend rejection
+Market holiday rejection, if holiday calendar exists
+Return calculation
+Net P&L calculation
+Max drawdown calculation
+Real Replay missing option premium exclusion
+Directional proxy label enforcement
+CSV export integrity
+16. Final Deliverable Required
+
+After fixes, provide a report with:
+
+What was wrong
+Root cause
+Files changed
+Backend changes
+Frontend changes
+Database changes, if any
+Test results
+Before/after screenshots
+Confirmation that no trade exists outside 09:15 AM to 03:30 PM IST
+Confirmation that Directional 2yr and Real Replay are not mixed
+Confirmation that the ₹6,62,206 / ₹10,00,000 = 66.22% calculation is preserved
+Remaining limitations
+
+Do not mark this complete until the session-time issue is fully fixed and verified.

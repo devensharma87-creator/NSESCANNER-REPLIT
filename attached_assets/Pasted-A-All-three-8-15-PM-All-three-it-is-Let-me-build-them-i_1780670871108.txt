@@ -1,0 +1,26 @@
+A: All three
+
+8:15 PM
+All three it is. Let me build them into the strategy.
+
+
+Re-reading the current strategy file before editing
+Re-reading the current strategy file before editing
+Now I'll build v2 with all three additions. I'll write it as a fresh file since the changes touch several sections.
+
+
+Created a file, read a file
+Created a file, read a file
+Done — v2 has all three additions wired in.
+
+VIX-based position sizing — pulls India VIX (default NSE:INDIAVIX) via request.security and scales lots into three bands: calm market (VIX ≤ 13) → 3 lots, mid band → 2 lots, high vol (VIX ≥ 20) → 1 lot. All thresholds and lot counts are editable inputs. The logic matches the size-down-in-volatility principle from earlier — Bank Nifty especially punishes oversizing when VIX spikes. Live VIX value and current qty show in the table.
+
+Configurable time windows — the lunch block and square-off are now input.session fields ("1200-1330" and "1500-1530" by default) instead of hardcoded minutes. Change them by editing the session strings; both can be toggled off entirely. Session-based is cleaner than the old minute-math and respects the chart's exchange timezone automatically.
+
+Date-range filter — toggle "Limit backtest to date range" and set start/end dates to isolate a period (e.g. test only high-volatility months, or exclude an anomalous event). Off by default so it backtests everything.
+
+Two specific cautions for v2:
+
+VIX sizing affects backtest realism more than you'd expect. Because request.security on daily VIX returns the confirmed daily close, intraday it uses the prior day's VIX until today's close forms — which is actually what you want (no lookahead), but means the size for a given day is set by yesterday's VIX. That's realistic, just be aware of it when reading results.
+Backtest the futures contract, not spot, and remember the ₹20 commission still understates real F&O costs — same caveat as v1.
+If you want a v3 later, natural next steps would be a trailing stop on the 21 EMA/VWAP (instead of fixed R-target), or a partial-exit at 1R with the rest trailed. Both are straightforward to add.

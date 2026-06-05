@@ -1,0 +1,154 @@
+//@version=5
+// =============================================================================
+// Unified Intraday F&O System v1  —  ORB + VWAP + EMA Pullback
+// For Nifty 50, Bank Nifty, Sensex (Indian index F&O, intraday)
+// Logic: ORB sets bias, VWAP confirms institutional alignment,
+//        EMA 9/21 pullback triggers entry. Trades require >=2 in agreement.
+// Index-aware: ATR multiplier & breakout buffer auto-switch per symbol.
+// NOTE: Educational tool. Not investment advice. Always use a hard SL.
+// =============================================================================
+indicator("Unified Intraday F&O v1", overlay=true, max_labels_count=500)
+
+// ---------------- Inputs ----------------
+grpIdx   = "Index Selection"
+idxMode  = input.string("Auto", "Index parameter set", options=["Auto","Nifty","BankNifty","Sensex"], group=grpIdx)
+
+grpOR    = "Opening Range"
+orMins   = input.int(15, "Opening Range minutes", minval=5, maxval=60, group=grpOR)
+sessStart= input.session("0915-1530", "Session", group=grpOR)
+
+grpEnt   = "Entry / Filters"
+rsiLen   = input.int(14, "RSI length", group=grpEnt)
+rsiLong  = input.int(55, "RSI long threshold", group=grpEnt)
+rsiShort = input.int(45, "RSI short threshold", group=grpEnt)
+noTradeLunch = input.bool(true, "Block 12:00-13:30 entries", group=grpEnt)
+
+grpExit  = "Risk"
+atrLen   = input.int(14, "ATR length", group=grpExit)
+rMultTP  = input.float(1.5, "Target (R multiple)", step=0.1, group=grpExit)
+useTimeStop = input.bool(true, "Time stop at 15:00", group=grpExit)
+
+// ---------------- Index-aware parameter set ----------------
+sym = syminfo.ticker
+isBN  = idxMode=="BankNifty" or (idxMode=="Auto" and (str.contains(sym,"BANKNIFTY") or str.contains(sym,"BANKNIF")))
+isSX  = idxMode=="Sensex"    or (idxMode=="Auto" and str.contains(sym,"SENSEX"))
+isNF  = not isBN and not isSX
+
+atrMult = isBN ? 1.3 : isSX ? 1.2 : 1.0
+buffer  = isBN ? 30.0 : isSX ? 30.0 : 10.0
+
+// ---------------- Core indicators ----------------
+ema9   = ta.ema(close, 9)
+ema21  = ta.ema(close, 21)
+vwapV  = ta.vwap(hlc3)
+rsiV   = ta.rsi(close, rsiLen)
+atrV   = ta.atr(atrLen)
+
+// ---------------- Session & Opening Range ----------------
+inSession = not na(time(timeframe.period, sessStart))
+isNewDay  = ta.change(time("D")) != 0
+
+var float orHigh = na
+var float orLow  = na
+var int   orEndT = na
+var bool  orDone = false
+
+if isNewDay
+    orHigh := high
+    orLow  := low
+    orEndT := time + orMins * 60 * 1000
+    orDone := false
+else if inSession and not orDone
+    if time < orEndT
+        orHigh := math.max(orHigh, high)
+        orLow  := math.min(orLow, low)
+    else
+        orDone := true
+
+plot(orDone ? orHigh : na, "OR High", color=color.new(color.gray,30), style=plot.style_linebr)
+plot(orDone ? orLow  : na, "OR Low",  color=color.new(color.gray,30), style=plot.style_linebr)
+plot(vwapV, "VWAP", color=color.new(color.orange,0), linewidth=2)
+plot(ema9,  "EMA9",  color=color.new(color.aqua,0))
+plot(ema21, "EMA21", color=color.new(color.fuchsia,0))
+
+// ---------------- Lunch / time filters ----------------
+hr = hour(time, syminfo.timezone)
+mn = minute(time, syminfo.timezone)
+curMin = hr*60 + mn
+inLunch = noTradeLunch and (curMin >= 720 and curMin <= 810)   // 12:00-13:30
+afterTimeStop = useTimeStop and (curMin >= 900)                 // 15:00
+
+// ---------------- Signal components ----------------
+aboveVWAP = close > vwapV
+belowVWAP = close < vwapV
+emaUp     = ema9 > ema21
+emaDn     = ema9 < ema21
+
+// ORB breakout (needs OR completed)
+orbLong  = orDone and close > orHigh + buffer
+orbShort = orDone and close < orLow  - buffer
+
+// EMA pullback: tagged 21 EMA this bar and closed back in trend direction
+pbLong  = emaUp and low <= ema21 and close > ema21 and close > open
+pbShort = emaDn and high >= ema21 and close < ema21 and close < open
+
+// RSI momentum filter
+rsiOkL = rsiV > rsiLong
+rsiOkS = rsiV < rsiShort
+
+// ---------------- Combine: require >=2 agreeing ----------------
+// Long score
+longScore  = (orbLong?1:0) + (aboveVWAP?1:0) + ((emaUp or pbLong)?1:0)
+shortScore = (orbShort?1:0)+ (belowVWAP?1:0) + ((emaDn or pbShort)?1:0)
+
+canTrade = orDone and inSession and not inLunch and not afterTimeStop
+
+longSig  = canTrade and longScore  >= 2 and rsiOkL
+shortSig = canTrade and shortScore >= 2 and rsiOkS
+
+// one signal per bar-direction, avoid spamming same-direction repeats
+var int lastDir = 0   // 1 long, -1 short
+fireLong  = longSig  and lastDir != 1
+fireShort = shortSig and lastDir != -1
+if fireLong
+    lastDir := 1
+if fireShort
+    lastDir := -1
+if isNewDay
+    lastDir := 0
+
+// ---------------- SL / TP levels ----------------
+slLong  = close - atrV * atrMult
+slShort = close + atrV * atrMult
+riskL   = close - slLong
+riskS   = slShort - close
+tpLong  = close + riskL * rMultTP
+tpShort = close - riskS * rMultTP
+
+// ---------------- Plot signals ----------------
+plotshape(fireLong,  "Long",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green,0), size=size.small)
+plotshape(fireShort, "Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red,0),   size=size.small)
+
+if fireLong
+    label.new(bar_index, low, "LONG\nSL " + str.tostring(slLong, format.mintick) + "\nTP " + str.tostring(tpLong, format.mintick), style=label.style_label_up, color=color.new(color.green,20), textcolor=color.white, size=size.small)
+if fireShort
+    label.new(bar_index, high, "SHORT\nSL " + str.tostring(slShort, format.mintick) + "\nTP " + str.tostring(tpShort, format.mintick), style=label.style_label_down, color=color.new(color.red,20), textcolor=color.white, size=size.small)
+
+// ---------------- Info table ----------------
+var table t = table.new(position.top_right, 2, 5, border_width=1)
+if barstate.islast
+    idxName = isBN ? "BankNifty" : isSX ? "Sensex" : "Nifty"
+    table.cell(t, 0, 0, "Index set", text_color=color.white, bgcolor=color.new(color.blue,0))
+    table.cell(t, 1, 0, idxName,     text_color=color.white, bgcolor=color.new(color.blue,40))
+    table.cell(t, 0, 1, "ATR mult",  text_color=color.white, bgcolor=color.new(color.gray,30))
+    table.cell(t, 1, 1, str.tostring(atrMult), text_color=color.white, bgcolor=color.new(color.gray,60))
+    table.cell(t, 0, 2, "Buffer",    text_color=color.white, bgcolor=color.new(color.gray,30))
+    table.cell(t, 1, 2, str.tostring(buffer),  text_color=color.white, bgcolor=color.new(color.gray,60))
+    table.cell(t, 0, 3, "Long score",text_color=color.white, bgcolor=color.new(color.green,30))
+    table.cell(t, 1, 3, str.tostring(longScore)+"/3",  text_color=color.white, bgcolor=color.new(color.green,60))
+    table.cell(t, 0, 4, "Short score",text_color=color.white, bgcolor=color.new(color.red,30))
+    table.cell(t, 1, 4, str.tostring(shortScore)+"/3", text_color=color.white, bgcolor=color.new(color.red,60))
+
+// ---------------- Alerts ----------------
+alertcondition(fireLong,  "Long Signal",  "Unified F&O: LONG signal")
+alertcondition(fireShort, "Short Signal", "Unified F&O: SHORT signal")

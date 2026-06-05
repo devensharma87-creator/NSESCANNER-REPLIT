@@ -24,6 +24,7 @@
 
 import { ema, rsi, atr, adx } from "../indicators";
 import { classifyRegime } from "../regimeClassifier";
+import { candleUtcIso, IST_OFFSET_MS } from "./time";
 import type {
   BacktestDataQualityOut,
   BacktestTradeOut,
@@ -52,7 +53,6 @@ const INDEX_CFG: Record<string, IndexCfg> = {
   SENSEX: { expiryWeekday: 2, expiryCadence: "weekly", strikeStep: 100 },
 };
 
-const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const ATM_DELTA = 0.5; // ATM long-option delta magnitude (modeled).
 const WARMUP_BARS = 30; // ADX(14) needs ~2× period to stabilise.
 const FORCE_EXIT_MIN = 15 * 60 + 20; // 15:20 IST.
@@ -151,8 +151,8 @@ export function runDirectional(
       direction: o.dir === "BULL" ? "BULLISH" : "BEARISH",
       optionType: o.dir === "BULL" ? "CALL" : "PUT",
       strike,
-      entryAt: candles[o.entryIdx]!.t.toISOString(),
-      exitAt: candles[exitIdx]!.t.toISOString(),
+      entryAt: candleUtcIso(candles[o.entryIdx]!.t),
+      exitAt: candleUtcIso(candles[exitIdx]!.t),
       entrySpot: round2(o.entrySpot),
       exitSpot: round2(exitSpot),
       optionEntry: null, // no historical premium — unknown, not fabricated
@@ -271,8 +271,8 @@ export function runDirectional(
       direction: o.dir === "BULL" ? "BULLISH" : "BEARISH",
       optionType: o.dir === "BULL" ? "CALL" : "PUT",
       strike,
-      entryAt: candles[o.entryIdx]!.t.toISOString(),
-      exitAt: candles[exitIdx]!.t.toISOString(),
+      entryAt: candleUtcIso(candles[o.entryIdx]!.t),
+      exitAt: candleUtcIso(candles[exitIdx]!.t),
       entrySpot: round2(o.entrySpot),
       exitSpot: round2(price),
       optionEntry: null,

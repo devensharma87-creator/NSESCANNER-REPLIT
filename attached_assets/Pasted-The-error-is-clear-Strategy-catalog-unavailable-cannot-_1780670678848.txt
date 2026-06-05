@@ -1,0 +1,524 @@
+The error is clear:
+
+“Strategy catalog unavailable — cannot run a strategy backtest right now.”
+
+This means your Strategy Research tab is not getting strategy list from backend. So frontend has no selectable strategies, and then it shows:
+
+“Select at least one strategy to run.”
+
+Your coder has built filters like VWAP Filter, EMA Trend Filter, Avoid Chop Zone, etc., but the actual strategy catalog is missing/broken.
+
+Use this code/fix.
+
+1. Backend: Add Strategy Catalog API
+
+Create or update backend file, for example:
+
+routes/backtest.py
+or wherever your backtest API routes are defined.
+
+Python / FastAPI version
+from fastapi import APIRouter
+from pydantic import BaseModel
+from typing import List, Optional
+
+router = APIRouter(prefix="/api/backtest", tags=["Backtest"])
+
+
+class StrategyItem(BaseModel):
+    id: str
+    name: str
+    description: str
+    instruments: List[str]
+    timeframes: List[str]
+    enabled: bool = True
+    mode: str = "DIRECTIONAL_PROXY"
+
+
+STRATEGY_CATALOG = [
+    {
+        "id": "DIRECTIONAL_TREND",
+        "name": "Directional Trend",
+        "description": "Trend-following setup based on directional price movement and confirmation filters.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m", "1d"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "EMA_PULLBACK",
+        "name": "EMA Pullback",
+        "description": "Pullback continuation setup near EMA support/resistance.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m", "1d"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "VWAP_RECLAIM",
+        "name": "VWAP Reclaim",
+        "description": "Intraday VWAP reclaim setup with trend confirmation.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "VOLUME_BREAKOUT",
+        "name": "Volume Breakout",
+        "description": "Breakout setup confirmed by volume expansion.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "MEAN_REVERSION",
+        "name": "Mean Reversion",
+        "description": "Counter-trend reversion setup after stretched move.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "TREND_CONTINUATION",
+        "name": "Trend Continuation",
+        "description": "Continuation setup after confirmed trend structure.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m", "1d"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+]
+
+
+@router.get("/strategies")
+def get_backtest_strategies():
+    return {
+        "ok": True,
+        "count": len(STRATEGY_CATALOG),
+        "strategies": STRATEGY_CATALOG,
+    }
+
+Then make sure this router is registered in your main app:
+
+from routes.backtest import router as backtest_router
+
+app.include_router(backtest_router)
+2. If Your Backend Is Flask, Use This Instead
+from flask import Blueprint, jsonify
+
+backtest_bp = Blueprint("backtest", __name__, url_prefix="/api/backtest")
+
+STRATEGY_CATALOG = [
+    {
+        "id": "DIRECTIONAL_TREND",
+        "name": "Directional Trend",
+        "description": "Trend-following setup based on directional price movement and confirmation filters.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m", "1d"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "EMA_PULLBACK",
+        "name": "EMA Pullback",
+        "description": "Pullback continuation setup near EMA support/resistance.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m", "1d"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "VWAP_RECLAIM",
+        "name": "VWAP Reclaim",
+        "description": "Intraday VWAP reclaim setup with trend confirmation.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "VOLUME_BREAKOUT",
+        "name": "Volume Breakout",
+        "description": "Breakout setup confirmed by volume expansion.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "MEAN_REVERSION",
+        "name": "Mean Reversion",
+        "description": "Counter-trend reversion setup after stretched move.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+    {
+        "id": "TREND_CONTINUATION",
+        "name": "Trend Continuation",
+        "description": "Continuation setup after confirmed trend structure.",
+        "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "timeframes": ["5m", "15m", "30m", "1d"],
+        "enabled": True,
+        "mode": "DIRECTIONAL_PROXY",
+    },
+]
+
+
+@backtest_bp.route("/strategies", methods=["GET"])
+def get_backtest_strategies():
+    return jsonify({
+        "ok": True,
+        "count": len(STRATEGY_CATALOG),
+        "strategies": STRATEGY_CATALOG,
+    })
+
+Register it:
+
+from routes.backtest import backtest_bp
+
+app.register_blueprint(backtest_bp)
+3. Frontend Fix: Load Strategy Catalog Properly
+
+In your app.js, BacktestLab.jsx, or related frontend file, add this.
+
+let backtestStrategies = [];
+let selectedBacktestStrategies = new Set();
+
+async function loadBacktestStrategies() {
+  const container = document.getElementById("backtest-strategy-list");
+  const warning = document.getElementById("backtest-strategy-warning");
+  const runBtn = document.getElementById("run-backtest-btn");
+
+  try {
+    const res = await fetch("/api/backtest/strategies", {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Strategy API failed with status ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    if (!data.ok || !Array.isArray(data.strategies) || data.strategies.length === 0) {
+      throw new Error("No strategies returned from backend");
+    }
+
+    backtestStrategies = data.strategies.filter(s => s.enabled !== false);
+
+    if (warning) {
+      warning.style.display = "none";
+      warning.textContent = "";
+    }
+
+    renderBacktestStrategyList();
+
+    if (runBtn) {
+      runBtn.disabled = selectedBacktestStrategies.size === 0;
+    }
+
+  } catch (err) {
+    console.error("Backtest strategy catalog unavailable:", err);
+
+    // Fallback so UI does not become useless
+    backtestStrategies = getFallbackBacktestStrategies();
+
+    if (warning) {
+      warning.style.display = "block";
+      warning.textContent =
+        "Strategy catalog API unavailable. Using local fallback strategies. Backend must be fixed.";
+    }
+
+    renderBacktestStrategyList();
+
+    if (runBtn) {
+      runBtn.disabled = selectedBacktestStrategies.size === 0;
+    }
+  }
+}
+
+function getFallbackBacktestStrategies() {
+  return [
+    {
+      id: "DIRECTIONAL_TREND",
+      name: "Directional Trend",
+      description: "Trend-following directional setup.",
+      enabled: true,
+    },
+    {
+      id: "EMA_PULLBACK",
+      name: "EMA Pullback",
+      description: "EMA pullback continuation setup.",
+      enabled: true,
+    },
+    {
+      id: "VWAP_RECLAIM",
+      name: "VWAP Reclaim",
+      description: "VWAP reclaim intraday setup.",
+      enabled: true,
+    },
+    {
+      id: "VOLUME_BREAKOUT",
+      name: "Volume Breakout",
+      description: "Volume-backed breakout setup.",
+      enabled: true,
+    },
+    {
+      id: "MEAN_REVERSION",
+      name: "Mean Reversion",
+      description: "Counter-trend mean reversion setup.",
+      enabled: true,
+    },
+    {
+      id: "TREND_CONTINUATION",
+      name: "Trend Continuation",
+      description: "Confirmed trend continuation setup.",
+      enabled: true,
+    },
+  ];
+}
+
+function renderBacktestStrategyList() {
+  const container = document.getElementById("backtest-strategy-list");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  backtestStrategies.forEach(strategy => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "strategy-chip";
+    btn.dataset.strategyId = strategy.id;
+
+    btn.innerHTML = `
+      <span class="strategy-chip-title">${strategy.name}</span>
+      <span class="strategy-chip-desc">${strategy.description || ""}</span>
+    `;
+
+    btn.onclick = () => {
+      if (selectedBacktestStrategies.has(strategy.id)) {
+        selectedBacktestStrategies.delete(strategy.id);
+        btn.classList.remove("selected");
+      } else {
+        selectedBacktestStrategies.add(strategy.id);
+        btn.classList.add("selected");
+      }
+
+      const runBtn = document.getElementById("run-backtest-btn");
+      if (runBtn) {
+        runBtn.disabled = selectedBacktestStrategies.size === 0;
+      }
+    };
+
+    container.appendChild(btn);
+  });
+}
+
+Call this when Backtest Lab page opens:
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadBacktestStrategies();
+});
+
+Or if your app has tab routing:
+
+async function openBacktestLab() {
+  await loadBacktestStrategies();
+}
+4. HTML Required
+
+Make sure your Backtest Lab has these IDs.
+
+<div class="section-label">Strategies</div>
+
+<div
+  id="backtest-strategy-warning"
+  class="error-box"
+  style="display:none;"
+></div>
+
+<div id="backtest-strategy-list" class="strategy-grid"></div>
+
+<button id="run-backtest-btn" disabled onclick="runStrategyBacktest()">
+  ▶ Run backtest
+</button>
+5. CSS for Strategy Chips
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.strategy-chip {
+  background: #101936;
+  border: 1px solid #26345f;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: left;
+  color: #dbe7ff;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+
+.strategy-chip:hover {
+  border-color: #38bdf8;
+  background: #122044;
+}
+
+.strategy-chip.selected {
+  border-color: #38bdf8;
+  background: #082f49;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.35);
+}
+
+.strategy-chip-title {
+  display: block;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.strategy-chip-desc {
+  display: block;
+  font-size: 12px;
+  color: #9fb1d1;
+  line-height: 1.35;
+}
+
+.error-box {
+  border: 1px solid #be185d;
+  background: rgba(190, 24, 93, 0.12);
+  color: #ff8ab3;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin: 8px 0 12px;
+}
+6. Fix Run Backtest Payload
+
+Your run function must send selected strategies.
+
+async function runStrategyBacktest() {
+  const instrument = document.getElementById("backtest-instrument")?.value || "ALL";
+  const startingCapital = Number(document.getElementById("backtest-capital")?.value || 1000000);
+  const riskPerTrade = Number(document.getElementById("backtest-risk")?.value || 1);
+
+  const strategies = Array.from(selectedBacktestStrategies);
+
+  if (strategies.length === 0) {
+    alert("Select at least one strategy to run.");
+    return;
+  }
+
+  const payload = {
+    mode: "STRATEGY_RESEARCH",
+    instrument,
+    starting_capital: startingCapital,
+    risk_per_trade_pct: riskPerTrade,
+    strategies,
+    filters: {
+      vwap_filter: true,
+      ema_trend_filter: true,
+      avoid_chop_zone: true,
+      avoid_last_15_minutes: true,
+      min_rr: 1.5,
+      include_charges: true,
+      include_slippage: true,
+    },
+  };
+
+  try {
+    const res = await fetch("/api/backtest/run", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Backtest failed with status ${res.status}`);
+    }
+
+    const data = await res.json();
+    renderBacktestResults(data);
+
+  } catch (err) {
+    console.error("Backtest run failed:", err);
+    alert("Backtest failed. Check backend logs.");
+  }
+}
+7. Backend Run API Must Accept Strategies
+
+Add validation like this.
+
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
+
+
+class BacktestRunRequest(BaseModel):
+    mode: str = "STRATEGY_RESEARCH"
+    instrument: str = "ALL"
+    starting_capital: float = Field(default=1000000, gt=0)
+    risk_per_trade_pct: float = Field(default=1, gt=0)
+    strategies: List[str]
+    filters: Optional[Dict[str, Any]] = None
+
+
+@router.post("/run")
+def run_backtest(req: BacktestRunRequest):
+    if not req.strategies:
+        return {
+            "ok": False,
+            "error": "NO_STRATEGY_SELECTED",
+            "message": "Select at least one strategy to run.",
+        }
+
+    allowed = {s["id"] for s in STRATEGY_CATALOG if s.get("enabled", True)}
+    invalid = [s for s in req.strategies if s not in allowed]
+
+    if invalid:
+        return {
+            "ok": False,
+            "error": "INVALID_STRATEGY",
+            "invalid_strategies": invalid,
+        }
+
+    # TODO: connect this to your actual backtest engine
+    result = run_strategy_backtest_engine(
+        mode=req.mode,
+        instrument=req.instrument,
+        starting_capital=req.starting_capital,
+        risk_per_trade_pct=req.risk_per_trade_pct,
+        strategies=req.strategies,
+        filters=req.filters or {},
+    )
+
+    return {
+        "ok": True,
+        "mode": req.mode,
+        "instrument": req.instrument,
+        "strategies": req.strategies,
+        "result": result,
+    }
+
+If your actual engine function has another name, replace:
+
+run_strategy_backtest_engine(...)
+
+with your existing function.
+
+8. Coder Instruction
+
+Send this exact instruction with the code:
+
+The Backtest Lab Strategy Research tab is broken because the strategy catalog is unavailable. Fix /api/backtest/strategies, ensure frontend loads strategy catalog, render selectable strategy chips, and pass selected strategies into /api/backtest/run. Confirmation filters are not strategies. Do not allow “Run backtest” unless at least one actual strategy is selected. Add fallback only as temporary UI safety, but backend API must be fixed permanently.
+
+This is not a design issue. This is a backend/frontend wiring issue. The strategy registry is either missing, not registered, returning wrong shape, or frontend is reading the wrong endpoint.

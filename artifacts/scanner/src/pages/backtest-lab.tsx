@@ -104,16 +104,50 @@ function shortDateTime(iso: string | null | undefined): string {
   const ms = Date.parse(iso);
   if (Number.isNaN(ms)) return iso;
   try {
-    return new Intl.DateTimeFormat("en-IN", {
-      day: "2-digit",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "Asia/Kolkata",
-    }).format(new Date(ms));
+    return (
+      new Intl.DateTimeFormat("en-IN", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Kolkata",
+      }).format(new Date(ms)) + " IST"
+    );
   } catch {
     return iso;
   }
+}
+
+// ───────── Session-validity audit (NSE regular session 09:15–15:30 IST) ─────────
+const SESSION_OPEN_MIN = 9 * 60 + 15;
+const SESSION_CLOSE_MIN = 15 * 60 + 30;
+
+/** IST minute-of-day for a TRUE-UTC ISO instant, or null when unparseable. */
+function istMinuteFromIso(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(ms));
+    const hh = Number(parts.find((p) => p.type === "hour")?.value);
+    const mm = Number(parts.find((p) => p.type === "minute")?.value);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+    return (hh % 24) * 60 + mm;
+  } catch {
+    return null;
+  }
+}
+
+/** True when an emitted timestamp falls inside the NSE regular session. */
+function isSessionValidIso(iso: string | null | undefined): boolean {
+  const m = istMinuteFromIso(iso);
+  if (m == null) return false;
+  return m >= SESSION_OPEN_MIN && m <= SESSION_CLOSE_MIN;
 }
 
 function shortDate(iso: string | null | undefined): string {
@@ -947,8 +981,32 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
   if (trades.length === 0) {
     return <div className="py-8 text-center text-xs text-muted-foreground">No trades in this run.</div>;
   }
+  const offSession = trades.filter(
+    (t) => !isSessionValidIso(t.entryAt) || !isSessionValidIso(t.exitAt),
+  );
+  const allValid = offSession.length === 0;
   return (
-    <div className="max-h-[420px] overflow-auto rounded-lg border border-border">
+    <div className="space-y-2">
+      <div
+        className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] ${
+          allValid
+            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+            : "border-rose-500/40 bg-rose-500/10 text-rose-300"
+        }`}
+      >
+        <span className="font-medium">Session validity audit</span>
+        <span className="text-muted-foreground">·</span>
+        {allValid ? (
+          <span>
+            All {trades.length} trades fall within NSE regular hours (09:15–15:30 IST).
+          </span>
+        ) : (
+          <span>
+            {offSession.length} of {trades.length} trades have an entry/exit OUTSIDE 09:15–15:30 IST — flagged below.
+          </span>
+        )}
+      </div>
+      <div className="max-h-[420px] overflow-auto rounded-lg border border-border">
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-card">
           <tr className="text-left text-muted-foreground">
@@ -1003,8 +1061,18 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
                 {t.optionType ?? (isBullishDirection(t.direction) ? "CE" : "PE")}
               </td>
               <td className="px-2 py-1.5 tabular-nums">{t.strike ?? "—"}</td>
-              <td className="px-2 py-1.5 whitespace-nowrap">{shortDateTime(t.entryAt)}</td>
-              <td className="px-2 py-1.5 whitespace-nowrap">{shortDateTime(t.exitAt)}</td>
+              <td className={`px-2 py-1.5 whitespace-nowrap ${isSessionValidIso(t.entryAt) ? "" : "text-rose-400"}`}>
+                {shortDateTime(t.entryAt)}
+                {!isSessionValidIso(t.entryAt) && (
+                  <span title="Entry falls outside NSE regular hours (09:15–15:30 IST)"> ⚠</span>
+                )}
+              </td>
+              <td className={`px-2 py-1.5 whitespace-nowrap ${isSessionValidIso(t.exitAt) ? "" : "text-rose-400"}`}>
+                {shortDateTime(t.exitAt)}
+                {!isSessionValidIso(t.exitAt) && (
+                  <span title="Exit falls outside NSE regular hours (09:15–15:30 IST)"> ⚠</span>
+                )}
+              </td>
               <td className="px-2 py-1.5 text-right tabular-nums" title={t.optionEntry == null ? "No real premium captured" : undefined}>
                 {t.optionEntry == null ? "—" : num(t.optionEntry)}
               </td>
@@ -1025,6 +1093,7 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
