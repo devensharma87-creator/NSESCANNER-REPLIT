@@ -1,0 +1,731 @@
+Extend Existing F&O Backtest Lab With Multi-Strategy Selection and Paper-Trade Activation
+
+You are already building the Backtest Lab for the official F&O engine. Continue that work. Do not restart the module, do not duplicate the tab, and do not create a second disconnected backtesting system.
+
+The existing scope remains valid:
+
+Backtest only the Official F&O Engine.
+Use historical candle-by-candle replay.
+No look-ahead bias.
+No fake trades.
+No synthetic option pricing.
+No live order placement.
+Do not disturb current F&O engine, swing engine, paper trade book, reports, portfolio, database, or UI flow.
+
+Now revise and extend the existing Backtest Lab with the following additional requirement:
+
+New Requirement
+
+Add support for manual multi-strategy backtesting and strategy selection inside the same Backtest Lab.
+
+The user should be able to:
+
+Select one or multiple F&O strategies.
+Backtest selected strategies separately.
+Compare strategy performance.
+See which strategy works better for NIFTY, BANKNIFTY and SENSEX.
+Apply selected strategy/strategies manually to the paper-trading signal engine.
+Paper trading should then show signals only from the selected active strategies.
+User must still manually confirm paper trades.
+No automatic live trading should be enabled.
+Important Architecture Rule
+
+Do not replace the existing official F&O engine backtest.
+
+Instead, add two modes inside Backtest Lab:
+
+Mode 1: Official Engine Validation
+
+This is the current module already being built.
+
+Label:
+
+Official F&O Engine Backtest
+
+Purpose:
+
+Replay historical data and show what the existing official F&O engine would have done.
+
+This mode should remain the default.
+
+Mode 2: Strategy Research Mode
+
+Add this new mode.
+
+Label:
+
+Strategy Research Backtest
+
+Purpose:
+
+Backtest individual strategy modules like ORB, VWAP Pullback, EMA Retest, Failed Breakout, Range Reversal and Compression Breakout.
+
+This mode should allow manual strategy selection.
+
+UI Changes Required
+
+Inside the existing Backtest Lab tab, add a section:
+
+Backtest Mode
+
+Options:
+
+[ ] Official F&O Engine Backtest
+[ ] Strategy Research Backtest
+[ ] Compare Official Engine vs Selected Strategies
+
+Default selected:
+
+Official F&O Engine Backtest
+
+When user selects Strategy Research Backtest, show strategy multi-select cards.
+
+Strategy Selection Cards
+
+Add these selectable strategies:
+
+1. Opening Range Breakout
+2. VWAP Pullback Continuation
+3. EMA Trend Retest
+4. Failed Breakout / Liquidity Sweep Reversal
+5. Range Reversal from CPR / VWAP / Previous Day Levels
+6. Inside Bar / Compression Breakout
+
+Each strategy card should show:
+
+Strategy Name
+Best Market Condition
+Suitable Indices
+Recommended Timeframes
+Risk Level
+Short Description
+Checkbox to Select
+Advanced Params Button
+Strategies to Add
+1. Opening Range Breakout
+
+Strategy ID:
+
+ORB_BREAKOUT
+
+Best for:
+
+Trending days, gap continuation days, strong momentum days.
+
+Recommended for:
+
+NIFTY, BANKNIFTY, SENSEX
+
+Recommended timeframe:
+
+5m, 15m, 30m
+CE Entry
+Opening range high is broken
+AND candle closes above opening range high
+AND price is above VWAP
+AND breakout candle is not only a wick
+AND option premium confirms movement
+AND trade is not directly into major resistance
+PE Entry
+Opening range low is broken
+AND candle closes below opening range low
+AND price is below VWAP
+AND breakdown candle is not only a wick
+AND option premium confirms movement
+AND trade is not directly into major support
+Exit
+Stop Loss: opposite side of range or signal candle low/high
+Target 1: 1R
+Target 2: 2R
+Trail after Target 1 using 9 EMA or VWAP
+2. VWAP Pullback Continuation
+
+Strategy ID:
+
+VWAP_PULLBACK
+
+Best for:
+
+Clean trending days after first movement.
+CE Entry
+Price is above VWAP
+AND EMA20 > EMA50
+AND price pulls back near VWAP or EMA20
+AND bullish rejection candle appears
+AND next candle breaks rejection candle high
+AND CE premium expands
+PE Entry
+Price is below VWAP
+AND EMA20 < EMA50
+AND price pulls back near VWAP or EMA20 from below
+AND bearish rejection candle appears
+AND next candle breaks rejection candle low
+AND PE premium expands
+Exit
+Stop Loss: pullback swing low/high
+Target 1: 1R
+Target 2: 2R
+Trail using VWAP or EMA9
+3. EMA Trend Retest
+
+Strategy ID:
+
+EMA_TREND_RETEST
+
+Best for:
+
+Smooth directional days.
+CE Entry
+EMA9 > EMA20 > EMA50
+AND price is above VWAP
+AND price pulls back to EMA9 or EMA20
+AND pullback holds
+AND candle closes above previous candle high
+AND CE premium confirms
+PE Entry
+EMA9 < EMA20 < EMA50
+AND price is below VWAP
+AND price pulls back to EMA9 or EMA20
+AND pullback fails
+AND candle closes below previous candle low
+AND PE premium confirms
+4. Failed Breakout / Liquidity Sweep Reversal
+
+Strategy ID:
+
+FAILED_BREAKOUT_REVERSAL
+
+Best for:
+
+Fake breakout days, trap days, expiry-style reversal moves.
+PE Entry After Failed Upside Breakout
+Price breaks day high or opening range high
+AND fails to sustain
+AND candle closes back below breakout level
+AND upper wick rejection is visible
+AND price loses VWAP or short EMA
+AND CE premium fails
+THEN generate PE signal
+CE Entry After Failed Downside Breakdown
+Price breaks day low or opening range low
+AND fails to sustain
+AND candle closes back above breakdown level
+AND lower wick rejection is visible
+AND price reclaims VWAP or short EMA
+AND PE premium fails
+THEN generate CE signal
+5. Range Reversal
+
+Strategy ID:
+
+RANGE_REVERSAL
+
+Best for:
+
+Sideways/range-bound market.
+CE Entry
+Market regime is RANGE or SIDEWAYS
+AND price reaches support zone
+AND support zone may be CPR low, PDL, VWAP lower band or demand zone
+AND bullish rejection candle appears
+AND RSI is oversold or bullish divergence appears
+AND price breaks minor structure high
+PE Entry
+Market regime is RANGE or SIDEWAYS
+AND price reaches resistance zone
+AND resistance may be CPR high, PDH, VWAP upper band or supply zone
+AND bearish rejection candle appears
+AND RSI is overbought or bearish divergence appears
+AND price breaks minor structure low
+6. Inside Bar / Compression Breakout
+
+Strategy ID:
+
+COMPRESSION_BREAKOUT
+
+Best for:
+
+Low volatility compression before expansion.
+CE Entry
+Inside bar / tight compression / NR7 type range forms
+AND price closes above compression high
+AND volume expands
+AND price is preferably above VWAP
+AND CE premium expands
+PE Entry
+Inside bar / tight compression / NR7 type range forms
+AND price closes below compression low
+AND volume expands
+AND price is preferably below VWAP
+AND PE premium expands
+Optional Confirmation Filters
+
+Add these filters as toggles:
+
+[ ] VWAP Filter
+[ ] EMA Trend Filter
+[ ] Option Chain Confirmation
+[ ] Avoid Chop Zone
+[ ] Avoid Last 15 Minutes
+[ ] Avoid Wide Spread Options
+[ ] Avoid Low Volume Options
+[ ] Minimum Risk Reward Filter
+
+Default:
+
+VWAP Filter: ON
+EMA Trend Filter: ON
+Avoid Chop Zone: ON
+Avoid Last 15 Minutes: ON
+Minimum Risk Reward Filter: ON
+Option Chain Confirmation: OFF unless reliable option-chain data is available
+
+Important:
+
+If historical option-chain or option premium data is unavailable, show clear warning. Do not fabricate data.
+
+Message:
+
+Historical option premium / option-chain data unavailable for selected period. Strategy signal can be evaluated on index candles only, but tradable option P&L cannot be calculated without real option premium data.
+Backtest Result Changes
+
+The current report already includes trades, rejected setups, data quality and full reasoning. Keep that.
+
+Add these extra columns:
+
+Backtest Mode
+Strategy ID
+Strategy Name
+Strategy Category
+Strategy Params
+Signal Source: Official Engine / Strategy Research
+Confirmation Filters Used
+Strategy Confidence Score
+Historical Setup Match
+
+For rejected/blocked setups, also add:
+
+Strategy ID
+Strategy Name
+Blocked Rule
+Failed Condition
+
+The current prompt already requires recording both taken trades and rejected/blocked setups with reasons such as no clean signal, unsuitable regime, premium data unavailable, option chain unavailable, risk block, time/session block and data-quality issue. Keep that exactly.
+
+Strategy Comparison Dashboard
+
+Add a comparison table when more than one strategy is selected.
+
+Columns:
+
+Strategy Name
+Index
+Timeframe
+Total Trades
+Winning Trades
+Losing Trades
+Win Rate %
+Gross P&L
+Charges
+Slippage
+Net P&L
+Profit Factor
+Average R
+Max Drawdown
+Best Trade
+Worst Trade
+Average Holding Time
+Target 1 Hit Count
+Target 2 Hit Count
+SL Hit Count
+Time Exit Count
+Rejected Setup Count
+Data Blocked Count
+Risk Blocked Count
+
+Add ranking cards:
+
+Best Net P&L Strategy
+Best Win Rate Strategy
+Best Profit Factor Strategy
+Lowest Drawdown Strategy
+Most Stable Strategy
+Best Strategy for NIFTY
+Best Strategy for BANKNIFTY
+Best Strategy for SENSEX
+Best Timeframe
+Worst Timeframe
+
+Important:
+
+Do not rank strategy only by net profit.
+
+Ranking logic should consider:
+
+Net P&L
+Profit Factor
+Max Drawdown
+Win Rate
+Number of Trades
+Average R
+Consistency
+Data Quality
+
+A strategy with high profit but very high drawdown should not be marked as best.
+
+Apply Selected Strategy to Paper Trading
+
+Add button:
+
+Apply Selected Strategy to Paper Trading
+
+This should be visible only after a successful Strategy Research Backtest or Compare Backtest.
+
+Workflow:
+
+1. User selects strategy or strategies from result table.
+2. User clicks Apply Selected Strategy to Paper Trading.
+3. System saves selected strategies as active paper strategies.
+4. Paper trading engine uses only selected active strategies for signal display.
+5. User still manually confirms paper trade.
+6. No live order placement.
+Paper Trading UI Changes
+
+In the F&O paper trading area, show:
+
+Active Paper Strategies
+
+Example:
+
+Active Paper Strategies:
+- VWAP Pullback — NIFTY — 15m
+- ORB Breakout — BANKNIFTY — 5m
+- Failed Breakout Reversal — SENSEX — 15m
+
+For every new paper signal, show:
+
+Strategy Name
+Index
+Timeframe
+CE/PE
+Entry Price
+SL
+Target 1
+Target 2
+Risk Reward
+Entry Reason
+Backtest Win Rate for same index/timeframe
+Backtest Net P&L
+Backtest Max Drawdown
+Data Quality Status
+Warning if current condition is different from backtested condition
+
+Add option:
+
+Deactivate Strategy
+Backend Architecture
+
+Do not put all strategy logic into one giant function.
+
+Add strategy registry.
+
+Suggested structure:
+
+/backend/backtesting/
+    strategy_registry.py
+    strategy_runner.py
+    strategy_metrics.py
+    paper_strategy_activation.py
+
+/backend/backtesting/strategies/
+    base_strategy.py
+    orb_breakout.py
+    vwap_pullback.py
+    ema_trend_retest.py
+    failed_breakout_reversal.py
+    range_reversal.py
+    compression_breakout.py
+    filters.py
+
+But integrate this with the already-built Backtest Lab engine. Do not create a separate duplicate backtest runner if the current one can be extended.
+
+Strategy Registry Requirement
+
+Create one common registry:
+
+STRATEGY_REGISTRY = {
+    "ORB_BREAKOUT": ORBBreakoutStrategy,
+    "VWAP_PULLBACK": VWAPPullbackStrategy,
+    "EMA_TREND_RETEST": EMATrendRetestStrategy,
+    "FAILED_BREAKOUT_REVERSAL": FailedBreakoutReversalStrategy,
+    "RANGE_REVERSAL": RangeReversalStrategy,
+    "COMPRESSION_BREAKOUT": CompressionBreakoutStrategy,
+}
+
+Each strategy must return a common signal object:
+
+{
+    "strategy_id": "VWAP_PULLBACK",
+    "strategy_name": "VWAP Pullback Continuation",
+    "index_symbol": "NIFTY",
+    "timeframe": "15m",
+    "direction": "BULLISH",
+    "option_type": "CE",
+    "entry_datetime": "...",
+    "entry_price": 120.5,
+    "stop_loss": 95.0,
+    "target_1": 145.5,
+    "target_2": 170.5,
+    "confidence": 78,
+    "entry_reason": "...",
+    "passed_conditions": [],
+    "failed_conditions": [],
+    "warnings": []
+}
+API Changes
+
+The current prompt already proposes backend APIs like /api/backtest/fno/run, /api/backtest/fno/runs, /api/backtest/fno/runs/:id, /api/backtest/fno/runs/:id/trades, summary and export endpoints. Keep those existing APIs.
+
+Extend the run payload.
+
+Updated Run Payload
+{
+  "backtestMode": "OFFICIAL_ENGINE",
+  "indices": ["NIFTY", "BANKNIFTY", "SENSEX"],
+  "strategies": [],
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD",
+  "timeframe": "15m",
+  "startingCapital": 500000,
+  "capitalPerTrade": 50000,
+  "riskPerTradePct": 1,
+  "maxTradesPerDay": 3,
+  "maxOpenTrades": 2,
+  "includeCharges": true,
+  "includeSlippage": true,
+  "filters": {
+    "vwapFilter": true,
+    "emaTrendFilter": true,
+    "optionChainConfirmation": false,
+    "avoidChopZone": true,
+    "avoidLast15Minutes": true,
+    "avoidWideSpread": true,
+    "minimumRiskReward": 1.5
+  }
+}
+
+For Strategy Research Mode:
+
+{
+  "backtestMode": "STRATEGY_RESEARCH",
+  "indices": ["NIFTY", "BANKNIFTY"],
+  "strategies": [
+    "ORB_BREAKOUT",
+    "VWAP_PULLBACK",
+    "EMA_TREND_RETEST"
+  ],
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD",
+  "timeframe": "15m",
+  "startingCapital": 500000,
+  "capitalPerTrade": 50000,
+  "riskPerTradePct": 1,
+  "maxTradesPerDay": 3,
+  "maxOpenTrades": 2,
+  "includeCharges": true,
+  "includeSlippage": true,
+  "filters": {
+    "vwapFilter": true,
+    "emaTrendFilter": true,
+    "optionChainConfirmation": false,
+    "avoidChopZone": true,
+    "avoidLast15Minutes": true,
+    "minimumRiskReward": 1.5
+  }
+}
+
+For compare mode:
+
+{
+  "backtestMode": "COMPARE_OFFICIAL_VS_STRATEGIES",
+  "indices": ["NIFTY", "BANKNIFTY", "SENSEX"],
+  "strategies": [
+    "ORB_BREAKOUT",
+    "VWAP_PULLBACK",
+    "EMA_TREND_RETEST",
+    "FAILED_BREAKOUT_REVERSAL",
+    "RANGE_REVERSAL",
+    "COMPRESSION_BREAKOUT"
+  ],
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD",
+  "timeframe": "15m",
+  "startingCapital": 500000,
+  "capitalPerTrade": 50000,
+  "riskPerTradePct": 1,
+  "maxTradesPerDay": 3,
+  "maxOpenTrades": 2,
+  "includeCharges": true,
+  "includeSlippage": true
+}
+New APIs to Add
+
+Add only if not already available:
+
+GET  /api/backtest/fno/strategies
+POST /api/backtest/fno/apply-to-paper
+GET  /api/paper/fno/active-strategies
+POST /api/paper/fno/active-strategies/update
+POST /api/paper/fno/active-strategies/deactivate
+Apply to Paper Payload
+{
+  "runId": "BT_20260605_001",
+  "selectedStrategies": [
+    {
+      "strategyId": "VWAP_PULLBACK",
+      "indexSymbol": "NIFTY",
+      "timeframe": "15m"
+    },
+    {
+      "strategyId": "ORB_BREAKOUT",
+      "indexSymbol": "BANKNIFTY",
+      "timeframe": "5m"
+    }
+  ],
+  "mode": "PAPER_ONLY",
+  "manualConfirmationRequired": true
+}
+Database Changes
+
+Do not unnecessarily create duplicate tables if existing backtest tables already cover this.
+
+If the existing backtest_runs table is already being created, add these fields:
+
+backtest_mode
+selected_strategies_json
+filters_json
+strategy_comparison_json
+applied_to_paper
+
+If the existing backtest_trades table is already being created, add:
+
+strategy_id
+strategy_name
+signal_source
+strategy_params_json
+confirmation_filters_json
+passed_conditions_json
+failed_conditions_json
+
+If the existing backtest_blocked_setups table is already being created, add:
+
+strategy_id
+strategy_name
+failed_condition
+blocked_rule
+
+Create a new table:
+
+CREATE TABLE IF NOT EXISTS active_paper_strategies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT NOT NULL,
+    index_symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    source_backtest_run_id TEXT,
+    is_active INTEGER DEFAULT 1,
+    manual_confirmation_required INTEGER DEFAULT 1,
+    activated_at TEXT NOT NULL,
+    deactivated_at TEXT,
+    config_json TEXT,
+    performance_snapshot_json TEXT
+);
+Data Quality Guardrails
+
+Keep the original strict guardrails.
+
+The existing prompt already says not to break existing features, not to fabricate historical options data, not to use future candles, not to mix legacy with official engine, and not to place live orders. Keep all of that unchanged.
+
+Additional rules:
+
+If real historical option premium data is available:
+- calculate tradable option P&L.
+
+If only index candle data is available:
+- allow signal-quality backtest only.
+- do not show option premium P&L.
+- mark result as "Index signal validation only".
+- show clear warning.
+
+If option chain data is missing:
+- disable option-chain confirmation automatically.
+- show warning.
+
+If data quality is poor:
+- allow user to view signals but mark performance as partial/unreliable.
+UI Warning Text
+
+Add this exact warning where needed:
+
+This backtest is only as reliable as the available historical data. If historical option premium or option-chain data is missing, the system will not fabricate option prices. In such cases, only index-signal validation will be shown, not tradable option P&L.
+Acceptance Criteria Additions
+
+In addition to the current acceptance criteria, the revised task is complete only when:
+
+1. Backtest Lab has mode selector:
+   - Official F&O Engine Backtest
+   - Strategy Research Backtest
+   - Compare Official Engine vs Selected Strategies
+
+2. Strategy Research Mode allows selecting:
+   - ORB Breakout
+   - VWAP Pullback
+   - EMA Trend Retest
+   - Failed Breakout Reversal
+   - Range Reversal
+   - Compression Breakout
+
+3. Multiple strategies can be selected and backtested together.
+
+4. Strategy-wise comparison is visible.
+
+5. Index-wise strategy performance is visible for NIFTY, BANKNIFTY and SENSEX.
+
+6. Timeframe-wise performance is visible.
+
+7. Result clearly separates:
+   - Official Engine trades
+   - Strategy Research trades
+   - Blocked setups
+   - Data-blocked setups
+
+8. Selected strategies can be applied manually to paper trading.
+
+9. Paper trading shows active strategy badges.
+
+10. Paper signals show strategy name, reason, SL, target, risk-reward, confidence and backtest snapshot.
+
+11. User manual confirmation remains mandatory.
+
+12. No live orders are placed.
+
+13. No fake option price or fake P&L is generated.
+
+14. Existing official F&O engine backtest remains working.
+
+15. Existing website features remain untouched.
+Final Instruction
+
+Do not treat this as a new project. Treat this as Version 2 enhancement of the Backtest Lab currently being built.
+
+The goal is:
+
+First validate the official F&O engine.
+Then compare individual strategies.
+Then let me manually choose which strategy should be active in paper trading.
+
+Build it cleanly, modularly, and safely.
+No fake backtest.
+No duplicate engine.
+No live trading.
+No disturbance to existing features.
