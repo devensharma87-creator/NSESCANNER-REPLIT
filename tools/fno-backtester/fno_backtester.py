@@ -48,12 +48,26 @@ def atr(df, period=14):
     return tr.ewm(alpha=1/period, adjust=False).mean()
 
 def session_vwap(df):
-    """VWAP resets each trading day."""
+    """VWAP resets each trading day.
+
+    VOLUME BASIS — must match the LIVE system or the backtest is invalid.
+    The live engine (artifacts/api-server/src/lib/indicators.ts `sessionVwap`)
+    computes index VWAP from Kite SPOT candles, where cash-index volume is 0
+    for NIFTY/BANKNIFTY/SENSEX. Its rule is `out[i] = v > 0 ? pv/v : typ` — i.e.
+    when cumulative volume is 0 it FALLS BACK to the bar's typical price rather
+    than going undefined. We replicate that here so a zero-volume spot feed
+    produces the SAME VWAP basis live uses (and a real-volume futures feed, if
+    ever supplied, still yields a true cumulative VWAP). Returning NaN on zero
+    volume — as a naive VWAP would — silently kills every VWAP-gated signal and
+    makes the backtest disagree with live. Do not "fix" this back to NaN.
+    """
     tp = (df['high'] + df['low'] + df['close']) / 3
     day = df.index.date
     pv = (tp * df['volume']).groupby(day).cumsum()
-    vv = df['volume'].groupby(day).cumsum().replace(0, np.nan)
-    return pv / vv
+    vv = df['volume'].groupby(day).cumsum()
+    vwap = pv / vv.replace(0, np.nan)
+    # Where cumulative volume is 0 (spot index), use typical price — matches live.
+    return vwap.where(vv > 0, tp)
 
 def detect_fvg(df):
     """

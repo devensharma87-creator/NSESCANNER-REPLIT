@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "backfill:swing-sector": "tsx ./src/scripts/backfill-swing-sector.ts",
-    "rotate:kite-key": "tsx ./src/scripts/rotateKiteTokenEncKey.ts"
+    "rotate:kite-key": "tsx ./src/scripts/rotateKiteTokenEncKey.ts",
+    "fetch:index-candles": "tsx ./src/scripts/fetchKiteIndexCandles.ts"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
