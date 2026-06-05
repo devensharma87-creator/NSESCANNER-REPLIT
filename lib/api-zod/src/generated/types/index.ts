@@ -7,6 +7,24 @@
  */
 
 export * from "./annualPLRow";
+export * from "./backtestBlockedResponse";
+export * from "./backtestBlockedSetup";
+export * from "./backtestCoverageWindow";
+export * from "./backtestDataQuality";
+export * from "./backtestDeleteResponse";
+export * from "./backtestEquityPoint";
+export * from "./backtestInstrumentStat";
+export * from "./backtestRun";
+export * from "./backtestRunListItem";
+export * from "./backtestRunListResponse";
+export * from "./backtestRunRequest";
+export * from "./backtestRunRequestInstrument";
+export * from "./backtestRunRequestMode";
+export * from "./backtestRunStatus";
+export * from "./backtestSnapshotCoverage";
+export * from "./backtestSummary";
+export * from "./backtestTrade";
+export * from "./backtestTradesResponse";
 export * from "./balanceSheetRow";
 export * from "./biasSignalBreakdown";
 export * from "./candle";

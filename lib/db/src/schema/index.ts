@@ -12,3 +12,4 @@ export * from "./optionChainSnapshot";
 export * from "./candleWarehouse";
 export * from "./fnoSignalReasoning";
 export * from "./portfolio";
+export * from "./backtest";

@@ -202,7 +202,9 @@ describe("getSnapshotConfig", () => {
     const cfg = getSnapshotConfig();
     expect(cfg.intervalMinutes).toBe(5);
     expect(cfg.strikeWindow).toBe(10);
-    expect(cfg.retentionDays).toBe(30);
+    // Long by design: option-chain snapshots are the substrate for a future
+    // faithful 2yr Backtest-Lab replay, so the sweep must not purge that window.
+    expect(cfg.retentionDays).toBe(825);
     expect(cfg.expiriesPerUnderlying).toBe(2);
     process.env = orig;
   });

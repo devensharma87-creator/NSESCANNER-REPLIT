@@ -23,7 +23,13 @@
  *                                          `REPLIT_DEPLOYMENT === "1"`).
  *   - `OPTION_SNAPSHOT_INTERVAL_MIN`     — bucket / cadence (default 5).
  *   - `OPTION_SNAPSHOT_STRIKE_WINDOW`    — ATM ± N strikes (default 10).
- *   - `OPTION_SNAPSHOT_RETENTION_DAYS`   — daily retention sweep (default 30).
+ *   - `OPTION_SNAPSHOT_RETENTION_DAYS`   — daily retention sweep (default 825,
+ *                                          ≈ 27 months). Long by design: these
+ *                                          snapshots are the substrate for a
+ *                                          future FAITHFUL 2-year Backtest-Lab
+ *                                          replay, so the sweep must NOT purge
+ *                                          history inside that window. Lower it
+ *                                          via env only if storage is a concern.
  *   - `OPTION_SNAPSHOT_EXPIRIES`         — number of expiries from the
  *                                          front (default 2 — current +
  *                                          next).
@@ -81,7 +87,7 @@ export function getSnapshotConfig(): {
   return {
     intervalMinutes: intEnv("OPTION_SNAPSHOT_INTERVAL_MIN", 5, 1, 60),
     strikeWindow: intEnv("OPTION_SNAPSHOT_STRIKE_WINDOW", 10, 1, 50),
-    retentionDays: intEnv("OPTION_SNAPSHOT_RETENTION_DAYS", 30, 1, 365),
+    retentionDays: intEnv("OPTION_SNAPSHOT_RETENTION_DAYS", 825, 1, 1100),
     expiriesPerUnderlying: intEnv("OPTION_SNAPSHOT_EXPIRIES", 2, 1, 6),
   };
 }

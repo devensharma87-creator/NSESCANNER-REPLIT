@@ -17,6 +17,13 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  BacktestBlockedResponse,
+  BacktestDeleteResponse,
+  BacktestRun,
+  BacktestRunListResponse,
+  BacktestRunRequest,
+  BacktestSnapshotCoverage,
+  BacktestTradesResponse,
   ChartCandlesResponse,
   ChartInstrumentsResponse,
   CustomStrategyRequest,
@@ -6386,6 +6393,594 @@ export const useReplacePortfolioHoldings = <
 > => {
   return useMutation(getReplacePortfolioHoldingsMutationOptions(options));
 };
+
+/**
+ * @summary List the current user's backtest runs (metadata only)
+ */
+export const getListBacktestRunsUrl = () => {
+  return `/api/backtest/fno/runs`;
+};
+
+export const listBacktestRuns = async (
+  options?: RequestInit,
+): Promise<BacktestRunListResponse> => {
+  return customFetch<BacktestRunListResponse>(getListBacktestRunsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListBacktestRunsQueryKey = () => {
+  return [`/api/backtest/fno/runs`] as const;
+};
+
+export const getListBacktestRunsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listBacktestRuns>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listBacktestRuns>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListBacktestRunsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listBacktestRuns>>
+  > = ({ signal }) => listBacktestRuns({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listBacktestRuns>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListBacktestRunsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listBacktestRuns>>
+>;
+export type ListBacktestRunsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the current user's backtest runs (metadata only)
+ */
+
+export function useListBacktestRuns<
+  TData = Awaited<ReturnType<typeof listBacktestRuns>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listBacktestRuns>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListBacktestRunsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Run an F&O backtest (REAL_REPLAY or DIRECTIONAL) and persist the result
+ */
+export const getCreateBacktestRunUrl = () => {
+  return `/api/backtest/fno/runs`;
+};
+
+export const createBacktestRun = async (
+  backtestRunRequest: BacktestRunRequest,
+  options?: RequestInit,
+): Promise<BacktestRun> => {
+  return customFetch<BacktestRun>(getCreateBacktestRunUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(backtestRunRequest),
+  });
+};
+
+export const getCreateBacktestRunMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createBacktestRun>>,
+    TError,
+    { data: BodyType<BacktestRunRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createBacktestRun>>,
+  TError,
+  { data: BodyType<BacktestRunRequest> },
+  TContext
+> => {
+  const mutationKey = ["createBacktestRun"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createBacktestRun>>,
+    { data: BodyType<BacktestRunRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createBacktestRun(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateBacktestRunMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createBacktestRun>>
+>;
+export type CreateBacktestRunMutationBody = BodyType<BacktestRunRequest>;
+export type CreateBacktestRunMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Run an F&O backtest (REAL_REPLAY or DIRECTIONAL) and persist the result
+ */
+export const useCreateBacktestRun = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createBacktestRun>>,
+    TError,
+    { data: BodyType<BacktestRunRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createBacktestRun>>,
+  TError,
+  { data: BodyType<BacktestRunRequest> },
+  TContext
+> => {
+  return useMutation(getCreateBacktestRunMutationOptions(options));
+};
+
+/**
+ * @summary Get one backtest run with its summary + data-quality blob
+ */
+export const getGetBacktestRunUrl = (id: string) => {
+  return `/api/backtest/fno/runs/${id}`;
+};
+
+export const getBacktestRun = async (
+  id: string,
+  options?: RequestInit,
+): Promise<BacktestRun> => {
+  return customFetch<BacktestRun>(getGetBacktestRunUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetBacktestRunQueryKey = (id: string) => {
+  return [`/api/backtest/fno/runs/${id}`] as const;
+};
+
+export const getGetBacktestRunQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBacktestRun>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBacktestRun>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetBacktestRunQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getBacktestRun>>> = ({
+    signal,
+  }) => getBacktestRun(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktestRun>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBacktestRunQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBacktestRun>>
+>;
+export type GetBacktestRunQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get one backtest run with its summary + data-quality blob
+ */
+
+export function useGetBacktestRun<
+  TData = Awaited<ReturnType<typeof getBacktestRun>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBacktestRun>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBacktestRunQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Delete a backtest run and all its trades + blocked setups
+ */
+export const getDeleteBacktestRunUrl = (id: string) => {
+  return `/api/backtest/fno/runs/${id}`;
+};
+
+export const deleteBacktestRun = async (
+  id: string,
+  options?: RequestInit,
+): Promise<BacktestDeleteResponse> => {
+  return customFetch<BacktestDeleteResponse>(getDeleteBacktestRunUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteBacktestRunMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteBacktestRun>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteBacktestRun>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteBacktestRun"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteBacktestRun>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteBacktestRun(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteBacktestRunMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteBacktestRun>>
+>;
+
+export type DeleteBacktestRunMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a backtest run and all its trades + blocked setups
+ */
+export const useDeleteBacktestRun = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteBacktestRun>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteBacktestRun>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteBacktestRunMutationOptions(options));
+};
+
+/**
+ * @summary List the trades produced by a backtest run
+ */
+export const getGetBacktestRunTradesUrl = (id: string) => {
+  return `/api/backtest/fno/runs/${id}/trades`;
+};
+
+export const getBacktestRunTrades = async (
+  id: string,
+  options?: RequestInit,
+): Promise<BacktestTradesResponse> => {
+  return customFetch<BacktestTradesResponse>(getGetBacktestRunTradesUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetBacktestRunTradesQueryKey = (id: string) => {
+  return [`/api/backtest/fno/runs/${id}/trades`] as const;
+};
+
+export const getGetBacktestRunTradesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBacktestRunTrades>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBacktestRunTrades>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetBacktestRunTradesQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getBacktestRunTrades>>
+  > = ({ signal }) => getBacktestRunTrades(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktestRunTrades>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBacktestRunTradesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBacktestRunTrades>>
+>;
+export type GetBacktestRunTradesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the trades produced by a backtest run
+ */
+
+export function useGetBacktestRunTrades<
+  TData = Awaited<ReturnType<typeof getBacktestRunTrades>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBacktestRunTrades>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBacktestRunTradesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List the blocked/skipped setups recorded by a backtest run
+ */
+export const getGetBacktestRunBlockedUrl = (id: string) => {
+  return `/api/backtest/fno/runs/${id}/blocked`;
+};
+
+export const getBacktestRunBlocked = async (
+  id: string,
+  options?: RequestInit,
+): Promise<BacktestBlockedResponse> => {
+  return customFetch<BacktestBlockedResponse>(getGetBacktestRunBlockedUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetBacktestRunBlockedQueryKey = (id: string) => {
+  return [`/api/backtest/fno/runs/${id}/blocked`] as const;
+};
+
+export const getGetBacktestRunBlockedQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBacktestRunBlocked>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBacktestRunBlocked>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetBacktestRunBlockedQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getBacktestRunBlocked>>
+  > = ({ signal }) => getBacktestRunBlocked(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktestRunBlocked>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBacktestRunBlockedQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBacktestRunBlocked>>
+>;
+export type GetBacktestRunBlockedQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the blocked/skipped setups recorded by a backtest run
+ */
+
+export function useGetBacktestRunBlocked<
+  TData = Awaited<ReturnType<typeof getBacktestRunBlocked>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBacktestRunBlocked>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBacktestRunBlockedQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Option-chain snapshot capture coverage (Mode D — for the data-quality panel)
+ */
+export const getGetBacktestSnapshotCoverageUrl = () => {
+  return `/api/backtest/fno/snapshot-coverage`;
+};
+
+export const getBacktestSnapshotCoverage = async (
+  options?: RequestInit,
+): Promise<BacktestSnapshotCoverage> => {
+  return customFetch<BacktestSnapshotCoverage>(
+    getGetBacktestSnapshotCoverageUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetBacktestSnapshotCoverageQueryKey = () => {
+  return [`/api/backtest/fno/snapshot-coverage`] as const;
+};
+
+export const getGetBacktestSnapshotCoverageQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBacktestSnapshotCoverage>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktestSnapshotCoverage>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetBacktestSnapshotCoverageQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getBacktestSnapshotCoverage>>
+  > = ({ signal }) =>
+    getBacktestSnapshotCoverage({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktestSnapshotCoverage>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBacktestSnapshotCoverageQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBacktestSnapshotCoverage>>
+>;
+export type GetBacktestSnapshotCoverageQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Option-chain snapshot capture coverage (Mode D — for the data-quality panel)
+ */
+
+export function useGetBacktestSnapshotCoverage<
+  TData = Awaited<ReturnType<typeof getBacktestSnapshotCoverage>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktestSnapshotCoverage>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBacktestSnapshotCoverageQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List the current user's saved screener presets

@@ -289,6 +289,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 },
                 { kind: "link", href: "/charting", label: "Charting", desc: "Interactive charting workspace", isActive: l => l.startsWith("/charting"), tab: "CHARTING" },
                 { kind: "link", href: "/portfolio-analyser", label: "Portfolio", desc: "Portfolio health & risk analysis", isActive: l => l.startsWith("/portfolio-analyser"), tab: "PORTFOLIO_ANALYSER" },
+                { kind: "link", href: "/backtest-lab", label: "Backtest Lab", desc: "F&O backtesting — real replay & directional", isActive: l => l.startsWith("/backtest-lab"), tab: "BACKTEST_LAB" },
                 { kind: "link", href: "/learn", label: "Learn", desc: "Trading education & methodology", isActive: l => l.startsWith("/learn"), tab: "LEARN" },
                 {
                   kind: "group",

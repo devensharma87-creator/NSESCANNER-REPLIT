@@ -3757,6 +3757,219 @@ export interface PortfolioDeleteResponse {
   ok: boolean;
 }
 
+export type BacktestRunRequestMode =
+  (typeof BacktestRunRequestMode)[keyof typeof BacktestRunRequestMode];
+
+export const BacktestRunRequestMode = {
+  REAL_REPLAY: "REAL_REPLAY",
+  DIRECTIONAL: "DIRECTIONAL",
+} as const;
+
+export type BacktestRunRequestInstrument =
+  (typeof BacktestRunRequestInstrument)[keyof typeof BacktestRunRequestInstrument];
+
+export const BacktestRunRequestInstrument = {
+  NIFTY: "NIFTY",
+  BANKNIFTY: "BANKNIFTY",
+  SENSEX: "SENSEX",
+  ALL: "ALL",
+} as const;
+
+/**
+ * Parameters for an F&O backtest. REAL_REPLAY reads the engine's actual captured history; DIRECTIONAL replays the reconstructable directional layer on historical spot candles with a clearly-labeled delta-proxy option P&L.
+ */
+export interface BacktestRunRequest {
+  mode: BacktestRunRequestMode;
+  instrument: BacktestRunRequestInstrument;
+  /** Candle timeframe, e.g. 15m or 1D. Defaults to 15m. */
+  timeframe?: string;
+  /** Inclusive YYYY-MM-DD. Null = earliest available. */
+  fromDate?: string | null;
+  /** Inclusive YYYY-MM-DD. Null = latest available. */
+  toDate?: string | null;
+  /** Defaults to 1000000. */
+  startingCapital?: number;
+  /** Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1. */
+  riskPerTradePct?: number;
+}
+
+export interface BacktestEquityPoint {
+  /** ISO timestamp of the trade exit. */
+  t: string;
+  equity: number;
+  drawdown?: number | null;
+}
+
+export interface BacktestInstrumentStat {
+  instrument: string;
+  trades: number;
+  pnl: number;
+  /** Null when no decided trades (honest — never a fake 100%). */
+  winRate?: number | null;
+}
+
+/**
+ * Computed performance summary. Win-rate / profit-factor / averages are null when undefined (zero-denominator) — never fabricated.
+ */
+export interface BacktestSummary {
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  breakeven?: number;
+  winRate?: number | null;
+  totalPnl: number;
+  grossProfit?: number;
+  grossLoss?: number;
+  profitFactor?: number | null;
+  avgWin?: number | null;
+  avgLoss?: number | null;
+  avgTradePnl?: number | null;
+  expectancy?: number | null;
+  maxDrawdown?: number;
+  returnPct?: number | null;
+  longTrades?: number;
+  shortTrades?: number;
+  bestTradePnl?: number | null;
+  worstTradePnl?: number | null;
+  byInstrument?: BacktestInstrumentStat[];
+  equityCurve?: BacktestEquityPoint[];
+}
+
+export interface BacktestCoverageWindow {
+  from?: string | null;
+  to?: string | null;
+  count: number;
+}
+
+/**
+ * Mode D — how much real option-chain snapshot history has accumulated for a future faithful 2yr replay.
+ */
+export interface BacktestSnapshotCoverage {
+  earliest?: string | null;
+  latest?: string | null;
+  count: number;
+  underlyings: string[];
+}
+
+/**
+ * Honesty panel: states exactly which inputs were real vs unavailable vs modeled for this run.
+ */
+export interface BacktestDataQuality {
+  mode: string;
+  candleCoverage?: BacktestCoverageWindow | null;
+  /** True only when real historical option premiums backed the P&L. */
+  optionDataAvailable: boolean;
+  ivAvailable: boolean;
+  oiAvailable: boolean;
+  snapshotCoverage?: BacktestSnapshotCoverage | null;
+  /** Fields that were modeled (not real), e.g. optionEntry/optionExit via delta proxy. */
+  modeledFields: string[];
+  warnings: string[];
+  notes?: string[];
+}
+
+export type BacktestRunStatus =
+  (typeof BacktestRunStatus)[keyof typeof BacktestRunStatus];
+
+export const BacktestRunStatus = {
+  PENDING: "PENDING",
+  RUNNING: "RUNNING",
+  COMPLETE: "COMPLETE",
+  FAILED: "FAILED",
+} as const;
+
+export interface BacktestRun {
+  id: string;
+  mode: string;
+  instrument: string;
+  timeframe: string;
+  fromDate: string;
+  toDate: string;
+  startingCapital: number;
+  riskPerTradePct: number;
+  status: BacktestRunStatus;
+  summary?: BacktestSummary | null;
+  dataQuality?: BacktestDataQuality | null;
+  error?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export interface BacktestRunListItem {
+  id: string;
+  mode: string;
+  instrument: string;
+  timeframe: string;
+  fromDate: string;
+  toDate: string;
+  status: string;
+  totalPnl?: number | null;
+  totalTrades?: number | null;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export interface BacktestRunListResponse {
+  items: BacktestRunListItem[];
+}
+
+export interface BacktestTrade {
+  id: string;
+  indexSymbol: string;
+  setupKey?: string | null;
+  setupName?: string | null;
+  direction: string;
+  optionType?: string | null;
+  strike?: number | null;
+  entryAt?: string | null;
+  exitAt?: string | null;
+  entrySpot?: number | null;
+  exitSpot?: number | null;
+  optionEntry?: number | null;
+  optionExit?: number | null;
+  optionStop?: number | null;
+  optionTarget1?: number | null;
+  optionTarget2?: number | null;
+  lots?: number | null;
+  lotSize?: number | null;
+  qty?: number | null;
+  pnl?: number | null;
+  exitReason?: string | null;
+  confidence?: number | null;
+  tier?: string | null;
+  regime?: string | null;
+  /** True = DIRECTIONAL delta-proxy fill; False = REAL_REPLAY real fill. */
+  modeled: boolean;
+  maxFavorableExcursion?: number | null;
+  maxAdverseExcursion?: number | null;
+}
+
+export interface BacktestTradesResponse {
+  items: BacktestTrade[];
+}
+
+export interface BacktestBlockedSetup {
+  id: string;
+  indexSymbol: string;
+  setupKey?: string | null;
+  direction?: string | null;
+  decision?: string | null;
+  reasonCode?: string | null;
+  confidence?: number | null;
+  confluenceScore?: number | null;
+  regime?: string | null;
+  count: number;
+  note?: string | null;
+}
+
+export interface BacktestBlockedResponse {
+  items: BacktestBlockedSetup[];
+}
+
+export interface BacktestDeleteResponse {
+  ok: boolean;
+}
+
 /**
  * An instrument that has failed >= threshold consecutive refresh cycles — likely delisted upstream and a candidate for pruning from `universe.ts`.
  */

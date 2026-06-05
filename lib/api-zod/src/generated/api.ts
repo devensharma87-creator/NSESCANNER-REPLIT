@@ -6701,6 +6701,265 @@ export const ReplacePortfolioHoldingsResponse = zod.object({
 });
 
 /**
+ * @summary List the current user's backtest runs (metadata only)
+ */
+export const ListBacktestRunsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      mode: zod.string(),
+      instrument: zod.string(),
+      timeframe: zod.string(),
+      fromDate: zod.string(),
+      toDate: zod.string(),
+      status: zod.string(),
+      totalPnl: zod.number().nullish(),
+      totalTrades: zod.number().nullish(),
+      createdAt: zod.coerce.date(),
+      completedAt: zod.coerce.date().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Run an F&O backtest (REAL_REPLAY or DIRECTIONAL) and persist the result
+ */
+export const CreateBacktestRunBody = zod
+  .object({
+    mode: zod.enum(["REAL_REPLAY", "DIRECTIONAL"]),
+    instrument: zod.enum(["NIFTY", "BANKNIFTY", "SENSEX", "ALL"]),
+    timeframe: zod
+      .string()
+      .optional()
+      .describe("Candle timeframe, e.g. 15m or 1D. Defaults to 15m."),
+    fromDate: zod
+      .string()
+      .nullish()
+      .describe("Inclusive YYYY-MM-DD. Null = earliest available."),
+    toDate: zod
+      .string()
+      .nullish()
+      .describe("Inclusive YYYY-MM-DD. Null = latest available."),
+    startingCapital: zod.number().optional().describe("Defaults to 1000000."),
+    riskPerTradePct: zod
+      .number()
+      .optional()
+      .describe(
+        "Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1.",
+      ),
+  })
+  .describe(
+    "Parameters for an F&O backtest. REAL_REPLAY reads the engine's actual captured history; DIRECTIONAL replays the reconstructable directional layer on historical spot candles with a clearly-labeled delta-proxy option P&L.",
+  );
+
+/**
+ * @summary Get one backtest run with its summary + data-quality blob
+ */
+export const GetBacktestRunParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const GetBacktestRunResponse = zod.object({
+  id: zod.string().uuid(),
+  mode: zod.string(),
+  instrument: zod.string(),
+  timeframe: zod.string(),
+  fromDate: zod.string(),
+  toDate: zod.string(),
+  startingCapital: zod.number(),
+  riskPerTradePct: zod.number(),
+  status: zod.enum(["PENDING", "RUNNING", "COMPLETE", "FAILED"]),
+  summary: zod
+    .object({
+      totalTrades: zod.number(),
+      wins: zod.number(),
+      losses: zod.number(),
+      breakeven: zod.number().optional(),
+      winRate: zod.number().nullish(),
+      totalPnl: zod.number(),
+      grossProfit: zod.number().optional(),
+      grossLoss: zod.number().optional(),
+      profitFactor: zod.number().nullish(),
+      avgWin: zod.number().nullish(),
+      avgLoss: zod.number().nullish(),
+      avgTradePnl: zod.number().nullish(),
+      expectancy: zod.number().nullish(),
+      maxDrawdown: zod.number().optional(),
+      returnPct: zod.number().nullish(),
+      longTrades: zod.number().optional(),
+      shortTrades: zod.number().optional(),
+      bestTradePnl: zod.number().nullish(),
+      worstTradePnl: zod.number().nullish(),
+      byInstrument: zod
+        .array(
+          zod.object({
+            instrument: zod.string(),
+            trades: zod.number(),
+            pnl: zod.number(),
+            winRate: zod
+              .number()
+              .nullish()
+              .describe(
+                "Null when no decided trades (honest — never a fake 100%).",
+              ),
+          }),
+        )
+        .optional(),
+      equityCurve: zod
+        .array(
+          zod.object({
+            t: zod.string().describe("ISO timestamp of the trade exit."),
+            equity: zod.number(),
+            drawdown: zod.number().nullish(),
+          }),
+        )
+        .optional(),
+    })
+    .describe(
+      "Computed performance summary. Win-rate \/ profit-factor \/ averages are null when undefined (zero-denominator) — never fabricated.",
+    )
+    .nullish(),
+  dataQuality: zod
+    .object({
+      mode: zod.string(),
+      candleCoverage: zod
+        .object({
+          from: zod.string().nullish(),
+          to: zod.string().nullish(),
+          count: zod.number(),
+        })
+        .nullish(),
+      optionDataAvailable: zod
+        .boolean()
+        .describe(
+          "True only when real historical option premiums backed the P&L.",
+        ),
+      ivAvailable: zod.boolean(),
+      oiAvailable: zod.boolean(),
+      snapshotCoverage: zod
+        .object({
+          earliest: zod.coerce.date().nullish(),
+          latest: zod.coerce.date().nullish(),
+          count: zod.number(),
+          underlyings: zod.array(zod.string()),
+        })
+        .describe(
+          "Mode D — how much real option-chain snapshot history has accumulated for a future faithful 2yr replay.",
+        )
+        .nullish(),
+      modeledFields: zod
+        .array(zod.string())
+        .describe(
+          "Fields that were modeled (not real), e.g. optionEntry\/optionExit via delta proxy.",
+        ),
+      warnings: zod.array(zod.string()),
+      notes: zod.array(zod.string()).optional(),
+    })
+    .describe(
+      "Honesty panel: states exactly which inputs were real vs unavailable vs modeled for this run.",
+    )
+    .nullish(),
+  error: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  completedAt: zod.coerce.date().nullish(),
+});
+
+/**
+ * @summary Delete a backtest run and all its trades + blocked setups
+ */
+export const DeleteBacktestRunParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const DeleteBacktestRunResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary List the trades produced by a backtest run
+ */
+export const GetBacktestRunTradesParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const GetBacktestRunTradesResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      indexSymbol: zod.string(),
+      setupKey: zod.string().nullish(),
+      setupName: zod.string().nullish(),
+      direction: zod.string(),
+      optionType: zod.string().nullish(),
+      strike: zod.number().nullish(),
+      entryAt: zod.coerce.date().nullish(),
+      exitAt: zod.coerce.date().nullish(),
+      entrySpot: zod.number().nullish(),
+      exitSpot: zod.number().nullish(),
+      optionEntry: zod.number().nullish(),
+      optionExit: zod.number().nullish(),
+      optionStop: zod.number().nullish(),
+      optionTarget1: zod.number().nullish(),
+      optionTarget2: zod.number().nullish(),
+      lots: zod.number().nullish(),
+      lotSize: zod.number().nullish(),
+      qty: zod.number().nullish(),
+      pnl: zod.number().nullish(),
+      exitReason: zod.string().nullish(),
+      confidence: zod.number().nullish(),
+      tier: zod.string().nullish(),
+      regime: zod.string().nullish(),
+      modeled: zod
+        .boolean()
+        .describe(
+          "True = DIRECTIONAL delta-proxy fill; False = REAL_REPLAY real fill.",
+        ),
+      maxFavorableExcursion: zod.number().nullish(),
+      maxAdverseExcursion: zod.number().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary List the blocked/skipped setups recorded by a backtest run
+ */
+export const GetBacktestRunBlockedParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const GetBacktestRunBlockedResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      indexSymbol: zod.string(),
+      setupKey: zod.string().nullish(),
+      direction: zod.string().nullish(),
+      decision: zod.string().nullish(),
+      reasonCode: zod.string().nullish(),
+      confidence: zod.number().nullish(),
+      confluenceScore: zod.number().nullish(),
+      regime: zod.string().nullish(),
+      count: zod.number(),
+      note: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Option-chain snapshot capture coverage (Mode D — for the data-quality panel)
+ */
+export const GetBacktestSnapshotCoverageResponse = zod
+  .object({
+    earliest: zod.coerce.date().nullish(),
+    latest: zod.coerce.date().nullish(),
+    count: zod.number(),
+    underlyings: zod.array(zod.string()),
+  })
+  .describe(
+    "Mode D — how much real option-chain snapshot history has accumulated for a future faithful 2yr replay.",
+  );
+
+/**
  * @summary List the current user's saved screener presets
  */
 

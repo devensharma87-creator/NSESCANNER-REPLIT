@@ -1234,6 +1234,111 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Portfolio" }
 
+  /backtest/fno/runs:
+    get:
+      operationId: listBacktestRuns
+      tags: [backtest]
+      summary: List the current user's backtest runs (metadata only)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestRunListResponse" }
+    post:
+      operationId: createBacktestRun
+      tags: [backtest]
+      summary: Run an F&O backtest (REAL_REPLAY or DIRECTIONAL) and persist the result
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BacktestRunRequest" }
+      responses:
+        "201":
+          description: Created (the completed run, including summary + dataQuality)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestRun" }
+
+  /backtest/fno/runs/{id}:
+    get:
+      operationId: getBacktestRun
+      tags: [backtest]
+      summary: Get one backtest run with its summary + data-quality blob
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestRun" }
+    delete:
+      operationId: deleteBacktestRun
+      tags: [backtest]
+      summary: Delete a backtest run and all its trades + blocked setups
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestDeleteResponse" }
+
+  /backtest/fno/runs/{id}/trades:
+    get:
+      operationId: getBacktestRunTrades
+      tags: [backtest]
+      summary: List the trades produced by a backtest run
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestTradesResponse" }
+
+  /backtest/fno/runs/{id}/blocked:
+    get:
+      operationId: getBacktestRunBlocked
+      tags: [backtest]
+      summary: List the blocked/skipped setups recorded by a backtest run
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestBlockedResponse" }
+
+  /backtest/fno/snapshot-coverage:
+    get:
+      operationId: getBacktestSnapshotCoverage
+      tags: [backtest]
+      summary: Option-chain snapshot capture coverage (Mode D — for the data-quality panel)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestSnapshotCoverage" }
+
   /global/screener-presets:
     get:
       operationId: listGlobalScreenerPresets
@@ -4724,6 +4829,234 @@ components:
           items: { $ref: "#/components/schemas/PortfolioHoldingInput" }
 
     PortfolioDeleteResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+
+    BacktestRunRequest:
+      type: object
+      description: "Parameters for an F&O backtest. REAL_REPLAY reads the engine's actual captured history; DIRECTIONAL replays the reconstructable directional layer on historical spot candles with a clearly-labeled delta-proxy option P&L."
+      required: [mode, instrument]
+      properties:
+        mode:
+          type: string
+          enum: [REAL_REPLAY, DIRECTIONAL]
+        instrument:
+          type: string
+          enum: [NIFTY, BANKNIFTY, SENSEX, ALL]
+        timeframe: { type: string, description: "Candle timeframe, e.g. 15m or 1D. Defaults to 15m." }
+        fromDate: { type: string, nullable: true, description: "Inclusive YYYY-MM-DD. Null = earliest available." }
+        toDate: { type: string, nullable: true, description: "Inclusive YYYY-MM-DD. Null = latest available." }
+        startingCapital: { type: number, description: "Defaults to 1000000." }
+        riskPerTradePct: { type: number, description: "Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1." }
+
+    BacktestEquityPoint:
+      type: object
+      required: [t, equity]
+      properties:
+        t: { type: string, description: "ISO timestamp of the trade exit." }
+        equity: { type: number }
+        drawdown: { type: number, nullable: true }
+
+    BacktestInstrumentStat:
+      type: object
+      required: [instrument, trades, pnl]
+      properties:
+        instrument: { type: string }
+        trades: { type: integer }
+        pnl: { type: number }
+        winRate: { type: number, nullable: true, description: "Null when no decided trades (honest — never a fake 100%)." }
+
+    BacktestSummary:
+      type: object
+      description: "Computed performance summary. Win-rate / profit-factor / averages are null when undefined (zero-denominator) — never fabricated."
+      required: [totalTrades, wins, losses, totalPnl]
+      properties:
+        totalTrades: { type: integer }
+        wins: { type: integer }
+        losses: { type: integer }
+        breakeven: { type: integer }
+        winRate: { type: number, nullable: true }
+        totalPnl: { type: number }
+        grossProfit: { type: number }
+        grossLoss: { type: number }
+        profitFactor: { type: number, nullable: true }
+        avgWin: { type: number, nullable: true }
+        avgLoss: { type: number, nullable: true }
+        avgTradePnl: { type: number, nullable: true }
+        expectancy: { type: number, nullable: true }
+        maxDrawdown: { type: number }
+        returnPct: { type: number, nullable: true }
+        longTrades: { type: integer }
+        shortTrades: { type: integer }
+        bestTradePnl: { type: number, nullable: true }
+        worstTradePnl: { type: number, nullable: true }
+        byInstrument:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestInstrumentStat" }
+        equityCurve:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestEquityPoint" }
+
+    BacktestCoverageWindow:
+      type: object
+      required: [count]
+      properties:
+        from: { type: string, nullable: true }
+        to: { type: string, nullable: true }
+        count: { type: integer }
+
+    BacktestDataQuality:
+      type: object
+      description: "Honesty panel: states exactly which inputs were real vs unavailable vs modeled for this run."
+      required: [mode, optionDataAvailable, ivAvailable, oiAvailable, modeledFields, warnings]
+      properties:
+        mode: { type: string }
+        candleCoverage:
+          allOf: [{ $ref: "#/components/schemas/BacktestCoverageWindow" }]
+          nullable: true
+        optionDataAvailable: { type: boolean, description: "True only when real historical option premiums backed the P&L." }
+        ivAvailable: { type: boolean }
+        oiAvailable: { type: boolean }
+        snapshotCoverage:
+          allOf: [{ $ref: "#/components/schemas/BacktestSnapshotCoverage" }]
+          nullable: true
+        modeledFields:
+          type: array
+          items: { type: string }
+          description: "Fields that were modeled (not real), e.g. optionEntry/optionExit via delta proxy."
+        warnings:
+          type: array
+          items: { type: string }
+        notes:
+          type: array
+          items: { type: string }
+
+    BacktestRun:
+      type: object
+      required: [id, mode, instrument, timeframe, fromDate, toDate, startingCapital, riskPerTradePct, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        mode: { type: string }
+        instrument: { type: string }
+        timeframe: { type: string }
+        fromDate: { type: string }
+        toDate: { type: string }
+        startingCapital: { type: number }
+        riskPerTradePct: { type: number }
+        status: { type: string, enum: [PENDING, RUNNING, COMPLETE, FAILED] }
+        summary:
+          allOf: [{ $ref: "#/components/schemas/BacktestSummary" }]
+          nullable: true
+        dataQuality:
+          allOf: [{ $ref: "#/components/schemas/BacktestDataQuality" }]
+          nullable: true
+        error: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+
+    BacktestRunListItem:
+      type: object
+      required: [id, mode, instrument, timeframe, fromDate, toDate, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        mode: { type: string }
+        instrument: { type: string }
+        timeframe: { type: string }
+        fromDate: { type: string }
+        toDate: { type: string }
+        status: { type: string }
+        totalPnl: { type: number, nullable: true }
+        totalTrades: { type: integer, nullable: true }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+
+    BacktestRunListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestRunListItem" }
+
+    BacktestTrade:
+      type: object
+      required: [id, indexSymbol, direction, modeled]
+      properties:
+        id: { type: string, format: uuid }
+        indexSymbol: { type: string }
+        setupKey: { type: string, nullable: true }
+        setupName: { type: string, nullable: true }
+        direction: { type: string }
+        optionType: { type: string, nullable: true }
+        strike: { type: number, nullable: true }
+        entryAt: { type: string, format: date-time, nullable: true }
+        exitAt: { type: string, format: date-time, nullable: true }
+        entrySpot: { type: number, nullable: true }
+        exitSpot: { type: number, nullable: true }
+        optionEntry: { type: number, nullable: true }
+        optionExit: { type: number, nullable: true }
+        optionStop: { type: number, nullable: true }
+        optionTarget1: { type: number, nullable: true }
+        optionTarget2: { type: number, nullable: true }
+        lots: { type: integer, nullable: true }
+        lotSize: { type: integer, nullable: true }
+        qty: { type: integer, nullable: true }
+        pnl: { type: number, nullable: true }
+        exitReason: { type: string, nullable: true }
+        confidence: { type: number, nullable: true }
+        tier: { type: string, nullable: true }
+        regime: { type: string, nullable: true }
+        modeled: { type: boolean, description: "True = DIRECTIONAL delta-proxy fill; False = REAL_REPLAY real fill." }
+        maxFavorableExcursion: { type: number, nullable: true }
+        maxAdverseExcursion: { type: number, nullable: true }
+
+    BacktestTradesResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestTrade" }
+
+    BacktestBlockedSetup:
+      type: object
+      required: [id, indexSymbol, count]
+      properties:
+        id: { type: string, format: uuid }
+        indexSymbol: { type: string }
+        setupKey: { type: string, nullable: true }
+        direction: { type: string, nullable: true }
+        decision: { type: string, nullable: true }
+        reasonCode: { type: string, nullable: true }
+        confidence: { type: number, nullable: true }
+        confluenceScore: { type: number, nullable: true }
+        regime: { type: string, nullable: true }
+        count: { type: integer }
+        note: { type: string, nullable: true }
+
+    BacktestBlockedResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestBlockedSetup" }
+
+    BacktestSnapshotCoverage:
+      type: object
+      description: "Mode D — how much real option-chain snapshot history has accumulated for a future faithful 2yr replay."
+      required: [count, underlyings]
+      properties:
+        earliest: { type: string, format: date-time, nullable: true }
+        latest: { type: string, format: date-time, nullable: true }
+        count: { type: integer }
+        underlyings:
+          type: array
+          items: { type: string }
+
+    BacktestDeleteResponse:
       type: object
       required: [ok]
       properties:
