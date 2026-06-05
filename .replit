@@ -47,3 +47,4 @@ PAPER_TRADING_ENABLED = "true"
 
 [nix]
 channel = "stable-25_05"
+packages = ["glibcLocales"]
