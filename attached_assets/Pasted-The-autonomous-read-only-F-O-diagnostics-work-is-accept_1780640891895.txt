@@ -1,0 +1,523 @@
+The autonomous read-only F&O diagnostics work is accepted as the current baseline.
+
+Do not repeat or duplicate the already-merged work.
+
+Current completed items from your report:
+
+/api/fno/data-health added
+/api/fno/diagnostics/today added
+/api/fno/diagnostics/gate-waterfall added
+/api/fno/diagnostics/no-trade-reasons added
+/api/fno/diagnostics/setup-performance added
+docs/fno-audit-report-2026-06-05.md created
+typecheck green
+api-server tests 904/904
+scanner tests 554/554
+architect review passed
+no trading logic changed
+no schema changed
+not published
+
+Now continue from this exact state.
+
+This is the merged next phase:
+
+F&O Data Accuracy + Signal Trust + Paper-Trading Truth Review
+
+Main goal:
+
+Make the website a reliable personal market power hub by proving data accuracy, exposing the F&O engine, validating paper-trading reports, and identifying exact fixes before changing strategy logic.
+0. Non-negotiable rules
+
+Follow these strictly:
+
+No live trading
+No broker order placement
+No Kite order placement
+No change to entry rules
+No change to stop-loss rules
+No change to target rules
+No change to exit rules
+No premium target auto-exit
+No partial exit
+No trailing stop
+No breakeven logic
+No realized P&L behaviour change
+No DD cap change
+No heat cap change
+No risk gate change
+No scanner scoring change
+No DB/schema migration
+No scheduler change
+No env/secret change
+No publish unless separately approved
+No new backlog tasks unless explicitly asked
+
+Allowed:
+
+Read-only audits
+Read-only diagnostic endpoint fixes if a bug is found
+Read-only UI diagnostic panel planning
+Tests
+Reports
+Evidence tables
+Endpoint smoke checks
+Code-level gap analysis
+
+Pause before any trading-logic, risk, DB, scheduler, or publish action.
+
+1. First task — Gap check against the original approved prompt
+
+You already built the new /api/fno/* endpoints. Now verify whether they fully satisfy the approved audit requirement.
+
+Create:
+
+F&O Diagnostics Gap Check Report
+
+Compare actual delivered work against the original required list:
+
+1. /api/fno/data-health
+2. /api/fno/diagnostics/today
+3. /api/fno/diagnostics/gate-waterfall
+4. /api/fno/diagnostics/no-trade-reasons
+5. /api/fno/diagnostics/setup-performance
+6. End-to-end F&O data pipeline audit
+7. Signal detector audit
+8. Entry / stop / target / exit audit
+9. Paper-trading report truth audit
+10. Swing-trading audit readiness
+11. Market information hub audit readiness
+
+For each item, report:
+
+Delivered yes/no
+Endpoint/file/report name
+Data source used
+Whether it uses durable DB data
+Whether it fabricates anything
+Known limitation
+Missing field, if any
+Whether fix is read-only or trading-impacting
+
+Do not implement changes during this gap check unless a read-only diagnostic bug is clearly blocking the report.
+
+2. Validate the new F&O endpoints
+
+Run local/dev smoke checks for:
+
+GET /api/fno/data-health
+GET /api/fno/diagnostics/today
+GET /api/fno/diagnostics/gate-waterfall
+GET /api/fno/diagnostics/no-trade-reasons
+GET /api/fno/diagnostics/setup-performance
+
+Check:
+
+owner-only access works
+unauthenticated returns 401/403
+response shape is stable
+no ZodError
+no 500
+no fake zero values
+null/unavailable is labelled honestly
+Kite offline state is shown clearly
+Yahoo/delayed data is not treated as F&O-live
+today uses IST market date, not server UTC drift
+
+Return sample redacted JSON shape for each endpoint.
+
+3. F&O data-health audit
+
+For NIFTY, BANKNIFTY, and SENSEX, verify whether /api/fno/data-health exposes:
+
+spot source
+spot timestamp
+spot freshness seconds
+WebSocket status
+Kite session status
+index quote status
+option-chain source
+expiry selected
+ATM strike
+strikes loaded
+CE availability
+PE availability
+bid/ask availability
+spread status
+OI availability
+IV availability
+PCR availability
+max-pain availability
+expected-move availability
+data quality status
+whether F&O signal is allowed
+blocking reason if signal is not allowed
+
+If any field is missing, classify it:
+
+P0 = must show for signal trust
+P1 = important for diagnostics
+P2 = useful but later
+
+Do not add fields yet unless they are read-only and low-risk.
+
+4. Gate-waterfall audit
+
+Use the new diagnostics plus existing fno_signal_reasoning data.
+
+Answer these questions:
+
+Where are candidates dying?
+Which gate blocks most often?
+Which detector produces most candidates?
+Which detector produces most opened trades?
+Which setup is most often demoted to BASELINE?
+Which reason causes no-trade drought?
+Which underlying is weakest/strongest?
+Are risk gates blocking or data gates blocking?
+Are liquidity/spread/OI gates too restrictive?
+Are session/time filters causing unnecessary drought?
+
+Return table:
+
+| Gate/Reason | Count Today | Count 5 Sessions | Count 20 Sessions | Category | Example Setup | Impact | Fix Candidate |
+
+Do not tune gates yet.
+
+5. Setup-performance audit
+
+For each setup/detector, report:
+
+setup key
+setup name
+underlying
+direction
+sample size
+candidate count
+triggered count
+opened count
+target1 count
+target2 count
+stop count
+time-exit count
+expired count
+gross P&L
+shadow cost estimate
+estimated net P&L
+average MFE
+average MAE
+average giveback
+average holding time
+best trade
+worst trade
+sample sufficient yes/no
+recommended action: keep / watch / tune / disable / needs more sample
+
+Important:
+
+Do not use setup-performance to change live gating yet.
+Mark insufficient samples clearly.
+Do not overfit.
+6. Entry / stop / target / exit audit
+
+Audit from code and persisted data.
+
+Specifically verify:
+
+entry trigger
+entry premium source
+underlying trigger level
+confirmation candle logic
+premium vs spot basis
+stop basis
+target basis
+T1 behaviour
+T2 behaviour
+force-exit behaviour
+manual-exit behaviour
+MTM basis
+last_evaluated_at freshness
+premium target touch vs spot target trigger
+
+Must include the already-known issue:
+
+Premium T1/T2 can be touched while spot target is not reached.
+Current target exit is spot-lifecycle driven.
+Premium target touch is currently informational/reporting, not an exit trigger.
+
+Return:
+
+| Stage | Current Logic | Source File | DB Field | UI Display | Issue | Fix Candidate |
+
+Do not change exit logic.
+
+7. Paper-trading truth audit
+
+Audit F&O paper-trading reports for truthfulness.
+
+Check:
+
+gross P&L
+shadow cost P&L
+net estimate label
+realized P&L basis
+unrealized P&L basis
+MFE
+MAE
+giveback
+target-status reporting
+closed-trade explanation
+time-exit explanation
+stop-exit explanation
+premium-vs-spot divergence warning
+daily report
+monthly report
+yearly report
+paper account card
+heat / DD display
+
+Important known issue:
+
+STT shadow cost constants have been fixed.
+But realized P&L / DD caps / heat gates are still gross unless separately changed.
+
+Report whether UI makes this distinction clear.
+
+Do not start gross-to-net consistency yet.
+
+8. F&O data point audit table
+
+For each data point below, complete this table:
+
+| Data Point | Source | File/API | Formula/Logic | Freshness Rule | UI Location | DB Storage | Issue Found | Fix Needed |
+
+Data points:
+
+spot price
+futures price
+futures premium/discount
+option chain
+expiry selected
+weekly/monthly expiry
+ATM strike
+ITM/ATM/OTM classification
+CE/PE LTP
+CE/PE bid/ask
+CE/PE volume
+CE/PE OI
+CE/PE change in OI
+CE/PE IV
+CE/PE spread
+lot size
+tick size
+instrument token
+contract symbol mapping
+NFO/BFO handling
+PCR by OI
+PCR by volume
+PCR by change in OI
+max pain
+IV skew
+IV rank / IV percentile
+ATM straddle
+expected move
+India VIX
+realized volatility
+implied volatility
+OI buildup
+long buildup
+short buildup
+short covering
+long unwinding
+support/resistance from OI
+option-chain staleness
+missing strike detection
+abnormal IV detection
+abnormal spread detection
+
+Do not guess. Mark unavailable if not implemented.
+
+9. Signal detector audit
+
+Audit all detectors currently in the code.
+
+At minimum:
+
+trend continuation
+VWAP reclaim
+volume breakout
+EMA pullback
+mean reversion
+baseline directional detector
+legacy detector
+any hidden detector
+
+For each detector:
+
+purpose
+bullish condition
+bearish condition
+required data
+confirmation rules
+confidence formula
+invalidating condition
+when it should not fire
+missing-data behaviour
+false-positive risk
+no-trade-drought risk
+duplicate overlap with another detector
+recommendation: keep / adjust / merge / remove / needs sample
+
+No detector logic change yet.
+
+10. Swing-trading audit preparation
+
+Do not start changing swing trading yet.
+
+Prepare a read-only swing audit plan covering:
+
+scanner universe
+data source
+freshness
+EMA/RSI/VWAP/ADX/ATR calculations
+sector strength
+relative strength
+entry quality
+late-entry-at-resistance/supply
+support/demand/buy zone
+stop-loss logic
+target logic
+R:R logic
+paper-entry gates
+trailing stop
+time stop
+paper P&L
+reports
+UI explanation
+
+Output:
+
+Swing Audit Plan + Required Files + Risks
+
+No swing scoring change.
+
+11. Market information hub audit preparation
+
+Prepare a read-only plan for turning the website into a better information hub.
+
+Cover:
+
+indices board
+pre-market/post-market
+market breadth
+sector heatmap
+FII/DII
+participant OI
+India VIX
+global cues
+GIFT Nifty
+news/catalysts
+stocks to watch
+OI Lab
+option chain
+strategies page
+charting
+portfolio
+paper reports
+infra health
+data quality panels
+
+For each dashboard, plan to verify:
+
+source
+freshness
+fallback
+delayed-data label
+stale-data warning
+empty-state honesty
+formula explanation
+UI explanation
+
+No UI redesign yet.
+
+12. Diagnostics UI plan
+
+Do not build UI yet unless separately approved.
+
+Prepare a minimal owner-only UI plan:
+
+F&O Diagnostics page
+Data Health card
+Today Summary card
+Gate Waterfall table
+No-Trade Reasons table
+Setup Performance table
+Data Freshness warnings
+Kite status
+Option-chain status
+Paper-trading truth notes
+
+Report:
+
+files likely to change
+API hooks needed
+whether OpenAPI/codegen is required
+risk level
+estimated work
+13. Validation required
+
+Run:
+
+pnpm run typecheck
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+
+If OpenAPI is changed:
+
+pnpm --filter @workspace/api-spec run codegen
+pnpm run typecheck
+
+Do not run DB migration.
+
+14. Required final report
+
+Return:
+
+F&O Data Accuracy + Signal Trust Review Report
+
+Include:
+
+A. Files changed in this continuation
+B. Whether any code changed yes/no
+C. Endpoint validation results
+D. Auth-gating validation
+E. F&O data-health findings
+F. Today diagnostics findings
+G. Gate-waterfall findings
+H. No-trade reason findings
+I. Setup-performance findings
+J. Entry/stop/target/exit audit
+K. Paper-trading truth audit
+L. F&O data point audit table
+M. Signal detector audit
+N. Swing audit plan
+O. Market information hub audit plan
+P. Diagnostics UI plan
+Q. Bugs found
+R. Bugs fixed, if any
+S. Bugs intentionally not fixed
+T. Trading-logic changes made? must be NO
+U. DB/schema changes made? must be NO
+V. Publish needed? yes/no
+W. Recommended next phase
+
+Stop after the report.
+
+Do not start:
+
+gross-to-net consistency implementation
+premium-target exit implementation
+DB-backed latch migration
+swing scoring changes
+market UI redesign
+Portfolio/ETF/benchmark backlog tasks
