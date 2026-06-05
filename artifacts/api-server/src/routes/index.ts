@@ -21,6 +21,7 @@ import candleWarehouseRouter from "./candleWarehouse";
 import equitySizingRouter from "./equitySizing";
 import chartRouter from "./chart";
 import portfolioRouter from "./portfolio";
+import fnoRouter from "./fno";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
 import { bootstrapKite } from "../lib/kiteFeed";
@@ -52,6 +53,7 @@ router.use(candleWarehouseRouter);     // /candles/* — owner-only diagnostics 
 router.use(equitySizingRouter);        // /paper/eq/sizing-preview + /paper/eq/candidates-diagnostic — owner-only read-only sizing helper (Priority 5)
 router.use(chartRouter);               // /chart/instruments + /chart/candles — read-only Charting tab datafeed (public-mode read like scanner)
 router.use(portfolioRouter);           // /portfolios/* — per-user saved Portfolio Analyser portfolios (owner OR subscriber; ownerKey-scoped)
+router.use(fnoRouter);                  // /fno/* — owner-only READ-ONLY consolidating F&O diagnostics facade (data-health, today, gate-waterfall, no-trade-reasons, setup-performance)
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 // W6-P4A: staggered to the back of the cold-start window (heaviest boot job —
