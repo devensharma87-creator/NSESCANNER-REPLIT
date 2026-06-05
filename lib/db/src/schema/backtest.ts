@@ -68,6 +68,15 @@ export const backtestRunsTable = pgTable(
     dataQuality: jsonb("data_quality"),
     /** Populated only when status = FAILED. */
     error: text("error"),
+    // ---- V2 Strategy-Research (additive; null for Official-engine runs) ------
+    /** OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES. */
+    backtestMode: text("backtest_mode"),
+    /** Strategy ids selected for STRATEGY_RESEARCH / COMPARE runs. */
+    selectedStrategies: jsonb("selected_strategies"),
+    /** Confirmation-filter config snapshot for the run. */
+    filters: jsonb("filters"),
+    /** Computed multi-factor comparison + ranking blob (research/compare modes). */
+    strategyComparison: jsonb("strategy_comparison"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
@@ -112,6 +121,21 @@ export const backtestTradesTable = pgTable(
     modeled: boolean("modeled").notNull().default(false),
     maxFavorableExcursion: doublePrecision("max_favorable_excursion"),
     maxAdverseExcursion: doublePrecision("max_adverse_excursion"),
+    // ---- V2 Strategy-Research attribution (additive; null for Official trades) -
+    backtestMode: text("backtest_mode"),
+    strategyId: text("strategy_id"),
+    strategyName: text("strategy_name"),
+    strategyCategory: text("strategy_category"),
+    /** STRATEGY | ENGINE — which signal source produced this trade. */
+    signalSource: text("signal_source"),
+    /** Per-trade strategy params (stop/target1/target2/rMultiple/reachedT1/timeframe). */
+    strategyParams: jsonb("strategy_params"),
+    /** Confirmation filters that were active when the trade was taken. */
+    confirmationFilters: jsonb("confirmation_filters"),
+    strategyConfidence: doublePrecision("strategy_confidence"),
+    historicalSetupMatch: text("historical_setup_match"),
+    passedConditions: jsonb("passed_conditions"),
+    failedConditions: jsonb("failed_conditions"),
     /** Preserves chronological order within the run. */
     sortIndex: integer("sort_index").notNull().default(0),
   },
@@ -140,6 +164,15 @@ export const backtestBlockedSetupsTable = pgTable(
     /** Aggregated occurrence count for this (setup, decision, reasonCode) bucket. */
     count: integer("count").notNull().default(1),
     note: text("note"),
+    // ---- V2 Strategy-Research attribution (additive; null for Official blocks) -
+    strategyId: text("strategy_id"),
+    strategyName: text("strategy_name"),
+    /** STRATEGY | ENGINE. */
+    signalSource: text("signal_source"),
+    failedCondition: text("failed_condition"),
+    blockedRule: text("blocked_rule"),
+    /** FILTER | RISK | DATA — buckets the comparison's rejected/risk/data counts. */
+    category: text("category"),
   },
   (t) => ({
     byRun: index("backtest_blocked_setups_run_idx").on(t.runId),

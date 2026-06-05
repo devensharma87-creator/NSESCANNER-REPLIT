@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { BacktestTradeStrategyParams } from "./backtestTradeStrategyParams";
 
 export interface BacktestTrade {
   id: string;
@@ -35,4 +36,16 @@ export interface BacktestTrade {
   modeled: boolean;
   maxFavorableExcursion?: number | null;
   maxAdverseExcursion?: number | null;
+  backtestMode?: string | null;
+  strategyId?: string | null;
+  strategyName?: string | null;
+  strategyCategory?: string | null;
+  /** STRATEGY | ENGINE. */
+  signalSource?: string | null;
+  strategyParams?: BacktestTradeStrategyParams;
+  confirmationFilters?: string[] | null;
+  strategyConfidence?: number | null;
+  historicalSetupMatch?: string | null;
+  passedConditions?: string[] | null;
+  failedConditions?: string[] | null;
 }

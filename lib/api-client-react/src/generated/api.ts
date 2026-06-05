@@ -23,6 +23,7 @@ import type {
   BacktestRunListResponse,
   BacktestRunRequest,
   BacktestSnapshotCoverage,
+  BacktestStrategiesResponse,
   BacktestTradesResponse,
   ChartCandlesResponse,
   ChartInstrumentsResponse,
@@ -6974,6 +6975,84 @@ export function useGetBacktestSnapshotCoverage<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetBacktestSnapshotCoverageQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List the generic Strategy-Research strategy catalog (V2)
+ */
+export const getGetBacktestStrategiesUrl = () => {
+  return `/api/backtest/fno/strategies`;
+};
+
+export const getBacktestStrategies = async (
+  options?: RequestInit,
+): Promise<BacktestStrategiesResponse> => {
+  return customFetch<BacktestStrategiesResponse>(
+    getGetBacktestStrategiesUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetBacktestStrategiesQueryKey = () => {
+  return [`/api/backtest/fno/strategies`] as const;
+};
+
+export const getGetBacktestStrategiesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBacktestStrategies>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktestStrategies>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetBacktestStrategiesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getBacktestStrategies>>
+  > = ({ signal }) => getBacktestStrategies({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktestStrategies>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBacktestStrategiesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBacktestStrategies>>
+>;
+export type GetBacktestStrategiesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the generic Strategy-Research strategy catalog (V2)
+ */
+
+export function useGetBacktestStrategies<
+  TData = Awaited<ReturnType<typeof getBacktestStrategies>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktestStrategies>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBacktestStrategiesQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

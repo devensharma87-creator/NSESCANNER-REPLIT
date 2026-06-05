@@ -45,6 +45,18 @@ export interface BacktestTradeOut {
   modeled: boolean;
   maxFavorableExcursion: number | null;
   maxAdverseExcursion: number | null;
+  // ---- V2 Strategy-Research attribution (null for Official-engine trades) ----
+  backtestMode?: string | null;
+  strategyId?: string | null;
+  strategyName?: string | null;
+  strategyCategory?: string | null;
+  signalSource?: string | null;
+  strategyParams?: Record<string, unknown> | null;
+  confirmationFilters?: string[] | null;
+  strategyConfidence?: number | null;
+  historicalSetupMatch?: string | null;
+  passedConditions?: string[] | null;
+  failedConditions?: string[] | null;
 }
 
 export interface BacktestBlockedOut {
@@ -59,6 +71,14 @@ export interface BacktestBlockedOut {
   regime: string | null;
   count: number;
   note: string | null;
+  // ---- V2 Strategy-Research attribution (null for Official-engine blocks) ----
+  strategyId?: string | null;
+  strategyName?: string | null;
+  signalSource?: string | null;
+  failedCondition?: string | null;
+  blockedRule?: string | null;
+  /** FILTER | RISK | DATA — buckets the comparison's rejected/risk/data counts. */
+  category?: string | null;
 }
 
 export interface BacktestEquityPoint {
@@ -120,5 +140,83 @@ export interface BacktestDataQualityOut {
   snapshotCoverage: BacktestSnapshotCoverageOut | null;
   modeledFields: string[];
   warnings: string[];
+  notes: string[];
+}
+
+// ---------------------------------------------------------------------------
+// V2 — Strategy Research catalog + comparison
+// ---------------------------------------------------------------------------
+
+export interface BacktestStrategyMetaOut {
+  id: string;
+  name: string;
+  category: string;
+  bestCondition: string;
+  suitableIndices: string[];
+  recommendedTimeframes: string[];
+  riskLevel: string;
+  description: string;
+  /** Confirmation filters this strategy ignores by design (e.g. range plays ignore VWAP/EMA-trend). */
+  ignoredFilters: string[];
+  defaultParams: Record<string, number>;
+}
+
+/** One row of the comparison table — per (strategy × index). */
+export interface BacktestComparisonRowOut {
+  strategyId: string;
+  strategyName: string;
+  indexSymbol: string;
+  timeframe: string;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate: number | null;
+  grossPnl: number;
+  charges: number;
+  slippage: number;
+  netPnl: number;
+  profitFactor: number | null;
+  avgR: number | null;
+  maxDrawdown: number;
+  bestTrade: number | null;
+  worstTrade: number | null;
+  avgHoldingMinutes: number | null;
+  target1HitCount: number;
+  target2HitCount: number;
+  slHitCount: number;
+  timeExitCount: number;
+  rejectedSetupCount: number;
+  dataBlockedCount: number;
+  riskBlockedCount: number;
+}
+
+/** Per-strategy aggregate (across all selected indices) used for ranking. */
+export interface BacktestStrategyAggregateOut {
+  strategyId: string;
+  strategyName: string;
+  totalTrades: number;
+  winRate: number | null;
+  netPnl: number;
+  profitFactor: number | null;
+  maxDrawdown: number;
+  avgR: number | null;
+  /** Multi-factor composite score (0–100), null when not enough trades to rank. */
+  compositeScore: number | null;
+  eligible: boolean;
+}
+
+export interface BacktestRankingCardOut {
+  key: string;
+  label: string;
+  strategyId: string | null;
+  strategyName: string | null;
+  value: string | null;
+  note: string | null;
+}
+
+export interface BacktestStrategyComparisonOut {
+  rows: BacktestComparisonRowOut[];
+  byStrategy: BacktestStrategyAggregateOut[];
+  ranking: BacktestRankingCardOut[];
   notes: string[];
 }

@@ -5,6 +5,8 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { BacktestFilterConfig } from "./backtestFilterConfig";
+import type { BacktestRunRequestBacktestMode } from "./backtestRunRequestBacktestMode";
 import type { BacktestRunRequestInstrument } from "./backtestRunRequestInstrument";
 import type { BacktestRunRequestMode } from "./backtestRunRequestMode";
 
@@ -24,4 +26,16 @@ export interface BacktestRunRequest {
   startingCapital?: number;
   /** Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1. */
   riskPerTradePct?: number;
+  /** V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. */
+  backtestMode?: BacktestRunRequestBacktestMode;
+  /** Strategy ids for STRATEGY_RESEARCH / COMPARE runs (subset of the catalog from GET /backtest/fno/strategies). */
+  strategies?: string[] | null;
+  /** Confirmation-filter toggles for strategy runs. Option/spread/volume filters are auto-disabled (no historical data). */
+  filters?: BacktestFilterConfig | null;
+  /** Cap on strategy entries per index per day. Defaults to a sane internal value. */
+  maxTradesPerDay?: number | null;
+  /** Subtract modeled round-trip brokerage/taxes from net P&L (estimate). */
+  includeCharges?: boolean | null;
+  /** Subtract modeled slippage from net P&L (estimate). */
+  includeSlippage?: boolean | null;
 }

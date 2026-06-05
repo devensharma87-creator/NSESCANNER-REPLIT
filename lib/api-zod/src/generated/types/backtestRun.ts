@@ -7,6 +7,7 @@
  */
 import type { BacktestDataQuality } from "./backtestDataQuality";
 import type { BacktestRunStatus } from "./backtestRunStatus";
+import type { BacktestStrategyComparison } from "./backtestStrategyComparison";
 import type { BacktestSummary } from "./backtestSummary";
 
 export interface BacktestRun {
@@ -22,6 +23,10 @@ export interface BacktestRun {
   summary?: BacktestSummary | null;
   dataQuality?: BacktestDataQuality | null;
   error?: string | null;
+  /** V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs). */
+  backtestMode?: string | null;
+  selectedStrategies?: string[] | null;
+  strategyComparison?: BacktestStrategyComparison | null;
   createdAt: Date;
   completedAt?: Date | null;
 }

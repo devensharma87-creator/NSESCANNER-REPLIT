@@ -18,4 +18,11 @@ export interface BacktestBlockedSetup {
   regime?: string | null;
   count: number;
   note?: string | null;
+  strategyId?: string | null;
+  strategyName?: string | null;
+  signalSource?: string | null;
+  failedCondition?: string | null;
+  blockedRule?: string | null;
+  /** FILTER | RISK | DATA. */
+  category?: string | null;
 }

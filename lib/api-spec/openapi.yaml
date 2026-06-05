@@ -1339,6 +1339,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BacktestSnapshotCoverage" }
 
+  /backtest/fno/strategies:
+    get:
+      operationId: getBacktestStrategies
+      tags: [backtest]
+      summary: List the generic Strategy-Research strategy catalog (V2)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestStrategiesResponse" }
+
   /global/screener-presets:
     get:
       operationId: listGlobalScreenerPresets
@@ -4850,6 +4862,22 @@ components:
         toDate: { type: string, nullable: true, description: "Inclusive YYYY-MM-DD. Null = latest available." }
         startingCapital: { type: number, description: "Defaults to 1000000." }
         riskPerTradePct: { type: number, description: "Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1." }
+        backtestMode:
+          type: string
+          enum: [OFFICIAL_ENGINE, STRATEGY_RESEARCH, COMPARE_OFFICIAL_VS_STRATEGIES]
+          description: "V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison."
+        strategies:
+          type: array
+          nullable: true
+          items: { type: string }
+          description: "Strategy ids for STRATEGY_RESEARCH / COMPARE runs (subset of the catalog from GET /backtest/fno/strategies)."
+        filters:
+          allOf: [{ $ref: "#/components/schemas/BacktestFilterConfig" }]
+          nullable: true
+          description: "Confirmation-filter toggles for strategy runs. Option/spread/volume filters are auto-disabled (no historical data)."
+        maxTradesPerDay: { type: integer, nullable: true, description: "Cap on strategy entries per index per day. Defaults to a sane internal value." }
+        includeCharges: { type: boolean, nullable: true, description: "Subtract modeled round-trip brokerage/taxes from net P&L (estimate)." }
+        includeSlippage: { type: boolean, nullable: true, description: "Subtract modeled slippage from net P&L (estimate)." }
 
     BacktestEquityPoint:
       type: object
@@ -4953,6 +4981,14 @@ components:
           allOf: [{ $ref: "#/components/schemas/BacktestDataQuality" }]
           nullable: true
         error: { type: string, nullable: true }
+        backtestMode: { type: string, nullable: true, description: "V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs)." }
+        selectedStrategies:
+          type: array
+          nullable: true
+          items: { type: string }
+        strategyComparison:
+          allOf: [{ $ref: "#/components/schemas/BacktestStrategyComparison" }]
+          nullable: true
         createdAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time, nullable: true }
 
@@ -5011,6 +5047,29 @@ components:
         modeled: { type: boolean, description: "True = DIRECTIONAL delta-proxy fill; False = REAL_REPLAY real fill." }
         maxFavorableExcursion: { type: number, nullable: true }
         maxAdverseExcursion: { type: number, nullable: true }
+        backtestMode: { type: string, nullable: true }
+        strategyId: { type: string, nullable: true }
+        strategyName: { type: string, nullable: true }
+        strategyCategory: { type: string, nullable: true }
+        signalSource: { type: string, nullable: true, description: "STRATEGY | ENGINE." }
+        strategyParams:
+          type: object
+          nullable: true
+          additionalProperties: true
+        confirmationFilters:
+          type: array
+          nullable: true
+          items: { type: string }
+        strategyConfidence: { type: number, nullable: true }
+        historicalSetupMatch: { type: string, nullable: true }
+        passedConditions:
+          type: array
+          nullable: true
+          items: { type: string }
+        failedConditions:
+          type: array
+          nullable: true
+          items: { type: string }
 
     BacktestTradesResponse:
       type: object
@@ -5035,6 +5094,12 @@ components:
         regime: { type: string, nullable: true }
         count: { type: integer }
         note: { type: string, nullable: true }
+        strategyId: { type: string, nullable: true }
+        strategyName: { type: string, nullable: true }
+        signalSource: { type: string, nullable: true }
+        failedCondition: { type: string, nullable: true }
+        blockedRule: { type: string, nullable: true }
+        category: { type: string, nullable: true, description: "FILTER | RISK | DATA." }
 
     BacktestBlockedResponse:
       type: object
@@ -5061,6 +5126,126 @@ components:
       required: [ok]
       properties:
         ok: { type: boolean }
+
+    BacktestFilterConfig:
+      type: object
+      description: "Confirmation-filter toggles. Option/spread/volume filters are auto-disabled in the backtest (no historical option data) and reported as such — never silently applied."
+      properties:
+        vwapFilter: { type: boolean }
+        emaTrendFilter: { type: boolean }
+        optionChainConfirmation: { type: boolean, description: "Auto-disabled — no historical option-chain data." }
+        avoidChopZone: { type: boolean }
+        avoidLast15Minutes: { type: boolean }
+        avoidWideSpread: { type: boolean, description: "Auto-disabled — no historical option spread data." }
+        avoidLowVolume: { type: boolean, description: "Auto-disabled — no historical option volume data." }
+        minimumRiskReward: { type: number, description: "Minimum reward:risk multiple; <= 0 disables the filter." }
+
+    BacktestStrategyMeta:
+      type: object
+      required: [id, name, category, bestCondition, suitableIndices, recommendedTimeframes, riskLevel, description, ignoredFilters, defaultParams]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        category: { type: string }
+        bestCondition: { type: string }
+        suitableIndices:
+          type: array
+          items: { type: string }
+        recommendedTimeframes:
+          type: array
+          items: { type: string }
+        riskLevel: { type: string }
+        description: { type: string }
+        ignoredFilters:
+          type: array
+          items: { type: string }
+          description: "Confirmation filters this strategy ignores by design."
+        defaultParams:
+          type: object
+          additionalProperties: { type: number }
+
+    BacktestStrategiesResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestStrategyMeta" }
+
+    BacktestComparisonRow:
+      type: object
+      description: "One row of the comparison table — per (strategy × index). P&L is GROSS in grossPnl; netPnl subtracts modeled charges + slippage when requested."
+      required: [strategyId, strategyName, indexSymbol, timeframe, totalTrades, winningTrades, losingTrades, grossPnl, charges, slippage, netPnl, maxDrawdown, target1HitCount, target2HitCount, slHitCount, timeExitCount, rejectedSetupCount, dataBlockedCount, riskBlockedCount]
+      properties:
+        strategyId: { type: string }
+        strategyName: { type: string }
+        indexSymbol: { type: string }
+        timeframe: { type: string }
+        totalTrades: { type: integer }
+        winningTrades: { type: integer }
+        losingTrades: { type: integer }
+        winRate: { type: number, nullable: true }
+        grossPnl: { type: number }
+        charges: { type: number }
+        slippage: { type: number }
+        netPnl: { type: number }
+        profitFactor: { type: number, nullable: true }
+        avgR: { type: number, nullable: true }
+        maxDrawdown: { type: number }
+        bestTrade: { type: number, nullable: true }
+        worstTrade: { type: number, nullable: true }
+        avgHoldingMinutes: { type: number, nullable: true }
+        target1HitCount: { type: integer }
+        target2HitCount: { type: integer }
+        slHitCount: { type: integer }
+        timeExitCount: { type: integer }
+        rejectedSetupCount: { type: integer }
+        dataBlockedCount: { type: integer }
+        riskBlockedCount: { type: integer }
+
+    BacktestStrategyAggregate:
+      type: object
+      description: "Per-strategy aggregate across all selected indices. compositeScore is a multi-factor 0–100 score, null when the strategy has too few trades to rank."
+      required: [strategyId, strategyName, totalTrades, netPnl, maxDrawdown, eligible]
+      properties:
+        strategyId: { type: string }
+        strategyName: { type: string }
+        totalTrades: { type: integer }
+        winRate: { type: number, nullable: true }
+        netPnl: { type: number }
+        profitFactor: { type: number, nullable: true }
+        maxDrawdown: { type: number }
+        avgR: { type: number, nullable: true }
+        compositeScore: { type: number, nullable: true }
+        eligible: { type: boolean }
+
+    BacktestRankingCard:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        strategyId: { type: string, nullable: true }
+        strategyName: { type: string, nullable: true }
+        value: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+
+    BacktestStrategyComparison:
+      type: object
+      required: [rows, byStrategy, ranking, notes]
+      properties:
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestComparisonRow" }
+        byStrategy:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestStrategyAggregate" }
+        ranking:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestRankingCard" }
+        notes:
+          type: array
+          items: { type: string }
 
     GlobalDeadCandidate:
       type: object

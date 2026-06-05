@@ -3776,6 +3776,36 @@ export const BacktestRunRequestInstrument = {
 } as const;
 
 /**
+ * V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison.
+ */
+export type BacktestRunRequestBacktestMode =
+  (typeof BacktestRunRequestBacktestMode)[keyof typeof BacktestRunRequestBacktestMode];
+
+export const BacktestRunRequestBacktestMode = {
+  OFFICIAL_ENGINE: "OFFICIAL_ENGINE",
+  STRATEGY_RESEARCH: "STRATEGY_RESEARCH",
+  COMPARE_OFFICIAL_VS_STRATEGIES: "COMPARE_OFFICIAL_VS_STRATEGIES",
+} as const;
+
+/**
+ * Confirmation-filter toggles. Option/spread/volume filters are auto-disabled in the backtest (no historical option data) and reported as such — never silently applied.
+ */
+export interface BacktestFilterConfig {
+  vwapFilter?: boolean;
+  emaTrendFilter?: boolean;
+  /** Auto-disabled — no historical option-chain data. */
+  optionChainConfirmation?: boolean;
+  avoidChopZone?: boolean;
+  avoidLast15Minutes?: boolean;
+  /** Auto-disabled — no historical option spread data. */
+  avoidWideSpread?: boolean;
+  /** Auto-disabled — no historical option volume data. */
+  avoidLowVolume?: boolean;
+  /** Minimum reward:risk multiple; <= 0 disables the filter. */
+  minimumRiskReward?: number;
+}
+
+/**
  * Parameters for an F&O backtest. REAL_REPLAY reads the engine's actual captured history; DIRECTIONAL replays the reconstructable directional layer on historical spot candles with a clearly-labeled delta-proxy option P&L.
  */
 export interface BacktestRunRequest {
@@ -3791,6 +3821,18 @@ export interface BacktestRunRequest {
   startingCapital?: number;
   /** Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1. */
   riskPerTradePct?: number;
+  /** V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. */
+  backtestMode?: BacktestRunRequestBacktestMode;
+  /** Strategy ids for STRATEGY_RESEARCH / COMPARE runs (subset of the catalog from GET /backtest/fno/strategies). */
+  strategies?: string[] | null;
+  /** Confirmation-filter toggles for strategy runs. Option/spread/volume filters are auto-disabled (no historical data). */
+  filters?: BacktestFilterConfig | null;
+  /** Cap on strategy entries per index per day. Defaults to a sane internal value. */
+  maxTradesPerDay?: number | null;
+  /** Subtract modeled round-trip brokerage/taxes from net P&L (estimate). */
+  includeCharges?: boolean | null;
+  /** Subtract modeled slippage from net P&L (estimate). */
+  includeSlippage?: boolean | null;
 }
 
 export interface BacktestEquityPoint {
@@ -3878,6 +3920,69 @@ export const BacktestRunStatus = {
   FAILED: "FAILED",
 } as const;
 
+/**
+ * One row of the comparison table — per (strategy × index). P&L is GROSS in grossPnl; netPnl subtracts modeled charges + slippage when requested.
+ */
+export interface BacktestComparisonRow {
+  strategyId: string;
+  strategyName: string;
+  indexSymbol: string;
+  timeframe: string;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate?: number | null;
+  grossPnl: number;
+  charges: number;
+  slippage: number;
+  netPnl: number;
+  profitFactor?: number | null;
+  avgR?: number | null;
+  maxDrawdown: number;
+  bestTrade?: number | null;
+  worstTrade?: number | null;
+  avgHoldingMinutes?: number | null;
+  target1HitCount: number;
+  target2HitCount: number;
+  slHitCount: number;
+  timeExitCount: number;
+  rejectedSetupCount: number;
+  dataBlockedCount: number;
+  riskBlockedCount: number;
+}
+
+/**
+ * Per-strategy aggregate across all selected indices. compositeScore is a multi-factor 0–100 score, null when the strategy has too few trades to rank.
+ */
+export interface BacktestStrategyAggregate {
+  strategyId: string;
+  strategyName: string;
+  totalTrades: number;
+  winRate?: number | null;
+  netPnl: number;
+  profitFactor?: number | null;
+  maxDrawdown: number;
+  avgR?: number | null;
+  compositeScore?: number | null;
+  eligible: boolean;
+}
+
+export interface BacktestRankingCard {
+  key: string;
+  label: string;
+  strategyId?: string | null;
+  strategyName?: string | null;
+  value?: string | null;
+  note?: string | null;
+}
+
+export interface BacktestStrategyComparison {
+  rows: BacktestComparisonRow[];
+  byStrategy: BacktestStrategyAggregate[];
+  ranking: BacktestRankingCard[];
+  notes: string[];
+}
+
 export interface BacktestRun {
   id: string;
   mode: string;
@@ -3891,6 +3996,10 @@ export interface BacktestRun {
   summary?: BacktestSummary | null;
   dataQuality?: BacktestDataQuality | null;
   error?: string | null;
+  /** V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs). */
+  backtestMode?: string | null;
+  selectedStrategies?: string[] | null;
+  strategyComparison?: BacktestStrategyComparison | null;
   createdAt: string;
   completedAt?: string | null;
 }
@@ -3912,6 +4021,8 @@ export interface BacktestRunListItem {
 export interface BacktestRunListResponse {
   items: BacktestRunListItem[];
 }
+
+export type BacktestTradeStrategyParams = { [key: string]: unknown } | null;
 
 export interface BacktestTrade {
   id: string;
@@ -3942,6 +4053,18 @@ export interface BacktestTrade {
   modeled: boolean;
   maxFavorableExcursion?: number | null;
   maxAdverseExcursion?: number | null;
+  backtestMode?: string | null;
+  strategyId?: string | null;
+  strategyName?: string | null;
+  strategyCategory?: string | null;
+  /** STRATEGY | ENGINE. */
+  signalSource?: string | null;
+  strategyParams?: BacktestTradeStrategyParams;
+  confirmationFilters?: string[] | null;
+  strategyConfidence?: number | null;
+  historicalSetupMatch?: string | null;
+  passedConditions?: string[] | null;
+  failedConditions?: string[] | null;
 }
 
 export interface BacktestTradesResponse {
@@ -3960,6 +4083,13 @@ export interface BacktestBlockedSetup {
   regime?: string | null;
   count: number;
   note?: string | null;
+  strategyId?: string | null;
+  strategyName?: string | null;
+  signalSource?: string | null;
+  failedCondition?: string | null;
+  blockedRule?: string | null;
+  /** FILTER | RISK | DATA. */
+  category?: string | null;
 }
 
 export interface BacktestBlockedResponse {
@@ -3968,6 +4098,26 @@ export interface BacktestBlockedResponse {
 
 export interface BacktestDeleteResponse {
   ok: boolean;
+}
+
+export type BacktestStrategyMetaDefaultParams = { [key: string]: number };
+
+export interface BacktestStrategyMeta {
+  id: string;
+  name: string;
+  category: string;
+  bestCondition: string;
+  suitableIndices: string[];
+  recommendedTimeframes: string[];
+  riskLevel: string;
+  description: string;
+  /** Confirmation filters this strategy ignores by design. */
+  ignoredFilters: string[];
+  defaultParams: BacktestStrategyMetaDefaultParams;
+}
+
+export interface BacktestStrategiesResponse {
+  items: BacktestStrategyMeta[];
 }
 
 /**

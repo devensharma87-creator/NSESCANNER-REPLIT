@@ -1,17 +1,21 @@
 /**
- * Backtest Lab — F&O engine backtesting (owner OR subscriber, tab-gated).
+ * Backtest Lab — F&O research (owner OR subscriber, tab-gated).
  *
- * Two honest modes:
- *   - REAL_REPLAY: 100% real. Replays the engine's actually-captured signal
- *     history + outcomes + reasoning. No fabrication; signals that expired or
- *     went stale with no captured option exit are shown but EXCLUDED from P&L.
- *   - DIRECTIONAL: replays the reconstructable directional layer on real 15-min
- *     index SPOT candles; option P&L via a clearly-LABELED delta proxy. Every
- *     modeled field is flagged; entry/exit option premiums are left blank.
+ * Three honest Backtest Modes (V2):
+ *   - OFFICIAL_ENGINE: the existing engine replay. Two sub-modes:
+ *       · REAL_REPLAY — 100% real captured signals + outcomes (no fabrication;
+ *         signals with no captured option exit are EXCLUDED from P&L).
+ *       · DIRECTIONAL — directional layer on real 15-min SPOT candles; option P&L
+ *         via a clearly-LABELED delta proxy (premiums left blank).
+ *   - STRATEGY_RESEARCH: generic strategy registry on the same real spot candles,
+ *     with confirmation-filter toggles + a MULTI-FACTOR comparison/ranking board.
+ *   - COMPARE_OFFICIAL_VS_STRATEGIES: the Official Engine alongside the selected
+ *     strategies on identical candles.
  *
- * Hard rules honoured in the UI: no fake/synthetic option data, explicit
- * "unavailable" / "modeled" labelling, honest empty + loading states, never a
- * fabricated number where the source is missing.
+ * Hard rules honoured in the UI: no fake/synthetic option data; option/spread/volume
+ * confirmation filters are AUTO-DISABLED (no historical option data) and shown as
+ * such; every modeled field is flagged; honest "unavailable"/loading/empty states;
+ * never a fabricated number where the source is missing.
  */
 import { useMemo, useState } from "react";
 import {
@@ -21,6 +25,7 @@ import {
   useGetBacktestRunTrades,
   useGetBacktestRunBlocked,
   useGetBacktestSnapshotCoverage,
+  useGetBacktestStrategies,
   useDeleteBacktestRun,
   getGetBacktestRunQueryKey,
   getGetBacktestRunTradesQueryKey,
@@ -29,10 +34,16 @@ import {
 import type {
   BacktestRunRequestMode,
   BacktestRunRequestInstrument,
+  BacktestRunRequestBacktestMode,
   BacktestSummary,
   BacktestTrade,
   BacktestDataQuality,
   BacktestBlockedSetup,
+  BacktestFilterConfig,
+  BacktestStrategyMeta,
+  BacktestStrategyComparison,
+  BacktestStrategyAggregate,
+  BacktestRankingCard,
 } from "@workspace/api-client-react";
 import {
   Area,
@@ -60,6 +71,8 @@ import {
   AlertTriangle,
   Info,
   RefreshCw,
+  Trophy,
+  Layers,
 } from "lucide-react";
 
 // ───────────── formatting (honest: never fabricate a number) ─────────────
@@ -119,7 +132,31 @@ function shortDate(iso: string | null | undefined): string {
   }
 }
 
-const MODES: { key: BacktestRunRequestMode; label: string; blurb: string }[] = [
+// ───────────── mode metadata ─────────────
+
+const BACKTEST_MODES: {
+  key: BacktestRunRequestBacktestMode;
+  label: string;
+  blurb: string;
+}[] = [
+  {
+    key: "OFFICIAL_ENGINE",
+    label: "Official F&O Engine",
+    blurb: "Replay the production engine — real captured signals, or the directional layer.",
+  },
+  {
+    key: "STRATEGY_RESEARCH",
+    label: "Strategy Research",
+    blurb: "Run generic strategies on real spot candles with confirmation-filter toggles.",
+  },
+  {
+    key: "COMPARE_OFFICIAL_VS_STRATEGIES",
+    label: "Compare",
+    blurb: "Official Engine side-by-side with the selected strategies on identical candles.",
+  },
+];
+
+const OFFICIAL_SUBMODES: { key: BacktestRunRequestMode; label: string; blurb: string }[] = [
   {
     key: "REAL_REPLAY",
     label: "Real Replay",
@@ -135,6 +172,38 @@ const MODES: { key: BacktestRunRequestMode; label: string; blurb: string }[] = [
 ];
 
 const INSTRUMENTS: BacktestRunRequestInstrument[] = ["ALL", "NIFTY", "BANKNIFTY", "SENSEX"];
+
+// Filter toggles that depend on option/spread/volume history we do NOT have — always
+// auto-disabled and shown as such (never silently applied).
+const AUTO_DISABLED_FILTERS: (keyof BacktestFilterConfig)[] = [
+  "optionChainConfirmation",
+  "avoidWideSpread",
+  "avoidLowVolume",
+];
+
+const FILTER_LABELS: Record<keyof BacktestFilterConfig, string> = {
+  vwapFilter: "VWAP Filter",
+  emaTrendFilter: "EMA Trend Filter",
+  optionChainConfirmation: "Option Chain Confirmation",
+  avoidChopZone: "Avoid Chop Zone",
+  avoidLast15Minutes: "Avoid Last 15 Minutes",
+  avoidWideSpread: "Avoid Wide Spread Options",
+  avoidLowVolume: "Avoid Low Volume Options",
+  minimumRiskReward: "Minimum Risk:Reward",
+};
+
+const DEFAULT_FILTERS: Required<BacktestFilterConfig> = {
+  vwapFilter: true,
+  emaTrendFilter: true,
+  optionChainConfirmation: false,
+  avoidChopZone: true,
+  avoidLast15Minutes: true,
+  avoidWideSpread: false,
+  avoidLowVolume: false,
+  minimumRiskReward: 1.5,
+};
+
+const OFFICIAL_STRATEGY_ID = "OFFICIAL_ENGINE";
 
 // ───────────── small presentational helpers ─────────────
 
@@ -164,11 +233,19 @@ function toneFor(n: number | null | undefined): "pos" | "neg" | "muted" {
   return n > 0 ? "pos" : n < 0 ? "neg" : "muted";
 }
 
+// Official-engine trades use BULLISH/BEARISH; strategy trades use LONG/SHORT.
+function isBullishDirection(direction: string | null | undefined): boolean {
+  const d = (direction ?? "").toUpperCase();
+  return d === "BULLISH" || d === "BULL" || d === "LONG";
+}
+
 // ───────────── CSV export (client-side, honest — blanks stay blank) ─────────────
 
 function buildTradesCsv(trades: BacktestTrade[]): string {
   const cols = [
     "indexSymbol",
+    "strategyName",
+    "signalSource",
     "setupKey",
     "direction",
     "optionType",
@@ -386,7 +463,378 @@ function Badge({ ok, label, offLabel }: { ok: boolean; label: string; offLabel: 
   );
 }
 
-function TradesTable({ trades }: { trades: BacktestTrade[] }) {
+// ───────────── strategy picker ─────────────
+
+function StrategyPicker({
+  strategies,
+  selected,
+  onToggle,
+  loading,
+  error,
+}: {
+  strategies: BacktestStrategyMeta[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  loading: boolean;
+  error: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="py-4 text-center text-xs text-muted-foreground">Loading strategy catalog…</div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="rounded-md border border-rose-500/30 bg-rose-500/5 p-2 text-xs text-rose-300">
+        Strategy catalog unavailable — cannot run a strategy backtest right now.
+      </div>
+    );
+  }
+  if (strategies.length === 0) {
+    return (
+      <div className="py-4 text-center text-xs text-muted-foreground">
+        No strategies registered.
+      </div>
+    );
+  }
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {strategies.map((s) => {
+        const on = selected.has(s.id);
+        return (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onToggle(s.id)}
+            className={`rounded-lg border p-2.5 text-left text-xs transition ${
+              on ? "border-sky-400 bg-sky-500/10" : "border-border hover:border-sky-400/40"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold">{s.name}</span>
+              <span
+                className={`rounded px-1.5 py-0.5 text-[9px] uppercase ${
+                  s.riskLevel === "HIGH"
+                    ? "bg-rose-500/15 text-rose-300"
+                    : s.riskLevel === "LOW"
+                      ? "bg-emerald-500/15 text-emerald-300"
+                      : "bg-amber-500/15 text-amber-300"
+                }`}
+              >
+                {s.riskLevel}
+              </span>
+            </div>
+            <div className="mt-1 text-[10px] text-muted-foreground">{s.description}</div>
+            <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] text-muted-foreground">
+              <span className="rounded bg-muted px-1 py-0.5">{s.category}</span>
+              <span className="rounded bg-muted px-1 py-0.5" title="Best market condition">
+                {s.bestCondition}
+              </span>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ───────────── confirmation-filter toggles ─────────────
+
+function FilterToggles({
+  filters,
+  onChange,
+}: {
+  filters: Required<BacktestFilterConfig>;
+  onChange: (next: Required<BacktestFilterConfig>) => void;
+}) {
+  const boolKeys: (keyof BacktestFilterConfig)[] = [
+    "vwapFilter",
+    "emaTrendFilter",
+    "avoidChopZone",
+    "avoidLast15Minutes",
+  ];
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        Confirmation filters
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {boolKeys.map((k) => {
+          const on = Boolean(filters[k]);
+          return (
+            <button
+              key={k}
+              type="button"
+              onClick={() => onChange({ ...filters, [k]: !on })}
+              className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                on ? "border-sky-400 bg-sky-500/10 text-foreground" : "border-border text-muted-foreground"
+              }`}
+            >
+              {FILTER_LABELS[k]} {on ? "✓" : "✗"}
+            </button>
+          );
+        })}
+        <label className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[11px]">
+          <span className="text-muted-foreground">Min R:R</span>
+          <input
+            type="number"
+            value={filters.minimumRiskReward}
+            min={0}
+            step={0.25}
+            onChange={(e) =>
+              onChange({ ...filters, minimumRiskReward: Math.max(0, Number(e.target.value)) })
+            }
+            className="w-14 rounded border border-border bg-background px-1 py-0.5 text-[11px] tabular-nums"
+            title="Minimum reward:risk multiple; 0 disables this filter"
+          />
+        </label>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {AUTO_DISABLED_FILTERS.map((k) => (
+          <span
+            key={k}
+            className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
+            title="Auto-disabled — no historical option-chain/spread/volume data exists. Never silently applied."
+          >
+            {FILTER_LABELS[k]} — auto-disabled
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ───────────── multi-factor comparison / ranking dashboard ─────────────
+
+const RANK_TONE: Record<string, string> = {
+  BEST_OVERALL: "border-emerald-500/40 bg-emerald-500/10",
+  HIGHEST_WIN_RATE: "border-sky-500/40 bg-sky-500/10",
+  BEST_PROFIT_FACTOR: "border-violet-500/40 bg-violet-500/10",
+  LOWEST_DRAWDOWN: "border-amber-500/40 bg-amber-500/10",
+  MOST_CONSISTENT: "border-teal-500/40 bg-teal-500/10",
+};
+
+function RankingCards({ cards }: { cards: BacktestRankingCard[] }) {
+  if (cards.length === 0) return null;
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      {cards.map((c) => (
+        <div
+          key={c.key}
+          className={`rounded-lg border p-2.5 ${RANK_TONE[c.key] ?? "border-border bg-card/60"}`}
+        >
+          <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <Trophy className="h-3 w-3" />
+            {c.label}
+          </div>
+          <div className="mt-1 truncate text-sm font-semibold" title={c.strategyName ?? undefined}>
+            {c.strategyName ?? "n/a"}
+          </div>
+          {c.value && <div className="text-xs tabular-nums text-muted-foreground">{c.value}</div>}
+          {c.note && <div className="mt-0.5 text-[10px] text-muted-foreground">{c.note}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AggregateTable({ rows }: { rows: BacktestStrategyAggregate[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="py-6 text-center text-xs text-muted-foreground">
+        No strategy results to aggregate.
+      </div>
+    );
+  }
+  const sorted = [...rows].sort((a, b) => (b.compositeScore ?? -1) - (a.compositeScore ?? -1));
+  return (
+    <div className="overflow-auto rounded-lg border border-border">
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-card">
+          <tr className="text-left text-muted-foreground">
+            <th className="px-2 py-1.5 font-medium">Strategy</th>
+            <th className="px-2 py-1.5 text-right font-medium">Score</th>
+            <th className="px-2 py-1.5 text-right font-medium">Trades</th>
+            <th className="px-2 py-1.5 text-right font-medium">Win%</th>
+            <th className="px-2 py-1.5 text-right font-medium">Net P&L</th>
+            <th className="px-2 py-1.5 text-right font-medium">PF</th>
+            <th className="px-2 py-1.5 text-right font-medium">Avg R</th>
+            <th className="px-2 py-1.5 text-right font-medium">Max DD</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r) => (
+            <tr
+              key={r.strategyId}
+              className={`border-t border-border/60 hover:bg-muted/30 ${
+                r.strategyId === OFFICIAL_STRATEGY_ID ? "bg-sky-500/5" : ""
+              }`}
+            >
+              <td className="px-2 py-1.5">
+                {r.strategyName}
+                {r.strategyId === OFFICIAL_STRATEGY_ID && (
+                  <span className="ml-1 rounded bg-sky-500/15 px-1 text-[9px] text-sky-300">engine</span>
+                )}
+              </td>
+              <td className="px-2 py-1.5 text-right tabular-nums">
+                {r.compositeScore == null ? (
+                  <span
+                    className="text-muted-foreground"
+                    title={r.eligible ? "Score unavailable" : "Too few trades to rank fairly"}
+                  >
+                    n/a
+                  </span>
+                ) : (
+                  <span className="font-semibold">{num(r.compositeScore, 0)}</span>
+                )}
+              </td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{r.totalTrades}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{pct(r.winRate)}</td>
+              <td
+                className={`px-2 py-1.5 text-right tabular-nums ${
+                  toneFor(r.netPnl) === "pos" ? "text-emerald-400" : toneFor(r.netPnl) === "neg" ? "text-rose-400" : ""
+                }`}
+              >
+                {money(r.netPnl)}
+              </td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{num(r.profitFactor)}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{num(r.avgR)}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums text-rose-400">{money(r.maxDrawdown)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ComparisonRowsTable({ comparison }: { comparison: BacktestStrategyComparison }) {
+  if (comparison.rows.length === 0) {
+    return (
+      <div className="py-6 text-center text-xs text-muted-foreground">
+        No per-(strategy × index) rows to show.
+      </div>
+    );
+  }
+  return (
+    <div className="max-h-[420px] overflow-auto rounded-lg border border-border">
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-card">
+          <tr className="text-left text-muted-foreground">
+            <th className="px-2 py-1.5 font-medium">Strategy</th>
+            <th className="px-2 py-1.5 font-medium">Idx</th>
+            <th className="px-2 py-1.5 text-right font-medium">Trades</th>
+            <th className="px-2 py-1.5 text-right font-medium">Win%</th>
+            <th className="px-2 py-1.5 text-right font-medium">Gross</th>
+            <th className="px-2 py-1.5 text-right font-medium">Charges</th>
+            <th className="px-2 py-1.5 text-right font-medium">Slippage</th>
+            <th className="px-2 py-1.5 text-right font-medium">Net</th>
+            <th className="px-2 py-1.5 text-right font-medium">PF</th>
+            <th className="px-2 py-1.5 text-right font-medium">Avg R</th>
+            <th className="px-2 py-1.5 text-right font-medium">Max DD</th>
+            <th className="px-2 py-1.5 text-right font-medium" title="Target1 / Target2 / Stop / Time exits">
+              T1/T2/SL/T
+            </th>
+            <th className="px-2 py-1.5 text-right font-medium" title="Filter-rejected / data-blocked / risk-blocked">
+              Rej/Data/Risk
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {comparison.rows.map((r, i) => (
+            <tr key={`${r.strategyId}-${r.indexSymbol}-${i}`} className="border-t border-border/60 hover:bg-muted/30">
+              <td className="px-2 py-1.5">{r.strategyName}</td>
+              <td className="px-2 py-1.5">{r.indexSymbol}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{r.totalTrades}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{pct(r.winRate)}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{money(r.grossPnl)}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
+                {r.charges ? money(-r.charges) : "—"}
+              </td>
+              <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
+                {r.slippage ? money(-r.slippage) : "—"}
+              </td>
+              <td
+                className={`px-2 py-1.5 text-right tabular-nums font-medium ${
+                  toneFor(r.netPnl) === "pos" ? "text-emerald-400" : toneFor(r.netPnl) === "neg" ? "text-rose-400" : ""
+                }`}
+              >
+                {money(r.netPnl)}
+              </td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{num(r.profitFactor)}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{num(r.avgR)}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums text-rose-400">{money(r.maxDrawdown)}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
+                {r.target1HitCount}/{r.target2HitCount}/{r.slHitCount}/{r.timeExitCount}
+              </td>
+              <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
+                {r.rejectedSetupCount}/{r.dataBlockedCount}/{r.riskBlockedCount}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ComparisonDashboard({ comparison }: { comparison: BacktestStrategyComparison }) {
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Trophy className="h-4 w-4 text-amber-300" />
+            Multi-factor ranking
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <RankingCards cards={comparison.ranking} />
+          <p className="text-[10px] text-muted-foreground">
+            Ranking is multi-factor (composite of win-rate, profit factor, expectancy/avg-R, and
+            drawdown) — never net-profit alone. Strategies with too few trades are not ranked.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Layers className="h-4 w-4 text-sky-300" />
+            Per-strategy comparison
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AggregateTable rows={comparison.byStrategy} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Breakdown by strategy × index</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ComparisonRowsTable comparison={comparison} />
+        </CardContent>
+      </Card>
+
+      {comparison.notes.length > 0 && (
+        <div className="rounded-lg border border-border bg-card/60 p-3 text-xs text-muted-foreground">
+          <div className="mb-1 font-medium text-foreground">Comparison notes</div>
+          <ul className="ml-4 list-disc">
+            {comparison.notes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ───────────── trades / blocked tables (with attribution) ─────────────
+
+function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; showAttribution: boolean }) {
   if (trades.length === 0) {
     return <div className="py-8 text-center text-xs text-muted-foreground">No trades in this run.</div>;
   }
@@ -396,6 +844,8 @@ function TradesTable({ trades }: { trades: BacktestTrade[] }) {
         <thead className="sticky top-0 bg-card">
           <tr className="text-left text-muted-foreground">
             <th className="px-2 py-1.5 font-medium">Idx</th>
+            {showAttribution && <th className="px-2 py-1.5 font-medium">Strategy</th>}
+            {showAttribution && <th className="px-2 py-1.5 font-medium">Src</th>}
             <th className="px-2 py-1.5 font-medium">Setup</th>
             <th className="px-2 py-1.5 font-medium">Dir</th>
             <th className="px-2 py-1.5 font-medium">Strike</th>
@@ -412,16 +862,36 @@ function TradesTable({ trades }: { trades: BacktestTrade[] }) {
           {trades.map((t) => (
             <tr key={t.id} className="border-t border-border/60 hover:bg-muted/30">
               <td className="px-2 py-1.5">{t.indexSymbol}</td>
+              {showAttribution && (
+                <td className="px-2 py-1.5">
+                  <span title={t.strategyCategory ?? undefined}>{t.strategyName ?? "—"}</span>
+                </td>
+              )}
+              {showAttribution && (
+                <td className="px-2 py-1.5">
+                  <span
+                    className={`rounded px-1 text-[9px] ${
+                      t.signalSource === "ENGINE"
+                        ? "bg-sky-500/15 text-sky-300"
+                        : t.signalSource === "STRATEGY"
+                          ? "bg-violet-500/15 text-violet-300"
+                          : "text-muted-foreground"
+                    }`}
+                  >
+                    {t.signalSource ?? "—"}
+                  </span>
+                </td>
+              )}
               <td className="px-2 py-1.5">
                 <span title={t.setupName ?? undefined}>{t.setupKey ?? "—"}</span>
                 {t.modeled && (
-                  <span className="ml-1 rounded bg-amber-500/15 px-1 text-[9px] text-amber-300" title="DIRECTIONAL delta-proxy fill — modeled, not a real option price">
+                  <span className="ml-1 rounded bg-amber-500/15 px-1 text-[9px] text-amber-300" title="Delta-proxy fill — modeled, not a real option price">
                     modeled
                   </span>
                 )}
               </td>
-              <td className={`px-2 py-1.5 ${t.direction === "BULLISH" ? "text-emerald-400" : "text-rose-400"}`}>
-                {t.optionType ?? (t.direction === "BULLISH" ? "CE" : "PE")}
+              <td className={`px-2 py-1.5 ${isBullishDirection(t.direction) ? "text-emerald-400" : "text-rose-400"}`}>
+                {t.optionType ?? (isBullishDirection(t.direction) ? "CE" : "PE")}
               </td>
               <td className="px-2 py-1.5 tabular-nums">{t.strike ?? "—"}</td>
               <td className="px-2 py-1.5 whitespace-nowrap">{shortDateTime(t.entryAt)}</td>
@@ -450,7 +920,7 @@ function TradesTable({ trades }: { trades: BacktestTrade[] }) {
   );
 }
 
-function BlockedTable({ rows }: { rows: BacktestBlockedSetup[] }) {
+function BlockedTable({ rows, showAttribution }: { rows: BacktestBlockedSetup[]; showAttribution: boolean }) {
   if (rows.length === 0) {
     return (
       <div className="py-6 text-center text-xs text-muted-foreground">
@@ -464,9 +934,11 @@ function BlockedTable({ rows }: { rows: BacktestBlockedSetup[] }) {
         <thead className="sticky top-0 bg-card">
           <tr className="text-left text-muted-foreground">
             <th className="px-2 py-1.5 font-medium">Idx</th>
+            {showAttribution && <th className="px-2 py-1.5 font-medium">Strategy</th>}
             <th className="px-2 py-1.5 font-medium">Setup</th>
             <th className="px-2 py-1.5 font-medium">Decision</th>
             <th className="px-2 py-1.5 font-medium">Reason</th>
+            {showAttribution && <th className="px-2 py-1.5 font-medium">Cat</th>}
             <th className="px-2 py-1.5 font-medium">Regime</th>
             <th className="px-2 py-1.5 text-right font-medium">Count</th>
           </tr>
@@ -475,9 +947,31 @@ function BlockedTable({ rows }: { rows: BacktestBlockedSetup[] }) {
           {rows.map((r) => (
             <tr key={r.id} className="border-t border-border/60 hover:bg-muted/30">
               <td className="px-2 py-1.5">{r.indexSymbol}</td>
+              {showAttribution && <td className="px-2 py-1.5">{r.strategyName ?? "—"}</td>}
               <td className="px-2 py-1.5">{r.setupKey ?? "—"}</td>
               <td className="px-2 py-1.5">{r.decision ?? "—"}</td>
-              <td className="px-2 py-1.5 text-muted-foreground">{r.reasonCode ?? "—"}</td>
+              <td className="px-2 py-1.5 text-muted-foreground" title={r.blockedRule ?? r.failedCondition ?? undefined}>
+                {r.reasonCode ?? r.failedCondition ?? "—"}
+              </td>
+              {showAttribution && (
+                <td className="px-2 py-1.5">
+                  {r.category ? (
+                    <span
+                      className={`rounded px-1 text-[9px] ${
+                        r.category === "RISK"
+                          ? "bg-rose-500/15 text-rose-300"
+                          : r.category === "DATA"
+                            ? "bg-amber-500/15 text-amber-300"
+                            : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {r.category}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              )}
               <td className="px-2 py-1.5">{r.regime ?? "—"}</td>
               <td className="px-2 py-1.5 text-right tabular-nums">{r.count}</td>
             </tr>
@@ -491,14 +985,24 @@ function BlockedTable({ rows }: { rows: BacktestBlockedSetup[] }) {
 // ───────────── page ─────────────
 
 export default function BacktestLab() {
-  const [mode, setMode] = useState<BacktestRunRequestMode>("REAL_REPLAY");
+  const [backtestMode, setBacktestMode] = useState<BacktestRunRequestBacktestMode>("OFFICIAL_ENGINE");
+  const [officialSubMode, setOfficialSubMode] = useState<BacktestRunRequestMode>("REAL_REPLAY");
   const [instrument, setInstrument] = useState<BacktestRunRequestInstrument>("ALL");
   const [capital, setCapital] = useState(1_000_000);
   const [riskPct, setRiskPct] = useState(1);
+  const [selectedStrategies, setSelectedStrategies] = useState<Set<string>>(new Set());
+  const [filters, setFilters] = useState<Required<BacktestFilterConfig>>(DEFAULT_FILTERS);
+  const [maxTradesPerDay, setMaxTradesPerDay] = useState(3);
+  const [includeCharges, setIncludeCharges] = useState(true);
+  const [includeSlippage, setIncludeSlippage] = useState(true);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
+  const isStrategyMode =
+    backtestMode === "STRATEGY_RESEARCH" || backtestMode === "COMPARE_OFFICIAL_VS_STRATEGIES";
 
   const runsQ = useListBacktestRuns();
   const coverageQ = useGetBacktestSnapshotCoverage();
+  const strategiesQ = useGetBacktestStrategies();
   const createMut = useCreateBacktestRun();
   const deleteMut = useDeleteBacktestRun();
 
@@ -516,7 +1020,7 @@ export default function BacktestLab() {
   });
   const blockedQ = useGetBacktestRunBlocked(activeRunId ?? "", {
     query: {
-      enabled: Boolean(activeRunId) && mode === "REAL_REPLAY",
+      enabled: Boolean(activeRunId),
       queryKey: getGetBacktestRunBlockedQueryKey(activeRunId ?? ""),
     },
   });
@@ -524,18 +1028,50 @@ export default function BacktestLab() {
   const run = runQ.data;
   const summary = run?.summary ?? null;
   const dq = run?.dataQuality ?? null;
+  const comparison = run?.strategyComparison ?? null;
   const trades = tradesQ.data?.items ?? [];
   const blocked = blockedQ.data?.items ?? [];
+  const strategies = strategiesQ.data?.items ?? [];
+
+  // The active run's own mode drives whether attribution columns are meaningful.
+  const runIsStrategy =
+    run?.backtestMode === "STRATEGY_RESEARCH" ||
+    run?.backtestMode === "COMPARE_OFFICIAL_VS_STRATEGIES";
+
+  function toggleStrategy(id: string) {
+    setSelectedStrategies((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const canRun =
+    !createMut.isPending && (!isStrategyMode || selectedStrategies.size > 0);
 
   function runBacktest() {
+    const strategyMode = isStrategyMode;
     createMut.mutate(
       {
         data: {
-          mode,
+          // OFFICIAL_ENGINE uses the sub-mode; strategy runs replay the directional
+          // spot layer, so we pass DIRECTIONAL as the engine mode.
+          mode: backtestMode === "OFFICIAL_ENGINE" ? officialSubMode : "DIRECTIONAL",
           instrument,
           timeframe: "15m",
           startingCapital: capital,
           riskPerTradePct: riskPct,
+          backtestMode,
+          ...(strategyMode
+            ? {
+                strategies: Array.from(selectedStrategies),
+                filters,
+                maxTradesPerDay,
+                includeCharges,
+                includeSlippage,
+              }
+            : {}),
         },
       },
       {
@@ -553,7 +1089,7 @@ export default function BacktestLab() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `backtest-${run?.mode ?? mode}-${run?.instrument ?? instrument}-${run?.id?.slice(0, 8) ?? "run"}.csv`;
+    a.download = `backtest-${run?.backtestMode ?? backtestMode}-${run?.instrument ?? instrument}-${run?.id?.slice(0, 8) ?? "run"}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -569,40 +1105,116 @@ export default function BacktestLab() {
       <div className="flex flex-wrap items-center gap-2">
         <FlaskConical className="h-5 w-5 text-sky-300" />
         <h1 className="text-lg font-semibold">Backtest Lab</h1>
-        <span className="text-xs text-muted-foreground">F&amp;O engine · real replay &amp; directional</span>
+        <span className="text-xs text-muted-foreground">
+          F&amp;O research · official engine · strategy registry · compare
+        </span>
       </div>
 
       {/* honesty banner */}
       <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-200">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
-          Backtests use <strong>real captured data only</strong>. Real Replay never fabricates an
-          outcome — signals with no captured option exit are excluded from P&amp;L. Directional P&amp;L
-          is a clearly-labeled delta proxy on real spot moves (option premiums are left blank). This
-          is research, not advice, and not a guarantee of future results.
+          Backtests use <strong>real captured data only</strong>. No synthetic option chains. Real
+          Replay never fabricates an outcome — signals with no captured option exit are excluded from
+          P&amp;L. Directional &amp; strategy P&amp;L use a clearly-labeled delta proxy on real spot
+          moves; option/spread/volume confirmation filters are auto-disabled (no historical data).
+          This is research, not advice, and not a guarantee of future results.
         </p>
       </div>
 
       {/* controls */}
       <Card>
-        <CardContent className="space-y-3 p-4">
+        <CardContent className="space-y-4 p-4">
+          {/* 3-way backtest mode */}
           <div className="flex flex-wrap gap-2">
-            {MODES.map((m) => (
+            {BACKTEST_MODES.map((m) => (
               <button
                 key={m.key}
-                onClick={() => setMode(m.key)}
+                onClick={() => setBacktestMode(m.key)}
                 className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
-                  mode === m.key
+                  backtestMode === m.key
                     ? "border-sky-400 bg-sky-500/10"
                     : "border-border hover:border-sky-400/40"
                 }`}
               >
                 <div className="font-semibold">{m.label}</div>
-                <div className="mt-0.5 max-w-[280px] text-[10px] text-muted-foreground">{m.blurb}</div>
+                <div className="mt-0.5 max-w-[300px] text-[10px] text-muted-foreground">{m.blurb}</div>
               </button>
             ))}
           </div>
 
+          {/* official sub-mode */}
+          {backtestMode === "OFFICIAL_ENGINE" && (
+            <div className="flex flex-wrap gap-2">
+              {OFFICIAL_SUBMODES.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setOfficialSubMode(m.key)}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                    officialSubMode === m.key
+                      ? "border-violet-400 bg-violet-500/10"
+                      : "border-border hover:border-violet-400/40"
+                  }`}
+                >
+                  <div className="font-semibold">{m.label}</div>
+                  <div className="mt-0.5 max-w-[280px] text-[10px] text-muted-foreground">{m.blurb}</div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* strategy picker + filters */}
+          {isStrategyMode && (
+            <div className="space-y-3 rounded-lg border border-border bg-card/40 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Strategies {selectedStrategies.size > 0 && `(${selectedStrategies.size} selected)`}
+              </div>
+              <StrategyPicker
+                strategies={strategies}
+                selected={selectedStrategies}
+                onToggle={toggleStrategy}
+                loading={strategiesQ.isLoading}
+                error={strategiesQ.isError}
+              />
+              <FilterToggles filters={filters} onChange={setFilters} />
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="text-xs">
+                  <span className="mb-1 block text-muted-foreground">Max trades / day</span>
+                  <input
+                    type="number"
+                    value={maxTradesPerDay}
+                    min={1}
+                    max={20}
+                    step={1}
+                    onChange={(e) => setMaxTradesPerDay(Math.max(1, Number(e.target.value)))}
+                    className="w-24 rounded-md border border-border bg-background px-2 py-1.5 text-xs tabular-nums"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={includeCharges}
+                    onChange={(e) => setIncludeCharges(e.target.checked)}
+                  />
+                  <span className="text-muted-foreground" title="Subtract modeled round-trip brokerage/taxes (estimate)">
+                    Include charges (modeled)
+                  </span>
+                </label>
+                <label className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={includeSlippage}
+                    onChange={(e) => setIncludeSlippage(e.target.checked)}
+                  />
+                  <span className="text-muted-foreground" title="Subtract modeled slippage (estimate)">
+                    Include slippage (modeled)
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* shared run controls */}
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-xs">
               <span className="mb-1 block text-muted-foreground">Instrument</span>
@@ -641,15 +1253,21 @@ export default function BacktestLab() {
                 step={0.1}
                 onChange={(e) => setRiskPct(Math.max(0.1, Number(e.target.value)))}
                 className="w-24 rounded-md border border-border bg-background px-2 py-1.5 text-xs tabular-nums"
-                title="Used for DIRECTIONAL position sizing on modeled per-unit option risk"
+                title="Used for position sizing on modeled per-unit option risk"
               />
             </label>
 
-            <Button onClick={runBacktest} disabled={createMut.isPending} className="gap-1.5">
+            <Button onClick={runBacktest} disabled={!canRun} className="gap-1.5">
               {createMut.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
               {createMut.isPending ? "Running…" : "Run backtest"}
             </Button>
           </div>
+
+          {isStrategyMode && selectedStrategies.size === 0 && (
+            <div className="text-[11px] text-muted-foreground">
+              Select at least one strategy to run.
+            </div>
+          )}
 
           {createMut.isError && (
             <div className="rounded-md border border-rose-500/30 bg-rose-500/5 p-2 text-xs text-rose-300">
@@ -728,6 +1346,9 @@ export default function BacktestLab() {
         </Card>
       ) : (
         <div className="space-y-4">
+          {/* comparison / ranking dashboard (strategy + compare modes) */}
+          {comparison && <ComparisonDashboard comparison={comparison} />}
+
           {/* summary stats */}
           {summary && (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
@@ -784,29 +1405,29 @@ export default function BacktestLab() {
               {tradesQ.isLoading ? (
                 <div className="py-8 text-center text-xs text-muted-foreground">Loading trades…</div>
               ) : (
-                <TradesTable trades={trades} />
+                <TradesTable trades={trades} showAttribution={runIsStrategy} />
               )}
             </CardContent>
           </Card>
 
-          {/* blocked setups (REAL_REPLAY only) */}
-          {mode === "REAL_REPLAY" && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">
-                  Blocked / rejected setups{" "}
-                  <span className="text-xs font-normal text-muted-foreground">(engine reasoning)</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {blockedQ.isLoading ? (
-                  <div className="py-6 text-center text-xs text-muted-foreground">Loading…</div>
-                ) : (
-                  <BlockedTable rows={blocked} />
-                )}
-              </CardContent>
-            </Card>
-          )}
+          {/* blocked setups */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                Blocked / rejected setups{" "}
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({runIsStrategy ? "filter / risk / data reasoning" : "engine reasoning"})
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {blockedQ.isLoading ? (
+                <div className="py-6 text-center text-xs text-muted-foreground">Loading…</div>
+              ) : (
+                <BlockedTable rows={blocked} showAttribution={runIsStrategy} />
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

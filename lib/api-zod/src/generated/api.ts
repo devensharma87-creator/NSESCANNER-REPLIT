@@ -6747,6 +6747,68 @@ export const CreateBacktestRunBody = zod
       .describe(
         "Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1.",
       ),
+    backtestMode: zod
+      .enum([
+        "OFFICIAL_ENGINE",
+        "STRATEGY_RESEARCH",
+        "COMPARE_OFFICIAL_VS_STRATEGIES",
+      ])
+      .optional()
+      .describe(
+        "V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY\/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison.",
+      ),
+    strategies: zod
+      .array(zod.string())
+      .nullish()
+      .describe(
+        "Strategy ids for STRATEGY_RESEARCH \/ COMPARE runs (subset of the catalog from GET \/backtest\/fno\/strategies).",
+      ),
+    filters: zod
+      .object({
+        vwapFilter: zod.boolean().optional(),
+        emaTrendFilter: zod.boolean().optional(),
+        optionChainConfirmation: zod
+          .boolean()
+          .optional()
+          .describe("Auto-disabled — no historical option-chain data."),
+        avoidChopZone: zod.boolean().optional(),
+        avoidLast15Minutes: zod.boolean().optional(),
+        avoidWideSpread: zod
+          .boolean()
+          .optional()
+          .describe("Auto-disabled — no historical option spread data."),
+        avoidLowVolume: zod
+          .boolean()
+          .optional()
+          .describe("Auto-disabled — no historical option volume data."),
+        minimumRiskReward: zod
+          .number()
+          .optional()
+          .describe("Minimum reward:risk multiple; <= 0 disables the filter."),
+      })
+      .describe(
+        "Confirmation-filter toggles. Option\/spread\/volume filters are auto-disabled in the backtest (no historical option data) and reported as such — never silently applied.",
+      )
+      .nullish()
+      .describe(
+        "Confirmation-filter toggles for strategy runs. Option\/spread\/volume filters are auto-disabled (no historical data).",
+      ),
+    maxTradesPerDay: zod
+      .number()
+      .nullish()
+      .describe(
+        "Cap on strategy entries per index per day. Defaults to a sane internal value.",
+      ),
+    includeCharges: zod
+      .boolean()
+      .nullish()
+      .describe(
+        "Subtract modeled round-trip brokerage\/taxes from net P&L (estimate).",
+      ),
+    includeSlippage: zod
+      .boolean()
+      .nullish()
+      .describe("Subtract modeled slippage from net P&L (estimate)."),
   })
   .describe(
     "Parameters for an F&O backtest. REAL_REPLAY reads the engine's actual captured history; DIRECTIONAL replays the reconstructable directional layer on historical spot candles with a clearly-labeled delta-proxy option P&L.",
@@ -6860,6 +6922,79 @@ export const GetBacktestRunResponse = zod.object({
     )
     .nullish(),
   error: zod.string().nullish(),
+  backtestMode: zod
+    .string()
+    .nullish()
+    .describe(
+      "V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs).",
+    ),
+  selectedStrategies: zod.array(zod.string()).nullish(),
+  strategyComparison: zod
+    .object({
+      rows: zod.array(
+        zod
+          .object({
+            strategyId: zod.string(),
+            strategyName: zod.string(),
+            indexSymbol: zod.string(),
+            timeframe: zod.string(),
+            totalTrades: zod.number(),
+            winningTrades: zod.number(),
+            losingTrades: zod.number(),
+            winRate: zod.number().nullish(),
+            grossPnl: zod.number(),
+            charges: zod.number(),
+            slippage: zod.number(),
+            netPnl: zod.number(),
+            profitFactor: zod.number().nullish(),
+            avgR: zod.number().nullish(),
+            maxDrawdown: zod.number(),
+            bestTrade: zod.number().nullish(),
+            worstTrade: zod.number().nullish(),
+            avgHoldingMinutes: zod.number().nullish(),
+            target1HitCount: zod.number(),
+            target2HitCount: zod.number(),
+            slHitCount: zod.number(),
+            timeExitCount: zod.number(),
+            rejectedSetupCount: zod.number(),
+            dataBlockedCount: zod.number(),
+            riskBlockedCount: zod.number(),
+          })
+          .describe(
+            "One row of the comparison table — per (strategy × index). P&L is GROSS in grossPnl; netPnl subtracts modeled charges + slippage when requested.",
+          ),
+      ),
+      byStrategy: zod.array(
+        zod
+          .object({
+            strategyId: zod.string(),
+            strategyName: zod.string(),
+            totalTrades: zod.number(),
+            winRate: zod.number().nullish(),
+            netPnl: zod.number(),
+            profitFactor: zod.number().nullish(),
+            maxDrawdown: zod.number(),
+            avgR: zod.number().nullish(),
+            compositeScore: zod.number().nullish(),
+            eligible: zod.boolean(),
+          })
+          .describe(
+            "Per-strategy aggregate across all selected indices. compositeScore is a multi-factor 0–100 score, null when the strategy has too few trades to rank.",
+          ),
+      ),
+      ranking: zod.array(
+        zod.object({
+          key: zod.string(),
+          label: zod.string(),
+          strategyId: zod.string().nullish(),
+          strategyName: zod.string().nullish(),
+          value: zod.string().nullish(),
+          note: zod.string().nullish(),
+        }),
+      ),
+      notes: zod.array(zod.string()),
+    })
+    .nullish(),
   createdAt: zod.coerce.date(),
   completedAt: zod.coerce.date().nullish(),
 });
@@ -6916,6 +7051,17 @@ export const GetBacktestRunTradesResponse = zod.object({
         ),
       maxFavorableExcursion: zod.number().nullish(),
       maxAdverseExcursion: zod.number().nullish(),
+      backtestMode: zod.string().nullish(),
+      strategyId: zod.string().nullish(),
+      strategyName: zod.string().nullish(),
+      strategyCategory: zod.string().nullish(),
+      signalSource: zod.string().nullish().describe("STRATEGY | ENGINE."),
+      strategyParams: zod.record(zod.string(), zod.unknown()).nullish(),
+      confirmationFilters: zod.array(zod.string()).nullish(),
+      strategyConfidence: zod.number().nullish(),
+      historicalSetupMatch: zod.string().nullish(),
+      passedConditions: zod.array(zod.string()).nullish(),
+      failedConditions: zod.array(zod.string()).nullish(),
     }),
   ),
 });
@@ -6941,6 +7087,12 @@ export const GetBacktestRunBlockedResponse = zod.object({
       regime: zod.string().nullish(),
       count: zod.number(),
       note: zod.string().nullish(),
+      strategyId: zod.string().nullish(),
+      strategyName: zod.string().nullish(),
+      signalSource: zod.string().nullish(),
+      failedCondition: zod.string().nullish(),
+      blockedRule: zod.string().nullish(),
+      category: zod.string().nullish().describe("FILTER | RISK | DATA."),
     }),
   ),
 });
@@ -6958,6 +7110,28 @@ export const GetBacktestSnapshotCoverageResponse = zod
   .describe(
     "Mode D — how much real option-chain snapshot history has accumulated for a future faithful 2yr replay.",
   );
+
+/**
+ * @summary List the generic Strategy-Research strategy catalog (V2)
+ */
+export const GetBacktestStrategiesResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string(),
+      name: zod.string(),
+      category: zod.string(),
+      bestCondition: zod.string(),
+      suitableIndices: zod.array(zod.string()),
+      recommendedTimeframes: zod.array(zod.string()),
+      riskLevel: zod.string(),
+      description: zod.string(),
+      ignoredFilters: zod
+        .array(zod.string())
+        .describe("Confirmation filters this strategy ignores by design."),
+      defaultParams: zod.record(zod.string(), zod.number()),
+    }),
+  ),
+});
 
 /**
  * @summary List the current user's saved screener presets

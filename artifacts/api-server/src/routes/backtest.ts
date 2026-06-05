@@ -44,7 +44,22 @@ import type {
   BacktestBlockedOut,
   BacktestSnapshotCoverageOut,
   BacktestCoverageWindow,
+  BacktestDataQualityOut,
+  BacktestStrategyComparisonOut,
 } from "../lib/backtest/types";
+import {
+  DEFAULT_FILTERS,
+  OPTION_DEPENDENT_FILTERS,
+  buildContext,
+  getStrategy,
+  listStrategies,
+  runStrategy,
+  buildComparison,
+  isStrategyId,
+  type FilterConfig,
+  type StrategyId,
+  type ComparisonUnit,
+} from "../lib/backtest/strategies";
 
 const router: IRouter = Router();
 
@@ -120,6 +135,9 @@ function runToDto(row: typeof backtestRunsTable.$inferSelect) {
     summary: (row.summary as unknown) ?? null,
     dataQuality: (row.dataQuality as unknown) ?? null,
     error: row.error ?? null,
+    backtestMode: row.backtestMode ?? null,
+    selectedStrategies: (row.selectedStrategies as string[] | null) ?? null,
+    strategyComparison: (row.strategyComparison as unknown) ?? null,
     createdAt:
       row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     completedAt:
@@ -297,6 +315,190 @@ async function runDirectionalMode(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Mode C/D — STRATEGY_RESEARCH / COMPARE_OFFICIAL_VS_STRATEGIES
+// ---------------------------------------------------------------------------
+
+/** Merge the request's partial filter toggles over the defaults; option-dependent
+ *  filters are FORCE-disabled (no historical option data exists). */
+function mergeFilters(input: Partial<FilterConfig> | null | undefined): FilterConfig {
+  const merged: FilterConfig = { ...DEFAULT_FILTERS, ...(input ?? {}) };
+  for (const k of OPTION_DEPENDENT_FILTERS) {
+    (merged as unknown as Record<string, unknown>)[k] = false;
+  }
+  return merged;
+}
+
+const DEFAULT_MAX_TRADES_PER_DAY = 3;
+const STRATEGY_TIMEFRAME = "15m";
+
+function strategyDataQuality(params: {
+  timeframe: string;
+  coverage: BacktestCoverageWindow | null;
+  missing: string[];
+  unsupportedTimeframe: boolean;
+  autoDisabled: string[];
+  tradeCount: number;
+}): BacktestDataQualityOut {
+  const notes: string[] = [];
+  const warnings: string[] = [];
+  if (params.unsupportedTimeframe) {
+    warnings.push(
+      `Strategy Research only has real ${STRATEGY_TIMEFRAME} SPOT candles in this environment; timeframe "${params.timeframe}" is unavailable.`,
+    );
+  }
+  if (params.missing.length > 0) {
+    warnings.push(`Historical candles unavailable for: ${params.missing.join(", ")}.`);
+  }
+  if (params.autoDisabled.length > 0) {
+    notes.push(
+      `Auto-disabled option-dependent filters (no historical option data): ${params.autoDisabled.join(", ")}.`,
+    );
+  }
+  notes.push(
+    "Option P&L is a labeled ATM delta proxy (|Δ|≈0.5) on the real spot move; VWAP uses an equal-weighted session-mean substitute (index candles carry no volume).",
+  );
+  if (params.tradeCount === 0 && !params.unsupportedTimeframe && params.missing.length === 0) {
+    notes.push("No strategy setups qualified in the selected window.");
+  }
+  return {
+    mode: "STRATEGY_RESEARCH",
+    candleCoverage: params.coverage,
+    optionDataAvailable: false,
+    ivAvailable: false,
+    oiAvailable: false,
+    snapshotCoverage: null,
+    modeledFields: ["optionPnl(ATM-delta-proxy)", "vwap(session-mean)"],
+    warnings,
+    notes,
+  };
+}
+
+/** Run the selected generic strategies across the instruments on REAL spot candles. */
+async function runStrategyResearch(params: {
+  instruments: string[];
+  strategyIds: StrategyId[];
+  fromDate: string | null;
+  toDate: string | null;
+  timeframe: string;
+  filters: FilterConfig;
+  maxTradesPerDay: number;
+  includeCharges: boolean;
+  includeSlippage: boolean;
+}): Promise<{
+  trades: BacktestTradeOut[];
+  blocked: BacktestBlockedOut[];
+  comparison: BacktestStrategyComparisonOut;
+  from: string;
+  to: string;
+  dataQuality: BacktestDataQualityOut;
+}> {
+  const trades: BacktestTradeOut[] = [];
+  const blocked: BacktestBlockedOut[] = [];
+  const units: ComparisonUnit[] = [];
+  const missing: string[] = [];
+  const autoDisabled = new Set<string>();
+  let covFrom: number | null = null;
+  let covTo: number | null = null;
+  let covCount = 0;
+
+  const unsupportedTimeframe = params.timeframe !== STRATEGY_TIMEFRAME;
+
+  if (!unsupportedTimeframe) {
+    for (const sym of params.instruments) {
+      if (!isSupportedInstrument(sym)) {
+        missing.push(sym);
+        continue;
+      }
+      const { candles, available } = await loadHistoricalCandles(
+        sym,
+        params.fromDate,
+        params.toDate,
+      );
+      if (!available || candles.length === 0) {
+        missing.push(sym);
+        continue;
+      }
+      const ctx = buildContext(sym, candles);
+      if (!ctx) {
+        missing.push(sym);
+        continue;
+      }
+      covCount += candles.length;
+      const lo = candles[0]!.t.getTime();
+      const hi = candles[candles.length - 1]!.t.getTime();
+      covFrom = covFrom === null ? lo : Math.min(covFrom, lo);
+      covTo = covTo === null ? hi : Math.max(covTo, hi);
+
+      for (const id of params.strategyIds) {
+        const module = getStrategy(id);
+        const result = runStrategy(ctx, module, params.filters, {
+          timeframe: params.timeframe,
+          maxTradesPerDay: params.maxTradesPerDay,
+          includeCharges: params.includeCharges,
+          includeSlippage: params.includeSlippage,
+        });
+        for (const k of result.autoDisabledFilters) autoDisabled.add(k);
+        trades.push(...result.trades);
+        blocked.push(...result.blocked);
+        units.push({
+          strategyId: module.meta.id,
+          strategyName: module.meta.name,
+          indexSymbol: sym,
+          timeframe: params.timeframe,
+          trades: result.trades,
+          blocked: result.blocked,
+        });
+      }
+    }
+  }
+
+  trades.sort((a, b) => (a.entryAt ? Date.parse(a.entryAt) : 0) - (b.entryAt ? Date.parse(b.entryAt) : 0));
+
+  const coverage: BacktestCoverageWindow | null =
+    covFrom !== null && covTo !== null
+      ? { from: ymd(new Date(covFrom)), to: ymd(new Date(covTo)), count: covCount }
+      : null;
+
+  const comparison = buildComparison(units, {
+    includeCharges: params.includeCharges,
+    includeSlippage: params.includeSlippage,
+  });
+
+  const dataQuality = strategyDataQuality({
+    timeframe: params.timeframe,
+    coverage,
+    missing,
+    unsupportedTimeframe,
+    autoDisabled: Array.from(autoDisabled),
+    tradeCount: trades.length,
+  });
+
+  return {
+    trades,
+    blocked,
+    comparison,
+    from: coverage?.from ?? params.fromDate ?? ymd(new Date()),
+    to: coverage?.to ?? params.toDate ?? ymd(new Date()),
+    dataQuality,
+  };
+}
+
+const OFFICIAL_STRATEGY_ID = "OFFICIAL_ENGINE";
+const OFFICIAL_STRATEGY_NAME = "Official F&O Engine";
+
+/** Tag a directional-engine trade as the "Official Engine" pseudo-strategy. */
+function tagOfficialTrade(t: BacktestTradeOut, backtestMode: string): BacktestTradeOut {
+  return {
+    ...t,
+    backtestMode,
+    strategyId: OFFICIAL_STRATEGY_ID,
+    strategyName: OFFICIAL_STRATEGY_NAME,
+    strategyCategory: "Engine",
+    signalSource: "ENGINE",
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), async (req, res) => {
@@ -329,14 +531,119 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
 
   const instruments = instrumentsFor(body.instrument);
 
+  // V2 — Backtest Mode selector. Defaults to OFFICIAL_ENGINE (legacy behaviour).
+  const backtestMode = body.backtestMode ?? "OFFICIAL_ENGINE";
+  const strategyIds: StrategyId[] = (body.strategies ?? []).filter(isStrategyId);
+  const filters = mergeFilters(body.filters as Partial<FilterConfig> | null | undefined);
+  const maxTradesPerDay =
+    typeof body.maxTradesPerDay === "number" && body.maxTradesPerDay > 0
+      ? Math.round(body.maxTradesPerDay)
+      : DEFAULT_MAX_TRADES_PER_DAY;
+  const includeCharges = body.includeCharges === true;
+  const includeSlippage = body.includeSlippage === true;
+
+  if (
+    (backtestMode === "STRATEGY_RESEARCH" || backtestMode === "COMPARE_OFFICIAL_VS_STRATEGIES") &&
+    strategyIds.length === 0
+  ) {
+    return res.status(400).json({ error: "no_strategies_selected" });
+  }
+
   try {
     let trades: BacktestTradeOut[];
     let blocked: BacktestBlockedOut[] = [];
     let from: string;
     let to: string;
     let dataQuality: unknown;
+    let comparison: BacktestStrategyComparisonOut | null = null;
 
-    if (body.mode === "REAL_REPLAY") {
+    if (backtestMode === "STRATEGY_RESEARCH") {
+      const r = await runStrategyResearch({
+        instruments,
+        strategyIds,
+        fromDate: body.fromDate ?? null,
+        toDate: body.toDate ?? null,
+        timeframe,
+        filters,
+        maxTradesPerDay,
+        includeCharges,
+        includeSlippage,
+      });
+      trades = r.trades;
+      blocked = r.blocked;
+      from = r.from;
+      to = r.to;
+      dataQuality = r.dataQuality;
+      comparison = r.comparison;
+    } else if (backtestMode === "COMPARE_OFFICIAL_VS_STRATEGIES") {
+      // Official engine (directional, reconstructable layer) + the selected strategies.
+      const off = await runDirectionalMode({
+        instruments,
+        fromDate: body.fromDate ?? null,
+        toDate: body.toDate ?? null,
+        startingCapital,
+        riskPerTradePct,
+      });
+      const officialTrades = off.trades.map((t) => tagOfficialTrade(t, backtestMode));
+      const strat = await runStrategyResearch({
+        instruments,
+        strategyIds,
+        fromDate: body.fromDate ?? null,
+        toDate: body.toDate ?? null,
+        timeframe,
+        filters,
+        maxTradesPerDay,
+        includeCharges,
+        includeSlippage,
+      });
+      trades = [...officialTrades, ...strat.trades].sort(
+        (a, b) => (a.entryAt ? Date.parse(a.entryAt) : 0) - (b.entryAt ? Date.parse(b.entryAt) : 0),
+      );
+      blocked = strat.blocked;
+      from = off.from < strat.from ? off.from : strat.from;
+      to = off.to > strat.to ? off.to : strat.to;
+      // Build a combined comparison that includes the Official Engine as a unit per index.
+      const officialUnits: ComparisonUnit[] = instruments.map((sym) => ({
+        strategyId: OFFICIAL_STRATEGY_ID,
+        strategyName: OFFICIAL_STRATEGY_NAME,
+        indexSymbol: sym,
+        timeframe,
+        trades: officialTrades.filter((t) => t.indexSymbol === sym),
+        blocked: [],
+      }));
+      const stratUnits: ComparisonUnit[] = [];
+      for (const sym of instruments) {
+        for (const id of strategyIds) {
+          const module = getStrategy(id);
+          stratUnits.push({
+            strategyId: module.meta.id,
+            strategyName: module.meta.name,
+            indexSymbol: sym,
+            timeframe,
+            trades: strat.trades.filter(
+              (t) => t.indexSymbol === sym && t.strategyId === module.meta.id,
+            ),
+            blocked: strat.blocked.filter(
+              (b) => b.indexSymbol === sym && b.strategyId === module.meta.id,
+            ),
+          });
+        }
+      }
+      comparison = buildComparison([...officialUnits, ...stratUnits], {
+        includeCharges,
+        includeSlippage,
+      });
+      const dq = strat.dataQuality;
+      dataQuality = {
+        ...dq,
+        mode: "COMPARE_OFFICIAL_VS_STRATEGIES",
+        candleCoverage: strat.dataQuality.candleCoverage,
+        notes: [
+          "Compare mode: the Official F&O Engine (directional reconstructable layer) is shown alongside the selected strategies on the same real spot candles.",
+          ...dq.notes,
+        ],
+      } satisfies BacktestDataQualityOut;
+    } else if (body.mode === "REAL_REPLAY") {
       const r = await runRealReplay({
         instruments,
         fromDate: body.fromDate ?? null,
@@ -379,6 +686,11 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
         params: { ...body, resolvedLots: lots },
         summary,
         dataQuality,
+        backtestMode,
+        selectedStrategies: strategyIds.length > 0 ? strategyIds : null,
+        filters:
+          backtestMode === "OFFICIAL_ENGINE" ? null : (filters as unknown as Record<string, unknown>),
+        strategyComparison: comparison as unknown as Record<string, unknown> | null,
         completedAt: new Date(),
       })
       .returning();
@@ -415,6 +727,17 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
           modeled: t.modeled,
           maxFavorableExcursion: t.maxFavorableExcursion,
           maxAdverseExcursion: t.maxAdverseExcursion,
+          backtestMode: t.backtestMode ?? backtestMode,
+          strategyId: t.strategyId ?? null,
+          strategyName: t.strategyName ?? null,
+          strategyCategory: t.strategyCategory ?? null,
+          signalSource: t.signalSource ?? (backtestMode === "OFFICIAL_ENGINE" ? "ENGINE" : null),
+          strategyParams: (t.strategyParams as Record<string, unknown> | null) ?? null,
+          confirmationFilters: t.confirmationFilters ?? null,
+          strategyConfidence: t.strategyConfidence ?? null,
+          historicalSetupMatch: t.historicalSetupMatch ?? null,
+          passedConditions: t.passedConditions ?? null,
+          failedConditions: t.failedConditions ?? null,
           sortIndex: i,
         })),
       );
@@ -434,6 +757,12 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
           regime: b.regime,
           count: b.count,
           note: b.note,
+          strategyId: b.strategyId ?? null,
+          strategyName: b.strategyName ?? null,
+          signalSource: b.signalSource ?? null,
+          failedCondition: b.failedCondition ?? null,
+          blockedRule: b.blockedRule ?? null,
+          category: b.category ?? null,
         })),
       );
     }
@@ -541,6 +870,17 @@ router.get("/backtest/fno/runs/:id/trades", requireSubscriberOrOwner("BACKTEST_L
     modeled: t.modeled,
     maxFavorableExcursion: t.maxFavorableExcursion,
     maxAdverseExcursion: t.maxAdverseExcursion,
+    backtestMode: t.backtestMode ?? null,
+    strategyId: t.strategyId ?? null,
+    strategyName: t.strategyName ?? null,
+    strategyCategory: t.strategyCategory ?? null,
+    signalSource: t.signalSource ?? null,
+    strategyParams: (t.strategyParams as Record<string, unknown> | null) ?? null,
+    confirmationFilters: (t.confirmationFilters as string[] | null) ?? null,
+    strategyConfidence: t.strategyConfidence ?? null,
+    historicalSetupMatch: t.historicalSetupMatch ?? null,
+    passedConditions: (t.passedConditions as string[] | null) ?? null,
+    failedConditions: (t.failedConditions as string[] | null) ?? null,
   }));
   return res.json({ items });
 });
@@ -565,6 +905,12 @@ router.get("/backtest/fno/runs/:id/blocked", requireSubscriberOrOwner("BACKTEST_
     regime: b.regime,
     count: b.count,
     note: b.note,
+    strategyId: b.strategyId ?? null,
+    strategyName: b.strategyName ?? null,
+    signalSource: b.signalSource ?? null,
+    failedCondition: b.failedCondition ?? null,
+    blockedRule: b.blockedRule ?? null,
+    category: b.category ?? null,
   }));
   return res.json({ items });
 });
@@ -572,6 +918,11 @@ router.get("/backtest/fno/runs/:id/blocked", requireSubscriberOrOwner("BACKTEST_
 router.get("/backtest/fno/snapshot-coverage", requireSubscriberOrOwner("BACKTEST_LAB"), async (_req, res) => {
   const cov = await snapshotCoverage();
   return res.json(cov);
+});
+
+router.get("/backtest/fno/strategies", requireSubscriberOrOwner("BACKTEST_LAB"), async (_req, res) => {
+  const items = listStrategies().map((m) => m.meta);
+  return res.json({ items });
 });
 
 export default router;
