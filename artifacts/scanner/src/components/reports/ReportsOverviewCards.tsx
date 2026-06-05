@@ -144,7 +144,7 @@ export function ReportsOverviewCards({
       {/* Headline P&L */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <MetricCard
-          label="F&O realised P&L"
+          label="F&O realised P&L (gross)"
           value={moneyOrDash(s.foRealizedPnl)}
           tone={moneyTone(s.foRealizedPnl)}
           unavailable={s.foRealizedPnl == null}
@@ -156,7 +156,7 @@ export function ReportsOverviewCards({
           unavailable={s.eqRealizedPnl == null}
         />
         <MetricCard
-          label="Total realised P&L"
+          label="Total realised P&L (gross)"
           value={moneyOrDash(s.totalRealizedPnl)}
           tone={moneyTone(s.totalRealizedPnl)}
           unavailable={s.totalRealizedPnl == null}
@@ -289,7 +289,7 @@ export function ReportsOverviewCards({
                 <tbody className="tabular-nums">
                   <tr className="border-t border-slate-800/60">
                     <td className="px-4 py-2 text-muted-foreground">
-                      Realised P&amp;L
+                      Realised P&amp;L (gross)
                     </td>
                     <td
                       className={cn(

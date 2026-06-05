@@ -75,10 +75,10 @@ export function FoCockpitSummaryCards({
                 title="F&O paper trades closed today (IST)."
               />
               <Tile
-                label="Realised P&L"
+                label="Realised P&L (gross)"
                 value={signed(summary.realizedPnl)}
                 tone={toneOf(summary.realizedPnl)}
-                title="Net booked profit/loss from F&O paper trades closed today (IST). Locked in — no longer moves with price."
+                title="Gross (pre-cost) booked profit/loss from F&O paper trades closed today (IST). Locked in — no longer moves with price. Brokerage/STT/charges are tracked separately as a shadow estimate and are NOT deducted here, nor from DD/heat/risk gates."
               />
               <Tile
                 label="Unrealised MTM"

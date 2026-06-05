@@ -68,6 +68,289 @@ export function atmSpreadPct(side: OcSide | undefined | null): number | null {
   return round(((ask - bid) / mid) * 100, 4);
 }
 
+/* ───────────────── signal-readiness verdict (READ-ONLY) ──────────────
+ *
+ * Pure data-readiness classifiers for `/fno/data-health`. They answer a
+ * single honest question per underlying: "is there fresh, live Kite spot +
+ * Kite option data right now, sufficient to TRUST an F&O signal?" — and, if
+ * not, exactly why. NOTHING in the trading path consumes these; they are
+ * an operator visibility surface only. The classifiers NEVER infer
+ * tradability when data is missing and NEVER treat non-Kite (NSE/Yahoo)
+ * option data as F&O-live.
+ *
+ * Liquidity thresholds are passed IN by the route (which owns the single
+ * source of truth, `FNO_LIQUIDITY` in paperAccount.ts) so this module stays
+ * pure/no-import and the constants never drift.
+ */
+
+export type SignalBlockSeverity = "OK" | "WARN" | "FAIL";
+export type DataSourceVerdict =
+  | "LIVE_KITE"
+  | "KITE_STALE"
+  | "KITE_OFFLINE"
+  | "PARTIAL"
+  | "UNAVAILABLE";
+export type SpotProvider = "KITE_WS" | "KITE_REST" | "CACHE" | "UNAVAILABLE";
+export type OptionChainProvider = "KITE" | "NSE" | "YAHOO" | "UNAVAILABLE";
+
+export interface SignalBlock {
+  code: string;
+  severity: "WARN" | "FAIL";
+  detail: string;
+}
+
+export interface SignalReadiness {
+  signalAllowed: boolean;
+  blockingReasons: SignalBlock[];
+  blockingSeverity: SignalBlockSeverity;
+  dataSourceVerdict: DataSourceVerdict;
+  spotProvider: SpotProvider;
+  optionChainProvider: OptionChainProvider;
+  freshEnoughForSignal: boolean;
+  missingFields: string[];
+}
+
+export interface ReadinessLeg {
+  ltp: number | null;
+  oi: number | null;
+  spreadPct: number | null;
+}
+
+export interface SignalReadinessInput {
+  sessionPresent: boolean;
+  feedConnected: boolean;
+  spot: { present: boolean; ageMs: number | null; status: HealthSeverity };
+  chain: {
+    present: boolean;
+    status: HealthSeverity;
+    /** Raw `oc.source` ("kite" | "NSE" | "yahoo" | ...). null when absent. */
+    source: string | null;
+    atm: { ce: ReadinessLeg | null; pe: ReadinessLeg | null } | null;
+  };
+}
+
+/** Liquidity thresholds (mirrors FNO_LIQUIDITY); maxSpreadPct in PERCENT. */
+export interface LiquidityThresholds {
+  minOptionLtp: number;
+  minOptionOi: number;
+  maxSpreadPct: number;
+}
+
+/**
+ * Classify how the live spot quote was sourced. `getKiteIndexQuotes` is
+ * Kite-only (returns null without a Kite session — never Yahoo), so a
+ * present quote is always Kite-origin; the WS/REST/CACHE distinction is a
+ * freshness heuristic (WS fast-path ticks are <3s; REST batch ≤60s; older
+ * is served from cache).
+ */
+export function deriveSpotProvider(
+  present: boolean,
+  ageMs: number | null,
+  feedConnected: boolean,
+): SpotProvider {
+  if (!present) return "UNAVAILABLE";
+  if (feedConnected && ageMs != null && Number.isFinite(ageMs) && ageMs <= 3_000) return "KITE_WS";
+  if (ageMs != null && Number.isFinite(ageMs) && ageMs <= 60_000) return "KITE_REST";
+  return "CACHE";
+}
+
+/** Map raw option-chain source to an honest provider label. */
+export function mapOptionChainProvider(source: string | null | undefined): OptionChainProvider {
+  if (!source) return "UNAVAILABLE";
+  const s = source.toLowerCase();
+  if (s.includes("kite")) return "KITE";
+  if (s.includes("yahoo")) return "YAHOO";
+  // Any other present source (NSE direct, unknown live fallback) is non-Kite.
+  return "NSE";
+}
+
+/**
+ * Derive the read-only signal-readiness verdict for one underlying.
+ * `signalAllowed` is true ONLY when there is an active Kite session AND
+ * fresh live Kite spot AND fresh live Kite option chain. Liquidity issues
+ * surface as WARN reasons (informational — the binding gate is at trade
+ * time) and never silently imply tradability.
+ */
+export function deriveSignalReadiness(
+  input: SignalReadinessInput,
+  thresholds: LiquidityThresholds,
+): SignalReadiness {
+  const reasons: SignalBlock[] = [];
+  const missing: string[] = [];
+
+  if (!input.sessionPresent) {
+    reasons.push({ code: "KITE_SESSION_ABSENT", severity: "FAIL", detail: "No active Kite session" });
+  }
+
+  // Spot
+  if (!input.spot.present) {
+    reasons.push({ code: "SPOT_UNAVAILABLE", severity: "FAIL", detail: "No live index quote" });
+    missing.push("spot");
+  } else if (input.spot.status === "fail") {
+    reasons.push({ code: "SPOT_STALE", severity: "FAIL", detail: "Index quote older than fail threshold" });
+  } else if (input.spot.status === "warn") {
+    reasons.push({ code: "SPOT_AGING", severity: "WARN", detail: "Index quote aging" });
+  }
+
+  // Option chain provenance + freshness
+  const optionChainProvider = input.chain.present
+    ? mapOptionChainProvider(input.chain.source)
+    : "UNAVAILABLE";
+
+  if (!input.chain.present) {
+    reasons.push({ code: "OPTION_CHAIN_UNAVAILABLE", severity: "FAIL", detail: "Option chain unavailable" });
+    missing.push("optionChain");
+  } else {
+    if (optionChainProvider !== "KITE") {
+      reasons.push({
+        code: "NON_KITE_OPTION_DATA",
+        severity: "FAIL",
+        detail: `Option chain sourced from ${optionChainProvider}, not Kite live — not treated as F&O-live`,
+      });
+    }
+    if (input.chain.status === "fail") {
+      reasons.push({ code: "OPTION_CHAIN_STALE", severity: "FAIL", detail: "Option chain older than fail threshold" });
+    } else if (input.chain.status === "warn") {
+      reasons.push({ code: "OPTION_CHAIN_AGING", severity: "WARN", detail: "Option chain aging" });
+    }
+
+    // ATM liquidity (informational; thresholds mirror FNO_LIQUIDITY)
+    if (!input.chain.atm) {
+      reasons.push({ code: "ATM_LEG_MISSING", severity: "WARN", detail: "ATM strike row not found in chain" });
+      missing.push("atmLeg");
+    } else {
+      const sides: Array<["CE" | "PE", ReadinessLeg | null]> = [
+        ["CE", input.chain.atm.ce],
+        ["PE", input.chain.atm.pe],
+      ];
+      for (const [label, leg] of sides) {
+        if (!leg || leg.ltp == null || leg.oi == null) {
+          reasons.push({ code: `ATM_${label}_INCOMPLETE`, severity: "WARN", detail: `ATM ${label} LTP/OI not reported` });
+          missing.push(`atm${label}`);
+          continue;
+        }
+        if (leg.ltp < thresholds.minOptionLtp) {
+          reasons.push({ code: `ATM_${label}_LTP_BELOW_MIN`, severity: "WARN", detail: `ATM ${label} LTP ${leg.ltp} < ₹${thresholds.minOptionLtp}` });
+        }
+        if (leg.oi < thresholds.minOptionOi) {
+          reasons.push({ code: `ATM_${label}_OI_LOW`, severity: "WARN", detail: `ATM ${label} OI ${leg.oi} < ${thresholds.minOptionOi}` });
+        }
+        if (leg.spreadPct != null && leg.spreadPct > thresholds.maxSpreadPct) {
+          reasons.push({ code: `ATM_${label}_SPREAD_WIDE`, severity: "WARN", detail: `ATM ${label} spread ${leg.spreadPct}% > ${thresholds.maxSpreadPct}%` });
+        }
+      }
+    }
+  }
+
+  const hasFail = reasons.some((r) => r.severity === "FAIL");
+  const hasWarn = reasons.some((r) => r.severity === "WARN");
+  const blockingSeverity: SignalBlockSeverity = hasFail ? "FAIL" : hasWarn ? "WARN" : "OK";
+
+  const freshEnoughForSignal =
+    input.spot.present &&
+    input.spot.status === "ok" &&
+    input.chain.present &&
+    input.chain.status === "ok" &&
+    optionChainProvider === "KITE";
+
+  const signalAllowed = !hasFail && freshEnoughForSignal && input.sessionPresent;
+
+  // Data-source verdict (independent of liquidity warnings)
+  let dataSourceVerdict: DataSourceVerdict;
+  if (!input.spot.present && !input.chain.present) {
+    dataSourceVerdict = "UNAVAILABLE";
+  } else if (!input.sessionPresent) {
+    dataSourceVerdict = "KITE_OFFLINE";
+  } else if (
+    input.chain.present &&
+    optionChainProvider === "KITE" &&
+    input.chain.status === "ok" &&
+    input.spot.present &&
+    input.spot.status === "ok"
+  ) {
+    dataSourceVerdict = "LIVE_KITE";
+  } else if (
+    input.chain.present &&
+    optionChainProvider === "KITE" &&
+    (input.chain.status === "warn" || input.chain.status === "fail")
+  ) {
+    dataSourceVerdict = "KITE_STALE";
+  } else {
+    dataSourceVerdict = "PARTIAL";
+  }
+
+  return {
+    signalAllowed,
+    blockingReasons: reasons,
+    blockingSeverity,
+    dataSourceVerdict,
+    spotProvider: deriveSpotProvider(input.spot.present, input.spot.ageMs, input.feedConnected),
+    optionChainProvider,
+    freshEnoughForSignal,
+    missingFields: missing,
+  };
+}
+
+/* ───────────────── ATM straddle / expected move (READ-ONLY) ───────────
+ *
+ * ATM straddle price is a DIRECT SUM of the two ATM-leg LTPs already
+ * fetched for data-health — not an approximation. The expected-move fields
+ * apply the standard "ATM straddle ≈ ±1σ" convention and carry an explicit
+ * `formulaLabel` so the derivation is never silent. When either leg is
+ * missing/invalid everything returns null with reason "UNAVAILABLE" — we
+ * never fabricate a straddle.
+ */
+
+export interface AtmStraddle {
+  atmStraddlePremium: number | null;
+  expectedMovePoints: number | null;
+  expectedMovePercent: number | null;
+  formulaLabel: string | null;
+  source: string | null;
+  freshnessSec: number | null;
+  reason: string | null;
+}
+
+export function computeAtmStraddle(input: {
+  ceLtp: number | null | undefined;
+  peLtp: number | null | undefined;
+  spot: number | null | undefined;
+  source: string | null;
+  freshnessSec: number | null;
+}): AtmStraddle {
+  const ce = input.ceLtp;
+  const pe = input.peLtp;
+  const ok =
+    typeof ce === "number" && Number.isFinite(ce) && ce > 0 &&
+    typeof pe === "number" && Number.isFinite(pe) && pe > 0;
+  if (!ok) {
+    return {
+      atmStraddlePremium: null,
+      expectedMovePoints: null,
+      expectedMovePercent: null,
+      formulaLabel: null,
+      source: null,
+      freshnessSec: null,
+      reason: "UNAVAILABLE",
+    };
+  }
+  const straddle = round(ce + pe, 2);
+  const spot = input.spot;
+  const pct =
+    typeof spot === "number" && Number.isFinite(spot) && spot > 0
+      ? round((straddle / spot) * 100, 2)
+      : null;
+  return {
+    atmStraddlePremium: straddle,
+    expectedMovePoints: straddle,
+    expectedMovePercent: pct,
+    formulaLabel: "ATM straddle = ATM CE LTP + ATM PE LTP; expected move ≈ ±straddle (1σ daily convention)",
+    source: input.source,
+    freshnessSec: input.freshnessSec,
+    reason: null,
+  };
+}
+
 /* ─────────────────────────── gate waterfall ──────────────────────── */
 
 export interface FunnelStage {

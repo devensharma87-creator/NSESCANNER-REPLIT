@@ -5,8 +5,34 @@ import {
   buildGateWaterfall,
   buildSetupPerformance,
   buildNoTradeReasons,
+  deriveSpotProvider,
+  mapOptionChainProvider,
+  deriveSignalReadiness,
+  computeAtmStraddle,
+  type SignalReadinessInput,
+  type LiquidityThresholds,
 } from "./fnoDiagnosticsFacade";
 import type { ReasoningAnalytics } from "./fnoReasoningAnalytics";
+
+const THRESH: LiquidityThresholds = { minOptionLtp: 20, minOptionOi: 50_000, maxSpreadPct: 1.5 };
+
+function readinessInput(over: Partial<SignalReadinessInput> = {}): SignalReadinessInput {
+  return {
+    sessionPresent: true,
+    feedConnected: true,
+    spot: { present: true, ageMs: 1_000, status: "ok" },
+    chain: {
+      present: true,
+      status: "ok",
+      source: "kite",
+      atm: {
+        ce: { ltp: 120, oi: 80_000, spreadPct: 0.5 },
+        pe: { ltp: 110, oi: 90_000, spreadPct: 0.4 },
+      },
+    },
+    ...over,
+  };
+}
 
 /** Minimal valid analytics scaffold; per-test overrides fill the bits used. */
 function analytics(partial: Partial<ReasoningAnalytics>): ReasoningAnalytics {
@@ -158,6 +184,128 @@ describe("buildSetupPerformance", () => {
     expect(p.rows[1]?.decisiveWinRate).toBe(0.5);
     // B has no decisive outcomes (only expired) => null
     expect(p.rows[0]?.decisiveWinRate).toBeNull();
+  });
+});
+
+describe("deriveSpotProvider", () => {
+  it("UNAVAILABLE when no quote", () => {
+    expect(deriveSpotProvider(false, null, true)).toBe("UNAVAILABLE");
+  });
+  it("KITE_WS only when feed connected and tick <=3s", () => {
+    expect(deriveSpotProvider(true, 2_000, true)).toBe("KITE_WS");
+    expect(deriveSpotProvider(true, 2_000, false)).toBe("KITE_REST");
+    expect(deriveSpotProvider(true, 5_000, true)).toBe("KITE_REST");
+  });
+  it("CACHE when older than 60s", () => {
+    expect(deriveSpotProvider(true, 120_000, true)).toBe("CACHE");
+  });
+});
+
+describe("mapOptionChainProvider", () => {
+  it("maps known sources honestly; non-kite never becomes KITE", () => {
+    expect(mapOptionChainProvider(null)).toBe("UNAVAILABLE");
+    expect(mapOptionChainProvider("kite")).toBe("KITE");
+    expect(mapOptionChainProvider("yahoo")).toBe("YAHOO");
+    expect(mapOptionChainProvider("NSE")).toBe("NSE");
+    expect(mapOptionChainProvider("something-else")).toBe("NSE");
+  });
+});
+
+describe("deriveSignalReadiness", () => {
+  it("LIVE_KITE → signalAllowed true with no blocking reasons", () => {
+    const r = deriveSignalReadiness(readinessInput(), THRESH);
+    expect(r.signalAllowed).toBe(true);
+    expect(r.dataSourceVerdict).toBe("LIVE_KITE");
+    expect(r.spotProvider).toBe("KITE_WS");
+    expect(r.optionChainProvider).toBe("KITE");
+    expect(r.freshEnoughForSignal).toBe(true);
+    expect(r.blockingSeverity).toBe("OK");
+    expect(r.blockingReasons).toEqual([]);
+    expect(r.missingFields).toEqual([]);
+  });
+
+  it("Kite session absent → KITE_OFFLINE, signalAllowed false (FAIL)", () => {
+    const r = deriveSignalReadiness(readinessInput({ sessionPresent: false }), THRESH);
+    expect(r.signalAllowed).toBe(false);
+    expect(r.dataSourceVerdict).toBe("KITE_OFFLINE");
+    expect(r.blockingSeverity).toBe("FAIL");
+    expect(r.blockingReasons.some((b) => b.code === "KITE_SESSION_ABSENT")).toBe(true);
+  });
+
+  it("non-Kite (Yahoo) option data → NON_KITE_OPTION_DATA FAIL, never F&O-live", () => {
+    const r = deriveSignalReadiness(readinessInput({ chain: { present: true, status: "ok", source: "yahoo", atm: { ce: { ltp: 120, oi: 80_000, spreadPct: 0.5 }, pe: { ltp: 110, oi: 90_000, spreadPct: 0.4 } } } }), THRESH);
+    expect(r.signalAllowed).toBe(false);
+    expect(r.optionChainProvider).toBe("YAHOO");
+    expect(r.dataSourceVerdict).toBe("PARTIAL");
+    expect(r.blockingReasons.some((b) => b.code === "NON_KITE_OPTION_DATA" && b.severity === "FAIL")).toBe(true);
+  });
+
+  it("missing option chain → UNAVAILABLE/PARTIAL, signalAllowed false, missingFields lists optionChain", () => {
+    const r = deriveSignalReadiness(readinessInput({ chain: { present: false, status: "unavailable", source: null, atm: null } }), THRESH);
+    expect(r.signalAllowed).toBe(false);
+    expect(r.optionChainProvider).toBe("UNAVAILABLE");
+    expect(r.missingFields).toContain("optionChain");
+    expect(r.blockingReasons.some((b) => b.code === "OPTION_CHAIN_UNAVAILABLE")).toBe(true);
+  });
+
+  it("stale Kite chain → KITE_STALE, signalAllowed false", () => {
+    const r = deriveSignalReadiness(readinessInput({ chain: { present: true, status: "fail", source: "kite", atm: { ce: { ltp: 120, oi: 80_000, spreadPct: 0.5 }, pe: { ltp: 110, oi: 90_000, spreadPct: 0.4 } } } }), THRESH);
+    expect(r.signalAllowed).toBe(false);
+    expect(r.dataSourceVerdict).toBe("KITE_STALE");
+    expect(r.freshEnoughForSignal).toBe(false);
+  });
+
+  it("thin ATM liquidity is WARN-only and does NOT flip signalAllowed", () => {
+    const r = deriveSignalReadiness(readinessInput({ chain: { present: true, status: "ok", source: "kite", atm: { ce: { ltp: 5, oi: 1_000, spreadPct: 3 }, pe: { ltp: 110, oi: 90_000, spreadPct: 0.4 } } } }), THRESH);
+    expect(r.signalAllowed).toBe(true);
+    expect(r.blockingSeverity).toBe("WARN");
+    const codes = r.blockingReasons.map((b) => b.code);
+    expect(codes).toContain("ATM_CE_LTP_BELOW_MIN");
+    expect(codes).toContain("ATM_CE_OI_LOW");
+    expect(codes).toContain("ATM_CE_SPREAD_WIDE");
+    expect(r.blockingReasons.every((b) => b.severity === "WARN")).toBe(true);
+  });
+
+  it("aging spot (warn) blocks freshEnoughForSignal even though not a FAIL", () => {
+    const r = deriveSignalReadiness(readinessInput({ spot: { present: true, ageMs: 20_000, status: "warn" } }), THRESH);
+    expect(r.freshEnoughForSignal).toBe(false);
+    expect(r.signalAllowed).toBe(false);
+    expect(r.blockingSeverity).toBe("WARN");
+  });
+
+  it("everything absent → UNAVAILABLE", () => {
+    const r = deriveSignalReadiness(
+      { sessionPresent: false, feedConnected: false, spot: { present: false, ageMs: null, status: "unavailable" }, chain: { present: false, status: "unavailable", source: null, atm: null } },
+      THRESH,
+    );
+    expect(r.dataSourceVerdict).toBe("UNAVAILABLE");
+    expect(r.signalAllowed).toBe(false);
+  });
+});
+
+describe("computeAtmStraddle", () => {
+  it("returns straddle + expected move with explicit formula label", () => {
+    const s = computeAtmStraddle({ ceLtp: 120, peLtp: 110, spot: 23_000, source: "kite", freshnessSec: 12 });
+    expect(s.atmStraddlePremium).toBe(230);
+    expect(s.expectedMovePoints).toBe(230);
+    expect(s.expectedMovePercent).toBe(1); // 230/23000*100
+    expect(s.formulaLabel).toBeTruthy();
+    expect(s.reason).toBeNull();
+    expect(s.source).toBe("kite");
+  });
+
+  it("null + reason UNAVAILABLE when a leg is missing (no fake zero)", () => {
+    const s = computeAtmStraddle({ ceLtp: null, peLtp: 110, spot: 23_000, source: "kite", freshnessSec: 12 });
+    expect(s.atmStraddlePremium).toBeNull();
+    expect(s.expectedMovePoints).toBeNull();
+    expect(s.expectedMovePercent).toBeNull();
+    expect(s.reason).toBe("UNAVAILABLE");
+  });
+
+  it("expectedMovePercent null when spot invalid (never divides by zero)", () => {
+    const s = computeAtmStraddle({ ceLtp: 120, peLtp: 110, spot: 0, source: "kite", freshnessSec: 12 });
+    expect(s.atmStraddlePremium).toBe(230);
+    expect(s.expectedMovePercent).toBeNull();
   });
 });
 

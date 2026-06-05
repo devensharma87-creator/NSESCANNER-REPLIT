@@ -760,7 +760,7 @@ function TotalsCard({ totals }: { totals: ReportTotals }) {
     <Card>
       <CardContent className="pt-6 space-y-4">
         <div>
-          <div className="text-xs text-muted-foreground uppercase tracking-wide">Total Realized P&amp;L</div>
+          <div className="text-xs text-muted-foreground uppercase tracking-wide">Total Realized P&amp;L (gross, pre-cost)</div>
           <div className={cn("text-3xl font-semibold mt-1", realizedTone)}>
             {totals.realizedPnl >= 0 ? "+ " : "- "}
             {inrFull(Math.abs(totals.realizedPnl))}
@@ -768,18 +768,25 @@ function TotalsCard({ totals }: { totals: ReportTotals }) {
         </div>
         <div className="grid grid-cols-2 gap-6 pt-2 border-t border-slate-800">
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wide">Net Realised P&amp;L</div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+              Estimated Net P&amp;L
+              <Info
+                className="h-3 w-3 text-slate-400"
+                aria-label="Shadow estimate only — gross realised P&L minus estimated costs. NOT used for drawdown caps, portfolio-heat caps or any risk gate (those run on gross)."
+              />
+            </div>
             <div className={cn("text-lg font-semibold mt-1", netTone)}>
               {totals.netPnl >= 0 ? "+ " : "- "}
               {inrFull(Math.abs(totals.netPnl))}
             </div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">shadow only — not used for DD/heat/risk gates</div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-              Taxes &amp; Charges
+              Estimated Costs
               <Info
                 className="h-3 w-3 text-slate-400"
-                aria-label="STT, exchange transaction, SEBI, GST and stamp duty using the standard NSE F&O option fee schedule"
+                aria-label="Shadow estimate of STT, exchange transaction, SEBI, GST and stamp duty using the standard NSE F&O option fee schedule. Reporting-only — not deducted from gross P&L used by risk gates."
               />
             </div>
             <div className="text-lg font-semibold mt-1 text-slate-100">

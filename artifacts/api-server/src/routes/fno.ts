@@ -31,8 +31,11 @@ import {
   buildNoTradeReasons,
   classifyFreshness,
   atmSpreadPct,
+  deriveSignalReadiness,
+  computeAtmStraddle,
   type HealthSeverity,
 } from "../lib/fnoDiagnosticsFacade";
+import { FNO_LIQUIDITY } from "../lib/paperAccount";
 import { getMissedSignals } from "../lib/paperTradingFO";
 import { getEnvironmentLabel } from "../lib/paperAutoTradeFlag";
 import { getReasoningLoggerHealth } from "../lib/fnoSignalReasoningLogger";
@@ -102,10 +105,21 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
       indices.map(async (cfg) => {
         const q = quotes?.get(cfg.yahoo) ?? null;
         const spotAgeMs = q ? now - q.asOf : null;
+        const spotStatus: HealthSeverity = q
+          ? classifyFreshness(spotAgeMs, SPOT_WARN_MS, SPOT_FAIL_MS)
+          : "unavailable";
 
         let chain:
           | { status: HealthSeverity; reason: string }
           | Record<string, unknown>;
+        // Captured for the read-only signal-readiness + straddle helpers.
+        let chainPresent = false;
+        let chainStatus: HealthSeverity = "unavailable";
+        let chainSource: string | null = null;
+        let chainAgeSec: number | null = null;
+        let atmCe: { ltp: number | null; oi: number | null; spreadPct: number | null } | null = null;
+        let atmPe: { ltp: number | null; oi: number | null; spreadPct: number | null } | null = null;
+        let atmPresent = false;
         try {
           const oc = await fetchOptionChain(cfg.symbol);
           if (!oc) {
@@ -128,20 +142,24 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
             } catch {
               analytics = null;
             }
+            chainPresent = true;
+            chainStatus = classifyFreshness(chainAgeMs, CHAIN_WARN_MS, CHAIN_FAIL_MS);
+            chainSource = oc.source;
+            chainAgeSec = chainAgeMs != null ? Math.round(chainAgeMs / 1000) : null;
+            if (atmRow) {
+              atmPresent = true;
+              atmCe = { oi: atmRow.ce?.oi ?? null, ltp: atmRow.ce?.ltp ?? null, spreadPct: atmSpreadPct(atmRow.ce) };
+              atmPe = { oi: atmRow.pe?.oi ?? null, ltp: atmRow.pe?.ltp ?? null, spreadPct: atmSpreadPct(atmRow.pe) };
+            }
             chain = {
-              status: classifyFreshness(chainAgeMs, CHAIN_WARN_MS, CHAIN_FAIL_MS),
+              status: chainStatus,
               source: oc.source,
               generatedAt: oc.generatedAt,
-              ageSec: chainAgeMs != null ? Math.round(chainAgeMs / 1000) : null,
+              ageSec: chainAgeSec,
               expiry: oc.expiry,
               atmStrike: oc.atmStrike,
               rowCount: oc.rows.length,
-              atmLeg: atmRow
-                ? {
-                    ce: { oi: atmRow.ce?.oi ?? null, ltp: atmRow.ce?.ltp ?? null, spreadPct: atmSpreadPct(atmRow.ce) },
-                    pe: { oi: atmRow.pe?.oi ?? null, ltp: atmRow.pe?.ltp ?? null, spreadPct: atmSpreadPct(atmRow.pe) },
-                  }
-                : null,
+              atmLeg: atmPresent ? { ce: atmCe, pe: atmPe } : null,
               analytics,
             };
           }
@@ -152,18 +170,56 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
           };
         }
 
+        // Read-only verdict + ATM straddle/expected-move (consumed by NO
+        // trading path — operator visibility only).
+        const readiness = deriveSignalReadiness(
+          {
+            sessionPresent: kite.session.present,
+            feedConnected: feed.connected,
+            spot: { present: !!q, ageMs: spotAgeMs, status: spotStatus },
+            chain: {
+              present: chainPresent,
+              status: chainStatus,
+              source: chainSource,
+              atm: atmPresent ? { ce: atmCe, pe: atmPe } : null,
+            },
+          },
+          {
+            minOptionLtp: FNO_LIQUIDITY.MIN_OPTION_LTP,
+            minOptionOi: FNO_LIQUIDITY.MIN_OPTION_OI,
+            maxSpreadPct: FNO_LIQUIDITY.MAX_BID_ASK_SPREAD_PCT * 100,
+          },
+        );
+        const expectedMove = computeAtmStraddle({
+          ceLtp: atmCe?.ltp ?? null,
+          peLtp: atmPe?.ltp ?? null,
+          spot: q?.price ?? null,
+          source: chainSource,
+          freshnessSec: chainAgeSec,
+        });
+
         return {
           indexSymbol: cfg.symbol,
           display: cfg.display,
           spot: q
             ? {
-                status: classifyFreshness(spotAgeMs, SPOT_WARN_MS, SPOT_FAIL_MS),
+                status: spotStatus,
                 price: q.price,
                 asOf: new Date(q.asOf).toISOString(),
                 ageSec: spotAgeMs != null ? Math.round(spotAgeMs / 1000) : null,
               }
             : { status: "unavailable" as HealthSeverity, reason: "no live index quote" },
           chain,
+          // ── READ-ONLY signal-readiness verdict (additive) ──
+          signalAllowed: readiness.signalAllowed,
+          blockingReasons: readiness.blockingReasons,
+          blockingSeverity: readiness.blockingSeverity,
+          dataSourceVerdict: readiness.dataSourceVerdict,
+          spotProvider: readiness.spotProvider,
+          optionChainProvider: readiness.optionChainProvider,
+          freshEnoughForSignal: readiness.freshEnoughForSignal,
+          missingFields: readiness.missingFields,
+          expectedMove,
         };
       }),
     );

@@ -1,0 +1,223 @@
+The F&O Data Accuracy + Signal Trust Review is accepted.
+
+Do not start trading-logic changes yet.
+
+The evidence is clear:
+
+41,164 F&O reasoning rows reviewed
+83.7% candidates rejected before emission
+Main rejection: CONDITIONS_NOT_MET
+Main tunable bottleneck: LATE_SESSION_ENTRY + VWAP_RECLAIM_LATE
+Risk/DD/heat caps are not the bottleneck
+VOLUME_BREAKOUT emitted zero times in 16 sessions
+MEAN_REVERSION emitted zero times in 16 sessions
+All 7 opened F&O trades are BASELINE-tier
+High-conviction F&O setups have effectively not opened
+Headline P&L is still gross/pre-cost
+
+Next approved task:
+
+F&O Diagnostics UI + Data-Health Truth Labels
+
+This is a read-only visibility task.
+
+0. Strict guardrails
+
+Do not change:
+
+entry rules
+stop-loss rules
+target rules
+exit rules
+time cutoff rules
+detector conditions
+confidence formulas
+risk gates
+DD caps
+heat caps
+premium target behaviour
+realized P&L logic
+paper-trading execution
+scanner scoring
+DB schema
+scheduler
+env/secrets
+
+No publish unless separately approved.
+
+Allowed:
+
+read-only endpoint field additions
+read-only UI diagnostics
+labels/badges/explanatory copy
+tests
+reporting clarity
+1. Fix P0 visibility gap in /api/fno/data-health
+
+Add read-only verdict fields only.
+
+For each underlying:
+
+signalAllowed: true/false
+blockingReasons: []
+blockingSeverity: OK/WARN/FAIL
+dataSourceVerdict: LIVE_KITE / KITE_STALE / KITE_OFFLINE / PARTIAL / UNAVAILABLE
+spotProvider: KITE_WS / KITE_REST / CACHE / UNAVAILABLE
+optionChainProvider: KITE / CACHE / UNAVAILABLE
+freshEnoughForSignal: true/false
+
+Rules:
+
+Do not infer tradability if data is missing.
+Do not show Yahoo/delayed data as F&O-live.
+If Kite/live option data is missing or stale, signalAllowed must be false.
+If partial data exists, show PARTIAL with exact missing fields.
+
+This must be read-only. No trading logic should consume this field yet.
+
+2. Add ATM straddle / expected-move visibility if already available
+
+If existing logic already computes ATM straddle or expected move, expose it read-only in diagnostics.
+
+Show:
+
+atmStraddlePremium
+expectedMovePoints
+expectedMovePercent
+formulaLabel
+source
+freshnessSec
+
+If not implemented or unreliable, return:
+
+null
+reason: "UNAVAILABLE"
+
+Do not invent or approximate silently.
+
+3. Add clear gross/pre-cost P&L labels
+
+Wherever F&O paper-trading headline P&L is shown, label clearly:
+
+Gross P&L / Pre-cost
+
+Where shadow costs are shown, label:
+
+Estimated Costs
+Estimated Net P&L
+Shadow only — not used for DD/heat/risk gates
+
+Important:
+
+Do not change realized P&L calculation.
+Do not change DD caps.
+Do not change heat gates.
+Do not change paper account balance logic.
+
+This is only wording/reporting truth.
+
+4. Build owner-only F&O Diagnostics UI page
+
+Add an owner-only diagnostics page or panel.
+
+Suggested route:
+
+/fno-diagnostics
+
+Use the already-built endpoints:
+
+/api/fno/data-health
+/api/fno/diagnostics/today
+/api/fno/diagnostics/gate-waterfall
+/api/fno/diagnostics/no-trade-reasons
+/api/fno/diagnostics/setup-performance
+
+UI sections:
+
+A. F&O Data Health
+B. Signal Allowed / Blocked status by NIFTY, BANKNIFTY, SENSEX
+C. Kite/WebSocket/Option Chain status
+D. Today Summary
+E. Gate Waterfall
+F. No-Trade Reasons
+G. Setup Performance
+H. Dormant Detector Warning
+I. Gross-vs-Estimated-Net note
+J. Premium-target informational note
+
+Dormant detector warning should show:
+
+VOLUME_BREAKOUT emitted zero times in 16 sessions.
+MEAN_REVERSION emitted zero times in 16 sessions.
+Do not tune yet — needs separate detector investigation.
+
+Target note should show:
+
+Premium T1/T2 touch is informational under current engine.
+Official target exit is spot-lifecycle driven.
+5. Keep UI simple
+
+Do not redesign the whole website.
+
+Use compact cards/tables:
+
+Health cards
+Small status badges
+Simple tables
+Expandable details
+Clear warnings
+No heavy charts
+No feature creep
+6. Tests required
+
+Run:
+
+pnpm run typecheck
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/scanner run test
+
+Add tests for:
+
+data-health signalAllowed derivation
+Kite unavailable = signalAllowed false
+partial option chain = PARTIAL/WARN
+gross/pre-cost label helper if applicable
+diagnostics UI renders empty/unavailable states honestly
+no fake zeros for unavailable diagnostic fields
+
+If OpenAPI/client generation is used, run codegen and typecheck again.
+
+7. Final report required
+
+Return:
+
+F&O Diagnostics UI + Truth Labels Report
+
+Include:
+
+A. Files changed
+B. Endpoint fields added
+C. UI page/panel added
+D. Data-health signalAllowed logic
+E. Gross/pre-cost label changes
+F. ATM straddle / expected-move status
+G. Dormant detector warning
+H. Premium-target informational note
+I. Tests added
+J. Full validation results
+K. Trading logic changed? must be NO
+L. DB/schema changed? must be NO
+M. Publish needed? yes/no
+N. Recommended next phase
+
+Stop after the report.
+
+Do not start:
+
+time cutoff tuning
+gross-to-net implementation
+premium target exit implementation
+detector condition changes
+DB latch persistence
+swing scoring changes
+market hub redesign
