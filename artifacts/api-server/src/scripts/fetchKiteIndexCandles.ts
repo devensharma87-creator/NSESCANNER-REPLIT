@@ -155,8 +155,30 @@ async function fetchAll(
   return { rows, failures };
 }
 
+// Kite's Node SDK returns each candle `date` as a JS Date (an absolute instant).
+// The backtester (and the live engine) expect IST-LOCAL naive timestamps
+// ("YYYY-MM-DD HH:MM:SS", session 09:15..15:30) so its hour buckets, per-day
+// session-VWAP reset, and time-of-day gates line up. Emitting `.toISOString()`
+// (UTC, -5:30) would silently shift every one of those by 5.5h. India has no
+// DST, so Asia/Kolkata is a fixed +05:30.
+const IST_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
 function toIsoTs(d: Date | string): string {
-  return d instanceof Date ? d.toISOString() : new Date(d).toISOString();
+  const date = d instanceof Date ? d : new Date(d);
+  const p = IST_FMT.formatToParts(date);
+  const get = (t: string) => p.find(x => x.type === t)?.value ?? "00";
+  // Intl can emit hour "24" at midnight in Node; normalise to "00" (defensive —
+  // intraday session bars never hit midnight).
+  const hh = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")} ${hh}:${get("minute")}:${get("second")}`;
 }
 
 function writeCsv(file: string, rows: RawCandle[]): number {
