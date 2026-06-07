@@ -76,13 +76,18 @@ describeCandles("registry × real candle CSVs — default filters must qualify t
   });
 
   it("qualifies a healthy, non-zero number of trades across the whole registry", () => {
-    // Observed total against the committed real CSVs ≈ 4590 (6 strategies × 3
+    // Observed total against the committed real CSVs ≈ 4680 (6 strategies × 3
     // indices over ~2 years of 15-min candles). Bounds bracket that with wide
     // margin so honest param/filter tweaks don't nag, but a true regression does.
     //
+    // Note: RANGE_REVERSAL contributes ~94 (Task #85). It previously fired only
+    // ~4 times total because a momentum-breakout gate (close beyond the prior
+    // bar's extreme) was grafted onto a counter-trend fade; that gate was removed
+    // as structurally incompatible with a mean-reversion play.
+    //
     // Lower bound: the core regression — DEFAULT_FILTERS must never starve the
     // registry toward zero against the real history. 1000 is well below the
-    // observed ~4590 yet far above 0, so it flags a severe starvation without
+    // observed ~4680 yet far above 0, so it flags a severe starvation without
     // being flaky.
     expect(totalTrades).toBeGreaterThan(1000);
     // Upper bound: catch an over-loosening (e.g. a confirmation default flipped

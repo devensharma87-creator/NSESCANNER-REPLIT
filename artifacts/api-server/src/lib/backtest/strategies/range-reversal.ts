@@ -31,8 +31,6 @@ function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyE
   const h = ctx.highs[i]!;
   const l = ctx.lows[i]!;
   const c = ctx.closes[i]!;
-  const prevHi = ctx.highs[i - 1]!;
-  const prevLo = ctx.lows[i - 1]!;
   const tol = 0.25 * a;
 
   // Support / resistance zones from prior-day + CPR.
@@ -44,7 +42,15 @@ function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyE
     : ctx.prevDayHigh[i] ?? ctx.cprHigh[i];
 
   // ---- CE: oversold rejection at the lower edge of the range ---------------
-  if (support != null && l <= support + tol && rsiV <= rsiOversold && isBullRejection(o, h, l, c) && c > prevHi) {
+  // NOTE: this is a counter-trend FADE. The complete reversal signal is the
+  // combination of (low-ADX tape + a touch of the support zone + an RSI extreme
+  // + a bullish rejection candle that closes back up). We deliberately do NOT
+  // gate on a momentum breakout of the prior bar's high — that is a trend
+  // confirmation, structurally incompatible with a mean-reversion play, and
+  // against the real 2y 15-min index history it starved the strategy to ~4
+  // trades total (an oversold dip almost never closes above the pre-dip bar's
+  // high in the same candle). See registry.candle-regression.test.ts.
+  if (support != null && l <= support + tol && rsiV <= rsiOversold && isBullRejection(o, h, l, c)) {
     const stop = l - 0.1 * a;
     const risk = c - stop;
     if (risk <= 0) return null;
@@ -63,7 +69,6 @@ function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyE
         "Touched range support",
         "RSI oversold",
         "Bullish rejection candle",
-        "Broke the prior candle high",
       ],
       failedConditions: [],
       warnings: [OPTION_PREMIUM_NOTE],
@@ -71,7 +76,9 @@ function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyE
   }
 
   // ---- PE: overbought rejection at the upper edge of the range -------------
-  if (resistance != null && h >= resistance - tol && rsiV >= rsiOverbought && isBearRejection(o, h, l, c) && c < prevLo) {
+  // Symmetric to the CE leg: no momentum-breakout (c < prior bar low) gate on a
+  // counter-trend fade — see the CE note above.
+  if (resistance != null && h >= resistance - tol && rsiV >= rsiOverbought && isBearRejection(o, h, l, c)) {
     const stop = h + 0.1 * a;
     const risk = stop - c;
     if (risk <= 0) return null;
@@ -90,7 +97,6 @@ function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyE
         "Touched range resistance",
         "RSI overbought",
         "Bearish rejection candle",
-        "Broke the prior candle low",
       ],
       failedConditions: [],
       warnings: [OPTION_PREMIUM_NOTE],
