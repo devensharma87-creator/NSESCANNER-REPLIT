@@ -617,10 +617,10 @@ export default function ChartingPage() {
       </Card>
 
       {/* ── Header / badges ─────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2 px-1">
-        <h2 className="font-mono text-lg font-semibold tracking-tight">{selection.symbol}</h2>
-        <span className="text-sm text-muted-foreground truncate max-w-[260px]">{selection.name}</span>
-        <div className="ml-auto flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1">
+        <h2 className="font-mono text-lg font-semibold tracking-tight shrink-0">{selection.symbol}</h2>
+        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{selection.name}</span>
+        <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
           {source && (
             <Badge
               variant={source === "kite" ? "default" : source === "yahoo" ? "secondary" : "outline"}
@@ -655,12 +655,12 @@ export default function ChartingPage() {
           )}
           <button
             onClick={() => setIsFullscreen(v => !v)}
-            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-mono text-muted-foreground transition-colors hover:bg-muted/40"
+            className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-mono text-muted-foreground transition-colors hover:bg-muted/40"
             title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
             data-testid="toggle-fullscreen"
           >
             {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            {isFullscreen ? "Exit" : "Full screen"}
+            <span className="hidden sm:inline">{isFullscreen ? "Exit" : "Full screen"}</span>
           </button>
         </div>
       </div>
