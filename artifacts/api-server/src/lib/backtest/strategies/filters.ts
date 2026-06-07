@@ -11,6 +11,8 @@ import {
   CHOP_ADX_FLOOR,
   LAST_15_MIN,
   OPTION_DEPENDENT_FILTERS,
+  SCALE_OUT_T1_FRACTION,
+  SCALE_OUT_T2_FRACTION,
   type FilterConfig,
   type FilterKey,
   type StrategyContext,
@@ -162,18 +164,25 @@ export function applyFilters(
   }
 
   // Minimum risk:reward ----------------------------------------------------
+  // Measured against the trade's PLANNED BLENDED reward across the runner's
+  // 50/50 scale-out (half to Target-1, half to Target-2) — NOT Target-1 alone.
+  // Target-1 sits at exactly 1R for every strategy, so a Target-1-only ratio
+  // would block every default setup for any threshold above 1.0; the blended
+  // reward honestly reflects the position the runner actually manages.
   if (
     config.minimumRiskReward > 0 &&
     !ignoredSet.has("minimumRiskReward")
   ) {
     appliedFilters.push(`${LABEL.minimumRiskReward} ≥ ${config.minimumRiskReward}`);
     const riskDist = Math.abs(entry.entrySpot - entry.stop);
-    const rewardDist = Math.abs(entry.target1 - entry.entrySpot);
-    const rr = riskDist > 0 ? rewardDist / riskDist : 0;
+    const rewardToT1 = Math.abs(entry.target1 - entry.entrySpot);
+    const rewardToT2 = Math.abs(entry.target2 - entry.entrySpot);
+    const blendedReward = SCALE_OUT_T1_FRACTION * rewardToT1 + SCALE_OUT_T2_FRACTION * rewardToT2;
+    const rr = riskDist > 0 ? blendedReward / riskDist : 0;
     if (rr < config.minimumRiskReward) {
       rejections.push({
         key: "minimumRiskReward",
-        failedCondition: `Reward:risk ${rr.toFixed(2)} below minimum ${config.minimumRiskReward}`,
+        failedCondition: `Planned blended reward:risk ${rr.toFixed(2)} (50% to T1, 50% to T2) below minimum ${config.minimumRiskReward}`,
         blockedRule: "Minimum risk:reward filter",
         category: "FILTER",
       });

@@ -117,6 +117,15 @@ export const FORCE_EXIT_MIN = 15 * 60 + 20; // 15:20 IST hard intraday exit.
 export const LAST_15_MIN = 15 * 60 + 15; // 15:15 IST late-entry cutoff.
 export const MARKET_OPEN_MIN = 9 * 60 + 15; // 09:15 IST.
 export const MAX_LOTS = 50;
+/**
+ * Planned scale-out fractions used by the runner (half booked at Target-1, the
+ * remainder runs to Target-2 / trail). The minimum-risk:reward filter measures
+ * the trade's PLANNED BLENDED reward against these same fractions so a single
+ * threshold reflects the position the runner actually manages — not Target-1
+ * alone, which sits at 1R for every strategy.
+ */
+export const SCALE_OUT_T1_FRACTION = 0.5;
+export const SCALE_OUT_T2_FRACTION = 0.5;
 /** Opening range = first N session bars (15-min candle ⇒ first 15-min range). */
 export const OR_BARS = 1;
 /** ADX below this = a dead/choppy tape for breakout & trend strategies. */
