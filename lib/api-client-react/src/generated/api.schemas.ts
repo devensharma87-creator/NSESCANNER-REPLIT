@@ -4017,6 +4017,10 @@ export interface BacktestRun {
   /** Strategy entries-per-index-per-day cap the run was executed with (null for Official-engine runs). */
   maxTradesPerDay?: number | null;
   strategyComparison?: BacktestStrategyComparison | null;
+  /** Deterministic idempotency key (sha256 of canonical inputs incl. candle data-version). Null for REAL_REPLAY (live data, never deduped) and legacy rows. */
+  runKey?: string | null;
+  /** True when this run was reused from an identical earlier modeled run instead of being freshly computed. Absent/false on a fresh run. */
+  cached?: boolean;
   createdAt: string;
   completedAt?: string | null;
 }

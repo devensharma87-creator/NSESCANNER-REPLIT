@@ -7049,6 +7049,18 @@ export const GetBacktestRunResponse = zod.object({
       notes: zod.array(zod.string()),
     })
     .nullish(),
+  runKey: zod
+    .string()
+    .nullish()
+    .describe(
+      "Deterministic idempotency key (sha256 of canonical inputs incl. candle data-version). Null for REAL_REPLAY (live data, never deduped) and legacy rows.",
+    ),
+  cached: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when this run was reused from an identical earlier modeled run instead of being freshly computed. Absent\/false on a fresh run.",
+    ),
   createdAt: zod.coerce.date(),
   completedAt: zod.coerce.date().nullish(),
 });

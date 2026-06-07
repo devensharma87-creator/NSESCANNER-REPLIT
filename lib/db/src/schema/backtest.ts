@@ -33,6 +33,7 @@ import {
   timestamp,
   jsonb,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const BACKTEST_MODES = ["REAL_REPLAY", "DIRECTIONAL"] as const;
@@ -79,12 +80,22 @@ export const backtestRunsTable = pgTable(
     maxTradesPerDay: integer("max_trades_per_day"),
     /** Computed multi-factor comparison + ranking blob (research/compare modes). */
     strategyComparison: jsonb("strategy_comparison"),
+    /**
+     * Deterministic idempotency key (sha256 of canonical inputs incl. the candle
+     * data-version). Re-running identical modeled inputs reuses the matching row
+     * instead of inflating history. NULL for REAL_REPLAY (live, growing data —
+     * never deduped) and for legacy rows created before this column existed.
+     */
+    runKey: text("run_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
   (t) => ({
     byOwner: index("backtest_runs_owner_idx").on(t.ownerKey),
     byOwnerCreated: index("backtest_runs_owner_created_idx").on(t.ownerKey, t.createdAt),
+    // NULL run_key rows (REAL_REPLAY / legacy) never collide — Postgres treats
+    // NULLs as distinct — so this only enforces idempotency for modeled runs.
+    byOwnerRunKey: uniqueIndex("backtest_runs_owner_run_key_idx").on(t.ownerKey, t.runKey),
   }),
 );
 

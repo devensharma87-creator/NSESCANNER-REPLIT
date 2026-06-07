@@ -5001,6 +5001,8 @@ components:
         strategyComparison:
           allOf: [{ $ref: "#/components/schemas/BacktestStrategyComparison" }]
           nullable: true
+        runKey: { type: string, nullable: true, description: "Deterministic idempotency key (sha256 of canonical inputs incl. candle data-version). Null for REAL_REPLAY (live data, never deduped) and legacy rows." }
+        cached: { type: boolean, description: "True when this run was reused from an identical earlier modeled run instead of being freshly computed. Absent/false on a fresh run." }
         createdAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time, nullable: true }
 

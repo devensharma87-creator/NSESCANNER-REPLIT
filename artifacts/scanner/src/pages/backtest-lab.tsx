@@ -1253,6 +1253,8 @@ export default function BacktestLab() {
   const [includeCharges, setIncludeCharges] = useState(true);
   const [includeSlippage, setIncludeSlippage] = useState(true);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  // Honest "this run was reused, not freshly computed" notice (run idempotency).
+  const [cachedNotice, setCachedNotice] = useState(false);
 
   const isStrategyMode =
     backtestMode === "STRATEGY_RESEARCH" || backtestMode === "COMPARE_OFFICIAL_VS_STRATEGIES";
@@ -1370,6 +1372,7 @@ export default function BacktestLab() {
       {
         onSuccess: (r) => {
           setActiveRunId(r.id);
+          setCachedNotice(Boolean(r.cached));
           void runsQ.refetch();
         },
       },
@@ -1622,6 +1625,14 @@ export default function BacktestLab() {
           {createMut.isError && (
             <div className="rounded-md border border-rose-500/30 bg-rose-500/5 p-2 text-xs text-rose-300">
               Backtest failed: {(createMut.error as Error)?.message ?? "unknown error"}
+            </div>
+          )}
+
+          {cachedNotice && !createMut.isPending && (
+            <div className="rounded-md border border-sky-500/30 bg-sky-500/5 p-2 text-xs text-sky-300">
+              These inputs match an earlier run, so the existing result was reused (no
+              duplicate created). Change any input — or refresh the candle data — to force a
+              fresh run.
             </div>
           )}
         </CardContent>

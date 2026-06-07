@@ -9,7 +9,7 @@
  * data unavailable" rather than fabricating anything.
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import type { Candle } from "./directional";
@@ -87,4 +87,29 @@ export async function loadHistoricalCandles(
   }
   candles.sort((a, b) => a.t.getTime() - b.t.getTime());
   return { candles, available: true };
+}
+
+/**
+ * A cheap, stable fingerprint of the candle source actually backing a modeled
+ * backtest, used by the run-idempotency key. Built from each relevant CSV's
+ * size + mtime so a `fetch:index-candles` refresh changes the fingerprint and
+ * correctly invalidates the cached run (rather than serving a stale one).
+ * Never reads file contents. Missing files / dir are encoded honestly so a
+ * later appearance of the data still flips the fingerprint.
+ */
+export async function candleDataVersion(symbols: string[]): Promise<string> {
+  const dataDir = resolveDataDir();
+  if (!dataDir) return "no-data-dir";
+  const parts: string[] = [];
+  for (const sym of [...new Set(symbols)].sort()) {
+    if (!SUPPORTED.has(sym)) continue;
+    const file = join(dataDir, `${sym}.csv`);
+    try {
+      const st = await stat(file);
+      parts.push(`${sym}:${st.size}:${Math.floor(st.mtimeMs)}`);
+    } catch {
+      parts.push(`${sym}:missing`);
+    }
+  }
+  return parts.length > 0 ? parts.join("|") : "empty";
 }

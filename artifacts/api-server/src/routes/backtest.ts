@@ -37,7 +37,12 @@ import {
   runDirectional,
   buildDirectionalDataQuality,
 } from "../lib/backtest/directional";
-import { loadHistoricalCandles, isSupportedInstrument } from "../lib/backtest/candleSource";
+import {
+  loadHistoricalCandles,
+  isSupportedInstrument,
+  candleDataVersion,
+} from "../lib/backtest/candleSource";
+import { computeBacktestRunKey } from "../lib/backtest/runKey";
 import { computeSummary } from "../lib/backtest/summary";
 import type {
   BacktestTradeOut,
@@ -140,6 +145,7 @@ function runToDto(row: typeof backtestRunsTable.$inferSelect) {
     filters: (row.filters as unknown) ?? null,
     maxTradesPerDay: row.maxTradesPerDay ?? null,
     strategyComparison: (row.strategyComparison as unknown) ?? null,
+    runKey: row.runKey ?? null,
     createdAt:
       row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     completedAt:
@@ -515,13 +521,6 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
   }
   const body = parsed.data;
 
-  const countRes = await db.execute(sql`
-    SELECT COUNT(*)::int AS c FROM backtest_runs WHERE owner_key = ${ownerKey}
-  `);
-  if ((Number((countRes.rows?.[0] as { c: number } | undefined)?.c) || 0) >= MAX_RUNS_PER_OWNER) {
-    return res.status(409).json({ error: "too_many_runs", limit: MAX_RUNS_PER_OWNER });
-  }
-
   const timeframe = body.timeframe?.trim() || "15m";
   const startingCapital =
     typeof body.startingCapital === "number" && body.startingCapital > 0
@@ -551,6 +550,48 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
     strategyIds.length === 0
   ) {
     return res.status(400).json({ error: "no_strategies_selected" });
+  }
+
+  // ---- Run idempotency ------------------------------------------------------
+  // Re-running byte-identical MODELED inputs reuses the existing run instead of
+  // inflating history with a duplicate. The key folds a candle data-version, so
+  // a CSV refresh invalidates the cache. REAL_REPLAY → null key (live, growing
+  // data; never deduped — always fresh).
+  const dataVersion = await candleDataVersion(instruments);
+  const runKey = computeBacktestRunKey({
+    mode: body.mode,
+    backtestMode,
+    instrument: body.instrument,
+    timeframe,
+    fromDate: body.fromDate ?? null,
+    toDate: body.toDate ?? null,
+    startingCapital,
+    riskPerTradePct,
+    maxTradesPerDay,
+    includeCharges,
+    includeSlippage,
+    strategyIds,
+    filters: backtestMode === "OFFICIAL_ENGINE" ? null : filters,
+    strategyParams: body.strategyParams ?? null,
+    dataVersion,
+  });
+
+  if (runKey) {
+    const [existing] = await db
+      .select()
+      .from(backtestRunsTable)
+      .where(and(eq(backtestRunsTable.ownerKey, ownerKey), eq(backtestRunsTable.runKey, runKey)))
+      .limit(1);
+    if (existing) return res.status(200).json({ ...runToDto(existing), cached: true });
+  }
+
+  // Only count toward the per-owner cap when we're actually about to insert a
+  // NEW run — a cached hit must never 409.
+  const countRes = await db.execute(sql`
+    SELECT COUNT(*)::int AS c FROM backtest_runs WHERE owner_key = ${ownerKey}
+  `);
+  if ((Number((countRes.rows?.[0] as { c: number } | undefined)?.c) || 0) >= MAX_RUNS_PER_OWNER) {
+    return res.status(409).json({ error: "too_many_runs", limit: MAX_RUNS_PER_OWNER });
   }
 
   try {
@@ -677,37 +718,69 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
 
     const summary = computeSummary(trades, startingCapital);
 
-    const [run] = await db
-      .insert(backtestRunsTable)
-      .values({
-        ownerKey,
-        mode: body.mode,
-        instrument: body.instrument,
-        timeframe,
-        fromDate: from,
-        toDate: to,
-        startingCapital,
-        riskPerTradePct,
-        status: "COMPLETE",
-        params: { ...body, resolvedLots: lots },
-        summary,
-        dataQuality,
-        backtestMode,
-        selectedStrategies: strategyIds.length > 0 ? strategyIds : null,
-        filters:
-          backtestMode === "OFFICIAL_ENGINE" ? null : (filters as unknown as Record<string, unknown>),
-        maxTradesPerDay: backtestMode === "OFFICIAL_ENGINE" ? null : maxTradesPerDay,
-        strategyComparison: comparison as unknown as Record<string, unknown> | null,
-        completedAt: new Date(),
-      })
-      .returning();
+    // The run row and its child trade/blocked rows are written in ONE
+    // transaction so a run is never observable half-written. On the
+    // idempotency conflict path, the loser's insert blocks on the unique
+    // (owner_key, run_key) index until the winner commits — at which point the
+    // winner (with all its children) is fully visible, so the cached return is
+    // always complete.
+    type RunResult =
+      | { kind: "fresh"; run: typeof backtestRunsTable.$inferSelect }
+      | { kind: "cached"; run: typeof backtestRunsTable.$inferSelect }
+      | { kind: "failed" };
 
-    if (!run) return res.status(500).json({ error: "insert_failed" });
+    const result: RunResult = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(backtestRunsTable)
+        .values({
+          ownerKey,
+          mode: body.mode,
+          instrument: body.instrument,
+          timeframe,
+          fromDate: from,
+          toDate: to,
+          startingCapital,
+          riskPerTradePct,
+          status: "COMPLETE",
+          params: { ...body, resolvedLots: lots },
+          summary,
+          dataQuality,
+          backtestMode,
+          selectedStrategies: strategyIds.length > 0 ? strategyIds : null,
+          filters:
+            backtestMode === "OFFICIAL_ENGINE"
+              ? null
+              : (filters as unknown as Record<string, unknown>),
+          maxTradesPerDay: backtestMode === "OFFICIAL_ENGINE" ? null : maxTradesPerDay,
+          strategyComparison: comparison as unknown as Record<string, unknown> | null,
+          runKey,
+          completedAt: new Date(),
+        })
+        .onConflictDoNothing({
+          target: [backtestRunsTable.ownerKey, backtestRunsTable.runKey],
+        })
+        .returning();
 
-    if (trades.length > 0) {
-      await db.insert(backtestTradesTable).values(
-        trades.map((t, i) => ({
-          runId: run.id,
+      const run = inserted[0];
+      if (!run) {
+        // Lost a race to an identical concurrent request — return the winner.
+        if (runKey) {
+          const [winner] = await tx
+            .select()
+            .from(backtestRunsTable)
+            .where(
+              and(eq(backtestRunsTable.ownerKey, ownerKey), eq(backtestRunsTable.runKey, runKey)),
+            )
+            .limit(1);
+          if (winner) return { kind: "cached", run: winner };
+        }
+        return { kind: "failed" };
+      }
+
+      if (trades.length > 0) {
+        await tx.insert(backtestTradesTable).values(
+          trades.map((t, i) => ({
+            runId: run.id,
           indexSymbol: t.indexSymbol,
           setupKey: t.setupKey,
           setupName: t.setupName,
@@ -750,31 +823,40 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
       );
     }
 
-    if (blocked.length > 0) {
-      await db.insert(backtestBlockedSetupsTable).values(
-        blocked.map((b) => ({
-          runId: run.id,
-          indexSymbol: b.indexSymbol,
-          setupKey: b.setupKey,
-          direction: b.direction,
-          decision: b.decision,
-          reasonCode: b.reasonCode,
-          confidence: b.confidence,
-          confluenceScore: b.confluenceScore,
-          regime: b.regime,
-          count: b.count,
-          note: b.note,
-          strategyId: b.strategyId ?? null,
-          strategyName: b.strategyName ?? null,
-          signalSource: b.signalSource ?? null,
-          failedCondition: b.failedCondition ?? null,
-          blockedRule: b.blockedRule ?? null,
-          category: b.category ?? null,
-        })),
-      );
-    }
+      if (blocked.length > 0) {
+        await tx.insert(backtestBlockedSetupsTable).values(
+          blocked.map((b) => ({
+            runId: run.id,
+            indexSymbol: b.indexSymbol,
+            setupKey: b.setupKey,
+            direction: b.direction,
+            decision: b.decision,
+            reasonCode: b.reasonCode,
+            confidence: b.confidence,
+            confluenceScore: b.confluenceScore,
+            regime: b.regime,
+            count: b.count,
+            note: b.note,
+            strategyId: b.strategyId ?? null,
+            strategyName: b.strategyName ?? null,
+            signalSource: b.signalSource ?? null,
+            failedCondition: b.failedCondition ?? null,
+            blockedRule: b.blockedRule ?? null,
+            category: b.category ?? null,
+          })),
+        );
+      }
 
-    return res.status(201).json(runToDto(run));
+      return { kind: "fresh", run };
+    });
+
+    if (result.kind === "failed") {
+      return res.status(500).json({ error: "insert_failed" });
+    }
+    if (result.kind === "cached") {
+      return res.status(200).json({ ...runToDto(result.run), cached: true });
+    }
+    return res.status(201).json({ ...runToDto(result.run), cached: false });
   } catch (err) {
     req.log?.error({ err: (err as Error).message }, "backtest run failed");
     return res.status(500).json({ error: "backtest_failed", message: (err as Error).message });
