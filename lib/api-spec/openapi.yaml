@@ -5019,6 +5019,11 @@ components:
         status: { type: string }
         totalPnl: { type: number, nullable: true }
         totalTrades: { type: integer, nullable: true }
+        filters:
+          allOf: [{ $ref: "#/components/schemas/BacktestFilterConfig" }]
+          nullable: true
+          description: "Confirmation-filter config the run was executed with (null for Official-engine runs). Lets the runs list show how each run was configured at a glance."
+        maxTradesPerDay: { type: integer, nullable: true, description: "Strategy entries-per-index-per-day cap the run was executed with (null for Official-engine runs)." }
         createdAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time, nullable: true }
 

@@ -246,6 +246,47 @@ const DEFAULT_FILTERS: Required<BacktestFilterConfig> = {
 
 const OFFICIAL_STRATEGY_ID = "OFFICIAL_ENGINE";
 
+// Compact abbreviations for the user-configurable confirmation toggles, used in the
+// runs-list per-row filter summary (auto-disabled option/spread/volume filters are
+// excluded — they never apply in a backtest).
+const FILTER_ABBR: Partial<Record<keyof BacktestFilterConfig, string>> = {
+  vwapFilter: "VWAP",
+  emaTrendFilter: "EMA",
+  avoidChopZone: "Chop",
+  avoidLast15Minutes: "Last15",
+};
+
+// Build a compact, honest summary of how a saved run was configured. Official-engine
+// runs persist null filters (engine replay) and are labelled as such rather than
+// fabricating defaults.
+function summarizeRunFilters(
+  filters: BacktestFilterConfig | null | undefined,
+  maxTradesPerDay: number | null | undefined,
+): { short: string; full: string } {
+  if (!filters) {
+    return {
+      short: "engine replay",
+      full: "Engine replay — this run used the official engine, not custom confirmation filters.",
+    };
+  }
+  const merged: Required<BacktestFilterConfig> = { ...DEFAULT_FILTERS, ...filters };
+  const abbrKeys = Object.keys(FILTER_ABBR) as (keyof BacktestFilterConfig)[];
+  const on = abbrKeys.filter((k) => Boolean(merged[k]));
+  const parts: string[] = [];
+  parts.push(on.length > 0 ? on.map((k) => FILTER_ABBR[k]).join("·") : "no filters");
+  parts.push(`R:R ${num(merged.minimumRiskReward)}`);
+  if (typeof maxTradesPerDay === "number") parts.push(`≤${maxTradesPerDay}/day`);
+  const short = parts.join(" · ");
+
+  const fullLines = abbrKeys.map((k) => `${FILTER_LABELS[k]}: ${merged[k] ? "on" : "off"}`);
+  fullLines.push(`${FILTER_LABELS.minimumRiskReward}: ${num(merged.minimumRiskReward)}`);
+  if (typeof maxTradesPerDay === "number") fullLines.push(`Max trades/day: ${maxTradesPerDay}`);
+  fullLines.push(
+    `Auto-disabled (no historical data): ${AUTO_DISABLED_FILTERS.map((k) => FILTER_LABELS[k]).join(", ")}`,
+  );
+  return { short, full: fullLines.join("\n") };
+}
+
 // ───────────── small presentational helpers ─────────────
 
 function Stat({
@@ -1714,37 +1755,48 @@ export default function BacktestLab() {
       {/* recent runs */}
       {runs.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {runs.slice(0, 12).map((r) => (
-            <button
-              key={r.id}
-              onClick={() => setActiveRunId(r.id)}
-              className={`group flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] ${
-                activeRunId === r.id ? "border-sky-400 bg-sky-500/10" : "border-border hover:border-sky-400/40"
-              }`}
-            >
-              <span className="font-medium">{r.mode === "REAL_REPLAY" ? "Real" : "Dir"}</span>
-              <span>{r.instrument}</span>
-              <span className={toneFor(r.totalPnl) === "pos" ? "text-emerald-400" : toneFor(r.totalPnl) === "neg" ? "text-rose-400" : "text-muted-foreground"}>
-                {money(r.totalPnl)}
-              </span>
-              <span className="text-muted-foreground">{shortDate(r.createdAt)}</span>
-              <Trash2
-                className="h-3 w-3 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-rose-400"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteMut.mutate(
-                    { id: r.id },
-                    {
-                      onSuccess: () => {
-                        if (activeRunId === r.id) setActiveRunId(null);
-                        void runsQ.refetch();
-                      },
-                    },
-                  );
-                }}
-              />
-            </button>
-          ))}
+          {runs.slice(0, 12).map((r) => {
+            const summary = summarizeRunFilters(r.filters, r.maxTradesPerDay);
+            return (
+              <button
+                key={r.id}
+                onClick={() => setActiveRunId(r.id)}
+                className={`group flex flex-col items-start gap-0.5 rounded-2xl border px-3 py-1.5 text-[11px] ${
+                  activeRunId === r.id ? "border-sky-400 bg-sky-500/10" : "border-border hover:border-sky-400/40"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="font-medium">{r.mode === "REAL_REPLAY" ? "Real" : "Dir"}</span>
+                  <span>{r.instrument}</span>
+                  <span className={toneFor(r.totalPnl) === "pos" ? "text-emerald-400" : toneFor(r.totalPnl) === "neg" ? "text-rose-400" : "text-muted-foreground"}>
+                    {money(r.totalPnl)}
+                  </span>
+                  <span className="text-muted-foreground">{shortDate(r.createdAt)}</span>
+                  <Trash2
+                    className="h-3 w-3 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-rose-400"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteMut.mutate(
+                        { id: r.id },
+                        {
+                          onSuccess: () => {
+                            if (activeRunId === r.id) setActiveRunId(null);
+                            void runsQ.refetch();
+                          },
+                        },
+                      );
+                    }}
+                  />
+                </span>
+                <span
+                  className="max-w-[16rem] truncate text-[10px] text-muted-foreground"
+                  title={summary.full}
+                >
+                  {summary.short}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 

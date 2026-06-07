@@ -885,6 +885,8 @@ router.get("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), async
       status: r.status,
       totalPnl: s && typeof s.totalPnl === "number" ? s.totalPnl : null,
       totalTrades: s && typeof s.totalTrades === "number" ? s.totalTrades : null,
+      filters: (r.filters as Record<string, unknown> | null) ?? null,
+      maxTradesPerDay: typeof r.maxTradesPerDay === "number" ? r.maxTradesPerDay : null,
       createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
       completedAt:
         r.completedAt == null

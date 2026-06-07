@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { BacktestFilterConfig } from "./backtestFilterConfig";
 
 export interface BacktestRunListItem {
   id: string;
@@ -16,6 +17,10 @@ export interface BacktestRunListItem {
   status: string;
   totalPnl?: number | null;
   totalTrades?: number | null;
+  /** Confirmation-filter config the run was executed with (null for Official-engine runs). Lets the runs list show how each run was configured at a glance. */
+  filters?: BacktestFilterConfig | null;
+  /** Strategy entries-per-index-per-day cap the run was executed with (null for Official-engine runs). */
+  maxTradesPerDay?: number | null;
   createdAt: Date;
   completedAt?: Date | null;
 }

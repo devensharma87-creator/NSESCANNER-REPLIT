@@ -6715,6 +6715,44 @@ export const ListBacktestRunsResponse = zod.object({
       status: zod.string(),
       totalPnl: zod.number().nullish(),
       totalTrades: zod.number().nullish(),
+      filters: zod
+        .object({
+          vwapFilter: zod.boolean().optional(),
+          emaTrendFilter: zod.boolean().optional(),
+          optionChainConfirmation: zod
+            .boolean()
+            .optional()
+            .describe("Auto-disabled — no historical option-chain data."),
+          avoidChopZone: zod.boolean().optional(),
+          avoidLast15Minutes: zod.boolean().optional(),
+          avoidWideSpread: zod
+            .boolean()
+            .optional()
+            .describe("Auto-disabled — no historical option spread data."),
+          avoidLowVolume: zod
+            .boolean()
+            .optional()
+            .describe("Auto-disabled — no historical option volume data."),
+          minimumRiskReward: zod
+            .number()
+            .optional()
+            .describe(
+              "Minimum reward:risk multiple; <= 0 disables the filter.",
+            ),
+        })
+        .describe(
+          "Confirmation-filter toggles. Option\/spread\/volume filters are auto-disabled in the backtest (no historical option data) and reported as such — never silently applied.",
+        )
+        .nullish()
+        .describe(
+          "Confirmation-filter config the run was executed with (null for Official-engine runs). Lets the runs list show how each run was configured at a glance.",
+        ),
+      maxTradesPerDay: zod
+        .number()
+        .nullish()
+        .describe(
+          "Strategy entries-per-index-per-day cap the run was executed with (null for Official-engine runs).",
+        ),
       createdAt: zod.coerce.date(),
       completedAt: zod.coerce.date().nullish(),
     }),
