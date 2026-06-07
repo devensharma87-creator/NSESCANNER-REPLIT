@@ -297,18 +297,21 @@ export default function ChartingPage() {
 
   // Responsive, viewport-driven chart height (~70vh, clamped) so the chart
   // breathes on large screens but stays usable on laptops.
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
   const chartCardRef = useRef<HTMLDivElement | null>(null);
   const [fitHeight, setFitHeight] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Fit-to-screen: measure the chart card's top edge and fill the viewport down
   // to a small bottom gap, so the entire chart + time axis is visible without
-  // scrolling (Kite-style). The toolbar/header heights are absorbed
-  // automatically because we measure the live top offset. A ResizeObserver on
-  // the page root catches layout shifts that a window "resize" misses — header
-  // name truncation, badge-row wrapping, and async data-state changes (Kite /
-  // Stale / Vol·FUT badges) that move the card's top after load.
+  // scrolling (Kite-style), in BOTH normal and full-screen modes. The
+  // toolbar/header heights are absorbed automatically because we measure the
+  // live top offset. We observe the toolbar + header (the chrome ABOVE the
+  // chart) — NOT the page root — so layout shifts that a window "resize" misses
+  // (header name truncation, badge-row wrapping, async Kite/Stale/Vol·FUT
+  // badges) still trigger a remeasure, WITHOUT the chart's own height change
+  // feeding back into the observer (which caused a ResizeObserver loop crash).
   useLayoutEffect(() => {
     let raf = 0;
     function measure() {
@@ -317,8 +320,6 @@ export default function ChartingPage() {
       const top = el.getBoundingClientRect().top;
       const avail = window.innerHeight - top - BOTTOM_GAP_PX;
       const next = Math.max(MIN_CHART_PX, Math.round(avail));
-      // Bail on sub-pixel noise so the ResizeObserver can't feed back on the
-      // height we just set.
       setFitHeight((prev) => (prev != null && Math.abs(prev - next) <= 1 ? prev : next));
     }
     function schedule() {
@@ -328,7 +329,8 @@ export default function ChartingPage() {
     measure();
     window.addEventListener("resize", schedule);
     const ro = new ResizeObserver(schedule);
-    if (rootRef.current) ro.observe(rootRef.current);
+    if (toolbarRef.current) ro.observe(toolbarRef.current);
+    if (headerRef.current) ro.observe(headerRef.current);
     // Re-measure shortly after paint so toolbar wrapping/fonts settle first.
     const t = window.setTimeout(measure, 120);
     return () => {
@@ -366,9 +368,9 @@ export default function ChartingPage() {
   const hasData = !isLoading && !isError && candles.length > 0;
 
   return (
-    <div ref={rootRef} className={isFullscreen ? "fixed inset-0 z-50 overflow-auto bg-background p-3 space-y-3" : "space-y-3"}>
+    <div className={isFullscreen ? "fixed inset-0 z-50 overflow-auto bg-background p-3 space-y-3" : "space-y-3"}>
       {/* ── Toolbar ─────────────────────────────────────────────── */}
-      <Card className="p-3 space-y-3">
+      <Card ref={toolbarRef} className="p-3 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           {/* Segment selector */}
           <div className="flex rounded-md border border-border overflow-hidden">
@@ -649,7 +651,7 @@ export default function ChartingPage() {
       </Card>
 
       {/* ── Header / badges ─────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1">
+      <div ref={headerRef} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1">
         <h2 className="font-mono text-lg font-semibold tracking-tight shrink-0">{selection.symbol}</h2>
         <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{selection.name}</span>
         <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
