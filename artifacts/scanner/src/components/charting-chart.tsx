@@ -12,6 +12,7 @@
 import { useEffect, useRef } from "react";
 import {
   createChart,
+  createSeriesMarkers,
   CandlestickSeries,
   LineSeries,
   HistogramSeries,
@@ -20,9 +21,11 @@ import {
   TickMarkType,
   type IChartApi,
   type ISeriesApi,
+  type SeriesMarker,
+  type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import type { EmaPeriod } from "@/lib/charting/indicators";
+import type { EmaPeriod, FvgZone, SweepMarker } from "@/lib/charting/indicators";
 
 // All candle timestamps are epoch-UTC seconds. The instruments are Indian /
 // global exchange data, so axis + crosshair labels are rendered in IST
@@ -68,11 +71,25 @@ interface Props {
   emaSeries: Partial<Record<EmaPeriod, (number | null)[]>>;
   vwapSeries?: (number | null)[] | null;
   rsiSeries?: (number | null)[] | null;
+  /** Cumulative Volume Delta (candle-direction proxy); rendered in its own sub-pane. */
+  cvdSeries?: (number | null)[] | null;
+  /** Point-of-Control price level, drawn as a horizontal line. null → not drawn. */
+  pocPrice?: number | null;
+  /** Recent Fair-Value-Gap zones, drawn as top/bottom price lines. */
+  fvgZones?: FvgZone[];
+  /** Liquidity-sweep events, drawn as arrows on the main series. */
+  sweepMarkers?: SweepMarker[];
   showVolume: boolean;
   showRsi: boolean;
+  showCvd: boolean;
   showTime: boolean;
   height?: number;
 }
+
+const POC_COLOR = "#FFB347";
+const FVG_BULLISH = "rgba(38, 166, 154, 0.9)";
+const FVG_BEARISH = "rgba(239, 83, 80, 0.9)";
+const CVD_COLOR = "#6C9EBF";
 
 function toTime(tSec: number): UTCTimestamp {
   return Math.floor(tSec) as UTCTimestamp;
@@ -99,8 +116,13 @@ export function ChartingChart({
   emaSeries,
   vwapSeries,
   rsiSeries,
+  cvdSeries,
+  pocPrice,
+  fvgZones,
+  sweepMarkers,
   showVolume,
   showRsi,
+  showCvd,
   showTime,
   height = 480,
 }: Props) {
@@ -169,6 +191,7 @@ export function ChartingChart({
     chartRef.current = chart;
 
     // ── Main series (candles or line) ──────────────────────────────
+    let mainSeries: ISeriesApi<"Candlestick"> | ISeriesApi<"Line">;
     if (chartType === "candles") {
       const s = chart.addSeries(CandlestickSeries, {
         upColor: "#00A25B",
@@ -182,6 +205,7 @@ export function ChartingChart({
       s.setData(
         candles.map(c => ({ time: toTime(c.t), open: c.o, high: c.h, low: c.l, close: c.c })),
       );
+      mainSeries = s;
     } else {
       const s = chart.addSeries(LineSeries, {
         color: "#4FC3F7",
@@ -189,6 +213,7 @@ export function ChartingChart({
         priceLineVisible: false,
       });
       s.setData(candles.map(c => ({ time: toTime(c.t), value: c.c })));
+      mainSeries = s;
     }
 
     // ── Volume ─────────────────────────────────────────────────────
@@ -238,8 +263,57 @@ export function ChartingChart({
       line.setData(alignedLine(candles, vwapSeries));
     }
 
-    // ── RSI sub-pane (paneIndex 1) ─────────────────────────────────
+    // ── POC line (volume-profile point of control) ─────────────────
+    if (pocPrice != null && Number.isFinite(pocPrice)) {
+      mainSeries.createPriceLine({
+        price: pocPrice,
+        color: POC_COLOR,
+        lineWidth: 2,
+        lineStyle: LineStyle.Solid,
+        axisLabelVisible: true,
+        title: "POC",
+      });
+    }
+
+    // ── FVG zones (top/bottom boundary price lines) ────────────────
+    if (fvgZones && fvgZones.length > 0) {
+      for (const z of fvgZones) {
+        const color = z.type === "bullish" ? FVG_BULLISH : FVG_BEARISH;
+        mainSeries.createPriceLine({
+          price: z.top,
+          color,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: `FVG ${z.type === "bullish" ? "▲" : "▼"}`,
+        });
+        mainSeries.createPriceLine({
+          price: z.bottom,
+          color,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: false,
+        });
+      }
+    }
+
+    // ── Liquidity-sweep markers ────────────────────────────────────
+    if (sweepMarkers && sweepMarkers.length > 0) {
+      const markers: SeriesMarker<Time>[] = sweepMarkers.map(s => ({
+        time: toTime(s.time),
+        position: s.type === "HIGH_SWEEP" ? "aboveBar" : "belowBar",
+        shape: s.type === "HIGH_SWEEP" ? "arrowDown" : "arrowUp",
+        color: s.type === "HIGH_SWEEP" ? "#FF8A65" : "#81C784",
+        text: s.type === "HIGH_SWEEP" ? "Sweep H" : "Sweep L",
+      }));
+      createSeriesMarkers(mainSeries, markers);
+    }
+
+    // ── Sub-panes (RSI, then CVD), assigned indices in order ───────
+    let nextPane = 1;
+
     if (showRsi && rsiSeries) {
+      const paneIndex = nextPane++;
       const rsi: ISeriesApi<"Line"> = chart.addSeries(
         LineSeries,
         {
@@ -248,13 +322,32 @@ export function ChartingChart({
           priceLineVisible: false,
           lastValueVisible: true,
         },
-        1,
+        paneIndex,
       );
       rsi.setData(alignedLine(candles, rsiSeries));
       rsi.createPriceLine({ price: 70, color: "rgba(235,87,87,0.5)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "70" });
       rsi.createPriceLine({ price: 30, color: "rgba(0,162,91,0.5)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "30" });
       const panes = chart.panes();
-      if (panes.length > 1) panes[1]!.setHeight(Math.round(height * 0.28));
+      if (panes.length > paneIndex) panes[paneIndex]!.setHeight(Math.round(height * 0.28));
+    }
+
+    // ── CVD sub-pane (candle-direction proxy) ──────────────────────
+    if (showCvd && cvdSeries && cvdSeries.some(v => v != null)) {
+      const paneIndex = nextPane++;
+      const cvd: ISeriesApi<"Line"> = chart.addSeries(
+        LineSeries,
+        {
+          color: CVD_COLOR,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+        },
+        paneIndex,
+      );
+      cvd.setData(alignedLine(candles, cvdSeries));
+      cvd.createPriceLine({ price: 0, color: "rgba(120,120,140,0.5)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
+      const panes = chart.panes();
+      if (panes.length > paneIndex) panes[paneIndex]!.setHeight(Math.round(height * 0.26));
     }
 
     chart.timeScale().fitContent();
@@ -271,7 +364,7 @@ export function ChartingChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, chartType, emaKey, hasVwap, showVolume, showRsi, showTime, height, emaSeries, vwapSeries, rsiSeries]);
+  }, [candles, chartType, emaKey, hasVwap, showVolume, showRsi, showCvd, showTime, height, emaSeries, vwapSeries, rsiSeries, cvdSeries, pocPrice, fvgZones, sweepMarkers]);
 
   return <div ref={containerRef} style={{ width: "100%", height }} />;
 }

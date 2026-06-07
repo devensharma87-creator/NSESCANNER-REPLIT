@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hrishi Associates - Advanced Charting</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        /* Base Styling matching Hrishi Associates Theme */
+        body { margin: 0; padding: 0; background-color: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        
+        .top-nav {
+            padding: 10px 20px;
+            background-color: #161b22;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+        }
+
+        .brand { color: #ff7b00; font-weight: 800; font-size: 20px; font-style: italic; }
+        .symbol-title { font-weight: 600; font-size: 14px; color: #ffffff; display: flex; align-items: center; gap: 8px;}
+        .live-badge { background-color: #238636; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;}
+
+        .toolbar { padding: 8px 20px; background-color: #0d1117; display: flex; gap: 10px; border-bottom: 1px solid #30363d; }
+        
+        .btn { 
+            background: #21262d; border: 1px solid #30363d; color: #c9d1d9; 
+            padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+            transition: all 0.2s ease;
+        }
+        .btn:hover { background: #30363d; border-color: #8b949e; }
+        .btn.active { border-color: #58a6ff; color: #58a6ff; }
+
+        /* Chart Container */
+        #tvchart { width: 100vw; height: calc(100vh - 100px); position: relative; }
+        
+        /* Floating OHLC Legend */
+        #legend { position: absolute; top: 15px; left: 20px; z-index: 2; font-family: monospace; font-size: 13px; color: #d1d4dc; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div class="top-nav">
+        <div class="brand">Hrishi Associates</div>
+        <div class="symbol-title">NIFTY 50 <span class="live-badge">LIVE</span></div>
+    </div>
+
+    <div class="toolbar">
+        <button class="btn">1m</button>
+        <button class="btn">5m</button>
+        <button class="btn active">15m</button>
+        <button class="btn">1H</button>
+        <div style="width: 1px; background: #30363d; margin: 0 10px;"></div>
+        <button class="btn">EMA 20</button>
+        <button class="btn">Show FVG</button>
+        <button class="btn">Vol Delta</button>
+    </div>
+
+    <div id="tvchart">
+        <div id="legend">Hover over chart for data</div>
+    </div>
+
+    <script>
+        // 1. Initialize Chart Properties
+        const chartOptions = {
+            layout: { 
+                textColor: '#d1d4dc', 
+                background: { type: 'solid', color: '#0d1117' } 
+            },
+            grid: {
+                vertLines: { color: 'rgba(42, 46, 57, 0.4)' },
+                horzLines: { color: 'rgba(42, 46, 57, 0.4)' },
+            },
+            crosshair: { 
+                mode: LightweightCharts.CrosshairMode.Normal,
+                vertLine: { color: '#758696', width: 1, style: 1, labelBackgroundColor: '#161b22' },
+                horzLine: { color: '#758696', width: 1, style: 1, labelBackgroundColor: '#161b22' }
+            },
+            rightPriceScale: { borderColor: 'rgba(197, 203, 206, 0.4)' },
+            timeScale: { borderColor: 'rgba(197, 203, 206, 0.4)', timeVisible: true },
+        };
+
+        const chartElement = document.getElementById('tvchart');
+        const chart = LightweightCharts.createChart(chartElement, chartOptions);
+
+        // 2. Add Candlestick Series
+        const candleSeries = chart.addCandlestickSeries({
+            upColor: '#238636', downColor: '#da3633', 
+            borderVisible: false,
+            wickUpColor: '#238636', wickDownColor: '#da3633',
+        });
+
+        // Mock Kite API Data Pipeline
+        const candleData = [
+            { time: 1717560000, open: 23300.50, high: 23350.00, low: 23280.00, close: 23340.20 },
+            { time: 1717560900, open: 23340.20, high: 23410.00, low: 23320.00, close: 23380.50 },
+            { time: 1717561800, open: 23380.50, high: 23450.00, low: 23370.00, close: 23437.95 },
+            { time: 1717562700, open: 23437.95, high: 23460.00, low: 23390.00, close: 23410.00 },
+        ];
+        candleSeries.setData(candleData);
+
+        // 3. Add Volume Series (Histogram at bottom)
+        const volumeSeries = chart.addHistogramSeries({
+            color: '#26a69a',
+            priceFormat: { type: 'volume' },
+            priceScaleId: '', // Set as an overlay
+            scaleMargins: { top: 0.8, bottom: 0 }, // Pushes volume to bottom 20%
+        });
+
+        const volumeData = [
+            { time: 1717560000, value: 4500000, color: 'rgba(35, 134, 54, 0.4)' },
+            { time: 1717560900, value: 6200000, color: 'rgba(35, 134, 54, 0.4)' },
+            { time: 1717561800, value: 5100000, color: 'rgba(35, 134, 54, 0.4)' },
+            { time: 1717562700, value: 7200000, color: 'rgba(218, 54, 51, 0.4)' }, // Red for down candle
+        ];
+        volumeSeries.setData(volumeData);
+
+        // 4. Add an EMA Overlay Example
+        const emaSeries = chart.addLineSeries({
+            color: '#58a6ff', lineWidth: 2, crosshairMarkerVisible: false,
+        });
+        emaSeries.setData([
+            { time: 1717560000, value: 23310 }, { time: 1717560900, value: 23335 },
+            { time: 1717561800, value: 23370 }, { time: 1717562700, value: 23395 },
+        ]);
+
+        // 5. Dynamic OHLC Legend Logic
+        const legend = document.getElementById('legend');
+        chart.subscribeCrosshairMove((param) => {
+            if (param.point === undefined || !param.time || param.point.x < 0 || param.point.x > chartElement.clientWidth || param.point.y < 0 || param.point.y > chartElement.clientHeight) {
+                legend.innerHTML = 'Hover over chart for data';
+            } else {
+                const data = param.seriesData.get(candleSeries);
+                if (data) {
+                    legend.innerHTML = `O <span style="color:#fff">${data.open}</span>  H <span style="color:#fff">${data.high}</span>  L <span style="color:#fff">${data.low}</span>  C <span style="color:#fff">${data.close}</span>`;
+                }
+            }
+        });
+
+        // Responsive resizing
+        window.addEventListener('resize', () => {
+            chart.resize(window.innerWidth, window.innerHeight - 100);
+        });
+    </script>
+</body>
+</html>

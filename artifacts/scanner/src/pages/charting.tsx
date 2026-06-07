@@ -39,6 +39,10 @@ import {
   emaRibbon,
   rsiClose,
   vwap,
+  cvdProxy,
+  volumeProfilePoc,
+  detectFvgs,
+  detectSweeps,
   EMA_PERIODS,
   type EmaPeriod,
   type IndicatorCandle,
@@ -88,6 +92,11 @@ export default function ChartingPage() {
   const [showVwap, setShowVwap] = useState(true);
   const [showVolume, setShowVolume] = useState(true);
   const [showRsi, setShowRsi] = useState(true);
+  // Institutional / SMC indicators (off by default to keep the default view clean).
+  const [showFvg, setShowFvg] = useState(false);
+  const [showCvd, setShowCvd] = useState(false);
+  const [showPoc, setShowPoc] = useState(false);
+  const [showSweeps, setShowSweeps] = useState(false);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -164,6 +173,29 @@ export default function ChartingPage() {
   const rsiSeries = useMemo(
     () => (showRsi ? rsiClose(indicatorCandles, 14) : null),
     [showRsi, indicatorCandles],
+  );
+
+  // CVD and POC are volume-derived; on null-volume sources (e.g. delayed Yahoo /
+  // global symbols) they are honestly unavailable, so the toggles are disabled.
+  const hasVolume = useMemo(
+    () => candles.some(c => c.v != null && Number.isFinite(c.v) && c.v > 0),
+    [candles],
+  );
+  const cvdSeries = useMemo(
+    () => (showCvd && hasVolume ? cvdProxy(indicatorCandles) : null),
+    [showCvd, hasVolume, indicatorCandles],
+  );
+  const pocPrice = useMemo(
+    () => (showPoc && hasVolume ? volumeProfilePoc(indicatorCandles) : null),
+    [showPoc, hasVolume, indicatorCandles],
+  );
+  const fvgZones = useMemo(
+    () => (showFvg ? detectFvgs(indicatorCandles, 6) : []),
+    [showFvg, indicatorCandles],
+  );
+  const sweepMarkers = useMemo(
+    () => (showSweeps ? detectSweeps(indicatorCandles, 5) : []),
+    [showSweeps, indicatorCandles],
   );
 
   function pick(inst: ChartInstrument) {
@@ -345,6 +377,59 @@ export default function ChartingPage() {
             >
               RSI
             </button>
+
+            <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+
+            <button
+              onClick={() => setShowFvg(v => !v)}
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-mono transition-colors ${
+                showFvg ? "border-border bg-muted/40" : "border-transparent text-muted-foreground/60"
+              }`}
+              title="Fair Value Gaps — 3-candle price imbalances"
+              data-testid="toggle-fvg"
+            >
+              FVG
+            </button>
+            <button
+              onClick={() => setShowCvd(v => !v)}
+              disabled={!hasVolume}
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-mono transition-colors disabled:opacity-40 ${
+                showCvd && hasVolume ? "border-border bg-muted/40" : "border-transparent text-muted-foreground/60"
+              }`}
+              title={
+                hasVolume
+                  ? "Cumulative Volume Delta — candle-direction proxy (not true order-flow)"
+                  : "CVD needs volume — unavailable on this source"
+              }
+              data-testid="toggle-cvd"
+            >
+              CVD*
+            </button>
+            <button
+              onClick={() => setShowPoc(v => !v)}
+              disabled={!hasVolume}
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-mono transition-colors disabled:opacity-40 ${
+                showPoc && hasVolume ? "border-border bg-muted/40" : "border-transparent text-muted-foreground/60"
+              }`}
+              title={
+                hasVolume
+                  ? "Point of Control — volume-profile approximation"
+                  : "POC needs volume — unavailable on this source"
+              }
+              data-testid="toggle-poc"
+            >
+              POC
+            </button>
+            <button
+              onClick={() => setShowSweeps(v => !v)}
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-mono transition-colors ${
+                showSweeps ? "border-border bg-muted/40" : "border-transparent text-muted-foreground/60"
+              }`}
+              title="Liquidity Sweeps — stop-runs beyond recent highs/lows that reject"
+              data-testid="toggle-sweeps"
+            >
+              Sweeps
+            </button>
           </div>
         </div>
       </Card>
@@ -421,18 +506,31 @@ export default function ChartingPage() {
             emaSeries={emaSeries}
             vwapSeries={vwapSeries}
             rsiSeries={rsiSeries}
+            cvdSeries={cvdSeries}
+            pocPrice={pocPrice}
+            fvgZones={fvgZones}
+            sweepMarkers={sweepMarkers}
             showVolume={showVolume}
             showRsi={showRsi}
+            showCvd={showCvd}
             showTime={timeframeShowsTime(timeframe)}
           />
         )}
       </Card>
 
-      <p className="px-1 text-[11px] text-muted-foreground">
-        Read-only charting. Price data is sourced live from Zerodha Kite where available, otherwise from
-        delayed Yahoo Finance. All indicators (EMA, VWAP, RSI) are computed client-side in your browser
-        for visualization only — this is not trading advice.
-      </p>
+      <div className="px-1 text-[11px] text-muted-foreground space-y-1">
+        <p>
+          Read-only charting. Price data is sourced live from Zerodha Kite where available, otherwise from
+          delayed Yahoo Finance. All indicators (EMA, VWAP, RSI, FVG, CVD, POC, Liquidity Sweeps) are computed
+          client-side in your browser for visualization only — this is not trading advice.
+        </p>
+        <p>
+          <span className="font-mono">CVD*</span> is a candle-direction proxy (bar volume signed by close vs
+          open), not true tick-level order-flow delta — this feed has no bid/ask aggression data.
+          <span className="font-mono"> POC</span> is a volume-profile approximation. Both need volume and are
+          disabled on sources that don't provide it (e.g. delayed Yahoo / global symbols).
+        </p>
+      </div>
     </div>
   );
 }

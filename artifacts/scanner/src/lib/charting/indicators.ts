@@ -79,6 +79,142 @@ export function vwap(
   return out;
 }
 
+/**
+ * Cumulative Volume Delta — candle-direction PROXY (not true order-flow delta).
+ *
+ * True CVD requires tick-level buy/sell aggression (bid/ask trades), which this
+ * datafeed does not provide. As an honest approximation each bar contributes
+ * `+volume` on an up close, `-volume` on a down close, and `0` on a doji; the
+ * result is the running cumulative sum. Bars with null/zero volume contribute 0.
+ *
+ * Returns an all-null series (nothing to plot) when NO bar in the input has
+ * positive volume — e.g. delayed Yahoo / global symbols — rather than drawing a
+ * flat fabricated line. Callers MUST label this as a proxy in the UI.
+ */
+export function cvdProxy(candles: IndicatorCandle[]): (number | null)[] {
+  const hasVolume = candles.some(c => c.v != null && Number.isFinite(c.v) && c.v > 0);
+  if (!hasVolume) return new Array(candles.length).fill(null);
+  const out: (number | null)[] = new Array(candles.length).fill(null);
+  let cum = 0;
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i]!;
+    const vol = c.v != null && Number.isFinite(c.v) && c.v > 0 ? c.v : 0;
+    const dir = c.c > c.o ? 1 : c.c < c.o ? -1 : 0;
+    cum += vol * dir;
+    out[i] = cum;
+  }
+  return out;
+}
+
+/**
+ * Point of Control — the price level with the most traded volume, derived from a
+ * simple volume profile over the visible candles.
+ *
+ * APPROXIMATION: without intrabar tick data we cannot know the true intrabar
+ * volume distribution, so each candle's volume is spread evenly across the price
+ * bins its [low, high] range overlaps. The bin with the greatest accumulated
+ * volume is the POC, returned as that bin's mid-price.
+ *
+ * Returns null (honestly unavailable) when no bar has positive volume or the
+ * price range is degenerate — never a fabricated level.
+ */
+export function volumeProfilePoc(candles: IndicatorCandle[], bins = 60): number | null {
+  const withVol = candles.filter(
+    c => c.v != null && Number.isFinite(c.v) && (c.v as number) > 0,
+  );
+  if (withVol.length === 0) return null;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const c of candles) {
+    if (Number.isFinite(c.l)) lo = Math.min(lo, c.l);
+    if (Number.isFinite(c.h)) hi = Math.max(hi, c.h);
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null;
+  const binSize = (hi - lo) / bins;
+  const vols = new Array(bins).fill(0);
+  for (const c of withVol) {
+    const v = c.v as number;
+    const startBin = Math.max(0, Math.min(bins - 1, Math.floor((c.l - lo) / binSize)));
+    const endBin = Math.max(0, Math.min(bins - 1, Math.floor((c.h - lo) / binSize)));
+    const span = endBin - startBin + 1;
+    const per = v / span;
+    for (let b = startBin; b <= endBin; b++) vols[b] += per;
+  }
+  let maxVol = -1;
+  let maxBin = 0;
+  for (let b = 0; b < bins; b++) {
+    if (vols[b] > maxVol) {
+      maxVol = vols[b];
+      maxBin = b;
+    }
+  }
+  return lo + (maxBin + 0.5) * binSize;
+}
+
+/** A 3-candle Fair Value Gap (imbalance) zone. `time` is the third candle's open. */
+export interface FvgZone {
+  time: number;
+  top: number;
+  bottom: number;
+  type: "bullish" | "bearish";
+}
+
+/**
+ * Fair Value Gaps — 3-candle price imbalances where the wicks of candle 1 and
+ * candle 3 fail to overlap, leaving an unfilled gap around candle 2.
+ *  - bullish: candle1.high < candle3.low (gap above)
+ *  - bearish: candle1.low  > candle3.high (gap below)
+ *
+ * Pure price geometry (no volume needed). Returns at most the `maxZones` most
+ * recent gaps to keep the chart readable.
+ */
+export function detectFvgs(candles: IndicatorCandle[], maxZones = 6): FvgZone[] {
+  const zones: FvgZone[] = [];
+  for (let i = 0; i + 2 < candles.length; i++) {
+    const c1 = candles[i]!;
+    const c3 = candles[i + 2]!;
+    if (c1.h < c3.l) {
+      zones.push({ time: c3.t, top: c3.l, bottom: c1.h, type: "bullish" });
+    } else if (c1.l > c3.h) {
+      zones.push({ time: c3.t, top: c1.l, bottom: c3.h, type: "bearish" });
+    }
+  }
+  return maxZones > 0 ? zones.slice(-maxZones) : zones;
+}
+
+/** A liquidity-sweep event: a stop-run beyond recent extremes that snaps back. */
+export interface SweepMarker {
+  time: number;
+  type: "HIGH_SWEEP" | "LOW_SWEEP";
+}
+
+/**
+ * Liquidity Sweeps — bars that pierce the prior `lookback`-bar high/low (running
+ * stops) but close back inside the range, with the next bar confirming the
+ * rejection.
+ *  - HIGH_SWEEP: high > priorHigh AND close < priorHigh AND next close < this high
+ *  - LOW_SWEEP : low  < priorLow  AND close > priorLow  AND next close > this low
+ *
+ * Pure price geometry (no volume needed); requires one confirming bar so the
+ * final, still-forming bar is never flagged.
+ */
+export function detectSweeps(candles: IndicatorCandle[], lookback = 5): SweepMarker[] {
+  const out: SweepMarker[] = [];
+  for (let i = lookback; i + 1 < candles.length; i++) {
+    const window = candles.slice(i - lookback, i);
+    const priorHigh = Math.max(...window.map(c => c.h));
+    const priorLow = Math.min(...window.map(c => c.l));
+    const cur = candles[i]!;
+    const next = candles[i + 1]!;
+    if (cur.h > priorHigh && cur.c < priorHigh && next.c < cur.h) {
+      out.push({ time: cur.t, type: "HIGH_SWEEP" });
+    } else if (cur.l < priorLow && cur.c > priorLow && next.c > cur.l) {
+      out.push({ time: cur.t, type: "LOW_SWEEP" });
+    }
+  }
+  return out;
+}
+
 export const EMA_PERIODS = [11, 20, 50, 100, 200] as const;
 export type EmaPeriod = (typeof EMA_PERIODS)[number];
 

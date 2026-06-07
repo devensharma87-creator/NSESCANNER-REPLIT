@@ -1,0 +1,26 @@
+The interface for the Hrishi Associates Market Scanner is looking incredibly sharp. The dark theme, the top navigation layout, and the stacked EMAs on the 15-minute Nifty timeframe provide a very clean, professional environment for technical analysis.
+
+To bridge the gap between a standard canvas chart and a "TradingView-like" experience, the heavy lifting of rendering should be handed off to a dedicated financial charting engine. Trying to build panning, zooming, and crosshair snapping from scratch is notoriously difficult and resource-intensive.
+
+Here is a comprehensive breakdown of how to elevate this charting module, essential premium indicators to implement, and a robust HTML/JS foundation to get you started.
+
+1. The Rendering Engine
+To get that buttery-smooth, interactive TradingView feel, you should integrate TradingView Lightweight Charts. It is an open-source, highly performant HTML5 Canvas library specifically built for financial data. It natively handles time scales, price scales, responsive resizing, and candlestick rendering perfectly.
+
+2. Essential "Premium" Indicators to Implement
+Generic platforms offer RSI and MACD. To make your scanner truly data-rich and highly tailored for serious index and options trading, you should program the following custom overlays:
+
+Automated Fair Value Gaps (FVG): Imbalances are critical for modern technical analysis. You can write an algorithm to detect three-candle formations where the wicks do not overlap, and use the charting library's createPriceLine or custom area series to draw semi-transparent rectangles over these zones.
+
+Volume Profile / Point of Control (POC): Standard volume sits at the bottom, but knowing where volume was traded at specific price levels provides massive institutional insight. This requires aggregating your tick-level data into price bins and rendering horizontal histograms on the right axis.
+
+Volume Delta / Cumulative Delta: Rather than just total volume per 15m candle, tracking the net difference between buying and selling pressure (Delta) is essential for identifying exhaustion at key levels. This can be displayed as a secondary histogram below the main chart.
+
+Liquidity Sweeps & Swing Failure Patterns (SFP): Programmatic markers (like small triangles or text annotations) that automatically appear when previous day highs/lows or major swing points are pierced but close back inside the range.
+
+3. The HTML / JavaScript Foundation
+Below is a fully functional, standalone HTML template using the Lightweight Charts library. It is pre-styled to match the dark aesthetic of your current setup and sets up the infrastructure for candlesticks, volume, and moving averages.
+
+You can save this as an .html file and open it in your browser immediately.
+
+HTML

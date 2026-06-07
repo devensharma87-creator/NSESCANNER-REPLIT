@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Hrishi Associates | Advanced Market Scanner</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0A0F1A; font-family: 'Inter', system-ui, -apple-system, sans-serif; overflow: hidden; color: #E5E9F0; }
+        .app-container { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+        .navbar { background: #0F131C; border-bottom: 1px solid #2A2F3C; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+        .nav-left { display: flex; align-items: center; gap: 32px; }
+        .brand { font-weight: 800; font-size: 1.7rem; letter-spacing: -0.5px; background: linear-gradient(135deg, #F5B041, #FF8C42); -webkit-background-clip: text; color: transparent; font-style: italic; }
+        .brand span { font-size: 0.9rem; color: #FF8C42; font-style: normal; }
+        .symbol-panel { display: flex; align-items: baseline; gap: 12px; background: #1A1F2B; padding: 6px 16px; border-radius: 32px; border: 1px solid #2F3545; }
+        .symbol-name { font-weight: 700; font-size: 1.2rem; }
+        .live-badge { background: #E05A5A; width: 8px; height: 8px; border-radius: 50%; display: inline-block; box-shadow: 0 0 6px #E05A5A; animation: pulse 1.2s infinite; }
+        .exchange { color: #8A94A8; font-size: 0.7rem; font-weight: 500; }
+        @keyframes pulse { 0% { opacity: 0.4; transform: scale(0.9);} 100% { opacity: 1; transform: scale(1.2);} }
+        .toolbar { background: #0C111B; padding: 8px 24px; display: flex; gap: 18px; border-bottom: 1px solid #262C38; align-items: center; }
+        .time-btn { background: transparent; border: none; color: #9AA3B9; font-weight: 500; font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        .time-btn.active { background: #2A3040; color: #FFB347; box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+        .separator { width: 1px; height: 24px; background: #2F3545; margin: 0 4px; }
+        .indicator-status { font-size: 11px; background: #1B212D; padding: 4px 12px; border-radius: 20px; color: #B9C3DB; }
+        .chart-area { flex: 1; display: flex; flex-direction: column; padding: 8px 12px; gap: 10px; background: #0A0F1A; overflow: hidden; }
+        .main-chart-container { flex: 3; position: relative; border-radius: 12px; background: #0B1018; border: 1px solid #262E3A; }
+        .lower-chart-container { flex: 1.2; position: relative; border-radius: 12px; background: #0B1018; border: 1px solid #262E3A; }
+        .legend-float { position: absolute; top: 12px; left: 14px; background: rgba(12, 18, 28, 0.85); backdrop-filter: blur(8px); padding: 6px 14px; border-radius: 28px; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; border-left: 3px solid #FFB347; z-index: 10; color: #E0E6F0; pointer-events: none; }
+        .poc-label { position: absolute; bottom: 8px; right: 12px; background: #1F293D; padding: 4px 10px; border-radius: 16px; font-size: 10px; font-weight: 600; color: #FFB347; z-index: 10; font-family: monospace; }
+        #pulseWidget { position: absolute; bottom: 12px; left: 12px; background: rgba(19, 26, 40, 0.8); padding: 4px 12px; border-radius: 20px; font-size: 10px; font-weight: 500; z-index: 20; font-family: monospace; }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <div class="navbar">
+        <div class="nav-left">
+            <div class="brand">HRISHI ASSOCIATES <span>| MARKET SCANNER</span></div>
+            <div class="symbol-panel">
+                <span class="live-badge"></span><span class="symbol-name">NIFTY 50</span><span class="exchange">NSE • FUTURES</span>
+            </div>
+        </div>
+    </div>
+    <div class="toolbar">
+        <div style="display: flex; gap: 6px;">
+            <button class="time-btn" data-tf="1m">1m</button>
+            <button class="time-btn" data-tf="5m">5m</button>
+            <button class="time-btn active" data-tf="15m">15m</button>
+        </div>
+        <div class="separator"></div>
+        <div><span class="indicator-status"><i class="fas fa-chart-simple"></i> EMA • FVG • CVD • POC • Sweeps</span></div>
+    </div>
+
+    <div class="chart-area">
+        <div class="main-chart-container" id="mainChartContainer">
+            <div class="legend-float" id="ohlcLegend">🕯️ Hover for OHLC + CVD</div>
+            <div class="poc-label" id="pocDisplay">📊 POC: --</div>
+            <div id="pulseWidget"></div>
+        </div>
+        <div class="lower-chart-container" id="lowerChartContainer">
+            <div style="position:absolute; top:4px; left:12px; font-size:10px; color:#FFB347; z-index:5;">CUMULATIVE VOLUME DELTA</div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ==========================================
+// 1. ARCHITECTURE: CENTRAL STATE (appState)
+// ==========================================
+const appState = {
+    selectedSymbol: "NIFTY 50",
+    charting: {
+        timeframe: "15m",
+        candles: [],
+        indicators: { ema20: [], cvd: [], poc: 0, fvgs: [], sweeps: [] },
+        isLive: true
+    }
+};
+
+// Global Chart References
+let charts = { main: null, lower: null };
+let series = { candle: null, vol: null, ema20: null, cvd: null };
+let drawnFVGs = []; // To track and clean up DOM lines
+
+// ==========================================
+// 2. LOGIC: PURE MATHEMATICAL FUNCTIONS
+// ==========================================
+const MathUtils = {
+    computeEMA: (data, period) => {
+        let k = 2 / (period + 1), ema = [], prev = data[0].close;
+        for (let i = 0; i < data.length; i++) {
+            let curr = i === 0 ? prev : (data[i].close * k + prev * (1 - k));
+            ema.push({ time: data[i].time, value: curr });
+            prev = curr;
+        }
+        return ema;
+    },
+    computeCVD: (candles) => {
+        let cvd = 0, arr = [];
+        candles.forEach(c => {
+            let delta = c.volume * (c.close > c.open ? 1 : (c.close < c.open ? -1 : 0));
+            cvd += delta;
+            arr.push({ time: c.time, value: cvd });
+        });
+        return arr;
+    },
+    computePOC: (candles) => {
+        let map = new Map(), maxVol = 0, pocPrice = 0;
+        candles.forEach(c => {
+            let key = Math.round(c.close / 5) * 5;
+            map.set(key, (map.get(key) || 0) + c.volume);
+        });
+        for (let [price, vol] of map.entries()) if (vol > maxVol) { maxVol = vol; pocPrice = price; }
+        return pocPrice;
+    },
+    detectFVGs: (candles) => {
+        let zones = [];
+        for (let i = 0; i < candles.length - 2; i++) {
+            const c1 = candles[i], c3 = candles[i+2];
+            if (c1.high < c3.low) zones.push({ top: c3.low, bottom: c1.high, type: 'bullish' });
+            if (c1.low > c3.high) zones.push({ top: c1.low, bottom: c3.high, type: 'bearish' });
+        }
+        return zones.slice(-12); // Keep only the most recent relevant zones
+    },
+    detectSweeps: (candles) => {
+        let sweeps = [];
+        for (let i = 5; i < candles.length - 1; i++) {
+            let prevH = Math.max(...candles.slice(i-5, i).map(c => c.high));
+            let prevL = Math.min(...candles.slice(i-5, i).map(c => c.low));
+            let curr = candles[i], next = candles[i+1];
+            if (curr.high > prevH && curr.close < prevH && next.close < curr.high) sweeps.push({ time: curr.time, type: 'HIGH_SWEEP' });
+            if (curr.low < prevL && curr.close > prevL && next.close > curr.low) sweeps.push({ time: curr.time, type: 'LOW_SWEEP' });
+        }
+        return sweeps;
+    }
+};
+
+// ==========================================
+// 3. LIFECYCLE: DATA INGESTION & STATE MUTATION
+// ==========================================
+function updateStateIndicators() {
+    const c = appState.charting.candles;
+    appState.charting.indicators.ema20 = MathUtils.computeEMA(c, 20);
+    appState.charting.indicators.cvd = MathUtils.computeCVD(c);
+    appState.charting.indicators.poc = MathUtils.computePOC(c);
+    appState.charting.indicators.fvgs = MathUtils.detectFVGs(c);
+    appState.charting.indicators.sweeps = MathUtils.detectSweeps(c);
+}
+
+function handleIncomingLiveTick(incomingCandle) {
+    const cArray = appState.charting.candles;
+    if (cArray.length === 0) return;
+    
+    const lastIndex = cArray.length - 1;
+
+    if (cArray[lastIndex].time === incomingCandle.time) {
+        cArray[lastIndex] = incomingCandle; // Update current forming candle
+    } else {
+        cArray.push(incomingCandle); // New interval opened
+        updateStateIndicators(); // Heavy recalculation ONLY on candle close
+    }
+    
+    renderLiveUpdates(incomingCandle); // Fire pure render function
+}
+
+// ==========================================
+// 4. RENDER ENGINE: DOM & CANVAS UPDATES
+// ==========================================
+function initCharts() {
+    // Main Chart Initialization
+    charts.main = LightweightCharts.createChart(document.getElementById('mainChartContainer'), {
+        layout: { textColor: '#D1D8E8', background: { type: 'solid', color: '#0B1018' } },
+        grid: { vertLines: { color: '#202632' }, horzLines: { color: '#202632' } },
+        crosshair: { mode: 0, vertLine: { color: '#F5B041', width: 1, style: 2, labelBackgroundColor: '#1E293B' }, horzLine: { color: '#F5B041', width: 1, style: 2 } },
+        timeScale: { timeVisible: true, fixLeftEdge: true }
+    });
+    series.candle = charts.main.addCandlestickSeries({ upColor: '#26A69A', downColor: '#EF5350', borderVisible: false, wickUpColor: '#26A69A', wickDownColor: '#EF5350' });
+    series.vol = charts.main.addHistogramSeries({ priceScaleId: '', scaleMargins: { top: 0.82, bottom: 0 } });
+    series.ema20 = charts.main.addLineSeries({ color: '#FFB347', lineWidth: 2, crosshairMarkerVisible: false });
+
+    // Lower Chart Initialization (Synced)
+    charts.lower = LightweightCharts.createChart(document.getElementById('lowerChartContainer'), {
+        layout: { textColor: '#B9C3DB', background: { type: 'solid', color: '#0B1018' } },
+        grid: { vertLines: { color: '#1B212E' }, horzLines: { color: '#1B212E' } },
+        crosshair: { mode: 0, vertLine: { color: '#F5B041', width: 1, style: 1 } },
+        timeScale: { visible: false }, leftPriceScale: { visible: true, borderColor: '#394252' }, rightPriceScale: { visible: false }
+    });
+    series.cvd = charts.lower.addLineSeries({ color: '#6C9EBF', lineWidth: 2, priceScaleId: 'left', crosshairMarkerVisible: true });
+
+    // Sync Time Panes
+    charts.main.timeScale().subscribeVisibleTimeRangeChange(r => r && charts.lower.timeScale().setVisibleRange(r));
+    charts.lower.timeScale().subscribeVisibleTimeRangeChange(r => r && charts.main.timeScale().setVisibleRange(r));
+
+    // Dynamic Crosshair Legend Update
+    charts.main.subscribeCrosshairMove((param) => {
+        const legendDiv = document.getElementById('ohlcLegend');
+        if (!param || !param.time || !param.seriesData) {
+            legendDiv.innerHTML = `📈 NIFTY 50 • Hover for detailed data`;
+            return;
+        }
+        const candlePoint = param.seriesData.get(series.candle);
+        if (candlePoint) {
+            const foundCVD = appState.charting.indicators.cvd.find(d => d.time === candlePoint.time);
+            const cvdVal = foundCVD ? foundCVD.value.toFixed(0) : '--';
+            legendDiv.innerHTML = `O: ${candlePoint.open.toFixed(2)}  H: ${candlePoint.high.toFixed(2)}  L: ${candlePoint.low.toFixed(2)}  C: ${candlePoint.close.toFixed(2)}  |  CVD: ${cvdVal}  |  Vol: ${(candlePoint.volume/1e6).toFixed(1)}M`;
+        }
+    });
+
+    // Responsive Canvas Resize
+    new ResizeObserver(() => {
+        charts.main.resize(document.getElementById('mainChartContainer').clientWidth, document.getElementById('mainChartContainer').clientHeight);
+        charts.lower.resize(document.getElementById('lowerChartContainer').clientWidth, document.getElementById('lowerChartContainer').clientHeight);
+    }).observe(document.getElementById('mainChartContainer'));
+}
+
+function renderFullState() {
+    const state = appState.charting;
+    
+    // Set Core Data Arrays
+    series.candle.setData(state.candles);
+    series.vol.setData(state.candles.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? 'rgba(38,166,154,0.6)' : 'rgba(239,83,80,0.6)' })));
+    series.ema20.setData(state.indicators.ema20);
+    series.cvd.setData(state.indicators.cvd);
+
+    // Render Sweeps Markers
+    series.candle.setMarkers(state.indicators.sweeps.map(s => ({
+        time: s.time, position: s.type === 'HIGH_SWEEP' ? 'aboveBar' : 'belowBar',
+        shape: s.type === 'HIGH_SWEEP' ? 'arrowDown' : 'arrowUp', color: s.type === 'HIGH_SWEEP' ? '#FF8A65' : '#81C784', size: 1, text: s.type === 'HIGH_SWEEP' ? '🚨 Liq Sweep' : '🔼 Sweep'
+    })));
+
+    // Render FVGs
+    drawnFVGs.forEach(line => charts.main.removePriceLine(line)); // Clear old lines
+    drawnFVGs = [];
+    state.indicators.fvgs.forEach(z => {
+        const c = z.type === 'bullish' ? '#2E7D64' : '#B23C3C';
+        drawnFVGs.push(series.candle.createPriceLine({ price: z.top, color: c, lineWidth: 1, lineStyle: 3, title: `FVG ${z.type.toUpperCase()}`, axisLabelVisible: true }));
+        drawnFVGs.push(series.candle.createPriceLine({ price: z.bottom, color: c, lineWidth: 1, lineStyle: 3, axisLabelVisible: false }));
+    });
+
+    // Render POC Line
+    charts.main.createPriceLine({ price: state.indicators.poc, color: '#FFB347', lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Solid, title: 'POC', axisLabelVisible: true });
+
+    // Update DOM UI Elements
+    document.getElementById('pocDisplay').innerHTML = `📊 POC @ ${state.indicators.poc.toFixed(2)}`;
+    document.getElementById('pulseWidget').innerHTML = `📐 FVGs: ${state.indicators.fvgs.length} | 🔍 Sweeps: ${state.indicators.sweeps.length}`;
+    
+    charts.main.timeScale().fitContent();
+    charts.lower.timeScale().fitContent();
+}
+
+function renderLiveUpdates(candle) {
+    series.candle.update(candle);
+    series.vol.update({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? 'rgba(38,166,154,0.6)' : 'rgba(239,83,80,0.6)' });
+    
+    // Update live CVD based on current tick
+    const latestCVD = appState.charting.indicators.cvd[appState.charting.indicators.cvd.length-1];
+    if(latestCVD && latestCVD.time === candle.time) series.cvd.update(latestCVD);
+}
+
+// ==========================================
+// 5. BACKEND DATA SIMULATION & INITIALIZATION
+// ==========================================
+// Replace this with your actual fetch() call to the Node.js backend
+function mockAPIHistorical() {
+    let candles = [], time = Math.floor(Date.now() / 1000) - (200 * 900), price = 23450, trend = 0;
+    for (let i = 0; i < 200; i++) {
+        let vol = 22 + Math.sin(i * 0.1) * 8;
+        let change = (Math.random() - 0.5) * vol;
+        trend = trend * 0.92 + change * 0.08;
+        let c = price + trend + (Math.random() - 0.5) * vol * 0.7;
+        let h = Math.max(price, c) + Math.random() * vol * 0.8;
+        let l = Math.min(price, c) - Math.random() * vol * 0.8;
+        
+        // Inject structural features for SMC detection
+        if (i % 37 === 12) h = price + vol * 1.9; // Sweep high
+        if (i % 41 === 23) l = price - vol * 1.7; // Sweep low
+        if (i % 28 === 7 && i > 60) { if (Math.random() > 0.5) h = l + vol * 1.3; else l = h - vol * 1.2; } // FVG
+
+        candles.push({ time, open: price, high: +h.toFixed(2), low: +l.toFixed(2), close: +c.toFixed(2), volume: Math.floor(2500000 + Math.random()*100000) });
+        price = c; time += 900;
+    }
+    return candles;
+}
+
+// Boot Sequence
+initCharts();
+appState.charting.candles = mockAPIHistorical();
+updateStateIndicators();
+renderFullState();
+
+// Simulate Live WebSocket Ticks from Node.js (Zerodha Kite Integration Point)
+setInterval(() => {
+    let last = appState.charting.candles[appState.charting.candles.length - 1];
+    let tickPrice = last.close + (Math.random() - 0.5) * 5;
+    
+    let liveCandle = {
+        time: last.time, // Belongs to current 15m interval
+        open: last.open,
+        high: Math.max(last.high, tickPrice),
+        low: Math.min(last.low, tickPrice),
+        close: tickPrice,
+        volume: last.volume + Math.floor(Math.random() * 5000)
+    };
+    handleIncomingLiveTick(liveCandle);
+}, 500); 
+
+</script>
+</body>
+</html>

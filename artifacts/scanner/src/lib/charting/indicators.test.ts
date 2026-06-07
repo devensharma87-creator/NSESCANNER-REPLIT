@@ -5,6 +5,10 @@ import {
   vwap,
   istDateKey,
   emaRibbon,
+  cvdProxy,
+  volumeProfilePoc,
+  detectFvgs,
+  detectSweeps,
   EMA_PERIODS,
   type IndicatorCandle,
 } from "./indicators";
@@ -116,5 +120,139 @@ describe("emaRibbon", () => {
       expect(ribbon[p][p - 1]).not.toBeNull();
       expect(ribbon[p][p - 2]).toBeNull();
     }
+  });
+});
+
+describe("cvdProxy", () => {
+  it("accumulates +volume on up bars and -volume on down bars", () => {
+    const out = cvdProxy([
+      candle(1, 10, 11, 9, 11, 100), // up   → +100
+      candle(2, 11, 12, 10, 10, 50), // down → -50  → cumulative 50
+      candle(3, 10, 11, 9, 12, 30), // up   → +30  → cumulative 80
+    ]);
+    expect(out).toEqual([100, 50, 80]);
+  });
+
+  it("treats a doji (close==open) as zero delta", () => {
+    const out = cvdProxy([
+      candle(1, 10, 11, 9, 11, 100),
+      candle(2, 11, 12, 10, 11, 100), // doji → +0
+    ]);
+    expect(out).toEqual([100, 100]);
+  });
+
+  it("ignores bars with null/zero volume but keeps the running total aligned", () => {
+    const out = cvdProxy([
+      candle(1, 10, 11, 9, 11, 100), // +100
+      candle(2, 11, 12, 10, 9, null), // null vol → +0
+      candle(3, 9, 11, 8, 11, 40), // +40 → 140
+    ]);
+    expect(out).toEqual([100, 100, 140]);
+  });
+
+  it("returns all-null (nothing to plot) when no bar has positive volume", () => {
+    const out = cvdProxy([
+      candle(1, 10, 11, 9, 11, null),
+      candle(2, 11, 12, 10, 9, 0),
+    ]);
+    expect(out).toEqual([null, null]);
+  });
+});
+
+describe("volumeProfilePoc", () => {
+  it("returns the price level carrying the most volume", () => {
+    // A heavy bar parked tightly around 100 dominates the profile.
+    const poc = volumeProfilePoc(
+      [
+        candle(1, 100, 100.5, 99.5, 100, 100000),
+        candle(2, 120, 121, 119, 120, 100),
+        candle(3, 80, 81, 79, 80, 100),
+      ],
+      60,
+    );
+    expect(poc).not.toBeNull();
+    expect(poc as number).toBeGreaterThan(99);
+    expect(poc as number).toBeLessThan(101);
+  });
+
+  it("is null when no bar has positive volume", () => {
+    expect(
+      volumeProfilePoc([candle(1, 10, 12, 8, 11, null), candle(2, 11, 13, 9, 12, 0)]),
+    ).toBeNull();
+  });
+
+  it("is null for a degenerate (flat) price range", () => {
+    expect(volumeProfilePoc([candle(1, 10, 10, 10, 10, 5000)])).toBeNull();
+  });
+});
+
+describe("detectFvgs", () => {
+  it("flags a bullish gap when candle1.high < candle3.low", () => {
+    const zones = detectFvgs([
+      candle(1, 10, 11, 9, 10, 100),
+      candle(2, 12, 15, 11, 14, 100),
+      candle(3, 16, 18, 13, 17, 100), // c3.low 13 > c1.high 11 → bullish
+    ]);
+    expect(zones).toHaveLength(1);
+    expect(zones[0]).toMatchObject({ type: "bullish", top: 13, bottom: 11, time: 3 });
+  });
+
+  it("flags a bearish gap when candle1.low > candle3.high", () => {
+    const zones = detectFvgs([
+      candle(1, 20, 22, 18, 19, 100),
+      candle(2, 16, 17, 13, 14, 100),
+      candle(3, 12, 15, 11, 12, 100), // c1.low 18 > c3.high 15 → bearish
+    ]);
+    expect(zones).toHaveLength(1);
+    expect(zones[0]).toMatchObject({ type: "bearish", top: 18, bottom: 15, time: 3 });
+  });
+
+  it("keeps only the most recent maxZones gaps", () => {
+    // Strictly rising, non-overlapping bars → an FVG at every 3-window.
+    const candles: IndicatorCandle[] = Array.from({ length: 30 }, (_, i) =>
+      candle(i, i * 10, i * 10 + 1, i * 10 - 1, i * 10, 100),
+    );
+    expect(detectFvgs(candles, 3)).toHaveLength(3);
+  });
+});
+
+describe("detectSweeps", () => {
+  it("flags a high sweep that pierces the prior high then closes back inside", () => {
+    const candles: IndicatorCandle[] = [
+      candle(1, 10, 11, 9, 10, 100),
+      candle(2, 10, 11, 9, 10, 100),
+      candle(3, 10, 11, 9, 10, 100),
+      candle(4, 10, 11, 9, 10, 100),
+      candle(5, 10, 11, 9, 10, 100), // prior-5 high = 11
+      candle(6, 10, 15, 9, 10.5, 100), // high 15 > 11, close 10.5 < 11 → sweep
+      candle(7, 10, 11, 9, 10, 100), // next close 10 < 15 confirms
+    ];
+    const sweeps = detectSweeps(candles, 5);
+    expect(sweeps).toEqual([{ time: 6, type: "HIGH_SWEEP" }]);
+  });
+
+  it("flags a low sweep that pierces the prior low then closes back inside", () => {
+    const candles: IndicatorCandle[] = [
+      candle(1, 10, 11, 9, 10, 100),
+      candle(2, 10, 11, 9, 10, 100),
+      candle(3, 10, 11, 9, 10, 100),
+      candle(4, 10, 11, 9, 10, 100),
+      candle(5, 10, 11, 9, 10, 100), // prior-5 low = 9
+      candle(6, 10, 11, 5, 9.5, 100), // low 5 < 9, close 9.5 > 9 → sweep
+      candle(7, 10, 11, 9, 10, 100), // next close 10 > 5 confirms
+    ];
+    expect(detectSweeps(candles, 5)).toEqual([{ time: 6, type: "LOW_SWEEP" }]);
+  });
+
+  it("never flags the final still-forming bar (needs a confirming bar)", () => {
+    const candles: IndicatorCandle[] = [
+      candle(1, 10, 11, 9, 10, 100),
+      candle(2, 10, 11, 9, 10, 100),
+      candle(3, 10, 11, 9, 10, 100),
+      candle(4, 10, 11, 9, 10, 100),
+      candle(5, 10, 11, 9, 10, 100),
+      candle(6, 10, 15, 9, 10.5, 100), // a sweep shape, but it is the LAST bar
+    ];
+    expect(detectSweeps(candles, 5)).toEqual([]);
   });
 });
