@@ -1,0 +1,365 @@
+//@version=5
+// =============================================================================
+//  ALL-IN-ONE F&O TREND + SMC INDICATOR  (v2 — Pro)
+//  9/20 EMA · VWAP · Tight Supply/Demand Zones (fresh/tested) · FVG · SMC
+//  Multi-Factor Trend Score · HTF Filter · Auto Entry / SL / Target signals
+//  Works on ALL timeframes
+// =============================================================================
+indicator("All-in-One F&O Trend + SMC v2", shorttitle="FnO_SMC_v2", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// =============================================================================
+//  INPUTS
+// =============================================================================
+gEMA = "── Moving Averages ──"
+showEMA9  = input.bool(true, "9 EMA",  group=gEMA, inline="e1")
+showEMA20 = input.bool(true, "20 EMA", group=gEMA, inline="e1")
+showEMA50 = input.bool(true, "50 EMA (bias)", group=gEMA, inline="e2")
+ema9Len   = input.int(9,  "", minval=1, group=gEMA, inline="e1")
+ema20Len  = input.int(20, "", minval=1, group=gEMA, inline="e1")
+ema50Len  = input.int(50, "", minval=1, group=gEMA, inline="e2")
+col9      = input.color(#26c6da, "", group=gEMA, inline="e1")
+col20     = input.color(#ff9800, "", group=gEMA, inline="e1")
+col50     = input.color(#ab47bc, "", group=gEMA, inline="e2")
+showNames = input.bool(true, "Show line name labels (EMA/VWAP)", group=gEMA)
+
+gVWAP = "── VWAP ──"
+showVWAP = input.bool(true, "Show VWAP + Bands", group=gVWAP)
+vwapCol  = input.color(#e040fb, "VWAP Color", group=gVWAP)
+showVWb  = input.bool(true, "Show 1σ Bands", group=gVWAP)
+
+gHTF = "── Higher Timeframe Filter ──"
+useHTF  = input.bool(true, "Use HTF Trend Filter", group=gHTF)
+htfTF   = input.timeframe("60", "HTF Timeframe", group=gHTF, tooltip="Higher timeframe used to confirm bias. Trade in its direction.")
+
+gZone = "── Supply / Demand Zones ──"
+showZones = input.bool(true, "Show S/D Zones", group=gZone)
+zPivot    = input.int(10, "Swing Strength", minval=3, maxval=50, group=gZone, tooltip="Bars each side for swing. Higher = only major zones.")
+zMax      = input.int(3, "Max Fresh Zones / side", minval=1, maxval=8, group=gZone)
+zoneBody  = input.bool(true, "Tight zones (base candle body)", group=gZone, tooltip="ON: zone = the actual base/imbalance candle range. OFF: wider wick range.")
+hideTested= input.bool(true, "Hide zones once tested", group=gZone)
+demandCol = input.color(color.new(#00e676, 78), "Demand", group=gZone, inline="z1")
+supplyCol = input.color(color.new(#ff5252, 78), "Supply", group=gZone, inline="z1")
+
+gFVG = "── Fair Value Gaps ──"
+showFVG  = input.bool(true, "Show FVG", group=gFVG)
+fvgAuto  = input.bool(true, "Auto Threshold (ATR)", group=gFVG)
+fvgThr   = input.float(0.08, "Manual Threshold %", step=0.02, group=gFVG)
+fvgExt   = input.int(12, "Extend Bars", minval=1, group=gFVG)
+fvgDel   = input.bool(true, "Remove Mitigated", group=gFVG)
+bullFvgC = input.color(color.new(#26a69a, 82), "Bull FVG", group=gFVG, inline="f1")
+bearFvgC = input.color(color.new(#ef5350, 82), "Bear FVG", group=gFVG, inline="f1")
+
+gSMC = "── Smart Money Concepts ──"
+showSMC  = input.bool(true, "Show BOS / CHoCH", group=gSMC)
+smcPivot = input.int(7, "Structure Strength", minval=3, maxval=50, group=gSMC)
+bosCol   = input.color(#2962ff, "BOS",   group=gSMC, inline="s1")
+chochCol = input.color(#ff6d00, "CHoCH", group=gSMC, inline="s1")
+
+gSig = "── Entry / Exit Signals ──"
+showSig   = input.bool(true, "Show Trade Signals", group=gSig)
+rrTarget  = input.float(2.0, "Risk:Reward Target", minval=0.5, step=0.5, group=gSig)
+slBufATR  = input.float(0.5, "SL Buffer (ATR mult)", minval=0.0, step=0.1, group=gSig)
+reqHTF    = input.bool(true, "Only signal with HTF trend", group=gSig)
+reqZone   = input.bool(true, "Require zone retest", group=gSig, tooltip="Entry only when price reacts at a fresh demand/supply zone.")
+
+gDash = "── Dashboard ──"
+showDash = input.bool(true, "Show Dashboard", group=gDash)
+dashPos  = input.string("Top Right", "Position", options=["Top Right","Top Left","Bottom Right","Bottom Left","Middle Right"], group=gDash)
+dashSize = input.string("Normal", "Size", options=["Small","Normal","Large"], group=gDash)
+
+// =============================================================================
+//  CORE CALCS
+// =============================================================================
+ema9  = ta.ema(close, ema9Len)
+ema20 = ta.ema(close, ema20Len)
+ema50 = ta.ema(close, ema50Len)
+atr   = ta.atr(14)
+
+plot(showEMA9  ? ema9  : na, "9 EMA",  color=col9,  linewidth=2)
+plot(showEMA20 ? ema20 : na, "20 EMA", color=col20, linewidth=2)
+plot(showEMA50 ? ema50 : na, "50 EMA", color=col50, linewidth=1)
+
+// VWAP + bands
+vwapVal = ta.vwap(hlc3)
+vStd = ta.stdev(hlc3, 20)
+plot(showVWAP ? vwapVal : na, "VWAP", color=vwapCol, linewidth=2)
+plot(showVWAP and showVWb ? vwapVal + vStd : na, "VWAP +1σ", color=color.new(vwapCol,60), linewidth=1)
+plot(showVWAP and showVWb ? vwapVal - vStd : na, "VWAP -1σ", color=color.new(vwapCol,60), linewidth=1)
+
+// --- line name labels at the right edge ---
+var label lbl9   = na
+var label lbl20  = na
+var label lbl50  = na
+var label lblVw  = na
+f_tag(lb, price, txt, col, show) =>
+    label out = lb
+    if not na(lb)
+        label.delete(lb)
+    if show and barstate.islast
+        out := label.new(bar_index + 3, price, txt, style=label.style_label_left, color=color.new(col, 0), textcolor=color.white, size=size.small)
+    out
+lbl9  := f_tag(lbl9,  ema9,    "9 EMA",  col9,    showNames and showEMA9)
+lbl20 := f_tag(lbl20, ema20,   "20 EMA", col20,   showNames and showEMA20)
+lbl50 := f_tag(lbl50, ema50,   "50 EMA", col50,   showNames and showEMA50)
+lblVw := f_tag(lblVw, vwapVal, "VWAP",   vwapCol, showNames and showVWAP)
+
+// HTF trend
+htfEma9  = request.security(syminfo.tickerid, htfTF, ta.ema(close, ema9Len),  lookahead=barmerge.lookahead_off)
+htfEma20 = request.security(syminfo.tickerid, htfTF, ta.ema(close, ema20Len), lookahead=barmerge.lookahead_off)
+htfBull = useHTF ? htfEma9 > htfEma20 : true
+htfBear = useHTF ? htfEma9 < htfEma20 : true
+htfTxt  = not useHTF ? "OFF" : htfEma9 > htfEma20 ? "Bullish" : "Bearish"
+
+// =============================================================================
+//  MULTI-FACTOR TREND SCORE
+//  EMA alignment · Price vs VWAP · 50 EMA bias · Structure · HTF
+// =============================================================================
+emaUp = ema9 > ema20 and close > ema9
+emaDn = ema9 < ema20 and close < ema9
+vUp   = close > vwapVal
+vDn   = close < vwapVal
+biasUp= close > ema50
+biasDn= close < ema50
+
+// =============================================================================
+//  SMC — STRUCTURE (needed before scoring)
+// =============================================================================
+var float lastSH = na
+var float lastSL = na
+var int   structDir = 0
+
+sph = ta.pivothigh(high, smcPivot, smcPivot)
+spl = ta.pivotlow(low,  smcPivot, smcPivot)
+if not na(sph)
+    lastSH := sph
+if not na(spl)
+    lastSL := spl
+
+bosUp = false
+bosDn = false
+if showSMC and not na(lastSH) and ta.crossover(close, lastSH)
+    isCh = structDir == -1
+    line.new(bar_index-1, lastSH, bar_index, lastSH, color=isCh?chochCol:bosCol, width=1, style=line.style_dashed)
+    label.new(bar_index, lastSH, isCh?"CHoCH":"BOS", style=label.style_label_down, color=isCh?chochCol:bosCol, textcolor=color.white, size=size.tiny)
+    structDir := 1
+    lastSH := na
+    bosUp := true
+if showSMC and not na(lastSL) and ta.crossunder(close, lastSL)
+    isCh = structDir == 1
+    line.new(bar_index-1, lastSL, bar_index, lastSL, color=isCh?chochCol:bosCol, width=1, style=line.style_dashed)
+    label.new(bar_index, lastSL, isCh?"CHoCH":"BOS", style=label.style_label_up, color=isCh?chochCol:bosCol, textcolor=color.white, size=size.tiny)
+    structDir := -1
+    lastSL := na
+    bosDn := true
+
+structUp = structDir == 1
+structDn = structDir == -1
+
+// weighted score (range -5..+5)
+scoreUp = (emaUp?1:0) + (vUp?1:0) + (biasUp?1:0) + (structUp?1:0) + (htfBull and useHTF?1:0)
+scoreDn = (emaDn?1:0) + (vDn?1:0) + (biasDn?1:0) + (structDn?1:0) + (htfBear and useHTF?1:0)
+score   = scoreUp - scoreDn
+maxScore = useHTF ? 5 : 4
+
+trendUp = score >= 2
+trendDn = score <= -2
+trendTxt = score >= 4 ? "STRONG BULLISH" : score >= 2 ? "BULLISH" : score >= 1 ? "WEAK BULL" : score <= -4 ? "STRONG BEARISH" : score <= -2 ? "BEARISH" : score <= -1 ? "WEAK BEAR" : "NEUTRAL / RANGE"
+trendClr = score >= 4 ? #00c853 : score >= 2 ? #43a047 : score >= 1 ? #9ccc65 : score <= -4 ? #d50000 : score <= -2 ? #e53935 : score <= -1 ? #ef9a9a : #757575
+
+barcolor(trendUp ? color.new(#26a69a,72) : trendDn ? color.new(#ef5350,72) : na)
+
+// =============================================================================
+//  SUPPLY / DEMAND ZONES — tight, fresh/tested aware
+// =============================================================================
+type Zone
+    box   bx
+    label lb
+    float top
+    float bot
+    bool  isDemand
+    bool  tested
+
+var array<Zone> demand = array.new<Zone>()
+var array<Zone> supply = array.new<Zone>()
+
+ph = ta.pivothigh(high, zPivot, zPivot)
+pl = ta.pivotlow(low,  zPivot, zPivot)
+
+// Demand zone at swing low — tight: use base candle body or wick
+if showZones and not na(pl)
+    bi = bar_index - zPivot
+    tp = zoneBody ? math.max(open[zPivot], close[zPivot]) : low[zPivot] + atr*0.15
+    bt = low[zPivot]
+    bx = box.new(bi, tp, bar_index+8, bt, border_color=color.new(#00e676,30), bgcolor=demandCol, border_width=1)
+    lb = label.new(bi, tp, "Demand", style=label.style_none, textcolor=color.new(#00c853,0), size=size.tiny, textalign=text.align_left)
+    array.push(demand, Zone.new(bx, lb, tp, bt, true, false))
+    if array.size(demand) > zMax
+        old = array.shift(demand)
+        box.delete(old.bx)
+        label.delete(old.lb)
+
+// Supply zone at swing high
+if showZones and not na(ph)
+    bi = bar_index - zPivot
+    tp = high[zPivot]
+    bt = zoneBody ? math.min(open[zPivot], close[zPivot]) : high[zPivot] - atr*0.15
+    bx = box.new(bi, tp, bar_index+8, bt, border_color=color.new(#ff5252,30), bgcolor=supplyCol, border_width=1)
+    lb = label.new(bi, bt, "Supply", style=label.style_none, textcolor=color.new(#d50000,0), size=size.tiny, textalign=text.align_left)
+    array.push(supply, Zone.new(bx, lb, tp, bt, false, false))
+    if array.size(supply) > zMax
+        old = array.shift(supply)
+        box.delete(old.bx)
+        label.delete(old.lb)
+
+// track tests / freshness + extend
+demandRetest = false
+supplyRetest = false
+if showZones
+    for z in demand
+        box.set_right(z.bx, bar_index+8)
+        if not z.tested and low <= z.top and low >= z.bot
+            z.tested := true
+            demandRetest := true
+            box.set_bgcolor(z.bx, color.new(#00e676, 88))
+            box.set_border_style(z.bx, line.style_dashed)
+            if hideTested
+                box.set_bgcolor(z.bx, na)
+                label.delete(z.lb)
+    for z in supply
+        box.set_right(z.bx, bar_index+8)
+        if not z.tested and high >= z.bot and high <= z.top
+            z.tested := true
+            supplyRetest := true
+            box.set_bgcolor(z.bx, color.new(#ff5252, 88))
+            box.set_border_style(z.bx, line.style_dashed)
+            if hideTested
+                box.set_bgcolor(z.bx, na)
+                label.delete(z.lb)
+
+// =============================================================================
+//  FAIR VALUE GAPS
+// =============================================================================
+type FVG
+    box   bx
+    float top
+    float bot
+    bool  isBull
+
+var array<FVG> fvgs = array.new<FVG>()
+thr = fvgAuto ? (ta.cum((high-low)/low)/bar_index) : fvgThr/100.0
+
+bullFVG = low > high[2] and (low - high[2])/high[2] > thr
+bearFVG = high < low[2] and (low[2] - high)/high > thr
+
+if showFVG and bullFVG
+    bx = box.new(bar_index-1, low, bar_index+fvgExt, high[2], border_color=na, bgcolor=bullFvgC)
+    array.push(fvgs, FVG.new(bx, low, high[2], true))
+if showFVG and bearFVG
+    bx = box.new(bar_index-1, low[2], bar_index+fvgExt, high, border_color=na, bgcolor=bearFvgC)
+    array.push(fvgs, FVG.new(bx, low[2], high, false))
+
+if showFVG and array.size(fvgs) > 0
+    i = array.size(fvgs)-1
+    while i >= 0
+        f = array.get(fvgs, i)
+        mit = f.isBull ? (low <= f.bot) : (high >= f.top)
+        if fvgDel and mit
+            box.delete(f.bx)
+            array.remove(fvgs, i)
+        else
+            box.set_right(f.bx, bar_index+fvgExt)
+        i -= 1
+
+// =============================================================================
+//  ENTRY / EXIT SIGNALS  (confluence based)
+//  Long  : trend up + (HTF up) + (zone retest) + bullish trigger
+//  Short : trend dn + (HTF dn) + (zone retest) + bearish trigger
+// =============================================================================
+var line  slLine   = na
+var line  tpLine   = na
+var label slLbl    = na
+var label tpLbl    = na
+var float entryP   = na
+
+// bullish/bearish trigger: reclaim of 9 EMA in trend direction
+trigUp = ta.crossover(close, ema9) or bosUp
+trigDn = ta.crossunder(close, ema9) or bosDn
+
+htfOkUp = reqHTF ? htfBull : true
+htfOkDn = reqHTF ? htfBear : true
+zoneOkUp = reqZone ? demandRetest : true
+zoneOkDn = reqZone ? supplyRetest : true
+
+longSig  = showSig and trendUp and htfOkUp and zoneOkUp and trigUp
+shortSig = showSig and trendDn and htfOkDn and zoneOkDn and trigDn
+
+if longSig
+    label.new(bar_index, low, "▲ LONG", style=label.style_label_up, color=color.new(#00c853,0), textcolor=color.white, size=size.small)
+    e  = close
+    sl = e - atr*(1.0+slBufATR)
+    risk = math.abs(e - sl)
+    tp = e + risk*rrTarget
+    if not na(slLine)
+        line.delete(slLine)
+        line.delete(tpLine)
+        label.delete(slLbl)
+        label.delete(tpLbl)
+    slLine := line.new(bar_index, sl, bar_index+10, sl, color=color.red, style=line.style_dotted, width=1)
+    tpLine := line.new(bar_index, tp, bar_index+10, tp, color=color.green, style=line.style_dotted, width=1)
+    slLbl  := label.new(bar_index+10, sl, "SL " + str.tostring(sl, format.mintick), style=label.style_label_left, color=color.new(color.red,20), textcolor=color.white, size=size.small)
+    tpLbl  := label.new(bar_index+10, tp, "TGT " + str.tostring(tp, format.mintick) + "  (" + str.tostring(rrTarget,"#.#") + "R)", style=label.style_label_left, color=color.new(color.green,20), textcolor=color.white, size=size.small)
+    entryP := e
+
+if shortSig
+    label.new(bar_index, high, "▼ SHORT", style=label.style_label_down, color=color.new(#d50000,0), textcolor=color.white, size=size.small)
+    e  = close
+    sl = e + atr*(1.0+slBufATR)
+    risk = math.abs(e - sl)
+    tp = e - risk*rrTarget
+    if not na(slLine)
+        line.delete(slLine)
+        line.delete(tpLine)
+        label.delete(slLbl)
+        label.delete(tpLbl)
+    slLine := line.new(bar_index, sl, bar_index+10, sl, color=color.red, style=line.style_dotted, width=1)
+    tpLine := line.new(bar_index, tp, bar_index+10, tp, color=color.green, style=line.style_dotted, width=1)
+    slLbl  := label.new(bar_index+10, sl, "SL " + str.tostring(sl, format.mintick), style=label.style_label_left, color=color.new(color.red,20), textcolor=color.white, size=size.small)
+    tpLbl  := label.new(bar_index+10, tp, "TGT " + str.tostring(tp, format.mintick) + "  (" + str.tostring(rrTarget,"#.#") + "R)", style=label.style_label_left, color=color.new(color.green,20), textcolor=color.white, size=size.small)
+    entryP := e
+
+// =============================================================================
+//  DASHBOARD
+// =============================================================================
+posMap(p) => p=="Top Right"?position.top_right : p=="Top Left"?position.top_left : p=="Bottom Right"?position.bottom_right : p=="Bottom Left"?position.bottom_left : position.middle_right
+
+f_cell(t, r, c, txt, bg, tc) => table.cell(t, c, r, txt, text_color=tc, bgcolor=bg, text_size=dashSize=="Large"?size.normal:size.small)
+
+if showDash and barstate.islast
+    var table d = table.new(posMap(dashPos), 2, 8, border_width=1, frame_color=color.new(color.gray,40), frame_width=1)
+    f_cell(d, 0, 0, "F&O TREND", color.new(#111111,0), color.white)
+    f_cell(d, 0, 1, trendTxt, color.new(trendClr,0), color.white)
+    f_cell(d, 1, 0, "Score", color.new(#2a2a2a,0), color.white)
+    f_cell(d, 1, 1, str.tostring(score) + " / ±" + str.tostring(maxScore), color.new(trendClr,30), color.white)
+    f_cell(d, 2, 0, "EMA 9/20", color.new(#2a2a2a,0), color.white)
+    f_cell(d, 2, 1, emaUp?"Bullish":emaDn?"Bearish":"Flat", emaUp?color.new(#00c853,30):emaDn?color.new(#d50000,30):color.new(#616161,30), color.white)
+    f_cell(d, 3, 0, "VWAP", color.new(#2a2a2a,0), color.white)
+    f_cell(d, 3, 1, vUp?"Above":"Below", vUp?color.new(#00c853,30):color.new(#d50000,30), color.white)
+    f_cell(d, 4, 0, "50 EMA Bias", color.new(#2a2a2a,0), color.white)
+    f_cell(d, 4, 1, biasUp?"Up":"Down", biasUp?color.new(#00c853,30):color.new(#d50000,30), color.white)
+    f_cell(d, 5, 0, "Structure", color.new(#2a2a2a,0), color.white)
+    f_cell(d, 5, 1, structUp?"Bullish":structDn?"Bearish":"—", structUp?color.new(#00c853,30):structDn?color.new(#d50000,30):color.new(#616161,30), color.white)
+    f_cell(d, 6, 0, "HTF (" + htfTF + ")", color.new(#2a2a2a,0), color.white)
+    f_cell(d, 6, 1, htfTxt, htfTxt=="Bullish"?color.new(#00c853,30):htfTxt=="Bearish"?color.new(#d50000,30):color.new(#616161,30), color.white)
+    sigTxt = longSig?"LONG SETUP":shortSig?"SHORT SETUP":(trendUp and not zoneOkUp)?"Wait: zone retest":(trendDn and not zoneOkDn)?"Wait: zone retest":"No setup"
+    f_cell(d, 7, 0, "Signal", color.new(#2a2a2a,0), color.white)
+    f_cell(d, 7, 1, sigTxt, longSig?color.new(#00c853,0):shortSig?color.new(#d50000,0):color.new(#455a64,20), color.white)
+
+// =============================================================================
+//  ALERTS
+// =============================================================================
+alertcondition(longSig,  "LONG Signal",  "F&O: LONG setup — trend+HTF+zone+trigger aligned")
+alertcondition(shortSig, "SHORT Signal", "F&O: SHORT setup — trend+HTF+zone+trigger aligned")
+alertcondition(trendUp,  "Bullish Trend","F&O: Bullish trend confirmed")
+alertcondition(trendDn,  "Bearish Trend","F&O: Bearish trend confirmed")
+alertcondition(demandRetest, "Demand Retest", "F&O: Price testing fresh demand zone")
+alertcondition(supplyRetest, "Supply Retest", "F&O: Price testing fresh supply zone")
