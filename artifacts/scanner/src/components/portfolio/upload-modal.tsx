@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Upload, AlertTriangle, Plus } from "lucide-react";
 import {
+  useSearchChartInstruments,
+  getSearchChartInstrumentsQueryKey,
+  type ChartInstrument,
+} from "@workspace/api-client-react";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -43,10 +48,52 @@ export function UploadModal({
   const [m, setM] = useState({ symbol: "", name: "", sector: "", qty: "", rate: "", date: "" });
   const [manualErr, setManualErr] = useState<string | null>(null);
 
+  // --- Symbol typeahead (reuses the chart instrument search) ---
+  const [symQuery, setSymQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+
   // Always present the single-stock form first each time the modal opens.
   useEffect(() => {
-    if (open) setTab("manual");
+    if (open) {
+      setTab("manual");
+      setSearchOpen(false);
+    }
   }, [open]);
+
+  // Debounce the symbol query so we don't hit search on every keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => setSymQuery(m.symbol.trim()), 200);
+    return () => clearTimeout(id);
+  }, [m.symbol]);
+
+  // Close the suggestion list on outside click.
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  const searchQ = useSearchChartInstruments(
+    { q: symQuery || undefined, segment: "equity" },
+    {
+      query: {
+        enabled: open && tab === "manual" && searchOpen && symQuery.length >= 1,
+        staleTime: 60_000,
+        queryKey: getSearchChartInstrumentsQueryKey({ q: symQuery || undefined, segment: "equity" }),
+      },
+    },
+  );
+  const symResults: ChartInstrument[] = searchQ.data?.instruments ?? [];
+
+  function pickInstrument(inst: ChartInstrument) {
+    setM(prev => ({ ...prev, symbol: inst.symbol, name: prev.name.trim() || inst.name }));
+    setSearchOpen(false);
+  }
 
   function handleText(text: string) {
     setCsvText(text);
@@ -196,13 +243,56 @@ export function UploadModal({
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="relative" ref={searchBoxRef}>
               <Input
-                placeholder="Symbol (e.g. RELIANCE)"
+                placeholder="Symbol — start typing to search (e.g. RELIANCE)"
                 value={m.symbol}
-                onChange={e => setM({ ...m, symbol: e.target.value })}
+                onChange={e => {
+                  setM({ ...m, symbol: e.target.value });
+                  setSearchOpen(true);
+                }}
+                onFocus={() => {
+                  if (m.symbol.trim()) setSearchOpen(true);
+                }}
+                autoComplete="off"
                 data-testid="manual-symbol"
               />
+              {searchOpen && symQuery.length >= 1 && (
+                <div
+                  className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border bg-popover shadow-lg"
+                  data-testid="manual-symbol-suggestions"
+                >
+                  {searchQ.isLoading && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+                  )}
+                  {!searchQ.isLoading && symResults.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground">
+                      No match — you can still add “{m.symbol.trim().toUpperCase()}” manually.
+                    </div>
+                  )}
+                  {symResults.map(inst => (
+                    <button
+                      type="button"
+                      key={`${inst.segment}:${inst.symbol}`}
+                      onClick={() => pickInstrument(inst)}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50"
+                      data-testid={`sym-result-${inst.symbol}`}
+                    >
+                      <span className="flex min-w-0 flex-col">
+                        <span className="font-mono text-sm font-semibold">{inst.symbol}</span>
+                        <span className="max-w-[260px] truncate text-[11px] text-muted-foreground">
+                          {inst.name}
+                        </span>
+                      </span>
+                      <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {inst.type}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
               <Input
                 placeholder="Name (optional)"
                 value={m.name}
@@ -212,12 +302,6 @@ export function UploadModal({
                 placeholder="Sector (optional)"
                 value={m.sector}
                 onChange={e => setM({ ...m, sector: e.target.value })}
-              />
-              <Input
-                type="date"
-                value={m.date}
-                onChange={e => setM({ ...m, date: e.target.value })}
-                data-testid="manual-date"
               />
               <Input
                 type="number"
@@ -232,6 +316,12 @@ export function UploadModal({
                 value={m.rate}
                 onChange={e => setM({ ...m, rate: e.target.value })}
                 data-testid="manual-rate"
+              />
+              <Input
+                type="date"
+                value={m.date}
+                onChange={e => setM({ ...m, date: e.target.value })}
+                data-testid="manual-date"
               />
             </div>
             {manualErr && (
