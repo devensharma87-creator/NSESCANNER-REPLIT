@@ -9,6 +9,7 @@
 import { Router, type IRouter } from "express";
 import { z } from "zod";
 import { searchInstruments } from "../lib/chartInstruments";
+import { loadNseEquityMaster } from "../lib/nseEquityMaster";
 import {
   getChartCandles,
   ALL_TIMEFRAMES,
@@ -32,7 +33,13 @@ router.get("/chart/instruments", (req, res) => {
     return;
   }
   const q = parsed.data.q ?? "";
-  const instruments = searchInstruments(q, parsed.data.segment);
+  // Augment the curated equity catalog with the full NSE master (disk-cached,
+  // session-independent) so the picker can search the full ~5,000-name universe.
+  const wantEquity = !parsed.data.segment || parsed.data.segment === "equity";
+  // Only parse the master when there is an actual query — equities are excluded
+  // from the empty-query default pool anyway, so an empty search needs nothing.
+  const extraEquities = wantEquity && q.length > 0 ? loadNseEquityMaster() : undefined;
+  const instruments = searchInstruments(q, parsed.data.segment, extraEquities);
   res.json({ query: q, instruments });
 });
 

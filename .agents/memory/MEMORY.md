@@ -9,3 +9,4 @@
 - [Kite candle CSV must be IST-local](kite-candle-ist-timestamps.md) — export candles as IST-local naive `YYYY-MM-DD HH:MM:SS`; `.toISOString()` shifts the session -5:30h and breaks the backtester's hour buckets/time gates.
 - [getEnvironmentLabel returns an object (React #31 trap)](fno-env-label-object-react31.md) — `/api/fno/*` `environment` field is `{env,autoTradingEnabled,reason}`, not a string; never render `/api/fno/*` fields raw in JSX.
 - [Backtester prod backfill is a no-op](backtester-prod-backfill-noop.md) — backtester was dev-only until 2026-06-07 publish; pre-fix off-session trades only ever existed in dev, prod starts clean.
+- [Portfolio full-universe search + CMP](portfolio-full-universe-cmp.md) — fixing "NA" CMP for non-curated NSE holdings needs BOTH the search-master (disk-cached Kite dump, session-independent) AND the generic .NS resolve fallback; fix one only and it stays broken.
