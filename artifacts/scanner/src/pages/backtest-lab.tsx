@@ -73,7 +73,14 @@ import {
   RefreshCw,
   Trophy,
   Layers,
+  Filter,
 } from "lucide-react";
+import {
+  computeDominantBlocker,
+  isLikelyOverFiltered,
+  relaxFilters,
+  type DominantBlocker,
+} from "@/lib/backtestBlockers";
 
 // ───────────── formatting (honest: never fabricate a number) ─────────────
 
@@ -1160,6 +1167,77 @@ function BlockedTable({ rows, showAttribution }: { rows: BacktestBlockedSetup[];
   );
 }
 
+// ───────────── over-filtered empty-state callout ─────────────
+
+function categoryWord(category: string): string {
+  if (category === "DATA") return "filter (indicator data unavailable at entry)";
+  if (category === "RISK") return "risk cap";
+  return "confirmation filter";
+}
+
+function UnderFilteredCallout({
+  blocker,
+  totalTrades,
+  totalBlocked,
+  onRelax,
+  pending,
+}: {
+  blocker: DominantBlocker;
+  totalTrades: number;
+  totalBlocked: number;
+  onRelax: (b: DominantBlocker) => void;
+  pending: boolean;
+}) {
+  const share = Math.round(blocker.sharePct);
+  const relaxLabel =
+    blocker.relaxKind === "DISABLE_FILTER"
+      ? `Turn off ${blocker.label} & re-run`
+      : blocker.relaxKind === "LOWER_RR"
+        ? "Set Min R:R to 0 & re-run"
+        : blocker.relaxKind === "RAISE_TRADE_CAP"
+          ? "Raise daily trade cap & re-run"
+          : null;
+  return (
+    <Card className="border-amber-500/40 bg-amber-500/5">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-start gap-2">
+          <Filter className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-amber-200">
+              {totalTrades === 0
+                ? "No trades qualified — this run looks over-filtered"
+                : "Very few trades — this run looks over-filtered"}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              <strong className="text-foreground">{share}%</strong> of blocked setups (
+              {blocker.topCount.toLocaleString("en-IN")} of{" "}
+              {totalBlocked.toLocaleString("en-IN")}) were stopped by the{" "}
+              <strong className="text-foreground">{blocker.label}</strong>{" "}
+              {categoryWord(blocker.category)}. Relax it to see whether the strategies are genuinely
+              idle or just over-filtered.
+            </p>
+          </div>
+        </div>
+        {relaxLabel ? (
+          <Button size="sm" onClick={() => onRelax(blocker)} disabled={pending} className="gap-1.5">
+            {pending ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
+            {relaxLabel}
+          </Button>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            The dominant blocker ({blocker.label}) is not a one-click-relaxable confirmation filter —
+            review the blocked table below for the full reasoning.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ───────────── page ─────────────
 
 export default function BacktestLab() {
@@ -1217,6 +1295,20 @@ export default function BacktestLab() {
     run?.backtestMode === "STRATEGY_RESEARCH" ||
     run?.backtestMode === "COMPARE_OFFICIAL_VS_STRATEGIES";
 
+  // Empty-state reasoning: roll the blocked table up to the single dominant rule
+  // so a zero/near-zero strategy run can tell the owner exactly what to relax.
+  const totalBlocked = useMemo(
+    () => blocked.reduce((acc, b) => acc + (b.count ?? 0), 0),
+    [blocked],
+  );
+  const dominantBlocker = useMemo(() => computeDominantBlocker(blocked), [blocked]);
+  const showOverFiltered =
+    runIsStrategy &&
+    run?.status === "COMPLETE" &&
+    summary != null &&
+    dominantBlocker != null &&
+    isLikelyOverFiltered(summary.totalTrades, totalBlocked);
+
   function toggleStrategy(id: string) {
     setSelectedStrategies((prev) => {
       const next = new Set(prev);
@@ -1229,30 +1321,43 @@ export default function BacktestLab() {
   const canRun =
     !createMut.isPending && (!isStrategyMode || selectedStrategies.size > 0);
 
-  function runBacktest() {
-    const strategyMode = isStrategyMode;
+  function triggerRun(overrides?: {
+    backtestMode?: BacktestRunRequestBacktestMode;
+    instrument?: BacktestRunRequestInstrument;
+    filters?: Required<BacktestFilterConfig>;
+    maxTradesPerDay?: number;
+    strategies?: string[];
+  }) {
+    const effBacktestMode = overrides?.backtestMode ?? backtestMode;
+    const effInstrument = overrides?.instrument ?? instrument;
+    const effFilters = overrides?.filters ?? filters;
+    const effMaxTradesPerDay = overrides?.maxTradesPerDay ?? maxTradesPerDay;
+    const effStrategies = overrides?.strategies ?? Array.from(selectedStrategies);
+    const strategyMode =
+      effBacktestMode === "STRATEGY_RESEARCH" ||
+      effBacktestMode === "COMPARE_OFFICIAL_VS_STRATEGIES";
     createMut.mutate(
       {
         data: {
           // OFFICIAL_ENGINE uses the sub-mode; strategy runs replay the directional
           // spot layer, so we pass DIRECTIONAL as the engine mode.
-          mode: backtestMode === "OFFICIAL_ENGINE" ? officialSubMode : "DIRECTIONAL",
-          instrument,
+          mode: effBacktestMode === "OFFICIAL_ENGINE" ? officialSubMode : "DIRECTIONAL",
+          instrument: effInstrument,
           timeframe: "15m",
           startingCapital: capital,
           riskPerTradePct: riskPct,
-          backtestMode,
+          backtestMode: effBacktestMode,
           ...(strategyMode
             ? {
-                strategies: Array.from(selectedStrategies),
-                filters,
-                maxTradesPerDay,
+                strategies: effStrategies,
+                filters: effFilters,
+                maxTradesPerDay: effMaxTradesPerDay,
                 includeCharges,
                 includeSlippage,
                 ...(() => {
                   // Only send overrides for selected strategies that actually carry params.
                   const sp: Record<string, Record<string, number>> = {};
-                  for (const id of selectedStrategies) {
+                  for (const id of effStrategies) {
                     const ov = strategyParams[id];
                     if (ov && Object.keys(ov).length > 0) sp[id] = ov;
                   }
@@ -1269,6 +1374,44 @@ export default function BacktestLab() {
         },
       },
     );
+  }
+
+  function runBacktest() {
+    triggerRun();
+  }
+
+  // One-click "relax the dominant blocker and re-run". Reuses the active run's
+  // strategy set / mode (so a stale form selection can't silently change what we
+  // re-test) and relaxes exactly the rule that blocked the most setups.
+  function relaxAndRerun(blocker: DominantBlocker) {
+    const runStrategies = run?.selectedStrategies ?? [];
+    const effStrategies =
+      selectedStrategies.size > 0 ? Array.from(selectedStrategies) : runStrategies;
+    const runMode = (run?.backtestMode ?? backtestMode) as BacktestRunRequestBacktestMode;
+    const runInstrument = (run?.instrument ?? instrument) as BacktestRunRequestInstrument;
+
+    const nextFilters = relaxFilters(filters, blocker);
+    setFilters(nextFilters);
+
+    let nextMaxTradesPerDay = maxTradesPerDay;
+    if (blocker.relaxKind === "RAISE_TRADE_CAP") {
+      nextMaxTradesPerDay = Math.min(20, Math.max(maxTradesPerDay + 1, maxTradesPerDay * 2));
+      setMaxTradesPerDay(nextMaxTradesPerDay);
+    }
+    // Keep the form in sync with what we actually re-run.
+    setBacktestMode(runMode);
+    setInstrument(runInstrument);
+    if (selectedStrategies.size === 0 && runStrategies.length > 0) {
+      setSelectedStrategies(new Set(runStrategies));
+    }
+
+    triggerRun({
+      backtestMode: runMode,
+      instrument: runInstrument,
+      filters: nextFilters,
+      maxTradesPerDay: nextMaxTradesPerDay,
+      strategies: effStrategies,
+    });
   }
 
   function exportCsv() {
@@ -1540,6 +1683,17 @@ export default function BacktestLab() {
         </Card>
       ) : (
         <div className="space-y-4">
+          {/* over-filtered empty-state: surface the dominant blocker + 1-click relax */}
+          {showOverFiltered && dominantBlocker && summary && (
+            <UnderFilteredCallout
+              blocker={dominantBlocker}
+              totalTrades={summary.totalTrades}
+              totalBlocked={totalBlocked}
+              onRelax={relaxAndRerun}
+              pending={createMut.isPending}
+            />
+          )}
+
           {/* comparison / ranking dashboard (strategy + compare modes) */}
           {comparison && <ComparisonDashboard comparison={comparison} />}
 
