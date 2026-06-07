@@ -24,9 +24,24 @@
  *     persisted `summary.equityCurve[].t` point is in-session too.
  * Each run is deleted afterwards so the dev DB keeps zero net footprint.
  *
+ * REAL_REPLAY (modeled=false) is covered separately, lower down. Those trades
+ * carry GENUINE captured `triggered_at` / `exited_at` instants from
+ * `option_signal_history` that can LEGITIMATELY fall outside 09:15–15:30 IST
+ * (e.g. an after-close force-exit), so the in-session assertion does NOT apply.
+ * What DOES still apply is that those real instants must round-trip through the
+ * exact same persist/serialize path (`new Date(iso)` on insert → `.toISOString()`
+ * on read) WITHOUT offset corruption. The REAL_REPLAY test therefore reads the
+ * genuine source instants straight out of `option_signal_history`, drives a
+ * replay run, reads the trades back over HTTP, and asserts every persisted
+ * entry/exit is a valid canonical-UTC ISO that round-trips byte-for-byte against
+ * the source instant — never forcing it into the in-session window.
+ *
  * Auto-skips cleanly (mirroring the other live-DB tests) when either:
  *   - `DATABASE_URL` is unset (no DB to persist into), or
- *   - the real 15-min candle CSV is absent (nothing to backtest on).
+ *   - the real 15-min candle CSV is absent (nothing to backtest on) for the
+ *     modeled-mode tests, or
+ *   - no captured REAL_REPLAY history (a taken signal) exists for the
+ *     REAL_REPLAY test.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -212,11 +227,77 @@ async function runAndVerifyInSession(
   return { tradesChecked, curveChecked };
 }
 
+// ---------------------------------------------------------------------------
+// REAL_REPLAY helpers (modeled=false; genuine captured instants).
+// ---------------------------------------------------------------------------
+
+/** Canonical UTC ISO for a value that round-trips: `new Date(iso).toISOString() === iso`. */
+function isCanonicalUtcIso(iso: unknown): iso is string {
+  if (typeof iso !== "string" || iso.length === 0) return false;
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return false;
+  // A canonical UTC ISO is byte-for-byte stable through Date — a `+05:30`-stamped
+  // (offset-corrupted) string would NOT equal its own re-serialization.
+  return new Date(ms).toISOString() === iso;
+}
+
+type ReplaySourceInstants = {
+  /** Number of taken (triggered) source signals — proves the run is non-vacuous. */
+  taken: number;
+  /** Canonical-UTC ISO of every source `triggered_at` (the engine's `entryAt`). */
+  entryIsos: Set<string>;
+  /** Canonical-UTC ISO of every source `exited_at` (the engine's `exitAt`). */
+  exitIsos: Set<string>;
+};
+
+/**
+ * Read the GENUINE captured instants straight out of `option_signal_history`
+ * for one instrument — the source of truth the persisted REAL_REPLAY trades
+ * must round-trip against. Mirrors `buildReplayTrades` exactly: a trade is
+ * "taken" iff `triggered_at` is present; its `entryAt` is `triggered_at`'s
+ * canonical UTC ISO and its `exitAt` is `exited_at`'s (when present). Returns
+ * null on any DB error so the caller can skip honestly.
+ */
+async function loadReplaySourceInstants(
+  instrument: string,
+): Promise<ReplaySourceInstants | null> {
+  try {
+    const r = await pool.query<{ triggered_at: Date | null; exited_at: Date | null }>(
+      `SELECT triggered_at, exited_at
+         FROM option_signal_history
+        WHERE index_symbol = $1 AND triggered_at IS NOT NULL`,
+      [instrument],
+    );
+    const entryIsos = new Set<string>();
+    const exitIsos = new Set<string>();
+    for (const row of r.rows) {
+      if (row.triggered_at) entryIsos.add(new Date(row.triggered_at).toISOString());
+      if (row.exited_at) exitIsos.add(new Date(row.exited_at).toISOString());
+    }
+    return { taken: r.rows.length, entryIsos, exitIsos };
+  } catch {
+    return null;
+  }
+}
+
+/** Candidate instrument with the most captured REAL_REPLAY history, or null. */
+async function firstReplayInstrument(): Promise<string | null> {
+  let best: { sym: string; taken: number } | null = null;
+  for (const sym of CANDIDATE_SYMBOLS) {
+    const src = await loadReplaySourceInstants(sym);
+    if (src && src.taken > 0 && (!best || src.taken > best.taken)) {
+      best = { sym, taken: src.taken };
+    }
+  }
+  return best?.sym ?? null;
+}
+
 const hasDb = Boolean(process.env.DATABASE_URL);
 const describeDb = hasDb ? describe : describe.skip;
 
 describeDb("Backtest Lab — persisted trade times stay in-session (live DB)", () => {
   let availableSymbol: string | null = null;
+  let replayInstrument: string | null = null;
 
   beforeAll(async () => {
     const app: Express = express();
@@ -238,6 +319,7 @@ describeDb("Backtest Lab — persisted trade times stay in-session (live DB)", (
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
     availableSymbol = await firstAvailableSymbol();
+    replayInstrument = await firstReplayInstrument();
   });
 
   afterAll(async () => {
@@ -317,6 +399,110 @@ describeDb("Backtest Lab — persisted trade times stay in-session (live DB)", (
       );
       expect(tradesChecked, "no COMPARE modeled trades were persisted").toBeGreaterThan(0);
       expect(curveChecked, "no COMPARE equity-curve points were persisted").toBeGreaterThan(0);
+    },
+    60000,
+  );
+
+  it(
+    "every PERSISTED REAL_REPLAY entry/exit + equity-curve point round-trips against the genuine captured instant (no offset corruption)",
+    async () => {
+      if (!replayInstrument) return; // Honest skip: no captured REAL_REPLAY history.
+
+      // The source of truth: the genuine captured instants the replay reads from.
+      const src = await loadReplaySourceInstants(replayInstrument);
+      if (!src || src.taken === 0) return; // Honest skip: nothing to replay.
+
+      // Drive a REAL_REPLAY over the FULL captured span (fromDate/toDate null),
+      // which mirrors exactly what `loadReplaySourceInstants` queried.
+      const create = await req("POST", "/backtest/fno/runs", {
+        cookie: OWNER_COOKIE,
+        body: {
+          mode: "REAL_REPLAY",
+          instrument: replayInstrument,
+          fromDate: null,
+          toDate: null,
+          riskPerTradePct: 1,
+        },
+      });
+      expect(create.status, `REAL_REPLAY create: ${JSON.stringify(create.body)}`).toBe(201);
+      const runId = create.body["id"] as string;
+      expect(typeof runId, "REAL_REPLAY run id").toBe("string");
+
+      let tradesChecked = 0;
+      let curveChecked = 0;
+      try {
+        // --- Persisted trades: the serialized backtest_trades shape. ----------
+        const list = await req("GET", `/backtest/fno/runs/${runId}/trades`, {
+          cookie: OWNER_COOKIE,
+        });
+        expect(list.status, "REAL_REPLAY trades GET").toBe(200);
+        const trades = (list.body["items"] as PersistedTrade[]) ?? [];
+        for (const t of trades) {
+          // REAL_REPLAY trades are NOT modeled — they carry real captured instants.
+          expect(t.modeled, "REAL_REPLAY trade unexpectedly flagged modeled").toBe(false);
+
+          // entryAt is always present (triggered_at, never null for a taken trade).
+          // It must be a canonical UTC ISO that round-trips byte-for-byte AND must
+          // be one of the GENUINE source instants — proving the persist/serialize
+          // layer introduced no +05:30 (or any) offset corruption. We deliberately
+          // do NOT assert it falls inside 09:15–15:30 IST.
+          expect(
+            isCanonicalUtcIso(t.entryAt),
+            `REAL_REPLAY persisted entry ${t.entryAt} (run ${runId}) is not a canonical UTC instant`,
+          ).toBe(true);
+          expect(
+            src.entryIsos.has(t.entryAt as string),
+            `REAL_REPLAY persisted entry ${t.entryAt} (run ${runId}) does not match any captured triggered_at (offset corruption?)`,
+          ).toBe(true);
+
+          // exitAt is present only for decided/exited signals.
+          if (t.exitAt !== null) {
+            expect(
+              isCanonicalUtcIso(t.exitAt),
+              `REAL_REPLAY persisted exit ${t.exitAt} (run ${runId}) is not a canonical UTC instant`,
+            ).toBe(true);
+            expect(
+              src.exitIsos.has(t.exitAt as string),
+              `REAL_REPLAY persisted exit ${t.exitAt} (run ${runId}) does not match any captured exited_at (offset corruption?)`,
+            ).toBe(true);
+          }
+          tradesChecked++;
+        }
+
+        // --- Persisted summary.equityCurve[].t (each point is a trade exitAt). -
+        const detail = await req("GET", `/backtest/fno/runs/${runId}`, {
+          cookie: OWNER_COOKIE,
+        });
+        expect(detail.status, "REAL_REPLAY run GET").toBe(200);
+        const summary = detail.body["summary"] as
+          | { equityCurve?: Array<{ t?: string | null }> }
+          | null;
+        const curve = summary?.equityCurve ?? [];
+        for (const pt of curve) {
+          if (!pt.t) continue; // undated exits are stored as "" — nothing to check.
+          expect(
+            isCanonicalUtcIso(pt.t),
+            `REAL_REPLAY persisted equityCurve point ${pt.t} (run ${runId}) is not a canonical UTC instant`,
+          ).toBe(true);
+          expect(
+            src.exitIsos.has(pt.t),
+            `REAL_REPLAY persisted equityCurve point ${pt.t} (run ${runId}) does not match any captured exited_at (offset corruption?)`,
+          ).toBe(true);
+          curveChecked++;
+        }
+      } finally {
+        // Zero net footprint — delete the run (trades cascade).
+        await req("DELETE", `/backtest/fno/runs/${runId}`, { cookie: OWNER_COOKIE });
+      }
+
+      // Non-vacuous: captured taken history exists, so the replay must persist trades.
+      expect(
+        tradesChecked,
+        "no REAL_REPLAY trades were persisted despite captured taken history",
+      ).toBeGreaterThan(0);
+      // equityCurve points are best-effort: a point exists only for decided trades
+      // (those with a captured option exit premium), which may be zero — but any
+      // point that DOES exist must round-trip, asserted in the loop above.
     },
     60000,
   );
