@@ -545,21 +545,35 @@ export default function PortfolioAnalyser() {
 
   return (
     <div className="space-y-4" data-testid="page-portfolio-analyser">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-lg font-semibold">Portfolio Analyser</h1>
           <p className="text-xs text-muted-foreground">
             Read-only structure analytics for your holdings · live prices via Kite / Yahoo · saved
             privately to your account
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {lastUpdated && (
-            <span className="text-[11px] text-muted-foreground" data-testid="last-updated">
-              Updated {fmtAge(lastUpdated)}
-            </span>
-          )}
-          <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} data-testid="btn-add">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <PortfolioToolbar
+            list={pf.list}
+            listReady={pf.listReady}
+            currentId={currentId}
+            currentName={currentName}
+            isDefault={isDefault}
+            dirty={dirty}
+            saving={pf.saving}
+            hasHoldings={holdings.length > 0 && !isSample}
+            onSwitch={switchTo}
+            onNew={newEmpty}
+            onSave={saveCurrent}
+            onSaveAs={saveAs}
+            onCreateNamed={createNamed}
+            onRename={rename}
+            onSetDefault={setDefault}
+            onDelete={deleteCurrent}
+            onExport={exportCsv}
+          />
+          <Button size="sm" onClick={() => setUploadOpen(true)} data-testid="btn-add">
             <Plus className="mr-1 h-3.5 w-3.5" /> Add Holdings
           </Button>
           <Button
@@ -576,35 +590,23 @@ export default function PortfolioAnalyser() {
 
       <ComplianceBanner />
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <PortfolioToolbar
-          list={pf.list}
-          listReady={pf.listReady}
-          currentId={currentId}
-          currentName={currentName}
-          isDefault={isDefault}
-          dirty={dirty}
-          saving={pf.saving}
-          hasHoldings={holdings.length > 0 && !isSample}
-          onSwitch={switchTo}
-          onNew={newEmpty}
-          onSave={saveCurrent}
-          onSaveAs={saveAs}
-          onCreateNamed={createNamed}
-          onRename={rename}
-          onSetDefault={setDefault}
-          onDelete={deleteCurrent}
-          onExport={exportCsv}
-        />
-        {dirty && currentId && (
-          <span className="text-[11px] text-amber-400" data-testid="dirty-indicator">
-            Unsaved changes
-          </span>
-        )}
-        {isSample && (
-          <span className="text-[11px] text-amber-400">Sample data — saving is disabled</span>
-        )}
-      </div>
+      {(lastUpdated || (dirty && currentId) || isSample) && (
+        <div className="flex flex-wrap items-center gap-3 text-[11px]">
+          {lastUpdated && (
+            <span className="text-muted-foreground" data-testid="last-updated">
+              Updated {fmtAge(lastUpdated)}
+            </span>
+          )}
+          {dirty && currentId && (
+            <span className="text-amber-400" data-testid="dirty-indicator">
+              Unsaved changes
+            </span>
+          )}
+          {isSample && (
+            <span className="text-amber-400">Sample data — saving is disabled</span>
+          )}
+        </div>
+      )}
 
       {isSample && (
         <div
@@ -672,13 +674,9 @@ export default function PortfolioAnalyser() {
               </div>
             </div>
           )}
-          <div className="grid gap-4 lg:grid-cols-[1fr_340px] lg:items-start">
-            <HoldingsTable rows={enriched} onSelect={setSelected} onRemove={removeOne} />
-            <div className="lg:sticky lg:top-4">
-              <SectorAllocationPanel allocation={allocation} />
-            </div>
-          </div>
+          <HoldingsTable rows={enriched} onSelect={setSelected} onRemove={removeOne} />
           <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+            <SectorAllocationPanel allocation={allocation} />
             <RiskPanel risk={risk} />
             <AllocationPanel rows={analyticsRows} />
             <CostBasisPanel holdingPeriod={holdingPeriod} dividends={dividends} />

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, Upload, AlertTriangle, Plus } from "lucide-react";
 import {
   Dialog,
@@ -35,13 +35,18 @@ export function UploadModal({
   onImport: (holdings: RawHolding[]) => void;
   onAddOne: (holding: RawHolding) => void;
 }) {
-  const [tab, setTab] = useState<Tab>("csv");
+  const [tab, setTab] = useState<Tab>("manual");
   const [parsed, setParsed] = useState<ParseResult | null>(null);
   const [csvText, setCsvText] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [m, setM] = useState({ symbol: "", name: "", sector: "", qty: "", rate: "", date: "" });
   const [manualErr, setManualErr] = useState<string | null>(null);
+
+  // Always present the single-stock form first each time the modal opens.
+  useEffect(() => {
+    if (open) setTab("manual");
+  }, [open]);
 
   function handleText(text: string) {
     setCsvText(text);
