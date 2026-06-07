@@ -48,6 +48,7 @@ import type {
 import {
   AUTO_DISABLED_FILTERS,
   FILTER_LABELS,
+  FILTER_ABBR,
   DEFAULT_FILTERS,
   summarizeRunFilters,
 } from "@/lib/backtestRunSummary";
@@ -533,6 +534,13 @@ function StrategyPicker({
     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
       {strategies.map((s) => {
         const on = selected.has(s.id);
+        const ignored = (s.ignoredFilters ?? []).filter(Boolean);
+        const ignoredAbbr = ignored.map((k) => {
+          if (k === "minimumRiskReward") return "R:R";
+          const abbr = FILTER_ABBR[k as keyof typeof FILTER_ABBR];
+          return abbr ?? FILTER_LABELS[k as keyof typeof FILTER_LABELS] ?? k;
+        });
+        const rationale = (s.ignoredFiltersRationale ?? "").trim();
         return (
           <button
             key={s.id}
@@ -563,6 +571,22 @@ function StrategyPicker({
                 {s.bestCondition}
               </span>
             </div>
+            {ignoredAbbr.length > 0 && (
+              <div
+                className="mt-1 text-[9px] text-amber-300/90"
+                title={
+                  rationale
+                    ? `This strategy ignores ${ignoredAbbr.join(", ")} by design — ${rationale}`
+                    : `This strategy ignores ${ignoredAbbr.join(", ")} by design.`
+                }
+              >
+                <span className="text-amber-300/70">ignores </span>
+                {ignoredAbbr.join("/")}
+                {rationale && (
+                  <span className="text-muted-foreground"> — {rationale}</span>
+                )}
+              </div>
+            )}
             {(s.suitableIndices.length > 0 || s.recommendedTimeframes.length > 0) && (
               <div className="mt-1 space-y-0.5 text-[9px] text-muted-foreground">
                 {s.suitableIndices.length > 0 && (
