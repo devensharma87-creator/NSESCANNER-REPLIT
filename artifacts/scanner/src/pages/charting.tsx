@@ -7,7 +7,7 @@
  * is computed client-side from the normalized /api/chart/candles feed. This
  * tab never places orders or mutates any state.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   useSearchChartInstruments,
   getSearchChartInstrumentsQueryKey,
@@ -85,10 +85,15 @@ const DEFAULT_EMA_VISIBLE: Record<EmaPeriod, boolean> = {
   200: false,
 };
 
-// ~78vh, leaving room for the toolbar/header, clamped to a sensible range.
-// Bumped to give the chart more breathing room on large screens.
+// Fit-to-screen: the chart fills the viewport from its own top edge down to a
+// small bottom gap, so the whole chart + time axis is visible without scrolling
+// (Kite-style). These bound that computed height.
+const BOTTOM_GAP_PX = 14; // breathing room below the chart card
+const MIN_CHART_PX = 340; // never collapse smaller than this
+
+// SSR / first-paint fallback before we can measure the real top offset.
 function clampHeight(innerHeight: number): number {
-  return Math.max(600, Math.min(1100, Math.round(innerHeight * 0.78)));
+  return Math.max(MIN_CHART_PX, Math.min(1100, Math.round(innerHeight * 0.7)));
 }
 
 function fmtAge(asOf: number | null | undefined): string {
@@ -292,22 +297,48 @@ export default function ChartingPage() {
 
   // Responsive, viewport-driven chart height (~70vh, clamped) so the chart
   // breathes on large screens but stays usable on laptops.
-  const [chartHeight, setChartHeight] = useState(() =>
-    typeof window === "undefined" ? 560 : clampHeight(window.innerHeight),
-  );
-  const [viewportH, setViewportH] = useState(() =>
-    typeof window === "undefined" ? 900 : window.innerHeight,
-  );
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const chartCardRef = useRef<HTMLDivElement | null>(null);
+  const [fitHeight, setFitHeight] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  useEffect(() => {
-    function onResize() {
-      setChartHeight(clampHeight(window.innerHeight));
-      setViewportH(window.innerHeight);
+
+  // Fit-to-screen: measure the chart card's top edge and fill the viewport down
+  // to a small bottom gap, so the entire chart + time axis is visible without
+  // scrolling (Kite-style). The toolbar/header heights are absorbed
+  // automatically because we measure the live top offset. A ResizeObserver on
+  // the page root catches layout shifts that a window "resize" misses — header
+  // name truncation, badge-row wrapping, and async data-state changes (Kite /
+  // Stale / Vol·FUT badges) that move the card's top after load.
+  useLayoutEffect(() => {
+    let raf = 0;
+    function measure() {
+      const el = chartCardRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const avail = window.innerHeight - top - BOTTOM_GAP_PX;
+      const next = Math.max(MIN_CHART_PX, Math.round(avail));
+      // Bail on sub-pixel noise so the ResizeObserver can't feed back on the
+      // height we just set.
+      setFitHeight((prev) => (prev != null && Math.abs(prev - next) <= 1 ? prev : next));
     }
-    window.addEventListener("resize", onResize);
-    onResize();
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+    function schedule() {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    }
+    measure();
+    window.addEventListener("resize", schedule);
+    const ro = new ResizeObserver(schedule);
+    if (rootRef.current) ro.observe(rootRef.current);
+    // Re-measure shortly after paint so toolbar wrapping/fonts settle first.
+    const t = window.setTimeout(measure, 120);
+    return () => {
+      window.removeEventListener("resize", schedule);
+      ro.disconnect();
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [isFullscreen]);
+
   // Escape exits full-screen.
   useEffect(() => {
     if (!isFullscreen) return;
@@ -317,8 +348,9 @@ export default function ChartingPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isFullscreen]);
-  // In full-screen the chart fills the viewport minus header/footer chrome.
-  const effectiveHeight = isFullscreen ? Math.max(600, viewportH - 132) : chartHeight;
+
+  const effectiveHeight =
+    fitHeight ?? clampHeight(typeof window === "undefined" ? 900 : window.innerHeight);
 
   function pick(inst: ChartInstrument) {
     setSelection({ symbol: inst.symbol, name: inst.name, segment: inst.segment });
@@ -334,7 +366,7 @@ export default function ChartingPage() {
   const hasData = !isLoading && !isError && candles.length > 0;
 
   return (
-    <div className={isFullscreen ? "fixed inset-0 z-50 overflow-auto bg-background p-3 space-y-3" : "space-y-3"}>
+    <div ref={rootRef} className={isFullscreen ? "fixed inset-0 z-50 overflow-auto bg-background p-3 space-y-3" : "space-y-3"}>
       {/* ── Toolbar ─────────────────────────────────────────────── */}
       <Card className="p-3 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -666,7 +698,7 @@ export default function ChartingPage() {
       </div>
 
       {/* ── Chart surface ───────────────────────────────────────── */}
-      <Card className="p-2 sm:p-3">
+      <Card ref={chartCardRef} className="p-2 sm:p-3">
         {isLoading && (
           <div className="flex items-center justify-center text-sm text-muted-foreground" style={{ height: effectiveHeight }} data-testid="chart-loading">
             <div className="flex flex-col items-center gap-2">
