@@ -412,6 +412,37 @@ export function refreshScanInBackground(): void {
   void scanAll().catch(() => undefined);
 }
 
+/**
+ * Cache-first accessor for endpoints that only need the latest scan snapshot
+ * (sector/stock list + aggregation views). When the cache is warm it returns
+ * instantly and refreshes in the background — sub-minute staleness is fine for
+ * these dashboard views and far better than blocking the request up to
+ * `scanAll()`'s 25s timeout. Only a cold boot (empty cache) blocks on a full
+ * `scanAll()` so the very first request still returns real data.
+ */
+export async function getScanRowsFast(): Promise<StockRow[]> {
+  return selectScanRows(getCachedScanRows().rows, refreshScanInBackground, scanAll);
+}
+
+/**
+ * Pure branch logic behind {@link getScanRowsFast}, extracted so the warm/cold
+ * decision can be unit-tested without touching the live cache or the network:
+ * a warm cache (rows present) returns instantly and only schedules a background
+ * refresh; a cold cache awaits the supplied full-scan. Production callers go
+ * through `getScanRowsFast` and never pass these in.
+ */
+export async function selectScanRows(
+  cachedRows: StockRow[],
+  refresh: () => void,
+  full: () => Promise<StockRow[]>,
+): Promise<StockRow[]> {
+  if (cachedRows.length > 0) {
+    refresh();
+    return cachedRows;
+  }
+  return full();
+}
+
 export async function getStockHistoryWithSeries(
   symbol: string,
   range: "1mo" | "3mo" | "6mo" | "1y" | "2y",

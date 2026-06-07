@@ -8,6 +8,17 @@
  * makes the math auditable for the screener.
  */
 
+import { ema, rsi } from "@workspace/indicators";
+
+/**
+ * EMA and the series RSI come from the shared `@workspace/indicators` single
+ * source of truth (byte-identical to the api-server + scanner-charting copies).
+ * The remaining functions (sma / atr / macd / bollinger / vwap / supertrend)
+ * are global-specific algorithms and intentionally stay local — see the note in
+ * `@workspace/indicators` on why they are NOT unified.
+ */
+export { ema, rsi };
+
 export interface OHLCV {
   t: number;          // ms since epoch
   open: number;
@@ -29,46 +40,6 @@ export function sma(values: number[], period: number): Array<number | null> {
     sum += values[i]!;
     if (i >= period) sum -= values[i - period]!;
     if (i >= period - 1) out[i] = sum / period;
-  }
-  return out;
-}
-
-export function ema(values: number[], period: number): Array<number | null> {
-  const out: Array<number | null> = nullArr(values.length);
-  if (period <= 0 || values.length === 0) return out;
-  const k = 2 / (period + 1);
-  let prev: number | null = null;
-  let seed = 0;
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i]!;
-    if (i < period - 1) { seed += v; continue; }
-    if (prev === null) { seed += v; prev = seed / period; out[i] = prev; continue; }
-    prev = v * k + prev * (1 - k);
-    out[i] = prev;
-  }
-  return out;
-}
-
-export function rsi(closes: number[], period = 14): Array<number | null> {
-  const out: Array<number | null> = nullArr(closes.length);
-  if (closes.length <= period) return out;
-  let gains = 0;
-  let losses = 0;
-  for (let i = 1; i <= period; i++) {
-    const ch = closes[i]! - closes[i - 1]!;
-    if (ch >= 0) gains += ch;
-    else losses -= ch;
-  }
-  let avgG = gains / period;
-  let avgL = losses / period;
-  out[period] = avgL === 0 ? 100 : 100 - (100 / (1 + avgG / avgL));
-  for (let i = period + 1; i < closes.length; i++) {
-    const ch = closes[i]! - closes[i - 1]!;
-    const g = ch > 0 ? ch : 0;
-    const l = ch < 0 ? -ch : 0;
-    avgG = (avgG * (period - 1) + g) / period;
-    avgL = (avgL * (period - 1) + l) / period;
-    out[i] = avgL === 0 ? 100 : 100 - (100 / (1 + avgG / avgL));
   }
   return out;
 }

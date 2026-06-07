@@ -1,41 +1,13 @@
-export function ema(values: number[], period: number): (number | null)[] {
-  const out: (number | null)[] = new Array(values.length).fill(null);
-  if (values.length < period) return out;
-  const k = 2 / (period + 1);
-  let sum = 0;
-  for (let i = 0; i < period; i++) sum += values[i]!;
-  let prev = sum / period;
-  out[period - 1] = prev;
-  for (let i = period; i < values.length; i++) {
-    prev = values[i]! * k + prev * (1 - k);
-    out[i] = prev;
-  }
-  return out;
-}
+import { ema, rsi } from "@workspace/indicators";
 
-export function rsi(values: number[], period = 14): (number | null)[] {
-  const out: (number | null)[] = new Array(values.length).fill(null);
-  if (values.length < period + 1) return out;
-  let gains = 0;
-  let losses = 0;
-  for (let i = 1; i <= period; i++) {
-    const ch = values[i]! - values[i - 1]!;
-    if (ch >= 0) gains += ch;
-    else losses -= ch;
-  }
-  let avgGain = gains / period;
-  let avgLoss = losses / period;
-  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-  for (let i = period + 1; i < values.length; i++) {
-    const ch = values[i]! - values[i - 1]!;
-    const g = ch > 0 ? ch : 0;
-    const l = ch < 0 ? -ch : 0;
-    avgGain = (avgGain * (period - 1) + g) / period;
-    avgLoss = (avgLoss * (period - 1) + l) / period;
-    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-  }
-  return out;
-}
+/**
+ * EMA and the (series) RSI are the SINGLE-SOURCE-OF-TRUTH primitives shared
+ * with the scanner-charting and global-scanner copies — see
+ * `@workspace/indicators`. They are re-exported here verbatim so every existing
+ * importer (scoring, the local `atr`/`macd`, route handlers) keeps its import
+ * path unchanged while the math lives in exactly one place.
+ */
+export { ema, rsi };
 
 export function atr(high: number[], low: number[], close: number[], period = 14): (number | null)[] {
   const trs: number[] = [];

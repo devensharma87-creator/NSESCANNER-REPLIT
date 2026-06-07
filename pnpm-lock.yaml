@@ -172,6 +172,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/indicators':
+        specifier: workspace:*
+        version: link:../../lib/indicators
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -360,6 +363,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/indicators':
+        specifier: workspace:*
+        version: link:../../lib/indicators
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -745,6 +751,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/indicators':
+        specifier: workspace:*
+        version: link:../../lib/indicators
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -866,6 +875,8 @@ importers:
       drizzle-kit:
         specifier: ^0.31.9
         version: 0.31.9
+
+  lib/indicators: {}
 
   scripts:
     dependencies:

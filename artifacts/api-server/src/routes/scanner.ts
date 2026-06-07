@@ -19,7 +19,7 @@ import {
 } from "@workspace/api-zod";
 import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
-import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground } from "../lib/scanner";
+import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground, getScanRowsFast } from "../lib/scanner";
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
 import { isRecognisedEtf, loadKiteEtfQuote, getEtfRecognitionDiagnostics, checkEtfRecognition } from "../lib/kiteScanner";
 import { loadEtfNav } from "../lib/etfNav";
@@ -332,7 +332,7 @@ router.get("/options/signal-report/export", requireSubscriberOrOwner("FNO"), asy
 
 router.get("/sectors", requireSubscriberOrOwner("SECTORS"), async (_req, res, next) => {
   try {
-    const rows = await scanAll();
+    const rows = await getScanRowsFast();
     const grouped = new Map<string, typeof rows>();
     for (const sec of SECTORS) grouped.set(sec, []);
     for (const r of rows) grouped.get(r.sector)?.push(r);
@@ -366,7 +366,7 @@ router.get("/sectors", requireSubscriberOrOwner("SECTORS"), async (_req, res, ne
 router.get("/sectors/:sector", requireSubscriberOrOwner("SECTORS"), async (req, res, next) => {
   try {
     const sectorParam = String(req.params["sector"] ?? "");
-    const rows = await scanAll();
+    const rows = await getScanRowsFast();
     const list = rows.filter(r => r.sector.toLowerCase() === sectorParam.toLowerCase());
     if (list.length === 0) {
       res.status(404).json({ error: "Sector not found" });
@@ -397,7 +397,7 @@ router.get("/sectors/:sector", requireSubscriberOrOwner("SECTORS"), async (req, 
 
 router.get("/stocks", async (req, res, next) => {
   try {
-    const rows = await scanAll();
+    const rows = await getScanRowsFast();
     const sector = req.query["sector"] ? String(req.query["sector"]).toLowerCase() : null;
     const signal = req.query["signal"] ? String(req.query["signal"]).toUpperCase() : null;
     const search = req.query["search"] ? String(req.query["search"]).toLowerCase() : null;
@@ -418,7 +418,7 @@ router.get("/stocks/:symbol", async (req, res, next) => {
     const symbol = String(req.params["symbol"] ?? "").toUpperCase();
     const entry = getEntry(symbol);
     if (!entry) { res.status(404).json({ error: "Symbol not found" }); return; }
-    const rows = await scanAll();
+    const rows = await getScanRowsFast();
     const row = rows.find(r => r.symbol === symbol);
     if (!row) { res.status(404).json({ error: "No data available for symbol" }); return; }
 
@@ -558,7 +558,7 @@ router.get("/index/:slug", async (req, res, next) => {
     const cfg = INDEX_SYMBOLS.find(i => i.slug === slug);
     const symbols = INDEX_CONSTITUENTS[slug];
     if (!cfg || !symbols) { res.status(404).json({ error: "Index not found" }); return; }
-    const rows = await scanAll();
+    const rows = await getScanRowsFast();
     const set = new Set(symbols.map(s => s.toUpperCase()));
     const constituents = rows.filter(r => set.has(r.symbol.toUpperCase()));
     const a = constituents.filter(r => r.quote.changePercent > 0.1).length;
@@ -640,7 +640,7 @@ router.get("/stocks/:symbol/history", async (req, res, next) => {
 
 router.get("/scan/top", async (_req, res, next) => {
   try {
-    const rows = await scanAll();
+    const rows = await getScanRowsFast();
     const sorted = rows.slice().sort((a, b) => b.recommendation.score - a.recommendation.score);
     const topBuys = sorted.filter(r => r.recommendation.score > 0).slice(0, 10);
     const topSells = sorted.slice().reverse().filter(r => r.recommendation.score < 0).slice(0, 10);

@@ -7,6 +7,15 @@
  * gaps stay null rather than being filled with synthetic values.
  */
 
+import { ema, rsi } from "@workspace/indicators";
+
+/**
+ * EMA and the series RSI are re-exported from the shared `@workspace/indicators`
+ * single source of truth (byte-identical to the api-server + global copies).
+ * The candle-typed convenience wrappers and VWAP below stay local.
+ */
+export { ema, rsi };
+
 export interface IndicatorCandle {
   /** Epoch seconds (UTC) of the candle open. */
   t: number;
@@ -17,57 +26,9 @@ export interface IndicatorCandle {
   v: number | null;
 }
 
-/**
- * Exponential Moving Average, seeded with the SMA of the first `period`
- * closes (standard convention). Values before the seed index are null.
- */
-export function ema(values: number[], period: number): (number | null)[] {
-  const out: (number | null)[] = new Array(values.length).fill(null);
-  if (period <= 0 || values.length < period) return out;
-  const k = 2 / (period + 1);
-  let sum = 0;
-  for (let i = 0; i < period; i++) sum += values[i]!;
-  let prev = sum / period;
-  out[period - 1] = prev;
-  for (let i = period; i < values.length; i++) {
-    prev = values[i]! * k + prev * (1 - k);
-    out[i] = prev;
-  }
-  return out;
-}
-
 /** Convenience: EMA over candle closes. */
 export function emaClose(candles: IndicatorCandle[], period: number): (number | null)[] {
   return ema(candles.map(c => c.c), period);
-}
-
-/**
- * Wilder's RSI (default period 14). Index-aligned; null until enough data.
- */
-export function rsi(values: number[], period = 14): (number | null)[] {
-  const out: (number | null)[] = new Array(values.length).fill(null);
-  if (period <= 0 || values.length <= period) return out;
-
-  let gainSum = 0;
-  let lossSum = 0;
-  for (let i = 1; i <= period; i++) {
-    const ch = values[i]! - values[i - 1]!;
-    if (ch >= 0) gainSum += ch;
-    else lossSum -= ch;
-  }
-  let avgGain = gainSum / period;
-  let avgLoss = lossSum / period;
-  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-
-  for (let i = period + 1; i < values.length; i++) {
-    const ch = values[i]! - values[i - 1]!;
-    const gain = ch > 0 ? ch : 0;
-    const loss = ch < 0 ? -ch : 0;
-    avgGain = (avgGain * (period - 1) + gain) / period;
-    avgLoss = (avgLoss * (period - 1) + loss) / period;
-    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-  }
-  return out;
 }
 
 /** RSI over candle closes. */
