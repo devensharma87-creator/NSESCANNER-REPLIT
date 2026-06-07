@@ -27,5 +27,11 @@ formats with `timeZone: "Asia/Kolkata"` (+05:30), double-shifting e.g. 13:30 IST
   do NOT add a weekday rejection — NSE runs legitimate weekend sessions (e.g. the
   Union-Budget live session Sat 2025-02-01, present in the real candle history). A weekday
   check produces false "off-session" flags on those bars.
-- Pre-fix persisted backtest runs keep their wrong (IST-as-UTC) times until re-run; there
-  is no migration.
+- Pre-fix persisted backtest runs were corrected by a one-off backfill (decision: backfill,
+  not discard), `scripts/src/fixBacktestTradeTimes.ts`. The error is a deterministic +05:30
+  offset, so the fix is a −05:30 shift on `modeled` trades' `entry_at`/`exit_at` AND
+  `summary.equityCurve[].t` (same buggy source). Buggy runs are detected structurally (a run
+  with ≥1 `modeled` trade outside 09:15–15:30 IST), making it idempotent and safe against
+  post-fix runs and against REAL_REPLAY (`modeled=false`) genuine timestamps. The two
+  timestamp locations are the ONLY ones affected; `dataQuality`/`params` hold calendar-only
+  dates. The companion task adds an automated in-session check on saved trade times.

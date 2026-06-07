@@ -7,6 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "refresh-nifty500-sectors": "tsx ./src/refreshNifty500SectorReference.ts",
     "dedupe-fno-reasoning": "tsx ./src/dedupeFnoSignalReasoning.ts",
+    "fix-backtest-trade-times": "tsx ./src/fixBacktestTradeTimes.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
