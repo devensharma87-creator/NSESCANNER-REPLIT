@@ -13,6 +13,8 @@ import {
   getSearchChartInstrumentsQueryKey,
   useGetChartCandles,
   getGetChartCandlesQueryKey,
+  useGetOptionAnalytics,
+  getGetOptionAnalyticsQueryKey,
   type ChartInstrument,
 } from "@workspace/api-client-react";
 import { Card } from "@/components/ui/card";
@@ -43,10 +45,18 @@ import {
   volumeProfilePoc,
   detectFvgs,
   detectSweeps,
+  fibLevels,
+  fixedVolumeProfile,
+  computeKeyLevels,
+  sliceByWindow,
+  VP_WINDOWS,
   EMA_PERIODS,
   type EmaPeriod,
   type IndicatorCandle,
+  type VpWindow,
+  type OptionLevels,
 } from "@/lib/charting/indicators";
+import { findFno } from "@/data/fnoUniverse";
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [v, setV] = useState(value);
@@ -65,13 +75,20 @@ interface Selection {
 
 const DEFAULT_SELECTION: Selection = { symbol: "NIFTY", name: "NIFTY 50", segment: "index" };
 
+// Declutter: everything OFF by default — the default view is clean candles +
+// volume only. The toggle pills stay visible so the tools are one tap away.
 const DEFAULT_EMA_VISIBLE: Record<EmaPeriod, boolean> = {
   11: false,
-  20: true,
-  50: true,
+  20: false,
+  50: false,
   100: false,
   200: false,
 };
+
+// ~70vh, leaving room for the toolbar/header, clamped to a sensible range.
+function clampHeight(innerHeight: number): number {
+  return Math.max(560, Math.min(900, Math.round(innerHeight * 0.7)));
+}
 
 function fmtAge(asOf: number | null | undefined): string {
   if (asOf == null) return "—";
@@ -89,14 +106,20 @@ export default function ChartingPage() {
   const [chartType, setChartType] = useState<"candles" | "line">("candles");
 
   const [emaVisible, setEmaVisible] = useState<Record<EmaPeriod, boolean>>(DEFAULT_EMA_VISIBLE);
-  const [showVwap, setShowVwap] = useState(true);
+  // Declutter: overlays/oscillators start OFF; only volume is on by default.
+  const [showVwap, setShowVwap] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
-  const [showRsi, setShowRsi] = useState(true);
+  const [showRsi, setShowRsi] = useState(false);
   // Institutional / SMC indicators (off by default to keep the default view clean).
   const [showFvg, setShowFvg] = useState(false);
   const [showCvd, setShowCvd] = useState(false);
   const [showPoc, setShowPoc] = useState(false);
   const [showSweeps, setShowSweeps] = useState(false);
+  // Pro-grade overlays (Kite-style): auto-Fibonacci, Fixed Volume Profile, S/R.
+  const [showFib, setShowFib] = useState(false);
+  const [showVp, setShowVp] = useState(false);
+  const [vpWindow, setVpWindow] = useState<VpWindow>("ALL");
+  const [showKeyLevels, setShowKeyLevels] = useState(false);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -197,6 +220,83 @@ export default function ChartingPage() {
     () => (showSweeps ? detectSweeps(indicatorCandles, 5) : []),
     [showSweeps, indicatorCandles],
   );
+
+  // ── Pro overlays: auto-Fibonacci, Fixed Volume Profile, Support/Resistance ──
+  const currentPrice = useMemo(() => {
+    const last = candles[candles.length - 1];
+    return last && Number.isFinite(last.c) ? last.c : null;
+  }, [candles]);
+
+  const fibResult = useMemo(
+    () => (showFib ? fibLevels(indicatorCandles) : null),
+    [showFib, indicatorCandles],
+  );
+
+  const volumeProfile = useMemo(
+    () => (showVp && hasVolume ? fixedVolumeProfile(sliceByWindow(indicatorCandles, vpWindow)) : null),
+    [showVp, hasVolume, indicatorCandles, vpWindow],
+  );
+
+  // Option-chain S/R only exists for F&O underlyings (NSE index/equity). It is
+  // fetched lazily — only when S/R is toggled on for an F&O symbol that isn't a
+  // global instrument — so the rest of the tab never touches the option feed.
+  const fno = useMemo(
+    () => (selection.segment === "global" ? undefined : findFno(selection.symbol)),
+    [selection.symbol, selection.segment],
+  );
+  const wantOptionLevels = showKeyLevels && !!fno;
+  const optionAnalyticsQ = useGetOptionAnalytics(
+    selection.symbol,
+    undefined,
+    {
+      query: {
+        enabled: wantOptionLevels,
+        staleTime: 60_000,
+        refetchInterval: 60_000,
+        queryKey: getGetOptionAnalyticsQueryKey(selection.symbol, undefined),
+      },
+    },
+  );
+
+  const optionLevels: OptionLevels | null = useMemo(() => {
+    if (!wantOptionLevels) return null;
+    const a = optionAnalyticsQ.data;
+    if (!a) return null;
+    const supports = (a.topSupport ?? [])
+      .map(s => s.strike)
+      .filter((s): s is number => Number.isFinite(s) && s > 0);
+    const resistances = (a.topResistance ?? [])
+      .map(r => r.strike)
+      .filter((r): r is number => Number.isFinite(r) && r > 0);
+    if (supports.length === 0 && resistances.length === 0) return null;
+    return { supports, resistances };
+  }, [wantOptionLevels, optionAnalyticsQ.data]);
+
+  const keyLevelsResult = useMemo(
+    () =>
+      showKeyLevels && currentPrice != null
+        ? computeKeyLevels(indicatorCandles, currentPrice, optionLevels)
+        : null,
+    [showKeyLevels, currentPrice, indicatorCandles, optionLevels],
+  );
+  const keyLevelsFlat = useMemo(
+    () => (keyLevelsResult ? [...keyLevelsResult.supports, ...keyLevelsResult.resistances] : null),
+    [keyLevelsResult],
+  );
+
+  // Responsive, viewport-driven chart height (~70vh, clamped) so the chart
+  // breathes on large screens but stays usable on laptops.
+  const [chartHeight, setChartHeight] = useState(() =>
+    typeof window === "undefined" ? 560 : clampHeight(window.innerHeight),
+  );
+  useEffect(() => {
+    function onResize() {
+      setChartHeight(clampHeight(window.innerHeight));
+    }
+    window.addEventListener("resize", onResize);
+    onResize();
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   function pick(inst: ChartInstrument) {
     setSelection({ symbol: inst.symbol, name: inst.name, segment: inst.segment });
@@ -430,6 +530,60 @@ export default function ChartingPage() {
             >
               Sweeps
             </button>
+
+            <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+
+            <button
+              onClick={() => setShowFib(v => !v)}
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-mono transition-colors ${
+                showFib ? "border-border bg-muted/40" : "border-transparent text-muted-foreground/60"
+              }`}
+              title="Auto-Fibonacci — retracement (0→1.0) + extensions (1.272 / 1.618) off the dominant swing"
+              data-testid="toggle-fib"
+            >
+              Fib
+            </button>
+            <button
+              onClick={() => setShowVp(v => !v)}
+              disabled={!hasVolume}
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-mono transition-colors disabled:opacity-40 ${
+                showVp && hasVolume ? "border-border bg-muted/40" : "border-transparent text-muted-foreground/60"
+              }`}
+              title={
+                hasVolume
+                  ? "Fixed Volume Profile — volume-by-price histogram with POC / VAH / VAL"
+                  : "Volume Profile needs volume — unavailable on this source"
+              }
+              data-testid="toggle-vp"
+            >
+              Vol Profile
+            </button>
+            {showVp && hasVolume && (
+              <div className="flex rounded-md border border-border overflow-hidden" data-testid="vp-window">
+                {VP_WINDOWS.map(w => (
+                  <button
+                    key={w.value}
+                    onClick={() => setVpWindow(w.value)}
+                    className={`px-1.5 py-0.5 text-[10px] font-mono transition-colors ${
+                      vpWindow === w.value ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/40"
+                    }`}
+                    data-testid={`vp-window-${w.value}`}
+                  >
+                    {w.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setShowKeyLevels(v => !v)}
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-mono transition-colors ${
+                showKeyLevels ? "border-border bg-muted/40" : "border-transparent text-muted-foreground/60"
+              }`}
+              title="Support / Resistance — 3+3 ranked levels from Fibonacci + Price Action + (for F&O) Option-Chain OI; labels show the backing sources"
+              data-testid="toggle-key-levels"
+            >
+              S/R
+            </button>
           </div>
         </div>
       </Card>
@@ -467,7 +621,7 @@ export default function ChartingPage() {
       {/* ── Chart surface ───────────────────────────────────────── */}
       <Card className="p-2 sm:p-3">
         {isLoading && (
-          <div className="flex h-[480px] items-center justify-center text-sm text-muted-foreground" data-testid="chart-loading">
+          <div className="flex items-center justify-center text-sm text-muted-foreground" style={{ height: chartHeight }} data-testid="chart-loading">
             <div className="flex flex-col items-center gap-2">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
               Loading candles…
@@ -476,7 +630,7 @@ export default function ChartingPage() {
         )}
 
         {isError && (
-          <div className="flex h-[480px] flex-col items-center justify-center gap-3 text-center" data-testid="chart-error">
+          <div className="flex flex-col items-center justify-center gap-3 text-center" style={{ height: chartHeight }} data-testid="chart-error">
             <AlertTriangle className="h-7 w-7 text-amber-500" />
             <div className="text-sm text-muted-foreground">
               Couldn't load the datafeed. Please retry.
@@ -488,7 +642,7 @@ export default function ChartingPage() {
         )}
 
         {hasNoData && (
-          <div className="flex h-[480px] flex-col items-center justify-center gap-3 text-center" data-testid="chart-empty">
+          <div className="flex flex-col items-center justify-center gap-3 text-center" style={{ height: chartHeight }} data-testid="chart-empty">
             <AlertTriangle className="h-7 w-7 text-muted-foreground" />
             <div className="max-w-md text-sm text-muted-foreground">
               {resp?.message ?? "No data available for this instrument / timeframe right now."}
@@ -510,10 +664,16 @@ export default function ChartingPage() {
             pocPrice={pocPrice}
             fvgZones={fvgZones}
             sweepMarkers={sweepMarkers}
+            fibLevels={fibResult?.levels ?? null}
+            volumeProfile={volumeProfile}
+            showVolumeProfile={showVp}
+            keyLevels={keyLevelsFlat}
+            showKeyLevels={showKeyLevels}
             showVolume={showVolume}
             showRsi={showRsi}
             showCvd={showCvd}
             showTime={timeframeShowsTime(timeframe)}
+            height={chartHeight}
           />
         )}
       </Card>
@@ -521,14 +681,23 @@ export default function ChartingPage() {
       <div className="px-1 text-[11px] text-muted-foreground space-y-1">
         <p>
           Read-only charting. Price data is sourced live from Zerodha Kite where available, otherwise from
-          delayed Yahoo Finance. All indicators (EMA, VWAP, RSI, FVG, CVD, POC, Liquidity Sweeps) are computed
-          client-side in your browser for visualization only — this is not trading advice.
+          delayed Yahoo Finance. All overlays (EMA, VWAP, RSI, FVG, CVD, POC, Sweeps, Fibonacci, Volume
+          Profile, Support/Resistance) are computed client-side in your browser for visualization only — this
+          is not trading advice.
         </p>
         <p>
           <span className="font-mono">CVD*</span> is a candle-direction proxy (bar volume signed by close vs
           open), not true tick-level order-flow delta — this feed has no bid/ask aggression data.
-          <span className="font-mono"> POC</span> is a volume-profile approximation. Both need volume and are
-          disabled on sources that don't provide it (e.g. delayed Yahoo / global symbols).
+          <span className="font-mono"> POC</span> / <span className="font-mono">Vol Profile</span> are
+          volume-profile approximations (no intrabar ticks) and need volume, so they are disabled on sources
+          that don't provide it (e.g. delayed Yahoo / global symbols).
+        </p>
+        <p>
+          <span className="font-mono">Fibonacci</span> is drawn off the dominant swing in the loaded window
+          (retracement 0→1.0 plus 1.272 / 1.618 extensions). <span className="font-mono">Support/Resistance</span>{" "}
+          ranks the 3 nearest levels on each side by clustering Fibonacci, price-action swings and — for F&amp;O
+          underlyings — option-chain OI; each label shows the sources that back it. Levels appear only when
+          there is enough data; nothing is fabricated.
         </p>
       </div>
     </div>

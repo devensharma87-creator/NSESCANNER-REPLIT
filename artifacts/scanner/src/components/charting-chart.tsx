@@ -21,11 +21,22 @@ import {
   TickMarkType,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesPrimitive,
+  type IPrimitivePaneView,
+  type IPrimitivePaneRenderer,
+  type SeriesAttachedParameter,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import type { EmaPeriod, FvgZone, SweepMarker } from "@/lib/charting/indicators";
+import type {
+  EmaPeriod,
+  FvgZone,
+  SweepMarker,
+  FibLevel,
+  FixedVolumeProfile,
+  KeyLevel,
+} from "@/lib/charting/indicators";
 
 // All candle timestamps are epoch-UTC seconds. The instruments are Indian /
 // global exchange data, so axis + crosshair labels are rendered in IST
@@ -79,6 +90,14 @@ interface Props {
   fvgZones?: FvgZone[];
   /** Liquidity-sweep events, drawn as arrows on the main series. */
   sweepMarkers?: SweepMarker[];
+  /** Auto-Fibonacci retracement + extension levels, drawn as dashed price lines. */
+  fibLevels?: FibLevel[] | null;
+  /** Fixed Volume Profile (POC/VAH/VAL + per-price histogram). null → not drawn. */
+  volumeProfile?: FixedVolumeProfile | null;
+  showVolumeProfile?: boolean;
+  /** Ranked Support/Resistance levels with source tags, drawn as labeled lines. */
+  keyLevels?: KeyLevel[] | null;
+  showKeyLevels?: boolean;
   showVolume: boolean;
   showRsi: boolean;
   showCvd: boolean;
@@ -90,6 +109,95 @@ const POC_COLOR = "#FFB347";
 const FVG_BULLISH = "rgba(38, 166, 154, 0.9)";
 const FVG_BEARISH = "rgba(239, 83, 80, 0.9)";
 const CVD_COLOR = "#6C9EBF";
+
+// Fixed Volume Profile histogram colors.
+const VP_POC_FILL = "rgba(255, 179, 71, 0.55)";
+const VP_VA_FILL = "rgba(108, 158, 191, 0.42)";
+const VP_OUT_FILL = "rgba(108, 158, 191, 0.20)";
+const VP_VAH_VAL_COLOR = "rgba(108, 158, 191, 0.85)";
+
+// Support / Resistance + Fibonacci line colors.
+const SUPPORT_COLOR = "#26A69A";
+const RESISTANCE_COLOR = "#EF5350";
+const FIB_RETRACE_COLOR = "rgba(212, 175, 55, 0.75)";
+const FIB_EXT_COLOR = "rgba(155, 138, 251, 0.75)";
+
+type MainSeries = ISeriesApi<"Candlestick"> | ISeriesApi<"Line">;
+type DrawTarget = Parameters<IPrimitivePaneRenderer["draw"]>[0];
+
+/**
+ * Custom lightweight-charts v5 primitive that paints a Fixed Volume Profile as a
+ * left-anchored horizontal histogram behind the price series. POC bars are
+ * highlighted; bars inside the value area are brighter than those outside.
+ */
+class VolumeProfileRenderer implements IPrimitivePaneRenderer {
+  constructor(private readonly _source: VolumeProfilePrimitive) {}
+
+  draw(target: DrawTarget): void {
+    const series = this._source.series();
+    const vp = this._source.profile();
+    if (!series || !vp || vp.maxVol <= 0) return;
+    target.useBitmapCoordinateSpace(scope => {
+      const ctx = scope.context;
+      const maxBarW = scope.bitmapSize.width * 0.26;
+      for (const row of vp.rows) {
+        if (row.vol <= 0) continue;
+        const yHi = series.priceToCoordinate(row.priceHi);
+        const yLo = series.priceToCoordinate(row.priceLo);
+        if (yHi == null || yLo == null) continue;
+        const top = Math.min(yHi, yLo) * scope.verticalPixelRatio;
+        const bottom = Math.max(yHi, yLo) * scope.verticalPixelRatio;
+        const h = Math.max(1, bottom - top - 1);
+        const w = (row.vol / vp.maxVol) * maxBarW;
+        if (w <= 0) continue;
+        const isPoc = row.priceLo <= vp.poc && vp.poc < row.priceHi;
+        const inVa = row.mid >= vp.val && row.mid <= vp.vah;
+        ctx.fillStyle = isPoc ? VP_POC_FILL : inVa ? VP_VA_FILL : VP_OUT_FILL;
+        ctx.fillRect(0, top, w, h);
+      }
+    });
+  }
+}
+
+class VolumeProfilePaneView implements IPrimitivePaneView {
+  constructor(private readonly _source: VolumeProfilePrimitive) {}
+  zOrder(): "bottom" {
+    return "bottom";
+  }
+  renderer(): IPrimitivePaneRenderer {
+    return new VolumeProfileRenderer(this._source);
+  }
+}
+
+class VolumeProfilePrimitive implements ISeriesPrimitive<Time> {
+  private _chart: IChartApi | null = null;
+  private _series: MainSeries | null = null;
+  private readonly _paneView: VolumeProfilePaneView;
+
+  constructor(private readonly _vp: FixedVolumeProfile) {
+    this._paneView = new VolumeProfilePaneView(this);
+  }
+  attached(param: SeriesAttachedParameter<Time>): void {
+    this._chart = param.chart;
+    this._series = param.series as MainSeries;
+  }
+  detached(): void {
+    this._chart = null;
+    this._series = null;
+  }
+  paneViews(): readonly IPrimitivePaneView[] {
+    return [this._paneView];
+  }
+  profile(): FixedVolumeProfile {
+    return this._vp;
+  }
+  series(): MainSeries | null {
+    return this._series;
+  }
+  chart(): IChartApi | null {
+    return this._chart;
+  }
+}
 
 function toTime(tSec: number): UTCTimestamp {
   return Math.floor(tSec) as UTCTimestamp;
@@ -120,6 +228,11 @@ export function ChartingChart({
   pocPrice,
   fvgZones,
   sweepMarkers,
+  fibLevels,
+  volumeProfile,
+  showVolumeProfile,
+  keyLevels,
+  showKeyLevels,
   showVolume,
   showRsi,
   showCvd,
@@ -168,6 +281,8 @@ export function ChartingChart({
         borderColor: "rgba(120, 120, 140, 0.25)",
         timeVisible: showTime,
         secondsVisible: false,
+        rightOffset: 8,
+        barSpacing: 8,
         tickMarkFormatter: (t: UTCTimestamp, tickMarkType: TickMarkType) => {
           const ms = (t as number) * 1000;
           switch (tickMarkType) {
@@ -297,16 +412,72 @@ export function ChartingChart({
       }
     }
 
-    // ── Liquidity-sweep markers ────────────────────────────────────
+    // ── Liquidity-sweep markers (plain arrows, no text — declutter) ─
     if (sweepMarkers && sweepMarkers.length > 0) {
       const markers: SeriesMarker<Time>[] = sweepMarkers.map(s => ({
         time: toTime(s.time),
         position: s.type === "HIGH_SWEEP" ? "aboveBar" : "belowBar",
         shape: s.type === "HIGH_SWEEP" ? "arrowDown" : "arrowUp",
         color: s.type === "HIGH_SWEEP" ? "#FF8A65" : "#81C784",
-        text: s.type === "HIGH_SWEEP" ? "Sweep H" : "Sweep L",
       }));
       createSeriesMarkers(mainSeries, markers);
+    }
+
+    // ── Fixed Volume Profile (histogram primitive + POC/VAH/VAL) ───
+    if (showVolumeProfile && volumeProfile && volumeProfile.maxVol > 0) {
+      mainSeries.attachPrimitive(new VolumeProfilePrimitive(volumeProfile));
+      mainSeries.createPriceLine({
+        price: volumeProfile.poc,
+        color: POC_COLOR,
+        lineWidth: 2,
+        lineStyle: LineStyle.Solid,
+        axisLabelVisible: true,
+        title: "POC",
+      });
+      mainSeries.createPriceLine({
+        price: volumeProfile.vah,
+        color: VP_VAH_VAL_COLOR,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "VAH",
+      });
+      mainSeries.createPriceLine({
+        price: volumeProfile.val,
+        color: VP_VAH_VAL_COLOR,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "VAL",
+      });
+    }
+
+    // ── Auto-Fibonacci (dashed; gold retracement, purple extension) ─
+    if (fibLevels && fibLevels.length > 0) {
+      for (const f of fibLevels) {
+        mainSeries.createPriceLine({
+          price: f.price,
+          color: f.kind === "extension" ? FIB_EXT_COLOR : FIB_RETRACE_COLOR,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `Fib ${f.ratio}`,
+        });
+      }
+    }
+
+    // ── Support / Resistance (solid, labels show backing sources) ──
+    if (showKeyLevels && keyLevels && keyLevels.length > 0) {
+      for (const k of keyLevels) {
+        mainSeries.createPriceLine({
+          price: k.price,
+          color: k.kind === "support" ? SUPPORT_COLOR : RESISTANCE_COLOR,
+          lineWidth: 2,
+          lineStyle: LineStyle.Solid,
+          axisLabelVisible: true,
+          title: `${k.label} · ${k.sources.join(" + ")}`,
+        });
+      }
     }
 
     // ── Sub-panes (RSI, then CVD), assigned indices in order ───────
@@ -364,7 +535,7 @@ export function ChartingChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, chartType, emaKey, hasVwap, showVolume, showRsi, showCvd, showTime, height, emaSeries, vwapSeries, rsiSeries, cvdSeries, pocPrice, fvgZones, sweepMarkers]);
+  }, [candles, chartType, emaKey, hasVwap, showVolume, showRsi, showCvd, showTime, height, emaSeries, vwapSeries, rsiSeries, cvdSeries, pocPrice, fvgZones, sweepMarkers, fibLevels, volumeProfile, showVolumeProfile, keyLevels, showKeyLevels]);
 
   return <div ref={containerRef} style={{ width: "100%", height }} />;
 }
