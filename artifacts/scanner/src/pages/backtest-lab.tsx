@@ -222,6 +222,19 @@ const INSTRUMENTS: BacktestRunRequestInstrument[] = ["ALL", "NIFTY", "BANKNIFTY"
 
 const OFFICIAL_STRATEGY_ID = "OFFICIAL_ENGINE";
 
+// Compact filter-config summary for a comparison row. Official-engine rows ran the
+// official engine (not the run's custom confirmation filters), so they honestly read
+// "engine replay" instead of echoing the run's filter config.
+function configSummaryForStrategy(
+  strategyId: string,
+  filters: BacktestFilterConfig | null | undefined,
+  maxTradesPerDay: number | null | undefined,
+): { short: string; full: string } {
+  return strategyId === OFFICIAL_STRATEGY_ID
+    ? summarizeRunFilters(null, null)
+    : summarizeRunFilters(filters, maxTradesPerDay);
+}
+
 // ───────────── small presentational helpers ─────────────
 
 function Stat({
@@ -810,7 +823,15 @@ function RankingCards({ cards }: { cards: BacktestRankingCard[] }) {
   );
 }
 
-function AggregateTable({ rows }: { rows: BacktestStrategyAggregate[] }) {
+function AggregateTable({
+  rows,
+  filters,
+  maxTradesPerDay,
+}: {
+  rows: BacktestStrategyAggregate[];
+  filters: BacktestFilterConfig | null | undefined;
+  maxTradesPerDay: number | null | undefined;
+}) {
   if (rows.length === 0) {
     return (
       <div className="py-6 text-center text-xs text-muted-foreground">
@@ -825,6 +846,9 @@ function AggregateTable({ rows }: { rows: BacktestStrategyAggregate[] }) {
         <thead className="sticky top-0 bg-card">
           <tr className="text-left text-muted-foreground">
             <th className="px-2 py-1.5 font-medium">Strategy</th>
+            <th className="px-2 py-1.5 font-medium" title="Filter config this strategy ran with">
+              Config
+            </th>
             <th className="px-2 py-1.5 text-right font-medium">Score</th>
             <th className="px-2 py-1.5 text-right font-medium">Trades</th>
             <th className="px-2 py-1.5 text-right font-medium">Win%</th>
@@ -859,6 +883,19 @@ function AggregateTable({ rows }: { rows: BacktestStrategyAggregate[] }) {
                 {r.strategyId === OFFICIAL_STRATEGY_ID && (
                   <span className="ml-1 rounded bg-sky-500/15 px-1 text-[9px] text-sky-300">engine</span>
                 )}
+              </td>
+              <td className="px-2 py-1.5">
+                {(() => {
+                  const cfg = configSummaryForStrategy(r.strategyId, filters, maxTradesPerDay);
+                  return (
+                    <span
+                      className="block max-w-[14rem] truncate text-[10px] text-muted-foreground"
+                      title={cfg.full}
+                    >
+                      {cfg.short}
+                    </span>
+                  );
+                })()}
               </td>
               <td className="px-2 py-1.5 text-right tabular-nums">
                 {r.compositeScore == null ? (
@@ -906,7 +943,15 @@ function AggregateTable({ rows }: { rows: BacktestStrategyAggregate[] }) {
   );
 }
 
-function ComparisonRowsTable({ comparison }: { comparison: BacktestStrategyComparison }) {
+function ComparisonRowsTable({
+  comparison,
+  filters,
+  maxTradesPerDay,
+}: {
+  comparison: BacktestStrategyComparison;
+  filters: BacktestFilterConfig | null | undefined;
+  maxTradesPerDay: number | null | undefined;
+}) {
   if (comparison.rows.length === 0) {
     return (
       <div className="py-6 text-center text-xs text-muted-foreground">
@@ -920,6 +965,9 @@ function ComparisonRowsTable({ comparison }: { comparison: BacktestStrategyCompa
         <thead className="sticky top-0 bg-card">
           <tr className="text-left text-muted-foreground">
             <th className="px-2 py-1.5 font-medium">Strategy</th>
+            <th className="px-2 py-1.5 font-medium" title="Filter config this strategy ran with">
+              Config
+            </th>
             <th className="px-2 py-1.5 font-medium">Idx</th>
             <th className="px-2 py-1.5 text-right font-medium">Trades</th>
             <th className="px-2 py-1.5 text-right font-medium">Win%</th>
@@ -942,6 +990,19 @@ function ComparisonRowsTable({ comparison }: { comparison: BacktestStrategyCompa
           {comparison.rows.map((r, i) => (
             <tr key={`${r.strategyId}-${r.indexSymbol}-${i}`} className="border-t border-border/60 hover:bg-muted/30">
               <td className="px-2 py-1.5">{r.strategyName}</td>
+              <td className="px-2 py-1.5">
+                {(() => {
+                  const cfg = configSummaryForStrategy(r.strategyId, filters, maxTradesPerDay);
+                  return (
+                    <span
+                      className="block max-w-[14rem] truncate text-[10px] text-muted-foreground"
+                      title={cfg.full}
+                    >
+                      {cfg.short}
+                    </span>
+                  );
+                })()}
+              </td>
               <td className="px-2 py-1.5">{r.indexSymbol}</td>
               <td className="px-2 py-1.5 text-right tabular-nums">{r.totalTrades}</td>
               <td className="px-2 py-1.5 text-right tabular-nums">{pct(r.winRate)}</td>
@@ -976,7 +1037,15 @@ function ComparisonRowsTable({ comparison }: { comparison: BacktestStrategyCompa
   );
 }
 
-function ComparisonDashboard({ comparison }: { comparison: BacktestStrategyComparison }) {
+function ComparisonDashboard({
+  comparison,
+  filters,
+  maxTradesPerDay,
+}: {
+  comparison: BacktestStrategyComparison;
+  filters: BacktestFilterConfig | null | undefined;
+  maxTradesPerDay: number | null | undefined;
+}) {
   return (
     <div className="space-y-4">
       <Card>
@@ -1004,7 +1073,11 @@ function ComparisonDashboard({ comparison }: { comparison: BacktestStrategyCompa
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <AggregateTable rows={comparison.byStrategy} />
+          <AggregateTable
+            rows={comparison.byStrategy}
+            filters={filters}
+            maxTradesPerDay={maxTradesPerDay}
+          />
         </CardContent>
       </Card>
 
@@ -1013,7 +1086,11 @@ function ComparisonDashboard({ comparison }: { comparison: BacktestStrategyCompa
           <CardTitle className="text-sm">Breakdown by strategy × index</CardTitle>
         </CardHeader>
         <CardContent>
-          <ComparisonRowsTable comparison={comparison} />
+          <ComparisonRowsTable
+            comparison={comparison}
+            filters={filters}
+            maxTradesPerDay={maxTradesPerDay}
+          />
         </CardContent>
       </Card>
 
@@ -1779,7 +1856,13 @@ export default function BacktestLab() {
           )}
 
           {/* comparison / ranking dashboard (strategy + compare modes) */}
-          {comparison && <ComparisonDashboard comparison={comparison} />}
+          {comparison && (
+            <ComparisonDashboard
+              comparison={comparison}
+              filters={run?.filters}
+              maxTradesPerDay={run?.maxTradesPerDay}
+            />
+          )}
 
           {/* read-only "filters used" summary for this saved run */}
           <RunFiltersUsed filters={run?.filters} maxTradesPerDay={run?.maxTradesPerDay} />
