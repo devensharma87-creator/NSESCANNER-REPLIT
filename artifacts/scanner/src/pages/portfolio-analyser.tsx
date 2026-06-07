@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ComplianceBanner } from "@/components/portfolio/compliance-banner";
 import { KpiStrip } from "@/components/portfolio/kpi-strip";
 import { HoldingsTable } from "@/components/portfolio/holdings-table";
+import { ActionSummary } from "@/components/portfolio/action-summary";
 import { SectorAllocationPanel } from "@/components/portfolio/sector-allocation";
 import { StockDeepDive } from "@/components/portfolio/stock-deepdive";
 import { UploadModal } from "@/components/portfolio/upload-modal";
@@ -26,6 +27,7 @@ import {
   totalCurrentValue,
 } from "@/lib/portfolio/calc";
 import { computeAnalytics } from "@/lib/portfolio/score";
+import { computeAdvice, summarizeAdvice } from "@/lib/portfolio/advice";
 import { computeRiskAnalytics } from "@/lib/portfolio/risk";
 import { computeHoldingPeriods, computeDividends, LONG_TERM_THRESHOLD_DAYS } from "@/lib/portfolio/holdingPeriod";
 import {
@@ -152,17 +154,27 @@ export default function PortfolioAnalyser() {
       const live = lives[i];
       const metrics = computeHoldingMetrics(raw, live, totalCurrent);
       const sector = (live.sector || raw.sector || "Unknown").trim() || "Unknown";
+      const sectorWeightPct = sectorWeight.get(sector) ?? null;
       const analytics = computeAnalytics({
         raw,
         live,
         metrics,
-        sectorWeightPct: sectorWeight.get(sector) ?? null,
+        sectorWeightPct,
+      });
+      const advice = computeAdvice({
+        raw,
+        live,
+        metrics,
+        sectorWeightPct,
+        fundamentalsApplicable: metas[i].fundamentalsApplicable,
+        dataSource: metas[i].dataSource,
       });
       return {
         raw,
         live,
         metrics,
         analytics,
+        advice,
         resolution: metas[i],
         loading: results[i]?.isLoading ?? false,
         errored: results[i]?.isError ?? false,
@@ -173,6 +185,11 @@ export default function PortfolioAnalyser() {
 
   const summary = useMemo(
     () => computeSummary(enriched.map(r => ({ raw: r.raw, live: r.live }))),
+    [enriched],
+  );
+
+  const adviceSummary = useMemo(
+    () => summarizeAdvice(enriched.map(r => ({ symbol: r.raw.symbol, advice: r.advice }))),
     [enriched],
   );
 
@@ -634,6 +651,7 @@ export default function PortfolioAnalyser() {
       ) : (
         <>
           <KpiStrip summary={summary} />
+          <ActionSummary summary={adviceSummary} onSelect={setSelected} />
           {summary.missingCount > 0 && (
             <div
               className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-400"

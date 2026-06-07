@@ -27,7 +27,21 @@ import {
   computeNavPremiumDiscount,
   ETF_REFERENCE_AS_OF,
 } from "@/lib/portfolio/etf";
-import { fmtINR, fmtPct, fmtSignedINR, fmtNum, pnlClass, actionViewClass } from "./format";
+import {
+  fmtINR,
+  fmtPct,
+  fmtSignedINR,
+  fmtNum,
+  pnlClass,
+  verdictClass,
+  verdictLabel,
+  confidenceClass,
+  impactClass,
+} from "./format";
+import type { PriceZone } from "@/lib/portfolio/types";
+
+const fmtZone = (z: PriceZone | null): string =>
+  z ? `${fmtINR(z.low, 2)} – ${fmtINR(z.high, 2)}` : "—";
 
 const numOrNull = (v: number | null | undefined): number | null =>
   v != null && Number.isFinite(v) ? v : null;
@@ -219,17 +233,22 @@ export function StockDeepDive({
         {row && (
           <>
             <SheetHeader>
-              <SheetTitle className="flex items-center gap-2 font-mono">
+              <SheetTitle className="flex flex-wrap items-center gap-2 font-mono">
                 {row.raw.symbol}
-                {row.analytics.label && (
-                  <span
-                    className={`rounded-full border px-2 py-0.5 text-[10px] ${actionViewClass(
-                      row.analytics.label,
-                    )}`}
-                  >
-                    {row.analytics.label}
-                  </span>
-                )}
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${verdictClass(
+                    row.advice.verdict,
+                  )}`}
+                >
+                  {verdictLabel(row.advice.verdict)}
+                </span>
+                <span
+                  className={`rounded border px-1.5 py-0.5 text-[10px] ${confidenceClass(
+                    row.advice.confidence,
+                  )}`}
+                >
+                  {row.advice.confidence} confidence
+                </span>
               </SheetTitle>
               <SheetDescription>
                 {profile?.name ?? row.raw.name} · {profile?.sector ?? row.live.sector ?? "—"}
@@ -237,6 +256,140 @@ export function StockDeepDive({
             </SheetHeader>
 
             <div className="mt-4 space-y-5 px-4 pb-8">
+              {/* Advisor verdict report (personal-use) */}
+              <section data-testid="advisor-report">
+                <div className={`rounded-md border px-3 py-2.5 ${verdictClass(row.advice.verdict)}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-bold">{verdictLabel(row.advice.verdict)}</span>
+                    <span
+                      className={`rounded border px-1.5 py-0.5 text-[10px] ${confidenceClass(
+                        row.advice.confidence,
+                      )}`}
+                    >
+                      {row.advice.confidence} confidence
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs leading-snug text-foreground/90">
+                    {row.advice.headline}
+                  </p>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Stat
+                    label="Risk level"
+                    value={row.advice.riskLevel}
+                    hint="Composite of beta, drawdown, leverage, concentration and structure."
+                  />
+                  <Stat
+                    label="Trend strength"
+                    value={
+                      row.advice.trendStrength.score != null
+                        ? `${row.advice.trendStrength.score.toFixed(0)} · ${row.advice.trendStrength.label}`
+                        : row.advice.trendStrength.label
+                    }
+                    unavailableLabel={row.advice.trendStrength.label}
+                  />
+                  <Stat
+                    label="Stop / invalidation"
+                    value={row.advice.stopLoss != null ? fmtINR(row.advice.stopLoss, 2) : "—"}
+                    unavailableLabel="no support below CMP"
+                    hint="Nearest structural support below CMP (support zone / 50-DMA / 200-DMA). Not a fabricated level — null when none exists."
+                  />
+                  <Stat
+                    label="Target zone"
+                    value={fmtZone(row.advice.targetZone)}
+                    unavailableLabel="no objective level"
+                    hint="Nearest resistance and/or a 2:1 risk-reward off the stop. Null when no real level exists."
+                  />
+                  {row.advice.upsidePct != null && (
+                    <Stat
+                      label="Upside to target"
+                      value={fmtPct(row.advice.upsidePct, 1)}
+                      hint="To the top of the objective target zone."
+                    />
+                  )}
+                  {row.advice.accumulationZone && (
+                    <Stat
+                      label="Accumulation zone"
+                      value={fmtZone(row.advice.accumulationZone)}
+                      hint="Suggested add-on-dip band toward the nearest support (only when the verdict supports adding)."
+                    />
+                  )}
+                </div>
+
+                {/* Views */}
+                <div className="mt-3 space-y-1.5 text-xs">
+                  <p>
+                    <span className="font-semibold text-muted-foreground">Technical: </span>
+                    {row.advice.technicalView}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-muted-foreground">Fundamental: </span>
+                    {row.advice.fundamentalView}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-muted-foreground">Valuation: </span>
+                    {row.advice.valuationView}
+                  </p>
+                </div>
+
+                {/* Reason codes (audit trail) */}
+                {row.advice.reasonCodes.length > 0 && (
+                  <div className="mt-3">
+                    <h5 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Why this verdict
+                    </h5>
+                    <ul className="space-y-0.5 text-xs">
+                      {row.advice.reasonCodes.map(r => (
+                        <li key={r.code} className={impactClass(r.impact)}>
+                          {r.impact === "positive" ? "▲" : r.impact === "negative" ? "▼" : "•"}{" "}
+                          {r.label}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* What would change the view */}
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {row.advice.improveIf.length > 0 && (
+                    <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 px-2.5 py-2">
+                      <h5 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
+                        Would improve the view
+                      </h5>
+                      <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+                        {row.advice.improveIf.map((s, i) => (
+                          <li key={i}>+ {s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {row.advice.negativeIf.length > 0 && (
+                    <div className="rounded-md border border-red-500/25 bg-red-500/5 px-2.5 py-2">
+                      <h5 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-red-400">
+                        Would turn it negative
+                      </h5>
+                      <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+                        {row.advice.negativeIf.map((s, i) => (
+                          <li key={i}>− {s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {/* Data-quality note */}
+                {(row.advice.dataQuality.level !== "full" || row.advice.dataQuality.stale) && (
+                  <p className="mt-2 text-[10px] text-amber-400/90">
+                    Data quality: {row.advice.dataQuality.level}
+                    {row.advice.dataQuality.stale ? " · thin/low-trust" : ""}
+                    {row.advice.dataQuality.missing.length > 0
+                      ? ` — missing ${row.advice.dataQuality.missing.join(", ")}. Confidence reduced accordingly.`
+                      : "."}
+                  </p>
+                )}
+              </section>
+
               {/* Position */}
               <section>
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -472,6 +625,13 @@ export function StockDeepDive({
               >
                 Open full stock analysis <ExternalLink className="h-3 w-3" />
               </Link>
+
+              <p className="mt-3 border-t border-border pt-3 text-[10px] leading-relaxed text-muted-foreground">
+                Personal educational analysis only. Not public investment advice, not
+                SEBI-registered, and not a recommendation for third parties. Verdicts are generated
+                from the available objective signals and can be wrong; decisions are the user's own
+                responsibility.
+              </p>
             </div>
           </>
         )}

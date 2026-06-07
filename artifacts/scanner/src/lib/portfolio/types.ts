@@ -67,6 +67,13 @@ export interface LiveMetrics {
   roe: number | null;
   marketCapCr: number | null;
   beta: number | null;
+  /** Return on capital employed (%) — fundamental quality (display + advice). */
+  roce: number | null;
+  /** Debt-to-equity ratio — leverage (display + advice). */
+  debtToEquity: number | null;
+  /** 52-week high/low from the live quote (objective range context). */
+  fiftyTwoWeekHigh: number | null;
+  fiftyTwoWeekLow: number | null;
 }
 
 /** Which endpoint ultimately supplied the live CMP (null when none did). */
@@ -185,12 +192,89 @@ export interface CashFlow {
   amount: number;
 }
 
+// ---------------------------------------------------------------------------
+// Advisor layer (personal-use, decisive verdicts).
+//
+// Opt-in advisory output that sits ON TOP of the neutral AnalyticsResult. Every
+// verdict is explainable via reasonCodes (audit trail); confidence is reduced
+// automatically when data is sparse or stale; targets/stops are only ever taken
+// from real technical/valuation/risk-reward levels — never fabricated.
+// ---------------------------------------------------------------------------
+
+/** Decisive personal-use verdict for a single holding. */
+export type Verdict =
+  | "ACCUMULATE"
+  | "HOLD"
+  | "TRIM"
+  | "EXIT"
+  | "AVOID"
+  | "WATCHLIST"
+  | "DATA_INCOMPLETE";
+
+export type Confidence = "High" | "Medium" | "Low";
+
+export type AdviceRiskLevel = "Low" | "Moderate" | "Elevated" | "High";
+
+export type ReasonImpact = "positive" | "negative" | "neutral";
+
+/** One transparent, explainable factor behind a verdict (audit trail). */
+export interface ReasonCode {
+  code: string;
+  label: string;
+  impact: ReasonImpact;
+}
+
+/** An objective price band (zone), never a guaranteed target/stop. */
+export interface PriceZone {
+  low: number;
+  high: number;
+}
+
+export type DataQualityLevel = "full" | "partial" | "price-only" | "none";
+
+export interface DataQuality {
+  level: DataQualityLevel;
+  /** Signal groups that were unavailable (drove confidence down). */
+  missing: string[];
+  /** True when the freshest available datum is suspected stale. */
+  stale: boolean;
+}
+
+/** Full per-holding advisory report (personal-use, educational). */
+export interface AdviceResult {
+  verdict: Verdict;
+  confidence: Confidence;
+  /** One-line decisive reason for the verdict. */
+  headline: string;
+  /** Transparent factors (audit trail) backing the verdict. */
+  reasonCodes: ReasonCode[];
+  technicalView: string;
+  fundamentalView: string;
+  valuationView: string;
+  trendStrength: { score: number | null; label: string };
+  supportZone: number | null;
+  resistanceZone: number | null;
+  /** Suggested re-entry/add band — only when the verdict supports adding. */
+  accumulationZone: PriceZone | null;
+  riskLevel: AdviceRiskLevel;
+  /** Technical invalidation level (nearest structural support), never fabricated. */
+  stopLoss: number | null;
+  /** Objective upside band (resistance / risk-reward); null when no level exists. */
+  targetZone: PriceZone | null;
+  upsidePct: number | null;
+  improveIf: string[];
+  negativeIf: string[];
+  dataQuality: DataQuality;
+}
+
 /** A holding joined with its live data + derived metrics + analytics (view model). */
 export interface EnrichedRow {
   raw: RawHolding;
   live: LiveMetrics;
   metrics: HoldingMetrics;
   analytics: AnalyticsResult;
+  /** Decisive personal-use advisory verdict + full report (layered on analytics). */
+  advice: AdviceResult;
   /** Provenance of the enrichment (resolved symbol, data source, reason). */
   resolution: EnrichmentMeta;
   /** True while the underlying live query is still in flight. */

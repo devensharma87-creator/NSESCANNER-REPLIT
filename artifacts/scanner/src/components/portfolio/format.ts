@@ -1,5 +1,5 @@
 /** Portfolio Analyser — display formatting helpers (presentation only). */
-import type { ActionView } from "@/lib/portfolio/types";
+import type { ActionView, Verdict, Confidence } from "@/lib/portfolio/types";
 import type { TrendTone } from "@/lib/portfolio/etf";
 
 const inr0 = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
@@ -53,6 +53,54 @@ export function actionViewClass(label: ActionView | null): string {
     default:
       return "bg-muted text-muted-foreground border-border";
   }
+}
+
+/** Tailwind classes for the decisive advisor verdict badge. */
+export function verdictClass(v: Verdict | null): string {
+  switch (v) {
+    case "ACCUMULATE":
+      return "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+    case "HOLD":
+      return "bg-sky-500/15 text-sky-400 border-sky-500/30";
+    case "TRIM":
+      return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+    case "AVOID":
+      return "bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30";
+    case "EXIT":
+      return "bg-red-500/15 text-red-400 border-red-500/30";
+    case "WATCHLIST":
+      return "bg-slate-500/15 text-slate-300 border-slate-500/30";
+    case "DATA_INCOMPLETE":
+      return "bg-muted text-muted-foreground border-border border-dashed";
+    default:
+      return "bg-muted text-muted-foreground border-border";
+  }
+}
+
+/** Human-friendly verdict label (DATA_INCOMPLETE → "DATA INCOMPLETE"). */
+export function verdictLabel(v: Verdict): string {
+  return v === "DATA_INCOMPLETE" ? "DATA INCOMPLETE" : v;
+}
+
+/** Tailwind classes for the confidence pill. */
+export function confidenceClass(c: Confidence | null): string {
+  switch (c) {
+    case "High":
+      return "bg-emerald-500/10 text-emerald-400 border-emerald-500/25";
+    case "Medium":
+      return "bg-amber-500/10 text-amber-400 border-amber-500/25";
+    case "Low":
+      return "bg-muted text-muted-foreground border-border";
+    default:
+      return "bg-muted text-muted-foreground border-border";
+  }
+}
+
+/** Tailwind text class for a reason-code impact. */
+export function impactClass(impact: "positive" | "negative" | "neutral"): string {
+  if (impact === "positive") return "text-emerald-400";
+  if (impact === "negative") return "text-red-400";
+  return "text-muted-foreground";
 }
 
 /** Tailwind classes for the compact ETF trend chip (CMP vs 50/200-DMA). */
