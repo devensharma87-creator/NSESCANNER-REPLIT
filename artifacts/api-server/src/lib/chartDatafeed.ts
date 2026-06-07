@@ -15,6 +15,7 @@ import {
 } from "./kiteIntraday";
 import { fetchChart, fetchChartRaw, fetchIntraday, type YahooChart } from "./yahoo";
 import { resolveInstrument, type ChartSegment } from "./chartInstruments";
+import { fetchIndexFuturesVolume } from "./indexFuturesVolume";
 import { logger } from "./logger";
 
 export type ChartTimeframe =
@@ -235,8 +236,39 @@ async function tryKite(
   }
   if (!chart) return null;
   let candles = normalizeChart(chart);
+  // Spot indices carry no traded volume (Kite returns 0), so VWAP / Volume
+  // Profile are impossible from the cash index alone. Mirror pro terminals by
+  // weighting the index with its nearest-month FUTURES volume, aligned by
+  // timestamp. Done BEFORE aggregation so weekly/monthly buckets sum it too.
+  // Fail-OPEN: on any miss the spot candles (volume 0) are returned untouched.
+  if (meta.segment === "index") {
+    candles = await mergeIndexFuturesVolume(meta.symbol, cfg, candles);
+  }
   if (cfg.aggregateTo) candles = aggregateCandles(candles, cfg.aggregateTo);
   return candles.length > 0 ? candles : null;
+}
+
+/**
+ * Overlay nearest-month index-futures volume onto spot index candles, matched
+ * by epoch-second open. Bars with no futures match keep their original volume
+ * (0 for a spot index). Never throws — fabricates nothing.
+ */
+async function mergeIndexFuturesVolume(
+  symbol: string,
+  cfg: TimeframeConfig,
+  candles: ChartCandlePoint[],
+): Promise<ChartCandlePoint[]> {
+  try {
+    const volMap = await fetchIndexFuturesVolume(symbol, cfg.kiteInterval, cfg.kiteDaysBack);
+    if (!volMap || volMap.size === 0) return candles;
+    return candles.map(c => {
+      const v = volMap.get(c.t);
+      return v != null && v > 0 ? { ...c, v } : c;
+    });
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, symbol }, "chart: index futures volume merge failed");
+    return candles;
+  }
 }
 
 async function tryYahoo(

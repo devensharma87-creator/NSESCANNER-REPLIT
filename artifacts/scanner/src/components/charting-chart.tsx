@@ -241,6 +241,7 @@ export function ChartingChart({
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const legendRef = useRef<HTMLDivElement | null>(null);
 
   // Structural rebuild: anything that changes the set/shape of series.
   const emaKey = (Object.keys(emaSeries) as unknown as EmaPeriod[])
@@ -370,9 +371,9 @@ export function ChartingChart({
       const line = chart.addSeries(LineSeries, {
         color: VWAP_COLOR,
         lineWidth: 2,
-        lineStyle: LineStyle.Dashed,
+        lineStyle: LineStyle.Solid,
         priceLineVisible: false,
-        lastValueVisible: false,
+        lastValueVisible: true,
         crosshairMarkerVisible: false,
       });
       line.setData(alignedLine(candles, vwapSeries));
@@ -452,14 +453,20 @@ export function ChartingChart({
       });
     }
 
-    // ── Auto-Fibonacci (dashed; gold retracement, purple extension) ─
+    // ── Auto-Fibonacci (solid; gold retracement, purple extension) ──
+    // Retracements are SOLID so they read clearly on indices (where the dashed
+    // version was easy to lose among the gridlines); the 0.5 / 0.618 "golden
+    // pocket" is emphasized with a thicker line. Extensions stay dotted as they
+    // sit outside the swing range.
     if (fibLevels && fibLevels.length > 0) {
       for (const f of fibLevels) {
+        const isExt = f.kind === "extension";
+        const inPocket = !isExt && (f.ratio === 0.5 || f.ratio === 0.618);
         mainSeries.createPriceLine({
           price: f.price,
-          color: f.kind === "extension" ? FIB_EXT_COLOR : FIB_RETRACE_COLOR,
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
+          color: isExt ? FIB_EXT_COLOR : FIB_RETRACE_COLOR,
+          lineWidth: inPocket ? 2 : 1,
+          lineStyle: isExt ? LineStyle.Dotted : LineStyle.Solid,
           axisLabelVisible: true,
           title: `Fib ${f.ratio}`,
         });
@@ -523,6 +530,44 @@ export function ChartingChart({
 
     chart.timeScale().fitContent();
 
+    // ── Crosshair-following OHLC legend (data-rich, pro-terminal style) ──
+    // Reads straight from the supplied candle data, so it works for both
+    // candle and line chart types and never fabricates a value.
+    {
+      const idxByTime = new Map<number, number>();
+      candles.forEach((c, i) => idxByTime.set(Math.floor(c.t), i));
+      const fmt = (n: number) =>
+        n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const renderLegend = (t: number | null) => {
+        const el = legendRef.current;
+        if (!el) return;
+        let i = candles.length - 1;
+        if (t != null && idxByTime.has(t)) i = idxByTime.get(t)!;
+        const c = candles[i];
+        if (!c) {
+          el.innerHTML = "";
+          return;
+        }
+        const prev = i > 0 ? candles[i - 1] : undefined;
+        const base = prev ? prev.c : c.o;
+        const chg = c.c - base;
+        const pct = base ? (chg / base) * 100 : 0;
+        const up = chg >= 0;
+        const col = up ? "#00A25B" : "#EB3B00";
+        const sign = up ? "+" : "";
+        const lbl = (k: string, v: number) =>
+          `<span style="opacity:.55">${k}</span>\u00A0${fmt(v)}`;
+        el.innerHTML =
+          `${lbl("O", c.o)}\u00A0\u00A0${lbl("H", c.h)}\u00A0\u00A0${lbl("L", c.l)}\u00A0\u00A0${lbl("C", c.c)}` +
+          `\u00A0\u00A0<span style="color:${col}">${sign}${fmt(chg)} (${sign}${pct.toFixed(2)}%)</span>`;
+      };
+      renderLegend(null);
+      chart.subscribeCrosshairMove(param => {
+        const t = typeof param.time === "number" ? (param.time as number) : null;
+        renderLegend(t);
+      });
+    }
+
     const ro = new ResizeObserver(entries => {
       for (const entry of entries) {
         chart.applyOptions({ width: Math.floor(entry.contentRect.width), height });
@@ -537,5 +582,14 @@ export function ChartingChart({
     };
   }, [candles, chartType, emaKey, hasVwap, showVolume, showRsi, showCvd, showTime, height, emaSeries, vwapSeries, rsiSeries, cvdSeries, pocPrice, fvgZones, sweepMarkers, fibLevels, volumeProfile, showVolumeProfile, keyLevels, showKeyLevels]);
 
-  return <div ref={containerRef} style={{ width: "100%", height }} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height }}>
+      <div
+        ref={legendRef}
+        className="pointer-events-none absolute left-2 top-1.5 z-10 font-mono text-[11px] tracking-tight text-foreground/90"
+        data-testid="chart-ohlc-legend"
+      />
+      <div ref={containerRef} style={{ width: "100%", height }} />
+    </div>
+  );
 }

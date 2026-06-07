@@ -21,7 +21,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, AlertTriangle, CandlestickChart, LineChart as LineIcon, X } from "lucide-react";
+import { Search, AlertTriangle, CandlestickChart, LineChart as LineIcon, X, Maximize2, Minimize2 } from "lucide-react";
 import {
   ChartingChart,
   EMA_COLORS,
@@ -85,9 +85,10 @@ const DEFAULT_EMA_VISIBLE: Record<EmaPeriod, boolean> = {
   200: false,
 };
 
-// ~70vh, leaving room for the toolbar/header, clamped to a sensible range.
+// ~78vh, leaving room for the toolbar/header, clamped to a sensible range.
+// Bumped to give the chart more breathing room on large screens.
 function clampHeight(innerHeight: number): number {
-  return Math.max(560, Math.min(900, Math.round(innerHeight * 0.7)));
+  return Math.max(600, Math.min(1100, Math.round(innerHeight * 0.78)));
 }
 
 function fmtAge(asOf: number | null | undefined): string {
@@ -189,20 +190,25 @@ export default function ChartingPage() {
   }, [emaAll, emaVisible]);
 
   const intraday = isIntraday(timeframe);
+
+  // Volume-derived overlays (VWAP, CVD, POC, Volume Profile) need real volume.
+  // On null-volume sources (delayed Yahoo / global) they are honestly disabled.
+  // For spot indices the backend overlays nearest-month FUTURES volume on the
+  // Kite path, so VWAP/VP become available there too (labelled "· FUT").
+  const hasVolume = useMemo(
+    () => candles.some(c => c.v != null && Number.isFinite(c.v) && c.v > 0),
+    [candles],
+  );
+
+  // Session VWAP is intraday-only AND volume-weighted, so it needs both an
+  // intraday timeframe and a volume-bearing source (futures volume for indices).
   const vwapSeries = useMemo(
-    () => (showVwap && intraday ? vwap(indicatorCandles, true) : null),
-    [showVwap, intraday, indicatorCandles],
+    () => (showVwap && intraday && hasVolume ? vwap(indicatorCandles, true) : null),
+    [showVwap, intraday, hasVolume, indicatorCandles],
   );
   const rsiSeries = useMemo(
     () => (showRsi ? rsiClose(indicatorCandles, 14) : null),
     [showRsi, indicatorCandles],
-  );
-
-  // CVD and POC are volume-derived; on null-volume sources (e.g. delayed Yahoo /
-  // global symbols) they are honestly unavailable, so the toggles are disabled.
-  const hasVolume = useMemo(
-    () => candles.some(c => c.v != null && Number.isFinite(c.v) && c.v > 0),
-    [candles],
   );
   const cvdSeries = useMemo(
     () => (showCvd && hasVolume ? cvdProxy(indicatorCandles) : null),
@@ -289,14 +295,30 @@ export default function ChartingPage() {
   const [chartHeight, setChartHeight] = useState(() =>
     typeof window === "undefined" ? 560 : clampHeight(window.innerHeight),
   );
+  const [viewportH, setViewportH] = useState(() =>
+    typeof window === "undefined" ? 900 : window.innerHeight,
+  );
+  const [isFullscreen, setIsFullscreen] = useState(false);
   useEffect(() => {
     function onResize() {
       setChartHeight(clampHeight(window.innerHeight));
+      setViewportH(window.innerHeight);
     }
     window.addEventListener("resize", onResize);
     onResize();
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  // Escape exits full-screen.
+  useEffect(() => {
+    if (!isFullscreen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setIsFullscreen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
+  // In full-screen the chart fills the viewport minus header/footer chrome.
+  const effectiveHeight = isFullscreen ? Math.max(600, viewportH - 132) : chartHeight;
 
   function pick(inst: ChartInstrument) {
     setSelection({ symbol: inst.symbol, name: inst.name, segment: inst.segment });
@@ -312,7 +334,7 @@ export default function ChartingPage() {
   const hasData = !isLoading && !isError && candles.length > 0;
 
   return (
-    <div className="space-y-3">
+    <div className={isFullscreen ? "fixed inset-0 z-50 overflow-auto bg-background p-3 space-y-3" : "space-y-3"}>
       {/* ── Toolbar ─────────────────────────────────────────────── */}
       <Card className="p-3 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -449,11 +471,17 @@ export default function ChartingPage() {
             ))}
             <button
               onClick={() => setShowVwap(v => !v)}
-              disabled={!intraday}
+              disabled={!intraday || !hasVolume}
               className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-mono transition-colors disabled:opacity-40 ${
-                showVwap && intraday ? "border-border bg-muted/40" : "border-transparent text-muted-foreground/60"
+                showVwap && intraday && hasVolume ? "border-border bg-muted/40" : "border-transparent text-muted-foreground/60"
               }`}
-              title={intraday ? "Session VWAP" : "VWAP is intraday-only"}
+              title={
+                !intraday
+                  ? "VWAP is intraday-only"
+                  : !hasVolume
+                    ? "VWAP needs volume — unavailable on this source"
+                    : "Session VWAP (volume-weighted)"
+              }
               data-testid="toggle-vwap"
             >
               <span className="inline-block w-2 h-2 rounded-sm" style={{ background: VWAP_COLOR }} />
@@ -615,13 +643,32 @@ export default function ChartingPage() {
                 : `Last updated ${fmtAge(resp?.asOf)}`}
             </Badge>
           )}
+          {segment === "index" && source === "kite" && hasVolume && (
+            <Badge
+              variant="outline"
+              className="text-[10px] uppercase font-mono"
+              title="Spot indices have no volume; this chart uses nearest-month index futures volume for VWAP / Volume Profile."
+              data-testid="badge-futures-volume"
+            >
+              Vol · {selection.symbol} FUT
+            </Badge>
+          )}
+          <button
+            onClick={() => setIsFullscreen(v => !v)}
+            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-mono text-muted-foreground transition-colors hover:bg-muted/40"
+            title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
+            data-testid="toggle-fullscreen"
+          >
+            {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            {isFullscreen ? "Exit" : "Full screen"}
+          </button>
         </div>
       </div>
 
       {/* ── Chart surface ───────────────────────────────────────── */}
       <Card className="p-2 sm:p-3">
         {isLoading && (
-          <div className="flex items-center justify-center text-sm text-muted-foreground" style={{ height: chartHeight }} data-testid="chart-loading">
+          <div className="flex items-center justify-center text-sm text-muted-foreground" style={{ height: effectiveHeight }} data-testid="chart-loading">
             <div className="flex flex-col items-center gap-2">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
               Loading candles…
@@ -630,7 +677,7 @@ export default function ChartingPage() {
         )}
 
         {isError && (
-          <div className="flex flex-col items-center justify-center gap-3 text-center" style={{ height: chartHeight }} data-testid="chart-error">
+          <div className="flex flex-col items-center justify-center gap-3 text-center" style={{ height: effectiveHeight }} data-testid="chart-error">
             <AlertTriangle className="h-7 w-7 text-amber-500" />
             <div className="text-sm text-muted-foreground">
               Couldn't load the datafeed. Please retry.
@@ -642,7 +689,7 @@ export default function ChartingPage() {
         )}
 
         {hasNoData && (
-          <div className="flex flex-col items-center justify-center gap-3 text-center" style={{ height: chartHeight }} data-testid="chart-empty">
+          <div className="flex flex-col items-center justify-center gap-3 text-center" style={{ height: effectiveHeight }} data-testid="chart-empty">
             <AlertTriangle className="h-7 w-7 text-muted-foreground" />
             <div className="max-w-md text-sm text-muted-foreground">
               {resp?.message ?? "No data available for this instrument / timeframe right now."}
@@ -673,7 +720,7 @@ export default function ChartingPage() {
             showRsi={showRsi}
             showCvd={showCvd}
             showTime={timeframeShowsTime(timeframe)}
-            height={chartHeight}
+            height={effectiveHeight}
           />
         )}
       </Card>
@@ -693,8 +740,17 @@ export default function ChartingPage() {
           that don't provide it (e.g. delayed Yahoo / global symbols).
         </p>
         <p>
+          <span className="font-mono">VWAP</span> is the intraday volume-weighted average price. Spot indices
+          carry no volume of their own, so on the Kite feed this chart overlays the nearest-month index
+          <span className="font-mono"> FUTURES</span> volume (shown by the{" "}
+          <span className="font-mono">Vol · FUT</span> badge) to make VWAP and Volume Profile meaningful — the
+          TradingView convention. When no real volume is available, VWAP is honestly disabled (no fabricated
+          volume).
+        </p>
+        <p>
           <span className="font-mono">Fibonacci</span> is drawn off the dominant swing in the loaded window
-          (retracement 0→1.0 plus 1.272 / 1.618 extensions). <span className="font-mono">Support/Resistance</span>{" "}
+          (solid retracements 0→1.0, with the 0.5 / 0.618 golden pocket emphasized, plus dotted 1.272 / 1.618
+          extensions). <span className="font-mono">Support/Resistance</span>{" "}
           ranks the 3 nearest levels on each side by clustering Fibonacci, price-action swings and — for F&amp;O
           underlyings — option-chain OI; each label shows the sources that back it. Levels appear only when
           there is enough data; nothing is fabricated.
