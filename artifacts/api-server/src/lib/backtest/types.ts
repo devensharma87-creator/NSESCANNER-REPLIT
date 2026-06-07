@@ -158,6 +158,12 @@ export interface BacktestStrategyMetaOut {
   description: string;
   /** Confirmation filters this strategy ignores by design (e.g. range plays ignore VWAP/EMA-trend). */
   ignoredFilters: string[];
+  /**
+   * Short human-readable rationale for WHY this strategy ignores the filters above
+   * (e.g. "range plays ignore VWAP/EMA-trend because they trade mean-reversion, not
+   * trend"). Empty string when the strategy ignores nothing.
+   */
+  ignoredFiltersRationale: string;
   defaultParams: Record<string, number>;
 }
 

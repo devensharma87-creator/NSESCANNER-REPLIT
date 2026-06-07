@@ -106,6 +106,7 @@ export const emaTrendRetest: StrategyModule = {
     description:
       "Enters in the direction of a fully-stacked EMA trend after price retests the fast EMAs and resumes.",
     ignoredFilters: [],
+    ignoredFiltersRationale: "",
     defaultParams: { target1R: 1, target2R: 2 },
   },
   evaluate,

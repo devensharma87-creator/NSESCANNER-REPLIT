@@ -230,10 +230,11 @@ function configSummaryForStrategy(
   filters: BacktestFilterConfig | null | undefined,
   maxTradesPerDay: number | null | undefined,
   ignoredFilters?: readonly string[] | null,
+  ignoredFiltersRationale?: string | null,
 ): { short: string; full: string } {
   return strategyId === OFFICIAL_STRATEGY_ID
     ? summarizeRunFilters(null, null)
-    : summarizeRunFilters(filters, maxTradesPerDay, ignoredFilters);
+    : summarizeRunFilters(filters, maxTradesPerDay, ignoredFilters, ignoredFiltersRationale);
 }
 
 // ───────────── small presentational helpers ─────────────
@@ -828,10 +829,12 @@ function AggregateTable({
   rows,
   filters,
   maxTradesPerDay,
+  rationaleByStrategy,
 }: {
   rows: BacktestStrategyAggregate[];
   filters: BacktestFilterConfig | null | undefined;
   maxTradesPerDay: number | null | undefined;
+  rationaleByStrategy: Map<string, string>;
 }) {
   if (rows.length === 0) {
     return (
@@ -892,6 +895,7 @@ function AggregateTable({
                     filters,
                     maxTradesPerDay,
                     r.ignoredFilters,
+                    rationaleByStrategy.get(r.strategyId),
                   );
                   return (
                     <span
@@ -953,10 +957,12 @@ function ComparisonRowsTable({
   comparison,
   filters,
   maxTradesPerDay,
+  rationaleByStrategy,
 }: {
   comparison: BacktestStrategyComparison;
   filters: BacktestFilterConfig | null | undefined;
   maxTradesPerDay: number | null | undefined;
+  rationaleByStrategy: Map<string, string>;
 }) {
   if (comparison.rows.length === 0) {
     return (
@@ -1003,6 +1009,7 @@ function ComparisonRowsTable({
                     filters,
                     maxTradesPerDay,
                     r.ignoredFilters,
+                    rationaleByStrategy.get(r.strategyId),
                   );
                   return (
                     <span
@@ -1052,10 +1059,12 @@ function ComparisonDashboard({
   comparison,
   filters,
   maxTradesPerDay,
+  rationaleByStrategy,
 }: {
   comparison: BacktestStrategyComparison;
   filters: BacktestFilterConfig | null | undefined;
   maxTradesPerDay: number | null | undefined;
+  rationaleByStrategy: Map<string, string>;
 }) {
   return (
     <div className="space-y-4">
@@ -1088,6 +1097,7 @@ function ComparisonDashboard({
             rows={comparison.byStrategy}
             filters={filters}
             maxTradesPerDay={maxTradesPerDay}
+            rationaleByStrategy={rationaleByStrategy}
           />
         </CardContent>
       </Card>
@@ -1101,6 +1111,7 @@ function ComparisonDashboard({
             comparison={comparison}
             filters={filters}
             maxTradesPerDay={maxTradesPerDay}
+            rationaleByStrategy={rationaleByStrategy}
           />
         </CardContent>
       </Card>
@@ -1428,6 +1439,13 @@ export default function BacktestLab() {
   const trades = tradesQ.data?.items ?? [];
   const blocked = blockedQ.data?.items ?? [];
   const strategies = strategiesQ.data?.items ?? [];
+
+  // strategyId → "why these filters are ignored" rationale, sourced from the live
+  // strategy catalog (never fabricated). Strategies that ignore nothing map to "".
+  const rationaleByStrategy = useMemo(
+    () => new Map(strategies.map((s) => [s.id, s.ignoredFiltersRationale ?? ""])),
+    [strategies],
+  );
 
   // The active run's own mode drives whether attribution columns are meaningful.
   const runIsStrategy =
@@ -1872,6 +1890,7 @@ export default function BacktestLab() {
               comparison={comparison}
               filters={run?.filters}
               maxTradesPerDay={run?.maxTradesPerDay}
+              rationaleByStrategy={rationaleByStrategy}
             />
           )}
 

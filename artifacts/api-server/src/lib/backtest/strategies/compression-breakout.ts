@@ -118,6 +118,7 @@ export const compressionBreakout: StrategyModule = {
     description:
       "Trades the break of an inside-bar / NR7 compression with a range-expansion confirmation (volume proxy).",
     ignoredFilters: [],
+    ignoredFiltersRationale: "",
     defaultParams: { target1R: 1, target2R: 2 },
   },
   evaluate,

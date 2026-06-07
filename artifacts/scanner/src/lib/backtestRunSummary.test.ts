@@ -144,4 +144,38 @@ describe("summarizeRunFilters", () => {
     const { short } = summarizeRunFilters(null, null, ["vwapFilter"]);
     expect(short).toBe("engine replay");
   });
+
+  it("adds a 'Why ignored' line to the full tooltip when a rationale is supplied", () => {
+    const { full } = summarizeRunFilters(
+      { ...DEFAULT_FILTERS },
+      4,
+      ["vwapFilter", "emaTrendFilter"],
+      "Range plays trade mean-reversion, not trend.",
+    );
+    const lines = full.split("\n");
+    expect(lines).toContain("Why ignored: Range plays trade mean-reversion, not trend.");
+    // The rationale sits beneath the filter lines but before the auto-disabled note.
+    const whyIdx = lines.findIndex((l) => l.startsWith("Why ignored:"));
+    const autoIdx = lines.findIndex((l) => l.startsWith("Auto-disabled"));
+    expect(whyIdx).toBeGreaterThan(0);
+    expect(whyIdx).toBeLessThan(autoIdx);
+  });
+
+  it("does not add a 'Why ignored' line when the strategy ignores nothing", () => {
+    const { full } = summarizeRunFilters({ ...DEFAULT_FILTERS }, 4, [], "should not appear");
+    expect(full).not.toContain("Why ignored:");
+    expect(full).not.toContain("should not appear");
+  });
+
+  it("does not add a 'Why ignored' line when the rationale is blank even if filters are ignored", () => {
+    const blank = summarizeRunFilters({ ...DEFAULT_FILTERS }, 4, ["vwapFilter"], "   ");
+    expect(blank.full).not.toContain("Why ignored:");
+    const missing = summarizeRunFilters({ ...DEFAULT_FILTERS }, 4, ["vwapFilter"]);
+    expect(missing.full).not.toContain("Why ignored:");
+  });
+
+  it("never adds a rationale line to engine-replay rows", () => {
+    const { full } = summarizeRunFilters(null, null, ["vwapFilter"], "irrelevant");
+    expect(full).not.toContain("Why ignored:");
+  });
 });

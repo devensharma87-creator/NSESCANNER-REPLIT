@@ -5161,7 +5161,7 @@ components:
 
     BacktestStrategyMeta:
       type: object
-      required: [id, name, category, bestCondition, suitableIndices, recommendedTimeframes, riskLevel, description, ignoredFilters, defaultParams]
+      required: [id, name, category, bestCondition, suitableIndices, recommendedTimeframes, riskLevel, description, ignoredFilters, ignoredFiltersRationale, defaultParams]
       properties:
         id: { type: string }
         name: { type: string }
@@ -5179,6 +5179,9 @@ components:
           type: array
           items: { type: string }
           description: "Confirmation filters this strategy ignores by design."
+        ignoredFiltersRationale:
+          type: string
+          description: "Short human-readable rationale for why this strategy ignores the filters above; empty string when it ignores nothing."
         defaultParams:
           type: object
           additionalProperties: { type: number }

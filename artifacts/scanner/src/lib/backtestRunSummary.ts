@@ -52,6 +52,7 @@ export function summarizeRunFilters(
   filters: BacktestFilterConfig | null | undefined,
   maxTradesPerDay: number | null | undefined,
   ignoredFilters?: readonly string[] | null,
+  ignoredFiltersRationale?: string | null,
 ): { short: string; full: string } {
   if (!filters) {
     return {
@@ -87,6 +88,13 @@ export function summarizeRunFilters(
       ? `${FILTER_LABELS.minimumRiskReward}: ${numFmt(merged.minimumRiskReward)} (ignored by this strategy)`
       : `${FILTER_LABELS.minimumRiskReward}: ${numFmt(merged.minimumRiskReward)}`,
   );
+  // Explain WHY the ignored filters are skipped, right beneath the filter lines —
+  // only when this strategy actually ignores something and a rationale is provided.
+  const hasIgnored = struckAbbr.length > 0 || rrIgnored || ignored.size > 0;
+  const rationale = (ignoredFiltersRationale ?? "").trim();
+  if (hasIgnored && rationale) {
+    fullLines.push(`Why ignored: ${rationale}`);
+  }
   if (typeof maxTradesPerDay === "number") fullLines.push(`Max trades/day: ${maxTradesPerDay}`);
   fullLines.push(
     `Auto-disabled (no historical data): ${AUTO_DISABLED_FILTERS.map((k) => FILTER_LABELS[k]).join(", ")}`,

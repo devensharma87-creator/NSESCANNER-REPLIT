@@ -112,6 +112,7 @@ export const vwapPullback: StrategyModule = {
     description:
       "Buys the first orderly pullback to VWAP/EMA20 in an established trend, entering on the break of a rejection candle.",
     ignoredFilters: [],
+    ignoredFiltersRationale: "",
     defaultParams: { target1R: 1, target2R: 2 },
   },
   evaluate,

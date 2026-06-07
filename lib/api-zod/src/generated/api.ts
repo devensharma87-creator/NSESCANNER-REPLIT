@@ -7242,6 +7242,11 @@ export const GetBacktestStrategiesResponse = zod.object({
       ignoredFilters: zod
         .array(zod.string())
         .describe("Confirmation filters this strategy ignores by design."),
+      ignoredFiltersRationale: zod
+        .string()
+        .describe(
+          "Short human-readable rationale for why this strategy ignores the filters above; empty string when it ignores nothing.",
+        ),
       defaultParams: zod.record(zod.string(), zod.number()),
     }),
   ),

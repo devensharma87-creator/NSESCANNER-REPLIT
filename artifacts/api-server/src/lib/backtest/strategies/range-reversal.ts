@@ -119,6 +119,8 @@ export const rangeReversal: StrategyModule = {
       "Fades the edges of an intraday range at support/resistance with an RSI extreme and rejection candle. Counter-trend by design.",
     // A range play deliberately trades against VWAP/EMA-trend and inside chop.
     ignoredFilters: ["vwapFilter", "emaTrendFilter", "avoidChopZone"],
+    ignoredFiltersRationale:
+      "Trades mean-reversion at range edges, not trend — VWAP/EMA-trend confirmation would veto valid counter-trend fades, and it deliberately operates inside a low-ADX (chop) tape.",
     defaultParams: { rsiOversold: 35, rsiOverbought: 65, target1R: 1, target2R: 2 },
   },
   evaluate,

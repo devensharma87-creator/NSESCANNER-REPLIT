@@ -107,6 +107,8 @@ export const failedBreakoutReversal: StrategyModule = {
       "Fades a failed sweep of the opening-range/prior-day extreme that reclaims back inside with a clear wick rejection.",
     // Counter-trend by nature — the EMA-trend filter would wrongly veto it.
     ignoredFilters: ["emaTrendFilter"],
+    ignoredFiltersRationale:
+      "Counter-trend by nature — it fades a failed sweep that traps trend-followers, so an EMA-trend confirmation would wrongly veto the reversal it is designed to catch.",
     defaultParams: { target1R: 1, target2R: 2 },
   },
   evaluate,

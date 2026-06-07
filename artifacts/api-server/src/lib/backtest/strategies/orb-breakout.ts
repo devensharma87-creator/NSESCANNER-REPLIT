@@ -117,6 +117,7 @@ export const orbBreakout: StrategyModule = {
     description:
       "Trades a clean break and close beyond the first-candle opening range in the direction of VWAP, with a real breakout body (not a wick).",
     ignoredFilters: [],
+    ignoredFiltersRationale: "",
     defaultParams: { target1R: 1, target2R: 2 },
   },
   evaluate,

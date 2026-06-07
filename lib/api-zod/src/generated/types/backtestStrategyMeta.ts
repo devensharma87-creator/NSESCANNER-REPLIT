@@ -18,5 +18,7 @@ export interface BacktestStrategyMeta {
   description: string;
   /** Confirmation filters this strategy ignores by design. */
   ignoredFilters: string[];
+  /** Short human-readable rationale for why this strategy ignores the filters above; empty string when it ignores nothing. */
+  ignoredFiltersRationale: string;
   defaultParams: BacktestStrategyMetaDefaultParams;
 }
