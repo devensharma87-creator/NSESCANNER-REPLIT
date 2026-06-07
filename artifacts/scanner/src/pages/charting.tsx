@@ -21,13 +21,18 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, AlertTriangle, CandlestickChart, LineChart as LineIcon, X, Maximize2, Minimize2 } from "lucide-react";
+import { Search, AlertTriangle, CandlestickChart, LineChart as LineIcon, X, Maximize2, Minimize2, Settings2 } from "lucide-react";
 import {
   ChartingChart,
   EMA_COLORS,
   VWAP_COLOR,
   type RenderCandle,
 } from "@/components/charting-chart";
+import {
+  computeFnoSmc,
+  DEFAULT_FNO_SMC_PARAMS,
+  type FnoSmcParams,
+} from "@/lib/charting/fnoSmc";
 import {
   TIMEFRAMES,
   SEGMENTS,
@@ -57,6 +62,26 @@ import {
   type OptionLevels,
 } from "@/lib/charting/indicators";
 import { findFno } from "@/data/fnoUniverse";
+
+// Narrow the suite params to just its boolean / numeric keys so the popover's
+// generic checkbox + number-field helpers stay type-safe.
+type BoolParamKey = { [K in keyof FnoSmcParams]: FnoSmcParams[K] extends boolean ? K : never }[keyof FnoSmcParams];
+type NumParamKey = { [K in keyof FnoSmcParams]: FnoSmcParams[K] extends number ? K : never }[keyof FnoSmcParams];
+
+const DASH_POSITIONS: FnoSmcParams["dashPosition"][] = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"];
+
+function dashOverlayPos(p: FnoSmcParams["dashPosition"]): string {
+  switch (p) {
+    case "Top Right":
+      return "top-2 right-2";
+    case "Top Left":
+      return "top-2 left-2";
+    case "Bottom Right":
+      return "bottom-2 right-2";
+    case "Bottom Left":
+      return "bottom-2 left-2";
+  }
+}
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [v, setV] = useState(value);
@@ -127,6 +152,12 @@ export default function ChartingPage() {
   const [vpWindow, setVpWindow] = useState<VpWindow>("ALL");
   const [showKeyLevels, setShowKeyLevels] = useState(false);
 
+  // All-in-One F&O Trend + SMC suite (single toggle + a parameters popover).
+  const [showSuite, setShowSuite] = useState(false);
+  const [suiteParams, setSuiteParams] = useState<FnoSmcParams>(DEFAULT_FNO_SMC_PARAMS);
+  const [suiteOpen, setSuiteOpen] = useState(false);
+  const suiteBoxRef = useRef<HTMLDivElement | null>(null);
+
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounced(query, 250);
@@ -137,6 +168,17 @@ export default function ChartingPage() {
     function onClick(e: MouseEvent) {
       if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
         setSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  // Close the suite parameters popover on outside click.
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (suiteBoxRef.current && !suiteBoxRef.current.contains(e.target as Node)) {
+        setSuiteOpen(false);
       }
     }
     document.addEventListener("mousedown", onClick);
@@ -186,6 +228,39 @@ export default function ChartingPage() {
   );
 
   const indicatorCandles: IndicatorCandle[] = candles;
+
+  // Higher-timeframe series for the suite's HTF trend filter — fetched in
+  // parallel and only when the suite + its HTF filter are both on. Honest:
+  // if the HTF feed yields nothing, the suite labels the filter Unavailable.
+  const htfTf = suiteParams.htfTimeframe as Timeframe;
+  const htfEnabled = showSuite && suiteParams.useHtf && !!selection.symbol;
+  const htfCandlesQ = useGetChartCandles(
+    { symbol: selection.symbol, segment: selection.segment, tf: htfTf },
+    {
+      query: {
+        enabled: htfEnabled,
+        refetchInterval: 120_000,
+        staleTime: 60_000,
+        queryKey: getGetChartCandlesQueryKey({
+          symbol: selection.symbol,
+          segment: selection.segment,
+          tf: htfTf,
+        }),
+      },
+    },
+  );
+  const htfCandles: IndicatorCandle[] = useMemo(
+    () =>
+      (htfCandlesQ.data?.candles ?? []).map(c => ({
+        t: c.t,
+        o: c.o,
+        h: c.h,
+        l: c.l,
+        c: c.c,
+        v: c.v ?? null,
+      })),
+    [htfCandlesQ.data],
+  );
 
   const emaAll = useMemo(() => emaRibbon(indicatorCandles), [indicatorCandles]);
   const emaSeries = useMemo(() => {
@@ -295,6 +370,14 @@ export default function ChartingPage() {
     [keyLevelsResult],
   );
 
+  // All-in-One F&O Trend + SMC suite — one memo drives the chart overlays AND
+  // the dashboard. HTF candles are passed through; the module degrades
+  // honestly (VWAP n/a without volume, HTF "Unavailable" without a series).
+  const suite = useMemo(
+    () => (showSuite && candles.length > 0 ? computeFnoSmc(indicatorCandles, htfCandles, suiteParams) : null),
+    [showSuite, indicatorCandles, htfCandles, suiteParams, candles.length],
+  );
+
   // Responsive, viewport-driven chart height (~70vh, clamped) so the chart
   // breathes on large screens but stays usable on laptops.
   const toolbarRef = useRef<HTMLDivElement | null>(null);
@@ -360,6 +443,35 @@ export default function ChartingPage() {
     setSearchOpen(false);
     setQuery("");
   }
+
+  function setParam<K extends keyof FnoSmcParams>(key: K, value: FnoSmcParams[K]) {
+    setSuiteParams(prev => ({ ...prev, [key]: value }));
+  }
+  const suiteCheck = (key: BoolParamKey, label: string) => (
+    <label className="flex cursor-pointer items-center gap-1.5">
+      <input
+        type="checkbox"
+        checked={suiteParams[key]}
+        onChange={e => setParam(key, e.target.checked)}
+        className="h-3 w-3 accent-primary"
+        data-testid={`suite-${key}`}
+      />
+      <span>{label}</span>
+    </label>
+  );
+  const suiteNum = (key: NumParamKey, label: string, step = 1) => (
+    <label className="flex items-center justify-between gap-2">
+      <span className="text-muted-foreground">{label}</span>
+      <input
+        type="number"
+        value={suiteParams[key]}
+        step={step}
+        onChange={e => setParam(key, Number(e.target.value))}
+        className="w-16 rounded border border-border bg-background px-1 py-0.5 text-right font-mono"
+        data-testid={`suite-${key}`}
+      />
+    </label>
+  );
 
   const source = resp?.source ?? null;
   const isLoading = candlesQ.isLoading;
@@ -646,6 +758,121 @@ export default function ChartingPage() {
             >
               S/R
             </button>
+
+            <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+
+            {/* All-in-One F&O Trend + SMC suite: single toggle + params popover */}
+            <div ref={suiteBoxRef} className="relative">
+              <div className="flex items-center overflow-hidden rounded-full border border-border">
+                <button
+                  onClick={() => setShowSuite(v => !v)}
+                  className={`px-2 py-0.5 text-[11px] font-mono transition-colors ${
+                    showSuite ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40"
+                  }`}
+                  title="All-in-One F&O Trend + SMC: EMA 9/20/50, VWAP±1σ, Supply/Demand, FVG, BOS/CHoCH, HTF filter, trend score + auto Entry/SL/Target signals"
+                  data-testid="toggle-suite"
+                >
+                  F&O Suite
+                </button>
+                <button
+                  onClick={() => setSuiteOpen(o => !o)}
+                  className="border-l border-border px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted/40"
+                  title="Suite parameters"
+                  data-testid="suite-params-open"
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {suiteOpen && (
+                <div
+                  className="absolute right-0 z-50 mt-1 w-72 rounded-md border border-border bg-popover p-3 text-[11px] shadow-lg"
+                  data-testid="suite-params"
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="font-mono font-semibold uppercase tracking-wide">F&O Suite</span>
+                    <button
+                      onClick={() => setSuiteParams(DEFAULT_FNO_SMC_PARAMS)}
+                      className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+                      data-testid="suite-reset"
+                    >
+                      Reset
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                      {suiteCheck("showEma9", "EMA 9")}
+                      {suiteCheck("showEma20", "EMA 20")}
+                      {suiteCheck("showEma50", "EMA 50")}
+                      {suiteCheck("showVwap", "VWAP")}
+                      {suiteCheck("showVwapBands", "VWAP bands")}
+                      {suiteCheck("showZones", "S/D zones")}
+                      {suiteCheck("hideTested", "Hide tested")}
+                      {suiteCheck("showFvg", "FVG")}
+                      {suiteCheck("fvgAuto", "FVG auto-thr")}
+                      {suiteCheck("fvgRemoveMitigated", "Rm mitigated")}
+                      {suiteCheck("showSmc", "BOS/CHoCH")}
+                      {suiteCheck("showSignals", "Signals")}
+                      {suiteCheck("showDashboard", "Dashboard")}
+                    </div>
+
+                    <div className="border-t border-border pt-2 space-y-1">
+                      {suiteNum("zPivot", "Zone pivot")}
+                      {suiteNum("zMax", "Max zones/side")}
+                      {suiteNum("smcPivot", "SMC pivot")}
+                      {suiteNum("maxFvg", "Max FVGs")}
+                      {!suiteParams.fvgAuto && suiteNum("fvgThrPct", "FVG thr %", 0.01)}
+                      {suiteNum("rrTarget", "Signal R:R", 0.5)}
+                      {suiteNum("slBufAtr", "SL ATR buf", 0.1)}
+                    </div>
+
+                    <div className="border-t border-border pt-2 space-y-1.5">
+                      {suiteCheck("useHtf", "HTF trend filter")}
+                      {suiteParams.useHtf && (
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">HTF timeframe</span>
+                          <select
+                            value={suiteParams.htfTimeframe}
+                            onChange={e => setParam("htfTimeframe", e.target.value)}
+                            className="rounded border border-border bg-background px-1 py-0.5 font-mono"
+                            data-testid="suite-htf-tf"
+                          >
+                            {TIMEFRAMES.map(tf => (
+                              <option key={tf.value} value={tf.value}>
+                                {tf.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      <div className="flex items-center gap-3">
+                        {suiteCheck("reqHtf", "Signal needs HTF")}
+                        {suiteCheck("reqZone", "Signal needs zone")}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border pt-2">
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">Dashboard pos.</span>
+                        <select
+                          value={suiteParams.dashPosition}
+                          onChange={e => setParam("dashPosition", e.target.value as FnoSmcParams["dashPosition"])}
+                          className="rounded border border-border bg-background px-1 py-0.5 font-mono"
+                          data-testid="suite-dash-pos"
+                        >
+                          {DASH_POSITIONS.map(p => (
+                            <option key={p} value={p}>
+                              {p}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </Card>
@@ -700,7 +927,7 @@ export default function ChartingPage() {
       </div>
 
       {/* ── Chart surface ───────────────────────────────────────── */}
-      <Card ref={chartCardRef} className="p-2 sm:p-3">
+      <Card ref={chartCardRef} className="relative p-2 sm:p-3">
         {isLoading && (
           <div className="flex items-center justify-center text-sm text-muted-foreground" style={{ height: effectiveHeight }} data-testid="chart-loading">
             <div className="flex flex-col items-center gap-2">
@@ -750,12 +977,47 @@ export default function ChartingPage() {
             showVolumeProfile={showVp}
             keyLevels={keyLevelsFlat}
             showKeyLevels={showKeyLevels}
+            suite={suite}
             showVolume={showVolume}
             showRsi={showRsi}
             showCvd={showCvd}
             showTime={timeframeShowsTime(timeframe)}
             height={effectiveHeight}
           />
+        )}
+
+        {/* ── F&O Suite dashboard overlay (trend score + components) ── */}
+        {hasData && suite && suiteParams.showDashboard && (
+          <div
+            className={`pointer-events-none absolute z-10 w-44 rounded-md border border-border bg-background/85 p-2 font-mono text-[10px] leading-relaxed shadow-md backdrop-blur-sm ${dashOverlayPos(suiteParams.dashPosition)}`}
+            data-testid="suite-dashboard"
+          >
+            <div className="mb-1 flex items-center justify-between">
+              <span className="font-semibold uppercase tracking-wide">F&O Suite</span>
+              <span style={{ color: suite.dashboard.trendColor }}>{suite.dashboard.trendText}</span>
+            </div>
+            <div className="mb-1 text-muted-foreground">
+              Score{" "}
+              <span style={{ color: suite.dashboard.trendColor }}>
+                {suite.dashboard.score}/{suite.dashboard.maxScore}
+              </span>
+            </div>
+            {(
+              [
+                ["EMA", suite.dashboard.emaText],
+                ["VWAP", suite.dashboard.vwapText],
+                ["Bias", suite.dashboard.biasText],
+                ["Struct", suite.dashboard.structureText],
+                ["HTF", suite.dashboard.htfText],
+              ] as const
+            ).map(([k, v]) => (
+              <div key={k} className="flex items-center justify-between">
+                <span className="text-muted-foreground">{k}</span>
+                <span>{v}</span>
+              </div>
+            ))}
+            <div className="mt-1 border-t border-border pt-1 text-muted-foreground">{suite.dashboard.signalText}</div>
+          </div>
         )}
       </Card>
 
@@ -788,6 +1050,16 @@ export default function ChartingPage() {
           ranks the 3 nearest levels on each side by clustering Fibonacci, price-action swings and — for F&amp;O
           underlyings — option-chain OI; each label shows the sources that back it. Levels appear only when
           there is enough data; nothing is fabricated.
+        </p>
+        <p>
+          <span className="font-mono">F&amp;O Suite</span> is the all-in-one Trend + Smart-Money overlay
+          (EMA 9/20/50, VWAP ±1σ bands, Supply/Demand zones, Fair-Value Gaps, BOS/CHoCH market
+          structure, a higher-timeframe trend filter and a multi-factor trend score). When the score
+          aligns it also draws auto Entry / Stop / Target signals — these are visual study levels only,
+          not trading advice, and never place or affect any order. The gear icon configures every
+          sub-component. VWAP bands need real volume (futures volume for indices), and the HTF filter
+          is honestly marked <span className="font-mono">Unavailable</span> when no higher-timeframe
+          series is returned — nothing is fabricated.
         </p>
       </div>
     </div>
