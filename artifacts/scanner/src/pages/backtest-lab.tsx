@@ -724,6 +724,79 @@ function FilterToggles({
   );
 }
 
+// ───────────── read-only "filters used" summary for a saved run ─────────────
+
+function RunFiltersUsed({
+  filters,
+  maxTradesPerDay,
+}: {
+  filters: BacktestFilterConfig | null | undefined;
+  maxTradesPerDay: number | null | undefined;
+}) {
+  // Official-engine runs persist null filters — they replay the engine, not custom
+  // confirmation filters. Be honest rather than fabricating defaults.
+  if (!filters) {
+    return (
+      <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-[11px] text-muted-foreground">
+        <span className="text-[10px] uppercase tracking-wide">Filters used</span>{" "}
+        — n/a · engine replay (this run used the official engine, not custom confirmation filters).
+      </div>
+    );
+  }
+
+  const merged: Required<BacktestFilterConfig> = { ...DEFAULT_FILTERS, ...filters };
+  const boolKeys: (keyof BacktestFilterConfig)[] = [
+    "vwapFilter",
+    "emaTrendFilter",
+    "avoidChopZone",
+    "avoidLast15Minutes",
+  ];
+
+  return (
+    <div className="rounded-lg border border-border bg-card/60 px-3 py-2">
+      <div className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+        Filters used for this run
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {boolKeys.map((k) => {
+          const on = Boolean(merged[k]);
+          return (
+            <span
+              key={k}
+              className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                on
+                  ? "border-sky-400/60 bg-sky-500/10 text-foreground"
+                  : "border-border text-muted-foreground"
+              }`}
+            >
+              {FILTER_LABELS[k]} {on ? "✓" : "✗"}
+            </span>
+          );
+        })}
+        <span className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground tabular-nums">
+          {FILTER_LABELS.minimumRiskReward}: {num(merged.minimumRiskReward)}
+        </span>
+        {typeof maxTradesPerDay === "number" && (
+          <span className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground tabular-nums">
+            Max trades/day: {maxTradesPerDay}
+          </span>
+        )}
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {AUTO_DISABLED_FILTERS.map((k) => (
+          <span
+            key={k}
+            className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
+            title="Auto-disabled — no historical option-chain/spread/volume data exists. Never silently applied."
+          >
+            {FILTER_LABELS[k]} — auto-disabled
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ───────────── multi-factor comparison / ranking dashboard ─────────────
 
 const RANK_TONE: Record<string, string> = {
@@ -1720,6 +1793,9 @@ export default function BacktestLab() {
 
           {/* comparison / ranking dashboard (strategy + compare modes) */}
           {comparison && <ComparisonDashboard comparison={comparison} />}
+
+          {/* read-only "filters used" summary for this saved run */}
+          <RunFiltersUsed filters={run?.filters} maxTradesPerDay={run?.maxTradesPerDay} />
 
           {/* summary stats */}
           {summary && (
