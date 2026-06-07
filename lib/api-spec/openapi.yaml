@@ -5194,12 +5194,16 @@ components:
     BacktestComparisonRow:
       type: object
       description: "One row of the comparison table — per (strategy × index). P&L is GROSS in grossPnl; netPnl subtracts modeled charges + slippage when requested."
-      required: [strategyId, strategyName, indexSymbol, timeframe, totalTrades, winningTrades, losingTrades, grossPnl, charges, slippage, netPnl, maxDrawdown, target1HitCount, target2HitCount, slHitCount, timeExitCount, rejectedSetupCount, dataBlockedCount, riskBlockedCount]
+      required: [strategyId, strategyName, indexSymbol, timeframe, ignoredFilters, totalTrades, winningTrades, losingTrades, grossPnl, charges, slippage, netPnl, maxDrawdown, target1HitCount, target2HitCount, slHitCount, timeExitCount, rejectedSetupCount, dataBlockedCount, riskBlockedCount]
       properties:
         strategyId: { type: string }
         strategyName: { type: string }
         indexSymbol: { type: string }
         timeframe: { type: string }
+        ignoredFilters:
+          type: array
+          items: { type: string }
+          description: "Confirmation filters this strategy ignores by design (subset of the run's filters); empty for official-engine rows."
         totalTrades: { type: integer }
         winningTrades: { type: integer }
         losingTrades: { type: integer }
@@ -5225,10 +5229,14 @@ components:
     BacktestStrategyAggregate:
       type: object
       description: "Per-strategy aggregate across all selected indices. compositeScore is a multi-factor 0–100 score, null when the strategy has too few trades to rank."
-      required: [strategyId, strategyName, totalTrades, netPnl, maxDrawdown, eligible]
+      required: [strategyId, strategyName, ignoredFilters, totalTrades, netPnl, maxDrawdown, eligible]
       properties:
         strategyId: { type: string }
         strategyName: { type: string }
+        ignoredFilters:
+          type: array
+          items: { type: string }
+          description: "Confirmation filters this strategy ignores by design (subset of the run's filters); empty for official-engine rows."
         totalTrades: { type: integer }
         winRate: { type: number, nullable: true }
         netPnl: { type: number }

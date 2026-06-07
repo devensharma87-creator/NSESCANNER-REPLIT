@@ -167,6 +167,8 @@ export interface BacktestComparisonRowOut {
   strategyName: string;
   indexSymbol: string;
   timeframe: string;
+  /** Confirmation filters this strategy ignores by design (subset of the run's filters). */
+  ignoredFilters: string[];
   totalTrades: number;
   winningTrades: number;
   losingTrades: number;
@@ -194,6 +196,8 @@ export interface BacktestComparisonRowOut {
 export interface BacktestStrategyAggregateOut {
   strategyId: string;
   strategyName: string;
+  /** Confirmation filters this strategy ignores by design (subset of the run's filters). */
+  ignoredFilters: string[];
   totalTrades: number;
   winRate: number | null;
   netPnl: number;

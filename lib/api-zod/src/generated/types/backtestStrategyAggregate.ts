@@ -12,6 +12,8 @@
 export interface BacktestStrategyAggregate {
   strategyId: string;
   strategyName: string;
+  /** Confirmation filters this strategy ignores by design (subset of the run's filters); empty for official-engine rows. */
+  ignoredFilters: string[];
   totalTrades: number;
   winRate?: number | null;
   netPnl: number;

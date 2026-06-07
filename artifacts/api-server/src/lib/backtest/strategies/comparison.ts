@@ -28,6 +28,8 @@ export interface ComparisonUnit {
   strategyName: string;
   indexSymbol: string;
   timeframe: string;
+  /** Confirmation filters this strategy ignores by design (same across indices for a strategy). */
+  ignoredFilters: string[];
   trades: BacktestTradeOut[];
   blocked: BacktestBlockedOut[];
 }
@@ -163,6 +165,7 @@ function buildRow(u: ComparisonUnit, o: ComparisonOptions): BacktestComparisonRo
     strategyName: u.strategyName,
     indexSymbol: u.indexSymbol,
     timeframe: u.timeframe,
+    ignoredFilters: [...u.ignoredFilters],
     totalTrades: total,
     winningTrades: winning,
     losingTrades: losing,
@@ -190,6 +193,7 @@ function buildRow(u: ComparisonUnit, o: ComparisonOptions): BacktestComparisonRo
 interface AggAccum {
   strategyId: string;
   strategyName: string;
+  ignoredFilters: string[];
   nts: NetTrade[];
 }
 
@@ -215,6 +219,7 @@ export function buildComparison(
     const a = accum.get(u.strategyId) ?? {
       strategyId: u.strategyId,
       strategyName: u.strategyName,
+      ignoredFilters: [...u.ignoredFilters],
       nts: [],
     };
     for (const t of u.trades) a.nts.push(toNetTrade(t, o));
@@ -252,6 +257,7 @@ export function buildComparison(
     return {
       strategyId: a.strategyId,
       strategyName: a.strategyName,
+      ignoredFilters: a.ignoredFilters,
       total,
       winRate: total > 0 ? wins / total : null,
       netPnl,
@@ -302,6 +308,7 @@ export function buildComparison(
     .map((a) => ({
       strategyId: a.strategyId,
       strategyName: a.strategyName,
+      ignoredFilters: a.ignoredFilters,
       totalTrades: a.total,
       winRate: a.winRate,
       netPnl: a.netPnl,

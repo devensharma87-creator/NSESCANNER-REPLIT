@@ -14,6 +14,8 @@ export interface BacktestComparisonRow {
   strategyName: string;
   indexSymbol: string;
   timeframe: string;
+  /** Confirmation filters this strategy ignores by design (subset of the run's filters); empty for official-engine rows. */
+  ignoredFilters: string[];
   totalTrades: number;
   winningTrades: number;
   losingTrades: number;

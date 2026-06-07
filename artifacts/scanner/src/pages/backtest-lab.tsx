@@ -229,10 +229,11 @@ function configSummaryForStrategy(
   strategyId: string,
   filters: BacktestFilterConfig | null | undefined,
   maxTradesPerDay: number | null | undefined,
+  ignoredFilters?: readonly string[] | null,
 ): { short: string; full: string } {
   return strategyId === OFFICIAL_STRATEGY_ID
     ? summarizeRunFilters(null, null)
-    : summarizeRunFilters(filters, maxTradesPerDay);
+    : summarizeRunFilters(filters, maxTradesPerDay, ignoredFilters);
 }
 
 // ───────────── small presentational helpers ─────────────
@@ -886,7 +887,12 @@ function AggregateTable({
               </td>
               <td className="px-2 py-1.5">
                 {(() => {
-                  const cfg = configSummaryForStrategy(r.strategyId, filters, maxTradesPerDay);
+                  const cfg = configSummaryForStrategy(
+                    r.strategyId,
+                    filters,
+                    maxTradesPerDay,
+                    r.ignoredFilters,
+                  );
                   return (
                     <span
                       className="block max-w-[14rem] truncate text-[10px] text-muted-foreground"
@@ -992,7 +998,12 @@ function ComparisonRowsTable({
               <td className="px-2 py-1.5">{r.strategyName}</td>
               <td className="px-2 py-1.5">
                 {(() => {
-                  const cfg = configSummaryForStrategy(r.strategyId, filters, maxTradesPerDay);
+                  const cfg = configSummaryForStrategy(
+                    r.strategyId,
+                    filters,
+                    maxTradesPerDay,
+                    r.ignoredFilters,
+                  );
                   return (
                     <span
                       className="block max-w-[14rem] truncate text-[10px] text-muted-foreground"

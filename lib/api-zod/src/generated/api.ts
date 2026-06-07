@@ -7018,6 +7018,11 @@ export const GetBacktestRunResponse = zod.object({
             strategyName: zod.string(),
             indexSymbol: zod.string(),
             timeframe: zod.string(),
+            ignoredFilters: zod
+              .array(zod.string())
+              .describe(
+                "Confirmation filters this strategy ignores by design (subset of the run's filters); empty for official-engine rows.",
+              ),
             totalTrades: zod.number(),
             winningTrades: zod.number(),
             losingTrades: zod.number(),
@@ -7049,6 +7054,11 @@ export const GetBacktestRunResponse = zod.object({
           .object({
             strategyId: zod.string(),
             strategyName: zod.string(),
+            ignoredFilters: zod
+              .array(zod.string())
+              .describe(
+                "Confirmation filters this strategy ignores by design (subset of the run's filters); empty for official-engine rows.",
+              ),
             totalTrades: zod.number(),
             winRate: zod.number().nullish(),
             netPnl: zod.number(),

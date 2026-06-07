@@ -3937,6 +3937,8 @@ export interface BacktestComparisonRow {
   strategyName: string;
   indexSymbol: string;
   timeframe: string;
+  /** Confirmation filters this strategy ignores by design (subset of the run's filters); empty for official-engine rows. */
+  ignoredFilters: string[];
   totalTrades: number;
   winningTrades: number;
   losingTrades: number;
@@ -3966,6 +3968,8 @@ export interface BacktestComparisonRow {
 export interface BacktestStrategyAggregate {
   strategyId: string;
   strategyName: string;
+  /** Confirmation filters this strategy ignores by design (subset of the run's filters); empty for official-engine rows. */
+  ignoredFilters: string[];
   totalTrades: number;
   winRate?: number | null;
   netPnl: number;

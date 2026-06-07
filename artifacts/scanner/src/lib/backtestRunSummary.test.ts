@@ -92,4 +92,56 @@ describe("summarizeRunFilters", () => {
     expect(lines).toContain("Minimum Risk:Reward: 1.50");
     expect(lines).toContain("Max trades/day: 6");
   });
+
+  it("a strategy's ignored filters are dropped from the active ON-list and listed as ignored", () => {
+    // Range play: VWAP/EMA/Chop are ON in the run but ignored by this strategy.
+    const { short } = summarizeRunFilters({ ...DEFAULT_FILTERS }, 5, [
+      "vwapFilter",
+      "emaTrendFilter",
+      "avoidChopZone",
+    ]);
+    expect(short).toBe("Last15 · R:R 1.50 · ≤5/day · ignored VWAP·EMA·Chop");
+  });
+
+  it("ignored filters do not show in the ignored-tail when they were off in the run", () => {
+    // EMA is OFF in the run, so although the strategy ignores it there is nothing to strike.
+    const { short } = summarizeRunFilters(
+      { emaTrendFilter: false },
+      3,
+      ["emaTrendFilter"],
+    );
+    expect(short).toBe("VWAP·Chop·Last15 · R:R 1.50 · ≤3/day");
+    expect(short).not.toContain("ignored");
+  });
+
+  it("an ignored R:R is omitted from the active summary and flagged in the ignored-tail", () => {
+    const { short } = summarizeRunFilters({ ...DEFAULT_FILTERS }, undefined, [
+      "minimumRiskReward",
+    ]);
+    expect(short).toBe("VWAP·EMA·Chop·Last15 · ignored R:R");
+    expect(short).not.toContain("R:R 1.50");
+  });
+
+  it("full tooltip annotates ignored toggles with '(ignored by this strategy)'", () => {
+    const { full } = summarizeRunFilters({ ...DEFAULT_FILTERS }, 4, [
+      "vwapFilter",
+      "minimumRiskReward",
+    ]);
+    const lines = full.split("\n");
+    expect(lines).toContain("VWAP Filter: on (ignored by this strategy)");
+    expect(lines).toContain("EMA Trend Filter: on");
+    expect(lines).toContain("Minimum Risk:Reward: 1.50 (ignored by this strategy)");
+  });
+
+  it("an empty or undefined ignored set leaves the summary unchanged", () => {
+    const base = summarizeRunFilters({ ...DEFAULT_FILTERS }, 5);
+    expect(summarizeRunFilters({ ...DEFAULT_FILTERS }, 5, []).short).toBe(base.short);
+    expect(summarizeRunFilters({ ...DEFAULT_FILTERS }, 5, undefined).short).toBe(base.short);
+    expect(summarizeRunFilters({ ...DEFAULT_FILTERS }, 5, null).short).toBe(base.short);
+  });
+
+  it("ignored filters never apply to engine-replay (null) rows", () => {
+    const { short } = summarizeRunFilters(null, null, ["vwapFilter"]);
+    expect(short).toBe("engine replay");
+  });
 });

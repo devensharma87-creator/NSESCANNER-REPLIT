@@ -455,6 +455,7 @@ async function runStrategyResearch(params: {
           strategyName: module.meta.name,
           indexSymbol: sym,
           timeframe: params.timeframe,
+          ignoredFilters: [...module.meta.ignoredFilters],
           trades: result.trades,
           blocked: result.blocked,
         });
@@ -655,6 +656,7 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
         strategyName: OFFICIAL_STRATEGY_NAME,
         indexSymbol: sym,
         timeframe,
+        ignoredFilters: [],
         trades: officialTrades.filter((t) => t.indexSymbol === sym),
         blocked: [],
       }));
@@ -667,6 +669,7 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
             strategyName: module.meta.name,
             indexSymbol: sym,
             timeframe,
+            ignoredFilters: [...module.meta.ignoredFilters],
             trades: strat.trades.filter(
               (t) => t.indexSymbol === sym && t.strategyId === module.meta.id,
             ),

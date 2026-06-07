@@ -51,6 +51,7 @@ function numFmt(n: number | null | undefined, digits = 2): string {
 export function summarizeRunFilters(
   filters: BacktestFilterConfig | null | undefined,
   maxTradesPerDay: number | null | undefined,
+  ignoredFilters?: readonly string[] | null,
 ): { short: string; full: string } {
   if (!filters) {
     return {
@@ -58,17 +59,34 @@ export function summarizeRunFilters(
       full: "Engine replay — this run used the official engine, not custom confirmation filters.",
     };
   }
+  const ignored = new Set((ignoredFilters ?? []) as (keyof BacktestFilterConfig)[]);
   const merged: Required<BacktestFilterConfig> = { ...DEFAULT_FILTERS, ...filters };
   const abbrKeys = Object.keys(FILTER_ABBR) as (keyof BacktestFilterConfig)[];
-  const on = abbrKeys.filter((k) => Boolean(merged[k]));
+  // Active toggles = enabled in the run AND not ignored by this strategy.
+  const on = abbrKeys.filter((k) => Boolean(merged[k]) && !ignored.has(k));
+  // Run-enabled toggles this strategy ignores by design — struck out, never silently applied.
+  const struckAbbr = abbrKeys.filter((k) => Boolean(merged[k]) && ignored.has(k));
+  const rrIgnored = ignored.has("minimumRiskReward");
   const parts: string[] = [];
   parts.push(on.length > 0 ? on.map((k) => FILTER_ABBR[k]).join("·") : "no filters");
-  parts.push(`R:R ${numFmt(merged.minimumRiskReward)}`);
+  if (!rrIgnored) parts.push(`R:R ${numFmt(merged.minimumRiskReward)}`);
   if (typeof maxTradesPerDay === "number") parts.push(`≤${maxTradesPerDay}/day`);
+  if (struckAbbr.length > 0 || rrIgnored) {
+    const struck = [...struckAbbr.map((k) => FILTER_ABBR[k]), ...(rrIgnored ? ["R:R"] : [])];
+    parts.push(`ignored ${struck.join("·")}`);
+  }
   const short = parts.join(" · ");
 
-  const fullLines = abbrKeys.map((k) => `${FILTER_LABELS[k]}: ${merged[k] ? "on" : "off"}`);
-  fullLines.push(`${FILTER_LABELS.minimumRiskReward}: ${numFmt(merged.minimumRiskReward)}`);
+  const fullLines = abbrKeys.map((k) =>
+    ignored.has(k)
+      ? `${FILTER_LABELS[k]}: ${merged[k] ? "on" : "off"} (ignored by this strategy)`
+      : `${FILTER_LABELS[k]}: ${merged[k] ? "on" : "off"}`,
+  );
+  fullLines.push(
+    rrIgnored
+      ? `${FILTER_LABELS.minimumRiskReward}: ${numFmt(merged.minimumRiskReward)} (ignored by this strategy)`
+      : `${FILTER_LABELS.minimumRiskReward}: ${numFmt(merged.minimumRiskReward)}`,
+  );
   if (typeof maxTradesPerDay === "number") fullLines.push(`Max trades/day: ${maxTradesPerDay}`);
   fullLines.push(
     `Auto-disabled (no historical data): ${AUTO_DISABLED_FILTERS.map((k) => FILTER_LABELS[k]).join(", ")}`,
