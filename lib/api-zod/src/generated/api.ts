@@ -6935,6 +6935,42 @@ export const GetBacktestRunResponse = zod.object({
       "V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs).",
     ),
   selectedStrategies: zod.array(zod.string()).nullish(),
+  filters: zod
+    .object({
+      vwapFilter: zod.boolean().optional(),
+      emaTrendFilter: zod.boolean().optional(),
+      optionChainConfirmation: zod
+        .boolean()
+        .optional()
+        .describe("Auto-disabled — no historical option-chain data."),
+      avoidChopZone: zod.boolean().optional(),
+      avoidLast15Minutes: zod.boolean().optional(),
+      avoidWideSpread: zod
+        .boolean()
+        .optional()
+        .describe("Auto-disabled — no historical option spread data."),
+      avoidLowVolume: zod
+        .boolean()
+        .optional()
+        .describe("Auto-disabled — no historical option volume data."),
+      minimumRiskReward: zod
+        .number()
+        .optional()
+        .describe("Minimum reward:risk multiple; <= 0 disables the filter."),
+    })
+    .describe(
+      "Confirmation-filter toggles. Option\/spread\/volume filters are auto-disabled in the backtest (no historical option data) and reported as such — never silently applied.",
+    )
+    .nullish()
+    .describe(
+      "Confirmation-filter config the run was executed with (null for Official-engine runs). Lets a re-run reproduce this run's filters exactly.",
+    ),
+  maxTradesPerDay: zod
+    .number()
+    .nullish()
+    .describe(
+      "Strategy entries-per-index-per-day cap the run was executed with (null for Official-engine runs).",
+    ),
   strategyComparison: zod
     .object({
       rows: zod.array(

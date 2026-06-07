@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BacktestDataQuality } from "./backtestDataQuality";
+import type { BacktestFilterConfig } from "./backtestFilterConfig";
 import type { BacktestRunStatus } from "./backtestRunStatus";
 import type { BacktestStrategyComparison } from "./backtestStrategyComparison";
 import type { BacktestSummary } from "./backtestSummary";
@@ -26,6 +27,10 @@ export interface BacktestRun {
   /** V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs). */
   backtestMode?: string | null;
   selectedStrategies?: string[] | null;
+  /** Confirmation-filter config the run was executed with (null for Official-engine runs). Lets a re-run reproduce this run's filters exactly. */
+  filters?: BacktestFilterConfig | null;
+  /** Strategy entries-per-index-per-day cap the run was executed with (null for Official-engine runs). */
+  maxTradesPerDay?: number | null;
   strategyComparison?: BacktestStrategyComparison | null;
   createdAt: Date;
   completedAt?: Date | null;

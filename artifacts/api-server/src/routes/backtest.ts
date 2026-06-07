@@ -137,6 +137,8 @@ function runToDto(row: typeof backtestRunsTable.$inferSelect) {
     error: row.error ?? null,
     backtestMode: row.backtestMode ?? null,
     selectedStrategies: (row.selectedStrategies as string[] | null) ?? null,
+    filters: (row.filters as unknown) ?? null,
+    maxTradesPerDay: row.maxTradesPerDay ?? null,
     strategyComparison: (row.strategyComparison as unknown) ?? null,
     createdAt:
       row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
@@ -694,6 +696,7 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
         selectedStrategies: strategyIds.length > 0 ? strategyIds : null,
         filters:
           backtestMode === "OFFICIAL_ENGINE" ? null : (filters as unknown as Record<string, unknown>),
+        maxTradesPerDay: backtestMode === "OFFICIAL_ENGINE" ? null : maxTradesPerDay,
         strategyComparison: comparison as unknown as Record<string, unknown> | null,
         completedAt: new Date(),
       })

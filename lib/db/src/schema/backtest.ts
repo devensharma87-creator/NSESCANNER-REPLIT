@@ -75,6 +75,8 @@ export const backtestRunsTable = pgTable(
     selectedStrategies: jsonb("selected_strategies"),
     /** Confirmation-filter config snapshot for the run. */
     filters: jsonb("filters"),
+    /** Strategy entries-per-index-per-day cap the run was executed with (null for Official-engine runs). */
+    maxTradesPerDay: integer("max_trades_per_day"),
     /** Computed multi-factor comparison + ranking blob (research/compare modes). */
     strategyComparison: jsonb("strategy_comparison"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

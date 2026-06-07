@@ -4993,6 +4993,11 @@ components:
           type: array
           nullable: true
           items: { type: string }
+        filters:
+          allOf: [{ $ref: "#/components/schemas/BacktestFilterConfig" }]
+          nullable: true
+          description: "Confirmation-filter config the run was executed with (null for Official-engine runs). Lets a re-run reproduce this run's filters exactly."
+        maxTradesPerDay: { type: integer, nullable: true, description: "Strategy entries-per-index-per-day cap the run was executed with (null for Official-engine runs)." }
         strategyComparison:
           allOf: [{ $ref: "#/components/schemas/BacktestStrategyComparison" }]
           nullable: true

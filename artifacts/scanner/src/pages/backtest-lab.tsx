@@ -1390,14 +1390,27 @@ export default function BacktestLab() {
     const runMode = (run?.backtestMode ?? backtestMode) as BacktestRunRequestBacktestMode;
     const runInstrument = (run?.instrument ?? instrument) as BacktestRunRequestInstrument;
 
-    const nextFilters = relaxFilters(filters, blocker);
+    // Base the relaxation on the active run's OWN persisted filters/cap so re-runs
+    // reproduce the original run exactly minus the one relaxed rule, even when the
+    // form state has drifted (e.g. while viewing an older run). Fall back to the
+    // current form state only for legacy runs that never persisted these.
+    const baseFilters: Required<BacktestFilterConfig> = run?.filters
+      ? { ...DEFAULT_FILTERS, ...run.filters }
+      : filters;
+    const baseMaxTradesPerDay =
+      typeof run?.maxTradesPerDay === "number" ? run.maxTradesPerDay : maxTradesPerDay;
+
+    const nextFilters = relaxFilters(baseFilters, blocker);
     setFilters(nextFilters);
 
-    let nextMaxTradesPerDay = maxTradesPerDay;
+    let nextMaxTradesPerDay = baseMaxTradesPerDay;
     if (blocker.relaxKind === "RAISE_TRADE_CAP") {
-      nextMaxTradesPerDay = Math.min(20, Math.max(maxTradesPerDay + 1, maxTradesPerDay * 2));
-      setMaxTradesPerDay(nextMaxTradesPerDay);
+      nextMaxTradesPerDay = Math.min(
+        20,
+        Math.max(baseMaxTradesPerDay + 1, baseMaxTradesPerDay * 2),
+      );
     }
+    setMaxTradesPerDay(nextMaxTradesPerDay);
     // Keep the form in sync with what we actually re-run.
     setBacktestMode(runMode);
     setInstrument(runInstrument);

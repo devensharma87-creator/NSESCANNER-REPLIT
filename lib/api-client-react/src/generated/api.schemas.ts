@@ -4012,6 +4012,10 @@ export interface BacktestRun {
   /** V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs). */
   backtestMode?: string | null;
   selectedStrategies?: string[] | null;
+  /** Confirmation-filter config the run was executed with (null for Official-engine runs). Lets a re-run reproduce this run's filters exactly. */
+  filters?: BacktestFilterConfig | null;
+  /** Strategy entries-per-index-per-day cap the run was executed with (null for Official-engine runs). */
+  maxTradesPerDay?: number | null;
   strategyComparison?: BacktestStrategyComparison | null;
   createdAt: string;
   completedAt?: string | null;
