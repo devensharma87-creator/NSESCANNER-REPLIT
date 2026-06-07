@@ -54,6 +54,8 @@ const describeCandles = candlesPresent ? describe : describe.skip;
 describeCandles("registry × real candle CSVs — default filters must qualify trades", () => {
   let totalTrades = 0;
   const perStrategy = new Map<string, number>();
+  // Per-(strategy, index) counts, keyed `${strategyId}|${indexSymbol}`.
+  const perStrategyIndex = new Map<string, number>();
 
   beforeAll(async () => {
     for (const sym of INDICES) {
@@ -72,6 +74,7 @@ describeCandles("registry × real candle CSVs — default filters must qualify t
         });
         totalTrades += result.trades.length;
         perStrategy.set(id, (perStrategy.get(id) ?? 0) + result.trades.length);
+        perStrategyIndex.set(`${id}|${sym}`, result.trades.length);
       }
     }
   });
@@ -128,6 +131,47 @@ describeCandles("registry × real candle CSVs — default filters must qualify t
       starved,
       `These strategies fell below the ${PER_STRATEGY_MIN_TRADES}-trade per-strategy floor ` +
         `against the real candle history (a strategy quietly stopped trading): ${starved.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("EACH strategy×index pair clears the per-index floor (no single-index collapse hides in the total)", () => {
+    // Why this exists: the per-strategy floor above SUMS each strategy's trades
+    // across all three indices before checking the floor. A strategy that quietly
+    // dies on ONE index (e.g. SENSEX) but fires normally on the other two still
+    // clears the summed floor, so a single-index collapse toward zero slips
+    // through unnoticed — the same masking problem the per-strategy floor removed,
+    // one level deeper. Asserting a per-(strategy, index) floor closes it.
+    //
+    // Observed per-(strategy, index) counts against the committed real 2y 15-min
+    // CSVs (for future calibration):
+    //                            NIFTY  BANKNIFTY  SENSEX
+    //   ORB_BREAKOUT               422        377     390
+    //   VWAP_PULLBACK              260        270     243
+    //   EMA_TREND_RETEST           475        474     454
+    //   FAILED_BREAKOUT_REVERSAL   110         83      99
+    //   RANGE_REVERSAL              26         29      39   ← lowest pair = 26
+    //   COMPRESSION_BREAKOUT       296        308     325
+    //
+    // Floor = 10: equal to MIN_TRADES_TO_RANK (below which a strategy is
+    // ineligible to rank on that index — "effectively dead" there), far above a
+    // single-index collapse toward zero, yet ~2.6× below the lowest observed pair
+    // (26) so honest per-index param/filter tweaks don't nag. An index dying out
+    // for one strategy blows straight through it and is named in the failure.
+    const PER_STRATEGY_INDEX_MIN_TRADES = 10;
+    expect(PER_STRATEGY_INDEX_MIN_TRADES).toBeGreaterThanOrEqual(MIN_TRADES_TO_RANK);
+
+    const starved: string[] = [];
+    for (const id of STRATEGY_IDS) {
+      for (const sym of INDICES) {
+        const n = perStrategyIndex.get(`${id}|${sym}`) ?? 0;
+        if (n < PER_STRATEGY_INDEX_MIN_TRADES) starved.push(`${id}×${sym}=${n}`);
+      }
+    }
+
+    expect(
+      starved,
+      `These strategy×index pairs fell below the ${PER_STRATEGY_INDEX_MIN_TRADES}-trade per-index floor ` +
+        `against the real candle history (a strategy quietly stopped trading on one index): ${starved.join(", ")}`,
     ).toEqual([]);
   });
 });
