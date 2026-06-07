@@ -6,6 +6,7 @@ import { buildContext } from "./context";
 import { getStrategy } from "./registry";
 import { runStrategy } from "./runner";
 import { DEFAULT_FILTERS, STRATEGY_IDS } from "./base";
+import { MIN_TRADES_TO_RANK } from "./comparison";
 
 /**
  * Regression guard for the "default filters → 0 trades" class of bug.
@@ -95,8 +96,38 @@ describeCandles("registry × real candle CSVs — default filters must qualify t
     expect(totalTrades).toBeLessThan(9000);
   });
 
-  it("at least one strategy qualifies trades (no whole-strategy starvation)", () => {
-    const productive = [...perStrategy.values()].filter((n) => n > 0).length;
-    expect(productive).toBeGreaterThan(0);
+  it("EACH strategy qualifies at least the per-strategy floor (no single strategy quietly dies)", () => {
+    // Why this exists: the aggregate bound above plus the old "≥1 productive"
+    // check could BOTH stay green while one strategy quietly collapsed toward
+    // zero — the other five strategies' large counts mask it in the total. That
+    // is exactly how RANGE_REVERSAL fired only ~4 times in 2 years without the
+    // guard noticing (Task #85). A per-strategy floor catches it immediately.
+    //
+    // Observed per-strategy counts against the committed real 2y 15-min CSVs
+    // (3 indices summed; for future calibration):
+    //   ORB_BREAKOUT             1189
+    //   VWAP_PULLBACK             773
+    //   EMA_TREND_RETEST         1403
+    //   FAILED_BREAKOUT_REVERSAL  292
+    //   RANGE_REVERSAL             94   ← lowest; was ~4 before the Task #85 fix
+    //   COMPRESSION_BREAKOUT      929
+    //
+    // Floor = 25: comfortably above MIN_TRADES_TO_RANK (10, below which a
+    // strategy is ineligible to rank — "effectively dead") and far above the
+    // ~4 "quietly dead" range, yet well below the lowest observed count (94 →
+    // ~3.7× headroom) so honest param/filter tweaks don't nag. A strategy
+    // collapsing toward zero blows straight through it.
+    const PER_STRATEGY_MIN_TRADES = 25;
+    expect(PER_STRATEGY_MIN_TRADES).toBeGreaterThanOrEqual(MIN_TRADES_TO_RANK);
+
+    const starved = STRATEGY_IDS.filter(
+      (id) => (perStrategy.get(id) ?? 0) < PER_STRATEGY_MIN_TRADES,
+    ).map((id) => `${id}=${perStrategy.get(id) ?? 0}`);
+
+    expect(
+      starved,
+      `These strategies fell below the ${PER_STRATEGY_MIN_TRADES}-trade per-strategy floor ` +
+        `against the real candle history (a strategy quietly stopped trading): ${starved.join(", ")}`,
+    ).toEqual([]);
   });
 });
