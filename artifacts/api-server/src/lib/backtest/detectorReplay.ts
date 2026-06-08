@@ -81,6 +81,19 @@ export function categorizeSuppression(raw: string): { detector: string; category
 
 export type ExitReason = "STOP" | "TARGET" | "TIME_EXIT_1520" | "EOD" | "NO_FILL";
 
+/**
+ * How the entry was filled, for honest BEFORE/AFTER scoping:
+ *   - CLEAN: a genuine FORWARD trigger — at signal time the trigger was NOT yet
+ *     satisfied, and a later same-session bar TOUCHED it. Filled AT the level.
+ *   - AMBIGUOUS: an ALREADY-PAST plan — spot had already broken the trigger by
+ *     signal time, so the stale-level fill is unrealizable. We CHASE at the next
+ *     bar's OPEN (the realistic price a trader pays) and flag it; these are
+ *     excluded from the trustworthy CLEAN headline so a missed move can never be
+ *     booked as an instant win.
+ */
+export type FillQuality = "CLEAN" | "AMBIGUOUS";
+export type EntryReason = "TRIGGER_TOUCH" | "CHASE_ALREADY_PAST" | "NONE";
+
 export interface ForwardTrade {
   index: string;
   setupKey: string;
@@ -100,7 +113,10 @@ export interface ForwardTrade {
   entrySpot: number | null;
   exitSpot: number | null;
   exitReason: ExitReason;
-  /** Modeled per-unit option points = ATM_DELTA · sign · (exit − entry). null on NO_FILL. */
+  /** CLEAN forward-trigger vs AMBIGUOUS already-past chase. null on NO_FILL. */
+  fillQuality: FillQuality | null;
+  entryReason: EntryReason;
+  /** Modeled per-unit option points = ATM_DELTA · sign · (exit − entryPrice). null on NO_FILL. */
   proxyPoints: number | null;
 }
 
@@ -181,6 +197,16 @@ function intraChart(candles: Candle[], lo: number, hi: number, symbol: string): 
  * Manage: intrabar STOP/TARGET (stop checked first), force-exit at 15:20 / EOD.
  * Returns the fill+exit, or NO_FILL when the trigger never trips before close.
  */
+interface SimResult {
+  entryIdx: number | null;
+  entryPrice: number | null;
+  exitIdx: number | null;
+  exitSpot: number | null;
+  reason: ExitReason;
+  fillQuality: FillQuality | null;
+  entryReason: EntryReason;
+}
+
 function forwardTest(
   candles: Candle[],
   signalIdx: number,
@@ -188,57 +214,91 @@ function forwardTest(
   entryLevel: number,
   stopLevel: number,
   targetLevel: number,
-): { entryIdx: number | null; entryPrice: number | null; exitIdx: number | null; exitSpot: number | null; reason: ExitReason } {
+): SimResult {
   const sigDay = dayKey(candles[signalIdx]!.t);
   const bull = direction === "BULLISH";
-  const NO_FILL = { entryIdx: null, entryPrice: null, exitIdx: null, exitSpot: null, reason: "NO_FILL" as const };
+  const NO_FILL: SimResult = {
+    entryIdx: null, entryPrice: null, exitIdx: null, exitSpot: null,
+    reason: "NO_FILL", fillQuality: null, entryReason: "NONE",
+  };
 
-  // ── Honest entry fill (mirrors the live PENDING→TRIGGERED lifecycle) ─────
+  // ── Honest entry fill (no instant-win for already-past plans) ───────────
   // The live lifecycle (optionSignalLifecycle.evaluateTransition) triggers when
   // a bar's HIGH/LOW TOUCHES the entry level in the trade direction
-  // (BULLISH: high ≥ entryLevel; BEARISH: low ≤ entryLevel) — NOT a close-cross.
-  // If spot is ALREADY past the trigger at signal time the very next bar
-  // satisfies the condition and it fills immediately. The fill PRICE is the
-  // plan's entryLevel, because the live book LOCKS the option premium at the
-  // plan entry (the locked stop/target premiums are entryLevel-relative); P&L
-  // is therefore measured in spot-proxy from entryLevel to the exit level.
-  // No fill on the signal bar itself (no look-ahead) and none after 15:20.
+  // (BULLISH: high ≥ entryLevel; BEARISH: low ≤ entryLevel).
+  //
+  // CRITICAL HONESTY FIX (Task #104 harness hardening): if spot has ALREADY
+  // broken the trigger by signal time, filling at the stale `entryLevel` would
+  // book a move we could never have captured. We therefore split the two cases:
+  //   • CLEAN  — at signal close the trigger is NOT yet satisfied; a later
+  //              same-session bar touches it; fill AT the level.
+  //   • AMBIGUOUS — already-past; CHASE at the next session bar's OPEN (the real
+  //              price a trader pays) and flag it. P&L is measured from that real
+  //              fill, never from the stale level, and these are reported
+  //              separately so they cannot inflate the trustworthy CLEAN headline.
+  // No fill on the signal bar itself (no look-ahead) and none entered ≥15:20.
   const sig = candles[signalIdx]!;
   if (istMinuteOfDay(sig.t) >= FORCE_EXIT_MIN) return NO_FILL;
-  let entryIdx: number | null = null;
-  for (let j = signalIdx + 1; j < candles.length; j++) {
-    const cd = candles[j]!;
-    if (dayKey(cd.t) !== sigDay) break;
-    if (istMinuteOfDay(cd.t) >= FORCE_EXIT_MIN) break;
-    if (bull ? cd.h >= entryLevel : cd.l <= entryLevel) { entryIdx = j; break; }
-  }
-  if (entryIdx == null) return NO_FILL;
-  const entryPrice = entryLevel;
+  const alreadyPast = bull ? sig.c >= entryLevel : sig.c <= entryLevel;
 
-  // ── Manage from the TRIGGERING bar onward ──────────────────────────────
-  // The live lifecycle checks stop/target on the SAME snapshot that triggers,
-  // so a bar that triggers can also exit on the same bar. (Intrabar
-  // STOP-then-TARGET order within one OHLC bar is unknowable, so stop is
-  // checked FIRST — the conservative assumption, matching live ordering.)
+  let entryIdx: number | null = null;
+  let entryPrice: number;
+  let fillQuality: FillQuality;
+  let entryReason: EntryReason;
+
+  if (alreadyPast) {
+    const j = signalIdx + 1;
+    const nb = candles[j];
+    if (!nb || dayKey(nb.t) !== sigDay || istMinuteOfDay(nb.t) >= FORCE_EXIT_MIN) return NO_FILL;
+    entryIdx = j;
+    entryPrice = nb.o; // realistic chase fill — never the stale entryLevel
+    fillQuality = "AMBIGUOUS";
+    entryReason = "CHASE_ALREADY_PAST";
+  } else {
+    for (let j = signalIdx + 1; j < candles.length; j++) {
+      const cd = candles[j]!;
+      if (dayKey(cd.t) !== sigDay) break;
+      if (istMinuteOfDay(cd.t) >= FORCE_EXIT_MIN) break;
+      if (bull ? cd.h >= entryLevel : cd.l <= entryLevel) { entryIdx = j; break; }
+    }
+    if (entryIdx == null) return NO_FILL;
+    entryPrice = entryLevel;
+    fillQuality = "CLEAN";
+    entryReason = "TRIGGER_TOUCH";
+  }
+
+  // A profit target is only real if it sits BEYOND the actual fill price in the
+  // trade direction. For a chase fill the plan target can already be behind us;
+  // such a trade can only resolve via stop / time-exit — never a fake TARGET win.
+  const targetReal = bull ? targetLevel > entryPrice : targetLevel < entryPrice;
+
+  // ── Manage from the entry bar onward ───────────────────────────────────
+  // Intrabar path is unknowable, so we are deliberately conservative:
+  //   • STOP is checked FIRST and IS allowed on the entry bar (assume the
+  //     adverse excursion happened first).
+  //   • TARGET is NOT booked on the entry bar itself (a single 15-min bar
+  //     spanning entry→target is an ambiguous fast move; requiring a LATER bar
+  //     avoids optimistic same-bar entry+target wins).
   for (let j = entryIdx; j < candles.length; j++) {
     const cd = candles[j]!;
+    const onEntryBar = j === entryIdx;
     if (dayKey(cd.t) !== sigDay) {
       const prev = candles[j - 1]!;
-      return { entryIdx, entryPrice, exitIdx: j - 1, exitSpot: prev.c, reason: "EOD" };
+      return { entryIdx, entryPrice, exitIdx: j - 1, exitSpot: prev.c, reason: "EOD", fillQuality, entryReason };
     }
     if (bull) {
-      if (cd.l <= stopLevel) return { entryIdx, entryPrice, exitIdx: j, exitSpot: stopLevel, reason: "STOP" };
-      if (cd.h >= targetLevel) return { entryIdx, entryPrice, exitIdx: j, exitSpot: targetLevel, reason: "TARGET" };
+      if (cd.l <= stopLevel) return { entryIdx, entryPrice, exitIdx: j, exitSpot: stopLevel, reason: "STOP", fillQuality, entryReason };
+      if (!onEntryBar && targetReal && cd.h >= targetLevel) return { entryIdx, entryPrice, exitIdx: j, exitSpot: targetLevel, reason: "TARGET", fillQuality, entryReason };
     } else {
-      if (cd.h >= stopLevel) return { entryIdx, entryPrice, exitIdx: j, exitSpot: stopLevel, reason: "STOP" };
-      if (cd.l <= targetLevel) return { entryIdx, entryPrice, exitIdx: j, exitSpot: targetLevel, reason: "TARGET" };
+      if (cd.h >= stopLevel) return { entryIdx, entryPrice, exitIdx: j, exitSpot: stopLevel, reason: "STOP", fillQuality, entryReason };
+      if (!onEntryBar && targetReal && cd.l <= targetLevel) return { entryIdx, entryPrice, exitIdx: j, exitSpot: targetLevel, reason: "TARGET", fillQuality, entryReason };
     }
     if (istMinuteOfDay(cd.t) >= FORCE_EXIT_MIN) {
-      return { entryIdx, entryPrice, exitIdx: j, exitSpot: cd.c, reason: "TIME_EXIT_1520" };
+      return { entryIdx, entryPrice, exitIdx: j, exitSpot: cd.c, reason: "TIME_EXIT_1520", fillQuality, entryReason };
     }
   }
   const last = candles[candles.length - 1]!;
-  return { entryIdx, entryPrice, exitIdx: candles.length - 1, exitSpot: last.c, reason: "EOD" };
+  return { entryIdx, entryPrice, exitIdx: candles.length - 1, exitSpot: last.c, reason: "EOD", fillQuality, entryReason };
 }
 
 /**
@@ -332,6 +392,8 @@ export function replayIndex(candles: Candle[], cfg: IndexCfg): ReplayResult {
       entrySpot: entrySpot != null ? round2(entrySpot) : null,
       exitSpot: sim.exitSpot != null ? round2(sim.exitSpot) : null,
       exitReason: sim.reason,
+      fillQuality: sim.fillQuality,
+      entryReason: sim.entryReason,
       proxyPoints,
     });
     if (sim.exitIdx != null && sim.reason !== "NO_FILL") openUntilIdx = sim.exitIdx;

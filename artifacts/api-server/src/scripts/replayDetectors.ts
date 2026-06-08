@@ -105,7 +105,33 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Honest fill-quality split. CLEAN = genuine forward triggers (the trustworthy
+  // headline). AMBIGUOUS = already-past chase fills (reported but NEVER mixed into
+  // the CLEAN headline, so a missed move can't masquerade as an instant win).
+  const clean = allTrades.filter((t) => t.fillQuality === "CLEAN");
+  const ambiguous = allTrades.filter((t) => t.fillQuality === "AMBIGUOUS");
+  const noFillCount = allTrades.filter((t) => t.fillQuality == null).length;
+  console.log(
+    `\nFill quality: CLEAN=${clean.length}  AMBIGUOUS(chase)=${ambiguous.length}  NO_FILL=${noFillCount}` +
+    `  of ${allTrades.length} emitted detector signals`,
+  );
+
   console.log("\n===== FORWARD-TEST METRICS (modeled ATM Δ≈0.5 proxy; intraday only) =====");
+  console.log("-- TRUSTWORTHY: CLEAN forward-trigger fills only --");
+  const cleanMetrics: TradeMetrics[] = [];
+  cleanMetrics.push(computeMetrics("CLEAN-ALL", clean));
+  cleanMetrics.push(computeMetrics("CLEAN-HC", clean.filter((t) => t.tier === "HIGH_CONVICTION")));
+  cleanMetrics.push(computeMetrics("CLEAN-BASE", clean.filter((t) => t.tier === "BASELINE")));
+  for (const key of ["TREND_CONTINUATION", "VWAP_RECLAIM", "VOLUME_BREAKOUT", "EMA_PULLBACK", "MEAN_REVERSION"]) {
+    const ts = clean.filter((t) => t.setupKey === key);
+    if (ts.length > 0) cleanMetrics.push(computeMetrics("CLN_" + key.slice(0, 6), ts));
+  }
+  printMetrics(cleanMetrics);
+
+  console.log("\n-- AMBIGUOUS already-past chase fills (informational; NOT the headline) --");
+  printMetrics([computeMetrics("AMBIG-ALL", ambiguous)]);
+
+  console.log("\n-- ALL fills combined (clean+chase) + per-index / per-tier --");
   const metrics: TradeMetrics[] = [];
   metrics.push(computeMetrics("ALL", allTrades));
   metrics.push(computeMetrics("HC", allTrades.filter((t) => t.tier === "HIGH_CONVICTION")));
@@ -113,10 +139,6 @@ async function main(): Promise<void> {
   for (const sym of SUPPORTED) {
     const ts = allTrades.filter((t) => t.index === sym);
     if (ts.length > 0) metrics.push(computeMetrics(sym, ts));
-  }
-  for (const key of ["TREND_CONTINUATION", "VWAP_RECLAIM", "VOLUME_BREAKOUT", "EMA_PULLBACK", "MEAN_REVERSION"]) {
-    const ts = allTrades.filter((t) => t.setupKey === key);
-    if (ts.length > 0) metrics.push(computeMetrics(key.slice(0, 10), ts));
   }
   printMetrics(metrics);
 
@@ -135,7 +157,15 @@ async function main(): Promise<void> {
             "Index candles carry no volume; the engine's volumeless degradation is exercised as-is, never fabricated.",
             "gateCtx undefined: live-only bias-flip / RS / win-rate demote gates are omitted (they would only suppress MORE, never hide a suppression).",
             "Intraday only: no overnight holds; 15:20 IST / session-close force-exit.",
+            "Honest fill model: CLEAN = genuine forward triggers (trigger NOT yet satisfied at signal close, later bar touches it; fill AT the level). AMBIGUOUS = already-past plans chased at the next bar's OPEN (real price, never the stale level). TARGET only books beyond the actual fill; same-bar entry+target is disallowed; stop checked first. The CLEAN scope is the trustworthy headline; AMBIGUOUS is reported separately and never mixed in.",
           ],
+          fillQuality: {
+            clean: clean.length,
+            ambiguousChase: ambiguous.length,
+            noFill: noFillCount,
+            ofEmitted: allTrades.length,
+          },
+          cleanMetrics,
           perIndex: results.map((r) => ({
             index: r.index,
             barsEvaluated: r.barsEvaluated,
