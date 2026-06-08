@@ -114,7 +114,7 @@ function expiryFor(cfg: IndexCfg): string {
 }
 const MIN_REAL_SESSION_BARS = 15;
 
-function lastSessionBars(chart: YahooChart): YahooChart {
+function lastSessionBars(chart: YahooChart, now: Date = new Date()): YahooChart {
   if (chart.timestamps.length === 0) return chart;
 
   const dayMap = new Map<string, number[]>();
@@ -131,7 +131,7 @@ function lastSessionBars(chart: YahooChart): YahooChart {
   const latestDay = days[0]!;
   const latestBars = dayMap.get(latestDay)!;
 
-  const mktStatus = computeMarketStatus(new Date());
+  const mktStatus = computeMarketStatus(now);
   const isLiveSession = mktStatus === "open" || mktStatus === "pre_open";
 
   let selectedIdxs = latestBars;
@@ -220,8 +220,8 @@ function sma(values: number[]): number {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx | null {
-  const today = lastSessionBars(intra);
+function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart, now: Date = new Date()): Ctx | null {
+  const today = lastSessionBars(intra, now);
   if (today.close.length < MIN_BARS_FOR_CONTEXT) {
     logger.warn({ idx: cfg.symbol, sessionBars: today.close.length }, "F&O buildContext: insufficient bars (<2)");
     return null;
@@ -439,6 +439,7 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     atr15: effectiveAtr15,
     expiryWeekday: cfg.expiryWeekday,
     expiryCadence: cfg.expiryCadence,
+    now,
   });
 
   return {
@@ -1033,22 +1034,24 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
 function applyTriggerRealism(d: Detected, c: Ctx): Detected {
   if (d.setupKey === "MEAN_REVERSION") return d; // by-design counter-trend
   const dir = d.direction;
-  const gap = dir === "BULLISH" ? d.entryLevel - c.spot : c.spot - d.entryLevel;
-  if (!(gap > 0)) return d; // trigger already at-or-through spot
   const maxGap = Math.max(0.005 * c.spot, 1.2 * c.atr15);
-  if (gap <= maxGap) return d;
-  // How far we need to pull the trigger toward spot.
-  const shift = gap - maxGap;
-  const newEntry = dir === "BULLISH" ? d.entryLevel - shift : d.entryLevel + shift;
-  // Translate stop and targets by the same shift (in the same direction)
-  // so risk and reward distances are preserved.
-  const sgn = dir === "BULLISH" ? -1 : +1;
+  // Pull a too-far-AHEAD structural trigger inward to within maxGap of spot so
+  // the move can reach it before 15:30 (the "card stuck on Waiting trigger"
+  // fix). One-sided by design: if the structural trigger is already within the
+  // cap this is a no-op, and we never push the trigger AWAY from spot nor invert
+  // the side (a BULLISH trigger always sits >= spot). RR/width are preserved by
+  // translating stop and both targets by the same shift; clampPlanForIntraday
+  // then trims widths to the intraday envelope.
+  const gap = dir === "BULLISH" ? d.entryLevel - c.spot : c.spot - d.entryLevel;
+  if (!(gap > 0) || gap <= maxGap) return d; // already a reachable forward trigger
+  const newEntry = dir === "BULLISH" ? c.spot + maxGap : c.spot - maxGap;
+  const shift = newEntry - d.entryLevel;
   return {
     ...d,
     entryLevel: newEntry,
-    stopLevel: d.stopLevel + sgn * shift,
-    targetLevel: d.targetLevel + sgn * shift,
-    target2Level: d.target2Level + sgn * shift,
+    stopLevel: d.stopLevel + shift,
+    targetLevel: d.targetLevel + shift,
+    target2Level: d.target2Level + shift,
     entryTrigger: dir === "BULLISH"
       ? `15-min close > ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`
       : `15-min close < ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`,
@@ -1247,13 +1250,14 @@ export interface IndexBuildResult {
   snapshot?: SpotSnapshot;
 }
 
-function buildSignalsForIndex(
+export function buildSignalsForIndex(
   cfg: IndexCfg,
   intra: YahooChart,
   daily: YahooChart,
   gateCtx?: GateContext,
+  now: Date = new Date(),
 ): IndexBuildResult {
-  const ctx = buildContext(cfg, intra, daily);
+  const ctx = buildContext(cfg, intra, daily, now);
   if (!ctx) return { signals: [], suppressed: ["NO_BARS_OR_INSUFFICIENT_DATA"], hasBars: false };
 
   // IST market-hours gate for high-conviction detectors. Outside the
@@ -1263,7 +1267,7 @@ function buildSignalsForIndex(
   // run. We still evaluate the always-on Baseline Outlook below so the
   // user sees a directional read, but it is clearly labelled "BASELINE"
   // and never shipped to the lifecycle as a fresh entry plan.
-  const marketStatus = computeMarketStatus(new Date());
+  const marketStatus = computeMarketStatus(now);
   const isMarketOpen = marketStatus === "open";
 
   // Trend-class detectors target a pivot R1/R2-class move and need the full
@@ -1275,7 +1279,7 @@ function buildSignalsForIndex(
   // trend class — it specifically targets the *next* pivot R1/R2 move
   // after the reclaim, which empirically takes 2+ hours. Every reclaim
   // in the loss sample fired after 13:30 and timed out.
-  const istMin = nowIstMinutes(new Date());
+  const istMin = nowIstMinutes(now);
   const trendEntryAllowed = istMin < LATE_ENTRY_CUTOFF_IST_MIN;
   const vwapReclaimAllowed = istMin < VWAP_RECLAIM_LATE_CUTOFF_IST_MIN;
   // Phase-2 opening-noise gate: trend-class detectors are blocked in the
@@ -1465,7 +1469,7 @@ function buildSignalsForIndex(
   //
   // Computed once per emission tick (noiseWindow + inExpiryDay) and
   // once per detector (htfConflict, dir-dependent).
-  const istNowGate = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const istNowGate = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
   const istMinGate = istNowGate.getUTCHours() * 60 + istNowGate.getUTCMinutes();
   const noiseWindow: "OPENING" | "CLOSING" | undefined =
     istMinGate >= 9 * 60 + 15 && istMinGate < 9 * 60 + 30
@@ -1685,8 +1689,17 @@ function applyLock(s: OptionSignal): OptionSignal {
   });
   return s;
 }
+// Offline replay / backtest harnesses import this module purely for
+// `buildSignalsForIndex`; they must NOT spin up the live trigger-sweep
+// scheduler (which would fire getOptionSignals() against Kite/DB). Setting
+// FNO_DISABLE_SCHEDULERS=1 turns both module-level intervals into no-ops.
+// Unset in dev/prod → schedulers run exactly as before (live behaviour
+// unchanged).
+const SCHEDULERS_DISABLED = process.env.FNO_DISABLE_SCHEDULERS === "1";
+
 // Sweep stale locks (older than 36h) once an hour to keep memory tidy.
 setInterval(() => {
+  if (SCHEDULERS_DISABLED) return;
   const cutoff = Date.now() - 36 * 3600 * 1000;
   for (const [k, v] of lockStore.entries()) {
     if (v.lockedAt.getTime() < cutoff) lockStore.delete(k);
@@ -1729,6 +1742,7 @@ const TRIGGER_SWEEP_INTERVAL_MS = 30 * 1000;
 let lastForceExit1520Date: string | null = null;
 
 setInterval(() => {
+  if (SCHEDULERS_DISABLED) return;
   if (triggerSweepRunning) return; // skip if previous tick still in flight
   if (computeMarketStatus(new Date()) !== "open") return;
   triggerSweepRunning = true;
