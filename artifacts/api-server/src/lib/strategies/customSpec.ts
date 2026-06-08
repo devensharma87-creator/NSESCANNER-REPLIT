@@ -132,6 +132,12 @@ export interface ExecutionConfig {
   minRR?: number;
   /** Reject if the stop distance exceeds this multiple of ATR (swing sanity). */
   maxStopAtrMult?: number;
+  /**
+   * Anti-chase execution gate: reject the entry if the entry price is more than
+   * this multiple of ATR away from the EMA20 trend reference. Honest: if EMA20 or
+   * ATR is unavailable the gate FAILS the entry rather than passing it through.
+   */
+  maxEntryDistanceAtrMult?: number;
   /** IST minute-of-day window [start,end] inclusive within which entries fire. */
   sessionWindow?: { startMin: number; endMin: number };
   /** Runner-enforced metadata (honest): trail to breakeven after +1R. */
@@ -277,6 +283,7 @@ const executionSchema: z.ZodType<ExecutionConfig> = z.object({
   target2R: z.number().finite().min(0.25).max(20),
   minRR: z.number().finite().min(0).max(10).optional(),
   maxStopAtrMult: z.number().finite().min(0.5).max(10).optional(),
+  maxEntryDistanceAtrMult: z.number().finite().min(0.5).max(20).optional(),
   sessionWindow: z
     .object({
       startMin: z.number().int().min(0).max(1439),

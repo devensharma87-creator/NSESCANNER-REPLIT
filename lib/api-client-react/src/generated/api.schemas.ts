@@ -4503,7 +4503,7 @@ export const StrategyRuleBlockSide = {
 } as const;
 
 /**
- * One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.
+ * One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.
 
  */
 export interface StrategyRuleBlock {
@@ -4516,28 +4516,40 @@ export interface StrategyRuleBlock {
   /** Direction token; valid set depends on block type. */
   dir?: StrategyRuleBlockDir;
   /**
+   * ema_slope lookback (server Zod: 1-20).
    * @minimum 1
-   * @maximum 50
+   * @maximum 20
    */
   lookback?: number;
   side?: StrategyRuleBlockSide;
   /**
+   * ema_pullback tolerance % (server Zod: 0-5).
    * @minimum 0
-   * @maximum 100
+   * @maximum 5
    */
   tolPct?: number;
   /**
+   * ema_distance_max / vwap_distance_max % (server Zod: 0-20).
    * @minimum 0
-   * @maximum 100
+   * @maximum 20
    */
   maxPct?: number;
-  /** fib_zone lower bound (0-1); must be < hi. */
+  /**
+   * fib_zone lower bound (server Zod: 0-3); must be < hi.
+   * @minimum 0
+   * @maximum 3
+   */
   lo?: number;
-  /** fib_zone upper bound (0-1); must be > lo. */
+  /**
+   * fib_zone upper bound (server Zod: 0-3); must be > lo.
+   * @minimum 0
+   * @maximum 3
+   */
   hi?: number;
   /**
-   * @minimum 1
-   * @maximum 200
+   * fib_zone swing span (server Zod: 2-10).
+   * @minimum 2
+   * @maximum 10
    */
   swingSpan?: number;
   left?: StrategyFeatureKey;
@@ -4584,21 +4596,21 @@ export const StrategyStopConfigType = {
 export interface StrategyStopConfig {
   type: StrategyStopConfigType;
   /**
-   * Set when type=atr.
+   * Set when type=atr (server Zod: 0.25-8).
    * @minimum 0.25
    * @maximum 8
    */
   atrMult?: number;
   /**
-   * Set when type=swing.
-   * @minimum 1
-   * @maximum 200
+   * Set when type=swing (server Zod: 2-10).
+   * @minimum 2
+   * @maximum 10
    */
   swingSpan?: number;
   /**
-   * Set when type=swing.
+   * Set when type=swing (server Zod: 0-3).
    * @minimum 0
-   * @maximum 8
+   * @maximum 3
    */
   bufferAtrMult?: number;
 }
@@ -4622,37 +4634,43 @@ export type StrategyExecutionConfigSessionWindow = {
 export interface StrategyExecutionConfig {
   stop: StrategyStopConfig;
   /**
-   * Target 1 as a multiple of the risk (stop distance).
+   * Target 1 as a multiple of the risk (server Zod: 0.25-10).
    * @minimum 0.25
    * @maximum 10
    */
   target1R: number;
   /**
-   * Target 2 as a multiple of the risk (stop distance).
+   * Target 2 as a multiple of the risk (server Zod: 0.25-20).
    * @minimum 0.25
    * @maximum 20
    */
   target2R: number;
   /**
-   * Reject if planned target-1 reward (in R) is below this.
+   * Reject if planned target-1 reward (in R) is below this (server Zod: 0-10).
    * @minimum 0
-   * @maximum 20
+   * @maximum 10
    */
   minRR?: number;
   /**
-   * Reject if stop distance exceeds this multiple of ATR (swing sanity).
-   * @minimum 0.25
-   * @maximum 20
+   * Reject if stop distance exceeds this multiple of ATR, swing sanity (server Zod: 0.5-10).
+   * @minimum 0.5
+   * @maximum 10
    */
   maxStopAtrMult?: number;
+  /**
+   * Anti-chase: reject if entry is more than this multiple of ATR from EMA20 (server Zod: 0.5-20).
+   * @minimum 0.5
+   * @maximum 20
+   */
+  maxEntryDistanceAtrMult?: number;
   /** IST minute-of-day window [start,end] inclusive within which entries may fire. */
   sessionWindow?: StrategyExecutionConfigSessionWindow;
   /** Runner-enforced metadata: trail to breakeven after +1R. */
   trailingToBreakeven?: boolean;
   /**
-   * Runner-enforced metadata: max entries/day.
+   * Runner-enforced metadata: max entries/day (server Zod: 1-50).
    * @minimum 1
-   * @maximum 100
+   * @maximum 50
    */
   dailyCap?: number;
 }

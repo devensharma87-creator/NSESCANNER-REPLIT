@@ -392,6 +392,32 @@ export function evaluateSpecAt(s: FeatureSeries, i: number, spec: CustomStrategy
     return { ...emptyResult(), side, entry, stop, riskPerUnit: risk, reasons, rejectCode: "STOP_TOO_WIDE" };
   }
 
+  // Anti-chase: reject entries that are extended too far from the EMA20 trend
+  // reference. Honest — a missing EMA20 fails the gate rather than passing.
+  if (spec.execution.maxEntryDistanceAtrMult != null) {
+    const ref = emaAt(s, "ema20", i);
+    if (ref == null) {
+      reasons.push({
+        layer: "execution",
+        label: "max entry distance",
+        detail: "ema20 reference unavailable",
+        passed: false,
+      });
+      return { ...emptyResult(), side, entry, stop, riskPerUnit: risk, reasons, rejectCode: "NO_TREND_REF" };
+    }
+    const distAtr = Math.abs(entry - ref) / atr;
+    const within = distAtr <= spec.execution.maxEntryDistanceAtrMult;
+    reasons.push({
+      layer: "execution",
+      label: "max entry distance",
+      detail: `entry ${distAtr.toFixed(2)}xATR from ema20 (max ${spec.execution.maxEntryDistanceAtrMult}xATR)`,
+      passed: within,
+    });
+    if (!within) {
+      return { ...emptyResult(), side, entry, stop, riskPerUnit: risk, reasons, rejectCode: "ENTRY_TOO_EXTENDED" };
+    }
+  }
+
   // Min reward (target-1 in R).
   const rr1 = spec.execution.target1R;
   if (spec.execution.minRR != null && rr1 < spec.execution.minRR) {

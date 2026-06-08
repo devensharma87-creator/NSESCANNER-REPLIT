@@ -15,37 +15,55 @@ import {
 } from "./custom";
 import type { StrategyContext } from "./base";
 import { evaluateSpecAt } from "../../strategies/customEval";
+import { projectFeatureSeries } from "../../strategies/customFeatures";
 import { type CustomStrategySpec } from "../../strategies/customSpec";
 
-// Build a deterministic, oscillating SPOT-candle context so EMA/VWAP/Fib blocks
-// all get exercised across the window.
+interface RawCandles {
+  open: number[];
+  high: number[];
+  low: number[];
+  close: number[];
+  vwap: (number | null)[];
+  atr14: (number | null)[];
+  istMinute: number[];
+}
+
+// Deterministic, oscillating SPOT candles so EMA/VWAP/Fib blocks all get
+// exercised across the window. This is the SINGLE source of candle data both
+// projection surfaces consume in the cross-surface test below.
+function makeRaw(n = 200): RawCandles {
+  const close: number[] = [];
+  for (let i = 0; i < n; i++) close.push(100 + 10 * Math.sin(i / 6) + i * 0.05);
+  return {
+    open: close.map((c, i) => (i === 0 ? c : close[i - 1]!)),
+    high: close.map((c) => c + 1.2),
+    low: close.map((c) => c - 1.2),
+    close,
+    vwap: close.map((c, i) => (c + (close[i - 1] ?? c)) / 2),
+    atr14: close.map(() => 2),
+    istMinute: close.map((_, i) => 555 + (i % 25) * 15), // 09:15 onward, 25 bars/day
+  };
+}
+
+// Build a StrategyContext (backtest surface) from raw candles.
 function makeContext(n = 200): StrategyContext {
-  const closes: number[] = [];
-  for (let i = 0; i < n; i++) {
-    closes.push(100 + 10 * Math.sin(i / 6) + i * 0.05);
-  }
-  const highs = closes.map((c) => c + 1.2);
-  const lows = closes.map((c) => c - 1.2);
-  const opens = closes.map((c, i) => (i === 0 ? c : closes[i - 1]!));
-  const sessionMean = closes.map((c, i) => (c + (closes[i - 1] ?? c)) / 2);
-  const atr14 = closes.map(() => 2);
-  const istMinute = closes.map((_, i) => 555 + (i % 25) * 15); // 09:15 onward, 25 bars/day
+  const raw = makeRaw(n);
   return {
     indexSymbol: "NIFTY",
     cfg: { expiryWeekday: 2, expiryCadence: "weekly", strikeStep: 50 },
     candles: [],
-    closes,
-    highs,
-    lows,
-    opens,
+    closes: raw.close,
+    highs: raw.high,
+    lows: raw.low,
+    opens: raw.open,
     ema9: [],
     ema20: [],
     ema50: [],
     rsi14: [],
-    atr14,
+    atr14: raw.atr14,
     adx14: [],
-    sessionMean,
-    istMinute,
+    sessionMean: raw.vwap,
+    istMinute: raw.istMinute,
     barInSession: [],
     isLastBarOfDay: [],
     orHigh: [],
@@ -123,6 +141,47 @@ describe("custom strategy live↔backtest parity", () => {
       expect(adapter!.passedConditions).toEqual(direct.passedLabels);
     }
     // sanity: the synthetic series actually triggers entries (parity is meaningful)
+    expect(fires).toBeGreaterThan(0);
+  });
+
+  // The stronger guarantee: feed the SAME candles into BOTH projection paths —
+  // the live path (`projectFeatureSeries`, exactly the call optionSignals makes
+  // when it builds `customFeatureSeries`) AND the backtest path
+  // (`featureSeriesFromBacktestContext`). The two FeatureSeries must be deeply
+  // equal, and a per-bar `evaluateSpecAt` over each must produce identical
+  // results. This proves the cross-surface invariant directly, not merely that
+  // the backtest adapter mirrors a direct evaluator call on its own series.
+  it("live and backtest projection paths produce an identical FeatureSeries and signals on the same candles", () => {
+    const raw = makeRaw();
+
+    // Live surface: the exact shape optionSignals.ts passes to projectFeatureSeries.
+    const liveSeries = projectFeatureSeries({
+      open: raw.open,
+      high: raw.high,
+      low: raw.low,
+      close: raw.close,
+      vwap: raw.vwap,
+      atr14: raw.atr14,
+      istMinute: raw.istMinute,
+    });
+
+    // Backtest surface: built from a StrategyContext over the same candles
+    // (sessionMean is the labeled VWAP substitute === raw.vwap here).
+    const ctx = makeContext();
+    const backtestSeries = featureSeriesFromBacktestContext(ctx);
+
+    // Same candles in ⇒ byte-identical FeatureSeries out.
+    expect(backtestSeries).toEqual(liveSeries);
+
+    // And therefore identical per-bar evaluation on every bar.
+    const spec = trendSpec();
+    let fires = 0;
+    for (let i = 0; i < raw.close.length; i++) {
+      const live = evaluateSpecAt(liveSeries, i, spec);
+      const back = evaluateSpecAt(backtestSeries, i, spec);
+      expect(back).toEqual(live);
+      if (live.fired) fires++;
+    }
     expect(fires).toBeGreaterThan(0);
   });
 });

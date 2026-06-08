@@ -6792,53 +6792,82 @@ export const upsertCustomStrategyBodyCategoryMax = 40;
 
 export const upsertCustomStrategyBodyDescriptionMax = 400;
 
-export const upsertCustomStrategyBodyBullMarketBlocksItemLookbackMax = 50;
+export const upsertCustomStrategyBodyBullMarketBlocksItemLookbackMax = 20;
 
 export const upsertCustomStrategyBodyBullMarketBlocksItemTolPctMin = 0;
-export const upsertCustomStrategyBodyBullMarketBlocksItemTolPctMax = 100;
+export const upsertCustomStrategyBodyBullMarketBlocksItemTolPctMax = 5;
 
 export const upsertCustomStrategyBodyBullMarketBlocksItemMaxPctMin = 0;
-export const upsertCustomStrategyBodyBullMarketBlocksItemMaxPctMax = 100;
+export const upsertCustomStrategyBodyBullMarketBlocksItemMaxPctMax = 20;
 
-export const upsertCustomStrategyBodyBullMarketBlocksItemSwingSpanMax = 200;
+export const upsertCustomStrategyBodyBullMarketBlocksItemLoMin = 0;
+export const upsertCustomStrategyBodyBullMarketBlocksItemLoMax = 3;
 
-export const upsertCustomStrategyBodyBullSetupBlocksItemLookbackMax = 50;
+export const upsertCustomStrategyBodyBullMarketBlocksItemHiMin = 0;
+export const upsertCustomStrategyBodyBullMarketBlocksItemHiMax = 3;
+
+export const upsertCustomStrategyBodyBullMarketBlocksItemSwingSpanMin = 2;
+export const upsertCustomStrategyBodyBullMarketBlocksItemSwingSpanMax = 10;
+
+export const upsertCustomStrategyBodyBullSetupBlocksItemLookbackMax = 20;
 
 export const upsertCustomStrategyBodyBullSetupBlocksItemTolPctMin = 0;
-export const upsertCustomStrategyBodyBullSetupBlocksItemTolPctMax = 100;
+export const upsertCustomStrategyBodyBullSetupBlocksItemTolPctMax = 5;
 
 export const upsertCustomStrategyBodyBullSetupBlocksItemMaxPctMin = 0;
-export const upsertCustomStrategyBodyBullSetupBlocksItemMaxPctMax = 100;
+export const upsertCustomStrategyBodyBullSetupBlocksItemMaxPctMax = 20;
 
-export const upsertCustomStrategyBodyBullSetupBlocksItemSwingSpanMax = 200;
+export const upsertCustomStrategyBodyBullSetupBlocksItemLoMin = 0;
+export const upsertCustomStrategyBodyBullSetupBlocksItemLoMax = 3;
 
-export const upsertCustomStrategyBodyBearMarketBlocksItemLookbackMax = 50;
+export const upsertCustomStrategyBodyBullSetupBlocksItemHiMin = 0;
+export const upsertCustomStrategyBodyBullSetupBlocksItemHiMax = 3;
+
+export const upsertCustomStrategyBodyBullSetupBlocksItemSwingSpanMin = 2;
+export const upsertCustomStrategyBodyBullSetupBlocksItemSwingSpanMax = 10;
+
+export const upsertCustomStrategyBodyBearMarketBlocksItemLookbackMax = 20;
 
 export const upsertCustomStrategyBodyBearMarketBlocksItemTolPctMin = 0;
-export const upsertCustomStrategyBodyBearMarketBlocksItemTolPctMax = 100;
+export const upsertCustomStrategyBodyBearMarketBlocksItemTolPctMax = 5;
 
 export const upsertCustomStrategyBodyBearMarketBlocksItemMaxPctMin = 0;
-export const upsertCustomStrategyBodyBearMarketBlocksItemMaxPctMax = 100;
+export const upsertCustomStrategyBodyBearMarketBlocksItemMaxPctMax = 20;
 
-export const upsertCustomStrategyBodyBearMarketBlocksItemSwingSpanMax = 200;
+export const upsertCustomStrategyBodyBearMarketBlocksItemLoMin = 0;
+export const upsertCustomStrategyBodyBearMarketBlocksItemLoMax = 3;
 
-export const upsertCustomStrategyBodyBearSetupBlocksItemLookbackMax = 50;
+export const upsertCustomStrategyBodyBearMarketBlocksItemHiMin = 0;
+export const upsertCustomStrategyBodyBearMarketBlocksItemHiMax = 3;
+
+export const upsertCustomStrategyBodyBearMarketBlocksItemSwingSpanMin = 2;
+export const upsertCustomStrategyBodyBearMarketBlocksItemSwingSpanMax = 10;
+
+export const upsertCustomStrategyBodyBearSetupBlocksItemLookbackMax = 20;
 
 export const upsertCustomStrategyBodyBearSetupBlocksItemTolPctMin = 0;
-export const upsertCustomStrategyBodyBearSetupBlocksItemTolPctMax = 100;
+export const upsertCustomStrategyBodyBearSetupBlocksItemTolPctMax = 5;
 
 export const upsertCustomStrategyBodyBearSetupBlocksItemMaxPctMin = 0;
-export const upsertCustomStrategyBodyBearSetupBlocksItemMaxPctMax = 100;
+export const upsertCustomStrategyBodyBearSetupBlocksItemMaxPctMax = 20;
 
-export const upsertCustomStrategyBodyBearSetupBlocksItemSwingSpanMax = 200;
+export const upsertCustomStrategyBodyBearSetupBlocksItemLoMin = 0;
+export const upsertCustomStrategyBodyBearSetupBlocksItemLoMax = 3;
+
+export const upsertCustomStrategyBodyBearSetupBlocksItemHiMin = 0;
+export const upsertCustomStrategyBodyBearSetupBlocksItemHiMax = 3;
+
+export const upsertCustomStrategyBodyBearSetupBlocksItemSwingSpanMin = 2;
+export const upsertCustomStrategyBodyBearSetupBlocksItemSwingSpanMax = 10;
 
 export const upsertCustomStrategyBodyExecutionStopAtrMultMin = 0.25;
 export const upsertCustomStrategyBodyExecutionStopAtrMultMax = 8;
 
-export const upsertCustomStrategyBodyExecutionStopSwingSpanMax = 200;
+export const upsertCustomStrategyBodyExecutionStopSwingSpanMin = 2;
+export const upsertCustomStrategyBodyExecutionStopSwingSpanMax = 10;
 
 export const upsertCustomStrategyBodyExecutionStopBufferAtrMultMin = 0;
-export const upsertCustomStrategyBodyExecutionStopBufferAtrMultMax = 8;
+export const upsertCustomStrategyBodyExecutionStopBufferAtrMultMax = 3;
 
 export const upsertCustomStrategyBodyExecutionTarget1RMin = 0.25;
 export const upsertCustomStrategyBodyExecutionTarget1RMax = 10;
@@ -6847,10 +6876,13 @@ export const upsertCustomStrategyBodyExecutionTarget2RMin = 0.25;
 export const upsertCustomStrategyBodyExecutionTarget2RMax = 20;
 
 export const upsertCustomStrategyBodyExecutionMinRRMin = 0;
-export const upsertCustomStrategyBodyExecutionMinRRMax = 20;
+export const upsertCustomStrategyBodyExecutionMinRRMax = 10;
 
-export const upsertCustomStrategyBodyExecutionMaxStopAtrMultMin = 0.25;
-export const upsertCustomStrategyBodyExecutionMaxStopAtrMultMax = 20;
+export const upsertCustomStrategyBodyExecutionMaxStopAtrMultMin = 0.5;
+export const upsertCustomStrategyBodyExecutionMaxStopAtrMultMax = 10;
+
+export const upsertCustomStrategyBodyExecutionMaxEntryDistanceAtrMultMin = 0.5;
+export const upsertCustomStrategyBodyExecutionMaxEntryDistanceAtrMultMax = 20;
 
 export const upsertCustomStrategyBodyExecutionSessionWindowStartMinMin = 0;
 export const upsertCustomStrategyBodyExecutionSessionWindowStartMinMax = 1439;
@@ -6858,7 +6890,7 @@ export const upsertCustomStrategyBodyExecutionSessionWindowStartMinMax = 1439;
 export const upsertCustomStrategyBodyExecutionSessionWindowEndMinMin = 0;
 export const upsertCustomStrategyBodyExecutionSessionWindowEndMinMax = 1439;
 
-export const upsertCustomStrategyBodyExecutionDailyCapMax = 100;
+export const upsertCustomStrategyBodyExecutionDailyCapMax = 50;
 
 export const upsertCustomStrategyBodyBaseConfidenceMin = 0;
 export const upsertCustomStrategyBodyBaseConfidenceMax = 100;
@@ -6930,31 +6962,45 @@ export const UpsertCustomStrategyBody = zod.object({
                   .number()
                   .min(1)
                   .max(upsertCustomStrategyBodyBullMarketBlocksItemLookbackMax)
-                  .optional(),
+                  .optional()
+                  .describe("ema_slope lookback (server Zod: 1-20)."),
                 side: zod.enum(["bull", "bear"]).optional(),
                 tolPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBullMarketBlocksItemTolPctMin)
                   .max(upsertCustomStrategyBodyBullMarketBlocksItemTolPctMax)
-                  .optional(),
+                  .optional()
+                  .describe("ema_pullback tolerance % (server Zod: 0-5)."),
                 maxPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBullMarketBlocksItemMaxPctMin)
                   .max(upsertCustomStrategyBodyBullMarketBlocksItemMaxPctMax)
-                  .optional(),
+                  .optional()
+                  .describe(
+                    "ema_distance_max \/ vwap_distance_max % (server Zod: 0-20).",
+                  ),
                 lo: zod
                   .number()
+                  .min(upsertCustomStrategyBodyBullMarketBlocksItemLoMin)
+                  .max(upsertCustomStrategyBodyBullMarketBlocksItemLoMax)
                   .optional()
-                  .describe("fib_zone lower bound (0-1); must be < hi."),
+                  .describe(
+                    "fib_zone lower bound (server Zod: 0-3); must be < hi.",
+                  ),
                 hi: zod
                   .number()
+                  .min(upsertCustomStrategyBodyBullMarketBlocksItemHiMin)
+                  .max(upsertCustomStrategyBodyBullMarketBlocksItemHiMax)
                   .optional()
-                  .describe("fib_zone upper bound (0-1); must be > lo."),
+                  .describe(
+                    "fib_zone upper bound (server Zod: 0-3); must be > lo.",
+                  ),
                 swingSpan: zod
                   .number()
-                  .min(1)
+                  .min(upsertCustomStrategyBodyBullMarketBlocksItemSwingSpanMin)
                   .max(upsertCustomStrategyBodyBullMarketBlocksItemSwingSpanMax)
-                  .optional(),
+                  .optional()
+                  .describe("fib_zone swing span (server Zod: 2-10)."),
                 left: zod
                   .enum([
                     "close",
@@ -6989,7 +7035,7 @@ export const UpsertCustomStrategyBody = zod.object({
                   ),
               })
               .describe(
-                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
               ),
           ),
           groups: zod.array(zod.unknown()).optional(),
@@ -7038,31 +7084,45 @@ export const UpsertCustomStrategyBody = zod.object({
                   .number()
                   .min(1)
                   .max(upsertCustomStrategyBodyBullSetupBlocksItemLookbackMax)
-                  .optional(),
+                  .optional()
+                  .describe("ema_slope lookback (server Zod: 1-20)."),
                 side: zod.enum(["bull", "bear"]).optional(),
                 tolPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBullSetupBlocksItemTolPctMin)
                   .max(upsertCustomStrategyBodyBullSetupBlocksItemTolPctMax)
-                  .optional(),
+                  .optional()
+                  .describe("ema_pullback tolerance % (server Zod: 0-5)."),
                 maxPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBullSetupBlocksItemMaxPctMin)
                   .max(upsertCustomStrategyBodyBullSetupBlocksItemMaxPctMax)
-                  .optional(),
+                  .optional()
+                  .describe(
+                    "ema_distance_max \/ vwap_distance_max % (server Zod: 0-20).",
+                  ),
                 lo: zod
                   .number()
+                  .min(upsertCustomStrategyBodyBullSetupBlocksItemLoMin)
+                  .max(upsertCustomStrategyBodyBullSetupBlocksItemLoMax)
                   .optional()
-                  .describe("fib_zone lower bound (0-1); must be < hi."),
+                  .describe(
+                    "fib_zone lower bound (server Zod: 0-3); must be < hi.",
+                  ),
                 hi: zod
                   .number()
+                  .min(upsertCustomStrategyBodyBullSetupBlocksItemHiMin)
+                  .max(upsertCustomStrategyBodyBullSetupBlocksItemHiMax)
                   .optional()
-                  .describe("fib_zone upper bound (0-1); must be > lo."),
+                  .describe(
+                    "fib_zone upper bound (server Zod: 0-3); must be > lo.",
+                  ),
                 swingSpan: zod
                   .number()
-                  .min(1)
+                  .min(upsertCustomStrategyBodyBullSetupBlocksItemSwingSpanMin)
                   .max(upsertCustomStrategyBodyBullSetupBlocksItemSwingSpanMax)
-                  .optional(),
+                  .optional()
+                  .describe("fib_zone swing span (server Zod: 2-10)."),
                 left: zod
                   .enum([
                     "close",
@@ -7097,7 +7157,7 @@ export const UpsertCustomStrategyBody = zod.object({
                   ),
               })
               .describe(
-                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
               ),
           ),
           groups: zod.array(zod.unknown()).optional(),
@@ -7153,31 +7213,45 @@ export const UpsertCustomStrategyBody = zod.object({
                   .number()
                   .min(1)
                   .max(upsertCustomStrategyBodyBearMarketBlocksItemLookbackMax)
-                  .optional(),
+                  .optional()
+                  .describe("ema_slope lookback (server Zod: 1-20)."),
                 side: zod.enum(["bull", "bear"]).optional(),
                 tolPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBearMarketBlocksItemTolPctMin)
                   .max(upsertCustomStrategyBodyBearMarketBlocksItemTolPctMax)
-                  .optional(),
+                  .optional()
+                  .describe("ema_pullback tolerance % (server Zod: 0-5)."),
                 maxPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBearMarketBlocksItemMaxPctMin)
                   .max(upsertCustomStrategyBodyBearMarketBlocksItemMaxPctMax)
-                  .optional(),
+                  .optional()
+                  .describe(
+                    "ema_distance_max \/ vwap_distance_max % (server Zod: 0-20).",
+                  ),
                 lo: zod
                   .number()
+                  .min(upsertCustomStrategyBodyBearMarketBlocksItemLoMin)
+                  .max(upsertCustomStrategyBodyBearMarketBlocksItemLoMax)
                   .optional()
-                  .describe("fib_zone lower bound (0-1); must be < hi."),
+                  .describe(
+                    "fib_zone lower bound (server Zod: 0-3); must be < hi.",
+                  ),
                 hi: zod
                   .number()
+                  .min(upsertCustomStrategyBodyBearMarketBlocksItemHiMin)
+                  .max(upsertCustomStrategyBodyBearMarketBlocksItemHiMax)
                   .optional()
-                  .describe("fib_zone upper bound (0-1); must be > lo."),
+                  .describe(
+                    "fib_zone upper bound (server Zod: 0-3); must be > lo.",
+                  ),
                 swingSpan: zod
                   .number()
-                  .min(1)
+                  .min(upsertCustomStrategyBodyBearMarketBlocksItemSwingSpanMin)
                   .max(upsertCustomStrategyBodyBearMarketBlocksItemSwingSpanMax)
-                  .optional(),
+                  .optional()
+                  .describe("fib_zone swing span (server Zod: 2-10)."),
                 left: zod
                   .enum([
                     "close",
@@ -7212,7 +7286,7 @@ export const UpsertCustomStrategyBody = zod.object({
                   ),
               })
               .describe(
-                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
               ),
           ),
           groups: zod.array(zod.unknown()).optional(),
@@ -7261,31 +7335,45 @@ export const UpsertCustomStrategyBody = zod.object({
                   .number()
                   .min(1)
                   .max(upsertCustomStrategyBodyBearSetupBlocksItemLookbackMax)
-                  .optional(),
+                  .optional()
+                  .describe("ema_slope lookback (server Zod: 1-20)."),
                 side: zod.enum(["bull", "bear"]).optional(),
                 tolPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBearSetupBlocksItemTolPctMin)
                   .max(upsertCustomStrategyBodyBearSetupBlocksItemTolPctMax)
-                  .optional(),
+                  .optional()
+                  .describe("ema_pullback tolerance % (server Zod: 0-5)."),
                 maxPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBearSetupBlocksItemMaxPctMin)
                   .max(upsertCustomStrategyBodyBearSetupBlocksItemMaxPctMax)
-                  .optional(),
+                  .optional()
+                  .describe(
+                    "ema_distance_max \/ vwap_distance_max % (server Zod: 0-20).",
+                  ),
                 lo: zod
                   .number()
+                  .min(upsertCustomStrategyBodyBearSetupBlocksItemLoMin)
+                  .max(upsertCustomStrategyBodyBearSetupBlocksItemLoMax)
                   .optional()
-                  .describe("fib_zone lower bound (0-1); must be < hi."),
+                  .describe(
+                    "fib_zone lower bound (server Zod: 0-3); must be < hi.",
+                  ),
                 hi: zod
                   .number()
+                  .min(upsertCustomStrategyBodyBearSetupBlocksItemHiMin)
+                  .max(upsertCustomStrategyBodyBearSetupBlocksItemHiMax)
                   .optional()
-                  .describe("fib_zone upper bound (0-1); must be > lo."),
+                  .describe(
+                    "fib_zone upper bound (server Zod: 0-3); must be > lo.",
+                  ),
                 swingSpan: zod
                   .number()
-                  .min(1)
+                  .min(upsertCustomStrategyBodyBearSetupBlocksItemSwingSpanMin)
                   .max(upsertCustomStrategyBodyBearSetupBlocksItemSwingSpanMax)
-                  .optional(),
+                  .optional()
+                  .describe("fib_zone swing span (server Zod: 2-10)."),
                 left: zod
                   .enum([
                     "close",
@@ -7320,7 +7408,7 @@ export const UpsertCustomStrategyBody = zod.object({
                   ),
               })
               .describe(
-                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
               ),
           ),
           groups: zod.array(zod.unknown()).optional(),
@@ -7343,19 +7431,19 @@ export const UpsertCustomStrategyBody = zod.object({
             .min(upsertCustomStrategyBodyExecutionStopAtrMultMin)
             .max(upsertCustomStrategyBodyExecutionStopAtrMultMax)
             .optional()
-            .describe("Set when type=atr."),
+            .describe("Set when type=atr (server Zod: 0.25-8)."),
           swingSpan: zod
             .number()
-            .min(1)
+            .min(upsertCustomStrategyBodyExecutionStopSwingSpanMin)
             .max(upsertCustomStrategyBodyExecutionStopSwingSpanMax)
             .optional()
-            .describe("Set when type=swing."),
+            .describe("Set when type=swing (server Zod: 2-10)."),
           bufferAtrMult: zod
             .number()
             .min(upsertCustomStrategyBodyExecutionStopBufferAtrMultMin)
             .max(upsertCustomStrategyBodyExecutionStopBufferAtrMultMax)
             .optional()
-            .describe("Set when type=swing."),
+            .describe("Set when type=swing (server Zod: 0-3)."),
         })
         .describe(
           "Stop geometry: `atr` (atrMult × ATR14) or `swing` (recent fractal ± bufferAtrMult × ATR14).",
@@ -7364,25 +7452,35 @@ export const UpsertCustomStrategyBody = zod.object({
         .number()
         .min(upsertCustomStrategyBodyExecutionTarget1RMin)
         .max(upsertCustomStrategyBodyExecutionTarget1RMax)
-        .describe("Target 1 as a multiple of the risk (stop distance)."),
+        .describe("Target 1 as a multiple of the risk (server Zod: 0.25-10)."),
       target2R: zod
         .number()
         .min(upsertCustomStrategyBodyExecutionTarget2RMin)
         .max(upsertCustomStrategyBodyExecutionTarget2RMax)
-        .describe("Target 2 as a multiple of the risk (stop distance)."),
+        .describe("Target 2 as a multiple of the risk (server Zod: 0.25-20)."),
       minRR: zod
         .number()
         .min(upsertCustomStrategyBodyExecutionMinRRMin)
         .max(upsertCustomStrategyBodyExecutionMinRRMax)
         .optional()
-        .describe("Reject if planned target-1 reward (in R) is below this."),
+        .describe(
+          "Reject if planned target-1 reward (in R) is below this (server Zod: 0-10).",
+        ),
       maxStopAtrMult: zod
         .number()
         .min(upsertCustomStrategyBodyExecutionMaxStopAtrMultMin)
         .max(upsertCustomStrategyBodyExecutionMaxStopAtrMultMax)
         .optional()
         .describe(
-          "Reject if stop distance exceeds this multiple of ATR (swing sanity).",
+          "Reject if stop distance exceeds this multiple of ATR, swing sanity (server Zod: 0.5-10).",
+        ),
+      maxEntryDistanceAtrMult: zod
+        .number()
+        .min(upsertCustomStrategyBodyExecutionMaxEntryDistanceAtrMultMin)
+        .max(upsertCustomStrategyBodyExecutionMaxEntryDistanceAtrMultMax)
+        .optional()
+        .describe(
+          "Anti-chase: reject if entry is more than this multiple of ATR from EMA20 (server Zod: 0.5-20).",
         ),
       sessionWindow: zod
         .object({
@@ -7408,7 +7506,9 @@ export const UpsertCustomStrategyBody = zod.object({
         .min(1)
         .max(upsertCustomStrategyBodyExecutionDailyCapMax)
         .optional()
-        .describe("Runner-enforced metadata: max entries\/day."),
+        .describe(
+          "Runner-enforced metadata: max entries\/day (server Zod: 1-50).",
+        ),
     })
     .optional(),
   baseConfidence: zod

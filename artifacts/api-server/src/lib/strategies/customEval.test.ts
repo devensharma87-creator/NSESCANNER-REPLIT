@@ -229,3 +229,45 @@ describe("direction mode", () => {
     expect(res.stop).toBeCloseTo(10 + 1.5 * 2); // bear stop above entry
   });
 });
+
+describe("execution: maxEntryDistanceAtrMult (anti-chase)", () => {
+  // Bull setup that fires when close > ema9; entry = close at the bar, the
+  // trend reference is ema20, ATR = 2. Entry sits 15×ATR above ema20.
+  const bullPullback = (over: Over): { s: FeatureSeries; bull: SideRules } => ({
+    s: mkSeries(1, { close: [130], ema9: [90], ema20: [100], atr14: [2], ...over }),
+    bull: { market: emptySide().market, setup: { logic: "AND", blocks: [{ type: "price_vs_ema", ema: "ema9", cmp: "above" }] } },
+  });
+
+  it("rejects an entry that is too extended from EMA20", () => {
+    const { s, bull } = bullPullback({});
+    const sp = spec({ bull, execution: { stop: { type: "atr", atrMult: 1.5 }, target1R: 1, target2R: 2, maxEntryDistanceAtrMult: 5 } });
+    const res = evaluateSpecAt(s, 0, sp);
+    expect(res.fired).toBe(false);
+    expect(res.rejectCode).toBe("ENTRY_TOO_EXTENDED");
+    expect(res.reasons.some((r) => r.label === "max entry distance" && !r.passed)).toBe(true);
+  });
+
+  it("allows the same entry when the threshold is generous", () => {
+    const { s, bull } = bullPullback({});
+    const sp = spec({ bull, execution: { stop: { type: "atr", atrMult: 1.5 }, target1R: 1, target2R: 2, maxEntryDistanceAtrMult: 20 } });
+    const res = evaluateSpecAt(s, 0, sp);
+    expect(res.fired).toBe(true);
+    expect(res.reasons.some((r) => r.label === "max entry distance" && r.passed)).toBe(true);
+  });
+
+  it("fails honestly (no pass-through) when the EMA20 reference is unavailable", () => {
+    const { s, bull } = bullPullback({ ema20: [null] });
+    const sp = spec({ bull, execution: { stop: { type: "atr", atrMult: 1.5 }, target1R: 1, target2R: 2, maxEntryDistanceAtrMult: 5 } });
+    const res = evaluateSpecAt(s, 0, sp);
+    expect(res.fired).toBe(false);
+    expect(res.rejectCode).toBe("NO_TREND_REF");
+  });
+
+  it("is a no-op when the gate is unset", () => {
+    const { s, bull } = bullPullback({});
+    const sp = spec({ bull, execution: { stop: { type: "atr", atrMult: 1.5 }, target1R: 1, target2R: 2 } });
+    const res = evaluateSpecAt(s, 0, sp);
+    expect(res.fired).toBe(true);
+    expect(res.reasons.some((r) => r.label === "max entry distance")).toBe(false);
+  });
+});

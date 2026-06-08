@@ -13,21 +13,21 @@ import type { StrategyStopConfigType } from "./strategyStopConfigType";
 export interface StrategyStopConfig {
   type: StrategyStopConfigType;
   /**
-   * Set when type=atr.
+   * Set when type=atr (server Zod: 0.25-8).
    * @minimum 0.25
    * @maximum 8
    */
   atrMult?: number;
   /**
-   * Set when type=swing.
-   * @minimum 1
-   * @maximum 200
+   * Set when type=swing (server Zod: 2-10).
+   * @minimum 2
+   * @maximum 10
    */
   swingSpan?: number;
   /**
-   * Set when type=swing.
+   * Set when type=swing (server Zod: 0-3).
    * @minimum 0
-   * @maximum 8
+   * @maximum 3
    */
   bufferAtrMult?: number;
 }

@@ -864,6 +864,10 @@ function StrategyBuilder({
             <Label className="text-xs">Max stop × ATR (optional)</Label>
             <NumberField value={builder.execution.maxStopAtrMult} step="0.25" width="w-full" onChange={(v) => setExec({ maxStopAtrMult: v })} />
           </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Max entry dist × ATR (optional)</Label>
+            <NumberField value={builder.execution.maxEntryDistanceAtrMult} step="0.25" width="w-full" onChange={(v) => setExec({ maxEntryDistanceAtrMult: v })} />
+          </div>
         </div>
       </div>
 

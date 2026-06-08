@@ -11,37 +11,43 @@ import type { StrategyStopConfig } from "./strategyStopConfig";
 export interface StrategyExecutionConfig {
   stop: StrategyStopConfig;
   /**
-   * Target 1 as a multiple of the risk (stop distance).
+   * Target 1 as a multiple of the risk (server Zod: 0.25-10).
    * @minimum 0.25
    * @maximum 10
    */
   target1R: number;
   /**
-   * Target 2 as a multiple of the risk (stop distance).
+   * Target 2 as a multiple of the risk (server Zod: 0.25-20).
    * @minimum 0.25
    * @maximum 20
    */
   target2R: number;
   /**
-   * Reject if planned target-1 reward (in R) is below this.
+   * Reject if planned target-1 reward (in R) is below this (server Zod: 0-10).
    * @minimum 0
-   * @maximum 20
+   * @maximum 10
    */
   minRR?: number;
   /**
-   * Reject if stop distance exceeds this multiple of ATR (swing sanity).
-   * @minimum 0.25
-   * @maximum 20
+   * Reject if stop distance exceeds this multiple of ATR, swing sanity (server Zod: 0.5-10).
+   * @minimum 0.5
+   * @maximum 10
    */
   maxStopAtrMult?: number;
+  /**
+   * Anti-chase: reject if entry is more than this multiple of ATR from EMA20 (server Zod: 0.5-20).
+   * @minimum 0.5
+   * @maximum 20
+   */
+  maxEntryDistanceAtrMult?: number;
   /** IST minute-of-day window [start,end] inclusive within which entries may fire. */
   sessionWindow?: StrategyExecutionConfigSessionWindow;
   /** Runner-enforced metadata: trail to breakeven after +1R. */
   trailingToBreakeven?: boolean;
   /**
-   * Runner-enforced metadata: max entries/day.
+   * Runner-enforced metadata: max entries/day (server Zod: 1-50).
    * @minimum 1
-   * @maximum 100
+   * @maximum 50
    */
   dailyCap?: number;
 }

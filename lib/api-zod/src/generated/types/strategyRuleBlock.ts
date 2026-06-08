@@ -16,7 +16,7 @@ import type { StrategyRuleBlockSide } from "./strategyRuleBlockSide";
 import type { StrategyRuleBlockType } from "./strategyRuleBlockType";
 
 /**
- * One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.
+ * One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.
 
  */
 export interface StrategyRuleBlock {
@@ -29,28 +29,40 @@ export interface StrategyRuleBlock {
   /** Direction token; valid set depends on block type. */
   dir?: StrategyRuleBlockDir;
   /**
+   * ema_slope lookback (server Zod: 1-20).
    * @minimum 1
-   * @maximum 50
+   * @maximum 20
    */
   lookback?: number;
   side?: StrategyRuleBlockSide;
   /**
+   * ema_pullback tolerance % (server Zod: 0-5).
    * @minimum 0
-   * @maximum 100
+   * @maximum 5
    */
   tolPct?: number;
   /**
+   * ema_distance_max / vwap_distance_max % (server Zod: 0-20).
    * @minimum 0
-   * @maximum 100
+   * @maximum 20
    */
   maxPct?: number;
-  /** fib_zone lower bound (0-1); must be < hi. */
+  /**
+   * fib_zone lower bound (server Zod: 0-3); must be < hi.
+   * @minimum 0
+   * @maximum 3
+   */
   lo?: number;
-  /** fib_zone upper bound (0-1); must be > lo. */
+  /**
+   * fib_zone upper bound (server Zod: 0-3); must be > lo.
+   * @minimum 0
+   * @maximum 3
+   */
   hi?: number;
   /**
-   * @minimum 1
-   * @maximum 200
+   * fib_zone swing span (server Zod: 2-10).
+   * @minimum 2
+   * @maximum 10
    */
   swingSpan?: number;
   left?: StrategyFeatureKey;
