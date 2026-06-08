@@ -38,6 +38,7 @@ import StatusPage from "@/pages/status";
 import Manifesto from "@/pages/manifesto";
 import AdminPage from "@/pages/admin";
 import InfraHealthPage from "@/pages/infra-health";
+import StrategyControlPage from "@/pages/strategy-control";
 import FnODiagnosticsPage from "@/pages/fno-diagnostics";
 import PaperTrading from "@/pages/paper-trading";
 import PaperReports from "@/pages/paper-reports";
@@ -100,6 +101,7 @@ function Router() {
       <Route path="/manifesto" component={guarded(Manifesto, { ownerOnly: true })} />
       <Route path="/admin" component={guarded(AdminPage, { ownerOnly: true })} />
       <Route path="/infra-health" component={guarded(InfraHealthPage, { ownerOnly: true })} />
+      <Route path="/strategy-control" component={guarded(StrategyControlPage, { ownerOnly: true })} />
       <Route path="/fno-diagnostics" component={guarded(FnODiagnosticsPage, { ownerOnly: true })} />
       <Route path="/paper-trading" component={guarded(PaperTrading, { ownerOnly: true })} />
       <Route path="/paper-reports" component={guarded(PaperReports, { ownerOnly: true })} />

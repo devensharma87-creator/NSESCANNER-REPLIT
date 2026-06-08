@@ -51,6 +51,7 @@ import type {
   BacktestCoverageWindow,
   BacktestDataQualityOut,
   BacktestStrategyComparisonOut,
+  BacktestStrategyMetaOut,
 } from "../lib/backtest/types";
 import {
   DEFAULT_FILTERS,
@@ -62,9 +63,12 @@ import {
   buildComparison,
   isStrategyId,
   type FilterConfig,
-  type StrategyId,
   type ComparisonUnit,
+  type StrategyModule,
 } from "../lib/backtest/strategies";
+import { customStrategyModule } from "../lib/backtest/strategies/custom";
+import { listCustomSpecs } from "../lib/strategies/store";
+import type { CustomStrategySpec } from "../lib/strategies/customSpec";
 
 const router: IRouter = Router();
 
@@ -384,7 +388,8 @@ function strategyDataQuality(params: {
 /** Run the selected generic strategies across the instruments on REAL spot candles. */
 async function runStrategyResearch(params: {
   instruments: string[];
-  strategyIds: StrategyId[];
+  strategyIds: string[];
+  resolve: (id: string) => StrategyModule | null;
   fromDate: string | null;
   toDate: string | null;
   timeframe: string;
@@ -439,7 +444,8 @@ async function runStrategyResearch(params: {
       covTo = covTo === null ? hi : Math.max(covTo, hi);
 
       for (const id of params.strategyIds) {
-        const module = getStrategy(id);
+        const module = params.resolve(id);
+        if (!module) continue;
         const result = runStrategy(ctx, module, params.filters, {
           timeframe: params.timeframe,
           maxTradesPerDay: params.maxTradesPerDay,
@@ -537,7 +543,23 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
 
   // V2 — Backtest Mode selector. Defaults to OFFICIAL_ENGINE (legacy behaviour).
   const backtestMode = body.backtestMode ?? "OFFICIAL_ENGINE";
-  const strategyIds: StrategyId[] = (body.strategies ?? []).filter(isStrategyId);
+
+  // Resolve builtin AND owner-defined custom strategies from the unified catalog.
+  let customSpecs: CustomStrategySpec[] = [];
+  try {
+    customSpecs = await listCustomSpecs(ownerKey);
+  } catch {
+    customSpecs = [];
+  }
+  const customById = new Map<string, CustomStrategySpec>(customSpecs.map((s) => [s.id, s]));
+  const resolveModule = (id: string): StrategyModule | null => {
+    if (isStrategyId(id)) return getStrategy(id);
+    const spec = customById.get(id);
+    return spec ? customStrategyModule(spec) : null;
+  };
+  const strategyIds: string[] = (body.strategies ?? []).filter(
+    (id) => isStrategyId(id) || customById.has(id),
+  );
   const filters = mergeFilters(body.filters as Partial<FilterConfig> | null | undefined);
   const maxTradesPerDay =
     typeof body.maxTradesPerDay === "number" && body.maxTradesPerDay > 0
@@ -607,6 +629,7 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
       const r = await runStrategyResearch({
         instruments,
         strategyIds,
+        resolve: resolveModule,
         fromDate: body.fromDate ?? null,
         toDate: body.toDate ?? null,
         timeframe,
@@ -635,6 +658,7 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
       const strat = await runStrategyResearch({
         instruments,
         strategyIds,
+        resolve: resolveModule,
         fromDate: body.fromDate ?? null,
         toDate: body.toDate ?? null,
         timeframe,
@@ -663,7 +687,8 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
       const stratUnits: ComparisonUnit[] = [];
       for (const sym of instruments) {
         for (const id of strategyIds) {
-          const module = getStrategy(id);
+          const module = resolveModule(id);
+          if (!module) continue;
           stratUnits.push({
             strategyId: module.meta.id,
             strategyName: module.meta.name,
@@ -1014,9 +1039,19 @@ router.get("/backtest/fno/snapshot-coverage", requireSubscriberOrOwner("BACKTEST
   return res.json(cov);
 });
 
-router.get("/backtest/fno/strategies", requireSubscriberOrOwner("BACKTEST_LAB"), async (_req, res) => {
-  const items = listStrategies().map((m) => m.meta);
-  return res.json({ items });
+router.get("/backtest/fno/strategies", requireSubscriberOrOwner("BACKTEST_LAB"), async (req, res) => {
+  const ownerKey = ownerKeyFor(req);
+  const builtins = listStrategies().map((m) => m.meta);
+  let customMetas: BacktestStrategyMetaOut[] = [];
+  if (ownerKey) {
+    try {
+      const specs = await listCustomSpecs(ownerKey);
+      customMetas = specs.map((s) => customStrategyModule(s).meta);
+    } catch {
+      customMetas = [];
+    }
+  }
+  return res.json({ items: [...builtins, ...customMetas] });
 });
 
 export default router;

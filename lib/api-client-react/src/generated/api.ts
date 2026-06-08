@@ -27,6 +27,9 @@ import type {
   BacktestTradesResponse,
   ChartCandlesResponse,
   ChartInstrumentsResponse,
+  CustomStrategyDeleteResponse,
+  CustomStrategyInput,
+  CustomStrategyMutationResponse,
   CustomStrategyRequest,
   CustomStrategyResponse,
   EtfNav,
@@ -134,6 +137,8 @@ import type {
   StockHistory,
   StockRow,
   StockStatements,
+  StrategyCatalogResponse,
+  StrategyEngineUpdateBody,
   TopScans,
   WatchlistResponse,
 } from "./api.schemas";
@@ -6393,6 +6398,347 @@ export const useReplacePortfolioHoldings = <
   TContext
 > => {
   return useMutation(getReplacePortfolioHoldingsMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only unified strategy catalog (engine allow-list + backtest list + custom)
+ */
+export const getGetStrategyCatalogUrl = () => {
+  return `/api/strategy-control/catalog`;
+};
+
+export const getStrategyCatalog = async (
+  options?: RequestInit,
+): Promise<StrategyCatalogResponse> => {
+  return customFetch<StrategyCatalogResponse>(getGetStrategyCatalogUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetStrategyCatalogQueryKey = () => {
+  return [`/api/strategy-control/catalog`] as const;
+};
+
+export const getGetStrategyCatalogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getStrategyCatalog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getStrategyCatalog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetStrategyCatalogQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getStrategyCatalog>>
+  > = ({ signal }) => getStrategyCatalog({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getStrategyCatalog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetStrategyCatalogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getStrategyCatalog>>
+>;
+export type GetStrategyCatalogQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only unified strategy catalog (engine allow-list + backtest list + custom)
+ */
+
+export function useGetStrategyCatalog<
+  TData = Awaited<ReturnType<typeof getStrategyCatalog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getStrategyCatalog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetStrategyCatalogQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only — bulk-set which strategies the live F&O engine may use
+ */
+export const getSetStrategyEngineSelectionUrl = () => {
+  return `/api/strategy-control/engine`;
+};
+
+export const setStrategyEngineSelection = async (
+  strategyEngineUpdateBody: StrategyEngineUpdateBody,
+  options?: RequestInit,
+): Promise<StrategyCatalogResponse> => {
+  return customFetch<StrategyCatalogResponse>(
+    getSetStrategyEngineSelectionUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(strategyEngineUpdateBody),
+    },
+  );
+};
+
+export const getSetStrategyEngineSelectionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setStrategyEngineSelection>>,
+    TError,
+    { data: BodyType<StrategyEngineUpdateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setStrategyEngineSelection>>,
+  TError,
+  { data: BodyType<StrategyEngineUpdateBody> },
+  TContext
+> => {
+  const mutationKey = ["setStrategyEngineSelection"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setStrategyEngineSelection>>,
+    { data: BodyType<StrategyEngineUpdateBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setStrategyEngineSelection(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetStrategyEngineSelectionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setStrategyEngineSelection>>
+>;
+export type SetStrategyEngineSelectionMutationBody =
+  BodyType<StrategyEngineUpdateBody>;
+export type SetStrategyEngineSelectionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only — bulk-set which strategies the live F&O engine may use
+ */
+export const useSetStrategyEngineSelection = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setStrategyEngineSelection>>,
+    TError,
+    { data: BodyType<StrategyEngineUpdateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setStrategyEngineSelection>>,
+  TError,
+  { data: BodyType<StrategyEngineUpdateBody> },
+  TContext
+> => {
+  return useMutation(getSetStrategyEngineSelectionMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only — create or update a config/parameter-driven custom strategy
+ */
+export const getUpsertCustomStrategyUrl = () => {
+  return `/api/strategy-control/custom`;
+};
+
+export const upsertCustomStrategy = async (
+  customStrategyInput: CustomStrategyInput,
+  options?: RequestInit,
+): Promise<CustomStrategyMutationResponse> => {
+  return customFetch<CustomStrategyMutationResponse>(
+    getUpsertCustomStrategyUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(customStrategyInput),
+    },
+  );
+};
+
+export const getUpsertCustomStrategyMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertCustomStrategy>>,
+    TError,
+    { data: BodyType<CustomStrategyInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof upsertCustomStrategy>>,
+  TError,
+  { data: BodyType<CustomStrategyInput> },
+  TContext
+> => {
+  const mutationKey = ["upsertCustomStrategy"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof upsertCustomStrategy>>,
+    { data: BodyType<CustomStrategyInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return upsertCustomStrategy(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpsertCustomStrategyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof upsertCustomStrategy>>
+>;
+export type UpsertCustomStrategyMutationBody = BodyType<CustomStrategyInput>;
+export type UpsertCustomStrategyMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only — create or update a config/parameter-driven custom strategy
+ */
+export const useUpsertCustomStrategy = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertCustomStrategy>>,
+    TError,
+    { data: BodyType<CustomStrategyInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof upsertCustomStrategy>>,
+  TError,
+  { data: BodyType<CustomStrategyInput> },
+  TContext
+> => {
+  return useMutation(getUpsertCustomStrategyMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only — delete a custom strategy
+ */
+export const getDeleteCustomStrategyUrl = (id: string) => {
+  return `/api/strategy-control/custom/${id}`;
+};
+
+export const deleteCustomStrategy = async (
+  id: string,
+  options?: RequestInit,
+): Promise<CustomStrategyDeleteResponse> => {
+  return customFetch<CustomStrategyDeleteResponse>(
+    getDeleteCustomStrategyUrl(id),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDeleteCustomStrategyMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCustomStrategy>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteCustomStrategy>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteCustomStrategy"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteCustomStrategy>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteCustomStrategy(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteCustomStrategyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteCustomStrategy>>
+>;
+
+export type DeleteCustomStrategyMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only — delete a custom strategy
+ */
+export const useDeleteCustomStrategy = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCustomStrategy>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteCustomStrategy>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteCustomStrategyMutationOptions(options));
 };
 
 /**

@@ -4385,6 +4385,179 @@ export interface MacroHistoryResponse {
   generatedAt: string;
 }
 
+export type StrategyFeatureKey =
+  (typeof StrategyFeatureKey)[keyof typeof StrategyFeatureKey];
+
+export const StrategyFeatureKey = {
+  close: "close",
+  ema9: "ema9",
+  ema20: "ema20",
+  ema50: "ema50",
+  rsi14: "rsi14",
+  atr14: "atr14",
+  vwap: "vwap",
+} as const;
+
+export type StrategyConditionOp =
+  (typeof StrategyConditionOp)[keyof typeof StrategyConditionOp];
+
+export const StrategyConditionOp = {
+  gt: "gt",
+  lt: "lt",
+  gte: "gte",
+  lte: "lte",
+} as const;
+
+export type StrategyConditionOperandType =
+  (typeof StrategyConditionOperandType)[keyof typeof StrategyConditionOperandType];
+
+export const StrategyConditionOperandType = {
+  feature: "feature",
+  value: "value",
+} as const;
+
+/**
+ * Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value.
+ */
+export interface StrategyConditionOperand {
+  type: StrategyConditionOperandType;
+  feature?: StrategyFeatureKey;
+  value?: number;
+}
+
+export interface StrategyCondition {
+  left: StrategyFeatureKey;
+  op: StrategyConditionOp;
+  right: StrategyConditionOperand;
+}
+
+export interface StrategyParams {
+  /**
+   * Stop distance = stopAtrMult × ATR(14).
+   * @minimum 0.5
+   * @maximum 5
+   */
+  stopAtrMult: number;
+  /**
+   * Target 1 as a multiple of the risk (stop distance).
+   * @minimum 0.25
+   * @maximum 10
+   */
+  target1R: number;
+  /**
+   * Target 2 as a multiple of the risk (stop distance).
+   * @minimum 0.25
+   * @maximum 10
+   */
+  target2R: number;
+}
+
+export interface CustomStrategyDef {
+  /** Stable id, always CUSTOM_<slug>. */
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  /** ALL conditions must pass to take the bull side. Empty = side disabled. */
+  bull: StrategyCondition[];
+  /** ALL conditions must pass to take the bear side. Empty = side disabled. */
+  bear: StrategyCondition[];
+  params: StrategyParams;
+  /**
+   * Transparent base confidence (0-100) carried into both surfaces.
+   * @minimum 0
+   * @maximum 100
+   */
+  baseConfidence: number;
+}
+
+export interface CustomStrategyInput {
+  /**
+   * Lowercase alphanumeric words separated by underscores; forms the CUSTOM_<slug> id.
+   * @minLength 2
+   * @maxLength 40
+   */
+  slug: string;
+  /**
+   * @minLength 2
+   * @maxLength 80
+   */
+  name: string;
+  /**
+   * @minLength 2
+   * @maxLength 40
+   */
+  category: string;
+  /** @maxLength 400 */
+  description?: string;
+  bull?: StrategyCondition[];
+  bear?: StrategyCondition[];
+  params?: StrategyParams;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  baseConfidence?: number;
+}
+
+export type StrategyCatalogEntrySurfacesItem =
+  (typeof StrategyCatalogEntrySurfacesItem)[keyof typeof StrategyCatalogEntrySurfacesItem];
+
+export const StrategyCatalogEntrySurfacesItem = {
+  engine: "engine",
+  backtest: "backtest",
+} as const;
+
+export type StrategyCatalogEntryKind =
+  (typeof StrategyCatalogEntryKind)[keyof typeof StrategyCatalogEntryKind];
+
+export const StrategyCatalogEntryKind = {
+  BUILTIN_ENGINE: "BUILTIN_ENGINE",
+  BUILTIN_BACKTEST: "BUILTIN_BACKTEST",
+  CUSTOM: "CUSTOM",
+} as const;
+
+export interface StrategyCatalogEntry {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  /** Which surfaces this strategy appears on. */
+  surfaces: StrategyCatalogEntrySurfacesItem[];
+  kind: StrategyCatalogEntryKind;
+  /** Whether this strategy can be toggled onto the live engine allow-list. */
+  engineSelectable: boolean;
+  /** Effective live-engine enabled state (builtins default ON, custom default OFF). */
+  engineEnabled: boolean;
+}
+
+export interface StrategyCatalogResponse {
+  entries: StrategyCatalogEntry[];
+  /** True once the owner has narrowed the engine (disabled a builtin or enabled a custom); false = legacy all-builtins behaviour. */
+  engineGatingActive: boolean;
+}
+
+export interface StrategyEngineUpdateItem {
+  strategyId: string;
+  enabled: boolean;
+}
+
+export interface StrategyEngineUpdateBody {
+  /** @minItems 1 */
+  items: StrategyEngineUpdateItem[];
+}
+
+export interface CustomStrategyMutationResponse {
+  id: string;
+  catalog: StrategyCatalogResponse;
+}
+
+export interface CustomStrategyDeleteResponse {
+  ok: boolean;
+  id: string;
+  catalog: StrategyCatalogResponse;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;

@@ -29,6 +29,12 @@ import {
   type GateContext,
 } from "./optionSignalGates";
 import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
+import { ENGINE_BUILTIN_IDS } from "./strategies/catalog";
+import {
+  evaluateCustomSpec,
+  type CustomStrategySpec,
+  type FeatureSnapshot,
+} from "./strategies/customSpec";
 
 export interface IndexCfg {
   symbol: string;
@@ -615,6 +621,58 @@ export interface Detected {
 // avoidable damage on a chaotic day. Below the multiple we accept the
 // trade at BASELINE tier (smaller exposure, full audit tag).
 const VOL_CLAMP_REJECT_RATIO = 1.5;
+
+/** Project the live-engine Ctx into the cross-surface feature snapshot used by
+ *  custom strategies. `atr14` maps to the engine's intraday `atr15` (closest
+ *  available analogue); `close` is the live spot. No fabrication — every field
+ *  below is always present on Ctx. */
+function featuresFromEngineCtx(c: Ctx): FeatureSnapshot {
+  return {
+    close: c.spot,
+    ema9: c.ema9,
+    ema20: c.ema20,
+    ema50: c.ema50,
+    rsi14: c.rsi14,
+    atr14: c.atr15,
+    vwap: c.vwap,
+  };
+}
+
+/** Build a Detected for an owner-defined custom strategy using the SAME pure
+ *  evaluator the Backtest Lab uses, so a custom strategy behaves identically on
+ *  both surfaces. Returns null when conditions are unmet. Downstream it passes
+ *  through every existing safety/demote gate unchanged. */
+function makeCustomEngineDetected(spec: CustomStrategySpec, c: Ctx): Detected | null {
+  const r = evaluateCustomSpec(featuresFromEngineCtx(c), spec);
+  if (!r) return null;
+  const dir: Direction = r.direction === "BULL" ? "BULLISH" : "BEARISH";
+  const w = r.passed.length > 0 ? Math.round(r.confidence / r.passed.length) : r.confidence;
+  const drivers: SignalReason[] = r.passed.map((p) => ({
+    label: p,
+    detail: `${spec.name}: condition met`,
+    weight: w,
+    bullish: dir === "BULLISH",
+  }));
+  const optTxt = dir === "BULLISH" ? "CE" : "PE";
+  return {
+    // Custom ids are opaque strings; the DB column + API field are text. The
+    // generated setupKey union is closed to builtins, so cast at this boundary.
+    setupKey: spec.id as OptionSignal["setupKey"],
+    setupName: `${spec.name} — ${dir === "BULLISH" ? "Long" : "Short"}`,
+    setupSummary:
+      (spec.description ? spec.description + " " : "") +
+      `Buy ${optTxt} when owner-defined conditions align (${r.passed.join(", ")}).`,
+    direction: dir,
+    confidence: r.confidence,
+    drivers,
+    entryTrigger: `Custom conditions met at spot ${r.entrySpot.toFixed(2)}`,
+    entryLevel: r.entrySpot,
+    stopLevel: r.stop,
+    targetLevel: r.target1,
+    target2Level: r.target2,
+    invalidation: `Stop at ${r.stop.toFixed(2)} (${spec.params.stopAtrMult}×ATR)`,
+  };
+}
 
 /** 1. Trend Continuation — strong VWAP+EMA alignment, fresh momentum, RSI in trend zone */
 function detectTrendContinuation(c: Ctx): Detected | null {
@@ -1365,6 +1423,19 @@ export function buildSignalsForIndex(
     { name: "ema_pullback",       fn: detectEmaPullback,       trendClass: true  },
     { name: "mean_reversion",     fn: detectMeanReversion,     trendClass: false },
   ];
+  // Owner-opted-in custom strategies run as ADDITIONAL detectors through the
+  // exact same loop, so every safety/demote gate below applies to them
+  // unchanged. trendClass:false exempts them from builtin-specific trend time
+  // gates; they define their own conditions. Empty list = legacy behaviour.
+  if (gateCtx?.enabledCustomSpecs?.length) {
+    for (const spec of gateCtx.enabledCustomSpecs) {
+      detectors.push({
+        name: spec.id,
+        fn: (c: Ctx) => makeCustomEngineDetected(spec, c),
+        trendClass: false,
+      });
+    }
+  }
   const highConviction: Detected[] = [];
   const suppressed: string[] = [];
   if (!isMarketOpen) {
@@ -1398,6 +1469,18 @@ export function buildSignalsForIndex(
         const r = det.fn(ctx);
         if (!r) {
           suppressed.push(`${det.name}: conditions not met`);
+          continue;
+        }
+        // Owner engine allow-list (additive control, never bypasses a gate).
+        // When an allow-list is configured, builtin setups absent from it are
+        // suppressed. `null` (no allow-list) = legacy behaviour: nothing gated.
+        if (
+          gateCtx?.enabledBuiltinSetups &&
+          r.setupKey &&
+          ENGINE_BUILTIN_IDS.has(r.setupKey) &&
+          !gateCtx.enabledBuiltinSetups.has(r.setupKey)
+        ) {
+          suppressed.push(`${det.name}: disabled by owner engine allow-list`);
           continue;
         }
         // Bias-flip cooldown: if this index just stopped on the OPPOSITE

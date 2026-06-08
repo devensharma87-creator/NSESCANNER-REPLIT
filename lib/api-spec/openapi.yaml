@@ -1234,6 +1234,69 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Portfolio" }
 
+  /strategy-control/catalog:
+    get:
+      operationId: getStrategyCatalog
+      tags: [strategy-control]
+      summary: Owner-only unified strategy catalog (engine allow-list + backtest list + custom)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StrategyCatalogResponse" }
+
+  /strategy-control/engine:
+    put:
+      operationId: setStrategyEngineSelection
+      tags: [strategy-control]
+      summary: Owner-only — bulk-set which strategies the live F&O engine may use
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StrategyEngineUpdateBody" }
+      responses:
+        "200":
+          description: OK (refreshed catalog)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StrategyCatalogResponse" }
+
+  /strategy-control/custom:
+    post:
+      operationId: upsertCustomStrategy
+      tags: [strategy-control]
+      summary: Owner-only — create or update a config/parameter-driven custom strategy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomStrategyInput" }
+      responses:
+        "201":
+          description: Created/updated (id + refreshed catalog)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomStrategyMutationResponse" }
+
+  /strategy-control/custom/{id}:
+    delete:
+      operationId: deleteCustomStrategy
+      tags: [strategy-control]
+      summary: Owner-only — delete a custom strategy
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK (refreshed catalog)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomStrategyDeleteResponse" }
+
   /backtest/fno/runs:
     get:
       operationId: listBacktestRuns
@@ -5557,3 +5620,128 @@ components:
           type: array
           items: { $ref: "#/components/schemas/MacroSparkline" }
         generatedAt: { type: string, format: date-time }
+
+    StrategyFeatureKey:
+      type: string
+      enum: [close, ema9, ema20, ema50, rsi14, atr14, vwap]
+
+    StrategyConditionOp:
+      type: string
+      enum: [gt, lt, gte, lte]
+
+    StrategyConditionOperand:
+      type: object
+      required: [type]
+      description: "Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value."
+      properties:
+        type: { type: string, enum: [feature, value] }
+        feature: { $ref: "#/components/schemas/StrategyFeatureKey" }
+        value: { type: number }
+
+    StrategyCondition:
+      type: object
+      required: [left, op, right]
+      properties:
+        left: { $ref: "#/components/schemas/StrategyFeatureKey" }
+        op: { $ref: "#/components/schemas/StrategyConditionOp" }
+        right: { $ref: "#/components/schemas/StrategyConditionOperand" }
+
+    StrategyParams:
+      type: object
+      required: [stopAtrMult, target1R, target2R]
+      properties:
+        stopAtrMult: { type: number, minimum: 0.5, maximum: 5, description: "Stop distance = stopAtrMult × ATR(14)." }
+        target1R: { type: number, minimum: 0.25, maximum: 10, description: "Target 1 as a multiple of the risk (stop distance)." }
+        target2R: { type: number, minimum: 0.25, maximum: 10, description: "Target 2 as a multiple of the risk (stop distance)." }
+
+    CustomStrategyDef:
+      type: object
+      required: [id, name, category, description, bull, bear, params, baseConfidence]
+      properties:
+        id: { type: string, description: "Stable id, always CUSTOM_<slug>." }
+        name: { type: string }
+        category: { type: string }
+        description: { type: string }
+        bull:
+          type: array
+          description: "ALL conditions must pass to take the bull side. Empty = side disabled."
+          items: { $ref: "#/components/schemas/StrategyCondition" }
+        bear:
+          type: array
+          description: "ALL conditions must pass to take the bear side. Empty = side disabled."
+          items: { $ref: "#/components/schemas/StrategyCondition" }
+        params: { $ref: "#/components/schemas/StrategyParams" }
+        baseConfidence: { type: number, minimum: 0, maximum: 100, description: "Transparent base confidence (0-100) carried into both surfaces." }
+
+    CustomStrategyInput:
+      type: object
+      required: [slug, name, category]
+      properties:
+        slug: { type: string, minLength: 2, maxLength: 40, description: "Lowercase alphanumeric words separated by underscores; forms the CUSTOM_<slug> id." }
+        name: { type: string, minLength: 2, maxLength: 80 }
+        category: { type: string, minLength: 2, maxLength: 40 }
+        description: { type: string, maxLength: 400 }
+        bull:
+          type: array
+          items: { $ref: "#/components/schemas/StrategyCondition" }
+        bear:
+          type: array
+          items: { $ref: "#/components/schemas/StrategyCondition" }
+        params: { $ref: "#/components/schemas/StrategyParams" }
+        baseConfidence: { type: number, minimum: 0, maximum: 100 }
+
+    StrategyCatalogEntry:
+      type: object
+      required: [id, name, category, description, surfaces, kind, engineSelectable, engineEnabled]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        category: { type: string }
+        description: { type: string }
+        surfaces:
+          type: array
+          description: "Which surfaces this strategy appears on."
+          items: { type: string, enum: [engine, backtest] }
+        kind: { type: string, enum: [BUILTIN_ENGINE, BUILTIN_BACKTEST, CUSTOM] }
+        engineSelectable: { type: boolean, description: "Whether this strategy can be toggled onto the live engine allow-list." }
+        engineEnabled: { type: boolean, description: "Effective live-engine enabled state (builtins default ON, custom default OFF)." }
+
+    StrategyCatalogResponse:
+      type: object
+      required: [entries, engineGatingActive]
+      properties:
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/StrategyCatalogEntry" }
+        engineGatingActive: { type: boolean, description: "True once the owner has narrowed the engine (disabled a builtin or enabled a custom); false = legacy all-builtins behaviour." }
+
+    StrategyEngineUpdateItem:
+      type: object
+      required: [strategyId, enabled]
+      properties:
+        strategyId: { type: string }
+        enabled: { type: boolean }
+
+    StrategyEngineUpdateBody:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/StrategyEngineUpdateItem" }
+
+    CustomStrategyMutationResponse:
+      type: object
+      required: [id, catalog]
+      properties:
+        id: { type: string }
+        catalog: { $ref: "#/components/schemas/StrategyCatalogResponse" }
+
+    CustomStrategyDeleteResponse:
+      type: object
+      required: [ok, id, catalog]
+      properties:
+        ok: { type: boolean }
+        id: { type: string }
+        catalog: { $ref: "#/components/schemas/StrategyCatalogResponse" }

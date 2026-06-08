@@ -24,3 +24,21 @@ shows just the banner.
 `vitest run --pool=threads` inline within one bash call. Do NOT try to background
 it: detached processes (`setsid`, `nohup &`) are killed when the bash tool call
 returns in this sandbox, so completion markers/log writes never happen.
+
+# Running the scanner (jsdom) vitest suite
+
+The `@workspace/scanner` suite has the same problem and ALSO a very long jsdom
+"environment" phase (~145s wall in the reported breakdown, though actual test
+exec is sub-second). Running it right after the api-server suite reliably gets
+killed at the 120s cap with no output. To get it to complete + show pass/fail:
+
+```
+pnpm --filter @workspace/scanner run test -- --pool=threads --reporter=basic > /tmp/scanner_test.log 2>&1
+```
+
+- Use the `run test -- <args>` form (passes args through the package script). The
+  bare `exec vitest run --poolOptions.threads.maxThreads=N` form FAILS here —
+  this vitest CLI rejects the dotted `--poolOptions` flag (`Unknown option`).
+- `--reporter=basic` streams per-file results to the log so even a killed run
+  shows progress; redirect to a file and `tail`/`rg` it afterward.
+- It does finish (~57s) once the api-server run isn't competing for resources.

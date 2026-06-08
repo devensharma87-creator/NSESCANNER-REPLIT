@@ -6701,6 +6701,267 @@ export const ReplacePortfolioHoldingsResponse = zod.object({
 });
 
 /**
+ * @summary Owner-only unified strategy catalog (engine allow-list + backtest list + custom)
+ */
+export const GetStrategyCatalogResponse = zod.object({
+  entries: zod.array(
+    zod.object({
+      id: zod.string(),
+      name: zod.string(),
+      category: zod.string(),
+      description: zod.string(),
+      surfaces: zod
+        .array(zod.enum(["engine", "backtest"]))
+        .describe("Which surfaces this strategy appears on."),
+      kind: zod.enum(["BUILTIN_ENGINE", "BUILTIN_BACKTEST", "CUSTOM"]),
+      engineSelectable: zod
+        .boolean()
+        .describe(
+          "Whether this strategy can be toggled onto the live engine allow-list.",
+        ),
+      engineEnabled: zod
+        .boolean()
+        .describe(
+          "Effective live-engine enabled state (builtins default ON, custom default OFF).",
+        ),
+    }),
+  ),
+  engineGatingActive: zod
+    .boolean()
+    .describe(
+      "True once the owner has narrowed the engine (disabled a builtin or enabled a custom); false = legacy all-builtins behaviour.",
+    ),
+});
+
+/**
+ * @summary Owner-only — bulk-set which strategies the live F&O engine may use
+ */
+
+export const SetStrategyEngineSelectionBody = zod.object({
+  items: zod
+    .array(
+      zod.object({
+        strategyId: zod.string(),
+        enabled: zod.boolean(),
+      }),
+    )
+    .min(1),
+});
+
+export const SetStrategyEngineSelectionResponse = zod.object({
+  entries: zod.array(
+    zod.object({
+      id: zod.string(),
+      name: zod.string(),
+      category: zod.string(),
+      description: zod.string(),
+      surfaces: zod
+        .array(zod.enum(["engine", "backtest"]))
+        .describe("Which surfaces this strategy appears on."),
+      kind: zod.enum(["BUILTIN_ENGINE", "BUILTIN_BACKTEST", "CUSTOM"]),
+      engineSelectable: zod
+        .boolean()
+        .describe(
+          "Whether this strategy can be toggled onto the live engine allow-list.",
+        ),
+      engineEnabled: zod
+        .boolean()
+        .describe(
+          "Effective live-engine enabled state (builtins default ON, custom default OFF).",
+        ),
+    }),
+  ),
+  engineGatingActive: zod
+    .boolean()
+    .describe(
+      "True once the owner has narrowed the engine (disabled a builtin or enabled a custom); false = legacy all-builtins behaviour.",
+    ),
+});
+
+/**
+ * @summary Owner-only — create or update a config/parameter-driven custom strategy
+ */
+export const upsertCustomStrategyBodySlugMin = 2;
+export const upsertCustomStrategyBodySlugMax = 40;
+
+export const upsertCustomStrategyBodyNameMin = 2;
+export const upsertCustomStrategyBodyNameMax = 80;
+
+export const upsertCustomStrategyBodyCategoryMin = 2;
+export const upsertCustomStrategyBodyCategoryMax = 40;
+
+export const upsertCustomStrategyBodyDescriptionMax = 400;
+
+export const upsertCustomStrategyBodyParamsStopAtrMultMin = 0.5;
+export const upsertCustomStrategyBodyParamsStopAtrMultMax = 5;
+
+export const upsertCustomStrategyBodyParamsTarget1RMin = 0.25;
+export const upsertCustomStrategyBodyParamsTarget1RMax = 10;
+
+export const upsertCustomStrategyBodyParamsTarget2RMin = 0.25;
+export const upsertCustomStrategyBodyParamsTarget2RMax = 10;
+
+export const upsertCustomStrategyBodyBaseConfidenceMin = 0;
+export const upsertCustomStrategyBodyBaseConfidenceMax = 100;
+
+export const UpsertCustomStrategyBody = zod.object({
+  slug: zod
+    .string()
+    .min(upsertCustomStrategyBodySlugMin)
+    .max(upsertCustomStrategyBodySlugMax)
+    .describe(
+      "Lowercase alphanumeric words separated by underscores; forms the CUSTOM_<slug> id.",
+    ),
+  name: zod
+    .string()
+    .min(upsertCustomStrategyBodyNameMin)
+    .max(upsertCustomStrategyBodyNameMax),
+  category: zod
+    .string()
+    .min(upsertCustomStrategyBodyCategoryMin)
+    .max(upsertCustomStrategyBodyCategoryMax),
+  description: zod
+    .string()
+    .max(upsertCustomStrategyBodyDescriptionMax)
+    .optional(),
+  bull: zod
+    .array(
+      zod.object({
+        left: zod.enum([
+          "close",
+          "ema9",
+          "ema20",
+          "ema50",
+          "rsi14",
+          "atr14",
+          "vwap",
+        ]),
+        op: zod.enum(["gt", "lt", "gte", "lte"]),
+        right: zod
+          .object({
+            type: zod.enum(["feature", "value"]),
+            feature: zod
+              .enum([
+                "close",
+                "ema9",
+                "ema20",
+                "ema50",
+                "rsi14",
+                "atr14",
+                "vwap",
+              ])
+              .optional(),
+            value: zod.number().optional(),
+          })
+          .describe(
+            "Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value.",
+          ),
+      }),
+    )
+    .optional(),
+  bear: zod
+    .array(
+      zod.object({
+        left: zod.enum([
+          "close",
+          "ema9",
+          "ema20",
+          "ema50",
+          "rsi14",
+          "atr14",
+          "vwap",
+        ]),
+        op: zod.enum(["gt", "lt", "gte", "lte"]),
+        right: zod
+          .object({
+            type: zod.enum(["feature", "value"]),
+            feature: zod
+              .enum([
+                "close",
+                "ema9",
+                "ema20",
+                "ema50",
+                "rsi14",
+                "atr14",
+                "vwap",
+              ])
+              .optional(),
+            value: zod.number().optional(),
+          })
+          .describe(
+            "Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value.",
+          ),
+      }),
+    )
+    .optional(),
+  params: zod
+    .object({
+      stopAtrMult: zod
+        .number()
+        .min(upsertCustomStrategyBodyParamsStopAtrMultMin)
+        .max(upsertCustomStrategyBodyParamsStopAtrMultMax)
+        .describe("Stop distance = stopAtrMult × ATR(14)."),
+      target1R: zod
+        .number()
+        .min(upsertCustomStrategyBodyParamsTarget1RMin)
+        .max(upsertCustomStrategyBodyParamsTarget1RMax)
+        .describe("Target 1 as a multiple of the risk (stop distance)."),
+      target2R: zod
+        .number()
+        .min(upsertCustomStrategyBodyParamsTarget2RMin)
+        .max(upsertCustomStrategyBodyParamsTarget2RMax)
+        .describe("Target 2 as a multiple of the risk (stop distance)."),
+    })
+    .optional(),
+  baseConfidence: zod
+    .number()
+    .min(upsertCustomStrategyBodyBaseConfidenceMin)
+    .max(upsertCustomStrategyBodyBaseConfidenceMax)
+    .optional(),
+});
+
+/**
+ * @summary Owner-only — delete a custom strategy
+ */
+export const DeleteCustomStrategyParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const DeleteCustomStrategyResponse = zod.object({
+  ok: zod.boolean(),
+  id: zod.string(),
+  catalog: zod.object({
+    entries: zod.array(
+      zod.object({
+        id: zod.string(),
+        name: zod.string(),
+        category: zod.string(),
+        description: zod.string(),
+        surfaces: zod
+          .array(zod.enum(["engine", "backtest"]))
+          .describe("Which surfaces this strategy appears on."),
+        kind: zod.enum(["BUILTIN_ENGINE", "BUILTIN_BACKTEST", "CUSTOM"]),
+        engineSelectable: zod
+          .boolean()
+          .describe(
+            "Whether this strategy can be toggled onto the live engine allow-list.",
+          ),
+        engineEnabled: zod
+          .boolean()
+          .describe(
+            "Effective live-engine enabled state (builtins default ON, custom default OFF).",
+          ),
+      }),
+    ),
+    engineGatingActive: zod
+      .boolean()
+      .describe(
+        "True once the owner has narrowed the engine (disabled a builtin or enabled a custom); false = legacy all-builtins behaviour.",
+      ),
+  }),
+});
+
+/**
  * @summary List the current user's backtest runs (metadata only)
  */
 export const ListBacktestRunsResponse = zod.object({
