@@ -157,7 +157,7 @@ function lastSessionBars(chart: YahooChart, now: Date = new Date()): YahooChart 
 
 // ---------- shared market context ----------
 
-interface Ctx {
+export interface Ctx {
   cfg: IndexCfg;
   spot: number;
   open0: number;
@@ -499,6 +499,27 @@ const T1_ATR_MULT = 1.6;
 const T2_FROM_T1_MULT = 1.7;
 const MIN_RR_FOR_HC = 1.4;
 
+// Task #104 (geometry repair) ───────────────────────────────────────────────
+// (1) STALE-TRIGGER RE-ANCHOR. applyTriggerRealism used to be one-sided: it only
+//     pulled a too-far-AHEAD structural trigger inward, and no-op'd when the
+//     trigger was already AT/BEHIND spot. The honest replay harness showed that
+//     the already-past case dominates (most emitted plans had spot already through
+//     the documented entry), so the "entry" was cosmetic and a fill there books a
+//     move that was never realizable. We now also push an already-behind / too-close
+//     trigger FORWARD to a small, genuinely reachable continuation level — the trade
+//     only fills if price continues in-direction by this gap. Levels below.
+const REANCHOR_FWD_PCT_OF_SPOT = 0.0006; // ≈14pts on NIFTY@24k
+const REANCHOR_FWD_ATR_MULT = 0.2;
+// (2) INTRADAY TARGET REACHABILITY. The flat MAX_T1 cap (max(1% spot,1.6×ATR))
+//     is ~240pts on NIFTY — unreachable in the bars left before the 15:20
+//     force-exit, so T1-hit was 0% on clean fills. We additionally cap T1 to a
+//     volatility-and-time-aware reachable distance ≈ k·ATR15·√(barsLeft). When
+//     that makes RR fall below the floor the existing RR gate rejects the plan
+//     (honest: an unreachable target is not shipped as if it will hit).
+const REACH_T1_ATR_MULT = 0.6;
+const FORCE_EXIT_IST_MIN = 15 * 60 + 20; // 15:20 IST intraday force-exit
+const BAR_MINUTES = 15;
+
 // PHASE-2 SL FLOOR. Empirically the loss sample showed many stops hit by
 // a single 15-min wick on otherwise-correct directional reads. The shrink
 // cap above can pull the stop in to ~25-30 pts on NIFTY when the structural
@@ -544,7 +565,7 @@ function nowIstMinutes(d: Date = new Date()): number {
 
 // ---------- setup detectors ----------
 type Direction = "BULLISH" | "BEARISH";
-interface Detected {
+export interface Detected {
   setupKey: OptionSignal["setupKey"];
   setupName: string;
   setupSummary: string;
@@ -557,6 +578,14 @@ interface Detected {
   targetLevel: number;
   target2Level: number;
   invalidation: string;
+  // Task #104 (geometry repair): entry-trigger provenance, set in
+  // applyTriggerRealism. FRESH_TRIGGER = the structural entry was already a
+  // genuine forward-reachable level (a small gap ahead of spot). REANCHORED_TRIGGER
+  // = the structural trigger was unreachable — either too far ahead (pulled in) or
+  // ALREADY BEHIND/at spot (the "stale trigger" case; pushed forward to a reachable
+  // continuation level so a missed move can't masquerade as an instant fill).
+  // Surfaced as a tag in toSignal for transparency.
+  entryAnchor?: "FRESH_TRIGGER" | "REANCHORED_TRIGGER";
   // Pass-2A: true when the ATR-driven MIN stop floor exceeded the
   // structural MAX stop cap (volatile day). Set inside
   // clampPlanForIntraday. Used downstream to (a) force tier to BASELINE
@@ -1031,34 +1060,60 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
  * We never push the trigger AWAY from spot (that would reduce edge) and
  * we never invert the side (a BULLISH trigger always sits >= spot).
  */
-function applyTriggerRealism(d: Detected, c: Ctx): Detected {
+// A/B kill-switch for the Task #104 intraday geometry repair (re-anchor stale
+// triggers forward + cap T1 to a reachable intraday excursion). Default OFF →
+// repair active. Set FNO_DISABLE_GEOMETRY_REPAIR=1 to restore the pre-#104
+// geometry (one-sided pull-in only, flat T1 cap) for honest before/after
+// measurement in the offline replay harness. Has no effect on safety gates.
+const GEOMETRY_REPAIR_DISABLED = process.env.FNO_DISABLE_GEOMETRY_REPAIR === "1";
+
+export function applyTriggerRealism(d: Detected, c: Ctx): Detected {
   if (d.setupKey === "MEAN_REVERSION") return d; // by-design counter-trend
   const dir = d.direction;
+  const bull = dir === "BULLISH";
+  // A reachable forward trigger sits in the band [minFwd, maxGap] AHEAD of spot:
+  //   • maxGap — a too-far structural trigger (e.g. prevSwingHigh 2% away) is
+  //     pulled INWARD so the move can reach it before 15:30.
+  //   • minFwd — a trigger that is already BEHIND/at spot, or unrealistically
+  //     close, is pushed FORWARD to a small reachable continuation level. This is
+  //     the stale-trigger fix: the documented entry must require a genuine
+  //     in-direction move from here, never book a move that already happened.
+  // RR/width are preserved by translating stop + both targets by the same shift;
+  // clampPlanForIntraday then trims widths to the intraday envelope. We never
+  // invert the side (a BULLISH trigger always sits >= spot).
   const maxGap = Math.max(0.005 * c.spot, 1.2 * c.atr15);
-  // Pull a too-far-AHEAD structural trigger inward to within maxGap of spot so
-  // the move can reach it before 15:30 (the "card stuck on Waiting trigger"
-  // fix). One-sided by design: if the structural trigger is already within the
-  // cap this is a no-op, and we never push the trigger AWAY from spot nor invert
-  // the side (a BULLISH trigger always sits >= spot). RR/width are preserved by
-  // translating stop and both targets by the same shift; clampPlanForIntraday
-  // then trims widths to the intraday envelope.
-  const gap = dir === "BULLISH" ? d.entryLevel - c.spot : c.spot - d.entryLevel;
-  if (!(gap > 0) || gap <= maxGap) return d; // already a reachable forward trigger
-  const newEntry = dir === "BULLISH" ? c.spot + maxGap : c.spot - maxGap;
+  // When the repair is disabled, minFwd = -Infinity so the forward-push branch
+  // never fires → pre-#104 behaviour (pull-in too-far triggers only, leave
+  // already-past/too-close triggers untouched).
+  const minFwd = GEOMETRY_REPAIR_DISABLED
+    ? Number.NEGATIVE_INFINITY
+    : Math.max(REANCHOR_FWD_PCT_OF_SPOT * c.spot, REANCHOR_FWD_ATR_MULT * c.atr15);
+  const gap = bull ? d.entryLevel - c.spot : c.spot - d.entryLevel;
+
+  let newEntry: number | null = null;
+  if (gap > maxGap) {
+    newEntry = bull ? c.spot + maxGap : c.spot - maxGap; // too far ahead → pull in
+  } else if (gap < minFwd) {
+    newEntry = bull ? c.spot + minFwd : c.spot - minFwd; // behind/at/too-close → push forward
+  }
+  if (newEntry == null) return { ...d, entryAnchor: "FRESH_TRIGGER" }; // already reachable
+
   const shift = newEntry - d.entryLevel;
+  const past = gap < minFwd;
   return {
     ...d,
     entryLevel: newEntry,
     stopLevel: d.stopLevel + shift,
     targetLevel: d.targetLevel + shift,
     target2Level: d.target2Level + shift,
-    entryTrigger: dir === "BULLISH"
-      ? `15-min close > ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`
-      : `15-min close < ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`,
+    entryAnchor: "REANCHORED_TRIGGER",
+    entryTrigger: bull
+      ? `15-min close > ${newEntry.toFixed(2)} (${past ? "re-anchored forward from stale" : "reachable trigger pulled in from"} ${d.entryLevel.toFixed(2)})`
+      : `15-min close < ${newEntry.toFixed(2)} (${past ? "re-anchored forward from stale" : "reachable trigger pulled in from"} ${d.entryLevel.toFixed(2)})`,
   };
 }
 
-function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR_FOR_HC): Detected | null {
+export function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR_FOR_HC, istMin?: number): Detected | null {
   if (d.setupKey === "MEAN_REVERSION") return d;
 
   const dir = d.direction;
@@ -1114,7 +1169,18 @@ function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR_FOR_HC
 
   // T1: clamp distance to min(structural T1, max(1.0% spot, 1.6 × ATR15)).
   // Same one-sided semantics — we never push the target further out.
-  const maxT1Dist = Math.max(MAX_T1_PCT_OF_SPOT * c.spot, T1_ATR_MULT * c.atr15);
+  let maxT1Dist = Math.max(MAX_T1_PCT_OF_SPOT * c.spot, T1_ATR_MULT * c.atr15);
+  // Task #104 intraday REACHABILITY cap: a T1 that cannot plausibly be reached
+  // in the bars left before the 15:20 force-exit is not a real target. Cap T1 to
+  // ≈ k·ATR15·√(barsLeft) (random-walk excursion scaling). When this tightens T1
+  // enough that RR falls below `minRr`, the RR gate below rejects the plan — we
+  // never ship an unreachable target as if it will hit. Only applied when the
+  // session minute is known (live + replay); omitted defaults to the flat cap.
+  if (istMin != null && !GEOMETRY_REPAIR_DISABLED) {
+    const barsLeft = Math.max(1, Math.floor((FORCE_EXIT_IST_MIN - istMin) / BAR_MINUTES));
+    const reachableT1Dist = REACH_T1_ATR_MULT * c.atr15 * Math.sqrt(barsLeft);
+    if (reachableT1Dist > 0) maxT1Dist = Math.min(maxT1Dist, reachableT1Dist);
+  }
   const structT1Dist = Math.abs(d.targetLevel - entry);
   const newT1Dist = Math.min(structT1Dist, maxT1Dist);
   const targetLevel = dir === "BULLISH" ? entry + newT1Dist : entry - newT1Dist;
@@ -1171,6 +1237,11 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
   if ((rr ?? 0) < 1) tags.push("RR_LOW");
   // Mean-reversion setups are by construction "fade extremes"; tag for clarity.
   if (d.setupKey === "MEAN_REVERSION") tags.push("COUNTER_TREND");
+  // Task #104 (geometry repair): entry-trigger provenance. REANCHORED_TRIGGER
+  // tells the trader the documented entry was moved to a reachable forward level
+  // (stale/too-far structural trigger); FRESH_TRIGGER = structural entry was
+  // already a genuine forward-reachable level. Transparency only — no gating.
+  if (d.entryAnchor) tags.push(d.entryAnchor);
   // Pass-2A audit tag — surfaces the demote-to-BASELINE reason on the
   // card and in analytics. Trader can see exactly why a setup that
   // would otherwise have been HC is sized down today.
@@ -1417,7 +1488,7 @@ export function buildSignalsForIndex(
         // envelope and reject if the post-clamp RR no longer justifies
         // the premium decay. Mean Reversion is exempt from both.
         const realistic = applyTriggerRealism(r, ctx);
-        const clamped = clampPlanForIntraday(realistic, ctx);
+        const clamped = clampPlanForIntraday(realistic, ctx, MIN_RR_FOR_HC, istMin);
         if (!clamped) {
           suppressed.push(`${det.name}: post-clamp RR < ${MIN_RR_FOR_HC} — plan rejected as not worth premium decay`);
           continue;
@@ -1558,13 +1629,13 @@ export function buildSignalsForIndex(
   const demotedHc = highConviction.filter(isDemoted);
   const out: OptionSignal[] = [];
   for (const d of cleanHc.slice(0, 3)) {
-    out.push(applyLock(toSignal(ctx, d, "HIGH_CONVICTION")));
+    out.push(applyLock(toSignal(ctx, d, "HIGH_CONVICTION"), now));
   }
   for (const d of demotedHc) {
-    out.push(applyLock(toSignal(ctx, d, "BASELINE")));
+    out.push(applyLock(toSignal(ctx, d, "BASELINE"), now));
   }
   if (baseline) {
-    out.push(applyLock(toSignal(ctx, baseline, "BASELINE")));
+    out.push(applyLock(toSignal(ctx, baseline, "BASELINE"), now));
   }
   return { signals: out, suppressed, hasBars: true, snapshot: snapshotFromCtx(ctx) };
 }
@@ -1649,16 +1720,18 @@ interface LockedLevels {
   lockedAt: Date;
 }
 const lockStore: Map<string, LockedLevels> = new Map();
-function istDateKey(): string {
-  const d = new Date();
-  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+export function istDateKey(now: Date = new Date()): string {
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
   return ist.toISOString().slice(0, 10);
 }
-function lockKey(symbol: string, setupKey: string, direction: string): string {
-  return `${istDateKey()}|${symbol}|${setupKey}|${direction}`;
+export function lockKey(symbol: string, setupKey: string, direction: string, now: Date = new Date()): string {
+  return `${istDateKey(now)}|${symbol}|${setupKey}|${direction}`;
 }
-function applyLock(s: OptionSignal): OptionSignal {
-  const k = lockKey(s.index, s.setupKey ?? "default", s.bias ?? "NEUTRAL");
+// `now` is threaded so offline replays get a FRESH per-simulated-day lock
+// (each backtest day resets levels exactly like live midnight-IST rollover).
+// Default `new Date()` keeps live behaviour byte-for-byte unchanged.
+function applyLock(s: OptionSignal, now: Date = new Date()): OptionSignal {
+  const k = lockKey(s.index, s.setupKey ?? "default", s.bias ?? "NEUTRAL", now);
   const existing = lockStore.get(k);
   if (existing) {
     const risk = Math.abs(existing.entryLevel - existing.stopLevel);
@@ -1685,7 +1758,7 @@ function applyLock(s: OptionSignal): OptionSignal {
     target2Level: s.leg.target2 ?? s.leg.target1,
     entryTrigger: s.entryTrigger ?? "",
     invalidation: s.invalidation ?? "",
-    lockedAt: new Date(),
+    lockedAt: now,
   });
   return s;
 }

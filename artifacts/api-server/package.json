@@ -12,7 +12,7 @@
     "backfill:swing-sector": "tsx ./src/scripts/backfill-swing-sector.ts",
     "rotate:kite-key": "tsx ./src/scripts/rotateKiteTokenEncKey.ts",
     "fetch:index-candles": "tsx ./src/scripts/fetchKiteIndexCandles.ts",
-    "replay:detectors": "tsx ./src/scripts/replayDetectors.ts"
+    "replay:detectors": "FNO_DISABLE_SCHEDULERS=1 tsx ./src/scripts/replayDetectors.ts"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
