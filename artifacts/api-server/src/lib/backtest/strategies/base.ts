@@ -72,6 +72,87 @@ export const DEFAULT_FILTERS: FilterConfig = {
   minimumRiskReward: 1.5,
 };
 
+/**
+ * Named confirmation-filter presets surfaced in the Backtest Lab UI. Each is a
+ * one-click starting point on top of the per-filter custom toggles — the owner
+ * can still hand-tune any toggle afterward. All three respect the same hard
+ * safety rails (market hours, the 15:20 IST force-exit, the avoid-last-15-min
+ * entry cutoff, defined-risk SL/target geometry) — they differ ONLY in how many
+ * discretionary confirmation gates they stack and the per-day trade cap.
+ *
+ * Calibrated against the committed 2-year 15-min CSVs (NIFTY/BANKNIFTY/SENSEX):
+ * every preset qualifies a healthy, non-zero number of trades for ALL six
+ * strategies (lowest observed ≈ 93 for RANGE_REVERSAL). The blended 50/50
+ * scale-out reward is exactly 1.5R at the default Target geometry, so a
+ * `minimumRiskReward` above 1.5 would starve every strategy — Practical /
+ * Conservative therefore hold it AT 1.5 and differentiate on the gate count.
+ *
+ * The blocking blended-RR / over-strict combination that previously zeroed the
+ * lab out is intentionally NOT reachable from any preset.
+ */
+export type FilterPresetId = "PRACTICAL" | "CONSERVATIVE" | "AGGRESSIVE";
+
+export interface FilterPreset {
+  id: FilterPresetId;
+  label: string;
+  description: string;
+  filters: FilterConfig;
+  maxTradesPerDay: number;
+}
+
+export const FILTER_PRESETS: Record<FilterPresetId, FilterPreset> = {
+  PRACTICAL: {
+    id: "PRACTICAL",
+    label: "Practical",
+    description:
+      "Balanced default — VWAP + chop-zone confirmation and a 1.5 reward:risk floor, EMA-trend gate off (it was the single biggest blocker). Trades all six strategies on the 2-year data.",
+    filters: {
+      vwapFilter: true,
+      emaTrendFilter: false,
+      optionChainConfirmation: false,
+      avoidChopZone: true,
+      avoidLast15Minutes: true,
+      avoidWideSpread: false,
+      avoidLowVolume: false,
+      minimumRiskReward: 1.5,
+    },
+    maxTradesPerDay: 3,
+  },
+  CONSERVATIVE: {
+    id: "CONSERVATIVE",
+    label: "Conservative",
+    description:
+      "Strictest — every confirmation gate on (VWAP + EMA-trend + chop-zone), 1.5 reward:risk floor, and a tight 2-trades/day cap. Fewer, higher-conviction setups.",
+    filters: { ...DEFAULT_FILTERS },
+    maxTradesPerDay: 2,
+  },
+  AGGRESSIVE: {
+    id: "AGGRESSIVE",
+    label: "Aggressive",
+    description:
+      "Loosest — discretionary confirmations off and no reward:risk floor (the last-15-min entry cutoff and all hard risk rails stay on), 5-trades/day cap. Most trades, most noise.",
+    filters: {
+      vwapFilter: false,
+      emaTrendFilter: false,
+      optionChainConfirmation: false,
+      avoidChopZone: false,
+      avoidLast15Minutes: true,
+      avoidWideSpread: false,
+      avoidLowVolume: false,
+      minimumRiskReward: 0,
+    },
+    maxTradesPerDay: 5,
+  },
+};
+
+export const DEFAULT_PRESET_ID: FilterPresetId = "PRACTICAL";
+
+export const FILTER_PRESET_ORDER: FilterPresetId[] = [
+  "PRACTICAL",
+  "CONSERVATIVE",
+  "AGGRESSIVE",
+];
+
 /** Filters that depend on option/chain/volume data we do NOT have historically. */
 export const OPTION_DEPENDENT_FILTERS: FilterKey[] = [
   "optionChainConfirmation",

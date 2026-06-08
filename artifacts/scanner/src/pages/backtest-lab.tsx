@@ -51,6 +51,11 @@ import {
   FILTER_ABBR,
   DEFAULT_FILTERS,
   summarizeRunFilters,
+  FILTER_PRESETS,
+  FILTER_PRESET_ORDER,
+  DEFAULT_PRESET_ID,
+  matchPreset,
+  type FilterPresetId,
 } from "@/lib/backtestRunSummary";
 import {
   Area,
@@ -669,6 +674,62 @@ function AdvancedParamsPanel({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ───────────── filter presets (Practical / Conservative / Aggressive) ─────────────
+
+function PresetSelector({
+  filters,
+  maxTradesPerDay,
+  onApply,
+}: {
+  filters: Required<BacktestFilterConfig>;
+  maxTradesPerDay: number;
+  onApply: (next: Required<BacktestFilterConfig>, maxTradesPerDay: number) => void;
+}) {
+  const active = matchPreset(filters, maxTradesPerDay);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Filter preset
+        </div>
+        {active === null && (
+          <span
+            className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-500"
+            title="The confirmation toggles or max-trades/day were hand-tuned away from every named preset."
+          >
+            Custom
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {FILTER_PRESET_ORDER.map((id: FilterPresetId) => {
+          const p = FILTER_PRESETS[id];
+          const on = active === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onApply({ ...p.filters }, p.maxTradesPerDay)}
+              title={p.description}
+              className={`rounded-full border px-3 py-1 text-[11px] transition ${
+                on
+                  ? "border-sky-400 bg-sky-500/10 text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {p.label}
+              {id === DEFAULT_PRESET_ID ? " (default)" : ""} {on ? "✓" : ""}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[10px] leading-snug text-muted-foreground">
+        {active ? FILTER_PRESETS[active].description : "Custom — hand-tuned filters below."}
+      </p>
     </div>
   );
 }
@@ -1420,8 +1481,12 @@ export default function BacktestLab() {
   const [riskPct, setRiskPct] = useState(1);
   const [selectedStrategies, setSelectedStrategies] = useState<Set<string>>(new Set());
   const [strategyParams, setStrategyParams] = useState<Record<string, Record<string, number>>>({});
-  const [filters, setFilters] = useState<Required<BacktestFilterConfig>>(DEFAULT_FILTERS);
-  const [maxTradesPerDay, setMaxTradesPerDay] = useState(3);
+  const [filters, setFilters] = useState<Required<BacktestFilterConfig>>(
+    () => ({ ...FILTER_PRESETS[DEFAULT_PRESET_ID].filters }),
+  );
+  const [maxTradesPerDay, setMaxTradesPerDay] = useState(
+    FILTER_PRESETS[DEFAULT_PRESET_ID].maxTradesPerDay,
+  );
   const [includeCharges, setIncludeCharges] = useState(true);
   const [includeSlippage, setIncludeSlippage] = useState(true);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -1701,6 +1766,14 @@ export default function BacktestLab() {
                 onToggle={toggleStrategy}
                 loading={strategiesQ.isLoading}
                 error={strategiesQ.isError}
+              />
+              <PresetSelector
+                filters={filters}
+                maxTradesPerDay={maxTradesPerDay}
+                onApply={(nextFilters, nextMax) => {
+                  setFilters(nextFilters);
+                  setMaxTradesPerDay(nextMax);
+                }}
               />
               <FilterToggles filters={filters} onChange={setFilters} />
               <AdvancedParamsPanel
