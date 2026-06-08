@@ -1,0 +1,28 @@
+Looking at both screenshots of your Backtest Lab, here's my read.
+What the two modes are actually telling you
+Image 2 — Official F&O Engine / Real Replay (the honest one)
+This is your production engine replaying actually-captured signals. The numbers are brutal but real:
+
+18 decided trades, 16.67% win rate, Net P&L −₹21,542, Profit Factor 0.42, Return −2.15%
+68 of 86 taken signals expired/went stale with no captured option exit (excluded from P&L)
+13 of 86 trades have entry/exit outside 09:15–15:30 IST — the 04:42 pm IST timestamps are the timezone bug surfacing again
+Blocked setups show MEAN_REVERSION and VOLUME_BREAKOUT getting PRE_EMISSION_REJECTED in the thousands (2304, 2280, 2258...) for CONDITIONS_NOT_MET
+
+Image 1 — Strategy Research (the optimistic one)
+This runs generic strategies on spot candles with a delta proxy. It shows +₹1,59,072 net, 50.33% win rate, PF 1.03, 5784 decided trades. Range/Mean-Reversion Reversal tops the multi-factor ranking (93.1/100).
+The core finding
+These two are not comparable, and the gap between them is the whole story. The Research tab's +₹1.59L is built on a labeled ATM delta proxy on spot moves with option/spread/volume confirmation filters auto-disabled and no real option premiums — the page says so explicitly. The Real Replay's −₹21,542 is what the engine actually did with captured data. Trust the −₹21,542 number, not the +₹1.59L. A PF of 1.03 on a delta proxy almost certainly goes below 1.0 once theta and real premiums are modeled — consistent with the thin, fragile pre-theta edge we already established.
+Specific defects still visible
+
+Timezone bug is not fixed. The 27 Apr 04:42 pm IST entries/exits and the "13 of 86 outside session" audit flag mean the session-boundary fix didn't take in this build. EXPIRED_TRIGGERED rows with n/a P&L are clustering around it.
+Signal capture is starving the engine. 68 of 86 signals had no captured option exit. Your real evaluable sample is 18 trades — too small to conclude anything. The "window grows daily" note is correct but you can't make capital decisions on n=18.
+Mass pre-emission rejection. MEAN_REVERSION rejecting ~6,800 setups across indices for CONDITIONS_NOT_MET suggests either the confluence gate is too tight or the condition logic is misfiring. Worth confirming this is intentional gating vs. a silent bug.
+Profit Factor 0.42 on the real engine means you're losing ₹1.58 for every ₹1 won. Win rate 16.67% with R:R that isn't compensating.
+
+Suggestions
+
+Fix the IST session bug first — it's contaminating both entries and the audit. Until timestamps are clean, no P&L number is trustworthy.
+Stop comparing to the Research tab number in any decision-making. Relabel it in the UI as "directional proxy — not tradeable P&L" so future-you doesn't anchor on +₹1.59L.
+Get the option-chain ingestor running so Real Replay accrues real exits. The "No option-chain snapshots captured yet" note is the bottleneck — everything downstream is gated on it.
+Audit the MEAN_REVERSION rejection logic — log a sample of 10 rejected setups with the exact condition that failed.
+Don't deploy capital. Nothing here changes the earlier position: the real engine is net-negative on a tiny sample, and the positive number is an artifact of disabled filters and a proxy. Keep it in paper.
