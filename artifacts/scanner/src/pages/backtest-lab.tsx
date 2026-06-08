@@ -17,7 +17,7 @@
  * such; every modeled field is flagged; honest "unavailable"/loading/empty states;
  * never a fabricated number where the source is missing.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useListBacktestRuns,
   useCreateBacktestRun,
@@ -1506,6 +1506,12 @@ export default function BacktestLab() {
     query: {
       enabled: Boolean(activeRunId),
       queryKey: getGetBacktestRunQueryKey(activeRunId ?? ""),
+      // The run now computes in the background server-side, so poll until it
+      // settles to COMPLETE/FAILED (avoids the autoscale request-timeout 502).
+      refetchInterval: (query) => {
+        const s = query.state.data?.status;
+        return s === "PENDING" || s === "RUNNING" ? 2500 : false;
+      },
     },
   });
   const tradesQ = useGetBacktestRunTrades(activeRunId ?? "", {
@@ -1528,6 +1534,21 @@ export default function BacktestLab() {
   const trades = tradesQ.data?.items ?? [];
   const blocked = blockedQ.data?.items ?? [];
   const strategies = strategiesQ.data?.items ?? [];
+
+  const runStatus = run?.status;
+  const isRunInFlight = runStatus === "PENDING" || runStatus === "RUNNING";
+
+  // Trades/blocked are fetched as soon as a run id exists, while the run is
+  // still RUNNING (so they come back empty). Once the background compute flips
+  // the run to COMPLETE, pull the now-populated children (and refresh the list).
+  useEffect(() => {
+    if (runStatus === "COMPLETE") {
+      void tradesQ.refetch();
+      void blockedQ.refetch();
+      void runsQ.refetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runStatus, activeRunId]);
 
   // strategyId → "why these filters are ignored" rationale, sourced from the live
   // strategy catalog (never fabricated). Strategies that ignore nothing map to "".
@@ -1565,7 +1586,7 @@ export default function BacktestLab() {
   }
 
   const canRun =
-    !createMut.isPending && (!isStrategyMode || selectedStrategies.size > 0);
+    !createMut.isPending && !isRunInFlight && (!isStrategyMode || selectedStrategies.size > 0);
 
   function triggerRun(overrides?: {
     backtestMode?: BacktestRunRequestBacktestMode;
@@ -1863,8 +1884,8 @@ export default function BacktestLab() {
             </label>
 
             <Button onClick={runBacktest} disabled={!canRun} className="gap-1.5">
-              {createMut.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              {createMut.isPending ? "Running…" : "Run backtest"}
+              {createMut.isPending || isRunInFlight ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              {createMut.isPending ? "Starting…" : isRunInFlight ? "Running…" : "Run backtest"}
             </Button>
           </div>
 
@@ -1961,6 +1982,19 @@ export default function BacktestLab() {
       ) : runQ.isLoading ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">Loading run…</CardContent>
+        </Card>
+      ) : isRunInFlight ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-12 text-center text-sm text-muted-foreground">
+            <RefreshCw className="h-5 w-5 animate-spin text-sky-400" />
+            <div>
+              Running backtest…
+              <div className="mt-1 text-xs">
+                This runs in the background and can take up to a few minutes for wide
+                comparisons over long windows. Results appear here automatically.
+              </div>
+            </div>
+          </CardContent>
         </Card>
       ) : run?.status === "FAILED" ? (
         <Card>
