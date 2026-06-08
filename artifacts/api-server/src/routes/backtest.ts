@@ -75,6 +75,19 @@ const router: IRouter = Router();
 const FNO_INDICES = ["NIFTY", "BANKNIFTY", "SENSEX"] as const;
 const MAX_RUNS_PER_OWNER = 100;
 
+// A 2yr × multi-instrument × multi-strategy run can emit several thousand child
+// rows. Inserting them in ONE multi-row statement builds a query with hundreds
+// of thousands of bind params — past Postgres's 65535-param ceiling AND deep
+// enough to overflow Drizzle's query builder ("Maximum call stack size
+// exceeded"). Insert in bounded batches so the query stays small and safe.
+export const DB_INSERT_BATCH_SIZE = 500;
+
+export function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 function ownerKeyFor(req: Request): string | null {
   const s = getSession(req);
   if (!s) return null;
@@ -806,8 +819,7 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
       }
 
       if (trades.length > 0) {
-        await tx.insert(backtestTradesTable).values(
-          trades.map((t, i) => ({
+        const tradeRows = trades.map((t, i) => ({
             runId: run.id,
           indexSymbol: t.indexSymbol,
           setupKey: t.setupKey,
@@ -847,13 +859,14 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
           passedConditions: t.passedConditions ?? null,
           failedConditions: t.failedConditions ?? null,
           sortIndex: i,
-        })),
-      );
-    }
+        }));
+        for (const batch of chunk(tradeRows, DB_INSERT_BATCH_SIZE)) {
+          await tx.insert(backtestTradesTable).values(batch);
+        }
+      }
 
       if (blocked.length > 0) {
-        await tx.insert(backtestBlockedSetupsTable).values(
-          blocked.map((b) => ({
+        const blockedRows = blocked.map((b) => ({
             runId: run.id,
             indexSymbol: b.indexSymbol,
             setupKey: b.setupKey,
@@ -871,8 +884,10 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
             failedCondition: b.failedCondition ?? null,
             blockedRule: b.blockedRule ?? null,
             category: b.category ?? null,
-          })),
-        );
+        }));
+        for (const batch of chunk(blockedRows, DB_INSERT_BATCH_SIZE)) {
+          await tx.insert(backtestBlockedSetupsTable).values(batch);
+        }
       }
 
       return { kind: "fresh", run };
