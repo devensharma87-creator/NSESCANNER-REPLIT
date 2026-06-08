@@ -62,9 +62,10 @@ function sidesOf(spec: CustomStrategySpec): string[] {
 }
 
 function stopDescription(exec: ExecutionConfig): string {
-  return exec.stop.type === "atr"
-    ? `stop = ${exec.stop.atrMult}×ATR`
-    : `stop = swing(${exec.stop.swingSpan}) ± ${exec.stop.bufferAtrMult}×ATR`;
+  const s = exec.stop;
+  if (s.type === "atr") return `stop = ${s.atrMult}×ATR`;
+  if (s.type === "swing") return `stop = swing(${s.swingSpan}) ± ${s.bufferAtrMult}×ATR`;
+  return `stop = SMC ${s.source} ± ${s.bufferAtrMult}×ATR`;
 }
 
 export function customStrategyMeta(spec: CustomStrategySpec): BacktestStrategyMetaOut {

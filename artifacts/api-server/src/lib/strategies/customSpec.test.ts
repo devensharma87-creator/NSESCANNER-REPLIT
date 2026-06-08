@@ -91,6 +91,61 @@ describe("CustomStrategyInputSchema / specFromInput", () => {
   });
 });
 
+describe("SMC blocks + smc stop validation", () => {
+  const withSetupBlock = (block: unknown, over: Partial<CustomStrategyInput> = {}) =>
+    CustomStrategyInputSchema.safeParse(
+      baseInput({
+        bull: { market: emptySide().market, setup: { logic: "AND", blocks: [block as never] } },
+        ...over,
+      }),
+    );
+
+  it("accepts every SMC block variant", () => {
+    const blocks = [
+      { type: "fvg", side: "bull", mode: "present" },
+      { type: "fvg", side: "bear", mode: "fill" },
+      { type: "fvg", side: "bull", mode: "retest" },
+      { type: "bos", dir: "up" },
+      { type: "choch", dir: "down" },
+      { type: "liquidity_sweep", side: "buy" },
+      { type: "order_block", side: "demand", mode: "test" },
+      { type: "order_block", side: "supply", mode: "present" },
+      { type: "displacement", dir: "up" },
+    ];
+    for (const b of blocks) expect(withSetupBlock(b).success).toBe(true);
+  });
+
+  it("rejects SMC blocks with invalid enum members", () => {
+    expect(withSetupBlock({ type: "fvg", side: "bull", mode: "tap" }).success).toBe(false);
+    expect(withSetupBlock({ type: "bos", dir: "sideways" }).success).toBe(false);
+    expect(withSetupBlock({ type: "liquidity_sweep", side: "both" }).success).toBe(false);
+    expect(withSetupBlock({ type: "order_block", side: "neutral", mode: "test" }).success).toBe(false);
+  });
+
+  it("accepts an smc-anchored stop for every source", () => {
+    for (const source of ["fvg", "order_block", "swing"] as const) {
+      const res = CustomStrategyInputSchema.safeParse(
+        baseInput({ execution: { stop: { type: "smc", source, bufferAtrMult: 0.5 }, target1R: 1, target2R: 2 } }),
+      );
+      expect(res.success).toBe(true);
+      if (res.success) expect(CustomStrategySpecSchema.safeParse(specFromInput(res.data)).success).toBe(true);
+    }
+  });
+
+  it("rejects an smc stop with an unknown source or out-of-range buffer", () => {
+    expect(
+      CustomStrategyInputSchema.safeParse(
+        baseInput({ execution: { stop: { type: "smc", source: "volume" as never, bufferAtrMult: 0.5 }, target1R: 1, target2R: 2 } }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CustomStrategyInputSchema.safeParse(
+        baseInput({ execution: { stop: { type: "smc", source: "fvg", bufferAtrMult: 9 }, target1R: 1, target2R: 2 } }),
+      ).success,
+    ).toBe(false);
+  });
+});
+
 describe("sideIsEmpty", () => {
   it("treats a side with only empty nested groups as empty", () => {
     expect(sideIsEmpty({ market: { logic: "AND", blocks: [], groups: [{ logic: "AND", blocks: [] }] }, setup: emptySide().setup })).toBe(true);

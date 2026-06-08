@@ -700,10 +700,13 @@ function makeCustomEngineDetected(spec: CustomStrategySpec, c: Ctx): Detected | 
     bullish: dir === "BULLISH",
   }));
   const optTxt = dir === "BULLISH" ? "CE" : "PE";
+  const stopCfg = spec.execution.stop;
   const stopDesc =
-    spec.execution.stop.type === "atr"
-      ? `${spec.execution.stop.atrMult}×ATR`
-      : `swing(${spec.execution.stop.swingSpan}) ± ${spec.execution.stop.bufferAtrMult}×ATR`;
+    stopCfg.type === "atr"
+      ? `${stopCfg.atrMult}×ATR`
+      : stopCfg.type === "swing"
+        ? `swing(${stopCfg.swingSpan}) ± ${stopCfg.bufferAtrMult}×ATR`
+        : `SMC ${stopCfg.source} ± ${stopCfg.bufferAtrMult}×ATR`;
   return {
     // Custom ids are opaque strings; the DB column + API field are text. The
     // generated setupKey union is closed to builtins, so cast at this boundary.

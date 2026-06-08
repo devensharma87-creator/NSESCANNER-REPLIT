@@ -21,4 +21,10 @@ export const StrategyRuleBlockType = {
   vwap_distance_max: "vwap_distance_max",
   fib_zone: "fib_zone",
   compare: "compare",
+  fvg: "fvg",
+  bos: "bos",
+  choch: "choch",
+  liquidity_sweep: "liquidity_sweep",
+  order_block: "order_block",
+  displacement: "displacement",
 } as const;

@@ -11,12 +11,13 @@ import type { StrategyEmaKey } from "./strategyEmaKey";
 import type { StrategyFeatureKey } from "./strategyFeatureKey";
 import type { StrategyRuleBlockCmp } from "./strategyRuleBlockCmp";
 import type { StrategyRuleBlockDir } from "./strategyRuleBlockDir";
+import type { StrategyRuleBlockMode } from "./strategyRuleBlockMode";
 import type { StrategyRuleBlockOrder } from "./strategyRuleBlockOrder";
 import type { StrategyRuleBlockSide } from "./strategyRuleBlockSide";
 import type { StrategyRuleBlockType } from "./strategyRuleBlockType";
 
 /**
- * One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.
+ * One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare, and the Smart-Money / price-action family fvg, bos, choch, liquidity_sweep, order_block, displacement (all sourced from the shared causal SMC engine).
 
  */
 export interface StrategyRuleBlock {
@@ -26,7 +27,7 @@ export interface StrategyRuleBlock {
   order?: StrategyRuleBlockOrder;
   fast?: StrategyEmaKey;
   slow?: StrategyEmaKey;
-  /** Direction token; valid set depends on block type. */
+  /** Direction token; valid set depends on block type (up/down used by bos/choch/displacement). */
   dir?: StrategyRuleBlockDir;
   /**
    * ema_slope lookback (server Zod: 1-20).
@@ -34,7 +35,10 @@ export interface StrategyRuleBlock {
    * @maximum 20
    */
   lookback?: number;
+  /** Side token; valid set depends on block type (buy/sell for liquidity_sweep, demand/supply for order_block, bull/bear for fvg/fib_zone). */
   side?: StrategyRuleBlockSide;
+  /** fvg mode (present/fill/retest) or order_block mode (present/test). */
+  mode?: StrategyRuleBlockMode;
   /**
    * ema_pullback tolerance % (server Zod: 0-5).
    * @minimum 0

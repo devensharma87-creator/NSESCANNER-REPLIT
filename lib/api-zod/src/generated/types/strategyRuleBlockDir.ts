@@ -7,7 +7,7 @@
  */
 
 /**
- * Direction token; valid set depends on block type.
+ * Direction token; valid set depends on block type (up/down used by bos/choch/displacement).
  */
 export type StrategyRuleBlockDir =
   (typeof StrategyRuleBlockDir)[keyof typeof StrategyRuleBlockDir];
@@ -19,4 +19,6 @@ export const StrategyRuleBlockDir = {
   falling: "falling",
   reclaim: "reclaim",
   reject: "reject",
+  up: "up",
+  down: "down",
 } as const;

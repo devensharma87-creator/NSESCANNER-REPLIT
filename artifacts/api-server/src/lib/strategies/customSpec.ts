@@ -102,6 +102,22 @@ export type RuleBlock =
   | { type: "vwap_distance_max"; maxPct: number }
   // --- Fibonacci blocks --------------------------------------------------
   | { type: "fib_zone"; side: "bull" | "bear"; lo: number; hi: number; swingSpan: number }
+  // --- Smart-Money-Concepts / price-action blocks ------------------------
+  // FVG: a fair-value gap on the chosen side is `present` (an active gap
+  // exists), `fill`ed (price traded through it this bar) or `retest`ed (price
+  // tagged it without filling this bar).
+  | { type: "fvg"; side: "bull" | "bear"; mode: "present" | "fill" | "retest" }
+  // Break of structure (continuation) / change of character (reversal) this bar.
+  | { type: "bos"; dir: "up" | "down" }
+  | { type: "choch"; dir: "up" | "down" }
+  // Liquidity sweep: a buy-side sweep takes out a prior swing high then closes
+  // back below it; a sell-side sweep takes out a prior swing low then closes back
+  // above it (a stop-hunt that reverses).
+  | { type: "liquidity_sweep"; side: "buy" | "sell" }
+  // Order block (supply/demand) zone is `present` (active) or `test`ed this bar.
+  | { type: "order_block"; side: "demand" | "supply"; mode: "present" | "test" }
+  // Displacement: an expansion candle whose body ≥ displacementAtrMult × ATR(14).
+  | { type: "displacement"; dir: "up" | "down" }
   // --- generic scalar comparison (back-compat with v1) -------------------
   | { type: "compare"; left: FeatureKey; op: ConditionOp; right: ConditionOperand };
 
@@ -122,7 +138,13 @@ export interface SideRules {
 
 export type StopConfig =
   | { type: "atr"; atrMult: number }
-  | { type: "swing"; swingSpan: number; bufferAtrMult: number };
+  | { type: "swing"; swingSpan: number; bufferAtrMult: number }
+  // SMC-anchored stop: place the stop just beyond a real SMC structure — the
+  // nearest active FVG edge, the order-block zone edge, or the last confirmed
+  // structural swing — padded by `bufferAtrMult` × ATR(14). The evaluator FAILS
+  // the entry (NO_SMC_ANCHOR) when the chosen anchor does not exist, never
+  // fabricating a level.
+  | { type: "smc"; source: "fvg" | "order_block" | "swing"; bufferAtrMult: number };
 
 export interface ExecutionConfig {
   stop: StopConfig;
@@ -242,6 +264,12 @@ const ruleBlockUnion = z.discriminatedUnion("type", [
     hi: ratio,
     swingSpan: z.number().int().min(2).max(10),
   }),
+  z.object({ type: z.literal("fvg"), side: z.enum(["bull", "bear"]), mode: z.enum(["present", "fill", "retest"]) }),
+  z.object({ type: z.literal("bos"), dir: z.enum(["up", "down"]) }),
+  z.object({ type: z.literal("choch"), dir: z.enum(["up", "down"]) }),
+  z.object({ type: z.literal("liquidity_sweep"), side: z.enum(["buy", "sell"]) }),
+  z.object({ type: z.literal("order_block"), side: z.enum(["demand", "supply"]), mode: z.enum(["present", "test"]) }),
+  z.object({ type: z.literal("displacement"), dir: z.enum(["up", "down"]) }),
   z.object({ type: z.literal("compare"), left: featureKeySchema, op: opSchema, right: operandSchema }),
 ]);
 
@@ -273,6 +301,11 @@ const stopSchema: z.ZodType<StopConfig> = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("swing"),
     swingSpan: z.number().int().min(2).max(10),
+    bufferAtrMult: z.number().finite().min(0).max(3),
+  }),
+  z.object({
+    type: z.literal("smc"),
+    source: z.enum(["fvg", "order_block", "swing"]),
     bufferAtrMult: z.number().finite().min(0).max(3),
   }),
 ]);

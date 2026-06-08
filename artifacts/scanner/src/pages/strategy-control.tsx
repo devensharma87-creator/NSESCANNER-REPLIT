@@ -31,8 +31,10 @@ import {
   StrategyRuleBlockOrder,
   StrategyRuleBlockDir,
   StrategyRuleBlockSide,
+  StrategyRuleBlockMode,
   StrategyRuleGroupLogic,
   StrategyStopConfigType,
+  StrategyStopConfigSource,
   type StrategyCatalogEntry,
   type StrategyRuleBlock,
   type StrategyRuleGroup,
@@ -87,6 +89,12 @@ const BLOCK_LABEL: Record<string, string> = {
   vwap_cross: "VWAP cross",
   vwap_distance_max: "Max VWAP distance",
   fib_zone: "Fib zone",
+  fvg: "Fair-value gap (SMC)",
+  bos: "Break of structure (SMC)",
+  choch: "Change of character (SMC)",
+  liquidity_sweep: "Liquidity sweep (SMC)",
+  order_block: "Order block (SMC)",
+  displacement: "Displacement candle (SMC)",
   compare: "Compare (advanced)",
 };
 
@@ -114,6 +122,18 @@ function defaultBlock(type: StrategyRuleBlock["type"]): StrategyRuleBlock {
       return { type, maxPct: 1 };
     case "fib_zone":
       return { type, side: StrategyRuleBlockSide.bull, lo: 0.382, hi: 0.618, swingSpan: 8 };
+    case "fvg":
+      return { type, side: StrategyRuleBlockSide.bull, mode: StrategyRuleBlockMode.present };
+    case "bos":
+      return { type, dir: StrategyRuleBlockDir.up };
+    case "choch":
+      return { type, dir: StrategyRuleBlockDir.up };
+    case "liquidity_sweep":
+      return { type, side: StrategyRuleBlockSide.buy };
+    case "order_block":
+      return { type, side: StrategyRuleBlockSide.demand, mode: StrategyRuleBlockMode.test };
+    case "displacement":
+      return { type, dir: StrategyRuleBlockDir.up };
     case "compare":
       return {
         type,
@@ -149,6 +169,18 @@ function blockSummary(b: StrategyRuleBlock): string {
       return `|price − VWAP| ≤ ${b.maxPct ?? "?"}%`;
     case "fib_zone":
       return `In ${b.side} fib ${b.lo ?? "?"}–${b.hi ?? "?"} (swing ${b.swingSpan ?? "?"})`;
+    case "fvg":
+      return `${b.side} fair-value gap ${b.mode ?? "present"}`;
+    case "bos":
+      return `Break of structure ${b.dir ?? "up"}`;
+    case "choch":
+      return `Change of character ${b.dir ?? "up"}`;
+    case "liquidity_sweep":
+      return `${b.side === "sell" ? "Sell-side" : "Buy-side"} liquidity sweep`;
+    case "order_block":
+      return `${b.side ?? "demand"} order block ${b.mode ?? "test"}`;
+    case "displacement":
+      return `Displacement candle ${b.dir ?? "up"}`;
     case "compare": {
       const rhs = b.right?.type === "value" ? String(b.right.value ?? 0) : (b.right?.feature ?? "?");
       return `${b.left} ${OP_LABEL[b.op ?? "gt"] ?? b.op} ${rhs}`;
@@ -625,6 +657,28 @@ function BlockEditor({
         </>
       ) : null}
 
+      {b.type === "fvg" ? (
+        <>
+          <MiniSelect value={b.side ?? StrategyRuleBlockSide.bull} options={[StrategyRuleBlockSide.bull, StrategyRuleBlockSide.bear]} onChange={(v) => patch({ side: v })} width="w-24" />
+          <MiniSelect value={b.mode ?? StrategyRuleBlockMode.present} options={[StrategyRuleBlockMode.present, StrategyRuleBlockMode.fill, StrategyRuleBlockMode.retest]} onChange={(v) => patch({ mode: v })} width="w-24" />
+        </>
+      ) : null}
+
+      {b.type === "bos" || b.type === "choch" || b.type === "displacement" ? (
+        <MiniSelect value={b.dir ?? StrategyRuleBlockDir.up} options={[StrategyRuleBlockDir.up, StrategyRuleBlockDir.down]} onChange={(v) => patch({ dir: v })} width="w-24" />
+      ) : null}
+
+      {b.type === "liquidity_sweep" ? (
+        <MiniSelect value={b.side ?? StrategyRuleBlockSide.buy} options={[StrategyRuleBlockSide.buy, StrategyRuleBlockSide.sell]} onChange={(v) => patch({ side: v })} width="w-24" />
+      ) : null}
+
+      {b.type === "order_block" ? (
+        <>
+          <MiniSelect value={b.side ?? StrategyRuleBlockSide.demand} options={[StrategyRuleBlockSide.demand, StrategyRuleBlockSide.supply]} onChange={(v) => patch({ side: v })} width="w-24" />
+          <MiniSelect value={b.mode ?? StrategyRuleBlockMode.test} options={[StrategyRuleBlockMode.present, StrategyRuleBlockMode.test]} onChange={(v) => patch({ mode: v })} width="w-24" />
+        </>
+      ) : null}
+
       {b.type === "compare" ? (
         <>
           <MiniSelect value={b.left ?? StrategyFeatureKey.close} options={FEATURE_OPTIONS} onChange={(v) => patch({ left: v })} width="w-24" />
@@ -819,7 +873,9 @@ function StrategyBuilder({
                   stop:
                     v === StrategyStopConfigType.atr
                       ? { type: StrategyStopConfigType.atr, atrMult: stop.atrMult ?? 1.5 }
-                      : { type: StrategyStopConfigType.swing, swingSpan: stop.swingSpan ?? 10, bufferAtrMult: stop.bufferAtrMult ?? 0.25 },
+                      : v === StrategyStopConfigType.smc
+                        ? { type: StrategyStopConfigType.smc, source: stop.source ?? StrategyStopConfigSource.fvg, bufferAtrMult: stop.bufferAtrMult ?? 0.25 }
+                        : { type: StrategyStopConfigType.swing, swingSpan: stop.swingSpan ?? 10, bufferAtrMult: stop.bufferAtrMult ?? 0.25 },
                 })
               }
               width="w-full"
@@ -830,6 +886,22 @@ function StrategyBuilder({
               <Label className="text-xs">Stop × ATR</Label>
               <NumberField value={stop.atrMult} step="0.1" width="w-full" onChange={(v) => setExec({ stop: { type: StrategyStopConfigType.atr, atrMult: v } })} />
             </div>
+          ) : stop.type === StrategyStopConfigType.smc ? (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs">SMC anchor</Label>
+                <MiniSelect
+                  value={stop.source ?? StrategyStopConfigSource.fvg}
+                  options={Object.values(StrategyStopConfigSource)}
+                  onChange={(v) => setExec({ stop: { type: StrategyStopConfigType.smc, source: v, bufferAtrMult: stop.bufferAtrMult ?? 0.25 } })}
+                  width="w-full"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Buffer × ATR</Label>
+                <NumberField value={stop.bufferAtrMult} step="0.05" width="w-full" onChange={(v) => setExec({ stop: { type: StrategyStopConfigType.smc, source: stop.source ?? StrategyStopConfigSource.fvg, bufferAtrMult: v } })} />
+              </div>
+            </>
           ) : (
             <>
               <div className="space-y-1">

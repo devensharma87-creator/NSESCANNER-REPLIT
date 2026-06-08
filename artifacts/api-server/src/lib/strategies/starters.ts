@@ -36,6 +36,8 @@ import {
 
 /** Sentinel engine-state id used solely as a one-time "starters seeded" marker. */
 const STARTER_SENTINEL = "__starters_seeded_v1__";
+/** Separate sentinel for the Phase-2 SMC starters (never resurrects deleted ones). */
+const SMC_STARTER_SENTINEL = "__starters_smc_seeded_v1__";
 
 // --- tiny block/group builders (keep the spec literals readable) ------------
 const g = (logic: GroupLogic, ...blocks: RuleBlock[]): RuleGroup => ({ logic, blocks });
@@ -50,8 +52,17 @@ const priceVsVwap = (cmp: "above" | "below"): RuleBlock => ({ type: "price_vs_vw
 const vwapCross = (dir: "reclaim" | "reject"): RuleBlock => ({ type: "vwap_cross", dir });
 const fibZone = (s: "bull" | "bear", lo: number, hi: number, swingSpan: number): RuleBlock => ({ type: "fib_zone", side: s, lo, hi, swingSpan });
 
+// --- SMC / price-action block builders (Task #114, Phase 2) -----------------
+const fvg = (s: "bull" | "bear", mode: "present" | "fill" | "retest"): RuleBlock => ({ type: "fvg", side: s, mode });
+const bos = (dir: "up" | "down"): RuleBlock => ({ type: "bos", dir });
+const choch = (dir: "up" | "down"): RuleBlock => ({ type: "choch", dir });
+const liquiditySweep = (s: "buy" | "sell"): RuleBlock => ({ type: "liquidity_sweep", side: s });
+const orderBlock = (s: "demand" | "supply", mode: "present" | "test"): RuleBlock => ({ type: "order_block", side: s, mode });
+const displacement = (dir: "up" | "down"): RuleBlock => ({ type: "displacement", dir });
+
 const atrStop = (atrMult: number): ExecutionConfig["stop"] => ({ type: "atr", atrMult });
 const swingStop = (swingSpan: number, bufferAtrMult: number): ExecutionConfig["stop"] => ({ type: "swing", swingSpan, bufferAtrMult });
+const smcStop = (source: "fvg" | "order_block" | "swing", bufferAtrMult: number): ExecutionConfig["stop"] => ({ type: "smc", source, bufferAtrMult });
 
 function exec(stop: ExecutionConfig["stop"], target1R: number, target2R: number, minRR = 1): ExecutionConfig {
   return { stop, target1R, target2R, minRR };
@@ -159,5 +170,94 @@ export async function seedStarterStrategies(
   }
   // Mark seeded regardless, so the one-time seed never runs again for this owner.
   await setEngineState(STARTER_SENTINEL, false, ownerKey);
+  return { seeded: true, ids };
+}
+
+/**
+ * Phase-2 SMC / price-action starter specs. Same honesty/safety contract as the
+ * Phase-1 starters: fully-typed literals, validated at seed time, seeded
+ * ENGINE-DISABLED under a SEPARATE sentinel so they neither resurrect deleted
+ * Phase-1 starters nor get resurrected themselves once the owner deletes them.
+ */
+export const SMC_STARTER_SPECS: readonly CustomStrategySpec[] = [
+  {
+    version: 2,
+    id: "CUSTOM_starter_smc_bos_fvg_retest",
+    name: "BOS + FVG Retest",
+    category: "Starter",
+    description:
+      "Smart-money continuation: after a break of structure, enter on a retest of the freshly-formed fair-value gap in the break direction. Stop anchors to the FVG zone.",
+    direction: "BOTH",
+    bull: side(g("AND", bos("up")), g("AND", fvg("bull", "retest"))),
+    bear: side(g("AND", bos("down")), g("AND", fvg("bear", "retest"))),
+    execution: exec(smcStop("fvg", 0.25), 1, 2),
+    baseConfidence: 60,
+  },
+  {
+    version: 2,
+    id: "CUSTOM_starter_smc_sweep_choch_reversal",
+    name: "Liquidity Sweep + CHoCH Reversal",
+    category: "Starter",
+    description:
+      "Reversal: a buy-side (sell-side) liquidity sweep followed by a change of character up (down), entered on a demand (supply) order-block test. Stop anchors to the order block.",
+    direction: "BOTH",
+    bull: side(g("AND", liquiditySweep("buy"), choch("up")), g("AND", orderBlock("demand", "test"))),
+    bear: side(g("AND", liquiditySweep("sell"), choch("down")), g("AND", orderBlock("supply", "test"))),
+    execution: exec(smcStop("order_block", 0.25), 1, 2),
+    baseConfidence: 58,
+  },
+  {
+    version: 2,
+    id: "CUSTOM_starter_smc_displacement_fvg",
+    name: "Displacement Breakout FVG",
+    category: "Starter",
+    description:
+      "Momentum: a displacement candle up (down) that breaks structure, entered when a bullish (bearish) fair-value gap is present. Stop anchors to the FVG zone.",
+    direction: "BOTH",
+    bull: side(g("AND", displacement("up"), bos("up")), g("AND", fvg("bull", "present"))),
+    bear: side(g("AND", displacement("down"), bos("down")), g("AND", fvg("bear", "present"))),
+    execution: exec(smcStop("fvg", 0.3), 1, 2.5),
+    baseConfidence: 59,
+  },
+  {
+    version: 2,
+    id: "CUSTOM_starter_smc_orderblock_continuation",
+    name: "Order Block Continuation",
+    category: "Starter",
+    description:
+      "Trend continuation: in a stacked-EMA trend that has broken structure, enter on a demand (supply) order-block test. Swing-based defined-risk stop.",
+    direction: "BOTH",
+    bull: side(g("AND", emaStack("bull"), bos("up")), g("AND", orderBlock("demand", "test"))),
+    bear: side(g("AND", emaStack("bear"), bos("down")), g("AND", orderBlock("supply", "test"))),
+    execution: exec(smcStop("order_block", 0.25), 1, 2),
+    baseConfidence: 57,
+  },
+];
+
+/**
+ * One-time, idempotent seed of the Phase-2 SMC starters for an owner. Mirrors
+ * `seedStarterStrategies` exactly but keys off its OWN sentinel so the two seed
+ * passes are independent and neither resurrects the other's deleted starters.
+ */
+export async function seedSmcStarterStrategies(
+  ownerKey: string = OWNER_KEY,
+): Promise<{ seeded: boolean; ids: string[] }> {
+  const state = await getEngineStateMap(ownerKey);
+  if (state.has(SMC_STARTER_SENTINEL)) return { seeded: false, ids: [] };
+
+  const existing = new Set((await listCustomSpecs(ownerKey)).map((s) => s.id));
+  const ids: string[] = [];
+  for (const spec of SMC_STARTER_SPECS) {
+    if (existing.has(spec.id)) continue;
+    const parsed = CustomStrategySpecSchema.safeParse(spec);
+    if (!parsed.success) {
+      logger.warn({ id: spec.id, issues: parsed.error.flatten() }, "Skipping invalid SMC starter strategy");
+      continue;
+    }
+    await upsertCustomSpec(parsed.data, ownerKey);
+    ids.push(spec.id);
+  }
+  // Mark seeded regardless, so the one-time seed never runs again for this owner.
+  await setEngineState(SMC_STARTER_SENTINEL, false, ownerKey);
   return { seeded: true, ids };
 }

@@ -5,10 +5,12 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { StrategyStopConfigSource } from "./strategyStopConfigSource";
 import type { StrategyStopConfigType } from "./strategyStopConfigType";
 
 /**
- * Stop geometry: `atr` (atrMult × ATR14) or `swing` (recent fractal ± bufferAtrMult × ATR14).
+ * Stop geometry: `atr` (atrMult × ATR14), `swing` (recent fractal ± bufferAtrMult × ATR14), or `smc` (anchored to the nearest active SMC zone — an FVG edge, an order-block edge, or the last confirmed structural swing — padded by bufferAtrMult × ATR14; the server fails the entry with NO_SMC_ANCHOR when the chosen anchor does not exist).
+
  */
 export interface StrategyStopConfig {
   type: StrategyStopConfigType;
@@ -24,8 +26,10 @@ export interface StrategyStopConfig {
    * @maximum 10
    */
   swingSpan?: number;
+  /** Set when type=smc: which SMC anchor to attach the stop to (server Zod). */
+  source?: StrategyStopConfigSource;
   /**
-   * Set when type=swing (server Zod: 0-3).
+   * Set when type=swing or type=smc (server Zod: 0-3).
    * @minimum 0
    * @maximum 3
    */

@@ -105,6 +105,49 @@ function trendSpec(): CustomStrategySpec {
   };
 }
 
+// An SMC-only spec: every block family that the shared engine surfaces, so the
+// cross-surface parity check actually exercises the SMC math (not just EMA/VWAP).
+function smcSpec(): CustomStrategySpec {
+  return {
+    version: 2,
+    id: "CUSTOM_parity_smc",
+    name: "Parity SMC",
+    category: "Test",
+    description: "",
+    direction: "BOTH",
+    bull: {
+      market: { logic: "AND", blocks: [] },
+      setup: {
+        logic: "OR",
+        blocks: [
+          { type: "bos", dir: "up" },
+          { type: "choch", dir: "up" },
+          { type: "fvg", side: "bull", mode: "present" },
+          { type: "order_block", side: "demand", mode: "present" },
+          { type: "liquidity_sweep", side: "buy" },
+          { type: "displacement", dir: "up" },
+        ],
+      },
+    },
+    bear: {
+      market: { logic: "AND", blocks: [] },
+      setup: {
+        logic: "OR",
+        blocks: [
+          { type: "bos", dir: "down" },
+          { type: "choch", dir: "down" },
+          { type: "fvg", side: "bear", mode: "present" },
+          { type: "order_block", side: "supply", mode: "present" },
+          { type: "liquidity_sweep", side: "sell" },
+          { type: "displacement", dir: "down" },
+        ],
+      },
+    },
+    execution: { stop: { type: "smc", source: "swing", bufferAtrMult: 0.5 }, target1R: 1, target2R: 2 },
+    baseConfidence: 60,
+  };
+}
+
 describe("custom strategy live↔backtest parity", () => {
   it("the projector recomputes EMA/RSI via the shared lib", () => {
     const ctx = makeContext();
@@ -173,6 +216,10 @@ describe("custom strategy live↔backtest parity", () => {
     // Same candles in ⇒ byte-identical FeatureSeries out.
     expect(backtestSeries).toEqual(liveSeries);
 
+    // The SMC arrays are part of that deep-equal, but assert them explicitly so a
+    // regression in the shared SMC projection can't hide behind the EMA/VWAP fields.
+    expect(backtestSeries.smc).toEqual(liveSeries.smc);
+
     // And therefore identical per-bar evaluation on every bar.
     const spec = trendSpec();
     let fires = 0;
@@ -183,5 +230,33 @@ describe("custom strategy live↔backtest parity", () => {
       if (live.fired) fires++;
     }
     expect(fires).toBeGreaterThan(0);
+  });
+
+  // The same guarantee, but driven entirely by SMC blocks + an SMC-anchored stop,
+  // so the shared SMC engine is the thing under cross-surface parity.
+  it("SMC blocks + smc stop evaluate identically across live and backtest surfaces", () => {
+    const raw = makeRaw();
+    const liveSeries = projectFeatureSeries({
+      open: raw.open,
+      high: raw.high,
+      low: raw.low,
+      close: raw.close,
+      vwap: raw.vwap,
+      atr14: raw.atr14,
+      istMinute: raw.istMinute,
+    });
+    const backtestSeries = featureSeriesFromBacktestContext(makeContext());
+
+    // The synthetic oscillation must actually print structure — otherwise an
+    // all-quiet SMC series would make this parity check vacuous.
+    const hasStructure = liveSeries.smc.some(
+      (b) => b.structDir !== 0 || b.bosUp || b.bosDn || b.chochUp || b.chochDn,
+    );
+    expect(hasStructure).toBe(true);
+
+    const spec = smcSpec();
+    for (let i = 0; i < raw.close.length; i++) {
+      expect(evaluateSpecAt(backtestSeries, i, spec)).toEqual(evaluateSpecAt(liveSeries, i, spec));
+    }
   });
 });

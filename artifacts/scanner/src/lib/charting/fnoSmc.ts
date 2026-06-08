@@ -18,6 +18,12 @@
 
 import type { IndicatorCandle } from "./indicators";
 import { ema, vwap } from "./indicators";
+import {
+  structurePass,
+  fvgPass,
+  swingZonePass,
+  type SmcConfig,
+} from "@workspace/indicators";
 
 // ── Dashboard position ──────────────────────────────────────────────────────
 export type DashPosition = "Top Right" | "Top Left" | "Bottom Right" | "Bottom Left";
@@ -232,26 +238,6 @@ export function vwapWithBands(candles: IndicatorCandle[]): FnoVwapBands {
   return { vwap: vw, upper, lower };
 }
 
-function isPivotHigh(candles: IndicatorCandle[], j: number, span: number): boolean {
-  if (j - span < 0 || j + span >= candles.length) return false;
-  const h = candles[j]!.h;
-  for (let k = j - span; k <= j + span; k++) {
-    if (k === j) continue;
-    if (candles[k]!.h >= h) return false;
-  }
-  return true;
-}
-
-function isPivotLow(candles: IndicatorCandle[], j: number, span: number): boolean {
-  if (j - span < 0 || j + span >= candles.length) return false;
-  const l = candles[j]!.l;
-  for (let k = j - span; k <= j + span; k++) {
-    if (k === j) continue;
-    if (candles[k]!.l <= l) return false;
-  }
-  return true;
-}
-
 // ── SMC structure (BOS / CHoCH) ─────────────────────────────────────────────
 export interface StructureResult {
   events: StructureEvent[];
@@ -260,42 +246,34 @@ export interface StructureResult {
 }
 
 /**
- * Break of Structure / Change of Character from fractal swing pivots, ported
- * 1:1 from the Pine: a confirmed swing high becomes `lastSH`; a close crossing
- * over it prints BOS (or CHoCH when it flips the prior down-structure), sets the
- * structure direction up and consumes the level. Symmetric for swing lows.
+ * Break of Structure / Change of Character — now a thin chart-shaped adapter
+ * over the shared causal `structurePass` in `@workspace/indicators`, so the
+ * scanner, the live engine and the Backtest Lab all consume ONE copy of the
+ * structure state-machine. Maps each per-bar `StructurePoint` to the chart's
+ * `StructureEvent`s (up before down, matching the prior ordering) and `perBar`
+ * flags. A CHoCH still counts as a structure break for the per-bar `bosUp/bosDn`
+ * direction flags the signal engine reads.
  */
 export function smcStructure(candles: IndicatorCandle[], pivot: number): StructureResult {
-  const n = candles.length;
+  const high = candles.map(c => c.h);
+  const low = candles.map(c => c.l);
+  const close = candles.map(c => c.c);
+  const pts = structurePass(high, low, close, pivot);
   const events: StructureEvent[] = [];
-  const perBar = Array.from({ length: n }, () => ({ bosUp: false, bosDn: false, structDir: 0 }));
-  let lastSH: number | null = null;
-  let lastSL: number | null = null;
-  let structDir = 0;
-  for (let i = 0; i < n; i++) {
-    const j = i - pivot;
-    if (j >= 0) {
-      if (isPivotHigh(candles, j, pivot)) lastSH = candles[j]!.h;
-      if (isPivotLow(candles, j, pivot)) lastSL = candles[j]!.l;
-    }
+  const perBar = pts.map((p, i) => {
     const cur = candles[i]!;
-    const prev = i > 0 ? candles[i - 1]! : null;
-    if (lastSH != null && prev && prev.c <= lastSH && cur.c > lastSH) {
-      const isCh = structDir === -1;
-      events.push({ time: cur.t, price: lastSH, kind: isCh ? "CHoCH" : "BOS", dir: "up" });
-      structDir = 1;
-      lastSH = null;
-      perBar[i]!.bosUp = true;
+    if (p.bosUp || p.chochUp) {
+      events.push({ time: cur.t, price: p.breakHigh!, kind: p.chochUp ? "CHoCH" : "BOS", dir: "up" });
     }
-    if (lastSL != null && prev && prev.c >= lastSL && cur.c < lastSL) {
-      const isCh = structDir === 1;
-      events.push({ time: cur.t, price: lastSL, kind: isCh ? "CHoCH" : "BOS", dir: "down" });
-      structDir = -1;
-      lastSL = null;
-      perBar[i]!.bosDn = true;
+    if (p.bosDn || p.chochDn) {
+      events.push({ time: cur.t, price: p.breakLow!, kind: p.chochDn ? "CHoCH" : "BOS", dir: "down" });
     }
-    perBar[i]!.structDir = structDir;
-  }
+    return {
+      bosUp: p.bosUp || p.chochUp,
+      bosDn: p.bosDn || p.chochDn,
+      structDir: p.structDir as number,
+    };
+  });
   return { events, perBar };
 }
 
@@ -306,99 +284,87 @@ export interface ZonesResult {
 }
 
 /**
- * Tight, freshness-aware supply/demand zones at fractal swings. A swing low
- * seeds a demand zone (body-tight or ATR-padded wick), a swing high a supply
- * zone; only the latest `zMax` per side survive. A zone becomes "tested" the
- * first bar price trades back into it (which also raises that bar's retest flag,
- * consumed by the signal engine). Tested zones are dropped from the render set
- * when `hideTested` is on.
+ * Tight, freshness-aware supply/demand (order-block) zones at fractal swings —
+ * now a thin chart-shaped adapter over the shared causal `swingZonePass` in
+ * `@workspace/indicators`, so the scanner, the live engine and the Backtest Lab
+ * all detect zones from ONE copy of the math (identical pivot lag, body/wick
+ * bounds, and once-per-zone retest rule). The shared pass owns detection +
+ * lifecycle; the chart layers its own render policy on top: the latest `zMax`
+ * formed zones per side, optionally hiding tested ones (`hideTested`). The
+ * per-bar `demand/supplyRetest` flags (consumed by the signal engine) map
+ * directly from the shared pass's `demand/supplyTest`.
  */
 export function supplyDemandZones(
   candles: IndicatorCandle[],
   params: FnoSmcParams,
   atrArr: (number | null)[],
 ): ZonesResult {
-  const n = candles.length;
-  const perBar = Array.from({ length: n }, () => ({ demandRetest: false, supplyRetest: false }));
-  const demand: SmcZone[] = [];
-  const supply: SmcZone[] = [];
-  for (let i = 0; i < n; i++) {
-    const j = i - params.zPivot;
-    if (j >= 0) {
-      const a = atrArr[i] ?? 0;
-      const cj = candles[j]!;
-      if (isPivotLow(candles, j, params.zPivot)) {
-        const top = params.zoneBody ? Math.max(cj.o, cj.c) : cj.l + a * 0.15;
-        const bottom = cj.l;
-        demand.push({ time: cj.t, top, bottom, type: "demand", tested: false, label: "Demand" });
-        if (demand.length > params.zMax) demand.shift();
-      }
-      if (isPivotHigh(candles, j, params.zPivot)) {
-        const top = cj.h;
-        const bottom = params.zoneBody ? Math.min(cj.o, cj.c) : cj.h - a * 0.15;
-        supply.push({ time: cj.t, top, bottom, type: "supply", tested: false, label: "Supply" });
-        if (supply.length > params.zMax) supply.shift();
-      }
-    }
-    const cur = candles[i]!;
-    for (const z of demand) {
-      if (!z.tested && cur.l <= z.top && cur.l >= z.bottom) {
-        z.tested = true;
-        perBar[i]!.demandRetest = true;
-      }
-    }
-    for (const z of supply) {
-      if (!z.tested && cur.h >= z.bottom && cur.h <= z.top) {
-        z.tested = true;
-        perBar[i]!.supplyRetest = true;
-      }
-    }
-  }
-  let zones = [...demand, ...supply];
+  const open = candles.map(c => c.o);
+  const high = candles.map(c => c.h);
+  const low = candles.map(c => c.l);
+  const close = candles.map(c => c.c);
+  const cfg: SmcConfig = {
+    structurePivot: params.smcPivot,
+    zonePivot: params.zPivot,
+    maxZones: params.zMax,
+    fvgAuto: params.fvgAuto,
+    fvgThresholdPct: params.fvgThrPct,
+    maxFvg: Number.POSITIVE_INFINITY,
+    displacementAtrMult: 1.2,
+    sweepPivot: 5,
+  };
+  const { zones: raw, perBar: zoneBars } = swingZonePass(open, high, low, close, atrArr, cfg, params.zoneBody);
+  const perBar = zoneBars.map(z => ({ demandRetest: z.demandTest, supplyRetest: z.supplyTest }));
+  const mapSide = (type: "demand" | "supply"): SmcZone[] =>
+    raw
+      .filter(z => z.type === type)
+      .slice(-params.zMax)
+      .map(z => ({
+        time: candles[z.formedIndex]!.t,
+        top: z.top,
+        bottom: z.bottom,
+        type,
+        tested: z.firstTestIndex != null,
+        label: type === "demand" ? "Demand" : "Supply",
+      }));
+  let zones = [...mapSide("demand"), ...mapSide("supply")];
   if (params.hideTested) zones = zones.filter(z => !z.tested);
   return { zones, perBar };
 }
 
 // ── Fair value gaps (threshold + mitigation) ────────────────────────────────
 /**
- * 3-candle Fair Value Gaps with the Pine's size gate (auto = running mean of
- * (high-low)/low, or a manual % floor) and mitigation removal. Returns at most
- * `maxFvg` most-recent gaps as renderable zones.
+ * 3-candle Fair Value Gaps — now a chart-shaped adapter over the shared causal
+ * `fvgPass` in `@workspace/indicators` (same size gate: auto = running mean of
+ * (high-low)/|low|, or a manual % floor; same mitigation rule). The shared pass
+ * is run UNCAPPED (`maxFvg: Infinity`) so its first-mitigation indices are exact
+ * for every gap; the chart then applies its own `fvgRemoveMitigated` filter and
+ * `maxFvg` most-recent slice for rendering, preserving the prior output.
  */
 export function fnoFvgs(candles: IndicatorCandle[], params: FnoSmcParams): SmcZone[] {
-  const n = candles.length;
-  const raw: SmcZone[] = [];
-  let cum = 0;
-  for (let i = 0; i < n; i++) {
-    const c = candles[i]!;
-    if (c.l !== 0) cum += (c.h - c.l) / Math.abs(c.l);
-    const thr = params.fvgAuto ? cum / (i + 1) : params.fvgThrPct / 100;
-    if (i >= 2) {
-      const c0 = candles[i]!;
-      const c2 = candles[i - 2]!;
-      if (c0.l > c2.h && c2.h !== 0 && (c0.l - c2.h) / Math.abs(c2.h) > thr) {
-        raw.push({ time: c0.t, top: c0.l, bottom: c2.h, type: "fvgBull", tested: false });
-      } else if (c0.h < c2.l && c0.h !== 0 && (c2.l - c0.h) / Math.abs(c0.h) > thr) {
-        raw.push({ time: c0.t, top: c2.l, bottom: c0.h, type: "fvgBear", tested: false });
-      }
-    }
-  }
-  // Mitigation: a bull gap is mitigated once a later low trades to/through its
-  // bottom; a bear gap once a later high reaches its top.
-  for (const z of raw) {
-    for (let i = 0; i < n; i++) {
-      if (candles[i]!.t <= z.time) continue;
-      if (z.type === "fvgBull" && candles[i]!.l <= z.bottom) {
-        z.tested = true;
-        break;
-      }
-      if (z.type === "fvgBear" && candles[i]!.h >= z.top) {
-        z.tested = true;
-        break;
-      }
-    }
-  }
-  const kept = params.fvgRemoveMitigated ? raw.filter(z => !z.tested) : raw;
+  const open = candles.map(c => c.o);
+  const high = candles.map(c => c.h);
+  const low = candles.map(c => c.l);
+  const close = candles.map(c => c.c);
+  const cfg: SmcConfig = {
+    structurePivot: params.smcPivot,
+    zonePivot: params.zPivot,
+    maxZones: params.zMax,
+    fvgAuto: params.fvgAuto,
+    fvgThresholdPct: params.fvgThrPct,
+    maxFvg: Number.POSITIVE_INFINITY,
+    displacementAtrMult: 1.2,
+    sweepPivot: 5,
+  };
+  const { zones } = fvgPass(open, high, low, close, cfg);
+  const mapped: SmcZone[] = zones.map(z => ({
+    time: candles[z.formedIndex]!.t,
+    top: z.top,
+    bottom: z.bottom,
+    type: z.type,
+    tested: z.mitigatedIndex != null,
+  }));
+  const kept = params.fvgRemoveMitigated ? mapped.filter(z => !z.tested) : mapped;
   return params.maxFvg > 0 ? kept.slice(-params.maxFvg) : kept;
 }
 

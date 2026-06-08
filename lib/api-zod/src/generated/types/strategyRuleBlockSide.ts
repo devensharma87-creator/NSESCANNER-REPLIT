@@ -6,10 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Side token; valid set depends on block type (buy/sell for liquidity_sweep, demand/supply for order_block, bull/bear for fvg/fib_zone).
+ */
 export type StrategyRuleBlockSide =
   (typeof StrategyRuleBlockSide)[keyof typeof StrategyRuleBlockSide];
 
 export const StrategyRuleBlockSide = {
   bull: "bull",
   bear: "bear",
+  buy: "buy",
+  sell: "sell",
+  demand: "demand",
+  supply: "supply",
 } as const;

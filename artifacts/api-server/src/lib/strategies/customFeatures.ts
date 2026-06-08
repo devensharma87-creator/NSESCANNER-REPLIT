@@ -18,7 +18,14 @@
  * documented and honest — VWAP/ATR blocks therefore reflect each surface's best
  * available truth rather than a fabricated common value.
  */
-import { ema, rsi } from "@workspace/indicators";
+import {
+  ema,
+  rsi,
+  computeSmcSeries,
+  DEFAULT_SMC_CONFIG,
+  type SmcSeries,
+  type SmcBar,
+} from "@workspace/indicators";
 
 /** Aligned causal arrays a surface must supply to build a FeatureSeries. */
 export interface FeatureSeriesInput {
@@ -47,9 +54,17 @@ export interface FeatureSeries {
   readonly vwap: readonly (number | null)[];
   readonly atr14: readonly (number | null)[];
   readonly istMinute: readonly number[];
+  /**
+   * Per-bar Smart-Money-Concepts series, computed ONCE from open/high/low/close
+   * + atr14 via the shared causal `computeSmcSeries`. Order-block zones use BODY
+   * bounds (pure price), so two surfaces supplying identical OHLC get a
+   * byte-identical SMC series — this is what extends the live↔backtest parity
+   * guarantee to every SMC block.
+   */
+  readonly smc: SmcSeries;
 }
 
-/** Build the FeatureSeries, computing EMA/RSI from closes via the shared lib. */
+/** Build the FeatureSeries, computing EMA/RSI/SMC from prices via the shared lib. */
 export function projectFeatureSeries(input: FeatureSeriesInput): FeatureSeries {
   const close = input.close;
   return {
@@ -65,6 +80,16 @@ export function projectFeatureSeries(input: FeatureSeriesInput): FeatureSeries {
     vwap: input.vwap,
     atr14: input.atr14,
     istMinute: input.istMinute,
+    smc: computeSmcSeries(
+      {
+        open: input.open,
+        high: input.high,
+        low: input.low,
+        close: input.close,
+        atr14: input.atr14,
+      },
+      DEFAULT_SMC_CONFIG,
+    ),
   };
 }
 
@@ -112,4 +137,10 @@ export function istMinuteAt(s: FeatureSeries, i: number): number | null {
   if (i < 0 || i >= s.istMinute.length) return null;
   const v = s.istMinute[i];
   return v != null && Number.isFinite(v) ? v : null;
+}
+
+/** Read the per-bar SMC snapshot at bar `i` (null when out of range). */
+export function smcAt(s: FeatureSeries, i: number): SmcBar | null {
+  if (i < 0 || i >= s.smc.length) return null;
+  return s.smc[i] ?? null;
 }

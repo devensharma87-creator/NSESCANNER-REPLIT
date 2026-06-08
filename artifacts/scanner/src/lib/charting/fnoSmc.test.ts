@@ -12,6 +12,7 @@ import {
   DEFAULT_FNO_SMC_PARAMS,
   type FnoSmcParams,
 } from "./fnoSmc";
+import { swingZonePass, type SmcConfig } from "@workspace/indicators";
 
 const HOUR = 3600;
 
@@ -143,6 +144,55 @@ describe("supplyDemandZones", () => {
     const { zones } = supplyDemandZones(candles, params, a);
     expect(zones.filter(z => z.type === "demand").length).toBeLessThanOrEqual(params.zMax);
     expect(zones.filter(z => z.type === "supply").length).toBeLessThanOrEqual(params.zMax);
+  });
+
+  // Single-source guarantee: the chart's zone data must come from the shared
+  // `swingZonePass` in `@workspace/indicators`, not a parallel copy of the math.
+  it("sources zone bounds + retest flags from the shared swingZonePass", () => {
+    const candles = uptrend(60);
+    for (let i = 0; i < candles.length; i++) {
+      if (i % 4 === 0) candles[i]!.l -= 5;
+      if (i % 4 === 2) candles[i]!.h += 5;
+    }
+    const a = atr(candles, 14);
+    const p: FnoSmcParams = { ...params, hideTested: false };
+
+    const cfg: SmcConfig = {
+      structurePivot: p.smcPivot,
+      zonePivot: p.zPivot,
+      maxZones: p.zMax,
+      fvgAuto: p.fvgAuto,
+      fvgThresholdPct: p.fvgThrPct,
+      maxFvg: Number.POSITIVE_INFINITY,
+      displacementAtrMult: 1.2,
+      sweepPivot: 5,
+    };
+    const open = candles.map(x => x.o);
+    const high = candles.map(x => x.h);
+    const low = candles.map(x => x.l);
+    const close = candles.map(x => x.c);
+    const shared = swingZonePass(open, high, low, close, a, cfg, p.zoneBody);
+
+    const { zones, perBar } = supplyDemandZones(candles, p, a);
+
+    // Per-bar retest flags map 1:1 from the shared pass.
+    expect(perBar.map(b => b.demandRetest)).toEqual(shared.perBar.map(b => b.demandTest));
+    expect(perBar.map(b => b.supplyRetest)).toEqual(shared.perBar.map(b => b.supplyTest));
+
+    // Every rendered zone is a verbatim projection of a shared RawZone.
+    for (const z of zones) {
+      const match = shared.zones.find(
+        r => r.type === z.type && r.top === z.top && r.bottom === z.bottom && candles[r.formedIndex]!.t === z.time,
+      );
+      expect(match, `rendered ${z.type} zone @${z.time} must originate from swingZonePass`).toBeDefined();
+      expect(z.tested).toBe(match!.firstTestIndex != null);
+    }
+    // The chart renders at most the newest zMax per side.
+    for (const side of ["demand", "supply"] as const) {
+      const sharedSide = shared.zones.filter(r => r.type === side).slice(-p.zMax);
+      const rendered = zones.filter(z => z.type === side);
+      expect(rendered.length).toBe(sharedSide.length);
+    }
   });
 });
 

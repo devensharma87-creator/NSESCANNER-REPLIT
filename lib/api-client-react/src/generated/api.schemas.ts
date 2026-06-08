@@ -4461,6 +4461,12 @@ export const StrategyRuleBlockType = {
   vwap_distance_max: "vwap_distance_max",
   fib_zone: "fib_zone",
   compare: "compare",
+  fvg: "fvg",
+  bos: "bos",
+  choch: "choch",
+  liquidity_sweep: "liquidity_sweep",
+  order_block: "order_block",
+  displacement: "displacement",
 } as const;
 
 export type StrategyRuleBlockCmp =
@@ -4480,7 +4486,7 @@ export const StrategyRuleBlockOrder = {
 } as const;
 
 /**
- * Direction token; valid set depends on block type.
+ * Direction token; valid set depends on block type (up/down used by bos/choch/displacement).
  */
 export type StrategyRuleBlockDir =
   (typeof StrategyRuleBlockDir)[keyof typeof StrategyRuleBlockDir];
@@ -4492,18 +4498,40 @@ export const StrategyRuleBlockDir = {
   falling: "falling",
   reclaim: "reclaim",
   reject: "reject",
+  up: "up",
+  down: "down",
 } as const;
 
+/**
+ * Side token; valid set depends on block type (buy/sell for liquidity_sweep, demand/supply for order_block, bull/bear for fvg/fib_zone).
+ */
 export type StrategyRuleBlockSide =
   (typeof StrategyRuleBlockSide)[keyof typeof StrategyRuleBlockSide];
 
 export const StrategyRuleBlockSide = {
   bull: "bull",
   bear: "bear",
+  buy: "buy",
+  sell: "sell",
+  demand: "demand",
+  supply: "supply",
 } as const;
 
 /**
- * One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.
+ * fvg mode (present/fill/retest) or order_block mode (present/test).
+ */
+export type StrategyRuleBlockMode =
+  (typeof StrategyRuleBlockMode)[keyof typeof StrategyRuleBlockMode];
+
+export const StrategyRuleBlockMode = {
+  present: "present",
+  fill: "fill",
+  retest: "retest",
+  test: "test",
+} as const;
+
+/**
+ * One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare, and the Smart-Money / price-action family fvg, bos, choch, liquidity_sweep, order_block, displacement (all sourced from the shared causal SMC engine).
 
  */
 export interface StrategyRuleBlock {
@@ -4513,7 +4541,7 @@ export interface StrategyRuleBlock {
   order?: StrategyRuleBlockOrder;
   fast?: StrategyEmaKey;
   slow?: StrategyEmaKey;
-  /** Direction token; valid set depends on block type. */
+  /** Direction token; valid set depends on block type (up/down used by bos/choch/displacement). */
   dir?: StrategyRuleBlockDir;
   /**
    * ema_slope lookback (server Zod: 1-20).
@@ -4521,7 +4549,10 @@ export interface StrategyRuleBlock {
    * @maximum 20
    */
   lookback?: number;
+  /** Side token; valid set depends on block type (buy/sell for liquidity_sweep, demand/supply for order_block, bull/bear for fvg/fib_zone). */
   side?: StrategyRuleBlockSide;
+  /** fvg mode (present/fill/retest) or order_block mode (present/test). */
+  mode?: StrategyRuleBlockMode;
   /**
    * ema_pullback tolerance % (server Zod: 0-5).
    * @minimum 0
@@ -4588,10 +4619,24 @@ export type StrategyStopConfigType =
 export const StrategyStopConfigType = {
   atr: "atr",
   swing: "swing",
+  smc: "smc",
 } as const;
 
 /**
- * Stop geometry: `atr` (atrMult × ATR14) or `swing` (recent fractal ± bufferAtrMult × ATR14).
+ * Set when type=smc: which SMC anchor to attach the stop to (server Zod).
+ */
+export type StrategyStopConfigSource =
+  (typeof StrategyStopConfigSource)[keyof typeof StrategyStopConfigSource];
+
+export const StrategyStopConfigSource = {
+  fvg: "fvg",
+  order_block: "order_block",
+  swing: "swing",
+} as const;
+
+/**
+ * Stop geometry: `atr` (atrMult × ATR14), `swing` (recent fractal ± bufferAtrMult × ATR14), or `smc` (anchored to the nearest active SMC zone — an FVG edge, an order-block edge, or the last confirmed structural swing — padded by bufferAtrMult × ATR14; the server fails the entry with NO_SMC_ANCHOR when the chosen anchor does not exist).
+
  */
 export interface StrategyStopConfig {
   type: StrategyStopConfigType;
@@ -4607,8 +4652,10 @@ export interface StrategyStopConfig {
    * @maximum 10
    */
   swingSpan?: number;
+  /** Set when type=smc: which SMC anchor to attach the stop to (server Zod). */
+  source?: StrategyStopConfigSource;
   /**
-   * Set when type=swing (server Zod: 0-3).
+   * Set when type=swing or type=smc (server Zod: 0-3).
    * @minimum 0
    * @maximum 3
    */

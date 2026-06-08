@@ -20,6 +20,7 @@ import {
   distancePct,
   lastConfirmedSwings,
   fibRetracePrice,
+  DEFAULT_SMC_CONFIG,
 } from "@workspace/indicators";
 import type {
   CustomStrategySpec,
@@ -38,6 +39,7 @@ import {
   emaAt,
   featureAt,
   istMinuteAt,
+  smcAt,
 } from "./customFeatures";
 
 export interface SpecReason {
@@ -215,6 +217,71 @@ function evalBlock(s: FeatureSeries, i: number, b: RuleBlock): BlockResult {
       const ok = c >= bottom && c <= top;
       return r(ok, label, `close ${fmt(c)} vs zone [${fmt(bottom)}, ${fmt(top)}]`);
     }
+    case "fvg": {
+      const label = `FVG ${b.side} ${b.mode}`;
+      const m = smcAt(s, i);
+      if (m == null) return r(false, label, "SMC series unavailable");
+      const bull = b.side === "bull";
+      let ok: boolean;
+      let detail: string;
+      if (b.mode === "present") {
+        ok = bull ? m.fvgBullPresent : m.fvgBearPresent;
+        const top = bull ? m.nearestBullFvgTop : m.nearestBearFvgTop;
+        const bottom = bull ? m.nearestBullFvgBottom : m.nearestBearFvgBottom;
+        detail = ok ? `active ${b.side} FVG [${fmt(bottom)}, ${fmt(top)}]` : `no active ${b.side} FVG`;
+      } else if (b.mode === "fill") {
+        ok = bull ? m.fvgBullFilled : m.fvgBearFilled;
+        detail = ok ? `price filled a ${b.side} FVG this bar` : `no ${b.side} FVG fill this bar`;
+      } else {
+        ok = bull ? m.fvgBullRetest : m.fvgBearRetest;
+        detail = ok ? `price retested a ${b.side} FVG this bar` : `no ${b.side} FVG retest this bar`;
+      }
+      return r(ok, label, detail);
+    }
+    case "bos": {
+      const label = `BOS ${b.dir}`;
+      const m = smcAt(s, i);
+      if (m == null) return r(false, label, "SMC series unavailable");
+      const ok = b.dir === "up" ? m.bosUp : m.bosDn;
+      const lvl = b.dir === "up" ? m.breakHigh : m.breakLow;
+      return r(ok, label, ok ? `break of structure ${b.dir} @ ${fmt(lvl)}` : `no ${b.dir} BOS this bar`);
+    }
+    case "choch": {
+      const label = `CHoCH ${b.dir}`;
+      const m = smcAt(s, i);
+      if (m == null) return r(false, label, "SMC series unavailable");
+      const ok = b.dir === "up" ? m.chochUp : m.chochDn;
+      const lvl = b.dir === "up" ? m.breakHigh : m.breakLow;
+      return r(ok, label, ok ? `change of character ${b.dir} @ ${fmt(lvl)}` : `no ${b.dir} CHoCH this bar`);
+    }
+    case "liquidity_sweep": {
+      const label = `liquidity sweep ${b.side}-side`;
+      const m = smcAt(s, i);
+      if (m == null) return r(false, label, "SMC series unavailable");
+      const ok = b.side === "buy" ? m.sweepBuySide : m.sweepSellSide;
+      const lvl = b.side === "buy" ? m.sweptHigh : m.sweptLow;
+      return r(ok, label, ok ? `${b.side}-side liquidity swept @ ${fmt(lvl)}` : `no ${b.side}-side sweep this bar`);
+    }
+    case "order_block": {
+      const label = `order block ${b.side} ${b.mode}`;
+      const m = smcAt(s, i);
+      if (m == null) return r(false, label, "SMC series unavailable");
+      const demand = b.side === "demand";
+      const top = demand ? m.nearestDemandTop : m.nearestSupplyTop;
+      const bottom = demand ? m.nearestDemandBottom : m.nearestSupplyBottom;
+      let ok: boolean;
+      if (b.mode === "present") ok = demand ? m.demandPresent : m.supplyPresent;
+      else ok = demand ? m.demandTest : m.supplyTest;
+      const verb = b.mode === "present" ? "active" : "tested";
+      return r(ok, label, ok ? `${b.side} OB ${verb} [${fmt(bottom)}, ${fmt(top)}]` : `no ${b.side} OB ${b.mode} this bar`);
+    }
+    case "displacement": {
+      const label = `displacement ${b.dir}`;
+      const m = smcAt(s, i);
+      if (m == null) return r(false, label, "SMC series unavailable");
+      const ok = b.dir === "up" ? m.displacementUp : m.displacementDown;
+      return r(ok, label, ok ? `${b.dir} displacement candle this bar` : `no ${b.dir} displacement this bar`);
+    }
     case "compare": {
       const rightTxt = b.right.type === "feature" ? b.right.feature : String(b.right.value);
       const label = `${b.left} ${OP_SYMBOL[b.op]} ${rightTxt}`;
@@ -365,7 +432,7 @@ export function evaluateSpecAt(s: FeatureSeries, i: number, spec: CustomStrategy
   let stop: number | null = null;
   if (spec.execution.stop.type === "atr") {
     stop = entry - sign * spec.execution.stop.atrMult * atr;
-  } else {
+  } else if (spec.execution.stop.type === "swing") {
     const sw = lastConfirmedSwings(s.high, s.low, i, spec.execution.stop.swingSpan);
     const anchor = side === "BULL" ? sw.lowPrice : sw.highPrice;
     if (anchor == null) {
@@ -373,6 +440,46 @@ export function evaluateSpecAt(s: FeatureSeries, i: number, spec: CustomStrategy
       return { ...emptyResult(), side, entry, reasons, rejectCode: "NO_SWING_FOR_STOP" };
     }
     stop = anchor - sign * spec.execution.stop.bufferAtrMult * atr;
+  } else {
+    // SMC-anchored stop: anchor to a REAL structure on the protective side of the
+    // entry (FVG edge / order-block edge / last confirmed structural swing). Honest
+    // — a missing anchor FAILS the entry (NO_SMC_ANCHOR), never fabricated.
+    const src = spec.execution.stop.source;
+    let anchor: number | null = null;
+    if (src === "swing") {
+      const sw = lastConfirmedSwings(s.high, s.low, i, DEFAULT_SMC_CONFIG.structurePivot);
+      anchor = side === "BULL" ? sw.lowPrice : sw.highPrice;
+    } else {
+      const m = smcAt(s, i);
+      if (m != null) {
+        if (src === "fvg") {
+          anchor = side === "BULL" ? m.nearestBullFvgBottom : m.nearestBearFvgTop;
+        } else {
+          anchor = side === "BULL" ? m.nearestDemandBottom : m.nearestSupplyTop;
+        }
+      }
+    }
+    if (anchor == null) {
+      reasons.push({
+        layer: "execution",
+        label: `SMC stop (${src})`,
+        detail: `no ${src} anchor available for stop`,
+        passed: false,
+      });
+      return { ...emptyResult(), side, entry, reasons, rejectCode: "NO_SMC_ANCHOR" };
+    }
+    stop = anchor - sign * spec.execution.stop.bufferAtrMult * atr;
+    // The anchor must sit on the protective side of the entry (below for longs,
+    // above for shorts); otherwise the geometry is invalid, not favourable.
+    if ((side === "BULL" && stop >= entry) || (side === "BEAR" && stop <= entry)) {
+      reasons.push({
+        layer: "execution",
+        label: `SMC stop (${src})`,
+        detail: `anchor ${fmt(anchor)} not on protective side of entry ${fmt(entry)}`,
+        passed: false,
+      });
+      return { ...emptyResult(), side, entry, stop, reasons, rejectCode: "SMC_ANCHOR_WRONG_SIDE" };
+    }
   }
 
   const risk = Math.abs(entry - stop);

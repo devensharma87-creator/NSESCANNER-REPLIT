@@ -6939,6 +6939,12 @@ export const UpsertCustomStrategyBody = zod.object({
                   "vwap_distance_max",
                   "fib_zone",
                   "compare",
+                  "fvg",
+                  "bos",
+                  "choch",
+                  "liquidity_sweep",
+                  "order_block",
+                  "displacement",
                 ]),
                 ema: zod.enum(["ema9", "ema20", "ema50"]).optional(),
                 cmp: zod.enum(["above", "below"]).optional(),
@@ -6953,10 +6959,12 @@ export const UpsertCustomStrategyBody = zod.object({
                     "falling",
                     "reclaim",
                     "reject",
+                    "up",
+                    "down",
                   ])
                   .optional()
                   .describe(
-                    "Direction token; valid set depends on block type.",
+                    "Direction token; valid set depends on block type (up\/down used by bos\/choch\/displacement).",
                   ),
                 lookback: zod
                   .number()
@@ -6964,7 +6972,18 @@ export const UpsertCustomStrategyBody = zod.object({
                   .max(upsertCustomStrategyBodyBullMarketBlocksItemLookbackMax)
                   .optional()
                   .describe("ema_slope lookback (server Zod: 1-20)."),
-                side: zod.enum(["bull", "bear"]).optional(),
+                side: zod
+                  .enum(["bull", "bear", "buy", "sell", "demand", "supply"])
+                  .optional()
+                  .describe(
+                    "Side token; valid set depends on block type (buy\/sell for liquidity_sweep, demand\/supply for order_block, bull\/bear for fvg\/fib_zone).",
+                  ),
+                mode: zod
+                  .enum(["present", "fill", "retest", "test"])
+                  .optional()
+                  .describe(
+                    "fvg mode (present\/fill\/retest) or order_block mode (present\/test).",
+                  ),
                 tolPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBullMarketBlocksItemTolPctMin)
@@ -7035,7 +7054,7 @@ export const UpsertCustomStrategyBody = zod.object({
                   ),
               })
               .describe(
-                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare, and the Smart-Money \/ price-action family fvg, bos, choch, liquidity_sweep, order_block, displacement (all sourced from the shared causal SMC engine).\n",
               ),
           ),
           groups: zod.array(zod.unknown()).optional(),
@@ -7061,6 +7080,12 @@ export const UpsertCustomStrategyBody = zod.object({
                   "vwap_distance_max",
                   "fib_zone",
                   "compare",
+                  "fvg",
+                  "bos",
+                  "choch",
+                  "liquidity_sweep",
+                  "order_block",
+                  "displacement",
                 ]),
                 ema: zod.enum(["ema9", "ema20", "ema50"]).optional(),
                 cmp: zod.enum(["above", "below"]).optional(),
@@ -7075,10 +7100,12 @@ export const UpsertCustomStrategyBody = zod.object({
                     "falling",
                     "reclaim",
                     "reject",
+                    "up",
+                    "down",
                   ])
                   .optional()
                   .describe(
-                    "Direction token; valid set depends on block type.",
+                    "Direction token; valid set depends on block type (up\/down used by bos\/choch\/displacement).",
                   ),
                 lookback: zod
                   .number()
@@ -7086,7 +7113,18 @@ export const UpsertCustomStrategyBody = zod.object({
                   .max(upsertCustomStrategyBodyBullSetupBlocksItemLookbackMax)
                   .optional()
                   .describe("ema_slope lookback (server Zod: 1-20)."),
-                side: zod.enum(["bull", "bear"]).optional(),
+                side: zod
+                  .enum(["bull", "bear", "buy", "sell", "demand", "supply"])
+                  .optional()
+                  .describe(
+                    "Side token; valid set depends on block type (buy\/sell for liquidity_sweep, demand\/supply for order_block, bull\/bear for fvg\/fib_zone).",
+                  ),
+                mode: zod
+                  .enum(["present", "fill", "retest", "test"])
+                  .optional()
+                  .describe(
+                    "fvg mode (present\/fill\/retest) or order_block mode (present\/test).",
+                  ),
                 tolPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBullSetupBlocksItemTolPctMin)
@@ -7157,7 +7195,7 @@ export const UpsertCustomStrategyBody = zod.object({
                   ),
               })
               .describe(
-                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare, and the Smart-Money \/ price-action family fvg, bos, choch, liquidity_sweep, order_block, displacement (all sourced from the shared causal SMC engine).\n",
               ),
           ),
           groups: zod.array(zod.unknown()).optional(),
@@ -7190,6 +7228,12 @@ export const UpsertCustomStrategyBody = zod.object({
                   "vwap_distance_max",
                   "fib_zone",
                   "compare",
+                  "fvg",
+                  "bos",
+                  "choch",
+                  "liquidity_sweep",
+                  "order_block",
+                  "displacement",
                 ]),
                 ema: zod.enum(["ema9", "ema20", "ema50"]).optional(),
                 cmp: zod.enum(["above", "below"]).optional(),
@@ -7204,10 +7248,12 @@ export const UpsertCustomStrategyBody = zod.object({
                     "falling",
                     "reclaim",
                     "reject",
+                    "up",
+                    "down",
                   ])
                   .optional()
                   .describe(
-                    "Direction token; valid set depends on block type.",
+                    "Direction token; valid set depends on block type (up\/down used by bos\/choch\/displacement).",
                   ),
                 lookback: zod
                   .number()
@@ -7215,7 +7261,18 @@ export const UpsertCustomStrategyBody = zod.object({
                   .max(upsertCustomStrategyBodyBearMarketBlocksItemLookbackMax)
                   .optional()
                   .describe("ema_slope lookback (server Zod: 1-20)."),
-                side: zod.enum(["bull", "bear"]).optional(),
+                side: zod
+                  .enum(["bull", "bear", "buy", "sell", "demand", "supply"])
+                  .optional()
+                  .describe(
+                    "Side token; valid set depends on block type (buy\/sell for liquidity_sweep, demand\/supply for order_block, bull\/bear for fvg\/fib_zone).",
+                  ),
+                mode: zod
+                  .enum(["present", "fill", "retest", "test"])
+                  .optional()
+                  .describe(
+                    "fvg mode (present\/fill\/retest) or order_block mode (present\/test).",
+                  ),
                 tolPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBearMarketBlocksItemTolPctMin)
@@ -7286,7 +7343,7 @@ export const UpsertCustomStrategyBody = zod.object({
                   ),
               })
               .describe(
-                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare, and the Smart-Money \/ price-action family fvg, bos, choch, liquidity_sweep, order_block, displacement (all sourced from the shared causal SMC engine).\n",
               ),
           ),
           groups: zod.array(zod.unknown()).optional(),
@@ -7312,6 +7369,12 @@ export const UpsertCustomStrategyBody = zod.object({
                   "vwap_distance_max",
                   "fib_zone",
                   "compare",
+                  "fvg",
+                  "bos",
+                  "choch",
+                  "liquidity_sweep",
+                  "order_block",
+                  "displacement",
                 ]),
                 ema: zod.enum(["ema9", "ema20", "ema50"]).optional(),
                 cmp: zod.enum(["above", "below"]).optional(),
@@ -7326,10 +7389,12 @@ export const UpsertCustomStrategyBody = zod.object({
                     "falling",
                     "reclaim",
                     "reject",
+                    "up",
+                    "down",
                   ])
                   .optional()
                   .describe(
-                    "Direction token; valid set depends on block type.",
+                    "Direction token; valid set depends on block type (up\/down used by bos\/choch\/displacement).",
                   ),
                 lookback: zod
                   .number()
@@ -7337,7 +7402,18 @@ export const UpsertCustomStrategyBody = zod.object({
                   .max(upsertCustomStrategyBodyBearSetupBlocksItemLookbackMax)
                   .optional()
                   .describe("ema_slope lookback (server Zod: 1-20)."),
-                side: zod.enum(["bull", "bear"]).optional(),
+                side: zod
+                  .enum(["bull", "bear", "buy", "sell", "demand", "supply"])
+                  .optional()
+                  .describe(
+                    "Side token; valid set depends on block type (buy\/sell for liquidity_sweep, demand\/supply for order_block, bull\/bear for fvg\/fib_zone).",
+                  ),
+                mode: zod
+                  .enum(["present", "fill", "retest", "test"])
+                  .optional()
+                  .describe(
+                    "fvg mode (present\/fill\/retest) or order_block mode (present\/test).",
+                  ),
                 tolPct: zod
                   .number()
                   .min(upsertCustomStrategyBodyBearSetupBlocksItemTolPctMin)
@@ -7408,7 +7484,7 @@ export const UpsertCustomStrategyBody = zod.object({
                   ),
               })
               .describe(
-                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape keeps non-`type` fields optional (so the builder UI can carry any block kind) but its numeric ranges MIRROR the server Zod bounds so a typed client cannot construct a value the server will reject. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare, and the Smart-Money \/ price-action family fvg, bos, choch, liquidity_sweep, order_block, displacement (all sourced from the shared causal SMC engine).\n",
               ),
           ),
           groups: zod.array(zod.unknown()).optional(),
@@ -7425,7 +7501,7 @@ export const UpsertCustomStrategyBody = zod.object({
     .object({
       stop: zod
         .object({
-          type: zod.enum(["atr", "swing"]),
+          type: zod.enum(["atr", "swing", "smc"]),
           atrMult: zod
             .number()
             .min(upsertCustomStrategyBodyExecutionStopAtrMultMin)
@@ -7438,15 +7514,21 @@ export const UpsertCustomStrategyBody = zod.object({
             .max(upsertCustomStrategyBodyExecutionStopSwingSpanMax)
             .optional()
             .describe("Set when type=swing (server Zod: 2-10)."),
+          source: zod
+            .enum(["fvg", "order_block", "swing"])
+            .optional()
+            .describe(
+              "Set when type=smc: which SMC anchor to attach the stop to (server Zod).",
+            ),
           bufferAtrMult: zod
             .number()
             .min(upsertCustomStrategyBodyExecutionStopBufferAtrMultMin)
             .max(upsertCustomStrategyBodyExecutionStopBufferAtrMultMax)
             .optional()
-            .describe("Set when type=swing (server Zod: 0-3)."),
+            .describe("Set when type=swing or type=smc (server Zod: 0-3)."),
         })
         .describe(
-          "Stop geometry: `atr` (atrMult × ATR14) or `swing` (recent fractal ± bufferAtrMult × ATR14).",
+          "Stop geometry: `atr` (atrMult × ATR14), `swing` (recent fractal ± bufferAtrMult × ATR14), or `smc` (anchored to the nearest active SMC zone — an FVG edge, an order-block edge, or the last confirmed structural swing — padded by bufferAtrMult × ATR14; the server fails the entry with NO_SMC_ANCHOR when the chosen anchor does not exist).\n",
         ),
       target1R: zod
         .number()

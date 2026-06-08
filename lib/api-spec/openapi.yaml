@@ -5657,19 +5657,22 @@ components:
         ranges MIRROR the server Zod bounds so a typed client cannot construct a
         value the server will reject. Block types: price_vs_ema, ema_stack,
         ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap,
-        vwap_cross, vwap_distance_max, fib_zone, compare.
+        vwap_cross, vwap_distance_max, fib_zone, compare, and the Smart-Money /
+        price-action family fvg, bos, choch, liquidity_sweep, order_block,
+        displacement (all sourced from the shared causal SMC engine).
       properties:
         type:
           type: string
-          enum: [price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare]
+          enum: [price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare, fvg, bos, choch, liquidity_sweep, order_block, displacement]
         ema: { $ref: "#/components/schemas/StrategyEmaKey" }
         cmp: { type: string, enum: [above, below] }
         order: { type: string, enum: [bull, bear] }
         fast: { $ref: "#/components/schemas/StrategyEmaKey" }
         slow: { $ref: "#/components/schemas/StrategyEmaKey" }
-        dir: { type: string, enum: [golden, death, rising, falling, reclaim, reject], description: "Direction token; valid set depends on block type." }
+        dir: { type: string, enum: [golden, death, rising, falling, reclaim, reject, up, down], description: "Direction token; valid set depends on block type (up/down used by bos/choch/displacement)." }
         lookback: { type: integer, minimum: 1, maximum: 20, description: "ema_slope lookback (server Zod: 1-20)." }
-        side: { type: string, enum: [bull, bear] }
+        side: { type: string, enum: [bull, bear, buy, sell, demand, supply], description: "Side token; valid set depends on block type (buy/sell for liquidity_sweep, demand/supply for order_block, bull/bear for fvg/fib_zone)." }
+        mode: { type: string, enum: [present, fill, retest, test], description: "fvg mode (present/fill/retest) or order_block mode (present/test)." }
         tolPct: { type: number, minimum: 0, maximum: 5, description: "ema_pullback tolerance % (server Zod: 0-5)." }
         maxPct: { type: number, minimum: 0, maximum: 20, description: "ema_distance_max / vwap_distance_max % (server Zod: 0-20)." }
         lo: { type: number, minimum: 0, maximum: 3, description: "fib_zone lower bound (server Zod: 0-3); must be < hi." }
@@ -5703,12 +5706,18 @@ components:
     StrategyStopConfig:
       type: object
       required: [type]
-      description: "Stop geometry: `atr` (atrMult × ATR14) or `swing` (recent fractal ± bufferAtrMult × ATR14)."
+      description: >
+        Stop geometry: `atr` (atrMult × ATR14), `swing` (recent fractal ±
+        bufferAtrMult × ATR14), or `smc` (anchored to the nearest active SMC zone
+        — an FVG edge, an order-block edge, or the last confirmed structural swing
+        — padded by bufferAtrMult × ATR14; the server fails the entry with
+        NO_SMC_ANCHOR when the chosen anchor does not exist).
       properties:
-        type: { type: string, enum: [atr, swing] }
+        type: { type: string, enum: [atr, swing, smc] }
         atrMult: { type: number, minimum: 0.25, maximum: 8, description: "Set when type=atr (server Zod: 0.25-8)." }
         swingSpan: { type: integer, minimum: 2, maximum: 10, description: "Set when type=swing (server Zod: 2-10)." }
-        bufferAtrMult: { type: number, minimum: 0, maximum: 3, description: "Set when type=swing (server Zod: 0-3)." }
+        source: { type: string, enum: [fvg, order_block, swing], description: "Set when type=smc: which SMC anchor to attach the stop to (server Zod)." }
+        bufferAtrMult: { type: number, minimum: 0, maximum: 3, description: "Set when type=swing or type=smc (server Zod: 0-3)." }
 
     StrategyExecutionConfig:
       type: object

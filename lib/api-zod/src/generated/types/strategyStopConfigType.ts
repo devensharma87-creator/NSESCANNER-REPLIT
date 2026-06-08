@@ -12,4 +12,5 @@ export type StrategyStopConfigType =
 export const StrategyStopConfigType = {
   atr: "atr",
   swing: "swing",
+  smc: "smc",
 } as const;

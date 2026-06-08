@@ -85,3 +85,26 @@ export {
   type ConfirmedSwings,
   type FibRatio,
 } from "./windowed";
+
+export {
+  isPivotHigh,
+  isPivotLow,
+  structurePass,
+  fvgPass,
+  swingZonePass,
+  sweepPass,
+  displacementPass,
+  computeSmcSeries,
+  DEFAULT_SMC_CONFIG,
+  type SmcInput,
+  type SmcConfig,
+  type SmcSeries,
+  type SmcBar,
+  type StructurePoint,
+  type RawFvg,
+  type FvgBar,
+  type RawZone,
+  type ZoneBar,
+  type SweepPoint,
+  type DisplacementBar,
+} from "./smc";
