@@ -10,4 +10,5 @@
 - [getEnvironmentLabel returns an object (React #31 trap)](fno-env-label-object-react31.md) — `/api/fno/*` `environment` field is `{env,autoTradingEnabled,reason}`, not a string; never render `/api/fno/*` fields raw in JSX.
 - [Backtester prod backfill is a no-op](backtester-prod-backfill-noop.md) — backtester was dev-only until 2026-06-07 publish; pre-fix off-session trades only ever existed in dev, prod starts clean.
 - [Portfolio full-universe search + CMP](portfolio-full-universe-cmp.md) — fixing "NA" CMP for non-curated NSE holdings needs BOTH the search-master (disk-cached Kite dump, session-independent) AND the generic .NS resolve fallback; fix one only and it stays broken.
+- [Backtest trade pnl/optionExit null semantics](backtest-trade-null-semantics.md) — detect "no captured exit" with `!modeled && pnl==null`, NOT `optionExit==null` (modeled proxy trades always have null premiums but real exits).
 - [Autoscale long-request 502](autoscale-long-request-502.md) — heavy synchronous compute in an HTTP handler trips the autoscale gateway timeout (502, dev-only-fine); move to a background RUNNING-row task + client poll, CAS the COMPLETE write.

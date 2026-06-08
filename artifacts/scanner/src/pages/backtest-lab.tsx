@@ -1221,8 +1221,15 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
   if (trades.length === 0) {
     return <div className="py-8 text-center text-xs text-muted-foreground">No trades in this run.</div>;
   }
+  // A non-modeled (REAL_REPLAY) trade with pnl == null has NO usable captured
+  // option exit — its exitAt is only the engine's stale/EOD mark, not a real
+  // exit. Modeled (Directional/Strategy proxy) trades always carry a genuine
+  // modeled exit (pnl non-null), so they are never treated as exit-less here.
+  const hasNoCapturedExit = (t: BacktestTrade) => !t.modeled && t.pnl == null;
+  // Skip exit-time validity for exit-less rows (only their entry is real), so the
+  // session audit never flags a non-existent exit as off-session.
   const offSession = trades.filter(
-    (t) => !isSessionValidIso(t.entryAt) || !isSessionValidIso(t.exitAt),
+    (t) => !isSessionValidIso(t.entryAt) || (!hasNoCapturedExit(t) && !isSessionValidIso(t.exitAt)),
   );
   const allValid = offSession.length === 0;
   return (
@@ -1307,10 +1314,20 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
                   <span title="Entry falls outside NSE regular hours (09:15–15:30 IST)"> ⚠</span>
                 )}
               </td>
-              <td className={`px-2 py-1.5 whitespace-nowrap ${isSessionValidIso(t.exitAt) ? "" : "text-rose-400"}`}>
-                {shortDateTime(t.exitAt)}
-                {!isSessionValidIso(t.exitAt) && (
-                  <span title="Exit falls outside NSE regular hours (09:15–15:30 IST)"> ⚠</span>
+              <td
+                className={`px-2 py-1.5 whitespace-nowrap ${
+                  hasNoCapturedExit(t) ? "text-muted-foreground" : isSessionValidIso(t.exitAt) ? "" : "text-rose-400"
+                }`}
+              >
+                {hasNoCapturedExit(t) ? (
+                  <span title="No captured option exit — excluded from P&L (not fabricated)">—</span>
+                ) : (
+                  <>
+                    {shortDateTime(t.exitAt)}
+                    {!isSessionValidIso(t.exitAt) && (
+                      <span title="Exit falls outside NSE regular hours (09:15–15:30 IST)"> ⚠</span>
+                    )}
+                  </>
                 )}
               </td>
               <td className="px-2 py-1.5 text-right tabular-nums" title={t.optionEntry == null ? "No real premium captured" : undefined}>
@@ -1561,6 +1578,12 @@ export default function BacktestLab() {
   const runIsStrategy =
     run?.backtestMode === "STRATEGY_RESEARCH" ||
     run?.backtestMode === "COMPARE_OFFICIAL_VS_STRATEGIES";
+
+  // REAL_REPLAY is the only mode priced off real captured premiums. Every other
+  // mode (Directional / Strategy / Compare) derives P&L from a labeled ATM delta
+  // proxy on spot — no real premiums, theta, IV or spread — so its P&L is
+  // indicative only and must never be read as tradeable.
+  const runIsProxyPnl = run?.status === "COMPLETE" && run?.mode !== "REAL_REPLAY";
 
   // Empty-state reasoning: roll the blocked table up to the single dominant rule
   // so a zero/near-zero strategy run can tell the owner exactly what to relax.
@@ -2030,7 +2053,19 @@ export default function BacktestLab() {
 
           {/* summary stats */}
           {summary && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            <div className="space-y-2">
+              {runIsProxyPnl && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    <strong>Directional proxy — indicative, not tradeable P&amp;L.</strong> These
+                    figures price options off a labeled ATM delta proxy on spot (no real premiums,
+                    theta, IV or spread). Use <strong>Real Replay</strong> for actual captured-exit
+                    P&amp;L.
+                  </span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
               <Stat label="Decided trades" value={String(summary.totalTrades)} hint="Trades with a captured / modeled outcome" />
               <Stat label="Win rate" value={pct(summary.winRate)} />
               <Stat label="Net P&L" value={money(summary.totalPnl)} tone={toneFor(summary.totalPnl)} />
@@ -2038,6 +2073,7 @@ export default function BacktestLab() {
               <Stat label="Expectancy" value={money(summary.expectancy)} tone={toneFor(summary.expectancy)} />
               <Stat label="Max DD" value={money(summary.maxDrawdown)} tone="neg" />
               <Stat label="Return" value={pct(summary.returnPct)} tone={toneFor(summary.returnPct)} />
+              </div>
             </div>
           )}
 
