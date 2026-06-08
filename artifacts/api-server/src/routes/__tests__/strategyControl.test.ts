@@ -157,7 +157,13 @@ const VALID_CUSTOM_INPUT = {
   slug: "my_edge",
   name: "My Edge",
   category: "Custom",
-  bull: [{ left: "close", op: "gt", right: { type: "feature", feature: "ema20" } }],
+  bull: {
+    market: { logic: "AND", blocks: [] },
+    setup: {
+      logic: "AND",
+      blocks: [{ type: "compare", left: "close", op: "gt", right: { type: "feature", feature: "ema20" } }],
+    },
+  },
 };
 
 // ===========================================================================
@@ -249,9 +255,17 @@ describe("PUT /strategy-control/engine — NOT_ENGINE_SELECTABLE guard", () => {
         name: "My Edge",
         category: "Custom",
         description: "",
-        bull: [{ left: "close", op: "gt", right: { type: "value", value: 1 } }],
-        bear: [],
-        params: { stopAtrMult: 1.5, target1R: 1, target2R: 2 },
+        version: 2,
+        direction: "BOTH",
+        bull: {
+          market: { logic: "AND", blocks: [] },
+          setup: {
+            logic: "AND",
+            blocks: [{ type: "compare", left: "close", op: "gt", right: { type: "value", value: 1 } }],
+          },
+        },
+        bear: { market: { logic: "AND", blocks: [] }, setup: { logic: "AND", blocks: [] } },
+        execution: { stop: { type: "atr", atrMult: 1.5 }, target1R: 1, target2R: 2 },
         baseConfidence: 60,
       },
     ];
@@ -336,9 +350,17 @@ describe("DELETE /strategy-control/custom/:id — NOT_A_CUSTOM_STRATEGY guard", 
         name: "My Edge",
         category: "Custom",
         description: "",
-        bull: [{ left: "close", op: "gt", right: { type: "value", value: 1 } }],
-        bear: [],
-        params: { stopAtrMult: 1.5, target1R: 1, target2R: 2 },
+        version: 2,
+        direction: "BOTH",
+        bull: {
+          market: { logic: "AND", blocks: [] },
+          setup: {
+            logic: "AND",
+            blocks: [{ type: "compare", left: "close", op: "gt", right: { type: "value", value: 1 } }],
+          },
+        },
+        bear: { market: { logic: "AND", blocks: [] }, setup: { logic: "AND", blocks: [] } },
+        execution: { stop: { type: "atr", atrMult: 1.5 }, target1R: 1, target2R: 2 },
         baseConfidence: 60,
       },
     ];

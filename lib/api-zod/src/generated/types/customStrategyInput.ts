@@ -5,8 +5,9 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
-import type { StrategyCondition } from "./strategyCondition";
-import type { StrategyParams } from "./strategyParams";
+import type { StrategyDirectionMode } from "./strategyDirectionMode";
+import type { StrategyExecutionConfig } from "./strategyExecutionConfig";
+import type { StrategySideRules } from "./strategySideRules";
 
 export interface CustomStrategyInput {
   /**
@@ -27,9 +28,10 @@ export interface CustomStrategyInput {
   category: string;
   /** @maxLength 400 */
   description?: string;
-  bull?: StrategyCondition[];
-  bear?: StrategyCondition[];
-  params?: StrategyParams;
+  direction?: StrategyDirectionMode;
+  bull?: StrategySideRules;
+  bear?: StrategySideRules;
+  execution?: StrategyExecutionConfig;
   /**
    * @minimum 0
    * @maximum 100

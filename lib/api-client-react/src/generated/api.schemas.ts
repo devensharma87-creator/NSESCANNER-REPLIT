@@ -4398,6 +4398,15 @@ export const StrategyFeatureKey = {
   vwap: "vwap",
 } as const;
 
+export type StrategyEmaKey =
+  (typeof StrategyEmaKey)[keyof typeof StrategyEmaKey];
+
+export const StrategyEmaKey = {
+  ema9: "ema9",
+  ema20: "ema20",
+  ema50: "ema50",
+} as const;
+
 export type StrategyConditionOp =
   (typeof StrategyConditionOp)[keyof typeof StrategyConditionOp];
 
@@ -4425,19 +4434,193 @@ export interface StrategyConditionOperand {
   value?: number;
 }
 
-export interface StrategyCondition {
-  left: StrategyFeatureKey;
-  op: StrategyConditionOp;
-  right: StrategyConditionOperand;
+/**
+ * Which option side(s) the strategy may take.
+ */
+export type StrategyDirectionMode =
+  (typeof StrategyDirectionMode)[keyof typeof StrategyDirectionMode];
+
+export const StrategyDirectionMode = {
+  BOTH: "BOTH",
+  CALL_ONLY: "CALL_ONLY",
+  PUT_ONLY: "PUT_ONLY",
+} as const;
+
+export type StrategyRuleBlockType =
+  (typeof StrategyRuleBlockType)[keyof typeof StrategyRuleBlockType];
+
+export const StrategyRuleBlockType = {
+  price_vs_ema: "price_vs_ema",
+  ema_stack: "ema_stack",
+  ema_cross: "ema_cross",
+  ema_slope: "ema_slope",
+  ema_pullback: "ema_pullback",
+  ema_distance_max: "ema_distance_max",
+  price_vs_vwap: "price_vs_vwap",
+  vwap_cross: "vwap_cross",
+  vwap_distance_max: "vwap_distance_max",
+  fib_zone: "fib_zone",
+  compare: "compare",
+} as const;
+
+export type StrategyRuleBlockCmp =
+  (typeof StrategyRuleBlockCmp)[keyof typeof StrategyRuleBlockCmp];
+
+export const StrategyRuleBlockCmp = {
+  above: "above",
+  below: "below",
+} as const;
+
+export type StrategyRuleBlockOrder =
+  (typeof StrategyRuleBlockOrder)[keyof typeof StrategyRuleBlockOrder];
+
+export const StrategyRuleBlockOrder = {
+  bull: "bull",
+  bear: "bear",
+} as const;
+
+/**
+ * Direction token; valid set depends on block type.
+ */
+export type StrategyRuleBlockDir =
+  (typeof StrategyRuleBlockDir)[keyof typeof StrategyRuleBlockDir];
+
+export const StrategyRuleBlockDir = {
+  golden: "golden",
+  death: "death",
+  rising: "rising",
+  falling: "falling",
+  reclaim: "reclaim",
+  reject: "reject",
+} as const;
+
+export type StrategyRuleBlockSide =
+  (typeof StrategyRuleBlockSide)[keyof typeof StrategyRuleBlockSide];
+
+export const StrategyRuleBlockSide = {
+  bull: "bull",
+  bear: "bear",
+} as const;
+
+/**
+ * One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.
+
+ */
+export interface StrategyRuleBlock {
+  type: StrategyRuleBlockType;
+  ema?: StrategyEmaKey;
+  cmp?: StrategyRuleBlockCmp;
+  order?: StrategyRuleBlockOrder;
+  fast?: StrategyEmaKey;
+  slow?: StrategyEmaKey;
+  /** Direction token; valid set depends on block type. */
+  dir?: StrategyRuleBlockDir;
+  /**
+   * @minimum 1
+   * @maximum 50
+   */
+  lookback?: number;
+  side?: StrategyRuleBlockSide;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  tolPct?: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  maxPct?: number;
+  /** fib_zone lower bound (0-1); must be < hi. */
+  lo?: number;
+  /** fib_zone upper bound (0-1); must be > lo. */
+  hi?: number;
+  /**
+   * @minimum 1
+   * @maximum 200
+   */
+  swingSpan?: number;
+  left?: StrategyFeatureKey;
+  op?: StrategyConditionOp;
+  right?: StrategyConditionOperand;
 }
 
-export interface StrategyParams {
+export type StrategyRuleGroupLogic =
+  (typeof StrategyRuleGroupLogic)[keyof typeof StrategyRuleGroupLogic];
+
+export const StrategyRuleGroupLogic = {
+  AND: "AND",
+  OR: "OR",
+} as const;
+
+/**
+ * A boolean group of blocks plus (optionally) nested groups. AND = all must pass; OR = any.
+ */
+export interface StrategyRuleGroup {
+  logic: StrategyRuleGroupLogic;
+  blocks: StrategyRuleBlock[];
+  groups?: StrategyRuleGroup[];
+}
+
+/**
+ * One direction's two gating layers. Empty layers are pass-through; an entirely-empty side is disabled.
+ */
+export interface StrategySideRules {
+  market: StrategyRuleGroup;
+  setup: StrategyRuleGroup;
+}
+
+export type StrategyStopConfigType =
+  (typeof StrategyStopConfigType)[keyof typeof StrategyStopConfigType];
+
+export const StrategyStopConfigType = {
+  atr: "atr",
+  swing: "swing",
+} as const;
+
+/**
+ * Stop geometry: `atr` (atrMult × ATR14) or `swing` (recent fractal ± bufferAtrMult × ATR14).
+ */
+export interface StrategyStopConfig {
+  type: StrategyStopConfigType;
   /**
-   * Stop distance = stopAtrMult × ATR(14).
-   * @minimum 0.5
-   * @maximum 5
+   * Set when type=atr.
+   * @minimum 0.25
+   * @maximum 8
    */
-  stopAtrMult: number;
+  atrMult?: number;
+  /**
+   * Set when type=swing.
+   * @minimum 1
+   * @maximum 200
+   */
+  swingSpan?: number;
+  /**
+   * Set when type=swing.
+   * @minimum 0
+   * @maximum 8
+   */
+  bufferAtrMult?: number;
+}
+
+/**
+ * IST minute-of-day window [start,end] inclusive within which entries may fire.
+ */
+export type StrategyExecutionConfigSessionWindow = {
+  /**
+   * @minimum 0
+   * @maximum 1439
+   */
+  startMin: number;
+  /**
+   * @minimum 0
+   * @maximum 1439
+   */
+  endMin: number;
+};
+
+export interface StrategyExecutionConfig {
+  stop: StrategyStopConfig;
   /**
    * Target 1 as a multiple of the risk (stop distance).
    * @minimum 0.25
@@ -4447,22 +4630,55 @@ export interface StrategyParams {
   /**
    * Target 2 as a multiple of the risk (stop distance).
    * @minimum 0.25
-   * @maximum 10
+   * @maximum 20
    */
   target2R: number;
+  /**
+   * Reject if planned target-1 reward (in R) is below this.
+   * @minimum 0
+   * @maximum 20
+   */
+  minRR?: number;
+  /**
+   * Reject if stop distance exceeds this multiple of ATR (swing sanity).
+   * @minimum 0.25
+   * @maximum 20
+   */
+  maxStopAtrMult?: number;
+  /** IST minute-of-day window [start,end] inclusive within which entries may fire. */
+  sessionWindow?: StrategyExecutionConfigSessionWindow;
+  /** Runner-enforced metadata: trail to breakeven after +1R. */
+  trailingToBreakeven?: boolean;
+  /**
+   * Runner-enforced metadata: max entries/day.
+   * @minimum 1
+   * @maximum 100
+   */
+  dailyCap?: number;
 }
 
+/**
+ * Spec language version (always 2).
+ */
+export type CustomStrategyDefVersion =
+  (typeof CustomStrategyDefVersion)[keyof typeof CustomStrategyDefVersion];
+
+export const CustomStrategyDefVersion = {
+  NUMBER_2: 2,
+} as const;
+
 export interface CustomStrategyDef {
+  /** Spec language version (always 2). */
+  version: CustomStrategyDefVersion;
   /** Stable id, always CUSTOM_<slug>. */
   id: string;
   name: string;
   category: string;
   description: string;
-  /** ALL conditions must pass to take the bull side. Empty = side disabled. */
-  bull: StrategyCondition[];
-  /** ALL conditions must pass to take the bear side. Empty = side disabled. */
-  bear: StrategyCondition[];
-  params: StrategyParams;
+  direction: StrategyDirectionMode;
+  bull: StrategySideRules;
+  bear: StrategySideRules;
+  execution: StrategyExecutionConfig;
   /**
    * Transparent base confidence (0-100) carried into both surfaces.
    * @minimum 0
@@ -4490,9 +4706,10 @@ export interface CustomStrategyInput {
   category: string;
   /** @maxLength 400 */
   description?: string;
-  bull?: StrategyCondition[];
-  bear?: StrategyCondition[];
-  params?: StrategyParams;
+  direction?: StrategyDirectionMode;
+  bull?: StrategySideRules;
+  bear?: StrategySideRules;
+  execution?: StrategyExecutionConfig;
   /**
    * @minimum 0
    * @maximum 100

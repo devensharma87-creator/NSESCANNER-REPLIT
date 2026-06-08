@@ -1,149 +1,149 @@
 /**
- * Honesty/safety unit tests for the context-agnostic custom-strategy evaluator
- * (Task #109). The same `evaluateCustomSpec` drives BOTH the live F&O engine
- * (`makeCustomEngineDetected`) and the Backtest Lab adapter, so a regression
- * here would either fabricate a signal from missing data or silently drop a
- * valid one on both surfaces at once.
- *
- * The contract under test (from the module's own honesty rules):
- *   - a condition referencing a null / NaN / non-finite feature FAILS the side
- *     (never assumed true), so no emission;
- *   - geometry requires a finite close AND a finite, positive ATR — without it
- *     the evaluator returns `null` rather than inventing a stop distance;
- *   - when a side does fire on real finite features, the stop/targets are
- *     derived from the spec params (defined-risk, both directions).
+ * v2 custom-strategy spec: Zod validation, owner-input → spec, and the lossless
+ * v1 → v2 migration. The same spec is consumed identically by the live F&O
+ * engine and the Backtest Lab via the shared evaluator.
  */
 import { describe, it, expect } from "vitest";
 import {
-  evaluateCustomSpec,
-  type CustomStrategySpec,
-  type FeatureSnapshot,
-  FEATURE_KEYS,
+  CustomStrategyInputSchema,
+  CustomStrategySpecSchema,
+  specFromInput,
+  migrateV1ToV2,
+  parsePersistedSpec,
+  sideIsEmpty,
+  emptySide,
+  type CustomStrategyInput,
+  type CustomStrategySpecV1,
 } from "./customSpec";
 
-function fullSnapshot(over: Partial<FeatureSnapshot> = {}): FeatureSnapshot {
-  const base = Object.fromEntries(
-    FEATURE_KEYS.map((k) => [k, 0] as const),
-  ) as FeatureSnapshot;
-  return { ...base, ...over };
-}
-
-/** A simple bull-only spec: close > ema20, with defined-risk geometry. */
-function bullSpec(over: Partial<CustomStrategySpec> = {}): CustomStrategySpec {
+function baseInput(over: Partial<CustomStrategyInput> = {}): CustomStrategyInput {
   return {
-    id: "CUSTOM_test_bull",
-    name: "Test Bull",
-    category: "Test",
-    description: "",
-    bull: [{ left: "close", op: "gt", right: { type: "feature", feature: "ema20" } }],
-    bear: [],
-    params: { stopAtrMult: 2, target1R: 1, target2R: 2 },
-    baseConfidence: 60,
+    slug: "trend_pull",
+    name: "Trend Pullback",
+    category: "Trend",
+    bull: {
+      market: { logic: "AND", blocks: [{ type: "ema_stack", order: "bull" }] },
+      setup: { logic: "AND", blocks: [{ type: "price_vs_vwap", cmp: "above" }] },
+    },
+    bear: emptySide(),
+    execution: { stop: { type: "atr", atrMult: 1.5 }, target1R: 1, target2R: 2 },
     ...over,
-  };
+  } as CustomStrategyInput;
 }
 
-describe("evaluateCustomSpec — honesty / no fabrication", () => {
-  it("emits a defined-risk BULL plan when conditions hold on real finite features", () => {
-    const f = fullSnapshot({ close: 100, ema20: 95, atr14: 5 });
-    const r = evaluateCustomSpec(f, bullSpec());
-    expect(r).not.toBeNull();
-    expect(r!.direction).toBe("BULL");
-    expect(r!.entrySpot).toBe(100);
-    // risk = stopAtrMult(2) * atr(5) = 10
-    expect(r!.stop).toBe(90); // 100 - 10
-    expect(r!.target1).toBe(110); // 100 + 1R
-    expect(r!.target2).toBe(120); // 100 + 2R
-    expect(r!.confidence).toBe(60);
-    expect(r!.passed.length).toBe(1);
+describe("CustomStrategyInputSchema / specFromInput", () => {
+  it("accepts a valid layered input and builds a CUSTOM_<slug> v2 spec", () => {
+    const parsed = CustomStrategyInputSchema.parse(baseInput());
+    const spec = specFromInput(parsed);
+    expect(spec.version).toBe(2);
+    expect(spec.id).toBe("CUSTOM_trend_pull");
+    expect(spec.direction).toBe("BOTH");
+    expect(CustomStrategySpecSchema.safeParse(spec).success).toBe(true);
   });
 
-  it("emits a mirrored BEAR plan (defined-risk on the short side)", () => {
-    const spec = bullSpec({
-      id: "CUSTOM_test_bear",
-      bull: [],
-      bear: [{ left: "close", op: "lt", right: { type: "feature", feature: "ema20" } }],
-    });
-    const f = fullSnapshot({ close: 100, ema20: 105, atr14: 5 });
-    const r = evaluateCustomSpec(f, spec);
-    expect(r).not.toBeNull();
-    expect(r!.direction).toBe("BEAR");
-    expect(r!.stop).toBe(110); // 100 + 10 (stop ABOVE entry on a short)
-    expect(r!.target1).toBe(90); // 100 - 1R
-    expect(r!.target2).toBe(80); // 100 - 2R
+  it("rejects a spec with no rules on either side", () => {
+    const res = CustomStrategyInputSchema.safeParse(baseInput({ bull: emptySide(), bear: emptySide() }));
+    expect(res.success).toBe(false);
   });
 
-  it("returns null when no side's conditions are met (no fabricated signal)", () => {
-    const f = fullSnapshot({ close: 90, ema20: 95, atr14: 5 }); // close < ema20
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
+  it("rejects an invalid slug", () => {
+    expect(CustomStrategyInputSchema.safeParse(baseInput({ slug: "Bad Slug" })).success).toBe(false);
   });
 
-  it("a condition on a NULL feature FAILS the side → null", () => {
-    const f = fullSnapshot({ close: 100, ema20: null, atr14: 5 });
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
+  it("rejects an ema_cross with identical fast/slow", () => {
+    const res = CustomStrategyInputSchema.safeParse(
+      baseInput({
+        bull: {
+          market: { logic: "AND", blocks: [{ type: "ema_cross", fast: "ema9", slow: "ema9", dir: "golden" }] },
+          setup: emptySide().setup,
+        },
+      }),
+    );
+    expect(res.success).toBe(false);
   });
 
-  it("a condition on a NaN feature FAILS the side → null", () => {
-    const f = fullSnapshot({ close: NaN, ema20: 95, atr14: 5 });
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
+  it("rejects a fib_zone with lo >= hi", () => {
+    const res = CustomStrategyInputSchema.safeParse(
+      baseInput({
+        bull: {
+          market: emptySide().market,
+          setup: { logic: "AND", blocks: [{ type: "fib_zone", side: "bull", lo: 0.618, hi: 0.382, swingSpan: 3 }] },
+        },
+      }),
+    );
+    expect(res.success).toBe(false);
   });
 
-  it("a condition on a non-finite (Infinity) feature FAILS the side → null", () => {
-    const f = fullSnapshot({ close: Infinity, ema20: 95, atr14: 5 });
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
+  it("accepts nested OR groups", () => {
+    const res = CustomStrategyInputSchema.safeParse(
+      baseInput({
+        bull: {
+          market: emptySide().market,
+          setup: {
+            logic: "OR",
+            blocks: [{ type: "vwap_cross", dir: "reclaim" }],
+            groups: [{ logic: "AND", blocks: [{ type: "price_vs_ema", ema: "ema20", cmp: "above" }] }],
+          },
+        },
+      }),
+    );
+    expect(res.success).toBe(true);
+  });
+});
+
+describe("sideIsEmpty", () => {
+  it("treats a side with only empty nested groups as empty", () => {
+    expect(sideIsEmpty({ market: { logic: "AND", blocks: [], groups: [{ logic: "AND", blocks: [] }] }, setup: emptySide().setup })).toBe(true);
+  });
+  it("is false once any block exists", () => {
+    expect(sideIsEmpty({ market: { logic: "AND", blocks: [{ type: "price_vs_vwap", cmp: "above" }] }, setup: emptySide().setup })).toBe(false);
+  });
+});
+
+describe("migrateV1ToV2", () => {
+  const v1: CustomStrategySpecV1 = {
+    id: "CUSTOM_legacy",
+    name: "Legacy",
+    category: "Old",
+    description: "",
+    bull: [
+      { left: "close", op: "gt", right: { type: "feature", feature: "vwap" } },
+      { left: "rsi14", op: "gt", right: { type: "value", value: 55 } },
+    ],
+    bear: [],
+    params: { stopAtrMult: 2, target1R: 1, target2R: 3 },
+    baseConfidence: 62,
+  };
+
+  it("maps a flat v1 condition list to an AND setup group of compare blocks", () => {
+    const v2 = migrateV1ToV2(v1);
+    expect(v2.version).toBe(2);
+    expect(v2.id).toBe("CUSTOM_legacy");
+    expect(v2.direction).toBe("BOTH");
+    expect(v2.bull.setup.logic).toBe("AND");
+    expect(v2.bull.setup.blocks).toHaveLength(2);
+    expect(v2.bull.setup.blocks[0]).toMatchObject({ type: "compare", left: "close", op: "gt" });
+    expect(sideIsEmpty(v2.bear)).toBe(true);
+    expect(v2.execution.stop).toEqual({ type: "atr", atrMult: 2 });
+    expect(v2.execution.target2R).toBe(3);
+    expect(CustomStrategySpecSchema.safeParse(v2).success).toBe(true);
   });
 
-  it("a NaN right-hand operand FAILS the side → null", () => {
-    const f = fullSnapshot({ close: 100, ema20: NaN, atr14: 5 });
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
+  it("parsePersistedSpec accepts native v2", () => {
+    const v2 = migrateV1ToV2(v1);
+    const round = parsePersistedSpec(v2);
+    expect(round?.version).toBe(2);
+    expect(round?.id).toBe("CUSTOM_legacy");
   });
 
-  it("conditions met but NULL ATR → null (never invents a stop distance)", () => {
-    const f = fullSnapshot({ close: 100, ema20: 95, atr14: null });
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
+  it("parsePersistedSpec migrates a persisted v1 blob", () => {
+    const out = parsePersistedSpec(v1);
+    expect(out?.version).toBe(2);
+    expect(out?.bull.setup.blocks).toHaveLength(2);
   });
 
-  it("conditions met but NaN ATR → null", () => {
-    const f = fullSnapshot({ close: 100, ema20: 95, atr14: NaN });
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
-  });
-
-  it("conditions met but non-positive ATR (0) → null", () => {
-    const f = fullSnapshot({ close: 100, ema20: 95, atr14: 0 });
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
-  });
-
-  it("conditions met but negative ATR → null", () => {
-    const f = fullSnapshot({ close: 100, ema20: 95, atr14: -5 });
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
-  });
-
-  it("conditions met but NULL close → null (no entry without a finite price)", () => {
-    const f = fullSnapshot({ close: null, ema20: 95, atr14: 5 });
-    // close is the left operand of the only condition, so the side won't even
-    // pass — but assert the geometry guard too with a value-only spec.
-    const valueSpec = bullSpec({
-      bull: [{ left: "rsi14", op: "gt", right: { type: "value", value: 50 } }],
-    });
-    const f2 = fullSnapshot({ close: null, rsi14: 60, atr14: 5 });
-    expect(evaluateCustomSpec(f, bullSpec())).toBeNull();
-    expect(evaluateCustomSpec(f2, valueSpec)).toBeNull();
-  });
-
-  it("an empty side never fires (empty bull/bear = disabled)", () => {
-    const spec = bullSpec({ bull: [], bear: [] } as Partial<CustomStrategySpec>);
-    const f = fullSnapshot({ close: 100, ema20: 95, atr14: 5 });
-    expect(evaluateCustomSpec(f, spec)).toBeNull();
-  });
-
-  it("bull takes precedence and the two sides are mutually exclusive", () => {
-    // Both sides would pass; bull is checked first and wins.
-    const spec = bullSpec({
-      bull: [{ left: "close", op: "gt", right: { type: "value", value: 50 } }],
-      bear: [{ left: "close", op: "gt", right: { type: "value", value: 50 } }],
-    });
-    const f = fullSnapshot({ close: 100, atr14: 5 });
-    const r = evaluateCustomSpec(f, spec);
-    expect(r!.direction).toBe("BULL");
+  it("parsePersistedSpec returns null on garbage (caller skips it)", () => {
+    expect(parsePersistedSpec({ foo: "bar" })).toBeNull();
+    expect(parsePersistedSpec(null)).toBeNull();
   });
 });

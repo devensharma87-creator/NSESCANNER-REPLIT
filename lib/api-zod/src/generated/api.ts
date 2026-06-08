@@ -6792,14 +6792,73 @@ export const upsertCustomStrategyBodyCategoryMax = 40;
 
 export const upsertCustomStrategyBodyDescriptionMax = 400;
 
-export const upsertCustomStrategyBodyParamsStopAtrMultMin = 0.5;
-export const upsertCustomStrategyBodyParamsStopAtrMultMax = 5;
+export const upsertCustomStrategyBodyBullMarketBlocksItemLookbackMax = 50;
 
-export const upsertCustomStrategyBodyParamsTarget1RMin = 0.25;
-export const upsertCustomStrategyBodyParamsTarget1RMax = 10;
+export const upsertCustomStrategyBodyBullMarketBlocksItemTolPctMin = 0;
+export const upsertCustomStrategyBodyBullMarketBlocksItemTolPctMax = 100;
 
-export const upsertCustomStrategyBodyParamsTarget2RMin = 0.25;
-export const upsertCustomStrategyBodyParamsTarget2RMax = 10;
+export const upsertCustomStrategyBodyBullMarketBlocksItemMaxPctMin = 0;
+export const upsertCustomStrategyBodyBullMarketBlocksItemMaxPctMax = 100;
+
+export const upsertCustomStrategyBodyBullMarketBlocksItemSwingSpanMax = 200;
+
+export const upsertCustomStrategyBodyBullSetupBlocksItemLookbackMax = 50;
+
+export const upsertCustomStrategyBodyBullSetupBlocksItemTolPctMin = 0;
+export const upsertCustomStrategyBodyBullSetupBlocksItemTolPctMax = 100;
+
+export const upsertCustomStrategyBodyBullSetupBlocksItemMaxPctMin = 0;
+export const upsertCustomStrategyBodyBullSetupBlocksItemMaxPctMax = 100;
+
+export const upsertCustomStrategyBodyBullSetupBlocksItemSwingSpanMax = 200;
+
+export const upsertCustomStrategyBodyBearMarketBlocksItemLookbackMax = 50;
+
+export const upsertCustomStrategyBodyBearMarketBlocksItemTolPctMin = 0;
+export const upsertCustomStrategyBodyBearMarketBlocksItemTolPctMax = 100;
+
+export const upsertCustomStrategyBodyBearMarketBlocksItemMaxPctMin = 0;
+export const upsertCustomStrategyBodyBearMarketBlocksItemMaxPctMax = 100;
+
+export const upsertCustomStrategyBodyBearMarketBlocksItemSwingSpanMax = 200;
+
+export const upsertCustomStrategyBodyBearSetupBlocksItemLookbackMax = 50;
+
+export const upsertCustomStrategyBodyBearSetupBlocksItemTolPctMin = 0;
+export const upsertCustomStrategyBodyBearSetupBlocksItemTolPctMax = 100;
+
+export const upsertCustomStrategyBodyBearSetupBlocksItemMaxPctMin = 0;
+export const upsertCustomStrategyBodyBearSetupBlocksItemMaxPctMax = 100;
+
+export const upsertCustomStrategyBodyBearSetupBlocksItemSwingSpanMax = 200;
+
+export const upsertCustomStrategyBodyExecutionStopAtrMultMin = 0.25;
+export const upsertCustomStrategyBodyExecutionStopAtrMultMax = 8;
+
+export const upsertCustomStrategyBodyExecutionStopSwingSpanMax = 200;
+
+export const upsertCustomStrategyBodyExecutionStopBufferAtrMultMin = 0;
+export const upsertCustomStrategyBodyExecutionStopBufferAtrMultMax = 8;
+
+export const upsertCustomStrategyBodyExecutionTarget1RMin = 0.25;
+export const upsertCustomStrategyBodyExecutionTarget1RMax = 10;
+
+export const upsertCustomStrategyBodyExecutionTarget2RMin = 0.25;
+export const upsertCustomStrategyBodyExecutionTarget2RMax = 20;
+
+export const upsertCustomStrategyBodyExecutionMinRRMin = 0;
+export const upsertCustomStrategyBodyExecutionMinRRMax = 20;
+
+export const upsertCustomStrategyBodyExecutionMaxStopAtrMultMin = 0.25;
+export const upsertCustomStrategyBodyExecutionMaxStopAtrMultMax = 20;
+
+export const upsertCustomStrategyBodyExecutionSessionWindowStartMinMin = 0;
+export const upsertCustomStrategyBodyExecutionSessionWindowStartMinMax = 1439;
+
+export const upsertCustomStrategyBodyExecutionSessionWindowEndMinMin = 0;
+export const upsertCustomStrategyBodyExecutionSessionWindowEndMinMax = 1439;
+
+export const upsertCustomStrategyBodyExecutionDailyCapMax = 100;
 
 export const upsertCustomStrategyBodyBaseConfidenceMin = 0;
 export const upsertCustomStrategyBodyBaseConfidenceMax = 100;
@@ -6824,93 +6883,532 @@ export const UpsertCustomStrategyBody = zod.object({
     .string()
     .max(upsertCustomStrategyBodyDescriptionMax)
     .optional(),
+  direction: zod
+    .enum(["BOTH", "CALL_ONLY", "PUT_ONLY"])
+    .optional()
+    .describe("Which option side(s) the strategy may take."),
   bull: zod
-    .array(
-      zod.object({
-        left: zod.enum([
-          "close",
-          "ema9",
-          "ema20",
-          "ema50",
-          "rsi14",
-          "atr14",
-          "vwap",
-        ]),
-        op: zod.enum(["gt", "lt", "gte", "lte"]),
-        right: zod
-          .object({
-            type: zod.enum(["feature", "value"]),
-            feature: zod
-              .enum([
-                "close",
-                "ema9",
-                "ema20",
-                "ema50",
-                "rsi14",
-                "atr14",
-                "vwap",
-              ])
-              .optional(),
-            value: zod.number().optional(),
-          })
-          .describe(
-            "Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value.",
-          ),
-      }),
-    )
-    .optional(),
-  bear: zod
-    .array(
-      zod.object({
-        left: zod.enum([
-          "close",
-          "ema9",
-          "ema20",
-          "ema50",
-          "rsi14",
-          "atr14",
-          "vwap",
-        ]),
-        op: zod.enum(["gt", "lt", "gte", "lte"]),
-        right: zod
-          .object({
-            type: zod.enum(["feature", "value"]),
-            feature: zod
-              .enum([
-                "close",
-                "ema9",
-                "ema20",
-                "ema50",
-                "rsi14",
-                "atr14",
-                "vwap",
-              ])
-              .optional(),
-            value: zod.number().optional(),
-          })
-          .describe(
-            "Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value.",
-          ),
-      }),
-    )
-    .optional(),
-  params: zod
     .object({
-      stopAtrMult: zod
-        .number()
-        .min(upsertCustomStrategyBodyParamsStopAtrMultMin)
-        .max(upsertCustomStrategyBodyParamsStopAtrMultMax)
-        .describe("Stop distance = stopAtrMult × ATR(14)."),
+      market: zod
+        .object({
+          logic: zod.enum(["AND", "OR"]),
+          blocks: zod.array(
+            zod
+              .object({
+                type: zod.enum([
+                  "price_vs_ema",
+                  "ema_stack",
+                  "ema_cross",
+                  "ema_slope",
+                  "ema_pullback",
+                  "ema_distance_max",
+                  "price_vs_vwap",
+                  "vwap_cross",
+                  "vwap_distance_max",
+                  "fib_zone",
+                  "compare",
+                ]),
+                ema: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                cmp: zod.enum(["above", "below"]).optional(),
+                order: zod.enum(["bull", "bear"]).optional(),
+                fast: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                slow: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                dir: zod
+                  .enum([
+                    "golden",
+                    "death",
+                    "rising",
+                    "falling",
+                    "reclaim",
+                    "reject",
+                  ])
+                  .optional()
+                  .describe(
+                    "Direction token; valid set depends on block type.",
+                  ),
+                lookback: zod
+                  .number()
+                  .min(1)
+                  .max(upsertCustomStrategyBodyBullMarketBlocksItemLookbackMax)
+                  .optional(),
+                side: zod.enum(["bull", "bear"]).optional(),
+                tolPct: zod
+                  .number()
+                  .min(upsertCustomStrategyBodyBullMarketBlocksItemTolPctMin)
+                  .max(upsertCustomStrategyBodyBullMarketBlocksItemTolPctMax)
+                  .optional(),
+                maxPct: zod
+                  .number()
+                  .min(upsertCustomStrategyBodyBullMarketBlocksItemMaxPctMin)
+                  .max(upsertCustomStrategyBodyBullMarketBlocksItemMaxPctMax)
+                  .optional(),
+                lo: zod
+                  .number()
+                  .optional()
+                  .describe("fib_zone lower bound (0-1); must be < hi."),
+                hi: zod
+                  .number()
+                  .optional()
+                  .describe("fib_zone upper bound (0-1); must be > lo."),
+                swingSpan: zod
+                  .number()
+                  .min(1)
+                  .max(upsertCustomStrategyBodyBullMarketBlocksItemSwingSpanMax)
+                  .optional(),
+                left: zod
+                  .enum([
+                    "close",
+                    "ema9",
+                    "ema20",
+                    "ema50",
+                    "rsi14",
+                    "atr14",
+                    "vwap",
+                  ])
+                  .optional(),
+                op: zod.enum(["gt", "lt", "gte", "lte"]).optional(),
+                right: zod
+                  .object({
+                    type: zod.enum(["feature", "value"]),
+                    feature: zod
+                      .enum([
+                        "close",
+                        "ema9",
+                        "ema20",
+                        "ema50",
+                        "rsi14",
+                        "atr14",
+                        "vwap",
+                      ])
+                      .optional(),
+                    value: zod.number().optional(),
+                  })
+                  .optional()
+                  .describe(
+                    "Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value.",
+                  ),
+              })
+              .describe(
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+              ),
+          ),
+          groups: zod.array(zod.unknown()).optional(),
+        })
+        .describe(
+          "A boolean group of blocks plus (optionally) nested groups. AND = all must pass; OR = any.",
+        ),
+      setup: zod
+        .object({
+          logic: zod.enum(["AND", "OR"]),
+          blocks: zod.array(
+            zod
+              .object({
+                type: zod.enum([
+                  "price_vs_ema",
+                  "ema_stack",
+                  "ema_cross",
+                  "ema_slope",
+                  "ema_pullback",
+                  "ema_distance_max",
+                  "price_vs_vwap",
+                  "vwap_cross",
+                  "vwap_distance_max",
+                  "fib_zone",
+                  "compare",
+                ]),
+                ema: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                cmp: zod.enum(["above", "below"]).optional(),
+                order: zod.enum(["bull", "bear"]).optional(),
+                fast: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                slow: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                dir: zod
+                  .enum([
+                    "golden",
+                    "death",
+                    "rising",
+                    "falling",
+                    "reclaim",
+                    "reject",
+                  ])
+                  .optional()
+                  .describe(
+                    "Direction token; valid set depends on block type.",
+                  ),
+                lookback: zod
+                  .number()
+                  .min(1)
+                  .max(upsertCustomStrategyBodyBullSetupBlocksItemLookbackMax)
+                  .optional(),
+                side: zod.enum(["bull", "bear"]).optional(),
+                tolPct: zod
+                  .number()
+                  .min(upsertCustomStrategyBodyBullSetupBlocksItemTolPctMin)
+                  .max(upsertCustomStrategyBodyBullSetupBlocksItemTolPctMax)
+                  .optional(),
+                maxPct: zod
+                  .number()
+                  .min(upsertCustomStrategyBodyBullSetupBlocksItemMaxPctMin)
+                  .max(upsertCustomStrategyBodyBullSetupBlocksItemMaxPctMax)
+                  .optional(),
+                lo: zod
+                  .number()
+                  .optional()
+                  .describe("fib_zone lower bound (0-1); must be < hi."),
+                hi: zod
+                  .number()
+                  .optional()
+                  .describe("fib_zone upper bound (0-1); must be > lo."),
+                swingSpan: zod
+                  .number()
+                  .min(1)
+                  .max(upsertCustomStrategyBodyBullSetupBlocksItemSwingSpanMax)
+                  .optional(),
+                left: zod
+                  .enum([
+                    "close",
+                    "ema9",
+                    "ema20",
+                    "ema50",
+                    "rsi14",
+                    "atr14",
+                    "vwap",
+                  ])
+                  .optional(),
+                op: zod.enum(["gt", "lt", "gte", "lte"]).optional(),
+                right: zod
+                  .object({
+                    type: zod.enum(["feature", "value"]),
+                    feature: zod
+                      .enum([
+                        "close",
+                        "ema9",
+                        "ema20",
+                        "ema50",
+                        "rsi14",
+                        "atr14",
+                        "vwap",
+                      ])
+                      .optional(),
+                    value: zod.number().optional(),
+                  })
+                  .optional()
+                  .describe(
+                    "Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value.",
+                  ),
+              })
+              .describe(
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+              ),
+          ),
+          groups: zod.array(zod.unknown()).optional(),
+        })
+        .describe(
+          "A boolean group of blocks plus (optionally) nested groups. AND = all must pass; OR = any.",
+        ),
+    })
+    .optional()
+    .describe(
+      "One direction's two gating layers. Empty layers are pass-through; an entirely-empty side is disabled.",
+    ),
+  bear: zod
+    .object({
+      market: zod
+        .object({
+          logic: zod.enum(["AND", "OR"]),
+          blocks: zod.array(
+            zod
+              .object({
+                type: zod.enum([
+                  "price_vs_ema",
+                  "ema_stack",
+                  "ema_cross",
+                  "ema_slope",
+                  "ema_pullback",
+                  "ema_distance_max",
+                  "price_vs_vwap",
+                  "vwap_cross",
+                  "vwap_distance_max",
+                  "fib_zone",
+                  "compare",
+                ]),
+                ema: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                cmp: zod.enum(["above", "below"]).optional(),
+                order: zod.enum(["bull", "bear"]).optional(),
+                fast: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                slow: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                dir: zod
+                  .enum([
+                    "golden",
+                    "death",
+                    "rising",
+                    "falling",
+                    "reclaim",
+                    "reject",
+                  ])
+                  .optional()
+                  .describe(
+                    "Direction token; valid set depends on block type.",
+                  ),
+                lookback: zod
+                  .number()
+                  .min(1)
+                  .max(upsertCustomStrategyBodyBearMarketBlocksItemLookbackMax)
+                  .optional(),
+                side: zod.enum(["bull", "bear"]).optional(),
+                tolPct: zod
+                  .number()
+                  .min(upsertCustomStrategyBodyBearMarketBlocksItemTolPctMin)
+                  .max(upsertCustomStrategyBodyBearMarketBlocksItemTolPctMax)
+                  .optional(),
+                maxPct: zod
+                  .number()
+                  .min(upsertCustomStrategyBodyBearMarketBlocksItemMaxPctMin)
+                  .max(upsertCustomStrategyBodyBearMarketBlocksItemMaxPctMax)
+                  .optional(),
+                lo: zod
+                  .number()
+                  .optional()
+                  .describe("fib_zone lower bound (0-1); must be < hi."),
+                hi: zod
+                  .number()
+                  .optional()
+                  .describe("fib_zone upper bound (0-1); must be > lo."),
+                swingSpan: zod
+                  .number()
+                  .min(1)
+                  .max(upsertCustomStrategyBodyBearMarketBlocksItemSwingSpanMax)
+                  .optional(),
+                left: zod
+                  .enum([
+                    "close",
+                    "ema9",
+                    "ema20",
+                    "ema50",
+                    "rsi14",
+                    "atr14",
+                    "vwap",
+                  ])
+                  .optional(),
+                op: zod.enum(["gt", "lt", "gte", "lte"]).optional(),
+                right: zod
+                  .object({
+                    type: zod.enum(["feature", "value"]),
+                    feature: zod
+                      .enum([
+                        "close",
+                        "ema9",
+                        "ema20",
+                        "ema50",
+                        "rsi14",
+                        "atr14",
+                        "vwap",
+                      ])
+                      .optional(),
+                    value: zod.number().optional(),
+                  })
+                  .optional()
+                  .describe(
+                    "Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value.",
+                  ),
+              })
+              .describe(
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+              ),
+          ),
+          groups: zod.array(zod.unknown()).optional(),
+        })
+        .describe(
+          "A boolean group of blocks plus (optionally) nested groups. AND = all must pass; OR = any.",
+        ),
+      setup: zod
+        .object({
+          logic: zod.enum(["AND", "OR"]),
+          blocks: zod.array(
+            zod
+              .object({
+                type: zod.enum([
+                  "price_vs_ema",
+                  "ema_stack",
+                  "ema_cross",
+                  "ema_slope",
+                  "ema_pullback",
+                  "ema_distance_max",
+                  "price_vs_vwap",
+                  "vwap_cross",
+                  "vwap_distance_max",
+                  "fib_zone",
+                  "compare",
+                ]),
+                ema: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                cmp: zod.enum(["above", "below"]).optional(),
+                order: zod.enum(["bull", "bear"]).optional(),
+                fast: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                slow: zod.enum(["ema9", "ema20", "ema50"]).optional(),
+                dir: zod
+                  .enum([
+                    "golden",
+                    "death",
+                    "rising",
+                    "falling",
+                    "reclaim",
+                    "reject",
+                  ])
+                  .optional()
+                  .describe(
+                    "Direction token; valid set depends on block type.",
+                  ),
+                lookback: zod
+                  .number()
+                  .min(1)
+                  .max(upsertCustomStrategyBodyBearSetupBlocksItemLookbackMax)
+                  .optional(),
+                side: zod.enum(["bull", "bear"]).optional(),
+                tolPct: zod
+                  .number()
+                  .min(upsertCustomStrategyBodyBearSetupBlocksItemTolPctMin)
+                  .max(upsertCustomStrategyBodyBearSetupBlocksItemTolPctMax)
+                  .optional(),
+                maxPct: zod
+                  .number()
+                  .min(upsertCustomStrategyBodyBearSetupBlocksItemMaxPctMin)
+                  .max(upsertCustomStrategyBodyBearSetupBlocksItemMaxPctMax)
+                  .optional(),
+                lo: zod
+                  .number()
+                  .optional()
+                  .describe("fib_zone lower bound (0-1); must be < hi."),
+                hi: zod
+                  .number()
+                  .optional()
+                  .describe("fib_zone upper bound (0-1); must be > lo."),
+                swingSpan: zod
+                  .number()
+                  .min(1)
+                  .max(upsertCustomStrategyBodyBearSetupBlocksItemSwingSpanMax)
+                  .optional(),
+                left: zod
+                  .enum([
+                    "close",
+                    "ema9",
+                    "ema20",
+                    "ema50",
+                    "rsi14",
+                    "atr14",
+                    "vwap",
+                  ])
+                  .optional(),
+                op: zod.enum(["gt", "lt", "gte", "lte"]).optional(),
+                right: zod
+                  .object({
+                    type: zod.enum(["feature", "value"]),
+                    feature: zod
+                      .enum([
+                        "close",
+                        "ema9",
+                        "ema20",
+                        "ema50",
+                        "rsi14",
+                        "atr14",
+                        "vwap",
+                      ])
+                      .optional(),
+                    value: zod.number().optional(),
+                  })
+                  .optional()
+                  .describe(
+                    "Right-hand operand: another feature, or a literal numeric value. `feature` is set when type=feature; `value` when type=value.",
+                  ),
+              })
+              .describe(
+                "One v2 rule block, discriminated by `type`. The server Zod schema is the strict, fail-closed validator; this OpenAPI shape is intentionally permissive (all non-`type` fields optional) so the builder UI can carry any block kind. Block types: price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare.\n",
+              ),
+          ),
+          groups: zod.array(zod.unknown()).optional(),
+        })
+        .describe(
+          "A boolean group of blocks plus (optionally) nested groups. AND = all must pass; OR = any.",
+        ),
+    })
+    .optional()
+    .describe(
+      "One direction's two gating layers. Empty layers are pass-through; an entirely-empty side is disabled.",
+    ),
+  execution: zod
+    .object({
+      stop: zod
+        .object({
+          type: zod.enum(["atr", "swing"]),
+          atrMult: zod
+            .number()
+            .min(upsertCustomStrategyBodyExecutionStopAtrMultMin)
+            .max(upsertCustomStrategyBodyExecutionStopAtrMultMax)
+            .optional()
+            .describe("Set when type=atr."),
+          swingSpan: zod
+            .number()
+            .min(1)
+            .max(upsertCustomStrategyBodyExecutionStopSwingSpanMax)
+            .optional()
+            .describe("Set when type=swing."),
+          bufferAtrMult: zod
+            .number()
+            .min(upsertCustomStrategyBodyExecutionStopBufferAtrMultMin)
+            .max(upsertCustomStrategyBodyExecutionStopBufferAtrMultMax)
+            .optional()
+            .describe("Set when type=swing."),
+        })
+        .describe(
+          "Stop geometry: `atr` (atrMult × ATR14) or `swing` (recent fractal ± bufferAtrMult × ATR14).",
+        ),
       target1R: zod
         .number()
-        .min(upsertCustomStrategyBodyParamsTarget1RMin)
-        .max(upsertCustomStrategyBodyParamsTarget1RMax)
+        .min(upsertCustomStrategyBodyExecutionTarget1RMin)
+        .max(upsertCustomStrategyBodyExecutionTarget1RMax)
         .describe("Target 1 as a multiple of the risk (stop distance)."),
       target2R: zod
         .number()
-        .min(upsertCustomStrategyBodyParamsTarget2RMin)
-        .max(upsertCustomStrategyBodyParamsTarget2RMax)
+        .min(upsertCustomStrategyBodyExecutionTarget2RMin)
+        .max(upsertCustomStrategyBodyExecutionTarget2RMax)
         .describe("Target 2 as a multiple of the risk (stop distance)."),
+      minRR: zod
+        .number()
+        .min(upsertCustomStrategyBodyExecutionMinRRMin)
+        .max(upsertCustomStrategyBodyExecutionMinRRMax)
+        .optional()
+        .describe("Reject if planned target-1 reward (in R) is below this."),
+      maxStopAtrMult: zod
+        .number()
+        .min(upsertCustomStrategyBodyExecutionMaxStopAtrMultMin)
+        .max(upsertCustomStrategyBodyExecutionMaxStopAtrMultMax)
+        .optional()
+        .describe(
+          "Reject if stop distance exceeds this multiple of ATR (swing sanity).",
+        ),
+      sessionWindow: zod
+        .object({
+          startMin: zod
+            .number()
+            .min(upsertCustomStrategyBodyExecutionSessionWindowStartMinMin)
+            .max(upsertCustomStrategyBodyExecutionSessionWindowStartMinMax),
+          endMin: zod
+            .number()
+            .min(upsertCustomStrategyBodyExecutionSessionWindowEndMinMin)
+            .max(upsertCustomStrategyBodyExecutionSessionWindowEndMinMax),
+        })
+        .optional()
+        .describe(
+          "IST minute-of-day window [start,end] inclusive within which entries may fire.",
+        ),
+      trailingToBreakeven: zod
+        .boolean()
+        .optional()
+        .describe("Runner-enforced metadata: trail to breakeven after +1R."),
+      dailyCap: zod
+        .number()
+        .min(1)
+        .max(upsertCustomStrategyBodyExecutionDailyCapMax)
+        .optional()
+        .describe("Runner-enforced metadata: max entries\/day."),
     })
     .optional(),
   baseConfidence: zod

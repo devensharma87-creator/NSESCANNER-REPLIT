@@ -1,15 +1,17 @@
 /**
- * Owner-only Strategy Control (Task #105).
+ * Owner-only Strategy Control (Task #105; v2 rule language Task #113).
  *
  * One unified catalog drives BOTH the live F&O auto-engine allow-list AND the
- * Backtest Lab selectable list, and lets the owner define new config/parameter
- * driven custom strategies that appear on both surfaces.
+ * Backtest Lab selectable list, and lets the owner define new custom strategies
+ * (v2 three-layer rule language) that appear on both surfaces.
  *
  * Honesty / safety:
  *   - Toggling a strategy OFF only NARROWS what the engine may emit — it never
  *     bypasses a safety gate or the dev/prod paper-trading isolation.
  *   - A freshly-defined custom strategy is engine-DISABLED until opted in.
  *   - All state is owner-only and DB-persisted (survives restart).
+ *   - The builder's "rule summary" is a transparent, deterministic restatement
+ *     of the conditions each layer enforces — NOT a fabricated live evaluation.
  *
  * Consumes only the generated typed client — no fabricated data.
  */
@@ -22,8 +24,20 @@ import {
   StrategyFeatureKey,
   StrategyConditionOp,
   StrategyConditionOperandType,
+  StrategyDirectionMode,
+  StrategyEmaKey,
+  StrategyRuleBlockType,
+  StrategyRuleBlockCmp,
+  StrategyRuleBlockOrder,
+  StrategyRuleBlockDir,
+  StrategyRuleBlockSide,
+  StrategyRuleGroupLogic,
+  StrategyStopConfigType,
   type StrategyCatalogEntry,
-  type StrategyCondition,
+  type StrategyRuleBlock,
+  type StrategyRuleGroup,
+  type StrategySideRules,
+  type StrategyExecutionConfig,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,30 +66,125 @@ import {
 } from "lucide-react";
 
 const FEATURE_OPTIONS = Object.values(StrategyFeatureKey);
+const EMA_OPTIONS = Object.values(StrategyEmaKey);
 const OP_OPTIONS = Object.values(StrategyConditionOp);
 const OP_LABEL: Record<string, string> = { gt: ">", lt: "<", gte: "≥", lte: "≤" };
 
-function emptyCondition(): StrategyCondition {
-  return {
-    left: StrategyFeatureKey.close,
-    op: StrategyConditionOp.gt,
-    right: { type: StrategyConditionOperandType.feature, feature: StrategyFeatureKey.ema20 },
-  };
+const SLUG_RE = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
+
+// ---------------------------------------------------------------------------
+// Block palette + factories (mirror the server's v2 RuleBlock union)
+// ---------------------------------------------------------------------------
+
+const BLOCK_LABEL: Record<string, string> = {
+  price_vs_ema: "Price vs EMA",
+  ema_stack: "EMA stack",
+  ema_cross: "EMA cross",
+  ema_slope: "EMA slope",
+  ema_pullback: "EMA pullback",
+  ema_distance_max: "Max EMA distance",
+  price_vs_vwap: "Price vs VWAP",
+  vwap_cross: "VWAP cross",
+  vwap_distance_max: "Max VWAP distance",
+  fib_zone: "Fib zone",
+  compare: "Compare (advanced)",
+};
+
+const BLOCK_TYPE_OPTIONS = Object.values(StrategyRuleBlockType);
+
+function defaultBlock(type: StrategyRuleBlock["type"]): StrategyRuleBlock {
+  switch (type) {
+    case "price_vs_ema":
+      return { type, ema: StrategyEmaKey.ema20, cmp: StrategyRuleBlockCmp.above };
+    case "ema_stack":
+      return { type, order: StrategyRuleBlockOrder.bull };
+    case "ema_cross":
+      return { type, fast: StrategyEmaKey.ema9, slow: StrategyEmaKey.ema20, dir: StrategyRuleBlockDir.golden };
+    case "ema_slope":
+      return { type, ema: StrategyEmaKey.ema20, dir: StrategyRuleBlockDir.rising, lookback: 5 };
+    case "ema_pullback":
+      return { type, ema: StrategyEmaKey.ema20, side: StrategyRuleBlockSide.bull, tolPct: 0.5 };
+    case "ema_distance_max":
+      return { type, ema: StrategyEmaKey.ema20, maxPct: 2 };
+    case "price_vs_vwap":
+      return { type, cmp: StrategyRuleBlockCmp.above };
+    case "vwap_cross":
+      return { type, dir: StrategyRuleBlockDir.reclaim };
+    case "vwap_distance_max":
+      return { type, maxPct: 1 };
+    case "fib_zone":
+      return { type, side: StrategyRuleBlockSide.bull, lo: 0.382, hi: 0.618, swingSpan: 8 };
+    case "compare":
+      return {
+        type,
+        left: StrategyFeatureKey.close,
+        op: StrategyConditionOp.gt,
+        right: { type: StrategyConditionOperandType.feature, feature: StrategyFeatureKey.ema20 },
+      };
+    default:
+      return { type: StrategyRuleBlockType.price_vs_ema, ema: StrategyEmaKey.ema20, cmp: StrategyRuleBlockCmp.above };
+  }
 }
 
-const SLUG_RE = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
+/** Deterministic human restatement of a block — the transparent reasoning surface. */
+function blockSummary(b: StrategyRuleBlock): string {
+  switch (b.type) {
+    case "price_vs_ema":
+      return `Price ${b.cmp} ${b.ema}`;
+    case "ema_stack":
+      return `EMA stack ${b.order === "bull" ? "bullish (9>20>50)" : "bearish (9<20<50)"}`;
+    case "ema_cross":
+      return `${b.fast}/${b.slow} ${b.dir} cross`;
+    case "ema_slope":
+      return `${b.ema} ${b.dir} over ${b.lookback ?? "?"} bars`;
+    case "ema_pullback":
+      return `Pullback to ${b.ema} (${b.side}, ±${b.tolPct ?? "?"}%)`;
+    case "ema_distance_max":
+      return `|price − ${b.ema}| ≤ ${b.maxPct ?? "?"}%`;
+    case "price_vs_vwap":
+      return `Price ${b.cmp} VWAP`;
+    case "vwap_cross":
+      return `VWAP ${b.dir}`;
+    case "vwap_distance_max":
+      return `|price − VWAP| ≤ ${b.maxPct ?? "?"}%`;
+    case "fib_zone":
+      return `In ${b.side} fib ${b.lo ?? "?"}–${b.hi ?? "?"} (swing ${b.swingSpan ?? "?"})`;
+    case "compare": {
+      const rhs = b.right?.type === "value" ? String(b.right.value ?? 0) : (b.right?.feature ?? "?");
+      return `${b.left} ${OP_LABEL[b.op ?? "gt"] ?? b.op} ${rhs}`;
+    }
+    default:
+      return b.type;
+  }
+}
+
+function groupSummary(g: StrategyRuleGroup): string {
+  if (g.blocks.length === 0) return "any (layer disabled)";
+  const join = g.logic === "AND" ? " AND " : " OR ";
+  return g.blocks.map(blockSummary).join(join);
+}
+
+// ---------------------------------------------------------------------------
+// Builder state
+// ---------------------------------------------------------------------------
 
 interface BuilderState {
   slug: string;
   name: string;
   category: string;
   description: string;
+  direction: StrategyDirectionMode;
   baseConfidence: number;
-  stopAtrMult: number;
-  target1R: number;
-  target2R: number;
-  bull: StrategyCondition[];
-  bear: StrategyCondition[];
+  execution: StrategyExecutionConfig;
+  bull: StrategySideRules;
+  bear: StrategySideRules;
+}
+
+function emptyGroup(): StrategyRuleGroup {
+  return { logic: StrategyRuleGroupLogic.AND, blocks: [] };
+}
+function emptySide(): StrategySideRules {
+  return { market: emptyGroup(), setup: emptyGroup() };
 }
 
 function emptyBuilder(): BuilderState {
@@ -84,13 +193,20 @@ function emptyBuilder(): BuilderState {
     name: "",
     category: "Custom",
     description: "",
+    direction: StrategyDirectionMode.BOTH,
     baseConfidence: 60,
-    stopAtrMult: 1.5,
-    target1R: 1,
-    target2R: 2,
-    bull: [emptyCondition()],
-    bear: [],
+    execution: {
+      stop: { type: StrategyStopConfigType.atr, atrMult: 1.5 },
+      target1R: 1,
+      target2R: 2,
+    },
+    bull: { market: emptyGroup(), setup: { logic: StrategyRuleGroupLogic.AND, blocks: [defaultBlock("price_vs_ema")] } },
+    bear: emptySide(),
   };
+}
+
+function sideEmpty(s: StrategySideRules): boolean {
+  return s.market.blocks.length === 0 && s.setup.blocks.length === 0;
 }
 
 export default function StrategyControlPage() {
@@ -129,7 +245,6 @@ export default function StrategyControlPage() {
     },
   });
 
-  // Pending engine-toggle overrides keyed by strategy id (id -> desired enabled).
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [showBuilder, setShowBuilder] = useState(false);
   const [builder, setBuilder] = useState<BuilderState>(emptyBuilder());
@@ -156,8 +271,10 @@ export default function StrategyControlPage() {
   if (!SLUG_RE.test(builder.slug)) builderErrors.push("slug must be lowercase words separated by underscores");
   if (builder.name.trim().length < 2) builderErrors.push("name is required");
   if (builder.category.trim().length < 2) builderErrors.push("category is required");
-  if (builder.bull.length === 0 && builder.bear.length === 0)
-    builderErrors.push("add at least one bull or bear condition");
+  if (sideEmpty(builder.bull) && sideEmpty(builder.bear))
+    builderErrors.push("add at least one bull or bear rule block");
+  if (!(builder.execution.target2R > builder.execution.target1R))
+    builderErrors.push("target 2 must be greater than target 1");
   const builderValid = builderErrors.length === 0;
 
   const submitBuilder = () => {
@@ -168,12 +285,9 @@ export default function StrategyControlPage() {
         name: builder.name.trim(),
         category: builder.category.trim(),
         description: builder.description.trim(),
+        direction: builder.direction,
         baseConfidence: builder.baseConfidence,
-        params: {
-          stopAtrMult: builder.stopAtrMult,
-          target1R: builder.target1R,
-          target2R: builder.target2R,
-        },
+        execution: builder.execution,
         bull: builder.bull,
         bear: builder.bear,
       },
@@ -289,8 +403,8 @@ export default function StrategyControlPage() {
                 <div>
                   <CardTitle className="text-base">Custom Strategies</CardTitle>
                   <CardDescription>
-                    Config/parameter-driven, backtestable on real history, and runnable live once
-                    enabled above.
+                    v2 three-layer rule language (market → setup → execution/risk). Backtestable on
+                    real history and runnable live once enabled above.
                   </CardDescription>
                 </div>
                 <Button
@@ -363,122 +477,275 @@ export default function StrategyControlPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Builder
+// Block editor
 // ---------------------------------------------------------------------------
 
-function ConditionRows({
-  title,
-  conds,
+function MiniSelect<T extends string>({
+  value,
+  options,
   onChange,
+  width = "w-28",
+  label,
 }: {
-  title: string;
-  conds: StrategyCondition[];
-  onChange: (next: StrategyCondition[]) => void;
+  value: T;
+  options: readonly T[];
+  onChange: (v: T) => void;
+  width?: string;
+  label?: (v: T) => string;
 }) {
-  const update = (i: number, c: StrategyCondition) =>
-    onChange(conds.map((x, idx) => (idx === i ? c : x)));
-  const remove = (i: number) => onChange(conds.filter((_, idx) => idx !== i));
-  const add = () => onChange([...conds, emptyCondition()]);
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as T)}>
+      <SelectTrigger className={`${width} h-8`}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o} value={o}>
+            {label ? label(o) : o}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function NumberField({
+  value,
+  onChange,
+  step = "1",
+  width = "w-20",
+}: {
+  value: number | undefined;
+  onChange: (v: number) => void;
+  step?: string;
+  width?: string;
+}) {
+  return (
+    <Input
+      type="number"
+      step={step}
+      className={`${width} h-8`}
+      value={value ?? 0}
+      onChange={(e) => onChange(Number(e.target.value))}
+    />
+  );
+}
+
+function BlockEditor({
+  block,
+  onChange,
+  onRemove,
+}: {
+  block: StrategyRuleBlock;
+  onChange: (b: StrategyRuleBlock) => void;
+  onRemove: () => void;
+}) {
+  const patch = (p: Partial<StrategyRuleBlock>) => onChange({ ...block, ...p });
+  const b = block;
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm">{title} conditions (ALL must pass)</Label>
-        <Button size="sm" variant="outline" onClick={add}>
-          <Plus className="h-3 w-3" /> Add
-        </Button>
-      </div>
-      {conds.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No conditions — this side is disabled.</p>
+    <div className="flex flex-wrap items-center gap-2 rounded border bg-muted/30 p-2">
+      <MiniSelect
+        value={b.type}
+        options={BLOCK_TYPE_OPTIONS}
+        onChange={(t) => onChange(defaultBlock(t))}
+        width="w-40"
+        label={(t) => BLOCK_LABEL[t] ?? t}
+      />
+
+      {b.type === "price_vs_ema" ? (
+        <>
+          <MiniSelect value={b.cmp ?? StrategyRuleBlockCmp.above} options={Object.values(StrategyRuleBlockCmp)} onChange={(v) => patch({ cmp: v })} width="w-20" />
+          <MiniSelect value={b.ema ?? StrategyEmaKey.ema20} options={EMA_OPTIONS} onChange={(v) => patch({ ema: v })} width="w-24" />
+        </>
       ) : null}
-      {conds.map((c, i) => (
-        <div key={i} className="flex flex-wrap items-center gap-2">
-          <Select value={c.left} onValueChange={(v) => update(i, { ...c, left: v as StrategyCondition["left"] })}>
-            <SelectTrigger className="w-28 h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FEATURE_OPTIONS.map((f) => (
-                <SelectItem key={f} value={f}>
-                  {f}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={c.op} onValueChange={(v) => update(i, { ...c, op: v as StrategyCondition["op"] })}>
-            <SelectTrigger className="w-16 h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {OP_OPTIONS.map((o) => (
-                <SelectItem key={o} value={o}>
-                  {OP_LABEL[o] ?? o}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={c.right.type}
-            onValueChange={(v) =>
-              update(i, {
-                ...c,
+
+      {b.type === "ema_stack" ? (
+        <MiniSelect value={b.order ?? StrategyRuleBlockOrder.bull} options={Object.values(StrategyRuleBlockOrder)} onChange={(v) => patch({ order: v })} width="w-24" />
+      ) : null}
+
+      {b.type === "ema_cross" ? (
+        <>
+          <MiniSelect value={b.fast ?? StrategyEmaKey.ema9} options={EMA_OPTIONS} onChange={(v) => patch({ fast: v })} width="w-24" />
+          <MiniSelect value={b.slow ?? StrategyEmaKey.ema20} options={EMA_OPTIONS} onChange={(v) => patch({ slow: v })} width="w-24" />
+          <MiniSelect value={b.dir ?? StrategyRuleBlockDir.golden} options={[StrategyRuleBlockDir.golden, StrategyRuleBlockDir.death]} onChange={(v) => patch({ dir: v })} width="w-24" />
+        </>
+      ) : null}
+
+      {b.type === "ema_slope" ? (
+        <>
+          <MiniSelect value={b.ema ?? StrategyEmaKey.ema20} options={EMA_OPTIONS} onChange={(v) => patch({ ema: v })} width="w-24" />
+          <MiniSelect value={b.dir ?? StrategyRuleBlockDir.rising} options={[StrategyRuleBlockDir.rising, StrategyRuleBlockDir.falling]} onChange={(v) => patch({ dir: v })} width="w-24" />
+          <Label className="text-xs">lookback</Label>
+          <NumberField value={b.lookback} onChange={(v) => patch({ lookback: v })} />
+        </>
+      ) : null}
+
+      {b.type === "ema_pullback" ? (
+        <>
+          <MiniSelect value={b.ema ?? StrategyEmaKey.ema20} options={EMA_OPTIONS} onChange={(v) => patch({ ema: v })} width="w-24" />
+          <MiniSelect value={b.side ?? StrategyRuleBlockSide.bull} options={Object.values(StrategyRuleBlockSide)} onChange={(v) => patch({ side: v })} width="w-24" />
+          <Label className="text-xs">tol %</Label>
+          <NumberField value={b.tolPct} step="0.1" onChange={(v) => patch({ tolPct: v })} />
+        </>
+      ) : null}
+
+      {b.type === "ema_distance_max" ? (
+        <>
+          <MiniSelect value={b.ema ?? StrategyEmaKey.ema20} options={EMA_OPTIONS} onChange={(v) => patch({ ema: v })} width="w-24" />
+          <Label className="text-xs">max %</Label>
+          <NumberField value={b.maxPct} step="0.1" onChange={(v) => patch({ maxPct: v })} />
+        </>
+      ) : null}
+
+      {b.type === "price_vs_vwap" ? (
+        <MiniSelect value={b.cmp ?? StrategyRuleBlockCmp.above} options={Object.values(StrategyRuleBlockCmp)} onChange={(v) => patch({ cmp: v })} width="w-20" />
+      ) : null}
+
+      {b.type === "vwap_cross" ? (
+        <MiniSelect value={b.dir ?? StrategyRuleBlockDir.reclaim} options={[StrategyRuleBlockDir.reclaim, StrategyRuleBlockDir.reject]} onChange={(v) => patch({ dir: v })} width="w-24" />
+      ) : null}
+
+      {b.type === "vwap_distance_max" ? (
+        <>
+          <Label className="text-xs">max %</Label>
+          <NumberField value={b.maxPct} step="0.1" onChange={(v) => patch({ maxPct: v })} />
+        </>
+      ) : null}
+
+      {b.type === "fib_zone" ? (
+        <>
+          <MiniSelect value={b.side ?? StrategyRuleBlockSide.bull} options={Object.values(StrategyRuleBlockSide)} onChange={(v) => patch({ side: v })} width="w-24" />
+          <Label className="text-xs">lo</Label>
+          <NumberField value={b.lo} step="0.001" onChange={(v) => patch({ lo: v })} />
+          <Label className="text-xs">hi</Label>
+          <NumberField value={b.hi} step="0.001" onChange={(v) => patch({ hi: v })} />
+          <Label className="text-xs">swing</Label>
+          <NumberField value={b.swingSpan} onChange={(v) => patch({ swingSpan: v })} />
+        </>
+      ) : null}
+
+      {b.type === "compare" ? (
+        <>
+          <MiniSelect value={b.left ?? StrategyFeatureKey.close} options={FEATURE_OPTIONS} onChange={(v) => patch({ left: v })} width="w-24" />
+          <MiniSelect value={b.op ?? StrategyConditionOp.gt} options={OP_OPTIONS} onChange={(v) => patch({ op: v })} width="w-16" label={(o) => OP_LABEL[o] ?? o} />
+          <MiniSelect
+            value={b.right?.type ?? StrategyConditionOperandType.feature}
+            options={Object.values(StrategyConditionOperandType)}
+            onChange={(v) =>
+              patch({
                 right:
                   v === StrategyConditionOperandType.feature
                     ? { type: StrategyConditionOperandType.feature, feature: StrategyFeatureKey.ema20 }
                     : { type: StrategyConditionOperandType.value, value: 0 },
               })
             }
-          >
-            <SelectTrigger className="w-24 h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={StrategyConditionOperandType.feature}>feature</SelectItem>
-              <SelectItem value={StrategyConditionOperandType.value}>value</SelectItem>
-            </SelectContent>
-          </Select>
-          {c.right.type === StrategyConditionOperandType.feature ? (
-            <Select
-              value={c.right.feature ?? StrategyFeatureKey.ema20}
-              onValueChange={(v) =>
-                update(i, {
-                  ...c,
-                  right: { type: StrategyConditionOperandType.feature, feature: v as StrategyFeatureKey },
-                })
-              }
-            >
-              <SelectTrigger className="w-28 h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {FEATURE_OPTIONS.map((f) => (
-                  <SelectItem key={f} value={f}>
-                    {f}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            width="w-24"
+          />
+          {b.right?.type === StrategyConditionOperandType.value ? (
+            <NumberField value={b.right.value} step="0.01" width="w-24" onChange={(v) => patch({ right: { type: StrategyConditionOperandType.value, value: v } })} />
           ) : (
-            <Input
-              type="number"
-              className="w-28 h-8"
-              value={c.right.value ?? 0}
-              onChange={(e) =>
-                update(i, {
-                  ...c,
-                  right: { type: StrategyConditionOperandType.value, value: Number(e.target.value) },
-                })
-              }
+            <MiniSelect
+              value={b.right?.feature ?? StrategyFeatureKey.ema20}
+              options={FEATURE_OPTIONS}
+              onChange={(v) => patch({ right: { type: StrategyConditionOperandType.feature, feature: v } })}
+              width="w-24"
             />
           )}
-          <Button size="icon" variant="ghost" onClick={() => remove(i)}>
-            <Trash2 className="h-3 w-3 text-destructive" />
-          </Button>
-        </div>
-      ))}
+        </>
+      ) : null}
+
+      <Button size="icon" variant="ghost" className="ml-auto" onClick={onRemove}>
+        <Trash2 className="h-3 w-3 text-destructive" />
+      </Button>
     </div>
   );
 }
+
+function GroupEditor({
+  title,
+  hint,
+  group,
+  onChange,
+}: {
+  title: string;
+  hint: string;
+  group: StrategyRuleGroup;
+  onChange: (g: StrategyRuleGroup) => void;
+}) {
+  const updateBlock = (i: number, b: StrategyRuleBlock) =>
+    onChange({ ...group, blocks: group.blocks.map((x, idx) => (idx === i ? b : x)) });
+  const removeBlock = (i: number) =>
+    onChange({ ...group, blocks: group.blocks.filter((_, idx) => idx !== i) });
+  const addBlock = () => onChange({ ...group, blocks: [...group.blocks, defaultBlock("price_vs_ema")] });
+
+  return (
+    <div className="space-y-2 rounded border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <Label className="text-sm">{title}</Label>
+          <p className="text-[11px] text-muted-foreground">{hint}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <MiniSelect
+            value={group.logic}
+            options={Object.values(StrategyRuleGroupLogic)}
+            onChange={(v) => onChange({ ...group, logic: v })}
+            width="w-20"
+          />
+          <Button size="sm" variant="outline" onClick={addBlock}>
+            <Plus className="h-3 w-3" /> Block
+          </Button>
+        </div>
+      </div>
+      {group.blocks.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No blocks — this layer passes through (disabled).</p>
+      ) : (
+        <div className="space-y-2">
+          {group.blocks.map((b, i) => (
+            <BlockEditor key={i} block={b} onChange={(nb) => updateBlock(i, nb)} onRemove={() => removeBlock(i)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SideEditor({
+  title,
+  side,
+  onChange,
+}: {
+  title: string;
+  side: StrategySideRules;
+  onChange: (s: StrategySideRules) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-sm font-semibold">{title} side</Label>
+      <GroupEditor
+        title="Market layer"
+        hint="Regime / context gates that must hold before any setup is considered."
+        group={side.market}
+        onChange={(g) => onChange({ ...side, market: g })}
+      />
+      <GroupEditor
+        title="Setup layer"
+        hint="The entry trigger conditions themselves."
+        group={side.setup}
+        onChange={(g) => onChange({ ...side, setup: g })}
+      />
+      <div className="rounded bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+        <span className="font-medium">Summary:</span> Market [{groupSummary(side.market)}] → Setup [
+        {groupSummary(side.setup)}]
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Builder
+// ---------------------------------------------------------------------------
 
 function StrategyBuilder({
   builder,
@@ -497,9 +764,14 @@ function StrategyBuilder({
 }) {
   const set = <K extends keyof BuilderState>(k: K, v: BuilderState[K]) =>
     setBuilder((b) => ({ ...b, [k]: v }));
+  const setExec = (p: Partial<StrategyExecutionConfig>) =>
+    setBuilder((b) => ({ ...b, execution: { ...b.execution, ...p } }));
+
+  const stop = builder.execution.stop;
 
   return (
     <div className="space-y-4">
+      {/* Identity */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label className="text-xs">Slug (id = CUSTOM_&lt;slug&gt;)</Label>
@@ -519,54 +791,85 @@ function StrategyBuilder({
           <Input value={builder.category} onChange={(e) => set("category", e.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Base confidence (0–100)</Label>
-          <Input
-            type="number"
-            value={builder.baseConfidence}
-            onChange={(e) => set("baseConfidence", Number(e.target.value))}
+          <Label className="text-xs">Direction</Label>
+          <MiniSelect
+            value={builder.direction}
+            options={Object.values(StrategyDirectionMode)}
+            onChange={(v) => set("direction", v)}
+            width="w-full"
           />
         </div>
       </div>
       <div className="space-y-1">
         <Label className="text-xs">Description</Label>
-        <Textarea
-          value={builder.description}
-          rows={2}
-          onChange={(e) => set("description", e.target.value)}
-        />
+        <Textarea value={builder.description} rows={2} onChange={(e) => set("description", e.target.value)} />
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Stop × ATR</Label>
-          <Input
-            type="number"
-            step="0.1"
-            value={builder.stopAtrMult}
-            onChange={(e) => set("stopAtrMult", Number(e.target.value))}
-          />
+
+      {/* Execution / risk layer */}
+      <div className="rounded border p-3 space-y-3">
+        <Label className="text-sm font-semibold">Execution &amp; risk layer</Label>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="space-y-1">
+            <Label className="text-xs">Stop type</Label>
+            <MiniSelect
+              value={stop.type}
+              options={Object.values(StrategyStopConfigType)}
+              onChange={(v) =>
+                setExec({
+                  stop:
+                    v === StrategyStopConfigType.atr
+                      ? { type: StrategyStopConfigType.atr, atrMult: stop.atrMult ?? 1.5 }
+                      : { type: StrategyStopConfigType.swing, swingSpan: stop.swingSpan ?? 10, bufferAtrMult: stop.bufferAtrMult ?? 0.25 },
+                })
+              }
+              width="w-full"
+            />
+          </div>
+          {stop.type === StrategyStopConfigType.atr ? (
+            <div className="space-y-1">
+              <Label className="text-xs">Stop × ATR</Label>
+              <NumberField value={stop.atrMult} step="0.1" width="w-full" onChange={(v) => setExec({ stop: { type: StrategyStopConfigType.atr, atrMult: v } })} />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs">Swing span</Label>
+                <NumberField value={stop.swingSpan} width="w-full" onChange={(v) => setExec({ stop: { type: StrategyStopConfigType.swing, swingSpan: v, bufferAtrMult: stop.bufferAtrMult ?? 0.25 } })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Buffer × ATR</Label>
+                <NumberField value={stop.bufferAtrMult} step="0.05" width="w-full" onChange={(v) => setExec({ stop: { type: StrategyStopConfigType.swing, swingSpan: stop.swingSpan ?? 10, bufferAtrMult: v } })} />
+              </div>
+            </>
+          )}
+          <div className="space-y-1">
+            <Label className="text-xs">Base confidence</Label>
+            <NumberField value={builder.baseConfidence} width="w-full" onChange={(v) => set("baseConfidence", v)} />
+          </div>
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Target 1 (R)</Label>
-          <Input
-            type="number"
-            step="0.25"
-            value={builder.target1R}
-            onChange={(e) => set("target1R", Number(e.target.value))}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Target 2 (R)</Label>
-          <Input
-            type="number"
-            step="0.25"
-            value={builder.target2R}
-            onChange={(e) => set("target2R", Number(e.target.value))}
-          />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="space-y-1">
+            <Label className="text-xs">Target 1 (R)</Label>
+            <NumberField value={builder.execution.target1R} step="0.25" width="w-full" onChange={(v) => setExec({ target1R: v })} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Target 2 (R)</Label>
+            <NumberField value={builder.execution.target2R} step="0.25" width="w-full" onChange={(v) => setExec({ target2R: v })} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Min RR (optional)</Label>
+            <NumberField value={builder.execution.minRR} step="0.25" width="w-full" onChange={(v) => setExec({ minRR: v })} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Max stop × ATR (optional)</Label>
+            <NumberField value={builder.execution.maxStopAtrMult} step="0.25" width="w-full" onChange={(v) => setExec({ maxStopAtrMult: v })} />
+          </div>
         </div>
       </div>
 
-      <ConditionRows title="Bull" conds={builder.bull} onChange={(c) => set("bull", c)} />
-      <ConditionRows title="Bear" conds={builder.bear} onChange={(c) => set("bear", c)} />
+      {/* Rule sides */}
+      <SideEditor title="Bull" side={builder.bull} onChange={(s) => set("bull", s)} />
+      <SideEditor title="Bear" side={builder.bear} onChange={(s) => set("bear", s)} />
 
       {errors.length > 0 ? (
         <ul className="text-xs text-destructive list-disc pl-5">

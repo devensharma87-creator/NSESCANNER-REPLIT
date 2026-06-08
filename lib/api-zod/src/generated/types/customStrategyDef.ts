@@ -5,20 +5,23 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
-import type { StrategyCondition } from "./strategyCondition";
-import type { StrategyParams } from "./strategyParams";
+import type { CustomStrategyDefVersion } from "./customStrategyDefVersion";
+import type { StrategyDirectionMode } from "./strategyDirectionMode";
+import type { StrategyExecutionConfig } from "./strategyExecutionConfig";
+import type { StrategySideRules } from "./strategySideRules";
 
 export interface CustomStrategyDef {
+  /** Spec language version (always 2). */
+  version: CustomStrategyDefVersion;
   /** Stable id, always CUSTOM_<slug>. */
   id: string;
   name: string;
   category: string;
   description: string;
-  /** ALL conditions must pass to take the bull side. Empty = side disabled. */
-  bull: StrategyCondition[];
-  /** ALL conditions must pass to take the bear side. Empty = side disabled. */
-  bear: StrategyCondition[];
-  params: StrategyParams;
+  direction: StrategyDirectionMode;
+  bull: StrategySideRules;
+  bear: StrategySideRules;
+  execution: StrategyExecutionConfig;
   /**
    * Transparent base confidence (0-100) carried into both surfaces.
    * @minimum 0

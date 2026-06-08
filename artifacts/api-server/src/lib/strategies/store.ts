@@ -6,7 +6,7 @@
 import { db, strategyDefinitionsTable, strategyEngineStateTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "../logger";
-import { CustomStrategySpecSchema, type CustomStrategySpec } from "./customSpec";
+import { parsePersistedSpec, type CustomStrategySpec } from "./customSpec";
 import { ENGINE_BUILTIN_IDS } from "./catalog";
 
 export const OWNER_KEY = "owner";
@@ -19,9 +19,11 @@ export async function listCustomSpecs(ownerKey: string = OWNER_KEY): Promise<Cus
     .where(eq(strategyDefinitionsTable.ownerKey, ownerKey));
   const out: CustomStrategySpec[] = [];
   for (const r of rows) {
-    const parsed = CustomStrategySpecSchema.safeParse(r.spec);
-    if (parsed.success) out.push(parsed.data);
-    else logger.warn({ id: r.id, issues: parsed.error.issues }, "strategy_definitions: skipping malformed spec");
+    // parsePersistedSpec accepts native v2 AND migrates legacy v1 rows; returns
+    // null only when neither validates → we SKIP (never fabricate a strategy).
+    const parsed = parsePersistedSpec(r.spec);
+    if (parsed) out.push(parsed);
+    else logger.warn({ id: r.id }, "strategy_definitions: skipping malformed spec");
   }
   return out;
 }
@@ -36,8 +38,7 @@ export async function getCustomSpec(
     .where(and(eq(strategyDefinitionsTable.ownerKey, ownerKey), eq(strategyDefinitionsTable.id, id)))
     .limit(1);
   if (!row) return null;
-  const parsed = CustomStrategySpecSchema.safeParse(row.spec);
-  return parsed.success ? parsed.data : null;
+  return parsePersistedSpec(row.spec);
 }
 
 export async function upsertCustomSpec(

@@ -69,3 +69,19 @@ export function rsi(values: number[], period = 14): (number | null)[] {
   }
   return out;
 }
+
+export {
+  slopeDir,
+  crossedUpAt,
+  crossedDownAt,
+  distancePct,
+  withinPct,
+  lastConfirmedSwings,
+  fibRetracePrice,
+  fibExtensionPrice,
+  FIB_RETRACE_RATIOS,
+  FIB_EXTENSION_RATIOS,
+  type SlopeDir,
+  type ConfirmedSwings,
+  type FibRatio,
+} from "./windowed";

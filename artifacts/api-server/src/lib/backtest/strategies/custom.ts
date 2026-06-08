@@ -1,20 +1,23 @@
 /**
- * Backtest adapter for owner-defined custom strategies. Turns a declarative
+ * Backtest adapter for owner-defined custom strategies. Turns a declarative v2
  * `CustomStrategySpec` into a `StrategyModule` the Backtest Lab runner can drive
- * on the REAL 2-year spot candles — using the SAME context-agnostic evaluator
- * the live engine uses, so a custom strategy behaves identically on both
- * surfaces.
+ * on the REAL 2-year spot candles — using the SAME shared evaluator
+ * (`evaluateSpecAt`) the live engine uses, so a custom strategy behaves
+ * identically on both surfaces (locked by a parity test).
  *
  * Honesty contract is inherited from base.ts: this module reads only causal
  * series (index ≤ i), never fabricates data, and a null/NaN feature simply makes
- * the relevant condition fail.
+ * the relevant block fail. VWAP here is the labeled equal-weighted session-mean
+ * substitute (historical index candles carry no volume).
  */
 import type { BacktestStrategyMetaOut } from "../types";
 import {
-  evaluateCustomSpec,
   type CustomStrategySpec,
-  type FeatureSnapshot,
+  type ExecutionConfig,
+  sideIsEmpty,
 } from "../../strategies/customSpec";
+import { projectFeatureSeries, type FeatureSeries } from "../../strategies/customFeatures";
+import { evaluateSpecAt } from "../../strategies/customEval";
 import {
   paramNum,
   type StrategyContext,
@@ -23,24 +26,54 @@ import {
   type StrategyParams,
 } from "./base";
 
-/** Project a backtest context at bar `i` into the common feature snapshot. */
-export function featuresFromBacktestContext(ctx: StrategyContext, i: number): FeatureSnapshot {
-  return {
-    close: ctx.closes[i] ?? null,
-    ema9: ctx.ema9[i] ?? null,
-    ema20: ctx.ema20[i] ?? null,
-    ema50: ctx.ema50[i] ?? null,
-    rsi14: ctx.rsi14[i] ?? null,
-    atr14: ctx.atr14[i] ?? null,
-    // Equal-weighted session-mean is the honest VWAP substitute (no historical volume).
-    vwap: ctx.sessionMean[i] ?? null,
-  };
+/**
+ * Build the shared FeatureSeries from a backtest context. EMA/RSI are recomputed
+ * from closes inside the projector (the parity contract); VWAP uses the honest
+ * session-mean substitute and ATR is the backtest's own ATR(14).
+ */
+export function featureSeriesFromBacktestContext(ctx: StrategyContext): FeatureSeries {
+  return projectFeatureSeries({
+    open: ctx.opens,
+    high: ctx.highs,
+    low: ctx.lows,
+    close: ctx.closes,
+    vwap: ctx.sessionMean,
+    atr14: ctx.atr14,
+    istMinute: ctx.istMinute,
+  });
+}
+
+// One FeatureSeries per context object (it is independent of strategy params).
+const seriesCache = new WeakMap<StrategyContext, FeatureSeries>();
+function seriesFor(ctx: StrategyContext): FeatureSeries {
+  let s = seriesCache.get(ctx);
+  if (!s) {
+    s = featureSeriesFromBacktestContext(ctx);
+    seriesCache.set(ctx, s);
+  }
+  return s;
+}
+
+function sidesOf(spec: CustomStrategySpec): string[] {
+  const sides: string[] = [];
+  if (!sideIsEmpty(spec.bull) && spec.direction !== "PUT_ONLY") sides.push("long");
+  if (!sideIsEmpty(spec.bear) && spec.direction !== "CALL_ONLY") sides.push("short");
+  return sides;
+}
+
+function stopDescription(exec: ExecutionConfig): string {
+  return exec.stop.type === "atr"
+    ? `stop = ${exec.stop.atrMult}×ATR`
+    : `stop = swing(${exec.stop.swingSpan}) ± ${exec.stop.bufferAtrMult}×ATR`;
 }
 
 export function customStrategyMeta(spec: CustomStrategySpec): BacktestStrategyMetaOut {
-  const sides: string[] = [];
-  if (spec.bull.length > 0) sides.push("long");
-  if (spec.bear.length > 0) sides.push("short");
+  const sides = sidesOf(spec);
+  const defaultParams: Record<string, number> = {
+    target1R: spec.execution.target1R,
+    target2R: spec.execution.target2R,
+  };
+  if (spec.execution.stop.type === "atr") defaultParams["stopAtrMult"] = spec.execution.stop.atrMult;
   return {
     id: spec.id,
     name: spec.name,
@@ -51,14 +84,12 @@ export function customStrategyMeta(spec: CustomStrategySpec): BacktestStrategyMe
     riskLevel: "Custom",
     description:
       (spec.description ? spec.description + " " : "") +
-      `Custom strategy (${sides.join(" / ") || "no side"}). Defined-risk: stop = ${spec.params.stopAtrMult}×ATR, targets ${spec.params.target1R}R / ${spec.params.target2R}R.`,
+      `Custom v${spec.version} strategy (${sides.join(" / ") || "no side"}). Defined-risk: ${stopDescription(
+        spec.execution,
+      )}, targets ${spec.execution.target1R}R / ${spec.execution.target2R}R.`,
     ignoredFilters: [],
     ignoredFiltersRationale: "",
-    defaultParams: {
-      stopAtrMult: spec.params.stopAtrMult,
-      target1R: spec.params.target1R,
-      target2R: spec.params.target2R,
-    },
+    defaultParams,
   };
 }
 
@@ -66,28 +97,32 @@ export function customStrategyModule(spec: CustomStrategySpec): StrategyModule {
   return {
     meta: customStrategyMeta(spec),
     evaluate(ctx: StrategyContext, i: number, params: StrategyParams): StrategyEntry | null {
-      const effSpec: CustomStrategySpec = {
-        ...spec,
-        params: {
-          stopAtrMult: paramNum(params, "stopAtrMult", spec.params.stopAtrMult),
-          target1R: paramNum(params, "target1R", spec.params.target1R),
-          target2R: paramNum(params, "target2R", spec.params.target2R),
-        },
+      const exec: ExecutionConfig = {
+        ...spec.execution,
+        target1R: paramNum(params, "target1R", spec.execution.target1R),
+        target2R: paramNum(params, "target2R", spec.execution.target2R),
+        stop:
+          spec.execution.stop.type === "atr"
+            ? { type: "atr", atrMult: paramNum(params, "stopAtrMult", spec.execution.stop.atrMult) }
+            : spec.execution.stop,
       };
-      const f = featuresFromBacktestContext(ctx, i);
-      const r = evaluateCustomSpec(f, effSpec);
-      if (!r) return null;
+      const effSpec: CustomStrategySpec = { ...spec, execution: exec };
+      const res = evaluateSpecAt(seriesFor(ctx), i, effSpec);
+      if (!res.fired || res.side == null || res.entry == null || res.stop == null || res.target1 == null || res.target2 == null) {
+        return null;
+      }
+      const failed = res.reasons.filter((r) => !r.passed).map((r) => r.label);
       return {
-        direction: r.direction,
-        optionType: r.direction === "BULL" ? "CALL" : "PUT",
-        entrySpot: r.entrySpot,
-        stop: r.stop,
-        target1: r.target1,
-        target2: r.target2,
-        confidence: r.confidence,
-        entryReason: `${spec.name}: ${r.passed.join(" & ")}`,
-        passedConditions: r.passed,
-        failedConditions: [],
+        direction: res.side,
+        optionType: res.side === "BULL" ? "CALL" : "PUT",
+        entrySpot: res.entry,
+        stop: res.stop,
+        target1: res.target1,
+        target2: res.target2,
+        confidence: res.confidence ?? spec.baseConfidence,
+        entryReason: `${spec.name}: ${res.passedLabels.join(" & ") || "rules met"}`,
+        passedConditions: res.passedLabels,
+        failedConditions: failed,
         warnings: [],
       };
     },

@@ -30,11 +30,9 @@ import {
 } from "./optionSignalGates";
 import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
 import { ENGINE_BUILTIN_IDS } from "./strategies/catalog";
-import {
-  evaluateCustomSpec,
-  type CustomStrategySpec,
-  type FeatureSnapshot,
-} from "./strategies/customSpec";
+import { type CustomStrategySpec } from "./strategies/customSpec";
+import { projectFeatureSeries, type FeatureSeries } from "./strategies/customFeatures";
+import { evaluateSpecAt } from "./strategies/customEval";
 
 export interface IndexCfg {
   symbol: string;
@@ -211,6 +209,14 @@ export interface Ctx {
   /** Phase-1 regime classification (TRENDING_BULL/BEAR | RANGING | VOLATILE | EXPIRY_DAY).
    *  Read-only label attached to every emitted signal — does NOT gate any setup yet. */
   regime: RegimeResult;
+  /** Cross-surface causal feature series over the FULL intra window (warm EMAs,
+   *  day-reset VWAP, IST-minute), consumed by owner-defined custom strategies via
+   *  the SAME `evaluateSpecAt` evaluator the Backtest Lab uses. Evaluated at the
+   *  last index (`customEvalIndex`). Never fabricated — null/NaN features simply
+   *  fail the relevant block. */
+  customFeatureSeries: FeatureSeries;
+  /** Index into `customFeatureSeries` for the latest (in-progress) bar. */
+  customEvalIndex: number;
 }
 
 const MIN_BARS_FOR_CONTEXT = 2;
@@ -433,6 +439,48 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart, now: 
   }
   const volRegime = classifyVolRegime(realizedVol14);
 
+  // Cross-surface custom-strategy FeatureSeries over the FULL intra window.
+  // VWAP is day-reset cumulative typical-price×volume (falls back to per-bar
+  // typical price when index volume is zero — same semantics as sessionVwap);
+  // istMinute comes from the real bar timestamps so the execution session-window
+  // gate is honest. ATR(14) is the full-window true-range ATR. EMA/RSI are
+  // recomputed inside projectFeatureSeries from closes — identical to backtest.
+  // When timestamps are missing we leave istMinute NaN ⇒ the evaluator fails the
+  // session gate (NO_SESSION_DATA) rather than fabricating a bar time.
+  const istMinuteFull: number[] = new Array(intraCloses.length).fill(Number.NaN);
+  const vwapFull: (number | null)[] = new Array(intraCloses.length).fill(null);
+  if (intra.timestamps && intra.timestamps.length === intraCloses.length) {
+    let curDay = "";
+    let pvAcc = 0;
+    let volAcc = 0;
+    for (let i = 0; i < intraCloses.length; i++) {
+      const ts = intra.timestamps[i]!;
+      const d = new Date(ts * 1000 + 5.5 * 3600 * 1000);
+      const day = d.toISOString().slice(0, 10);
+      istMinuteFull[i] = d.getUTCHours() * 60 + d.getUTCMinutes();
+      if (day !== curDay) {
+        curDay = day;
+        pvAcc = 0;
+        volAcc = 0;
+      }
+      const typ = (intraHighs[i]! + intraLows[i]! + intraCloses[i]!) / 3;
+      const vol = intra.volume[i] ?? 0;
+      pvAcc += typ * vol;
+      volAcc += vol;
+      vwapFull[i] = volAcc > 0 ? pvAcc / volAcc : typ;
+    }
+  }
+  const customFeatureSeries = projectFeatureSeries({
+    open: intra.open,
+    high: intraHighs,
+    low: intraLows,
+    close: intraCloses,
+    vwap: vwapFull,
+    atr14: atr(intraHighs, intraLows, intraCloses, 14),
+    istMinute: istMinuteFull,
+  });
+  const customEvalIndex = intraCloses.length - 1;
+
   // Phase-1 regime classifier. Pure label — does not gate any setup
   // emission. Surfaced on the API so the UI can show a chip and the
   // owner can spot "all my recent losses came from RANGING days".
@@ -469,6 +517,8 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart, now: 
     realizedVol14,
     volRegime,
     regime,
+    customFeatureSeries,
+    customEvalIndex,
   };
 }
 
@@ -622,38 +672,38 @@ export interface Detected {
 // trade at BASELINE tier (smaller exposure, full audit tag).
 const VOL_CLAMP_REJECT_RATIO = 1.5;
 
-/** Project the live-engine Ctx into the cross-surface feature snapshot used by
- *  custom strategies. `atr14` maps to the engine's intraday `atr15` (closest
- *  available analogue); `close` is the live spot. No fabrication — every field
- *  below is always present on Ctx. */
-function featuresFromEngineCtx(c: Ctx): FeatureSnapshot {
-  return {
-    close: c.spot,
-    ema9: c.ema9,
-    ema20: c.ema20,
-    ema50: c.ema50,
-    rsi14: c.rsi14,
-    atr14: c.atr15,
-    vwap: c.vwap,
-  };
-}
-
-/** Build a Detected for an owner-defined custom strategy using the SAME pure
- *  evaluator the Backtest Lab uses, so a custom strategy behaves identically on
- *  both surfaces. Returns null when conditions are unmet. Downstream it passes
- *  through every existing safety/demote gate unchanged. */
+/** Build a Detected for an owner-defined custom strategy using the SAME shared
+ *  evaluator (`evaluateSpecAt`) the Backtest Lab uses, over the cross-surface
+ *  `customFeatureSeries` evaluated at the latest bar — so a custom strategy
+ *  behaves identically on both surfaces (parity test). Returns null when the
+ *  rules/geometry are unmet. Downstream it passes through every existing
+ *  safety/demote gate unchanged. */
 function makeCustomEngineDetected(spec: CustomStrategySpec, c: Ctx): Detected | null {
-  const r = evaluateCustomSpec(featuresFromEngineCtx(c), spec);
-  if (!r) return null;
-  const dir: Direction = r.direction === "BULL" ? "BULLISH" : "BEARISH";
-  const w = r.passed.length > 0 ? Math.round(r.confidence / r.passed.length) : r.confidence;
-  const drivers: SignalReason[] = r.passed.map((p) => ({
+  const r = evaluateSpecAt(c.customFeatureSeries, c.customEvalIndex, spec);
+  if (
+    !r.fired ||
+    r.side == null ||
+    r.entry == null ||
+    r.stop == null ||
+    r.target1 == null ||
+    r.target2 == null
+  ) {
+    return null;
+  }
+  const dir: Direction = r.side === "BULL" ? "BULLISH" : "BEARISH";
+  const conf = r.confidence ?? spec.baseConfidence;
+  const w = r.passedLabels.length > 0 ? Math.round(conf / r.passedLabels.length) : conf;
+  const drivers: SignalReason[] = r.passedLabels.map((p) => ({
     label: p,
     detail: `${spec.name}: condition met`,
     weight: w,
     bullish: dir === "BULLISH",
   }));
   const optTxt = dir === "BULLISH" ? "CE" : "PE";
+  const stopDesc =
+    spec.execution.stop.type === "atr"
+      ? `${spec.execution.stop.atrMult}×ATR`
+      : `swing(${spec.execution.stop.swingSpan}) ± ${spec.execution.stop.bufferAtrMult}×ATR`;
   return {
     // Custom ids are opaque strings; the DB column + API field are text. The
     // generated setupKey union is closed to builtins, so cast at this boundary.
@@ -661,16 +711,16 @@ function makeCustomEngineDetected(spec: CustomStrategySpec, c: Ctx): Detected | 
     setupName: `${spec.name} — ${dir === "BULLISH" ? "Long" : "Short"}`,
     setupSummary:
       (spec.description ? spec.description + " " : "") +
-      `Buy ${optTxt} when owner-defined conditions align (${r.passed.join(", ")}).`,
+      `Buy ${optTxt} when owner-defined conditions align (${r.passedLabels.join(", ")}).`,
     direction: dir,
-    confidence: r.confidence,
+    confidence: conf,
     drivers,
-    entryTrigger: `Custom conditions met at spot ${r.entrySpot.toFixed(2)}`,
-    entryLevel: r.entrySpot,
+    entryTrigger: `Custom conditions met at spot ${r.entry.toFixed(2)}`,
+    entryLevel: r.entry,
     stopLevel: r.stop,
     targetLevel: r.target1,
     target2Level: r.target2,
-    invalidation: `Stop at ${r.stop.toFixed(2)} (${spec.params.stopAtrMult}×ATR)`,
+    invalidation: `Stop at ${r.stop.toFixed(2)} (${stopDesc})`,
   };
 }
 

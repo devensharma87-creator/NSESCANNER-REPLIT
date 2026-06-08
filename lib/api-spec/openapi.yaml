@@ -5625,6 +5625,10 @@ components:
       type: string
       enum: [close, ema9, ema20, ema50, rsi14, atr14, vwap]
 
+    StrategyEmaKey:
+      type: string
+      enum: [ema9, ema20, ema50]
+
     StrategyConditionOp:
       type: string
       enum: [gt, lt, gte, lte]
@@ -5638,39 +5642,105 @@ components:
         feature: { $ref: "#/components/schemas/StrategyFeatureKey" }
         value: { type: number }
 
-    StrategyCondition:
+    StrategyDirectionMode:
+      type: string
+      enum: [BOTH, CALL_ONLY, PUT_ONLY]
+      description: "Which option side(s) the strategy may take."
+
+    StrategyRuleBlock:
       type: object
-      required: [left, op, right]
+      required: [type]
+      description: >
+        One v2 rule block, discriminated by `type`. The server Zod schema is the
+        strict, fail-closed validator; this OpenAPI shape is intentionally
+        permissive (all non-`type` fields optional) so the builder UI can carry
+        any block kind. Block types: price_vs_ema, ema_stack, ema_cross,
+        ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross,
+        vwap_distance_max, fib_zone, compare.
       properties:
+        type:
+          type: string
+          enum: [price_vs_ema, ema_stack, ema_cross, ema_slope, ema_pullback, ema_distance_max, price_vs_vwap, vwap_cross, vwap_distance_max, fib_zone, compare]
+        ema: { $ref: "#/components/schemas/StrategyEmaKey" }
+        cmp: { type: string, enum: [above, below] }
+        order: { type: string, enum: [bull, bear] }
+        fast: { $ref: "#/components/schemas/StrategyEmaKey" }
+        slow: { $ref: "#/components/schemas/StrategyEmaKey" }
+        dir: { type: string, enum: [golden, death, rising, falling, reclaim, reject], description: "Direction token; valid set depends on block type." }
+        lookback: { type: integer, minimum: 1, maximum: 50 }
+        side: { type: string, enum: [bull, bear] }
+        tolPct: { type: number, minimum: 0, maximum: 100 }
+        maxPct: { type: number, minimum: 0, maximum: 100 }
+        lo: { type: number, description: "fib_zone lower bound (0-1); must be < hi." }
+        hi: { type: number, description: "fib_zone upper bound (0-1); must be > lo." }
+        swingSpan: { type: integer, minimum: 1, maximum: 200 }
         left: { $ref: "#/components/schemas/StrategyFeatureKey" }
         op: { $ref: "#/components/schemas/StrategyConditionOp" }
         right: { $ref: "#/components/schemas/StrategyConditionOperand" }
 
-    StrategyParams:
+    StrategyRuleGroup:
       type: object
-      required: [stopAtrMult, target1R, target2R]
+      required: [logic, blocks]
+      description: "A boolean group of blocks plus (optionally) nested groups. AND = all must pass; OR = any."
       properties:
-        stopAtrMult: { type: number, minimum: 0.5, maximum: 5, description: "Stop distance = stopAtrMult × ATR(14)." }
+        logic: { type: string, enum: [AND, OR] }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/StrategyRuleBlock" }
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/StrategyRuleGroup" }
+
+    StrategySideRules:
+      type: object
+      required: [market, setup]
+      description: "One direction's two gating layers. Empty layers are pass-through; an entirely-empty side is disabled."
+      properties:
+        market: { $ref: "#/components/schemas/StrategyRuleGroup" }
+        setup: { $ref: "#/components/schemas/StrategyRuleGroup" }
+
+    StrategyStopConfig:
+      type: object
+      required: [type]
+      description: "Stop geometry: `atr` (atrMult × ATR14) or `swing` (recent fractal ± bufferAtrMult × ATR14)."
+      properties:
+        type: { type: string, enum: [atr, swing] }
+        atrMult: { type: number, minimum: 0.25, maximum: 8, description: "Set when type=atr." }
+        swingSpan: { type: integer, minimum: 1, maximum: 200, description: "Set when type=swing." }
+        bufferAtrMult: { type: number, minimum: 0, maximum: 8, description: "Set when type=swing." }
+
+    StrategyExecutionConfig:
+      type: object
+      required: [stop, target1R, target2R]
+      properties:
+        stop: { $ref: "#/components/schemas/StrategyStopConfig" }
         target1R: { type: number, minimum: 0.25, maximum: 10, description: "Target 1 as a multiple of the risk (stop distance)." }
-        target2R: { type: number, minimum: 0.25, maximum: 10, description: "Target 2 as a multiple of the risk (stop distance)." }
+        target2R: { type: number, minimum: 0.25, maximum: 20, description: "Target 2 as a multiple of the risk (stop distance)." }
+        minRR: { type: number, minimum: 0, maximum: 20, description: "Reject if planned target-1 reward (in R) is below this." }
+        maxStopAtrMult: { type: number, minimum: 0.25, maximum: 20, description: "Reject if stop distance exceeds this multiple of ATR (swing sanity)." }
+        sessionWindow:
+          type: object
+          required: [startMin, endMin]
+          description: "IST minute-of-day window [start,end] inclusive within which entries may fire."
+          properties:
+            startMin: { type: integer, minimum: 0, maximum: 1439 }
+            endMin: { type: integer, minimum: 0, maximum: 1439 }
+        trailingToBreakeven: { type: boolean, description: "Runner-enforced metadata: trail to breakeven after +1R." }
+        dailyCap: { type: integer, minimum: 1, maximum: 100, description: "Runner-enforced metadata: max entries/day." }
 
     CustomStrategyDef:
       type: object
-      required: [id, name, category, description, bull, bear, params, baseConfidence]
+      required: [version, id, name, category, description, direction, bull, bear, execution, baseConfidence]
       properties:
+        version: { type: integer, enum: [2], description: "Spec language version (always 2)." }
         id: { type: string, description: "Stable id, always CUSTOM_<slug>." }
         name: { type: string }
         category: { type: string }
         description: { type: string }
-        bull:
-          type: array
-          description: "ALL conditions must pass to take the bull side. Empty = side disabled."
-          items: { $ref: "#/components/schemas/StrategyCondition" }
-        bear:
-          type: array
-          description: "ALL conditions must pass to take the bear side. Empty = side disabled."
-          items: { $ref: "#/components/schemas/StrategyCondition" }
-        params: { $ref: "#/components/schemas/StrategyParams" }
+        direction: { $ref: "#/components/schemas/StrategyDirectionMode" }
+        bull: { $ref: "#/components/schemas/StrategySideRules" }
+        bear: { $ref: "#/components/schemas/StrategySideRules" }
+        execution: { $ref: "#/components/schemas/StrategyExecutionConfig" }
         baseConfidence: { type: number, minimum: 0, maximum: 100, description: "Transparent base confidence (0-100) carried into both surfaces." }
 
     CustomStrategyInput:
@@ -5681,13 +5751,10 @@ components:
         name: { type: string, minLength: 2, maxLength: 80 }
         category: { type: string, minLength: 2, maxLength: 40 }
         description: { type: string, maxLength: 400 }
-        bull:
-          type: array
-          items: { $ref: "#/components/schemas/StrategyCondition" }
-        bear:
-          type: array
-          items: { $ref: "#/components/schemas/StrategyCondition" }
-        params: { $ref: "#/components/schemas/StrategyParams" }
+        direction: { $ref: "#/components/schemas/StrategyDirectionMode" }
+        bull: { $ref: "#/components/schemas/StrategySideRules" }
+        bear: { $ref: "#/components/schemas/StrategySideRules" }
+        execution: { $ref: "#/components/schemas/StrategyExecutionConfig" }
         baseConfidence: { type: number, minimum: 0, maximum: 100 }
 
     StrategyCatalogEntry:
