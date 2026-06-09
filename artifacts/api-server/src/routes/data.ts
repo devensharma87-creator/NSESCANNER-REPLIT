@@ -22,9 +22,9 @@ const router: IRouter = Router();
 
 router.use("/data", requireOwner);
 
-router.get("/data/diagnostics", (_req, res, next) => {
+router.get("/data/diagnostics", async (_req, res, next) => {
   try {
-    res.json(buildDataDiagnostics());
+    res.json(await buildDataDiagnostics());
   } catch (err) {
     next(err);
   }

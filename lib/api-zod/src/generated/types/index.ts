@@ -413,6 +413,7 @@ export * from "./stockStatements";
 export * from "./strikeOiChange";
 export * from "./strikeOiChangeEntry";
 export * from "./symbolDiagnostic";
+export * from "./symbolDiagnosticSource";
 export * from "./symbolIndstocksDiagnostic";
 export * from "./tomorrowSetup";
 export * from "./topScans";

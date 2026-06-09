@@ -241,6 +241,7 @@ export async function validateAgainstIndstocks(
   symbol: string,
   kiteQuote: MarketQuote,
   assetClass: InstrumentAssetClass = "EQUITY",
+  record = true,
 ): Promise<CrossValidation> {
   const sym = symbol.toUpperCase();
   if (!isIndstocksEnabled()) {
@@ -271,7 +272,7 @@ export async function validateAgainstIndstocks(
     return { symbol: sym, mappingOk: true, reason: "INDstocks quote incomplete; cross-validation skipped.", indstocks: ind, result: null };
   }
   const result = validateQuotePair(kiteQuote, ind);
-  recordValidation(result.verdict);
+  if (record) recordValidation(result.verdict);
   return { symbol: sym, mappingOk: true, reason: null, indstocks: ind, result };
 }
 

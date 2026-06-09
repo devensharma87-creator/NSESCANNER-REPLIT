@@ -310,7 +310,7 @@ export async function buildStatusReport(): Promise<StatusReport> {
   // Single source of truth shared with /api/data/diagnostics so the system
   // page and the diagnostics endpoint can never disagree about provider state.
   try {
-    const diag = buildDataDiagnostics();
+    const diag = await buildDataDiagnostics();
     const stateToSeverity = (
       name: string,
       state: "active" | "degraded" | "inactive" | "disabled",

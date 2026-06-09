@@ -6170,6 +6170,16 @@ export const GetSymbolDiagnosticResponse = zod.object({
   generatedAt: zod.coerce.date(),
   tradeable: zod.boolean(),
   reason: zod.string().nullable(),
+  source: zod
+    .enum(["kite", "indstocks", "yahoo"])
+    .describe(
+      'Provider that actually served the quote — \"indstocks\" only on failover.',
+    ),
+  failover: zod
+    .boolean()
+    .describe(
+      "True when Kite was unavailable and the quote came from INDstocks failover.",
+    ),
   quote: zod
     .object({
       symbol: zod.string(),

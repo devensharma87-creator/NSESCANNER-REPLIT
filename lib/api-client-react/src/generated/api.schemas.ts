@@ -2505,11 +2505,27 @@ export interface SymbolIndstocksDiagnostic {
   validation: ValidationResult | null;
 }
 
+/**
+ * Provider that actually served the quote — "indstocks" only on failover.
+ */
+export type SymbolDiagnosticSource =
+  (typeof SymbolDiagnosticSource)[keyof typeof SymbolDiagnosticSource];
+
+export const SymbolDiagnosticSource = {
+  kite: "kite",
+  indstocks: "indstocks",
+  yahoo: "yahoo",
+} as const;
+
 export interface SymbolDiagnostic {
   symbol: string;
   generatedAt: string;
   tradeable: boolean;
   reason: string | null;
+  /** Provider that actually served the quote — "indstocks" only on failover. */
+  source: SymbolDiagnosticSource;
+  /** True when Kite was unavailable and the quote came from INDstocks failover. */
+  failover: boolean;
   quote: TrustedQuoteDto | null;
   indstocks: SymbolIndstocksDiagnostic | null;
 }

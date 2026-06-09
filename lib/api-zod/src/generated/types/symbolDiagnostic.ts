@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { SymbolDiagnosticSource } from "./symbolDiagnosticSource";
 import type { SymbolIndstocksDiagnostic } from "./symbolIndstocksDiagnostic";
 import type { TrustedQuoteDto } from "./trustedQuoteDto";
 
@@ -13,6 +14,10 @@ export interface SymbolDiagnostic {
   generatedAt: Date;
   tradeable: boolean;
   reason: string | null;
+  /** Provider that actually served the quote — "indstocks" only on failover. */
+  source: SymbolDiagnosticSource;
+  /** True when Kite was unavailable and the quote came from INDstocks failover. */
+  failover: boolean;
   quote: TrustedQuoteDto | null;
   indstocks: SymbolIndstocksDiagnostic | null;
 }

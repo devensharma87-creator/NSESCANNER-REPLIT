@@ -3787,12 +3787,19 @@ components:
           allOf: [{ $ref: "#/components/schemas/ValidationResult" }]
     SymbolDiagnostic:
       type: object
-      required: [symbol, generatedAt, tradeable, reason, quote, indstocks]
+      required: [symbol, generatedAt, tradeable, reason, source, failover, quote, indstocks]
       properties:
         symbol: { type: string }
         generatedAt: { type: string, format: date-time }
         tradeable: { type: boolean }
         reason: { type: string, nullable: true }
+        source:
+          type: string
+          enum: [kite, indstocks, yahoo]
+          description: Provider that actually served the quote — "indstocks" only on failover.
+        failover:
+          type: boolean
+          description: True when Kite was unavailable and the quote came from INDstocks failover.
         quote:
           nullable: true
           allOf: [{ $ref: "#/components/schemas/TrustedQuoteDto" }]

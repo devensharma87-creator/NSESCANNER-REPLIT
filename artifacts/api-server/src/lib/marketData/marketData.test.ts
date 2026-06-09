@@ -216,8 +216,8 @@ describe("guard", () => {
 });
 
 describe("buildDataDiagnostics", () => {
-  it("returns the honest policy + three providers with Kite authoritative", () => {
-    const d = buildDataDiagnostics();
+  it("returns the honest policy + three providers with Kite authoritative", async () => {
+    const d = await buildDataDiagnostics();
     expect(d.authoritative).toBe("kite");
     expect(typeof d.generatedAt).toBe("string");
     expect(d.policy.freshnessBudgetSec).toBeGreaterThan(0);
