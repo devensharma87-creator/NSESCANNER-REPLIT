@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import {
   Activity,
   AlertTriangle,
+  Ban,
   CheckCircle2,
   Gauge,
   Info,
@@ -60,6 +61,7 @@ import {
   useFnoGateWaterfall,
   useFnoNoTradeReasons,
   useFnoSetupPerformance,
+  useFnoBlockedSignals,
   type PerIndexHealth,
 } from "@/lib/fno/diagnostics-fetch";
 
@@ -155,6 +157,7 @@ export default function FnODiagnosticsPage() {
   const waterfall = useFnoGateWaterfall(auto);
   const noTrade = useFnoNoTradeReasons(auto);
   const setupPerf = useFnoSetupPerformance(auto);
+  const blocked = useFnoBlockedSignals(auto);
 
   function refreshAll() {
     void health.refetch();
@@ -162,6 +165,7 @@ export default function FnODiagnosticsPage() {
     void waterfall.refetch();
     void noTrade.refetch();
     void setupPerf.refetch();
+    void blocked.refetch();
     setTick((t) => t + 1);
   }
 
@@ -600,6 +604,158 @@ export default function FnODiagnosticsPage() {
               </tbody>
             </table>
           </div>
+        )}
+      </SectionShell>
+
+      {/* ── G2. Blocked / Demoted Signals (hygiene vetoes) ───────────── */}
+      <SectionShell
+        title="G2 · Blocked / Demoted Signals"
+        icon={Ban}
+        severity={blocked.isError ? "fail" : blocked.data ? "ok" : "unavailable"}
+        description="Persistent, reviewable record of EMITTED signals carrying a 2026-06-09 hygiene veto (RECOVERY_MODE_VETO / CHASE_RISK_VETO) or demoted to INFO_ONLY — so you can judge across sessions whether the vetoes block bad trades or are too strict. Observability only; this view changes no trade or gate."
+        testId="section-blocked-signals"
+      >
+        {blocked.isError ? (
+          <ErrorNote error={blocked.error} />
+        ) : !blocked.data ? (
+          <div className="text-sm text-muted-foreground">Loading…</div>
+        ) : (
+          (() => {
+            const b = blocked.data.blocked;
+            return (
+              <div className="space-y-4 text-sm">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    Window{" "}
+                    <span className="font-mono">{b.windowFrom ?? "—"}</span> →{" "}
+                    <span className="font-mono">{b.windowTo ?? "—"}</span> ·{" "}
+                    <span className="font-medium text-foreground">{b.total}</span> blocked/demoted
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge variant="outline" className="border-rose-600 text-rose-600">
+                      Recovery veto {b.vetoTotals.recoveryModeVeto}
+                    </Badge>
+                    <Badge variant="outline" className="border-rose-600 text-rose-600">
+                      Chase-risk veto {b.vetoTotals.chaseRiskVeto}
+                    </Badge>
+                    <Badge variant="outline" className="border-amber-600 text-amber-600">
+                      INFO_ONLY {b.vetoTotals.infoOnly}
+                    </Badge>
+                  </div>
+                </div>
+
+                {b.total === 0 ? (
+                  <div className="text-xs text-muted-foreground">
+                    No blocked or demoted signals in this window.
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground mb-1">By reason code</div>
+                        <ul className="space-y-1">
+                          {b.byReasonCode.map((r, i) => (
+                            <li key={`${r.key}-${i}`} className="flex justify-between gap-2">
+                              <span className="text-muted-foreground">{r.key}</span>
+                              <span className="tabular-nums">{r.count}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground mb-1">By index</div>
+                        <ul className="space-y-1">
+                          {b.byIndex.map((r, i) => (
+                            <li key={`${r.key}-${i}`} className="flex justify-between gap-2">
+                              <span className="text-muted-foreground">{r.key}</span>
+                              <span className="tabular-nums">{r.count}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground mb-1">By direction</div>
+                        <ul className="space-y-1">
+                          {b.byDirection.length === 0 ? (
+                            <li className="text-xs text-muted-foreground">n/a</li>
+                          ) : (
+                            b.byDirection.map((r, i) => (
+                              <li key={`${r.key}-${i}`} className="flex justify-between gap-2">
+                                <span className="text-muted-foreground">{r.key}</span>
+                                <span className="tabular-nums">{r.count}</span>
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <div className="text-xs font-medium text-muted-foreground mb-1">
+                        Recent events {b.events.length < b.total && <>(latest {b.events.length} of {b.total})</>}
+                      </div>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left text-muted-foreground border-b">
+                            <th className="py-2 pr-3">Captured</th>
+                            <th className="py-2 pr-3">Date</th>
+                            <th className="py-2 pr-3">Index</th>
+                            <th className="py-2 pr-3">Setup</th>
+                            <th className="py-2 pr-3">Dir</th>
+                            <th className="py-2 pr-3">Opt</th>
+                            <th className="py-2 pr-3">Tier</th>
+                            <th className="py-2 pr-3">Class</th>
+                            <th className="py-2 pr-3 text-right">Spot</th>
+                            <th className="py-2 pr-3 text-right">Conf</th>
+                            <th className="py-2 pr-3">Reasons</th>
+                          </tr>
+                        </thead>
+                        <tbody className="tabular-nums">
+                          {b.events.map((e, i) => (
+                            <tr key={`${e.capturedAt ?? ""}-${e.indexSymbol}-${i}`} className="border-b border-border/40">
+                              <td className="py-2 pr-3 whitespace-nowrap">
+                                {e.capturedAt ? new Date(e.capturedAt).toLocaleString() : <Na />}
+                              </td>
+                              <td className="py-2 pr-3 font-mono">{e.signalDate}</td>
+                              <td className="py-2 pr-3">{e.indexSymbol}</td>
+                              <td className="py-2 pr-3">{e.setupKey ?? <Na />}</td>
+                              <td className="py-2 pr-3">{e.direction ?? <Na />}</td>
+                              <td className="py-2 pr-3">{e.optionType ?? <Na />}</td>
+                              <td className="py-2 pr-3">{e.tier ?? <Na />}</td>
+                              <td className="py-2 pr-3">{e.tradeClass ?? <Na />}</td>
+                              <td className="py-2 pr-3 text-right">{e.spot != null ? numOrNa(e.spot, 2) : <Na />}</td>
+                              <td className="py-2 pr-3 text-right">{e.confidence ?? <Na />}</td>
+                              <td className="py-2 pr-3">
+                                <div className="flex flex-wrap gap-1">
+                                  {e.reasonCodes.map((c, j) => (
+                                    <Badge
+                                      key={`${c}-${j}`}
+                                      variant="outline"
+                                      className={
+                                        c === "INFO_ONLY"
+                                          ? "border-amber-600 text-amber-600"
+                                          : "border-rose-600 text-rose-600"
+                                      }
+                                    >
+                                      {c}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  These rows are the persisted record (`fno_signal_reasoning`). They reflect what the live gates
+                  already decided — nothing here re-runs or alters a gate.
+                </p>
+              </div>
+            );
+          })()
         )}
       </SectionShell>
 

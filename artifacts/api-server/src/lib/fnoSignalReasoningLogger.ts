@@ -430,6 +430,7 @@ export interface UpstreamSignalShape {
   setupName?: string;
   bias: string;
   tier?: string;
+  tradeClass?: string;
   confidence: number;
   confluenceScore?: number;
   regime?: string;
@@ -543,6 +544,10 @@ export function buildEmittedRow(
     "HTF_CONFLICT", "HTF1H_CONFLICT", "RS_CONFLICT", "LOW_WINRATE",
     "OPENING_NOISE", "CLOSING_NOISE", "EXPIRY_DAY", "OI_ATM_CONFLICT",
     "VOL_CLAMPED_STOP", "COUNTER_TREND", "RR_LOW",
+    // 2026-06-09 hygiene vetoes — surfaced as first-class demotion tags so
+    // they flow into the byDemotionTag histogram and the blocked-signals
+    // review without splitting tag strings.
+    "RECOVERY_MODE_VETO", "CHASE_RISK_VETO",
   ]);
   const demotionTags = tags.filter(t => DEMOTION_TAGS.has(t));
   const emaStack = {
@@ -583,6 +588,10 @@ export function buildEmittedRow(
       setupName: s.setupName ?? null,
       tags,
       demotionTags,
+      // 2026-06-09 hygiene: persist the explicit trade-class so the
+      // blocked-signals review can answer "did BASELINE only ever appear
+      // as INFO_ONLY?" without re-deriving from tier.
+      tradeClass: s.tradeClass ?? null,
       drivers,
       emaStack,
       vwapRel,

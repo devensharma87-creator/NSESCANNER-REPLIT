@@ -24,6 +24,9 @@ import {
   analyticsFiltersFromQuery,
   fetchReasoningRows,
   computeReasoningAnalytics,
+  buildBlockedSignalsReview,
+  resolveBlockedWindow,
+  BLOCKED_EVENTS_DEFAULT_CAP,
 } from "../lib/fnoReasoningAnalytics";
 import {
   buildGateWaterfall,
@@ -317,6 +320,34 @@ router.get("/fno/diagnostics/setup-performance", requireOwner, async (req, res, 
   try {
     const { filters, analytics } = await loadAnalytics(req.query as Record<string, unknown>);
     return res.json({ filters, setupPerformance: buildSetupPerformance(analytics) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /fno/diagnostics/blocked-signals — the BLOCKED / DEMOTED population
+ * (Task #117). Isolates signals demoted to INFO_ONLY and those carrying the
+ * 2026-06-09 hygiene vetoes (RECOVERY_MODE_VETO / CHASE_RISK_VETO) so the
+ * owner can judge across sessions whether the vetoes are correctly blocking
+ * bad trades or are too strict. Read-only / diagnostics-only.
+ *
+ * Defaults to the last `days` (7, ~5 sessions) ending today IST when no
+ * explicit `from`/`to` is supplied. Accepts the standard analytics filters
+ * plus `days` (≤60) and `cap` (event-list cap).
+ */
+router.get("/fno/diagnostics/blocked-signals", requireOwner, async (req, res, next) => {
+  try {
+    const raw = { ...(req.query as Record<string, unknown>) };
+    const window = resolveBlockedWindow(raw, istDateOf());
+    raw.from = window.from;
+    raw.to = window.to;
+    if (raw.latestN == null && raw.limit == null) raw.latestN = 10000;
+    const filters = analyticsFiltersFromQuery(raw);
+    const rows = await fetchReasoningRows(filters);
+    const capN = Number((req.query as Record<string, unknown>).cap);
+    const cap = Number.isFinite(capN) && capN > 0 ? Math.floor(capN) : BLOCKED_EVENTS_DEFAULT_CAP;
+    return res.json({ filters, blocked: buildBlockedSignalsReview(rows, cap) });
   } catch (err) {
     return next(err);
   }

@@ -12,6 +12,11 @@ import type { FnoSignalReasoningRow } from "@workspace/db";
 import {
   analyticsFiltersFromQuery,
   computeReasoningAnalytics,
+  buildBlockedSignalsReview,
+  resolveBlockedWindow,
+  shiftYmd,
+  BLOCKED_EVENTS_DEFAULT_CAP,
+  BLOCKED_DEFAULT_DAYS,
 } from "./fnoReasoningAnalytics";
 
 const baseRow = (over: Partial<FnoSignalReasoningRow> = {}): FnoSignalReasoningRow => ({
@@ -361,5 +366,142 @@ describe("P15 — computeReasoningAnalytics", () => {
     expect(a.windowFrom).toBe("2026-05-10");
     expect(a.windowTo).toBe("2026-05-15");
     expect(a.rowCount).toBe(3);
+  });
+});
+
+describe("buildBlockedSignalsReview — blocked/demoted population", () => {
+  const emitted = (over: Partial<FnoSignalReasoningRow> = {}, snap: Record<string, unknown> = {}) =>
+    baseRow({ decision: "EMITTED", reasonCode: "DEMOTED", snapshot: snap, ...over });
+
+  it("returns an empty, honest review when no rows match", () => {
+    const rows = [
+      emitted({}, { demotionTags: [], tradeClass: "TRADEABLE" }),
+      emitted({}, { demotionTags: ["LOW_WINRATE"], tradeClass: "TRADEABLE" }), // non-hygiene tag, tradeable
+    ];
+    const r = buildBlockedSignalsReview(rows);
+    expect(r.total).toBe(0);
+    expect(r.events).toHaveLength(0);
+    expect(r.vetoTotals).toEqual({ recoveryModeVeto: 0, chaseRiskVeto: 0, infoOnly: 0 });
+    expect(r.windowFrom).toBeNull();
+    expect(r.windowTo).toBeNull();
+  });
+
+  it("selects hygiene-veto and INFO_ONLY rows and rolls up correctly", () => {
+    const rows = [
+      emitted(
+        { indexSymbol: "NIFTY", direction: "BULLISH", signalDate: "2026-06-09", capturedAt: new Date("2026-06-09T04:00:00Z") },
+        { demotionTags: ["RECOVERY_MODE_VETO"], tradeClass: "TRADEABLE" },
+      ),
+      emitted(
+        { indexSymbol: "BANKNIFTY", direction: "BEARISH", signalDate: "2026-06-10", capturedAt: new Date("2026-06-10T04:00:00Z") },
+        { demotionTags: ["CHASE_RISK_VETO"], tradeClass: "TRADEABLE" },
+      ),
+      emitted(
+        { indexSymbol: "NIFTY", direction: "BULLISH", signalDate: "2026-06-11", capturedAt: new Date("2026-06-11T04:00:00Z") },
+        { demotionTags: [], tradeClass: "INFO_ONLY" },
+      ),
+      // ignored: clean tradeable EMITTED
+      emitted({ indexSymbol: "SENSEX" }, { demotionTags: [], tradeClass: "TRADEABLE" }),
+      // ignored: not EMITTED even though it carries a veto tag
+      baseRow({ decision: "SKIPPED", snapshot: { demotionTags: ["RECOVERY_MODE_VETO"] } }),
+    ];
+    const r = buildBlockedSignalsReview(rows);
+    expect(r.total).toBe(3);
+    expect(r.vetoTotals).toEqual({ recoveryModeVeto: 1, chaseRiskVeto: 1, infoOnly: 1 });
+    expect(r.byIndex.find(k => k.key === "NIFTY")?.count).toBe(2);
+    expect(r.byIndex.find(k => k.key === "BANKNIFTY")?.count).toBe(1);
+    expect(r.byReasonCode.find(k => k.key === "RECOVERY_MODE_VETO")?.count).toBe(1);
+    expect(r.byReasonCode.find(k => k.key === "CHASE_RISK_VETO")?.count).toBe(1);
+    expect(r.byReasonCode.find(k => k.key === "INFO_ONLY")?.count).toBe(1);
+    expect(r.byDirection.find(k => k.key === "BULLISH")?.count).toBe(2);
+    expect(r.windowFrom).toBe("2026-06-09");
+    expect(r.windowTo).toBe("2026-06-11");
+    // events most-recent-first by capturedAt
+    expect(r.events[0]?.signalDate).toBe("2026-06-11");
+    expect(r.events[r.events.length - 1]?.signalDate).toBe("2026-06-09");
+    // INFO_ONLY event carries the synthetic reason marker
+    const infoEvent = r.events.find(e => e.tradeClass === "INFO_ONLY");
+    expect(infoEvent?.reasonCodes).toContain("INFO_ONLY");
+  });
+
+  it("counts a row carrying BOTH a veto AND INFO_ONLY once in total but in each veto bucket", () => {
+    const rows = [
+      emitted({}, { demotionTags: ["RECOVERY_MODE_VETO"], tradeClass: "INFO_ONLY" }),
+    ];
+    const r = buildBlockedSignalsReview(rows);
+    expect(r.total).toBe(1);
+    expect(r.vetoTotals.recoveryModeVeto).toBe(1);
+    expect(r.vetoTotals.infoOnly).toBe(1);
+    expect(r.events[0]?.reasonCodes).toEqual(["RECOVERY_MODE_VETO", "INFO_ONLY"]);
+  });
+
+  it("honors the event cap while still counting every match in the rollups", () => {
+    const rows = Array.from({ length: 5 }, (_, i) =>
+      emitted(
+        { signalDate: `2026-06-0${i + 1}`, capturedAt: new Date(`2026-06-0${i + 1}T04:00:00Z`) },
+        { demotionTags: ["CHASE_RISK_VETO"], tradeClass: "TRADEABLE" },
+      ),
+    );
+    const r = buildBlockedSignalsReview(rows, 2);
+    expect(r.cap).toBe(2);
+    expect(r.total).toBe(5); // rollup counts all
+    expect(r.events).toHaveLength(2); // event list capped
+    expect(r.vetoTotals.chaseRiskVeto).toBe(5);
+  });
+
+  it("falls back to the default cap for non-positive/invalid cap values", () => {
+    const r = buildBlockedSignalsReview([], 0);
+    expect(r.cap).toBe(BLOCKED_EVENTS_DEFAULT_CAP);
+  });
+});
+
+describe("resolveBlockedWindow — inclusive default window derivation", () => {
+  const TODAY = "2026-06-09";
+
+  it("defaults to the last BLOCKED_DEFAULT_DAYS dates ending today (inclusive)", () => {
+    const w = resolveBlockedWindow({}, TODAY);
+    expect(w.to).toBe(TODAY);
+    // inclusive: spans exactly BLOCKED_DEFAULT_DAYS calendar dates
+    expect(w.from).toBe(shiftYmd(TODAY, -(BLOCKED_DEFAULT_DAYS - 1)));
+    expect(w.from).toBe("2026-06-03");
+  });
+
+  it("honors an explicit days count inclusively", () => {
+    const w = resolveBlockedWindow({ days: 5 }, TODAY);
+    expect(w.from).toBe("2026-06-05"); // 5 inclusive dates: 06-05..06-09
+    expect(w.to).toBe(TODAY);
+  });
+
+  it("anchors the default window on an explicit `to` (not today) when `from` is absent", () => {
+    const w = resolveBlockedWindow({ to: "2026-05-20", days: 3 }, TODAY);
+    expect(w.to).toBe("2026-05-20");
+    expect(w.from).toBe("2026-05-18"); // 3 inclusive dates ending at the provided `to`
+  });
+
+  it("honors an explicit `from` verbatim and defaults `to` to today", () => {
+    const w = resolveBlockedWindow({ from: "2026-06-01" }, TODAY);
+    expect(w.from).toBe("2026-06-01");
+    expect(w.to).toBe(TODAY);
+  });
+
+  it("honors both explicit `from` and `to`", () => {
+    const w = resolveBlockedWindow({ from: "2026-06-01", to: "2026-06-05" }, TODAY);
+    expect(w).toEqual({ from: "2026-06-01", to: "2026-06-05" });
+  });
+
+  it("clamps days to the 60-day maximum and ignores invalid days", () => {
+    expect(resolveBlockedWindow({ days: 9999 }, TODAY).from).toBe(shiftYmd(TODAY, -59));
+    expect(resolveBlockedWindow({ days: "abc" }, TODAY).from).toBe(
+      shiftYmd(TODAY, -(BLOCKED_DEFAULT_DAYS - 1)),
+    );
+    expect(resolveBlockedWindow({ days: -3 }, TODAY).from).toBe(
+      shiftYmd(TODAY, -(BLOCKED_DEFAULT_DAYS - 1)),
+    );
+  });
+
+  it("ignores malformed date strings and falls back to the default window", () => {
+    const w = resolveBlockedWindow({ from: "06/01/2026", to: "not-a-date" }, TODAY);
+    expect(w.to).toBe(TODAY);
+    expect(w.from).toBe(shiftYmd(TODAY, -(BLOCKED_DEFAULT_DAYS - 1)));
   });
 });

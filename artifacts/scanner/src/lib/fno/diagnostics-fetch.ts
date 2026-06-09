@@ -139,6 +139,38 @@ export interface SetupPerformanceResponse {
   setupPerformance: { rows: SetupPerformanceRow[] } & Record<string, unknown>;
 }
 
+export interface BlockedSignalEvent {
+  capturedAt: string | null;
+  signalDate: string;
+  indexSymbol: string;
+  setupKey: string | null;
+  direction: string | null;
+  optionType: string | null;
+  tier: string | null;
+  tradeClass: string | null;
+  reasonCodes: string[];
+  spot: number | null;
+  confidence: number | null;
+  note: string | null;
+}
+export interface BlockedSignalsReview {
+  generatedAt: string;
+  total: number;
+  vetoTotals: { recoveryModeVeto: number; chaseRiskVeto: number; infoOnly: number };
+  byReasonCode: KeyCount[];
+  byIndex: KeyCount[];
+  byDirection: KeyCount[];
+  byTradeClass: KeyCount[];
+  windowFrom: string | null;
+  windowTo: string | null;
+  cap: number;
+  events: BlockedSignalEvent[];
+}
+export interface BlockedSignalsResponse {
+  filters: Record<string, unknown>;
+  blocked: BlockedSignalsReview;
+}
+
 // ── hooks ────────────────────────────────────────────────────────────────────
 
 function commonOptions(auto: boolean) {
@@ -185,6 +217,14 @@ export function useFnoSetupPerformance(auto: boolean) {
   return useQuery({
     queryKey: ["fno-diagnostics", "setup-performance"],
     queryFn: () => fetchJson<SetupPerformanceResponse>("/api/fno/diagnostics/setup-performance"),
+    ...commonOptions(auto),
+  });
+}
+
+export function useFnoBlockedSignals(auto: boolean) {
+  return useQuery({
+    queryKey: ["fno-diagnostics", "blocked-signals"],
+    queryFn: () => fetchJson<BlockedSignalsResponse>("/api/fno/diagnostics/blocked-signals"),
     ...commonOptions(auto),
   });
 }

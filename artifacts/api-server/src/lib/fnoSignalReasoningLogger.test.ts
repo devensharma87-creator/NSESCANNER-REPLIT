@@ -350,6 +350,33 @@ describe("P14b — upstream emission helpers", () => {
     expect(row.tier).toBe("BASELINE");
   });
 
+  it("buildEmittedRow surfaces the 2026-06-09 hygiene vetoes as first-class demotion tags", () => {
+    const sig = {
+      ...EMITTED_SIG,
+      tags: ["RECOVERY_MODE_VETO", "CHASE_RISK_VETO", "OI_CONFIRMED"],
+    };
+    const row = buildEmittedRow(sig, "2026-06-09", null);
+    expect(row.reasonCode).toBe("DEMOTED");
+    expect((row.snapshot as { demotionTags: string[] }).demotionTags).toEqual([
+      "RECOVERY_MODE_VETO",
+      "CHASE_RISK_VETO",
+    ]);
+  });
+
+  it("buildEmittedRow persists tradeClass (e.g. INFO_ONLY) into the snapshot", () => {
+    const info = { ...EMITTED_SIG, tradeClass: "INFO_ONLY" };
+    const infoRow = buildEmittedRow(info, "2026-06-09", null);
+    expect((infoRow.snapshot as { tradeClass: string | null }).tradeClass).toBe("INFO_ONLY");
+
+    const tradeable = { ...EMITTED_SIG, tradeClass: "TRADEABLE" };
+    const tradeableRow = buildEmittedRow(tradeable, "2026-06-09", null);
+    expect((tradeableRow.snapshot as { tradeClass: string | null }).tradeClass).toBe("TRADEABLE");
+
+    // absent tradeClass → null, never undefined/omitted
+    const plainRow = buildEmittedRow(EMITTED_SIG, "2026-06-09", null);
+    expect((plainRow.snapshot as { tradeClass: string | null }).tradeClass).toBeNull();
+  });
+
   it("buildEmittedRow records missing-data flags for null ivr/ivp/vix", () => {
     const sig = { ...EMITTED_SIG, ivRank: undefined, ivPercentile: undefined };
     const row = buildEmittedRow(sig, "2026-05-15", null);

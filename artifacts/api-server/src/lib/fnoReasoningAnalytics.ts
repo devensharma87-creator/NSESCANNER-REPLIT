@@ -584,6 +584,211 @@ export function computeReasoningAnalytics(rows: FnoSignalReasoningRow[]): Reason
   };
 }
 
+/* ───────────────── Blocked / demoted signals review (Task #117) ─────────────
+ *
+ * Pure aggregator over `fno_signal_reasoning` rows that isolates the
+ * BLOCKED / DEMOTED population the owner wants to review across sessions —
+ * specifically the 2026-06-09 hygiene vetoes (RECOVERY_MODE_VETO /
+ * CHASE_RISK_VETO) and any signal demoted to INFO_ONLY. It answers
+ * "are the new vetoes correctly blocking bad trades, or too strict?" with
+ * a per-reason rollup plus the underlying row-level events for inspection.
+ *
+ * Read-only / diagnostics-only. No I/O, no mutation — the route fetches
+ * rows, this derives the view. A blocked EMITTED row is one that either
+ * carries a hygiene veto demotion tag OR was recorded with
+ * `snapshot.tradeClass === "INFO_ONLY"`.
+ */
+
+/** Hygiene veto demotion tags this review treats as a "block". */
+export const HYGIENE_VETO_TAGS: ReadonlyArray<string> = [
+  "RECOVERY_MODE_VETO",
+  "CHASE_RISK_VETO",
+];
+const HYGIENE_VETO_SET = new Set<string>(HYGIENE_VETO_TAGS);
+
+/** Default cap on the row-level events returned (most recent first). */
+export const BLOCKED_EVENTS_DEFAULT_CAP = 200;
+
+export interface BlockedSignalEvent {
+  capturedAt: string | null;
+  signalDate: string;
+  indexSymbol: string;
+  setupKey: string | null;
+  direction: string | null;
+  optionType: string | null;
+  tier: string | null;
+  tradeClass: string | null;
+  /** All demotion tags present on the row + an INFO_ONLY marker when demoted. */
+  reasonCodes: string[];
+  spot: number | null;
+  confidence: number | null;
+  note: string | null;
+}
+
+export interface BlockedSignalsReview {
+  generatedAt: string;
+  /** Number of distinct blocked/demoted rows in the window. */
+  total: number;
+  /** How many blocked rows carried each hygiene veto specifically. */
+  vetoTotals: { recoveryModeVeto: number; chaseRiskVeto: number; infoOnly: number };
+  byReasonCode: KeyCount[];
+  byIndex: KeyCount[];
+  byDirection: KeyCount[];
+  byTradeClass: KeyCount[];
+  windowFrom: string | null;
+  windowTo: string | null;
+  cap: number;
+  /** Capped, most-recent-first list of the underlying blocked events. */
+  events: BlockedSignalEvent[];
+}
+
+function toIso(v: unknown): string | null {
+  if (v == null) return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+  const d = new Date(v as string);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+function isYmd(v: unknown): v is string {
+  return typeof v === "string" && YMD_RE.test(v);
+}
+/** Shift a YYYY-MM-DD by `delta` days (UTC-safe, date-only arithmetic). */
+export function shiftYmd(ymd: string, delta: number): string {
+  const t = Date.parse(`${ymd}T00:00:00Z`);
+  if (Number.isNaN(t)) return ymd;
+  return new Date(t + delta * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Default lookback (sessions/days) for the blocked-signals review window. */
+export const BLOCKED_DEFAULT_DAYS = 7;
+const BLOCKED_MAX_DAYS = 60;
+
+/**
+ * Resolve the inclusive [from, to] date window for the blocked-signals
+ * review from raw query params. Pure & testable.
+ *
+ * - explicit `from` is honoured verbatim; `to` defaults to `today` only when
+ *   absent (an explicit `from` without `to` means "from then until today").
+ * - when `from` is absent, the window is the last `days` (default 7, max 60)
+ *   dates ending at the anchor — the anchor is an explicit `to` when given,
+ *   otherwise `today`. The window is INCLUSIVE, so it spans exactly `days`
+ *   calendar dates (`from = anchor - (days - 1)`).
+ */
+export function resolveBlockedWindow(
+  raw: { from?: unknown; to?: unknown; days?: unknown },
+  today: string,
+): { from: string; to: string } {
+  if (isYmd(raw.from)) {
+    return { from: raw.from, to: isYmd(raw.to) ? raw.to : today };
+  }
+  const anchor = isYmd(raw.to) ? raw.to : today;
+  const daysN = Number(raw.days);
+  const days =
+    Number.isFinite(daysN) && daysN > 0 ? Math.min(Math.floor(daysN), BLOCKED_MAX_DAYS) : BLOCKED_DEFAULT_DAYS;
+  return { from: shiftYmd(anchor, -(days - 1)), to: anchor };
+}
+
+/**
+ * Derive the blocked/demoted-signals review from raw reasoning rows. Pure.
+ * `cap` bounds the returned event list (rollups still count every match).
+ */
+export function buildBlockedSignalsReview(
+  rows: ReadonlyArray<FnoSignalReasoningRow>,
+  cap: number = BLOCKED_EVENTS_DEFAULT_CAP,
+): BlockedSignalsReview {
+  const safeCap = Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : BLOCKED_EVENTS_DEFAULT_CAP;
+
+  const byReasonCode = new Map<string, number>();
+  const byIndex = new Map<string, number>();
+  const byDirection = new Map<string, number>();
+  const byTradeClass = new Map<string, number>();
+  let recoveryModeVeto = 0;
+  let chaseRiskVeto = 0;
+  let infoOnly = 0;
+  let windowFrom: string | null = null;
+  let windowTo: string | null = null;
+
+  const events: BlockedSignalEvent[] = [];
+
+  for (const r of rows) {
+    if (r.decision !== "EMITTED") continue;
+    const snap = (r.snapshot ?? null) as Record<string, unknown> | null;
+    const demotionTags =
+      snap && Array.isArray(snap.demotionTags)
+        ? (snap.demotionTags as unknown[]).filter((t): t is string => typeof t === "string")
+        : [];
+    const tradeClass =
+      snap && typeof snap.tradeClass === "string" ? (snap.tradeClass as string) : null;
+
+    const hasVeto = demotionTags.some(t => HYGIENE_VETO_SET.has(t));
+    const isInfoOnly = tradeClass === "INFO_ONLY";
+    if (!hasVeto && !isInfoOnly) continue;
+
+    // reasonCodes = all demotion tags present + an INFO_ONLY marker when demoted.
+    const reasonCodes = [...demotionTags];
+    if (isInfoOnly) reasonCodes.push("INFO_ONLY");
+
+    for (const code of reasonCodes) bump(byReasonCode, code);
+    if (demotionTags.includes("RECOVERY_MODE_VETO")) recoveryModeVeto += 1;
+    if (demotionTags.includes("CHASE_RISK_VETO")) chaseRiskVeto += 1;
+    if (isInfoOnly) infoOnly += 1;
+
+    bump(byIndex, r.indexSymbol);
+    if (r.direction) bump(byDirection, r.direction);
+    bump(byTradeClass, tradeClass ?? "UNKNOWN");
+
+    const d = r.signalDate;
+    if (typeof d === "string" && d) {
+      if (windowFrom === null || d < windowFrom) windowFrom = d;
+      if (windowTo === null || d > windowTo) windowTo = d;
+    }
+
+    events.push({
+      capturedAt: toIso(r.capturedAt),
+      signalDate: r.signalDate,
+      indexSymbol: r.indexSymbol,
+      setupKey: r.setupKey ?? null,
+      direction: r.direction ?? null,
+      optionType: r.optionType ?? null,
+      tier: r.tier ?? null,
+      tradeClass,
+      reasonCodes,
+      spot: num(r.spot),
+      confidence: r.confidence ?? null,
+      note: r.note ?? null,
+    });
+  }
+
+  // Most-recent-first by capturedAt (null sorts last), then cap.
+  events.sort((a, b) => {
+    const ta = a.capturedAt ?? "";
+    const tb = b.capturedAt ?? "";
+    if (ta === tb) return 0;
+    return ta < tb ? 1 : -1;
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    total: byIndex.size === 0 ? 0 : sumCounts(byIndex),
+    vetoTotals: { recoveryModeVeto, chaseRiskVeto, infoOnly },
+    byReasonCode: sortDesc(byReasonCode),
+    byIndex: sortDesc(byIndex),
+    byDirection: sortDesc(byDirection),
+    byTradeClass: sortDesc(byTradeClass),
+    windowFrom,
+    windowTo,
+    cap: safeCap,
+    events: events.slice(0, safeCap),
+  };
+}
+
+function sumCounts(m: Map<string, number>): number {
+  let s = 0;
+  for (const v of m.values()) s += v;
+  return s;
+}
+
 function bump(m: Map<string, number>, k: string): void {
   m.set(k, (m.get(k) ?? 0) + 1);
 }
