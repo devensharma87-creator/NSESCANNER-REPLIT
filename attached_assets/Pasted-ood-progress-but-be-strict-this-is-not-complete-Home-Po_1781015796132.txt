@@ -1,0 +1,246 @@
+ood progress, but be strict: this is not complete Home + Portfolio repair. It is only:
+
+audit completed
+global fake 0.00 / +0.00% fixed
+Watchlist remains already migrated and should not be reopened
+
+The dangerous unfinished part is Portfolio, because it affects money totals, P&L, allocation, XIRR, and risk. Do that next before index analytics polish.
+
+Send this next:
+
+Start next focused task: Portfolio Analyser valuation coverage and honesty repair.
+
+Context:
+Watchlist migration is already complete. Do not reopen it.
+Home/Market Pulse audit is complete and the fake global-cues 0.00 bug is fixed.
+Now focus only on Portfolio Analyser.
+
+Problem visible in screenshot:
+
+16 of 41 holdings could not be price-enriched.
+XIRR unavailable.
+Many holdings show CMP = —, Day P&L = n/a, Total P&L = n/a, Return = n/a, Weight = n/a.
+Benchmark comparison shows insufficient live data.
+ETFs / mutual-fund-like / special instruments are not mapped cleanly.
+Current portfolio value and analytics may be misleading if unpriced holdings are silently excluded.
+
+Strict scope:
+Do not touch Watchlist.
+Do not migrate Scanner, F&O, Charting, Sector, or frontend-wide badges.
+Do not do Home index analytics in this task.
+This task is Portfolio-only.
+
+Data policy:
+
+Kite/central marketDataRouter is primary for listed Indian stocks and ETFs.
+INDstocks may be validation/failover only through the central layer.
+Yahoo is forbidden for official portfolio valuation, P&L, risk, allocation, weight, or XIRR.
+Yahoo can only be used for labelled secondary benchmark analytics, never for holding valuation.
+No fake CMP.
+No fake n/a.
+No silent exclusion from totals.
+Every unpriced holding must have exact missing_reason.
+
+Objectives:
+
+Improve instrument resolution for portfolio holdings.
+Correctly classify holdings:
+NSE equity
+BSE equity
+NSE ETF
+BSE ETF
+mutual fund
+smallcase/manual
+unsupported/unresolved
+Route every price-enrichment attempt through central marketDataRouter.
+Preserve uploaded quantities and average prices.
+Separate priced and unpriced portfolio totals.
+Add exact valuation_status and missing_reason per holding.
+Make XIRR unavailable reason explicit.
+Make benchmark status explicit.
+
+Implementation steps:
+
+Trace current Portfolio endpoint and enrichment flow.
+Document:
+frontend component/hook
+backend route
+current price enrichment path
+instrument resolver used
+quote source used
+why each of the 16 holdings failed
+whether failure is symbol mapping, unsupported instrument, ETF mapping, missing Kite instrument, or missing cashflow data
+
+Create report:
+PORTFOLIO_VALUATION_AUDIT.md
+
+For each failed holding include:
+Symbol:
+Display name:
+Uploaded quantity:
+Average price:
+Current classification:
+Expected classification:
+Resolver attempts:
+Kite mapping found: YES/NO
+Central quote found: YES/NO
+Valuation status:
+Missing reason:
+Fix applied:
+Remaining limitation:
+
+Improve symbol and ETF resolution.
+Specifically investigate and fix where possible:
+CPSE ETF
+HDFCSILVER ETF
+SETFGOLD
+MON100 ETF
+NIFTYBEES / other ETF-like symbols
+smallcase/manual rows
+mutual-fund-like rows
+Add holding-level output fields:
+
+{
+"symbol": "BEL",
+"display_name": "Bharat Electronics",
+"instrument_type": "NSE_EQUITY",
+"exchange": "NSE",
+"kite_key": "NSE",
+"instrument_token": "...",
+"quantity": 550,
+"avg_price": 437.37,
+"cmp": 412.05,
+"invested_value": 240554,
+"current_value": 226628,
+"day_pnl": -495,
+"total_pnl": -13926,
+"return_pct": -5.79,
+"weight_pct": 12.4,
+"source_provider": "kite",
+"source_priority": 1,
+"asof": "...",
+"freshness_sec": 5,
+"is_stale": false,
+"valuation_status": "PRICED",
+"missing_reason": null,
+"warnings": []
+}
+
+For unpriced holdings:
+
+{
+"symbol": "XYZ",
+"instrument_type": "UNRESOLVED",
+"cmp": null,
+"current_value": null,
+"day_pnl": null,
+"total_pnl": null,
+"return_pct": null,
+"weight_pct": null,
+"valuation_status": "UNPRICED",
+"missing_reason": "Kite instrument not found after NSE/BSE/ETF resolver attempts",
+"source_provider": null,
+"warnings": ["Holding preserved but excluded from live valuation"]
+}
+
+Portfolio summary must separate:
+total holdings
+priced holdings
+unpriced holdings
+invested value of all holdings
+invested value of priced holdings
+current value of priced holdings
+unpriced invested value
+P&L on priced holdings only
+warning that full portfolio P&L is incomplete if any holdings are unpriced
+Allocation and risk:
+Allocation pie must either bucket unpriced holdings separately or exclude with warning.
+Portfolio risk analytics must clearly say whether based on priced holdings only.
+Weight % must not silently ignore unpriced holdings without a warning.
+
+XIRR:
+Return status:
+
+AVAILABLE
+UNAVAILABLE_MISSING_CASHFLOWS
+UNAVAILABLE_MISSING_DATES
+UNAVAILABLE_UNPRICED_HOLDINGS
+UNAVAILABLE_INVALID_INPUTS
+
+UI must show exact reason, not just “XIRR unavailable.”
+
+Benchmark:
+Benchmark comparison must show:
+
+benchmark source
+benchmark freshness
+whether benchmark is primary/trusted or secondary analytics
+whether portfolio data is complete enough for comparison
+
+If insufficient:
+“Benchmark disabled: 16 holdings unpriced / insufficient live valuation coverage.”
+
+Add diagnostics endpoint:
+
+GET /api/data/diagnostics/portfolio
+
+Return:
+{
+"total_holdings": 41,
+"priced_holdings": 25,
+"unpriced_holdings": 16,
+"source_provider_counts": {
+"kite": 25,
+"unpriced": 16
+},
+"unresolved_symbols": [],
+"unsupported_instrument_types": [],
+"stale_price_count": 0,
+"xirr_status": "...",
+"benchmark_status": "...",
+"warnings": []
+}
+
+Tests required:
+NSE equity holding resolves to Kite quote.
+NSE ETF holding resolves to Kite quote where instrument exists.
+BSE fallback resolution works where NSE fails.
+Unresolved holding is preserved, not dropped.
+Unpriced holding has missing_reason.
+Unpriced holding is excluded from official live P&L.
+Summary shows priced vs unpriced split.
+Total current value is not silently shown as full portfolio if holdings are unpriced.
+Yahoo cannot be used for official portfolio valuation.
+XIRR unavailable includes exact reason.
+Benchmark insufficient data reason is explicit.
+Existing Watchlist tests remain green.
+Typecheck passes.
+
+Verification:
+Before/after screenshots:
+
+Portfolio summary cards
+Holdings table
+warning banner
+XIRR card
+allocation pie
+risk analytics
+benchmark chart
+
+Acceptance criteria:
+
+Every holding is either PRICED or UNPRICED with reason.
+No row shows meaningless n/a without reason.
+Official portfolio valuation uses only trusted central market data.
+Yahoo is blocked from holding valuation and P&L.
+ETF resolution improves where Kite instruments exist.
+Priced vs unpriced totals are clear.
+XIRR unavailable reason is explicit.
+Benchmark status is honest.
+Existing Watchlist remains untouched and passing.
+Tests and typecheck pass.
+
+Final instruction:
+Do not make portfolio look complete by filling fake prices. Money calculations must be strict. If a holding cannot be priced from a trusted source, preserve it, explain it, and exclude it from live valuation with a visible warning.
+
+After this, take Home index analytics honesty next: 52W range, EMAs, pivots, VWAP, and “Daily chart unavailable from Yahoo.”

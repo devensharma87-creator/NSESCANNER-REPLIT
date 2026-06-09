@@ -11,6 +11,7 @@ import {
   type InstrumentLike,
   type CandleLike,
 } from "./enrich";
+import { isEtfClass } from "./symbol";
 
 function detailWithPrice(price: number, sector = "IT"): DetailLike {
   return {
@@ -180,6 +181,37 @@ describe("resolveHolding cascade", () => {
     expect(etfQuote).not.toHaveBeenCalled();
     expect(r.meta.dataSource).toBe("stock-detail");
     expect(r.live.cmp).toBe(2500);
+  });
+
+  it("Step 3.5: last-resort etfQuote prices an ETF the client classifier missed", async () => {
+    // "MON100" with no name carries no ETF/BEES token → classified Equity → the
+    // dedicated step-1b ETF branch is skipped. The authoritative backend ETF
+    // endpoint still recognises and prices it, so the row resolves rather than
+    // being preserved as unpriced.
+    const stockDetail = vi.fn(async () => null);
+    const searchInstruments = vi.fn(async () => []);
+    const etfQuote = vi.fn(async () => ({ price: 142.5, previousClose: 141.0 }));
+    const fx = makeFetchers({ stockDetail, searchInstruments, etfQuote });
+    const r = await resolveHolding({ symbol: "MON100" }, fx);
+    expect(etfQuote).toHaveBeenCalledWith("MON100");
+    expect(r.live.cmp).toBe(142.5);
+    expect(r.live.previousClose).toBe(141.0);
+    expect(r.live.peRatio).toBeNull();
+    expect(r.meta.dataSource).toBe("etf-quote");
+    expect(r.meta.fundamentalsApplicable).toBe(false);
+    expect(isEtfClass(r.meta.instrumentType)).toBe(true);
+    expect(r.meta.reason).toBeNull();
+  });
+
+  it("Step 3.5: does not double-call etfQuote when step 1b already attempted it", async () => {
+    // GOLDBEES classifies as an ETF → step 1b fires etfQuote once; when that
+    // returns null the last-resort branch must NOT fire a second redundant call.
+    const etfQuote = vi.fn(async () => null);
+    const fx = makeFetchers({ etfQuote });
+    const r = await resolveHolding({ symbol: "GOLDBEES" }, fx);
+    expect(etfQuote).toHaveBeenCalledTimes(1);
+    expect(r.live.available).toBe(false);
+    expect(r.meta.reason).toBe("No instrument match");
   });
 
   it("Step 4: preserves the holding with 'No instrument match' when search is empty", async () => {

@@ -157,6 +157,18 @@ export function HoldingsTable({
                         ETF
                       </span>
                     )}
+                    {!loading && !live.available && (
+                      <span
+                        className="rounded border border-amber-500/40 bg-amber-500/10 px-1 text-[9px] font-medium text-amber-500"
+                        title={
+                          provenance
+                            ? `Unpriced — ${reasonText} (${provenance}). Preserved; excluded from live valuation.`
+                            : `Unpriced — ${reasonText}. Preserved; excluded from live valuation.`
+                        }
+                      >
+                        UNPRICED
+                      </span>
+                    )}
                   </div>
                   <div className="max-w-[150px] truncate text-[10px] text-muted-foreground">
                     {live.sector || raw.sector || raw.name}

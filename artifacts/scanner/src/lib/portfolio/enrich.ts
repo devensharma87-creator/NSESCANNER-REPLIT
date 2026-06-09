@@ -283,7 +283,9 @@ export async function resolveHolding(
   // The dedicated ETF quote endpoint resolves a real CMP for them. Gate on the
   // heuristic ETF classification so we never fire it for plain equities.
   const etfCls = alias?.instrumentType ?? classifyInstrument(primarySymbol, holding.name);
+  let etfTried = false;
   if (fx.etfQuote && isEtfClass(etfCls)) {
+    etfTried = true;
     const quote = await safe(() => fx.etfQuote!(primarySymbol));
     const etfLive = liveFromEtfQuote(quote);
     if (etfLive.available) {
@@ -356,6 +358,36 @@ export async function resolveHolding(
           fundamentalsApplicable: fundsApplicable,
           dataSource: "chart-candles",
           reason: fundsApplicable ? null : "ETF fundamentals unavailable",
+        }),
+      };
+    }
+  }
+
+  // --- Step 3.5: last-resort ETF quote -----------------------------------
+  // Catches ETFs the client classifier could not detect from the symbol/name
+  // alone (e.g. MON100, HDFCSILVER, or an ETF typed without an ETF-bearing
+  // name). The backend ETF endpoint authoritatively gates recognition against
+  // the curated whitelist + live Kite instrument master and returns null for
+  // non-ETFs, so this never mis-prices a plain equity. Only fires when the
+  // dedicated ETF branch above did not already attempt a quote.
+  if (fx.etfQuote && !etfTried) {
+    const quote = await safe(() => fx.etfQuote!(primarySymbol));
+    const etfLive = liveFromEtfQuote(quote);
+    if (etfLive.available) {
+      const resolvedCls: InstrumentClass = isEtfClass(instrumentType) ? instrumentType : "ETF";
+      return {
+        live: etfLive,
+        meta: meta({
+          originalSymbol,
+          normalisedSymbol,
+          resolvedSymbol: resolvedSymbol ?? primarySymbol,
+          displaySymbol: resolvedSymbol ?? primarySymbol,
+          exchange: exchange ?? "NSE",
+          segment: "equity",
+          instrumentType: resolvedCls,
+          fundamentalsApplicable: false,
+          dataSource: "etf-quote",
+          reason: null,
         }),
       };
     }

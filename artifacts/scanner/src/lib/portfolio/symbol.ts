@@ -87,6 +87,10 @@ export function classifyInstrument(symbol: string, name?: string): InstrumentCla
 
   const isEtf =
     /\bETF\b/.test(hay) ||
+    // Embedded "ETF" with no word boundary — real NSE ETF tickers fuse it into
+    // the symbol (CPSEETF, SETFGOLD, <name>ETF). \bETF\b alone misses these and
+    // they then fall through as "Equity", so they never hit the ETF price path.
+    /ETF/.test(s) ||
     /BEES\b/.test(s) ||
     /\bFUND\b/.test(n) ||
     /\bINDEX FUND\b/.test(n);

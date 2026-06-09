@@ -60,6 +60,15 @@ describe("classifyInstrument", () => {
     expect(classifyInstrument("MON100", "Motilal Oswal NASDAQ 100 ETF")).toBe("International ETF");
   });
 
+  it("classifies embedded-token ETFs whose symbol has no word boundary", () => {
+    // \bETF\b misses these (no boundary before ETF) so they used to fall through
+    // as plain equities and never reach the ETF price path. They must classify
+    // as ETFs from the symbol alone, even without an ETF-bearing name.
+    expect(isEtf("CPSEETF")).toBe(true);
+    expect(classifyInstrument("CPSEETF")).toBe("ETF");
+    expect(classifyInstrument("SETFGOLD")).toBe("Gold ETF");
+  });
+
   it("classifies generic ETFs by name", () => {
     expect(classifyInstrument("XYZ", "Some Fund")).toBe("ETF");
   });
