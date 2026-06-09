@@ -3,9 +3,9 @@ name: Watchlist sources prices from the central trusted layer
 description: How the watchlist backend sources prices (central Kite-authoritative layer) and uses the scanner only for enrichment.
 ---
 
-# Watchlist data sourcing (post Task #125 migration)
+# Watchlist data sourcing
 
-Both watchlist paths now obtain PRICES exclusively from the central trusted
+Both watchlist paths obtain PRICES exclusively from the central trusted
 market-data layer (`marketRouter.getEquityQuotes`, Kite authoritative):
 - `/watchlist/basket/:basketKey` → `buildBasket()` in `watchlistBasket.ts`
 - `/watchlist/:key` → `getWatchlist()` in `watchlist.ts`
