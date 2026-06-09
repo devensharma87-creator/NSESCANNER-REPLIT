@@ -1,0 +1,619 @@
+Yes. But first accept this hard truth: “perfect signalling” is impossible. A professional engine does not generate signals every time. A professional engine says “NO TRADE” most of the time and only gives a trade when market structure, momentum, volatility, risk, and data quality agree.
+
+Your current engine problem is visible in the uploaded JSON: BASELINE rows with only confidence:55 are appearing as directional events like MISSED_WINDOW, while proper strategy rows are often blocked by filters such as EMA, VWAP, ADX/chop, RR, OI conflict, and late-session rules. That tells me the current system is mixing bias, watchlist, blocked setup, and tradeable signal in one messy bucket.
+
+We should build a new F&O Pro Signal Engine, not keep patching the old logic.
+
+New engine name
+
+FNO Pro Intraday Signal Engine v1
+
+Core principle:
+
+Price action first. Indicators confirm. Option chain validates. Risk decides. Execution only after trigger.
+
+No more “bearish because indicator says bearish” nonsense.
+
+Engine output types
+
+The engine must produce only these four output classes:
+
+NO_TRADE
+INFO_ONLY
+WATCHLIST_SETUP
+TRADEABLE_SIGNAL
+
+Strict rule:
+
+Bias is not a signal.
+Baseline is not a signal.
+Alert is not a signal.
+Prediction is not a signal.
+Only a confirmed trigger with valid risk becomes a TRADEABLE_SIGNAL.
+
+This is the biggest fix.
+
+Indicators we should use
+
+For pure intraday F&O, use a lean stack. Too many indicators will create fake confidence.
+
+Primary intraday indicators
+
+Use these:
+
+VWAP
+EMA 9 / EMA 21 / EMA 50
+RSI 14 with RSI slope
+ADX 14 with +DI / -DI
+ATR 14
+Opening Range High / Low / Mid
+Previous Day High / Low / Close
+Day High / Day Low
+Candle structure: HH/HL/LH/LL
+Volume spike / relative volume if reliable
+Option chain OI / PCR / IV only as confirmation
+
+VWAP is useful intraday because it combines price and volume into an average trading price, and many traders use it as an intraday value/bias reference. RSI should not be used blindly; above 70 can mean overbought and below 30 oversold, but in strong trends RSI can stay elevated or depressed for longer. ADX should be used only for trend strength, not direction, because ADX is non-directional. ATR should drive stop distance and volatility filters because it measures how much price is moving.
+
+Engine architecture
+
+Build it as separate modules:
+
+/fno_pro_engine
+  data_quality.py
+  feature_builder.py
+  market_regime.py
+  direction_model.py
+  setup_detector.py
+  gatekeeper.py
+  risk_engine.py
+  option_selector.py
+  signal_emitter.py
+  evidence_logger.py
+  backtest_replay.py
+  tests/
+
+Do not put all logic inside one huge file. That is how weak engines become unfixable.
+
+Step 1 — Data quality gate
+
+No fresh data, no signal.
+
+def data_quality_gate(snapshot):
+    if snapshot.candle_age_sec > 75:
+        return reject("STALE_CANDLE_DATA")
+
+    if snapshot.source in ["YAHOO_DELAYED", "CHART_PROVIDER_DELAYED"]:
+        return reject("DELAYED_DATA_NOT_ALLOWED_FOR_FNO_SIGNAL")
+
+    if snapshot.option_chain_age_sec and snapshot.option_chain_age_sec > 120:
+        return reject("STALE_OPTION_CHAIN")
+
+    if snapshot.candles_15m_count < 20:
+        return reject("INSUFFICIENT_INTRADAY_HISTORY")
+
+    if snapshot.has_bad_ohlc:
+        return reject("BAD_OHLC_DATA")
+
+    return pass_gate()
+
+For your F&O engine, Yahoo fallback must be display-only, not signal-generation data.
+
+Step 2 — Market regime engine
+
+Before generating CALL/PUT, classify the market.
+
+Allowed regimes:
+
+TREND_UP
+TREND_DOWN
+RECOVERY
+DISTRIBUTION
+RANGE_CHOP
+VOLATILE_NOISE
+BREAKOUT
+BREAKDOWN
+REVERSAL_ATTEMPT
+NO_TRADE
+
+Example logic:
+
+def classify_regime(f):
+    bullish_stack = f.close > f.vwap and f.ema9 > f.ema21 > f.ema50
+    bearish_stack = f.close < f.vwap and f.ema9 < f.ema21 < f.ema50
+
+    higher_structure = f.hh_count >= 2 and f.hl_count >= 2
+    lower_structure = f.lh_count >= 2 and f.ll_count >= 2
+
+    trend_strength = f.adx >= 18 and f.adx_slope >= 0
+
+    if bullish_stack and higher_structure and f.rsi > 52 and trend_strength:
+        return "TREND_UP"
+
+    if bearish_stack and lower_structure and f.rsi < 48 and trend_strength:
+        return "TREND_DOWN"
+
+    if f.recovering_from_day_low and f.rsi_slope > 0 and f.close > f.ema9:
+        return "RECOVERY"
+
+    if f.adx < 16 and abs(f.close - f.vwap) < 0.25 * f.atr:
+        return "RANGE_CHOP"
+
+    return "NO_TRADE"
+
+This would have stopped your morning PUT problem. In recovery mode, fresh PUT should be blocked.
+
+Step 3 — Direction model
+
+CALL requires alignment. PUT requires alignment.
+
+CALL direction score
++15 close above VWAP
++15 EMA9 > EMA21
++10 EMA21 > EMA50
++15 higher high / higher low structure
++10 RSI > 52 and rising
++10 +DI > -DI
++10 price above opening range mid
++10 option chain not bearish
++5 BankNifty/Nifty/Sensex alignment
+PUT direction score
++15 close below VWAP
++15 EMA9 < EMA21
++10 EMA21 < EMA50
++15 lower high / lower low structure
++10 RSI < 48 and falling
++10 -DI > +DI
++10 price below opening range mid
++10 option chain not bullish
++5 index alignment
+
+Decision:
+
+Score < 55 = NO_TRADE
+55–64 = INFO_ONLY
+65–74 = WATCHLIST_SETUP
+75+ = TRADEABLE_CANDIDATE
+
+But even 75+ is not a final trade. It still needs trigger and risk approval.
+
+Step 4 — Recovery veto
+
+This is mandatory.
+
+def recovery_mode_veto(direction, f):
+    recovery = (
+        f.close > f.day_low + 0.35 * f.atr
+        and f.rsi > f.rsi_prev
+        and f.rsi >= 45
+        and (f.close > f.ema9 or f.close > f.vwap - 0.20 * f.atr)
+        and f.hl_count_last_3 >= 2
+    )
+
+    if direction == "PUT" and recovery:
+        return reject("RECOVERY_MODE_VETO")
+
+    return pass_gate()
+
+Meaning: after market bounces from intraday low, RSI rises, and candles start making higher lows, no fresh PUT unless a new breakdown is confirmed.
+
+Step 5 — Chase-risk veto
+
+Late CALL after vertical move should also be blocked.
+
+def chase_risk_veto(direction, f):
+    extended_from_vwap = abs(f.close - f.vwap) > 1.20 * f.atr
+    extended_from_ema9 = abs(f.close - f.ema9) > 0.75 * f.atr
+    rsi_extreme = f.rsi > 70 if direction == "CALL" else f.rsi < 30
+    vertical_candles = f.same_color_large_candles_last_3 >= 2
+
+    if extended_from_vwap and extended_from_ema9 and rsi_extreme and vertical_candles:
+        return reject("CHASE_RISK_WAIT_FOR_PULLBACK")
+
+    return pass_gate()
+
+This protects you from buying CALL at the top after the engine missed the clean entry.
+
+Step 6 — Signal setups
+
+The engine should only use 5 clean setups.
+
+1. VWAP Reclaim / Rejection
+
+CALL:
+
+Price was below VWAP
+Then closes above VWAP
+Then retests VWAP/EMA9
+Then next candle breaks retest high
+
+PUT:
+
+Price was above VWAP
+Then closes below VWAP
+Then retests VWAP/EMA9
+Then next candle breaks retest low
+2. EMA Trend Pullback
+
+CALL:
+
+EMA9 > EMA21 > EMA50
+Price pulls back to EMA9/EMA21 zone
+RSI holds above 50
+Entry only above pullback candle high
+
+PUT:
+
+EMA9 < EMA21 < EMA50
+Price pulls back to EMA9/EMA21 zone
+RSI stays below 50
+Entry only below pullback candle low
+3. Opening Range Breakout Retest
+
+No raw ORB entry. Only retest.
+
+CALL:
+
+Break OR high
+Close above OR high
+Retest holds OR high / VWAP
+Entry above retest high
+
+PUT:
+
+Break OR low
+Close below OR low
+Retest fails OR low / VWAP
+Entry below retest low
+4. Failed Breakdown / Failed Breakout Reversal
+
+This is useful for days like today.
+
+CALL reversal:
+
+Price breaks day low / OR low
+Fails to continue
+Reclaims level
+RSI divergence or RSI reclaim
+Entry above reclaim candle high
+
+PUT reversal:
+
+Price breaks day high / OR high
+Fails to continue
+Loses level
+RSI divergence or RSI loss
+Entry below failure candle low
+5. Compression Expansion
+
+Only after tight range.
+
+ATR compression
+ADX rising from low base
+Range breakout with VWAP/EMA confirmation
+No chase after first large candle
+Step 7 — Anti-flip rule
+
+Your engine must not flip PUT to CALL like an emotional trader.
+
+def anti_flip_gate(last_signal, new_signal, f):
+    if not last_signal:
+        return pass_gate()
+
+    if last_signal.direction == new_signal.direction:
+        return pass_gate()
+
+    confirmed_flip = (
+        f.two_candle_close_across_vwap
+        and f.rsi_crossed_50_in_new_direction
+        and f.ema9_slope_changed
+        and f.previous_setup_invalidated
+    )
+
+    if not confirmed_flip:
+        return reject("ANTI_FLIP_CONFIRMATION_REQUIRED")
+
+    return pass_gate()
+
+Minimum cooldown:
+
+Same index opposite direction: 20 minutes
+After stopped signal: 30 minutes
+After two losses: no more signals for that index
+Step 8 — Option-chain confirmation
+
+Option chain should confirm, not lead.
+
+For CALL:
+
+PCR stable/rising
+Put writing near support
+Call unwinding above spot is positive
+No heavy call writing immediately above entry
+IV not spiking against trade
+
+For PUT:
+
+PCR falling
+Call writing near resistance
+Put unwinding below spot is negative
+No heavy put writing immediately below entry
+IV not distorted
+
+If option chain is stale or unavailable:
+
+Signal can be WATCHLIST_SETUP
+But not TRADEABLE_SIGNAL unless price action score is 85+
+Step 9 — Risk engine
+
+No trade without clean RR.
+
+def build_trade_plan(direction, f):
+    if direction == "CALL":
+        entry = f.trigger_high + f.tick_size
+        stop = min(f.swing_low, f.ema21, f.vwap) - 0.15 * f.atr
+    else:
+        entry = f.trigger_low - f.tick_size
+        stop = max(f.swing_high, f.ema21, f.vwap) + 0.15 * f.atr
+
+    risk = abs(entry - stop)
+    t1 = entry + 1.0 * risk if direction == "CALL" else entry - 1.0 * risk
+    t2 = entry + 1.8 * risk if direction == "CALL" else entry - 1.8 * risk
+
+    if risk > 0.65 * f.atr:
+        return reject("STOP_TOO_WIDE")
+
+    if risk < 0.15 * f.atr:
+        return reject("STOP_TOO_TIGHT_NOISE_RISK")
+
+    if expected_rr(entry, stop, t2) < 1.5:
+        return reject("MIN_RR_NOT_MET")
+
+    return plan(entry, stop, t1, t2)
+
+Use spot levels for signal. Option premium is only execution mapping.
+
+Step 10 — Final emission gate
+
+Only emit a signal when all pass:
+
+def emit_signal(index, f):
+    quality = data_quality_gate(f)
+    if not quality.ok:
+        return no_trade(quality.reason)
+
+    regime = classify_regime(f)
+    if regime in ["RANGE_CHOP", "VOLATILE_NOISE", "NO_TRADE"]:
+        return no_trade(regime)
+
+    direction, direction_score = score_direction(f)
+
+    if direction_score < 65:
+        return info_only("BIAS_ONLY_NOT_TRADEABLE")
+
+    setup = detect_setup(direction, f)
+    if not setup:
+        return watchlist("NO_TRIGGER_YET")
+
+    for gate in [
+        recovery_mode_veto,
+        chase_risk_veto,
+        anti_flip_gate,
+        option_chain_gate,
+        risk_gate,
+        time_gate,
+        circuit_gate,
+    ]:
+        result = gate(direction, f)
+        if not result.ok:
+            return watchlist_or_no_trade(result.reason)
+
+    if direction_score >= 75 and setup.trigger_confirmed and setup.rr >= 1.5:
+        return tradeable_signal(index, direction, setup)
+
+    return watchlist("WAITING_FOR_CONFIRMATION")
+UI behaviour
+
+Your website should show three separate panels.
+
+Panel 1: Market condition
+
+Example:
+
+NIFTY 50
+Market State: RECOVERY
+Bias: Mild Bullish
+Trade Status: WAIT
+Reason: Recovery from day low; fresh PUT blocked; CALL needs pullback/retest.
+Panel 2: Watchlist setup
+
+Example:
+
+BANK NIFTY
+Setup: EMA Trend Pullback
+Direction: CALL
+Status: WATCHLIST
+Entry not active yet.
+Required trigger: 15m close above 55,020 and retest hold.
+Panel 3: Tradeable signal
+
+Only when confirmed:
+
+TRADEABLE SIGNAL
+Index: BANK NIFTY
+Direction: CALL
+Setup: VWAP Reclaim Retest
+Spot Entry: 55,030
+Stop: 54,880
+T1: 55,180
+T2: 55,300
+Confidence: 82
+RR: 1.8
+Data Quality: LIVE
+Invalidation: Close below VWAP
+Database tables
+
+Create clean separation.
+
+CREATE TABLE fno_market_snapshots (
+  id TEXT PRIMARY KEY,
+  ts TEXT,
+  index_symbol TEXT,
+  spot REAL,
+  vwap REAL,
+  ema9 REAL,
+  ema21 REAL,
+  ema50 REAL,
+  rsi REAL,
+  adx REAL,
+  plus_di REAL,
+  minus_di REAL,
+  atr REAL,
+  day_high REAL,
+  day_low REAL,
+  or_high REAL,
+  or_low REAL,
+  data_source TEXT,
+  data_age_sec INTEGER
+);
+CREATE TABLE fno_signal_events (
+  id TEXT PRIMARY KEY,
+  ts TEXT,
+  index_symbol TEXT,
+  output_type TEXT,
+  regime TEXT,
+  direction TEXT,
+  setup_key TEXT,
+  confidence INTEGER,
+  reason_code TEXT,
+  entry REAL,
+  stop REAL,
+  t1 REAL,
+  t2 REAL,
+  rr REAL,
+  data_quality TEXT,
+  is_tradeable INTEGER
+);
+CREATE TABLE fno_signal_audit (
+  id TEXT PRIMARY KEY,
+  signal_id TEXT,
+  gate_name TEXT,
+  gate_status TEXT,
+  reason_code TEXT,
+  detail TEXT
+);
+
+This audit table is important. Every blocked signal must explain why.
+
+Backtest rules
+
+Backtest must use honest execution:
+
+No same-candle entry and target assumption
+No future candle leakage
+No signal after move already happened
+Entry only after trigger price is crossed
+Stop/target evaluated in candle sequence
+If both stop and target hit same candle, assume stop first
+Slippage included
+Brokerage/cost included
+
+Otherwise backtest is fake.
+
+Test cases we must add immediately
+
+For 2026-06-09 style movement:
+
+1. NIFTY fresh PUT during recovery must be blocked as RECOVERY_MODE_VETO.
+2. SENSEX fresh PUT during recovery must be blocked as RECOVERY_MODE_VETO.
+3. BANKNIFTY bearish signal while BankNifty is making higher highs must be blocked as INDEX_DIVERGENCE.
+4. CALL after vertical move far from VWAP must be WATCHLIST, not TRADEABLE_SIGNAL.
+5. BASELINE rows must never count in paper P&L, stop count, circuit breaker, or P25 evidence.
+6. Stale TradingView alerts older than 90 seconds must be excluded.
+7. Yahoo/delayed fallback must never generate official F&O signals.
+8. Opposite-direction signal within 20 minutes must require anti-flip confirmation.
+Build order
+
+Do it in this order. Do not jump.
+
+Phase 1: New engine folder + clean data model
+Phase 2: Feature builder from live intraday candles
+Phase 3: Regime classifier
+Phase 4: Direction scoring
+Phase 5: Setup detector
+Phase 6: Gatekeeper
+Phase 7: Risk engine
+Phase 8: Paper execution integration
+Phase 9: UI panel redesign
+Phase 10: Backtest + replay tests
+
+The mistake would be to add more indicators first. That will only create a more complicated bad engine.
+
+Exact instruction for your coding agent
+
+Use this:
+
+Build a new FNO Pro Intraday Signal Engine v1 for the website.
+
+Do not patch the old baseline engine except to disable it from tradeable signal emission.
+
+Core requirements:
+
+1. Create a separate /fno_pro_engine module.
+2. Use only live intraday candles for official F&O signals.
+3. Yahoo/chart delayed data must be display-only and blocked from official signal generation.
+4. Create strict output types:
+   - NO_TRADE
+   - INFO_ONLY
+   - WATCHLIST_SETUP
+   - TRADEABLE_SIGNAL
+5. BASELINE and market bias must always be INFO_ONLY.
+6. Build indicators:
+   - VWAP
+   - EMA9/EMA21/EMA50
+   - RSI14 and RSI slope
+   - ADX14 with +DI/-DI
+   - ATR14
+   - Opening Range High/Low/Mid
+   - Day High/Low
+   - Previous Day High/Low/Close
+   - candle structure HH/HL/LH/LL
+7. Build market regimes:
+   - TREND_UP
+   - TREND_DOWN
+   - RECOVERY
+   - DISTRIBUTION
+   - RANGE_CHOP
+   - VOLATILE_NOISE
+   - BREAKOUT
+   - BREAKDOWN
+   - REVERSAL_ATTEMPT
+   - NO_TRADE
+8. Add direction scoring for CALL and PUT.
+9. TRADEABLE_SIGNAL requires:
+   - data quality live
+   - direction score >= 75
+   - setup trigger confirmed
+   - RR >= 1.5
+   - no recovery/chase/anti-flip/circuit/data veto
+10. Add Recovery Mode Veto:
+   Fresh PUT is blocked if price has bounced from day low, RSI is rising, higher lows are forming, and price is reclaiming EMA9/VWAP zone.
+11. Add Chase Risk Veto:
+   Fresh CALL/PUT is blocked if price is extended more than ATR threshold from VWAP/EMA after vertical move.
+12. Add Anti-Flip Gate:
+   Opposite direction signal requires two-candle close across VWAP, RSI 50 cross, EMA slope confirmation, and previous setup invalidation.
+13. Add option-chain confirmation as validation only, not primary direction source.
+14. Add new tables:
+   - fno_market_snapshots
+   - fno_signal_events
+   - fno_signal_audit
+15. Add replay tests for the 2026-06-09 NIFTY/BANKNIFTY/SENSEX issue.
+16. Update UI to show:
+   - market condition
+   - watchlist setup
+   - tradeable signal
+   - no-trade reason
+   - full gate audit
+17. Ensure paper trading, P25 evidence, stop count, win rate, and circuit breaker use only TRADEABLE_SIGNAL events that actually entered paper execution.
+
+My recommendation: build this as a new engine beside the old one, run both in parallel for 5–10 market sessions, but show only the new engine’s tradeable signals after it passes replay tests. The old engine can remain as “legacy display only,” but it should not control paper trading or circuit breaker anymore.

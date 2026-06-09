@@ -1,8 +1,9 @@
-import { db, optionSignalHistoryTable } from "@workspace/db";
+import { db, optionSignalHistoryTable, paperTradeFoTable } from "@workspace/db";
 import { and, eq, sql, gte } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchKiteIntraday } from "./kiteIntraday";
 import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
+import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import type { OptionSignal } from "@workspace/api-zod";
 
 /**
@@ -102,9 +103,18 @@ export interface SetupWinRate {
 }
 
 export interface GateContext {
-  /** Total STOPPED rows for today's IST date across all indices. */
+  /** Total STOPPED rows for today's IST date across all indices.
+   *  Modeled signal-history stops — kept as a diagnostic only. */
   stoppedToday: number;
-  /** True when stoppedToday >= DAILY_STOP_LIMIT — kills new HC emission. */
+  /** 2026-06-09: actual executed paper-trade stops today (CLOSED
+   *  paper_trade_fo, exit_reason STOPPED). Drives the circuit breaker
+   *  when FNO_SIGNAL_HYGIENE_V2 is ON. */
+  paperStoppedToday: number;
+  /** Alias of `stoppedToday` (modeled). Surfaced separately so the UI can
+   *  show the diagnostic count next to the real paper-trade count. */
+  modeledStoppedToday: number;
+  /** True when the effective stop count >= DAILY_STOP_LIMIT — kills new HC
+   *  emission. Effective = paperStoppedToday (hygiene v2) or stoppedToday. */
   circuitBreakerActive: boolean;
   /** Most recent stop per index symbol, regardless of how long ago.
    *  Callers compare `minutesAgo` to BIAS_FLIP_COOLDOWN_MIN themselves. */
@@ -162,6 +172,39 @@ async function loadStoppedTodayCount(): Promise<number> {
     logger.warn(
       { err: (err as Error).message },
       "loadStoppedTodayCount: query failed; circuit breaker disarmed",
+    );
+    return 0;
+  }
+}
+
+/**
+ * 2026-06-09: count ACTUAL executed paper-trade stops today (IST). Unlike
+ * loadStoppedTodayCount (which counts modeled option_signal_history STOPPED
+ * rows), this counts CLOSED paper_trade_fo rows with exit_reason STOPPED —
+ * i.e. trades the auto-trader really took and got stopped on. Going forward
+ * BASELINE no longer auto-trades, so today's executed stops are STANDARD-lane
+ * only; historical rows are excluded by the today-date filter. Fail-open
+ * (returns 0) so a query failure disarms the breaker rather than wedging it.
+ */
+async function loadPaperStoppedTodayCount(): Promise<number> {
+  const date = istDateKey();
+  try {
+    const rows = await db
+      .select({ n: sql<number>`COUNT(*)` })
+      .from(paperTradeFoTable)
+      .where(
+        and(
+          eq(paperTradeFoTable.signalDate, date),
+          eq(paperTradeFoTable.status, "CLOSED"),
+          eq(paperTradeFoTable.exitReason, "STOPPED"),
+        ),
+      );
+    const n = rows[0]?.n;
+    return typeof n === "number" ? n : Number(n ?? 0);
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "loadPaperStoppedTodayCount: query failed; paper-trade circuit breaker disarmed",
     );
     return 0;
   }
@@ -251,15 +294,31 @@ async function loadSetupWinRates(): Promise<Map<string, SetupWinRate>> {
     // paper_trade_fo only contains filled trades by construction
     // (insert is inside the open-txn after account debit), so no
     // separate fill-state filter is needed.
+    // 2026-06-09 hygiene v2: exclude historical BASELINE-lane executed
+    // trades from the win-rate sample by joining option_signal_history and
+    // keeping only HIGH_CONVICTION-tier signals. paper_trade_fo has no tier
+    // column, but the (signal_date, index_symbol, setup_key, direction)
+    // tuple is 1:1 with option_signal_history, so the join does not multiply
+    // rows. When the flag is OFF the join is omitted (legacy behaviour).
+    const hygiene = isSignalHygieneV2Enabled();
+    const tierJoin = hygiene
+      ? sql`JOIN option_signal_history h
+          ON h.signal_date  = f.signal_date
+         AND h.index_symbol = f.index_symbol
+         AND h.setup_key     = f.setup_key
+         AND h.direction     = f.direction
+         AND h.tier = 'HIGH_CONVICTION'`
+      : sql``;
     const result = await db.execute(sql`
-      SELECT setup_key,
-             COUNT(*) FILTER (WHERE realized_pnl <> 0)::int AS total,
-             COUNT(*) FILTER (WHERE realized_pnl > 0)::int  AS wins
-        FROM paper_trade_fo
-       WHERE status = 'CLOSED'
-         AND opened_at >= ${cutoff}
-         AND exit_reason IN ('TARGET1_HIT','TARGET2_HIT','STOPPED','EXPIRED')
-       GROUP BY setup_key
+      SELECT f.setup_key AS setup_key,
+             COUNT(*) FILTER (WHERE f.realized_pnl <> 0)::int AS total,
+             COUNT(*) FILTER (WHERE f.realized_pnl > 0)::int  AS wins
+        FROM paper_trade_fo f
+        ${tierJoin}
+       WHERE f.status = 'CLOSED'
+         AND f.opened_at >= ${cutoff}
+         AND f.exit_reason IN ('TARGET1_HIT','TARGET2_HIT','STOPPED','EXPIRED')
+       GROUP BY f.setup_key
     `);
     const rows = (
       result as unknown as {
@@ -414,21 +473,30 @@ async function loadVixSnapshot(): Promise<VixSnapshot> {
  * a consistent snapshot.
  */
 export async function loadGateContext(): Promise<GateContext> {
-  const [stoppedToday, recentStops, vix, setupWinRates, nifty5dReturn] = await Promise.all([
-    loadStoppedTodayCount(),
-    loadRecentStopsByIndex(BIAS_FLIP_COOLDOWN_MIN),
-    loadVixSnapshot(),
-    loadSetupWinRates(),
-    loadNifty5dReturn(),
-  ]);
+  const [stoppedToday, paperStoppedToday, recentStops, vix, setupWinRates, nifty5dReturn] =
+    await Promise.all([
+      loadStoppedTodayCount(),
+      loadPaperStoppedTodayCount(),
+      loadRecentStopsByIndex(BIAS_FLIP_COOLDOWN_MIN),
+      loadVixSnapshot(),
+      loadSetupWinRates(),
+      loadNifty5dReturn(),
+    ]);
 
-  const circuitBreakerActive = stoppedToday >= DAILY_STOP_LIMIT;
+  // 2026-06-09 hygiene v2: the breaker counts ACTUAL executed paper-trade
+  // stops. The modeled signal-history count is retained as a diagnostic.
+  // When the flag is OFF, fall back to the legacy modeled-count breaker.
+  const hygiene = isSignalHygieneV2Enabled();
+  const effectiveStops = hygiene ? paperStoppedToday : stoppedToday;
+  const circuitBreakerActive = effectiveStops >= DAILY_STOP_LIMIT;
   const globalSuppress = circuitBreakerActive || vix.spike;
 
   const notes: string[] = [];
   if (circuitBreakerActive) {
     notes.push(
-      `Daily circuit breaker ON — ${stoppedToday} stops today (limit ${DAILY_STOP_LIMIT}). New high-conviction emission suspended for the rest of the session.`,
+      hygiene
+        ? `Daily circuit breaker ON — ${paperStoppedToday} executed paper-trade stop(s) today (limit ${DAILY_STOP_LIMIT}). New high-conviction emission suspended for the rest of the session.`
+        : `Daily circuit breaker ON — ${stoppedToday} stops today (limit ${DAILY_STOP_LIMIT}). New high-conviction emission suspended for the rest of the session.`,
     );
   }
   if (vix.spike && vix.reason) notes.push(vix.reason);
@@ -445,6 +513,8 @@ export async function loadGateContext(): Promise<GateContext> {
 
   return {
     stoppedToday,
+    paperStoppedToday,
+    modeledStoppedToday: stoppedToday,
     circuitBreakerActive,
     recentStopsByIndex: recentStops,
     vix,

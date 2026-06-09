@@ -16,6 +16,11 @@ import { AlertTriangle, ShieldAlert, Activity, Layers } from "lucide-react";
 export interface GateState {
   circuitBreakerActive?: boolean;
   stoppedToday?: number;
+  /** FNO_SIGNAL_HYGIENE_V2: actual executed paper-trade stops today — the
+   *  real number that arms the circuit breaker. */
+  paperStoppedToday?: number;
+  /** Modeled signal-history stops — diagnostic only. */
+  modeledStoppedToday?: number;
   stopLimit?: number;
   vixSpike?: boolean;
   vixIntradayPct?: number | null;
@@ -95,7 +100,16 @@ export function SignalGateBanner({ gates }: { gates: GateState }) {
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             {circuit && (
               <Chip className={palette.chip} icon={<ShieldAlert className="h-3 w-3" />}>
-                circuit-breaker · {gates.stoppedToday ?? 0}/{gates.stopLimit ?? 2} stops today
+                circuit-breaker · Paper-trade stops {gates.paperStoppedToday ?? 0}/
+                {gates.stopLimit ?? 2}
+              </Chip>
+            )}
+            {(gates.modeledStoppedToday ?? 0) > 0 && (
+              <Chip
+                className="bg-slate-500/15 text-slate-300 border-slate-500/30"
+                icon={<Activity className="h-3 w-3" />}
+              >
+                Modeled signal stops {gates.modeledStoppedToday} · diagnostic only
               </Chip>
             )}
             {vix && (

@@ -264,6 +264,7 @@ export * from "./optionSignalSetMarketState";
 export * from "./optionSignalSetupKey";
 export * from "./optionSignalStatus";
 export * from "./optionSignalTier";
+export * from "./optionSignalTradeClass";
 export * from "./optionSnapshot";
 export * from "./optionSnapshotBias";
 export * from "./optionSnapshotExpiryContext";

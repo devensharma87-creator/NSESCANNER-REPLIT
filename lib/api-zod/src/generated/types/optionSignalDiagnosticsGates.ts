@@ -14,6 +14,10 @@ export type OptionSignalDiagnosticsGates = {
   circuitBreakerActive: boolean;
   /** Number of STOPPED outcomes recorded for today (IST date). */
   stoppedToday: number;
+  /** FNO_SIGNAL_HYGIENE_V2: actual executed paper-trade stops today (CLOSED paper_trade_fo, exit_reason STOPPED). Drives the circuit breaker when the flag is ON. */
+  paperStoppedToday?: number;
+  /** Modeled signal-history STOPPED count for today (IST date) — diagnostic only; equals stoppedToday. */
+  modeledStoppedToday?: number;
   /** Daily stop limit that triggers the circuit breaker. */
   stopLimit: number;
   /** True when India VIX has tripped either the intraday or day-over-day spike threshold. */

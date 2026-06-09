@@ -9,3 +9,4 @@
 - [Kite candle CSV must be IST-local](kite-candle-ist-timestamps.md) — export candles as IST-local naive `YYYY-MM-DD HH:MM:SS`; `.toISOString()` shifts the session -5:30h and breaks the backtester's hour buckets/time gates.
 - [getEnvironmentLabel returns an object (React #31 trap)](fno-env-label-object-react31.md) — `/api/fno/*` `environment` field is `{env,autoTradingEnabled,reason}`, not a string; never render `/api/fno/*` fields raw in JSX.
 - [Backtester prod backfill is a no-op](backtester-prod-backfill-noop.md) — backtester was dev-only until 2026-06-07 publish; pre-fix off-session trades only ever existed in dev, prod starts clean.
+- [F&O dual tier vocab + tradeClass re-derive](fno-tier-vocab-tradeclass.md) — signal tier (HC/BASELINE) ≠ sizing tier (STANDARD/BASELINE/MICRO); re-derive tradeClass after any post-emission tier mutation (applyOiConfirmation).

@@ -29,6 +29,8 @@ import {
   type GateContext,
 } from "./optionSignalGates";
 import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
+import { evaluateDirectionalVetoes, deriveTradeClass } from "./optionSignalVetoes";
+import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 
 export interface IndexCfg {
   symbol: string;
@@ -573,6 +575,11 @@ interface Detected {
   htf1hConflictGate?: boolean;        // (A) true 1h HTF bias opposes setup direction
   rsConflictGate?: boolean;           // (D) sector lagging/leading NIFTY against setup direction
   lowWinRateGate?: boolean;           // (E) setup_key 30d win-rate < threshold (with sample guard)
+  // 2026-06-09 hygiene vetoes (flag: FNO_SIGNAL_HYGIENE_V2). Demote-only,
+  // same partition semantics as the Pass-2B/3 gates above. Surface as the
+  // RECOVERY_MODE_VETO / CHASE_RISK_VETO audit tags in toSignal.
+  recoveryVetoGate?: boolean;         // fresh BEARISH (PUT) into an intraday V-recovery
+  chaseVetoGate?: boolean;            // fresh BULLISH (CALL) chased at top of a vertical run
   // Note: (G) ATM-OI confluence is enforced post-toSignal in
   // applyOiConfirmation by mutating tier/tags directly — not via a
   // Detected flag, since the OI insights aren't available until after
@@ -1187,6 +1194,11 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
   if (d.htf1hConflictGate) tags.push("HTF1H_CONFLICT");
   if (d.rsConflictGate) tags.push("RS_CONFLICT");
   if (d.lowWinRateGate) tags.push("LOW_WINRATE");
+  // 2026-06-09 hygiene veto audit tags. Each maps 1:1 to a Detected flag
+  // set in the emission loop; presence implies the setup was demoted from
+  // HIGH_CONVICTION to INFO_ONLY (BASELINE tier) for that reason.
+  if (d.recoveryVetoGate) tags.push("RECOVERY_MODE_VETO");
+  if (d.chaseVetoGate) tags.push("CHASE_RISK_VETO");
   return {
     index: c.cfg.symbol,
     indexName: c.cfg.display,
@@ -1195,6 +1207,10 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
     bias: d.direction,
     confidence: d.confidence,
     tier,
+    // 2026-06-09: explicit tradeability class. Only HIGH_CONVICTION is
+    // auto-tradeable; everything else (BASELINE / vetoed / demoted) is
+    // strictly INFO_ONLY and the paper auto-trader refuses to open it.
+    tradeClass: deriveTradeClass(tier, isSignalHygieneV2Enabled()),
     timeframe: "intraday-15m",
     vwap: round2(c.vwap),
     ema9: round2(c.ema9),
@@ -1481,6 +1497,27 @@ function buildSignalsForIndex(
   const idxRet = ctx.index5dReturn;
   const isNiftyBenchmark = cfg.symbol === "NIFTY";
   const winRates = gateCtx?.setupWinRates;
+  // 2026-06-09 hygiene vetoes (flag: FNO_SIGNAL_HYGIENE_V2). Computed once
+  // per emission tick from the live tape. `recovery` demotes a fresh
+  // BEARISH (PUT) into an intraday V-recovery; `chase` demotes a fresh
+  // BULLISH (CALL) chased at the top of a vertical run. Both DEMOTE to
+  // INFO_ONLY — see optionSignalVetoes.ts. Requires full indicators so
+  // warm-up bars never trip a veto on degraded data.
+  const hygieneOn = isSignalHygieneV2Enabled();
+  const veto =
+    hygieneOn && ctx.fullIndicators
+      ? evaluateDirectionalVetoes({
+          spot: ctx.spot,
+          vwap: ctx.vwap,
+          ema9: ctx.ema9,
+          atr15: ctx.atr15,
+          rsi14: ctx.rsi14,
+          highs: ctx.bars.h,
+          lows: ctx.bars.l,
+          closes: ctx.bars.c,
+          rsiSeries: ctx.rsiSeries,
+        })
+      : { recovery: false, chase: false };
   for (const d of highConviction) {
     // Pass-2B (B): daily-EMA50 HTF
     const htfConflict =
@@ -1526,6 +1563,10 @@ function buildSignalsForIndex(
     ) {
       d.lowWinRateGate = true;
     }
+
+    // 2026-06-09 hygiene vetoes — direction-scoped demote to INFO_ONLY.
+    if (veto.recovery && d.direction === "BEARISH") d.recoveryVetoGate = true;
+    if (veto.chase && d.direction === "BULLISH") d.chaseVetoGate = true;
   }
 
   // Sort high-conviction by confidence; keep top 3. Then append the baseline.
@@ -1548,7 +1589,10 @@ function buildSignalsForIndex(
       // Pass-3 additions — same partition rule as Pass-2A/2B.
       d.htf1hConflictGate ||
       d.rsConflictGate ||
-      d.lowWinRateGate
+      d.lowWinRateGate ||
+      // 2026-06-09 hygiene vetoes — same demote-only partition rule.
+      d.recoveryVetoGate ||
+      d.chaseVetoGate
     );
   const cleanHc = highConviction.filter((d) => !isDemoted(d));
   const demotedHc = highConviction.filter(isDemoted);
@@ -1560,6 +1604,10 @@ function buildSignalsForIndex(
     out.push(applyLock(toSignal(ctx, d, "BASELINE")));
   }
   if (baseline) {
+    // Surface the veto reason on the baseline card too (it is already
+    // INFO_ONLY, so this is audit-visibility only — no behaviour change).
+    if (veto.recovery && baseline.direction === "BEARISH") baseline.recoveryVetoGate = true;
+    if (veto.chase && baseline.direction === "BULLISH") baseline.chaseVetoGate = true;
     out.push(applyLock(toSignal(ctx, baseline, "BASELINE")));
   }
   return { signals: out, suppressed, hasBars: true, snapshot: snapshotFromCtx(ctx) };
@@ -1609,6 +1657,10 @@ export interface OptionSignalsResult {
     gates: {
       circuitBreakerActive: boolean;
       stoppedToday: number;
+      /** Real executed paper-trade stops today (drives the breaker when hygiene v2 on). */
+      paperStoppedToday: number;
+      /** Modeled signal-history stops today — diagnostic only, never gates. */
+      modeledStoppedToday: number;
       stopLimit: number;
       vixSpike: boolean;
       vixIntradayPct: number | null;
@@ -2074,6 +2126,10 @@ async function applyOiConfirmation(
             (isBullish && atmVote <= -2) || (!isBullish && atmVote >= 2);
           if (atmConflict) {
             s.tier = "BASELINE";
+            // Keep tradeClass consistent with the post-OI tier: a signal
+            // demoted to BASELINE here must report INFO_ONLY (hygiene v2),
+            // never a stale TRADEABLE.
+            s.tradeClass = deriveTradeClass(s.tier, isSignalHygieneV2Enabled());
             if (!s.tags?.includes("OI_ATM_CONFLICT")) {
               s.tags = [...(s.tags ?? []), "OI_ATM_CONFLICT"];
             }
@@ -2288,8 +2344,11 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
 
   // Record dropped reasons so the UI banner / diagnostics dump is honest.
   if (globallyVetoed.size > 0) {
+    const breakerStops = isSignalHygieneV2Enabled()
+      ? gateCtx.paperStoppedToday
+      : gateCtx.stoppedToday;
     const reason = gateCtx.circuitBreakerActive
-      ? `circuit-breaker veto: ${gateCtx.stoppedToday} stops today (limit ${2}) — new high-conviction emission suspended`
+      ? `circuit-breaker veto: ${breakerStops} stops today (limit ${2}) — new high-conviction emission suspended`
       : (gateCtx.vix.reason ?? "global suppression active");
     for (const s of globallyVetoed) {
       suppressed.push({ index: s.index, reasons: [`${s.setupKey}: ${reason}`] });
@@ -2494,6 +2553,8 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       gates: {
         circuitBreakerActive: gateCtx.circuitBreakerActive,
         stoppedToday: gateCtx.stoppedToday,
+        paperStoppedToday: gateCtx.paperStoppedToday,
+        modeledStoppedToday: gateCtx.modeledStoppedToday,
         stopLimit: 2,
         vixSpike: gateCtx.vix.spike,
         vixIntradayPct: gateCtx.vix.intradayPct,

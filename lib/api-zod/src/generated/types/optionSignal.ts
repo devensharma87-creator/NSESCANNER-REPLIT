@@ -14,6 +14,7 @@ import type { OptionSignalRegime } from "./optionSignalRegime";
 import type { OptionSignalSetupKey } from "./optionSignalSetupKey";
 import type { OptionSignalStatus } from "./optionSignalStatus";
 import type { OptionSignalTier } from "./optionSignalTier";
+import type { OptionSignalTradeClass } from "./optionSignalTradeClass";
 import type { SignalReason } from "./signalReason";
 
 export interface OptionSignal {
@@ -25,6 +26,8 @@ export interface OptionSignal {
   confidence: number;
   /** HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read. */
   tier?: OptionSignalTier;
+  /** FNO_SIGNAL_HYGIENE_V2: TRADEABLE only for STANDARD-tier HIGH_CONVICTION signals the auto-trader may open; INFO_ONLY for BASELINE and any demoted/vetoed (RECOVERY_MODE_VETO / CHASE_RISK_VETO) signal, which is surfaced for context but never auto-traded. */
+  tradeClass?: OptionSignalTradeClass;
   /** e.g. intraday-15m */
   timeframe?: string;
   vwap?: number;

@@ -2739,6 +2739,12 @@ export const GetOptionSignalsResponse = zod.object({
         .describe(
           "HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read.",
         ),
+      tradeClass: zod
+        .enum(["TRADEABLE", "INFO_ONLY"])
+        .optional()
+        .describe(
+          "FNO_SIGNAL_HYGIENE_V2: TRADEABLE only for STANDARD-tier HIGH_CONVICTION signals the auto-trader may open; INFO_ONLY for BASELINE and any demoted\/vetoed (RECOVERY_MODE_VETO \/ CHASE_RISK_VETO) signal, which is surfaced for context but never auto-traded.",
+        ),
       timeframe: zod.string().optional().describe("e.g. intraday-15m"),
       vwap: zod.number().optional(),
       ema9: zod.number().optional(),
@@ -3036,6 +3042,18 @@ export const GetOptionSignalsResponse = zod.object({
             .number()
             .describe(
               "Number of STOPPED outcomes recorded for today (IST date).",
+            ),
+          paperStoppedToday: zod
+            .number()
+            .optional()
+            .describe(
+              "FNO_SIGNAL_HYGIENE_V2: actual executed paper-trade stops today (CLOSED paper_trade_fo, exit_reason STOPPED). Drives the circuit breaker when the flag is ON.",
+            ),
+          modeledStoppedToday: zod
+            .number()
+            .optional()
+            .describe(
+              "Modeled signal-history STOPPED count for today (IST date) — diagnostic only; equals stoppedToday.",
             ),
           stopLimit: zod
             .number()

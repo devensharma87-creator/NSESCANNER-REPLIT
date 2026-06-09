@@ -1,0 +1,259 @@
+your engine is mixing “market commentary / baseline bias” with “tradable signals.” That is the core disease. The PUT signals were not just “market wrong”; the system architecture is wrong.
+
+From your screenshots and uploaded backtest_blocked_setups.json, I see these red flags:
+
+Baseline signals are being treated like real trade signals.
+Your log shows BASELINE with MISSED_WINDOW, confidence only around 55, but the UI still shows them as triggered/stopped signals. That is garbage for an auto/paper engine. Baseline should be context only, never tradeable.
+Circuit breaker is getting hit by non-real trades.
+Screenshot shows “2/2 stops today” and hard suppression active, but Paper Trading says 0 closed trades / 0 P25 eligible trades. That means your engine is punishing itself for signal-history outcomes, not actual paper trades. This is a serious logic bug.
+PUT at recovery phase means reversal-state detection is weak.
+Around 11:15–11:30, NIFTY/SENSEX were recovering from lows; Bank Nifty was already stronger. A pro engine must block fresh PUT if price is forming higher low, RSI rising, reclaim attempt happening, or spot is moving back toward/above VWAP/EMA stack. VWAP is widely used as an intraday fair-value/bias reference, and RSI above/below momentum zones must be interpreted with trend context, not blindly.
+Your engine is overusing weak “directional plans.”
+The screenshot says “Baseline Outlook — Short Bias / Long Bias” and then logs them as if they were signals. That should be renamed to Directional Bias — Not Tradeable unless it passes a full trigger gate.
+ADX/chop handling exists, but direction quality is still weak.
+Your JSON has many blocks due to avoidChopZone, emaTrendFilter, vwapFilter, and minimumRiskReward. That is good, but incomplete. ADX measures trend strength, not direction; direction must come from EMA/VWAP/price-structure/OI alignment.
+
+Here is the fix plan I would give the coder/agent.
+
+Immediate hotfix — do this first
+1. Separate signal types into 3 classes
+
+Create strict signal classes:
+
+INFO_ONLY
+WATCHLIST_SETUP
+TRADEABLE_SIGNAL
+
+Rules:
+
+BASELINE = INFO_ONLY only
+MARKET_BIAS = INFO_ONLY only
+EMA/VWAP/ORB/COMPRESSION/REVERSAL = WATCHLIST_SETUP until trigger confirmed
+Only confirmed setup + valid entry + valid RR + valid market-state = TRADEABLE_SIGNAL
+
+Hard rule:
+BASELINE must never enter paper trade, circuit breaker, win rate, stop count, P25 evidence, or “triggered/stopped” stats.
+
+This one change will remove 50% of the nonsense.
+
+Main engine fix — professional signal gate
+
+Before any CALL/PUT signal is emitted, run this pipeline:
+
+1. Data freshness gate
+2. Market regime gate
+3. Direction gate
+4. Recovery/reversal veto
+5. Option-chain/OI confirmation
+6. Entry trigger gate
+7. Risk-reward gate
+8. Anti-chase gate
+9. Correlation/circuit gate
+10. Emit as TRADEABLE_SIGNAL only if all pass
+Direction gate
+
+For CALL, require at least 4 of 6:
+
+spot > VWAP
+EMA9 > EMA21 or EMA20 > EMA50
+last 3 candles have higher high / higher low
+RSI > 50 and rising
+price above opening range mid or reclaiming OR high
+OI/option-chain not bearish
+
+For PUT, require at least 4 of 6:
+
+spot < VWAP
+EMA9 < EMA21 or EMA20 < EMA50
+last 3 candles have lower high / lower low
+RSI < 50 and falling
+price below opening range mid or breaking OR low
+OI/option-chain not bullish
+
+VWAP and ORB should be used as directional context, not as single-signal magic. Opening-range logic works only when breakout direction is confirmed by broader context such as VWAP/EMA/volume/risk, not merely because price touched a level.
+
+Recovery veto — this would have blocked your bad PUT
+
+Fresh PUT should be blocked if market is in recovery mode.
+
+Add this rule:
+
+def is_recovery_mode(candles, spot, vwap, ema9, ema21, rsi, day_low):
+    last = candles[-1]
+    prev = candles[-4:-1]
+
+    bounced_from_low = (spot - day_low) >= 0.35 * current_atr
+    higher_lows = candles[-1].low > candles[-2].low > candles[-3].low
+    rsi_reclaim = rsi.current > rsi.prev and rsi.current >= 45
+    reclaiming_vwap = spot > ema9 or spot >= vwap * 0.998
+
+    return bounced_from_low and (higher_lows or rsi_reclaim) and reclaiming_vwap
+
+Then:
+
+if direction == "PUT" and is_recovery_mode(...):
+    reject("RECOVERY_MODE_VETO")
+
+For CALL:
+
+if direction == "CALL" and is_exhausted_after_vertical_move(...):
+    reject("CHASE_RISK")
+
+Bank Nifty screenshot shows RSI near/above 70 later. RSI above 70 is traditionally overbought, so late CALLs after a vertical move should not be chased unless there is a pullback/retest entry.
+
+Anti-flip rule — stop CALL/PUT flip-flop
+
+Your engine produced PUT first, then CALL later. Flip is allowed only after structure changes. Not before.
+
+Add:
+
+if last_signal.direction != new_signal.direction:
+    require:
+        price_closed_across_vwap_for_2_candles
+        AND ema9_cross_confirmed
+        AND RSI crossed 50 in new direction
+        AND previous setup invalidated
+
+Without this, the engine becomes a nervous beginner: bearish on dip, bullish after bounce. That is exactly what happened.
+
+Circuit breaker fix
+
+Current behaviour is wrong.
+
+Circuit breaker should count only:
+
+executed paper trades
+OR P25 eligible official trades
+OR real confirmed trade simulations
+
+It must not count:
+
+BASELINE
+INFO_ONLY
+WATCHLIST_SETUP
+missed window
+expired setup
+TradingView alert
+non-executed signal-history item
+
+Correct logic:
+
+def counts_for_daily_circuit(event):
+    return (
+        event.status == "CLOSED"
+        and event.trade_class == "TRADEABLE_SIGNAL"
+        and event.execution_status == "PAPER_EXECUTED"
+        and event.exit_reason in ["STOP_HIT", "HARD_SL"]
+    )
+
+Your screenshot showing 0 paper trades but circuit breaker active is unacceptable. Fix this before changing strategy formulas.
+
+P25 / paper evidence fix
+
+Right now, your UI says:
+
+P25 eligible: 0/20
+Actual P&L: +8508
+Realized P&L: 0
+Circuit breaker: 2 stops
+
+That is internally contradictory.
+
+You need 3 separate ledgers:
+
+1. Signal ledger — all ideas/signals/watchlist events
+2. Paper execution ledger — actual paper trades only
+3. Evidence/P25 ledger — only official eligible closed trades
+
+Never mix them.
+
+UI labels should become:
+
+Signal outcome P&L: demo only
+Paper trade P&L: actual paper engine
+P25 evidence: official eligible trades only
+Data-quality fixes
+
+Your TradingView alerts show “about 2 months ago.” That must be marked stale and excluded.
+
+Add hard stale gate:
+
+if alert_age_seconds > 90:
+    reject("STALE_ALERT_DATA")
+
+For live market candles:
+
+if candle_age_seconds > 75:
+    reject("STALE_CANDLE_DATA")
+
+For option chain:
+
+if option_chain_age_seconds > 120:
+    reject("STALE_OPTION_CHAIN")
+
+No fresh data, no signal. Period.
+
+New confidence scoring
+
+Do not allow 50–55 confidence to appear as a tradable signal.
+
+Use this:
+
+< 60 = info only
+60–69 = watchlist only
+70–79 = tradeable only after trigger
+80+ = high conviction
+
+For F&O auto/paper entry:
+
+minimum confidence = 72
+minimum RR = 1.5
+minimum data quality = GOOD
+minimum market alignment = 4/6
+What should have happened today
+
+At 11:15–11:30:
+
+NIFTY/SENSEX PUT:
+BLOCKED — RECOVERY_MODE_VETO
+reason: price recovering from intraday low, RSI rising/reclaiming, bearish continuation not confirmed
+
+BANKNIFTY PUT:
+BLOCKED — INDEX_DIVERGENCE
+reason: Bank Nifty stronger than Nifty/Sensex, not confirming broad bearish trade
+
+Later CALL:
+WATCHLIST first, not instant trade
+Trade only after pullback/retest or clean close above trigger
+If extended from VWAP/EMA: BLOCKED — CHASE_RISK
+
+That is how a pro engine behaves.
+
+Final instruction to your coder/agent
+
+Use this exact command:
+
+Fix the F&O signalling engine architecture.
+
+1. Split all outputs into INFO_ONLY, WATCHLIST_SETUP, and TRADEABLE_SIGNAL.
+2. Force BASELINE and market-bias outputs to INFO_ONLY only.
+3. Remove BASELINE, missed-window, expired, stale alert, and non-executed signal-history rows from:
+   - paper trade P&L
+   - circuit breaker
+   - P25 evidence
+   - win rate
+   - stopped count
+4. Add Recovery Mode Veto for fresh PUTs.
+5. Add Exhaustion/Chase Risk Veto for late CALLs/PUTs after vertical moves.
+6. Add anti-flip confirmation: opposite-direction signal requires 2 candle close across VWAP, EMA confirmation, RSI 50 reclaim/loss, and previous setup invalidation.
+7. Add data freshness gates for candles, option-chain, and TradingView alerts.
+8. Raise tradeable confidence floor to 72.
+9. Require direction alignment from VWAP + EMA + price structure + RSI + OI before emitting tradeable CALL/PUT.
+10. Keep low-confidence directional plans visible only as “Bias / Not tradeable.”
+11. Add test cases for 2026-06-09:
+   - NIFTY/SENSEX 11:15–11:30 PUT must be blocked as RECOVERY_MODE_VETO.
+   - Bank Nifty bearish signal must be blocked due to INDEX_DIVERGENCE / bullish relative strength.
+   - Non-executed baseline stops must not trigger circuit breaker.
+   - P25 eligible count 0 must produce P25 P&L 0, not mixed signal P&L.
+
+The painful truth: don’t tune more indicators yet. Fix the event classification and gating first. Your engine is currently not just “low accuracy”; it is confusing commentary, watchlist, signal, and trade execution. Once that separation is clean, then strategy accuracy can be improved properly.

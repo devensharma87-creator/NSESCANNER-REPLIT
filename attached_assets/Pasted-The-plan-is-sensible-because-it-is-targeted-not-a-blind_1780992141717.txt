@@ -1,0 +1,38 @@
+The plan is sensible because it is targeted, not a blind rewrite. The agent correctly identified that the real fix is classification + veto + circuit-breaker hygiene, not adding more indicators.
+
+Send this:
+
+Proceed with the implementation.
+
+Approved direction:
+
+BASELINE must become strictly INFO_ONLY.
+It must never open paper trades, affect win-rate, P25 evidence, stop count, circuit breaker, or risk lockout.
+Recovery-veto and chase-veto should demote signals to INFO_ONLY, not hard-hide them.
+Keep them visible in audit/logs with clear reason codes:
+RECOVERY_MODE_VETO
+CHASE_RISK_VETO
+Circuit breaker must be based only on actual executed CLOSED paper trades.
+Modeled signal outcomes should remain visible only as diagnostics and must not suppress trading.
+Keep the change tightly scoped.
+Do not touch swing trades, Kite auth/data fetch, scheduler cadence, stop/target geometry, 15:20 force exit, or portfolio heat.
+
+Extra guardrails before deploy:
+
+Add a feature flag or config switch for this new gate behavior so it can be rolled back quickly.
+Add unit tests for BASELINE rejection, recovery-veto, chase-veto, anti-flip, and paper-trade-only circuit breaker.
+Add a replay test for the 2026-06-09 NIFTY/BANKNIFTY/SENSEX PUT-then-CALL issue.
+Make sure existing historical BASELINE rows do not accidentally count after this change.
+UI must clearly show:
+Paper-trade stops X/2 = real executed paper trades only.
+Modeled signal stops = diagnostic only.
+Do not deploy to production until typecheck, API tests, scanner tests, and replay tests pass.
+
+One refinement:
+For RECOVERY_MODE_VETO, do not rely only on a fixed 0.4% bounce from day low. Use ATR-normalized recovery plus higher-lows plus RSI reclaim/rising slope and EMA9/VWAP reclaim attempt. Fixed percentage alone can behave badly across NIFTY, BANKNIFTY, and SENSEX.
+
+For CHASE_RISK_VETO, do not permanently reject bullish trend days. Demote late extended CALLs to INFO_ONLY / wait-for-pullback, and allow a fresh tradeable signal only after pullback/retest confirmation.
+
+Proceed and test as you go.
+
+This is the right call. Approve it, but don’t allow a production deploy without replay proof.

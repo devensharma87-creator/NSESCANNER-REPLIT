@@ -846,6 +846,17 @@ export const OptionSignalTier = {
 } as const;
 
 /**
+ * FNO_SIGNAL_HYGIENE_V2: TRADEABLE only for STANDARD-tier HIGH_CONVICTION signals the auto-trader may open; INFO_ONLY for BASELINE and any demoted/vetoed (RECOVERY_MODE_VETO / CHASE_RISK_VETO) signal, which is surfaced for context but never auto-traded.
+ */
+export type OptionSignalTradeClass =
+  (typeof OptionSignalTradeClass)[keyof typeof OptionSignalTradeClass];
+
+export const OptionSignalTradeClass = {
+  TRADEABLE: "TRADEABLE",
+  INFO_ONLY: "INFO_ONLY",
+} as const;
+
+/**
  * Daily-timeframe bias derived from spot vs daily EMA50.
  */
 export type OptionSignalHtfBias =
@@ -938,6 +949,8 @@ export interface OptionSignal {
   confidence: number;
   /** HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read. */
   tier?: OptionSignalTier;
+  /** FNO_SIGNAL_HYGIENE_V2: TRADEABLE only for STANDARD-tier HIGH_CONVICTION signals the auto-trader may open; INFO_ONLY for BASELINE and any demoted/vetoed (RECOVERY_MODE_VETO / CHASE_RISK_VETO) signal, which is surfaced for context but never auto-traded. */
+  tradeClass?: OptionSignalTradeClass;
   /** e.g. intraday-15m */
   timeframe?: string;
   vwap?: number;
@@ -1050,6 +1063,10 @@ export type OptionSignalDiagnosticsGates = {
   circuitBreakerActive: boolean;
   /** Number of STOPPED outcomes recorded for today (IST date). */
   stoppedToday: number;
+  /** FNO_SIGNAL_HYGIENE_V2: actual executed paper-trade stops today (CLOSED paper_trade_fo, exit_reason STOPPED). Drives the circuit breaker when the flag is ON. */
+  paperStoppedToday?: number;
+  /** Modeled signal-history STOPPED count for today (IST date) — diagnostic only; equals stoppedToday. */
+  modeledStoppedToday?: number;
   /** Daily stop limit that triggers the circuit breaker. */
   stopLimit: number;
   /** True when India VIX has tripped either the intraday or day-over-day spike threshold. */

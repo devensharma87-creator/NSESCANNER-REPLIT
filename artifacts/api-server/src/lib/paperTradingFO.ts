@@ -33,6 +33,8 @@ import {
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
+import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
+import { isAutoTradeableSizingTier } from "./optionSignalVetoes";
 import type { OptionSignal } from "@workspace/api-zod";
 import {
   ensureDailyReset,
@@ -326,6 +328,21 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         direction, confidence, tier, skipReason,
       }),
     );
+
+  // 2026-06-09 hygiene v2: BASELINE (and any non-STANDARD demoted/vetoed)
+  // signals are strictly INFO_ONLY — the auto-trader refuses to open them,
+  // so they never enter the heat budget, the daily cap, the circuit
+  // breaker, or the win-rate sample. The legacy BASELINE lane below is
+  // left intact and reachable only when the flag is OFF (rollback).
+  if (!isAutoTradeableSizingTier(tier, isSignalHygieneV2Enabled())) {
+    if (recordSkip("INFO_ONLY_NOT_TRADEABLE")) {
+      logger.info(
+        { indexSymbol, setupKey, tier, confidence },
+        "Paper FO skip: INFO_ONLY (non-STANDARD tier not auto-tradeable under hygiene v2)",
+      );
+    }
+    return null;
+  }
 
   if (confidence < minConfidence) {
     if (recordSkip("CONFIDENCE_FLOOR")) {
@@ -2376,6 +2393,7 @@ export type SkipReason =
   | "BASELINE_GUARDRAIL_STATS_UNAVAILABLE"
   | "PORTFOLIO_HEAT"
   | "BUDGET_TOO_TIGHT"
+  | "INFO_ONLY_NOT_TRADEABLE"
   | "INSUFFICIENT_BALANCE";
 
 export interface MissedSignal {
