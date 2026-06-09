@@ -1,0 +1,369 @@
+Yes. Portfolio screenshot confirms another serious data-path problem. This is bigger than Watchlist now.
+
+Visible Portfolio issues:
+
+16 of 41 holdings could not be price-enriched
+XIRR unavailable
+Many rows show:
+CMP = —
+Day P&L = n/a
+Total P&L = n/a
+Return % = n/a
+Weight = n/a
+Action = Awaiting data source
+Benchmark comparison says insufficient live data
+Some ETFs / mutual funds / special instruments are not mapped
+Portfolio valuation is mixing calculated rows and missing rows, which is dangerous because total value, P&L, allocation, benchmark underperformance, and risk analytics can become misleading.
+
+Previous work status matters: Watchlist migration is already complete, moved to central trusted layer, no direct Yahoo imports, Kite-backed rows, provenance envelope, and tests passed. Do not reopen it unless regression is found.
+
+Use this fresh prompt.
+
+Start next data audit/migration task: Home / Market Pulse + Portfolio Analyser data-path repair.
+
+Context:
+Task #124 Phase 1 is complete: trusted central data-layer foundation, provenance fields, write guard, option-chain facade, index-quote facade.
+Task #125 Watchlist migration is complete: Watchlist now uses the central trusted market data layer, Kite-backed rows, no direct Yahoo imports, and provenance is returned.
+
+Do not reopen Watchlist unless a regression is found.
+
+New screenshots show missing data in:
+
+Home / Market Pulse / Markets landing page
+Portfolio Analyser page
+
+This task must audit and repair those data paths only.
+
+Do not migrate Scanner, F&O, Charting, Sector pages, Reports, or frontend-wide badges in this same task unless explicitly approved.
+
+Core data policy:
+
+Kite is primary for Indian market prices.
+INDstocks can be validation/failover only through the central layer.
+Yahoo is allowed only for clearly labelled secondary analytics where Kite has no source.
+Yahoo must not power official Indian prices, portfolio valuation, P&L, scanner signals, F&O signals, or risk calculations.
+No fake zero values.
+No fake n/a hiding.
+No silent fallback.
+No synthetic production data.
+Missing data must be shown with reason.
+Zero must mean real zero, not missing data.
+
+Part A: Home / Market Pulse data issues
+
+Visible issues from screenshots:
+
+Global cues sometimes show 0.00 values:
+S&P 500
+Dow Jones
+Nasdaq
+USD/INR
+Brent / Gold / VIX / DXY / US10Y
+These must not render fake 0.00 if provider data is missing.
+Indian index cards show live price but missing analytics:
+52W range blank
+VWAP blank
+Daily EMAs blank
+Pivot levels unavailable
+Previous OHLC unavailable in some areas
+Chart-derived analytics incomplete
+Warning visible:
+“Daily chart unavailable from Yahoo”
+This means some official Indian index analytics are still tied to Yahoo/chart-provider paths. Audit and fix this.
+Quote data and analytics data appear split.
+Example: LTP is available, but daily candles / pivots / 52W / EMAs are missing. These paths must be unified through the trusted central layer.
+
+Audit these Home / Market Pulse modules:
+
+top live ticker strip
+global cues strip
+India / Global / Commodities / ADR / FX tabs
+Indian index cards:
+NIFTY 50
+BANK NIFTY
+FIN NIFTY
+MIDCAP NIFTY
+SENSEX
+BANKEX
+selected index detail card
+market breadth card
+market mood index
+F&O ban list
+top gainers / losers
+top bullish / bearish setups
+any warning area saying Yahoo unavailable / chart unavailable / pivot unavailable
+
+Part B: Portfolio Analyser data issues
+
+Visible issues from screenshot:
+
+Warning says:
+“16 of 41 holding(s) could not be price-enriched.”
+This must be fixed or each missing holding must have a precise missing reason.
+XIRR unavailable:
+XIRR should be calculated only when valid buy/sell/cashflow dates and values exist.
+If inputs are missing, show exact reason:
+missing transaction dates
+missing buy value
+missing sell/current value
+unresolved symbol
+unsupported instrument type
+no cashflow history
+Several holdings show:
+CMP = —
+Current = n/a
+Day P&L = n/a
+Total P&L = n/a
+Return % = n/a
+Weight = n/a
+Action = Awaiting data source
+Benchmark comparison says:
+“insufficient live data”
+This must be audited. If benchmark data uses Yahoo/NIFTY500/sector index fallback, it must be clearly labelled secondary analytics and never affect official P&L.
+Some holdings are ETFs / mutual funds / special instruments:
+Examples visible:
+CPSE ETF
+HDFCSILVER ETF
+SETFGOLD
+MON100 ETF
+smallcase / mutual-fund-like instruments
+These need proper instrument classification:
+NSE equity
+NSE ETF
+BSE equity
+mutual fund
+unlisted/manual
+unsupported
+
+Portfolio valuation rules:
+
+NSE/BSE listed stocks and ETFs must use Kite quotes through central marketDataRouter.
+If Kite mapping exists, use Kite as primary.
+If Kite mapping fails, try central instrumentResolver, not Yahoo directly.
+If still unresolved, row must show missing_reason.
+Do not calculate current value, P&L, weight, allocation, risk, or benchmark contribution using stale/untrusted data.
+Do not let Yahoo prices enter official portfolio valuation.
+Yahoo can only be used for labelled benchmark analytics where Kite has no source.
+Manual instruments must remain preserved with uploaded quantity/rate, but must not pretend to have live price.
+
+Portfolio endpoint response must include per holding:
+{
+"symbol": "BEL",
+"display_name": "Bharat Electronics",
+"instrument_type": "NSE_EQUITY",
+"exchange": "NSE",
+"kite_key": "NSE",
+"instrument_token": "...",
+"quantity": 550,
+"avg_price": 437.37,
+"cmp": 412.05,
+"invested_value": 240554,
+"current_value": 226628,
+"day_pnl": -495,
+"total_pnl": -13926,
+"return_pct": -5.79,
+"weight_pct": 12.4,
+"source_provider": "kite",
+"source_priority": 1,
+"asof": "...",
+"freshness_sec": 5,
+"is_stale": false,
+"valuation_status": "PRICED",
+"missing_reason": null,
+"warnings": []
+}
+
+For unpriced holdings:
+{
+"symbol": "XYZ",
+"quantity": 100,
+"avg_price": 100,
+"instrument_type": "UNRESOLVED",
+"cmp": null,
+"current_value": null,
+"day_pnl": null,
+"total_pnl": null,
+"return_pct": null,
+"weight_pct": null,
+"valuation_status": "UNPRICED",
+"missing_reason": "Kite instrument not found",
+"source_provider": null,
+"warnings": ["Holding preserved but excluded from live valuation"]
+}
+
+Portfolio summary rules:
+
+Show two totals:
+Priced portfolio value
+Unpriced invested value
+Total current value must not silently ignore unpriced holdings.
+P&L must clearly say whether it is calculated on priced holdings only or full portfolio.
+Allocation pie must exclude or separately bucket unpriced holdings.
+Benchmark comparison must be disabled or labelled if live benchmark data is unavailable.
+XIRR must be disabled with exact reason if required cashflows are missing.
+
+Implementation steps:
+
+Trace all endpoints used by Home / Market Pulse and Portfolio Analyser.
+For each endpoint document:
+frontend component/hook
+backend route
+provider path
+central marketDataRouter used: YES/NO
+direct Yahoo used: YES/NO
+direct Kite used outside central layer: YES/NO
+fake zero risk: YES/NO
+fake n/a risk: YES/NO
+provenance returned: YES/NO
+fix applied
+
+Create audit report:
+HOME_PORTFOLIO_DATA_AUDIT.md
+
+Format:
+Module:
+Screenshot symptom:
+Frontend component:
+Endpoint:
+Backend file:
+Current provider path:
+Central layer used:
+Missing fields:
+Fake-zero / fake-n/a risk:
+Yahoo dependency:
+Kite source available:
+INDstocks source possible:
+Fix applied:
+Remaining limitation:
+
+Home / Market Pulse fixes:
+Indian index quotes must route through central marketDataRouter.
+Chart-derived analytics must use central candle facade.
+Missing candles must return unavailable with reason, not Yahoo failure text.
+Global cues may use Yahoo only as secondary delayed analytics.
+Missing global data must show “Unavailable” or “—”, never 0.00.
+Preserve UI design.
+Portfolio fixes:
+Route portfolio holding price enrichment through central marketDataRouter.
+Add robust symbol normalization for holdings.
+Map NSE/BSE equities and ETFs correctly.
+Preserve uploaded quantities and rates.
+Add missing_reason per unpriced holding.
+Add valuation_status per holding.
+Separate priced vs unpriced portfolio totals.
+Prevent untrusted/Yahoo data from entering official portfolio value and P&L.
+Benchmark analytics may use secondary labelled source only.
+XIRR must show exact unavailable reason.
+Add / repair diagnostics endpoints:
+
+GET /api/data/diagnostics/home-market-pulse
+
+Return:
+
+modules checked
+provider used
+missing fields
+fake-zero detections
+Yahoo dependencies
+stale data count
+warnings
+
+GET /api/data/diagnostics/portfolio
+
+Return:
+
+total_holdings
+priced_holdings
+unpriced_holdings
+unresolved_symbols
+unsupported_instrument_types
+stale_price_count
+source_provider_counts
+XIRR status
+benchmark status
+warnings
+Frontend display rules:
+show “—” for missing values
+show “Unavailable” for unavailable modules
+never show 0.00 for missing values
+never show n/a without tooltip/reason
+show warning for partial portfolio valuation
+show unpriced holdings count
+show “excluded from live valuation” where applicable
+preserve current dark UI design
+Required tests:
+
+Home / Market Pulse:
+
+missing global cue does not render 0.00
+missing Indian index analytics does not render fake values
+Indian index quote path uses central marketDataRouter
+direct Yahoo imports blocked except approved secondary global analytics adapter
+missing daily candles return unavailable reason
+existing Watchlist tests remain green
+
+Portfolio:
+
+portfolio price enrichment uses central marketDataRouter
+NSE equity holding maps to Kite quote
+ETF holding maps correctly if available in Kite instruments
+unresolved holding is preserved but marked UNPRICED
+unpriced holding is excluded from live P&L
+unpriced holding has missing_reason
+total current value does not silently ignore unpriced holdings
+Yahoo cannot be used for official portfolio valuation
+benchmark secondary data is labelled not_for_valuation
+XIRR unavailable includes exact reason
+frontend does not show n/a without reason
+
+General:
+
+typecheck passes
+full relevant backend tests pass
+no regression in Watchlist
+no broad migration outside this task
+Verification required:
+
+Before/after screenshots:
+
+Home top ticker
+Global cues
+Indian index cards
+selected NIFTY 50 card
+selected BANK NIFTY card
+selected FIN NIFTY card
+Portfolio summary cards
+Portfolio holdings table
+Portfolio risk analytics
+Allocation pie
+Benchmark chart
+XIRR card
+
+Endpoint verification:
+
+Home / Market Pulse API responses contain source/asof/freshness/warnings
+Portfolio API response contains priced/unpriced split
+Every unpriced holding has missing_reason
+No fake zero in global cues
+No silent n/a in portfolio table
+
+Acceptance criteria:
+
+Home / Market Pulse no longer shows fake 0.00 for missing data.
+Indian index quotes route through trusted central layer.
+Index analytics are either populated from trusted candles or honestly unavailable.
+Portfolio valuation uses Kite/central layer for official prices.
+Yahoo is blocked from official portfolio valuation and P&L.
+Portfolio shows exact missing reason for every unpriced holding.
+Priced vs unpriced holdings are separated clearly.
+XIRR unavailable reason is explicit.
+Benchmark comparison is either trustworthy or labelled secondary/unavailable.
+Watchlist remains untouched and passing.
+Production still loads.
+Typecheck passes.
+Relevant tests pass.
+
+Final instruction:
+Do not make the screen look complete by filling fake values. Fix the data path. If data is missing, show why. If source is secondary, label it. If data is stale, mark it. Portfolio money calculations must be stricter than display analytics.
+
+This is the correct next scope: Home/Market Pulse + Portfolio, not whole-site migration. Portfolio must be treated stricter because it affects money totals, P&L, allocation, XIRR, and risk.

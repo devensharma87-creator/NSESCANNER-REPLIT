@@ -75,13 +75,17 @@ export default function GlobalCuesStrip() {
       <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-thin">
         {CUES.map((cue, i) => {
           const item = indices.find(ix => ix.symbol === cue.symbol);
-          if (!item) return null;
-          const pct = item.changePercent ?? 0;
-          const isUp = pct > 0;
+          // Defensive honesty guard: a missing item, or one without a real
+          // positive price, must NOT render a fabricated 0.00 print. The
+          // backend already omits price-less entries; this is belt-and-braces.
+          if (!item || !Number.isFinite(item.price) || item.price <= 0) return null;
+          const pct = Number.isFinite(item.changePercent) ? item.changePercent : null;
+          const isUp = pct != null && pct > 0;
+          const isDown = pct != null && pct < 0;
           const useInvert = "invertColor" in cue && cue.invertColor;
           const colorCls = useInvert
-            ? (isUp ? "text-rose-500" : pct < 0 ? "text-emerald-500" : "text-muted-foreground")
-            : (isUp ? "text-emerald-500" : pct < 0 ? "text-rose-500" : "text-muted-foreground");
+            ? (isUp ? "text-rose-500" : isDown ? "text-emerald-500" : "text-muted-foreground")
+            : (isUp ? "text-emerald-500" : isDown ? "text-rose-500" : "text-muted-foreground");
           const macroSym = "macroSymbol" in cue ? cue.macroSymbol : undefined;
           const spark = macroSym ? macroBySymbol.get(macroSym) : undefined;
 
@@ -92,7 +96,7 @@ export default function GlobalCuesStrip() {
                 <span className="text-[11px] text-muted-foreground font-medium">{cue.label}</span>
                 <span className="text-[11px] font-mono tabular-nums font-semibold">{fmt(item.price)}</span>
                 <span className={`text-[10px] font-mono tabular-nums font-bold ${colorCls}`}>
-                  {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
+                  {pct == null ? "—" : `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`}
                 </span>
                 {spark && (
                   <span title={`${cue.label} · 5-day daily close (Yahoo)`} className="ml-0.5">

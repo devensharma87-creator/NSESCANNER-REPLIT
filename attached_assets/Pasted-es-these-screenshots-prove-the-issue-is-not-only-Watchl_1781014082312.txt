@@ -1,0 +1,202 @@
+es — these screenshots prove the issue is not only Watchlist. Watchlist migration is complete, but the Home / Market Pulse / Indices / Global Cues / Chart-derived analytics still have missing or weak data paths. Do not mix this into the completed Watchlist task. This should become the next focused audit/migration task.
+
+Visible missing/problem areas from screenshots:
+
+Global cues showing 0.00 values in some places.
+Some index cards show live price but missing:
+52W range
+VWAP
+daily EMAs
+pivot levels
+previous OHLC in some areas
+Warning shown: “Daily chart unavailable from Yahoo” — this is exactly the kind of provider leakage we are trying to control.
+Some panels still rely on delayed/secondary Yahoo analytics.
+Some market cards show price but incomplete analytics, meaning quote path and analytics path are separate.
+Market/sector/benchmark/global data needs same provenance discipline as Watchlist.
+Agent has already completed Watchlist migration only: central layer, Kite-backed rows, provenance envelope, and no direct Yahoo imports in Watchlist.
+
+Send this as the next task prompt:
+
+Start next data audit/migration task: Home + Market Pulse + Index Cards + Global Cues data-path audit.
+
+Context:
+Watchlist migration is complete and accepted. Do not reopen Watchlist unless a regression is found. New screenshots show missing data on the Home / Market Pulse / Markets page. This is a separate data-path issue.
+
+Visible issues from screenshots:
+
+Global cues sometimes show zero values:
+S&P 500 0.00
+Dow Jones 0.00
+Nasdaq 0.00
+USD/INR 0.00
+Brent/Gold/VIX/DXY/US10Y etc. sometimes missing or zero
+Indian index cards show live prices, but several analytics are missing:
+52W range blank
+session VWAP blank
+daily EMAs blank
+pivot levels unavailable
+previous OHLC unavailable
+some momentum/profile fields incomplete
+Warning visible:
+“Daily chart unavailable from Yahoo”
+This must be audited. Yahoo must not be an uncontrolled dependency for official Indian market analytics.
+Quote data and analytics data appear to be coming from different paths.
+Example: index LTP is available, but chart-derived analytics are missing. That means the quote layer and candle/chart layer are not unified.
+
+Objective:
+Audit and migrate the Home / Market Pulse / Index Cards / Global Cues data paths through the trusted central data layer, without breaking production.
+
+Strict scope:
+Do not migrate Scanner, Portfolio, F&O, Charting, Sector pages, or frontend-wide badges in this same task unless explicitly approved. Focus only on the Home / Market Pulse / Markets landing page and its visible cards/widgets.
+
+Data policy:
+
+Kite is primary for Indian index/equity/F&O market data.
+INDstocks can be validation/failover only through central provider layer.
+Yahoo is allowed only for labelled secondary analytics where Kite has no source.
+Yahoo must never silently power official Indian market prices, scanner signals, F&O signals, or P&L.
+No fake zeros.
+No synthetic values in production.
+If data is unavailable, show unavailable with reason.
+Zero must mean real zero, not missing data.
+
+Audit these visible modules:
+
+Top live ticker strip
+Global cues strip
+India / Global / Commodities / ADR / FX tabs
+Indian index cards:
+NIFTY 50
+BANK NIFTY
+FIN NIFTY
+MIDCAP NIFTY
+SENSEX
+BANKEX
+Main selected index detail card
+Market breadth card
+Market mood index
+F&O ban list
+Top gainers / losers
+Top bullish / bearish setups
+Any warning area saying chart unavailable / Yahoo unavailable / pivot unavailable
+
+Implementation steps:
+
+Trace every endpoint used by the Home / Market Pulse page.
+For each endpoint record:
+frontend component/hook
+backend route
+provider path
+whether it uses central marketDataRouter
+whether it directly uses Yahoo/Kite/other provider
+whether it returns provenance
+whether it can return fake zero
+
+Create a report:
+HOME_MARKET_PULSE_DATA_AUDIT.md
+
+Format:
+Module:
+Frontend component:
+Endpoint:
+Current provider:
+Central layer used: YES/NO
+Missing fields:
+Fake-zero risk: YES/NO
+Yahoo dependency: YES/NO
+Kite source available: YES/NO
+INDstocks source possible: YES/NO
+Fix applied:
+Remaining limitation:
+
+Fix fake-zero handling.
+Any missing data must return:
+
+null
+unavailable
+missing_reason
+source_provider
+asof
+freshness_sec
+warning
+
+Do not return 0.00 unless the actual market value is zero.
+
+Indian index quotes:
+Route all Indian index quote cards through the central trusted layer.
+Required fields:
+symbol
+display_name
+exchange
+last_price
+change
+change_pct
+open
+high
+low
+previous_close
+volume if available
+source_provider
+asof
+freshness_sec
+is_stale
+warnings
+Chart-derived analytics:
+For 52W range, daily EMAs, pivots, VWAP, day range, and momentum fields:
+use Kite historical candles as primary where available
+use central candle facade
+do not call Yahoo directly from feature modules
+if Kite historical is unavailable, return unavailable with reason
+Yahoo can be used only if explicitly labelled as delayed secondary analytics, not official signal input
+
+Global cues:
+Since Kite does not cover many global assets, allow Yahoo only here under strict labels:
+
+source_provider = yahoo
+trust_tier = secondary_analytics
+delayed = true
+not_for_signals = true
+not_for_trade_decisions = true
+
+If Yahoo fails, show unavailable. Do not show 0.00.
+
+Frontend display rules:
+show “Unavailable” or “—” for missing values
+never show 0.00 for missing provider data
+show source badge where available
+show warning badge when secondary/delayed data is used
+show stale badge when data is old
+preserve current UI design as much as possible
+Required tests:
+missing global data does not render 0.00
+missing index analytics does not render fake values
+Indian index quotes use central marketDataRouter
+direct Yahoo imports are not present in Home / Market Pulse modules except approved secondary analytics adapter
+Yahoo data cannot feed official signal fields
+unavailable chart candles produce clear warning
+frontend distinguishes unavailable data from real zero
+existing Watchlist tests remain green
+Verification:
+Capture before/after for screenshots:
+Home page top ticker
+Global cues
+Indian index cards
+selected NIFTY 50 card
+selected BANK NIFTY card
+selected FIN NIFTY card
+Markets section
+Market breadth / mood cards
+
+Acceptance criteria:
+
+No fake 0.00 values for missing data.
+Indian index live prices route through trusted central layer.
+Chart-derived analytics are either populated from trusted candles or honestly marked unavailable.
+Yahoo is limited to labelled secondary global analytics only.
+Source/freshness/warnings are available in backend response.
+Existing Watchlist migration remains untouched and passing.
+Production page still loads.
+Typecheck passes.
+Full relevant tests pass.
+
+Bluntly: the next real problem is fake-zero and split-path analytics. Fix that before doing pretty badges everywhere.

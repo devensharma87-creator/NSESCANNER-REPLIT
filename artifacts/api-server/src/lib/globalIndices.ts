@@ -1,5 +1,6 @@
 import type { IndexQuote } from "@workspace/api-zod";
 import { fetchIntraday, fetchIndexChart } from "./yahoo";
+import type { YahooChart } from "./yahoo";
 import { ema, rsi, sessionVwap } from "./indicators";
 import { getGiftNifty } from "./giftNifty";
 import { logger } from "./logger";
@@ -52,6 +53,81 @@ function round(n: number, p = 2): number {
   return Math.round(n * m) / m;
 }
 
+/**
+ * Build one global-cue quote from Yahoo intraday + daily series.
+ *
+ * Honesty contract: returns `null` when no REAL positive price AND previous
+ * close can be resolved. A failed/empty Yahoo fetch (which frequently does NOT
+ * throw — it just returns empty/zeroed data) must NEVER fabricate a 0.00 print.
+ * The omitted entry renders as "—" / hidden in the UI, the same discipline used
+ * for GIFT NIFTY. Yahoo is the only legitimate source for these global symbols
+ * (Kite has no global coverage) and is treated as delayed/secondary analytics.
+ */
+export function buildGlobalIndexQuote(
+  cfg: GlobalCfg,
+  intra: YahooChart | null,
+  daily: YahooChart | null,
+): IndexQuote | null {
+  const rawPrice = intra?.meta.regularMarketPrice ?? daily?.meta.regularMarketPrice ?? null;
+  const dn = daily?.close.length ?? 0;
+  const prevRaw = dn >= 2 ? daily!.close[dn - 2]! : (daily?.meta.chartPreviousClose ?? null);
+  // Require a real positive price AND previous close — without both we cannot
+  // report a non-fabricated change/percent, so omit rather than emit a fake 0.
+  if (rawPrice == null || !Number.isFinite(rawPrice) || rawPrice <= 0) return null;
+  if (prevRaw == null || !Number.isFinite(prevRaw) || prevRaw <= 0) return null;
+  const price = rawPrice;
+  const prev = prevRaw;
+  const change = price - prev;
+  const pct = (change / prev) * 100;
+
+  let vwap: number | undefined;
+  let ema9v: number | undefined;
+  let ema21v: number | undefined;
+  let rsi14: number | undefined;
+  if (intra && intra.close.length > 6) {
+    vwap = round(lastVal(sessionVwap(intra.high, intra.low, intra.close, intra.volume)) ?? price);
+    ema9v = round(lastVal(ema(intra.close, 9)) ?? price);
+    ema21v = round(lastVal(ema(intra.close, 21)) ?? price);
+    rsi14 = round(lastVal(rsi(intra.close, 14)) ?? 50);
+  }
+  let trend: "bullish" | "bearish" | "neutral" = "neutral";
+  if (change > 0 && (vwap == null || price > vwap)) trend = "bullish";
+  else if (change < 0 && (vwap == null || price < vwap)) trend = "bearish";
+
+  // Build a compact sparkline from the most recent ~48 daily closes (or intraday closes if daily missing)
+  const sparkSrc = (daily?.close.length ?? 0) >= 10 ? daily!.close : (intra?.close ?? []);
+  const sparkline = sparkSrc
+    .slice(-48)
+    .filter((v): v is number => v != null)
+    .map(v => round(v, 4));
+  const dayHigh = daily?.meta.regularMarketDayHigh ?? intra?.meta.regularMarketDayHigh;
+  const dayLow = daily?.meta.regularMarketDayLow ?? intra?.meta.regularMarketDayLow;
+  const opn = dn >= 1 ? daily!.open[dn - 1] : undefined;
+
+  return {
+    symbol: cfg.yahoo,
+    name: cfg.name,
+    region: cfg.region,
+    price: round(price, 4),
+    change: round(change, 4),
+    changePercent: round(pct, 3),
+    open: opn != null ? round(opn, 4) : undefined,
+    high: dayHigh != null ? round(dayHigh, 4) : undefined,
+    low: dayLow != null ? round(dayLow, 4) : undefined,
+    previousClose: round(prev, 4),
+    fiftyTwoWeekHigh: daily?.meta.fiftyTwoWeekHigh != null ? round(daily.meta.fiftyTwoWeekHigh, 4) : undefined,
+    fiftyTwoWeekLow: daily?.meta.fiftyTwoWeekLow != null ? round(daily.meta.fiftyTwoWeekLow, 4) : undefined,
+    volume: daily?.meta.regularMarketVolume,
+    asOf: daily?.meta.regularMarketTime ?? intra?.meta.regularMarketTime,
+    sparkline,
+    trend,
+    vwap,
+    ema9: ema9v,
+    ema21: ema21v,
+    rsi14,
+  };
+}
+
 export async function getGlobalIndices(): Promise<IndexQuote[]> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
   const results: IndexQuote[] = [];
@@ -84,55 +160,10 @@ export async function getGlobalIndices(): Promise<IndexQuote[]> {
       try {
         const intra = await fetchIntraday(cfg.yahoo, "15m", "5d");
         const daily = await fetchIndexChart(cfg.yahoo);
-        const price = intra?.meta.regularMarketPrice ?? daily?.meta.regularMarketPrice ?? 0;
-        const dn = daily?.close.length ?? 0;
-        const prev = dn >= 2 ? daily!.close[dn - 2]! : (daily?.meta.chartPreviousClose ?? price);
-        const change = price - prev;
-        const pct = prev > 0 ? (change / prev) * 100 : 0;
-        let vwap: number | undefined;
-        let ema9v: number | undefined;
-        let ema21v: number | undefined;
-        let rsi14: number | undefined;
-        if (intra && intra.close.length > 6) {
-          vwap = round(lastVal(sessionVwap(intra.high, intra.low, intra.close, intra.volume)) ?? price);
-          ema9v = round(lastVal(ema(intra.close, 9)) ?? price);
-          ema21v = round(lastVal(ema(intra.close, 21)) ?? price);
-          rsi14 = round(lastVal(rsi(intra.close, 14)) ?? 50);
-        }
-        let trend: "bullish" | "bearish" | "neutral" = "neutral";
-        if (change > 0 && (vwap == null || price > vwap)) trend = "bullish";
-        else if (change < 0 && (vwap == null || price < vwap)) trend = "bearish";
-        // Build a compact sparkline from the most recent ~48 daily closes (or intraday closes if daily missing)
-        const sparkSrc = (daily?.close.length ?? 0) >= 10 ? daily!.close : (intra?.close ?? []);
-        const sparkline = sparkSrc
-          .slice(-48)
-          .filter((v): v is number => v != null)
-          .map(v => round(v, 4));
-        const dayHigh = daily?.meta.regularMarketDayHigh ?? intra?.meta.regularMarketDayHigh;
-        const dayLow = daily?.meta.regularMarketDayLow ?? intra?.meta.regularMarketDayLow;
-        const opn = dn >= 1 ? daily!.open[dn - 1] : undefined;
-        results.push({
-          symbol: cfg.yahoo,
-          name: cfg.name,
-          region: cfg.region,
-          price: round(price, 4),
-          change: round(change, 4),
-          changePercent: round(pct, 3),
-          open: opn != null ? round(opn, 4) : undefined,
-          high: dayHigh != null ? round(dayHigh, 4) : undefined,
-          low: dayLow != null ? round(dayLow, 4) : undefined,
-          previousClose: round(prev, 4),
-          fiftyTwoWeekHigh: daily?.meta.fiftyTwoWeekHigh != null ? round(daily.meta.fiftyTwoWeekHigh, 4) : undefined,
-          fiftyTwoWeekLow: daily?.meta.fiftyTwoWeekLow != null ? round(daily.meta.fiftyTwoWeekLow, 4) : undefined,
-          volume: daily?.meta.regularMarketVolume,
-          asOf: daily?.meta.regularMarketTime ?? intra?.meta.regularMarketTime,
-          sparkline,
-          trend,
-          vwap,
-          ema9: ema9v,
-          ema21: ema21v,
-          rsi14,
-        });
+        const quote = buildGlobalIndexQuote(cfg, intra, daily);
+        // A failed/empty Yahoo fetch yields no usable quote — OMIT the entry
+        // rather than fabricate a 0.00 print.
+        if (quote) results.push(quote);
       } catch (err) {
         logger.warn({ err: (err as Error).message, sym: cfg.yahoo }, "Global index failed");
       }
