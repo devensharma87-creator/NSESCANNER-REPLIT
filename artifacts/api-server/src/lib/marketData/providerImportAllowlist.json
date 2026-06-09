@@ -98,9 +98,6 @@
     "kiteAuth",
     "kiteFeed"
   ],
-  "lib/watchlist.ts": [
-    "yahoo"
-  ],
   "routes/fno.ts": [
     "kiteAuth",
     "kiteFeed",

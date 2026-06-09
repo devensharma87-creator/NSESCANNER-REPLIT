@@ -5986,6 +5986,29 @@ export const GetWatchlistResponse = zod.object({
       ]),
     }),
   ),
+  provenance: zod
+    .object({
+      sourceProvider: zod.enum(["kite", "indstocks", "yahoo", "cache", "none"]),
+      sourcePriority: zod
+        .number()
+        .describe(
+          "1 authoritative \/ 2 validation \/ 3 analytics \/ 99 unknown",
+        ),
+      asOf: zod.coerce.date().nullable(),
+      freshnessSec: zod.number().nullable(),
+      isStale: zod.boolean(),
+      fallbackUsed: zod.boolean(),
+      warnings: zod.array(zod.string()),
+      missingSymbols: zod.array(
+        zod.object({
+          symbol: zod.string(),
+          reason: zod.string(),
+        }),
+      ),
+    })
+    .describe(
+      "Response-level provenance for the watchlist (Task #125). All prices flow through the central trusted market-data layer (Kite authoritative); Yahoo is never used for watchlist prices\/signals. Missing constituents are reported honestly rather than back-filled.",
+    ),
 });
 
 /**

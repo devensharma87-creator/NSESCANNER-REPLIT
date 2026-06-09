@@ -427,6 +427,8 @@ export * from "./trustedQuoteDto";
 export * from "./validationDayStats";
 export * from "./validationResult";
 export * from "./validationResultVerdict";
+export * from "./watchlistMissingSymbol";
+export * from "./watchlistProvenance";
 export * from "./watchlistResponse";
 export * from "./watchlistResponseKey";
 export * from "./watchlistRow";

@@ -3540,9 +3540,36 @@ components:
         ema50: { type: number }
         rsi: { type: number }
         mcTrend: { $ref: "#/components/schemas/WatchlistTrend" }
+    WatchlistMissingSymbol:
+      type: object
+      required: [symbol, reason]
+      properties:
+        symbol: { type: string }
+        reason: { type: string }
+    WatchlistProvenance:
+      type: object
+      description: >-
+        Response-level provenance for the watchlist (Task #125). All prices flow
+        through the central trusted market-data layer (Kite authoritative);
+        Yahoo is never used for watchlist prices/signals. Missing constituents
+        are reported honestly rather than back-filled.
+      required: [sourceProvider, sourcePriority, asOf, freshnessSec, isStale, fallbackUsed, warnings, missingSymbols]
+      properties:
+        sourceProvider: { $ref: "#/components/schemas/DataProviderName" }
+        sourcePriority: { type: integer, description: "1 authoritative / 2 validation / 3 analytics / 99 unknown" }
+        asOf: { type: string, format: date-time, nullable: true }
+        freshnessSec: { type: number, nullable: true }
+        isStale: { type: boolean }
+        fallbackUsed: { type: boolean }
+        warnings:
+          type: array
+          items: { type: string }
+        missingSymbols:
+          type: array
+          items: { $ref: "#/components/schemas/WatchlistMissingSymbol" }
     WatchlistResponse:
       type: object
-      required: [key, label, description, asOf, count, rows]
+      required: [key, label, description, asOf, count, rows, provenance]
       properties:
         key: { type: string, enum: [SENSEX, BANKNIFTY, NIFTY50, NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100, NIFTY500] }
         label: { type: string }
@@ -3552,6 +3579,7 @@ components:
         rows:
           type: array
           items: { $ref: "#/components/schemas/WatchlistRow" }
+        provenance: { $ref: "#/components/schemas/WatchlistProvenance" }
 
     # ── Trusted market-data layer (Task #122) ──────────────────────────
     DataTrustTier:

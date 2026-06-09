@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { WatchlistProvenance } from "./watchlistProvenance";
 import type { WatchlistResponseKey } from "./watchlistResponseKey";
 import type { WatchlistRow } from "./watchlistRow";
 
@@ -15,4 +16,5 @@ export interface WatchlistResponse {
   asOf: Date;
   count: number;
   rows: WatchlistRow[];
+  provenance: WatchlistProvenance;
 }

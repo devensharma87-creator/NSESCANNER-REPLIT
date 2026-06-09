@@ -1,0 +1,65 @@
+Good. Task #124 is closed. Do not reopen it.
+
+Next move should be #125 only — migrate consumers onto the trusted central data layer one by one. Start with Watchlist, because that was the proven broken path earlier.
+
+Send this when you want the agent to start:
+
+Start Task #125: migrate server consumers onto the central market data layer gradually.
+
+Scope for this session:
+Migrate only the Watchlist consumer first. Do not migrate Scanner, Portfolio, Charting, F&O, Sector, or frontend badges in this same pass unless Watchlist is fully verified and there is explicit approval.
+
+Primary objective:
+The Watchlist must consume market data only through the central marketDataRouter / trusted market data layer created in Task #124.
+
+Rules:
+
+Kite remains primary for Indian equity/F&O prices.
+INDstocks remains validation/failover only through the central layer.
+Yahoo is allowed only for labelled secondary analytics, never for Watchlist prices or signals.
+No direct provider calls inside Watchlist.
+No Yahoo imports inside Watchlist.
+No synthetic/mock production data.
+No silent fallback.
+Partial data must render with missing-symbol diagnostics.
+Source, asof, freshness, stale status, and warnings must be returned by the backend.
+
+Implementation steps:
+
+Trace current Watchlist backend endpoint and data flow.
+Remove any direct Kite/Yahoo/provider-specific fetch from Watchlist.
+Route Watchlist basket quotes through central marketDataRouter.
+Preserve existing UI response shape where possible to avoid breaking frontend.
+Add backend response provenance fields:
+source_provider
+source_priority
+asof
+freshness_sec
+is_stale
+fallback_used
+warnings
+missing_symbols
+Add tests proving Watchlist cannot directly import Yahoo/provider modules.
+Verify baskets:
+Sensex 30
+Bank Nifty
+Nifty 50
+Nifty 100
+Nifty Midcap 100
+Nifty Smallcap 100
+Nifty 500
+Provide before/after endpoint output.
+Confirm existing scanner and other pages are not disturbed.
+
+Acceptance:
+
+Watchlist uses central marketDataRouter.
+No direct provider import remains in Watchlist.
+Watchlist loads available Kite-backed rows.
+Missing/stale rows are honest, not hidden.
+Tests pass.
+Typecheck passes.
+Production behavior is verified.
+No broad migration beyond Watchlist in this task.
+
+Do not start with frontend badges. Backend truth first, UI labels second.

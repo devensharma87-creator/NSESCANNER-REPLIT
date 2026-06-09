@@ -2185,6 +2185,37 @@ export interface WatchlistRow {
   mcTrend: WatchlistTrend;
 }
 
+export interface WatchlistMissingSymbol {
+  symbol: string;
+  reason: string;
+}
+
+export type DataProviderName =
+  (typeof DataProviderName)[keyof typeof DataProviderName];
+
+export const DataProviderName = {
+  kite: "kite",
+  indstocks: "indstocks",
+  yahoo: "yahoo",
+  cache: "cache",
+  none: "none",
+} as const;
+
+/**
+ * Response-level provenance for the watchlist (Task #125). All prices flow through the central trusted market-data layer (Kite authoritative); Yahoo is never used for watchlist prices/signals. Missing constituents are reported honestly rather than back-filled.
+ */
+export interface WatchlistProvenance {
+  sourceProvider: DataProviderName;
+  /** 1 authoritative / 2 validation / 3 analytics / 99 unknown */
+  sourcePriority: number;
+  asOf: string | null;
+  freshnessSec: number | null;
+  isStale: boolean;
+  fallbackUsed: boolean;
+  warnings: string[];
+  missingSymbols: WatchlistMissingSymbol[];
+}
+
 export type WatchlistResponseKey =
   (typeof WatchlistResponseKey)[keyof typeof WatchlistResponseKey];
 
@@ -2205,6 +2236,7 @@ export interface WatchlistResponse {
   asOf: string;
   count: number;
   rows: WatchlistRow[];
+  provenance: WatchlistProvenance;
 }
 
 export type DataTrustTier = (typeof DataTrustTier)[keyof typeof DataTrustTier];
@@ -2213,17 +2245,6 @@ export const DataTrustTier = {
   authoritative: "authoritative",
   secondary_validation: "secondary_validation",
   secondary_analytics: "secondary_analytics",
-} as const;
-
-export type DataProviderName =
-  (typeof DataProviderName)[keyof typeof DataProviderName];
-
-export const DataProviderName = {
-  kite: "kite",
-  indstocks: "indstocks",
-  yahoo: "yahoo",
-  cache: "cache",
-  none: "none",
 } as const;
 
 export type DataValidationStatus =
