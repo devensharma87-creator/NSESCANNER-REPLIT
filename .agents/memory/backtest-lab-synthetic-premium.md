@@ -17,3 +17,4 @@ description: Audit finding that Strategy Research / Backtest Lab option premiums
 - Do NOT fold this into the Portfolio Analyser work or into T003 (Home/Market-Pulse index analytics honesty). Keep the lanes separate.
 - This needs its own later task: "Backtest Lab rectification + labelling" — either source real option premiums or clearly label the modelled premium/greeks as synthetic, and fix the stop-loss documentation mismatch.
 - Owner sequencing: (now) close scoped Portfolio T004 → (next) T003 index analytics honesty → (later) Backtest Lab rectification.
+- **Full deferred spec lives in `docs/backtest-lab-rectification-backlog.md`** (audit findings + required labels/pricing-modes REAL_CHAIN/BLACK_SCHOLES_MODELLED/SYNTHETIC_DELTA_PROXY + missing export columns + tests + acceptance + the 37.5%-vs-30% stop mismatch). Spot/calendar/lot data verified authentic; only the option-premium layer is synthetic.

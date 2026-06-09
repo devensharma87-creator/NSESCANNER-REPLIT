@@ -1,0 +1,118 @@
+This audit is useful, but it is not the full website audit you asked for.
+
+It deeply audited the Backtest Lab / synthetic option CSVs, and it found a serious modelling issue: spot data is realistic, but option premiums are synthetic — fixed 0.40% of spot, fixed 0.50 delta, no theta, no IV, no real option-chain pricing. That means those backtest P&L numbers are not trustworthy as real option-trading results.
+
+But your original scope was much wider:
+
+website data points
+data accuracy
+source/authenticity/reliability
+comparison with NSE/BSE/TradingView/Moneycontrol/NiftyTrader
+mathematical equations
+calculations
+placement
+missing data
+Portfolio
+Home/Market Pulse
+Watchlist
+F&O
+Scanner
+Charting
+Reports
+end-to-end rectification
+
+So the agent did one strong audit slice, not the full thing.
+
+My decision
+
+Do not mark the total audit complete.
+
+Mark only this part complete:
+
+Backtest Lab / synthetic option premium audit completed.
+
+The next task should be:
+
+Convert the audit findings into fixes.
+
+Priority order:
+
+Fix synthetic option premium modelling.
+Label old backtest results as “synthetic premium research,” not real options backtest.
+Add Black-Scholes / real option-chain pricing path.
+Then continue full website audit: Portfolio, Home/Market Pulse, Charting, F&O, Scanner.
+
+Send this to the agent:
+
+The Backtest Lab audit is accepted as a completed audit slice, but the full website data audit is not complete.
+
+Important finding:
+The audit proves that the spot index data is realistic, but the option premium layer is synthetic:
+
+entry premium fixed at ~0.40% of spot
+premium movement behaves like fixed 0.50 delta
+no theta decay
+no IV
+no real strike/expiry/option-chain pricing
+target/stop premium multiples are mechanical
+
+Therefore, do not present these backtest results as real options backtest results.
+
+Next task: Backtest Lab rectification.
+
+Scope:
+
+Update UI labels so existing results clearly say:
+“Synthetic premium Strategy Research — not real option-chain backtest.”
+Add a warning wherever these backtest P&L numbers appear:
+“Premiums are modelled from spot movement using a synthetic delta proxy. Results are research-only and may overstate real option-buying performance.”
+Fix documentation mismatch:
+Current data shows stop around 37.5% premium loss, not 30%.
+Either correct the model to 30% or update the documentation/UI to 37.5%.
+Do not leave code/docs/data inconsistent.
+Start building real option pricing path:
+use real option-chain captures where available
+use Black-Scholes module where real chain is unavailable
+add IV input/proxy
+add time-to-expiry
+add strike
+add CE/PE
+add theta decay
+add realistic cost breakdown
+Add missing output columns:
+trade_id
+symbol/index
+option_type CE/PE
+strike
+expiry
+days_to_expiry
+IV
+delta
+theta
+lot_size
+lots
+capital_deployed
+slippage
+brokerage
+STT
+exchange charges
+GST
+stamp duty
+MFE
+MAE
+Add tests:
+synthetic premium rows are labelled synthetic
+real option-chain rows are labelled real
+Black-Scholes rows are labelled modelled
+old synthetic P&L cannot be shown as real options result
+stop-loss documentation matches actual calculation
+cost model itemisation sums to total cost
+
+Acceptance:
+
+No user can mistake synthetic option premium backtest for real tradable options backtest.
+Existing historical CSVs remain available but clearly labelled.
+Future backtests support a real/validated option pricing mode.
+Documentation, code, UI, and exported CSVs use the same assumptions.
+
+Bluntly: the audit found a big truth problem in the backtest. The arithmetic is clean, but the option premium realism is weak. Fix that before trusting any F&O strategy performance number.
