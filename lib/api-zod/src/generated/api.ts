@@ -5989,6 +5989,198 @@ export const GetWatchlistResponse = zod.object({
 });
 
 /**
+ * @summary Rich index basket served through the trusted market-data layer (Kite-authoritative) with per-row provenance, freshness and honest missing-symbol reasons
+ */
+export const GetWatchlistBasketParams = zod.object({
+  basketKey: zod
+    .enum([
+      "NIFTY50",
+      "NIFTY100",
+      "MIDCAP100",
+      "NIFTYMIDCAP100",
+      "SMALLCAP100",
+      "NIFTYSMALLCAP100",
+      "NIFTY500",
+      "SENSEX",
+      "BANKNIFTY",
+    ])
+    .describe(
+      "Canonical key or friendly alias (NIFTY100 \/ MIDCAP100 \/ SMALLCAP100).",
+    ),
+});
+
+export const GetWatchlistBasketResponse = zod.object({
+  key: zod.enum([
+    "SENSEX",
+    "BANKNIFTY",
+    "NIFTY50",
+    "NIFTY100",
+    "NIFTYMIDCAP100",
+    "NIFTYSMALLCAP100",
+    "NIFTY500",
+  ]),
+  alias: zod.string(),
+  label: zod.string(),
+  description: zod.string(),
+  generatedAt: zod.coerce.date(),
+  sourcePolicy: zod.object({
+    authoritative: zod.enum(["kite"]),
+    note: zod.string(),
+  }),
+  requested: zod.number(),
+  returned: zod.number(),
+  missing: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      reason: zod.string(),
+    }),
+  ),
+  summary: zod.object({
+    bySource: zod.record(zod.string(), zod.number()),
+    fresh: zod.number(),
+    stale: zod.number(),
+    tradeable: zod.number(),
+  }),
+  rows: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      name: zod.string(),
+      lastPrice: zod.number(),
+      previousClose: zod.number().nullable(),
+      change: zod.number().nullable(),
+      changePercent: zod.number().nullable(),
+      open: zod.number().nullable(),
+      high: zod.number().nullable(),
+      low: zod.number().nullable(),
+      volume: zod.number().nullable(),
+      trend: zod
+        .enum(["Very Bullish", "Bullish", "Neutral", "Bearish", "Very Bearish"])
+        .nullable(),
+      rsi: zod.number().nullable(),
+      source: zod.enum(["kite", "indstocks", "yahoo", "cache", "none"]),
+      trustTier: zod.enum([
+        "authoritative",
+        "secondary_validation",
+        "secondary_analytics",
+      ]),
+      asOf: zod.coerce.date().nullable(),
+      fetchedAt: zod.coerce.date(),
+      freshnessSec: zod.number().nullable(),
+      isStale: zod.boolean(),
+      validationStatus: zod.enum([
+        "validated",
+        "unvalidated",
+        "incomplete",
+        "stale",
+        "mismatch",
+        "unavailable",
+      ]),
+      warnings: zod.array(zod.string()),
+    }),
+  ),
+  meta: zod.object({
+    source: zod.enum(["kite", "indstocks", "yahoo", "cache", "none"]),
+    trustTier: zod.enum([
+      "authoritative",
+      "secondary_validation",
+      "secondary_analytics",
+    ]),
+    asOf: zod.coerce.date().nullable(),
+    fetchedAt: zod.coerce.date(),
+    freshnessSec: zod.number().nullable(),
+    isStale: zod.boolean(),
+    delayed: zod.boolean(),
+    notForSignals: zod.boolean(),
+    validationStatus: zod.enum([
+      "validated",
+      "unvalidated",
+      "incomplete",
+      "stale",
+      "mismatch",
+      "unavailable",
+    ]),
+    warnings: zod.array(zod.string()),
+  }),
+});
+
+/**
+ * @summary Market-data trust-tier diagnostics — policy + per-provider health (Kite authoritative, INDstocks disabled scaffold, Yahoo analytics-only). Owner-only.
+ */
+export const GetDataDiagnosticsResponse = zod.object({
+  generatedAt: zod.coerce.date(),
+  policy: zod.object({
+    strictFreshness: zod.boolean(),
+    strictMismatch: zod.boolean(),
+    freshnessBudgetSec: zod.number(),
+    staleBudgetSec: zod.number(),
+    indstocksEnabled: zod.boolean(),
+  }),
+  authoritative: zod.enum(["kite"]),
+  providers: zod.array(
+    zod.object({
+      name: zod.enum(["kite", "indstocks", "yahoo"]),
+      trustTier: zod.string(),
+      role: zod.string(),
+      state: zod.enum(["active", "degraded", "inactive", "disabled"]),
+      detail: zod.string(),
+      health: zod.record(zod.string(), zod.unknown()),
+    }),
+  ),
+});
+
+/**
+ * @summary Per-symbol diagnostic showing exactly what the trusted layer would return (tradeable verdict + reason + provenanced quote). Owner-only.
+ */
+export const GetSymbolDiagnosticParams = zod.object({
+  symbol: zod.coerce.string(),
+});
+
+export const GetSymbolDiagnosticResponse = zod.object({
+  symbol: zod.string(),
+  generatedAt: zod.coerce.date(),
+  tradeable: zod.boolean(),
+  reason: zod.string().nullable(),
+  quote: zod
+    .object({
+      symbol: zod.string(),
+      name: zod.string().optional(),
+      lastPrice: zod.number(),
+      open: zod.number().optional(),
+      high: zod.number().optional(),
+      low: zod.number().optional(),
+      previousClose: zod.number().optional(),
+      change: zod.number().optional(),
+      changePercent: zod.number().optional(),
+      volume: zod.number().optional(),
+      meta: zod.object({
+        source: zod.enum(["kite", "indstocks", "yahoo", "cache", "none"]),
+        trustTier: zod.enum([
+          "authoritative",
+          "secondary_validation",
+          "secondary_analytics",
+        ]),
+        asOf: zod.coerce.date().nullable(),
+        fetchedAt: zod.coerce.date(),
+        freshnessSec: zod.number().nullable(),
+        isStale: zod.boolean(),
+        delayed: zod.boolean(),
+        notForSignals: zod.boolean(),
+        validationStatus: zod.enum([
+          "validated",
+          "unvalidated",
+          "incomplete",
+          "stale",
+          "mismatch",
+          "unavailable",
+        ]),
+        warnings: zod.array(zod.string()),
+      }),
+      tradeable: zod.boolean(),
+    })
+    .nullable(),
+});
+
+/**
  * @summary Indices board — Indian + global benchmarks + commodities with full fact pack
  */
 export const GetIndicesBoardResponse = zod.object({

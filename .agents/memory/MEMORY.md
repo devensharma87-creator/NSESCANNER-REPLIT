@@ -11,3 +11,4 @@
 - [Backtester prod backfill is a no-op](backtester-prod-backfill-noop.md) — backtester was dev-only until 2026-06-07 publish; pre-fix off-session trades only ever existed in dev, prod starts clean.
 - [F&O dual tier vocab + tradeClass re-derive](fno-tier-vocab-tradeclass.md) — signal tier (HC/BASELINE) ≠ sizing tier (STANDARD/BASELINE/MICRO); re-derive tradeClass after any post-emission tier mutation (applyOiConfirmation).
 - [Watchlist scanner-primary](watchlist-scanner-primary.md) — watchlist rows must build from scanAll() scanner data; Yahoo only for off-universe symbols, else rate-limited per-symbol fetches drop rows → empty baskets.
+- [Market-data trust-tier guard](marketdata-trust-guard.md) — only fresh authoritative (Kite) data is brandable TrustedQuote; hard-stale (validationStatus "stale") must be rejected UNCONDITIONALLY, not gated behind strictFreshness; Yahoo/INDstocks never tradeable.

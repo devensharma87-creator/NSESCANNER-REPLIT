@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useGetWatchlist, getGetWatchlistQueryKey, useListStocks, getListStocksQueryKey } from "@workspace/api-client-react";
+import { useGetWatchlistBasket, getGetWatchlistBasketQueryKey, useListStocks, getListStocksQueryKey, type DataProviderName } from "@workspace/api-client-react";
+import { DataSourceBadge, type DataSource } from "@/components/ui/data-source-badge";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -39,14 +40,17 @@ const TABS: Array<{ key: WatchlistKey; label: string; sub: string }> = [
   { key: "NIFTY500",         label: "Nifty 500",         sub: "Broad market — ~96% of mcap" },
 ];
 
-/** Nominal constituent counts per index. Used to flag when our live fetch
- * returned fewer rows than the index actually contains (Yahoo throttling, etc.). */
-const NOMINAL: Record<IndexKey, number> = {
-  SENSEX: 30, BANKNIFTY: 12, NIFTY50: 50, NIFTY100: 100,
-  NIFTYMIDCAP100: 100, NIFTYSMALLCAP100: 100, NIFTY500: 500,
-};
-
-function trendBadge(t: string) {
+function trendBadge(t: string | null) {
+  if (t == null) {
+    return (
+      <span
+        title="Trend bias unavailable — symbol not in the live scanner universe right now."
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold border text-muted-foreground bg-muted/30 border-border"
+      >
+        n/a
+      </span>
+    );
+  }
   const map: Record<string, string> = {
     "Very Bullish": "text-signal-strong-buy bg-signal-strong-buy/10 border-signal-strong-buy/30",
     "Bullish":      "text-signal-buy bg-signal-buy/10 border-signal-buy/30",
@@ -61,6 +65,17 @@ function trendBadge(t: string) {
       {t}
     </span>
   );
+}
+
+/** Map the trusted-layer provider name onto the DataSourceBadge vocabulary. */
+function toBadgeSource(s: DataProviderName | undefined): DataSource {
+  switch (s) {
+    case "kite":      return "kite";
+    case "yahoo":     return "yahoo";
+    case "cache":     return "cache";
+    case "indstocks": return "mixed";
+    default:          return "unknown";
+  }
 }
 
 function formatVolume(v: number): string {
@@ -80,10 +95,10 @@ export default function Watchlist() {
   // Pass a fallback index key so the codegen call is well-formed; React Query
   // dedupes and is harmless when we don't read the result.
   const indexKey: IndexKey = tab === "MY_LIST" ? "SENSEX" : tab;
-  const { data, isLoading, isError, error } = useGetWatchlist(indexKey, {
+  const { data, isLoading, isError, error } = useGetWatchlistBasket(indexKey, {
     query: {
       staleTime: 30_000, refetchInterval: 60_000,
-      queryKey: getGetWatchlistQueryKey(indexKey),
+      queryKey: getGetWatchlistBasketQueryKey(indexKey),
       enabled: tab !== "MY_LIST",
     },
   });
@@ -93,19 +108,19 @@ export default function Watchlist() {
     const q = filter.trim().toUpperCase();
     return rows.filter(r => {
       if (q && !r.symbol.toUpperCase().includes(q) && !r.name.toUpperCase().includes(q)) return false;
-      if (trendFilter === "BULL" && !r.mcTrend.includes("Bullish")) return false;
-      if (trendFilter === "BEAR" && !r.mcTrend.includes("Bearish")) return false;
+      if (trendFilter === "BULL" && !(r.trend?.includes("Bullish"))) return false;
+      if (trendFilter === "BEAR" && !(r.trend?.includes("Bearish"))) return false;
       return true;
     });
   }, [rows, filter, trendFilter]);
 
   // Use the same ±0.05% "flat" threshold as the rest of the app
   // so summary counts are consistent everywhere.
-  const advancers = rows.filter(r => r.changePercent > 0.05).length;
-  const decliners = rows.filter(r => r.changePercent < -0.05).length;
+  const advancers = rows.filter(r => (r.changePercent ?? 0) > 0.05).length;
+  const decliners = rows.filter(r => (r.changePercent ?? 0) < -0.05).length;
   const unchanged = rows.length - advancers - decliners;
-  const bullCount = rows.filter(r => r.mcTrend.includes("Bullish")).length;
-  const bearCount = rows.filter(r => r.mcTrend.includes("Bearish")).length;
+  const bullCount = rows.filter(r => r.trend?.includes("Bullish")).length;
+  const bearCount = rows.filter(r => r.trend?.includes("Bearish")).length;
 
   // The MY_LIST tab uses a completely different data source (personal-watchlist
   // API + cross-joined with the live universe), so render a separate component.
@@ -198,16 +213,23 @@ export default function Watchlist() {
                 Showing {filtered.length} of {rows.length}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              {!isLoading && rows.length > 0 && rows.length < NOMINAL[indexKey] && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold border border-amber-500/40 text-amber-500 bg-amber-500/10">
-                  Stale: {NOMINAL[indexKey] - rows.length} / {NOMINAL[indexKey]} missing
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {!isLoading && data && data.missing.length > 0 && (
+                <span
+                  title={data.missing.map(m => `${m.symbol}: ${m.reason}`).join("\n")}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold border border-amber-500/40 text-amber-500 bg-amber-500/10"
+                >
+                  Partial: {data.missing.length} of {data.requested} unavailable
                 </span>
               )}
-              {data?.asOf && (
-                <div className="text-[10px] font-mono text-muted-foreground">
-                  Updated {new Date(data.asOf).toLocaleTimeString()} · auto-refresh 60s
-                </div>
+              {data?.meta && (
+                <DataSourceBadge
+                  source={toBadgeSource(data.meta.source)}
+                  status={data.meta.isStale ? "stale" : data.meta.delayed ? "delayed" : "live"}
+                  lastUpdated={data.meta.fetchedAt}
+                  refreshMs={60_000}
+                  compact
+                />
               )}
             </div>
           </div>
@@ -260,8 +282,9 @@ export default function Watchlist() {
                     </TableRow>
                   ) : (
                     filtered.map(r => {
-                      const up = r.changePercent >= 0;
-                      const chgColor = up ? "text-signal-strong-buy" : "text-signal-strong-sell";
+                      const cp = r.changePercent;
+                      const up = (cp ?? 0) >= 0;
+                      const chgColor = cp == null ? "text-muted-foreground" : up ? "text-signal-strong-buy" : "text-signal-strong-sell";
                       return (
                         <TableRow key={r.symbol} className="hover-row border-border">
                           <TableCell className="sticky left-0 bg-card z-10">
@@ -270,24 +293,24 @@ export default function Watchlist() {
                               <div className="text-[10px] text-muted-foreground truncate max-w-[200px]">{r.name}</div>
                             </Link>
                           </TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">{r.livePrice.toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">{r.lastPrice.toFixed(2)}</TableCell>
                           <TableCell className={`text-right font-mono tabular-nums ${chgColor}`}>
-                            {up ? "▲" : "▼"} {Math.abs(r.change).toFixed(2)}
+                            {r.change == null ? "n/a" : `${up ? "▲" : "▼"} ${Math.abs(r.change).toFixed(2)}`}
                           </TableCell>
                           <TableCell className={`text-right font-mono tabular-nums font-semibold ${chgColor}`}>
-                            {up ? "+" : ""}{r.changePercent.toFixed(2)}%
+                            {cp == null ? "n/a" : `${up ? "+" : ""}${cp.toFixed(2)}%`}
                           </TableCell>
-                          <TableCell className="text-right font-mono tabular-nums text-xs">{formatVolume(r.volume)}</TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">{r.todayHigh.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">{r.todayLow.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-mono tabular-nums text-muted-foreground">{r.previousClose.toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-mono tabular-nums text-xs">{r.volume == null ? "n/a" : formatVolume(r.volume)}</TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">{r.high == null ? "n/a" : r.high.toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">{r.low == null ? "n/a" : r.low.toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-mono tabular-nums text-muted-foreground">{r.previousClose == null ? "n/a" : r.previousClose.toFixed(2)}</TableCell>
                           <TableCell className={`text-right font-mono tabular-nums ${
                             r.rsi != null && r.rsi > 70 ? "text-signal-strong-sell" :
                             r.rsi != null && r.rsi < 30 ? "text-signal-strong-buy" : ""
                           }`}>
                             {r.rsi != null ? r.rsi.toFixed(0) : "—"}
                           </TableCell>
-                          <TableCell className="text-center">{trendBadge(r.mcTrend)}</TableCell>
+                          <TableCell className="text-center">{trendBadge(r.trend)}</TableCell>
                         </TableRow>
                       );
                     })

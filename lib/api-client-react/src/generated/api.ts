@@ -25,10 +25,12 @@ import type {
   BacktestSnapshotCoverage,
   BacktestStrategiesResponse,
   BacktestTradesResponse,
+  BasketResponse,
   ChartCandlesResponse,
   ChartInstrumentsResponse,
   CustomStrategyRequest,
   CustomStrategyResponse,
+  DataDiagnostics,
   EtfNav,
   EtfQuote,
   ExportOptionSignalReportParams,
@@ -56,6 +58,7 @@ import type {
   GetParticipantOiAuditParams,
   GetParticipantOiParams,
   GetStockHistoryParams,
+  GetWatchlistBasket400,
   GlobalAuthStatus,
   GlobalCandlesResponse,
   GlobalDashboardResponse,
@@ -134,6 +137,7 @@ import type {
   StockHistory,
   StockRow,
   StockStatements,
+  SymbolDiagnostic,
   TopScans,
   WatchlistResponse,
 } from "./api.schemas";
@@ -4694,6 +4698,308 @@ export function useGetWatchlist<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetWatchlistQueryOptions(key, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Rich index basket served through the trusted market-data layer (Kite-authoritative) with per-row provenance, freshness and honest missing-symbol reasons
+ */
+export const getGetWatchlistBasketUrl = (
+  basketKey:
+    | "NIFTY50"
+    | "NIFTY100"
+    | "MIDCAP100"
+    | "NIFTYMIDCAP100"
+    | "SMALLCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500"
+    | "SENSEX"
+    | "BANKNIFTY",
+) => {
+  return `/api/watchlist/basket/${basketKey}`;
+};
+
+export const getWatchlistBasket = async (
+  basketKey:
+    | "NIFTY50"
+    | "NIFTY100"
+    | "MIDCAP100"
+    | "NIFTYMIDCAP100"
+    | "SMALLCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500"
+    | "SENSEX"
+    | "BANKNIFTY",
+  options?: RequestInit,
+): Promise<BasketResponse> => {
+  return customFetch<BasketResponse>(getGetWatchlistBasketUrl(basketKey), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetWatchlistBasketQueryKey = (
+  basketKey:
+    | "NIFTY50"
+    | "NIFTY100"
+    | "MIDCAP100"
+    | "NIFTYMIDCAP100"
+    | "SMALLCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500"
+    | "SENSEX"
+    | "BANKNIFTY",
+) => {
+  return [`/api/watchlist/basket/${basketKey}`] as const;
+};
+
+export const getGetWatchlistBasketQueryOptions = <
+  TData = Awaited<ReturnType<typeof getWatchlistBasket>>,
+  TError = ErrorType<GetWatchlistBasket400>,
+>(
+  basketKey:
+    | "NIFTY50"
+    | "NIFTY100"
+    | "MIDCAP100"
+    | "NIFTYMIDCAP100"
+    | "SMALLCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500"
+    | "SENSEX"
+    | "BANKNIFTY",
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWatchlistBasket>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetWatchlistBasketQueryKey(basketKey);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getWatchlistBasket>>
+  > = ({ signal }) =>
+    getWatchlistBasket(basketKey, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!basketKey,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getWatchlistBasket>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetWatchlistBasketQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getWatchlistBasket>>
+>;
+export type GetWatchlistBasketQueryError = ErrorType<GetWatchlistBasket400>;
+
+/**
+ * @summary Rich index basket served through the trusted market-data layer (Kite-authoritative) with per-row provenance, freshness and honest missing-symbol reasons
+ */
+
+export function useGetWatchlistBasket<
+  TData = Awaited<ReturnType<typeof getWatchlistBasket>>,
+  TError = ErrorType<GetWatchlistBasket400>,
+>(
+  basketKey:
+    | "NIFTY50"
+    | "NIFTY100"
+    | "MIDCAP100"
+    | "NIFTYMIDCAP100"
+    | "SMALLCAP100"
+    | "NIFTYSMALLCAP100"
+    | "NIFTY500"
+    | "SENSEX"
+    | "BANKNIFTY",
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWatchlistBasket>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetWatchlistBasketQueryOptions(basketKey, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Market-data trust-tier diagnostics — policy + per-provider health (Kite authoritative, INDstocks disabled scaffold, Yahoo analytics-only). Owner-only.
+ */
+export const getGetDataDiagnosticsUrl = () => {
+  return `/api/data/diagnostics`;
+};
+
+export const getDataDiagnostics = async (
+  options?: RequestInit,
+): Promise<DataDiagnostics> => {
+  return customFetch<DataDiagnostics>(getGetDataDiagnosticsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDataDiagnosticsQueryKey = () => {
+  return [`/api/data/diagnostics`] as const;
+};
+
+export const getGetDataDiagnosticsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDataDiagnostics>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDataDiagnostics>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetDataDiagnosticsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDataDiagnostics>>
+  > = ({ signal }) => getDataDiagnostics({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDataDiagnostics>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDataDiagnosticsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDataDiagnostics>>
+>;
+export type GetDataDiagnosticsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Market-data trust-tier diagnostics — policy + per-provider health (Kite authoritative, INDstocks disabled scaffold, Yahoo analytics-only). Owner-only.
+ */
+
+export function useGetDataDiagnostics<
+  TData = Awaited<ReturnType<typeof getDataDiagnostics>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDataDiagnostics>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDataDiagnosticsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Per-symbol diagnostic showing exactly what the trusted layer would return (tradeable verdict + reason + provenanced quote). Owner-only.
+ */
+export const getGetSymbolDiagnosticUrl = (symbol: string) => {
+  return `/api/data/diagnostics/symbol/${symbol}`;
+};
+
+export const getSymbolDiagnostic = async (
+  symbol: string,
+  options?: RequestInit,
+): Promise<SymbolDiagnostic> => {
+  return customFetch<SymbolDiagnostic>(getGetSymbolDiagnosticUrl(symbol), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSymbolDiagnosticQueryKey = (symbol: string) => {
+  return [`/api/data/diagnostics/symbol/${symbol}`] as const;
+};
+
+export const getGetSymbolDiagnosticQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSymbolDiagnostic>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSymbolDiagnostic>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetSymbolDiagnosticQueryKey(symbol);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSymbolDiagnostic>>
+  > = ({ signal }) =>
+    getSymbolDiagnostic(symbol, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!symbol,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSymbolDiagnostic>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSymbolDiagnosticQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSymbolDiagnostic>>
+>;
+export type GetSymbolDiagnosticQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Per-symbol diagnostic showing exactly what the trusted layer would return (tradeable verdict + reason + provenanced quote). Owner-only.
+ */
+
+export function useGetSymbolDiagnostic<
+  TData = Awaited<ReturnType<typeof getSymbolDiagnostic>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSymbolDiagnostic>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSymbolDiagnosticQueryOptions(symbol, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

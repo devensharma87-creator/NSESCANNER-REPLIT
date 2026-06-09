@@ -9,6 +9,7 @@ import { feedStatus } from "./kiteFeed";
 import { getKiteCreds, getActiveSession } from "./kiteAuth";
 import { getRecentAlerts } from "./tradingViewAlerts";
 import { computeMarketStatus } from "./marketEvents";
+import { buildDataDiagnostics } from "./marketData";
 
 export type Severity = "ok" | "warn" | "fail" | "info";
 
@@ -304,6 +305,40 @@ export async function buildStatusReport(): Promise<StatusReport> {
           ? "Pre-open session (09:00–09:15 IST)."
           : "Market is CLOSED.",
   });
+
+  // ---- MARKET-DATA TRUST-TIER LAYER ----
+  // Single source of truth shared with /api/data/diagnostics so the system
+  // page and the diagnostics endpoint can never disagree about provider state.
+  try {
+    const diag = buildDataDiagnostics();
+    const stateToSeverity = (
+      name: string,
+      state: "active" | "degraded" | "inactive" | "disabled",
+    ): Severity => {
+      if (name === "yahoo") return "info"; // analytics-only by design
+      if (name === "indstocks") return "info"; // disabled scaffold / validation-only
+      if (state === "active") return "ok";
+      if (state === "degraded") return "warn";
+      return "fail"; // kite inactive = no authoritative source
+    };
+    for (const p of diag.providers) {
+      items.push({
+        id: `marketdata_${p.name}`,
+        group: "upstream",
+        title: `Market data · ${p.name} (${p.trustTier})`,
+        status: stateToSeverity(p.name, p.state),
+        detail: p.detail,
+      });
+    }
+  } catch (err) {
+    items.push({
+      id: "marketdata_layer",
+      group: "upstream",
+      title: "Market data · trust-tier layer",
+      status: "warn",
+      detail: `Diagnostics unavailable: ${(err as Error).message}`,
+    });
+  }
 
   // ---- SUMMARY ----
   let ok = 0,

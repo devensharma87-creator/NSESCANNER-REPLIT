@@ -2207,6 +2207,212 @@ export interface WatchlistResponse {
   rows: WatchlistRow[];
 }
 
+export type DataTrustTier = (typeof DataTrustTier)[keyof typeof DataTrustTier];
+
+export const DataTrustTier = {
+  authoritative: "authoritative",
+  secondary_validation: "secondary_validation",
+  secondary_analytics: "secondary_analytics",
+} as const;
+
+export type DataProviderName =
+  (typeof DataProviderName)[keyof typeof DataProviderName];
+
+export const DataProviderName = {
+  kite: "kite",
+  indstocks: "indstocks",
+  yahoo: "yahoo",
+  cache: "cache",
+  none: "none",
+} as const;
+
+export type DataValidationStatus =
+  (typeof DataValidationStatus)[keyof typeof DataValidationStatus];
+
+export const DataValidationStatus = {
+  validated: "validated",
+  unvalidated: "unvalidated",
+  incomplete: "incomplete",
+  stale: "stale",
+  mismatch: "mismatch",
+  unavailable: "unavailable",
+} as const;
+
+export interface DataMeta {
+  source: DataProviderName;
+  trustTier: DataTrustTier;
+  asOf: string | null;
+  fetchedAt: string;
+  freshnessSec: number | null;
+  isStale: boolean;
+  delayed: boolean;
+  notForSignals: boolean;
+  validationStatus: DataValidationStatus;
+  warnings: string[];
+}
+
+export type BasketTrend = (typeof BasketTrend)[keyof typeof BasketTrend];
+
+export const BasketTrend = {
+  Very_Bullish: "Very Bullish",
+  Bullish: "Bullish",
+  Neutral: "Neutral",
+  Bearish: "Bearish",
+  Very_Bearish: "Very Bearish",
+} as const;
+
+export interface BasketRow {
+  symbol: string;
+  name: string;
+  lastPrice: number;
+  previousClose: number | null;
+  change: number | null;
+  changePercent: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  volume: number | null;
+  trend: BasketTrend | null;
+  rsi: number | null;
+  source: DataProviderName;
+  trustTier: DataTrustTier;
+  asOf: string | null;
+  fetchedAt: string;
+  freshnessSec: number | null;
+  isStale: boolean;
+  validationStatus: DataValidationStatus;
+  warnings: string[];
+}
+
+export interface BasketMissing {
+  symbol: string;
+  reason: string;
+}
+
+export type BasketResponseKey =
+  (typeof BasketResponseKey)[keyof typeof BasketResponseKey];
+
+export const BasketResponseKey = {
+  SENSEX: "SENSEX",
+  BANKNIFTY: "BANKNIFTY",
+  NIFTY50: "NIFTY50",
+  NIFTY100: "NIFTY100",
+  NIFTYMIDCAP100: "NIFTYMIDCAP100",
+  NIFTYSMALLCAP100: "NIFTYSMALLCAP100",
+  NIFTY500: "NIFTY500",
+} as const;
+
+export type BasketResponseSourcePolicyAuthoritative =
+  (typeof BasketResponseSourcePolicyAuthoritative)[keyof typeof BasketResponseSourcePolicyAuthoritative];
+
+export const BasketResponseSourcePolicyAuthoritative = {
+  kite: "kite",
+} as const;
+
+export type BasketResponseSourcePolicy = {
+  authoritative: BasketResponseSourcePolicyAuthoritative;
+  note: string;
+};
+
+export type BasketResponseSummaryBySource = { [key: string]: number };
+
+export type BasketResponseSummary = {
+  bySource: BasketResponseSummaryBySource;
+  fresh: number;
+  stale: number;
+  tradeable: number;
+};
+
+export interface BasketResponse {
+  key: BasketResponseKey;
+  alias: string;
+  label: string;
+  description: string;
+  generatedAt: string;
+  sourcePolicy: BasketResponseSourcePolicy;
+  requested: number;
+  returned: number;
+  missing: BasketMissing[];
+  summary: BasketResponseSummary;
+  rows: BasketRow[];
+  meta: DataMeta;
+}
+
+export type DataProviderDiagnosticName =
+  (typeof DataProviderDiagnosticName)[keyof typeof DataProviderDiagnosticName];
+
+export const DataProviderDiagnosticName = {
+  kite: "kite",
+  indstocks: "indstocks",
+  yahoo: "yahoo",
+} as const;
+
+export type DataProviderDiagnosticState =
+  (typeof DataProviderDiagnosticState)[keyof typeof DataProviderDiagnosticState];
+
+export const DataProviderDiagnosticState = {
+  active: "active",
+  degraded: "degraded",
+  inactive: "inactive",
+  disabled: "disabled",
+} as const;
+
+export type DataProviderDiagnosticHealth = { [key: string]: unknown };
+
+export interface DataProviderDiagnostic {
+  name: DataProviderDiagnosticName;
+  trustTier: string;
+  role: string;
+  state: DataProviderDiagnosticState;
+  detail: string;
+  health: DataProviderDiagnosticHealth;
+}
+
+export type DataDiagnosticsPolicy = {
+  strictFreshness: boolean;
+  strictMismatch: boolean;
+  freshnessBudgetSec: number;
+  staleBudgetSec: number;
+  indstocksEnabled: boolean;
+};
+
+export type DataDiagnosticsAuthoritative =
+  (typeof DataDiagnosticsAuthoritative)[keyof typeof DataDiagnosticsAuthoritative];
+
+export const DataDiagnosticsAuthoritative = {
+  kite: "kite",
+} as const;
+
+export interface DataDiagnostics {
+  generatedAt: string;
+  policy: DataDiagnosticsPolicy;
+  authoritative: DataDiagnosticsAuthoritative;
+  providers: DataProviderDiagnostic[];
+}
+
+export interface TrustedQuoteDto {
+  symbol: string;
+  name?: string;
+  lastPrice: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  previousClose?: number;
+  change?: number;
+  changePercent?: number;
+  volume?: number;
+  meta: DataMeta;
+  tradeable: boolean;
+}
+
+export interface SymbolDiagnostic {
+  symbol: string;
+  generatedAt: string;
+  tradeable: boolean;
+  reason: string | null;
+  quote: TrustedQuoteDto | null;
+}
+
 export type OptionChainSideMoneyness =
   (typeof OptionChainSideMoneyness)[keyof typeof OptionChainSideMoneyness];
 
@@ -4625,6 +4831,10 @@ export type RefreshInstFlows200 = { [key: string]: unknown };
 
 export type GetNewsParams = {
   symbol?: string;
+};
+
+export type GetWatchlistBasket400 = {
+  error: string;
 };
 
 export type ListGlobalInstrumentsParams = {

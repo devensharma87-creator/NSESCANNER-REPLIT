@@ -1,0 +1,115 @@
+/**
+ * The SINGLE sanctioned Yahoo gateway.
+ *
+ * Yahoo is secondary analytics ONLY. Every datum that leaves this module is
+ * stamped source=yahoo, trustTier=secondary_analytics, delayed=true,
+ * notForSignals=true — which makes the trust-tier guard reject it from any
+ * price/signal/valuation/F&O path. Legitimate analytics consumers (global
+ * commodities/forex/S&P 500, India VIX fallback, portfolio NIFTY 500 / sector
+ * benchmark comparisons) call THIS, never the raw `yahoo.ts` fetchers.
+ *
+ * This wrapper deliberately does NOT expose a generic "get any Indian equity
+ * quote" method — that would re-open the banned path. It only exposes the
+ * analytics surfaces above.
+ */
+
+import { fetchChartRaw, type YahooChart } from "../yahoo";
+import { buildMeta } from "./validator";
+import type { AnalyticsCandleSeries, AnalyticsQuote, Candle } from "./types";
+
+type YahooRange = "1d" | "5d" | "1mo" | "3mo" | "6mo" | "1y" | "2y" | "3y" | "5y";
+
+function analyticsMeta(asOfMs: number | null, complete: boolean) {
+  return buildMeta({
+    source: "yahoo",
+    trustTier: "secondary_analytics",
+    asOfMs,
+    delayed: true,
+    notForSignals: true,
+    complete,
+  });
+}
+
+/**
+ * Analytics-only daily candle series (e.g. an index benchmark, a global asset).
+ * Branded `AnalyticsCandleSeries` so it can never be passed where trusted
+ * candles are required.
+ *
+ * @param yahooSymbol e.g. "^CRSLDX", "GC=F", "^GSPC", "^INDIAVIX"
+ * @param range       Yahoo range string (e.g. "1y", "6mo")
+ */
+export async function getAnalyticsDaily(
+  yahooSymbol: string,
+  range: YahooRange = "1y",
+): Promise<AnalyticsCandleSeries | null> {
+  let chart: YahooChart | null = null;
+  try {
+    chart = await fetchChartRaw(yahooSymbol, range, "1d");
+  } catch {
+    chart = null;
+  }
+  if (!chart || chart.close.length === 0) {
+    return null;
+  }
+  const candles: Candle[] = [];
+  for (let i = 0; i < chart.timestamps.length; i++) {
+    const o = chart.open[i];
+    const h = chart.high[i];
+    const l = chart.low[i];
+    const c = chart.close[i];
+    const ts = chart.timestamps[i];
+    if (o == null || h == null || l == null || c == null || ts == null) continue;
+    candles.push({
+      t: new Date(ts * 1000).toISOString(),
+      open: o,
+      high: h,
+      low: l,
+      close: c,
+      volume: chart.volume[i] ?? 0,
+    });
+  }
+  const lastTsSec = chart.timestamps[chart.timestamps.length - 1];
+  const series = {
+    symbol: yahooSymbol,
+    interval: "1d",
+    candles,
+    meta: analyticsMeta(lastTsSec != null ? lastTsSec * 1000 : null, candles.length > 0),
+  };
+  return series as AnalyticsCandleSeries;
+}
+
+/**
+ * Analytics-only last-value quote derived from a Yahoo chart's latest bar.
+ * Used for global-asset/VIX-fallback strips that explicitly display delayed
+ * data. Branded `AnalyticsQuote` (never tradeable).
+ */
+export async function getAnalyticsQuote(
+  yahooSymbol: string,
+  range: YahooRange = "5d",
+): Promise<AnalyticsQuote | null> {
+  let chart: YahooChart | null = null;
+  try {
+    chart = await fetchChartRaw(yahooSymbol, range, "1d");
+  } catch {
+    chart = null;
+  }
+  if (!chart || chart.close.length < 1) return null;
+  const closes = chart.close.filter((v): v is number => v != null);
+  if (closes.length < 1) return null;
+  const last = chart.meta.regularMarketPrice ?? closes[closes.length - 1]!;
+  const prev = closes.length >= 2 ? closes[closes.length - 2] : chart.meta.chartPreviousClose;
+  if (!(last > 0)) return null;
+  const lastTsSec = chart.meta.regularMarketTime ?? chart.timestamps[chart.timestamps.length - 1];
+  const change = prev != null && prev > 0 ? last - prev : undefined;
+  const changePercent = prev != null && prev > 0 ? ((last - prev) / prev) * 100 : undefined;
+  const quote = {
+    symbol: yahooSymbol,
+    name: chart.meta.shortName ?? chart.meta.longName,
+    lastPrice: last,
+    previousClose: prev != null && prev > 0 ? prev : undefined,
+    change,
+    changePercent,
+    meta: analyticsMeta(lastTsSec != null ? lastTsSec * 1000 : null, true),
+  };
+  return quote as AnalyticsQuote;
+}

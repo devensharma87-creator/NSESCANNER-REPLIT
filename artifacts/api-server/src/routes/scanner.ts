@@ -30,6 +30,7 @@ import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../
 import { getMarketEvents, computeMarketStatus } from "../lib/marketEvents";
 import { getPreMarketReport } from "../lib/preMarket";
 import { getWatchlist } from "../lib/watchlist";
+import { buildBasket, resolveBasketKey } from "../lib/watchlistBasket";
 import { getMarketNewsLive } from "../lib/newsRss";
 import { getOptionSignals } from "../lib/optionSignals";
 import {
@@ -694,6 +695,31 @@ router.get("/watchlist/:key", async (req, res, next) => {
       return;
     }
     const data = await getWatchlist(key as typeof allowed[number]);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/watchlist/basket/:basketKey
+ *
+ * Rich, fully-provenanced basket served through the central market-data layer
+ * (Kite-authoritative). Every row carries source/asof/freshness/stale/trust-
+ * tier/validation metadata; missing constituents are reported with a reason
+ * (never back-filled from a delayed source). Accepts canonical keys plus the
+ * friendly aliases NIFTY100 / MIDCAP100 / SMALLCAP100.
+ */
+router.get("/watchlist/basket/:basketKey", async (req, res, next) => {
+  try {
+    const raw = String(req.params.basketKey ?? "");
+    const key = resolveBasketKey(raw);
+    if (!key) {
+      res.status(400).json({
+        error:
+          "Unknown basket key. Allowed: NIFTY50, NIFTY100, MIDCAP100, SMALLCAP100, NIFTY500, SENSEX, BANKNIFTY.",
+      });
+      return;
+    }
+    const data = await buildBasket(key, raw);
     res.json(data);
   } catch (err) { next(err); }
 });

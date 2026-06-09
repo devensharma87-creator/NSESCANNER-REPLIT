@@ -906,6 +906,64 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/WatchlistResponse" }
 
+  /watchlist/basket/{basketKey}:
+    get:
+      operationId: getWatchlistBasket
+      tags: [market]
+      summary: Rich index basket served through the trusted market-data layer (Kite-authoritative) with per-row provenance, freshness and honest missing-symbol reasons
+      parameters:
+        - in: path
+          name: basketKey
+          required: true
+          description: "Canonical key or friendly alias (NIFTY100 / MIDCAP100 / SMALLCAP100)."
+          schema:
+            type: string
+            enum: [NIFTY50, NIFTY100, MIDCAP100, NIFTYMIDCAP100, SMALLCAP100, NIFTYSMALLCAP100, NIFTY500, SENSEX, BANKNIFTY]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BasketResponse" }
+        "400":
+          description: Unknown basket key
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+
+  /data/diagnostics:
+    get:
+      operationId: getDataDiagnostics
+      tags: [market]
+      summary: Market-data trust-tier diagnostics — policy + per-provider health (Kite authoritative, INDstocks disabled scaffold, Yahoo analytics-only). Owner-only.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DataDiagnostics" }
+
+  /data/diagnostics/symbol/{symbol}:
+    get:
+      operationId: getSymbolDiagnostic
+      tags: [market]
+      summary: Per-symbol diagnostic showing exactly what the trusted layer would return (tradeable verdict + reason + provenanced quote). Owner-only.
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SymbolDiagnostic" }
+
   /indices:
     get:
       operationId: getIndicesBoard
@@ -3469,6 +3527,157 @@ components:
         rows:
           type: array
           items: { $ref: "#/components/schemas/WatchlistRow" }
+
+    # ── Trusted market-data layer (Task #122) ──────────────────────────
+    DataTrustTier:
+      type: string
+      enum: [authoritative, secondary_validation, secondary_analytics]
+    DataProviderName:
+      type: string
+      enum: [kite, indstocks, yahoo, cache, none]
+    DataValidationStatus:
+      type: string
+      enum: [validated, unvalidated, incomplete, stale, mismatch, unavailable]
+    DataMeta:
+      type: object
+      required: [source, trustTier, asOf, fetchedAt, freshnessSec, isStale, delayed, notForSignals, validationStatus, warnings]
+      properties:
+        source: { $ref: "#/components/schemas/DataProviderName" }
+        trustTier: { $ref: "#/components/schemas/DataTrustTier" }
+        asOf: { type: string, format: date-time, nullable: true }
+        fetchedAt: { type: string, format: date-time }
+        freshnessSec: { type: number, nullable: true }
+        isStale: { type: boolean }
+        delayed: { type: boolean }
+        notForSignals: { type: boolean }
+        validationStatus: { $ref: "#/components/schemas/DataValidationStatus" }
+        warnings: { type: array, items: { type: string } }
+    BasketTrend:
+      type: string
+      enum: ["Very Bullish", "Bullish", "Neutral", "Bearish", "Very Bearish"]
+    BasketRow:
+      type: object
+      required: [symbol, name, lastPrice, previousClose, change, changePercent, open, high, low, volume, trend, rsi, source, trustTier, asOf, fetchedAt, freshnessSec, isStale, validationStatus, warnings]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        lastPrice: { type: number }
+        previousClose: { type: number, nullable: true }
+        change: { type: number, nullable: true }
+        changePercent: { type: number, nullable: true }
+        open: { type: number, nullable: true }
+        high: { type: number, nullable: true }
+        low: { type: number, nullable: true }
+        volume: { type: number, nullable: true }
+        trend:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/BasketTrend" }]
+        rsi: { type: number, nullable: true }
+        source: { $ref: "#/components/schemas/DataProviderName" }
+        trustTier: { $ref: "#/components/schemas/DataTrustTier" }
+        asOf: { type: string, format: date-time, nullable: true }
+        fetchedAt: { type: string, format: date-time }
+        freshnessSec: { type: number, nullable: true }
+        isStale: { type: boolean }
+        validationStatus: { $ref: "#/components/schemas/DataValidationStatus" }
+        warnings: { type: array, items: { type: string } }
+    BasketMissing:
+      type: object
+      required: [symbol, reason]
+      properties:
+        symbol: { type: string }
+        reason: { type: string }
+    BasketResponse:
+      type: object
+      required: [key, alias, label, description, generatedAt, sourcePolicy, requested, returned, missing, summary, rows, meta]
+      properties:
+        key: { type: string, enum: [SENSEX, BANKNIFTY, NIFTY50, NIFTY100, NIFTYMIDCAP100, NIFTYSMALLCAP100, NIFTY500] }
+        alias: { type: string }
+        label: { type: string }
+        description: { type: string }
+        generatedAt: { type: string, format: date-time }
+        sourcePolicy:
+          type: object
+          required: [authoritative, note]
+          properties:
+            authoritative: { type: string, enum: [kite] }
+            note: { type: string }
+        requested: { type: integer }
+        returned: { type: integer }
+        missing:
+          type: array
+          items: { $ref: "#/components/schemas/BasketMissing" }
+        summary:
+          type: object
+          required: [bySource, fresh, stale, tradeable]
+          properties:
+            bySource:
+              type: object
+              additionalProperties: { type: integer }
+            fresh: { type: integer }
+            stale: { type: integer }
+            tradeable: { type: integer }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/BasketRow" }
+        meta: { $ref: "#/components/schemas/DataMeta" }
+    DataProviderDiagnostic:
+      type: object
+      required: [name, trustTier, role, state, detail, health]
+      properties:
+        name: { type: string, enum: [kite, indstocks, yahoo] }
+        trustTier: { type: string }
+        role: { type: string }
+        state: { type: string, enum: [active, degraded, inactive, disabled] }
+        detail: { type: string }
+        health:
+          type: object
+          additionalProperties: true
+    DataDiagnostics:
+      type: object
+      required: [generatedAt, policy, authoritative, providers]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        policy:
+          type: object
+          required: [strictFreshness, strictMismatch, freshnessBudgetSec, staleBudgetSec, indstocksEnabled]
+          properties:
+            strictFreshness: { type: boolean }
+            strictMismatch: { type: boolean }
+            freshnessBudgetSec: { type: number }
+            staleBudgetSec: { type: number }
+            indstocksEnabled: { type: boolean }
+        authoritative: { type: string, enum: [kite] }
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/DataProviderDiagnostic" }
+    TrustedQuoteDto:
+      type: object
+      required: [symbol, lastPrice, meta, tradeable]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        lastPrice: { type: number }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        previousClose: { type: number }
+        change: { type: number }
+        changePercent: { type: number }
+        volume: { type: number }
+        meta: { $ref: "#/components/schemas/DataMeta" }
+        tradeable: { type: boolean }
+    SymbolDiagnostic:
+      type: object
+      required: [symbol, generatedAt, tradeable, reason, quote]
+      properties:
+        symbol: { type: string }
+        generatedAt: { type: string, format: date-time }
+        tradeable: { type: boolean }
+        reason: { type: string, nullable: true }
+        quote:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/TrustedQuoteDto" }]
 
     OptionChainSide:
       type: object
