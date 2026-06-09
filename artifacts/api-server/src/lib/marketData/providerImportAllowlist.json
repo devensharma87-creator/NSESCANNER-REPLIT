@@ -1,0 +1,134 @@
+{
+  "lib/candleWarehouseIngestor.ts": [
+    "kiteFeed",
+    "kiteIntraday"
+  ],
+  "lib/chartDatafeed.ts": [
+    "kiteIntraday",
+    "yahoo"
+  ],
+  "lib/dataProvider.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
+  "lib/deepscan.ts": [
+    "nseBhavcopy",
+    "yahoo"
+  ],
+  "lib/financials.ts": [
+    "yahoo"
+  ],
+  "lib/fullNseScanner.ts": [
+    "kiteScanner",
+    "nseBhavcopy",
+    "yahoo"
+  ],
+  "lib/global/dataLayer.ts": [
+    "yahoo"
+  ],
+  "lib/globalIndices.ts": [
+    "yahoo"
+  ],
+  "lib/indexFuturesVolume.ts": [
+    "kiteAuth",
+    "kiteFnoInstruments",
+    "kiteIntraday"
+  ],
+  "lib/indicesBoard.ts": [
+    "kiteIndexQuotes",
+    "kiteIntraday",
+    "yahoo"
+  ],
+  "lib/liveBias.ts": [
+    "kiteIntraday"
+  ],
+  "lib/macroHistory.ts": [
+    "yahoo"
+  ],
+  "lib/marketEvents.ts": [
+    "yahoo-finance2"
+  ],
+  "lib/marketTrend.ts": [
+    "kiteIntraday",
+    "yahoo"
+  ],
+  "lib/oiLab.ts": [
+    "kiteAuth",
+    "kiteFnoInstruments",
+    "kiteIntraday",
+    "kiteOptionChain"
+  ],
+  "lib/optionChain.ts": [
+    "kiteIndexQuotes",
+    "kiteOptionChain",
+    "yahoo"
+  ],
+  "lib/optionSignalGates.ts": [
+    "kiteIntraday"
+  ],
+  "lib/optionSignals.ts": [
+    "kiteIndexQuotes",
+    "kiteIntraday"
+  ],
+  "lib/preMarket.ts": [
+    "nseBhavcopy",
+    "yahoo"
+  ],
+  "lib/scanner.ts": [
+    "kiteFeed",
+    "kiteIntraday",
+    "nseBhavcopy",
+    "yahoo"
+  ],
+  "lib/swingScannerData.ts": [
+    "kiteFeed",
+    "kiteIntraday",
+    "yahoo"
+  ],
+  "lib/swingScannerStore.ts": [
+    "kiteScanner"
+  ],
+  "lib/swingSignals.ts": [
+    "yahoo"
+  ],
+  "lib/symbolAlias.ts": [
+    "nseBhavcopy"
+  ],
+  "lib/systemStatus.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
+  "lib/watchlist.ts": [
+    "yahoo"
+  ],
+  "routes/fno.ts": [
+    "kiteAuth",
+    "kiteFeed",
+    "kiteIndexQuotes"
+  ],
+  "routes/home.ts": [
+    "kiteIntraday",
+    "yahoo"
+  ],
+  "routes/index.ts": [
+    "kiteFeed"
+  ],
+  "routes/kite.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
+  "routes/oiLab.ts": [
+    "kiteAuth"
+  ],
+  "routes/optionChain.ts": [
+    "kiteAuth"
+  ],
+  "routes/optionStrategies.ts": [
+    "kiteAuth"
+  ],
+  "routes/scanner.ts": [
+    "kiteIndexQuotes",
+    "kiteScanner",
+    "yahoo"
+  ]
+}

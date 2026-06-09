@@ -164,6 +164,18 @@ export async function getIndexQuotes(): Promise<BatchQuoteResult> {
   return { requested: [...raw.keys()], quotes, missing, meta: aggregateMeta(quotes) };
 }
 
+/** Single authoritative index quote by key (e.g. "^NSEI"), from the batch. */
+export async function getIndexQuote(key: string): Promise<MarketDataResult<TrustedQuote>> {
+  const batch = await getIndexQuotes();
+  const q = batch.quotes.get(key);
+  if (q) return { ok: true, data: q, meta: q.meta };
+  const reason =
+    batch.meta.validationStatus === "unavailable"
+      ? KITE_OFFLINE_REASON
+      : `No index quote for ${key}.`;
+  return { ok: false, data: null, meta: unavailableMeta("kite", "authoritative", reason), reason };
+}
+
 /** Authoritative candles for an NSE EQ symbol (charting/historical). */
 export async function getEquityCandles(
   symbol: string,
@@ -195,6 +207,15 @@ export async function getEquityCandles(
   }
   return { ok: true, data: series as TrustedCandleSeries, meta: series.meta };
 }
+
+// Authoritative option-chain facade (Kite NFO). Re-exported so consumers reach
+// it through the same router surface as the quote/candle facades.
+export {
+  getOptionChain,
+  evaluateOptionChain,
+  type TrustedOptionChain,
+  type OptionChainEvaluation,
+} from "./optionChainProvider";
 
 // ───────────────────────────────────────────────────────────────────────────
 // INDstocks cross-validation + explicit failover (secondary tier).

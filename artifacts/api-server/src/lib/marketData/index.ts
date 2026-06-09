@@ -84,12 +84,27 @@ export {
   getEquityCandles,
   getLtp,
   getIndexQuotes,
+  getIndexQuote,
+  getOptionChain,
+  evaluateOptionChain,
   validateAgainstIndstocks,
   getEquityQuoteResolved,
   isIndstocksEnabled,
   type CrossValidation,
   type ResolvedQuote,
+  type TrustedOptionChain,
+  type OptionChainEvaluation,
 } from "./router";
+
+export {
+  candleProvenanceFromMeta,
+  candleIngestProvenance,
+  sourcePriority,
+  SOURCE_PRIORITY,
+  UNKNOWN_SOURCE_PRIORITY,
+  type CandleProvenance,
+  type ProvenanceExtra,
+} from "./provenance";
 
 export {
   buildDataDiagnostics,

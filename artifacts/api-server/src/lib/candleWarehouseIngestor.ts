@@ -75,6 +75,7 @@ import { getIndexTokenMap } from "./kiteIntraday";
 import { getDynamicFnoUniverse } from "./oiLab";
 import { UNIVERSE } from "./universe";
 import { computeMarketStatus } from "./marketEvents";
+import { candleIngestProvenance, UNKNOWN_SOURCE_PRIORITY } from "./marketData/provenance";
 
 // ───────────── Universe definitions ─────────────
 
@@ -222,16 +223,24 @@ export function chartToCandleRows(
   meta: { instrumentToken: number; interval: CandleInterval; symbol: string; exchange: "NSE" | "BSE"; source: "kite" | "yahoo" },
 ): NewCandleRow[] {
   const out: NewCandleRow[] = [];
+  const fetchedAtMs = Date.now();
   for (let i = 0; i < chart.timestamps.length; i++) {
     const tsSec = chart.timestamps[i];
     const o = chart.open[i], h = chart.high[i], l = chart.low[i], c = chart.close[i];
     const v = chart.volume[i];
     if (!Number.isFinite(tsSec)) continue;
     if (![o, h, l, c].every((x) => Number.isFinite(x) && (x as number) > 0)) continue;
+    const tsMs = (tsSec as number) * 1000;
+    const prov = candleIngestProvenance(meta.source, {
+      tsMs,
+      nowMs: fetchedAtMs,
+      kiteInstrumentToken: meta.instrumentToken,
+      tradingsymbol: meta.symbol,
+    });
     out.push({
       instrumentToken: meta.instrumentToken,
       interval: meta.interval,
-      ts: new Date((tsSec as number) * 1000),
+      ts: new Date(tsMs),
       symbol: meta.symbol,
       exchange: meta.exchange,
       open: (o as number).toFixed(4),
@@ -241,6 +250,7 @@ export function chartToCandleRows(
       volume: Number.isFinite(v) && (v as number) > 0 ? Math.trunc(v as number) : 0,
       oi: null,
       source: meta.source,
+      ...prov,
     });
   }
   return out;
@@ -283,7 +293,30 @@ async function upsertCandles(rows: NewCandleRow[]): Promise<number> {
           symbol: sql`excluded.symbol`,
           exchange: sql`excluded.exchange`,
           updatedAt: sql`excluded.updated_at`,
+          // provenance refreshed only when the overwrite is allowed (see setWhere)
+          sourceProvider: sql`excluded.source_provider`,
+          sourcePriority: sql`excluded.source_priority`,
+          validatedBy: sql`excluded.validated_by`,
+          validationStatus: sql`excluded.validation_status`,
+          providerConflictStatus: sql`excluded.provider_conflict_status`,
+          asof: sql`excluded.asof`,
+          fetchedAt: sql`excluded.fetched_at`,
+          freshnessSec: sql`excluded.freshness_sec`,
+          isStale: sql`excluded.is_stale`,
+          tradingsymbol: sql`excluded.tradingsymbol`,
+          kiteKey: sql`excluded.kite_key`,
+          kiteInstrumentToken: sql`excluded.kite_instrument_token`,
+          indstocksScripCode: sql`excluded.indstocks_scrip_code`,
+          fallbackUsed: sql`excluded.fallback_used`,
+          dataQuality: sql`excluded.data_quality`,
+          warnings: sql`excluded.warnings`,
         },
+        // WRITE GUARD (Task #124): a lower-trust or source-less row may NEVER
+        // overwrite a higher-trust row. Lower sourcePriority = higher trust, so
+        // only overwrite when the incoming priority is at least as trusted as
+        // the stored one. Legacy rows (null priority) are treated as the lowest
+        // trust, so a Kite row can still upgrade them.
+        setWhere: sql`COALESCE(excluded.source_priority, ${UNKNOWN_SOURCE_PRIORITY}) <= COALESCE(${candleTable.sourcePriority}, ${UNKNOWN_SOURCE_PRIORITY})`,
       });
     total += slice.length;
   }

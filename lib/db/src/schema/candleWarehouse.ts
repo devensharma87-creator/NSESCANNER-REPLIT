@@ -43,6 +43,7 @@ import {
   numeric,
   integer,
   bigint,
+  boolean,
   jsonb,
   index,
   primaryKey,
@@ -70,6 +71,26 @@ export const candleTable = pgTable(
     oi: bigint("oi", { mode: "number" }),
 
     source: varchar("source", { length: 16 }).notNull(), // "kite" | "yahoo"
+
+    /* trusted-layer provenance (Task #124 Phase 1) — all nullable/additive.
+     * `sourcePriority` (lower = higher trust) powers the write-guard so a
+     * lower-trust or source-less row can never overwrite a Kite row. */
+    sourceProvider: varchar("source_provider", { length: 16 }),
+    sourcePriority: integer("source_priority"),
+    validatedBy: varchar("validated_by", { length: 16 }),
+    validationStatus: varchar("validation_status", { length: 16 }),
+    providerConflictStatus: varchar("provider_conflict_status", { length: 24 }),
+    asof: timestamp("asof", { withTimezone: true }),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+    freshnessSec: integer("freshness_sec"),
+    isStale: boolean("is_stale"),
+    tradingsymbol: varchar("tradingsymbol", { length: 64 }),
+    kiteKey: varchar("kite_key", { length: 64 }),
+    kiteInstrumentToken: bigint("kite_instrument_token", { mode: "number" }),
+    indstocksScripCode: varchar("indstocks_scrip_code", { length: 32 }),
+    fallbackUsed: boolean("fallback_used"),
+    dataQuality: varchar("data_quality", { length: 16 }),
+    warnings: jsonb("warnings"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
