@@ -1,0 +1,174 @@
+Start T003 now. Do not hold. But keep it tightly scoped: Home / Market Pulse index analytics honesty only.
+
+Do not mix Backtest Lab rectification into T003. That audit found a separate synthetic-premium issue and is now correctly parked as a later standalone backlog item.
+
+Send this:
+
+Start T003 now: Home / Market Pulse index analytics honesty.
+
+Scope:
+Focus only on Home / Market Pulse / Markets landing page index analytics.
+
+Do not reopen:
+
+T004 Portfolio
+Watchlist
+Backtest Lab rectification
+full trusted-layer migration
+
+Context:
+
+T004 Portfolio is scoped, accepted, and closed.
+Watchlist is already migrated to the central trusted layer.
+Backtest Lab rectification is documented as a later standalone backlog item.
+Global cues fake 0.00 issue was already fixed.
+Now fix the remaining Home / Market Pulse index analytics honesty issues.
+
+Visible/data-audit issues to fix:
+
+Indian index cards show LTP but missing/incomplete analytics:
+52W range
+daily EMAs
+VWAP
+pivot levels
+previous OHLC
+profile/momentum fields
+Warning text currently leaks provider internals:
+“Daily chart unavailable from Yahoo”
+Replace this with honest user-facing data status:
+“Daily candle data unavailable from trusted source”
+or
+“Index analytics unavailable: no trusted daily candles.”
+Quote path and analytics path are split.
+LTP may come from Kite/central layer while analytics come from Yahoo/chart-provider. Unify or clearly separate:
+Indian index quote = central trusted marketDataRouter / Kite-primary
+index analytics = central candle/chart facade, Kite-primary where possible
+Yahoo must not silently power official Indian index analytics
+No fake blanks.
+If analytics are unavailable, return explicit null + missing_reason + source/freshness/warnings.
+No fake zero values.
+Zero must mean real zero, not missing data.
+
+Data policy:
+
+Kite is primary for Indian market price and index data.
+INDstocks can be validation/failover only through the central layer.
+Yahoo is allowed only as labelled secondary analytics where no trusted Indian source exists.
+Yahoo must not silently power official Indian index analytics.
+No synthetic production data.
+No silent fallback.
+
+Audit first:
+Create or update a focused report:
+
+HOME_MARKET_PULSE_INDEX_ANALYTICS_AUDIT.md
+
+For each module/index field include:
+
+Module/component
+Endpoint
+Backend file
+Current quote source
+Current analytics/candle source
+Central layer used: YES/NO
+Yahoo dependency: YES/NO
+Missing fields
+Fake blank risk
+Fake zero risk
+Fix applied
+Remaining limitation
+
+Audit these index cards:
+
+NIFTY 50
+BANK NIFTY
+FIN NIFTY
+MIDCAP NIFTY
+SENSEX
+BANKEX
+
+Audit these fields:
+
+LTP
+change
+change %
+open
+high
+low
+previous close
+52W high/low/range
+VWAP
+daily EMA values
+pivots
+profile/momentum fields
+chart/candle availability
+warning labels
+
+Implementation rules:
+
+Indian index quote fields must come through central marketDataRouter / trusted layer.
+Chart-derived analytics must use the central candle/chart facade.
+If Kite candle data is unavailable, do not silently fall back to Yahoo.
+If Yahoo is used for any analytics, mark:
+source_provider = yahoo
+trust_tier = secondary_analytics
+delayed = true
+not_for_signals = true
+not_for_trade_decisions = true
+API responses must include:
+source_provider
+source_priority
+asof
+freshness_sec
+is_stale
+missing_reason
+warnings
+Frontend must show:
+“—” for unavailable values
+clear tooltip/reason for unavailable analytics
+no raw provider failure text
+no fake 0.00
+no silent blanks
+
+Tests required:
+
+missing daily candles do not show raw “Yahoo unavailable” text
+missing analytics return missing_reason
+missing analytics render “—” or “Unavailable,” not fake zero/blank
+Indian index quote path uses central trusted layer
+direct Yahoo imports are not added to Home index analytics modules
+Yahoo analytics, if used, is labelled secondary and not-for-signals
+existing Watchlist tests remain green
+existing Portfolio tests remain green
+typecheck passes
+
+Verification:
+Before/after verify:
+
+NIFTY 50 card
+BANK NIFTY card
+FIN NIFTY card
+MIDCAP NIFTY card
+SENSEX card
+BANKEX card
+selected index detail card
+warning area
+API response provenance fields
+
+Acceptance:
+
+No raw “Daily chart unavailable from Yahoo” on the UI.
+No fake blank analytics without reason.
+No fake 0.00 values.
+Indian index quotes use trusted central layer.
+Analytics are either populated from trusted candles or honestly unavailable.
+Yahoo is not silently used for official Indian index analytics.
+T004 Portfolio remains untouched.
+Watchlist remains untouched.
+Backtest Lab backlog remains untouched.
+Tests and typecheck pass.
+
+Final instruction:
+Do not make the page look complete by inventing analytics. If 52W, EMA, VWAP, pivots, or previous OHLC cannot be sourced trustworthily, show unavailable with reason. Data honesty beats pretty UI.
+
+This is the correct next move. After T003, then decide whether to do Charting candles or Backtest Lab rectification.

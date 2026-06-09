@@ -6514,6 +6514,77 @@ export const GetIndicesBoardResponse = zod.object({
         .describe(
           "Human-readable diagnostic notes (e.g. partial-data warnings)",
         ),
+      analytics: zod
+        .object({
+          sourceProvider: zod
+            .enum(["kite", "yahoo"])
+            .nullable()
+            .describe(
+              "Provider of the daily-derived analytics (52W \/ EMAs \/ prev OHLC \/ pivots). null when unavailable.",
+            ),
+          sourcePriority: zod
+            .number()
+            .describe(
+              "Trust priority: 1 authoritative, 3 secondary_analytics, 99 none.",
+            ),
+          trustTier: zod.enum([
+            "authoritative",
+            "secondary_analytics",
+            "unavailable",
+          ]),
+          delayed: zod
+            .boolean()
+            .describe(
+              "True when the analytics provider is a delayed \/ end-of-day feed.",
+            ),
+          notForSignals: zod
+            .boolean()
+            .describe(
+              "Hard policy flag: these analytics must never drive automated signals.",
+            ),
+          notForTradeDecisions: zod
+            .boolean()
+            .describe(
+              "Hard policy flag: these analytics must never drive trade decisions.",
+            ),
+          intradaySourceProvider: zod
+            .enum(["kite", "yahoo"])
+            .nullable()
+            .describe(
+              "Provider of intraday-derived analytics (VWAP \/ VAH \/ VAL \/ POC). null when none.",
+            ),
+          asOf: zod
+            .number()
+            .nullable()
+            .describe(
+              "Epoch seconds of the latest daily bar the analytics were derived from.",
+            ),
+          freshnessSec: zod
+            .number()
+            .nullable()
+            .describe("Seconds between asOf and snapshot-build time."),
+          isStale: zod
+            .boolean()
+            .nullable()
+            .describe(
+              "True when the daily analytics are older than the staleness window.",
+            ),
+          missingReason: zod
+            .string()
+            .nullable()
+            .describe(
+              "User-facing reason daily analytics are missing (null when present).",
+            ),
+          warnings: zod
+            .array(zod.string())
+            .describe(
+              "User-facing analytics warnings (no raw provider-failure internals).",
+            ),
+        })
+        .optional()
+        .describe(
+          "Provenance for the chart-derived ANALYTICS (52W extrema \/ daily EMAs \/ previous-day OHLC \/ floor pivots \/ intraday VWAP & volume profile), which are a SEPARATE data path from the live quote (`source`). For Indian indices Kite's daily history is too short for 52W\/EMA200, so the daily analytics are sourced from Yahoo and labelled here as a delayed secondary reference — never silently presented as authoritative, and never used to drive signals or trade decisions.",
+        ),
     }),
   ),
   lastUpdated: zod.coerce.date(),

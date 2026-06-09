@@ -36,6 +36,7 @@ import { ema, sessionVwap, volumeProfile } from "./indicators";
 import { getKiteIndexQuotes, type KiteIndexQuote } from "./kiteIndexQuotes";
 import { getGiftNifty } from "./giftNifty";
 import { getTvQuotes, type TvQuote } from "./tvQuotes";
+import { SOURCE_PRIORITY, UNKNOWN_SOURCE_PRIORITY } from "./marketData/provenance";
 import { logger } from "./logger";
 
 export type IndicesCategory = "INDIA" | "GLOBAL" | "COMMODITY" | "ADR" | "FX";
@@ -220,6 +221,54 @@ export interface IndexBoardItem {
 
   /** Human-readable diagnostic notes (e.g. "intraday bars unavailable"). */
   notes: string[];
+
+  /**
+   * Provenance for the chart-derived ANALYTICS (52W extrema / daily EMAs /
+   * previous-day OHLC / floor pivots, plus the intraday VWAP & volume
+   * profile). This is a SEPARATE data path from the live quote (`source`):
+   * the quote can be a live Kite/TV tick while the analytics are still
+   * computed from a delayed Yahoo history.
+   *
+   * Policy (Indian indices): Kite's historical daily series is too short
+   * (~60 sessions) to derive 52W extrema or EMA200, so the daily analytics
+   * are sourced from Yahoo and are LABELLED `secondary_analytics` / delayed
+   * / not-for-signals here rather than silently presented as authoritative.
+   * Omitted only for rows that carry no analytics at all (e.g. GIFT NIFTY).
+   */
+  analytics?: IndexAnalyticsProvenance;
+}
+
+/**
+ * Honest provenance label for an index row's chart-derived analytics.
+ * Intentionally carries the explicit policy flags (`notForSignals` /
+ * `notForTradeDecisions`) so a delayed reference feed can never be mistaken
+ * for an authoritative trade input.
+ */
+export interface IndexAnalyticsProvenance {
+  /** Provider of the daily-derived analytics (52W / EMAs / prev OHLC / pivots). */
+  sourceProvider: "kite" | "yahoo" | null;
+  /** Trust priority: 1 authoritative, 3 secondary_analytics, 99 none. */
+  sourcePriority: number;
+  /** Coarse trust tier for the daily analytics. */
+  trustTier: "authoritative" | "secondary_analytics" | "unavailable";
+  /** True when the analytics provider is a delayed / end-of-day feed. */
+  delayed: boolean;
+  /** Hard policy: these analytics must never drive automated signals. */
+  notForSignals: boolean;
+  /** Hard policy: these analytics must never drive trade decisions. */
+  notForTradeDecisions: boolean;
+  /** Provider of the intraday-derived analytics (VWAP / VAH / VAL / POC). */
+  intradaySourceProvider: "kite" | "yahoo" | null;
+  /** Epoch seconds of the latest daily bar the analytics were derived from. */
+  asOf: number | null;
+  /** Seconds between `asOf` and snapshot-build time. */
+  freshnessSec: number | null;
+  /** True when the daily analytics are older than the staleness window. */
+  isStale: boolean | null;
+  /** User-facing reason daily analytics are missing (null when present). */
+  missingReason: string | null;
+  /** User-facing analytics warnings (no raw provider-failure internals). */
+  warnings: string[];
 }
 
 export interface IndicesBoardSnapshot {
@@ -290,6 +339,71 @@ function isSameDayLocal(a: number, b: number): boolean {
       && da.getDate()     === db.getDate();
 }
 
+/** Daily analytics older than this are flagged `isStale`. Deliberately
+ *  generous (covers a long weekend + a holiday) so we never false-flag a
+ *  normal Monday — it exists to catch genuinely stale history, not to nag. */
+const STALE_DAILY_ANALYTICS_SEC = 4 * 24 * 3600;
+
+/**
+ * Build the honest provenance label for a row's chart-derived analytics.
+ * Pure: depends only on its inputs. The daily analytics are always Yahoo
+ * today (Kite's history is too short for 52W/EMA200) — when a Kite candle
+ * facade later supplies daily history this is the single place to upgrade
+ * `sourceProvider`/`trustTier` to authoritative.
+ */
+export function buildAnalyticsProvenance(
+  cfg: InstrumentCfg,
+  daily: YahooChart | null,
+  intraSource: "kite" | "yahoo" | null,
+  now: number = Date.now(),
+): IndexAnalyticsProvenance {
+  const warnings: string[] = [];
+  if (cfg.proxyNote) warnings.push(cfg.proxyNote);
+
+  const dailyAvailable = !!(daily && daily.close.length > 0);
+  if (!dailyAvailable) {
+    return {
+      sourceProvider: null,
+      sourcePriority: UNKNOWN_SOURCE_PRIORITY,
+      trustTier: "unavailable",
+      delayed: false,
+      notForSignals: true,
+      notForTradeDecisions: true,
+      intradaySourceProvider: intraSource,
+      asOf: null,
+      freshnessSec: null,
+      isStale: null,
+      missingReason: "No trusted daily candles available for index analytics",
+      warnings,
+    };
+  }
+
+  const ts = daily!.timestamps;
+  const asOf = ts.length > 0 ? ts[ts.length - 1]! : null; // epoch seconds
+  const freshnessSec = asOf != null ? Math.max(0, Math.round(now / 1000 - asOf)) : null;
+  const isStale = freshnessSec != null ? freshnessSec > STALE_DAILY_ANALYTICS_SEC : null;
+
+  const closes = daily!.close.filter((v): v is number => v != null);
+  if (closes.length < 200) {
+    warnings.push(`Only ${closes.length} daily candles available (EMA200 needs 200)`);
+  }
+
+  return {
+    sourceProvider: "yahoo",
+    sourcePriority: SOURCE_PRIORITY.secondary_analytics,
+    trustTier: "secondary_analytics",
+    delayed: true,
+    notForSignals: true,
+    notForTradeDecisions: true,
+    intradaySourceProvider: intraSource,
+    asOf,
+    freshnessSec,
+    isStale,
+    missingReason: null,
+    warnings,
+  };
+}
+
 /** Build one row by combining a daily chart, an intraday chart and the
  *  optional live overrides (TradingView for global / commodities / ADRs /
  *  FX, Kite for Indian indices). Side-effect free; returns the row.
@@ -301,12 +415,14 @@ function isSameDayLocal(a: number, b: number): boolean {
  *  delayed; Kite wins over TradingView because it's an actual exchange
  *  tick. Indian indices intentionally skip TV (their Kite path is
  *  already live + the TV symbol would just duplicate the Kite price). */
-function buildItem(
+export function buildItem(
   cfg: InstrumentCfg,
   daily: YahooChart | null,
   intra: YahooChart | null,
   tv: TvQuote | undefined,
   kite: KiteIndexQuote | undefined,
+  intraSource: "kite" | "yahoo" | null = null,
+  now: number = Date.now(),
 ): IndexBoardItem {
   const item: IndexBoardItem = {
     key: cfg.key,
@@ -337,7 +453,7 @@ function buildItem(
         item.support     = [round(piv.s1, 4)!, round(piv.s2, 4)!, round(piv.s3, 4)!];
       }
     } else {
-      item.notes.push("Previous-day OHLC unavailable from Yahoo");
+      item.notes.push("Previous-day OHLC unavailable from trusted source");
     }
 
     if (todayIdx != null) {
@@ -376,7 +492,7 @@ function buildItem(
       item.asOf = daily.meta.regularMarketTime;
     }
   } else {
-    item.notes.push("Daily chart unavailable from Yahoo");
+    item.notes.push("Index analytics unavailable: no trusted daily candles");
   }
 
   // ── Intraday-derived fields ──────────────────────────────────────
@@ -420,7 +536,7 @@ function buildItem(
   } else if (intra) {
     item.notes.push("Intraday bars too sparse for VWAP/profile");
   } else {
-    item.notes.push("Intraday chart unavailable from Yahoo");
+    item.notes.push("Intraday session data unavailable from trusted source");
   }
 
   // ── Live TradingView override (Global / Commodities / ADRs / FX) ──
@@ -464,6 +580,9 @@ function buildItem(
     item.change = round(ch, 4);
     item.changePercent = round(pct, 3);
   }
+
+  // ── Analytics provenance (chart-derived fields, separate from the quote) ─
+  item.analytics = buildAnalyticsProvenance(cfg, daily, intraSource, now);
 
   return item;
 }
@@ -546,12 +665,21 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
       dailyPromise,
       intradayKite,
     ]);
-    const intra = intraK && intraK.close.length >= 4
-      ? intraK
-      : await fetchIntraday(cfg.yahoo, "5m", "1d").catch(() => null);
+    // Track which provider actually supplied the intraday analytics so the
+    // row's provenance can label VWAP/profile honestly (Kite = trusted live;
+    // Yahoo = delayed fallback).
+    let intra: YahooChart | null;
+    let intraSource: "kite" | "yahoo" | null;
+    if (intraK && intraK.close.length >= 4) {
+      intra = intraK;
+      intraSource = "kite";
+    } else {
+      intra = await fetchIntraday(cfg.yahoo, "5m", "1d").catch(() => null);
+      intraSource = intra ? "yahoo" : null;
+    }
     const kite = cfg.kiteYahooKey && kiteMap ? kiteMap.get(cfg.kiteYahooKey) : undefined;
     const tv = cfg.tvSymbol ? tvMap.get(cfg.tvSymbol) : undefined;
-    const row = buildItem(cfg, daily, intra, tv, kite);
+    const row = buildItem(cfg, daily, intra, tv, kite, intraSource);
     if (cfg.proxyNote && cfg.yahooDaily && cfg.yahooDaily !== cfg.yahoo) {
       row.notes.push(cfg.proxyNote);
     }

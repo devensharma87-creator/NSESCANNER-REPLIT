@@ -698,6 +698,68 @@ export const IndexBoardItemSource = {
   yahoo: "yahoo",
 } as const;
 
+/**
+ * Provider of the daily-derived analytics (52W / EMAs / prev OHLC / pivots). null when unavailable.
+ */
+export type IndexAnalyticsProvenanceSourceProvider =
+  | (typeof IndexAnalyticsProvenanceSourceProvider)[keyof typeof IndexAnalyticsProvenanceSourceProvider]
+  | null;
+
+export const IndexAnalyticsProvenanceSourceProvider = {
+  kite: "kite",
+  yahoo: "yahoo",
+} as const;
+
+export type IndexAnalyticsProvenanceTrustTier =
+  (typeof IndexAnalyticsProvenanceTrustTier)[keyof typeof IndexAnalyticsProvenanceTrustTier];
+
+export const IndexAnalyticsProvenanceTrustTier = {
+  authoritative: "authoritative",
+  secondary_analytics: "secondary_analytics",
+  unavailable: "unavailable",
+} as const;
+
+/**
+ * Provider of intraday-derived analytics (VWAP / VAH / VAL / POC). null when none.
+ */
+export type IndexAnalyticsProvenanceIntradaySourceProvider =
+  | (typeof IndexAnalyticsProvenanceIntradaySourceProvider)[keyof typeof IndexAnalyticsProvenanceIntradaySourceProvider]
+  | null;
+
+export const IndexAnalyticsProvenanceIntradaySourceProvider = {
+  kite: "kite",
+  yahoo: "yahoo",
+} as const;
+
+/**
+ * Provenance for the chart-derived ANALYTICS (52W extrema / daily EMAs / previous-day OHLC / floor pivots / intraday VWAP & volume profile), which are a SEPARATE data path from the live quote (`source`). For Indian indices Kite's daily history is too short for 52W/EMA200, so the daily analytics are sourced from Yahoo and labelled here as a delayed secondary reference — never silently presented as authoritative, and never used to drive signals or trade decisions.
+ */
+export interface IndexAnalyticsProvenance {
+  /** Provider of the daily-derived analytics (52W / EMAs / prev OHLC / pivots). null when unavailable. */
+  sourceProvider: IndexAnalyticsProvenanceSourceProvider;
+  /** Trust priority: 1 authoritative, 3 secondary_analytics, 99 none. */
+  sourcePriority: number;
+  trustTier: IndexAnalyticsProvenanceTrustTier;
+  /** True when the analytics provider is a delayed / end-of-day feed. */
+  delayed: boolean;
+  /** Hard policy flag: these analytics must never drive automated signals. */
+  notForSignals: boolean;
+  /** Hard policy flag: these analytics must never drive trade decisions. */
+  notForTradeDecisions: boolean;
+  /** Provider of intraday-derived analytics (VWAP / VAH / VAL / POC). null when none. */
+  intradaySourceProvider: IndexAnalyticsProvenanceIntradaySourceProvider;
+  /** Epoch seconds of the latest daily bar the analytics were derived from. */
+  asOf: number | null;
+  /** Seconds between asOf and snapshot-build time. */
+  freshnessSec: number | null;
+  /** True when the daily analytics are older than the staleness window. */
+  isStale: boolean | null;
+  /** User-facing reason daily analytics are missing (null when present). */
+  missingReason: string | null;
+  /** User-facing analytics warnings (no raw provider-failure internals). */
+  warnings: string[];
+}
+
 export interface IndexBoardItem {
   /** Stable instrument identifier (e.g. NIFTY50, GOLD) */
   key: string;
@@ -745,6 +807,7 @@ export interface IndexBoardItem {
   resistance: number[];
   /** Human-readable diagnostic notes (e.g. partial-data warnings) */
   notes: string[];
+  analytics?: IndexAnalyticsProvenance;
 }
 
 export interface IndicesBoardSnapshot {

@@ -37,7 +37,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useGetIndicesBoard, getGetIndicesBoardQueryKey } from "@workspace/api-client-react";
-import type { IndexBoardItem } from "@workspace/api-client-react";
+import type { IndexBoardItem, IndexAnalyticsProvenance } from "@workspace/api-client-react";
 import { Activity, Globe2, Flame, AlertTriangle, Building2, DollarSign } from "lucide-react";
 
 type Cat = "INDIA" | "GLOBAL" | "COMMODITY" | "ADR" | "FX";
@@ -438,6 +438,9 @@ function InstrumentCard({ item }: { item: IndexBoardItem }) {
         />
       </div>
 
+      {/* Analytics provenance (chart-derived fields, separate from the quote) */}
+      {item.analytics && <AnalyticsProvenanceNote analytics={item.analytics} />}
+
       {/* Notes (proxy disclosures, partial-data warnings) */}
       {item.notes && item.notes.length > 0 && (
         <div className="px-4 py-2 border-t border-amber-500/30 bg-amber-500/5 text-[11px] text-amber-500 flex items-start gap-1.5">
@@ -445,6 +448,36 @@ function InstrumentCard({ item }: { item: IndexBoardItem }) {
           <div className="leading-snug">{item.notes.join(" · ")}</div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Honest provenance footer for the chart-derived analytics (52W / EMAs /
+ *  pivots / VWAP). Surfaces when those numbers come from a delayed secondary
+ *  feed rather than a live trusted source, and never overstates trust. */
+function AnalyticsProvenanceNote({ analytics }: { analytics: IndexAnalyticsProvenance }) {
+  const { trustTier, sourceProvider, delayed, missingReason, isStale, warnings } = analytics;
+
+  if (trustTier === "unavailable") {
+    return (
+      <div className="px-4 py-2 border-t border-border/70 bg-muted/30 text-[11px] text-muted-foreground leading-snug">
+        Analytics (52W · EMAs · pivots · VWAP): {missingReason ?? "unavailable"}.
+        {warnings.length > 0 && <> {warnings.join(" · ")}</>}
+      </div>
+    );
+  }
+
+  const providerLabel = sourceProvider === "kite" ? "Zerodha (live)" : sourceProvider === "yahoo" ? "Yahoo (delayed)" : "secondary source";
+  const tierLabel = trustTier === "authoritative" ? "Trusted" : "Reference only — not for signals/trade decisions";
+
+  return (
+    <div className="px-4 py-2 border-t border-border/70 bg-muted/30 text-[11px] text-muted-foreground leading-snug flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span className={`font-semibold px-1.5 py-0.5 rounded border ${trustTier === "authoritative" ? "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" : "text-amber-500 border-amber-500/30 bg-amber-500/10"}`}>
+        {tierLabel}
+      </span>
+      <span>Analytics source: {providerLabel}{delayed && sourceProvider !== "yahoo" ? " · delayed" : ""}.</span>
+      {isStale && <span className="text-amber-500">Stale — last bar is several days old.</span>}
+      {warnings.length > 0 && <span>{warnings.join(" · ")}</span>}
     </div>
   );
 }

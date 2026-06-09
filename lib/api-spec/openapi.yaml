@@ -2388,6 +2388,69 @@ components:
           type: array
           description: "Human-readable diagnostic notes (e.g. partial-data warnings)"
           items: { type: string }
+        analytics:
+          $ref: "#/components/schemas/IndexAnalyticsProvenance"
+
+    IndexAnalyticsProvenance:
+      type: object
+      description: >-
+        Provenance for the chart-derived ANALYTICS (52W extrema / daily EMAs /
+        previous-day OHLC / floor pivots / intraday VWAP & volume profile),
+        which are a SEPARATE data path from the live quote (`source`). For
+        Indian indices Kite's daily history is too short for 52W/EMA200, so the
+        daily analytics are sourced from Yahoo and labelled here as a delayed
+        secondary reference — never silently presented as authoritative, and
+        never used to drive signals or trade decisions.
+      required:
+        [sourceProvider, sourcePriority, trustTier, delayed, notForSignals,
+         notForTradeDecisions, intradaySourceProvider, asOf, freshnessSec,
+         isStale, missingReason, warnings]
+      properties:
+        sourceProvider:
+          type: string
+          enum: [kite, yahoo]
+          nullable: true
+          description: "Provider of the daily-derived analytics (52W / EMAs / prev OHLC / pivots). null when unavailable."
+        sourcePriority:
+          type: integer
+          description: "Trust priority: 1 authoritative, 3 secondary_analytics, 99 none."
+        trustTier:
+          type: string
+          enum: [authoritative, secondary_analytics, unavailable]
+        delayed:
+          type: boolean
+          description: "True when the analytics provider is a delayed / end-of-day feed."
+        notForSignals:
+          type: boolean
+          description: "Hard policy flag: these analytics must never drive automated signals."
+        notForTradeDecisions:
+          type: boolean
+          description: "Hard policy flag: these analytics must never drive trade decisions."
+        intradaySourceProvider:
+          type: string
+          enum: [kite, yahoo]
+          nullable: true
+          description: "Provider of intraday-derived analytics (VWAP / VAH / VAL / POC). null when none."
+        asOf:
+          type: integer
+          nullable: true
+          description: "Epoch seconds of the latest daily bar the analytics were derived from."
+        freshnessSec:
+          type: integer
+          nullable: true
+          description: "Seconds between asOf and snapshot-build time."
+        isStale:
+          type: boolean
+          nullable: true
+          description: "True when the daily analytics are older than the staleness window."
+        missingReason:
+          type: string
+          nullable: true
+          description: "User-facing reason daily analytics are missing (null when present)."
+        warnings:
+          type: array
+          description: "User-facing analytics warnings (no raw provider-failure internals)."
+          items: { type: string }
 
     IndicesBoardSnapshot:
       type: object

@@ -9,6 +9,19 @@ import { Activity } from "lucide-react";
 
 const INDIAN_KEYS = ["NIFTY50", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"];
 
+/** Format a signed percent honestly: "—" when the value is genuinely
+ *  missing (null/NaN) rather than coercing it to a fake "+0.00%". */
+export function formatSignedPct(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+}
+
+/** Format a signed number honestly: "—" when genuinely missing. */
+export function formatSignedNum(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
+}
+
 function Sparkline({ data, width = 80, height = 24, color }: { data: number[]; width?: number; height?: number; color: string }) {
   if (data.length < 2) return null;
   const min = Math.min(...data);
@@ -112,9 +125,9 @@ function MiniCard({
             {item.currency}{item.ltp?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}
           </div>
           <div className={`text-[11px] font-mono tabular-nums font-semibold ${changeColor}`}>
-            {(item.changePercent ?? 0) >= 0 ? "+" : ""}{(item.changePercent ?? 0).toFixed(2)}%
+            {formatSignedPct(item.changePercent)}
             <span className="opacity-70 ml-1">
-              ({(item.change ?? 0) >= 0 ? "+" : ""}{(item.change ?? 0).toFixed(2)})
+              ({formatSignedNum(item.change)})
             </span>
           </div>
         </div>

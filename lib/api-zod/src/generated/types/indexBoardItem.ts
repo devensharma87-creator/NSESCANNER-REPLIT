@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { IndexAnalyticsProvenance } from "./indexAnalyticsProvenance";
 import type { IndexBoardItemCategory } from "./indexBoardItemCategory";
 import type { IndexBoardItemSource } from "./indexBoardItemSource";
 
@@ -55,4 +56,5 @@ export interface IndexBoardItem {
   resistance: number[];
   /** Human-readable diagnostic notes (e.g. partial-data warnings) */
   notes: string[];
+  analytics?: IndexAnalyticsProvenance;
 }

@@ -1,4 +1,4 @@
-import type { IndexBoardItem, HomeIndexEnrichment } from "@workspace/api-client-react";
+import type { IndexBoardItem, HomeIndexEnrichment, IndexAnalyticsProvenance } from "@workspace/api-client-react";
 import { Sparkline, computeBiasScore } from "./index-tabs";
 
 function fmt(n: number | null | undefined, digits = 2): string {
@@ -351,26 +351,26 @@ export default function IndexExpandedPanel({
             <MomentumTile
               label="RSI (14)"
               value={enrichment?.rsi14?.toFixed(1) ?? "—"}
-              color={(enrichment?.rsi14 ?? 50) >= 70 ? "text-rose-500" : (enrichment?.rsi14 ?? 50) <= 30 ? "text-emerald-500" : "text-foreground"}
-              sub={(enrichment?.rsi14 ?? 50) >= 70 ? "Overbought" : (enrichment?.rsi14 ?? 50) <= 30 ? "Oversold" : "Neutral"}
+              color={enrichment?.rsi14 == null ? "text-muted-foreground" : enrichment.rsi14 >= 70 ? "text-rose-500" : enrichment.rsi14 <= 30 ? "text-emerald-500" : "text-foreground"}
+              sub={enrichment?.rsi14 == null ? "No data" : enrichment.rsi14 >= 70 ? "Overbought" : enrichment.rsi14 <= 30 ? "Oversold" : "Neutral"}
             />
             <MomentumTile
               label="ADX (14)"
               value={enrichment?.adx14?.toFixed(1) ?? "—"}
-              color={(enrichment?.adx14 ?? 0) >= 25 ? "text-primary" : "text-muted-foreground"}
-              sub={(enrichment?.adx14 ?? 0) >= 25 ? "Trending" : "Range"}
+              color={enrichment?.adx14 == null ? "text-muted-foreground" : enrichment.adx14 >= 25 ? "text-primary" : "text-muted-foreground"}
+              sub={enrichment?.adx14 == null ? "No data" : enrichment.adx14 >= 25 ? "Trending" : "Range"}
             />
             <MomentumTile
               label="MACD Hist"
               value={enrichment?.macdHist?.toFixed(2) ?? "—"}
-              color={(enrichment?.macdHist ?? 0) > 0 ? "text-emerald-500" : (enrichment?.macdHist ?? 0) < 0 ? "text-rose-500" : "text-muted-foreground"}
-              sub={(enrichment?.macdHist ?? 0) > 0 ? "Bullish" : (enrichment?.macdHist ?? 0) < 0 ? "Bearish" : "Flat"}
+              color={enrichment?.macdHist == null ? "text-muted-foreground" : enrichment.macdHist > 0 ? "text-emerald-500" : enrichment.macdHist < 0 ? "text-rose-500" : "text-muted-foreground"}
+              sub={enrichment?.macdHist == null ? "No data" : enrichment.macdHist > 0 ? "Bullish" : enrichment.macdHist < 0 ? "Bearish" : "Flat"}
             />
             <MomentumTile
               label="Vol Ratio"
               value={enrichment?.volumeRatio?.toFixed(2) ?? "—"}
-              color={(enrichment?.volumeRatio ?? 1) >= 1.5 ? "text-primary" : (enrichment?.volumeRatio ?? 1) <= 0.5 ? "text-muted-foreground" : "text-foreground"}
-              sub={(enrichment?.volumeRatio ?? 1) >= 1.5 ? "High" : (enrichment?.volumeRatio ?? 1) <= 0.5 ? "Low" : "Normal"}
+              color={enrichment?.volumeRatio == null ? "text-muted-foreground" : enrichment.volumeRatio >= 1.5 ? "text-primary" : enrichment.volumeRatio <= 0.5 ? "text-muted-foreground" : "text-foreground"}
+              sub={enrichment?.volumeRatio == null ? "No data" : enrichment.volumeRatio >= 1.5 ? "High" : enrichment.volumeRatio <= 0.5 ? "Low" : "Normal"}
             />
           </div>
         </div>
@@ -446,12 +446,45 @@ export default function IndexExpandedPanel({
         <PivotLadder ltp={item.ltp} supports={item.support} pivot={item.pivot} resistances={item.resistance} currency={c} />
       </div>
 
+      {item.analytics && <AnalyticsProvenanceNote analytics={item.analytics} />}
+
       {item.notes && item.notes.length > 0 && (
         <div className="px-4 py-2 border-t border-amber-500/30 bg-amber-500/5 text-[11px] text-amber-500 flex items-start gap-1.5">
           <span className="shrink-0">⚠</span>
           <div className="leading-snug">{item.notes.join(" · ")}</div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Honest provenance footer for the chart-derived analytics (52W / EMAs /
+ *  pivots / VWAP). Makes clear when those numbers come from a delayed
+ *  secondary feed rather than a live trusted source — and never claims a
+ *  trust level the data does not have. */
+function AnalyticsProvenanceNote({ analytics }: { analytics: IndexAnalyticsProvenance }) {
+  const { trustTier, sourceProvider, delayed, missingReason, isStale, warnings } = analytics;
+
+  if (trustTier === "unavailable") {
+    return (
+      <div className="px-4 py-2 border-t border-border/70 bg-muted/30 text-[11px] text-muted-foreground leading-snug">
+        Analytics (52W · EMAs · pivots · VWAP): {missingReason ?? "unavailable"}.
+        {warnings.length > 0 && <> {warnings.join(" · ")}</>}
+      </div>
+    );
+  }
+
+  const providerLabel = sourceProvider === "kite" ? "Zerodha (live)" : sourceProvider === "yahoo" ? "Yahoo (delayed)" : "secondary source";
+  const tierLabel = trustTier === "authoritative" ? "Trusted" : "Reference only — not for signals/trade decisions";
+
+  return (
+    <div className="px-4 py-2 border-t border-border/70 bg-muted/30 text-[11px] text-muted-foreground leading-snug flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span className={`font-semibold px-1.5 py-0.5 rounded border ${trustTier === "authoritative" ? "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" : "text-amber-500 border-amber-500/30 bg-amber-500/10"}`}>
+        {tierLabel}
+      </span>
+      <span>Analytics source: {providerLabel}{delayed && sourceProvider !== "yahoo" ? " · delayed" : ""}.</span>
+      {isStale && <span className="text-amber-500">Stale — last bar is several days old.</span>}
+      {warnings.length > 0 && <span>{warnings.join(" · ")}</span>}
     </div>
   );
 }
