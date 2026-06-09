@@ -8,9 +8,7 @@ import {
   fmtPct,
   fmtNum,
   pnlClass,
-  verdictClass,
-  verdictLabel,
-  confidenceClass,
+  actionViewClass,
   trendChipClass,
 } from "./format";
 
@@ -118,7 +116,7 @@ export function HoldingsTable({
             <Th k="totalReturnPct" label="Return %" right />
             <Th k="weightPct" label="Weight" right />
             <Th k="score" label="Structure" right />
-            <th className="px-2 py-2 text-left text-muted-foreground">Verdict</th>
+            <th className="px-2 py-2 text-left text-muted-foreground">Action View</th>
             <th className="px-2 py-2" />
           </tr>
         </thead>
@@ -218,34 +216,29 @@ export function HoldingsTable({
                   )}
                 </td>
                 <td className="px-2 py-2">
-                  <div className="flex flex-col items-start gap-1">
+                  {isEtf ? (
                     <span
-                      className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${verdictClass(
-                        row.advice.verdict,
-                      )}`}
-                      title={row.advice.headline}
+                      className="inline-block whitespace-nowrap rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-400"
+                      title={`ETF category — tracks ${etfSymbol}'s mandate; equity action view not applicable`}
                     >
-                      {verdictLabel(row.advice.verdict)}
+                      {etfCat}
                     </span>
-                    <div className="flex items-center gap-1">
-                      <span
-                        className={`inline-block whitespace-nowrap rounded border px-1 py-0.5 text-[9px] ${confidenceClass(
-                          row.advice.confidence,
-                        )}`}
-                        title="Confidence reflects data completeness and signal agreement"
-                      >
-                        {row.advice.confidence} conf
-                      </span>
-                      {isEtf && (
-                        <span
-                          className="inline-block whitespace-nowrap rounded border border-sky-500/30 bg-sky-500/10 px-1 py-0.5 text-[9px] text-sky-400"
-                          title={`ETF — tracks ${etfSymbol}'s mandate; fundamentals not applicable`}
-                        >
-                          {etfCat}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  ) : analytics.label ? (
+                    <span
+                      className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${actionViewClass(
+                        analytics.label,
+                      )}`}
+                    >
+                      {analytics.label}
+                    </span>
+                  ) : (
+                    <span
+                      className="text-[10px] text-muted-foreground"
+                      title={provenance ? `${reasonText} (${provenance})` : reasonText}
+                    >
+                      {reasonText}
+                    </span>
+                  )}
                 </td>
                 <td className="px-2 py-2 text-right">
                   <button

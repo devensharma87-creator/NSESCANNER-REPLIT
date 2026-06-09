@@ -147,29 +147,6 @@ async function req(
   return { status: res.status, body };
 }
 
-/**
- * Runs now compute in a detached background task (POST returns 201 RUNNING
- * immediately to dodge the autoscale request-timeout). Poll GET /:id until the
- * row settles to COMPLETE/FAILED before reading the persisted children back.
- */
-async function waitForRun(runId: string, label: string): Promise<Json> {
-  const deadline = Date.now() + 55_000;
-  for (;;) {
-    const detail = await req("GET", `/backtest/fno/runs/${runId}`, { cookie: OWNER_COOKIE });
-    expect(detail.status, `[${label}] run GET`).toBe(200);
-    const status = detail.body["status"] as string;
-    if (status === "COMPLETE") return detail.body;
-    expect(
-      status === "FAILED",
-      `[${label}] run ${runId} failed: ${String(detail.body["error"] ?? "")}`,
-    ).toBe(false);
-    if (Date.now() > deadline) {
-      throw new Error(`[${label}] run ${runId} did not complete within the deadline (status=${status})`);
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-}
-
 /** First supported symbol whose real candle CSV is present for the window. */
 async function firstAvailableSymbol(): Promise<string | null> {
   for (const sym of CANDIDATE_SYMBOLS) {
@@ -207,9 +184,6 @@ async function runAndVerifyInSession(
   let tradesChecked = 0;
   let curveChecked = 0;
   try {
-    // Background compute now persists the trades — wait for it to settle first.
-    await waitForRun(runId, label);
-
     // --- Persisted trades: the serialized backtest_trades shape. -----------
     const list = await req("GET", `/backtest/fno/runs/${runId}/trades`, {
       cookie: OWNER_COOKIE,
@@ -457,9 +431,6 @@ describeDb("Backtest Lab — persisted trade times stay in-session (live DB)", (
       let tradesChecked = 0;
       let curveChecked = 0;
       try {
-        // Background compute now persists the trades — wait for it to settle first.
-        await waitForRun(runId, "REAL_REPLAY");
-
         // --- Persisted trades: the serialized backtest_trades shape. ----------
         const list = await req("GET", `/backtest/fno/runs/${runId}/trades`, {
           cookie: OWNER_COOKIE,

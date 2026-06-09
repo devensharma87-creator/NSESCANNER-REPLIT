@@ -17,7 +17,7 @@
  * such; every modeled field is flagged; honest "unavailable"/loading/empty states;
  * never a fabricated number where the source is missing.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   useListBacktestRuns,
   useCreateBacktestRun,
@@ -51,11 +51,6 @@ import {
   FILTER_ABBR,
   DEFAULT_FILTERS,
   summarizeRunFilters,
-  FILTER_PRESETS,
-  FILTER_PRESET_ORDER,
-  DEFAULT_PRESET_ID,
-  matchPreset,
-  type FilterPresetId,
 } from "@/lib/backtestRunSummary";
 import {
   Area,
@@ -678,62 +673,6 @@ function AdvancedParamsPanel({
   );
 }
 
-// ───────────── filter presets (Practical / Conservative / Aggressive) ─────────────
-
-function PresetSelector({
-  filters,
-  maxTradesPerDay,
-  onApply,
-}: {
-  filters: Required<BacktestFilterConfig>;
-  maxTradesPerDay: number;
-  onApply: (next: Required<BacktestFilterConfig>, maxTradesPerDay: number) => void;
-}) {
-  const active = matchPreset(filters, maxTradesPerDay);
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-          Filter preset
-        </div>
-        {active === null && (
-          <span
-            className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-500"
-            title="The confirmation toggles or max-trades/day were hand-tuned away from every named preset."
-          >
-            Custom
-          </span>
-        )}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {FILTER_PRESET_ORDER.map((id: FilterPresetId) => {
-          const p = FILTER_PRESETS[id];
-          const on = active === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onApply({ ...p.filters }, p.maxTradesPerDay)}
-              title={p.description}
-              className={`rounded-full border px-3 py-1 text-[11px] transition ${
-                on
-                  ? "border-sky-400 bg-sky-500/10 text-foreground"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {p.label}
-              {id === DEFAULT_PRESET_ID ? " (default)" : ""} {on ? "✓" : ""}
-            </button>
-          );
-        })}
-      </div>
-      <p className="text-[10px] leading-snug text-muted-foreground">
-        {active ? FILTER_PRESETS[active].description : "Custom — hand-tuned filters below."}
-      </p>
-    </div>
-  );
-}
-
 // ───────────── confirmation-filter toggles ─────────────
 
 function FilterToggles({
@@ -1221,15 +1160,8 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
   if (trades.length === 0) {
     return <div className="py-8 text-center text-xs text-muted-foreground">No trades in this run.</div>;
   }
-  // A non-modeled (REAL_REPLAY) trade with pnl == null has NO usable captured
-  // option exit — its exitAt is only the engine's stale/EOD mark, not a real
-  // exit. Modeled (Directional/Strategy proxy) trades always carry a genuine
-  // modeled exit (pnl non-null), so they are never treated as exit-less here.
-  const hasNoCapturedExit = (t: BacktestTrade) => !t.modeled && t.pnl == null;
-  // Skip exit-time validity for exit-less rows (only their entry is real), so the
-  // session audit never flags a non-existent exit as off-session.
   const offSession = trades.filter(
-    (t) => !isSessionValidIso(t.entryAt) || (!hasNoCapturedExit(t) && !isSessionValidIso(t.exitAt)),
+    (t) => !isSessionValidIso(t.entryAt) || !isSessionValidIso(t.exitAt),
   );
   const allValid = offSession.length === 0;
   return (
@@ -1314,20 +1246,10 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
                   <span title="Entry falls outside NSE regular hours (09:15–15:30 IST)"> ⚠</span>
                 )}
               </td>
-              <td
-                className={`px-2 py-1.5 whitespace-nowrap ${
-                  hasNoCapturedExit(t) ? "text-muted-foreground" : isSessionValidIso(t.exitAt) ? "" : "text-rose-400"
-                }`}
-              >
-                {hasNoCapturedExit(t) ? (
-                  <span title="No captured option exit — excluded from P&L (not fabricated)">—</span>
-                ) : (
-                  <>
-                    {shortDateTime(t.exitAt)}
-                    {!isSessionValidIso(t.exitAt) && (
-                      <span title="Exit falls outside NSE regular hours (09:15–15:30 IST)"> ⚠</span>
-                    )}
-                  </>
+              <td className={`px-2 py-1.5 whitespace-nowrap ${isSessionValidIso(t.exitAt) ? "" : "text-rose-400"}`}>
+                {shortDateTime(t.exitAt)}
+                {!isSessionValidIso(t.exitAt) && (
+                  <span title="Exit falls outside NSE regular hours (09:15–15:30 IST)"> ⚠</span>
                 )}
               </td>
               <td className="px-2 py-1.5 text-right tabular-nums" title={t.optionEntry == null ? "No real premium captured" : undefined}>
@@ -1498,12 +1420,8 @@ export default function BacktestLab() {
   const [riskPct, setRiskPct] = useState(1);
   const [selectedStrategies, setSelectedStrategies] = useState<Set<string>>(new Set());
   const [strategyParams, setStrategyParams] = useState<Record<string, Record<string, number>>>({});
-  const [filters, setFilters] = useState<Required<BacktestFilterConfig>>(
-    () => ({ ...FILTER_PRESETS[DEFAULT_PRESET_ID].filters }),
-  );
-  const [maxTradesPerDay, setMaxTradesPerDay] = useState(
-    FILTER_PRESETS[DEFAULT_PRESET_ID].maxTradesPerDay,
-  );
+  const [filters, setFilters] = useState<Required<BacktestFilterConfig>>(DEFAULT_FILTERS);
+  const [maxTradesPerDay, setMaxTradesPerDay] = useState(3);
   const [includeCharges, setIncludeCharges] = useState(true);
   const [includeSlippage, setIncludeSlippage] = useState(true);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -1523,12 +1441,6 @@ export default function BacktestLab() {
     query: {
       enabled: Boolean(activeRunId),
       queryKey: getGetBacktestRunQueryKey(activeRunId ?? ""),
-      // The run now computes in the background server-side, so poll until it
-      // settles to COMPLETE/FAILED (avoids the autoscale request-timeout 502).
-      refetchInterval: (query) => {
-        const s = query.state.data?.status;
-        return s === "PENDING" || s === "RUNNING" ? 2500 : false;
-      },
     },
   });
   const tradesQ = useGetBacktestRunTrades(activeRunId ?? "", {
@@ -1552,21 +1464,6 @@ export default function BacktestLab() {
   const blocked = blockedQ.data?.items ?? [];
   const strategies = strategiesQ.data?.items ?? [];
 
-  const runStatus = run?.status;
-  const isRunInFlight = runStatus === "PENDING" || runStatus === "RUNNING";
-
-  // Trades/blocked are fetched as soon as a run id exists, while the run is
-  // still RUNNING (so they come back empty). Once the background compute flips
-  // the run to COMPLETE, pull the now-populated children (and refresh the list).
-  useEffect(() => {
-    if (runStatus === "COMPLETE") {
-      void tradesQ.refetch();
-      void blockedQ.refetch();
-      void runsQ.refetch();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runStatus, activeRunId]);
-
   // strategyId → "why these filters are ignored" rationale, sourced from the live
   // strategy catalog (never fabricated). Strategies that ignore nothing map to "".
   const rationaleByStrategy = useMemo(
@@ -1578,12 +1475,6 @@ export default function BacktestLab() {
   const runIsStrategy =
     run?.backtestMode === "STRATEGY_RESEARCH" ||
     run?.backtestMode === "COMPARE_OFFICIAL_VS_STRATEGIES";
-
-  // REAL_REPLAY is the only mode priced off real captured premiums. Every other
-  // mode (Directional / Strategy / Compare) derives P&L from a labeled ATM delta
-  // proxy on spot — no real premiums, theta, IV or spread — so its P&L is
-  // indicative only and must never be read as tradeable.
-  const runIsProxyPnl = run?.status === "COMPLETE" && run?.mode !== "REAL_REPLAY";
 
   // Empty-state reasoning: roll the blocked table up to the single dominant rule
   // so a zero/near-zero strategy run can tell the owner exactly what to relax.
@@ -1609,7 +1500,7 @@ export default function BacktestLab() {
   }
 
   const canRun =
-    !createMut.isPending && !isRunInFlight && (!isStrategyMode || selectedStrategies.size > 0);
+    !createMut.isPending && (!isStrategyMode || selectedStrategies.size > 0);
 
   function triggerRun(overrides?: {
     backtestMode?: BacktestRunRequestBacktestMode;
@@ -1811,14 +1702,6 @@ export default function BacktestLab() {
                 loading={strategiesQ.isLoading}
                 error={strategiesQ.isError}
               />
-              <PresetSelector
-                filters={filters}
-                maxTradesPerDay={maxTradesPerDay}
-                onApply={(nextFilters, nextMax) => {
-                  setFilters(nextFilters);
-                  setMaxTradesPerDay(nextMax);
-                }}
-              />
               <FilterToggles filters={filters} onChange={setFilters} />
               <AdvancedParamsPanel
                 strategies={strategies}
@@ -1907,8 +1790,8 @@ export default function BacktestLab() {
             </label>
 
             <Button onClick={runBacktest} disabled={!canRun} className="gap-1.5">
-              {createMut.isPending || isRunInFlight ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              {createMut.isPending ? "Starting…" : isRunInFlight ? "Running…" : "Run backtest"}
+              {createMut.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              {createMut.isPending ? "Running…" : "Run backtest"}
             </Button>
           </div>
 
@@ -2006,19 +1889,6 @@ export default function BacktestLab() {
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">Loading run…</CardContent>
         </Card>
-      ) : isRunInFlight ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-12 text-center text-sm text-muted-foreground">
-            <RefreshCw className="h-5 w-5 animate-spin text-sky-400" />
-            <div>
-              Running backtest…
-              <div className="mt-1 text-xs">
-                This runs in the background and can take up to a few minutes for wide
-                comparisons over long windows. Results appear here automatically.
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       ) : run?.status === "FAILED" ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-rose-300">
@@ -2053,19 +1923,7 @@ export default function BacktestLab() {
 
           {/* summary stats */}
           {summary && (
-            <div className="space-y-2">
-              {runIsProxyPnl && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    <strong>Directional proxy — indicative, not tradeable P&amp;L.</strong> These
-                    figures price options off a labeled ATM delta proxy on spot (no real premiums,
-                    theta, IV or spread). Use <strong>Real Replay</strong> for actual captured-exit
-                    P&amp;L.
-                  </span>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
               <Stat label="Decided trades" value={String(summary.totalTrades)} hint="Trades with a captured / modeled outcome" />
               <Stat label="Win rate" value={pct(summary.winRate)} />
               <Stat label="Net P&L" value={money(summary.totalPnl)} tone={toneFor(summary.totalPnl)} />
@@ -2073,7 +1931,6 @@ export default function BacktestLab() {
               <Stat label="Expectancy" value={money(summary.expectancy)} tone={toneFor(summary.expectancy)} />
               <Stat label="Max DD" value={money(summary.maxDrawdown)} tone="neg" />
               <Stat label="Return" value={pct(summary.returnPct)} tone={toneFor(summary.returnPct)} />
-              </div>
             </div>
           )}
 

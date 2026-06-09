@@ -1,6 +1,5 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { seedStarterStrategies, seedSmcStarterStrategies } from "./lib/strategies/starters";
 
 const rawPort = process.env["PORT"];
 
@@ -23,23 +22,4 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
-
-  // One-time, idempotent seed of the engine-DISABLED starter strategies.
-  // Fire-and-forget: never block or crash startup on a seed failure.
-  seedStarterStrategies()
-    .then((r) => {
-      if (r.seeded && r.ids.length > 0) {
-        logger.info({ ids: r.ids }, "Seeded starter strategies (engine-disabled)");
-      }
-    })
-    .catch((err) => logger.warn({ err }, "Starter-strategy seed failed (non-fatal)"));
-
-  // One-time, idempotent seed of the engine-DISABLED SMC starters (own sentinel).
-  seedSmcStarterStrategies()
-    .then((r) => {
-      if (r.seeded && r.ids.length > 0) {
-        logger.info({ ids: r.ids }, "Seeded SMC starter strategies (engine-disabled)");
-      }
-    })
-    .catch((err) => logger.warn({ err }, "SMC starter-strategy seed failed (non-fatal)"));
 });

@@ -104,7 +104,7 @@ let instrumentsInflight: Promise<InstrumentCache | null> | null = null;
  * GOLDBEES, JUNIORBEES, etc.) are kept — they have proper trading
  * volume and belong in the scanner.
  */
-export function isLikelyTradeableEquity(sym: string, name?: string): boolean {
+function isLikelyTradeableEquity(sym: string, name?: string): boolean {
   // Mutual-fund / NAV tracker tradingsymbol patterns
   if (/INAV$/.test(sym)) return false;          // direct/regular NAV trackers
   if (/IETF$/.test(sym)) return false;          // international ETF NAV trackers

@@ -54,24 +54,6 @@ describe("searchInstruments", () => {
     const r = searchInstruments("NIFTY");
     expect(r[0]).not.toHaveProperty("yahoo");
   });
-
-  it("includes extra equities from the NSE master, deduped by symbol", () => {
-    const extra = [
-      { symbol: "AVANTI", name: "AVANTI FEEDS", segment: "equity" as const, exchange: "NSE", type: "Equity", yahoo: "AVANTI.NS" },
-    ];
-    const r = searchInstruments("AVANTI", "equity", extra);
-    expect(r.some(i => i.symbol === "AVANTI")).toBe(true);
-    expect(r.every(i => i.segment === "equity")).toBe(true);
-  });
-
-  it("does not duplicate a curated symbol passed again via extraEquities", () => {
-    const curated = equityInstruments()[0]!;
-    const extra = [
-      { symbol: curated.symbol, name: curated.name, segment: "equity" as const, exchange: "NSE", type: "Equity", yahoo: `${curated.symbol}.NS` },
-    ];
-    const r = searchInstruments(curated.symbol, "equity", extra);
-    expect(r.filter(i => i.symbol === curated.symbol).length).toBe(1);
-  });
 });
 
 describe("resolveInstrument", () => {
@@ -83,17 +65,10 @@ describe("resolveInstrument", () => {
     const m = resolveInstrument("^GSPC", "global");
     expect(m?.segment).toBe("global");
   });
-  it("falls back to a generic NSE equity for an uncurated symbol (full-universe CMP)", () => {
-    const m = resolveInstrument("NOTAREALSYM", "equity");
-    expect(m).not.toBeNull();
-    expect(m?.segment).toBe("equity");
-    expect(m?.exchange).toBe("NSE");
-    expect(m?.yahoo).toBe("NOTAREALSYM.NS");
+  it("returns null when the symbol does not exist", () => {
+    expect(resolveInstrument("NOTAREALSYM", "equity")).toBeNull();
   });
-  it("does not generic-fallback when no segment hint is given", () => {
-    expect(resolveInstrument("NOTAREALSYM")).toBeNull();
-  });
-  it("does not cross segments (index symbol with equity hint stays null)", () => {
+  it("does not cross segments (index symbol with equity hint)", () => {
     expect(resolveInstrument("NIFTY", "equity")).toBeNull();
   });
 });

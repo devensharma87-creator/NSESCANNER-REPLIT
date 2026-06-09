@@ -100,28 +100,6 @@ export function resolveInstrument(symbol: string, segment?: ChartSegment): Chart
   if (!segment || segment === "equity") {
     const eq = equityInstruments().find(i => i.symbol.toUpperCase() === sym);
     if (eq) return eq;
-    // Generic fallback: when the equity segment is explicitly requested, any NSE
-    // symbol that isn't in the curated scanner catalog (and isn't actually a
-    // known index/global) still resolves to a Yahoo `.NS` ticker so the candle
-    // datafeed can fetch a real daily series. This is what lets the Portfolio
-    // Analyser surface a live CMP for the full ~5,000-name NSE universe instead
-    // of "NA" for anything outside the ~280 curated names. Yahoo returns nothing
-    // for a genuinely invalid symbol, so bogus tickers stay honestly empty.
-    if (segment === "equity") {
-      const isKnownNonEquity =
-        CURATED_INDICES.some(i => i.symbol.toUpperCase() === sym) ||
-        CURATED_GLOBAL.some(i => i.symbol.toUpperCase() === sym);
-      if (!isKnownNonEquity) {
-        return {
-          symbol: sym,
-          name: sym,
-          segment: "equity",
-          exchange: "NSE",
-          type: "Equity",
-          yahoo: equityYahooTicker(sym),
-        };
-      }
-    }
   }
   return null;
 }
@@ -145,34 +123,12 @@ const SEARCH_LIMIT = 40;
  * Search across all segments. Empty query returns a sensible default
  * (all indices + globals, no equities) so the picker is never blank.
  */
-export function searchInstruments(
-  query: string,
-  segment?: ChartSegment,
-  extraEquities?: ChartInstrumentMeta[],
-): ChartInstrumentDto[] {
+export function searchInstruments(query: string, segment?: ChartSegment): ChartInstrumentDto[] {
   const q = query.trim().toUpperCase();
   const pools: ChartInstrumentMeta[] = [];
   if (!segment || segment === "index") pools.push(...CURATED_INDICES);
   if (!segment || segment === "global") pools.push(...CURATED_GLOBAL);
-  if ((!segment || segment === "equity") && q.length > 0) {
-    // Curated scanner equities first (richer names), then any additional symbols
-    // from the full NSE master (passed in by the route) that aren't already
-    // covered — deduped by symbol. This widens the picker from the ~280 curated
-    // names to the full ~5,000-name NSE universe.
-    const seen = new Set<string>();
-    for (const m of equityInstruments()) {
-      pools.push(m);
-      seen.add(m.symbol.toUpperCase());
-    }
-    if (extraEquities) {
-      for (const m of extraEquities) {
-        const key = m.symbol.toUpperCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        pools.push(m);
-      }
-    }
-  }
+  if ((!segment || segment === "equity") && q.length > 0) pools.push(...equityInstruments());
 
   if (q.length === 0) {
     return pools.slice(0, SEARCH_LIMIT).map(toDto);

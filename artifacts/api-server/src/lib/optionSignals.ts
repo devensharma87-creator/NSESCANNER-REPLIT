@@ -29,10 +29,6 @@ import {
   type GateContext,
 } from "./optionSignalGates";
 import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
-import { ENGINE_BUILTIN_IDS } from "./strategies/catalog";
-import { type CustomStrategySpec } from "./strategies/customSpec";
-import { projectFeatureSeries, type FeatureSeries } from "./strategies/customFeatures";
-import { evaluateSpecAt } from "./strategies/customEval";
 
 export interface IndexCfg {
   symbol: string;
@@ -118,7 +114,7 @@ function expiryFor(cfg: IndexCfg): string {
 }
 const MIN_REAL_SESSION_BARS = 15;
 
-function lastSessionBars(chart: YahooChart, now: Date = new Date()): YahooChart {
+function lastSessionBars(chart: YahooChart): YahooChart {
   if (chart.timestamps.length === 0) return chart;
 
   const dayMap = new Map<string, number[]>();
@@ -135,7 +131,7 @@ function lastSessionBars(chart: YahooChart, now: Date = new Date()): YahooChart 
   const latestDay = days[0]!;
   const latestBars = dayMap.get(latestDay)!;
 
-  const mktStatus = computeMarketStatus(now);
+  const mktStatus = computeMarketStatus(new Date());
   const isLiveSession = mktStatus === "open" || mktStatus === "pre_open";
 
   let selectedIdxs = latestBars;
@@ -161,7 +157,7 @@ function lastSessionBars(chart: YahooChart, now: Date = new Date()): YahooChart 
 
 // ---------- shared market context ----------
 
-export interface Ctx {
+interface Ctx {
   cfg: IndexCfg;
   spot: number;
   open0: number;
@@ -209,14 +205,6 @@ export interface Ctx {
   /** Phase-1 regime classification (TRENDING_BULL/BEAR | RANGING | VOLATILE | EXPIRY_DAY).
    *  Read-only label attached to every emitted signal — does NOT gate any setup yet. */
   regime: RegimeResult;
-  /** Cross-surface causal feature series over the FULL intra window (warm EMAs,
-   *  day-reset VWAP, IST-minute), consumed by owner-defined custom strategies via
-   *  the SAME `evaluateSpecAt` evaluator the Backtest Lab uses. Evaluated at the
-   *  last index (`customEvalIndex`). Never fabricated — null/NaN features simply
-   *  fail the relevant block. */
-  customFeatureSeries: FeatureSeries;
-  /** Index into `customFeatureSeries` for the latest (in-progress) bar. */
-  customEvalIndex: number;
 }
 
 const MIN_BARS_FOR_CONTEXT = 2;
@@ -232,8 +220,8 @@ function sma(values: number[]): number {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart, now: Date = new Date()): Ctx | null {
-  const today = lastSessionBars(intra, now);
+function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx | null {
+  const today = lastSessionBars(intra);
   if (today.close.length < MIN_BARS_FOR_CONTEXT) {
     logger.warn({ idx: cfg.symbol, sessionBars: today.close.length }, "F&O buildContext: insufficient bars (<2)");
     return null;
@@ -439,48 +427,6 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart, now: 
   }
   const volRegime = classifyVolRegime(realizedVol14);
 
-  // Cross-surface custom-strategy FeatureSeries over the FULL intra window.
-  // VWAP is day-reset cumulative typical-price×volume (falls back to per-bar
-  // typical price when index volume is zero — same semantics as sessionVwap);
-  // istMinute comes from the real bar timestamps so the execution session-window
-  // gate is honest. ATR(14) is the full-window true-range ATR. EMA/RSI are
-  // recomputed inside projectFeatureSeries from closes — identical to backtest.
-  // When timestamps are missing we leave istMinute NaN ⇒ the evaluator fails the
-  // session gate (NO_SESSION_DATA) rather than fabricating a bar time.
-  const istMinuteFull: number[] = new Array(intraCloses.length).fill(Number.NaN);
-  const vwapFull: (number | null)[] = new Array(intraCloses.length).fill(null);
-  if (intra.timestamps && intra.timestamps.length === intraCloses.length) {
-    let curDay = "";
-    let pvAcc = 0;
-    let volAcc = 0;
-    for (let i = 0; i < intraCloses.length; i++) {
-      const ts = intra.timestamps[i]!;
-      const d = new Date(ts * 1000 + 5.5 * 3600 * 1000);
-      const day = d.toISOString().slice(0, 10);
-      istMinuteFull[i] = d.getUTCHours() * 60 + d.getUTCMinutes();
-      if (day !== curDay) {
-        curDay = day;
-        pvAcc = 0;
-        volAcc = 0;
-      }
-      const typ = (intraHighs[i]! + intraLows[i]! + intraCloses[i]!) / 3;
-      const vol = intra.volume[i] ?? 0;
-      pvAcc += typ * vol;
-      volAcc += vol;
-      vwapFull[i] = volAcc > 0 ? pvAcc / volAcc : typ;
-    }
-  }
-  const customFeatureSeries = projectFeatureSeries({
-    open: intra.open,
-    high: intraHighs,
-    low: intraLows,
-    close: intraCloses,
-    vwap: vwapFull,
-    atr14: atr(intraHighs, intraLows, intraCloses, 14),
-    istMinute: istMinuteFull,
-  });
-  const customEvalIndex = intraCloses.length - 1;
-
   // Phase-1 regime classifier. Pure label — does not gate any setup
   // emission. Surfaced on the API so the UI can show a chip and the
   // owner can spot "all my recent losses came from RANGING days".
@@ -493,7 +439,6 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart, now: 
     atr15: effectiveAtr15,
     expiryWeekday: cfg.expiryWeekday,
     expiryCadence: cfg.expiryCadence,
-    now,
   });
 
   return {
@@ -517,8 +462,6 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart, now: 
     realizedVol14,
     volRegime,
     regime,
-    customFeatureSeries,
-    customEvalIndex,
   };
 }
 
@@ -554,27 +497,6 @@ const STOP_ATR_MULT = 0.6;
 const T1_ATR_MULT = 1.6;
 const T2_FROM_T1_MULT = 1.7;
 const MIN_RR_FOR_HC = 1.4;
-
-// Task #104 (geometry repair) ───────────────────────────────────────────────
-// (1) STALE-TRIGGER RE-ANCHOR. applyTriggerRealism used to be one-sided: it only
-//     pulled a too-far-AHEAD structural trigger inward, and no-op'd when the
-//     trigger was already AT/BEHIND spot. The honest replay harness showed that
-//     the already-past case dominates (most emitted plans had spot already through
-//     the documented entry), so the "entry" was cosmetic and a fill there books a
-//     move that was never realizable. We now also push an already-behind / too-close
-//     trigger FORWARD to a small, genuinely reachable continuation level — the trade
-//     only fills if price continues in-direction by this gap. Levels below.
-const REANCHOR_FWD_PCT_OF_SPOT = 0.0006; // ≈14pts on NIFTY@24k
-const REANCHOR_FWD_ATR_MULT = 0.2;
-// (2) INTRADAY TARGET REACHABILITY. The flat MAX_T1 cap (max(1% spot,1.6×ATR))
-//     is ~240pts on NIFTY — unreachable in the bars left before the 15:20
-//     force-exit, so T1-hit was 0% on clean fills. We additionally cap T1 to a
-//     volatility-and-time-aware reachable distance ≈ k·ATR15·√(barsLeft). When
-//     that makes RR fall below the floor the existing RR gate rejects the plan
-//     (honest: an unreachable target is not shipped as if it will hit).
-const REACH_T1_ATR_MULT = 0.6;
-const FORCE_EXIT_IST_MIN = 15 * 60 + 20; // 15:20 IST intraday force-exit
-const BAR_MINUTES = 15;
 
 // PHASE-2 SL FLOOR. Empirically the loss sample showed many stops hit by
 // a single 15-min wick on otherwise-correct directional reads. The shrink
@@ -621,7 +543,7 @@ function nowIstMinutes(d: Date = new Date()): number {
 
 // ---------- setup detectors ----------
 type Direction = "BULLISH" | "BEARISH";
-export interface Detected {
+interface Detected {
   setupKey: OptionSignal["setupKey"];
   setupName: string;
   setupSummary: string;
@@ -634,14 +556,6 @@ export interface Detected {
   targetLevel: number;
   target2Level: number;
   invalidation: string;
-  // Task #104 (geometry repair): entry-trigger provenance, set in
-  // applyTriggerRealism. FRESH_TRIGGER = the structural entry was already a
-  // genuine forward-reachable level (a small gap ahead of spot). REANCHORED_TRIGGER
-  // = the structural trigger was unreachable — either too far ahead (pulled in) or
-  // ALREADY BEHIND/at spot (the "stale trigger" case; pushed forward to a reachable
-  // continuation level so a missed move can't masquerade as an instant fill).
-  // Surfaced as a tag in toSignal for transparency.
-  entryAnchor?: "FRESH_TRIGGER" | "REANCHORED_TRIGGER";
   // Pass-2A: true when the ATR-driven MIN stop floor exceeded the
   // structural MAX stop cap (volatile day). Set inside
   // clampPlanForIntraday. Used downstream to (a) force tier to BASELINE
@@ -671,61 +585,6 @@ export interface Detected {
 // avoidable damage on a chaotic day. Below the multiple we accept the
 // trade at BASELINE tier (smaller exposure, full audit tag).
 const VOL_CLAMP_REJECT_RATIO = 1.5;
-
-/** Build a Detected for an owner-defined custom strategy using the SAME shared
- *  evaluator (`evaluateSpecAt`) the Backtest Lab uses, over the cross-surface
- *  `customFeatureSeries` evaluated at the latest bar — so a custom strategy
- *  behaves identically on both surfaces (parity test). Returns null when the
- *  rules/geometry are unmet. Downstream it passes through every existing
- *  safety/demote gate unchanged. */
-function makeCustomEngineDetected(spec: CustomStrategySpec, c: Ctx): Detected | null {
-  const r = evaluateSpecAt(c.customFeatureSeries, c.customEvalIndex, spec);
-  if (
-    !r.fired ||
-    r.side == null ||
-    r.entry == null ||
-    r.stop == null ||
-    r.target1 == null ||
-    r.target2 == null
-  ) {
-    return null;
-  }
-  const dir: Direction = r.side === "BULL" ? "BULLISH" : "BEARISH";
-  const conf = r.confidence ?? spec.baseConfidence;
-  const w = r.passedLabels.length > 0 ? Math.round(conf / r.passedLabels.length) : conf;
-  const drivers: SignalReason[] = r.passedLabels.map((p) => ({
-    label: p,
-    detail: `${spec.name}: condition met`,
-    weight: w,
-    bullish: dir === "BULLISH",
-  }));
-  const optTxt = dir === "BULLISH" ? "CE" : "PE";
-  const stopCfg = spec.execution.stop;
-  const stopDesc =
-    stopCfg.type === "atr"
-      ? `${stopCfg.atrMult}×ATR`
-      : stopCfg.type === "swing"
-        ? `swing(${stopCfg.swingSpan}) ± ${stopCfg.bufferAtrMult}×ATR`
-        : `SMC ${stopCfg.source} ± ${stopCfg.bufferAtrMult}×ATR`;
-  return {
-    // Custom ids are opaque strings; the DB column + API field are text. The
-    // generated setupKey union is closed to builtins, so cast at this boundary.
-    setupKey: spec.id as OptionSignal["setupKey"],
-    setupName: `${spec.name} — ${dir === "BULLISH" ? "Long" : "Short"}`,
-    setupSummary:
-      (spec.description ? spec.description + " " : "") +
-      `Buy ${optTxt} when owner-defined conditions align (${r.passedLabels.join(", ")}).`,
-    direction: dir,
-    confidence: conf,
-    drivers,
-    entryTrigger: `Custom conditions met at spot ${r.entry.toFixed(2)}`,
-    entryLevel: r.entry,
-    stopLevel: r.stop,
-    targetLevel: r.target1,
-    target2Level: r.target2,
-    invalidation: `Stop at ${r.stop.toFixed(2)} (${stopDesc})`,
-  };
-}
 
 /** 1. Trend Continuation — strong VWAP+EMA alignment, fresh momentum, RSI in trend zone */
 function detectTrendContinuation(c: Ctx): Detected | null {
@@ -1171,60 +1030,32 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
  * We never push the trigger AWAY from spot (that would reduce edge) and
  * we never invert the side (a BULLISH trigger always sits >= spot).
  */
-// A/B kill-switch for the Task #104 intraday geometry repair (re-anchor stale
-// triggers forward + cap T1 to a reachable intraday excursion). Default OFF →
-// repair active. Set FNO_DISABLE_GEOMETRY_REPAIR=1 to restore the pre-#104
-// geometry (one-sided pull-in only, flat T1 cap) for honest before/after
-// measurement in the offline replay harness. Has no effect on safety gates.
-const GEOMETRY_REPAIR_DISABLED = process.env.FNO_DISABLE_GEOMETRY_REPAIR === "1";
-
-export function applyTriggerRealism(d: Detected, c: Ctx): Detected {
+function applyTriggerRealism(d: Detected, c: Ctx): Detected {
   if (d.setupKey === "MEAN_REVERSION") return d; // by-design counter-trend
   const dir = d.direction;
-  const bull = dir === "BULLISH";
-  // A reachable forward trigger sits in the band [minFwd, maxGap] AHEAD of spot:
-  //   • maxGap — a too-far structural trigger (e.g. prevSwingHigh 2% away) is
-  //     pulled INWARD so the move can reach it before 15:30.
-  //   • minFwd — a trigger that is already BEHIND/at spot, or unrealistically
-  //     close, is pushed FORWARD to a small reachable continuation level. This is
-  //     the stale-trigger fix: the documented entry must require a genuine
-  //     in-direction move from here, never book a move that already happened.
-  // RR/width are preserved by translating stop + both targets by the same shift;
-  // clampPlanForIntraday then trims widths to the intraday envelope. We never
-  // invert the side (a BULLISH trigger always sits >= spot).
+  const gap = dir === "BULLISH" ? d.entryLevel - c.spot : c.spot - d.entryLevel;
+  if (!(gap > 0)) return d; // trigger already at-or-through spot
   const maxGap = Math.max(0.005 * c.spot, 1.2 * c.atr15);
-  // When the repair is disabled, minFwd = -Infinity so the forward-push branch
-  // never fires → pre-#104 behaviour (pull-in too-far triggers only, leave
-  // already-past/too-close triggers untouched).
-  const minFwd = GEOMETRY_REPAIR_DISABLED
-    ? Number.NEGATIVE_INFINITY
-    : Math.max(REANCHOR_FWD_PCT_OF_SPOT * c.spot, REANCHOR_FWD_ATR_MULT * c.atr15);
-  const gap = bull ? d.entryLevel - c.spot : c.spot - d.entryLevel;
-
-  let newEntry: number | null = null;
-  if (gap > maxGap) {
-    newEntry = bull ? c.spot + maxGap : c.spot - maxGap; // too far ahead → pull in
-  } else if (gap < minFwd) {
-    newEntry = bull ? c.spot + minFwd : c.spot - minFwd; // behind/at/too-close → push forward
-  }
-  if (newEntry == null) return { ...d, entryAnchor: "FRESH_TRIGGER" }; // already reachable
-
-  const shift = newEntry - d.entryLevel;
-  const past = gap < minFwd;
+  if (gap <= maxGap) return d;
+  // How far we need to pull the trigger toward spot.
+  const shift = gap - maxGap;
+  const newEntry = dir === "BULLISH" ? d.entryLevel - shift : d.entryLevel + shift;
+  // Translate stop and targets by the same shift (in the same direction)
+  // so risk and reward distances are preserved.
+  const sgn = dir === "BULLISH" ? -1 : +1;
   return {
     ...d,
     entryLevel: newEntry,
-    stopLevel: d.stopLevel + shift,
-    targetLevel: d.targetLevel + shift,
-    target2Level: d.target2Level + shift,
-    entryAnchor: "REANCHORED_TRIGGER",
-    entryTrigger: bull
-      ? `15-min close > ${newEntry.toFixed(2)} (${past ? "re-anchored forward from stale" : "reachable trigger pulled in from"} ${d.entryLevel.toFixed(2)})`
-      : `15-min close < ${newEntry.toFixed(2)} (${past ? "re-anchored forward from stale" : "reachable trigger pulled in from"} ${d.entryLevel.toFixed(2)})`,
+    stopLevel: d.stopLevel + sgn * shift,
+    targetLevel: d.targetLevel + sgn * shift,
+    target2Level: d.target2Level + sgn * shift,
+    entryTrigger: dir === "BULLISH"
+      ? `15-min close > ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`
+      : `15-min close < ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`,
   };
 }
 
-export function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR_FOR_HC, istMin?: number): Detected | null {
+function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR_FOR_HC): Detected | null {
   if (d.setupKey === "MEAN_REVERSION") return d;
 
   const dir = d.direction;
@@ -1280,18 +1111,7 @@ export function clampPlanForIntraday(d: Detected, c: Ctx, minRr: number = MIN_RR
 
   // T1: clamp distance to min(structural T1, max(1.0% spot, 1.6 × ATR15)).
   // Same one-sided semantics — we never push the target further out.
-  let maxT1Dist = Math.max(MAX_T1_PCT_OF_SPOT * c.spot, T1_ATR_MULT * c.atr15);
-  // Task #104 intraday REACHABILITY cap: a T1 that cannot plausibly be reached
-  // in the bars left before the 15:20 force-exit is not a real target. Cap T1 to
-  // ≈ k·ATR15·√(barsLeft) (random-walk excursion scaling). When this tightens T1
-  // enough that RR falls below `minRr`, the RR gate below rejects the plan — we
-  // never ship an unreachable target as if it will hit. Only applied when the
-  // session minute is known (live + replay); omitted defaults to the flat cap.
-  if (istMin != null && !GEOMETRY_REPAIR_DISABLED) {
-    const barsLeft = Math.max(1, Math.floor((FORCE_EXIT_IST_MIN - istMin) / BAR_MINUTES));
-    const reachableT1Dist = REACH_T1_ATR_MULT * c.atr15 * Math.sqrt(barsLeft);
-    if (reachableT1Dist > 0) maxT1Dist = Math.min(maxT1Dist, reachableT1Dist);
-  }
+  const maxT1Dist = Math.max(MAX_T1_PCT_OF_SPOT * c.spot, T1_ATR_MULT * c.atr15);
   const structT1Dist = Math.abs(d.targetLevel - entry);
   const newT1Dist = Math.min(structT1Dist, maxT1Dist);
   const targetLevel = dir === "BULLISH" ? entry + newT1Dist : entry - newT1Dist;
@@ -1348,11 +1168,6 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
   if ((rr ?? 0) < 1) tags.push("RR_LOW");
   // Mean-reversion setups are by construction "fade extremes"; tag for clarity.
   if (d.setupKey === "MEAN_REVERSION") tags.push("COUNTER_TREND");
-  // Task #104 (geometry repair): entry-trigger provenance. REANCHORED_TRIGGER
-  // tells the trader the documented entry was moved to a reachable forward level
-  // (stale/too-far structural trigger); FRESH_TRIGGER = structural entry was
-  // already a genuine forward-reachable level. Transparency only — no gating.
-  if (d.entryAnchor) tags.push(d.entryAnchor);
   // Pass-2A audit tag — surfaces the demote-to-BASELINE reason on the
   // card and in analytics. Trader can see exactly why a setup that
   // would otherwise have been HC is sized down today.
@@ -1432,14 +1247,13 @@ export interface IndexBuildResult {
   snapshot?: SpotSnapshot;
 }
 
-export function buildSignalsForIndex(
+function buildSignalsForIndex(
   cfg: IndexCfg,
   intra: YahooChart,
   daily: YahooChart,
   gateCtx?: GateContext,
-  now: Date = new Date(),
 ): IndexBuildResult {
-  const ctx = buildContext(cfg, intra, daily, now);
+  const ctx = buildContext(cfg, intra, daily);
   if (!ctx) return { signals: [], suppressed: ["NO_BARS_OR_INSUFFICIENT_DATA"], hasBars: false };
 
   // IST market-hours gate for high-conviction detectors. Outside the
@@ -1449,7 +1263,7 @@ export function buildSignalsForIndex(
   // run. We still evaluate the always-on Baseline Outlook below so the
   // user sees a directional read, but it is clearly labelled "BASELINE"
   // and never shipped to the lifecycle as a fresh entry plan.
-  const marketStatus = computeMarketStatus(now);
+  const marketStatus = computeMarketStatus(new Date());
   const isMarketOpen = marketStatus === "open";
 
   // Trend-class detectors target a pivot R1/R2-class move and need the full
@@ -1461,7 +1275,7 @@ export function buildSignalsForIndex(
   // trend class — it specifically targets the *next* pivot R1/R2 move
   // after the reclaim, which empirically takes 2+ hours. Every reclaim
   // in the loss sample fired after 13:30 and timed out.
-  const istMin = nowIstMinutes(now);
+  const istMin = nowIstMinutes(new Date());
   const trendEntryAllowed = istMin < LATE_ENTRY_CUTOFF_IST_MIN;
   const vwapReclaimAllowed = istMin < VWAP_RECLAIM_LATE_CUTOFF_IST_MIN;
   // Phase-2 opening-noise gate: trend-class detectors are blocked in the
@@ -1476,19 +1290,6 @@ export function buildSignalsForIndex(
     { name: "ema_pullback",       fn: detectEmaPullback,       trendClass: true  },
     { name: "mean_reversion",     fn: detectMeanReversion,     trendClass: false },
   ];
-  // Owner-opted-in custom strategies run as ADDITIONAL detectors through the
-  // exact same loop, so every safety/demote gate below applies to them
-  // unchanged. trendClass:false exempts them from builtin-specific trend time
-  // gates; they define their own conditions. Empty list = legacy behaviour.
-  if (gateCtx?.enabledCustomSpecs?.length) {
-    for (const spec of gateCtx.enabledCustomSpecs) {
-      detectors.push({
-        name: spec.id,
-        fn: (c: Ctx) => makeCustomEngineDetected(spec, c),
-        trendClass: false,
-      });
-    }
-  }
   const highConviction: Detected[] = [];
   const suppressed: string[] = [];
   if (!isMarketOpen) {
@@ -1522,18 +1323,6 @@ export function buildSignalsForIndex(
         const r = det.fn(ctx);
         if (!r) {
           suppressed.push(`${det.name}: conditions not met`);
-          continue;
-        }
-        // Owner engine allow-list (additive control, never bypasses a gate).
-        // When an allow-list is configured, builtin setups absent from it are
-        // suppressed. `null` (no allow-list) = legacy behaviour: nothing gated.
-        if (
-          gateCtx?.enabledBuiltinSetups &&
-          r.setupKey &&
-          ENGINE_BUILTIN_IDS.has(r.setupKey) &&
-          !gateCtx.enabledBuiltinSetups.has(r.setupKey)
-        ) {
-          suppressed.push(`${det.name}: disabled by owner engine allow-list`);
           continue;
         }
         // Bias-flip cooldown: if this index just stopped on the OPPOSITE
@@ -1624,7 +1413,7 @@ export function buildSignalsForIndex(
         // envelope and reject if the post-clamp RR no longer justifies
         // the premium decay. Mean Reversion is exempt from both.
         const realistic = applyTriggerRealism(r, ctx);
-        const clamped = clampPlanForIntraday(realistic, ctx, MIN_RR_FOR_HC, istMin);
+        const clamped = clampPlanForIntraday(realistic, ctx);
         if (!clamped) {
           suppressed.push(`${det.name}: post-clamp RR < ${MIN_RR_FOR_HC} — plan rejected as not worth premium decay`);
           continue;
@@ -1676,7 +1465,7 @@ export function buildSignalsForIndex(
   //
   // Computed once per emission tick (noiseWindow + inExpiryDay) and
   // once per detector (htfConflict, dir-dependent).
-  const istNowGate = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const istNowGate = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const istMinGate = istNowGate.getUTCHours() * 60 + istNowGate.getUTCMinutes();
   const noiseWindow: "OPENING" | "CLOSING" | undefined =
     istMinGate >= 9 * 60 + 15 && istMinGate < 9 * 60 + 30
@@ -1765,13 +1554,13 @@ export function buildSignalsForIndex(
   const demotedHc = highConviction.filter(isDemoted);
   const out: OptionSignal[] = [];
   for (const d of cleanHc.slice(0, 3)) {
-    out.push(applyLock(toSignal(ctx, d, "HIGH_CONVICTION"), now));
+    out.push(applyLock(toSignal(ctx, d, "HIGH_CONVICTION")));
   }
   for (const d of demotedHc) {
-    out.push(applyLock(toSignal(ctx, d, "BASELINE"), now));
+    out.push(applyLock(toSignal(ctx, d, "BASELINE")));
   }
   if (baseline) {
-    out.push(applyLock(toSignal(ctx, baseline, "BASELINE"), now));
+    out.push(applyLock(toSignal(ctx, baseline, "BASELINE")));
   }
   return { signals: out, suppressed, hasBars: true, snapshot: snapshotFromCtx(ctx) };
 }
@@ -1856,18 +1645,16 @@ interface LockedLevels {
   lockedAt: Date;
 }
 const lockStore: Map<string, LockedLevels> = new Map();
-export function istDateKey(now: Date = new Date()): string {
-  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+function istDateKey(): string {
+  const d = new Date();
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
   return ist.toISOString().slice(0, 10);
 }
-export function lockKey(symbol: string, setupKey: string, direction: string, now: Date = new Date()): string {
-  return `${istDateKey(now)}|${symbol}|${setupKey}|${direction}`;
+function lockKey(symbol: string, setupKey: string, direction: string): string {
+  return `${istDateKey()}|${symbol}|${setupKey}|${direction}`;
 }
-// `now` is threaded so offline replays get a FRESH per-simulated-day lock
-// (each backtest day resets levels exactly like live midnight-IST rollover).
-// Default `new Date()` keeps live behaviour byte-for-byte unchanged.
-function applyLock(s: OptionSignal, now: Date = new Date()): OptionSignal {
-  const k = lockKey(s.index, s.setupKey ?? "default", s.bias ?? "NEUTRAL", now);
+function applyLock(s: OptionSignal): OptionSignal {
+  const k = lockKey(s.index, s.setupKey ?? "default", s.bias ?? "NEUTRAL");
   const existing = lockStore.get(k);
   if (existing) {
     const risk = Math.abs(existing.entryLevel - existing.stopLevel);
@@ -1894,21 +1681,12 @@ function applyLock(s: OptionSignal, now: Date = new Date()): OptionSignal {
     target2Level: s.leg.target2 ?? s.leg.target1,
     entryTrigger: s.entryTrigger ?? "",
     invalidation: s.invalidation ?? "",
-    lockedAt: now,
+    lockedAt: new Date(),
   });
   return s;
 }
-// Offline replay / backtest harnesses import this module purely for
-// `buildSignalsForIndex`; they must NOT spin up the live trigger-sweep
-// scheduler (which would fire getOptionSignals() against Kite/DB). Setting
-// FNO_DISABLE_SCHEDULERS=1 turns both module-level intervals into no-ops.
-// Unset in dev/prod → schedulers run exactly as before (live behaviour
-// unchanged).
-const SCHEDULERS_DISABLED = process.env.FNO_DISABLE_SCHEDULERS === "1";
-
 // Sweep stale locks (older than 36h) once an hour to keep memory tidy.
 setInterval(() => {
-  if (SCHEDULERS_DISABLED) return;
   const cutoff = Date.now() - 36 * 3600 * 1000;
   for (const [k, v] of lockStore.entries()) {
     if (v.lockedAt.getTime() < cutoff) lockStore.delete(k);
@@ -1951,7 +1729,6 @@ const TRIGGER_SWEEP_INTERVAL_MS = 30 * 1000;
 let lastForceExit1520Date: string | null = null;
 
 setInterval(() => {
-  if (SCHEDULERS_DISABLED) return;
   if (triggerSweepRunning) return; // skip if previous tick still in flight
   if (computeMarketStatus(new Date()) !== "open") return;
   triggerSweepRunning = true;

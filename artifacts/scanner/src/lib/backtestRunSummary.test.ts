@@ -5,10 +5,6 @@ import {
   FILTER_ABBR,
   FILTER_LABELS,
   summarizeRunFilters,
-  FILTER_PRESETS,
-  FILTER_PRESET_ORDER,
-  DEFAULT_PRESET_ID,
-  matchPreset,
 } from "./backtestRunSummary";
 
 describe("summarizeRunFilters", () => {
@@ -181,36 +177,5 @@ describe("summarizeRunFilters", () => {
   it("never adds a rationale line to engine-replay rows", () => {
     const { full } = summarizeRunFilters(null, null, ["vwapFilter"], "irrelevant");
     expect(full).not.toContain("Why ignored:");
-  });
-});
-
-describe("matchPreset", () => {
-  it("each canonical preset round-trips to its own id", () => {
-    for (const id of FILTER_PRESET_ORDER) {
-      const p = FILTER_PRESETS[id];
-      expect(matchPreset(p.filters, p.maxTradesPerDay)).toBe(id);
-    }
-  });
-
-  it("default preset is Practical and is recognised", () => {
-    expect(DEFAULT_PRESET_ID).toBe("PRACTICAL");
-    const p = FILTER_PRESETS[DEFAULT_PRESET_ID];
-    expect(matchPreset(p.filters, p.maxTradesPerDay)).toBe("PRACTICAL");
-  });
-
-  it("hand-tuned filters away from every preset return null (Custom)", () => {
-    const p = FILTER_PRESETS.PRACTICAL;
-    expect(matchPreset({ ...p.filters, vwapFilter: !p.filters.vwapFilter }, p.maxTradesPerDay)).toBeNull();
-  });
-
-  it("matching filters but a non-preset trade cap return null (Custom)", () => {
-    const p = FILTER_PRESETS.PRACTICAL;
-    expect(matchPreset(p.filters, 99)).toBeNull();
-  });
-
-  it("no preset sets minimumRiskReward above 1.5 (blended 1.5R reward must not starve strategies)", () => {
-    for (const id of FILTER_PRESET_ORDER) {
-      expect(FILTER_PRESETS[id].filters.minimumRiskReward).toBeLessThanOrEqual(1.5);
-    }
   });
 });

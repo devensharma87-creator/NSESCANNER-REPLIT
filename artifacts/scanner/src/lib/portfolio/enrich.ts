@@ -40,10 +40,6 @@ export const EMPTY_LIVE: LiveMetrics = {
   roe: null,
   marketCapCr: null,
   beta: null,
-  roce: null,
-  debtToEquity: null,
-  fiftyTwoWeekHigh: null,
-  fiftyTwoWeekLow: null,
 };
 
 const num = (v: number | null | undefined): number | null =>
@@ -58,8 +54,6 @@ export interface DetailLike {
   quote?: {
     price?: number | null;
     previousClose?: number | null;
-    fiftyTwoWeekHigh?: number | null;
-    fiftyTwoWeekLow?: number | null;
   } | null;
   indicators?: {
     rsi14?: number | null;
@@ -77,8 +71,6 @@ export interface DetailLike {
       roe?: number | null;
       marketCapCr?: number | null;
       beta?: number | null;
-      roce?: number | null;
-      debtToEquity?: number | null;
     } | null;
   } | null;
 }
@@ -151,10 +143,6 @@ export function liveFromDetail(detail: DetailLike | null | undefined): LiveMetri
     roe: num(ks?.roe),
     marketCapCr: num(ks?.marketCapCr),
     beta: num(ks?.beta),
-    roce: num(ks?.roce),
-    debtToEquity: num(ks?.debtToEquity),
-    fiftyTwoWeekHigh: num(detail.quote?.fiftyTwoWeekHigh),
-    fiftyTwoWeekLow: num(detail.quote?.fiftyTwoWeekLow),
   };
 }
 

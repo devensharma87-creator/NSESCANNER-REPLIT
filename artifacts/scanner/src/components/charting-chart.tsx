@@ -37,11 +37,6 @@ import type {
   FixedVolumeProfile,
   KeyLevel,
 } from "@/lib/charting/indicators";
-import {
-  FNO_VWAP_COLOR,
-  type FnoSmcResult,
-  type SmcZone,
-} from "@/lib/charting/fnoSmc";
 
 // All candle timestamps are epoch-UTC seconds. The instruments are Indian /
 // global exchange data, so axis + crosshair labels are rendered in IST
@@ -103,8 +98,6 @@ interface Props {
   /** Ranked Support/Resistance levels with source tags, drawn as labeled lines. */
   keyLevels?: KeyLevel[] | null;
   showKeyLevels?: boolean;
-  /** All-in-One F&O Trend + SMC suite result (EMAs, VWAP bands, zones, structure, signals). */
-  suite?: FnoSmcResult | null;
   showVolume: boolean;
   showRsi: boolean;
   showCvd: boolean;
@@ -206,114 +199,6 @@ class VolumeProfilePrimitive implements ISeriesPrimitive<Time> {
   }
 }
 
-// Suite (F&O Trend + SMC) zone fills. Boxes are translucent so candles read
-// through them; supply/demand carry a faint border, FVGs are borderless.
-function zoneStyle(type: SmcZone["type"]): { fill: string; border: string | null; label: string | null } {
-  switch (type) {
-    case "demand":
-      return { fill: "rgba(0, 230, 118, 0.12)", border: "rgba(0, 230, 118, 0.55)", label: "#00C853" };
-    case "supply":
-      return { fill: "rgba(255, 82, 82, 0.12)", border: "rgba(255, 82, 82, 0.55)", label: "#D50000" };
-    case "fvgBull":
-      return { fill: "rgba(38, 166, 154, 0.16)", border: null, label: null };
-    case "fvgBear":
-      return { fill: "rgba(239, 83, 80, 0.16)", border: null, label: null };
-  }
-}
-
-/**
- * Custom v5 primitive that paints the suite's supply/demand + FVG zones as
- * translucent rectangles extending from the zone's origin bar to the right edge
- * of the chart. Drawn at the bottom z-order so price always sits on top.
- */
-class ZoneBoxRenderer implements IPrimitivePaneRenderer {
-  constructor(private readonly _source: ZoneBoxPrimitive) {}
-
-  draw(target: DrawTarget): void {
-    const chart = this._source.chart();
-    const series = this._source.series();
-    if (!chart || !series) return;
-    const ts = chart.timeScale();
-    target.useBitmapCoordinateSpace(scope => {
-      const ctx = scope.context;
-      const hr = scope.horizontalPixelRatio;
-      const vr = scope.verticalPixelRatio;
-      const rightEdge = scope.bitmapSize.width;
-      for (const z of this._source.zones()) {
-        const yT = series.priceToCoordinate(z.top);
-        const yB = series.priceToCoordinate(z.bottom);
-        if (yT == null || yB == null) continue;
-        const xc = ts.timeToCoordinate(toTime(z.time));
-        const x1 = Math.max(0, (xc == null ? 0 : xc) * hr);
-        const top = Math.min(yT, yB) * vr;
-        const bottom = Math.max(yT, yB) * vr;
-        const h = Math.max(1, bottom - top);
-        const w = rightEdge - x1;
-        if (w <= 0) continue;
-        const s = zoneStyle(z.type);
-        ctx.fillStyle = s.fill;
-        ctx.fillRect(x1, top, w, h);
-        if (s.border) {
-          ctx.strokeStyle = s.border;
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x1, top, w, h);
-        }
-        if (z.label && s.label) {
-          ctx.fillStyle = s.label;
-          ctx.font = `${10 * vr}px ui-monospace, monospace`;
-          ctx.textBaseline = "top";
-          ctx.fillText(z.label, x1 + 4 * hr, top + 2 * vr);
-        }
-      }
-    });
-  }
-}
-
-class ZoneBoxPaneView implements IPrimitivePaneView {
-  constructor(private readonly _source: ZoneBoxPrimitive) {}
-  zOrder(): "bottom" {
-    return "bottom";
-  }
-  renderer(): IPrimitivePaneRenderer {
-    return new ZoneBoxRenderer(this._source);
-  }
-}
-
-class ZoneBoxPrimitive implements ISeriesPrimitive<Time> {
-  private _chart: IChartApi | null = null;
-  private _series: MainSeries | null = null;
-  private readonly _paneView: ZoneBoxPaneView;
-
-  constructor(private readonly _zones: SmcZone[]) {
-    this._paneView = new ZoneBoxPaneView(this);
-  }
-  attached(param: SeriesAttachedParameter<Time>): void {
-    this._chart = param.chart;
-    this._series = param.series as MainSeries;
-  }
-  detached(): void {
-    this._chart = null;
-    this._series = null;
-  }
-  paneViews(): readonly IPrimitivePaneView[] {
-    return [this._paneView];
-  }
-  zones(): SmcZone[] {
-    return this._zones;
-  }
-  series(): MainSeries | null {
-    return this._series;
-  }
-  chart(): IChartApi | null {
-    return this._chart;
-  }
-}
-
-const SMC_BOS_COLOR = "#2962FF";
-const SMC_CHOCH_COLOR = "#FF6D00";
-const SIGNAL_LONG_COLOR = "#00C853";
-const SIGNAL_SHORT_COLOR = "#D50000";
-
 function toTime(tSec: number): UTCTimestamp {
   return Math.floor(tSec) as UTCTimestamp;
 }
@@ -348,7 +233,6 @@ export function ChartingChart({
   showVolumeProfile,
   keyLevels,
   showKeyLevels,
-  suite,
   showVolume,
   showRsi,
   showCvd,
@@ -603,104 +487,6 @@ export function ChartingChart({
       }
     }
 
-    // ── F&O Trend + SMC suite ──────────────────────────────────────
-    // Zones (S/D + FVG) as a behind-price primitive; EMA + VWAP bands as
-    // overlay lines; BOS/CHoCH + signal arrows as markers; the latest
-    // signal's entry/SL/target as price lines. All math is computed upstream.
-    if (suite) {
-      if (suite.zones.length > 0) {
-        mainSeries.attachPrimitive(new ZoneBoxPrimitive(suite.zones));
-      }
-
-      for (const e of suite.emas) {
-        const line = chart.addSeries(LineSeries, {
-          color: e.color,
-          lineWidth: 2,
-          priceLineVisible: false,
-          lastValueVisible: true,
-          crosshairMarkerVisible: false,
-          title: `EMA${e.period}`,
-        });
-        line.setData(alignedLine(candles, e.values));
-      }
-
-      if (suite.vwap) {
-        const mid = chart.addSeries(LineSeries, {
-          color: FNO_VWAP_COLOR,
-          lineWidth: 2,
-          priceLineVisible: false,
-          lastValueVisible: true,
-          crosshairMarkerVisible: false,
-          title: "VWAP",
-        });
-        mid.setData(alignedLine(candles, suite.vwap.vwap));
-        for (const band of [suite.vwap.upper, suite.vwap.lower]) {
-          if (!band.some(v => v != null)) continue;
-          const b = chart.addSeries(LineSeries, {
-            color: FNO_VWAP_COLOR,
-            lineWidth: 1,
-            lineStyle: LineStyle.Dashed,
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false,
-          });
-          b.setData(alignedLine(candles, band));
-        }
-      }
-
-      const suiteMarkers: SeriesMarker<Time>[] = [];
-      for (const ev of suite.structure) {
-        suiteMarkers.push({
-          time: toTime(ev.time),
-          position: ev.dir === "up" ? "aboveBar" : "belowBar",
-          shape: ev.dir === "up" ? "arrowUp" : "arrowDown",
-          color: ev.kind === "BOS" ? SMC_BOS_COLOR : SMC_CHOCH_COLOR,
-          text: ev.kind,
-        });
-      }
-      for (const sig of suite.signals) {
-        suiteMarkers.push({
-          time: toTime(sig.time),
-          position: sig.dir === "long" ? "belowBar" : "aboveBar",
-          shape: sig.dir === "long" ? "arrowUp" : "arrowDown",
-          color: sig.dir === "long" ? SIGNAL_LONG_COLOR : SIGNAL_SHORT_COLOR,
-          text: sig.dir === "long" ? "LONG" : "SHORT",
-        });
-      }
-      if (suiteMarkers.length > 0) {
-        suiteMarkers.sort((a, b) => (a.time as number) - (b.time as number));
-        createSeriesMarkers(mainSeries, suiteMarkers);
-      }
-
-      if (suite.latestSignal) {
-        const s = suite.latestSignal;
-        mainSeries.createPriceLine({
-          price: s.entry,
-          color: "#90CAF9",
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `Entry ${s.dir === "long" ? "▲" : "▼"}`,
-        });
-        mainSeries.createPriceLine({
-          price: s.sl,
-          color: RESISTANCE_COLOR,
-          lineWidth: 1,
-          lineStyle: LineStyle.Dotted,
-          axisLabelVisible: true,
-          title: "SL",
-        });
-        mainSeries.createPriceLine({
-          price: s.tgt,
-          color: SUPPORT_COLOR,
-          lineWidth: 1,
-          lineStyle: LineStyle.Dotted,
-          axisLabelVisible: true,
-          title: `TGT ${s.rr}R`,
-        });
-      }
-    }
-
     // ── Sub-panes (RSI, then CVD), assigned indices in order ───────
     let nextPane = 1;
 
@@ -794,7 +580,7 @@ export function ChartingChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, chartType, emaKey, hasVwap, showVolume, showRsi, showCvd, showTime, height, emaSeries, vwapSeries, rsiSeries, cvdSeries, pocPrice, fvgZones, sweepMarkers, fibLevels, volumeProfile, showVolumeProfile, keyLevels, showKeyLevels, suite]);
+  }, [candles, chartType, emaKey, hasVwap, showVolume, showRsi, showCvd, showTime, height, emaSeries, vwapSeries, rsiSeries, cvdSeries, pocPrice, fvgZones, sweepMarkers, fibLevels, volumeProfile, showVolumeProfile, keyLevels, showKeyLevels]);
 
   return (
     <div style={{ position: "relative", width: "100%", height }}>

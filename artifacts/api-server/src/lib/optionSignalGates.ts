@@ -4,8 +4,6 @@ import { logger } from "./logger";
 import { fetchKiteIntraday } from "./kiteIntraday";
 import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
 import type { OptionSignal } from "@workspace/api-zod";
-import { loadEngineStrategySelection } from "./strategies/engineSelection";
-import type { CustomStrategySpec } from "./strategies/customSpec";
 
 /**
  * Phase 1 quality gates for the F&O signal engine.
@@ -122,13 +120,6 @@ export interface GateContext {
    *  relative-strength comparisons. Null when Kite daily fetch failed
    *  (gate becomes a no-op). */
   nifty5dReturn: number | null;
-  /** Owner allow-list: builtin setupKeys the engine MAY emit. `null` = no
-   *  allow-list configured → the engine does NOT gate builtins (legacy
-   *  behaviour). The list can only NARROW the builtin set, never bypass a gate. */
-  enabledBuiltinSetups: Set<string> | null;
-  /** Owner-opted-in custom strategy specs run as ADDITIONAL engine detectors.
-   *  Empty = none (legacy behaviour). */
-  enabledCustomSpecs: CustomStrategySpec[];
   /** Human-readable lines describing every active gate. UI banner reads
    *  these verbatim, so they should be plain English. */
   notes: string[];
@@ -423,15 +414,13 @@ async function loadVixSnapshot(): Promise<VixSnapshot> {
  * a consistent snapshot.
  */
 export async function loadGateContext(): Promise<GateContext> {
-  const [stoppedToday, recentStops, vix, setupWinRates, nifty5dReturn, selection] =
-    await Promise.all([
-      loadStoppedTodayCount(),
-      loadRecentStopsByIndex(BIAS_FLIP_COOLDOWN_MIN),
-      loadVixSnapshot(),
-      loadSetupWinRates(),
-      loadNifty5dReturn(),
-      loadEngineStrategySelection(),
-    ]);
+  const [stoppedToday, recentStops, vix, setupWinRates, nifty5dReturn] = await Promise.all([
+    loadStoppedTodayCount(),
+    loadRecentStopsByIndex(BIAS_FLIP_COOLDOWN_MIN),
+    loadVixSnapshot(),
+    loadSetupWinRates(),
+    loadNifty5dReturn(),
+  ]);
 
   const circuitBreakerActive = stoppedToday >= DAILY_STOP_LIMIT;
   const globalSuppress = circuitBreakerActive || vix.spike;
@@ -462,8 +451,6 @@ export async function loadGateContext(): Promise<GateContext> {
     globalSuppress,
     setupWinRates,
     nifty5dReturn,
-    enabledBuiltinSetups: selection.enabledBuiltins,
-    enabledCustomSpecs: selection.enabledCustomSpecs,
     notes,
   };
 }
