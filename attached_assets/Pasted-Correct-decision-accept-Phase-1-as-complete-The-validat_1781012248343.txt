@@ -1,0 +1,55 @@
+Correct decision: accept Phase 1 as complete. The validation rejection is judging against the full Task #124 migration, which we deliberately did not approve for one session. Do not let the agent chase that rejection and accidentally break production.
+
+Send this:
+
+Decision: Phase 1 is accepted as complete.
+
+Do not expand scope to satisfy a validation review that is judging against the full migration. The owner explicitly approved Phase 1 only:
+
+regression guard in burn-down / allowlist mode
+DB provenance columns
+untrusted/secondary/Yahoo data must not overwrite Kite-trusted rows
+central option-chain facade
+central singular index-quote facade
+no broad consumer migration yet
+no frontend badge migration yet
+no full signal-gate migration yet
+
+The validation rejection is out-of-scope because it expects the follow-up migrations that were intentionally deferred.
+
+This session is acceptable because:
+
+guard exists and passes
+scanner was hardened for side-effect imports and extension-suffixed imports
+provenance columns were added additively
+destructive drizzle push was correctly avoided
+direct SQL ADD COLUMN path avoided unrelated table drops
+write guard is in place
+option-chain facade exists
+index-quote facade exists
+typecheck is clean
+full api-server suite passes
+no production consumers were broadly disturbed
+
+Do not redo the whole data layer in this task.
+
+Next task order:
+
+Start #125 first: migrate server consumers to central marketDataRouter gradually.
+Priority:
+Watchlist
+Scanner
+Portfolio valuation
+Charting candles
+Option chain / F&O
+Sector and benchmark analytics
+Then #126: add frontend source/freshness/stale/conflict badges.
+Do this only after backend responses are stable.
+Then #127: enable INDstocks cross-checking in validation mode.
+Do not make INDstocks a silent fallback.
+Do not block signals until mismatch logic is tested on enough symbols.
+
+Important:
+No aggressive all-at-once migration. No direct Yahoo resurrection. No silent fallback. No fake data. Every future migration must keep production working and must show exact before/after endpoint verification.
+
+Your next move should be #125: migrate consumers through the trusted central layer. That is where the real value starts. Phase 1 only laid the rails; now the trains need to be moved onto them one by one.
