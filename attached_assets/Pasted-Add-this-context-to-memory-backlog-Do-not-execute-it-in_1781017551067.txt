@@ -1,0 +1,105 @@
+Add this context to memory/backlog. Do not execute it inside T004.
+
+T004 Portfolio fix is accepted as scoped and closed. Do not reopen it. The parent trusted-layer migration remains intentionally open.
+
+Additional audit-driven backlog item not yet shared earlier:
+
+We completed a separate Backtest Lab / Strategy Research audit. Treat this as a later standalone task, not part of Portfolio and not part of T003.
+
+Backtest Lab audit finding:
+The historical Strategy Research option backtest data is internally consistent mathematically, but the option premium layer is synthetic and should not be presented as a real option-chain backtest.
+
+Key findings:
+
+Spot/index data appears realistic and internally consistent.
+Lot-size arithmetic is correct.
+Net P&L arithmetic is internally consistent.
+But option premiums are modelled, not real:
+entry premium is approximately fixed at 0.40% of spot
+premium movement behaves like fixed ~0.50 delta
+no theta decay
+no IV
+no real strike/expiry/option-chain premium path
+no gamma/convexity
+no realistic expiry/time-to-expiry impact
+STOPPED exits appear closer to ~37.5% premium loss, while docs/UI mention ~30% stop. This is a documentation/model mismatch.
+Therefore Strategy Research P&L may overstate real option-buying performance and must be labelled honestly.
+
+Create a future standalone task:
+
+Backtest Lab Rectification / Synthetic Premium Honesty
+
+Scope for that later task:
+
+Do not touch Portfolio.
+Do not touch T003 Home/Market Pulse.
+Do not touch live F&O engine unless explicitly required.
+Focus only on Strategy Research / Backtest Lab output and labelling.
+
+Required future fixes:
+
+Label existing backtest results:
+“Synthetic premium Strategy Research — not real option-chain backtest.”
+Add UI warning wherever old backtest P&L appears:
+“Premiums are modelled from spot movement using a synthetic delta proxy. Results are research-only and may overstate real option-buying performance.”
+Fix stop-loss mismatch:
+either make the model actually use 30% premium stop
+or update docs/UI/export labels to show the actual ~37.5% premium stop
+do not leave model, docs, and UI inconsistent
+Add proper pricing modes:
+REAL_CHAIN where real captured option-chain premium exists
+BLACK_SCHOLES_MODELLED where real premium is unavailable
+SYNTHETIC_DELTA_PROXY for old legacy research rows
+Add missing fields to future exports:
+trade_id
+index
+option_type CE/PE
+strike
+expiry
+days_to_expiry
+IV
+delta
+theta
+gamma where available
+lot_size
+lots
+capital_deployed
+slippage
+brokerage
+STT
+exchange charges
+GST
+stamp duty
+MFE
+MAE
+pricing_mode
+data_source
+model_warning
+Add tests:
+synthetic rows cannot be labelled real
+real option-chain rows must have strike/expiry/CE-PE/source
+Black-Scholes rows must expose IV/time-to-expiry/Greeks
+stop-loss calculation matches docs
+cost itemisation sums to total cost
+UI warning appears for synthetic premium research
+
+Acceptance for that later task:
+
+No user can mistake synthetic premium Strategy Research for real tradable options backtest.
+Old results remain available but clearly labelled.
+Future backtests can distinguish real-chain, Black-Scholes-modelled, and synthetic proxy results.
+Documentation, UI, CSV exports, and code assumptions match.
+
+Next immediate task after T004 remains T003:
+Home / Market Pulse index analytics honesty:
+
+52W range
+daily EMAs
+VWAP
+pivots
+previous OHLC
+“Daily chart unavailable from Yahoo”
+no fake blanks
+no uncontrolled Yahoo chart dependency
+
+Do not mix Backtest Lab rectification into T003 unless explicitly approved.
