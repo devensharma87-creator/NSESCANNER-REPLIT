@@ -1,0 +1,744 @@
+Task: Build a no-compromise, Kite-first, INDstocks-validated market data architecture for Hrishi Associates Market Scanner.
+
+I do not want any risk with market data. Wrong data is worse than no data. Do not patch the UI. Fix the actual data architecture.
+
+Current confirmed problem:
+The Watchlist tab was using a separate Yahoo-based path while the main scanner already had working Kite-first market data. This caused baskets to show 0 stocks or partial stale rows. That kind of broken parallel data path is unacceptable.
+
+Project stack:
+This is a TypeScript / React / Express project. Trace the real codebase. Do not follow old Python/app.js assumptions blindly.
+
+Main data policy:
+
+1. Kite is the PRIMARY source of truth for all market price data.
+2. INDstocks may be added as SECONDARY / VALIDATION / FAILOVER provider after proof-of-data-quality.
+3. Yahoo must not be used for production market prices unless explicitly enabled as low-trust delayed fallback.
+4. Synthetic/mock data is forbidden in production.
+5. Every row must expose source, asof, freshness, stale status, and warning flags.
+6. Any provider mismatch must be visible. Do not silently choose random data.
+7. Do not place live orders. This website remains scanner / analytics / paper-trading unless the owner explicitly approves trading APIs separately.
+
+Important docs to read and implement against:
+
+* Kite Connect market quotes, historical candles, instruments, WebSocket/ticker.
+* INDstocks API docs: https://api-docs.indstocks.com/
+* INDstocks instruments master: /market/instruments
+* INDstocks full quotes: /market/quotes/full
+* INDstocks LTP: /market/quotes/ltp
+* INDstocks market depth: /market/quotes/mkt
+* INDstocks historical data: /market/historical/{interval}
+* INDstocks WebSocket price feed: wss://ws-prices.indstocks.com/api/v1/ws/prices
+* INDstocks option-chain / option-chain-symbols / greeks utility APIs if available and authenticated.
+
+Strict provider hierarchy:
+
+PRIMARY:
+
+* Zerodha Kite
+
+SECONDARY:
+
+* INDstocks, only after adapter tests and source validation pass
+
+LOW TRUST / DISABLED BY DEFAULT:
+
+* Yahoo Finance
+* chart-provider fallback
+* any scraped source
+* any cached old data without asof/freshness
+
+FORBIDDEN IN PRODUCTION:
+
+* synthetic prices
+* random sample rows
+* silent empty arrays
+* stale cache displayed as live
+* Yahoo direct calls from feature modules
+* frontend building provider-specific symbols
+* duplicate provider logic across pages
+
+Goal:
+Create one central market data layer and force every page through it.
+
+Required architecture:
+
+1. Central provider router
+
+Create or refactor:
+
+* marketDataRouter
+* kiteProvider
+* indstocksProvider
+* instrumentResolver
+* sourceValidator
+* quoteCache
+* candleCache
+* providerDiagnostics
+* dataFreshnessGuard
+* providerMismatchGuard
+
+Every market-data consumer must use this central layer.
+
+No page should call Kite, INDstocks, Yahoo, or any provider directly.
+
+Required service methods:
+
+* getQuote(symbol, exchange)
+* getQuotes(symbols, exchange)
+* getFullQuotes(instruments)
+* getLTP(instruments)
+* getMarketDepth(instruments)
+* getHistoricalCandles(symbol, exchange, interval, from, to)
+* getIndexQuote(indexSymbol)
+* getFnoQuote(contract)
+* getOptionChain(symbol, expiry)
+* getGreeks(symbol, expiry, strike, optionType)
+* getScannerUniverseQuotes()
+* getWatchlistBasketQuotes(basketKey)
+* getPortfolioValuationQuotes(symbols)
+* getChartCandles(symbol, interval, range)
+* getProviderDiagnostics()
+* getSymbolDiagnostics(symbol)
+* compareProviders(symbols)
+
+2. Provider source policy
+
+Implement config:
+
+MARKET_DATA_POLICY=KITE_PRIMARY_INDSTOCKS_VALIDATE
+ENABLE_INDSTOCKS=false by default until credentials and tests pass
+ENABLE_YAHOO_FALLBACK=false in production
+ALLOW_SYNTHETIC_DATA=false in production
+STRICT_DATA_FRESHNESS=true
+STRICT_PROVIDER_MISMATCH=true
+
+Rules:
+
+* If Kite returns valid fresh data, use Kite.
+* If INDstocks is enabled, use it for validation/cross-checking, not as silent replacement.
+* If Kite fails and INDstocks succeeds, use INDstocks only if:
+
+  * instrument mapping is verified
+  * data is fresh
+  * exchange/segment matches
+  * quote fields are complete
+  * fallback_used = true
+  * source = "indstocks"
+  * warning is shown in API and UI
+* If Kite and INDstocks both return data but price mismatch exceeds tolerance, flag DATA_CONFLICT.
+* In DATA_CONFLICT, do not calculate signals from that symbol unless fallback policy explicitly allows it.
+* If no trusted provider returns data, return missing symbol with reason. Do not fabricate.
+
+3. Provider mismatch guard
+
+Add strict comparison:
+
+For each symbol where both Kite and INDstocks data are available, compare:
+
+* last_price
+* prev_close
+* day_high
+* day_low
+* day_open
+* volume
+* timestamp/asof
+* exchange
+* instrument token/security id mapping
+
+Suggested tolerance:
+
+* last_price mismatch > 0.10% = warning
+* last_price mismatch > 0.25% = block signal calculations
+* prev_close mismatch > 0.10% = warning
+* day_high/day_low impossible mismatch = block
+* stale timestamp beyond freshness threshold = block
+* missing volume during live market = warning/block depending page
+
+Return:
+
+{
+"symbol": "RELIANCE",
+"primary": {
+"provider": "kite",
+"last_price": 1259.0,
+"asof": "..."
+},
+"secondary": {
+"provider": "indstocks",
+"last_price": 1258.8,
+"asof": "..."
+},
+"mismatch_pct": 0.015,
+"status": "MATCHED"
+}
+
+If mismatch:
+
+{
+"symbol": "RELIANCE",
+"status": "DATA_CONFLICT",
+"severity": "BLOCK_SIGNAL",
+"reason": "Kite and INDstocks LTP mismatch exceeds 0.25%"
+}
+
+4. Instrument master strategy
+
+Use Kite instruments as primary instrument master.
+
+Add INDstocks instrument master as secondary mapping table.
+
+Kite mapping:
+
+* exchange
+* tradingsymbol
+* instrument_token
+* segment
+* instrument_type
+* expiry
+* strike
+* option_type
+* lot_size
+* tick_size
+
+INDstocks mapping:
+
+* EXCH
+* SEGMENT
+* SECURITY_ID
+* TRADING_SYMBOL
+* CUSTOM_SYMBOL
+* LOT_UNITS
+* EXPIRY_DATE
+* STRIKE_PRICE
+* OPTION_TYPE
+* SERIES
+* SYMBOL_NAME
+
+Create cross-provider mapping table:
+
+instrument_map:
+
+* canonical_symbol
+* exchange
+* segment
+* kite_key
+* kite_instrument_token
+* indstocks_scrip_code
+* indstocks_security_id
+* indstocks_segment
+* tradingsymbol
+* display_name
+* lot_size
+* tick_size
+* expiry
+* strike
+* option_type
+* mapping_status
+* last_verified_at
+* mapping_warning
+
+Rules:
+
+* Do not use INDstocks quote until mapping_status = VERIFIED.
+* Do not use expired F&O mappings.
+* Refresh derivative instruments daily before market open.
+* Refresh equity/index instruments daily or weekly.
+* Store last sync time.
+* Expose instrument sync diagnostics.
+
+5. INDstocks adapter
+
+Build INDstocks provider adapter, but keep it feature-flagged.
+
+Required methods:
+
+* fetchInstrumentMaster(source: "equity" | "fno" | "index")
+* fetchFullQuotes(scripCodes)
+* fetchLTP(scripCodes)
+* fetchMarketDepth(scripCodes)
+* fetchHistorical(interval, scripCodes, startTime, endTime)
+* openPriceWebSocket(instruments)
+* healthCheck()
+
+INDstocks format handling:
+
+* quote API uses scrip-codes like NSE_3045 or NFO_51011
+* WebSocket uses format like NSE:2885 or NFO:51011
+* historical data uses Unix epoch milliseconds
+* historical intervals have max range limits, so split requests safely
+
+Do not hardcode SECURITY_ID. Resolve it from INDstocks instrument master.
+
+6. Kite adapter hardening
+
+Audit current Kite provider.
+
+Required:
+
+* verify token/session health
+* verify rate limit handling
+* verify batch quote chunking
+* verify missing instrument response handling
+* verify historical candle range handling
+* verify WebSocket reconnection
+* verify scanner cache freshness
+* verify F&O token refresh after expiry changes
+
+Kite remains primary. INDstocks must not replace it silently.
+
+7. Watchlist fix
+
+Watchlist must load from central marketDataRouter.
+
+Required baskets:
+
+* My List
+* Sensex 30
+* Bank Nifty
+* Nifty 50
+* Nifty 100
+* Nifty Midcap 100
+* Nifty Smallcap 100
+* Nifty 500
+
+Expected:
+
+* Sensex 30: close to 30 rows or exact missing reasons
+* Bank Nifty: 12 rows or exact missing reasons
+* Nifty 50: 50 rows or exact missing reasons
+* Nifty 100: 100 rows or exact missing reasons
+* Nifty Midcap 100: 100 rows or exact missing reasons
+* Nifty Smallcap 100: 100 rows or exact missing reasons
+* Nifty 500: 500 rows or honest paginated/partial result with reasons
+
+Endpoint:
+
+GET /api/watchlist/basket/:basketKey
+
+Response:
+
+{
+"ok": true,
+"basket_key": "nifty50",
+"basket_name": "Nifty 50",
+"source_policy": "KITE_PRIMARY_INDSTOCKS_VALIDATE",
+"requested_count": 50,
+"returned_count": 50,
+"missing_count": 0,
+"stale_count": 0,
+"conflict_count": 0,
+"primary_provider": "kite",
+"secondary_provider": "indstocks",
+"fallback_used": false,
+"asof": "...",
+"freshness_sec": 5,
+"market_phase": "LIVE",
+"summary": {
+"stocks": 50,
+"advancers": 23,
+"decliners": 24,
+"unchanged": 3,
+"bullish": 12,
+"bearish": 18,
+"neutral": 20
+},
+"items": [],
+"missing_symbols": [],
+"provider_conflicts": [],
+"warnings": []
+}
+
+Each row:
+
+{
+"symbol": "RELIANCE",
+"name": "Reliance Industries",
+"exchange": "NSE",
+"kite_key": "NSE:RELIANCE",
+"kite_instrument_token": 738561,
+"indstocks_scrip_code": "NSE_2885",
+"last_price": 1259.0,
+"change": -4.3,
+"change_pct": -0.34,
+"volume": 13100000,
+"day_open": 1263.0,
+"day_high": 1274.2,
+"day_low": 1258.0,
+"prev_close": 1263.3,
+"rsi": 27,
+"trend": "Neutral",
+"source": "kite",
+"validated_by": "indstocks",
+"validation_status": "MATCHED",
+"asof": "...",
+"freshness_sec": 5,
+"is_stale": false,
+"warnings": []
+}
+
+8. Frontend Watchlist rules
+
+Frontend must:
+
+* call only backend watchlist endpoint
+* never call Yahoo
+* never construct provider symbols
+* show source badge: Kite / Kite validated by INDstocks / INDstocks fallback
+* show stale badge
+* show conflict badge
+* show partial data warning
+* show missing symbol count
+* distinguish provider failure from filter empty
+
+Empty states:
+
+Loading:
+"Loading Kite market data..."
+
+Provider failure:
+"Kite data unavailable. Check data diagnostics."
+
+Partial:
+"Partial data loaded: 477 of 500 symbols. 23 missing."
+
+Conflict:
+"Data conflict detected between Kite and INDstocks. Some symbols blocked from signal calculations."
+
+Filter empty:
+"No stocks match the current filter."
+
+Never show "No stocks match filter" when the real issue is provider failure.
+
+9. Audit and remove direct provider calls
+
+Find and remove direct provider calls from:
+
+* Watchlist
+* Main Scanner
+* Stock Intelligence
+* Command Center
+* Market Pulse
+* Sector View
+* Swing Scanner
+* Deep Scanner
+* Charting
+* Portfolio
+* F&O Official
+* F&O Legacy Display
+* Option Chain
+* Derivatives
+* Reports
+* Risk Settings
+* Data Feed
+
+Search for:
+
+* yahoo
+* yfinance
+* query1.finance.yahoo
+* chart-provider
+* direct Kite calls outside provider layer
+* direct INDstocks calls outside provider layer
+* mock quote
+* synthetic quote
+* random price
+* fallback empty array
+* stale cache without warning
+
+All market data must go through central marketDataRouter.
+
+10. Charting and historical data
+
+Charting must use:
+
+* Kite historical candles as primary
+* INDstocks historical candles as validation/fallback only after tests pass
+
+Rules:
+
+* split historical requests according to provider limits
+* store candles with source/asof/fetched_at
+* do not mix Kite and INDstocks candles inside one indicator calculation unless clearly documented
+* if fallback candle data is used, mark chart source visibly
+* if candles are incomplete, block indicator/signal generation for that symbol/timeframe
+
+11. F&O and option chain
+
+F&O data must use:
+
+* Kite NFO instruments as primary
+* INDstocks FNO/option-chain/Greeks as secondary validation/enrichment if authenticated and tested
+
+Rules:
+
+* refresh F&O instruments daily
+* never use expired contracts
+* verify expiry, strike, CE/PE, lot size
+* validate option premium from provider
+* validate OHLC and volume
+* validate open interest where available
+* show missing OI warning if unavailable
+* do not generate HIGH_CONVICTION signal from stale or conflicting option data
+
+12. Scanner and signal safety
+
+Signals must not run on untrusted data.
+
+Block signal generation if:
+
+* source is missing
+* data is stale
+* symbol unresolved
+* provider conflict severity is BLOCK_SIGNAL
+* OHLC missing
+* prev_close missing
+* volume invalid where volume is required
+* F&O contract mapping is not verified
+* candles are incomplete
+* market phase is not appropriate
+
+Every blocked signal must have a diagnostic reason.
+
+13. Data diagnostics endpoints
+
+Add:
+
+GET /api/data/diagnostics
+
+Return:
+{
+"source_policy": "KITE_PRIMARY_INDSTOCKS_VALIDATE",
+"kite": {
+"configured": true,
+"token_present": true,
+"session_valid": true,
+"last_success_at": "...",
+"last_error": null,
+"instrument_sync_at": "...",
+"instrument_count": 90000,
+"quote_cache_count": 4271,
+"websocket_connected": true
+},
+"indstocks": {
+"enabled": true,
+"configured": true,
+"token_present": true,
+"session_valid": true,
+"last_success_at": "...",
+"last_error": null,
+"instrument_sync_at": "...",
+"instrument_count": 90000,
+"validation_count_today": 4271,
+"conflict_count_today": 0,
+"websocket_connected": false
+},
+"yahoo": {
+"enabled": false,
+"used_today": 0
+},
+"production_safety": {
+"synthetic_data_allowed": false,
+"mock_data_allowed": false,
+"direct_provider_calls_detected": 0
+},
+"warnings": []
+}
+
+Add:
+
+GET /api/data/diagnostics/symbol/:symbol
+
+Return:
+
+* canonical symbol
+* Kite mapping
+* INDstocks mapping
+* latest Kite quote
+* latest INDstocks quote
+* mismatch status
+* freshness
+* signal_allowed true/false
+* reason if blocked
+
+Add:
+
+GET /api/data/provider-comparison?symbols=RELIANCE,TCS,HDFCBANK
+
+Return side-by-side Kite vs INDstocks comparison.
+
+14. Database tagging
+
+Every stored market data row must include:
+
+* source_provider
+* source_priority
+* validated_by
+* validation_status
+* provider_conflict_status
+* asof
+* fetched_at
+* freshness_sec
+* is_stale
+* exchange
+* tradingsymbol
+* kite_key
+* kite_instrument_token
+* indstocks_scrip_code
+* fallback_used
+* data_quality
+* warnings
+
+If source_provider is missing, treat the row as untrusted.
+
+Do not let INDstocks/Yahoo overwrite Kite rows silently.
+
+15. Tests required
+
+Add tests for:
+
+Provider architecture:
+
+* marketDataRouter uses Kite first
+* INDstocks is not called unless enabled
+* Yahoo is disabled in production
+* no synthetic data in production
+* direct provider calls outside central layer fail lint/test
+
+Instrument mapping:
+
+* Kite symbol normalization
+* INDstocks scrip-code resolution
+* cross-provider mapping verification
+* expired F&O contracts rejected
+* unresolved symbols reported
+
+Quotes:
+
+* Kite quote success
+* INDstocks quote success
+* Kite primary + INDstocks validation success
+* Kite failure + INDstocks fallback visible
+* Kite/INDstocks mismatch warning
+* Kite/INDstocks mismatch blocks signal
+* partial basket data returns available rows
+* missing symbols include reasons
+
+Watchlist:
+
+* Nifty 50 loads from central router
+* Bank Nifty loads from central router
+* Sensex 30 loads from central router
+* Nifty 500 partial/paginated result is honest
+* frontend shows provider failure separately from filter empty
+* no Yahoo direct import in Watchlist
+
+Historical/charting:
+
+* Kite historical primary
+* INDstocks historical fallback only when enabled
+* incomplete candle ranges marked invalid
+* stale candles block signal generation
+
+Diagnostics:
+
+* /api/data/diagnostics works
+* /api/data/diagnostics/symbol/:symbol works
+* /api/data/provider-comparison works
+* all major APIs include source/asof/freshness/warnings
+
+16. Production verification
+
+After deployment, verify:
+
+Watchlist:
+
+* Sensex 30 loads close to 30
+* Bank Nifty loads 12
+* Nifty 50 loads 50
+* Nifty 100 loads close to 100
+* Nifty Midcap 100 loads close to 100
+* Nifty Smallcap 100 loads close to 100
+* Nifty 500 loads close to 500 or honest partial/paginated data
+* source badge visible
+* stale badge visible only when needed
+* no fake rows
+* no console errors
+* no failed network calls
+
+Data pages:
+
+* Scanner uses central marketDataRouter
+* Stock Intelligence uses central marketDataRouter
+* Charting uses Kite primary candles
+* Portfolio valuation uses Kite primary quotes
+* F&O modules use Kite primary NFO data
+* Option chain uses trusted provider with visible source
+* Reports do not mix untrusted data
+* Risk Settings do not depend on missing provider assumptions
+
+Provider validation:
+
+* compare at least 100 liquid NSE symbols between Kite and INDstocks
+* compare Nifty 50 fully
+* compare Bank Nifty fully
+* compare top F&O contracts
+* log mismatch count
+* log missing symbol count
+* log stale count
+* block signals for conflicting symbols
+
+17. Required deliverables
+
+Return:
+
+1. Root cause summary.
+
+2. Exact data paths found before fix.
+
+3. Direct Yahoo paths removed/disabled.
+
+4. Kite provider audit.
+
+5. INDstocks provider feasibility report.
+
+6. INDstocks adapter implementation details.
+
+7. Cross-provider instrument mapping report.
+
+8. Watchlist before/after counts.
+
+9. Data source audit report for every page.
+
+10. Provider diagnostics JSON.
+
+11. Provider comparison output for sample symbols.
+
+12. Test results.
+
+13. Production verification screenshots.
+
+14. Remaining limitations.
+
+15. Clear note on whether INDstocks is production-ready or still validation-only.
+
+16. Acceptance criteria
+
+This task is complete only when:
+
+* Kite is primary for all market price data.
+* INDstocks is integrated only behind providerRouter.
+* INDstocks is never used silently.
+* Yahoo is disabled for production market prices.
+* No page has direct provider-specific data calls.
+* Every API response has source/asof/freshness/warnings.
+* Watchlist loads all baskets honestly.
+* Partial data is displayed instead of blank tables.
+* Missing symbols have reasons.
+* Stale data is marked stale.
+* Provider conflicts are visible.
+* Signal generation blocks untrusted/conflicting data.
+* Production has no mock/synthetic market data.
+* Tests prove the architecture cannot regress back into broken parallel data paths.
+
+Final instruction:
+Be ruthless. Do not make the website “look filled.” Make the data trustworthy. If Kite and INDstocks disagree, show the conflict. If data is missing, show missing. If stale, show stale. No silent fallback. No fake confidence. No hidden provider mixing.
