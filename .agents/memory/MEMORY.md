@@ -1,5 +1,7 @@
 - [replit.md is not to be trimmed](replit-md-do-not-trim.md) — owner has explicitly forbidden trimming/reorganizing replit.md; ignore all auto-trim suggestions.
 - [Architect includeGitDiff false scope-fail](architect-gitdiff-false-scope-fail.md) — code-review can FAIL on unrelated committed files; trust working-tree `git diff --stat` over its scope claim.
+- [Managed completion review scope](managed-completion-review-scope.md) — mark_task_complete's managed code_review judges the PARENT task's "done"; a correct scoped slice gets REJECTED — close via skip_validation_reason + user sign-off, don't churn.
+- [Backtest Lab synthetic premium](backtest-lab-synthetic-premium.md) — Strategy Research/Backtest premiums are synthetic (fixed ~0.40% spot, ~0.50 delta, no theta/IV) + stop-doc mismatch; own later task, separate from Portfolio/T003.
 - [Corrective-sweep close-first ordering](corrective-sweep-close-first-ordering.md) — sweeps that close a paper trade AND advance its lifecycle must close FIRST, else a close failure freezes the row OPEN for stale 15:20 settlement.
 - [Autoscale cold-start 500](autoscale-coldstart-500.md) — prod autoscale first request can return a one-off 500 then recover; retry before flagging an API-500 regression in smoke tests.
 - [Drizzle wraps pg errors under .cause](drizzle-pg-error-cause.md) — SQLSTATE codes (e.g. 23505) live on err.cause not err.code through drizzle; SQLSTATE classifiers must walk the cause chain.
