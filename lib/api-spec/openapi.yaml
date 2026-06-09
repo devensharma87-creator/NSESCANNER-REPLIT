@@ -964,6 +964,31 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SymbolDiagnostic" }
 
+  /data/compare:
+    post:
+      operationId: compareDataProviders
+      tags: [market]
+      summary: Side-by-side authoritative Kite vs secondary INDstocks for requested symbols (cross-validation verdict per symbol). Owner-only, read-only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DataCompareRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DataCompareResponse" }
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+
   /indices:
     get:
       operationId: getIndicesBoard
@@ -3635,9 +3660,16 @@ components:
           additionalProperties: true
     DataDiagnostics:
       type: object
-      required: [generatedAt, policy, authoritative, providers]
+      required: [generatedAt, policy, authoritative, providers, indstocks]
       properties:
         generatedAt: { type: string, format: date-time }
+        indstocks:
+          type: object
+          required: [health, mapSync, validation]
+          properties:
+            health: { $ref: "#/components/schemas/IndstocksHealth" }
+            mapSync: { $ref: "#/components/schemas/MapSyncStats" }
+            validation: { $ref: "#/components/schemas/ValidationDayStats" }
         policy:
           type: object
           required: [strictFreshness, strictMismatch, freshnessBudgetSec, staleBudgetSec, indstocksEnabled]
@@ -3667,9 +3699,95 @@ components:
         volume: { type: number }
         meta: { $ref: "#/components/schemas/DataMeta" }
         tradeable: { type: boolean }
+    MarketQuoteDto:
+      type: object
+      description: An unbranded market quote (no tradeable guarantee) — used for secondary INDstocks quotes.
+      required: [symbol, lastPrice, meta]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        lastPrice: { type: number }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        previousClose: { type: number }
+        change: { type: number }
+        changePercent: { type: number }
+        volume: { type: number }
+        meta: { $ref: "#/components/schemas/DataMeta" }
+    MappingCounts:
+      type: object
+      required: [VERIFIED, UNVERIFIED, CONFLICT, EXPIRED]
+      properties:
+        VERIFIED: { type: integer }
+        UNVERIFIED: { type: integer }
+        CONFLICT: { type: integer }
+        EXPIRED: { type: integer }
+    MapSyncStats:
+      type: object
+      required: [lastSyncAt, lastSyncSource, counts, total]
+      properties:
+        lastSyncAt: { type: string, format: date-time, nullable: true }
+        lastSyncSource: { type: string, nullable: true }
+        counts: { $ref: "#/components/schemas/MappingCounts" }
+        total: { type: integer }
+    IndstocksHealth:
+      type: object
+      required: [enabled, reachable, reason]
+      properties:
+        enabled: { type: boolean }
+        reachable: { type: boolean }
+        reason: { type: string }
+        lastProbeAt: { type: string, format: date-time, nullable: true }
+        lastError: { type: string, nullable: true }
+    ValidationDayStats:
+      type: object
+      required: [istDate, matched, warning, conflict, failovers, validations, lastValidationAt, lastFailoverAt]
+      properties:
+        istDate: { type: string }
+        matched: { type: integer }
+        warning: { type: integer }
+        conflict: { type: integer }
+        failovers: { type: integer }
+        validations: { type: integer }
+        lastValidationAt: { type: string, format: date-time, nullable: true }
+        lastFailoverAt: { type: string, format: date-time, nullable: true }
+    FieldComparison:
+      type: object
+      required: [field, kite, indstocks, diffPct, verdict, informationalOnly]
+      properties:
+        field: { type: string }
+        kite: { type: number, nullable: true }
+        indstocks: { type: number, nullable: true }
+        diffPct: { type: number, nullable: true }
+        verdict: { type: string, enum: [MATCH, WARN, CONFLICT, NA] }
+        informationalOnly: { type: boolean }
+    ValidationResult:
+      type: object
+      required: [verdict, blockSignal, mismatchPct, fields, reason]
+      properties:
+        verdict: { type: string, enum: [MATCHED, WARNING, DATA_CONFLICT] }
+        blockSignal: { type: boolean }
+        mismatchPct: { type: number, nullable: true }
+        fields:
+          type: array
+          items: { $ref: "#/components/schemas/FieldComparison" }
+        reason: { type: string }
+    SymbolIndstocksDiagnostic:
+      type: object
+      required: [mappingOk, reason, quote, validation]
+      properties:
+        mappingOk: { type: boolean }
+        reason: { type: string, nullable: true }
+        quote:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/MarketQuoteDto" }]
+        validation:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/ValidationResult" }]
     SymbolDiagnostic:
       type: object
-      required: [symbol, generatedAt, tradeable, reason, quote]
+      required: [symbol, generatedAt, tradeable, reason, quote, indstocks]
       properties:
         symbol: { type: string }
         generatedAt: { type: string, format: date-time }
@@ -3678,6 +3796,44 @@ components:
         quote:
           nullable: true
           allOf: [{ $ref: "#/components/schemas/TrustedQuoteDto" }]
+        indstocks:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/SymbolIndstocksDiagnostic" }]
+    DataCompareRequest:
+      type: object
+      required: [symbols]
+      properties:
+        symbols:
+          type: array
+          items: { type: string }
+          description: Up to 50 distinct symbols to compare.
+        assetClass:
+          type: string
+          enum: [EQUITY, INDEX, FUT, OPT]
+          description: Defaults to EQUITY.
+    DataCompareRow:
+      type: object
+      required: [symbol, kite, kiteReason, indstocks]
+      properties:
+        symbol: { type: string }
+        kite:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/TrustedQuoteDto" }]
+        kiteReason: { type: string, nullable: true }
+        indstocks:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/SymbolIndstocksDiagnostic" }]
+    DataCompareResponse:
+      type: object
+      required: [generatedAt, indstocksEnabled, assetClass, authoritative, rows]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        indstocksEnabled: { type: boolean }
+        assetClass: { type: string, enum: [EQUITY, INDEX, FUT, OPT] }
+        authoritative: { type: string, enum: [kite] }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/DataCompareRow" }
 
     OptionChainSide:
       type: object

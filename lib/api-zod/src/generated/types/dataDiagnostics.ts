@@ -6,11 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { DataDiagnosticsAuthoritative } from "./dataDiagnosticsAuthoritative";
+import type { DataDiagnosticsIndstocks } from "./dataDiagnosticsIndstocks";
 import type { DataDiagnosticsPolicy } from "./dataDiagnosticsPolicy";
 import type { DataProviderDiagnostic } from "./dataProviderDiagnostic";
 
 export interface DataDiagnostics {
   generatedAt: Date;
+  indstocks: DataDiagnosticsIndstocks;
   policy: DataDiagnosticsPolicy;
   authoritative: DataDiagnosticsAuthoritative;
   providers: DataProviderDiagnostic[];

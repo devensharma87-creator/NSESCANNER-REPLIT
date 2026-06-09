@@ -6108,6 +6108,36 @@ export const GetWatchlistBasketResponse = zod.object({
  */
 export const GetDataDiagnosticsResponse = zod.object({
   generatedAt: zod.coerce.date(),
+  indstocks: zod.object({
+    health: zod.object({
+      enabled: zod.boolean(),
+      reachable: zod.boolean(),
+      reason: zod.string(),
+      lastProbeAt: zod.coerce.date().nullish(),
+      lastError: zod.string().nullish(),
+    }),
+    mapSync: zod.object({
+      lastSyncAt: zod.coerce.date().nullable(),
+      lastSyncSource: zod.string().nullable(),
+      counts: zod.object({
+        VERIFIED: zod.number(),
+        UNVERIFIED: zod.number(),
+        CONFLICT: zod.number(),
+        EXPIRED: zod.number(),
+      }),
+      total: zod.number(),
+    }),
+    validation: zod.object({
+      istDate: zod.string(),
+      matched: zod.number(),
+      warning: zod.number(),
+      conflict: zod.number(),
+      failovers: zod.number(),
+      validations: zod.number(),
+      lastValidationAt: zod.coerce.date().nullable(),
+      lastFailoverAt: zod.coerce.date().nullable(),
+    }),
+  }),
   policy: zod.object({
     strictFreshness: zod.boolean(),
     strictMismatch: zod.boolean(),
@@ -6178,6 +6208,204 @@ export const GetSymbolDiagnosticResponse = zod.object({
       tradeable: zod.boolean(),
     })
     .nullable(),
+  indstocks: zod
+    .object({
+      mappingOk: zod.boolean(),
+      reason: zod.string().nullable(),
+      quote: zod
+        .object({
+          symbol: zod.string(),
+          name: zod.string().optional(),
+          lastPrice: zod.number(),
+          open: zod.number().optional(),
+          high: zod.number().optional(),
+          low: zod.number().optional(),
+          previousClose: zod.number().optional(),
+          change: zod.number().optional(),
+          changePercent: zod.number().optional(),
+          volume: zod.number().optional(),
+          meta: zod.object({
+            source: zod.enum(["kite", "indstocks", "yahoo", "cache", "none"]),
+            trustTier: zod.enum([
+              "authoritative",
+              "secondary_validation",
+              "secondary_analytics",
+            ]),
+            asOf: zod.coerce.date().nullable(),
+            fetchedAt: zod.coerce.date(),
+            freshnessSec: zod.number().nullable(),
+            isStale: zod.boolean(),
+            delayed: zod.boolean(),
+            notForSignals: zod.boolean(),
+            validationStatus: zod.enum([
+              "validated",
+              "unvalidated",
+              "incomplete",
+              "stale",
+              "mismatch",
+              "unavailable",
+            ]),
+            warnings: zod.array(zod.string()),
+          }),
+        })
+        .describe(
+          "An unbranded market quote (no tradeable guarantee) — used for secondary INDstocks quotes.",
+        )
+        .nullable(),
+      validation: zod
+        .object({
+          verdict: zod.enum(["MATCHED", "WARNING", "DATA_CONFLICT"]),
+          blockSignal: zod.boolean(),
+          mismatchPct: zod.number().nullable(),
+          fields: zod.array(
+            zod.object({
+              field: zod.string(),
+              kite: zod.number().nullable(),
+              indstocks: zod.number().nullable(),
+              diffPct: zod.number().nullable(),
+              verdict: zod.enum(["MATCH", "WARN", "CONFLICT", "NA"]),
+              informationalOnly: zod.boolean(),
+            }),
+          ),
+          reason: zod.string(),
+        })
+        .nullable(),
+    })
+    .nullable(),
+});
+
+/**
+ * @summary Side-by-side authoritative Kite vs secondary INDstocks for requested symbols (cross-validation verdict per symbol). Owner-only, read-only.
+ */
+export const CompareDataProvidersBody = zod.object({
+  symbols: zod
+    .array(zod.string())
+    .describe("Up to 50 distinct symbols to compare."),
+  assetClass: zod
+    .enum(["EQUITY", "INDEX", "FUT", "OPT"])
+    .optional()
+    .describe("Defaults to EQUITY."),
+});
+
+export const CompareDataProvidersResponse = zod.object({
+  generatedAt: zod.coerce.date(),
+  indstocksEnabled: zod.boolean(),
+  assetClass: zod.enum(["EQUITY", "INDEX", "FUT", "OPT"]),
+  authoritative: zod.enum(["kite"]),
+  rows: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      kite: zod
+        .object({
+          symbol: zod.string(),
+          name: zod.string().optional(),
+          lastPrice: zod.number(),
+          open: zod.number().optional(),
+          high: zod.number().optional(),
+          low: zod.number().optional(),
+          previousClose: zod.number().optional(),
+          change: zod.number().optional(),
+          changePercent: zod.number().optional(),
+          volume: zod.number().optional(),
+          meta: zod.object({
+            source: zod.enum(["kite", "indstocks", "yahoo", "cache", "none"]),
+            trustTier: zod.enum([
+              "authoritative",
+              "secondary_validation",
+              "secondary_analytics",
+            ]),
+            asOf: zod.coerce.date().nullable(),
+            fetchedAt: zod.coerce.date(),
+            freshnessSec: zod.number().nullable(),
+            isStale: zod.boolean(),
+            delayed: zod.boolean(),
+            notForSignals: zod.boolean(),
+            validationStatus: zod.enum([
+              "validated",
+              "unvalidated",
+              "incomplete",
+              "stale",
+              "mismatch",
+              "unavailable",
+            ]),
+            warnings: zod.array(zod.string()),
+          }),
+          tradeable: zod.boolean(),
+        })
+        .nullable(),
+      kiteReason: zod.string().nullable(),
+      indstocks: zod
+        .object({
+          mappingOk: zod.boolean(),
+          reason: zod.string().nullable(),
+          quote: zod
+            .object({
+              symbol: zod.string(),
+              name: zod.string().optional(),
+              lastPrice: zod.number(),
+              open: zod.number().optional(),
+              high: zod.number().optional(),
+              low: zod.number().optional(),
+              previousClose: zod.number().optional(),
+              change: zod.number().optional(),
+              changePercent: zod.number().optional(),
+              volume: zod.number().optional(),
+              meta: zod.object({
+                source: zod.enum([
+                  "kite",
+                  "indstocks",
+                  "yahoo",
+                  "cache",
+                  "none",
+                ]),
+                trustTier: zod.enum([
+                  "authoritative",
+                  "secondary_validation",
+                  "secondary_analytics",
+                ]),
+                asOf: zod.coerce.date().nullable(),
+                fetchedAt: zod.coerce.date(),
+                freshnessSec: zod.number().nullable(),
+                isStale: zod.boolean(),
+                delayed: zod.boolean(),
+                notForSignals: zod.boolean(),
+                validationStatus: zod.enum([
+                  "validated",
+                  "unvalidated",
+                  "incomplete",
+                  "stale",
+                  "mismatch",
+                  "unavailable",
+                ]),
+                warnings: zod.array(zod.string()),
+              }),
+            })
+            .describe(
+              "An unbranded market quote (no tradeable guarantee) — used for secondary INDstocks quotes.",
+            )
+            .nullable(),
+          validation: zod
+            .object({
+              verdict: zod.enum(["MATCHED", "WARNING", "DATA_CONFLICT"]),
+              blockSignal: zod.boolean(),
+              mismatchPct: zod.number().nullable(),
+              fields: zod.array(
+                zod.object({
+                  field: zod.string(),
+                  kite: zod.number().nullable(),
+                  indstocks: zod.number().nullable(),
+                  diffPct: zod.number().nullable(),
+                  verdict: zod.enum(["MATCH", "WARN", "CONFLICT", "NA"]),
+                  informationalOnly: zod.boolean(),
+                }),
+              ),
+              reason: zod.string(),
+            })
+            .nullable(),
+        })
+        .nullable(),
+    }),
+  ),
 });
 
 /**

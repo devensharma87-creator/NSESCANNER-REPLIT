@@ -2368,6 +2368,45 @@ export interface DataProviderDiagnostic {
   health: DataProviderDiagnosticHealth;
 }
 
+export interface IndstocksHealth {
+  enabled: boolean;
+  reachable: boolean;
+  reason: string;
+  lastProbeAt?: string | null;
+  lastError?: string | null;
+}
+
+export interface MappingCounts {
+  VERIFIED: number;
+  UNVERIFIED: number;
+  CONFLICT: number;
+  EXPIRED: number;
+}
+
+export interface MapSyncStats {
+  lastSyncAt: string | null;
+  lastSyncSource: string | null;
+  counts: MappingCounts;
+  total: number;
+}
+
+export interface ValidationDayStats {
+  istDate: string;
+  matched: number;
+  warning: number;
+  conflict: number;
+  failovers: number;
+  validations: number;
+  lastValidationAt: string | null;
+  lastFailoverAt: string | null;
+}
+
+export type DataDiagnosticsIndstocks = {
+  health: IndstocksHealth;
+  mapSync: MapSyncStats;
+  validation: ValidationDayStats;
+};
+
 export type DataDiagnosticsPolicy = {
   strictFreshness: boolean;
   strictMismatch: boolean;
@@ -2385,6 +2424,7 @@ export const DataDiagnosticsAuthoritative = {
 
 export interface DataDiagnostics {
   generatedAt: string;
+  indstocks: DataDiagnosticsIndstocks;
   policy: DataDiagnosticsPolicy;
   authoritative: DataDiagnosticsAuthoritative;
   providers: DataProviderDiagnostic[];
@@ -2405,12 +2445,125 @@ export interface TrustedQuoteDto {
   tradeable: boolean;
 }
 
+/**
+ * An unbranded market quote (no tradeable guarantee) — used for secondary INDstocks quotes.
+ */
+export interface MarketQuoteDto {
+  symbol: string;
+  name?: string;
+  lastPrice: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  previousClose?: number;
+  change?: number;
+  changePercent?: number;
+  volume?: number;
+  meta: DataMeta;
+}
+
+export type FieldComparisonVerdict =
+  (typeof FieldComparisonVerdict)[keyof typeof FieldComparisonVerdict];
+
+export const FieldComparisonVerdict = {
+  MATCH: "MATCH",
+  WARN: "WARN",
+  CONFLICT: "CONFLICT",
+  NA: "NA",
+} as const;
+
+export interface FieldComparison {
+  field: string;
+  kite: number | null;
+  indstocks: number | null;
+  diffPct: number | null;
+  verdict: FieldComparisonVerdict;
+  informationalOnly: boolean;
+}
+
+export type ValidationResultVerdict =
+  (typeof ValidationResultVerdict)[keyof typeof ValidationResultVerdict];
+
+export const ValidationResultVerdict = {
+  MATCHED: "MATCHED",
+  WARNING: "WARNING",
+  DATA_CONFLICT: "DATA_CONFLICT",
+} as const;
+
+export interface ValidationResult {
+  verdict: ValidationResultVerdict;
+  blockSignal: boolean;
+  mismatchPct: number | null;
+  fields: FieldComparison[];
+  reason: string;
+}
+
+export interface SymbolIndstocksDiagnostic {
+  mappingOk: boolean;
+  reason: string | null;
+  quote: MarketQuoteDto | null;
+  validation: ValidationResult | null;
+}
+
 export interface SymbolDiagnostic {
   symbol: string;
   generatedAt: string;
   tradeable: boolean;
   reason: string | null;
   quote: TrustedQuoteDto | null;
+  indstocks: SymbolIndstocksDiagnostic | null;
+}
+
+/**
+ * Defaults to EQUITY.
+ */
+export type DataCompareRequestAssetClass =
+  (typeof DataCompareRequestAssetClass)[keyof typeof DataCompareRequestAssetClass];
+
+export const DataCompareRequestAssetClass = {
+  EQUITY: "EQUITY",
+  INDEX: "INDEX",
+  FUT: "FUT",
+  OPT: "OPT",
+} as const;
+
+export interface DataCompareRequest {
+  /** Up to 50 distinct symbols to compare. */
+  symbols: string[];
+  /** Defaults to EQUITY. */
+  assetClass?: DataCompareRequestAssetClass;
+}
+
+export interface DataCompareRow {
+  symbol: string;
+  kite: TrustedQuoteDto | null;
+  kiteReason: string | null;
+  indstocks: SymbolIndstocksDiagnostic | null;
+}
+
+export type DataCompareResponseAssetClass =
+  (typeof DataCompareResponseAssetClass)[keyof typeof DataCompareResponseAssetClass];
+
+export const DataCompareResponseAssetClass = {
+  EQUITY: "EQUITY",
+  INDEX: "INDEX",
+  FUT: "FUT",
+  OPT: "OPT",
+} as const;
+
+export type DataCompareResponseAuthoritative =
+  (typeof DataCompareResponseAuthoritative)[keyof typeof DataCompareResponseAuthoritative];
+
+export const DataCompareResponseAuthoritative = {
+  kite: "kite",
+} as const;
+
+export interface DataCompareResponse {
+  generatedAt: string;
+  indstocksEnabled: boolean;
+  assetClass: DataCompareResponseAssetClass;
+  authoritative: DataCompareResponseAuthoritative;
+  rows: DataCompareRow[];
 }
 
 export type OptionChainSideMoneyness =
@@ -4835,6 +4988,10 @@ export type GetNewsParams = {
 
 export type GetWatchlistBasket400 = {
   error: string;
+};
+
+export type CompareDataProviders400 = {
+  error?: string;
 };
 
 export type ListGlobalInstrumentsParams = {

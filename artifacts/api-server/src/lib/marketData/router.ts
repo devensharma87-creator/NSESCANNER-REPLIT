@@ -14,9 +14,13 @@
  */
 
 import * as kite from "./kiteProvider";
-import { isIndstocksEnabled } from "./indstocksProvider";
+import { isIndstocksEnabled, getFullQuotes } from "./indstocksProvider";
 import { assertTradeable, isTradeableMeta } from "./guard";
-import { unavailableMeta } from "./validator";
+import { unavailableMeta, isQuoteComplete } from "./validator";
+import { getVerifiedIndstocksScrip } from "./instrumentMapStore";
+import { validateQuotePair, type ValidationResult } from "./sourceValidation";
+import { recordValidation, recordFailover } from "./validationStats";
+import type { InstrumentAssetClass } from "@workspace/db";
 import type {
   BatchQuoteResult,
   CandleSeries,
@@ -24,6 +28,7 @@ import type {
   MarketDataResult,
   MarketQuote,
   MissingSymbol,
+  ProviderName,
   TrustedCandleSeries,
   TrustedQuote,
 } from "./types";
@@ -189,6 +194,166 @@ export async function getEquityCandles(
     };
   }
   return { ok: true, data: series as TrustedCandleSeries, meta: series.meta };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// INDstocks cross-validation + explicit failover (secondary tier).
+//
+// These NEVER return a branded TrustedQuote — INDstocks is secondary_validation,
+// so the guard would (correctly) reject it. They return UNBRANDED quotes plus a
+// loud, visible warning. No consumer wired here may feed a signal/trade off an
+// INDstocks failover; surfacing it honestly is the whole point. Full signal-path
+// blocking on DATA_CONFLICT is deferred to task #124.
+// ───────────────────────────────────────────────────────────────────────────
+
+export interface CrossValidation {
+  symbol: string;
+  /** Whether a VERIFIED INDstocks mapping was usable. */
+  mappingOk: boolean;
+  /** Mapping/availability reason when validation could not run. */
+  reason: string | null;
+  /** The secondary INDstocks quote, when fetched. */
+  indstocks: MarketQuote | null;
+  /** The comparison verdict, when both quotes were available. */
+  result: ValidationResult | null;
+}
+
+export interface ResolvedQuote {
+  ok: boolean;
+  /** Unbranded quote — Kite-authoritative on the happy path, INDstocks on failover. */
+  data: MarketQuote | null;
+  meta: DataMeta;
+  source: ProviderName;
+  /** True when this came from INDstocks because Kite was unavailable. */
+  failover: boolean;
+  /** Cross-provider validation result (only on the Kite happy path). */
+  validation: ValidationResult | null;
+  reason?: string;
+}
+
+/**
+ * Cross-validate an already-fetched authoritative Kite quote against INDstocks.
+ * No-ops honestly (mappingOk=false + reason) when INDstocks is disabled, the
+ * mapping is not VERIFIED, or the secondary quote is unavailable — it NEVER
+ * throws into the caller and NEVER mutates the Kite quote.
+ */
+export async function validateAgainstIndstocks(
+  symbol: string,
+  kiteQuote: MarketQuote,
+  assetClass: InstrumentAssetClass = "EQUITY",
+): Promise<CrossValidation> {
+  const sym = symbol.toUpperCase();
+  if (!isIndstocksEnabled()) {
+    return { symbol: sym, mappingOk: false, reason: "INDstocks disabled.", indstocks: null, result: null };
+  }
+  const resolved = await getVerifiedIndstocksScrip(sym, assetClass).catch((e) => ({
+    ok: false,
+    scripCode: null,
+    securityId: null,
+    status: "MISSING" as const,
+    reason: e instanceof Error ? e.message : String(e),
+  }));
+  if (!resolved.ok || !resolved.scripCode) {
+    return { symbol: sym, mappingOk: false, reason: resolved.reason, indstocks: null, result: null };
+  }
+  const quotes = await getFullQuotes(new Map([[sym, resolved.scripCode]])).catch((e) => {
+    void e;
+    return null;
+  });
+  const ind = quotes?.get(sym) ?? null;
+  if (!ind) {
+    return { symbol: sym, mappingOk: true, reason: "No INDstocks quote returned.", indstocks: null, result: null };
+  }
+  // Only cross-validate (and record a verdict) against a COMPLETE secondary
+  // quote — otherwise the validation stats would overstate how often INDstocks
+  // actually agreed/diverged. Incomplete quotes are surfaced honestly, not scored.
+  if (!isQuoteComplete(ind) || ind.meta.validationStatus === "incomplete") {
+    return { symbol: sym, mappingOk: true, reason: "INDstocks quote incomplete; cross-validation skipped.", indstocks: ind, result: null };
+  }
+  const result = validateQuotePair(kiteQuote, ind);
+  recordValidation(result.verdict);
+  return { symbol: sym, mappingOk: true, reason: null, indstocks: ind, result };
+}
+
+/** INDstocks failover — only when mapping VERIFIED, quote complete + just-fetched. */
+async function tryIndstocksFailover(
+  symbol: string,
+  assetClass: InstrumentAssetClass,
+): Promise<ResolvedQuote | null> {
+  const sym = symbol.toUpperCase();
+  const resolved = await getVerifiedIndstocksScrip(sym, assetClass).catch(() => null);
+  if (!resolved || !resolved.ok || !resolved.scripCode) return null;
+  const quotes = await getFullQuotes(new Map([[sym, resolved.scripCode]])).catch(() => null);
+  const ind = quotes?.get(sym) ?? null;
+  // Completeness gate: require a fully-formed quote (positive last price AND a
+  // previous close), not merely ltp>0 — an incomplete secondary quote must never
+  // stand in for the authoritative feed. The quote is freshly fetched here, so
+  // "freshness" is satisfied by the fetch + the loud fetch-based-freshness
+  // warning the provider already attaches (INDstocks REST has no server stamp).
+  if (!ind || !isQuoteComplete(ind) || ind.meta.validationStatus === "incomplete") return null;
+
+  const warnings = [
+    "FAILOVER: Kite unavailable — served by INDstocks (secondary validation tier). " +
+      "NOT authoritative; must not power trade/signal execution.",
+    ...ind.meta.warnings,
+  ];
+  const meta: DataMeta = { ...ind.meta, warnings };
+  recordFailover();
+  return {
+    ok: true,
+    data: { ...ind, meta },
+    meta,
+    source: "indstocks",
+    failover: true,
+    validation: null,
+  };
+}
+
+/**
+ * Resolved equity quote — the failover-aware entry point.
+ *   1. Always tries authoritative Kite first.
+ *   2. On success, opportunistically cross-validates against INDstocks (the
+ *      validation is attached but the returned quote stays Kite-authoritative).
+ *   3. ONLY if Kite is unavailable AND INDstocks is enabled with a VERIFIED,
+ *      complete, just-fetched quote does it fail over — clearly flagged
+ *      (source=indstocks, failover=true, loud warning), never branded tradeable.
+ */
+export async function getEquityQuoteResolved(
+  symbol: string,
+  assetClass: InstrumentAssetClass = "EQUITY",
+): Promise<ResolvedQuote> {
+  const sym = symbol.toUpperCase();
+  const primary = await getEquityQuote(sym);
+  if (primary.ok && primary.data) {
+    let validation: ValidationResult | null = null;
+    if (isIndstocksEnabled()) {
+      const cv = await validateAgainstIndstocks(sym, primary.data, assetClass).catch(() => null);
+      validation = cv?.result ?? null;
+    }
+    return {
+      ok: true,
+      data: primary.data,
+      meta: primary.meta,
+      source: "kite",
+      failover: false,
+      validation,
+    };
+  }
+
+  if (isIndstocksEnabled()) {
+    const fo = await tryIndstocksFailover(sym, assetClass).catch(() => null);
+    if (fo) return fo;
+  }
+
+  return {
+    ok: false,
+    data: null,
+    meta: primary.meta,
+    source: "kite",
+    failover: false,
+    validation: null,
+    reason: primary.reason,
+  };
 }
 
 export { isIndstocksEnabled };

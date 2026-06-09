@@ -8,11 +8,9 @@
 import type { SymbolIndstocksDiagnostic } from "./symbolIndstocksDiagnostic";
 import type { TrustedQuoteDto } from "./trustedQuoteDto";
 
-export interface SymbolDiagnostic {
+export interface DataCompareRow {
   symbol: string;
-  generatedAt: Date;
-  tradeable: boolean;
-  reason: string | null;
-  quote: TrustedQuoteDto | null;
+  kite: TrustedQuoteDto | null;
+  kiteReason: string | null;
   indstocks: SymbolIndstocksDiagnostic | null;
 }

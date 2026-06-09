@@ -28,8 +28,11 @@ import type {
   BasketResponse,
   ChartCandlesResponse,
   ChartInstrumentsResponse,
+  CompareDataProviders400,
   CustomStrategyRequest,
   CustomStrategyResponse,
+  DataCompareRequest,
+  DataCompareResponse,
   DataDiagnostics,
   EtfNav,
   EtfQuote,
@@ -5007,6 +5010,93 @@ export function useGetSymbolDiagnostic<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Side-by-side authoritative Kite vs secondary INDstocks for requested symbols (cross-validation verdict per symbol). Owner-only, read-only.
+ */
+export const getCompareDataProvidersUrl = () => {
+  return `/api/data/compare`;
+};
+
+export const compareDataProviders = async (
+  dataCompareRequest: DataCompareRequest,
+  options?: RequestInit,
+): Promise<DataCompareResponse> => {
+  return customFetch<DataCompareResponse>(getCompareDataProvidersUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(dataCompareRequest),
+  });
+};
+
+export const getCompareDataProvidersMutationOptions = <
+  TError = ErrorType<CompareDataProviders400>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof compareDataProviders>>,
+    TError,
+    { data: BodyType<DataCompareRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof compareDataProviders>>,
+  TError,
+  { data: BodyType<DataCompareRequest> },
+  TContext
+> => {
+  const mutationKey = ["compareDataProviders"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof compareDataProviders>>,
+    { data: BodyType<DataCompareRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return compareDataProviders(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CompareDataProvidersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof compareDataProviders>>
+>;
+export type CompareDataProvidersMutationBody = BodyType<DataCompareRequest>;
+export type CompareDataProvidersMutationError =
+  ErrorType<CompareDataProviders400>;
+
+/**
+ * @summary Side-by-side authoritative Kite vs secondary INDstocks for requested symbols (cross-validation verdict per symbol). Owner-only, read-only.
+ */
+export const useCompareDataProviders = <
+  TError = ErrorType<CompareDataProviders400>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof compareDataProviders>>,
+    TError,
+    { data: BodyType<DataCompareRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof compareDataProviders>>,
+  TError,
+  { data: BodyType<DataCompareRequest> },
+  TContext
+> => {
+  return useMutation(getCompareDataProvidersMutationOptions(options));
+};
 
 /**
  * @summary Indices board — Indian + global benchmarks + commodities with full fact pack

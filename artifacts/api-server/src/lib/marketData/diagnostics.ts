@@ -6,9 +6,13 @@
 
 import { getPolicy } from "./policy";
 import { kiteHealth, kiteSessionActive } from "./kiteProvider";
-import { indstocksHealth } from "./indstocksProvider";
-import { getEquityQuote } from "./router";
+import { indstocksHealth, type IndstocksHealth } from "./indstocksProvider";
+import { getEquityQuote, validateAgainstIndstocks } from "./router";
+import { getMapSyncStats, type MapSyncStats } from "./instrumentMapStore";
+import { getValidationStats, type ValidationDayStats } from "./validationStats";
+import type { ValidationResult } from "./sourceValidation";
 import type { MarketQuote } from "./types";
+import type { InstrumentAssetClass } from "@workspace/db";
 
 export type ProviderState = "active" | "degraded" | "inactive" | "disabled";
 
@@ -33,6 +37,12 @@ export interface DataDiagnostics {
   /** The authoritative source for prices/signals/valuation/F&O. */
   authoritative: "kite";
   providers: ProviderDiagnostic[];
+  /** Secondary-provider (INDstocks) health, mapping sync + validation counters. */
+  indstocks: {
+    health: IndstocksHealth;
+    mapSync: MapSyncStats;
+    validation: ValidationDayStats;
+  };
 }
 
 export function buildDataDiagnostics(): DataDiagnostics {
@@ -56,6 +66,11 @@ export function buildDataDiagnostics(): DataDiagnostics {
   return {
     generatedAt: new Date().toISOString(),
     authoritative: "kite",
+    indstocks: {
+      health: ih,
+      mapSync: getMapSyncStats(),
+      validation: getValidationStats(),
+    },
     policy: {
       strictFreshness: policy.strictFreshness,
       strictMismatch: policy.strictMismatch,
@@ -101,26 +116,47 @@ export interface SymbolDiagnostic {
   tradeable: boolean;
   reason: string | null;
   quote: (MarketQuote & { tradeable: boolean }) | null;
+  /** Secondary INDstocks cross-check (null when disabled / no mapping / no quote). */
+  indstocks: {
+    mappingOk: boolean;
+    reason: string | null;
+    quote: MarketQuote | null;
+    validation: ValidationResult | null;
+  } | null;
 }
 
 /** Per-symbol diagnostic — shows exactly what the trusted layer would return. */
-export async function buildSymbolDiagnostic(symbol: string): Promise<SymbolDiagnostic> {
+export async function buildSymbolDiagnostic(
+  symbol: string,
+  assetClass: InstrumentAssetClass = "EQUITY",
+): Promise<SymbolDiagnostic> {
   const sym = symbol.toUpperCase();
   const r = await getEquityQuote(sym);
-  if (r.ok && r.data) {
-    return {
-      symbol: sym,
-      generatedAt: new Date().toISOString(),
-      tradeable: true,
-      reason: null,
-      quote: { ...(r.data as MarketQuote), tradeable: true },
-    };
+  const tradeable = r.ok && !!r.data;
+  const quote = tradeable ? { ...(r.data as MarketQuote), tradeable: true } : null;
+
+  let indstocks: SymbolDiagnostic["indstocks"] = null;
+  if (getPolicy().indstocksEnabled && r.ok && r.data) {
+    const cv = await validateAgainstIndstocks(sym, r.data, assetClass).catch((e) => {
+      void e;
+      return null;
+    });
+    if (cv) {
+      indstocks = {
+        mappingOk: cv.mappingOk,
+        reason: cv.reason,
+        quote: cv.indstocks,
+        validation: cv.result,
+      };
+    }
   }
+
   return {
     symbol: sym,
     generatedAt: new Date().toISOString(),
-    tradeable: false,
-    reason: r.reason ?? "Unavailable.",
-    quote: null,
+    tradeable,
+    reason: tradeable ? null : (r.reason ?? "Unavailable."),
+    quote,
+    indstocks,
   };
 }
