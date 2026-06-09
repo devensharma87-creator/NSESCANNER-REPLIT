@@ -10,3 +10,4 @@
 - [getEnvironmentLabel returns an object (React #31 trap)](fno-env-label-object-react31.md) — `/api/fno/*` `environment` field is `{env,autoTradingEnabled,reason}`, not a string; never render `/api/fno/*` fields raw in JSX.
 - [Backtester prod backfill is a no-op](backtester-prod-backfill-noop.md) — backtester was dev-only until 2026-06-07 publish; pre-fix off-session trades only ever existed in dev, prod starts clean.
 - [F&O dual tier vocab + tradeClass re-derive](fno-tier-vocab-tradeclass.md) — signal tier (HC/BASELINE) ≠ sizing tier (STANDARD/BASELINE/MICRO); re-derive tradeClass after any post-emission tier mutation (applyOiConfirmation).
+- [Watchlist scanner-primary](watchlist-scanner-primary.md) — watchlist rows must build from scanAll() scanner data; Yahoo only for off-universe symbols, else rate-limited per-symbol fetches drop rows → empty baskets.

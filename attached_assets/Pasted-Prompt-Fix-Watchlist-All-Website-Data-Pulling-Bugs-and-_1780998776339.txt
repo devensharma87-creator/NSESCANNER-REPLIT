@@ -1,0 +1,465 @@
+Prompt: Fix Watchlist + All Website Data Pulling Bugs and Data Paths
+
+You need to fix the website’s data pulling system properly. Do not do cosmetic UI patching. The issue is not just the Watchlist screen; it is a broken/incomplete data path problem.
+
+Current visible problem
+
+On the Watchlist tab:
+
+Most baskets show 0 stocks loaded:
+Nifty 50 = 0
+Nifty 100 = 0
+Nifty Midcap 100 = 0
+Nifty Smallcap 100 = 0
+Nifty 500 = 0
+Bank Nifty = 0
+Sensex 30 loads only 8 out of 30, with warning:
+stale: 22 / 30 missing
+Table says:
+No stocks match the current filter
+even when no filter is applied.
+Summary counters are wrong:
+Stocks = 0
+Advancers = 0
+Decliners = 0
+Trend Bias = 0 / 0
+
+This is unacceptable. The Watchlist must reliably load all basket constituents and quote data, with honest fallback and clear diagnostics.
+
+Objective
+
+Fix all data pulling bugs and broken data paths across the website, starting with Watchlist, but audit the full data layer so similar failures do not continue in other tabs.
+
+The final system must have:
+
+correct basket constituents
+correct symbol normalization
+correct provider routing
+correct fallback handling
+no fake/mock values
+no silent failures
+no “0 loaded” unless genuinely no data exists
+clear warnings when some symbols fail
+frontend must show partial data, not blank everything
+backend must expose diagnostic details for every failed symbol
+Strict Rules
+
+Do not hardcode random sample stocks.
+
+Do not hide errors in the UI.
+
+Do not make the frontend show fake data.
+
+Do not treat one failed symbol as a full basket failure.
+
+Do not break existing tabs.
+
+Do not change the UI design unless needed for diagnostics.
+
+Do not duplicate data-fetching logic in many places.
+
+Create one clean data pipeline and reuse it.
+
+Phase 1: Reproduce and Trace the Failure
+
+Start by reproducing the issue locally and in production.
+
+Check these baskets one by one:
+
+my-list
+sensex-30
+bank-nifty
+nifty-50
+nifty-100
+nifty-midcap-100
+nifty-smallcap-100
+nifty-500
+
+For each basket, record:
+
+frontend selected basket key
+API endpoint called
+request payload/query params
+backend route hit
+universe/basket source used
+symbols resolved
+provider selected
+quote response count
+missing symbols count
+frontend render count
+
+Add temporary debug logs if required, then remove or convert them to structured diagnostics.
+
+Phase 2: Fix Basket Universe Source
+
+Find where basket constituents are defined or loaded.
+
+Expected behavior:
+
+Nifty 50 should load around 50 symbols.
+Bank Nifty should load around 12 symbols.
+Sensex 30 should load around 30 symbols.
+Nifty 100 should load around 100 symbols.
+Nifty Midcap 100 should load around 100 symbols.
+Nifty Smallcap 100 should load around 100 symbols.
+Nifty 500 should load around 500 symbols or a controlled paginated/limited version with a visible note.
+
+If the app currently has missing or wrong basket definitions, fix them.
+
+Use a clean source of truth, for example:
+
+WATCHLIST_BASKETS = {
+    "nifty50": [...],
+    "banknifty": [...],
+    "sensex30": [...],
+    "nifty100": [...],
+    "niftymidcap100": [...],
+    "niftysmallcap100": [...],
+    "nifty500": [...]
+}
+
+But do not duplicate this in frontend and backend. Backend should be source of truth.
+
+Frontend should request the selected basket from backend.
+
+Phase 3: Fix Symbol Normalization
+
+This is likely one major bug.
+
+Create a single symbol normalization layer.
+
+Required mappings:
+
+UI symbol: RELIANCE
+NSE quote symbol: RELIANCE
+Yahoo symbol: RELIANCE.NS
+Kite instrument symbol: match Kite instrument master correctly
+Display name: Reliance Industries
+
+Sensex 30 is a BSE index, but most constituents are also NSE-listed. For quote fetching, use NSE symbols unless BSE quote support is explicitly implemented and tested.
+
+Make sure symbols are not wrongly passed as:
+
+NSE:RELIANCE to a provider that expects RELIANCE
+RELIANCE.NS to a provider that expects plain NSE symbol
+company name instead of trading symbol
+lowercase symbol
+symbol with spaces
+old/invalid instrument token
+
+Create functions like:
+
+normalize_symbol_for_provider(symbol, provider)
+resolve_instrument(symbol, exchange="NSE")
+to_yahoo_symbol(symbol)
+to_display_symbol(symbol)
+
+All quote paths must use this shared normalization logic.
+
+Phase 4: Fix Provider Routing
+
+Audit the full provider router.
+
+Current intended data stack:
+
+Zerodha Kite live data when session/token is active.
+Yahoo Finance fallback, delayed.
+NSE/cache fallback where available.
+Synthetic/mock data must not be used for production Watchlist.
+
+For every quote request, return a response like:
+
+{
+  "ok": true,
+  "basket": "nifty50",
+  "requested": 50,
+  "returned": 48,
+  "missing": 2,
+  "provider": "kite",
+  "fallback_used": false,
+  "asof": "...",
+  "market_phase": "...",
+  "warnings": [],
+  "items": [...]
+}
+
+If fallback is used:
+
+"provider": "yahoo",
+"fallback_used": true,
+"warnings": ["Kite session inactive, using Yahoo delayed quotes"]
+
+If some symbols fail:
+
+"missing_symbols": [
+  {
+    "symbol": "XYZ",
+    "reason": "instrument_not_found",
+    "provider": "kite"
+  }
+]
+
+Do not return a blank basket because 5 symbols failed.
+
+Phase 5: Fix Watchlist API Endpoint
+
+Create or repair a single clean endpoint:
+
+GET /api/watchlist/basket/{basket_key}
+
+or
+
+GET /api/watchlist?basket=nifty50
+
+Response must include:
+
+{
+  "ok": true,
+  "basket_key": "nifty50",
+  "basket_name": "Nifty 50",
+  "requested_count": 50,
+  "returned_count": 50,
+  "missing_count": 0,
+  "stale_count": 0,
+  "provider": "kite",
+  "fallback_provider": null,
+  "asof": "2026-06-09T...",
+  "auto_refresh_sec": 60,
+  "summary": {
+    "stocks": 50,
+    "advancers": 23,
+    "decliners": 24,
+    "unchanged": 3,
+    "bullish": 12,
+    "bearish": 18,
+    "neutral": 20
+  },
+  "items": [
+    {
+      "symbol": "RELIANCE",
+      "name": "Reliance Industries",
+      "last_price": 1259.0,
+      "change": -4.3,
+      "change_pct": -0.34,
+      "volume": 13100000,
+      "day_high": 1274.2,
+      "day_low": 1258.0,
+      "prev_close": 1263.3,
+      "rsi": 27,
+      "trend": "Neutral",
+      "asof": "...",
+      "source": "kite"
+    }
+  ],
+  "warnings": [],
+  "missing_symbols": []
+}
+
+If the market is closed, still show latest available data with proper stale warning.
+
+Phase 6: Fix Frontend Watchlist Loader
+
+Audit frontend files, likely:
+
+app.js
+index.html
+style.css
+
+Find the Watchlist loader function.
+
+Fix these problems:
+
+Basket click must call correct backend basket key.
+Loading state must show properly.
+Search filter must not accidentally filter everything.
+Bullish/Bearish/All filters must not hide all stocks by default.
+If backend returns partial data, render available rows.
+Summary counters must come from backend summary or computed from returned rows.
+Show warning badge only when truly missing/stale.
+Do not display No stocks match current filter unless:
+API returned rows but filter removed them, or
+API genuinely returned zero rows.
+
+Use different empty states:
+
+Loading watchlist...
+No stocks match the current filter.
+Data unavailable. Kite/Yahoo providers failed. Check diagnostics.
+Partial data loaded: 8 of 30 symbols. 22 missing.
+
+Right now the UI wrongly behaves like all empty cases are the same. Fix that.
+
+Phase 7: Add Data Diagnostics Panel / Endpoint
+
+Add a backend diagnostic endpoint:
+
+GET /api/data/diagnostics
+
+It should report:
+
+Kite connection status
+Kite token/session validity
+Yahoo fallback status
+NSE/cache status
+last successful quote pull time
+failed providers
+failed symbols
+current market phase
+server time
+data freshness
+environment flags
+whether production is using live provider or fallback
+
+Also add basket-level diagnostics:
+
+GET /api/watchlist/diagnostics?basket=nifty50
+
+This should show:
+
+requested symbols
+normalized symbols
+provider-specific symbols
+returned symbols
+missing symbols
+failure reason per symbol
+response time
+cache hit/miss
+Phase 8: Audit All Data Paths Across Website
+
+After fixing Watchlist, audit these sections for the same broken data path issue:
+
+Command Center
+Stock Intelligence
+Derivatives
+F&O Official Setups
+F&O Legacy Display
+Option Chain
+Market Pulse
+FII/DII
+Sector View
+Swing Scanner
+Deep Scanner
+Charting
+Portfolio
+Reports
+Risk Settings
+Data Feed page
+
+For each tab, verify:
+
+endpoint exists
+frontend calls correct endpoint
+response schema matches frontend expectation
+provider route works
+missing data is shown honestly
+no silent fallback to empty arrays
+no fake/mock data in production
+no stale cache shown as live data without warning
+
+Create a report:
+
+DATA_PATH_AUDIT.md
+
+For each page include:
+
+Page:
+Frontend function:
+Endpoint:
+Backend file:
+Provider used:
+Status: PASS / FIXED / FAIL
+Issue found:
+Fix applied:
+Remaining warning:
+Phase 9: Add Tests
+
+Add backend tests for:
+
+Basket universe count.
+Symbol normalization.
+Provider fallback.
+Partial quote response.
+Missing symbol diagnostics.
+Watchlist API schema.
+Frontend does not show empty state when rows exist.
+Filters work correctly.
+Stale data warning works.
+No mock data in production.
+
+Minimum acceptance checks:
+
+curl /api/watchlist/basket/nifty50
+curl /api/watchlist/basket/banknifty
+curl /api/watchlist/basket/sensex30
+curl /api/watchlist/basket/nifty100
+curl /api/watchlist/basket/niftymidcap100
+curl /api/watchlist/basket/niftysmallcap100
+curl /api/watchlist/basket/nifty500
+curl /api/data/diagnostics
+
+Each should return valid JSON, not HTML errors, not empty arrays unless there is a clearly explained provider failure.
+
+Phase 10: Production Fix
+
+After local fix:
+
+Deploy to production.
+Hard refresh production site.
+Open Watchlist.
+Click every basket.
+Confirm rows load.
+Confirm summary counters update.
+Confirm warnings are accurate.
+Confirm no console errors.
+Confirm network tab has no failed API calls.
+Confirm production API base URL is correct.
+
+Check for these common production mistakes:
+
+frontend calling localhost
+wrong API base path
+CORS issue
+missing environment variables
+Kite token missing in production
+Yahoo fallback disabled
+stale build deployed
+service worker/browser cache serving old JS
+route mismatch between dev and prod
+Required Deliverables
+
+Return the following:
+
+Root cause summary.
+Files changed.
+Endpoints fixed/added.
+Before/after Watchlist result.
+Data path audit report.
+Provider diagnostics output.
+Test results.
+Production verification screenshots.
+Any remaining limitation clearly stated.
+Acceptance Criteria
+
+The task is complete only when:
+
+Sensex 30 loads close to 30 symbols or gives exact missing reasons.
+Bank Nifty loads close to 12 symbols.
+Nifty 50 loads close to 50 symbols.
+Nifty 100 loads close to 100 symbols.
+Nifty Midcap 100 loads close to 100 symbols.
+Nifty Smallcap 100 loads close to 100 symbols.
+Nifty 500 loads correctly or uses pagination/limit with honest notice.
+All summary cards show real values.
+Search/filter works.
+Bullish/Bearish filter works.
+Partial data is shown instead of blank screen.
+Missing symbols have reasons.
+Fallback provider is visible.
+Stale data is marked stale.
+No mock/synthetic production data is used.
+No console errors.
+No failed network calls.
+Production site works, not only local dev.
+Important instruction
+
+Be ruthless in fixing the actual data pipeline. Do not just make the screen look filled. The website is a market scanner, so wrong data or silently missing data is worse than no data. Fix the source of truth, provider routing, symbol mapping, endpoint schema, and frontend rendering together.

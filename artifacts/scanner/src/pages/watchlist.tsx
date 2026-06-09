@@ -241,6 +241,17 @@ export default function Watchlist() {
                         <TableCell colSpan={10} className="h-10"><Skeleton className="h-4 w-full" /></TableCell>
                       </TableRow>
                     ))
+                  ) : rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={10} className="text-center text-sm text-muted-foreground py-8">
+                        <div className="font-semibold text-foreground">No live data available for this basket yet</div>
+                        <p className="mt-1 max-w-md mx-auto">
+                          Quotes are served from the live scanner. If it is still warming up
+                          or the data provider is briefly unreachable, this fills in on the
+                          next auto-refresh (every 60s).
+                        </p>
+                      </TableCell>
+                    </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={10} className="text-center text-sm text-muted-foreground py-8">

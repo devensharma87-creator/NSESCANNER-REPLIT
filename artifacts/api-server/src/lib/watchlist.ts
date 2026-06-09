@@ -27,7 +27,7 @@ import {
   watchlistName,
 } from "./watchlistLists";
 import { getEntry } from "./universe";
-import type { Signal } from "@workspace/api-zod";
+import type { Signal, StockRow } from "@workspace/api-zod";
 
 function displayName(symbol: string): string {
   return getEntry(symbol)?.name ?? watchlistName(symbol);
@@ -263,6 +263,41 @@ async function buildRow(
 
 function round2(v: number): number { return Math.round(v * 100) / 100; }
 
+/**
+ * Build a watchlist row DIRECTLY from a live scanner row.
+ *
+ * The scanner (`scanAll`) is the app's Kite-first, real-time quote engine: it
+ * already holds genuine price/OHLC/volume (Kite tick → Yahoo meta, hard-gated
+ * against synthetic data) plus EMA20/EMA50/RSI14 and the full multi-factor
+ * system signal for the entire NSE EQ universe. For any basket constituent in
+ * that universe we reuse this data verbatim — no extra network call, and the
+ * watchlist trend/price stays perfectly consistent with the scanner page.
+ *
+ * Returns null only if the scanner row somehow lacks a real positive price /
+ * previous close (the scanner already rejects such rows, so this is defensive).
+ */
+export function rowFromScanner(r: StockRow): WatchlistRow | null {
+  const q = r.quote;
+  if (!(q.price > 0) || !(q.previousClose > 0)) return null;
+  const ind = r.indicators;
+  return {
+    symbol: r.symbol,
+    name: r.name ?? displayName(r.symbol),
+    livePrice: round2(q.price),
+    previousClose: round2(q.previousClose),
+    change: round2(q.change),
+    changePercent: +q.changePercent.toFixed(2),
+    open: round2(q.open),
+    todayHigh: round2(q.high),
+    todayLow: round2(q.low),
+    volume: q.volume,
+    ema20: ind?.ema20 != null ? round2(ind.ema20) : undefined,
+    ema50: ind?.ema50 != null ? round2(ind.ema50) : undefined,
+    rsi: ind?.rsi14 != null ? +ind.rsi14.toFixed(1) : undefined,
+    mcTrend: trendFromSignal(r.recommendation.signal),
+  };
+}
+
 export async function getWatchlist(key: WatchlistKey): Promise<WatchlistResponse> {
   const now = Date.now();
   const cached = cache.get(key);
@@ -270,35 +305,49 @@ export async function getWatchlist(key: WatchlistKey): Promise<WatchlistResponse
 
   const symbols = getWatchlistSymbols(key);
   const rows: WatchlistRow[] = [];
-  let cursor = 0;
   const t0 = Date.now();
 
-  // Pull cached scanner rows once so each watchlist item can read its full
-  // system signal without re-running the heavy multi-factor analysis.
-  // `scanAll()` is itself cached + in-flight-coalesced.
-  //
-  // In parallel, fetch the batch-quote map for every symbol in the basket.
-  // One HTTP call covers up to 150 symbols and uses Yahoo's quote endpoint
-  // (separate from the chart endpoint that occasionally rate-limits us).
-  // This map is the SAFETY NET: when a per-symbol chart call fails, the
-  // row is built from the batch quote instead of being dropped — that is
-  // what fixes the "Watchlist tab shows 0 stocks" outage.
-  const [scannerRows, batchQuotes] = await Promise.all([
-    scanAll().catch(() => [] as Awaited<ReturnType<typeof scanAll>>),
-    fetchYahooBatchQuotes(symbols, "NS").catch((err: unknown) => {
-      logger.warn({ key, err: (err as Error)?.message }, "watchlist batch-quote pass failed; chart-only");
-      return new Map<string, YahooBatchQuote>();
-    }),
-  ]);
-  const sigBySymbol = new Map<string, Signal>();
-  for (const r of scannerRows) sigBySymbol.set(r.symbol, r.recommendation.signal);
+  // PRIMARY source: the live Kite-first scanner cache. `scanAll()` already
+  // holds genuine real-time price/OHLC/volume + EMA20/EMA50/RSI14 + the full
+  // multi-factor system signal for the whole NSE EQ universe (~4000+ symbols),
+  // and is itself cached + in-flight-coalesced. Index-basket constituents are
+  // virtually all in that universe, so we build their rows DIRECTLY from the
+  // scan — zero extra network calls. This is the fix for the "Watchlist shows
+  // 0 stocks" outage: the watchlist previously IGNORED this Kite data and
+  // re-fetched every symbol from Yahoo's per-symbol chart endpoint, which
+  // rate-limits hard and dropped most rows.
+  const scannerRows = await scanAll().catch(() => [] as Awaited<ReturnType<typeof scanAll>>);
+  const rowBySymbol = new Map<string, StockRow>();
+  for (const r of scannerRows) rowBySymbol.set(r.symbol, r);
 
+  for (const sym of symbols) {
+    const scanned = rowBySymbol.get(sym);
+    if (!scanned) continue;
+    const wr = rowFromScanner(scanned);
+    if (wr) rows.push(wr);
+  }
+
+  // FALLBACK: only symbols NOT covered by the live scanner go through Yahoo.
+  // The batch-quote map (one HTTP call per ~150 symbols, on Yahoo's quote
+  // endpoint which is separate from the rate-limited chart endpoint) is the
+  // safety net for the per-symbol chart pass. Index constituents rarely land
+  // here, so Yahoo load stays minimal and the earlier outage cannot recur.
+  const offUniverse = symbols.filter(s => !rowBySymbol.has(s));
+  const batchQuotes = offUniverse.length > 0
+    ? await fetchYahooBatchQuotes(offUniverse, "NS").catch((err: unknown) => {
+        logger.warn({ key, err: (err as Error)?.message }, "watchlist batch-quote pass failed; chart-only");
+        return new Map<string, YahooBatchQuote>();
+      })
+    : new Map<string, YahooBatchQuote>();
+
+  let cursor = 0;
   async function worker(): Promise<void> {
-    while (cursor < symbols.length) {
-      const i = cursor++;
-      const sym = symbols[i]!;
+    while (cursor < offUniverse.length) {
+      const sym = offUniverse[cursor++]!;
       try {
-        const row = await buildRow(sym, sigBySymbol.get(sym) ?? null, batchQuotes.get(sym));
+        // Off-universe symbols have no scanner signal; trend falls back to the
+        // indicator/changePct heuristic inside buildRow.
+        const row = await buildRow(sym, null, batchQuotes.get(sym));
         if (row) rows.push(row);
       } catch (err) {
         logger.warn({ err: (err as Error).message, sym }, "watchlist row failed");
@@ -340,14 +389,17 @@ export async function getWatchlist(key: WatchlistKey): Promise<WatchlistResponse
     }, "watchlist degraded — serving stale cache");
     return cached.data;
   }
-  // Count how many rows were salvaged by the batch-quote fallback so the
-  // operator can spot Yahoo chart-endpoint trouble at a glance.
-  const fromBatch = rows.filter(r => r.ema20 == null && r.ema50 == null && r.rsi == null).length;
+  // Observability: how many rows came from the live Kite scanner vs the Yahoo
+  // off-universe fallback, so the operator can see at a glance that the basket
+  // is being served from the healthy primary path (and spot Yahoo trouble).
+  const fromScanner = rows.filter(r => rowBySymbol.has(r.symbol)).length;
   logger.info({
     key,
     count: rows.length,
-    fromBatchFallback: fromBatch,
-    batchPoolSize: batchQuotes.size,
+    requested: symbols.length,
+    fromScanner,
+    fromYahooFallback: rows.length - fromScanner,
+    offUniverse: offUniverse.length,
     ms: Date.now() - t0,
   }, "watchlist built");
   return data;
