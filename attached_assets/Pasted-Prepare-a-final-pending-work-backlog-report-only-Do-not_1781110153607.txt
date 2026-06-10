@@ -1,0 +1,88 @@
+Prepare a final pending-work backlog report only.
+
+Do not write code.
+Do not edit files.
+Do not start background work.
+Do not reopen any completed task.
+Do not touch replit.md.
+
+Context:
+The following major tasks are already completed and closed:
+
+* Watchlist canonical data path
+* Portfolio resolver + full Kite master + BSE Kite pricing
+* Charting Candle Source Honesty
+* F&O option-chain signal-safety migration
+* Scanner / Sector / Benchmark data cleanup
+* Pre-Market & Global-Cues synthetic-value honesty
+* F&O Signal Engine Rectification
+* Production deploy + DB column verification
+
+Live F&O runtime verification is pending for the next market session after manual Zerodha/Kite reconnect. Do not attempt to verify live F&O tonight because market is closed.
+
+Report required:
+
+1. List all remaining incomplete tasks.
+    For each task show:
+
+* task name
+* current status
+* why it is pending
+* whether it needs market hours
+* whether it needs coding
+* risk level
+* estimated size
+* recommended priority
+
+2. Separate the pending work into:
+
+* can be done now as read-only planning
+* can be done now as small coding task
+* must wait for market hours
+* should be deferred
+
+3. Include at minimum:
+
+* F&O live-session verification
+* Frontend-wide source/freshness badges
+* Market-Take / candle provenance follow-up
+* Swing Scanner per-row provenance visibility
+* Financials / FII-DII / bhavcopy source labels
+* INDstocks validation mode
+* Backtest Lab rectification
+* Final trusted-layer burn-down
+
+4. For Backtest Lab rectification, give:
+
+* what is wrong currently
+* what should be fixed later
+* whether it affects live trading
+* why it should remain separate from F&O live engine
+
+5. For frontend-wide badges, give:
+
+* pages affected
+* whether backend data is already available
+* expected UI-only risk
+* files likely touched later
+
+6. For INDstocks validation, give:
+
+* whether it should stay disabled for now
+* what validation-only mode would mean
+* what must never happen
+
+7. Give only one recommended next action after tomorrow’s F&O live verification.
+
+Strict rules:
+
+* No coding.
+* No file edits.
+* No migrations.
+* No deployment.
+* No background work.
+* No reopening completed tasks.
+* No new broad migration.
+
+End with:
+“Awaiting owner approval before any coding or new task.”
