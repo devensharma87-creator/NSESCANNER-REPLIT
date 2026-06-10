@@ -172,9 +172,98 @@ async function buildOvernightCues(): Promise<{ cues: Cue[]; score: number }> {
   return { cues, score: Math.max(-100, Math.min(100, score * 50)) };
 }
 
-/** Indicative pre-open price for major Indian indices. Uses GIFT NIFTY proxy when available;
- *  otherwise falls back to last close (= flat indication). */
-async function buildIndexPreviews() {
+/**
+ * Honest indicative pre-open preview. A pre-open "indicative" price is NEVER a
+ * real opening print — when derived from the GIFT NIFTY proxy it is explicitly
+ * `synthetic`, and in all cases it is `indicative` and `notForSignals` /
+ * `notForTradeDecisions`. When no real previous close exists we return
+ * `null` + `missingReason` rather than fabricating a 0 (the old `?? 0` bug) or
+ * a flat 0% change.
+ */
+export interface IndicativePreviewResult {
+  previousClose: number | null;
+  indicativePrice: number | null;
+  indicativeChange: number | null;
+  indicativeChangePercent: number | null;
+  source: string;
+  synthetic: boolean;
+  indicative: boolean;
+  notForSignals: boolean;
+  notForTradeDecisions: boolean;
+  missingReason: string | null;
+}
+
+export function deriveIndicativePreview(
+  prevRaw: number | null | undefined,
+  lastRaw: number | null | undefined,
+  giftPct: number | null | undefined,
+  useProxy: boolean,
+): IndicativePreviewResult {
+  const flags = { indicative: true, notForSignals: true, notForTradeDecisions: true } as const;
+  const prev = prevRaw != null && Number.isFinite(prevRaw) && prevRaw > 0 ? prevRaw : null;
+  if (prev == null) {
+    return {
+      previousClose: null,
+      indicativePrice: null,
+      indicativeChange: null,
+      indicativeChangePercent: null,
+      source: "unavailable — no previous close",
+      synthetic: false,
+      missingReason: "No previous close available from source",
+      ...flags,
+    };
+  }
+  const last = lastRaw != null && Number.isFinite(lastRaw) && lastRaw > 0 ? lastRaw : null;
+  const proxyOk = useProxy && giftPct != null && Number.isFinite(giftPct);
+
+  let indicativePrice: number | null;
+  let source: string;
+  let synthetic: boolean;
+  let missingReason: string | null = null;
+  if (proxyOk) {
+    indicativePrice = prev * (1 + (giftPct as number) / 100);
+    source = "GIFT NIFTY proxy (NSE-IX) — synthetic indicative";
+    synthetic = true;
+  } else if (last != null) {
+    indicativePrice = last;
+    source = "previous close — no pre-open data";
+    synthetic = false;
+  } else {
+    indicativePrice = null;
+    source = "unavailable — no pre-open proxy or live price";
+    synthetic = false;
+    missingReason = "No GIFT proxy or live price available";
+  }
+  const indicativeChange = indicativePrice != null ? indicativePrice - prev : null;
+  const indicativeChangePercent = indicativeChange != null ? (indicativeChange / prev) * 100 : null;
+  return {
+    previousClose: prev,
+    indicativePrice,
+    indicativeChange,
+    indicativeChangePercent,
+    source,
+    synthetic,
+    missingReason,
+    ...flags,
+  };
+}
+
+/**
+ * ATR(14) as a % of price. Returns `null` when ATR or price is missing —
+ * NEVER the old hard-coded 1.0 "assume 1%" fallback, which fabricated a
+ * normal-looking daily range out of missing data.
+ */
+export function deriveAtrPct(
+  atr14: number | null | undefined,
+  price: number | null | undefined,
+): number | null {
+  if (atr14 != null && Number.isFinite(atr14) && atr14 > 0 && price != null && Number.isFinite(price) && price > 0) {
+    return (atr14 / price) * 100;
+  }
+  return null;
+}
+
+async function buildIndexPreviews(): Promise<Array<IndicativePreviewResult & { symbol: string; name: string }>> {
   const cfgs: Array<{ symbol: string; name: string; yahoo: string; proxyName?: string }> = [
     { symbol: "NIFTY 50", name: "NIFTY 50", yahoo: "^NSEI", proxyName: "NIFTY 50 (proxy)" },
     { symbol: "BANK NIFTY", name: "BANK NIFTY", yahoo: "^NSEBANK" },
@@ -185,27 +274,15 @@ async function buildIndexPreviews() {
   try { global = await getGlobalIndices(); } catch { /* ignore */ }
   const giftPct = global.find(g => g.name === "GIFT NIFTY")?.changePercent;
 
-  const out = [];
+  const out: Array<IndicativePreviewResult & { symbol: string; name: string }> = [];
   for (const cfg of cfgs) {
     try {
       const c = await fetchIndexChart(cfg.yahoo);
       const closes = c?.close ?? [];
-      const prev = closes.length >= 2 ? closes[closes.length - 2]! : (c?.meta.chartPreviousClose ?? 0);
-      const last = c?.meta.regularMarketPrice ?? prev;
-      // For pre-open: indicative price = prev * (1 + giftPct/100) if available, else last
-      const useProxy = cfg.proxyName != null && giftPct != null;
-      const indicativePrice = useProxy ? prev * (1 + (giftPct ?? 0) / 100) : last;
-      const indicativeChange = indicativePrice - prev;
-      const indicativeChangePercent = prev > 0 ? (indicativeChange / prev) * 100 : 0;
-      out.push({
-        symbol: cfg.symbol,
-        name: cfg.name,
-        previousClose: prev,
-        indicativePrice,
-        indicativeChange,
-        indicativeChangePercent,
-        source: useProxy ? "GIFT NIFTY proxy" : "previous close (no pre-open data)",
-      });
+      const prevRaw = closes.length >= 2 ? closes[closes.length - 2] : (c?.meta.chartPreviousClose ?? null);
+      const lastRaw = c?.meta.regularMarketPrice ?? null;
+      const preview = deriveIndicativePreview(prevRaw, lastRaw, giftPct, cfg.proxyName != null);
+      out.push({ symbol: cfg.symbol, name: cfg.name, ...preview });
     } catch (e) {
       logger.warn({ e, sym: cfg.symbol }, "preMarket: index preview failed");
     }
@@ -266,10 +343,11 @@ async function buildMovers() {
   // Gap analysis: compare today's open vs prev close, normalize by ATR%
   const gappers = filtered
     .map(r => {
-      const atrPct = r.indicators?.atr14 != null && r.quote.price > 0
-        ? (r.indicators.atr14 / r.quote.price) * 100
-        : 1.0; // assume 1% if missing
+      // ATR% is null when ATR(14) or price is unavailable — never the old
+      // hard-coded 1.0 "assume 1%" fallback that fabricated a normal range.
+      const atrPct = deriveAtrPct(r.indicators?.atr14, r.quote.price);
       const gapPct = r.quote.previousClose > 0 ? ((r.quote.open - r.quote.previousClose) / r.quote.previousClose) * 100 : 0;
+      const gapVsAtr = atrPct != null && atrPct > 0 ? Math.abs(gapPct) / atrPct : null;
       return {
         symbol: r.symbol,
         name: r.name,
@@ -279,14 +357,19 @@ async function buildMovers() {
         gapPercent: gapPct,
         gapDirection: gapPct >= 0 ? "UP" as const : "DOWN" as const,
         atrPct,
-        gapVsAtr: atrPct > 0 ? Math.abs(gapPct) / atrPct : 0,
+        gapVsAtr,
+        atrMissingReason: atrPct == null ? "ATR(14) unavailable for this symbol" : null,
         signal: r.recommendation.signal,
       };
     })
     .filter(g => Math.abs(g.gapPercent) >= 0.5); // only significant gaps
 
-  const gapUps = gappers.filter(g => g.gapDirection === "UP").sort((a, b) => b.gapVsAtr - a.gapVsAtr).slice(0, 8);
-  const gapDowns = gappers.filter(g => g.gapDirection === "DOWN").sort((a, b) => b.gapVsAtr - a.gapVsAtr).slice(0, 8);
+  // Rows with a known gapVsAtr rank first (descending); rows where ATR is
+  // unavailable sort to the end rather than being treated as a 0× gap.
+  const byGapVsAtr = (a: { gapVsAtr: number | null }, b: { gapVsAtr: number | null }) =>
+    (b.gapVsAtr ?? -1) - (a.gapVsAtr ?? -1);
+  const gapUps = gappers.filter(g => g.gapDirection === "UP").sort(byGapVsAtr).slice(0, 8);
+  const gapDowns = gappers.filter(g => g.gapDirection === "DOWN").sort(byGapVsAtr).slice(0, 8);
 
   return { topGainers, topLosers, gapUps, gapDowns, allRows: filtered };
 }

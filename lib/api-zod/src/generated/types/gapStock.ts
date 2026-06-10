@@ -17,9 +17,11 @@ export interface GapStock {
   /** (current - prev) / prev * 100 */
   gapPercent: number;
   gapDirection: GapStockGapDirection;
-  /** ATR(14) as % of price */
-  atrPct: number;
-  /** gapPercent / atrPct — >1 means gap exceeds normal daily range */
-  gapVsAtr?: number;
+  /** ATR(14) as % of price; null when ATR(14) is unavailable (never a fabricated default) */
+  atrPct?: number | null;
+  /** gapPercent / atrPct — >1 means gap exceeds normal daily range; null when ATR is unavailable */
+  gapVsAtr?: number | null;
+  /** Reason ATR%/gapVsAtr could not be computed (e.g. 'ATR(14) unavailable') */
+  atrMissingReason?: string | null;
   signal?: GapStockSignal;
 }

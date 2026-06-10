@@ -1757,23 +1757,36 @@ export interface GapStock {
   /** (current - prev) / prev * 100 */
   gapPercent: number;
   gapDirection: GapStockGapDirection;
-  /** ATR(14) as % of price */
-  atrPct: number;
-  /** gapPercent / atrPct — >1 means gap exceeds normal daily range */
-  gapVsAtr?: number;
+  /** ATR(14) as % of price; null when ATR(14) is unavailable (never a fabricated default) */
+  atrPct?: number | null;
+  /** gapPercent / atrPct — >1 means gap exceeds normal daily range; null when ATR is unavailable */
+  gapVsAtr?: number | null;
+  /** Reason ATR%/gapVsAtr could not be computed (e.g. 'ATR(14) unavailable') */
+  atrMissingReason?: string | null;
   signal?: GapStockSignal;
 }
 
 export interface PreMarketIndexPreview {
   symbol: string;
   name: string;
-  previousClose: number;
-  /** Best estimate of opening price (GIFT proxy or last close) */
-  indicativePrice?: number;
-  indicativeChange?: number;
-  indicativeChangePercent: number;
-  /** e.g. 'GIFT NIFTY proxy', 'previous close (no pre-open data)' */
+  /** Real previous close; null + missingReason when no previous close is available */
+  previousClose: number | null;
+  /** Indicative (NOT real) opening estimate; null when unavailable */
+  indicativePrice?: number | null;
+  indicativeChange?: number | null;
+  indicativeChangePercent: number | null;
+  /** e.g. 'GIFT NIFTY proxy (NSE-IX) — synthetic indicative', 'previous close — no pre-open data', 'unavailable — no previous close' */
   source?: string;
+  /** True when the indicative price is derived from the GIFT NIFTY proxy rather than a real print */
+  synthetic: boolean;
+  /** Always true — a pre-open estimate, never a real opening print */
+  indicative: boolean;
+  /** Always true — must not drive any signal */
+  notForSignals: boolean;
+  /** Always true — must not drive any trade decision */
+  notForTradeDecisions: boolean;
+  /** Reason the indicative price/previous close is unavailable */
+  missingReason?: string | null;
 }
 
 export interface PostMarketDigest {

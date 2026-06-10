@@ -3222,7 +3222,7 @@ components:
 
     GapStock:
       type: object
-      required: [symbol, name, gapPercent, gapDirection, atrPct]
+      required: [symbol, name, gapPercent, gapDirection]
       properties:
         symbol:       { type: string }
         name:         { type: string }
@@ -3231,21 +3231,27 @@ components:
         currentPrice: { type: number }
         gapPercent:   { type: number, description: "(current - prev) / prev * 100" }
         gapDirection: { type: string, enum: [UP, DOWN] }
-        atrPct:       { type: number, description: "ATR(14) as % of price" }
-        gapVsAtr:     { type: number, description: "gapPercent / atrPct — >1 means gap exceeds normal daily range" }
+        atrPct:       { type: number, nullable: true, description: "ATR(14) as % of price; null when ATR(14) is unavailable (never a fabricated default)" }
+        gapVsAtr:     { type: number, nullable: true, description: "gapPercent / atrPct — >1 means gap exceeds normal daily range; null when ATR is unavailable" }
+        atrMissingReason: { type: string, nullable: true, description: "Reason ATR%/gapVsAtr could not be computed (e.g. 'ATR(14) unavailable')" }
         signal:       { type: string, enum: [STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL] }
 
     PreMarketIndexPreview:
       type: object
-      required: [symbol, name, previousClose, indicativeChangePercent]
+      required: [symbol, name, previousClose, indicativeChangePercent, indicative, synthetic, notForSignals, notForTradeDecisions]
       properties:
         symbol: { type: string }
         name:   { type: string }
-        previousClose: { type: number }
-        indicativePrice: { type: number, description: "Best estimate of opening price (GIFT proxy or last close)" }
-        indicativeChange: { type: number }
-        indicativeChangePercent: { type: number }
-        source: { type: string, description: "e.g. 'GIFT NIFTY proxy', 'previous close (no pre-open data)'" }
+        previousClose: { type: number, nullable: true, description: "Real previous close; null + missingReason when no previous close is available" }
+        indicativePrice: { type: number, nullable: true, description: "Indicative (NOT real) opening estimate; null when unavailable" }
+        indicativeChange: { type: number, nullable: true }
+        indicativeChangePercent: { type: number, nullable: true }
+        source: { type: string, description: "e.g. 'GIFT NIFTY proxy (NSE-IX) — synthetic indicative', 'previous close — no pre-open data', 'unavailable — no previous close'" }
+        synthetic: { type: boolean, description: "True when the indicative price is derived from the GIFT NIFTY proxy rather than a real print" }
+        indicative: { type: boolean, description: "Always true — a pre-open estimate, never a real opening print" }
+        notForSignals: { type: boolean, description: "Always true — must not drive any signal" }
+        notForTradeDecisions: { type: boolean, description: "Always true — must not drive any trade decision" }
+        missingReason: { type: string, nullable: true, description: "Reason the indicative price/previous close is unavailable" }
 
     PostMarketDigest:
       type: object

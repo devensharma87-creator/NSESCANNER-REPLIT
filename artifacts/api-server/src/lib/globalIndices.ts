@@ -80,15 +80,24 @@ export function buildGlobalIndexQuote(
   const change = price - prev;
   const pct = (change / prev) * 100;
 
+  // Intraday indicators are derived analytics. When the underlying series is
+  // too short or a value cannot be computed, leave the field UNDEFINED — never
+  // substitute the spot price (VWAP/EMA) or a neutral 50 (RSI), which would
+  // fabricate a "neutral/normal" reading from missing data. The fields are
+  // optional on the wire and the UI omits them when absent.
   let vwap: number | undefined;
   let ema9v: number | undefined;
   let ema21v: number | undefined;
   let rsi14: number | undefined;
   if (intra && intra.close.length > 6) {
-    vwap = round(lastVal(sessionVwap(intra.high, intra.low, intra.close, intra.volume)) ?? price);
-    ema9v = round(lastVal(ema(intra.close, 9)) ?? price);
-    ema21v = round(lastVal(ema(intra.close, 21)) ?? price);
-    rsi14 = round(lastVal(rsi(intra.close, 14)) ?? 50);
+    const vwapRaw = lastVal(sessionVwap(intra.high, intra.low, intra.close, intra.volume));
+    const ema9Raw = lastVal(ema(intra.close, 9));
+    const ema21Raw = lastVal(ema(intra.close, 21));
+    const rsiRaw = lastVal(rsi(intra.close, 14));
+    vwap = vwapRaw != null ? round(vwapRaw) : undefined;
+    ema9v = ema9Raw != null ? round(ema9Raw) : undefined;
+    ema21v = ema21Raw != null ? round(ema21Raw) : undefined;
+    rsi14 = rsiRaw != null ? round(rsiRaw) : undefined;
   }
   let trend: "bullish" | "bearish" | "neutral" = "neutral";
   if (change > 0 && (vwap == null || price > vwap)) trend = "bullish";

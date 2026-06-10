@@ -5870,19 +5870,46 @@ export const GetPreMarketResponse = zod.object({
     zod.object({
       symbol: zod.string(),
       name: zod.string(),
-      previousClose: zod.number(),
+      previousClose: zod
+        .number()
+        .nullable()
+        .describe(
+          "Real previous close; null + missingReason when no previous close is available",
+        ),
       indicativePrice: zod
         .number()
-        .optional()
-        .describe("Best estimate of opening price (GIFT proxy or last close)"),
-      indicativeChange: zod.number().optional(),
-      indicativeChangePercent: zod.number(),
+        .nullish()
+        .describe(
+          "Indicative (NOT real) opening estimate; null when unavailable",
+        ),
+      indicativeChange: zod.number().nullish(),
+      indicativeChangePercent: zod.number().nullable(),
       source: zod
         .string()
         .optional()
         .describe(
-          "e.g. 'GIFT NIFTY proxy', 'previous close (no pre-open data)'",
+          "e.g. 'GIFT NIFTY proxy (NSE-IX) — synthetic indicative', 'previous close — no pre-open data', 'unavailable — no previous close'",
         ),
+      synthetic: zod
+        .boolean()
+        .describe(
+          "True when the indicative price is derived from the GIFT NIFTY proxy rather than a real print",
+        ),
+      indicative: zod
+        .boolean()
+        .describe(
+          "Always true — a pre-open estimate, never a real opening print",
+        ),
+      notForSignals: zod
+        .boolean()
+        .describe("Always true — must not drive any signal"),
+      notForTradeDecisions: zod
+        .boolean()
+        .describe("Always true — must not drive any trade decision"),
+      missingReason: zod
+        .string()
+        .nullish()
+        .describe("Reason the indicative price\/previous close is unavailable"),
     }),
   ),
   scenarios: zod
@@ -6138,12 +6165,23 @@ export const GetPreMarketResponse = zod.object({
         currentPrice: zod.number().optional(),
         gapPercent: zod.number().describe("(current - prev) \/ prev \* 100"),
         gapDirection: zod.enum(["UP", "DOWN"]),
-        atrPct: zod.number().describe("ATR(14) as % of price"),
+        atrPct: zod
+          .number()
+          .nullish()
+          .describe(
+            "ATR(14) as % of price; null when ATR(14) is unavailable (never a fabricated default)",
+          ),
         gapVsAtr: zod
           .number()
-          .optional()
+          .nullish()
           .describe(
-            "gapPercent \/ atrPct — >1 means gap exceeds normal daily range",
+            "gapPercent \/ atrPct — >1 means gap exceeds normal daily range; null when ATR is unavailable",
+          ),
+        atrMissingReason: zod
+          .string()
+          .nullish()
+          .describe(
+            "Reason ATR%\/gapVsAtr could not be computed (e.g. 'ATR(14) unavailable')",
           ),
         signal: zod
           .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"])
@@ -6161,12 +6199,23 @@ export const GetPreMarketResponse = zod.object({
         currentPrice: zod.number().optional(),
         gapPercent: zod.number().describe("(current - prev) \/ prev \* 100"),
         gapDirection: zod.enum(["UP", "DOWN"]),
-        atrPct: zod.number().describe("ATR(14) as % of price"),
+        atrPct: zod
+          .number()
+          .nullish()
+          .describe(
+            "ATR(14) as % of price; null when ATR(14) is unavailable (never a fabricated default)",
+          ),
         gapVsAtr: zod
           .number()
-          .optional()
+          .nullish()
           .describe(
-            "gapPercent \/ atrPct — >1 means gap exceeds normal daily range",
+            "gapPercent \/ atrPct — >1 means gap exceeds normal daily range; null when ATR is unavailable",
+          ),
+        atrMissingReason: zod
+          .string()
+          .nullish()
+          .describe(
+            "Reason ATR%\/gapVsAtr could not be computed (e.g. 'ATR(14) unavailable')",
           ),
         signal: zod
           .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"])

@@ -760,12 +760,27 @@ export default function PreMarket() {
             <Card key={ix.symbol} className={`border ${bgTone(ix.indicativeChangePercent)}`}>
               <CardContent className="p-4">
                 <div className="text-xs font-mono text-muted-foreground uppercase">{ix.name}</div>
-                <div className="text-xl font-bold tabular-nums mt-1">{fmt(ix.indicativePrice)}</div>
-                <div className={`text-xs font-mono mt-0.5 ${tone(ix.indicativeChangePercent)}`}>
-                  {ix.indicativeChange != null && (ix.indicativeChange >= 0 ? "+" : "")}{fmt(ix.indicativeChange)} ({pct(ix.indicativeChangePercent)})
+                <div className="text-xl font-bold tabular-nums mt-1">
+                  {ix.indicativePrice != null ? fmt(ix.indicativePrice) : "n/a"}
                 </div>
-                <div className="text-[10px] font-mono text-muted-foreground mt-2">vs prev close {fmt(ix.previousClose)}</div>
+                {ix.indicativePrice != null ? (
+                  <div className={`text-xs font-mono mt-0.5 ${tone(ix.indicativeChangePercent)}`}>
+                    {ix.indicativeChange != null && (ix.indicativeChange >= 0 ? "+" : "")}{fmt(ix.indicativeChange)} ({pct(ix.indicativeChangePercent)})
+                  </div>
+                ) : (
+                  <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                    {ix.missingReason ?? "unavailable"}
+                  </div>
+                )}
+                <div className="text-[10px] font-mono text-muted-foreground mt-2">
+                  vs prev close {ix.previousClose != null ? fmt(ix.previousClose) : "n/a"}
+                </div>
                 {ix.source && <div className="text-[10px] text-muted-foreground/70 mt-0.5 italic">{ix.source}</div>}
+                {ix.indicative && (
+                  <div className="text-[10px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">
+                    {ix.synthetic ? "Synthetic · " : ""}Indicative · not for trade decisions
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
@@ -1110,7 +1125,7 @@ function MoverList({ title, icon, items, positive }: { title: string; icon: Reac
   );
 }
 
-function GapList({ title, icon, items }: { title: string; icon: React.ReactNode; items: ReadonlyArray<{ symbol: string; name: string; sector?: string; gapPercent: number; atrPct: number; gapVsAtr?: number; signal?: string; previousClose?: number; currentPrice?: number; gapDirection?: string }> }) {
+function GapList({ title, icon, items }: { title: string; icon: React.ReactNode; items: ReadonlyArray<{ symbol: string; name: string; sector?: string; gapPercent: number; atrPct?: number | null; gapVsAtr?: number | null; signal?: string; previousClose?: number; currentPrice?: number; gapDirection?: string }> }) {
   return (
     <Card className="border border-border/50">
       <CardContent className="p-4">

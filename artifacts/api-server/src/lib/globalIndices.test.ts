@@ -75,3 +75,60 @@ describe("buildGlobalIndexQuote — fake-zero guard", () => {
     expect(q!.changePercent).toBeCloseTo((10 / 190) * 100, 2);
   });
 });
+
+describe("buildGlobalIndexQuote — indicator honesty (no fabricated VWAP/EMA/RSI)", () => {
+  it("leaves vwap/ema9/ema21/rsi14 undefined when there is no intraday series", () => {
+    // Daily-only quote: indicators are not computable. They must be absent,
+    // NOT substituted with the spot price (VWAP/EMA) or a neutral 50 (RSI).
+    const daily = chart({
+      meta: { regularMarketPrice: 5100 },
+      open: [4990, 5000],
+      close: [5000, 5100],
+    });
+    const q = buildGlobalIndexQuote(cfg, null, daily);
+    expect(q).not.toBeNull();
+    expect(q!.vwap).toBeUndefined();
+    expect(q!.ema9).toBeUndefined();
+    expect(q!.ema21).toBeUndefined();
+    expect(q!.rsi14).toBeUndefined();
+  });
+
+  it("leaves indicators undefined when the intraday series is too short to compute them", () => {
+    // Intraday present but only a few bars (<=6) → builder must not attempt
+    // (and must not fabricate) any indicator value.
+    const intra = chart({
+      meta: { regularMarketPrice: 5100 },
+      high: [5100, 5110],
+      low: [5090, 5095],
+      close: [5095, 5100],
+      volume: [1000, 1200],
+    });
+    const daily = chart({ meta: { regularMarketPrice: 5100 }, close: [5000, 5050] });
+    const q = buildGlobalIndexQuote(cfg, intra, daily);
+    expect(q).not.toBeNull();
+    expect(q!.vwap).toBeUndefined();
+    expect(q!.ema9).toBeUndefined();
+    expect(q!.ema21).toBeUndefined();
+    expect(q!.rsi14).toBeUndefined();
+    // trend is still derived honestly from change alone when vwap is absent
+    expect(q!.trend).toBe("bullish");
+  });
+
+  it("computes real indicators when a sufficiently long intraday series is present", () => {
+    const n = 30;
+    const close = Array.from({ length: n }, (_, i) => 5000 + i);
+    const high = close.map(c => c + 5);
+    const low = close.map(c => c - 5);
+    const volume = close.map(() => 1000);
+    const intra = chart({ meta: { regularMarketPrice: close[n - 1]! }, high, low, close, volume });
+    const daily = chart({ meta: { regularMarketPrice: close[n - 1]! }, close: [4900, 4950] });
+    const q = buildGlobalIndexQuote(cfg, intra, daily);
+    expect(q).not.toBeNull();
+    expect(typeof q!.vwap).toBe("number");
+    expect(typeof q!.ema9).toBe("number");
+    expect(typeof q!.ema21).toBe("number");
+    expect(typeof q!.rsi14).toBe("number");
+    // RSI of a monotonically rising series should be high, never a fake 50.
+    expect(q!.rsi14).toBeGreaterThan(50);
+  });
+});
