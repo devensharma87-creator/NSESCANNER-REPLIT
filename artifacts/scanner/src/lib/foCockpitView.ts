@@ -566,10 +566,19 @@ export interface FoCockpitSummary {
   unrealizedPnl: number;
   winCount: number;
   lossCount: number;
-  /** Average MFE (maxRunup) over closed trades with finite values; null when none. */
+  /**
+   * Average MFE (maxRunup) over CLOSED trades that carry genuine MFE/MAE
+   * evidence (finite AND not the 0/0 placeholder — see `hasMfeMaeEvidence`);
+   * null when no closed trade has evidence. Never polluted by placeholder 0s.
+   */
   avgMfe: number | null;
-  /** Average MAE (maxDrawdown) over closed trades with finite values; null when none. */
+  /**
+   * Average MAE (maxDrawdown) over CLOSED trades with genuine evidence; null
+   * when none. Same honesty rule as `avgMfe`.
+   */
   avgMae: number | null;
+  /** How many closed trades the avg MFE/MAE was computed from (evidence rows). */
+  mfeMaeEvidenceCount: number;
   bestTrade: FoTradeRow | null;
   worstTrade: FoTradeRow | null;
   lastOpenAt: string | null;
@@ -662,6 +671,16 @@ export function summarizeFoCockpit(args: SummarizeArgs): FoCockpitSummary {
   const allRows = [...openTrades, ...closedTrades];
   const p25 = deriveP25Summary(allRows, threshold);
 
+  // MFE/MAE honesty (P2): average ONLY over closed trades that carry genuine
+  // evidence — finite AND not the 0/0 placeholder that legacy/never-marked rows
+  // persist. Including 0/0 rows would silently drag both averages toward zero
+  // and fabricate the impression of a recorded premium path. When no closed
+  // trade has evidence both averages are null and `mfeMaeEvidenceCount` is 0, so
+  // the UI can say "MFE/MAE unavailable — premium path not recorded".
+  const mfeMaeEvidenceRows = closedTrades.filter(hasMfeMaeEvidence);
+  const avgMfe = avgFinite(mfeMaeEvidenceRows.map((r) => toNum(r.maxRunup)));
+  const avgMae = avgFinite(mfeMaeEvidenceRows.map((r) => toNum(r.maxDrawdown)));
+
   return {
     openCount: openTrades.length,
     closedCount: closedTrades.length,
@@ -670,8 +689,9 @@ export function summarizeFoCockpit(args: SummarizeArgs): FoCockpitSummary {
     unrealizedPnl,
     winCount,
     lossCount,
-    avgMfe: avgFinite(closedTrades.map((r) => toNum(r.maxRunup))),
-    avgMae: avgFinite(closedTrades.map((r) => toNum(r.maxDrawdown))),
+    avgMfe,
+    avgMae,
+    mfeMaeEvidenceCount: mfeMaeEvidenceRows.length,
     bestTrade,
     worstTrade,
     lastOpenAt: maxTs(allRows, (r) => r.openedAt),

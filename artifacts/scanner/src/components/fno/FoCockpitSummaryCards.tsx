@@ -7,9 +7,12 @@
  * ONLY — no open-trades table, no closed-trade review, no filters/sort/group.
  *
  * This component places NO orders and changes NO exit rule, sizing, gate, or the
- * P25 threshold. Average MFE/MAE are sourced from per-trade maxRunup/maxDrawdown,
- * which the `/paper/trades/fo` closed payload does not carry — those tiles show a
- * clean "—" placeholder rather than fabricating a value.
+ * P25 threshold. Average MFE/MAE are sourced from per-trade maxRunup/maxDrawdown
+ * (carried on the `/paper/trades/fo` closed payload). The tiles average ONLY over
+ * closed trades that carry a genuinely-recorded premium path (`hasMfeMaeEvidence`
+ * — finite AND not the 0/0 placeholder); when no closed trade has evidence they
+ * read "n/a" with the honest reason "premium path not recorded" rather than
+ * fabricating a value or counting placeholder 0s.
  */
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -88,8 +91,28 @@ export function FoCockpitSummaryCards({
               />
               <Tile label="Wins" value={String(summary.winCount)} tone={summary.winCount > 0 ? "pos" : undefined} />
               <Tile label="Losses" value={String(summary.lossCount)} tone={summary.lossCount > 0 ? "neg" : undefined} />
-              <Tile label="Avg MFE" value="—" hint="not in closed payload" />
-              <Tile label="Avg MAE" value="—" hint="not in closed payload" />
+              <Tile
+                label="Avg MFE"
+                value={summary.avgMfe != null ? signed(summary.avgMfe) : "n/a"}
+                tone={summary.avgMfe != null ? toneOf(summary.avgMfe) : undefined}
+                hint={
+                  summary.avgMfe != null
+                    ? `over ${summary.mfeMaeEvidenceCount} trade${summary.mfeMaeEvidenceCount === 1 ? "" : "s"} with recorded path`
+                    : "premium path not recorded"
+                }
+                title="Average maximum favourable excursion (best in-trade gain, from per-trade maxRunup) across closed F&O paper trades that have a genuinely-recorded premium path. Trades without a recorded path are excluded — never counted as zero."
+              />
+              <Tile
+                label="Avg MAE"
+                value={summary.avgMae != null ? signed(summary.avgMae) : "n/a"}
+                tone={summary.avgMae != null ? toneOf(summary.avgMae) : undefined}
+                hint={
+                  summary.avgMae != null
+                    ? `over ${summary.mfeMaeEvidenceCount} trade${summary.mfeMaeEvidenceCount === 1 ? "" : "s"} with recorded path`
+                    : "premium path not recorded"
+                }
+                title="Average maximum adverse excursion (worst in-trade drawdown, from per-trade maxDrawdown) across closed F&O paper trades that have a genuinely-recorded premium path. Trades without a recorded path are excluded — never counted as zero."
+              />
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

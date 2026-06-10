@@ -15,7 +15,10 @@ import {
   evaluateDirectionalVetoes,
   deriveTradeClass,
   isAutoTradeableSizingTier,
+  assertTradeableForOpen,
+  VETO_TAGS,
   type VetoInputs,
+  type TradeOpenSignalView,
 } from "./optionSignalVetoes";
 
 describe("evaluateDirectionalVetoes — RECOVERY_MODE_VETO (blocks fresh PUT)", () => {
@@ -159,5 +162,125 @@ describe("deriveTradeClass / isAutoTradeableSizingTier", () => {
     expect(isAutoTradeableSizingTier("BASELINE", false)).toBe(true);
     expect(isAutoTradeableSizingTier("MICRO", false)).toBe(true);
     expect(isAutoTradeableSizingTier("STANDARD", false)).toBe(true);
+  });
+});
+
+describe("assertTradeableForOpen — paper-open tradeability gate (P1)", () => {
+  const tradeable: TradeOpenSignalView = {
+    sizingTier: "STANDARD",
+    tradeClass: "TRADEABLE",
+    premiumTrusted: true,
+    tags: [],
+    hygieneEnabled: true,
+  };
+
+  it("allows a STANDARD, TRADEABLE, Kite-trusted, veto-free signal", () => {
+    const d = assertTradeableForOpen(tradeable);
+    expect(d.trade_open_allowed).toBe(true);
+    expect(d.reason).toBeNull();
+    expect(d.detail).toBeNull();
+  });
+
+  it("blocks a BASELINE sizing tier as INFO_ONLY (cannot open)", () => {
+    const d = assertTradeableForOpen({ ...tradeable, sizingTier: "BASELINE" });
+    expect(d.trade_open_allowed).toBe(false);
+    expect(d.reason).toBe("INFO_ONLY_NOT_TRADEABLE");
+  });
+
+  it("blocks an INFO_ONLY tradeClass even when sizing tier reads STANDARD", () => {
+    const d = assertTradeableForOpen({ ...tradeable, tradeClass: "INFO_ONLY" });
+    expect(d.trade_open_allowed).toBe(false);
+    expect(d.reason).toBe("INFO_ONLY_NOT_TRADEABLE");
+  });
+
+  it("blocks a recovery-vetoed setup with the specific RECOVERY_VETO reason", () => {
+    const d = assertTradeableForOpen({ ...tradeable, tags: [VETO_TAGS.RECOVERY] });
+    expect(d.trade_open_allowed).toBe(false);
+    expect(d.reason).toBe("RECOVERY_VETO");
+    expect(d.detail).toMatch(/recovery/i);
+  });
+
+  it("blocks a chase-vetoed setup with the specific CHASE_VETO reason", () => {
+    const d = assertTradeableForOpen({ ...tradeable, tags: [VETO_TAGS.CHASE] });
+    expect(d.trade_open_allowed).toBe(false);
+    expect(d.reason).toBe("CHASE_VETO");
+    expect(d.detail).toMatch(/chase/i);
+  });
+
+  it("reports the veto reason ahead of a generic INFO_ONLY when both apply", () => {
+    // A vetoed setup is also demoted to INFO_ONLY upstream; the precise veto
+    // reason must still win for diagnostics.
+    const d = assertTradeableForOpen({
+      ...tradeable,
+      tradeClass: "INFO_ONLY",
+      sizingTier: "BASELINE",
+      tags: [VETO_TAGS.RECOVERY],
+    });
+    expect(d.reason).toBe("RECOVERY_VETO");
+  });
+
+  it("blocks when premium is not Kite-trusted (undefined → fail-closed)", () => {
+    const d = assertTradeableForOpen({ ...tradeable, premiumTrusted: undefined });
+    expect(d.trade_open_allowed).toBe(false);
+    expect(d.reason).toBe("PREMIUM_UNTRUSTED");
+  });
+
+  it("blocks when premium is explicitly untrusted", () => {
+    const d = assertTradeableForOpen({ ...tradeable, premiumTrusted: false });
+    expect(d.trade_open_allowed).toBe(false);
+    expect(d.reason).toBe("PREMIUM_UNTRUSTED");
+  });
+
+  it("flag OFF: BASELINE may open again (legacy rollback) when premium trusted", () => {
+    const d = assertTradeableForOpen({
+      sizingTier: "BASELINE",
+      tradeClass: "TRADEABLE",
+      premiumTrusted: true,
+      tags: [],
+      hygieneEnabled: false,
+    });
+    expect(d.trade_open_allowed).toBe(true);
+  });
+});
+
+describe("assertTradeableForOpen — reconcile-shaped synthetic view (regression)", () => {
+  // reconcileMissingPaperTrades re-opens still-live triggers after a restart by
+  // building a synthetic signal. It MUST stamp the same tradeClass the in-cycle
+  // path derives from the resolved tier (deriveTradeClass) and empty tags — else
+  // the P1 first gate (tradeClass undefined ≠ "TRADEABLE") refuses EVERY
+  // reconciled open, silently killing mid-day-restart backfill for legit
+  // Kite-trusted STANDARD rows. This locks the exact shape the reconcile path
+  // now constructs.
+  const reconcileView = (
+    tier: "STANDARD" | "BASELINE",
+    premiumTrusted: boolean,
+    hygieneEnabled: boolean,
+  ): TradeOpenSignalView => ({
+    sizingTier: tier,
+    tradeClass: deriveTradeClass(
+      tier === "BASELINE" ? "BASELINE" : "HIGH_CONVICTION",
+      hygieneEnabled,
+    ),
+    premiumTrusted,
+    tags: [],
+    hygieneEnabled,
+  });
+
+  it("hygiene ON: a Kite-trusted STANDARD reconcile row opens", () => {
+    const d = assertTradeableForOpen(reconcileView("STANDARD", true, true));
+    expect(d.trade_open_allowed).toBe(true);
+    expect(d.reason).toBeNull();
+  });
+
+  it("hygiene ON: a BASELINE reconcile row stays INFO_ONLY (cannot open)", () => {
+    const d = assertTradeableForOpen(reconcileView("BASELINE", true, true));
+    expect(d.trade_open_allowed).toBe(false);
+    expect(d.reason).toBe("INFO_ONLY_NOT_TRADEABLE");
+  });
+
+  it("an untrusted-premium reconcile row is refused regardless of tier", () => {
+    const d = assertTradeableForOpen(reconcileView("STANDARD", false, true));
+    expect(d.trade_open_allowed).toBe(false);
+    expect(d.reason).toBe("PREMIUM_UNTRUSTED");
   });
 });

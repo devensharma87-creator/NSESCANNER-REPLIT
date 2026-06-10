@@ -1,0 +1,129 @@
+or his two decisions:
+
+P5 premium-path capture: Yes, include it, but only as additive nullable columns / guarded migration. No destructive DB change. Historical trades must remain honestly unavailable.
+P4 anti-flip tightening: Yes, but only if a failing test proves a real gap. No threshold changes by assumption.
+
+Send this:
+
+Approved to proceed with the F&O Signal Engine Rectification plan, with strict constraints.
+
+Important:
+Your audit finding changes the task shape. If recovery-veto, chase-veto, anti-flip cooldown, strict tier separation, Kite-only premium gate, P25-as-label-only, and circuit-breaker counting already exist under FNO_SIGNAL_HYGIENE_V2 and default ON, then do not rebuild them.
+
+This task should now be:
+
+verify existing guardrails,
+harden paper-open safety as defense-in-depth,
+fix MFE/MAE evidence/cockpit honesty,
+improve explanation visibility,
+only tighten anti-flip if a test proves a real gap.
+
+Approved phases:
+
+P0 — Pure helpers + tests
+Approved.
+
+P1 — Explicit assertTradeable gate
+Approved.
+Add a fail-closed first-gate in paperTradingFO.ts so paper trade open requires:
+
+tier / tradeClass is truly tradeable
+actionable = true
+premiumTrusted = true
+no recovery/chase/flip veto
+no stale/untrusted/synthetic source
+risk/liquidity gates passed
+
+Return structured block reason.
+
+P2 — MFE/MAE honesty
+Approved.
+Fix F&O Cockpit so Avg MFE / Avg MAE no longer shows vague “not in closed payload.” It must show either:
+
+real MFE/MAE values where evidence exists, or
+honest unavailable reason:
+“MFE/MAE unavailable — premium path not recorded.”
+
+Do not fake MFE/MAE.
+
+P3 — Per-setup explanation
+Approved.
+Show/expose:
+
+tier
+regime
+direction
+trigger status
+recovery-veto / chase-veto / anti-flip status
+data quality
+premium source
+RR
+paper-trade allowed YES/NO
+reason if NO
+
+P4 — Anti-flip tightening
+Conditionally approved only if a test proves a real gap.
+
+Do not change anti-flip thresholds or cooldown logic based on assumption. First write a failing test showing a bad flip is currently allowed. If the test exposes a real issue, then fix only that issue. If no gap is proven, leave anti-flip logic as-is and document verified.
+
+P5 — Forward premium-path capture for true future MFE/MAE
+Approved with strict DB safety rules.
+
+Allowed only if:
+
+additive nullable columns only
+guarded ALTER TABLE ADD COLUMN IF NOT EXISTS only
+no drizzle-kit push
+no destructive migration
+no backfill fabrication
+historical trades remain honestly unavailable where path data does not exist
+
+Purpose:
+Future trades should be able to record:
+
+entry premium
+highest premium after entry
+lowest premium after entry
+exit premium
+MFE amount
+MAE amount
+MFE %
+MAE %
+timestamps used
+
+Historical trades must not be fabricated.
+
+Do not touch:
+
+Watchlist
+Portfolio
+Charting
+Scanner / Sector / Benchmark
+Pre-Market / Global Cues
+Option-chain source-safety migration except reading existing gates
+Backtest Lab
+INDstocks
+frontend-wide badges
+final trusted-layer burn-down
+replit.md
+
+Required verification:
+
+Audit report updated.
+Test showing INFO_ONLY cannot open paper trade.
+Test showing BASELINE/outlook cannot open paper trade.
+Test showing TRADEABLE opens only when all gates pass.
+Recovery-veto and chase-veto verified by tests or existing tests referenced.
+Anti-flip verified; only changed if a failing test proves a gap.
+P25 remains non-blocking for paper trades but blocks official/validated/proven label.
+MFE/MAE shown when evidence exists.
+MFE/MAE unavailable reason shown when evidence is absent.
+Typecheck.
+Affected F&O/api-server tests.
+Scanner tests only if frontend shared types/components are touched.
+Architect review.
+
+Cost-control:
+Do not expand the task. Do not rebuild the whole engine. Do not run broad migrations. Do not work in background. Stop and ask if the work grows beyond the listed F&O files.
+
+This is the right approval. It keeps the engine task focused: verify and harden the strategy brain, fix cockpit evidence, and avoid unnecessary rebuild.

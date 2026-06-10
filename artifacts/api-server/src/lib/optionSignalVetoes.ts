@@ -191,3 +191,100 @@ export function evaluateDirectionalVetoes(v: VetoInputs): VetoEvaluation {
 
   return { recovery, chase, recoveryReason, chaseReason };
 }
+
+// ── Paper-trade open eligibility (2026-06-10, P1 defense-in-depth) ─────────────
+//
+// A single PURE, fail-closed assertion the paper-trade open path runs FIRST,
+// before it touches the account. It is defense-in-depth on top of the
+// individual gates already in `openPaperTrade`: it refuses to open unless the
+// signal is genuinely tradeable AND rests on Kite-trusted premium, returning a
+// precise structured reason for every refusal. No I/O, no clock — unit-tested
+// in isolation. It deliberately does NOT re-implement risk/liquidity/DD/heat
+// gates (those need DB state); those remain in `openPaperTrade` after this gate.
+
+/** Audit tags (set in optionSignals.toSignal) that mark a veto-demoted setup. */
+export const VETO_TAGS = {
+  RECOVERY: "RECOVERY_MODE_VETO",
+  CHASE: "CHASE_RISK_VETO",
+} as const;
+
+/** Structured reason a paper-trade open was refused at the tradeability gate. */
+export type TradeOpenBlockReason =
+  | "RECOVERY_VETO"
+  | "CHASE_VETO"
+  | "INFO_ONLY_NOT_TRADEABLE"
+  | "PREMIUM_UNTRUSTED";
+
+export interface TradeOpenSignalView {
+  /** Sizing tier resolved for this open attempt (e.g. STANDARD | BASELINE). */
+  sizingTier: string;
+  /** Conviction trade-class stamped on the signal (deriveTradeClass output). */
+  tradeClass?: "TRADEABLE" | "INFO_ONLY" | null;
+  /** True only when option premium is a complete, non-stale Kite chain. */
+  premiumTrusted?: boolean | null;
+  /** Signal audit tags; may contain RECOVERY_MODE_VETO / CHASE_RISK_VETO. */
+  tags?: readonly string[] | null;
+  /** FNO_SIGNAL_HYGIENE_V2 state at evaluation time. */
+  hygieneEnabled: boolean;
+}
+
+export interface TradeOpenDecision {
+  /** True ⇒ the signal cleared the tradeability gate (risk gates still apply). */
+  trade_open_allowed: boolean;
+  /** Precise refusal reason, or null when allowed. */
+  reason: TradeOpenBlockReason | null;
+  /** Human-readable detail for logs / diagnostics, or null when allowed. */
+  detail: string | null;
+}
+
+/**
+ * Fail-closed tradeability assertion. Order is chosen so the MOST specific
+ * reason wins: an explicit veto tag is reported as RECOVERY/CHASE rather than a
+ * generic INFO_ONLY, even though a veto already demotes the setup upstream.
+ *
+ *   1. RECOVERY_MODE_VETO tag present       → RECOVERY_VETO
+ *   2. CHASE_RISK_VETO tag present          → CHASE_VETO
+ *   3. sizing tier not auto-tradeable       → INFO_ONLY_NOT_TRADEABLE
+ *   4. hygiene on AND tradeClass!=TRADEABLE → INFO_ONLY_NOT_TRADEABLE
+ *   5. premium not Kite-trusted             → PREMIUM_UNTRUSTED
+ *   else                                    → allowed
+ */
+export function assertTradeableForOpen(view: TradeOpenSignalView): TradeOpenDecision {
+  const tags = view.tags ?? [];
+  if (tags.includes(VETO_TAGS.RECOVERY)) {
+    return {
+      trade_open_allowed: false,
+      reason: "RECOVERY_VETO",
+      detail: "recovery-mode veto active — fresh PUT into an intraday V-recovery",
+    };
+  }
+  if (tags.includes(VETO_TAGS.CHASE)) {
+    return {
+      trade_open_allowed: false,
+      reason: "CHASE_VETO",
+      detail: "chase-risk veto active — late CALL at top of a vertical run",
+    };
+  }
+  if (!isAutoTradeableSizingTier(view.sizingTier, view.hygieneEnabled)) {
+    return {
+      trade_open_allowed: false,
+      reason: "INFO_ONLY_NOT_TRADEABLE",
+      detail: `sizing tier ${view.sizingTier} is not auto-tradeable under hygiene v2`,
+    };
+  }
+  if (view.hygieneEnabled && view.tradeClass !== "TRADEABLE") {
+    return {
+      trade_open_allowed: false,
+      reason: "INFO_ONLY_NOT_TRADEABLE",
+      detail: `tradeClass ${view.tradeClass ?? "unknown"} is not TRADEABLE`,
+    };
+  }
+  if (view.premiumTrusted !== true) {
+    return {
+      trade_open_allowed: false,
+      reason: "PREMIUM_UNTRUSTED",
+      detail: "option premium is not Kite-trusted (delayed/stale/missing source)",
+    };
+  }
+  return { trade_open_allowed: true, reason: null, detail: null };
+}

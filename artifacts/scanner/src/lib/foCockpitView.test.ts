@@ -253,8 +253,39 @@ describe("summarizeFoCockpit", () => {
     expect(s.lossCount).toBe(1);
     expect(s.avgMfe).toBe(10000); // (18000 + 2000) / 2
     expect(s.avgMae).toBe(-6500); // (-4000 + -9000) / 2
+    expect(s.mfeMaeEvidenceCount).toBe(2);
     expect(s.bestTrade?.id).toBe("w");
     expect(s.worstTrade?.id).toBe("l");
+  });
+
+  it("avg MFE/MAE exclude 0/0 placeholder rows (honesty — never counted as zero)", () => {
+    // Two real evidence rows + two 0/0 placeholders. Naively averaging maxRunup
+    // over ALL four would give (18000+2000+0+0)/4 = 5000 and drag MAE toward 0,
+    // fabricating the impression of a recorded premium path. The honest average
+    // is over the 2 evidence rows only.
+    const closed = [
+      closedEligible({ id: "w", realizedPnl: 15000, maxRunup: 18000, maxDrawdown: -4000 }),
+      closedEligible({ id: "l", realizedPnl: -6000, maxRunup: 2000, maxDrawdown: -9000 }),
+      closedEligible({ id: "p1", realizedPnl: 100, maxRunup: 0, maxDrawdown: 0 }),
+      closedEligible({ id: "p2", realizedPnl: -100, maxRunup: 0, maxDrawdown: 0 }),
+    ];
+    const s = summarizeFoCockpit({ openTrades: [], closedTrades: closed });
+    expect(s.closedCount).toBe(4);
+    expect(s.mfeMaeEvidenceCount).toBe(2);
+    expect(s.avgMfe).toBe(10000); // (18000 + 2000) / 2 — placeholders excluded
+    expect(s.avgMae).toBe(-6500); // (-4000 + -9000) / 2 — placeholders excluded
+  });
+
+  it("avg MFE/MAE are null with evidence count 0 when no closed trade has a recorded path", () => {
+    const closed = [
+      closedEligible({ id: "p1", maxRunup: 0, maxDrawdown: 0 }),
+      closedEligible({ id: "p2", maxRunup: null, maxDrawdown: null }),
+    ];
+    const s = summarizeFoCockpit({ openTrades: [], closedTrades: closed });
+    expect(s.closedCount).toBe(2);
+    expect(s.mfeMaeEvidenceCount).toBe(0);
+    expect(s.avgMfe).toBeNull();
+    expect(s.avgMae).toBeNull();
   });
 
   it("closedTodayCount is null without a date, and filters by exit date when supplied", () => {

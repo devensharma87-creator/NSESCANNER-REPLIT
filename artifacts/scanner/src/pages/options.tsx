@@ -20,6 +20,7 @@ import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Crosshair, Zap, Activity, Layers, Repeat, RotateCcw,
   Clock, CheckCircle2, XCircle, Hourglass, BarChart3, IndianRupee, Eye,
   Download, FileSpreadsheet, CalendarDays, ChevronLeft, ChevronRight,
+  ShieldCheck, Ban, Info,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +28,7 @@ import type {
   OptionSignal,
   OptionSignalHistoryItem,
 } from "@workspace/api-client-react";
+import { deriveSetupExplanation } from "@/lib/setupExplanation";
 
 const SETUP_ICON: Record<string, React.ReactNode> = {
   TREND_CONTINUATION: <Zap className="w-4 h-4" />,
@@ -335,8 +337,82 @@ function SetupCard({ sig, planNumber, totalPlans }: { sig: OptionSignal; planNum
         </div>
       )}
 
+      <WhyThisSetup sig={sig} />
+
       <SetupLifecycleFooter sig={sig} />
     </div>
+  );
+}
+
+/**
+ * "Why this setup" — a transparent, display-only explanation built purely from
+ * fields the signal already carries (see `deriveSetupExplanation`). It re-runs
+ * no gate and fabricates nothing; the paper-trade verdict is the server's own
+ * `tradeClass`. Lets the owner see at a glance the tier/regime/direction/
+ * trigger/veto/data-quality/premium-source/RR and whether the auto-trader may
+ * open it — and if not, exactly why.
+ */
+function WhyThisSetup({ sig }: { sig: OptionSignal }) {
+  const e = deriveSetupExplanation(sig);
+  const allowTone = e.paperTradeAllowed
+    ? "border-signal-strong-buy/40 bg-signal-strong-buy/[0.06] text-signal-strong-buy"
+    : "border-amber-500/40 bg-amber-500/[0.06] text-amber-300";
+  return (
+    <div className="border-t border-border/40 pt-2 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          Why this setup
+        </span>
+        <span
+          className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono font-bold ${allowTone}`}
+          title={e.paperTradeReasonText}
+        >
+          {e.paperTradeAllowed ? <ShieldCheck className="w-3 h-3" /> : <Ban className="w-3 h-3" />}
+          {e.paperTradeAllowed ? "Auto-trade: YES" : "Auto-trade: NO"}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
+        <ExplainChip label="Tier" value={e.tier} />
+        <ExplainChip label="Dir" value={e.direction.replace(/ \(.*\)$/, "")} />
+        {e.regime && <ExplainChip label="Regime" value={e.regime} title={e.regimeReason ?? undefined} />}
+        {e.riskReward != null && <ExplainChip label="RR" value={`${e.riskReward}:1`} />}
+        {e.dataQuality && <ExplainChip label="Data" value={e.dataQuality} />}
+        <ExplainChip
+          label="Premium"
+          value={e.premiumSource ? `${e.premiumSource}${e.premiumTrusted ? " ✓" : " ⚠"}` : "—"}
+          title={e.premiumWarning ?? undefined}
+          tone={e.premiumTrusted ? undefined : "warn"}
+        />
+        {e.vetoStatus && <ExplainChip label="Veto" value={e.vetoStatus} tone="warn" />}
+      </div>
+
+      {e.trigger && (
+        <div className="text-[10px] font-mono text-muted-foreground">
+          <span className="uppercase tracking-wider mr-1">Trigger:</span>
+          <span className="text-foreground">{e.trigger}</span>
+        </div>
+      )}
+
+      <div className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
+        <Info className="w-3 h-3 mt-0.5 shrink-0" />
+        <span>{e.paperTradeReasonText}</span>
+      </div>
+    </div>
+  );
+}
+
+function ExplainChip({
+  label, value, title, tone,
+}: { label: string; value: string; title?: string; tone?: "warn" }) {
+  const toneCls = tone === "warn"
+    ? "border-amber-500/40 bg-amber-500/[0.06] text-amber-300"
+    : "border-border/40 bg-secondary/40 text-foreground";
+  return (
+    <span className={`rounded border px-1.5 py-0.5 ${toneCls}`} title={title}>
+      <span className="text-muted-foreground mr-1">{label}</span>
+      {value}
+    </span>
   );
 }
 

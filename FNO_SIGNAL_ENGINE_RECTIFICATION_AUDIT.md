@@ -4,7 +4,9 @@
 **Scope:** F&O strategy engine logic only — recovery/chase veto, anti-flip discipline,
 tradeable-signal gate, P25 official-status gate, counters/circuit-breaker hygiene, and
 MFE/MAE evidence cleanup.
-**Mode:** AUDIT (no code changed yet — awaiting plan approval).
+**Mode:** IMPLEMENTED 2026-06-10 (VERIFY + HARDEN — existing `FNO_SIGNAL_HYGIENE_V2` guardrails
+kept; additive defense-in-depth + honesty + forward-capture only). See §5 for the per-phase
+fix/limitation close-out.
 
 ---
 
@@ -30,23 +32,32 @@ It would be dishonest to re-build them as if absent. What already exists:
 | Circuit breaker counts ACTUAL stops, not modelled outlooks | **EXISTS (under flag)** | `loadGateContext` `paperStoppedToday` from `paper_trade_fo exit_reason=STOPPED` |
 | Audit trail for vetoes/demotions/blocks | **EXISTS** | `fno_signal_reasoning` table + `fnoSignalReasoningLogger.ts` |
 
-**Genuinely-remaining gaps (the actual work of this task):**
-1. **MFE/MAE evidence in the F&O Cockpit** is hardcoded to `"—" / "not in closed payload"`
-   even though `max_runup`/`max_drawdown` ARE persisted and ARE in the `/paper/trades/fo`
-   closed payload. Server analytics (`getFoAnalytics`) never aggregates avg MFE/MAE.
-2. **Premium-path MFE/MAE (highest/lowest premium after entry) is genuinely not recorded** —
-   only P&L-excursion (`max_runup`/`max_drawdown`) exists. The fuller premium-path metrics the
-   task lists (entry/exit/high/low premium, MFE%/MAE%, timestamps) cannot be back-derived and
-   must be shown with the honest "premium path not recorded" reason (no fabrication).
-3. **Open-path defense-in-depth:** `openPaperTrade` gates on *sizing tier*
-   (`isAutoTradeableSizingTier`) + `premiumTrusted`, which is currently equivalent to
-   `tradeClass==='TRADEABLE'`, but it does **not** assert `tradeClass`/`actionable` directly.
-   A future tier/tradeClass divergence could silently let an INFO_ONLY trade open. The task
-   explicitly asks for an explicit `tier===TRADEABLE_SIGNAL && actionable===true` assertion.
-4. **UI per-setup explanation completeness** — veto/regime/RR/"paper-trade allowed Y/N + reason"
-   exist in diagnostics endpoints but are not all surfaced on the setup card in one place.
-5. **Test coverage** for the open-path tier/premium assertions and the veto→INFO_ONLY→no-open
-   chain is partial; the task's explicit test matrix should be filled in.
+**Genuinely-remaining gaps (the actual work of this task) — ALL CLOSED 2026-06-10:**
+1. ~~**MFE/MAE evidence in the F&O Cockpit** is hardcoded to `"—"`~~ → **FIXED (P2).** Cockpit
+   Avg MFE/Avg MAE tiles now show real signed values aggregated **only over rows with evidence**
+   (`hasMfeMaeEvidence`, excludes 0/0 placeholders) plus a count hint; absent → honest "n/a /
+   premium path not recorded". `mfeMaeEvidenceCount` added to the summary.
+2. ~~**Premium-path MFE/MAE is genuinely not recorded**~~ → **FORWARD-CAPTURE ADDED (P5).** Four
+   additive **nullable** columns on `paper_trade_fo` (`highest/lowest_premium_after_entry` +
+   `*_at` timestamps), applied via guarded `ALTER TABLE … ADD COLUMN IF NOT EXISTS` (NO
+   `drizzle-kit push`). MTM sweep stamps them (monotone GREATEST/LEAST, COALESCE-seeded,
+   timestamp advances only on a strictly new watermark). **No backfill** — pre-change rows stay
+   NULL = honestly unavailable. *Limitation:* true premium-path %s only for trades opened after
+   this change; cockpit consumption of the new columns is deliberate forward work (not yet wired).
+3. ~~**Open-path defense-in-depth** (no explicit tradeClass/actionable assertion)~~ → **FIXED
+   (P0+P1).** `assertTradeableForOpen` (pure, `optionSignalVetoes.ts`) is now the explicit FIRST
+   gate in `openPaperTrade`: requires `tradeClass==='TRADEABLE'` + actionable + premium-trusted +
+   no recovery/chase veto tag. Maps `PREMIUM_UNTRUSTED`→`PREMIUM_UNTRUSTED` else
+   `INFO_ONLY_NOT_TRADEABLE` (no new wire enums). Existing sizing-tier/premium gates kept as
+   secondary nets.
+4. ~~**UI per-setup explanation completeness**~~ → **FIXED (P3).** A "Why this setup" block on the
+   F&O setup card surfaces tier/direction/regime/RR/data-quality/premium-source/veto +
+   **Auto-trade YES/NO + reason**, all from existing signal fields only (pure
+   `setupExplanation.ts`; `paperTradeAllowed = tradeClass==='TRADEABLE'`). No new signal math.
+5. ~~**Test coverage** partial~~ → **FIXED.** `assertTradeableForOpen` matrix
+   (`optionSignalVetoes.test.ts`), cockpit honesty (`foCockpitView.test.ts`), per-setup reason
+   (`setupExplanation.test.ts`), premium-path SQL shape (`paperTradingFO.premiumPath.test.ts`),
+   anti-flip regression (`optionSignalGates.antiFlip.test.ts`).
 
 ---
 
@@ -190,4 +201,24 @@ risk/circuit-breaker counters · **Official?** = counts as an official/validated
   change without a failing test first; the most dangerous edits (anti-flip logic, any new hard
   gate) are isolated to their own phase and proven by test before/after. No `drizzle-kit push`
   (additive columns, if approved, applied via guarded `ALTER TABLE … ADD COLUMN IF NOT EXISTS`).
+
+---
+
+## 5. Implementation close-out (2026-06-10)
+
+Delivered as VERIFY + HARDEN. Existing `FNO_SIGNAL_HYGIENE_V2` guardrails were left intact; every
+change below is additive, fail-closed, and free of fabricated values.
+
+| Phase | What shipped | Fix | Limitation |
+|---|---|---|---|
+| **P0** | Pure `assertTradeableForOpen` + `VETO_TAGS` in `optionSignalVetoes.ts` (+ tests) | Single source of truth for "may this open?" — pure, no I/O | Decision inputs are existing fields only; no new signal math |
+| **P1** | `assertTradeableForOpen` wired as explicit FIRST gate in `paperTradingFO.openPaperTrade` | INFO_ONLY/BASELINE/vetoed/untrusted can never open even if sizing-tier coupling drifts | Maps to existing skip enums (`PREMIUM_UNTRUSTED`/`INFO_ONLY_NOT_TRADEABLE`); no new wire enum |
+| **P2** | Cockpit Avg MFE/MAE honesty (`foCockpitView.ts` + `FoCockpitSummaryCards.tsx`) | Real signed avg over evidence rows only + count; honest "n/a" otherwise | Evidence = P&L excursion (`max_runup/drawdown`); richer %s await P5 data |
+| **P3** | "Why this setup" block (`setupExplanation.ts` + `options.tsx`) | tier/dir/regime/RR/data-quality/premium-source/veto + Auto-trade Y/N + reason from existing fields | Presentational; `paperTradeAllowed` mirrors server `tradeClass` |
+| **P4** | Anti-flip verified via failing-test-first (`optionSignalGates.antiFlip.test.ts`) | **No gap found** — opposite-direction-after-stop within `BIAS_FLIP_COOLDOWN_MIN=45` IS suppressed; locked as regression | Cooldown keys off a real STOP (pre-existing design); **no logic change** (none test-justified) |
+| **P5** | Forward premium-path capture: 4 nullable cols + MTM-sweep stamping (`paperTrading.ts`, `paperTradingFO.ts`) | True premium-path high/low + timestamps for trades opened from now on; guarded ALTER, no push, no backfill | Pre-change rows NULL = honestly unavailable; cockpit consumption of new cols is forward work (not yet wired) |
+
+**Verification:** full `pnpm run typecheck` clean; api-server vitest 1244 pass (4 shards, `--pool=threads`);
+scanner vitest 680 pass (3 shards, run after api-server). No `drizzle-kit push`; dev DB columns added via
+guarded `ALTER TABLE … ADD COLUMN IF NOT EXISTS` (re-run against prod after deploy).
 </content>

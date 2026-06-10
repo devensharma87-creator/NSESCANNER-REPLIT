@@ -34,7 +34,11 @@ import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
-import { isAutoTradeableSizingTier } from "./optionSignalVetoes";
+import {
+  isAutoTradeableSizingTier,
+  assertTradeableForOpen,
+  deriveTradeClass,
+} from "./optionSignalVetoes";
 import type { OptionSignal } from "@workspace/api-zod";
 import {
   ensureDailyReset,
@@ -118,6 +122,28 @@ function num(v: string | number | null | undefined): number {
 
 function toDbNumeric(n: number, scale = 4): string {
   return Number.isFinite(n) ? n.toFixed(scale) : "0";
+}
+
+/**
+ * Forward premium-path watermark set-fragment for the MTM sweep (P5, 2026-06-10).
+ *
+ * Records the OPTION PREMIUM's high/low watermark observed AFTER entry plus the
+ * instant (DB `now()`, i.e. UTC) each watermark was set. COALESCE seeds the
+ * first observation; GREATEST/LEAST keep each watermark monotone and make the
+ * update idempotent (re-applying the same ltp is a no-op); the timestamp only
+ * advances when a strictly new watermark is established. These additive nullable
+ * columns let the cockpit later derive a TRUE premium-path MFE/MAE for trades
+ * opened from this point on. Pre-change rows stay NULL — honestly unavailable,
+ * never backfilled, never fabricated.
+ */
+export function premiumPathWatermarkSet(ltp: number) {
+  const v = toDbNumeric(ltp, 2);
+  return {
+    highestPremiumAfterEntry: sql`GREATEST(COALESCE(${paperTradeFoTable.highestPremiumAfterEntry}, ${v}::numeric), ${v}::numeric)`,
+    highestPremiumAt: sql`CASE WHEN ${paperTradeFoTable.highestPremiumAfterEntry} IS NULL OR ${v}::numeric > ${paperTradeFoTable.highestPremiumAfterEntry} THEN now() ELSE ${paperTradeFoTable.highestPremiumAt} END`,
+    lowestPremiumAfterEntry: sql`LEAST(COALESCE(${paperTradeFoTable.lowestPremiumAfterEntry}, ${v}::numeric), ${v}::numeric)`,
+    lowestPremiumAt: sql`CASE WHEN ${paperTradeFoTable.lowestPremiumAfterEntry} IS NULL OR ${v}::numeric < ${paperTradeFoTable.lowestPremiumAfterEntry} THEN now() ELSE ${paperTradeFoTable.lowestPremiumAt} END`,
+  };
 }
 
 function lotSizeFor(indexSymbol: string): number | null {
@@ -332,6 +358,45 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         direction, confidence, tier, skipReason,
       }),
     );
+
+  // 2026-06-10 (P1): explicit fail-closed tradeability assertion — the single
+  // authoritative FIRST gate, pure-evaluated and unit-tested in isolation
+  // (assertTradeableForOpen in optionSignalVetoes.ts). Defense-in-depth ON TOP
+  // OF the individual gates below: it refuses to open unless the signal is
+  // genuinely TRADEABLE (auto-tradeable sizing tier AND tradeClass==='TRADEABLE'
+  // under hygiene v2), carries NO recovery/chase veto, and rests on Kite-trusted
+  // premium — returning a precise structured reason. The per-gate checks below
+  // are KEPT as secondary nets with richer per-reason logging; mapping a veto to
+  // INFO_ONLY_NOT_TRADEABLE keeps the missed-signal wire enum stable.
+  const eligibility = assertTradeableForOpen({
+    sizingTier: tier,
+    tradeClass: signal.tradeClass ?? null,
+    premiumTrusted: signal.premiumTrusted ?? null,
+    tags: signal.tags ?? null,
+    hygieneEnabled: isSignalHygieneV2Enabled(),
+  });
+  if (!eligibility.trade_open_allowed) {
+    const skip: SkipReason =
+      eligibility.reason === "PREMIUM_UNTRUSTED"
+        ? "PREMIUM_UNTRUSTED"
+        : "INFO_ONLY_NOT_TRADEABLE";
+    if (recordSkip(skip)) {
+      logger.info(
+        {
+          indexSymbol,
+          setupKey,
+          tier,
+          confidence,
+          tradeClass: signal.tradeClass ?? null,
+          blockReason: eligibility.reason,
+          detail: eligibility.detail,
+          premiumSource: signal.premiumSource ?? null,
+        },
+        `Paper FO skip: tradeability gate refused open (${eligibility.reason})`,
+      );
+    }
+    return null;
+  }
 
   // 2026-06-09 hygiene v2: BASELINE (and any non-STANDARD demoted/vetoed)
   // signals are strictly INFO_ONLY — the auto-trader refuses to open them,
@@ -1062,6 +1127,7 @@ export async function markOpenFnoTradesToMarket(
           lastEvaluatedAt: new Date(),
           maxRunup: sql`GREATEST(${paperTradeFoTable.maxRunup}, ${toDbNumeric(upnl, 2)}::numeric)`,
           maxDrawdown: sql`LEAST(${paperTradeFoTable.maxDrawdown}, ${toDbNumeric(upnl, 2)}::numeric)`,
+          ...premiumPathWatermarkSet(ltp),
         })
         .where(and(eq(paperTradeFoTable.id, r.id), eq(paperTradeFoTable.status, "OPEN")));
     } catch (err) {
@@ -1279,6 +1345,7 @@ export async function markAllOpenFnoTradesToMarket(
             lastEvaluatedAt: new Date(),
             maxRunup: sql`GREATEST(${paperTradeFoTable.maxRunup}, ${toDbNumeric(upnl, 2)}::numeric)`,
             maxDrawdown: sql`LEAST(${paperTradeFoTable.maxDrawdown}, ${toDbNumeric(upnl, 2)}::numeric)`,
+            ...premiumPathWatermarkSet(ltp),
           })
           .where(
             and(
@@ -1339,7 +1406,9 @@ async function markToMarket(input: LifecycleHookInput): Promise<void> {
   const setupKey = signal.setupKey;
   if (!setupKey) return;
   const ltp = signal.optionLtp;
-  if (ltp == null) return;
+  // Match site 1's guard: a non-finite ltp (NaN/±Inf) would render as "0" via
+  // toDbNumeric and falsely seed the lowest-premium watermark at 0.
+  if (ltp == null || !Number.isFinite(ltp)) return;
 
   const row = await db
     .select()
@@ -1365,6 +1434,7 @@ async function markToMarket(input: LifecycleHookInput): Promise<void> {
       lastEvaluatedAt: new Date(),
       maxRunup: sql`GREATEST(${paperTradeFoTable.maxRunup}, ${toDbNumeric(upnl, 2)}::numeric)`,
       maxDrawdown: sql`LEAST(${paperTradeFoTable.maxDrawdown}, ${toDbNumeric(upnl, 2)}::numeric)`,
+      ...premiumPathWatermarkSet(ltp),
     })
     .where(and(eq(paperTradeFoTable.id, r.id), eq(paperTradeFoTable.status, "OPEN")));
 }
@@ -2269,6 +2339,41 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
       r.direction === "BEARISH" ? "BEARISH" : "BULLISH";
     const { trusted: premiumTrusted, source: premiumSource } =
       await resolveTrust(r.index_symbol);
+
+    // Tier the synthetic open the same way the in-cycle path does:
+    // BASELINE setups go through the conservative lane (1% loss cap,
+    // 55 conf floor); everything else uses STANDARD.
+    //
+    // Pass-2A fix (HIGH): prefer the PERSISTED tier from
+    // option_signal_history when present. A vol-clamped HC setup
+    // (Pass-2A) is emitted as `tier="BASELINE"` and persisted as such
+    // by the lifecycle insert; if reconciliation derived tier from
+    // `setup_key` alone, that would silently re-promote it back to
+    // STANDARD here (defeating the whole soft-demote). Fall back to
+    // the setup_key heuristic only for legacy null rows.
+    //
+    // Computed BEFORE the synthetic signal so we can stamp a matching
+    // `tradeClass` — the P1 `assertTradeableForOpen` first gate reads it.
+    const tier: TradeTier =
+      r.persisted_tier === "BASELINE"
+        ? "BASELINE"
+        : r.persisted_tier === "HIGH_CONVICTION"
+          ? "STANDARD"
+          : r.setup_key === "BASELINE"
+            ? "BASELINE"
+            : "STANDARD";
+    // The reconcile signal MUST carry the SAME tradeClass the in-cycle path
+    // would derive from this tier (STANDARD⇒HIGH_CONVICTION⇒TRADEABLE,
+    // BASELINE⇒INFO_ONLY under hygiene). Without it the P1 first gate refuses
+    // EVERY reconciled open (tradeClass undefined ≠ "TRADEABLE"), silently
+    // killing mid-day-restart backfill for legit Kite-trusted STANDARD rows.
+    // tags: [] — a reconciled re-open carries no FRESH recovery/chase veto
+    // (a vetoed setup is INFO_ONLY and would never have been persisted as a
+    // triggered trade in the first place).
+    const tradeClass = deriveTradeClass(
+      tier === "BASELINE" ? "BASELINE" : "HIGH_CONVICTION",
+      isSignalHygieneV2Enabled(),
+    );
     const syntheticSignal = {
       index: r.index_symbol,
       indexName: r.index_name,
@@ -2285,6 +2390,8 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
       premiumWarning: premiumTrusted
         ? undefined
         : `Reconcile: option-chain source "${premiumSource}" is not Kite-trusted right now — refusing to re-open.`,
+      tradeClass,
+      tags: [],
       leg: {
         type: r.option_type,
         strike: num(r.strike),
@@ -2296,25 +2403,6 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
     } as unknown as OptionSignal;
 
     try {
-      // Tier the synthetic open the same way the in-cycle path does:
-      // BASELINE setups go through the conservative lane (1% loss cap,
-      // 55 conf floor); everything else uses STANDARD.
-      //
-      // Pass-2A fix (HIGH): prefer the PERSISTED tier from
-      // option_signal_history when present. A vol-clamped HC setup
-      // (Pass-2A) is emitted as `tier="BASELINE"` and persisted as such
-      // by the lifecycle insert; if reconciliation derived tier from
-      // `setup_key` alone, that would silently re-promote it back to
-      // STANDARD here (defeating the whole soft-demote). Fall back to
-      // the setup_key heuristic only for legacy null rows.
-      const tier: TradeTier =
-        r.persisted_tier === "BASELINE"
-          ? "BASELINE"
-          : r.persisted_tier === "HIGH_CONVICTION"
-            ? "STANDARD"
-            : r.setup_key === "BASELINE"
-              ? "BASELINE"
-              : "STANDARD";
       const trade = await openPaperTrade({
         prev: null,
         next: "TRIGGERED",

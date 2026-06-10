@@ -127,6 +127,19 @@ export const paperTradeFoTable = pgTable(
     /** Worst unrealised P&L observed while the trade was open. */
     maxDrawdown: numeric("max_drawdown", { precision: 18, scale: 2 }).notNull().default("0"),
 
+    /**
+     * Forward premium-path capture (additive 2026-06-10, nullable on purpose).
+     * The actual option-premium high/low watermarks observed by the MTM sweep
+     * AFTER entry, plus the IST instant each watermark was set. These let the
+     * cockpit compute a TRUE premium-path MFE/MAE for trades opened from this
+     * point on. Pre-change rows are left NULL and stay HONESTLY unavailable —
+     * never backfilled, never fabricated.
+     */
+    highestPremiumAfterEntry: numeric("highest_premium_after_entry", { precision: 18, scale: 2 }),
+    highestPremiumAt: timestamp("highest_premium_at", { withTimezone: true }),
+    lowestPremiumAfterEntry: numeric("lowest_premium_after_entry", { precision: 18, scale: 2 }),
+    lowestPremiumAt: timestamp("lowest_premium_at", { withTimezone: true }),
+
     journal: text("journal"),
     tags: text("tags").array(),
   },
