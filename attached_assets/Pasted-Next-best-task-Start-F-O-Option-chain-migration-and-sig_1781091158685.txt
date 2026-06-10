@@ -1,0 +1,173 @@
+Next best task
+
+Start F&O / Option-chain migration and signal-safety audit.
+
+This is now the highest-risk remaining area because it affects:
+
+option-chain data
+F&O setups
+official signals
+paper trading
+HIGH_CONVICTION labels
+stop/target calculations
+P25 evidence gates
+live/paper trade decisions
+
+Send this next:
+
+Start next scoped task: F&O / Option-chain migration and signal-safety audit.
+
+Do not reopen:
+
+Watchlist
+Portfolio resolver
+T003 Home / Market Pulse
+Charting Candle Source Honesty
+Backtest Lab rectification
+full trusted-layer migration
+
+Objective:
+Audit and migrate F&O / option-chain consumers onto the trusted central data layer, and make sure no signal or paper-trade decision is made from stale, synthetic, missing, or untrusted option data.
+
+Data policy:
+
+Kite is primary for NFO quotes, option prices, futures, OI, and instruments.
+INDstocks may be validation/failover only through central provider layer.
+Yahoo must not power F&O signals, option-chain values, paper trades, or risk calculations.
+Synthetic option prices must never be treated as real.
+If option data is stale/missing/conflicting, signal must be blocked or demoted with exact reason.
+No silent fallback.
+No fake option-chain rows.
+No stale OI/premium shown as live.
+
+Audit first:
+Create:
+
+FNO_OPTION_CHAIN_SIGNAL_AUDIT.md
+
+For each module include:
+
+frontend component
+endpoint
+backend file
+current source
+central option-chain facade used: YES/NO
+direct provider call: YES/NO
+synthetic/proxy data risk: YES/NO
+stale data risk: YES/NO
+signal uses this data: YES/NO
+fix applied
+remaining limitation
+
+Audit at minimum:
+
+Option chain page
+F&O Official setups
+F&O Legacy Display
+Paper trading open path
+Signal engine
+P25 evidence gate
+Option quote/OI fetchers
+Futures quote path
+Stop/target premium calculation
+Any synthetic premium/proxy path touching live/paper signals
+
+Implementation requirements:
+
+Route all F&O quotes through central trusted facade:
+getOptionChain()
+getFnoQuote()
+getFnoQuotes()
+getFuturesQuote()
+getOptionContractQuote()
+getOptionChainDiagnostics()
+Every F&O response must include:
+source_provider
+source_priority
+asof
+freshness_sec
+is_stale
+exchange
+segment
+tradingsymbol
+instrument_token
+expiry
+strike
+option_type
+lot_size
+oi
+volume
+bid
+ask
+last_price
+warnings
+missing_reason
+Add signal safety gate:
+Block or demote signal if:
+source_provider missing
+option contract unresolved
+quote missing
+premium missing
+OI missing where required
+data stale
+source is Yahoo
+source is synthetic
+source is secondary analytics
+expiry/strike mismatch
+lot size missing
+P25 evidence insufficient
+provider conflict exists
+Do not allow INFO_ONLY / BASELINE outlooks to open paper trades.
+Paper trading:
+Before opening a paper trade, validate:
+signal tier = TRADEABLE_SIGNAL
+option contract resolved
+premium source trusted
+data fresh
+stop/target calculated from trusted premium
+P25 evidence satisfied
+risk gate passed
+
+If blocked, return exact reason:
+{
+"trade_open_allowed": false,
+"reason": "Option premium stale / P25 evidence insufficient / source untrusted"
+}
+
+Option-chain UI:
+Show:
+source badge
+freshness
+stale warning
+missing OI warning
+unavailable reason
+no fake rows
+Tests:
+option-chain facade uses Kite primary
+direct Yahoo blocked from F&O modules
+synthetic premiums cannot feed official signal
+stale option data blocks tradeable signal
+missing OI blocks/demotes when OI required
+INFO_ONLY cannot open paper trade
+TRADEABLE_SIGNAL requires trusted option quote
+P25 insufficient blocks paper trade
+stop/target use trusted premium
+existing Watchlist tests pass
+existing Portfolio tests pass
+existing T003 tests pass
+existing candle-source tests pass
+typecheck passes
+Verification:
+Return:
+audit report
+files changed
+example option-chain response with provenance
+example blocked signal reason
+example allowed signal with trusted quote
+tests/typecheck result
+any remaining limitation
+
+Acceptance:
+The task is complete only when official F&O setups and paper trading cannot use untrusted, stale, Yahoo, synthetic, or missing option data. If data is not trusted, the system must block/demote and explain why.
+
+This is the right next lane before Backtest Lab. The live F&O/paper-trade path is more dangerous than research backtest labels.
