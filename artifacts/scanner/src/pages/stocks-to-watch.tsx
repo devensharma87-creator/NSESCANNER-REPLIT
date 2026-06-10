@@ -198,7 +198,7 @@ function TechScanSection({ data, isLoading, error }: {
               lastUpdated={b.asOf}
               fallbackActive={b.fallbackActive}
               note={b.note}
-              autoStaleAfterMs={0}
+              autoStaleAfterMs={b.autoStaleAfterMs}
               compact
             />
           );

@@ -3,6 +3,7 @@ import { scanAll, getCachedScanRows, refreshScanInBackground } from "./scanner";
 import { fetchIntraday, fetchIndexChart } from "./yahoo";
 import { fetchKiteIntraday } from "./kiteIntraday";
 import { ema, rsi, sessionVwap } from "./indicators";
+import { isFreshFor } from "./chartDatafeed";
 import { SECTORS } from "./universe";
 
 let cache: { ts: number; data: MarketTrend } | null = null;
@@ -155,6 +156,7 @@ export async function getMarketTrend(): Promise<MarketTrend> {
             : idxYahooCount > 0 ? "yahoo"
               : "none",
       asOf: idxFreshestMs > 0 ? new Date(idxFreshestMs) : null,
+      fresh: isFreshFor(idxFreshestMs > 0 ? idxFreshestMs / 1000 : null, "15m"),
       indicesUsed: idxKiteCount + idxYahooCount,
       kiteCount: idxKiteCount,
       yahooCount: idxYahooCount,

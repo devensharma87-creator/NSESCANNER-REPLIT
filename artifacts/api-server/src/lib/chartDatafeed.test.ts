@@ -3,6 +3,7 @@ import {
   normalizeChart,
   aggregateCandles,
   deriveFreshness,
+  isFreshFor,
   TIMEFRAME_CONFIG,
   ALL_TIMEFRAMES,
   type ChartCandlePoint,
@@ -139,6 +140,32 @@ describe("deriveFreshness", () => {
     const stale = deriveFreshness(staleSeries, "5m", nowSec * 1000);
     expect(stale.fresh).toBe(false);
     expect(stale.asOf).toBe(nowSec - 100_000);
+  });
+});
+
+describe("isFreshFor", () => {
+  it("is not fresh for null / non-finite asOf (never fabricates freshness)", () => {
+    expect(isFreshFor(null, "1D")).toBe(false);
+    expect(isFreshFor(NaN, "15m")).toBe(false);
+    expect(isFreshFor(Infinity, "15m")).toBe(false);
+  });
+
+  it("uses the per-timeframe budget from TIMEFRAME_CONFIG (seconds in, ms now)", () => {
+    const nowMs = 1_700_000_000_000;
+    const nowSec = nowMs / 1000;
+    // 15m budget is 2700s: a 40-min-old bar is stale, a 30-min-old bar is fresh.
+    expect(isFreshFor(nowSec - 2400, "15m", nowMs)).toBe(true);
+    expect(isFreshFor(nowSec - 3600, "15m", nowMs)).toBe(false);
+    // 1D budget is 4 days: a 3-day-old daily bar is still fresh, 5-day is stale.
+    expect(isFreshFor(nowSec - 3 * 86400, "1D", nowMs)).toBe(true);
+    expect(isFreshFor(nowSec - 5 * 86400, "1D", nowMs)).toBe(false);
+  });
+
+  it("agrees with deriveFreshness on the same newest-bar instant", () => {
+    const nowMs = 1_700_000_000_000;
+    const asOfSec = nowMs / 1000 - 1000;
+    const series: ChartCandlePoint[] = [{ t: asOfSec, o: 1, h: 1, l: 1, c: 1, v: null }];
+    expect(isFreshFor(asOfSec, "15m", nowMs)).toBe(deriveFreshness(series, "15m", nowMs).fresh);
   });
 });
 

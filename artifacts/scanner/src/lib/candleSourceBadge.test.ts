@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { candleSourceBadge, type CandleProvenance } from "./stocksToWatchView";
+import { candleSourceBadge, DAILY_BAR_STALE_AFTER_MS, type CandleProvenance } from "./stocksToWatchView";
 
 const cp = (over: Partial<CandleProvenance>): CandleProvenance => ({
   scanDate: "2026-06-10",
@@ -7,6 +7,7 @@ const cp = (over: Partial<CandleProvenance>): CandleProvenance => ({
   noBarsCount: 0,
   dominant: "kite",
   asOf: "2026-06-09T10:00:00.000Z",
+  fresh: true,
   ...over,
 });
 
@@ -16,13 +17,15 @@ describe("candleSourceBadge", () => {
     expect(candleSourceBadge(undefined)).toBeNull();
   });
 
-  it("kite-dominant → Kite source, delayed (EOD), no fallback", () => {
+  it("kite-dominant + fresh → Kite source, delayed (EOD), no fallback", () => {
     const b = candleSourceBadge(cp({ dominant: "kite", bySource: { kite: 480, yahoo: 0 } }))!;
     expect(b.source).toBe("kite");
     expect(b.status).toBe("delayed");
     expect(b.fallbackActive).toBe(false);
     expect(b.note).toMatch(/Kite/);
+    expect(b.note).not.toMatch(/stale/);
     expect(b.asOf).toBe("2026-06-09T10:00:00.000Z");
+    expect(b.autoStaleAfterMs).toBe(DAILY_BAR_STALE_AFTER_MS);
   });
 
   it("yahoo-dominant → Yahoo source with fallback flagged", () => {
@@ -40,11 +43,28 @@ describe("candleSourceBadge", () => {
     expect(b.note).toContain("180 Yahoo");
   });
 
+  it("not fresh → stale status + stale note suffix (honest, never silently 'delayed')", () => {
+    const b = candleSourceBadge(cp({ dominant: "kite", fresh: false }))!;
+    expect(b.status).toBe("stale");
+    expect(b.note).toMatch(/stale/);
+    // source is still surfaced honestly even when stale
+    expect(b.source).toBe("kite");
+  });
+
+  it("stale carries over to the yahoo fallback path too", () => {
+    const b = candleSourceBadge(cp({ dominant: "yahoo", bySource: { kite: 0, yahoo: 470 }, fresh: false }))!;
+    expect(b.status).toBe("stale");
+    expect(b.fallbackActive).toBe(true);
+    expect(b.note).toMatch(/Yahoo fallback/);
+    expect(b.note).toMatch(/stale/);
+  });
+
   it("none → unknown source, down status, never fabricated", () => {
-    const b = candleSourceBadge(cp({ dominant: "none", bySource: { kite: 0, yahoo: 0 } }))!;
+    const b = candleSourceBadge(cp({ dominant: "none", bySource: { kite: 0, yahoo: 0 }, fresh: false }))!;
     expect(b.source).toBe("unknown");
     expect(b.status).toBe("down");
     expect(b.fallbackActive).toBe(false);
     expect(b.note).toMatch(/unavailable/i);
+    expect(b.autoStaleAfterMs).toBe(DAILY_BAR_STALE_AFTER_MS);
   });
 });

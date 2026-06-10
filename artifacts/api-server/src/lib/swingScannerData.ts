@@ -26,6 +26,7 @@ import { EMPTY_FUNDAMENTALS, fundamentalScore, fundamentalStatusFromScore } from
 import { fetchKiteHistoricalByToken, getIndexTokenMap } from "./kiteIntraday";
 import { getInstrumentToken } from "./kiteFeed";
 import { fetchChart, fetchChartRaw, fetchFundamentals } from "./yahoo";
+import { isFreshFor } from "./chartDatafeed";
 import { logger } from "./logger";
 
 interface ChartLike {
@@ -58,6 +59,16 @@ export interface SwingDailyBarsResult {
   bars: DailyBars | null;
   /** Which provider produced the bars (`"none"` when the fetch failed). */
   source: SwingDailyBarSource;
+  /** Newest bar instant (epoch ms) or null — part of the uniform candle contract. */
+  asOf: number | null;
+  /** Whether the newest bar is within the daily (`1D`) freshness budget. */
+  fresh: boolean;
+}
+
+/** Newest bar timestamp (epoch ms) of a daily-bar series, or null. */
+function barsAsOfMs(bars: DailyBars): number | null {
+  const t = bars.ts[bars.ts.length - 1];
+  return typeof t === "number" && Number.isFinite(t) ? t : null;
 }
 
 /** Daily OHLCV for an NSE EQ symbol. Tries Kite via the throttled
@@ -70,15 +81,21 @@ export async function fetchDailyBars(symbol: string, daysBack = 500): Promise<Sw
   const token = await getInstrumentToken(symbol).catch(() => null);
   if (token) {
     const kite = await fetchKiteHistoricalByToken(token, `swing:${symbol}`, "day", daysBack);
-    if (kite && kite.close.length >= 220) return { bars: chartToBars(kite), source: "kite" };
+    if (kite && kite.close.length >= 220) {
+      const bars = chartToBars(kite);
+      const asOf = barsAsOfMs(bars);
+      return { bars, source: "kite", asOf, fresh: isFreshFor(asOf == null ? null : asOf / 1000, "1D") };
+    }
   }
   const range = daysBack > 365 ? "2y" : "1y";
   const yahoo = await fetchChart(symbol, range, "1d", "NS");
   if (!yahoo || yahoo.close.length < 220) {
     logger.debug({ symbol, kiteToken: token, yahooLen: yahoo?.close.length ?? 0 }, "swing-scan daily-bar fetch failed");
-    return { bars: null, source: "none" };
+    return { bars: null, source: "none", asOf: null, fresh: false };
   }
-  return { bars: chartToBars(yahoo), source: "yahoo" };
+  const bars = chartToBars(yahoo);
+  const asOf = barsAsOfMs(bars);
+  return { bars, source: "yahoo", asOf, fresh: isFreshFor(asOf == null ? null : asOf / 1000, "1D") };
 }
 
 /** Benchmark bars for relative strength: NIFTY 50 (^NSEI). 1 year is

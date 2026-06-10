@@ -87,7 +87,16 @@ export interface CandleProvenance {
   noBarsCount: number;
   dominant: "kite" | "yahoo" | "mixed" | "none";
   asOf: string | null;
+  /** Whether the freshest daily bar is within the `1D` freshness budget. */
+  fresh: boolean;
 }
+
+/**
+ * Client mirror of the server's `1D` candle freshness budget (4 days), used
+ * only to drive the badge's own staleness degradation when the page is left
+ * open across sessions. Kept in sync with `TIMEFRAME_CONFIG["1D"]`.
+ */
+export const DAILY_BAR_STALE_AFTER_MS = 4 * 86_400_000;
 
 export interface AnalysisPayload {
   asOf: string;
@@ -110,10 +119,18 @@ export interface AnalysisPayload {
 /** View-model for the daily-bar source pill; null when no provenance. */
 export interface CandleSourceBadgeView {
   source: "kite" | "yahoo" | "mixed" | "unknown";
-  status: "delayed" | "down";
+  /**
+   * Honest feed status. Daily bars are END-OF-DAY, never intraday-live, so a
+   * usable EOD series is "delayed" (Kite or Yahoo); when the freshest bar
+   * falls outside the `1D` freshness budget it is "stale"; "down" means no
+   * bars at all (the fallback was exhausted, never silently substituted).
+   */
+  status: "delayed" | "stale" | "down";
   fallbackActive: boolean;
   note: string;
   asOf: string | null;
+  /** Budget after which the badge should self-degrade if left open. */
+  autoStaleAfterMs: number;
 }
 
 /** Pure: map daily-bar provenance → DataSourceBadge props (testable). */
@@ -121,17 +138,22 @@ export function candleSourceBadge(
   cp: CandleProvenance | null | undefined,
 ): CandleSourceBadgeView | null {
   if (!cp) return null;
-  const { dominant, bySource, asOf } = cp;
+  const { dominant, bySource, asOf, fresh } = cp;
+  const autoStaleAfterMs = DAILY_BAR_STALE_AFTER_MS;
+  // EOD daily bars are never intraday-"live"; freshness only decides
+  // delayed-vs-stale. A genuine miss is "down" (no fabrication).
+  const status: "delayed" | "stale" = fresh ? "delayed" : "stale";
+  const staleSuffix = fresh ? "" : " · stale";
   switch (dominant) {
     case "kite":
-      return { source: "kite", status: "delayed", fallbackActive: false, note: "daily bars · Kite", asOf };
+      return { source: "kite", status, fallbackActive: false, note: `daily bars · Kite${staleSuffix}`, asOf, autoStaleAfterMs };
     case "yahoo":
-      return { source: "yahoo", status: "delayed", fallbackActive: true, note: "daily bars · Yahoo fallback", asOf };
+      return { source: "yahoo", status, fallbackActive: true, note: `daily bars · Yahoo fallback${staleSuffix}`, asOf, autoStaleAfterMs };
     case "mixed":
-      return { source: "mixed", status: "delayed", fallbackActive: true, note: `daily bars · ${bySource.kite} Kite / ${bySource.yahoo} Yahoo`, asOf };
+      return { source: "mixed", status, fallbackActive: true, note: `daily bars · ${bySource.kite} Kite / ${bySource.yahoo} Yahoo${staleSuffix}`, asOf, autoStaleAfterMs };
     case "none":
     default:
-      return { source: "unknown", status: "down", fallbackActive: false, note: "daily bars unavailable", asOf };
+      return { source: "unknown", status: "down", fallbackActive: false, note: "daily bars unavailable", asOf, autoStaleAfterMs };
   }
 }
 

@@ -212,6 +212,24 @@ export function deriveFreshness(
   return { asOf, fresh: ageSec <= TIMEFRAME_CONFIG[tf].freshnessSec };
 }
 
+/**
+ * Generic freshness check for candle paths that already know their newest
+ * bar instant but do NOT carry a `ChartCandlePoint[]` (the swing daily-bar
+ * tally and the index-trend intraday tally). Sharing this keeps every
+ * candle surface on ONE `{ source, asOf, fresh }` contract derived from the
+ * SAME per-timeframe budgets in `TIMEFRAME_CONFIG`.
+ *
+ * @param asOfSec newest bar timestamp in epoch SECONDS, or null when none.
+ */
+export function isFreshFor(
+  asOfSec: number | null,
+  tf: ChartTimeframe,
+  nowMs: number = Date.now(),
+): boolean {
+  if (asOfSec == null || !Number.isFinite(asOfSec)) return false;
+  return nowMs / 1000 - asOfSec <= TIMEFRAME_CONFIG[tf].freshnessSec;
+}
+
 function finalize(
   symbol: string,
   segment: ChartSegment,

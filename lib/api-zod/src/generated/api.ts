@@ -661,6 +661,12 @@ export const GetMarketTrendResponse = zod.object({
         .describe(
           "Timestamp of the freshest index bar consumed, or null when none.",
         ),
+      fresh: zod
+        .boolean()
+        .optional()
+        .describe(
+          "Whether the freshest index bar is within the 15-minute candle freshness budget. false means the trend is running on stale\/no index candles.",
+        ),
       indicesUsed: zod
         .number()
         .optional()

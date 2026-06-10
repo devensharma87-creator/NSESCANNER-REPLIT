@@ -33,6 +33,7 @@ import { db, swingScanResultTable, swingScanRunTable } from "@workspace/db";
 import type { SwingScanResultRow } from "@workspace/db";
 import { scoreAndPlan, type SwingScanResult } from "./swingScanner";
 import { fetchDailyBars, fetchBenchmarkBarsResilient, fetchFundamentalsForSwing, type SwingBenchmarkSource } from "./swingScannerData";
+import { isFreshFor } from "./chartDatafeed";
 import { NIFTY500_SYMBOLS } from "./watchlistLists";
 import { loadKiteQuotes } from "./kiteScanner";
 import { logger } from "./logger";
@@ -237,6 +238,8 @@ export interface SwingCandleHealth {
     noBarsCount: number;
     /** Freshest daily-bar timestamp (UTC ISO) across priced symbols, or null. */
     asOf: string | null;
+    /** Whether the freshest bar is within the daily (`1D`) freshness budget. */
+    fresh: boolean;
     /** When this tally was computed. */
     at: string;
   } | null;
@@ -356,10 +359,11 @@ export async function runDeepScan(scanDate: string = istDateString()): Promise<{
       bySource: { kite: candleKite, yahoo: candleYahoo },
       noBarsCount: candleNone,
       asOf: candleMaxTs > 0 ? new Date(candleMaxTs).toISOString() : null,
+      fresh: isFreshFor(candleMaxTs > 0 ? candleMaxTs / 1000 : null, "1D"),
       at: new Date().toISOString(),
     };
     logger.info(
-      { scanDate, candleKite, candleYahoo, candleNone, asOf: candleHealth.lastScan.asOf },
+      { scanDate, candleKite, candleYahoo, candleNone, asOf: candleHealth.lastScan.asOf, fresh: candleHealth.lastScan.fresh },
       "swing-scan daily-bar provenance",
     );
 
@@ -623,6 +627,8 @@ export interface SwingCandleProvenance {
   noBarsCount: number;
   dominant: "kite" | "yahoo" | "mixed" | "none";
   asOf: string | null;
+  /** Whether the freshest daily bar is within the `1D` freshness budget. */
+  fresh: boolean;
 }
 
 export interface SwingScanReadResult {
@@ -655,6 +661,7 @@ function readCandleProvenance(scanDate: string): SwingCandleProvenance | null {
     noBarsCount: last.noBarsCount,
     dominant: deriveCandleDominant(last.bySource),
     asOf: last.asOf,
+    fresh: last.fresh,
   };
 }
 

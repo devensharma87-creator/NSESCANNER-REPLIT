@@ -2,7 +2,9 @@ import { Router, type IRouter } from "express";
 import { sql } from "drizzle-orm";
 import { db, swingScanResultTable } from "@workspace/db";
 import { getStocksToWatch } from "../lib/stocksToWatch";
-import { getLatestSwingScan, getSchedulerState, getIntradayRefreshHealth, getSwingBenchmarkHealth, getLatestSwingScanSectorRows } from "../lib/swingScannerStore";
+import { getLatestSwingScan, getSchedulerState, getIntradayRefreshHealth, getSwingBenchmarkHealth, getLatestSwingScanSectorRows, getSwingCandleHealth, deriveCandleDominant } from "../lib/swingScannerStore";
+import { getMarketTrend } from "../lib/marketTrend";
+import { TIMEFRAME_CONFIG } from "../lib/chartDatafeed";
 import { computeSectorCoverage, UNMAPPED_SECTOR } from "../lib/sectorMap";
 import { computeSectorStrength } from "../lib/sectorStrength";
 import {
@@ -157,6 +159,91 @@ router.get(
               : Math.round(
                   ((dbCounts["rows_with_industry"] ?? 0) / (dbCounts["total_rows"] ?? 1)) * 1000,
                 ) / 10,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * GET /api/stocks-to-watch/diagnostics/candle-source
+ *
+ * Task #128 — owner-only READ-ONLY roll-up of candle SOURCE + FRESHNESS for
+ * the surfaces that fall back Kite→Yahoo. Lets the owner confirm at a glance
+ * that no surface is silently substituting or running on stale candles.
+ *
+ * Summarizes three candle paths on the uniform `{ source, asOf, fresh }`
+ * contract:
+ *   - swingDailyBars: in-memory tally from the latest deep scan (null when
+ *     THIS process did not produce the latest scan — honest "unavailable").
+ *   - indexTrend: the live MarketTrend index-intraday provenance.
+ *   - charting: the per-timeframe freshness budgets the chart datafeed and
+ *     the two paths above all derive from (the single source of truth).
+ *
+ * STRICT READ-ONLY: reads in-memory state + the (cached) MarketTrend; mutates
+ * nothing, enqueues no scan/refresh, places no order. Same strict owner-only
+ * gate as the peer diagnostics — does NOT inherit `requireOwner`'s public-mode
+ * read bypass.
+ */
+router.get(
+  "/stocks-to-watch/diagnostics/candle-source",
+  (req, res, next) => {
+    const s = getSession(req);
+    if (s?.role === "owner") return next();
+    if (isPublicAccessEnabled()) {
+      res.status(403).json({ error: "owner_only", code: "OWNER_ONLY_DIAGNOSTIC" });
+      return;
+    }
+    res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
+  },
+  async (_req, res, next) => {
+    try {
+      const swingLast = getSwingCandleHealth().lastScan;
+      const swingDailyBars = swingLast
+        ? {
+            available: true as const,
+            scanDate: swingLast.scanDate,
+            source: deriveCandleDominant(swingLast.bySource),
+            bySource: { ...swingLast.bySource },
+            noBarsCount: swingLast.noBarsCount,
+            asOf: swingLast.asOf,
+            fresh: swingLast.fresh,
+            timeframe: "1D" as const,
+            freshnessSec: TIMEFRAME_CONFIG["1D"].freshnessSec,
+            tallyAt: swingLast.at,
+          }
+        : { available: false as const, note: "no deep scan produced by this process since restart" };
+
+      const trend = await getMarketTrend();
+      const cp = trend.candleProvenance;
+      const indexTrend = cp
+        ? {
+            available: true as const,
+            source: cp.source,
+            asOf: cp.asOf instanceof Date ? cp.asOf.toISOString() : (cp.asOf ?? null),
+            fresh: cp.fresh,
+            indicesUsed: cp.indicesUsed,
+            kiteCount: cp.kiteCount,
+            yahooCount: cp.yahooCount,
+            timeframe: "15m" as const,
+            freshnessSec: TIMEFRAME_CONFIG["15m"].freshnessSec,
+          }
+        : { available: false as const, note: "no index candle provenance on the current trend" };
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        swingDailyBars,
+        indexTrend,
+        charting: {
+          note: "Per-timeframe candle freshness budgets — the single source of truth every candle surface derives freshness from.",
+          freshnessBudgetsSec: Object.fromEntries(
+            (Object.keys(TIMEFRAME_CONFIG) as Array<keyof typeof TIMEFRAME_CONFIG>).map((tf) => [
+              tf,
+              TIMEFRAME_CONFIG[tf].freshnessSec,
+            ]),
+          ),
         },
       });
     } catch (err) {

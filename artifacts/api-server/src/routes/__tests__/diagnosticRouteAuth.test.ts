@@ -167,6 +167,14 @@ vi.mock("../../lib/swingScannerStore", () => ({
     bootedAt: new Date().toISOString(),
   })),
   getLatestSwingScanSectorRows: vi.fn(async () => ({ scanDate: null, rows: [] })),
+  getSwingCandleHealth: vi.fn(() => ({ lastScan: null, bootedAt: new Date().toISOString() })),
+  deriveCandleDominant: () => "none" as const,
+}));
+
+// marketTrend — the candle-source diagnostic calls getMarketTrend(); keep it a
+// cheap stub with no index provenance so the owner-path returns available:false.
+vi.mock("../../lib/marketTrend", () => ({
+  getMarketTrend: vi.fn(async () => ({ candleProvenance: undefined })),
 }));
 
 // Silence pino in tests.
@@ -259,6 +267,7 @@ const ENDPOINTS: readonly Endpoint[] = [
   { name: "S3a swing-benchmark",      method: "GET",  path: "/api/stocks-to-watch/diagnostics/swing-benchmark" },
   { name: "S4b sector-strength",      method: "GET",  path: "/api/stocks-to-watch/diagnostics/sector-strength" },
   { name: "H10b swing-shadow-score",  method: "GET",  path: "/api/stocks-to-watch/diagnostics/swing-shadow-score" },
+  { name: "S128 candle-source",       method: "GET",  path: "/api/stocks-to-watch/diagnostics/candle-source" },
 ] as const;
 
 async function call(ep: Endpoint, cookie?: string): Promise<{ status: number; body: unknown }> {

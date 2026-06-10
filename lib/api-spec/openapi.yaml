@@ -2507,6 +2507,9 @@ components:
               format: date-time
               nullable: true
               description: "Timestamp of the freshest index bar consumed, or null when none."
+            fresh:
+              type: boolean
+              description: "Whether the freshest index bar is within the 15-minute candle freshness budget. false means the trend is running on stale/no index candles."
             indicesUsed: { type: integer, description: "How many index series contributed candles." }
             kiteCount: { type: integer, description: "Index series sourced from Kite." }
             yahooCount: { type: integer, description: "Index series sourced from the Yahoo fallback." }

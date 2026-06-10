@@ -869,6 +869,8 @@ export type MarketTrendCandleProvenance = {
   source: MarketTrendCandleProvenanceSource;
   /** Timestamp of the freshest index bar consumed, or null when none. */
   asOf?: string | null;
+  /** Whether the freshest index bar is within the 15-minute candle freshness budget. false means the trend is running on stale/no index candles. */
+  fresh?: boolean;
   /** How many index series contributed candles. */
   indicesUsed?: number;
   /** Index series sourced from Kite. */

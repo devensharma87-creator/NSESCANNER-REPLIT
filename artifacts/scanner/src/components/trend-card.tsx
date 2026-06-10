@@ -2,7 +2,10 @@ import { useGetMarketTrend, getGetMarketTrendQueryKey } from "@workspace/api-cli
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, Activity } from "lucide-react";
-import { DataSourceBadge, type DataSource } from "@/components/ui/data-source-badge";
+import { DataSourceBadge, type DataSource, type FeedStatus } from "@/components/ui/data-source-badge";
+
+/** Client mirror of the server's `15m` candle freshness budget (45 min). */
+const INDEX_INTRADAY_STALE_AFTER_MS = 2_700_000;
 
 const BIAS_STYLES: Record<string, { color: string; label: string }> = {
   STRONG_BULLISH: { color: "text-signal-strong-buy", label: "STRONG BULLISH" },
@@ -32,14 +35,22 @@ export default function TrendCard() {
             : cp.source === "yahoo" ? "yahoo"
               : cp.source === "mixed" ? "mixed"
                 : "unknown";
+        const staleSuffix = cp.source !== "none" && !cp.fresh ? " · stale" : "";
         const note =
-          cp.source === "kite" ? "index 15m candles · Kite"
-            : cp.source === "yahoo" ? "index 15m candles · Yahoo fallback"
-              : cp.source === "mixed" ? `index 15m candles · ${cp.kiteCount} Kite / ${cp.yahooCount} Yahoo`
+          cp.source === "kite" ? `index 15m candles · Kite${staleSuffix}`
+            : cp.source === "yahoo" ? `index 15m candles · Yahoo fallback${staleSuffix}`
+              : cp.source === "mixed" ? `index 15m candles · ${cp.kiteCount} Kite / ${cp.yahooCount} Yahoo${staleSuffix}`
                 : "no index candles — index rules skipped";
+        // Honest status: no candles → down; outside the 15m freshness budget →
+        // stale; fresh Kite intraday → live; fresh Yahoo fallback → delayed.
+        const status: FeedStatus =
+          cp.source === "none" ? "down"
+            : !cp.fresh ? "stale"
+              : cp.source === "kite" ? "live"
+                : "delayed";
         return {
           source,
-          status: (cp.source === "none" ? "down" : "delayed") as "down" | "delayed",
+          status,
           fallbackActive: cp.source === "yahoo" || cp.source === "mixed",
           note,
           asOf: cp.asOf ?? null,
@@ -64,7 +75,7 @@ export default function TrendCard() {
             lastUpdated={cpBadge.asOf}
             fallbackActive={cpBadge.fallbackActive}
             note={cpBadge.note}
-            autoStaleAfterMs={0}
+            autoStaleAfterMs={INDEX_INTRADAY_STALE_AFTER_MS}
             compact
           />
         )}
