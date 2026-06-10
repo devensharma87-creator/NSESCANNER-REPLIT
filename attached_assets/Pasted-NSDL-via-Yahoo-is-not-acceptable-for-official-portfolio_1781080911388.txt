@@ -1,0 +1,60 @@
+NSDL via Yahoo is not acceptable for official portfolio valuation unless it is clearly labelled secondary and excluded from official P&L, or they prove Kite cannot price BSE:544467.
+They could not provide authenticated UI screenshot proof, so you should ask for one final browser/production verification after login.
+
+Send this:
+
+Good — this is finally the correct root-cause direction. The canonical resolver/backbone fix is accepted technically, but I need final closure proof before we move on.
+
+Do not start charting, Backtest Lab, F&O, or full trusted-layer migration yet.
+
+Final verification required for Portfolio resolver task:
+
+UI proof after login
+Open Portfolio in the actual app and show:
+typing “hdfc” gives suggestions
+typing “tata” gives suggestions
+typing “trident” gives TRIDENT
+typing “bdl” gives BDL
+typing “are” or “are&m” gives ARE&M
+typing “cdsl” gives CDSL
+typing “nsdl” gives NSDL / 544467
+Manual add proof
+Add one valid stock manually from suggestions and confirm:
+canonical symbol saved
+CMP loads
+current value loads
+day P&L / total P&L loads
+weight loads
+action/recommendation appears or exact unavailable reason appears
+Existing unpriced rows proof
+Show before/after count:
+how many were unpriced before
+how many are unpriced now
+which holdings are still unpriced
+exact reason for each remaining unpriced holding
+NSDL/Yahoo issue
+You reported NSDL resolves but quote source is Yahoo.
+
+This is not acceptable as official portfolio valuation unless it is clearly marked secondary and excluded from official P&L, or unless you prove Kite cannot provide BSE:544467.
+
+Please do one of these:
+
+Preferred: resolve NSDL through Kite BSE instrument/quote if available.
+If not possible: show NSDL as secondary/untrusted analytics only, clearly labelled, and do not include it in official portfolio P&L/current value unless I explicitly approve Yahoo valuation.
+Recommendation status
+For symbols showing NO_SCANNER_ROW, give clear reason:
+symbol resolved and priced
+recommendation unavailable because scanner/deep-scan row not available
+not because instrument resolution failed
+Final deliverables
+Return:
+production UI screenshots or authenticated proof
+resolver diagnostics output for the 8 symbols
+final priced/unpriced count
+final remaining unresolved list with exact reason
+NSDL source decision
+tests/typecheck result
+
+Only after this is confirmed should we close Portfolio resolver task and move to the next lane.
+
+My view: almost accept, but hold final closure until NSDL source and real UI proof are shown.

@@ -24,10 +24,20 @@ BSE-only listings in one pass. Keep the merge as a pure helper so it stays unit-
 DTO/autocomplete rows carry `source: "curated" | "kite_master"`. The UI shows the label so the
 operator can tell a curated name from a long-tail master hit.
 
-## NSDL / Yahoo-fallback honesty
-NSDL is BSE-only and **Kite cannot serve it** in this path — it prices via Yahoo (.BO) only.
-Do NOT remove the Yahoo fallback to satisfy a "Kite-only valuation" request: that re-breaks
-NSDL. Instead surface `quote_source` per row (kite vs yahoo) so valuation provenance is honest.
+## BSE-via-Kite pricing (NSDL) — Kite CAN serve BSE by instrument_token
+Kite serves BSE-listed equities through `getHistoricalData(instrument_token, …)` /
+`getQuote("BSE:NSDL")` — the only reason BSE names (e.g. NSDL, BSE token 139383556) used to
+fall to Yahoo (.BO) was that the chart datafeed's Kite path resolved a token via the
+**NSE-only** `getInstrumentToken` symbol lookup. Fix: the resolver threads its
+`instrument_token` through `ChartInstrumentMeta.instrumentToken`; `chartDatafeed.tryKite`
+prefers a token-based fetch (`fetchKiteEquityIntradayByToken`) for equities when a token is
+present, so BSE prices via Kite first. NSDL now resolves `source=kite` (last ≈ 822).
+- **Keep the Yahoo (.BO) fallback** — it is the honest labeled fallback when the Kite token
+  fetch returns null, NOT the primary. Surface `quote_source` per row (kite vs yahoo).
+- Curated NSE names carry NO `instrumentToken` (from `resolveInstrument`) so their behaviour is
+  unchanged — only master-fallback (long-tail) rows get the token path.
+- **Why:** historical cache keys are label-based; the token path keys the cache by
+  `EQ:<symbol>@<token>` so a dual-listed name can't serve wrong-exchange candles.
 
 **How to apply:** the owner-only diagnostics endpoint
 `GET /api/data/diagnostics/portfolio-resolution` returns per-holding resolver attempts +

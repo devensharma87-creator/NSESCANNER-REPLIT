@@ -384,6 +384,27 @@ export async function fetchKiteEquityIntraday(
   return fetchKiteHistoricalByToken(token, `EQ:${nseSymbol}`, interval, daysBack);
 }
 
+/**
+ * Exchange-agnostic equity candle fetch keyed by an explicit Kite
+ * instrument_token (from the canonical instrument resolver). Unlike
+ * {@link fetchKiteEquityIntraday}, this does NOT depend on the NSE-only
+ * `getInstrumentToken` symbol lookup, so it serves BSE-listed equities
+ * (e.g. NSDL, BSE token 139383556) via Kite — `getHistoricalData(token, …)`
+ * works regardless of exchange. Caller falls back to Yahoo when this is null.
+ */
+export async function fetchKiteEquityIntradayByToken(
+  instrumentToken: number,
+  label: string,
+  interval: KiteInterval,
+  daysBack: number,
+): Promise<YahooChart | null> {
+  if (!Number.isFinite(instrumentToken) || instrumentToken <= 0) return null;
+  // Cache label is keyed by the instrument_token (not just the symbol) so a
+  // dual-listed name resolving to different NSE/BSE tokens can never collide in
+  // the historical cache and serve wrong-exchange candles.
+  return fetchKiteHistoricalByToken(instrumentToken, `EQ:${label}@${instrumentToken}`, interval, daysBack);
+}
+
 /** True when we have an index-token entry (not a fallback for arbitrary symbols). */
 export function hasKiteIntradayCoverage(yahooSymbol: string): boolean {
   return INDEX_TABLE.some(e => e.yahoo === yahooSymbol);

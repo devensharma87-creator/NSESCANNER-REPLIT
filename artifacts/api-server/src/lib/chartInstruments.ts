@@ -24,6 +24,13 @@ export interface ChartInstrumentMeta {
   type: string;
   /** Yahoo Finance ticker used for the fallback feed (and the only feed for global). */
   yahoo: string;
+  /**
+   * Kite instrument_token when known (master-resolved equities). Lets the Kite
+   * candle fetch use `getHistoricalData(token, …)` directly — which works for
+   * BSE-listed names (e.g. NSDL) too — instead of the NSE-only symbol lookup
+   * that would otherwise force a Yahoo fallback for BSE instruments.
+   */
+  instrumentToken?: number;
 }
 
 /**

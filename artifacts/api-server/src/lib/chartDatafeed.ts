@@ -12,6 +12,7 @@
 import {
   fetchKiteIntraday,
   fetchKiteEquityIntraday,
+  fetchKiteEquityIntradayByToken,
 } from "./kiteIntraday";
 import { fetchChart, fetchChartRaw, fetchIntraday, type YahooChart } from "./yahoo";
 import { resolveInstrument, type ChartSegment, type ChartInstrumentMeta } from "./chartInstruments";
@@ -224,14 +225,20 @@ function finalize(
 }
 
 async function tryKite(
-  meta: { segment: ChartSegment; symbol: string; yahoo: string },
+  meta: { segment: ChartSegment; symbol: string; yahoo: string; instrumentToken?: number },
   cfg: TimeframeConfig,
 ): Promise<ChartCandlePoint[] | null> {
   let chart: YahooChart | null = null;
   if (meta.segment === "index") {
     chart = await fetchKiteIntraday(meta.yahoo, cfg.kiteInterval, cfg.kiteDaysBack);
   } else if (meta.segment === "equity") {
-    chart = await fetchKiteEquityIntraday(meta.symbol, cfg.kiteInterval, cfg.kiteDaysBack);
+    // Prefer the canonical resolver's instrument_token when present: it works
+    // for BSE-listed equities (e.g. NSDL) too, whereas the NSE-only symbol
+    // lookup would miss and force a Yahoo fallback. Curated NSE names carry no
+    // token here and keep the existing symbol path (unchanged behaviour).
+    chart = meta.instrumentToken != null
+      ? await fetchKiteEquityIntradayByToken(meta.instrumentToken, meta.symbol, cfg.kiteInterval, cfg.kiteDaysBack)
+      : await fetchKiteEquityIntraday(meta.symbol, cfg.kiteInterval, cfg.kiteDaysBack);
   } else {
     return null; // global: Kite has no coverage
   }
@@ -323,6 +330,7 @@ export async function getChartCandles(
         exchange: inst.exchange,
         type: isEtf ? "ETF" : "Equity",
         yahoo: `${inst.canonical_symbol}.${inst.exchange === "BSE" ? "BO" : "NS"}`,
+        instrumentToken: inst.instrument_token,
       };
       meta = fallback;
     }
