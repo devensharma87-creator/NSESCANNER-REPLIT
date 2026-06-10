@@ -10,7 +10,7 @@ import { SignalBadge } from "@/components/ui/signal-badge";
 import { Seo } from "@/components/seo";
 import {
   TrendingUp, TrendingDown, ArrowRight, Flame, Snowflake,
-  Home as HomeIcon,
+  Home as HomeIcon, AlertTriangle,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
@@ -190,6 +190,16 @@ export default function Home() {
           </CardContent>
         </Card>
       </section>
+
+      {(topScans?.warnings?.length ?? 0) > 0 && (
+        <div
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-mono text-amber-500 flex items-start gap-2"
+          data-testid="top-scans-warning"
+        >
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+          <span>{topScans?.warnings?.join(" ")}</span>
+        </div>
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="border-signal-strong-buy/20 bg-gradient-to-b from-signal-strong-buy/5 to-transparent">

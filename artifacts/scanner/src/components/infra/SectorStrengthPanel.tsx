@@ -34,6 +34,7 @@ interface SectorSummary {
   totalSectors: number;
   confidentSectors: number;
   minMembers: number;
+  excludedNoSector?: number;
   unavailableMetrics: Array<{ metric: string; reason: string }>;
   sectors: SectorRow[];
 }
@@ -82,7 +83,11 @@ export function SectorStrengthPanel({
                     value={num(d.totalSectors)}
                     hint={`${num(d.confidentSectors)} confident`}
                   />
-                  <StatCard label="Min members" value={num(d.minMembers)} />
+                  <StatCard
+                    label="Min members"
+                    value={num(d.minMembers)}
+                    hint={d.excludedNoSector ? `${num(d.excludedNoSector)} excl. (no sector)` : undefined}
+                  />
                 </div>
 
                 <div className="overflow-x-auto">

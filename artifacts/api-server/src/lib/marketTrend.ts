@@ -5,6 +5,7 @@ import { fetchKiteIntraday } from "./kiteIntraday";
 import { ema, rsi, sessionVwap } from "./indicators";
 import { isFreshFor } from "./chartDatafeed";
 import { SECTORS } from "./universe";
+import { computeSectorCoverage } from "./sectorCoverage";
 
 let cache: { ts: number; data: MarketTrend } | null = null;
 const TTL = 30 * 1000;
@@ -110,6 +111,9 @@ export async function getMarketTrend(): Promise<MarketTrend> {
   const sectorMap = new Map<string, StockRow[]>();
   for (const s of SECTORS) sectorMap.set(s, []);
   for (const r of rows) sectorMap.get(r.sector)?.push(r);
+  // Honest coverage: how many rows fed the sector leadership vs. how many were
+  // excluded for an unmapped/missing sector (never silently dropped).
+  const sectorCoverage = computeSectorCoverage(rows, SECTORS);
   const sectorSums: SectorSummary[] = [];
   for (const [sec, list] of sectorMap.entries()) {
     if (list.length === 0) continue;
@@ -160,6 +164,13 @@ export async function getMarketTrend(): Promise<MarketTrend> {
       indicesUsed: idxKiteCount + idxYahooCount,
       kiteCount: idxKiteCount,
       yahooCount: idxYahooCount,
+    },
+    sectorCoverage: {
+      totalRows: sectorCoverage.totalRows,
+      mappedRows: sectorCoverage.mappedRows,
+      excludedUnmapped: sectorCoverage.excludedUnmapped,
+      coveragePct: sectorCoverage.coveragePct,
+      reason: sectorCoverage.reason,
     },
   };
   cache = { ts: Date.now(), data };

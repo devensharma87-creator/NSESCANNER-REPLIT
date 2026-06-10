@@ -95,6 +95,7 @@ import type {
   IndicesBoardSnapshot,
   ListGlobalInstrumentsParams,
   ListPaperCombosParams,
+  ListSectorsResponse,
   ListStocksParams,
   MacroHistoryResponse,
   MarketEventsResponse,
@@ -135,7 +136,6 @@ import type {
   RefreshInstFlows200,
   SearchChartInstrumentsParams,
   SectorDetail,
-  SectorSummary,
   StockDetail,
   StockHistory,
   StockRow,
@@ -544,8 +544,8 @@ export const getListSectorsUrl = () => {
 
 export const listSectors = async (
   options?: RequestInit,
-): Promise<SectorSummary[]> => {
-  return customFetch<SectorSummary[]>(getListSectorsUrl(), {
+): Promise<ListSectorsResponse> => {
+  return customFetch<ListSectorsResponse>(getListSectorsUrl(), {
     ...options,
     method: "GET",
   });

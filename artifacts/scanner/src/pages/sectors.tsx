@@ -8,13 +8,15 @@ import { SignalBadge } from "@/components/ui/signal-badge";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
 
 export default function Sectors() {
-  const { data: sectors, isLoading } = useListSectors({
+  const { data, isLoading } = useListSectors({
     query: {
       queryKey: getListSectorsQueryKey(),
       refetchInterval: 60_000,
       staleTime: 30_000,
     },
   });
+  const sectors = data?.sectors;
+  const coverage = data?.coverage;
 
   const formatPct = (p: number) => `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
 
@@ -31,6 +33,11 @@ export default function Sectors() {
         <p className="text-muted-foreground text-sm max-w-2xl">
           Analyze money flow across industry groups. Sectors with higher average scores exhibit stronger collective technical momentum.
         </p>
+        {coverage && coverage.excludedUnmapped > 0 && (
+          <p className="text-[11px] font-mono text-amber-500/90 max-w-2xl" title={coverage.reason ?? undefined}>
+            Coverage {coverage.coveragePct.toFixed(1)}% — {coverage.excludedUnmapped} of {coverage.totalRows} scanned stock(s) excluded from this view (no mapped sector).
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

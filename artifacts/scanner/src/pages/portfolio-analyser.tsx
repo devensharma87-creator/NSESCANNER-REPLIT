@@ -32,6 +32,7 @@ import { computeRiskAnalytics } from "@/lib/portfolio/risk";
 import { computeHoldingPeriods, computeDividends, LONG_TERM_THRESHOLD_DAYS } from "@/lib/portfolio/holdingPeriod";
 import {
   compareToBenchmark,
+  buildBenchmarkProvenance,
   benchmarkReturnFromCloses,
   buildBenchmarkSeries,
   buildPortfolioValueSeries,
@@ -315,13 +316,23 @@ export default function PortfolioAnalyser() {
         windowLabel = `from ${actualStart} (full available range — purchase dates missing)`;
       }
     }
+    // Honest source/freshness/trust labelling for the index series itself —
+    // Kite is authoritative, Yahoo is a labelled delayed reference, none →
+    // unavailable. Never silently presented as authoritative.
+    const provenance = buildBenchmarkProvenance({
+      source: benchmarkQ.data?.source,
+      fresh: benchmarkQ.data?.fresh,
+      asOf: windowed.length > 0 ? windowed[windowed.length - 1].t : (benchmarkQ.data?.asOf ?? null),
+      closesCovered: closes.length,
+    });
     return compareToBenchmark({
       portfolioReturnPct: summary.totalReturnPct,
       benchmarkReturnPct,
       benchmarkName: benchmarkOption.name,
       windowLabel,
+      provenance,
     });
-  }, [benchmarkWindowed, earliestPurchase, summary.totalReturnPct, benchmarkOption.name]);
+  }, [benchmarkWindowed, earliestPurchase, summary.totalReturnPct, benchmarkOption.name, benchmarkQ.data]);
 
   // Sector over/under-weight vs the dated, real NIFTY 500 sector reference.
   // Never fabricated: unmapped sectors are surfaced explicitly, and the whole

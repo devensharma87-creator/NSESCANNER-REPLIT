@@ -20,3 +20,4 @@
 - [Candle source/freshness honesty](candle-source-honesty.md) — one shared isFreshFor over TIMEFRAME_CONFIG; asOf must be SECONDS (DailyBars are ms); EOD daily badge caps at "delayed", never "live".
 - [requireOwner bypasses GET in public mode](requireowner-public-get-bypass.md) — owner-only READ surfaces exposing secret/token metadata must use requireOwnerStrict, not requireOwner (which lets anonymous GET through on a public link).
 - [Signal-trust gates couple to reconcile](signal-gate-reconcile-coupling.md) — any new fail-closed gate on openPaperTrade must also be honored in reconcileMissingPaperTrades (synthetic signal from history lacks the field) or it silently kills restart backfill.
+- [Scanner row provenance = signal source](scanner-row-provenance-signal-source.md) — stamp scanner StockRow provenance by the indicator/signal source (Yahoo), not the live LTP source, or a Kite tick silently promotes a Yahoo signal to authoritative.

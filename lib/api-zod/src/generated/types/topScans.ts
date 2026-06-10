@@ -11,4 +11,8 @@ export interface TopScans {
   topBuys: StockRow[];
   topSells: StockRow[];
   generatedAt: Date;
+  /** Honest signal-quality warnings, e.g. when top picks are derived from delayed/non-authoritative (Yahoo) or stale data rather than live Kite quotes. */
+  warnings?: string[];
+  /** How many of the returned top picks (buys+sells) are derived from a non-authoritative (Yahoo) or stale quote and must not be treated as live signals. */
+  nonAuthoritativeCount?: number;
 }

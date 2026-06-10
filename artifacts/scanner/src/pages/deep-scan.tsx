@@ -65,6 +65,19 @@ interface DeepSnapshot {
   fundamentals?: Record<string, number | undefined>;
   profile?: { seasonality?: string; catalysts?: string[] };
   constituentCount?: number;
+  provenance?: {
+    sourceProvider: "kite" | "yahoo" | null;
+    trustTier: "authoritative" | "secondary_analytics" | "unavailable";
+    delayed: boolean;
+    notForSignals: boolean;
+    notForTradeDecisions: boolean;
+    asOf: number | null;
+    freshnessSec: number | null;
+    isStale: boolean | null;
+    missingReason: string | null;
+    warnings: string[];
+  };
+  intradayFallback?: boolean;
 }
 
 const RANGES = ["1d", "1wk", "1mo", "3mo", "6mo", "1y", "3y", "5y"] as const;
@@ -295,8 +308,37 @@ export default function DeepScan() {
                     {snap.industry && <Badge variant="outline" className="font-mono text-[10px] uppercase">{snap.industry}</Badge>}
                     {snap.constituentCount != null && <Badge variant="outline" className="font-mono text-[10px] uppercase">{snap.constituentCount} constituents</Badge>}
                   </div>
-                  <div className="text-[11px] text-muted-foreground font-mono">
-                    Yahoo: {snap.ticker} · Updated {new Date(snap.quote.updatedAt).toLocaleTimeString("en-IN")}
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground font-mono">
+                    <span>
+                      {(snap.provenance?.sourceProvider ?? "yahoo") === "kite" ? "Kite" : "Yahoo"}: {snap.ticker} · Updated {new Date(snap.quote.updatedAt).toLocaleTimeString("en-IN")}
+                    </span>
+                    {(snap.provenance?.trustTier ?? "secondary_analytics") === "secondary_analytics" && (
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-[9px] uppercase border-amber-500/40 text-amber-400"
+                        title="Delayed reference data (Yahoo, ~15min). Analytics only — never used for scanner signals or trade decisions."
+                      >
+                        Delayed · analytics only
+                      </Badge>
+                    )}
+                    {snap.provenance?.isStale && (
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-[9px] uppercase border-signal-strong-sell/40 text-signal-strong-sell"
+                        title="Data is older than the freshness window for this timeframe."
+                      >
+                        Stale
+                      </Badge>
+                    )}
+                    {snap.intradayFallback && (
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-[9px] uppercase border-amber-500/40 text-amber-400"
+                        title="Intraday data was unavailable; showing the last daily bars instead."
+                      >
+                        Daily fallback
+                      </Badge>
+                    )}
                   </div>
                 </div>
                 <div className="text-right space-y-1">

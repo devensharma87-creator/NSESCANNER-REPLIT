@@ -98,9 +98,7 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/SectorSummary" }
+              schema: { $ref: "#/components/schemas/ListSectorsResponse" }
 
   /sectors/{sector}:
     get:
@@ -1932,6 +1930,31 @@ components:
           type: number
           description: "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set)."
 
+    ScannerRowProvenance:
+      type: object
+      description: "Honest source/freshness/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable."
+      required: [sourceProvider, sourcePriority, trustTier, delayed, notForSignals, notForTradeDecisions, asOf, freshnessSec, isStale, missingReason, warnings]
+      properties:
+        sourceProvider:
+          type: string
+          enum: [kite, yahoo]
+          nullable: true
+          description: "Provider that served the row's quote, or null when unavailable."
+        sourcePriority: { type: integer, description: "1 authoritative, 3 secondary_analytics, 99 unavailable." }
+        trustTier:
+          type: string
+          enum: [authoritative, secondary_analytics, unavailable]
+        delayed: { type: boolean, description: "True when the source is a delayed / end-of-day feed." }
+        notForSignals: { type: boolean, description: "Policy flag: a non-authoritative row must never drive signals." }
+        notForTradeDecisions: { type: boolean, description: "Policy flag: a non-authoritative row must never drive trade decisions." }
+        asOf: { type: integer, nullable: true, description: "Epoch seconds of the quote the row was derived from." }
+        freshnessSec: { type: integer, nullable: true, description: "Seconds between asOf and build time." }
+        isStale: { type: boolean, nullable: true, description: "True when past the freshness budget; null when no asOf." }
+        missingReason: { type: string, nullable: true, description: "Why the source is unavailable (null when present)." }
+        warnings:
+          type: array
+          items: { type: string }
+
     StockRow:
       type: object
       required: [symbol, name, sector, quote, recommendation]
@@ -1942,6 +1965,10 @@ components:
         quote: { $ref: "#/components/schemas/Quote" }
         indicators: { $ref: "#/components/schemas/Indicators" }
         recommendation: { $ref: "#/components/schemas/Recommendation" }
+        provenance:
+          allOf:
+            - $ref: "#/components/schemas/ScannerRowProvenance"
+          description: "Optional honest source/freshness/trust labelling for this row's quote."
 
     Candle:
       type: object
@@ -2267,6 +2294,37 @@ components:
         losers: { type: integer }
         topPick: { $ref: "#/components/schemas/StockRow" }
 
+    SectorCoverage:
+      type: object
+      description: >
+        Honest accounting of how many scanned rows were included in the sector
+        aggregation vs excluded for an empty/unmapped sector. Surfaced so the
+        client can never mistake a partial aggregation for a complete one.
+      required: [totalRows, mappedRows, excludedUnmapped, coveragePct, unmappedSectors]
+      properties:
+        totalRows: { type: integer }
+        mappedRows: { type: integer }
+        excludedUnmapped: { type: integer }
+        coveragePct: { type: number }
+        unmappedSectors:
+          type: array
+          items:
+            type: object
+            required: [label, count]
+            properties:
+              label: { type: string }
+              count: { type: integer }
+        reason: { type: string, nullable: true }
+
+    ListSectorsResponse:
+      type: object
+      required: [sectors, coverage]
+      properties:
+        sectors:
+          type: array
+          items: { $ref: "#/components/schemas/SectorSummary" }
+        coverage: { $ref: "#/components/schemas/SectorCoverage" }
+
     SectorDetail:
       type: object
       required: [sector, stocks, summary]
@@ -2513,6 +2571,19 @@ components:
             indicesUsed: { type: integer, description: "How many index series contributed candles." }
             kiteCount: { type: integer, description: "Index series sourced from Kite." }
             yahooCount: { type: integer, description: "Index series sourced from the Yahoo fallback." }
+        sectorCoverage:
+          type: object
+          description: "Honest accounting of how complete the sector leadership/laggards aggregation is. Rows whose sector is missing or not part of the known sector partition are EXCLUDED and counted here, never silently dropped."
+          required: [totalRows, mappedRows, excludedUnmapped, coveragePct]
+          properties:
+            totalRows: { type: integer, description: "Total scanner rows considered for sector aggregation." }
+            mappedRows: { type: integer, description: "Rows placed into a known sector bucket." }
+            excludedUnmapped: { type: integer, description: "Rows excluded because their sector was missing or unmapped." }
+            coveragePct: { type: number, description: "mappedRows / totalRows as 0–100 (100 when no rows)." }
+            reason:
+              type: string
+              nullable: true
+              description: "Plain-language explanation of the exclusion, or null when nothing was excluded."
 
     OptionLeg:
       type: object
@@ -2863,6 +2934,13 @@ components:
           type: array
           items: { $ref: "#/components/schemas/StockRow" }
         generatedAt: { type: string, format: date-time }
+        warnings:
+          type: array
+          description: "Honest signal-quality warnings, e.g. when top picks are derived from delayed/non-authoritative (Yahoo) or stale data rather than live Kite quotes."
+          items: { type: string }
+        nonAuthoritativeCount:
+          type: integer
+          description: "How many of the returned top picks (buys+sells) are derived from a non-authoritative (Yahoo) or stale quote and must not be treated as live signals."
 
     FiiDiiDay:
       type: object

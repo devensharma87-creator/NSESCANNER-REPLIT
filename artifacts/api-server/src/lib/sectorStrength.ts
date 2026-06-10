@@ -70,6 +70,12 @@ export interface SectorStrengthSummary {
   confidentSectors: number;
   minMembers: number;
   /**
+   * Rows that could NOT be placed in any sector because their sector label was
+   * null/empty. Surfaced (not silently dropped) so the operator can see how
+   * complete the sector aggregation is. mappedRows = totalRows - excludedNoSector.
+   */
+  excludedNoSector: number;
+  /**
    * Metrics the swing schema does not currently persist. Surfaced for
    * UI/operator clarity rather than silently omitted.
    */
@@ -126,12 +132,17 @@ export function computeSectorStrength(
 ): SectorStrengthSummary {
   const generatedAt = opts.nowIso ?? new Date().toISOString();
 
-  // Group by sector. Drop rows with null/empty sector — they belong in
-  // the sector-coverage diagnostic, not here.
+  // Group by sector. Rows with null/empty sector cannot be aggregated, but we
+  // COUNT them (excludedNoSector) rather than silently dropping them so the UI
+  // can show how complete the sector view actually is.
   const buckets = new Map<string, SectorStrengthInputRow[]>();
+  let excludedNoSector = 0;
   for (const r of rows) {
     const sec = (r.sector ?? "").trim();
-    if (!sec) continue;
+    if (!sec) {
+      excludedNoSector++;
+      continue;
+    }
     const arr = buckets.get(sec);
     if (arr) arr.push(r);
     else buckets.set(sec, [r]);
@@ -214,6 +225,7 @@ export function computeSectorStrength(
     totalSectors: sectors.length,
     confidentSectors: confidentList.length,
     minMembers: SECTOR_STRENGTH_MIN_MEMBERS,
+    excludedNoSector,
     unavailableMetrics: UNAVAILABLE_METRICS,
     sectors: [...confidentList, ...unconfidentList],
   };

@@ -393,6 +393,68 @@ export const GetMarketTrendResponse = zod.object({
                 "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
               ),
           }),
+          provenance: zod
+            .object({
+              sourceProvider: zod
+                .enum(["kite", "yahoo"])
+                .nullable()
+                .describe(
+                  "Provider that served the row's quote, or null when unavailable.",
+                ),
+              sourcePriority: zod
+                .number()
+                .describe(
+                  "1 authoritative, 3 secondary_analytics, 99 unavailable.",
+                ),
+              trustTier: zod.enum([
+                "authoritative",
+                "secondary_analytics",
+                "unavailable",
+              ]),
+              delayed: zod
+                .boolean()
+                .describe(
+                  "True when the source is a delayed \/ end-of-day feed.",
+                ),
+              notForSignals: zod
+                .boolean()
+                .describe(
+                  "Policy flag: a non-authoritative row must never drive signals.",
+                ),
+              notForTradeDecisions: zod
+                .boolean()
+                .describe(
+                  "Policy flag: a non-authoritative row must never drive trade decisions.",
+                ),
+              asOf: zod
+                .number()
+                .nullable()
+                .describe(
+                  "Epoch seconds of the quote the row was derived from.",
+                ),
+              freshnessSec: zod
+                .number()
+                .nullable()
+                .describe("Seconds between asOf and build time."),
+              isStale: zod
+                .boolean()
+                .nullable()
+                .describe(
+                  "True when past the freshness budget; null when no asOf.",
+                ),
+              missingReason: zod
+                .string()
+                .nullable()
+                .describe("Why the source is unavailable (null when present)."),
+              warnings: zod.array(zod.string()),
+            })
+            .describe(
+              "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
+            )
+            .optional()
+            .describe(
+              "Optional honest source\/freshness\/trust labelling for this row's quote.",
+            ),
         }),
       }),
     )
@@ -643,6 +705,68 @@ export const GetMarketTrendResponse = zod.object({
                 "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
               ),
           }),
+          provenance: zod
+            .object({
+              sourceProvider: zod
+                .enum(["kite", "yahoo"])
+                .nullable()
+                .describe(
+                  "Provider that served the row's quote, or null when unavailable.",
+                ),
+              sourcePriority: zod
+                .number()
+                .describe(
+                  "1 authoritative, 3 secondary_analytics, 99 unavailable.",
+                ),
+              trustTier: zod.enum([
+                "authoritative",
+                "secondary_analytics",
+                "unavailable",
+              ]),
+              delayed: zod
+                .boolean()
+                .describe(
+                  "True when the source is a delayed \/ end-of-day feed.",
+                ),
+              notForSignals: zod
+                .boolean()
+                .describe(
+                  "Policy flag: a non-authoritative row must never drive signals.",
+                ),
+              notForTradeDecisions: zod
+                .boolean()
+                .describe(
+                  "Policy flag: a non-authoritative row must never drive trade decisions.",
+                ),
+              asOf: zod
+                .number()
+                .nullable()
+                .describe(
+                  "Epoch seconds of the quote the row was derived from.",
+                ),
+              freshnessSec: zod
+                .number()
+                .nullable()
+                .describe("Seconds between asOf and build time."),
+              isStale: zod
+                .boolean()
+                .nullable()
+                .describe(
+                  "True when past the freshness budget; null when no asOf.",
+                ),
+              missingReason: zod
+                .string()
+                .nullable()
+                .describe("Why the source is unavailable (null when present)."),
+              warnings: zod.array(zod.string()),
+            })
+            .describe(
+              "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
+            )
+            .optional()
+            .describe(
+              "Optional honest source\/freshness\/trust labelling for this row's quote.",
+            ),
         }),
       }),
     )
@@ -684,6 +808,33 @@ export const GetMarketTrendResponse = zod.object({
     .describe(
       "Honest provenance for the INDEX intraday candles that fed the trend's index-rule contributions (Kite-first, Yahoo fallback). source=none means no index candles were available and those rules were skipped — never silently substituted.",
     ),
+  sectorCoverage: zod
+    .object({
+      totalRows: zod
+        .number()
+        .describe("Total scanner rows considered for sector aggregation."),
+      mappedRows: zod
+        .number()
+        .describe("Rows placed into a known sector bucket."),
+      excludedUnmapped: zod
+        .number()
+        .describe(
+          "Rows excluded because their sector was missing or unmapped.",
+        ),
+      coveragePct: zod
+        .number()
+        .describe("mappedRows \/ totalRows as 0–100 (100 when no rows)."),
+      reason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Plain-language explanation of the exclusion, or null when nothing was excluded.",
+        ),
+    })
+    .optional()
+    .describe(
+      "Honest accounting of how complete the sector leadership\/laggards aggregation is. Rows whose sector is missing or not part of the known sector partition are EXCLUDED and counted here, never silently dropped.",
+    ),
 });
 
 /**
@@ -724,241 +875,331 @@ export const GetMarketMacroHistoryResponse = zod.object({
 /**
  * @summary All sectors with aggregate stats
  */
-export const ListSectorsResponseItem = zod.object({
-  sector: zod.string(),
-  stockCount: zod.number(),
-  avgScore: zod.number(),
-  avgChangePercent: zod.number().optional(),
-  gainers: zod.number(),
-  losers: zod.number(),
-  topPick: zod.object({
-    symbol: zod.string(),
-    name: zod.string(),
-    sector: zod.string(),
-    quote: zod.object({
-      symbol: zod.string(),
-      name: zod.string().optional(),
-      exchange: zod.string().optional(),
-      price: zod.number(),
-      change: zod.number(),
-      changePercent: zod.number(),
-      open: zod.number(),
-      high: zod.number(),
-      low: zod.number(),
-      previousClose: zod.number(),
-      volume: zod.number(),
-      avgVolume: zod.number().optional(),
-      marketCap: zod.number().optional(),
-      dayRange: zod.string().optional(),
-      yearRange: zod.string().optional(),
-      fiftyTwoWeekHigh: zod.number().optional(),
-      fiftyTwoWeekLow: zod.number().optional(),
-      updatedAt: zod.coerce.date(),
-    }),
-    indicators: zod
-      .object({
-        ema9: zod.number().optional(),
-        ema21: zod.number().optional(),
-        ema20: zod.number().optional(),
-        ema50: zod.number().optional(),
-        ema100: zod.number().optional(),
-        ema200: zod.number().optional(),
-        vwap: zod
-          .number()
-          .optional()
-          .describe("Daily intraday VWAP if available, else rolling proxy"),
-        rsi14: zod.number().optional(),
-        macd: zod.number().optional(),
-        macdSignal: zod.number().optional(),
-        macdHist: zod.number().optional(),
-        atr14: zod.number().optional(),
-        adx14: zod.number().optional(),
-        volumeRatio: zod
-          .number()
-          .optional()
-          .describe("current volume \/ 20-day average"),
-        deliveryPct: zod
-          .number()
-          .optional()
-          .describe("estimated delivery percentage"),
-        trendStrength: zod.number().optional().describe("0-100"),
-        supportLevel: zod.number().optional(),
-        resistanceLevel: zod.number().optional(),
-        pivot: zod.number().optional(),
-        r1: zod.number().optional(),
-        s1: zod.number().optional(),
-        valueAreaHigh: zod.number().optional(),
-        valueAreaLow: zod.number().optional(),
-        pointOfControl: zod.number().optional(),
-        futOiBuildup: zod
-          .enum([
-            "LONG_BUILDUP",
-            "SHORT_BUILDUP",
-            "SHORT_COVERING",
-            "LONG_UNWINDING",
-            "NEUTRAL",
-          ])
-          .optional()
-          .describe(
-            "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
-          ),
-      })
-      .optional(),
-    recommendation: zod.object({
-      signal: zod.enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"]),
-      score: zod.number().describe("-100 to 100"),
-      confidence: zod.number().describe("0 to 100"),
-      timeframe: zod
-        .string()
-        .optional()
-        .describe("e.g. swing, intraday, positional"),
-      target: zod.number().optional(),
-      stopLoss: zod.number().optional(),
-      riskRewardRatio: zod.number().optional(),
-      reasons: zod.array(
-        zod.object({
-          label: zod.string(),
-          detail: zod.string().optional(),
-          weight: zod.number(),
-          bullish: zod.boolean(),
+export const ListSectorsResponse = zod.object({
+  sectors: zod.array(
+    zod.object({
+      sector: zod.string(),
+      stockCount: zod.number(),
+      avgScore: zod.number(),
+      avgChangePercent: zod.number().optional(),
+      gainers: zod.number(),
+      losers: zod.number(),
+      topPick: zod.object({
+        symbol: zod.string(),
+        name: zod.string(),
+        sector: zod.string(),
+        quote: zod.object({
+          symbol: zod.string(),
+          name: zod.string().optional(),
+          exchange: zod.string().optional(),
+          price: zod.number(),
+          change: zod.number(),
+          changePercent: zod.number(),
+          open: zod.number(),
+          high: zod.number(),
+          low: zod.number(),
+          previousClose: zod.number(),
+          volume: zod.number(),
+          avgVolume: zod.number().optional(),
+          marketCap: zod.number().optional(),
+          dayRange: zod.string().optional(),
+          yearRange: zod.string().optional(),
+          fiftyTwoWeekHigh: zod.number().optional(),
+          fiftyTwoWeekLow: zod.number().optional(),
+          updatedAt: zod.coerce.date(),
         }),
-      ),
-      displayLabel: zod
-        .string()
-        .optional()
-        .describe(
-          "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
-        ),
-      setupStatus: zod
-        .enum([
-          "TRADEABLE",
-          "NO_SETUP_RR",
-          "NO_SETUP_NEUTRAL",
-          "NO_SETUP_AWAITING_LEVELS",
-          "NO_SETUP_AWAITING_CONFIRMATION",
-        ])
-        .optional()
-        .describe(
-          "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
-        ),
-      setupMessage: zod
-        .string()
-        .optional()
-        .describe(
-          "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
-        ),
-      confirmation: zod
-        .string()
-        .optional()
-        .describe(
-          "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
-        ),
-      invalidation: zod
-        .string()
-        .optional()
-        .describe("Top-level: what cancels the active setup"),
-      conflicts: zod
-        .array(zod.string())
-        .optional()
-        .describe(
-          "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
-        ),
-      horizons: zod
-        .array(
-          zod.object({
-            horizon: zod
-              .enum(["INTRADAY", "SWING", "LONG_TERM"])
-              .describe(
-                "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
-              ),
-            bias: zod
+        indicators: zod
+          .object({
+            ema9: zod.number().optional(),
+            ema21: zod.number().optional(),
+            ema20: zod.number().optional(),
+            ema50: zod.number().optional(),
+            ema100: zod.number().optional(),
+            ema200: zod.number().optional(),
+            vwap: zod
+              .number()
+              .optional()
+              .describe("Daily intraday VWAP if available, else rolling proxy"),
+            rsi14: zod.number().optional(),
+            macd: zod.number().optional(),
+            macdSignal: zod.number().optional(),
+            macdHist: zod.number().optional(),
+            atr14: zod.number().optional(),
+            adx14: zod.number().optional(),
+            volumeRatio: zod
+              .number()
+              .optional()
+              .describe("current volume \/ 20-day average"),
+            deliveryPct: zod
+              .number()
+              .optional()
+              .describe("estimated delivery percentage"),
+            trendStrength: zod.number().optional().describe("0-100"),
+            supportLevel: zod.number().optional(),
+            resistanceLevel: zod.number().optional(),
+            pivot: zod.number().optional(),
+            r1: zod.number().optional(),
+            s1: zod.number().optional(),
+            valueAreaHigh: zod.number().optional(),
+            valueAreaLow: zod.number().optional(),
+            pointOfControl: zod.number().optional(),
+            futOiBuildup: zod
               .enum([
-                "BULLISH",
-                "BEARISH",
-                "NEUTRAL_BULLISH",
-                "NEUTRAL_BEARISH",
-                "RANGE_BOUND",
-                "INSUFFICIENT_DATA",
+                "LONG_BUILDUP",
+                "SHORT_BUILDUP",
+                "SHORT_COVERING",
+                "LONG_UNWINDING",
+                "NEUTRAL",
               ])
+              .optional()
               .describe(
-                "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+                "Futures OI buildup classification from the OI heatmap (null if heatmap unavailable or stock not in F&O)",
               ),
-            label: zod
-              .string()
+          })
+          .optional(),
+        recommendation: zod.object({
+          signal: zod.enum([
+            "STRONG_BUY",
+            "BUY",
+            "NEUTRAL",
+            "SELL",
+            "STRONG_SELL",
+          ]),
+          score: zod.number().describe("-100 to 100"),
+          confidence: zod.number().describe("0 to 100"),
+          timeframe: zod
+            .string()
+            .optional()
+            .describe("e.g. swing, intraday, positional"),
+          target: zod.number().optional(),
+          stopLoss: zod.number().optional(),
+          riskRewardRatio: zod.number().optional(),
+          reasons: zod.array(
+            zod.object({
+              label: zod.string(),
+              detail: zod.string().optional(),
+              weight: zod.number(),
+              bullish: zod.boolean(),
+            }),
+          ),
+          displayLabel: zod
+            .string()
+            .optional()
+            .describe(
+              "UI-friendly label that resolves the \"Neutral when evidence is one-sided\" bug.\nExamples: 'Strong Bullish', 'Bullish', 'Neutral-to-Bearish',\n'No Trade — Bearish Pressure', 'Range-bound', 'Bearish Bias, Waiting for Confirmation'.\n",
+            ),
+          setupStatus: zod
+            .enum([
+              "TRADEABLE",
+              "NO_SETUP_RR",
+              "NO_SETUP_NEUTRAL",
+              "NO_SETUP_AWAITING_LEVELS",
+              "NO_SETUP_AWAITING_CONFIRMATION",
+            ])
+            .optional()
+            .describe(
+              "TRADEABLE — entry\/stop\/target valid with R:R >= 1.\nNO_SETUP_RR — risk\/reward unfavorable.\nNO_SETUP_NEUTRAL — bias is range-bound; wait for breakout\/breakdown.\nNO_SETUP_AWAITING_LEVELS — directional bias but ATR\/S-R inputs missing (insufficient session data).\nNO_SETUP_AWAITING_CONFIRMATION — directional bias but waiting for breakout\/breakdown trigger.\n",
+            ),
+          setupMessage: zod
+            .string()
+            .optional()
+            .describe(
+              "Plain-English explanation that ALWAYS replaces blank target\/stop boxes.\nE.g. 'No valid trade setup generated because risk\/reward (0.6:1) is not favorable.'\nor 'Target and stop-loss will appear once volatility (ATR) is established.'\n",
+            ),
+          confirmation: zod
+            .string()
+            .optional()
+            .describe(
+              "Top-level: what confirms the active setup (mirrors the swing horizon when tradeable)",
+            ),
+          invalidation: zod
+            .string()
+            .optional()
+            .describe("Top-level: what cancels the active setup"),
+          conflicts: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+              "Opposing evidence summary for the dominant bias (top 1-3 dissenting reasons)",
+            ),
+          horizons: zod
+            .array(
+              zod.object({
+                horizon: zod
+                  .enum(["INTRADAY", "SWING", "LONG_TERM"])
+                  .describe(
+                    "Trading horizon — Intraday (today), Swing (1-4 weeks), Long-term (months+)",
+                  ),
+                bias: zod
+                  .enum([
+                    "BULLISH",
+                    "BEARISH",
+                    "NEUTRAL_BULLISH",
+                    "NEUTRAL_BEARISH",
+                    "RANGE_BOUND",
+                    "INSUFFICIENT_DATA",
+                  ])
+                  .describe(
+                    "Per-horizon bias classification — never just 'NEUTRAL' when one side dominates",
+                  ),
+                label: zod
+                  .string()
+                  .describe(
+                    "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+                  ),
+                confidence: zod
+                  .number()
+                  .describe(
+                    "0-100, share of horizon-relevant evidence aligned with the bias",
+                  ),
+                timeframe: zod
+                  .string()
+                  .describe("Display window e.g. 'Today \/ 1-3 days'"),
+                reason: zod
+                  .string()
+                  .describe("Concise plain-English rationale"),
+                conflicts: zod
+                  .string()
+                  .optional()
+                  .describe("Opposing evidence on this horizon, if any"),
+                confirmation: zod
+                  .string()
+                  .optional()
+                  .describe("What confirms a trade on this horizon"),
+                invalidation: zod
+                  .string()
+                  .optional()
+                  .describe("What cancels the bias on this horizon"),
+              }),
+            )
+            .optional()
+            .describe(
+              "Three-horizon bias panel (Intraday \/ Swing \/ Long-term)",
+            ),
+          entryQuality: zod
+            .enum(["GOOD", "FAIR", "POOR"])
+            .optional()
+            .describe(
+              "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
+            ),
+          entryPlan: zod
+            .object({
+              reason: zod
+                .string()
+                .describe(
+                  "Plain-English explanation of WHY entry quality is degraded right now.",
+                ),
+              avoidZone: zod
+                .object({
+                  low: zod.number(),
+                  high: zod.number(),
+                })
+                .optional(),
+              breakoutTrigger: zod
+                .number()
+                .optional()
+                .describe(
+                  "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
+                ),
+              pullbackZone: zod
+                .object({
+                  low: zod.number(),
+                  high: zod.number(),
+                })
+                .optional(),
+              invalidates: zod
+                .number()
+                .optional()
+                .describe(
+                  "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
+                ),
+            })
+            .optional()
+            .describe(
+              "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
+            ),
+        }),
+        provenance: zod
+          .object({
+            sourceProvider: zod
+              .enum(["kite", "yahoo"])
+              .nullable()
               .describe(
-                "Human-readable label e.g. 'Neutral-to-Bearish', 'Bullish'",
+                "Provider that served the row's quote, or null when unavailable.",
               ),
-            confidence: zod
+            sourcePriority: zod
               .number()
               .describe(
-                "0-100, share of horizon-relevant evidence aligned with the bias",
+                "1 authoritative, 3 secondary_analytics, 99 unavailable.",
               ),
-            timeframe: zod
+            trustTier: zod.enum([
+              "authoritative",
+              "secondary_analytics",
+              "unavailable",
+            ]),
+            delayed: zod
+              .boolean()
+              .describe(
+                "True when the source is a delayed \/ end-of-day feed.",
+              ),
+            notForSignals: zod
+              .boolean()
+              .describe(
+                "Policy flag: a non-authoritative row must never drive signals.",
+              ),
+            notForTradeDecisions: zod
+              .boolean()
+              .describe(
+                "Policy flag: a non-authoritative row must never drive trade decisions.",
+              ),
+            asOf: zod
+              .number()
+              .nullable()
+              .describe("Epoch seconds of the quote the row was derived from."),
+            freshnessSec: zod
+              .number()
+              .nullable()
+              .describe("Seconds between asOf and build time."),
+            isStale: zod
+              .boolean()
+              .nullable()
+              .describe(
+                "True when past the freshness budget; null when no asOf.",
+              ),
+            missingReason: zod
               .string()
-              .describe("Display window e.g. 'Today \/ 1-3 days'"),
-            reason: zod.string().describe("Concise plain-English rationale"),
-            conflicts: zod
-              .string()
-              .optional()
-              .describe("Opposing evidence on this horizon, if any"),
-            confirmation: zod
-              .string()
-              .optional()
-              .describe("What confirms a trade on this horizon"),
-            invalidation: zod
-              .string()
-              .optional()
-              .describe("What cancels the bias on this horizon"),
-          }),
-        )
-        .optional()
-        .describe("Three-horizon bias panel (Intraday \/ Swing \/ Long-term)"),
-      entryQuality: zod
-        .enum(["GOOD", "FAIR", "POOR"])
-        .optional()
-        .describe(
-          "Separate from trend (`signal`\/`displayLabel`). Tells the user how\nSAFE this exact moment is to take a fresh entry, regardless of how\nstrong the trend is. POOR = price extended into a major resistance\n(or support, mirror for bearish) after a strong same-day move —\nhigh rejection risk; wait for breakout confirmation or pullback.\nFAIR = inside the proximity zone but conditions for POOR not all\nsatisfied. GOOD = clear path; trend signal can be acted on.\n",
-        ),
-      entryPlan: zod
-        .object({
-          reason: zod
-            .string()
-            .describe(
-              "Plain-English explanation of WHY entry quality is degraded right now.",
-            ),
-          avoidZone: zod
-            .object({
-              low: zod.number(),
-              high: zod.number(),
-            })
-            .optional(),
-          breakoutTrigger: zod
-            .number()
-            .optional()
-            .describe(
-              "Price level above which a fresh momentum entry becomes safer (bullish) — or below for bearish.",
-            ),
-          pullbackZone: zod
-            .object({
-              low: zod.number(),
-              high: zod.number(),
-            })
-            .optional(),
-          invalidates: zod
-            .number()
-            .optional()
-            .describe(
-              "Level at which the trend thesis itself fails (mirrors the recommendation stopLoss when set).",
-            ),
-        })
-        .optional()
-        .describe(
-          "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
-        ),
+              .nullable()
+              .describe("Why the source is unavailable (null when present)."),
+            warnings: zod.array(zod.string()),
+          })
+          .describe(
+            "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
+          )
+          .optional()
+          .describe(
+            "Optional honest source\/freshness\/trust labelling for this row's quote.",
+          ),
+      }),
     }),
-  }),
+  ),
+  coverage: zod
+    .object({
+      totalRows: zod.number(),
+      mappedRows: zod.number(),
+      excludedUnmapped: zod.number(),
+      coveragePct: zod.number(),
+      unmappedSectors: zod.array(
+        zod.object({
+          label: zod.string(),
+          count: zod.number(),
+        }),
+      ),
+      reason: zod.string().nullish(),
+    })
+    .describe(
+      "Honest accounting of how many scanned rows were included in the sector aggregation vs excluded for an empty\/unmapped sector. Surfaced so the client can never mistake a partial aggregation for a complete one.\n",
+    ),
 });
-export const ListSectorsResponse = zod.array(ListSectorsResponseItem);
 
 /**
  * @summary Sector detail with all stocks
@@ -1209,6 +1450,64 @@ export const GetSectorResponse = zod.object({
             "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
           ),
       }),
+      provenance: zod
+        .object({
+          sourceProvider: zod
+            .enum(["kite", "yahoo"])
+            .nullable()
+            .describe(
+              "Provider that served the row's quote, or null when unavailable.",
+            ),
+          sourcePriority: zod
+            .number()
+            .describe(
+              "1 authoritative, 3 secondary_analytics, 99 unavailable.",
+            ),
+          trustTier: zod.enum([
+            "authoritative",
+            "secondary_analytics",
+            "unavailable",
+          ]),
+          delayed: zod
+            .boolean()
+            .describe("True when the source is a delayed \/ end-of-day feed."),
+          notForSignals: zod
+            .boolean()
+            .describe(
+              "Policy flag: a non-authoritative row must never drive signals.",
+            ),
+          notForTradeDecisions: zod
+            .boolean()
+            .describe(
+              "Policy flag: a non-authoritative row must never drive trade decisions.",
+            ),
+          asOf: zod
+            .number()
+            .nullable()
+            .describe("Epoch seconds of the quote the row was derived from."),
+          freshnessSec: zod
+            .number()
+            .nullable()
+            .describe("Seconds between asOf and build time."),
+          isStale: zod
+            .boolean()
+            .nullable()
+            .describe(
+              "True when past the freshness budget; null when no asOf.",
+            ),
+          missingReason: zod
+            .string()
+            .nullable()
+            .describe("Why the source is unavailable (null when present)."),
+          warnings: zod.array(zod.string()),
+        })
+        .describe(
+          "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
+        )
+        .optional()
+        .describe(
+          "Optional honest source\/freshness\/trust labelling for this row's quote.",
+        ),
     }),
   }),
   stocks: zod.array(
@@ -1445,6 +1744,64 @@ export const GetSectorResponse = zod.object({
             "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
           ),
       }),
+      provenance: zod
+        .object({
+          sourceProvider: zod
+            .enum(["kite", "yahoo"])
+            .nullable()
+            .describe(
+              "Provider that served the row's quote, or null when unavailable.",
+            ),
+          sourcePriority: zod
+            .number()
+            .describe(
+              "1 authoritative, 3 secondary_analytics, 99 unavailable.",
+            ),
+          trustTier: zod.enum([
+            "authoritative",
+            "secondary_analytics",
+            "unavailable",
+          ]),
+          delayed: zod
+            .boolean()
+            .describe("True when the source is a delayed \/ end-of-day feed."),
+          notForSignals: zod
+            .boolean()
+            .describe(
+              "Policy flag: a non-authoritative row must never drive signals.",
+            ),
+          notForTradeDecisions: zod
+            .boolean()
+            .describe(
+              "Policy flag: a non-authoritative row must never drive trade decisions.",
+            ),
+          asOf: zod
+            .number()
+            .nullable()
+            .describe("Epoch seconds of the quote the row was derived from."),
+          freshnessSec: zod
+            .number()
+            .nullable()
+            .describe("Seconds between asOf and build time."),
+          isStale: zod
+            .boolean()
+            .nullable()
+            .describe(
+              "True when past the freshness budget; null when no asOf.",
+            ),
+          missingReason: zod
+            .string()
+            .nullable()
+            .describe("Why the source is unavailable (null when present)."),
+          warnings: zod.array(zod.string()),
+        })
+        .describe(
+          "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
+        )
+        .optional()
+        .describe(
+          "Optional honest source\/freshness\/trust labelling for this row's quote.",
+        ),
     }),
   ),
 });
@@ -1685,6 +2042,60 @@ export const ListStocksResponseItem = zod.object({
         "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
       ),
   }),
+  provenance: zod
+    .object({
+      sourceProvider: zod
+        .enum(["kite", "yahoo"])
+        .nullable()
+        .describe(
+          "Provider that served the row's quote, or null when unavailable.",
+        ),
+      sourcePriority: zod
+        .number()
+        .describe("1 authoritative, 3 secondary_analytics, 99 unavailable."),
+      trustTier: zod.enum([
+        "authoritative",
+        "secondary_analytics",
+        "unavailable",
+      ]),
+      delayed: zod
+        .boolean()
+        .describe("True when the source is a delayed \/ end-of-day feed."),
+      notForSignals: zod
+        .boolean()
+        .describe(
+          "Policy flag: a non-authoritative row must never drive signals.",
+        ),
+      notForTradeDecisions: zod
+        .boolean()
+        .describe(
+          "Policy flag: a non-authoritative row must never drive trade decisions.",
+        ),
+      asOf: zod
+        .number()
+        .nullable()
+        .describe("Epoch seconds of the quote the row was derived from."),
+      freshnessSec: zod
+        .number()
+        .nullable()
+        .describe("Seconds between asOf and build time."),
+      isStale: zod
+        .boolean()
+        .nullable()
+        .describe("True when past the freshness budget; null when no asOf."),
+      missingReason: zod
+        .string()
+        .nullable()
+        .describe("Why the source is unavailable (null when present)."),
+      warnings: zod.array(zod.string()),
+    })
+    .describe(
+      "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
+    )
+    .optional()
+    .describe(
+      "Optional honest source\/freshness\/trust labelling for this row's quote.",
+    ),
 });
 export const ListStocksResponse = zod.array(ListStocksResponseItem);
 
@@ -2516,6 +2927,64 @@ export const GetTopScansResponse = zod.object({
             "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
           ),
       }),
+      provenance: zod
+        .object({
+          sourceProvider: zod
+            .enum(["kite", "yahoo"])
+            .nullable()
+            .describe(
+              "Provider that served the row's quote, or null when unavailable.",
+            ),
+          sourcePriority: zod
+            .number()
+            .describe(
+              "1 authoritative, 3 secondary_analytics, 99 unavailable.",
+            ),
+          trustTier: zod.enum([
+            "authoritative",
+            "secondary_analytics",
+            "unavailable",
+          ]),
+          delayed: zod
+            .boolean()
+            .describe("True when the source is a delayed \/ end-of-day feed."),
+          notForSignals: zod
+            .boolean()
+            .describe(
+              "Policy flag: a non-authoritative row must never drive signals.",
+            ),
+          notForTradeDecisions: zod
+            .boolean()
+            .describe(
+              "Policy flag: a non-authoritative row must never drive trade decisions.",
+            ),
+          asOf: zod
+            .number()
+            .nullable()
+            .describe("Epoch seconds of the quote the row was derived from."),
+          freshnessSec: zod
+            .number()
+            .nullable()
+            .describe("Seconds between asOf and build time."),
+          isStale: zod
+            .boolean()
+            .nullable()
+            .describe(
+              "True when past the freshness budget; null when no asOf.",
+            ),
+          missingReason: zod
+            .string()
+            .nullable()
+            .describe("Why the source is unavailable (null when present)."),
+          warnings: zod.array(zod.string()),
+        })
+        .describe(
+          "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
+        )
+        .optional()
+        .describe(
+          "Optional honest source\/freshness\/trust labelling for this row's quote.",
+        ),
     }),
   ),
   topSells: zod.array(
@@ -2752,9 +3221,79 @@ export const GetTopScansResponse = zod.object({
             "Actionable entry guidance shown alongside the Recommendation card.\nPopulated when `entryQuality` is FAIR or POOR (GOOD setups do not\nneed a special plan — the existing target \/ stop \/ R:R already\ntells the full story).\n",
           ),
       }),
+      provenance: zod
+        .object({
+          sourceProvider: zod
+            .enum(["kite", "yahoo"])
+            .nullable()
+            .describe(
+              "Provider that served the row's quote, or null when unavailable.",
+            ),
+          sourcePriority: zod
+            .number()
+            .describe(
+              "1 authoritative, 3 secondary_analytics, 99 unavailable.",
+            ),
+          trustTier: zod.enum([
+            "authoritative",
+            "secondary_analytics",
+            "unavailable",
+          ]),
+          delayed: zod
+            .boolean()
+            .describe("True when the source is a delayed \/ end-of-day feed."),
+          notForSignals: zod
+            .boolean()
+            .describe(
+              "Policy flag: a non-authoritative row must never drive signals.",
+            ),
+          notForTradeDecisions: zod
+            .boolean()
+            .describe(
+              "Policy flag: a non-authoritative row must never drive trade decisions.",
+            ),
+          asOf: zod
+            .number()
+            .nullable()
+            .describe("Epoch seconds of the quote the row was derived from."),
+          freshnessSec: zod
+            .number()
+            .nullable()
+            .describe("Seconds between asOf and build time."),
+          isStale: zod
+            .boolean()
+            .nullable()
+            .describe(
+              "True when past the freshness budget; null when no asOf.",
+            ),
+          missingReason: zod
+            .string()
+            .nullable()
+            .describe("Why the source is unavailable (null when present)."),
+          warnings: zod.array(zod.string()),
+        })
+        .describe(
+          "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
+        )
+        .optional()
+        .describe(
+          "Optional honest source\/freshness\/trust labelling for this row's quote.",
+        ),
     }),
   ),
   generatedAt: zod.coerce.date(),
+  warnings: zod
+    .array(zod.string())
+    .optional()
+    .describe(
+      "Honest signal-quality warnings, e.g. when top picks are derived from delayed\/non-authoritative (Yahoo) or stale data rather than live Kite quotes.",
+    ),
+  nonAuthoritativeCount: zod
+    .number()
+    .optional()
+    .describe(
+      "How many of the returned top picks (buys+sells) are derived from a non-authoritative (Yahoo) or stale quote and must not be treated as live signals.",
+    ),
 });
 
 /**

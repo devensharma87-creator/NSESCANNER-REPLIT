@@ -17,9 +17,10 @@ function getTextColor(pct: number): string {
 }
 
 export default function SectoralHeatmap() {
-  const { data: sectors } = useListSectors({
+  const { data } = useListSectors({
     query: { refetchInterval: 30000, queryKey: getListSectorsQueryKey() },
   });
+  const sectors = data?.sectors;
 
   if (!sectors || sectors.length === 0) return null;
 

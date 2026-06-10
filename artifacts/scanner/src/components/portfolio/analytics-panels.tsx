@@ -32,6 +32,7 @@ import type { HoldingPeriodView, DividendView } from "@/lib/portfolio/holdingPer
 import type {
   BenchmarkComparison,
   BenchmarkOption,
+  BenchmarkProvenance,
   CombinedSeriesPoint,
   PortfolioValueSeries,
   SectorWeightComparison,
@@ -476,6 +477,52 @@ function BenchmarkChart({
   );
 }
 
+/**
+ * Honest one-line source/trust label for the benchmark index series. Kite →
+ * neutral "authoritative"; Yahoo → amber "delayed reference (not authoritative)";
+ * unavailable → amber. Surfaces staleness + any provenance warnings so a
+ * non-authoritative or stale series can never look official.
+ */
+function BenchmarkSourceLabel({ provenance }: { provenance: BenchmarkProvenance }) {
+  const { trustTier, sourceProvider, delayed, isStale, missingReason, closesCovered, warnings } = provenance;
+  const providerLabel =
+    sourceProvider === "kite" ? "Kite" : sourceProvider === "yahoo" ? "Yahoo" : "—";
+  const tierLabel =
+    trustTier === "authoritative"
+      ? "authoritative"
+      : trustTier === "secondary_analytics"
+        ? "delayed reference · not authoritative"
+        : "unavailable";
+  const tone =
+    trustTier === "authoritative" ? "text-muted-foreground" : "text-amber-400";
+  return (
+    <div className="mb-1.5 space-y-0.5" data-testid="benchmark-source-label">
+      <div className={"flex items-center gap-1.5 text-[10px] " + tone}>
+        <span
+          className={
+            "inline-block rounded px-1 py-0.5 font-medium " +
+            (trustTier === "authoritative"
+              ? "bg-muted text-muted-foreground"
+              : "bg-amber-500/15 text-amber-400")
+          }
+        >
+          Source: {providerLabel}
+        </span>
+        <span>
+          {tierLabel}
+          {delayed ? " · delayed" : ""}
+          {isStale ? " · stale" : ""}
+          {closesCovered > 0 ? ` · ${closesCovered} closes` : ""}
+        </span>
+      </div>
+      {missingReason && <div className="text-[10px] text-amber-400">{missingReason}</div>}
+      {warnings.map((w, i) => (
+        <div key={i} className="text-[10px] text-amber-400">{w}</div>
+      ))}
+    </div>
+  );
+}
+
 export function BenchmarkPanel({
   comparison,
   sectorComparison,
@@ -525,6 +572,9 @@ export function BenchmarkPanel({
           ))}
         </div>
       </div>
+      {comparison.provenance && (
+        <BenchmarkSourceLabel provenance={comparison.provenance} />
+      )}
       {comparison.returnUnavailable ? (
         <div className="flex items-start gap-1.5 text-xs text-amber-400">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />

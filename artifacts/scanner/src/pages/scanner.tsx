@@ -263,6 +263,42 @@ function OiBuildupBadge({ buildup }: { buildup: string | undefined }) {
  * (NOT a <tr>) because virtualization requires absolute positioning, which
  * the browser doesn't apply correctly inside <table> markup.
  */
+/**
+ * Tiny per-row honesty flag. Authoritative + fresh rows (live Kite) render
+ * NOTHING so the dense table stays clean — we only surface a flag for the
+ * honest exceptions: a delayed Yahoo-sourced quote, or a stale one. This
+ * mirrors the per-row provenance the API now stamps; never fabricates a
+ * "live" claim for a delayed/stale row.
+ */
+function RowSourceFlag({ provenance }: { provenance?: StockRow["provenance"] }) {
+  if (!provenance) return null;
+  const stale = provenance.isStale === true;
+  const nonAuth = provenance.trustTier !== "authoritative";
+  if (!stale && !nonAuth) return null;
+  const label = provenance.sourceProvider === "yahoo"
+    ? (stale ? "Yahoo · stale" : "Yahoo ~15m")
+    : provenance.sourceProvider == null
+      ? "no source"
+      : (stale ? "stale" : "delayed");
+  const tone = stale
+    ? "border-orange-500/40 bg-orange-500/10 text-orange-500"
+    : "border-amber-500/40 bg-amber-500/10 text-amber-500";
+  const title = provenance.missingReason
+    ?? `Source: ${provenance.sourceProvider ?? "unavailable"} · ${provenance.trustTier}`
+       + (provenance.delayed ? " · delayed" : "")
+       + (stale ? " · stale (past freshness budget)" : "")
+       + " — reference only, not a live signal.";
+  return (
+    <span
+      className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0 text-[9px] font-mono uppercase tracking-wider ${tone}`}
+      title={title}
+      data-testid={`row-source-flag-${provenance.sourceProvider ?? "none"}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 const Row = memo(function Row({ stock, top, onBuy }: { stock: StockRow; top: number; onBuy: (symbol: string) => void }) {
   const q = stock.quote;
   const ind = stock.indicators;
@@ -279,7 +315,10 @@ const Row = memo(function Row({ stock, top, onBuy }: { stock: StockRow; top: num
         <Link href={`/stock/${stock.symbol}`} className="font-mono font-bold hover:underline text-sm leading-tight truncate">
           {stock.symbol}
         </Link>
-        <div className="text-[10px] text-muted-foreground truncate">{stock.sector}</div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="text-[10px] text-muted-foreground truncate">{stock.sector}</div>
+          <RowSourceFlag provenance={stock.provenance} />
+        </div>
       </div>
       <div className={`text-right font-mono text-sm font-bold tabular-nums px-2 ${cmpVsVwap}`}>{fmtIN(q.price)}</div>
       <div className={`text-right font-mono text-xs tabular-nums px-2 ${chgClass}`}>{q.change >= 0 ? "+" : ""}{fmt(q.change)}</div>

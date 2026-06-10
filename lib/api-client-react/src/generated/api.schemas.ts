@@ -281,6 +281,53 @@ satisfied. GOOD = clear path; trend signal can be acted on.
   entryPlan?: EntryPlan;
 }
 
+/**
+ * Provider that served the row's quote, or null when unavailable.
+ */
+export type ScannerRowProvenanceSourceProvider =
+  | (typeof ScannerRowProvenanceSourceProvider)[keyof typeof ScannerRowProvenanceSourceProvider]
+  | null;
+
+export const ScannerRowProvenanceSourceProvider = {
+  kite: "kite",
+  yahoo: "yahoo",
+} as const;
+
+export type ScannerRowProvenanceTrustTier =
+  (typeof ScannerRowProvenanceTrustTier)[keyof typeof ScannerRowProvenanceTrustTier];
+
+export const ScannerRowProvenanceTrustTier = {
+  authoritative: "authoritative",
+  secondary_analytics: "secondary_analytics",
+  unavailable: "unavailable",
+} as const;
+
+/**
+ * Honest source/freshness/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.
+ */
+export interface ScannerRowProvenance {
+  /** Provider that served the row's quote, or null when unavailable. */
+  sourceProvider: ScannerRowProvenanceSourceProvider;
+  /** 1 authoritative, 3 secondary_analytics, 99 unavailable. */
+  sourcePriority: number;
+  trustTier: ScannerRowProvenanceTrustTier;
+  /** True when the source is a delayed / end-of-day feed. */
+  delayed: boolean;
+  /** Policy flag: a non-authoritative row must never drive signals. */
+  notForSignals: boolean;
+  /** Policy flag: a non-authoritative row must never drive trade decisions. */
+  notForTradeDecisions: boolean;
+  /** Epoch seconds of the quote the row was derived from. */
+  asOf: number | null;
+  /** Seconds between asOf and build time. */
+  freshnessSec: number | null;
+  /** True when past the freshness budget; null when no asOf. */
+  isStale: boolean | null;
+  /** Why the source is unavailable (null when present). */
+  missingReason: string | null;
+  warnings: string[];
+}
+
 export interface StockRow {
   symbol: string;
   name: string;
@@ -288,6 +335,8 @@ export interface StockRow {
   quote: Quote;
   indicators?: Indicators;
   recommendation: Recommendation;
+  /** Optional honest source/freshness/trust labelling for this row's quote. */
+  provenance?: ScannerRowProvenance;
 }
 
 export interface Candle {
@@ -613,6 +662,29 @@ export interface SectorSummary {
   topPick: StockRow;
 }
 
+export type SectorCoverageUnmappedSectorsItem = {
+  label: string;
+  count: number;
+};
+
+/**
+ * Honest accounting of how many scanned rows were included in the sector aggregation vs excluded for an empty/unmapped sector. Surfaced so the client can never mistake a partial aggregation for a complete one.
+
+ */
+export interface SectorCoverage {
+  totalRows: number;
+  mappedRows: number;
+  excludedUnmapped: number;
+  coveragePct: number;
+  unmappedSectors: SectorCoverageUnmappedSectorsItem[];
+  reason?: string | null;
+}
+
+export interface ListSectorsResponse {
+  sectors: SectorSummary[];
+  coverage: SectorCoverage;
+}
+
 export interface SectorDetail {
   sector: string;
   summary: SectorSummary;
@@ -879,6 +951,22 @@ export type MarketTrendCandleProvenance = {
   yahooCount?: number;
 };
 
+/**
+ * Honest accounting of how complete the sector leadership/laggards aggregation is. Rows whose sector is missing or not part of the known sector partition are EXCLUDED and counted here, never silently dropped.
+ */
+export type MarketTrendSectorCoverage = {
+  /** Total scanner rows considered for sector aggregation. */
+  totalRows: number;
+  /** Rows placed into a known sector bucket. */
+  mappedRows: number;
+  /** Rows excluded because their sector was missing or unmapped. */
+  excludedUnmapped: number;
+  /** mappedRows / totalRows as 0–100 (100 when no rows). */
+  coveragePct: number;
+  /** Plain-language explanation of the exclusion, or null when nothing was excluded. */
+  reason?: string | null;
+};
+
 export interface MarketTrend {
   bias: MarketTrendBias;
   /** -100 to 100 */
@@ -891,6 +979,8 @@ export interface MarketTrend {
   lastUpdated: string;
   /** Honest provenance for the INDEX intraday candles that fed the trend's index-rule contributions (Kite-first, Yahoo fallback). source=none means no index candles were available and those rules were skipped — never silently substituted. */
   candleProvenance?: MarketTrendCandleProvenance;
+  /** Honest accounting of how complete the sector leadership/laggards aggregation is. Rows whose sector is missing or not part of the known sector partition are EXCLUDED and counted here, never silently dropped. */
+  sectorCoverage?: MarketTrendSectorCoverage;
 }
 
 export type OptionLegType = (typeof OptionLegType)[keyof typeof OptionLegType];
@@ -1353,6 +1443,10 @@ export interface TopScans {
   topBuys: StockRow[];
   topSells: StockRow[];
   generatedAt: string;
+  /** Honest signal-quality warnings, e.g. when top picks are derived from delayed/non-authoritative (Yahoo) or stale data rather than live Kite quotes. */
+  warnings?: string[];
+  /** How many of the returned top picks (buys+sells) are derived from a non-authoritative (Yahoo) or stale quote and must not be treated as live signals. */
+  nonAuthoritativeCount?: number;
 }
 
 export interface FiiDiiDay {

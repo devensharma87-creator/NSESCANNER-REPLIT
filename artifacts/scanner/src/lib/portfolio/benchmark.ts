@@ -31,6 +31,114 @@ export const BENCHMARK_OPTIONS: readonly BenchmarkOption[] = [
   { key: "SENSEX", symbol: "SENSEX", name: "Sensex" },
 ] as const;
 
+/**
+ * Honest provenance envelope for the benchmark index series, mirroring the
+ * repo's `IndexAnalyticsProvenance` vocabulary (sourceProvider / sourcePriority
+ * / trustTier / delayed / notForSignals / notForTradeDecisions / asOf / isStale
+ * / missingReason / warnings) so a Yahoo-sourced or stale benchmark can never be
+ * silently presented as authoritative. The benchmark is a comparison reference
+ * only — it never drives signals or trade decisions.
+ */
+export type BenchmarkTrustTier = "authoritative" | "secondary_analytics" | "unavailable";
+
+export interface BenchmarkProvenance {
+  /** Index-series provider: kite (authoritative) / yahoo (delayed reference) / null. */
+  sourceProvider: "kite" | "yahoo" | null;
+  /** 1 authoritative, 3 secondary_analytics, 99 unavailable. */
+  sourcePriority: number;
+  trustTier: BenchmarkTrustTier;
+  /** True when the series is a delayed / end-of-day feed (Yahoo). */
+  delayed: boolean;
+  /** Policy flag: a non-authoritative series must never drive signals. */
+  notForSignals: boolean;
+  /** Policy flag: a non-authoritative series must never drive trade decisions. */
+  notForTradeDecisions: boolean;
+  /** Epoch seconds of the newest covered candle, or null when none. */
+  asOf: number | null;
+  /** True when the newest candle is past the freshness budget; null when unknown. */
+  isStale: boolean | null;
+  /** Reason the series is missing (null when present). */
+  missingReason: string | null;
+  /** Number of finite closes that fed the comparison over the window. */
+  closesCovered: number;
+  /** User-facing warnings (delayed-source / staleness / thin coverage). */
+  warnings: string[];
+}
+
+/**
+ * Map a chart-endpoint response (source / fresh / asOf) plus the number of
+ * covered closes into an honest provenance envelope. Pure — no fabrication:
+ * an empty/`none` series becomes `unavailable` with a missingReason.
+ */
+export function buildBenchmarkProvenance(input: {
+  source: "kite" | "yahoo" | "none" | null | undefined;
+  fresh: boolean | null | undefined;
+  asOf: number | null | undefined;
+  closesCovered: number;
+}): BenchmarkProvenance {
+  const closesCovered = Number.isFinite(input.closesCovered)
+    ? Math.max(0, Math.trunc(input.closesCovered))
+    : 0;
+  const asOf = input.asOf ?? null;
+  const warnings: string[] = [];
+
+  if (input.source === "kite" && closesCovered >= 2) {
+    if (input.fresh === false) {
+      warnings.push("Benchmark series newest bar is past the daily freshness window — comparison may lag.");
+    }
+    return {
+      sourceProvider: "kite",
+      sourcePriority: 1,
+      trustTier: "authoritative",
+      delayed: false,
+      notForSignals: false,
+      notForTradeDecisions: false,
+      asOf,
+      isStale: input.fresh == null ? null : input.fresh === false,
+      missingReason: null,
+      closesCovered,
+      warnings,
+    };
+  }
+
+  if (input.source === "yahoo" && closesCovered >= 2) {
+    warnings.push("Benchmark series sourced from Yahoo (delayed) — a reference only, not authoritative.");
+    if (input.fresh === false) {
+      warnings.push("Benchmark series newest bar is past the daily freshness window — comparison may lag.");
+    }
+    return {
+      sourceProvider: "yahoo",
+      sourcePriority: 3,
+      trustTier: "secondary_analytics",
+      delayed: true,
+      notForSignals: true,
+      notForTradeDecisions: true,
+      asOf,
+      isStale: input.fresh == null ? null : input.fresh === false,
+      missingReason: null,
+      closesCovered,
+      warnings,
+    };
+  }
+
+  return {
+    sourceProvider: null,
+    sourcePriority: 99,
+    trustTier: "unavailable",
+    delayed: false,
+    notForSignals: true,
+    notForTradeDecisions: true,
+    asOf,
+    isStale: null,
+    missingReason:
+      closesCovered < 2
+        ? "Fewer than two covered index closes in this window — cannot compute a benchmark return."
+        : "No benchmark index series available for this window.",
+    closesCovered,
+    warnings,
+  };
+}
+
 export interface BenchmarkInput {
   /** Portfolio total return over the comparison window (%), null if unknown. */
   portfolioReturnPct: number | null;
@@ -40,6 +148,8 @@ export interface BenchmarkInput {
   benchmarkName: string;
   /** Description of the comparison window, e.g. "since earliest purchase (2024-01-15)". */
   windowLabel: string | null;
+  /** Honest source/freshness/trust labelling for the index series (optional). */
+  provenance?: BenchmarkProvenance | null;
 }
 
 export interface BenchmarkComparison {
@@ -53,6 +163,8 @@ export interface BenchmarkComparison {
   verdict: "outperforming" | "underperforming" | "in line" | null;
   /** Non-null when the return comparison cannot be made. */
   returnUnavailable: string | null;
+  /** Honest source/freshness/trust labelling for the index series. */
+  provenance: BenchmarkProvenance | null;
 }
 
 export function compareToBenchmark(input: BenchmarkInput): BenchmarkComparison {
@@ -83,6 +195,7 @@ export function compareToBenchmark(input: BenchmarkInput): BenchmarkComparison {
     relativePct,
     verdict,
     returnUnavailable,
+    provenance: input.provenance ?? null,
   };
 }
 

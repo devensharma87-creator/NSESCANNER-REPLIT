@@ -8,6 +8,7 @@
 import type { Indicators } from "./indicators";
 import type { Quote } from "./quote";
 import type { Recommendation } from "./recommendation";
+import type { ScannerRowProvenance } from "./scannerRowProvenance";
 
 export interface StockRow {
   symbol: string;
@@ -16,4 +17,6 @@ export interface StockRow {
   quote: Quote;
   indicators?: Indicators;
   recommendation: Recommendation;
+  /** Optional honest source/freshness/trust labelling for this row's quote. */
+  provenance?: ScannerRowProvenance;
 }

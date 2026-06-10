@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   compareToBenchmark,
+  buildBenchmarkProvenance,
   benchmarkReturnFromCloses,
   buildBenchmarkSeries,
   buildPortfolioValueSeries,
@@ -119,6 +120,83 @@ describe("compareToBenchmark", () => {
     expect(c.relativePct).toBeNull();
     expect(c.verdict).toBeNull();
     expect(c.returnUnavailable).toContain("NIFTY 500");
+  });
+
+  it("passes the provenance envelope through unchanged", () => {
+    const prov = buildBenchmarkProvenance({ source: "kite", fresh: true, asOf: 1, closesCovered: 5 });
+    const c = compareToBenchmark({
+      portfolioReturnPct: 1,
+      benchmarkReturnPct: 1,
+      benchmarkName: "NIFTY 50",
+      windowLabel: null,
+      provenance: prov,
+    });
+    expect(c.provenance).toBe(prov);
+  });
+
+  it("defaults provenance to null when not supplied", () => {
+    const c = compareToBenchmark({
+      portfolioReturnPct: 1,
+      benchmarkReturnPct: 1,
+      benchmarkName: "NIFTY 50",
+      windowLabel: null,
+    });
+    expect(c.provenance).toBeNull();
+  });
+});
+
+describe("buildBenchmarkProvenance", () => {
+  it("labels a Kite series as authoritative (tradeable-grade reference)", () => {
+    const p = buildBenchmarkProvenance({ source: "kite", fresh: true, asOf: 100, closesCovered: 30 });
+    expect(p.sourceProvider).toBe("kite");
+    expect(p.sourcePriority).toBe(1);
+    expect(p.trustTier).toBe("authoritative");
+    expect(p.delayed).toBe(false);
+    expect(p.notForSignals).toBe(false);
+    expect(p.notForTradeDecisions).toBe(false);
+    expect(p.isStale).toBe(false);
+    expect(p.missingReason).toBeNull();
+    expect(p.closesCovered).toBe(30);
+    expect(p.warnings).toEqual([]);
+  });
+
+  it("labels a Yahoo series as a delayed secondary_analytics reference, never authoritative", () => {
+    const p = buildBenchmarkProvenance({ source: "yahoo", fresh: true, asOf: 100, closesCovered: 30 });
+    expect(p.sourceProvider).toBe("yahoo");
+    expect(p.sourcePriority).toBe(3);
+    expect(p.trustTier).toBe("secondary_analytics");
+    expect(p.delayed).toBe(true);
+    expect(p.notForSignals).toBe(true);
+    expect(p.notForTradeDecisions).toBe(true);
+    expect(p.warnings.some(w => /Yahoo/i.test(w))).toBe(true);
+  });
+
+  it("marks a stale Kite series as stale and warns, but stays authoritative-source", () => {
+    const p = buildBenchmarkProvenance({ source: "kite", fresh: false, asOf: 100, closesCovered: 30 });
+    expect(p.isStale).toBe(true);
+    expect(p.warnings.some(w => /freshness/i.test(w))).toBe(true);
+  });
+
+  it("reports unavailable with a missingReason when fewer than two closes", () => {
+    const p = buildBenchmarkProvenance({ source: "kite", fresh: true, asOf: null, closesCovered: 1 });
+    expect(p.trustTier).toBe("unavailable");
+    expect(p.sourceProvider).toBeNull();
+    expect(p.sourcePriority).toBe(99);
+    expect(p.notForSignals).toBe(true);
+    expect(p.notForTradeDecisions).toBe(true);
+    expect(p.missingReason).toMatch(/two covered index closes/i);
+  });
+
+  it("reports unavailable when source is none even if closes claimed", () => {
+    const p = buildBenchmarkProvenance({ source: "none", fresh: false, asOf: null, closesCovered: 10 });
+    expect(p.trustTier).toBe("unavailable");
+    expect(p.missingReason).toMatch(/No benchmark index series/i);
+  });
+
+  it("never throws on undefined inputs (honest unavailable)", () => {
+    const p = buildBenchmarkProvenance({ source: undefined, fresh: undefined, asOf: undefined, closesCovered: NaN });
+    expect(p.trustTier).toBe("unavailable");
+    expect(p.closesCovered).toBe(0);
   });
 });
 

@@ -7,6 +7,7 @@ import { logger } from "./logger";
 import { getDeliveryPct } from "./nseBhavcopy";
 import { getLiveQuote } from "./kiteFeed";
 import { fetchKiteEquityIntraday } from "./kiteIntraday";
+import { buildSourceProvenance } from "./scannerProvenance";
 
 interface CachedHistory {
   fetchedAt: number;
@@ -289,6 +290,26 @@ async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
     rsiSeries: computed.rsiSeries,
     macdHistSeries: computed.macdHistSeries,
   });
+  // Honest SIGNAL labelling. This row's recommendation/score is computed
+  // ENTIRELY from the Yahoo daily history (`getHistory` -> `fetchChart`) plus a
+  // Yahoo/Kite intraday VWAP — there is NO Kite candle path feeding the swing
+  // indicators here. A live Kite LTP only overlays the *price*; it does NOT
+  // make the SIGNAL authoritative. So we label provenance by the SIGNAL source
+  // (Yahoo), which keeps `shouldDemoteSignal` honest: a Kite price tick can
+  // never silently promote a Yahoo-derived swing signal to "authoritative".
+  // `asOf` still carries the freshest displayed instant (the Kite LTP when
+  // present) so freshness reflects the live price; the split is spelled out in
+  // a warning. Quote is required, so an `asOf` source always resolves here.
+  const live = getLiveQuote(entry.symbol);
+  const asOfMs = live ? live.ts : new Date(quote.updatedAt).getTime();
+  const provenance = buildSourceProvenance({
+    provider: "yahoo",
+    asOfSec: Number.isFinite(asOfMs) ? Math.floor(asOfMs / 1000) : null,
+    tf: "15m",
+    warnings: live
+      ? ["Live price from Kite; swing indicators derived from delayed Yahoo daily candles."]
+      : [],
+  });
   return {
     symbol: entry.symbol,
     name: entry.name,
@@ -296,6 +317,7 @@ async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
     quote,
     indicators: computed.indicators,
     recommendation,
+    provenance,
   };
 }
 

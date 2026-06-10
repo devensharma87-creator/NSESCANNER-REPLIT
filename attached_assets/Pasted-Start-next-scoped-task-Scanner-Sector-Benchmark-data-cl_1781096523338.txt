@@ -1,0 +1,118 @@
+Start next scoped task: Scanner / Sector / Benchmark data cleanup.
+
+Do not reopen:
+
+Watchlist
+Portfolio resolver
+Home / Market Pulse T003
+Charting Candle Source Honesty
+F&O option-chain signal-safety migration
+Backtest Lab rectification
+full trusted-layer migration
+
+Objective:
+Audit and clean scanner, sector, and benchmark data paths so they use the trusted/canonical data backbone consistently and do not silently depend on Yahoo, stale candles, fake zeros, incomplete benchmarks, or curated-only symbol logic.
+
+Scope:
+Focus only on:
+
+Main Scanner
+Deep Scan
+Swing Scanner only where scanner/sector data is shared
+Sector View / sector breadth
+Portfolio benchmark comparisons
+NIFTY 500 / sector-index benchmark data
+Top gainers / losers / bullish / bearish lists if they are scanner-derived
+
+Do not touch:
+
+F&O/paper-trade path
+Backtest Lab
+Portfolio manual resolver unless only reading its existing canonical resolver
+Charting UI unless a scanner candle dependency directly requires it
+
+Audit first:
+Create:
+
+SCANNER_SECTOR_BENCHMARK_DATA_AUDIT.md
+
+For each module include:
+
+frontend component
+endpoint
+backend file
+quote source
+candle source
+benchmark source
+sector source
+central resolver used: YES/NO
+central marketDataRouter used: YES/NO
+direct provider call: YES/NO
+Yahoo dependency: YES/NO
+fake zero / fake n/a risk
+stale risk
+source/freshness shown: YES/NO
+fix applied
+remaining limitation
+
+Data policy:
+
+Kite is primary for Indian stocks, ETFs, indices, scanner prices, and candles where available.
+Yahoo is allowed only for clearly labelled secondary analytics where Kite has no source.
+Yahoo must not power official scanner signals, sector signals, risk scores, portfolio valuation, or F&O signals.
+No fake scanner rows.
+No fake benchmark values.
+No silent fallback.
+Missing data must have exact reason.
+
+Required fixes:
+
+Scanner must use the canonical instrument resolver and full Kite instrument master.
+If a stock exists in Portfolio/Watchlist/Deep Scan, it must resolve the same way in Scanner.
+Sector calculations must not silently exclude unresolved stocks.
+Benchmark comparisons must show:
+benchmark source
+freshness
+whether source is trusted or secondary analytics
+whether benchmark is complete enough to compare
+If NIFTY 500 / sector benchmark data is Yahoo-only or secondary, label it clearly:
+source_provider = yahoo
+trust_tier = secondary_analytics
+delayed = true
+not_for_signals = true
+not_for_trade_decisions = true
+Scanner signals must not use untrusted/stale/secondary data without demotion or warning.
+Any missing row must have missing_reason.
+
+Tests required:
+
+scanner uses canonical resolver
+scanner can resolve symbols outside curated universe where full Kite master has them
+sector calculation does not silently drop unresolved symbols
+benchmark source is labelled
+Yahoo benchmark data is marked secondary analytics
+Yahoo data cannot feed official scanner signal
+stale candle/quote marks scanner row stale
+missing scanner data returns missing_reason
+existing Watchlist tests pass
+existing Portfolio tests pass
+existing T003 tests pass
+existing candle-source tests pass
+existing F&O signal-safety tests pass
+typecheck passes
+
+Verification:
+Return:
+
+Audit report.
+List of remaining direct provider paths.
+Before/after scanner data path.
+Before/after sector data path.
+Before/after benchmark data path.
+Example benchmark response with source/freshness.
+Example scanner row with source/freshness.
+Any remaining Yahoo-only analytics clearly labelled.
+Tests/typecheck result.
+
+Acceptance:
+This task is complete only when Scanner / Sector / Benchmark data paths are honest, source-labelled, and cannot silently use Yahoo/stale/fake data as authoritative.

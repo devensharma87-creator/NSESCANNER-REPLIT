@@ -33,6 +33,7 @@
  */
 
 import type { Quote, StockRow, Recommendation } from "@workspace/api-zod";
+import { buildSourceProvenance, type DataSourceProvider } from "./scannerProvenance";
 import { fetchIntraday, fetchChart, yahooTickerFor, isYahooPaused, yahooPausedForMs, fetchYahooBatchQuotes, type YahooBatchQuote } from "./yahoo";
 import { ema, rsi, atr, sessionVwap, macd as macdSeries } from "./indicators";
 import { getAllSymbols, getDeliveryMap } from "./nseBhavcopy";
@@ -362,7 +363,11 @@ async function chartCallShim(yahooSymbol: string) {
   return fetchChart(yahooSymbol.replace(/\.NS$|\.BO$/, ""), "1y", "1d");
 }
 
-function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number | null): StockRow {
+function rowFromKiteOnly(
+  kq: KiteScannerQuote,
+  deliveryPct: number | null,
+  provider: DataSourceProvider = "kite",
+): StockRow {
   const quote: Quote = {
     symbol: kq.symbol,
     name: kq.name,
@@ -397,6 +402,11 @@ function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number | null): Stoc
     name: kq.name,
     sector: "NSE EQ",
     quote,
+    provenance: buildSourceProvenance({
+      provider,
+      asOfSec: Number.isFinite(kq.ts) ? Math.floor(kq.ts / 1000) : null,
+      tf: "15m",
+    }),
     indicators: {
       ema9: undefined, ema21: undefined, ema20: undefined, ema50: undefined,
       ema100: undefined, ema200: undefined,
@@ -417,7 +427,12 @@ function rowFromKiteOnly(kq: KiteScannerQuote, deliveryPct: number | null): Stoc
   };
 }
 
-function rowFromKitePlusIndicators(kq: KiteScannerQuote, ind: YahooIndicators, deliveryPct: number | null): StockRow {
+function rowFromKitePlusIndicators(
+  kq: KiteScannerQuote,
+  ind: YahooIndicators,
+  deliveryPct: number | null,
+  provider: DataSourceProvider = "kite",
+): StockRow {
   const trend = classifyTrend(kq.lastPrice, ind.ema20, ind.ema50);
   const vwapAbove = ind.vwap != null ? kq.lastPrice > ind.vwap : null;
   const quote: Quote = {
@@ -464,6 +479,18 @@ function rowFromKitePlusIndicators(kq: KiteScannerQuote, ind: YahooIndicators, d
     name: ind.longName || kq.name,
     sector: "NSE EQ",
     quote,
+    // The recommendation here is computed from Yahoo indicators (`ind`) — the
+    // Kite path only supplies the price/OHLC. A Kite quote must NOT promote a
+    // Yahoo-derived SIGNAL to "authoritative", so we always label the signal by
+    // its real (Yahoo) source and note when the live price itself came from Kite.
+    provenance: buildSourceProvenance({
+      provider: "yahoo",
+      asOfSec: Number.isFinite(kq.ts) ? Math.floor(kq.ts / 1000) : null,
+      tf: "15m",
+      warnings: provider === "kite"
+        ? ["Live price from Kite; indicators derived from delayed Yahoo data."]
+        : [],
+    }),
     indicators: {
       ema9:   ind.ema9   != null ? round2(ind.ema9)   : undefined,
       ema21:  ind.ema21  != null ? round2(ind.ema21)  : undefined,
@@ -720,7 +747,7 @@ async function performFullScan(): Promise<Cache> {
       };
       // Same sanity guard as Kite path — drop suspected corp-action glitches.
       if (Math.abs(yQuote.changePercent) <= 35) {
-        rows.push(rowFromKitePlusIndicators(yQuote, ind, deliveryPct));
+        rows.push(rowFromKitePlusIndicators(yQuote, ind, deliveryPct, "yahoo"));
         yahooFallbackCount++;
       }
     } else if (
@@ -764,7 +791,7 @@ async function performFullScan(): Promise<Cache> {
         ts: bq.regularMarketTime * 1000,
       };
       if (Math.abs(yQuote.changePercent) <= 35) {
-        rows.push(rowFromKiteOnly(yQuote, deliveryPct));
+        rows.push(rowFromKiteOnly(yQuote, deliveryPct, "yahoo"));
         yahooBatchCount++;
       }
     }

@@ -14,6 +14,8 @@ import { UNIVERSE, getEntry, INDEX_CONSTITUENTS, type UniverseEntry } from "./un
 import { fetchChart, fetchIntraday, fetchFundamentals, yahooTickerFor, type YahooFundamentals } from "./yahoo";
 import { ema } from "./indicators";
 import { getAllSymbols } from "./nseBhavcopy";
+import { buildSourceProvenance, type SourceProvenance } from "./scannerProvenance";
+import type { ChartTimeframe } from "./chartDatafeed";
 
 // Sync mirror of the bhavcopy symbol list. We refresh this in the background
 // from getAllSymbols() (which is async) so that searchUniverse() can stay sync
@@ -207,6 +209,19 @@ export interface DeepSnapshot {
   };
   /** Optional (index only): number of constituents in the in-app universe for that index. */
   constituentCount?: number;
+  /**
+   * Honest source label for this snapshot. Deep Scan is sourced entirely from
+   * Yahoo (works from any IP, ~15min delayed), so this is always
+   * `secondary_analytics` / delayed / not-for-signals / not-for-trade-decisions
+   * — it must never be mistaken for an authoritative Kite trade input.
+   */
+  provenance: SourceProvenance;
+  /**
+   * True when an intraday range (1D/1W) was requested but intraday bars were
+   * unavailable, so the chart fell back to the last few DAILY bars. Lets the UI
+   * say so instead of silently mislabelling daily data as intraday.
+   */
+  intradayFallback?: boolean;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -296,6 +311,11 @@ export async function getDeepSnapshot(
   // logic so that EMA200 stays correct even on a 1-month view.
   const isIntraday = range === "1d" || range === "1wk";
   let displaySeries: { timestamps: number[]; open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] };
+  // Track the ACTUAL granularity served (drives the freshness budget + honest
+  // labelling) and whether an intraday request silently fell back to daily bars.
+  let displayTf: ChartTimeframe = "1D";
+  let intradayFallback = false;
+  const provenanceWarnings: string[] = [];
 
   if (isIntraday) {
     const intradayInterval = range === "1d" ? "5m" : "30m";
@@ -303,7 +323,11 @@ export async function getDeepSnapshot(
     const intra = await fetchIntraday(yahooTicker, intradayInterval, intradayRange);
     if (!intra || intra.close.length < 5) {
       logger.warn({ sym, yahooTicker, range }, "Deep snapshot: intraday data unavailable, falling back to daily");
-      // Graceful fallback: use the last 5 daily bars instead of erroring out.
+      // Graceful fallback: use the last 5 daily bars instead of erroring out —
+      // but LABEL it so the chart is never silently mislabelled as intraday.
+      intradayFallback = true;
+      displayTf = "1D";
+      provenanceWarnings.push("Intraday data unavailable — showing last daily bars instead");
       const fb = Math.min(long.close.length, 5);
       const fbStart = long.close.length - fb;
       displaySeries = {
@@ -315,6 +339,7 @@ export async function getDeepSnapshot(
         volume: long.volume.slice(fbStart),
       };
     } else {
+      displayTf = range === "1d" ? "5m" : "30m";
       displaySeries = {
         timestamps: intra.timestamps,
         open: intra.open,
@@ -325,6 +350,7 @@ export async function getDeepSnapshot(
       };
     }
   } else {
+    displayTf = "1D";
     const RANGE_BARS: Record<Range, number> = {
       "1d": 1, "1wk": 5, "1mo": 22, "3mo": 66, "6mo": 130, "1y": 252, "3y": 756, "5y": 1260,
     };
@@ -338,18 +364,6 @@ export async function getDeepSnapshot(
       close: long.close.slice(dStart),
       volume: long.volume.slice(dStart),
     };
-  }
-
-  const candles: Candle[] = [];
-  for (let i = 0; i < displaySeries.close.length; i++) {
-    candles.push({
-      t: (displaySeries.timestamps[i] ?? 0) * 1000,
-      o: round2(displaySeries.open[i] ?? 0),
-      h: round2(displaySeries.high[i] ?? 0),
-      l: round2(displaySeries.low[i] ?? 0),
-      c: round2(displaySeries.close[i] ?? 0),
-      v: displaySeries.volume[i] ?? 0,
-    });
   }
 
   // Compute indicator series:
@@ -384,6 +398,50 @@ export async function getDeepSnapshot(
   const start = isIntraday ? 0 : long.close.length - displaySeries.close.length;
   const sliceR = (arr: (number | null)[]) => arr.slice(start).map(r2);
 
+  // Slice indicators to the displayed window (aligned 1:1 with displaySeries).
+  const ema20S  = sliceR(ema20Full);
+  const ema50S  = sliceR(ema50Full);
+  const ema100S = sliceR(ema100Full);
+  const ema200S = sliceR(ema200Full);
+  const vwap20S = sliceR(vwap20Full);
+
+  // Build candles, DROPPING any bar with a missing OHLC value instead of
+  // fabricating a 0 (which would render as a fake crash-to-zero spike). The
+  // indicator series are filtered with the SAME predicate so they stay aligned
+  // 1:1 with the candle array on the frontend.
+  const candles: Candle[] = [];
+  const series = {
+    ema20: [] as (number | null)[],
+    ema50: [] as (number | null)[],
+    ema100: [] as (number | null)[],
+    ema200: [] as (number | null)[],
+    vwap20: [] as (number | null)[],
+  };
+  let droppedBars = 0;
+  const fin = (v: number | null | undefined): v is number => v != null && Number.isFinite(v);
+  for (let i = 0; i < displaySeries.close.length; i++) {
+    const t = displaySeries.timestamps[i];
+    const o = displaySeries.open[i];
+    const h = displaySeries.high[i];
+    const l = displaySeries.low[i];
+    const c = displaySeries.close[i];
+    if (!fin(t) || !fin(o) || !fin(h) || !fin(l) || !fin(c)) {
+      droppedBars++;
+      continue; // never fabricate a 0 OHLC bar
+    }
+    // Volume legitimately 0 for indices — that is real, not fabricated.
+    const v = fin(displaySeries.volume[i]) ? (displaySeries.volume[i] as number) : 0;
+    candles.push({ t: t * 1000, o: round2(o), h: round2(h), l: round2(l), c: round2(c), v });
+    series.ema20.push(ema20S[i] ?? null);
+    series.ema50.push(ema50S[i] ?? null);
+    series.ema100.push(ema100S[i] ?? null);
+    series.ema200.push(ema200S[i] ?? null);
+    series.vwap20.push(vwap20S[i] ?? null);
+  }
+  if (droppedBars > 0) {
+    provenanceWarnings.push(`${droppedBars} incomplete bar(s) dropped (missing OHLC from source)`);
+  }
+
   const last = long.close.length - 1;
   const lastClose = long.close[last] ?? 0;
   // Use the previous trading day's close for day change. `chartPreviousClose` from
@@ -403,6 +461,17 @@ export async function getDeepSnapshot(
   if (kind === "index") {
     constituentCount = INDEX_CONSTITUENTS[sym]?.length;
   }
+
+  // Honest source label: Deep Scan is Yahoo-only (delayed secondary_analytics).
+  // asOf prefers the live quote instant, falling back to the newest kept bar.
+  const lastCandleTs = candles.length > 0 ? Math.floor(candles[candles.length - 1]!.t / 1000) : null;
+  const asOfSec = long.meta.regularMarketTime ?? lastCandleTs ?? null;
+  const provenance = buildSourceProvenance({
+    provider: "yahoo",
+    asOfSec,
+    tf: displayTf,
+    warnings: provenanceWarnings,
+  });
 
   return {
     kind,
@@ -428,14 +497,10 @@ export async function getDeepSnapshot(
       updatedAt: new Date((long.meta.regularMarketTime ?? long.timestamps[last] ?? Date.now() / 1000) * 1000).toISOString(),
     },
     candles,
-    series: {
-      ema20:  sliceR(ema20Full),
-      ema50:  sliceR(ema50Full),
-      ema100: sliceR(ema100Full),
-      ema200: sliceR(ema200Full),
-      vwap20: sliceR(vwap20Full),
-    },
+    series,
     returns,
+    provenance,
+    ...(intradayFallback ? { intradayFallback } : {}),
     ...(fundamentals ? { fundamentals } : {}),
     ...(seasonality || (catalysts && catalysts.length) ? { profile: { seasonality, catalysts } } : {}),
     ...(constituentCount != null ? { constituentCount } : {}),

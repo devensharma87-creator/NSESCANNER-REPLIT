@@ -17,8 +17,11 @@ import {
   GetEtfQuoteResponse,
   GetEtfNavResponse,
 } from "@workspace/api-zod";
+import type { StockRow } from "@workspace/api-zod";
+import { shouldDemoteSignal } from "../lib/scannerProvenance";
 import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
+import { computeSectorCoverage } from "../lib/sectorCoverage";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground, getScanRowsFast } from "../lib/scanner";
 import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
 import { isRecognisedEtf, loadKiteEtfQuote, getEtfRecognitionDiagnostics, checkEtfRecognition } from "../lib/kiteScanner";
@@ -331,12 +334,22 @@ router.get("/options/signal-report/export", requireSubscriberOrOwner("FNO"), asy
   } catch (err) { next(err); }
 });
 
-router.get("/sectors", requireSubscriberOrOwner("SECTORS"), async (_req, res, next) => {
+router.get("/sectors", requireSubscriberOrOwner("SECTORS"), async (req, res, next) => {
   try {
     const rows = await getScanRowsFast();
     const grouped = new Map<string, typeof rows>();
     for (const sec of SECTORS) grouped.set(sec, []);
     for (const r of rows) grouped.get(r.sector)?.push(r);
+    // Curated scanner rows derive from UNIVERSE, so every sector should be a
+    // known partition member (coverage = 100%). Fail LOUD (never silently drop)
+    // if that invariant is ever violated so the gap is visible to operators.
+    const coverage = computeSectorCoverage(rows, SECTORS);
+    if (coverage.excludedUnmapped > 0) {
+      req.log.warn(
+        { excludedUnmapped: coverage.excludedUnmapped, unmappedSectors: coverage.unmappedSectors, coveragePct: coverage.coveragePct },
+        "sectors: rows excluded from sector aggregation for unmapped/missing sector",
+      );
+    }
     const out = SECTORS.map(sec => {
       const list = grouped.get(sec) ?? [];
       const avgScore = list.length
@@ -359,7 +372,10 @@ router.get("/sectors", requireSubscriberOrOwner("SECTORS"), async (_req, res, ne
         topPick,
       };
     }).filter(s => s.topPick != null);
-    const data = ListSectorsResponse.parse(out);
+    // Surface the coverage accounting to the client (additive) so a partial
+    // aggregation can never be mistaken for a complete one. For the curated
+    // scanner this is structurally 100%, but we report it honestly regardless.
+    const data = ListSectorsResponse.parse({ sectors: out, coverage });
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -645,10 +661,27 @@ router.get("/scan/top", async (_req, res, next) => {
     const sorted = rows.slice().sort((a, b) => b.recommendation.score - a.recommendation.score);
     const topBuys = sorted.filter(r => r.recommendation.score > 0).slice(0, 10);
     const topSells = sorted.slice().reverse().filter(r => r.recommendation.score < 0).slice(0, 10);
+    // Honest signal-quality labelling: a top pick whose underlying quote is a
+    // delayed Yahoo reference or stale must NOT be presented as a live Kite
+    // signal. We never silently drop it (that would hide picks when Kite is
+    // offline) — instead we count it and surface a plain-language warning so
+    // the UI can flag the list. Per-row provenance already carries the detail.
+    const isDemotedRow = (r: StockRow): boolean =>
+      r.provenance != null && shouldDemoteSignal(r.provenance);
+    const nonAuthoritativeCount =
+      topBuys.filter(isDemotedRow).length + topSells.filter(isDemotedRow).length;
+    const warnings: string[] = [];
+    if (nonAuthoritativeCount > 0) {
+      warnings.push(
+        `${nonAuthoritativeCount} of these top picks are derived from delayed or non-live (Yahoo) / stale data, not live Kite quotes — treat them as references, not actionable signals.`,
+      );
+    }
     const data = GetTopScansResponse.parse({
       topBuys,
       topSells,
       generatedAt: new Date(),
+      warnings,
+      nonAuthoritativeCount,
     });
     res.json(data);
   } catch (err) { next(err); }

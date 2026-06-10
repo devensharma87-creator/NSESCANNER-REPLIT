@@ -239,3 +239,31 @@ describe("computeSectorStrength — top-N determinism", () => {
     expect(auto.topByRsScore.map((x) => x.symbol)).toEqual(["ALPHA", "BETA", "KILO", "MIKE", "YANKEE"]);
   });
 });
+
+describe("computeSectorStrength — no silent sector exclusion", () => {
+  it("counts (never silently drops) rows with null/empty sector via excludedNoSector", () => {
+    const rows: SectorStrengthInputRow[] = [
+      row("AAA", "Auto", 70, 80, "BUY"),
+      row("BBB", "Auto", 65, 70, "BUY"),
+      row("CCC", null, 60, 50, "WATCH"),
+      row("DDD", "", 55, 40, "WATCH"),
+      row("EEE", "  ", 50, 30, "WATCH"),
+    ];
+    const s = computeSectorStrength(rows, { scanDate: "2026-06-10" });
+    expect(s.totalRows).toBe(5);
+    expect(s.excludedNoSector).toBe(3);
+    // Only the 2 mapped rows land in a sector bucket.
+    const placed = s.sectors.reduce((a, b) => a + b.memberCount, 0);
+    expect(placed).toBe(2);
+    expect(s.totalRows - s.excludedNoSector).toBe(placed);
+  });
+
+  it("reports excludedNoSector = 0 when every row has a sector", () => {
+    const rows: SectorStrengthInputRow[] = [
+      row("AAA", "Auto", 70, 80, "BUY"),
+      row("BBB", "Banks", 65, 70, "BUY"),
+    ];
+    const s = computeSectorStrength(rows, { scanDate: "2026-06-10" });
+    expect(s.excludedNoSector).toBe(0);
+  });
+});
