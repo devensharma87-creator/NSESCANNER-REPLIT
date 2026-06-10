@@ -527,7 +527,7 @@ export default function PortfolioAnalyser() {
   }
 
   return (
-    <div className="space-y-4" data-testid="page-portfolio-analyser">
+    <div className="w-full max-w-none px-4 py-6 space-y-4" data-testid="page-portfolio-analyser">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold">Portfolio Analyser</h1>

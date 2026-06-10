@@ -1,0 +1,160 @@
+Next: start Charting Candles + Candle Source Honesty.
+
+Do not start full trusted-layer migration. Do not start Backtest Lab yet. T003 is already merged and completed; the validation rejection was only parent-task scope mismatch.
+
+Why charting next? Because candle data feeds charts, 52W range, EMAs, pivots, VWAP, scanner indicators, backtest assumptions, and index analytics. If candle source is weak, many other calculations remain weak.
+
+Send this to the agent:
+
+Start next scoped task: Charting candles + candle-source honesty.
+
+Scope:
+Focus only on chart/candle data paths and candle-derived analytics.
+
+Do not reopen:
+
+Watchlist
+Portfolio T004
+Home/Market Pulse T003
+Backtest Lab rectification
+full trusted-layer migration
+
+Objective:
+Audit and repair chart candle data so every candle used by charts, indicators, EMAs, pivots, VWAP, 52W range, scanner calculations, and analytics has a clear source, freshness, and reliability status.
+
+Data policy:
+
+Kite historical candles are primary for Indian equities, indices, ETFs, and F&O where supported.
+INDstocks can be validation/failover only through the central layer.
+Yahoo is allowed only as labelled secondary analytics where no trusted source exists.
+Yahoo must not silently power official scanner signals, F&O signals, portfolio valuation, or backtest claims.
+No fake candles.
+No synthetic production candles.
+No silent fallback.
+Missing candles must return unavailable with reason.
+
+Audit first:
+Create:
+
+CHARTING_CANDLE_SOURCE_AUDIT.md
+
+For each candle consumer document:
+
+frontend component
+backend endpoint
+backend file
+interval requested
+symbol/instrument type
+current candle provider
+central candle facade used: YES/NO
+direct Yahoo dependency: YES/NO
+fake/synthetic candle risk: YES/NO
+stale candle risk: YES/NO
+source/freshness exposed: YES/NO
+fix applied
+remaining limitation
+
+Audit these areas:
+
+Main charting component
+Home / Market Pulse chart-derived fields
+Index analytics candles
+Stock detail candles
+Scanner indicator candles
+Swing scanner candles
+Portfolio candle fallback path
+Backtest candle input path only for audit, not rectification
+Any helper using chart-provider / Yahoo directly
+
+Implementation rules:
+
+Route all Indian candle requests through central getChartCandles / candle facade.
+Kite is primary where Kite supports the instrument.
+If Kite candles are unavailable, return:
+candles: []
+status: UNAVAILABLE
+missing_reason
+source_provider
+warnings
+If Yahoo is used for secondary analytics, mark:
+source_provider = yahoo
+trust_tier = secondary_analytics
+delayed = true
+not_for_signals = true
+not_for_trade_decisions = true
+Do not let secondary Yahoo candles feed official signal generation.
+Do not let missing candles become fake flat candles.
+Do not let stale candles appear live.
+Preserve existing UI design.
+
+Every candle response must include:
+
+source_provider
+source_priority
+asof
+fetched_at
+freshness_sec
+is_stale
+interval
+symbol
+exchange
+candle_count
+missing_reason
+warnings
+trust_tier
+not_for_signals
+not_for_trade_decisions
+
+Frontend display:
+
+show “Candle data unavailable” when candles are missing
+show source/freshness in tooltip or footer where possible
+never show raw provider error like “Yahoo unavailable”
+never show fake chart from empty candles
+never silently calculate EMA/VWAP/pivots from incomplete candles
+
+Tests required:
+
+Kite candle path works through central facade
+direct Yahoo candle import is blocked outside approved provider layer
+missing Kite candles return unavailable reason
+stale candles are marked stale
+secondary Yahoo candles are labelled not-for-signals
+scanner/signal code rejects secondary/untrusted candles
+chart UI does not render fake chart on empty data
+existing Watchlist tests remain green
+existing Portfolio tests remain green
+existing T003 Home/Market Pulse tests remain green
+typecheck passes
+
+Verification:
+Before/after verify:
+
+one NIFTY index chart
+one BANK NIFTY chart
+one equity chart
+one ETF chart if available
+one missing/unavailable symbol case
+candle-derived EMA/pivot/VWAP behavior
+API response source/freshness fields
+
+Acceptance:
+
+Candle source is explicit.
+No silent Yahoo candles for official Indian analytics.
+No fake candles.
+No raw provider error text.
+Missing candle data is honestly unavailable with reason.
+Official signals cannot use untrusted candle data.
+Watchlist, Portfolio, T003, and Backtest Lab remain untouched.
+Tests and typecheck pass.
+
+After this, the next order should be:
+
+F&O / Option-chain migration
+Scanner + sector + benchmark cleanup
+Frontend-wide source/freshness badges
+INDstocks validation mode
+Backtest Lab rectification
+
+Do it one lane at a time. Big-bang migration is still a bad idea.

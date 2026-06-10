@@ -1,0 +1,306 @@
+Yes — send one combined note now, but make the order clear: Portfolio T004B first, then Charting candles only after Portfolio manual-add/resolver issue is verified.
+
+T003 is already complete, so do not reopen it.
+
+Combined next task note: Portfolio T004B + Charting Candle Honesty, phased safely.
+
+Context:
+
+Watchlist migration is complete.
+Portfolio T004 was accepted as scoped, but new screenshots show remaining Portfolio issues.
+Home / Market Pulse T003 is complete; do not reopen it.
+Backtest Lab rectification is parked as a later standalone backlog item.
+Full trusted-layer migration remains intentionally open and must not be attempted in one sweep.
+
+Do not start full trusted-layer migration.
+
+Current visible Portfolio issues:
+
+Portfolio still shows unpriced / limited coverage holdings.
+Manual Add Holding flow is weak:
+typing a script like “tata” does not show proper script suggestions
+manually added script does not reliably resolve to Kite/instrument data
+manually added holding does not show CMP, valuation, or recommendation properly
+Some rows still show:
+CMP unavailable / n/a
+no instrument match
+unpriced status
+missing recommendation/action
+Benchmark and XIRR are still limited/unavailable in some cases.
+Portfolio risk/allocation can still be confusing if unpriced holdings remain.
+
+Phase 1 — Portfolio T004B: manual add + resolver + recommendations repair
+
+Scope:
+Focus only on Portfolio Analyser.
+
+Do not touch:
+
+Watchlist
+T003 Home / Market Pulse
+Backtest Lab
+full migration
+F&O
+Scanner
+Charting, except if Portfolio depends on candle fallback diagnostics
+
+Objectives:
+
+Fix manual Add Holding search/suggestion flow.
+When user types partial text like “tata”, show matching instruments:
+TATASTEEL
+TATAMOTORS
+TATAPOWER
+TATACONSUM
+TCS if relevant
+any exact NSE/BSE/ETF match
+Manual add must resolve the selected script through the central instrument resolver.
+Manual add must not save only raw text if a valid instrument can be resolved.
+After manual add, the holding should show:
+exchange
+instrument type
+Kite key
+CMP if available
+current value
+P&L
+weight
+action/recommendation if enough data exists
+If recommendation cannot be generated, show reason:
+no candle data
+no scanner row
+unsupported instrument type
+insufficient history
+unpriced holding
+Every unpriced/manual holding must have valuation_status and missing_reason.
+Do not use Yahoo for official portfolio valuation or P&L.
+Keep manual uploaded quantity and average price preserved.
+
+Portfolio manual add API/frontend requirements:
+
+Add a symbol search endpoint or reuse existing resolver endpoint:
+GET /api/portfolio/instruments/search?q=tata
+
+Response:
+{
+"query": "tata",
+"matches": [
+{
+"symbol": "TATASTEEL",
+"name": "Tata Steel",
+"exchange": "NSE",
+"instrument_type": "NSE_EQUITY",
+"kite_key": "NSE",
+"instrument_token": "...",
+"source_provider": "kite_instrument_master"
+}
+]
+}
+
+Manual add should save:
+
+canonical symbol
+exchange
+instrument_type
+kite_key
+instrument_token if available
+display name
+quantity
+average price
+user-entered notes if any
+
+Do not save unresolved lowercase/free-text as the main symbol if a valid instrument exists.
+
+Portfolio row output must include:
+{
+"symbol": "TATASTEEL",
+"display_name": "Tata Steel",
+"instrument_type": "NSE_EQUITY",
+"exchange": "NSE",
+"kite_key": "NSE",
+"quantity": 100,
+"avg_price": 150,
+"cmp": 154.2,
+"current_value": 15420,
+"day_pnl": "...",
+"total_pnl": "...",
+"weight_pct": "...",
+"valuation_status": "PRICED",
+"recommendation_status": "AVAILABLE",
+"recommendation": "...",
+"source_provider": "kite",
+"missing_reason": null,
+"warnings": []
+}
+
+For unresolved manual entries:
+{
+"symbol": "USER_TYPED_TEXT",
+"valuation_status": "UNPRICED",
+"recommendation_status": "UNAVAILABLE",
+"missing_reason": "No matching Kite/NSE/BSE instrument found",
+"warnings": ["Holding preserved but excluded from live valuation"]
+}
+
+Audit and fix these Portfolio areas:
+
+Add Holding modal
+CSV import mapping
+manual symbol normalization
+instrument search/autocomplete
+equity resolver
+ETF resolver
+BSE fallback
+recommendation/action view
+unpriced badge and tooltip
+priced vs unpriced totals
+benchmark unavailable reason
+XIRR unavailable reason
+
+Required tests:
+
+typing “tata” returns valid instrument suggestions
+selecting a suggestion saves canonical symbol, not raw lowercase text
+manual NSE equity resolves to Kite quote
+manual ETF resolves where Kite instrument exists
+unresolved manual holding is preserved with missing_reason
+recommendation unavailable has exact reason
+Yahoo cannot be used for official portfolio valuation/P&L
+existing Portfolio tests remain green
+Watchlist tests remain green
+T003 tests remain green
+typecheck passes
+
+Portfolio acceptance:
+
+User can manually add a valid script and immediately get valuation if Kite data exists.
+User sees suggestions while typing.
+No row silently says n/a without reason.
+Every unpriced row has exact reason.
+Recommendation/action view is either available or explains why unavailable.
+Portfolio money totals remain strict and honest.
+
+Phase 2 — Charting candles + candle-source honesty
+
+Start Phase 2 only after Portfolio T004B passes tests and is verified.
+
+Scope:
+Focus only on chart/candle data paths and candle-derived analytics.
+
+Do not reopen:
+
+Watchlist
+Portfolio T004/T004B after completion
+Home/Market Pulse T003
+Backtest Lab rectification
+full trusted-layer migration
+
+Objective:
+Audit and repair chart candle data so every candle used by charts, indicators, EMAs, pivots, VWAP, 52W range, scanner calculations, and analytics has clear source, freshness, and reliability status.
+
+Data policy:
+
+Kite historical candles are primary for Indian equities, indices, ETFs, and F&O where supported.
+INDstocks can be validation/failover only through central layer.
+Yahoo is allowed only as labelled secondary analytics where no trusted source exists.
+Yahoo must not silently power official scanner signals, F&O signals, portfolio valuation, or backtest claims.
+No fake candles.
+No synthetic production candles.
+No silent fallback.
+Missing candles must return unavailable with reason.
+
+Create:
+CHARTING_CANDLE_SOURCE_AUDIT.md
+
+For each candle consumer document:
+
+frontend component
+backend endpoint
+backend file
+interval requested
+symbol/instrument type
+current candle provider
+central candle facade used: YES/NO
+direct Yahoo dependency: YES/NO
+fake/synthetic candle risk: YES/NO
+stale candle risk: YES/NO
+source/freshness exposed: YES/NO
+fix applied
+remaining limitation
+
+Audit:
+
+Main charting component
+Home / Market Pulse chart-derived fields
+Index analytics candles
+Stock detail candles
+Scanner indicator candles
+Swing scanner candles
+Portfolio candle fallback path
+Backtest candle input path only for audit, not rectification
+Any helper using chart-provider / Yahoo directly
+
+Implementation rules:
+
+Route all Indian candle requests through central getChartCandles / candle facade.
+Kite is primary where Kite supports the instrument.
+If Kite candles are unavailable, return:
+candles: []
+status: UNAVAILABLE
+missing_reason
+source_provider
+warnings
+If Yahoo is used for secondary analytics, mark:
+source_provider = yahoo
+trust_tier = secondary_analytics
+delayed = true
+not_for_signals = true
+not_for_trade_decisions = true
+Do not let secondary Yahoo candles feed official signal generation.
+Do not let missing candles become fake flat candles.
+Do not let stale candles appear live.
+Preserve existing UI design.
+
+Every candle response must include:
+
+source_provider
+source_priority
+asof
+fetched_at
+freshness_sec
+is_stale
+interval
+symbol
+exchange
+candle_count
+missing_reason
+warnings
+trust_tier
+not_for_signals
+not_for_trade_decisions
+
+Frontend display:
+
+show “Candle data unavailable” when candles are missing
+show source/freshness in tooltip or footer where possible
+never show raw provider error like “Yahoo unavailable”
+never show fake chart from empty candles
+never silently calculate EMA/VWAP/pivots from incomplete candles
+
+Charting tests required:
+
+Kite candle path works through central facade
+direct Yahoo candle import is blocked outside approved provider layer
+missing Kite candles return unavailable reason
+stale candles are marked stale
+secondary Yahoo candles are labelled not-for-signals
+scanner/signal code rejects secondary/untrusted candles
+chart UI does not render fake chart on empty data
+existing Watchlist tests remain green
+existing Portfolio tests remain green
+existing T003 Home/Market Pulse tests remain green
+typecheck passes
+
+Final instruction:
+Do not make Portfolio or Charting look complete by inventing data. If data is missing, explain why. If source is secondary, label it. If recommendation cannot be calculated, show the exact reason. Money calculations must be stricter than display analytics.
+
+My recommendation: send this combined note and tell the agent to start Phase 1 only first. The Portfolio manual-add issue is user-facing and money-related, so fix that before charting.
