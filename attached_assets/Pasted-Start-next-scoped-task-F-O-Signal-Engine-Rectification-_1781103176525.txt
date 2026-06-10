@@ -1,0 +1,319 @@
+Start next scoped task:
+
+“F&O Signal Engine Rectification — recovery/chase veto, anti-flip discipline, tradeable-signal gate, and MFE/MAE evidence cleanup.”
+
+This is a high-risk live F&O/paper-trade task. Build here only. Do not work in background.
+
+Important:
+The previous “F&O option-chain signal-safety migration” is already closed. Do not reopen it. That task fixed data/source safety: option premium provenance, non-Kite demotion, paper-open Kite-trusted premium gate, NSE fallback display-only, and P25 as non-blocking stats-confidence gate.
+
+This new task is different.
+
+Objective:
+Rectify the actual F&O strategy engine logic so the system does not generate wrong tradeable PUT/CALL signals during recovery, does not chase late moves, does not flip direction without a clean regime change, and does not allow INFO_ONLY / BASELINE outlooks to behave like tradeable signals.
+
+Audit first. Do not code until you map the flow and give a short implementation plan.
+
+Create audit file:
+
+FNO_SIGNAL_ENGINE_RECTIFICATION_AUDIT.md
+
+Audit at minimum:
+
+F&O signal engine entrypoint
+Official setup generation
+Baseline / outlook generation
+TRADEABLE_SIGNAL vs INFO_ONLY classification
+WATCHLIST_SETUP / pending trigger lifecycle
+Recovery-veto logic
+Chase-veto logic
+Anti-flip / direction-change cooldown
+Market regime classification
+Trigger confirmation logic
+Stop/target/RR validation
+Paper-trade open path
+P25 evidence display and official-status gate
+Closed-trade payload for MFE/MAE
+Counters: modelled signals vs actual paper trades
+UI explanation: why tradeable / why demoted / why blocked
+
+For each module include:
+
+frontend component
+endpoint
+backend file
+current behaviour
+whether it can open paper trade
+whether it can affect risk/circuit breaker
+whether it counts as official signal
+issue found
+fix applied
+remaining limitation
+
+Do not touch:
+
+Watchlist
+Portfolio resolver
+Charting candle source task
+Scanner / Sector / Benchmark cleanup
+Pre-Market / Global Cues
+Option-chain source-safety migration unless only reading existing gates
+Backtest Lab
+INDstocks
+frontend-wide badge rollout
+final trusted-layer burn-down
+replit.md
+
+Core decisions to preserve:
+
+P25 insufficient does NOT block paper-trade open by itself.
+P25 is only a stats-confidence / official-status gate.
+P25 insufficient must block “OFFICIAL / validated / proven” claims.
+P25 insufficient paper trades may be allowed only as:
+UNDER_SAMPLED_PAPER_TEST
+EXPERIMENTAL
+NOT_OFFICIAL
+Real data-quality gates still hard-block paper trades:
+stale premium
+missing premium
+untrusted source
+Yahoo/synthetic source
+unresolved contract
+liquidity failure
+risk gate failure
+INFO_ONLY / BASELINE outlook
+non-tradeable signal tier
+
+Required engine corrections:
+
+Separate signal tiers strictly:
+Only this can open a paper trade:
+TRADEABLE_SIGNAL
+
+These must never open paper trades:
+
+INFO_ONLY
+BASELINE
+OUTLOOK
+WATCHLIST_ONLY
+DEMOTED
+UNDER_SAMPLED official-status-only item
+blocked/vetoed setups
+
+WATCHLIST_SETUP may remain pending trigger state, but it must not open until trigger fires and all trade-quality gates pass.
+
+Recovery-veto:
+Prevent fresh PUT tradeable signals when market is in active recovery / bounce.
+
+Recovery-veto should demote to INFO_ONLY when conditions show:
+
+price reclaiming VWAP / key moving average
+higher-low recovery structure
+improving breadth / index recovery
+sharp bounce from intraday low
+put trigger appears late after recovery has started
+bearish setup conflicts with recovery regime
+
+Do not hide the setup. Show:
+“INFO_ONLY — PUT demoted because recovery-veto active.”
+
+Chase-veto:
+Prevent late CALL tradeable signals when move is already overextended.
+
+Chase-veto should demote to INFO_ONLY when:
+
+CALL appears after large move already happened
+price far above VWAP / EMA / opening range
+risk-reward degraded
+premium already expanded too much
+entry would be chase, not trigger
+target too near compared with stop
+
+Show:
+“INFO_ONLY — CALL demoted because chase-veto active.”
+
+Anti-flip discipline:
+Do not allow fast PUT→CALL or CALL→PUT flip unless a clean regime transition exists.
+
+Add/verify:
+
+minimum cooldown after opposite-direction signal
+clean invalidation of previous bias
+new trigger confirmation
+no flip purely because one indicator changed
+direction-change reason shown in UI/log
+
+If flip blocked:
+“INFO_ONLY — direction flip blocked; regime transition not confirmed.”
+
+Market regime classification:
+Every signal decision must carry a regime label, for example:
+TREND_UP
+TREND_DOWN
+RANGE
+RECOVERY
+BREAKDOWN
+EXHAUSTION
+CHOP
+LOW_CONFIDENCE
+
+Signal direction must be consistent with regime or explicitly demoted.
+
+Trigger quality:
+A tradeable signal must require:
+actual trigger, not just baseline market bias
+clean price level
+trusted option quote
+acceptable liquidity
+stop/target calculable
+minimum RR
+data fresh
+not vetoed
+not in cooldown
+valid tier
+Stop/target/RR validation:
+Before marking TRADEABLE_SIGNAL:
+premium must be Kite-trusted from existing closed safety layer
+stop must be realistic
+target must be realistic
+RR must meet threshold
+option premium move should not already be exhausted
+stop/target should not be projected from unavailable/secondary data
+Paper-trade open path:
+Before opening any paper trade, assert:
+signal.tier === TRADEABLE_SIGNAL
+signal.actionable === true
+option premium trusted
+source not Yahoo
+source not synthetic
+source not fallback display-only
+not stale
+all vetoes passed
+risk gate passed
+liquidity gate passed
+no active cooldown block
+INFO_ONLY / BASELINE cannot open
+
+If blocked, return exact reason:
+{
+"trade_open_allowed": false,
+"reason": "INFO_ONLY cannot open paper trade / recovery-veto active / chase-veto active / direction flip blocked / premium stale / liquidity failed"
+}
+
+Counters and circuit breaker cleanup:
+Separate:
+modelled signals
+INFO_ONLY outlooks
+demoted setups
+actual paper-trade opens
+closed paper trades
+official evidence trades
+
+Risk/circuit breaker/win-rate/P&L counters must count only actual eligible paper trades, not baseline outlooks or demoted signals.
+
+P25 evidence:
+Keep P25 as official-status gate only.
+
+If P25 sample is insufficient:
+{
+"official_status": false,
+"p25_status": "INSUFFICIENT_SAMPLE",
+"label": "UNDER_SAMPLED_PAPER_TEST",
+"reason": "Paper trade allowed for evidence collection, but setup is not statistically official because P25 sample count is below threshold."
+}
+
+Do not block paper trade only because P25 is below threshold.
+
+MFE/MAE cleanup:
+The F&O Cockpit currently shows:
+AVG MFE: “not in closed payload”
+AVG MAE: “not in closed payload”
+
+Fix closed-trade payload so closed trades include:
+
+max favourable excursion
+max adverse excursion
+entry premium
+highest premium after entry
+lowest premium after entry
+exit premium
+MFE amount
+MAE amount
+MFE %
+MAE %
+timestamps used
+
+If historical tick path is unavailable, show exact reason:
+“MFE/MAE unavailable — premium path not recorded.”
+
+Do not fake MFE/MAE.
+
+UI explanation:
+For every F&O setup show:
+tier
+regime
+direction
+trigger status
+veto status
+data quality
+premium source
+RR
+paper-trade allowed YES/NO
+reason if NO
+
+Examples:
+
+TRADEABLE_SIGNAL — all gates passed
+INFO_ONLY — recovery-veto active
+INFO_ONLY — chase-veto active
+INFO_ONLY — direction flip not confirmed
+NOT_OFFICIAL — P25 insufficient
+BLOCKED — premium stale
+BLOCKED — liquidity failed
+
+Tests required:
+
+INFO_ONLY cannot open paper trade
+BASELINE/outlook cannot open paper trade
+TRADEABLE_SIGNAL can open only when all gates pass
+recovery-veto demotes fresh PUT during recovery
+chase-veto demotes late CALL after extension
+anti-flip blocks direction change without confirmed regime transition
+anti-flip allows direction change only after valid transition
+P25 insufficient does not block paper trade by itself
+P25 insufficient blocks official/validated/proven label
+premium stale/untrusted still blocks paper trade
+paper-trade counters count only actual opened trades
+demoted setups do not count as risk/circuit-breaker trades
+MFE/MAE closed payload exists when path data exists
+MFE/MAE missing reason shown when path data absent
+existing F&O option-chain safety tests still pass
+typecheck passes
+
+Verification required:
+Return:
+
+Audit report path.
+Before/after example of wrong PUT during recovery now demoted.
+Before/after example of late CALL chase now demoted.
+Example anti-flip blocked reason.
+Example valid TRADEABLE_SIGNAL that passes all gates.
+Example paper-trade block reason.
+Example P25 insufficient but paper-test allowed.
+F&O Cockpit screenshot/response showing MFE/MAE fixed or honest unavailable reason.
+Tests run and result.
+Files changed.
+Remaining limitations.
+
+Cost-control:
+This is a high-risk task, but keep it scoped to F&O engine logic only.
+Do not expand into Backtest Lab, full trusted-layer migration, INDstocks, or frontend-wide badges.
+Before coding, provide:
+
+exact files likely touched
+risk level
+implementation phases
+expected tests
+what will not be touched
+
+Wait for approval after the audit/plan before making code changes.
