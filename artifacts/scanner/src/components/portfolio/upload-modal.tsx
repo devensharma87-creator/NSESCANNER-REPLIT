@@ -1,5 +1,11 @@
-import { useRef, useState } from "react";
-import { Download, Upload, AlertTriangle, Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Download, Upload, AlertTriangle, Plus, Search, X } from "lucide-react";
+import {
+  searchChartInstruments,
+  getSearchChartInstrumentsQueryKey,
+  type ChartInstrument,
+} from "@workspace/api-client-react";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +15,19 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { buildCsvTemplate, parsePortfolioCsv } from "@/lib/portfolio/csv";
 import type { RawHolding, ParseResult } from "@/lib/portfolio/types";
+
+/** Debounce a fast-changing value so we don't fire a search on every keystroke. */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setV(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return v;
+}
 
 function downloadTemplate() {
   const blob = new Blob([buildCsvTemplate()], { type: "text/csv;charset=utf-8;" });
@@ -42,6 +59,56 @@ export function UploadModal({
 
   const [m, setM] = useState({ symbol: "", name: "", sector: "", qty: "", rate: "", date: "" });
   const [manualErr, setManualErr] = useState<string | null>(null);
+
+  // ----- Live instrument autocomplete for the manual "Symbol" field -----
+  // Mirrors the Charting page: debounced free-text search against the central
+  // instrument master (Kite-backed) so typing "tata" surfaces TATASTEEL,
+  // TATAMOTORS, … and selecting one stores the canonical NSE symbol.
+  const [symbolOpen, setSymbolOpen] = useState(false);
+  const [picked, setPicked] = useState(false);
+  const symbolBoxRef = useRef<HTMLDivElement>(null);
+  const debouncedSymbol = useDebounced(m.symbol.trim(), 250);
+  const searchQ = useQuery({
+    enabled: tab === "manual" && symbolOpen && debouncedSymbol.length >= 1,
+    queryKey: getSearchChartInstrumentsQueryKey({ q: debouncedSymbol || undefined }),
+    queryFn: () => searchChartInstruments({ q: debouncedSymbol || undefined }),
+    staleTime: 60_000,
+  });
+  const instruments: ChartInstrument[] = searchQ.data?.instruments ?? [];
+
+  // Force-close the suggestion list whenever the search box is not actually
+  // mounted/visible (modal closed or not on the manual tab) so no stale
+  // dropdown state survives a tab switch.
+  useEffect(() => {
+    if (!open || tab !== "manual") setSymbolOpen(false);
+  }, [open, tab]);
+
+  // Close the suggestion list when clicking outside the search box. Scoped to
+  // the live manual-tab state so the document listener is never left attached
+  // after the input unmounts.
+  useEffect(() => {
+    if (!open || tab !== "manual" || !symbolOpen) return;
+    function onDown(e: MouseEvent) {
+      if (symbolBoxRef.current && !symbolBoxRef.current.contains(e.target as Node)) {
+        setSymbolOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open, tab, symbolOpen]);
+
+  function pickInstrument(inst: ChartInstrument) {
+    setM(prev => ({
+      ...prev,
+      symbol: inst.symbol,
+      // Only auto-fill the name if the user hasn't typed their own.
+      name: prev.name.trim() ? prev.name : inst.name,
+      sector: prev.sector.trim() ? prev.sector : inst.type,
+    }));
+    setPicked(true);
+    setSymbolOpen(false);
+    setManualErr(null);
+  }
 
   function handleText(text: string) {
     setCsvText(text);
@@ -83,6 +150,8 @@ export function UploadModal({
       purchaseDate: m.date || undefined,
     });
     setM({ symbol: "", name: "", sector: "", qty: "", rate: "", date: "" });
+    setPicked(false);
+    setSymbolOpen(false);
     onOpenChange(false);
   }
 
@@ -191,13 +260,74 @@ export function UploadModal({
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
+            <div ref={symbolBoxRef} className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Symbol (e.g. RELIANCE)"
+                placeholder="Search symbol — type e.g. tata, hdfc, reliance…"
                 value={m.symbol}
-                onChange={e => setM({ ...m, symbol: e.target.value })}
+                onChange={e => {
+                  setM({ ...m, symbol: e.target.value });
+                  setPicked(false);
+                  setSymbolOpen(true);
+                }}
+                onFocus={() => setSymbolOpen(true)}
+                autoComplete="off"
+                className="pl-8 pr-8 font-mono uppercase"
                 data-testid="manual-symbol"
               />
+              {m.symbol && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setM({ ...m, symbol: "" });
+                    setPicked(false);
+                    setSymbolOpen(true);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear symbol"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+              {symbolOpen && debouncedSymbol.length >= 1 && !picked && (
+                <div
+                  className="absolute z-50 mt-1 w-full overflow-y-auto rounded-md border border-border bg-popover shadow-lg max-h-64"
+                  data-testid="manual-symbol-results"
+                >
+                  {searchQ.isLoading && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+                  )}
+                  {!searchQ.isLoading && searchQ.isError && (
+                    <div className="px-3 py-2 text-xs text-amber-400">
+                      Search unavailable — you can still type the exact symbol manually.
+                    </div>
+                  )}
+                  {!searchQ.isLoading && !searchQ.isError && instruments.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground">
+                      No matching instrument. Type the exact NSE symbol to add it anyway.
+                    </div>
+                  )}
+                  {instruments.map(inst => (
+                    <button
+                      key={`${inst.segment}:${inst.symbol}`}
+                      type="button"
+                      onClick={() => pickInstrument(inst)}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50"
+                      data-testid={`manual-result-${inst.symbol}`}
+                    >
+                      <span className="flex min-w-0 flex-col">
+                        <span className="font-mono font-semibold">{inst.symbol}</span>
+                        <span className="truncate text-xs text-muted-foreground">{inst.name}</span>
+                      </span>
+                      <Badge variant="outline" className="shrink-0 text-[10px]">
+                        {inst.exchange ? `${inst.exchange} · ${inst.type}` : inst.type}
+                      </Badge>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
               <Input
                 placeholder="Name (optional)"
                 value={m.name}
