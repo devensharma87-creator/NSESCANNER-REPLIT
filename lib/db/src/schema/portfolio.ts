@@ -90,6 +90,13 @@ export const portfolioHoldingsTable = pgTable(
     dividendReceived: doublePrecision("dividend_received"),
     /** Optional user-supplied realised P&L on partial exits (informational). */
     realisedPnl: doublePrecision("realised_pnl"),
+    /**
+     * Optional user-entered fallback price, used ONLY to value a holding that
+     * has no live CMP (e.g. an unlisted/illiquid scrip the data providers can't
+     * quote). User book-keeping — NOT a fetched/fabricated market value; it
+     * never overrides a genuine live quote. Null when not supplied.
+     */
+    manualCmp: doublePrecision("manual_cmp"),
     /** Preserves the user's original row order within the portfolio. */
     sortIndex: doublePrecision("sort_index").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

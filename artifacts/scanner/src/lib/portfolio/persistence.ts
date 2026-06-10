@@ -35,6 +35,10 @@ const str = (v: string | null | undefined): string | undefined => {
 const numOrUndef = (v: number | null | undefined): number | undefined =>
   v != null && Number.isFinite(v) ? v : undefined;
 
+// Manual CMP must be strictly positive to be meaningful — mirrors applyManualCmp.
+const posOrUndef = (v: number | null | undefined): number | undefined =>
+  v != null && Number.isFinite(v) && v > 0 ? v : undefined;
+
 /** Map a DB-loaded holding back into the client `RawHolding` working model. */
 export function holdingToRaw(h: PortfolioHolding): RawHolding {
   return {
@@ -51,6 +55,7 @@ export function holdingToRaw(h: PortfolioHolding): RawHolding {
     notes: str(h.notes),
     dividendReceived: numOrUndef(h.dividendReceived),
     realisedPnl: numOrUndef(h.realisedPnl),
+    manualCmp: posOrUndef(h.manualCmp),
   };
 }
 
@@ -74,6 +79,7 @@ export function rawToInput(h: RawHolding): PortfolioHoldingInput {
     notes: str(h.notes) ?? null,
     dividendReceived: numOrUndef(h.dividendReceived) ?? null,
     realisedPnl: numOrUndef(h.realisedPnl) ?? null,
+    manualCmp: posOrUndef(h.manualCmp) ?? null,
   };
 }
 

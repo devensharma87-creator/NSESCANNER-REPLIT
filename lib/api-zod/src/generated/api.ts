@@ -7084,6 +7084,12 @@ export const CreatePortfolioBody = zod.object({
         notes: zod.string().nullish(),
         dividendReceived: zod.number().nullish(),
         realisedPnl: zod.number().nullish(),
+        manualCmp: zod
+          .number()
+          .nullish()
+          .describe(
+            "User-entered fallback price, used ONLY to value a holding with no live CMP. Book-keeping, never overrides a live quote.",
+          ),
       }),
     )
     .optional(),
@@ -7130,6 +7136,12 @@ export const GetPortfolioResponse = zod.object({
         notes: zod.string().nullish(),
         dividendReceived: zod.number().nullish(),
         realisedPnl: zod.number().nullish(),
+        manualCmp: zod
+          .number()
+          .nullish()
+          .describe(
+            "User-entered fallback price, used ONLY to value a holding with no live CMP. Book-keeping, never overrides a live quote.",
+          ),
         sortIndex: zod.number(),
       })
       .describe(
@@ -7196,6 +7208,12 @@ export const UpdatePortfolioResponse = zod.object({
         notes: zod.string().nullish(),
         dividendReceived: zod.number().nullish(),
         realisedPnl: zod.number().nullish(),
+        manualCmp: zod
+          .number()
+          .nullish()
+          .describe(
+            "User-entered fallback price, used ONLY to value a holding with no live CMP. Book-keeping, never overrides a live quote.",
+          ),
         sortIndex: zod.number(),
       })
       .describe(
@@ -7238,6 +7256,12 @@ export const ReplacePortfolioHoldingsBody = zod.object({
       notes: zod.string().nullish(),
       dividendReceived: zod.number().nullish(),
       realisedPnl: zod.number().nullish(),
+      manualCmp: zod
+        .number()
+        .nullish()
+        .describe(
+          "User-entered fallback price, used ONLY to value a holding with no live CMP. Book-keeping, never overrides a live quote.",
+        ),
     }),
   ),
 });
@@ -7276,6 +7300,12 @@ export const ReplacePortfolioHoldingsResponse = zod.object({
         notes: zod.string().nullish(),
         dividendReceived: zod.number().nullish(),
         realisedPnl: zod.number().nullish(),
+        manualCmp: zod
+          .number()
+          .nullish()
+          .describe(
+            "User-entered fallback price, used ONLY to value a holding with no live CMP. Book-keeping, never overrides a live quote.",
+          ),
         sortIndex: zod.number(),
       })
       .describe(

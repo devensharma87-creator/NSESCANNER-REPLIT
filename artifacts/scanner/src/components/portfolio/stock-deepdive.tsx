@@ -245,7 +245,10 @@ export function StockDeepDive({
                 <div className="grid grid-cols-3 gap-2">
                   <Stat label="Qty" value={fmtNum(row.raw.qty, 0)} />
                   <Stat label="Avg Cost" value={fmtINR(row.raw.rate, 2)} />
-                  <Stat label="CMP" value={fmtINR(row.live.cmp, 2)} />
+                  <Stat
+                    label={row.manualCmp != null ? "CMP (manual)" : "CMP"}
+                    value={fmtINR(row.manualCmp != null ? row.manualCmp : row.live.cmp, 2)}
+                  />
                   <Stat label="Invested" value={fmtINR(row.metrics.invested)} />
                   <Stat label="Current" value={fmtINR(row.metrics.currentValue)} />
                   <Stat label="Weight" value={fmtPct(row.metrics.weightPct, 1)} />

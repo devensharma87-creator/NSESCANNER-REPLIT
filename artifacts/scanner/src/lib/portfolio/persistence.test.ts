@@ -81,3 +81,30 @@ describe("holdingToRaw", () => {
     expect(holdingToRaw(h).name).toBe("ITC");
   });
 });
+
+describe("manualCmp round-trip", () => {
+  it("rawToInput carries a positive manualCmp through", () => {
+    const input = rawToInput({ symbol: "ABC", name: "ABC", qty: 1, rate: 1, manualCmp: 321.5 });
+    expect(input.manualCmp).toBe(321.5);
+  });
+
+  it("rawToInput normalises an absent/invalid manualCmp to null", () => {
+    expect(rawToInput({ symbol: "ABC", name: "ABC", qty: 1, rate: 1 }).manualCmp).toBeNull();
+    expect(
+      rawToInput({ symbol: "ABC", name: "ABC", qty: 1, rate: 1, manualCmp: 0 }).manualCmp,
+    ).toBeNull();
+  });
+
+  it("holdingToRaw reads a persisted manualCmp back into the working model", () => {
+    const h: PortfolioHolding = {
+      id: "z",
+      symbol: "ABC",
+      name: "ABC",
+      qty: 1,
+      rate: 1,
+      manualCmp: 123.25,
+      sortIndex: 0,
+    } as PortfolioHolding;
+    expect(holdingToRaw(h).manualCmp).toBe(123.25);
+  });
+});

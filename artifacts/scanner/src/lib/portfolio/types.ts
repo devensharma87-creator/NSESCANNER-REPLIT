@@ -26,6 +26,14 @@ export interface RawHolding {
   stopLoss?: number;
   dividendReceived?: number;
   realisedPnl?: number;
+  /**
+   * User-entered fallback price for a holding that has NO live CMP (e.g. an
+   * unlisted/illiquid scrip the data providers can't quote). Book-keeping only:
+   * it is used to value the holding ONLY when no live quote resolves, never
+   * overrides a genuine live price, and never produces a day-change. Undefined
+   * when the user has not entered one.
+   */
+  manualCmp?: number;
 }
 
 export interface RowError {
@@ -197,4 +205,11 @@ export interface EnrichedRow {
   loading: boolean;
   /** True when the live query errored. */
   errored: boolean;
+  /**
+   * The user's manual price WHEN it was actually applied (i.e. no live CMP was
+   * available and a valid manual price exists). Null otherwise — including when
+   * a manual price is stored but a live quote took precedence. Lets the UI
+   * label the value as a manual override rather than a live quote.
+   */
+  manualCmp: number | null;
 }

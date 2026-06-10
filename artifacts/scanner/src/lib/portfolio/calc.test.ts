@@ -12,6 +12,7 @@ import {
   computeSectorAllocation,
   totalCurrentValue,
   xirr,
+  applyManualCmp,
 } from "./calc";
 import type { LiveMetrics, RawHolding } from "./types";
 
@@ -170,5 +171,46 @@ describe("computeSectorAllocation", () => {
     ]);
     expect(a.some(x => x.sector === "Banks")).toBe(true);
     expect(a.some(x => x.sector === "Unknown")).toBe(true);
+  });
+});
+
+describe("applyManualCmp", () => {
+  it("applies a manual price only when there is no live cmp", () => {
+    const base = live({ available: false, cmp: null });
+    const { live: out, applied } = applyManualCmp(base, 250);
+    expect(applied).toBe(true);
+    expect(out.cmp).toBe(250);
+    // It must not fabricate a day-change basis or claim live availability.
+    expect(out.available).toBe(false);
+    expect(out.previousClose).toBeNull();
+  });
+
+  it("never overrides an existing live cmp", () => {
+    const base = live({ available: true, cmp: 100, previousClose: 99 });
+    const { live: out, applied } = applyManualCmp(base, 250);
+    expect(applied).toBe(false);
+    expect(out.cmp).toBe(100);
+    expect(out).toBe(base);
+  });
+
+  it("never lets a manual price produce a day-change, even if previousClose exists", () => {
+    // liveFromDetail can set previousClose independently of cmp; without the
+    // guard a manual CMP would fabricate intraday movement.
+    const base = live({ available: false, cmp: null, previousClose: 240 });
+    const { live: out, applied } = applyManualCmp(base, 250);
+    expect(applied).toBe(true);
+    expect(out.cmp).toBe(250);
+    expect(out.previousClose).toBeNull();
+    expect(dayChange(10, out.cmp, out.previousClose)).toBeNull();
+    expect(dayChangePct(out.cmp, out.previousClose)).toBeNull();
+  });
+
+  it("ignores a missing/zero/negative/NaN manual price", () => {
+    const base = live({ available: false, cmp: null });
+    for (const bad of [null, undefined, 0, -5, NaN]) {
+      const { applied, live: out } = applyManualCmp(base, bad as number | null | undefined);
+      expect(applied).toBe(false);
+      expect(out.cmp).toBeNull();
+    }
   });
 });

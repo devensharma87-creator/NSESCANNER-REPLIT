@@ -5248,6 +5248,10 @@ components:
         notes: { type: string, nullable: true }
         dividendReceived: { type: number, nullable: true }
         realisedPnl: { type: number, nullable: true }
+        manualCmp:
+          type: number
+          nullable: true
+          description: "User-entered fallback price, used ONLY to value a holding with no live CMP. Book-keeping, never overrides a live quote."
         sortIndex: { type: number }
 
     PortfolioHoldingInput:
@@ -5267,6 +5271,10 @@ components:
         notes: { type: string, nullable: true }
         dividendReceived: { type: number, nullable: true }
         realisedPnl: { type: number, nullable: true }
+        manualCmp:
+          type: number
+          nullable: true
+          description: "User-entered fallback price, used ONLY to value a holding with no live CMP. Book-keeping, never overrides a live quote."
 
     PortfolioSummary:
       type: object

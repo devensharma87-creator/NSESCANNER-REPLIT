@@ -66,6 +66,7 @@ type HoldingInput = {
   notes?: string | null;
   dividendReceived?: number | null;
   realisedPnl?: number | null;
+  manualCmp?: number | null;
 };
 
 type CleanHolding = {
@@ -82,6 +83,7 @@ type CleanHolding = {
   notes: string | null;
   dividendReceived: number | null;
   realisedPnl: number | null;
+  manualCmp: number | null;
 };
 
 function str(v: unknown): string | null {
@@ -92,6 +94,16 @@ function str(v: unknown): string | null {
 
 function finiteOrNull(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * A user's manual fallback price must be a positive finite number to be usable
+ * as a valuation. Non-positive / non-finite values are coerced to null
+ * (dropped) rather than rejecting the whole save — a stray manual price never
+ * blocks book-keeping fields from persisting.
+ */
+function positiveOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
 }
 
 const BENCHMARK_RE = /^[A-Z0-9]{1,32}$/;
@@ -148,6 +160,7 @@ function sanitizeHoldings(
       notes: str(h.notes),
       dividendReceived: finiteOrNull(h.dividendReceived),
       realisedPnl: finiteOrNull(h.realisedPnl),
+      manualCmp: positiveOrNull(h.manualCmp),
     });
   }
   return { ok: true, holdings: out };
@@ -169,6 +182,7 @@ function mapHolding(r: PortfolioHoldingRow) {
     notes: r.notes,
     dividendReceived: r.dividendReceived,
     realisedPnl: r.realisedPnl,
+    manualCmp: r.manualCmp,
     sortIndex: r.sortIndex,
   };
 }

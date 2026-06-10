@@ -20,4 +20,6 @@ export interface PortfolioHoldingInput {
   notes?: string | null;
   dividendReceived?: number | null;
   realisedPnl?: number | null;
+  /** User-entered fallback price, used ONLY to value a holding with no live CMP. Book-keeping, never overrides a live quote. */
+  manualCmp?: number | null;
 }

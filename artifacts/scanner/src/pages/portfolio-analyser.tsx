@@ -14,6 +14,7 @@ import { HoldingsTable } from "@/components/portfolio/holdings-table";
 import { SectorAllocationPanel } from "@/components/portfolio/sector-allocation";
 import { StockDeepDive } from "@/components/portfolio/stock-deepdive";
 import { UploadModal } from "@/components/portfolio/upload-modal";
+import { EditHoldingModal } from "@/components/portfolio/edit-holding-modal";
 import { PortfolioToolbar } from "@/components/portfolio/portfolio-toolbar";
 import { RiskPanel, AllocationPanel, CostBasisPanel, BenchmarkPanel } from "@/components/portfolio/analytics-panels";
 import { Methodology } from "@/components/portfolio/methodology";
@@ -24,6 +25,7 @@ import {
   computeSummary,
   computeSectorAllocation,
   totalCurrentValue,
+  applyManualCmp,
 } from "@/lib/portfolio/calc";
 import { computeAnalytics } from "@/lib/portfolio/score";
 import { computeRiskAnalytics } from "@/lib/portfolio/risk";
@@ -97,6 +99,7 @@ export default function PortfolioAnalyser() {
   const [holdings, setHoldings] = useState<RawHolding[]>([]);
   const [isSample, setIsSample] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [editingSymbol, setEditingSymbol] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [benchmarkKey, setBenchmarkKey] = useState<BenchmarkKey>(() => resolveBenchmarkPref(null));
 
@@ -140,21 +143,29 @@ export default function PortfolioAnalyser() {
   });
 
   const enriched = useMemo<EnrichedRow[]>(() => {
-    const lives: LiveMetrics[] = holdings.map((_, i) => results[i]?.data?.live ?? EMPTY_LIVE);
+    const baseLives: LiveMetrics[] = holdings.map((_, i) => results[i]?.data?.live ?? EMPTY_LIVE);
     const metas: EnrichmentMeta[] = holdings.map(
       (h, i) => (results[i]?.data as EnrichmentResult | undefined)?.meta ?? pendingMeta(h),
     );
-    const rows = holdings.map((raw, i) => ({ raw, live: lives[i] }));
+    // A user-entered manual CMP is applied ONLY where no live quote resolved; a
+    // live quote always wins. The effective live drives valuation/allocation,
+    // but analytics (structure score) stays on the genuinely-fetched base live.
+    const manualApplied = holdings.map((raw, i) => applyManualCmp(baseLives[i], raw.manualCmp));
+    const effLives = manualApplied.map(m => m.live);
+    const rows = holdings.map((raw, i) => ({ raw, live: effLives[i] }));
     const totalCurrent = totalCurrentValue(rows);
     const allocation = computeSectorAllocation(rows);
     const sectorWeight = new Map(allocation.map(a => [a.sector, a.weightPct]));
     return holdings.map((raw, i) => {
-      const live = lives[i];
+      const live = effLives[i];
+      const baseLive = baseLives[i];
       const metrics = computeHoldingMetrics(raw, live, totalCurrent);
       const sector = (live.sector || raw.sector || "Unknown").trim() || "Unknown";
+      // Pass baseLive (NOT the manual-augmented live) so the structure score is
+      // never derived from a hand-typed price — manual CMP is book-keeping only.
       const analytics = computeAnalytics({
         raw,
-        live,
+        live: baseLive,
         metrics,
         sectorWeightPct: sectorWeight.get(sector) ?? null,
       });
@@ -166,6 +177,7 @@ export default function PortfolioAnalyser() {
         resolution: metas[i],
         loading: results[i]?.isLoading ?? false,
         errored: results[i]?.isError ?? false,
+        manualCmp: manualApplied[i].applied ? live.cmp ?? null : null,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,6 +187,15 @@ export default function PortfolioAnalyser() {
     () => computeSummary(enriched.map(r => ({ raw: r.raw, live: r.live }))),
     [enriched],
   );
+
+  // How many rows are valued from a user-entered manual price (no live quote).
+  // These count toward `summary.enrichedCount`, so we break them out explicitly
+  // rather than letting the user assume every "enriched" row is a live quote.
+  const manualPricedCount = useMemo(
+    () => enriched.filter(r => r.manualCmp != null).length,
+    [enriched],
+  );
+  const livePricedCount = Math.max(0, summary.enrichedCount - manualPricedCount);
 
   const allocation = useMemo(
     () => computeSectorAllocation(enriched.map(r => ({ raw: r.raw, live: r.live }))),
@@ -359,6 +380,7 @@ export default function PortfolioAnalyser() {
 
   const anyLoading = results.some(r => r.isLoading);
   const selectedRow = enriched.find(r => r.raw.symbol === selected) ?? null;
+  const editingRow = enriched.find(r => r.raw.symbol === editingSymbol) ?? null;
 
   function mergeHoldings(incoming: RawHolding[]) {
     setIsSample(false);
@@ -386,6 +408,22 @@ export default function PortfolioAnalyser() {
   function removeOne(symbol: string) {
     setHoldings(prev => prev.filter(h => h.symbol !== symbol));
     if (selected === symbol) setSelected(null);
+  }
+
+  // Replace a single holding in place. Renames are allowed as long as the new
+  // symbol doesn't collide with another holding; the deep-dive selection follows
+  // a rename. Editing always drops the sample flag since the data is now real.
+  function updateHolding(originalSymbol: string, updated: RawHolding) {
+    setIsSample(false);
+    setHoldings(prev => {
+      const upper = updated.symbol.toUpperCase();
+      const collides = prev.some(
+        h => h.symbol.toUpperCase() === upper && h.symbol !== originalSymbol,
+      );
+      if (collides) return prev; // guarded in the modal too; no-op defensively
+      return prev.map(h => (h.symbol === originalSymbol ? updated : h));
+    });
+    if (selected === originalSymbol) setSelected(updated.symbol);
   }
 
   // ----- Persistence actions -----
@@ -634,6 +672,22 @@ export default function PortfolioAnalyser() {
       ) : (
         <>
           <KpiStrip summary={summary} />
+          {manualPricedCount > 0 && (
+            <div
+              className="flex items-start gap-2 rounded-md border border-violet-500/40 bg-violet-500/10 px-3 py-2 text-xs text-violet-300"
+              data-testid="manual-pricing-note"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <strong>
+                  {manualPricedCount} holding(s) valued from a manual price you entered
+                </strong>{" "}
+                (no live quote available). These figures are based on your typed CMP, not a live
+                market quote, and structure scores are withheld for them. {livePricedCount} holding(s)
+                use live quotes.
+              </div>
+            </div>
+          )}
           {summary.missingCount > 0 && (
             <div
               className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-400"
@@ -655,7 +709,12 @@ export default function PortfolioAnalyser() {
             </div>
           )}
           <div className="grid gap-4 lg:grid-cols-[1fr_340px] lg:items-start">
-            <HoldingsTable rows={enriched} onSelect={setSelected} onRemove={removeOne} />
+            <HoldingsTable
+              rows={enriched}
+              onSelect={setSelected}
+              onRemove={removeOne}
+              onEdit={setEditingSymbol}
+            />
             <div className="lg:sticky lg:top-4">
               <SectorAllocationPanel allocation={allocation} />
             </div>
@@ -687,6 +746,19 @@ export default function PortfolioAnalyser() {
         onAddOne={h => mergeHoldings([h])}
         existingSymbols={holdings.map(h => h.symbol)}
       />
+      {editingRow && (
+        <EditHoldingModal
+          open={editingSymbol != null}
+          onOpenChange={v => !v && setEditingSymbol(null)}
+          holding={editingRow.raw}
+          liveCmp={editingRow.live.available ? editingRow.live.cmp : null}
+          liveAvailable={editingRow.live.available}
+          existingSymbols={holdings
+            .filter(h => h.symbol !== editingRow.raw.symbol)
+            .map(h => h.symbol)}
+          onSave={updateHolding}
+        />
+      )}
       <StockDeepDive row={selectedRow} open={selected != null} onOpenChange={v => !v && setSelected(null)} />
     </div>
   );

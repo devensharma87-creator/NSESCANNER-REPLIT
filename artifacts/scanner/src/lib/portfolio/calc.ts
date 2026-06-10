@@ -71,6 +71,31 @@ export function computeHoldingMetrics(
   };
 }
 
+/**
+ * Apply a user's manual fallback price to a live snapshot. The manual price is
+ * used ONLY when no live CMP resolved (`base.cmp == null`) and the value is a
+ * positive finite number — it never overrides a genuine live quote. `available`
+ * stays false (this is NOT a live quote) and `previousClose` stays null so no
+ * fabricated day-change is produced. Returns the base unchanged otherwise.
+ */
+export function applyManualCmp(
+  base: LiveMetrics,
+  manualCmp: number | null | undefined,
+): { live: LiveMetrics; applied: boolean } {
+  if (
+    base.cmp == null &&
+    manualCmp != null &&
+    Number.isFinite(manualCmp) &&
+    manualCmp > 0
+  ) {
+    // Force previousClose null so a hand-entered price can NEVER produce a
+    // day-change / day-P&L figure — that would imply intraday movement we don't
+    // actually have. Manual CMP is a static valuation input only.
+    return { live: { ...base, cmp: manualCmp, previousClose: null }, applied: true };
+  }
+  return { live: base, applied: false };
+}
+
 /** Sum of current values across holdings; null only when EVERY holding lacks a CMP. */
 export function totalCurrentValue(
   rows: { raw: RawHolding; live: LiveMetrics }[],

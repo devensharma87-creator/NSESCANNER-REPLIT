@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowUpDown, Trash2, AlertTriangle } from "lucide-react";
+import { ArrowUpDown, Trash2, AlertTriangle, Pencil } from "lucide-react";
 import type { EnrichedRow } from "@/lib/portfolio/types";
 import { etfCategory, describeEtfTrend } from "@/lib/portfolio/etf";
 import {
@@ -56,10 +56,12 @@ export function HoldingsTable({
   rows,
   onSelect,
   onRemove,
+  onEdit,
 }: {
   rows: EnrichedRow[];
   onSelect: (symbol: string) => void;
   onRemove: (symbol: string) => void;
+  onEdit: (symbol: string) => void;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("weightPct");
   const [asc, setAsc] = useState(false);
@@ -122,7 +124,7 @@ export function HoldingsTable({
         </thead>
         <tbody>
           {sorted.map(row => {
-            const { raw, live, metrics, analytics, loading, errored, resolution } = row;
+            const { raw, live, metrics, analytics, loading, errored, resolution, manualCmp } = row;
             const reasonText = resolution.reason ?? (errored ? "data error" : "data unavailable");
             const provenance = [
               resolution.resolvedSymbol && resolution.resolvedSymbol !== resolution.originalSymbol
@@ -157,13 +159,21 @@ export function HoldingsTable({
                         ETF
                       </span>
                     )}
-                    {!loading && !live.available && (
+                    {!loading && manualCmp != null && (
+                      <span
+                        className="rounded border border-violet-500/40 bg-violet-500/10 px-1 text-[9px] font-medium text-violet-400"
+                        title={`Manual price — no live quote available, so this holding is valued using your entered CMP of ${fmtINR(manualCmp, 2)}. Not a live quote.`}
+                      >
+                        MANUAL
+                      </span>
+                    )}
+                    {!loading && manualCmp == null && !live.available && (
                       <span
                         className="rounded border border-amber-500/40 bg-amber-500/10 px-1 text-[9px] font-medium text-amber-500"
                         title={
                           provenance
-                            ? `Unpriced — ${reasonText} (${provenance}). Preserved; excluded from live valuation.`
-                            : `Unpriced — ${reasonText}. Preserved; excluded from live valuation.`
+                            ? `Unpriced — ${reasonText} (${provenance}). Preserved; excluded from live valuation. Use Edit to enter a manual price.`
+                            : `Unpriced — ${reasonText}. Preserved; excluded from live valuation. Use Edit to enter a manual price.`
                         }
                       >
                         UNPRICED
@@ -179,6 +189,16 @@ export function HoldingsTable({
                 <td className="px-2 py-2 text-right font-mono">
                   {loading ? (
                     <span className="text-muted-foreground">…</span>
+                  ) : manualCmp != null ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-violet-400"
+                      title={`Manual price (no live quote) — ${fmtINR(manualCmp, 2)}. Used for valuation until a live quote is available.`}
+                    >
+                      {fmtINR(manualCmp, 2)}
+                      <span className="rounded border border-violet-500/40 bg-violet-500/10 px-1 text-[8px] font-medium">
+                        M
+                      </span>
+                    </span>
                   ) : live.cmp != null ? (
                     fmtINR(live.cmp, 2)
                   ) : (
@@ -263,17 +283,30 @@ export function HoldingsTable({
                   )}
                 </td>
                 <td className="px-2 py-2 text-right">
-                  <button
-                    onClick={e => {
-                      e.stopPropagation();
-                      onRemove(raw.symbol);
-                    }}
-                    className="text-muted-foreground hover:text-red-500"
-                    title="Remove holding"
-                    data-testid={`remove-${raw.symbol}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        onEdit(raw.symbol);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                      title="Edit holding"
+                      data-testid={`edit-${raw.symbol}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        onRemove(raw.symbol);
+                      }}
+                      className="text-muted-foreground hover:text-red-500"
+                      title="Remove holding"
+                      data-testid={`remove-${raw.symbol}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             );
