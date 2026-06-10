@@ -8,7 +8,8 @@
  */
 import { Router, type IRouter } from "express";
 import { z } from "zod";
-import { searchInstruments } from "../lib/chartInstruments";
+import { searchInstruments, type ChartInstrumentDto } from "../lib/chartInstruments";
+import { searchMaster } from "../lib/marketData/instrumentResolver";
 import {
   getChartCandles,
   ALL_TIMEFRAMES,
@@ -32,7 +33,27 @@ router.get("/chart/instruments", (req, res) => {
     return;
   }
   const q = parsed.data.q ?? "";
-  const instruments = searchInstruments(q, parsed.data.segment);
+  const segment = parsed.data.segment;
+  const curated = searchInstruments(q, segment);
+
+  // Merge the full Kite master so any real NSE/BSE equity or ETF — not just the
+  // curated ~280-name UNIVERSE — is searchable everywhere this endpoint feeds
+  // (Charting picker, Portfolio Add-Holdings autocomplete, etc.). Curated
+  // indices/global/equities rank first; master hits fill the long tail.
+  let instruments: ChartInstrumentDto[] = curated;
+  if (q.trim().length > 0 && (segment === undefined || segment === "equity")) {
+    const seen = new Set(curated.map(i => i.symbol.toUpperCase()));
+    const masterHits: ChartInstrumentDto[] = searchMaster(q, 30)
+      .filter(h => !seen.has(h.symbol.toUpperCase()))
+      .map(h => ({
+        symbol: h.symbol,
+        name: h.name,
+        segment: "equity" as const,
+        exchange: h.exchange,
+        type: h.type,
+      }));
+    instruments = [...curated, ...masterHits];
+  }
   res.json({ query: q, instruments });
 });
 

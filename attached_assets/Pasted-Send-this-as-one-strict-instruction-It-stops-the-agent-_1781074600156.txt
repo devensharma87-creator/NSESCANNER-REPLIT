@@ -1,0 +1,393 @@
+Send this as one strict instruction. It stops the agent from doing small UI fixes and forces the single canonical data backbone problem.
+
+Stop all side work. Fix the real root-cause data architecture problem now.
+
+This is not a margin issue. This is not an autocomplete-only issue. This is not another small UI patch. The portfolio is still not connected to the same reliable stock data used elsewhere in the website. I am seeing the same problem again and again: one tab knows the stock, another tab says “No instrument match” or “Awaiting data.” That is unacceptable.
+
+I need one single accurate and reliable data point for every Indian stock, ETF, index, and instrument, and that same canonical data must be used everywhere across the website — Portfolio, Deep Scan, Stock Intelligence, Watchlist, Scanner, Charting, Reports, Market Pulse, and every other tab.
+
+No more bullshit. No more cosmetic fixes. No more saying “done” when the same data problem is still visible.
+
+Current specific issue:
+These holdings are shown as unpriced / no instrument match / awaiting data in Portfolio, but most of them already exist elsewhere in the website/deep scan:
+
+Amara Raja Energy & Mobility Ltd — ARE&M
+Trident Ltd — TRIDENT
+Bharat Dynamics Ltd — BDL
+Tata Motors Passenger Vhcls Ltd — TMPV
+Indian Hotels Company Ltd — INDHOTEL
+BLS International Services Ltd — BLS
+National Securities Depository Ltd — 544467
+Central Depository Services (India) Ltd — CDSL
+
+Question you must answer in code, not words:
+If these instruments are available in Deep Scan / Scanner / instrument data, why are they not resolving in Portfolio?
+
+Root-cause objective:
+Build and enforce a single canonical instrument and market-data backbone.
+
+The same stock must resolve the same way everywhere:
+
+Portfolio
+Add Holdings modal
+CSV import
+Deep Scan
+Stock Intelligence
+Watchlist
+Scanner
+Charting
+Reports
+Search
+Recommendations
+Any future tab
+
+There must not be separate symbol logic for Portfolio, separate symbol logic for Deep Scan, separate symbol logic for Charting, and separate symbol logic for Scanner. That is the root problem. Fix it permanently.
+
+Immediate required architecture:
+
+Create or enforce a single canonical instrument resolver.
+
+It must support:
+
+NSE equity
+BSE equity
+NSE ETF
+BSE ETF
+indices
+depository stocks
+renamed/demerged instruments
+symbols containing special characters like ARE&M
+BSE numeric codes like 544467
+old aliases and display names
+
+Canonical object must include:
+{
+"canonical_symbol": "ARE&M",
+"display_name": "Amara Raja Energy & Mobility Ltd",
+"exchange": "NSE",
+"instrument_type": "NSE_EQUITY",
+"kite_key": "NSE&M",
+"instrument_token": "...",
+"bse_code": null,
+"aliases": ["AMARAJABAT", "AMARA RAJA", "ARE&M"],
+"source": "kite_instrument_master",
+"resolver_status": "RESOLVED"
+}
+
+For BSE-only / BSE numeric:
+{
+"canonical_symbol": "544467",
+"display_name": "National Securities Depository Ltd",
+"exchange": "BSE",
+"instrument_type": "BSE_EQUITY",
+"kite_key": "BSE:544467",
+"bse_code": "544467",
+"aliases": ["NSDL", "National Securities Depository"],
+"resolver_status": "RESOLVED"
+}
+
+Add a shared instrument map table / cache.
+
+Do not rely on random frontend text matching.
+
+Create a shared instrument map used by all tabs:
+
+canonical_symbol
+exchange
+tradingsymbol
+display_name
+kite_key
+instrument_token
+bse_code
+isin if available
+sector
+instrument_type
+aliases
+source_provider
+last_verified_at
+active_status
+resolver_priority
+warnings
+Resolve aliases and special symbols correctly.
+
+Must handle:
+
+ARE&M
+AREM
+AMARAJABAT old alias if applicable
+TRIDENT
+BDL
+TMPV
+INDHOTEL
+BLS
+CDSL
+NSDL / 544467
+ETFs like MON100, CPSEETF, SETFGOLD, HDFCSILVER, MAM150ETF, NASDAQ100
+
+If an alias is used in uploaded portfolio CSV or manual add, the resolver must map it to the canonical instrument.
+
+Connect Portfolio to the same resolver used by Deep Scan / Scanner.
+
+Portfolio must not have a separate weaker resolver.
+
+If Deep Scan can find TRIDENT, BDL, CDSL, etc., Portfolio must find them too. If Portfolio cannot find them, that is a bug.
+
+Fix the data path so Portfolio calls the central resolver first:
+manual/raw symbol → central resolver → canonical instrument → central marketDataRouter quote → portfolio valuation → recommendation
+
+Add proper manual Add Holdings autocomplete.
+
+When I type:
+
+hdfc
+tata
+trident
+bdl
+cdsl
+amara
+are
+are&m
+tmpv
+nsdl
+
+The Add Holdings modal must show matching instruments automatically.
+
+Autocomplete result must show:
+
+symbol
+company name
+exchange
+instrument type
+whether it is already in portfolio
+source
+
+Example for “hdfc”:
+
+HDFCBANK — HDFC Bank — NSE Equity
+HDFCLIFE — HDFC Life — NSE Equity
+HDFCAMC — HDFC AMC — NSE Equity
+HDFCSILVER — HDFC Silver ETF — NSE ETF
+
+Example for “tata”:
+
+TATAMOTORS — Tata Motors — NSE Equity
+TMPV — Tata Motors Passenger Vehicles — NSE Equity, if available
+TATASTEEL — Tata Steel — NSE Equity
+TATAPOWER — Tata Power — NSE Equity
+TATACONSUM — Tata Consumer — NSE Equity
+TCS — Tata Consultancy Services — NSE Equity
+User must select canonical instrument.
+
+Do not save raw lowercase text like “hdfc” or “tata” as a holding when matches exist.
+
+Manual add must save:
+
+canonical symbol
+exchange
+instrument type
+display name
+kite key
+instrument token
+sector if available
+quantity
+average price
+Portfolio valuation must use central marketDataRouter.
+
+Official portfolio valuation must use:
+
+Kite primary
+central marketDataRouter
+trusted source only
+
+Yahoo must not be used for official portfolio CMP, current value, P&L, allocation, risk, or XIRR.
+
+If Kite cannot price it:
+
+preserve the holding
+show UNPRICED
+show exact missing reason
+exclude from live valuation
+do not fake CMP
+do not silently show n/a
+Fix Portfolio rows.
+
+For every holding, show one of these statuses:
+
+PRICED:
+
+CMP available
+current value calculated
+day P&L calculated
+total P&L calculated
+return calculated
+weight calculated
+recommendation available or exact reason if unavailable
+
+UNPRICED:
+
+CMP null
+current value null
+P&L null
+valuation_status = UNPRICED
+missing_reason visible
+excluded_from_live_valuation = true
+
+Do not show meaningless “n/a” without reason.
+
+Fix recommendations.
+
+If a stock is in Deep Scan / Scanner and has structure/recommendation data, Portfolio must reuse the same data.
+
+Portfolio recommendation path:
+canonical instrument → scanner/deep scan data → structure score/action view
+
+If recommendation cannot be generated, show:
+
+no scanner row
+no candle history
+unsupported instrument type
+insufficient data
+unpriced holding
+
+Do not leave it as generic “Awaiting data” if a specific reason is known.
+
+Add a diagnostics panel or endpoint.
+
+Create:
+
+GET /api/portfolio/resolve-debug
+
+or
+
+GET /api/data/diagnostics/portfolio-resolution
+
+It must show for each portfolio holding:
+{
+"raw_symbol": "ARE&M",
+"display_name": "Amara Raja Energy & Mobility Ltd",
+"resolver_attempts": [
+"exact NSE symbol",
+"alias map",
+"kite instrument master",
+"deep scan universe",
+"BSE fallback"
+],
+"resolved": true,
+"canonical_symbol": "ARE&M",
+"exchange": "NSE",
+"kite_key": "NSE&M",
+"quote_found": true,
+"recommendation_found": true,
+"valuation_status": "PRICED",
+"missing_reason": null
+}
+
+For unresolved:
+{
+"raw_symbol": "XYZ",
+"resolved": false,
+"valuation_status": "UNPRICED",
+"missing_reason": "No matching instrument in Kite master / Deep Scan universe / alias map"
+}
+
+Must specifically verify these holdings.
+
+Acceptance is not complete until these exact symbols are tested:
+
+ARE&M
+TRIDENT
+BDL
+TMPV
+INDHOTEL
+BLS
+544467 / NSDL
+CDSL
+
+For each, return:
+
+resolver result
+quote result
+portfolio row result
+recommendation result
+missing reason if any
+
+If any one of these cannot be resolved, explain exact reason with proof. Do not hide it behind “No instrument match.”
+
+Tests required.
+
+Add tests for:
+
+ARE&M resolves despite special character
+TRIDENT resolves
+BDL resolves
+TMPV resolves if present in instrument master/deep scan
+INDHOTEL resolves
+BLS resolves
+CDSL resolves
+544467 resolves or gives exact BSE unsupported reason
+typing “hdfc” returns HDFC suggestions
+typing “tata” returns Tata suggestions
+typing “trident” returns TRIDENT
+typing “bdl” returns BDL
+manual add saves canonical symbol, not raw typed text
+Portfolio uses same central resolver as Deep Scan
+Portfolio valuation uses central marketDataRouter
+Yahoo cannot be used for official portfolio valuation
+unpriced holding must have missing_reason
+recommendation unavailable must have exact reason
+no generic n/a without reason
+existing Watchlist tests pass
+existing T003 tests pass
+typecheck passes
+UI requirements.
+
+Portfolio table must show:
+
+source/resolution tooltip
+valuation_status
+missing_reason
+recommendation_status
+exact reason for unpriced or no recommendation
+
+Add Holding modal must show:
+
+live suggestions
+loading state
+no results state
+selected instrument preview
+exchange/type/source
+warning if user tries to save unresolved free text
+Do not call this done unless production is verified.
+
+Required production verification:
+
+Open Portfolio.
+Type “hdfc” in Add Holdings and show suggestions.
+Type “tata” and show suggestions.
+Type “trident” and show TRIDENT.
+Type “bdl” and show BDL.
+Type “are” or “are&m” and show ARE&M / Amara Raja.
+Add one valid stock manually.
+Confirm CMP loads.
+Confirm value/P&L/weight loads.
+Confirm recommendation/action view appears or exact unavailable reason appears.
+Confirm current unpriced rows reduce where valid instruments exist.
+Confirm no meaningless n/a remains without reason.
+Deliverables required.
+
+Return:
+
+Root cause.
+Why Deep Scan knew these stocks but Portfolio did not.
+Files changed.
+Central resolver path.
+Manual autocomplete path.
+Before/after for the exact 8 symbols listed.
+Portfolio screenshot after fix.
+Tests passed.
+Any remaining unresolved symbol with exact reason.
+
+Final instruction:
+Do not waste time on cosmetic UI fixes. Do not say “done” because autocomplete appears while the Portfolio still cannot price the same stocks available elsewhere. The permanent fix is one canonical instrument and market-data source used everywhere. If a stock exists in Deep Scan, Portfolio must resolve it through the same data backbone. No excuses, no silent fallback, no fake n/a, no fake CMP, no bullshit.
+
+This is the right prompt to send. It directly attacks the real issue: Portfolio is not using the same canonical instrument/data backbone as the rest of the site.

@@ -14,7 +14,8 @@ import {
   fetchKiteEquityIntraday,
 } from "./kiteIntraday";
 import { fetchChart, fetchChartRaw, fetchIntraday, type YahooChart } from "./yahoo";
-import { resolveInstrument, type ChartSegment } from "./chartInstruments";
+import { resolveInstrument, type ChartSegment, type ChartInstrumentMeta } from "./chartInstruments";
+import { resolveInstrument as resolveMasterInstrument } from "./marketData/instrumentResolver";
 import { fetchIndexFuturesVolume } from "./indexFuturesVolume";
 import { logger } from "./logger";
 
@@ -272,7 +273,7 @@ async function mergeIndexFuturesVolume(
 }
 
 async function tryYahoo(
-  meta: { segment: ChartSegment; symbol: string; yahoo: string },
+  meta: { segment: ChartSegment; symbol: string; yahoo: string; exchange?: string | null },
   cfg: TimeframeConfig,
 ): Promise<ChartCandlePoint[] | null> {
   if (!cfg.yahoo) return null;
@@ -280,8 +281,11 @@ async function tryYahoo(
   if (cfg.yahoo.kind === "intraday") {
     chart = await fetchIntraday(meta.yahoo, cfg.yahoo.interval, cfg.yahoo.range);
   } else if (meta.segment === "equity") {
-    // fetchChart appends .NS + applies rename overrides itself.
-    chart = await fetchChart(meta.symbol, cfg.yahoo.range, cfg.yahoo.interval, "NS");
+    // fetchChart appends the suffix + applies rename overrides itself. BSE-only
+    // instruments (e.g. NSDL) resolve via the `.BO` Yahoo suffix; everything
+    // else uses `.NS`.
+    const suffix = meta.exchange === "BSE" ? "BO" : "NS";
+    chart = await fetchChart(meta.symbol, cfg.yahoo.range, cfg.yahoo.interval, suffix);
   } else {
     // index / global use already-qualified Yahoo tickers.
     chart = await fetchChartRaw(meta.yahoo, cfg.yahoo.range, cfg.yahoo.interval);
@@ -301,7 +305,28 @@ export async function getChartCandles(
   segment: ChartSegment,
   tf: ChartTimeframe,
 ): Promise<ChartCandlesResult> {
-  const meta = resolveInstrument(symbol, segment);
+  let meta = resolveInstrument(symbol, segment);
+  // Canonical-master fallback: the curated registry only knows the ~280-name
+  // scanner UNIVERSE, so any other real NSE/BSE equity or ETF (TRIDENT, BDL,
+  // CDSL, ARE&M, NSDL, …) misses above. Resolve it against the full Kite
+  // instrument master so Kite/Yahoo can still price it. Equity segment only —
+  // index/global remain curated.
+  if ((!meta || meta.segment !== segment) && segment === "equity") {
+    const r = resolveMasterInstrument(symbol, { preferExchange: "NSE" });
+    if (r.resolved && r.instrument) {
+      const inst = r.instrument;
+      const isEtf = inst.instrument_type.endsWith("ETF");
+      const fallback: ChartInstrumentMeta = {
+        symbol: inst.canonical_symbol,
+        name: inst.display_name,
+        segment: "equity",
+        exchange: inst.exchange,
+        type: isEtf ? "ETF" : "Equity",
+        yahoo: `${inst.canonical_symbol}.${inst.exchange === "BSE" ? "BO" : "NS"}`,
+      };
+      meta = fallback;
+    }
+  }
   if (!meta || meta.segment !== segment) {
     return {
       symbol, segment, timeframe: tf, source: "none", fresh: false, asOf: null,

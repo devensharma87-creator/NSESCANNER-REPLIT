@@ -30,6 +30,10 @@ import {
 } from "@workspace/api-zod";
 import { getSession, requireSubscriberOrOwner } from "../lib/userAuth";
 import { isPublicAccessEnabled } from "../lib/publicAccess";
+import {
+  resolveInstrument as resolveMasterInstrument,
+  isResolverReady,
+} from "../lib/marketData/instrumentResolver";
 
 const router: IRouter = Router();
 
@@ -494,5 +498,56 @@ function isUniqueViolation(err: unknown): boolean {
   }
   return false;
 }
+
+// ----- resolver diagnostics -----
+//
+// GET /portfolio/resolve-debug?symbols=A,B,C
+// Owner/subscriber read-only. Shows, per supplied symbol, exactly how the
+// canonical instrument resolver maps it (normalized form, ordered strategies
+// attempted, the matched strategy, and the resolved canonical instrument) or
+// the precise reason it could not be resolved. Pure resolver — no quotes, no
+// DB writes, no fabricated data.
+router.get("/portfolio/resolve-debug", requireSubscriberOrOwner(), (req, res) => {
+  const rawSymbols =
+    typeof req.query["symbols"] === "string"
+      ? (req.query["symbols"] as string)
+      : typeof req.query["symbol"] === "string"
+        ? (req.query["symbol"] as string)
+        : "";
+  const symbols = rawSymbols
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean)
+    .slice(0, 50);
+  if (symbols.length === 0) {
+    res.status(400).json({ error: "provide ?symbols=A,B,C", code: "BAD_QUERY" });
+    return;
+  }
+  const results = symbols.map(input => {
+    const r = resolveMasterInstrument(input, { preferExchange: "NSE" });
+    return {
+      input,
+      normalized: r.normalized,
+      resolved: r.resolved,
+      matchedVia: r.matched_via,
+      reason: r.reason,
+      attempts: r.attempts,
+      instrument: r.instrument
+        ? {
+            canonicalSymbol: r.instrument.canonical_symbol,
+            displayName: r.instrument.display_name,
+            exchange: r.instrument.exchange,
+            instrumentType: r.instrument.instrument_type,
+            kiteKey: r.instrument.kite_key,
+            instrumentToken: r.instrument.instrument_token,
+            bseCode: r.instrument.bse_code,
+            aliases: r.instrument.aliases,
+            source: r.instrument.source,
+          }
+        : null,
+    };
+  });
+  res.json({ resolverReady: isResolverReady(), count: results.length, results });
+});
 
 export default router;
