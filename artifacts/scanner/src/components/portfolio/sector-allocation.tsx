@@ -89,8 +89,8 @@ export function SectorAllocationPanel({ allocation }: { allocation: SectorAlloca
           Live values pending — allocation will appear once prices load.
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
-          <div className="h-[160px]">
+        <div className="space-y-3">
+          <div className="mx-auto h-[160px] w-full max-w-[200px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
