@@ -3014,6 +3014,24 @@ export const GetOptionSignalsResponse = zod.object({
         .describe(
           "Data quality label indicating the source and freshness of intraday data used to generate this signal.",
         ),
+      premiumSource: zod
+        .enum(["kite", "nse", "yahoo", "unknown"])
+        .optional()
+        .describe(
+          "Provider that produced the option premium\/OI behind optionEntry\/optionStopLoss\/optionTarget\*. Only 'kite' is trusted to power an OFFICIAL F&O signal or paper trade; nse\/yahoo\/unknown are display-only fallbacks.",
+        ),
+      premiumTrusted: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True only when the option premium came from a complete, non-stale, non-expired Kite chain. When false the signal is demoted to INFO_ONLY and may never auto-open a paper trade.",
+        ),
+      premiumWarning: zod
+        .string()
+        .optional()
+        .describe(
+          "Concrete reason the option premium is NOT Kite-trusted (e.g. NSE fallback, stale, missing). Present only when premiumTrusted is false.",
+        ),
       regime: zod
         .enum([
           "TRENDING_BULL",
@@ -4533,6 +4551,65 @@ export const GetOptionChainResponse = zod.object({
     .string()
     .describe("Origin tag — 'NSE' for live fetch, 'kite' for Kite-derived"),
   generatedAt: zod.coerce.date(),
+  provenance: zod
+    .object({
+      sourceProvider: zod
+        .enum(["kite", "nse", "yahoo", "unknown"])
+        .describe("Normalised provider that produced the chain."),
+      sourcePriority: zod
+        .number()
+        .describe("Lower = higher trust (kite 1, nse 2, yahoo 3, unknown 99)."),
+      asof: zod.coerce
+        .date()
+        .nullish()
+        .describe("Chain generation instant; null when unknown."),
+      fetchedAt: zod.coerce.date().describe("When this envelope was computed."),
+      freshnessSec: zod
+        .number()
+        .nullish()
+        .describe("Age in seconds (now − asof); null when asof unknown."),
+      isStale: zod
+        .boolean()
+        .describe("True when older than the freshness budget."),
+      fallbackUsed: zod
+        .boolean()
+        .describe("True whenever the chain did NOT come from Kite."),
+      exchange: zod
+        .string()
+        .nullish()
+        .describe("NFO for Kite F&O, NSE for NSE-direct, else null."),
+      segment: zod.enum(["OPT"]),
+      expiry: zod.string().nullish(),
+      lotSize: zod.number().nullish(),
+      legCount: zod
+        .number()
+        .optional()
+        .describe("Number of CE\/PE legs in the chain."),
+      oiLegCount: zod
+        .number()
+        .optional()
+        .describe("How many legs carry positive open interest (OI coverage)."),
+      trustedForSignals: zod
+        .boolean()
+        .describe(
+          "HARD verdict — only a complete, non-stale, non-expired Kite chain qualifies to power signals\/paper trades.",
+        ),
+      missingReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Concrete reason when the chain is unavailable; null otherwise.",
+        ),
+      warnings: zod
+        .array(zod.string())
+        .describe(
+          "Human-readable degradations \/ fallback notes (e.g. 'Kite unavailable; showing NSE fallback data').",
+        ),
+    })
+    .optional()
+    .describe(
+      "Honest source\/trust envelope for a served option chain. NSE-direct is a labelled fallback (display only); only a complete, non-stale, non-expired Kite chain is trustedForSignals.",
+    ),
 });
 
 /**

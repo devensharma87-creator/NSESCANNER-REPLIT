@@ -10,6 +10,7 @@ import type { OptionSignalBias } from "./optionSignalBias";
 import type { OptionSignalDataQuality } from "./optionSignalDataQuality";
 import type { OptionSignalExitReason } from "./optionSignalExitReason";
 import type { OptionSignalHtfBias } from "./optionSignalHtfBias";
+import type { OptionSignalPremiumSource } from "./optionSignalPremiumSource";
 import type { OptionSignalRegime } from "./optionSignalRegime";
 import type { OptionSignalSetupKey } from "./optionSignalSetupKey";
 import type { OptionSignalStatus } from "./optionSignalStatus";
@@ -109,6 +110,12 @@ export interface OptionSignal {
   optionVega?: number;
   /** Data quality label indicating the source and freshness of intraday data used to generate this signal. */
   dataQuality?: OptionSignalDataQuality;
+  /** Provider that produced the option premium/OI behind optionEntry/optionStopLoss/optionTarget*. Only 'kite' is trusted to power an OFFICIAL F&O signal or paper trade; nse/yahoo/unknown are display-only fallbacks. */
+  premiumSource?: OptionSignalPremiumSource;
+  /** True only when the option premium came from a complete, non-stale, non-expired Kite chain. When false the signal is demoted to INFO_ONLY and may never auto-open a paper trade. */
+  premiumTrusted?: boolean;
+  /** Concrete reason the option premium is NOT Kite-trusted (e.g. NSE fallback, stale, missing). Present only when premiumTrusted is false. */
+  premiumWarning?: string;
   /** Phase-1 regime classification for the index at signal time. Read-only label — does not gate setup emission yet (Phase-2 will use it to route setup eligibility). */
   regime?: OptionSignalRegime;
   /** Plain-English explanation for the regime label. UI surfaces verbatim under the regime badge. */

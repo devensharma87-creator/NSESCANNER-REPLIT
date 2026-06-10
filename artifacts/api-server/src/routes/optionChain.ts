@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { fetchOptionChain } from "../lib/optionChain";
+import { buildOptionChainProvenance } from "../lib/marketData/optionChainProvenance";
 import { computeAnalytics } from "../lib/optionAnalytics";
 import { enrichAnalyticsWithIv } from "../lib/ivHistory";
 import { getActiveSession } from "../lib/kiteAuth";
@@ -28,7 +29,14 @@ router.get("/options/chain/:underlying", async (req, res): Promise<void> => {
       });
       return;
     }
-    res.json(chain);
+    // Display-only provenance envelope (owner policy 2026-06-10): the chain
+    // page may render an NSE-direct/Yahoo fallback, but it must NEVER be
+    // silent. We attach an honest source/freshness/trust verdict so the UI
+    // can badge it "NSE fallback — Kite unavailable. Display only; not used
+    // for official signals or trades." This is purely informational — signal
+    // and paper-trade decisions gate on premium provenance independently.
+    const provenance = buildOptionChainProvenance(chain);
+    res.json({ ...chain, provenance });
   } catch (err) {
     logger.error({ err: (err as Error).message, underlying }, "Option chain handler crashed");
     res.status(500).json({ error: "Internal error fetching option chain" });

@@ -2650,6 +2650,16 @@ components:
           type: string
           enum: [LIVE_KITE_FULL, LIVE_KITE_PARTIAL, DELAYED_YAHOO, STALE]
           description: "Data quality label indicating the source and freshness of intraday data used to generate this signal."
+        premiumSource:
+          type: string
+          enum: [kite, nse, yahoo, unknown]
+          description: "Provider that produced the option premium/OI behind optionEntry/optionStopLoss/optionTarget*. Only 'kite' is trusted to power an OFFICIAL F&O signal or paper trade; nse/yahoo/unknown are display-only fallbacks."
+        premiumTrusted:
+          type: boolean
+          description: "True only when the option premium came from a complete, non-stale, non-expired Kite chain. When false the signal is demoted to INFO_ONLY and may never auto-open a paper trade."
+        premiumWarning:
+          type: string
+          description: "Concrete reason the option premium is NOT Kite-trusted (e.g. NSE fallback, stale, missing). Present only when premiumTrusted is false."
         regime:
           type: string
           enum: [TRENDING_BULL, TRENDING_BEAR, RANGING, VOLATILE, EXPIRY_DAY]
@@ -4016,6 +4026,32 @@ components:
           items: { $ref: "#/components/schemas/OptionChainStrikeRow" }
         source:         { type: string, description: "Origin tag — 'NSE' for live fetch, 'kite' for Kite-derived" }
         generatedAt:    { type: string, format: date-time }
+        provenance:     { $ref: "#/components/schemas/OptionChainProvenance" }
+
+    OptionChainProvenance:
+      type: object
+      description: "Honest source/trust envelope for a served option chain. NSE-direct is a labelled fallback (display only); only a complete, non-stale, non-expired Kite chain is trustedForSignals."
+      required: [sourceProvider, sourcePriority, fetchedAt, isStale, fallbackUsed, segment, trustedForSignals, warnings]
+      properties:
+        sourceProvider: { type: string, enum: [kite, nse, yahoo, unknown], description: "Normalised provider that produced the chain." }
+        sourcePriority: { type: integer, description: "Lower = higher trust (kite 1, nse 2, yahoo 3, unknown 99)." }
+        asof:           { type: string, format: date-time, nullable: true, description: "Chain generation instant; null when unknown." }
+        fetchedAt:      { type: string, format: date-time, description: "When this envelope was computed." }
+        freshnessSec:   { type: number, nullable: true, description: "Age in seconds (now − asof); null when asof unknown." }
+        isStale:        { type: boolean, description: "True when older than the freshness budget." }
+        fallbackUsed:   { type: boolean, description: "True whenever the chain did NOT come from Kite." }
+        exchange:       { type: string, nullable: true, description: "NFO for Kite F&O, NSE for NSE-direct, else null." }
+        segment:        { type: string, enum: [OPT] }
+        expiry:         { type: string, nullable: true }
+        lotSize:        { type: integer, nullable: true }
+        legCount:       { type: integer, description: "Number of CE/PE legs in the chain." }
+        oiLegCount:     { type: integer, description: "How many legs carry positive open interest (OI coverage)." }
+        trustedForSignals: { type: boolean, description: "HARD verdict — only a complete, non-stale, non-expired Kite chain qualifies to power signals/paper trades." }
+        missingReason:  { type: string, nullable: true, description: "Concrete reason when the chain is unavailable; null otherwise." }
+        warnings:
+          type: array
+          items: { type: string }
+          description: "Human-readable degradations / fallback notes (e.g. 'Kite unavailable; showing NSE fallback data')."
 
     OiClusterStrike:
       type: object

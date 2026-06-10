@@ -54,6 +54,10 @@ import {
   getWeeklyRealizedDrawdown,
 } from "./paperAccount";
 import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
+import {
+  buildOptionChainProvenance,
+  type OcSourceProvider,
+} from "./marketData/optionChainProvenance";
 import { logger } from "./logger";
 import { computeMarketStatus } from "./marketEvents";
 import { isActionableForFno, type DataQualityLabel } from "./tradingConfig";
@@ -339,6 +343,35 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
       logger.info(
         { indexSymbol, setupKey, tier, confidence },
         "Paper FO skip: INFO_ONLY (non-STANDARD tier not auto-tradeable under hygiene v2)",
+      );
+    }
+    return null;
+  }
+
+  // Premium-provenance backstop (owner policy 2026-06-10, fail-closed).
+  // enrichBundlesWithOptionLevels() stamps `premiumTrusted` from the option
+  // chain's source: TRUE only for a complete, non-stale, non-expired Kite
+  // chain. The open path sizes the trade (entry/stop/target) off that
+  // premium, so an open is permitted ONLY when premium is explicitly
+  // Kite-trusted. Anything else — NSE-direct/Yahoo fallback, unknown source,
+  // stale, missing chain, or a signal that somehow reached open unenriched
+  // (premiumTrusted === undefined) — is refused with an exact reason. This
+  // is defense-in-depth: Phase 2 already demotes such signals to INFO_ONLY,
+  // but the open path gates on sizing tier, not tradeClass, so this explicit
+  // assertion is what guarantees no untrusted option premium ever opens a
+  // paper trade.
+  if (signal.premiumTrusted !== true) {
+    if (recordSkip("PREMIUM_UNTRUSTED")) {
+      logger.info(
+        {
+          indexSymbol,
+          setupKey,
+          tier,
+          confidence,
+          premiumSource: signal.premiumSource ?? null,
+          premiumWarning: signal.premiumWarning ?? null,
+        },
+        "Paper FO skip: option premium is not Kite-trusted (fail-closed)",
       );
     }
     return null;
@@ -2194,6 +2227,39 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
   if (rows.length === 0) return 0;
 
   let opened = 0;
+  // Reconcile re-opens TODAY's still-live triggers after a mid-day restart.
+  // option_signal_history does NOT persist the option-premium source, so we
+  // cannot assume the persisted option levels were Kite-sourced (a pre-deploy
+  // cycle could have projected them from an NSE/Yahoo fallback chain). Re-derive
+  // current trust from a fresh chain per index (cached) and stamp it onto the
+  // synthetic signal; openPaperTrade's fail-closed premium backstop then refuses
+  // to re-open anything whose premium is not currently Kite-trusted. This both
+  // restores reconciliation for legitimate (Kite-trusted) rows AND keeps the
+  // untrusted-premium guarantee intact across restarts.
+  const trustByIndex = new Map<
+    string,
+    { trusted: boolean; source: OcSourceProvider }
+  >();
+  const resolveTrust = async (indexSymbol: string) => {
+    const cached = trustByIndex.get(indexSymbol);
+    if (cached) return cached;
+    let verdict: { trusted: boolean; source: OcSourceProvider } = {
+      trusted: false,
+      source: "unknown",
+    };
+    try {
+      const chain = await fetchOptionChain(indexSymbol);
+      const prov = buildOptionChainProvenance(chain);
+      verdict = { trusted: prov.trustedForSignals, source: prov.sourceProvider };
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message, idx: indexSymbol },
+        "reconcileMissingPaperTrades: trust probe failed; treating premium as untrusted",
+      );
+    }
+    trustByIndex.set(indexSymbol, verdict);
+    return verdict;
+  };
   for (const r of rows) {
     const optEntry = num(r.option_entry);
     const optStop = num(r.option_stop_loss);
@@ -2201,6 +2267,8 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
 
     const dir: "BULLISH" | "BEARISH" =
       r.direction === "BEARISH" ? "BEARISH" : "BULLISH";
+    const { trusted: premiumTrusted, source: premiumSource } =
+      await resolveTrust(r.index_symbol);
     const syntheticSignal = {
       index: r.index_symbol,
       indexName: r.index_name,
@@ -2212,6 +2280,11 @@ export async function reconcileMissingPaperTrades(): Promise<number> {
       optionTarget1: num(r.option_target1) || optEntry,
       optionTarget2: num(r.option_target2) || num(r.option_target1) || optEntry,
       bias: r.direction,
+      premiumTrusted,
+      premiumSource,
+      premiumWarning: premiumTrusted
+        ? undefined
+        : `Reconcile: option-chain source "${premiumSource}" is not Kite-trusted right now — refusing to re-open.`,
       leg: {
         type: r.option_type,
         strike: num(r.strike),
@@ -2394,6 +2467,7 @@ export type SkipReason =
   | "PORTFOLIO_HEAT"
   | "BUDGET_TOO_TIGHT"
   | "INFO_ONLY_NOT_TRADEABLE"
+  | "PREMIUM_UNTRUSTED"
   | "INSUFFICIENT_BALANCE";
 
 export interface MissedSignal {

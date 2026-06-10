@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { OptionChainProvenance } from "./optionChainProvenance";
 import type { OptionChainResponseKind } from "./optionChainResponseKind";
 import type { OptionChainStrikeRow } from "./optionChainStrikeRow";
 
@@ -27,4 +28,5 @@ export interface OptionChainResponse {
   /** Origin tag — 'NSE' for live fetch, 'kite' for Kite-derived */
   source: string;
   generatedAt: Date;
+  provenance?: OptionChainProvenance;
 }

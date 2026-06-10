@@ -31,6 +31,11 @@ import {
 import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
 import { evaluateDirectionalVetoes, deriveTradeClass } from "./optionSignalVetoes";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
+import {
+  buildOptionChainProvenance,
+  classifyOcSource,
+  premiumTrustVerdict,
+} from "./marketData/optionChainProvenance";
 
 export interface IndexCfg {
   symbol: string;
@@ -1856,7 +1861,28 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
       const expiry = first.leg.expiry;
       try {
         const chain = await fetchOptionChain(first.index, expiry);
-        if (!chain) return;
+        // Premium provenance gate (owner policy 2026-06-10): the option
+        // premium/OI that drives optionEntry/optionStopLoss/optionTarget* — and
+        // therefore the paper trade and its risk — may ONLY come from a
+        // complete, non-stale, non-expired Kite chain. NSE-direct / Yahoo /
+        // unknown / missing premium is a fallback: stamp it honestly, demote
+        // the signal to INFO_ONLY (so the auto-trader never opens it), and
+        // DO NOT project stop/target levels from untrusted premium.
+        const prov = buildOptionChainProvenance(chain, {
+          missingReason: `No option chain for ${first.index} ${expiry}.`,
+        });
+        const verdict = premiumTrustVerdict(prov);
+        for (const s of b.signals) {
+          s.premiumSource = prov.sourceProvider;
+          s.premiumTrusted = prov.trustedForSignals;
+          if (!prov.trustedForSignals) {
+            s.premiumWarning = verdict.reason ?? "Option premium not Kite-trusted.";
+            s.tradeClass = "INFO_ONLY";
+            if (!s.tags) s.tags = [];
+            if (!s.tags.includes("PREMIUM_UNTRUSTED")) s.tags.push("PREMIUM_UNTRUSTED");
+          }
+        }
+        if (!chain || !prov.trustedForSignals) return;
         const row: OcRow | undefined = chain.rows.find((r) => r.strike === first.leg.strike);
         if (!row) return;
         // Spot must be a real, finite number for the projection to mean
@@ -1878,19 +1904,54 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
           // option's last traded premium.) Reject non-finite values so
           // a NaN/Inf from upstream never silently propagates into
           // paper trades as an "invalid premium plan" much later.
-          if (!side || side.ltp == null || !Number.isFinite(side.ltp) || side.ltp <= 0) {
+          // Per-leg trust (owner policy 2026-06-10): even on a Kite-trusted
+          // chain, the SPECIFIC leg this signal trades must have a real
+          // premium anchor AND open interest. A missing/non-positive LTP
+          // means no premium to plan from; missing/zero OI on the traded
+          // strike means the premium/OI is untrustworthy for THIS signal.
+          // Either case DEMOTES the signal (premiumTrusted=false for this
+          // signal → fail-closed at the paper-open backstop, INFO_ONLY for
+          // UI honesty) and skips level projection so no untrusted premium
+          // sets optionEntry/SL/targets. This is in addition to the open
+          // path's FNO_LIQUIDITY gate (OI≥50k), giving belt-and-braces.
+          const legOiMissing =
+            !side || side.oi == null || !Number.isFinite(side.oi) || side.oi <= 0;
+          const legLtpMissing =
+            !side || side.ltp == null || !Number.isFinite(side.ltp) || side.ltp <= 0;
+          if (legLtpMissing || legOiMissing) {
+            const legReason = !side
+              ? "no_side"
+              : legLtpMissing
+                ? side.ltp == null
+                  ? "ltp_null"
+                  : "ltp_non_finite_or_le_zero"
+                : "leg_oi_missing";
+            s.premiumTrusted = false;
+            s.premiumWarning =
+              legReason === "leg_oi_missing"
+                ? "Traded leg has no open interest — premium/OI untrusted for this signal."
+                : "Traded leg has no usable premium (LTP) — untrusted for this signal.";
+            s.tradeClass = "INFO_ONLY";
+            if (!s.tags) s.tags = [];
+            if (!s.tags.includes("PREMIUM_UNTRUSTED")) s.tags.push("PREMIUM_UNTRUSTED");
             logger.info(
               {
                 idx: s.index,
                 strike: s.leg.strike,
                 type: s.leg.type,
                 ltp: side?.ltp ?? null,
-                reason: !side ? "no_side" : side.ltp == null ? "ltp_null" : "ltp_non_finite_or_le_zero",
+                oi: side?.oi ?? null,
+                reason: legReason,
               },
-              "Option-level enrichment skipped for signal",
+              "Option-level enrichment skipped + signal demoted (untrusted leg premium/OI)",
             );
             continue;
           }
+          // After the guard above, side is present and side.ltp is a finite
+          // positive number; this redundant narrowing keeps the compiler's
+          // control-flow analysis honest (the compound-boolean guard cannot
+          // narrow `side.ltp` to `number` on its own).
+          if (!side || side.ltp == null || !Number.isFinite(side.ltp)) continue;
           const ltp = side.ltp;
           // Always publish the LTP first so the lifecycle row gets a
           // premium reference even if downstream Greeks-based projection
@@ -2245,7 +2306,9 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
           ? nextWeeklyExpiry(cfg.expiryWeekday)
           : nextMonthlyExpiry(cfg.expiryWeekday);
         const chain = await fetchOptionChain(cfg.symbol, expiry);
-        if (chain && Number.isFinite(chain.spot)) {
+        // Kite-only: NSE/Yahoo-sourced IV must never pollute the IVR/IVP
+        // history that feeds signal confidence (owner policy 2026-06-10).
+        if (chain && Number.isFinite(chain.spot) && classifyOcSource(chain.source) === "kite") {
           const atmStrike = nearestStrike(chain.spot, cfg.strikeStep);
           const atmRow = chain.rows.find((rr) => rr.strike === atmStrike);
           const ceIv = atmRow?.ce?.iv ?? null;

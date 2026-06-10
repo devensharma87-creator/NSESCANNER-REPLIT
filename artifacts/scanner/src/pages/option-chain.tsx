@@ -453,13 +453,47 @@ export default function OptionChainPage() {
               )}
               {chainQ.isFetching && lastUpdate ? " · refreshing…" : ""}
             </span>
-            {chain?.source !== "kite" && chain?.source !== undefined && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
+            {chain?.provenance?.fallbackUsed && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400"
+                title={
+                  chain.provenance.sourceProvider === "nse"
+                    ? "NSE fallback — Kite unavailable. Display only; not used for official signals or trades."
+                    : "Fallback data — Kite unavailable. Display only; not used for official signals or trades."
+                }
+              >
                 <AlertTriangle className="w-2.5 h-2.5" />
-                Fallback data — Kite not connected
+                {chain.provenance.sourceProvider === "nse" ? "NSE FALLBACK" : "FALLBACK"} · DISPLAY ONLY
               </span>
             )}
+            {chain?.provenance?.isStale && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                <AlertTriangle className="w-2.5 h-2.5" />
+                STALE
+                {chain.provenance.freshnessSec != null ? ` · ${chain.provenance.freshnessSec}s old` : ""}
+              </span>
+            )}
+            {chain?.provenance != null &&
+              chain.provenance.legCount != null &&
+              chain.provenance.oiLegCount != null &&
+              chain.provenance.legCount > 0 &&
+              chain.provenance.oiLegCount < chain.provenance.legCount && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400"
+                  title="Some strikes have no open-interest data."
+                >
+                  <AlertTriangle className="w-2.5 h-2.5" />
+                  PARTIAL OI {chain.provenance.oiLegCount}/{chain.provenance.legCount}
+                </span>
+              )}
           </div>
+          {chain?.provenance?.fallbackUsed && (
+            <p className="mt-1 text-[10px] font-mono text-amber-400/90">
+              {chain.provenance.sourceProvider === "nse"
+                ? "NSE fallback — Kite unavailable. This chain is shown for reference only and does NOT feed official signals or paper trades."
+                : "Fallback source — Kite unavailable. This chain is shown for reference only and does NOT feed official signals or paper trades."}
+            </p>
+          )}
         </div>
 
         {/* Search picker trigger */}

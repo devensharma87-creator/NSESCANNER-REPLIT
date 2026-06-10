@@ -4,8 +4,10 @@
 market-data layer, and guarantee that no official signal or paper-trade decision is
 made from stale, synthetic, missing, Yahoo, or otherwise untrusted option data.
 
-**Status:** Phase 0 — AUDIT (this document). No live trade-path behavior changed yet.
-Implementation phases are sequenced at the end.
+**Status:** Phases 1–3 SHIPPED (2026-06-10). Display provenance, signal premium-provenance
+gate, and the fail-closed paper-open trust assertion are implemented and tested. Phase 4
+(on-demand facades) remains deferred. Owner decisions on NSE display fallback and P25 are
+recorded below. Implementation phases are sequenced at the end.
 
 **Date:** 2026-06-10
 
@@ -72,9 +74,14 @@ an official signal or paper-trade decision.
 - **CF:** NO &nbsp; **DP:** YES (legacy `fetchOptionChain`) &nbsp; **SYN:** NO (premiums/OI
   return null rather than synthesize) &nbsp; **STALE:** YES (no freshness envelope on the
   served payload; UI infers source heuristically) &nbsp; **SIG:** display only
-- **Fix applied:** _pending Phase 1_ — serve through facade + provenance envelope.
-- **Remaining limitation:** NSE is a *real* (non-synthetic) source; decision needed on
-  whether to keep it as a labelled fallback or restrict the page to Kite-only.
+- **Fix applied (Phase 1, 2026-06-10):** `GET /api/options/chain/:underlying` now attaches a
+  `provenance` envelope (`buildOptionChainProvenance`) — `source_provider`, `source_priority`,
+  `asof`, `freshness_sec`, `is_stale`, `fallback_used`, `leg_count`/`oi_leg_count`,
+  `trusted_for_signals`, `warnings`, `missing_reason`. `option-chain.tsx` renders an explicit
+  "NSE FALLBACK · DISPLAY ONLY" badge + a sentence ("does NOT feed official signals or paper
+  trades"), plus STALE and PARTIAL-OI badges, all driven by the real envelope (no fake rows).
+- **Owner decision (2026-06-10):** KEEP NSE as a labelled display fallback (never silent,
+  never feeds signals/trades). Resolved — not restricted to Kite-only.
 
 ### 2. F&O Official setups (signal engine)
 - **Frontend:** `pages/options.tsx` (`SetupCard`), `pages/fno-diagnostics.tsx`
@@ -90,8 +97,14 @@ an official signal or paper-trade decision.
 - **GAP:** A signal can carry `LIVE_KITE_*` (because its bars are Kite) while its option
   **premium/OI** came from the NSE fallback chain. There is no provenance check that the
   *premium itself* is Kite-sourced.
-- **Fix applied:** _pending Phase 2_ — stamp chain provenance onto the signal and gate on
-  it.
+- **Fix applied (Phase 2, 2026-06-10):** `enrichBundlesWithOptionLevels` now builds
+  `buildOptionChainProvenance(chain)` once per bundle and stamps `premiumSource` /
+  `premiumTrusted` / `premiumWarning` onto every signal. When premium is NOT Kite-trusted
+  (NSE/Yahoo/unknown/stale/expired/missing) the signal is demoted to `tradeClass="INFO_ONLY"`,
+  tagged `PREMIUM_UNTRUSTED`, and option stop/target levels are **not** projected (the
+  function returns before `projectOptionLevel`). Separately, the IVR/IVP history snapshot is
+  now Kite-only (`classifyOcSource(chain.source)==="kite"`) so NSE/Yahoo IV can never pollute
+  signal confidence.
 
 ### 3. F&O Legacy display
 - **Backend:** `optionSignals.legacyEmit.bak.ts` (per-detector confidence, superseded by
@@ -107,8 +120,16 @@ an official signal or paper-trade decision.
   (`isActionableForFno`) &nbsp; **SIG:** YES.
 - **GAP:** Inherits the Phase-2 premium-provenance gap (bar quality is gated, premium
   source is not). Otherwise well-protected.
-- **Fix applied:** _pending Phase 3_ — add explicit pre-open trust assertion returning a
-  structured block reason.
+- **Fix applied (Phase 3, 2026-06-10):** `openPaperTrade` now carries a fail-closed
+  premium-provenance backstop immediately after the INFO_ONLY tier gate: an open is permitted
+  **only** when `signal.premiumTrusted === true`. Anything else — NSE/Yahoo fallback, unknown
+  source, stale, missing chain, or an unenriched signal (`premiumTrusted === undefined`) — is
+  refused with the new `PREMIUM_UNTRUSTED` skip reason (logged with `premiumSource` /
+  `premiumWarning`) and recorded as a missed signal. This is defense-in-depth: the open path
+  gates on sizing *tier*, not `tradeClass`, so this explicit assertion — not the Phase-2
+  demotion — is what guarantees no untrusted option premium ever opens a paper trade.
+  Enrichment provably runs before `tryOpenPaperTrades` in the tick, so the field is always
+  stamped.
 
 ### 5. Signal engine internals / tiers
 - `deriveTradeClass` / `isAutoTradeableSizingTier` (`optionSignalVetoes.ts`): TRADEABLE vs
@@ -121,10 +142,15 @@ an official signal or paper-trade decision.
 - **Current behavior:** gates the **"Official" status of performance stats** (needs ≥20
   MFE-available trades); it does **not** currently block an individual paper-trade open.
 - **SIG:** reporting-quality gate, not a per-trade execution gate.
-- **Remaining limitation / decision:** the task asks that "P25 evidence insufficient"
-  block a trade. Today P25 is a stats-confidence gate, not a per-open gate — turning it
-  into a per-open block is a **trading-logic change** requiring explicit owner sign-off
-  (it would suppress trades on under-sampled setups).
+- **Owner decision (2026-06-10) — RESOLVED:** P25 insufficiency must **NOT** block paper
+  opens (avoids suppressing trades on under-sampled / cold-start setups). It continues to
+  gate only the **OFFICIAL / validated status** of performance stats. This is exactly the
+  existing behavior: `deriveP25OfficialEvidence` (`foCockpitView.ts`) exposes
+  `gateStatus: "OPEN" | "THRESHOLD_MET"` / `thresholdMet` off the server's official
+  `mfeAvailableCount` (threshold 20) — i.e. an under-sampled setup is already surfaced as
+  "evidence gate open" (not officially validated) without ever blocking an open. No per-open
+  P25 block was added. Real data-quality / liquidity / DD / premium-trust gates still
+  hard-block independently.
 
 ### 7. Option quote / OI fetchers
 - `kiteOptionChain.ts` (`fetchKiteOptionChain`) — Kite, direct `kc.getQuote`. Approximates
@@ -184,26 +210,48 @@ The task names these facades; current status:
 
 ## Phased implementation plan (sequenced, each independently shippable + tested)
 
-- **Phase 1 — Display provenance (LOW risk, no trade-path change).** Serve
-  `/api/options/chain` + `/analytics` with a provenance envelope (`source_provider`,
-  `source_priority`, `asof`, `freshness_sec`, `is_stale`, `warnings`, `missing_reason`).
-  Surface source badge / freshness / stale + missing-OI warnings in `option-chain.tsx`
-  from the real envelope (no fake rows). Tests: facade Kite-primary, no synthetic rows,
-  stale labelled.
-- **Phase 2 — Signal premium-provenance gate (HIGH value, trade-path; fail-closed).**
-  Stamp the option-chain source onto each signal; block/demote any official signal whose
-  premium/OI is not trusted Kite, with an exact reason. Tests: NSE/Yahoo-premium chain
-  cannot produce a TRADEABLE signal; missing OI demotes when required.
-- **Phase 3 — Paper-open trust assertion (fail-closed).** Add an explicit pre-open
-  assertion returning `{ trade_open_allowed:false, reason }` covering: source untrusted,
-  contract unresolved, premium missing, OI missing where required, data stale, expiry/
-  strike mismatch, lot size missing, provider conflict. Tests: each reason path.
+- **Phase 1 — Display provenance (LOW risk, no trade-path change). ✅ SHIPPED 2026-06-10.**
+  `/api/options/chain` now serves a `provenance` envelope (`source_provider`,
+  `source_priority`, `asof`, `freshness_sec`, `is_stale`, `fallback_used`, `leg_count`/
+  `oi_leg_count`, `trusted_for_signals`, `warnings`, `missing_reason`). `option-chain.tsx`
+  renders source/fallback/stale/partial-OI badges + a "display only; not used for official
+  signals or trades" sentence from the real envelope (no fake rows).
+- **Phase 2 — Signal premium-provenance gate (HIGH value, trade-path; fail-closed). ✅
+  SHIPPED 2026-06-10.** Each signal is stamped `premiumSource`/`premiumTrusted`/
+  `premiumWarning`; non-Kite-trusted premium demotes the signal to `INFO_ONLY` (tagged
+  `PREMIUM_UNTRUSTED`) and suppresses stop/target projection. IVR/IVP history is Kite-only.
+  **Per-leg trust (added 2026-06-10):** even on a Kite-trusted chain, the SPECIFIC traded
+  leg must carry a real premium anchor (finite positive LTP) AND open interest; a leg with
+  missing/non-positive LTP or missing/zero OI sets `premiumTrusted=false` for that signal,
+  demotes it to `INFO_ONLY` + `PREMIUM_UNTRUSTED`, and skips level projection — satisfying
+  "missing premium/OI must demote" at the signal layer (the per-open `FNO_LIQUIDITY` OI≥50k
+  gate already hard-blocks the trade itself, so this is belt-and-braces).
+- **Phase 3 — Paper-open trust assertion (fail-closed). ✅ SHIPPED 2026-06-10.**
+  `openPaperTrade` refuses any open unless `premiumTrusted === true`, with the new
+  `PREMIUM_UNTRUSTED` skip reason. Defense-in-depth over the Phase-2 demotion (open path
+  gates on sizing tier, not tradeClass). **Reconcile path hardened (2026-06-10):**
+  `reconcileMissingPaperTrades` (mid-day-restart backfill of still-live triggers) builds a
+  synthetic signal from persisted history, which does NOT store the premium source. It now
+  re-derives current trust from a fresh chain per index (`buildOptionChainProvenance`,
+  cached) and stamps `premiumTrusted`/`premiumSource` onto the synthetic signal, so the same
+  fail-closed backstop re-opens legitimate Kite-trusted rows after a restart while still
+  refusing any row whose premium is not currently Kite-trusted.
 - **Phase 4 — Facades on demand.** Add `getFuturesQuote` / `getOptionContractQuote` /
-  `getOptionChainDiagnostics` only where a real consumer is migrated onto them.
-- **Owner sign-off items (do NOT change without explicit approval):**
-  - Making **P25 evidence insufficiency** a per-trade open block (currently a stats gate).
-  - **Removing the NSE-direct chain fallback** for the display page (NSE is a real source;
-    restricting to Kite-only changes UX when Kite is offline).
+  `getOptionChainDiagnostics` only where a real consumer is migrated onto them. _Deferred —
+  no consumer needs them yet._
+- **Residual test-gap (follow-up).** `enrichBundlesWithOptionLevels` and
+  `reconcileMissingPaperTrades` are private / DB-and-chain-bound, so the two newest behaviors
+  (per-leg OI/LTP demotion; reconcile trust re-derivation) are currently covered only
+  transitively (provenance unit tests + the fail-closed open backstop + full typecheck/suite).
+  Path-level tests that exercise reconcile-reopen (trusted vs untrusted vs fetch-fail) and
+  traded-leg demotion would lock these in; they require exporting the internals or a DB
+  fixture and are intentionally out of this task's scope.
+- **Owner sign-off items — RESOLVED 2026-06-10:**
+  - **P25 evidence insufficiency stays a stats / OFFICIAL-status gate, NOT a per-open block**
+    (owner decision; avoids suppressing cold-start / under-sampled setups). No change made.
+  - **KEEP the NSE-direct chain fallback** for the display page, clearly labelled as a
+    display-only fallback that never feeds signals/trades (owner decision). Implemented in
+    Phase 1.
 
 ---
 

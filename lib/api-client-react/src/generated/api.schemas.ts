@@ -1036,6 +1036,19 @@ export const OptionSignalDataQuality = {
 } as const;
 
 /**
+ * Provider that produced the option premium/OI behind optionEntry/optionStopLoss/optionTarget*. Only 'kite' is trusted to power an OFFICIAL F&O signal or paper trade; nse/yahoo/unknown are display-only fallbacks.
+ */
+export type OptionSignalPremiumSource =
+  (typeof OptionSignalPremiumSource)[keyof typeof OptionSignalPremiumSource];
+
+export const OptionSignalPremiumSource = {
+  kite: "kite",
+  nse: "nse",
+  yahoo: "yahoo",
+  unknown: "unknown",
+} as const;
+
+/**
  * Phase-1 regime classification for the index at signal time. Read-only label — does not gate setup emission yet (Phase-2 will use it to route setup eligibility).
  */
 export type OptionSignalRegime =
@@ -1141,6 +1154,12 @@ export interface OptionSignal {
   optionVega?: number;
   /** Data quality label indicating the source and freshness of intraday data used to generate this signal. */
   dataQuality?: OptionSignalDataQuality;
+  /** Provider that produced the option premium/OI behind optionEntry/optionStopLoss/optionTarget*. Only 'kite' is trusted to power an OFFICIAL F&O signal or paper trade; nse/yahoo/unknown are display-only fallbacks. */
+  premiumSource?: OptionSignalPremiumSource;
+  /** True only when the option premium came from a complete, non-stale, non-expired Kite chain. When false the signal is demoted to INFO_ONLY and may never auto-open a paper trade. */
+  premiumTrusted?: boolean;
+  /** Concrete reason the option premium is NOT Kite-trusted (e.g. NSE fallback, stale, missing). Present only when premiumTrusted is false. */
+  premiumWarning?: string;
   /** Phase-1 regime classification for the index at signal time. Read-only label — does not gate setup emission yet (Phase-2 will use it to route setup eligibility). */
   regime?: OptionSignalRegime;
   /** Plain-English explanation for the regime label. UI surfaces verbatim under the regime badge. */
@@ -2784,6 +2803,61 @@ export const OptionChainResponseKind = {
   EQUITY: "EQUITY",
 } as const;
 
+/**
+ * Normalised provider that produced the chain.
+ */
+export type OptionChainProvenanceSourceProvider =
+  (typeof OptionChainProvenanceSourceProvider)[keyof typeof OptionChainProvenanceSourceProvider];
+
+export const OptionChainProvenanceSourceProvider = {
+  kite: "kite",
+  nse: "nse",
+  yahoo: "yahoo",
+  unknown: "unknown",
+} as const;
+
+export type OptionChainProvenanceSegment =
+  (typeof OptionChainProvenanceSegment)[keyof typeof OptionChainProvenanceSegment];
+
+export const OptionChainProvenanceSegment = {
+  OPT: "OPT",
+} as const;
+
+/**
+ * Honest source/trust envelope for a served option chain. NSE-direct is a labelled fallback (display only); only a complete, non-stale, non-expired Kite chain is trustedForSignals.
+ */
+export interface OptionChainProvenance {
+  /** Normalised provider that produced the chain. */
+  sourceProvider: OptionChainProvenanceSourceProvider;
+  /** Lower = higher trust (kite 1, nse 2, yahoo 3, unknown 99). */
+  sourcePriority: number;
+  /** Chain generation instant; null when unknown. */
+  asof?: string | null;
+  /** When this envelope was computed. */
+  fetchedAt: string;
+  /** Age in seconds (now − asof); null when asof unknown. */
+  freshnessSec?: number | null;
+  /** True when older than the freshness budget. */
+  isStale: boolean;
+  /** True whenever the chain did NOT come from Kite. */
+  fallbackUsed: boolean;
+  /** NFO for Kite F&O, NSE for NSE-direct, else null. */
+  exchange?: string | null;
+  segment: OptionChainProvenanceSegment;
+  expiry?: string | null;
+  lotSize?: number | null;
+  /** Number of CE/PE legs in the chain. */
+  legCount?: number;
+  /** How many legs carry positive open interest (OI coverage). */
+  oiLegCount?: number;
+  /** HARD verdict — only a complete, non-stale, non-expired Kite chain qualifies to power signals/paper trades. */
+  trustedForSignals: boolean;
+  /** Concrete reason when the chain is unavailable; null otherwise. */
+  missingReason?: string | null;
+  /** Human-readable degradations / fallback notes (e.g. 'Kite unavailable; showing NSE fallback data'). */
+  warnings: string[];
+}
+
 export interface OptionChainResponse {
   underlying: string;
   underlyingName?: string;
@@ -2803,6 +2877,7 @@ export interface OptionChainResponse {
   /** Origin tag — 'NSE' for live fetch, 'kite' for Kite-derived */
   source: string;
   generatedAt: string;
+  provenance?: OptionChainProvenance;
 }
 
 /**
