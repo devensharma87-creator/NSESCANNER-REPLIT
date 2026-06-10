@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ChartInstrumentSegment } from "./chartInstrumentSegment";
+import type { ChartInstrumentSource } from "./chartInstrumentSource";
 
 export interface ChartInstrument {
   symbol: string;
@@ -14,4 +15,6 @@ export interface ChartInstrument {
   exchange?: string | null;
   /** Display type label, e.g. Index / Equity / Global Index. */
   type: string;
+  /** Provenance: 'curated' = hand-maintained catalog, 'kite_master' = full on-disk Kite instrument master (long-tail NSE/BSE). */
+  source?: ChartInstrumentSource;
 }

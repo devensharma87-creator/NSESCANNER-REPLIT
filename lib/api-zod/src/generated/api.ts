@@ -2187,6 +2187,12 @@ export const SearchChartInstrumentsResponse = zod.object({
       type: zod
         .string()
         .describe("Display type label, e.g. Index \/ Equity \/ Global Index."),
+      source: zod
+        .enum(["curated", "kite_master"])
+        .optional()
+        .describe(
+          "Provenance: 'curated' = hand-maintained catalog, 'kite_master' = full on-disk Kite instrument master (long-tail NSE\/BSE).",
+        ),
     }),
   ),
 });

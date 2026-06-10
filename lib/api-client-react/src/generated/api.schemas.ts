@@ -378,6 +378,17 @@ export const ChartInstrumentSegment = {
   global: "global",
 } as const;
 
+/**
+ * Provenance: 'curated' = hand-maintained catalog, 'kite_master' = full on-disk Kite instrument master (long-tail NSE/BSE).
+ */
+export type ChartInstrumentSource =
+  (typeof ChartInstrumentSource)[keyof typeof ChartInstrumentSource];
+
+export const ChartInstrumentSource = {
+  curated: "curated",
+  kite_master: "kite_master",
+} as const;
+
 export interface ChartInstrument {
   symbol: string;
   name: string;
@@ -385,6 +396,8 @@ export interface ChartInstrument {
   exchange?: string | null;
   /** Display type label, e.g. Index / Equity / Global Index. */
   type: string;
+  /** Provenance: 'curated' = hand-maintained catalog, 'kite_master' = full on-disk Kite instrument master (long-tail NSE/BSE). */
+  source?: ChartInstrumentSource;
 }
 
 export interface ChartInstrumentsResponse {

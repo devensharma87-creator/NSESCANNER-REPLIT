@@ -1,0 +1,279 @@
+Stop marking small fixes as done. The Portfolio problem is still not complete.
+
+You have now confirmed the real root cause yourself:
+
+Portfolio/search was using a limited curated universe.
+Deep Scan / Scanner had access to stocks that Portfolio could not resolve.
+The full Kite instrument master exists on disk and contains the missing instruments.
+These symbols exist in the full master:
+ARE&M
+TRIDENT
+BDL
+TMPV
+INDHOTEL
+BLS
+CDSL
+NSDL / 544467
+
+So now fix the root cause completely.
+
+No more margin-only fixes.
+No more tooltip-only fixes.
+No more autocomplete-only fixes.
+No more saying “done” while the same stocks still show UNPRICED / No instrument match / Awaiting data.
+
+Immediate task:
+Finish the Portfolio canonical resolver and full Kite instrument master integration end-to-end.
+
+Required outcome:
+If a stock exists in the full Kite instrument master or Deep Scan universe, Portfolio must resolve it, price it, and reuse the same canonical data backbone.
+
+Fix these permanently:
+
+Portfolio instrument resolver
+
+Portfolio must use the full canonical resolver, not the small curated universe.
+
+Resolver must search:
+
+exact symbol
+symbol with exchange suffix
+display name
+aliases
+full Kite NSE instrument cache
+full Kite BSE instrument cache
+Deep Scan / Scanner universe
+ETF resolver
+BSE numeric code resolver
+
+It must support:
+
+ARE&M
+TRIDENT
+BDL
+TMPV
+INDHOTEL
+BLS
+CDSL
+NSDL / 544467
+CPSEETF
+SETFGOLD
+MON100
+HDFCSILVER
+MAM150ETF
+NASDAQ100
+Manual Add Holdings autocomplete
+
+Typing partial text must show live results from the full resolver, not only the curated universe.
+
+Test these in the UI:
+
+hdfc
+tata
+trident
+bdl
+are
+are&m
+cdsl
+nsdl
+tmpv
+
+The dropdown must show:
+
+symbol
+company name
+exchange
+instrument type
+source
+already-in-portfolio status if applicable
+
+Selecting a suggestion must save the canonical instrument, not raw typed text.
+
+Portfolio row after manual add
+
+After adding a valid symbol, the row must show:
+
+canonical symbol
+display name
+exchange
+instrument type
+CMP
+current value
+day P&L
+total P&L
+return %
+weight
+action/recommendation or exact unavailable reason
+Existing unpriced rows
+
+The currently unpriced rows must be reprocessed through the new resolver.
+
+Do not leave these as “No instrument match” if the full Kite master can find them.
+
+For each of these, return proof:
+
+ARE&M
+TRIDENT
+BDL
+TMPV
+INDHOTEL
+BLS
+CDSL
+NSDL / 544467
+
+For each symbol show:
+
+raw uploaded symbol
+resolver attempts
+canonical result
+exchange
+kite_key
+instrument token
+quote found YES/NO
+portfolio valuation status
+recommendation status
+missing reason if not priced
+No meaningless n/a
+
+The Portfolio table must not show naked “n/a” everywhere.
+
+If unpriced:
+
+show UNPRICED
+show exact reason
+show source attempted
+show excluded_from_live_valuation
+
+If recommendation unavailable:
+
+show exact reason:
+no scanner row
+no candle history
+insufficient data
+unsupported instrument type
+quote unavailable
+instrument unresolved
+Action View explanation
+
+The tooltip is useful, but do not treat it as the main fix.
+
+Each ACTION VIEW must show detailed reason on hover/click:
+
+score
+score drivers
+price trend reason
+RSI / moving-average reason
+concentration/risk reason
+why it is Mixed / Watch, Exit Review, Strong Structure, etc.
+
+But this is secondary. The main issue is still resolver + pricing.
+
+Layout/alignment issue
+
+The Sector Allocation panel is still visually broken/crowded.
+
+Fix it properly:
+
+legend must be readable
+text must not cut/overlap
+chart and legend must align cleanly
+right panel must not cover table content
+responsive layout must work at current screen width
+no new layout bug while fixing another
+
+Do not solve one UI problem and create another.
+
+Diagnostics endpoint
+
+Add or update:
+
+GET /api/data/diagnostics/portfolio-resolution
+
+It must return each holding’s resolution path:
+{
+"raw_symbol": "TRIDENT",
+"resolved": true,
+"canonical_symbol": "TRIDENT",
+"exchange": "NSE",
+"kite_key": "NSE",
+"instrument_token": "...",
+"quote_found": true,
+"valuation_status": "PRICED",
+"recommendation_status": "AVAILABLE",
+"missing_reason": null,
+"resolver_attempts": [
+"exact symbol",
+"full Kite NSE master",
+"scanner universe"
+]
+}
+
+For failed symbols:
+{
+"raw_symbol": "...",
+"resolved": false,
+"valuation_status": "UNPRICED",
+"missing_reason": "Exact reason here, not generic n/a",
+"resolver_attempts": [...]
+}
+
+Tests required
+
+Add tests for:
+
+ARE&M special-character symbol resolves
+TRIDENT resolves
+BDL resolves
+TMPV resolves
+INDHOTEL resolves
+BLS resolves
+CDSL resolves
+544467 / NSDL resolves or gives exact unsupported reason
+hdfc autocomplete returns HDFC instruments
+tata autocomplete returns Tata instruments
+trident autocomplete returns TRIDENT
+manual add saves canonical selected instrument
+portfolio uses full Kite master, not only curated universe
+portfolio does not use Yahoo for official valuation/P&L
+unpriced holding has missing_reason
+action reason tooltip has meaningful reasons
+sector allocation does not overflow/cut at tested viewport
+existing Portfolio tests pass
+Watchlist tests pass
+T003 tests pass
+typecheck passes
+Production verification required
+
+Do not call this done without screenshots/proof.
+
+Verify in production/dev UI:
+
+Type “hdfc” → suggestions visible
+Type “tata” → suggestions visible
+Type “trident” → TRIDENT visible
+Type “bdl” → BDL visible
+Type “are” or “are&m” → ARE&M visible
+Type “cdsl” → CDSL visible
+Add one valid stock manually
+Confirm CMP loads
+Confirm value/P&L/weight loads
+Confirm action/recommendation or exact unavailable reason appears
+Confirm current unpriced rows reduce where the full Kite master has instruments
+Confirm sector allocation layout is readable
+Confirm no row shows meaningless n/a without reason
+
+Deliverables:
+
+Root cause summary.
+Why Deep Scan resolved the stocks but Portfolio did not.
+Files changed.
+Central resolver implementation details.
+Manual autocomplete implementation details.
+Before/after table for the 8 listed symbols.
+Portfolio diagnostics output.
+Screenshot after fix.
+Tests and typecheck result.
+Remaining unresolved symbols with exact reasons.
+
+Final instruction:
+Do not waste time with cosmetic fixes and call it done. The permanent solution is one canonical instrument resolver and one trusted market-data backbone used everywhere. If the full Kite master or Deep Scan can find a stock, Portfolio must find it too. No fake n/a. No generic “No instrument match.” No silent failure. No excuses.

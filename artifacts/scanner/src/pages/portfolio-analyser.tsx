@@ -685,6 +685,7 @@ export default function PortfolioAnalyser() {
         onOpenChange={setUploadOpen}
         onImport={mergeHoldings}
         onAddOne={h => mergeHoldings([h])}
+        existingSymbols={holdings.map(h => h.symbol)}
       />
       <StockDeepDive row={selectedRow} open={selected != null} onOpenChange={v => !v && setSelected(null)} />
     </div>

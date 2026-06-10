@@ -8,7 +8,11 @@
  */
 import { Router, type IRouter } from "express";
 import { z } from "zod";
-import { searchInstruments, type ChartInstrumentDto } from "../lib/chartInstruments";
+import {
+  searchInstruments,
+  mergeMasterHits,
+  type ChartInstrumentDto,
+} from "../lib/chartInstruments";
 import { searchMaster } from "../lib/marketData/instrumentResolver";
 import {
   getChartCandles,
@@ -42,17 +46,10 @@ router.get("/chart/instruments", (req, res) => {
   // indices/global/equities rank first; master hits fill the long tail.
   let instruments: ChartInstrumentDto[] = curated;
   if (q.trim().length > 0 && (segment === undefined || segment === "equity")) {
-    const seen = new Set(curated.map(i => i.symbol.toUpperCase()));
-    const masterHits: ChartInstrumentDto[] = searchMaster(q, 30)
-      .filter(h => !seen.has(h.symbol.toUpperCase()))
-      .map(h => ({
-        symbol: h.symbol,
-        name: h.name,
-        segment: "equity" as const,
-        exchange: h.exchange,
-        type: h.type,
-      }));
-    instruments = [...curated, ...masterHits];
+    // Dedupe master hits (NSE-ranked) behind curated so a ticker listed on more
+    // than one exchange (TRIDENT/BDL/ARE&M/INDHOTEL/BLS exist on both NSE+BSE)
+    // never appears twice; BSE-only names (NSDL) still survive. See helper.
+    instruments = mergeMasterHits(curated, searchMaster(q, 60), 30);
   }
   res.json({ query: q, instruments });
 });

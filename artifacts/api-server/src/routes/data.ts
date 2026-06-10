@@ -7,6 +7,9 @@ import {
   validateAgainstIndstocks,
   isIndstocksEnabled,
 } from "../lib/marketData";
+import { resolveInstrument } from "../lib/marketData/instrumentResolver";
+import { getChartCandles } from "../lib/chartDatafeed";
+import { UNIVERSE } from "../lib/universe";
 import { INSTRUMENT_ASSET_CLASSES, type InstrumentAssetClass } from "@workspace/db";
 
 /**
@@ -39,6 +42,129 @@ router.get("/data/diagnostics/symbol/:symbol", async (req, res, next) => {
       return;
     }
     res.json(await buildSymbolDiagnostic(symbol.trim()));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/data/diagnostics/portfolio-resolution — owner-only end-to-end proof
+ * that the canonical resolver + central datafeed price any symbol that exists
+ * in the full Kite instrument master, NOT just the curated scan-set.
+ *
+ * For each requested symbol it returns the full resolution path: the ordered
+ * resolver attempts, the canonical instrument, whether a live quote was found
+ * (and from which source), and an explicit `missing_reason` when not — never a
+ * silent / generic "n/a".
+ *
+ * Query: `?symbols=TRIDENT,BDL,…` (comma-separated, max 50). With no symbols it
+ * probes the eight user-reported tickers so the endpoint is self-demonstrating.
+ */
+const DEFAULT_RESOLUTION_PROBE = [
+  "TRIDENT",
+  "BDL",
+  "CDSL",
+  "ARE&M",
+  "TMPV",
+  "INDHOTEL",
+  "BLS",
+  "NSDL",
+];
+
+router.get("/data/diagnostics/portfolio-resolution", async (req, res, next) => {
+  try {
+    const raw = req.query["symbols"];
+    const rawStr = Array.isArray(raw) ? raw.join(",") : typeof raw === "string" ? raw : "";
+    const requested = rawStr.trim()
+      ? rawStr.split(",").map((s) => s.trim()).filter((s) => s.length > 0)
+      : DEFAULT_RESOLUTION_PROBE;
+    const symbols = Array.from(
+      new Set(requested.map((s) => s.toUpperCase())),
+    ).slice(0, 50);
+
+    const universe = new Set(UNIVERSE.map((u) => u.symbol.toUpperCase()));
+
+    const holdings = await Promise.all(
+      symbols.map(async (raw_symbol) => {
+        const r = resolveInstrument(raw_symbol);
+
+        if (!r.resolved || !r.instrument) {
+          return {
+            raw_symbol,
+            resolved: false,
+            canonical_symbol: null,
+            exchange: null,
+            kite_key: null,
+            instrument_token: null,
+            instrument_type: null,
+            bse_code: null,
+            matched_via: null,
+            quote_found: false,
+            quote_source: null,
+            last_price: null,
+            valuation_status: "UNPRICED" as const,
+            recommendation_status: "UNAVAILABLE" as const,
+            missing_reason:
+              r.reason ?? "Not found in the Kite instrument master (NSE/BSE).",
+            recommendation_reason: "Instrument unresolved.",
+            resolver_attempts: r.attempts,
+          };
+        }
+
+        const inst = r.instrument;
+        let quote_found = false;
+        let last_price: number | null = null;
+        let quote_source: string | null = null;
+        try {
+          const c = await getChartCandles(inst.canonical_symbol, "equity", "1D");
+          const closes = c.candles.filter((p) => Number.isFinite(p.c));
+          if (closes.length > 0) {
+            quote_found = true;
+            last_price = closes[closes.length - 1]!.c;
+            quote_source = c.source;
+          }
+        } catch {
+          // fail-open: leave quote_found=false with an explicit reason below.
+        }
+
+        const inUniverse = universe.has(inst.canonical_symbol.toUpperCase());
+
+        return {
+          raw_symbol,
+          resolved: true,
+          canonical_symbol: inst.canonical_symbol,
+          display_name: inst.display_name,
+          exchange: inst.exchange,
+          kite_key: inst.kite_key,
+          instrument_token: inst.instrument_token,
+          instrument_type: inst.instrument_type,
+          bse_code: inst.bse_code,
+          matched_via: r.matched_via,
+          quote_found,
+          quote_source,
+          last_price,
+          valuation_status: quote_found ? ("PRICED" as const) : ("UNPRICED" as const),
+          recommendation_status: inUniverse
+            ? ("AVAILABLE" as const)
+            : ("NO_SCANNER_ROW" as const),
+          missing_reason: quote_found
+            ? null
+            : "Resolved to a canonical instrument but neither Kite nor Yahoo returned a daily quote.",
+          recommendation_reason: inUniverse
+            ? null
+            : "Not in the curated scanner scan-set; the structure score/recommendation is computed only for curated NIFTY-500 names.",
+          resolver_attempts: r.attempts,
+        };
+      }),
+    );
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      authoritative: "kite",
+      note: "Valuation uses Kite as authoritative with a Yahoo fallback for instruments Kite cannot serve (quote_source is surfaced per row).",
+      count: holdings.length,
+      holdings,
+    });
   } catch (err) {
     next(err);
   }

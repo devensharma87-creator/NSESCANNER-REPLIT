@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Upload, AlertTriangle, Plus, Search, X } from "lucide-react";
 import {
@@ -46,12 +46,19 @@ export function UploadModal({
   onOpenChange,
   onImport,
   onAddOne,
+  existingSymbols = [],
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onImport: (holdings: RawHolding[]) => void;
   onAddOne: (holding: RawHolding) => void;
+  /** Symbols already in the working portfolio, used to flag duplicates in autocomplete. */
+  existingSymbols?: string[];
 }) {
+  const ownedSet = useMemo(
+    () => new Set(existingSymbols.map(s => s.trim().toUpperCase())),
+    [existingSymbols],
+  );
   const [tab, setTab] = useState<Tab>("csv");
   const [parsed, setParsed] = useState<ParseResult | null>(null);
   const [csvText, setCsvText] = useState("");
@@ -307,23 +314,41 @@ export function UploadModal({
                       No matching instrument. Type the exact NSE symbol to add it anyway.
                     </div>
                   )}
-                  {instruments.map(inst => (
-                    <button
-                      key={`${inst.segment}:${inst.symbol}`}
-                      type="button"
-                      onClick={() => pickInstrument(inst)}
-                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50"
-                      data-testid={`manual-result-${inst.symbol}`}
-                    >
-                      <span className="flex min-w-0 flex-col">
-                        <span className="font-mono font-semibold">{inst.symbol}</span>
-                        <span className="truncate text-xs text-muted-foreground">{inst.name}</span>
-                      </span>
-                      <Badge variant="outline" className="shrink-0 text-[10px]">
-                        {inst.exchange ? `${inst.exchange} · ${inst.type}` : inst.type}
-                      </Badge>
-                    </button>
-                  ))}
+                  {instruments.map(inst => {
+                    const owned = ownedSet.has(inst.symbol.toUpperCase());
+                    return (
+                      <button
+                        key={`${inst.segment}:${inst.exchange ?? ""}:${inst.symbol}`}
+                        type="button"
+                        onClick={() => pickInstrument(inst)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50"
+                        data-testid={`manual-result-${inst.symbol}`}
+                      >
+                        <span className="flex min-w-0 flex-col">
+                          <span className="flex items-center gap-1.5">
+                            <span className="font-mono font-semibold">{inst.symbol}</span>
+                            {owned && (
+                              <span
+                                className="rounded bg-amber-500/15 px-1 text-[9px] font-medium uppercase text-amber-500"
+                                data-testid={`manual-owned-${inst.symbol}`}
+                              >
+                                In portfolio
+                              </span>
+                            )}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">{inst.name}</span>
+                        </span>
+                        <span className="flex shrink-0 flex-col items-end gap-0.5">
+                          <Badge variant="outline" className="text-[10px]">
+                            {inst.exchange ? `${inst.exchange} · ${inst.type}` : inst.type}
+                          </Badge>
+                          <span className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                            {inst.source === "kite_master" ? "Kite master" : "Curated"}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

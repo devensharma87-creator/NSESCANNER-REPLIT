@@ -4,8 +4,11 @@ import {
   resolveInstrument,
   equityYahooTicker,
   equityInstruments,
+  mergeMasterHits,
   CURATED_INDICES,
   CURATED_GLOBAL,
+  type ChartInstrumentDto,
+  type MasterHit,
 } from "./chartInstruments";
 
 describe("equityYahooTicker", () => {
@@ -87,5 +90,65 @@ describe("registries", () => {
     const eq = equityInstruments();
     expect(eq.length).toBeGreaterThan(0);
     expect(eq.every(i => i.segment === "equity" && i.exchange === "NSE")).toBe(true);
+  });
+});
+
+describe("searchInstruments tags curated provenance", () => {
+  it("every curated result carries source='curated'", () => {
+    const r = searchInstruments("NIFTY");
+    expect(r.length).toBeGreaterThan(0);
+    expect(r.every(i => i.source === "curated")).toBe(true);
+  });
+});
+
+describe("mergeMasterHits (autocomplete dedupe + provenance)", () => {
+  const curated: ChartInstrumentDto[] = [
+    { symbol: "RELIANCE", name: "Reliance", segment: "equity", exchange: "NSE", type: "Equity", source: "curated" },
+  ];
+
+  it("drops a master hit whose symbol already appears in curated", () => {
+    const hits: MasterHit[] = [{ symbol: "RELIANCE", name: "Reliance Industries", exchange: "BSE", type: "Equity" }];
+    const out = mergeMasterHits(curated, hits);
+    expect(out.filter(i => i.symbol === "RELIANCE")).toHaveLength(1);
+    expect(out[0]!.source).toBe("curated");
+  });
+
+  it("collapses the same symbol listed on NSE and BSE to a single (first/NSE) row", () => {
+    // searchMaster ranks NSE first, so the NSE listing wins the dedupe.
+    const hits: MasterHit[] = [
+      { symbol: "TRIDENT", name: "Trident Ltd", exchange: "NSE", type: "Equity" },
+      { symbol: "TRIDENT", name: "Trident Ltd", exchange: "BSE", type: "Equity" },
+    ];
+    const out = mergeMasterHits([], hits);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.exchange).toBe("NSE");
+    expect(out[0]!.source).toBe("kite_master");
+  });
+
+  it("keeps a BSE-only symbol that no curated/NSE row shadows", () => {
+    const hits: MasterHit[] = [{ symbol: "NSDL", name: "NSDL", exchange: "BSE", type: "Equity" }];
+    const out = mergeMasterHits(curated, hits);
+    expect(out.some(i => i.symbol === "NSDL" && i.exchange === "BSE")).toBe(true);
+  });
+
+  it("tags master rows with source='kite_master' and curated stays first", () => {
+    const hits: MasterHit[] = [{ symbol: "TMPV", name: "Tata Motors PV", exchange: "NSE", type: "Equity" }];
+    const out = mergeMasterHits(curated, hits);
+    expect(out[0]!.symbol).toBe("RELIANCE");
+    const tmpv = out.find(i => i.symbol === "TMPV");
+    expect(tmpv?.source).toBe("kite_master");
+  });
+
+  it("never emits duplicate symbols and respects the limit", () => {
+    const hits: MasterHit[] = Array.from({ length: 50 }, (_, i) => ({
+      symbol: `SYM${i % 10}`, // only 10 distinct symbols across 50 hits
+      name: `Name ${i}`,
+      exchange: i % 2 === 0 ? "NSE" : "BSE",
+      type: "Equity",
+    }));
+    const out = mergeMasterHits([], hits, 5);
+    const syms = out.map(i => i.symbol);
+    expect(new Set(syms).size).toBe(syms.length); // no duplicates
+    expect(out.length).toBeLessThanOrEqual(5); // limit honoured
   });
 });

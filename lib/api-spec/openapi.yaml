@@ -2024,6 +2024,10 @@ components:
           enum: [index, equity, global]
         exchange: { type: string, nullable: true }
         type: { type: string, description: "Display type label, e.g. Index / Equity / Global Index." }
+        source:
+          type: string
+          enum: [curated, kite_master]
+          description: "Provenance: 'curated' = hand-maintained catalog, 'kite_master' = full on-disk Kite instrument master (long-tail NSE/BSE)."
 
     ChartInstrumentsResponse:
       type: object

@@ -56,6 +56,7 @@ export * from "./chartCandlesResponseSource";
 export * from "./chartCandlesResponseTimeframe";
 export * from "./chartInstrument";
 export * from "./chartInstrumentSegment";
+export * from "./chartInstrumentSource";
 export * from "./chartInstrumentsResponse";
 export * from "./companyProfile";
 export * from "./companyProfilePeersItem";

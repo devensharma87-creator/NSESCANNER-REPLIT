@@ -111,10 +111,23 @@ export interface ChartInstrumentDto {
   segment: ChartSegment;
   exchange: string | null;
   type: string;
+  /**
+   * Provenance of the row so the UI can tell the operator where a suggestion
+   * came from: `curated` = the hand-maintained indices/global/equity catalog,
+   * `kite_master` = the full on-disk Kite instrument master (long-tail NSE/BSE).
+   */
+  source: "curated" | "kite_master";
 }
 
 function toDto(m: ChartInstrumentMeta): ChartInstrumentDto {
-  return { symbol: m.symbol, name: m.name, segment: m.segment, exchange: m.exchange, type: m.type };
+  return {
+    symbol: m.symbol,
+    name: m.name,
+    segment: m.segment,
+    exchange: m.exchange,
+    type: m.type,
+    source: "curated",
+  };
 }
 
 const SEARCH_LIMIT = 40;
@@ -150,4 +163,44 @@ export function searchInstruments(query: string, segment?: ChartSegment): ChartI
     .sort((a, b) => a.score - b.score);
 
   return scored.slice(0, SEARCH_LIMIT).map(s => toDto(s.m));
+}
+
+/** Raw Kite-master hit shape consumed by {@link mergeMasterHits}. */
+export interface MasterHit {
+  symbol: string;
+  name: string;
+  exchange: string | null;
+  type: string;
+}
+
+/**
+ * Merge full Kite-master hits behind the curated results, deduped by symbol so
+ * a ticker listed on more than one exchange (e.g. TRIDENT/BDL/ARE&M on both NSE
+ * and BSE) never appears twice. Curated rows rank first and win ties; among
+ * master hits the caller passes them already NSE-ranked, so the first listing
+ * for a symbol wins. BSE-only names (e.g. NSDL) survive because no curated/NSE
+ * row shadows them. Pure — safe to unit-test.
+ */
+export function mergeMasterHits(
+  curated: ChartInstrumentDto[],
+  masterHits: MasterHit[],
+  limit = 30,
+): ChartInstrumentDto[] {
+  const seen = new Set(curated.map(i => i.symbol.toUpperCase()));
+  const extra: ChartInstrumentDto[] = [];
+  for (const h of masterHits) {
+    const key = h.symbol.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    extra.push({
+      symbol: h.symbol,
+      name: h.name,
+      segment: "equity",
+      exchange: h.exchange,
+      type: h.type,
+      source: "kite_master",
+    });
+    if (extra.length >= limit) break;
+  }
+  return [...curated, ...extra];
 }
