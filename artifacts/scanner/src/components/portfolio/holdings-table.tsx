@@ -237,9 +237,19 @@ export function HoldingsTable({
                     </span>
                   ) : analytics.label ? (
                     <span
-                      className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${actionViewClass(
+                      className={`inline-block cursor-help whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${actionViewClass(
                         analytics.label,
                       )}`}
+                      title={[
+                        `${analytics.label}${analytics.score != null ? ` · structure score ${analytics.score}/100` : ""}`,
+                        analytics.reasons.length ? `Why: ${analytics.reasons.join(" ")}` : "",
+                        analytics.componentsUsed.length
+                          ? `Based on: ${analytics.componentsUsed.join(", ")}.`
+                          : "",
+                        "Review-oriented label — not investment advice.",
+                      ]
+                        .filter(Boolean)
+                        .join("\n")}
                     >
                       {analytics.label}
                     </span>
