@@ -214,6 +214,64 @@ export function __resetSwingBenchmarkHealthForTests(): void {
   benchmarkHealth.lastBenchmark = null;
 }
 
+/* ─────────────── Per-symbol daily-bar source health ──────────────── */
+/**
+ * Process-local provenance for the per-symbol DAILY bars consumed by the
+ * last deep scan (Kite-first, Yahoo fallback in `fetchDailyBars`). Like
+ * `benchmarkHealth` this is IN-MEMORY ONLY (no schema/DB change) and has
+ * zero effect on scoring/recommendation/plan/paper/F&O. Read it via
+ * `getSwingCandleHealth()`; reset between tests with
+ * `__resetSwingCandleHealthForTests()`.
+ *
+ * HONESTY CONTRACT: a reader (`getLatestSwingScan`) may only attach this
+ * provenance when `lastScan.scanDate` matches the DB's latest scanDate —
+ * i.e. THIS process produced that scan. After a restart the counters are
+ * empty, so the reader reports "unavailable" rather than guessing.
+ */
+export interface SwingCandleHealth {
+  lastScan: {
+    scanDate: string;
+    /** How many symbols were priced from each provider. */
+    bySource: { kite: number; yahoo: number };
+    /** Symbols that returned no usable bars (skipped, never fabricated). */
+    noBarsCount: number;
+    /** Freshest daily-bar timestamp (UTC ISO) across priced symbols, or null. */
+    asOf: string | null;
+    /** When this tally was computed. */
+    at: string;
+  } | null;
+  bootedAt: string;
+}
+
+const candleHealth: SwingCandleHealth = {
+  lastScan: null,
+  bootedAt: new Date().toISOString(),
+};
+
+export function getSwingCandleHealth(): SwingCandleHealth {
+  return {
+    bootedAt: candleHealth.bootedAt,
+    lastScan: candleHealth.lastScan
+      ? { ...candleHealth.lastScan, bySource: { ...candleHealth.lastScan.bySource } }
+      : null,
+  };
+}
+
+export function __resetSwingCandleHealthForTests(): void {
+  candleHealth.lastScan = null;
+}
+
+/** Pure: collapse per-source counts into a dominant provenance label. */
+export function deriveCandleDominant(
+  bySource: { kite: number; yahoo: number },
+): "kite" | "yahoo" | "mixed" | "none" {
+  const k = bySource.kite, y = bySource.yahoo;
+  if (k > 0 && y > 0) return "mixed";
+  if (k > 0) return "kite";
+  if (y > 0) return "yahoo";
+  return "none";
+}
+
 export async function runDeepScan(scanDate: string = istDateString()): Promise<{ scanned: number; errors: number; durationMs: number }> {
   if (deepScanInflight) {
     logger.warn({ scanDate }, "swing-scan deep-scan already in flight; skipping");
@@ -257,10 +315,18 @@ export async function runDeepScan(scanDate: string = istDateString()): Promise<{
     const benchClose = benchmark.bars?.close ?? null;
     const benchTs = benchmark.bars?.ts ?? null;
 
+    // Per-symbol daily-bar provenance tally (honest Kite-vs-Yahoo split).
+    // Plain `let`s are safe under mapWithConcurrency: the increments run
+    // synchronously after each await resolves (Node is single-threaded).
+    let candleKite = 0, candleYahoo = 0, candleNone = 0, candleMaxTs = 0;
+
     await mapWithConcurrency(NIFTY500_SYMBOLS, CONCURRENCY, async (symbol) => {
       try {
-        const bars = await fetchDailyBars(symbol, 500);
-        if (!bars) { errors++; return; }
+        const { bars, source } = await fetchDailyBars(symbol, 500);
+        if (!bars) { candleNone++; errors++; return; }
+        if (source === "kite") candleKite++; else if (source === "yahoo") candleYahoo++;
+        const lastTs = bars.ts[bars.ts.length - 1];
+        if (typeof lastTs === "number" && Number.isFinite(lastTs) && lastTs > candleMaxTs) candleMaxTs = lastTs;
         const fundamentals = await fetchFundamentalsForSwing(symbol).catch(() => null);
         const result = scoreAndPlan({
           symbol, bars,
@@ -284,6 +350,18 @@ export async function runDeepScan(scanDate: string = istDateString()): Promise<{
         }, "swing-scan symbol failed");
       }
     });
+
+    candleHealth.lastScan = {
+      scanDate,
+      bySource: { kite: candleKite, yahoo: candleYahoo },
+      noBarsCount: candleNone,
+      asOf: candleMaxTs > 0 ? new Date(candleMaxTs).toISOString() : null,
+      at: new Date().toISOString(),
+    };
+    logger.info(
+      { scanDate, candleKite, candleYahoo, candleNone, asOf: candleHealth.lastScan.asOf },
+      "swing-scan daily-bar provenance",
+    );
 
     const finishedAt = new Date();
     const durationMs = finishedAt.getTime() - startedAt.getTime();
@@ -539,6 +617,14 @@ export interface SwingScanQuery {
   qualityGrade?: string;
 }
 
+export interface SwingCandleProvenance {
+  scanDate: string;
+  bySource: { kite: number; yahoo: number };
+  noBarsCount: number;
+  dominant: "kite" | "yahoo" | "mixed" | "none";
+  asOf: string | null;
+}
+
 export interface SwingScanReadResult {
   asOf: string;
   scanDate: string | null;
@@ -550,6 +636,26 @@ export interface SwingScanReadResult {
     finishedAt: string;
   } | null;
   rows: SwingScanResultRow[];
+  /**
+   * Provenance for the DAILY bars that fed the latest scan, or null when
+   * this process did not produce that scan (e.g. after a restart) — in
+   * which case the UI honestly shows "source unavailable" rather than a
+   * guess. Gated on an in-memory scanDate match (see `candleHealth`).
+   */
+  candleProvenance: SwingCandleProvenance | null;
+}
+
+/** Build the read-side provenance, honest-gated on scanDate identity. */
+function readCandleProvenance(scanDate: string): SwingCandleProvenance | null {
+  const last = getSwingCandleHealth().lastScan;
+  if (!last || last.scanDate !== scanDate) return null;
+  return {
+    scanDate: last.scanDate,
+    bySource: { ...last.bySource },
+    noBarsCount: last.noBarsCount,
+    dominant: deriveCandleDominant(last.bySource),
+    asOf: last.asOf,
+  };
 }
 
 export async function getLatestSwingScan(q: SwingScanQuery = {}): Promise<SwingScanReadResult> {
@@ -563,7 +669,7 @@ export async function getLatestSwingScan(q: SwingScanQuery = {}): Promise<SwingS
     .limit(1);
   const scanDate = latestDateRow[0]?.d ?? null;
   if (!scanDate) {
-    return { asOf: new Date().toISOString(), scanDate: null, runMeta: null, rows: [] };
+    return { asOf: new Date().toISOString(), scanDate: null, runMeta: null, rows: [], candleProvenance: null };
   }
   const conditions = [eq(swingScanResultTable.scanDate, scanDate)];
   if (q.action) conditions.push(eq(swingScanResultTable.action, q.action));
@@ -597,6 +703,7 @@ export async function getLatestSwingScan(q: SwingScanQuery = {}): Promise<SwingS
       finishedAt: m.finishedAt.toISOString(),
     } : null,
     rows,
+    candleProvenance: readCandleProvenance(scanDate),
   };
 }
 

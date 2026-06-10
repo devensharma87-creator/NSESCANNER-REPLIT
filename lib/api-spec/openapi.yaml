@@ -2493,6 +2493,23 @@ components:
           type: array
           items: { $ref: "#/components/schemas/SectorSummary" }
         lastUpdated: { type: string, format: date-time }
+        candleProvenance:
+          type: object
+          description: "Honest provenance for the INDEX intraday candles that fed the trend's index-rule contributions (Kite-first, Yahoo fallback). source=none means no index candles were available and those rules were skipped — never silently substituted."
+          required: [source]
+          properties:
+            source:
+              type: string
+              enum: [kite, yahoo, mixed, none]
+              description: "kite = every index series came from Kite; yahoo = every series fell back to Yahoo; mixed = some of each; none = no index candles consumed."
+            asOf:
+              type: string
+              format: date-time
+              nullable: true
+              description: "Timestamp of the freshest index bar consumed, or null when none."
+            indicesUsed: { type: integer, description: "How many index series contributed candles." }
+            kiteCount: { type: integer, description: "Index series sourced from Kite." }
+            yahooCount: { type: integer, description: "Index series sourced from the Yahoo fallback." }
 
     OptionLeg:
       type: object

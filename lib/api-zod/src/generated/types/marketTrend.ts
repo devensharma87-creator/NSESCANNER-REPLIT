@@ -7,6 +7,7 @@
  */
 import type { MarketTrendBias } from "./marketTrendBias";
 import type { MarketTrendBreadth } from "./marketTrendBreadth";
+import type { MarketTrendCandleProvenance } from "./marketTrendCandleProvenance";
 import type { SectorSummary } from "./sectorSummary";
 import type { SignalReason } from "./signalReason";
 
@@ -20,4 +21,6 @@ export interface MarketTrend {
   sectorLeaders?: SectorSummary[];
   sectorLaggards?: SectorSummary[];
   lastUpdated: Date;
+  /** Honest provenance for the INDEX intraday candles that fed the trend's index-rule contributions (Kite-first, Yahoo fallback). source=none means no index candles were available and those rules were skipped — never silently substituted. */
+  candleProvenance?: MarketTrendCandleProvenance;
 }

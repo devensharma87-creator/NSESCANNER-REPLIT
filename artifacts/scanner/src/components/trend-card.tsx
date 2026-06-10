@@ -2,6 +2,7 @@ import { useGetMarketTrend, getGetMarketTrendQueryKey } from "@workspace/api-cli
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, Activity } from "lucide-react";
+import { DataSourceBadge, type DataSource } from "@/components/ui/data-source-badge";
 
 const BIAS_STYLES: Record<string, { color: string; label: string }> = {
   STRONG_BULLISH: { color: "text-signal-strong-buy", label: "STRONG BULLISH" },
@@ -23,6 +24,28 @@ export default function TrendCard() {
   }
   if (!data) return null;
   const style = BIAS_STYLES[data.bias] ?? BIAS_STYLES.NEUTRAL!;
+  const cp = data.candleProvenance;
+  const cpBadge = cp
+    ? (() => {
+        const source: DataSource =
+          cp.source === "kite" ? "kite"
+            : cp.source === "yahoo" ? "yahoo"
+              : cp.source === "mixed" ? "mixed"
+                : "unknown";
+        const note =
+          cp.source === "kite" ? "index 15m candles · Kite"
+            : cp.source === "yahoo" ? "index 15m candles · Yahoo fallback"
+              : cp.source === "mixed" ? `index 15m candles · ${cp.kiteCount} Kite / ${cp.yahooCount} Yahoo`
+                : "no index candles — index rules skipped";
+        return {
+          source,
+          status: (cp.source === "none" ? "down" : "delayed") as "down" | "delayed",
+          fallbackActive: cp.source === "yahoo" || cp.source === "mixed",
+          note,
+          asOf: cp.asOf ?? null,
+        };
+      })()
+    : null;
 
   return (
     <Card className="border-border">
@@ -34,6 +57,17 @@ export default function TrendCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm">{data.headline}</p>
+        {cpBadge && (
+          <DataSourceBadge
+            source={cpBadge.source}
+            status={cpBadge.status}
+            lastUpdated={cpBadge.asOf}
+            fallbackActive={cpBadge.fallbackActive}
+            note={cpBadge.note}
+            autoStaleAfterMs={0}
+            compact
+          />
+        )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
           <Stat label="Advancers" value={data.breadth.advancers} cls="text-signal-strong-buy" />
           <Stat label="Decliners" value={data.breadth.decliners} cls="text-signal-strong-sell" />

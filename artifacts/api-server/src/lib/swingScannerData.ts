@@ -50,22 +50,35 @@ function chartToBars(chart: ChartLike): DailyBars {
   return { ts, open, high, low, close, volume };
 }
 
+/** Source tag for the per-symbol daily-bar fetch path that returned bars. */
+export type SwingDailyBarSource = "kite" | "yahoo" | "none";
+
+export interface SwingDailyBarsResult {
+  /** OHLCV bars or null when both Kite and Yahoo failed. */
+  bars: DailyBars | null;
+  /** Which provider produced the bars (`"none"` when the fetch failed). */
+  source: SwingDailyBarSource;
+}
+
 /** Daily OHLCV for an NSE EQ symbol. Tries Kite via the throttled
  *  historical adapter first, Yahoo on miss. `daysBack ≥ 500` keeps the
- *  scoring module's 252-bar 52w window and 220-bar EMA seed safe. */
-export async function fetchDailyBars(symbol: string, daysBack = 500): Promise<DailyBars | null> {
+ *  scoring module's 252-bar 52w window and 220-bar EMA seed safe.
+ *  Returns the producing `source` so the deep-scan orchestrator can be
+ *  HONEST about Kite-vs-Yahoo provenance (the fallback is explicit, never
+ *  silent) — and never fabricates bars (null on a genuine miss). */
+export async function fetchDailyBars(symbol: string, daysBack = 500): Promise<SwingDailyBarsResult> {
   const token = await getInstrumentToken(symbol).catch(() => null);
   if (token) {
     const kite = await fetchKiteHistoricalByToken(token, `swing:${symbol}`, "day", daysBack);
-    if (kite && kite.close.length >= 220) return chartToBars(kite);
+    if (kite && kite.close.length >= 220) return { bars: chartToBars(kite), source: "kite" };
   }
   const range = daysBack > 365 ? "2y" : "1y";
   const yahoo = await fetchChart(symbol, range, "1d", "NS");
   if (!yahoo || yahoo.close.length < 220) {
     logger.debug({ symbol, kiteToken: token, yahooLen: yahoo?.close.length ?? 0 }, "swing-scan daily-bar fetch failed");
-    return null;
+    return { bars: null, source: "none" };
   }
-  return chartToBars(yahoo);
+  return { bars: chartToBars(yahoo), source: "yahoo" };
 }
 
 /** Benchmark bars for relative strength: NIFTY 50 (^NSEI). 1 year is

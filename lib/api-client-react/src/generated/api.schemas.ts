@@ -848,6 +848,35 @@ export type MarketTrendBreadth = {
   advanceDeclineRatio?: number;
 };
 
+/**
+ * kite = every index series came from Kite; yahoo = every series fell back to Yahoo; mixed = some of each; none = no index candles consumed.
+ */
+export type MarketTrendCandleProvenanceSource =
+  (typeof MarketTrendCandleProvenanceSource)[keyof typeof MarketTrendCandleProvenanceSource];
+
+export const MarketTrendCandleProvenanceSource = {
+  kite: "kite",
+  yahoo: "yahoo",
+  mixed: "mixed",
+  none: "none",
+} as const;
+
+/**
+ * Honest provenance for the INDEX intraday candles that fed the trend's index-rule contributions (Kite-first, Yahoo fallback). source=none means no index candles were available and those rules were skipped — never silently substituted.
+ */
+export type MarketTrendCandleProvenance = {
+  /** kite = every index series came from Kite; yahoo = every series fell back to Yahoo; mixed = some of each; none = no index candles consumed. */
+  source: MarketTrendCandleProvenanceSource;
+  /** Timestamp of the freshest index bar consumed, or null when none. */
+  asOf?: string | null;
+  /** How many index series contributed candles. */
+  indicesUsed?: number;
+  /** Index series sourced from Kite. */
+  kiteCount?: number;
+  /** Index series sourced from the Yahoo fallback. */
+  yahooCount?: number;
+};
+
 export interface MarketTrend {
   bias: MarketTrendBias;
   /** -100 to 100 */
@@ -858,6 +887,8 @@ export interface MarketTrend {
   sectorLeaders?: SectorSummary[];
   sectorLaggards?: SectorSummary[];
   lastUpdated: string;
+  /** Honest provenance for the INDEX intraday candles that fed the trend's index-rule contributions (Kite-first, Yahoo fallback). source=none means no index candles were available and those rules were skipped — never silently substituted. */
+  candleProvenance?: MarketTrendCandleProvenance;
 }
 
 export type OptionLegType = (typeof OptionLegType)[keyof typeof OptionLegType];

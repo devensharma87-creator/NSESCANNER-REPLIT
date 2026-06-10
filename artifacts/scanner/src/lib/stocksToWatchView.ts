@@ -81,6 +81,14 @@ export interface SwingRunMeta {
   finishedAt: string;
 }
 
+export interface CandleProvenance {
+  scanDate: string;
+  bySource: { kite: number; yahoo: number };
+  noBarsCount: number;
+  dominant: "kite" | "yahoo" | "mixed" | "none";
+  asOf: string | null;
+}
+
 export interface AnalysisPayload {
   asOf: string;
   scanDate: string | null;
@@ -91,6 +99,40 @@ export interface AnalysisPayload {
     deepScanInflight: boolean;
   };
   rows: SwingRow[];
+  /**
+   * Honest provenance for the DAILY bars behind this scan, or null when
+   * the serving process did not produce the latest scan (e.g. restarted
+   * since) — the UI then shows "source unavailable" instead of guessing.
+   */
+  candleProvenance?: CandleProvenance | null;
+}
+
+/** View-model for the daily-bar source pill; null when no provenance. */
+export interface CandleSourceBadgeView {
+  source: "kite" | "yahoo" | "mixed" | "unknown";
+  status: "delayed" | "down";
+  fallbackActive: boolean;
+  note: string;
+  asOf: string | null;
+}
+
+/** Pure: map daily-bar provenance → DataSourceBadge props (testable). */
+export function candleSourceBadge(
+  cp: CandleProvenance | null | undefined,
+): CandleSourceBadgeView | null {
+  if (!cp) return null;
+  const { dominant, bySource, asOf } = cp;
+  switch (dominant) {
+    case "kite":
+      return { source: "kite", status: "delayed", fallbackActive: false, note: "daily bars · Kite", asOf };
+    case "yahoo":
+      return { source: "yahoo", status: "delayed", fallbackActive: true, note: "daily bars · Yahoo fallback", asOf };
+    case "mixed":
+      return { source: "mixed", status: "delayed", fallbackActive: true, note: `daily bars · ${bySource.kite} Kite / ${bySource.yahoo} Yahoo`, asOf };
+    case "none":
+    default:
+      return { source: "unknown", status: "down", fallbackActive: false, note: "daily bars unavailable", asOf };
+  }
 }
 
 // ── numeric parsing ─────────────────────────────────────────────────────────

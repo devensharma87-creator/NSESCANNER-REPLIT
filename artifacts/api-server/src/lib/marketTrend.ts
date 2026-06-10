@@ -49,6 +49,10 @@ export async function getMarketTrend(): Promise<MarketTrend> {
   else { drivers.push({ label: "Mixed breadth", detail: `Advancers/Decliners ratio ${adRatio.toFixed(2)} — no clear leadership.`, weight: 5, bullish: adRatio > 1 }); }
 
   // 2. NIFTY intraday vs VWAP and EMAs (weight 35)
+  // Track which source actually fed the index candles so the trend can
+  // be HONEST about Kite-vs-Yahoo provenance (no silent fallback). The
+  // fallback below is intentional and explicit — we just surface it.
+  let idxKiteCount = 0, idxYahooCount = 0, idxFreshestMs = 0;
   for (const idx of [
     { sym: "^NSEI", name: "NIFTY 50", w: 20 },
     { sym: "^NSEBANK", name: "BANK NIFTY", w: 15 },
@@ -56,10 +60,19 @@ export async function getMarketTrend(): Promise<MarketTrend> {
     try {
       // Kite-first for live 15-min index candles (no Yahoo 15-min delay).
       let intra = await fetchKiteIntraday(idx.sym, "15minute", 5);
+      let intraSource: "kite" | "yahoo" | null =
+        intra && intra.close.length >= 6 ? "kite" : null;
       if (!intra || intra.close.length < 6) {
         intra = await fetchIntraday(idx.sym, "15m", "5d");
+        if (intra && intra.close.length >= 6) intraSource = "yahoo";
       }
-      if (!intra || intra.close.length < 6) continue;
+      if (!intra || intra.close.length < 6 || intraSource == null) continue;
+      // Candles were consumed for this index rule — record provenance.
+      if (intraSource === "kite") idxKiteCount++; else idxYahooCount++;
+      const lastTsSec = intra.timestamps[intra.timestamps.length - 1];
+      if (typeof lastTsSec === "number" && Number.isFinite(lastTsSec) && lastTsSec * 1000 > idxFreshestMs) {
+        idxFreshestMs = lastTsSec * 1000;
+      }
       const last = intra.close[intra.close.length - 1]!;
       // VWAP / EMA9 / EMA21 / RSI must NOT silently fall back to `last` or 50.
       // Substituting `last` makes `last > vwap` always false (last == last)
@@ -135,6 +148,17 @@ export async function getMarketTrend(): Promise<MarketTrend> {
     sectorLeaders: leaders,
     sectorLaggards: laggards,
     lastUpdated: new Date(),
+    candleProvenance: {
+      source:
+        idxKiteCount > 0 && idxYahooCount > 0 ? "mixed"
+          : idxKiteCount > 0 ? "kite"
+            : idxYahooCount > 0 ? "yahoo"
+              : "none",
+      asOf: idxFreshestMs > 0 ? new Date(idxFreshestMs) : null,
+      indicesUsed: idxKiteCount + idxYahooCount,
+      kiteCount: idxKiteCount,
+      yahooCount: idxYahooCount,
+    },
   };
   cache = { ts: Date.now(), data };
   return data;

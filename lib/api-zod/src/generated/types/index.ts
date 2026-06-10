@@ -263,6 +263,8 @@ export * from "./marketSummaryMarketStatus";
 export * from "./marketTrend";
 export * from "./marketTrendBias";
 export * from "./marketTrendBreadth";
+export * from "./marketTrendCandleProvenance";
+export * from "./marketTrendCandleProvenanceSource";
 export * from "./newsItem";
 export * from "./newsItemSentiment";
 export * from "./oiBuildupStockRow";

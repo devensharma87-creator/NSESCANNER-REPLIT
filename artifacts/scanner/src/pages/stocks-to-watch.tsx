@@ -17,6 +17,7 @@ import {
   groupRows,
   uniqueSectors,
   deriveRowBadges,
+  candleSourceBadge,
   DEFAULT_FILTERS,
   type SwingRow,
   type AnalysisPayload,
@@ -184,6 +185,34 @@ function TechScanSection({ data, isLoading, error }: {
             <span>· Updated {f.lastIntradayRefreshAt ? formatAge(f.lastIntradayRefreshAt, now) : "—"}</span>
           </div>
         );
+      })()}
+
+      {/* daily-bar source honesty: Kite-first, explicit Yahoo fallback, never silent */}
+      {(() => {
+        const b = candleSourceBadge(data?.candleProvenance);
+        if (b) {
+          return (
+            <DataSourceBadge
+              source={b.source}
+              status={b.status}
+              lastUpdated={b.asOf}
+              fallbackActive={b.fallbackActive}
+              note={b.note}
+              autoStaleAfterMs={0}
+              compact
+            />
+          );
+        }
+        // Scan exists but THIS process didn't produce it (e.g. restarted) —
+        // be honest rather than guess the daily-bar source.
+        if (data?.scanDate) {
+          return (
+            <div className="text-[11px] font-mono text-muted-foreground" data-testid="swing-candle-source-unavailable">
+              Daily-bar source unavailable (server restarted since last scan)
+            </div>
+          );
+        }
+        return null;
       })()}
 
       {/* summary cards */}

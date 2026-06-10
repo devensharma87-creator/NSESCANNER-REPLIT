@@ -648,6 +648,36 @@ export const GetMarketTrendResponse = zod.object({
     )
     .optional(),
   lastUpdated: zod.coerce.date(),
+  candleProvenance: zod
+    .object({
+      source: zod
+        .enum(["kite", "yahoo", "mixed", "none"])
+        .describe(
+          "kite = every index series came from Kite; yahoo = every series fell back to Yahoo; mixed = some of each; none = no index candles consumed.",
+        ),
+      asOf: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "Timestamp of the freshest index bar consumed, or null when none.",
+        ),
+      indicesUsed: zod
+        .number()
+        .optional()
+        .describe("How many index series contributed candles."),
+      kiteCount: zod
+        .number()
+        .optional()
+        .describe("Index series sourced from Kite."),
+      yahooCount: zod
+        .number()
+        .optional()
+        .describe("Index series sourced from the Yahoo fallback."),
+    })
+    .optional()
+    .describe(
+      "Honest provenance for the INDEX intraday candles that fed the trend's index-rule contributions (Kite-first, Yahoo fallback). source=none means no index candles were available and those rules were skipped — never silently substituted.",
+    ),
 });
 
 /**
