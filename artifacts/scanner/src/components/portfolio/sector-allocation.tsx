@@ -115,7 +115,7 @@ export function SectorAllocationPanel({ allocation }: { allocation: SectorAlloca
             </ResponsiveContainer>
           </div>
 
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             {allocation.map((a, i) => {
               const concentrated = a.weightPct != null && a.weightPct > SECTOR_CONCENTRATION_PCT;
               return (
@@ -124,7 +124,7 @@ export function SectorAllocationPanel({ allocation }: { allocation: SectorAlloca
                   className="flex items-center justify-between gap-2 text-xs"
                   data-testid={`sector-${a.sector}`}
                 >
-                  <span className="flex items-center gap-1.5 truncate">
+                  <span className="flex min-w-0 items-center gap-1.5 truncate">
                     <span
                       className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
                       style={{ background: PALETTE[i % PALETTE.length] }}
