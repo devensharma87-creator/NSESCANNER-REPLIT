@@ -1,0 +1,108 @@
+Prepare a consolidated project health report only. Do not write code. Do not modify files. Do not start any new task in background.
+
+Purpose:
+I want a clear current status of the website after the completed data-backbone fixes, before approving any further work.
+
+Do not reopen these completed tasks:
+
+Watchlist canonical data path
+Portfolio resolver + full Kite master + BSE Kite pricing
+Portfolio layout/manual add fixes
+Home / Market Pulse T003
+Charting Candle Source Honesty
+F&O option-chain signal-safety migration
+Scanner / Sector / Benchmark data cleanup
+
+Report required:
+
+Completed lanes
+For each completed lane, give:
+task name
+what was fixed
+key files/modules touched
+tests passed
+current production status
+any known limitation
+Remaining risky data paths
+List every remaining known:
+direct Yahoo path
+NSE-direct path
+INDstocks path
+synthetic/proxy data path
+stale/untrusted fallback path
+fake zero / fake n/a risk
+missing source/freshness label risk
+
+For each, mention:
+
+file
+endpoint/page affected
+whether it affects live trading/signals or only display/analytics
+recommended action
+Page-by-page safety status
+Create a table for:
+Home / Market Pulse
+Watchlist
+Portfolio Analyser
+Charting
+Scanner
+Deep Scan
+Swing Scanner
+Sector View
+Option Chain
+F&O Signals
+Paper Trading
+Backtest Lab
+
+For each page show:
+
+production-safe: YES/NO/PARTIAL
+primary data source
+fallback source
+source/freshness visible: YES/NO/PARTIAL
+remaining issue
+priority
+Remaining work estimate
+Give a realistic percentage:
+completed %
+remaining %
+what is still pending
+
+Break pending work into:
+
+small fixes
+medium tasks
+large migrations
+Cost-control recommendation
+Before recommending any next task, classify it as:
+small fix
+medium scoped task
+large migration
+
+For each recommended next task include:
+
+exact scope
+files likely touched
+estimated risk
+what will not be touched
+expected verification
+tests to run
+expected cost/time risk: LOW / MEDIUM / HIGH
+Next recommended task
+Give only one next recommended task. Do not start it.
+Explain why it should come next.
+
+Strict instructions:
+
+Do not code.
+Do not edit files.
+Do not run broad migrations.
+Do not start background work.
+Do not touch replit.md.
+Do not reopen completed tasks.
+Do not expand scope because of old parent-task validation failures.
+This is a report-only task.
+
+Output format:
+Use clear tables and short bullet points. End with:
+“Awaiting owner approval before any coding.”
