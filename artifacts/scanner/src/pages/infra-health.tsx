@@ -40,6 +40,7 @@ import {
   Brain,
   Radio,
   Receipt,
+  KeyRound,
 } from "lucide-react";
 import { Seo } from "@/components/seo";
 import {
@@ -1974,6 +1975,201 @@ function Kv({ label, value, tone }: { label: string; value: React.ReactNode; ton
 
 // ── page ────────────────────────────────────────────────────────────────────
 
+// ── INDstocks daily API token updater (owner-only hot-swap) ─────────────────
+
+interface IndstocksTokenStatusResp {
+  present: boolean;
+  source: "db" | "env" | "none";
+  updatedAt: string | null;
+  expiresAt: string | null;
+  expired: boolean;
+  updatedBy: string | null;
+}
+
+function IndstocksTokenSection({
+  auto,
+  tick,
+  refresh,
+}: {
+  auto: boolean;
+  tick: number;
+  refresh: () => void;
+}): React.ReactElement {
+  const status = useEndpoint<IndstocksTokenStatusResp>(
+    "api/data/indstocks/token/status",
+    auto,
+    tick,
+  );
+  const [tokenInput, setTokenInput] = useState("");
+  const [expiresInput, setExpiresInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const base = import.meta.env.BASE_URL;
+  const url = `${base}api/data/indstocks/token`;
+  const d = status.data;
+
+  const severity: Severity = useMemo(() => {
+    if (status.error) return "fail";
+    if (!d) return "warn";
+    if (!d.present) return "fail";
+    if (d.expired) return "warn";
+    if (d.source === "env") return "warn";
+    return "ok";
+  }, [d, status.error]);
+
+  async function save(): Promise<void> {
+    const token = tokenInput.trim();
+    if (token.length < 8) {
+      setMsg({ kind: "err", text: "Token looks too short." });
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const body: Record<string, string> = { token };
+      if (expiresInput.trim()) {
+        const d2 = new Date(expiresInput.trim());
+        if (!Number.isNaN(d2.getTime())) body["expiresAt"] = d2.toISOString();
+      }
+      const r = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setTokenInput("");
+      setExpiresInput("");
+      setMsg({ kind: "ok", text: "Token saved — takes effect within ~30s, no restart needed." });
+      refresh();
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof Error ? e.message : "Save failed" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearToken(): Promise<void> {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch(url, { method: "DELETE", credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setMsg({ kind: "ok", text: "DB token cleared — reads fall back to the INDSTOCKS_API_TOKEN secret." });
+      refresh();
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof Error ? e.message : "Clear failed" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SectionShell
+      title="INDstocks API Token"
+      icon={KeyRound}
+      severity={severity}
+      description="Owner-only. Hot-swap the daily INDstocks REST token — stored encrypted in the DB, no restart or redeploy needed."
+      testId="section-indstocks-token"
+    >
+      {status.error && <div className="text-sm text-rose-500">Status failed: {status.error}</div>}
+      {status.loading && !d && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {d && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+            <div>
+              <div className="text-muted-foreground">Token present</div>
+              <div className="font-medium" data-testid="indstocks-token-present">
+                {d.present ? "Yes" : "No"}
+              </div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Source</div>
+              <div className="font-medium uppercase" data-testid="indstocks-token-source">
+                {d.source}
+              </div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Updated</div>
+              <div className="font-medium">
+                {d.updatedAt ? new Date(d.updatedAt).toLocaleString() : "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Expires</div>
+              <div className={`font-medium ${d.expired ? "text-amber-600" : ""}`}>
+                {d.expiresAt ? new Date(d.expiresAt).toLocaleString() : "—"}
+                {d.expired ? " (expired)" : ""}
+              </div>
+            </div>
+          </div>
+          {d.source === "env" && (
+            <div className="text-xs text-amber-600">
+              Currently using the INDSTOCKS_API_TOKEN secret. Paste a fresh token below to take over
+              without a restart.
+            </div>
+          )}
+          <div className="border-t border-border/50 pt-3 space-y-2">
+            <div className="text-xs font-semibold">Paste a fresh token</div>
+            <div className="flex flex-wrap gap-2 items-end">
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-xs text-muted-foreground">Token</label>
+                <Input
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="paste INDstocks token"
+                  autoComplete="off"
+                  data-testid="input-indstocks-token"
+                />
+              </div>
+              <div className="w-52">
+                <label className="text-xs text-muted-foreground">Expires (optional)</label>
+                <Input
+                  type="datetime-local"
+                  value={expiresInput}
+                  onChange={(e) => setExpiresInput(e.target.value)}
+                  data-testid="input-indstocks-expires"
+                />
+              </div>
+              <Button
+                size="sm"
+                onClick={() => void save()}
+                disabled={busy || !tokenInput.trim()}
+                data-testid="button-save-indstocks-token"
+              >
+                Save token
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void clearToken()}
+                disabled={busy || !d.present || d.source !== "db"}
+                data-testid="button-clear-indstocks-token"
+              >
+                Clear DB token
+              </Button>
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              Stored encrypted and never displayed again. Feeds only INDstocks secondary
+              validation/failover — never a trade or signal decision.
+            </div>
+            {msg && (
+              <div
+                className={`text-xs ${msg.kind === "ok" ? "text-emerald-600" : "text-rose-500"}`}
+                data-testid="indstocks-token-msg"
+              >
+                {msg.text}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 export default function InfraHealthPage(): React.ReactElement {
   const [auto, setAuto] = useState(true);
   const [tick, setTick] = useState(0);
@@ -2076,6 +2272,9 @@ export default function InfraHealthPage(): React.ReactElement {
         <SectorSection {...sector} />
         <CandleSection {...candle} nowMs={nowMs} />
         <SnapshotSection diag={snapshot} analytics={analytics} nowMs={nowMs} />
+        <div className="md:col-span-2">
+          <IndstocksTokenSection auto={auto} tick={tick} refresh={refresh} />
+        </div>
         <div className="md:col-span-2">
           <EquitySection cand={candidates} nowMs={nowMs} refresh={refresh} />
         </div>

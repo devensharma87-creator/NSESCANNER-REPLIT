@@ -243,6 +243,27 @@ export function requireOwner(req: Request, res: Response, next: NextFunction): v
 }
 
 /**
+ * Strict owner gate that does NOT bypass GET/HEAD in public-access mode.
+ *
+ * Use for owner-only surfaces whose READ responses must never be exposed on a
+ * shared public link — e.g. secret/token status metadata. Unlike `requireOwner`
+ * (which lets anonymous visitors browse owner-only data tabs read-only during a
+ * shared-site audit), this requires a real owner cookie for every method.
+ */
+export function requireOwnerStrict(req: Request, res: Response, next: NextFunction): void {
+  const s = getSession(req);
+  if (!s) {
+    res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
+    return;
+  }
+  if (s.role !== "owner") {
+    res.status(403).json({ error: "owner_only", code: "OWNER_ONLY" });
+    return;
+  }
+  next();
+}
+
+/**
  * Allow owner OR active subscriber. Subscribers must additionally have at
  * least one of the supplied tabs in their allowedTabs list.
  *

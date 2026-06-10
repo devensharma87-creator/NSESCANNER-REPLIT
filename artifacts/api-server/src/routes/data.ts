@@ -1,11 +1,14 @@
 import { Router, type IRouter } from "express";
-import { requireOwner } from "../lib/userAuth";
+import { requireOwner, requireOwnerStrict } from "../lib/userAuth";
 import {
   buildDataDiagnostics,
   buildSymbolDiagnostic,
   getEquityQuote,
   validateAgainstIndstocks,
   isIndstocksEnabled,
+  getIndstocksTokenStatus,
+  setIndstocksToken,
+  clearIndstocksToken,
 } from "../lib/marketData";
 import { resolveInstrument } from "../lib/marketData/instrumentResolver";
 import { getChartCandles } from "../lib/chartDatafeed";
@@ -257,6 +260,52 @@ router.post("/data/compare", async (req, res, next) => {
       authoritative: "kite",
       rows,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * INDstocks daily token — owner-only hot-swap so the operator never has to edit
+ * the INDSTOCKS_API_TOKEN secret + restart/redeploy each day. The token is stored
+ * encrypted in the DB (DB-first → env fallback). The value is NEVER echoed back.
+ */
+router.get("/data/indstocks/token/status", requireOwnerStrict, async (_req, res, next) => {
+  try {
+    res.json(await getIndstocksTokenStatus());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/data/indstocks/token", requireOwnerStrict, async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as { token?: unknown; expiresAt?: unknown };
+    const token = typeof body.token === "string" ? body.token.trim() : "";
+    if (!token) {
+      res.status(400).json({ error: "token is required" });
+      return;
+    }
+    if (token.length < 8 || token.length > 8192) {
+      res.status(400).json({ error: "token length looks invalid" });
+      return;
+    }
+    let expiresAt: Date | undefined;
+    if (typeof body.expiresAt === "string" && body.expiresAt.trim()) {
+      const d = new Date(body.expiresAt.trim());
+      if (!Number.isNaN(d.getTime())) expiresAt = d;
+    }
+    await setIndstocksToken(token, { expiresAt, updatedBy: "owner" });
+    res.json(await getIndstocksTokenStatus());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/data/indstocks/token", requireOwnerStrict, async (_req, res, next) => {
+  try {
+    await clearIndstocksToken();
+    res.json(await getIndstocksTokenStatus());
   } catch (err) {
     next(err);
   }

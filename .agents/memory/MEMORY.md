@@ -18,3 +18,4 @@
 - [Data-authenticity: omit, never fabricate](data-authenticity-omit-not-fabricate.md) — Home/Portfolio builders must omit/label missing data, never `?? 0`/fake-n/a; Yahoo=labelled secondary only; backlog in HOME_PORTFOLIO_DATA_AUDIT.md.
 - [Canonical instrument backbone](canonical-instrument-backbone.md) — /chart/instruments merges curated+Kite master; dedupe by symbol (NSE wins, BSE-only like NSDL survives); BSE prices via Kite by instrument_token (NSDL source=kite), Yahoo is labeled fallback; surface quote_source.
 - [Candle source/freshness honesty](candle-source-honesty.md) — one shared isFreshFor over TIMEFRAME_CONFIG; asOf must be SECONDS (DailyBars are ms); EOD daily badge caps at "delayed", never "live".
+- [requireOwner bypasses GET in public mode](requireowner-public-get-bypass.md) — owner-only READ surfaces exposing secret/token metadata must use requireOwnerStrict, not requireOwner (which lets anonymous GET through on a public link).

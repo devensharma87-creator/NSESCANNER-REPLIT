@@ -110,24 +110,36 @@ async function withTimeout<T>(
 export function createIndstocksClient(opts?: {
   config?: Partial<IndstocksConfig>;
   fetchImpl?: FetchImpl;
+  /**
+   * Optional dynamic token resolver (e.g. the DB-backed token store) consulted
+   * per request so a hot-swapped token takes effect WITHOUT rebuilding the
+   * client. Precedence: an explicitly injected `config.token` wins (tests /
+   * overrides) → then `tokenProvider()` → then the env-resolved config token.
+   */
+  tokenProvider?: () => Promise<string | null>;
 }): IndstocksClient {
   const config: IndstocksConfig = { ...resolveIndstocksConfig(), ...(opts?.config ?? {}) };
   const fetchImpl = opts?.fetchImpl ?? fetch;
+  const injectedToken = opts?.config?.token?.trim() || null;
+  const tokenProvider = opts?.tokenProvider;
 
-  function requireToken(): string {
-    if (!config.token) {
-      throw new IndstocksError(
-        "INDstocks access token not configured (set INDSTOCKS_API_TOKEN).",
-        "config",
-      );
+  async function requireToken(): Promise<string> {
+    if (injectedToken) return injectedToken;
+    if (tokenProvider) {
+      const dynamic = await tokenProvider();
+      if (dynamic && dynamic.trim()) return dynamic.trim();
     }
-    return config.token;
+    if (config.token) return config.token;
+    throw new IndstocksError(
+      "INDstocks access token not configured (set it via the in-app updater or the INDSTOCKS_API_TOKEN secret).",
+      "config",
+    );
   }
 
   return {
     config,
     async getJson<T>(path: string, params?: QueryParams): Promise<T> {
-      const token = requireToken();
+      const token = await requireToken();
       const url = buildUrl(config.baseUrl, path, params);
       const res = await withTimeout(fetchImpl, url, token, config.timeoutMs);
       if (!res.ok) {
@@ -154,7 +166,7 @@ export function createIndstocksClient(opts?: {
       return obj.data;
     },
     async getCsv(path: string, params?: QueryParams): Promise<string> {
-      const token = requireToken();
+      const token = await requireToken();
       const url = buildUrl(config.baseUrl, path, params);
       const res = await withTimeout(fetchImpl, url, token, config.timeoutMs);
       if (!res.ok) {

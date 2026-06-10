@@ -17,6 +17,7 @@
  */
 
 import { createIndstocksClient, IndstocksError, type IndstocksClient } from "./indstocksClient";
+import { getIndstocksToken } from "./indstocksTokenStore";
 import { buildMeta, isQuoteComplete } from "./validator";
 import { getPolicy } from "./policy";
 import type { Candle, CandleSeries, MarketQuote } from "./types";
@@ -38,7 +39,9 @@ export function isIndstocksEnabled(): boolean {
 // ── Module-scoped client + health cache (single-replica, like swing scanner) ──
 let sharedClient: IndstocksClient | null = null;
 function client(): IndstocksClient {
-  if (!sharedClient) sharedClient = createIndstocksClient();
+  // Resolve the token per-request via the DB-backed store (DB-first → env) so a
+  // hot-swapped daily token takes effect without rebuilding this shared client.
+  if (!sharedClient) sharedClient = createIndstocksClient({ tokenProvider: () => getIndstocksToken() });
   return sharedClient;
 }
 /** Test seam: inject a client built over a fake fetch. */
