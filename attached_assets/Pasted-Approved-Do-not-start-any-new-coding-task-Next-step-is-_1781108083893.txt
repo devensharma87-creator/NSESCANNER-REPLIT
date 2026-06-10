@@ -1,0 +1,95 @@
+Approved.
+
+Do not start any new coding task.
+
+Next step is deployment + production verification only.
+
+Proceed as follows:
+
+1. Deploy the already-merged code.
+2. After deployment, apply only the guarded production DB ALTER for paper_trade_fo.
+3. Use only this SQL:
+
+ALTER TABLE paper_trade_fo
+ADD COLUMN IF NOT EXISTS highest_premium_after_entry numeric(18,2),
+ADD COLUMN IF NOT EXISTS highest_premium_at          timestamptz,
+ADD COLUMN IF NOT EXISTS lowest_premium_after_entry  numeric(18,2),
+ADD COLUMN IF NOT EXISTS lowest_premium_at           timestamptz;
+
+Rules:
+
+* No drizzle-kit push.
+* No destructive migration.
+* No DROP.
+* No backfill.
+* No fake historical MFE/MAE.
+* Historical trades must remain NULL where premium path was not recorded.
+* This is production DB operation only, not a new coding task.
+
+After applying the ALTER, verify with:
+
+SELECT column_name, data_type, is_nullable, numeric_precision, numeric_scale
+FROM information_schema.columns
+WHERE table_name = ‘paper_trade_fo’
+AND column_name IN (
+‘highest_premium_after_entry’,‘highest_premium_at’,
+‘lowest_premium_after_entry’,‘lowest_premium_at’)
+ORDER BY column_name;
+
+Expected:
+
+* 4 rows
+* all nullable YES
+* numeric columns precision 18 and scale 2
+
+Then run only post-deploy verification:
+
+1. Confirm production build is healthy.
+2. Confirm API health is working.
+3. Confirm /api/paper/diagnostics/environment shows production and correct auto-trading status.
+4. Check logs for:
+    * column does not exist
+    * migration error
+    * F&O paper-trade error
+    * Kite auth/data errors
+5. Verify F&O Cockpit:
+    * loads without error
+    * P25 evidence appears
+    * setup explanation panel appears
+    * MFE/MAE shows real value where evidence exists
+    * MFE/MAE shows honest unavailable reason where path is missing
+6. Verify no INFO_ONLY / BASELINE setup can open a paper trade.
+7. Verify premium-path fields start filling only for new trades after migration.
+
+Page smoke test only:
+
+* Watchlist
+* Portfolio Analyser
+* Charting
+* Scanner
+* Sector View
+* Option Chain
+* F&O Cockpit / F&O Signals
+* Paper Trading
+* Pre-Market
+* Global Cues / Market Pulse
+
+Do not start:
+
+* Market-Take provenance follow-up
+* frontend-wide badges
+* INDstocks
+* Backtest Lab
+* final trusted-layer burn-down
+* any new feature work
+
+Return only:
+
+* deployment status
+* DB ALTER status
+* verification query result
+* F&O smoke-test result
+* page smoke-test result
+* any errors found
+
+Stop after verification and wait for owner approval.
