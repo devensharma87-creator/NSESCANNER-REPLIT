@@ -1,0 +1,116 @@
+Prepare a production deployment and F&O DB migration checklist only.
+
+Do not write code.
+Do not edit files.
+Do not start background work.
+Do not reopen any completed task.
+
+Context:
+The following tasks are already closed and merged:
+
+* Watchlist canonical data path
+* Portfolio resolver + full Kite master + BSE Kite pricing
+* Home / Market Pulse / index honesty
+* Charting Candle Source Honesty
+* F&O option-chain signal-safety migration
+* Scanner / Sector / Benchmark data cleanup
+* Pre-Market & Global-Cues synthetic-value honesty
+* F&O Signal Engine Rectification
+
+Purpose:
+Before any new coding, I want a safe production checklist to confirm the merged work is ready for live use.
+
+Main focus:
+The F&O Signal Engine Rectification added forward premium-path capture for future MFE/MAE using additive nullable DB columns. I need the exact guarded production ALTER TABLE checklist.
+
+Report required:
+
+1. Production DB migration checklist
+    Give the exact guarded SQL needed for production:
+
+* ALTER TABLE ADD COLUMN IF NOT EXISTS only
+* nullable columns only
+* no destructive migration
+* no drizzle-kit push
+* no backfill fabrication
+
+Include:
+
+* table name
+* column names
+* column types
+* why each column is needed
+* how to verify the columns exist after migration
+* rollback note, if any
+
+2. Deployment checklist
+    Give step-by-step:
+
+* pre-deploy checks
+* deploy steps
+* post-deploy verification
+* what logs/endpoints/pages to verify
+* what failure signs to watch
+
+3. F&O verification checklist
+    After deployment, verify:
+
+* F&O Cockpit loads
+* P25 evidence still works
+* setup explanation panel appears
+* INFO_ONLY / BASELINE cannot open paper trade
+* TRADEABLE_SIGNAL can open only when all gates pass
+* recovery-veto / chase-veto reasons appear
+* MFE/MAE shows real values where evidence exists
+* MFE/MAE shows honest unavailable reason where premium path is missing
+* new premium-path capture starts recording for future trades
+
+4. Page smoke-test checklist
+    Verify these pages only:
+
+* Watchlist
+* Portfolio Analyser
+* Charting
+* Scanner
+* Sector View
+* Option Chain
+* F&O Cockpit / F&O Signals
+* Paper Trading
+* Pre-Market
+* Global Cues / Market Pulse
+
+For each page, list:
+
+* expected success condition
+* known honest limitation
+* failure sign
+
+5. Remaining work status
+    Give a table:
+
+* completed lanes
+* pending lanes
+* priority
+* risk
+* whether coding is needed now: YES/NO
+
+6. Next recommendation
+    Give only one recommendation:
+
+* whether to deploy/verify first
+* or whether any blocker must be fixed before deploy
+
+Strict instructions:
+
+* Do not code.
+* Do not edit files.
+* Do not run migrations.
+* Do not touch replit.md.
+* Do not start Backtest Lab.
+* Do not start frontend-wide badges.
+* Do not start INDstocks.
+* Do not start final trusted-layer burn-down.
+* This is a checklist/report-only task.
+
+End the report with:
+“Awaiting owner approval before any production DB change or coding.”
