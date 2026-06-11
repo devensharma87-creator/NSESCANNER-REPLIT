@@ -1,0 +1,102 @@
+Proceed with a scoped fix plan only:
+
+“F&O Paper Position Sizing Alignment — replace fixed lot override with risk-based sizing.”
+
+The PORTFOLIO_HEAT investigation is accepted.
+
+Classification:
+A — PORTFOLIO_HEAT block was arithmetically correct, not a false fail-closed bug.
+
+Do not loosen the heat gate.
+
+Root cause:
+The heat gate is working, but PAPER_FIXED_LOTS creates oversized trades. A single STANDARD NIFTY trade using 10 lots produced ₹25,410 risk, exceeding the ₹12,000 heat cap based on ₹2,00,000 seed capital × 6%.
+
+Correct direction:
+Fix the sizing model, not the heat gate.
+
+Required plan:
+Replace fixed-lot STANDARD sizing with dynamic risk-based sizing.
+
+Risk policy to use:
+
+1. Keep portfolio heat cap at 6%.
+2. Keep per-trade risk budget at 2%.
+3. Use configured F&O seed capital as the risk base for now.
+4. Do not switch to live-balance-based sizing unless separately approved.
+5. Do not raise heat cap.
+6. Do not loosen risk gates.
+
+Expected behaviour:
+
+* Calculate risk per lot:
+  riskPerLot = abs(entryPremium - stopPremium) × lotSize
+
+* Calculate max lots by per-trade risk:
+  maxLotsByTradeRisk = floor(perTradeRiskBudget / riskPerLot)
+
+* Calculate max lots by portfolio heat:
+  maxLotsByPortfolioHeat = floor((heatCap - currentHeat) / riskPerLot)
+
+* Final lots:
+  lots = min(maxLotsByTradeRisk, maxLotsByPortfolioHeat, configuredAbsoluteMaxLots)
+
+* If lots < 1:
+  block with exact reason:
+  “RISK_TOO_WIDE_FOR_MIN_LOT” or “PORTFOLIO_HEAT_CAP”
+
+* If lots >= 1:
+  open with that dynamically sized lot count, not fixed 10 lots.
+
+For the 11:16 NIFTY example:
+
+* 10 lots should remain blocked.
+* 1 lot should be allowed if all other gates pass.
+* The reason should be clear:
+  “Dynamic sizing reduced lots from fixed 10 to 1 to stay within per-trade risk and portfolio heat.”
+
+Files likely touched:
+
+* artifacts/api-server/src/lib/paperTradingFO.ts
+* any sizing helper/module if already present
+* tests for paper F&O sizing/gates
+* audit doc update only if existing F&O audit doc exists
+
+Do not touch:
+
+* signal generation logic
+* recovery-veto
+* chase-veto
+* anti-flip thresholds
+* option-chain source safety
+* P25 logic
+* MFE/MAE logic
+* Portfolio page
+* Scanner
+* Backtest Lab
+* INDstocks
+* frontend-wide badges
+* replit.md
+
+Required tests:
+
+1. Fixed 10-lot trade that breaches heat cap is not opened as 10 lots.
+2. Same trade is dynamically resized to allowable lots if risk permits.
+3. If even 1 lot exceeds per-trade risk, block with RISK_TOO_WIDE_FOR_MIN_LOT.
+4. If currentHeat leaves no room, block with PORTFOLIO_HEAT.
+5. INFO_ONLY still cannot open.
+6. PremiumTrusted false still cannot open.
+7. Existing paper-open safety tests still pass.
+8. Typecheck passes.
+
+Before coding:
+Give me a short implementation plan with:
+
+* exact sizing constants found in code
+* current fixed-lot behaviour
+* proposed dynamic sizing formula
+* files to touch
+* tests to add
+* expected risk
+
+Wait for approval before coding.
