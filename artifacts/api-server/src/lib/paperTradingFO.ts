@@ -57,6 +57,7 @@ import {
   getDailyRealizedDrawdown,
   getWeeklyRealizedDrawdown,
 } from "./paperAccount";
+import { computeFnoLotSizing } from "./fnoSizingHelper";
 import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
 import {
   buildOptionChainProvenance,
@@ -775,54 +776,83 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         }
       }
 
-      // Sizing — two paths:
-      //   (a) Owner-configured FIXED lot count for this index (NIFTY 10,
-      //       SENSEX 40, BANKNIFTY 30 today) — use it verbatim, but warn
-      //       when the implied per-trade risk exceeds the configured cap
-      //       so the dashboard / logs still surface the over-risk event.
-      //       STANDARD tier ONLY — BASELINE is the conservative
-      //       half-size fallback lane (1% risk vs 2%, 55 conf vs 65); it
-      //       deliberately keeps dynamic budget sizing so a thin-data
-      //       fallback can't accidentally open a 10-lot NIFTY position.
-      //   (b) Otherwise (BASELINE tier OR no mapping for this index) the
-      //       original risk-budget formula:
-      //       lots = floor(balance × maxLossPct / (perShareLoss × lotSize))
-      const fixedLots =
-        tier === "STANDARD"
-          ? PAPER_FIXED_LOTS[indexSymbol.toUpperCase()]
-          : undefined;
+      // ─── Dynamic lot sizing (OWNER-APPROVED 2026-06-11) ──────────────
+      // Risk base = availableCash (paper_account.balance), NOT the seed.
+      // PAPER_FIXED_LOTS is now a CEILING only, not a verbatim lot count:
+      //   riskPerLot         = |entry − stop| × lotSize
+      //   perTradeRiskBudget = availableCash × maxLossPctPerTrade
+      //   heatCap            = availableCash × MAX_FNO_HEAT_PCT
+      //   byTradeRisk        = floor(perTradeRiskBudget / riskPerLot)
+      //   byHeat             = floor((heatCap − currentHeat) / riskPerLot)
+      //   finalLots          = min(byTradeRisk, byHeat, ceiling)
+      // `maxLossPctPerTrade` is already tier-aware (STANDARD 2 % vs the
+      // sub-tiered BASELINE 0.25/0.5/2 %), so BASELINE naturally sizes
+      // smaller; the ceiling only caps the absolute upside per index and
+      // now applies to BOTH tiers (a thin-data fallback still can't open a
+      // 10-lot NIFTY because its tiny risk budget binds first).
+      // `currentHeat` is read HERE (moved up from the old post-sizing gate)
+      // via tx.execute so it honours the account-row FOR UPDATE lock — the
+      // SAME snapshot then feeds the final fail-closed heat assertion below.
       const perLotLoss = perShareLoss * lotSize;
-      let lots: number;
-      if (typeof fixedLots === "number" && fixedLots > 0) {
-        lots = fixedLots;
-        const impliedRisk = lots * perLotLoss;
-        const riskBudget = balance * maxLossPctPerTrade;
-        if (impliedRisk > riskBudget) {
-          logger.warn(
+      const currentHeat = parseHeatRow(await tx.execute(HEAT_SQL_FNO));
+      const ceilingLots = PAPER_FIXED_LOTS[indexSymbol.toUpperCase()] ?? null;
+      const sizing = computeFnoLotSizing({
+        indexSymbol,
+        entryPremium: optionEntry,
+        stopPremium: optionStop,
+        lotSize,
+        availableCash: balance,
+        maxLossPctPerTrade,
+        currentHeat,
+        maxFnoHeatPct: PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT,
+        absoluteMaxLots: ceilingLots,
+      });
+      if (sizing.verdict === "REJECT") {
+        const skip: SkipReason =
+          sizing.reason === "RISK_TOO_WIDE_FOR_MIN_LOT"
+            ? "RISK_TOO_WIDE_FOR_MIN_LOT"
+            : sizing.reason === "PORTFOLIO_HEAT_CAP"
+              ? "PORTFOLIO_HEAT_CAP"
+              : "INVALID_PREMIUM_PLAN";
+        if (recordSkip(skip)) {
+          logger.info(
             {
-              indexSymbol,
-              setupKey,
-              tier,
-              fixedLots,
-              impliedRisk: +impliedRisk.toFixed(2),
-              riskBudget: +riskBudget.toFixed(2),
+              indexSymbol, setupKey, tier,
+              reason: sizing.reason,
+              riskPerLot: +sizing.riskPerLot.toFixed(2),
+              perTradeRiskBudget: +sizing.perTradeRiskBudget.toFixed(2),
+              heatCap: +sizing.heatCap.toFixed(2),
+              currentHeat: +currentHeat.toFixed(2),
+              byTradeRisk: sizing.maxLotsByTradeRisk,
+              byHeat: sizing.maxLotsByPortfolioHeat,
+              ceiling: ceilingLots,
+              availableCash: +balance.toFixed(2),
               maxLossPctPerTrade,
             },
-            "Paper FO: fixed-lot override exceeds per-trade risk cap (proceeding by owner choice)",
+            `Paper FO skip: dynamic sizing rejected (${sizing.reason})`,
           );
         }
-      } else {
-        const budget = balance * maxLossPctPerTrade;
-        lots = Math.floor(budget / perLotLoss);
-        if (lots < 1) {
-          if (recordSkip("BUDGET_TOO_TIGHT")) {
-            logger.info(
-              { indexSymbol, setupKey, tier, budget, perLotLoss, maxLossPctPerTrade },
-              "Paper FO skip: position too risky for budget (lots < 1)",
-            );
-          }
-          return null;
-        }
+        return null;
+      }
+      let lots = sizing.lots;
+      // Surface when the dynamic budget cut below the configured ceiling
+      // (e.g. NIFTY ceiling 10 → 7 by per-trade risk) so the owner sees
+      // the risk-base model working rather than assuming a fixed-lot open.
+      if (ceilingLots !== null && lots < ceilingLots) {
+        logger.info(
+          {
+            indexSymbol, setupKey, tier,
+            ceiling: ceilingLots,
+            finalLots: lots,
+            boundBy:
+              sizing.maxLotsByTradeRisk <= sizing.maxLotsByPortfolioHeat
+                ? "per-trade risk"
+                : "portfolio heat",
+            byTradeRisk: sizing.maxLotsByTradeRisk,
+            byHeat: sizing.maxLotsByPortfolioHeat,
+          },
+          `Paper FO: dynamic sizing reduced lots from ceiling ${ceilingLots} to ${lots}`,
+        );
       }
 
       // ─── Pass-2B sizing scales (multiplicative, after base sizing) ───
@@ -897,22 +927,17 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         );
       }
 
-      // ─── Pass-2B portfolio heat cap (per-segment, segment-scoped) ───
-      // Sum of ₹-at-risk across every OPEN position in the F&O book
-      // must stay below MAX_FNO_HEAT_PCT × seed. The new trade's
-      // contribution = lots × lot_size × perShareLoss. Computed inside
-      // the txn so we honour any concurrent close that just freed up
-      // heat. FAIL CLOSED — if the projected heat breaches the cap, we
-      // do NOT silently shrink the trade, we skip it (the trader can
-      // see the missed signal). Shrinking would invalidate the
-      // setup's planned RR.
-      // Reads via tx.execute so the snapshot honours the account-row
-      // FOR UPDATE lock — two parallel opens cannot both pass the cap
-      // and then collectively breach it on commit.
-      const currentHeat = parseHeatRow(await tx.execute(HEAT_SQL_FNO));
-      const newTradeHeat = lots * lotSize * perShareLoss;
+      // ─── FINAL fail-closed portfolio heat assertion ──────────────────
+      // Sum of ₹-at-risk across every OPEN F&O position must stay below
+      // MAX_FNO_HEAT_PCT × availableCash (NOT seed — matches the risk-base
+      // model above). The dynamic sizer already fit `lots` under this cap
+      // using the SAME `currentHeat` snapshot, and the post-stop / VOLATILE
+      // multipliers only ever REDUCE lots — so this can only trip on a
+      // logic regression. Kept as defense-in-depth: FAIL CLOSED, never
+      // silently shrink (shrinking would invalidate the setup's planned RR).
+      const newTradeHeat = lots * perLotLoss;
       const projectedHeat = currentHeat + newTradeHeat;
-      const heatCap = SEED_CAPITAL.FNO * PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT;
+      const heatCap = balance * PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT;
       if (projectedHeat > heatCap) {
         if (recordSkip("PORTFOLIO_HEAT")) {
           logger.info(
@@ -924,9 +949,10 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
               newTradeHeat: +newTradeHeat.toFixed(2),
               projectedHeat: +projectedHeat.toFixed(2),
               heatCap: +heatCap.toFixed(2),
+              availableCash: +balance.toFixed(2),
               maxHeatPct: PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT,
             },
-            `Paper FO skip: portfolio heat cap would be breached (${(projectedHeat / SEED_CAPITAL.FNO * 100).toFixed(2)}% > ${(PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT * 100).toFixed(2)}%)`,
+            `Paper FO skip: portfolio heat cap would be breached post-sizing (${(projectedHeat / balance * 100).toFixed(2)}% > ${(PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT * 100).toFixed(2)}%)`,
           );
         }
         return null;
@@ -2529,7 +2555,8 @@ export async function onLifecycleUpsert(input: LifecycleHookInput): Promise<void
  *   Daily caps:      DAILY_TRADE_CAP, BASELINE_DAILY_CAP, CONSECUTIVE_STOPS,
  *                    BASELINE_CONSECUTIVE_LOSSES
  *   Drawdown caps:   DAILY_DD_CAP, WEEKLY_DD_CAP, BASELINE_DAILY_DD_CAP
- *   Heat / sizing:   PORTFOLIO_HEAT, BUDGET_TOO_TIGHT, INSUFFICIENT_BALANCE
+ *   Heat / sizing:   RISK_TOO_WIDE_FOR_MIN_LOT, PORTFOLIO_HEAT_CAP,
+ *                    PORTFOLIO_HEAT, BUDGET_TOO_TIGHT, INSUFFICIENT_BALANCE
  */
 export type SkipReason =
   | "MISSED_WINDOW"
@@ -2552,6 +2579,8 @@ export type SkipReason =
   | "WEEKLY_DD_CAP"
   | "BASELINE_DAILY_DD_CAP"
   | "BASELINE_GUARDRAIL_STATS_UNAVAILABLE"
+  | "RISK_TOO_WIDE_FOR_MIN_LOT"
+  | "PORTFOLIO_HEAT_CAP"
   | "PORTFOLIO_HEAT"
   | "BUDGET_TOO_TIGHT"
   | "INFO_ONLY_NOT_TRADEABLE"

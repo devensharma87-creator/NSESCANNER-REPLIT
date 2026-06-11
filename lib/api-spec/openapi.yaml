@@ -4569,6 +4569,17 @@ components:
         dailyDrawdownCapPct: { type: number, description: "Configured daily DD cap fraction (0-1). New entries blocked at/above this." }
         weeklyDrawdownPct: { type: number, description: "Phase-1 realised loss for IST week-to-date as fraction of seed (0-1). FNO only." }
         weeklyDrawdownCapPct: { type: number, description: "Configured weekly DD cap fraction (0-1)." }
+        availableCash:     { type: number, description: "Withdrawable cash = balance (open-position capital is locked separately and not included)." }
+        deployedCapital:   { type: number, description: "Capital (INR notional) currently locked in OPEN positions for this segment." }
+        capitalAdded:      { type: number, description: "Cumulative manual ADD_CAPITAL injections (INR) for this segment." }
+        capitalWithdrawn:  { type: number, description: "Cumulative manual WITHDRAW_CAPITAL withdrawals (INR) for this segment." }
+        heatUsed:          { type: number, description: "Current portfolio heat (INR at-risk across OPEN positions) for this segment." }
+        heatCapAmount:     { type: number, description: "Heat cap in INR = heatCapPct * availableCash (risk-base = available cash, not seed)." }
+        heatAvailable:     { type: number, description: "Remaining heat headroom in INR = max(heatCapAmount - heatUsed, 0)." }
+        heatCapPct:        { type: number, description: "Configured portfolio heat cap as a fraction of available cash (e.g. 0.06 = 6%)." }
+        riskBase:          { type: number, description: "Capital base used for per-trade budget + heat cap = available cash (NOT seed)." }
+        riskPerTradePct:   { type: number, description: "Per-trade risk budget as a fraction of risk-base." }
+        riskPerTradeAmount: { type: number, description: "Per-trade risk budget in INR = riskPerTradePct * riskBase." }
 
     FnoSpotLifecycle:
       type: object

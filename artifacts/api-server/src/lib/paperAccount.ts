@@ -24,6 +24,7 @@
 import {
   db,
   paperAccountTable,
+  paperCapitalEventTable,
   paperTradeEqTable,
   paperTradeFoTable,
 } from "@workspace/db";
@@ -324,6 +325,15 @@ export function parseHeatRow(result: unknown): number {
   const rows = (result as { rows: Array<{ heat: string | number }> }).rows;
   if (rows.length === 0) return 0;
   const v = rows[0]!.heat;
+  return typeof v === "number" ? v : parseFloat(v);
+}
+
+/** Read a single numeric scalar (keyed) off a `db.execute` result. */
+function parseNumericRow(result: unknown, key: string): number {
+  const rows = (result as { rows: Array<Record<string, string | number | null>> }).rows;
+  if (!rows || rows.length === 0) return 0;
+  const v = rows[0]![key];
+  if (v == null) return 0;
   return typeof v === "number" ? v : parseFloat(v);
 }
 
@@ -652,18 +662,147 @@ export async function topupAccount(
     return { ok: false, newBalance: 0 };
   }
   await ensureDailyReset(segment);
-  const updated = await db
-    .update(paperAccountTable)
-    .set({
-      balance: sql`${paperAccountTable.balance} + ${toMoney(amount)}::numeric`,
-      updatedAt: new Date(),
+  // Balance bump + ledger row in ONE transaction so the audit trail can
+  // never drift from the cash balance. The ledger amount is the positive
+  // magnitude; direction is encoded by kind="ADD_CAPITAL".
+  const result = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(paperAccountTable)
+      .set({
+        balance: sql`${paperAccountTable.balance} + ${toMoney(amount)}::numeric`,
+        updatedAt: new Date(),
+      })
+      .where(eq(paperAccountTable.segment, segment))
+      .returning();
+    if (updated.length === 0) return { ok: false, newBalance: 0 };
+    const next = num(updated[0]!.balance);
+    await tx.insert(paperCapitalEventTable).values({
+      segment,
+      kind: "ADD_CAPITAL",
+      amount: toMoney(amount),
+      balanceAfter: toMoney(next),
+    });
+    return { ok: true, newBalance: next };
+  });
+  if (result.ok) {
+    logger.info({ segment, amount, newBalance: result.newBalance }, "Manual paper top-up (ADD_CAPITAL)");
+  }
+  return result;
+}
+
+/**
+ * Manual withdrawal. Removes `amount` (₹) from the segment cash balance,
+ * fail-closed: the withdrawal is BLOCKED when it would exceed the available
+ * cash (balance). Open-position capital is locked separately (it is NOT in
+ * `balance` — `tryDebit` already moved it out when the position opened), so
+ * `balance` is exactly the withdrawable amount.
+ *
+ * Balance decrement + WITHDRAW_CAPITAL ledger row run in ONE transaction
+ * under a FOR UPDATE lock so a concurrent open/withdraw cannot let the
+ * balance go negative. A capital move is NOT P&L — it never touches
+ * day_realized_pnl / seed_capital / heat.
+ *
+ * Returns { ok, newBalance, blocked, reason? }:
+ *   - ok=true               → withdrawn; newBalance is the post-withdraw cash.
+ *   - blocked=true          → amount > available cash; newBalance is current.
+ *   - ok=false, blocked=false → invalid amount or missing account row.
+ */
+export async function withdrawAccount(
+  segment: Segment,
+  amount: number,
+): Promise<{ ok: boolean; newBalance: number; blocked: boolean; reason?: string }> {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, newBalance: 0, blocked: false, reason: "INVALID_AMOUNT" };
+  }
+  await ensureDailyReset(segment);
+  return db.transaction(async (tx) => {
+    // Serialise against concurrent opens/withdraws on this segment.
+    const lockRows = (
+      (await tx.execute(sql`
+        SELECT balance FROM paper_account WHERE segment = ${segment} FOR UPDATE
+      `)) as unknown as { rows: Array<{ balance: string | number }> }
+    ).rows;
+    if (lockRows.length === 0) {
+      return { ok: false, newBalance: 0, blocked: false, reason: "NO_ACCOUNT" };
+    }
+    const current = num(lockRows[0]!.balance);
+    if (current < amount) {
+      return { ok: false, newBalance: current, blocked: true, reason: "INSUFFICIENT_CASH" };
+    }
+    const updated = await tx
+      .update(paperAccountTable)
+      .set({
+        balance: sql`${paperAccountTable.balance} - ${toMoney(amount)}::numeric`,
+        updatedAt: new Date(),
+      })
+      .where(eq(paperAccountTable.segment, segment))
+      .returning();
+    const next = num(updated[0]!.balance);
+    await tx.insert(paperCapitalEventTable).values({
+      segment,
+      kind: "WITHDRAW_CAPITAL",
+      amount: toMoney(amount),
+      balanceAfter: toMoney(next),
+    });
+    logger.info({ segment, amount, newBalance: next }, "Manual paper withdrawal (WITHDRAW_CAPITAL)");
+    return { ok: true, newBalance: next, blocked: false };
+  });
+}
+
+/**
+ * Cumulative capital movements for a segment, summed from the ledger.
+ * Returns positive magnitudes: { added, withdrawn }. Capital moves are
+ * NOT P&L — this is purely for the account surface so the owner can see
+ * how much external cash they've injected/removed vs. trading P&L.
+ */
+export async function getCapitalMovements(
+  segment: Segment,
+): Promise<{ added: number; withdrawn: number }> {
+  const rows = await db
+    .select({
+      kind: paperCapitalEventTable.kind,
+      total: sql<string | null>`COALESCE(SUM(${paperCapitalEventTable.amount}), 0)`,
     })
-    .where(eq(paperAccountTable.segment, segment))
-    .returning();
-  if (updated.length === 0) return { ok: false, newBalance: 0 };
-  const next = num(updated[0]!.balance);
-  logger.info({ segment, amount, newBalance: next }, "Manual paper top-up");
-  return { ok: true, newBalance: next };
+    .from(paperCapitalEventTable)
+    .where(eq(paperCapitalEventTable.segment, segment))
+    .groupBy(paperCapitalEventTable.kind);
+  let added = 0;
+  let withdrawn = 0;
+  for (const r of rows) {
+    if (r.kind === "ADD_CAPITAL") added = num(r.total);
+    else if (r.kind === "WITHDRAW_CAPITAL") withdrawn = num(r.total);
+  }
+  return { added, withdrawn };
+}
+
+/**
+ * Capital currently LOCKED in OPEN positions for a segment (₹ notional
+ * deployed, not ₹-at-risk). FNO = Σ lots × lot_size × entry_premium;
+ * EQUITY = Σ qty × entry_price. Shown separately from withdrawable cash
+ * so the owner sees why their balance is lower than total account value.
+ */
+export async function getDeployedCapital(segment: Segment): Promise<number> {
+  const result =
+    segment === "FNO"
+      ? await db.execute(sql`
+          SELECT COALESCE(SUM(lots * lot_size * entry_premium), 0)::numeric AS dep
+          FROM paper_trade_fo WHERE status = 'OPEN'
+        `)
+      : await db.execute(sql`
+          SELECT COALESCE(SUM(qty * entry_price), 0)::numeric AS dep
+          FROM paper_trade_eq WHERE status = 'OPEN'
+        `);
+  return parseNumericRow(result, "dep");
+}
+
+/**
+ * Current portfolio heat (₹-at-risk across OPEN positions) for a segment,
+ * read OUTSIDE a transaction for display. Trade-open paths must keep using
+ * the txn-scoped HEAT_SQL_* fragments (see note above) — this is read-only.
+ */
+export async function getSegmentHeat(segment: Segment): Promise<number> {
+  const result = await db.execute(segment === "FNO" ? HEAT_SQL_FNO : HEAT_SQL_EQ);
+  return parseHeatRow(result);
 }
 
 /**

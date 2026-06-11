@@ -108,6 +108,17 @@ interface PaperAccount {
   dailyDrawdownCapPct?: number | null;
   weeklyDrawdownPct?: number | null;
   weeklyDrawdownCapPct?: number | null;
+  availableCash?: number | null;
+  deployedCapital?: number | null;
+  capitalAdded?: number | null;
+  capitalWithdrawn?: number | null;
+  heatUsed?: number | null;
+  heatCapAmount?: number | null;
+  heatAvailable?: number | null;
+  heatCapPct?: number | null;
+  riskBase?: number | null;
+  riskPerTradePct?: number | null;
+  riskPerTradeAmount?: number | null;
 }
 
 interface OpenPosition {
@@ -512,7 +523,7 @@ function EqAccountCard({ data, openPositions, loading, error, onTopupSuccess }: 
   error: string | null;
   onTopupSuccess: () => void;
 }) {
-  const [topupOpen, setTopupOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"ADD" | "WITHDRAW" | null>(null);
   if (error) {
     return (
       <Card>
@@ -554,14 +565,25 @@ function EqAccountCard({ data, openPositions, loading, error, onTopupSuccess }: 
             Use Add capital to top up the running cash balance.
           </CardDescription>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setTopupOpen(true)}
-          data-testid="button-topup-eq"
-        >
-          Add capital
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDialogMode("ADD")}
+            data-testid="button-topup-eq"
+          >
+            Add capital
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDialogMode("WITHDRAW")}
+            disabled={data.balance <= 0}
+            data-testid="button-withdraw-eq"
+          >
+            Withdraw
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Section 1 — Capital ledger */}
@@ -610,8 +632,9 @@ function EqAccountCard({ data, openPositions, loading, error, onTopupSuccess }: 
         </div>
       </CardContent>
       <TopupDialog
-        open={topupOpen}
-        onClose={() => setTopupOpen(false)}
+        open={dialogMode !== null}
+        mode={dialogMode ?? "ADD"}
+        onClose={() => setDialogMode(null)}
         onSuccess={onTopupSuccess}
         segment="EQUITY"
         currentBalance={data.balance}
@@ -1717,7 +1740,7 @@ function AccountCard({ data, loading, error, onTopupSuccess }: {
   error: string | null;
   onTopupSuccess: () => void;
 }) {
-  const [topupOpen, setTopupOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"ADD" | "WITHDRAW" | null>(null);
   if (error) {
     return (
       <Card>
@@ -1751,58 +1774,129 @@ function AccountCard({ data, loading, error, onTopupSuccess }: {
             to top up.
           </CardDescription>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setTopupOpen(true)}
-          data-testid="button-topup-fno"
-        >
-          Add capital
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDialogMode("ADD")}
+            data-testid="button-topup-fno"
+          >
+            Add capital
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDialogMode("WITHDRAW")}
+            disabled={data.balance <= 0}
+            data-testid="button-withdraw-fno"
+          >
+            Withdraw
+          </Button>
+        </div>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Stat
-          label="Cash balance"
-          value={inr(data.balance)}
-          hint="Free cash in the F&O paper bankroll right now. Realised P&L from still-open positions is not folded in until they close."
-        />
-        <Stat
-          label="Realized P&L (today)"
-          value={inrDec(data.dayRealizedPnl)}
-          tone={data.dayRealizedPnl > 0 ? "pos" : data.dayRealizedPnl < 0 ? "neg" : undefined}
-          hint="Net booked profit/loss from F&O paper trades closed today (IST). Resets at the next IST day rollover."
-        />
-        <Stat
-          label="Open positions"
-          value={`${data.dayOpenCount}`}
-          hint="F&O paper positions currently open."
-        />
-        <Stat
-          label="Trades opened today"
-          value={`${data.dayTradeCount} / ${data.dailyTradeCap}`}
-          tone={data.dayTradeCount >= data.dailyTradeCap ? "neg" : undefined}
-          hint="F&O paper trades opened today vs the daily trade cap. At the cap, no new auto-entries open until the next IST day."
-        />
-        <Stat
-          label="Risk per trade"
-          value={pct(data.maxLossPctPerTrade)}
-          hint="Max capital risked per F&O trade as a percent of bankroll (STANDARD-tier sizing baseline)."
-        />
-        <Stat
-          label="Net vs. seed (lifetime)"
-          value={inrDec(netVsSeed)}
-          tone={netVsSeed > 0 ? "pos" : netVsSeed < 0 ? "neg" : undefined}
-          hint="Lifetime delta from the original seed capital: cash balance + today's realised P&L − seed capital."
-        />
-        <Stat
-          label="Seed capital"
-          value={inr(data.seedCapital)}
-          hint="The original starting bankroll for the F&O paper account."
-        />
+      <CardContent className="space-y-6">
+        {/* Section A — Bankroll & day counters */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <Stat
+            label="Cash balance"
+            value={inr(data.balance)}
+            hint="Free cash in the F&O paper bankroll right now. Realised P&L from still-open positions is not folded in until they close."
+          />
+          <Stat
+            label="Realized P&L (today)"
+            value={inrDec(data.dayRealizedPnl)}
+            tone={data.dayRealizedPnl > 0 ? "pos" : data.dayRealizedPnl < 0 ? "neg" : undefined}
+            hint="Net booked profit/loss from F&O paper trades closed today (IST). Resets at the next IST day rollover."
+          />
+          <Stat
+            label="Open positions"
+            value={`${data.dayOpenCount}`}
+            hint="F&O paper positions currently open."
+          />
+          <Stat
+            label="Trades opened today"
+            value={`${data.dayTradeCount} / ${data.dailyTradeCap}`}
+            tone={data.dayTradeCount >= data.dailyTradeCap ? "neg" : undefined}
+            hint="F&O paper trades opened today vs the daily trade cap. At the cap, no new auto-entries open until the next IST day."
+          />
+          <Stat
+            label="Risk per trade"
+            value={pct(data.maxLossPctPerTrade)}
+            hint="Max capital risked per F&O trade as a percent of available cash (STANDARD-tier sizing baseline)."
+          />
+          <Stat
+            label="Net vs. seed (lifetime)"
+            value={inrDec(netVsSeed)}
+            tone={netVsSeed > 0 ? "pos" : netVsSeed < 0 ? "neg" : undefined}
+            hint="Lifetime delta from the original seed capital: cash balance + today's realised P&L − seed capital."
+          />
+          <Stat
+            label="Seed capital"
+            value={inr(data.seedCapital)}
+            hint="The original starting bankroll for the F&O paper account."
+          />
+        </div>
+        {/* Section B — Risk base, heat & capital movements (new sizing surface) */}
+        {typeof data.riskBase === "number" && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+              Risk base &amp; portfolio heat
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <Stat
+                label="Available cash (risk base)"
+                value={inr(data.availableCash ?? data.balance)}
+                hint="Per-trade budget and heat cap are computed off available cash (NOT seed). This is the withdrawable balance; open-position capital is locked separately."
+              />
+              <Stat
+                label="Deployed (locked)"
+                value={inr(data.deployedCapital ?? 0)}
+                hint="Capital currently locked in OPEN F&O positions (Σ lots × lot size × entry premium). Not withdrawable until positions close."
+              />
+              {typeof data.riskPerTradeAmount === "number" && (
+                <Stat
+                  label="Risk budget / trade"
+                  value={inr(data.riskPerTradeAmount)}
+                  hint={`Per-trade risk budget = ${pct(data.riskPerTradePct ?? 0)} of available cash. Lot sizing floors to this before the heat cap.`}
+                />
+              )}
+              {typeof data.heatUsed === "number" && typeof data.heatCapAmount === "number" && (
+                <Stat
+                  label="Heat used / cap"
+                  value={`${inr(data.heatUsed)} / ${inr(data.heatCapAmount)}`}
+                  tone={data.heatUsed >= data.heatCapAmount ? "neg" : undefined}
+                  hint={`Portfolio heat = ₹-at-risk across OPEN positions. Cap = ${pct(data.heatCapPct ?? 0)} of available cash. New opens are blocked once heat reaches the cap.`}
+                />
+              )}
+              {typeof data.heatAvailable === "number" && (
+                <Stat
+                  label="Heat headroom"
+                  value={inr(data.heatAvailable)}
+                  hint="Remaining heat budget before the portfolio-heat cap blocks new opens."
+                />
+              )}
+              {typeof data.capitalAdded === "number" && (
+                <Stat
+                  label="Capital added (lifetime)"
+                  value={inr(data.capitalAdded)}
+                  hint="Cumulative manual cash injections into this paper account."
+                />
+              )}
+              {typeof data.capitalWithdrawn === "number" && (
+                <Stat
+                  label="Capital withdrawn (lifetime)"
+                  value={inr(data.capitalWithdrawn)}
+                  hint="Cumulative manual cash withdrawals from this paper account."
+                />
+              )}
+            </div>
+          </div>
+        )}
       </CardContent>
       <TopupDialog
-        open={topupOpen}
-        onClose={() => setTopupOpen(false)}
+        open={dialogMode !== null}
+        mode={dialogMode ?? "ADD"}
+        onClose={() => setDialogMode(null)}
         onSuccess={onTopupSuccess}
         segment="FNO"
         currentBalance={data.balance}
@@ -1812,27 +1906,29 @@ function AccountCard({ data, loading, error, onTopupSuccess }: {
 }
 
 function TopupDialog({
-  open, onClose, onSuccess, segment, currentBalance,
+  open, onClose, onSuccess, segment, currentBalance, mode = "ADD",
 }: {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
   segment: Segment;
   currentBalance: number;
+  mode?: "ADD" | "WITHDRAW";
 }) {
   const { toast } = useToast();
   const [amount, setAmount] = useState("");
+  const isWithdraw = mode === "WITHDRAW";
   const mutation = useMutation({
     mutationFn: async (amt: number) => {
       return api<{ segment: string; amount: number; newBalance: number }>(
-        `/paper/account/topup`,
+        isWithdraw ? `/paper/account/withdraw` : `/paper/account/topup`,
         { method: "POST", body: JSON.stringify({ segment, amount: amt }) },
       );
     },
     onSuccess: (result) => {
       toast({
-        title: "Capital added",
-        description: `+${inr(result.amount)} → new balance ${inr(result.newBalance)}`,
+        title: isWithdraw ? "Capital withdrawn" : "Capital added",
+        description: `${isWithdraw ? "−" : "+"}${inr(result.amount)} → new balance ${inr(result.newBalance)}`,
       });
       setAmount("");
       onSuccess();
@@ -1840,7 +1936,7 @@ function TopupDialog({
     },
     onError: (err: unknown) => {
       toast({
-        title: "Top-up failed",
+        title: isWithdraw ? "Withdrawal failed" : "Top-up failed",
         description: err instanceof Error ? err.message : "Unknown error",
         variant: "destructive",
       });
@@ -1848,8 +1944,16 @@ function TopupDialog({
   });
   if (!open) return null;
   const parsed = Number(amount);
-  const valid = Number.isFinite(parsed) && parsed > 0;
-  const presets = segment === "FNO" ? [50_000, 100_000, 200_000, 500_000] : [200_000, 500_000, 1_000_000, 2_000_000];
+  const positive = Number.isFinite(parsed) && parsed > 0;
+  // Withdrawable = available cash (balance). Open-position capital is locked
+  // separately and is NOT part of balance, so it can't be withdrawn here.
+  const exceedsCash = isWithdraw && positive && parsed > currentBalance;
+  const valid = positive && !exceedsCash;
+  const addPresets =
+    segment === "FNO" ? [50_000, 100_000, 200_000, 500_000] : [200_000, 500_000, 1_000_000, 2_000_000];
+  const presets = isWithdraw
+    ? addPresets.filter(p => p <= currentBalance)
+    : addPresets;
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -1860,12 +1964,17 @@ function TopupDialog({
         className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl"
         onClick={e => e.stopPropagation()}
         role="dialog"
-        aria-label="Add capital"
+        aria-label={isWithdraw ? "Withdraw capital" : "Add capital"}
       >
-        <h2 className="text-lg font-semibold mb-1">Add capital ({segment})</h2>
+        <h2 className="text-lg font-semibold mb-1">
+          {isWithdraw ? "Withdraw capital" : "Add capital"} ({segment})
+        </h2>
         <p className="text-sm text-muted-foreground mb-4">
-          Current balance: <span className="font-medium text-foreground">{inr(currentBalance)}</span>.
-          The amount you enter is added to the running cash balance — seed capital stays unchanged.
+          {isWithdraw ? "Withdrawable cash" : "Current balance"}:{" "}
+          <span className="font-medium text-foreground">{inr(currentBalance)}</span>.
+          {isWithdraw
+            ? " Open-position capital is locked separately and cannot be withdrawn."
+            : " The amount you enter is added to the running cash balance — seed capital stays unchanged."}
         </p>
         <div className="space-y-3">
           <input
@@ -1888,10 +1997,30 @@ function TopupDialog({
                 onClick={() => setAmount(String(p))}
                 type="button"
               >
-                +{inr(p)}
+                {isWithdraw ? "−" : "+"}{inr(p)}
               </Button>
             ))}
+            {isWithdraw && currentBalance > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setAmount(String(currentBalance))}
+                type="button"
+                data-testid="button-withdraw-max"
+              >
+                Max {inr(currentBalance)}
+              </Button>
+            )}
           </div>
+          {exceedsCash && (
+            <p
+              className="text-sm text-destructive"
+              data-testid="text-withdraw-blocked"
+            >
+              Withdrawal blocked — exceeds available cash. Open-position capital is
+              already locked separately.
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={onClose} disabled={mutation.isPending}>
               Cancel
@@ -1901,7 +2030,9 @@ function TopupDialog({
               disabled={!valid || mutation.isPending}
               data-testid="button-topup-confirm"
             >
-              {mutation.isPending ? "Adding…" : `Add ${valid ? inr(parsed) : "capital"}`}
+              {mutation.isPending
+                ? isWithdraw ? "Withdrawing…" : "Adding…"
+                : `${isWithdraw ? "Withdraw" : "Add"} ${positive ? inr(parsed) : "capital"}`}
             </Button>
           </div>
         </div>

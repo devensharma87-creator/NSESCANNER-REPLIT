@@ -344,3 +344,40 @@ export const paperDailySummaryFoTable = pgTable("paper_daily_summary_fo", {
 
 export type PaperDailySummaryFoRow = typeof paperDailySummaryFoTable.$inferSelect;
 export type NewPaperDailySummaryFoRow = typeof paperDailySummaryFoTable.$inferInsert;
+
+/**
+ * Manual capital movements (owner top-ups and withdrawals) on a paper
+ * account. Append-only ledger — one row per ADD_CAPITAL / WITHDRAW_CAPITAL
+ * action. This is bookkeeping ONLY: capital moves are NOT trading P&L and
+ * never feed realised/lifetime P&L, drawdown, or heat. The running cash
+ * effect lives on paper_account.balance; this table records the trail so
+ * the account card can show "capital added / withdrawn" honestly without
+ * inferring it from balance deltas.
+ *
+ * Additive table — created via `CREATE TABLE IF NOT EXISTS` (never
+ * `drizzle-kit push`, which would drop out-of-schema tables). No backfill.
+ */
+export const paperCapitalEventTable = pgTable(
+  "paper_capital_event",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    /** "FNO" | "EQUITY" — matches paper_account.segment. */
+    segment: text("segment").notNull(),
+    /** "ADD_CAPITAL" | "WITHDRAW_CAPITAL". */
+    kind: text("kind").notNull(),
+    /** Always a positive magnitude in ₹. Direction is encoded by `kind`. */
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    /** Cash balance AFTER this movement was applied. */
+    balanceAfter: numeric("balance_after", { precision: 18, scale: 2 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    segmentCreatedIdx: index("paper_capital_event_segment_created_idx").on(
+      t.segment,
+      t.createdAt,
+    ),
+  }),
+);
+
+export type PaperCapitalEventRow = typeof paperCapitalEventTable.$inferSelect;
+export type NewPaperCapitalEventRow = typeof paperCapitalEventTable.$inferInsert;

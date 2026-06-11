@@ -3915,6 +3915,68 @@ export const GetPaperAccountResponse = zod.object({
     .number()
     .optional()
     .describe("Configured weekly DD cap fraction (0-1)."),
+  availableCash: zod
+    .number()
+    .optional()
+    .describe(
+      "Withdrawable cash = balance (open-position capital is locked separately and not included).",
+    ),
+  deployedCapital: zod
+    .number()
+    .optional()
+    .describe(
+      "Capital (INR notional) currently locked in OPEN positions for this segment.",
+    ),
+  capitalAdded: zod
+    .number()
+    .optional()
+    .describe(
+      "Cumulative manual ADD_CAPITAL injections (INR) for this segment.",
+    ),
+  capitalWithdrawn: zod
+    .number()
+    .optional()
+    .describe(
+      "Cumulative manual WITHDRAW_CAPITAL withdrawals (INR) for this segment.",
+    ),
+  heatUsed: zod
+    .number()
+    .optional()
+    .describe(
+      "Current portfolio heat (INR at-risk across OPEN positions) for this segment.",
+    ),
+  heatCapAmount: zod
+    .number()
+    .optional()
+    .describe(
+      "Heat cap in INR = heatCapPct \* availableCash (risk-base = available cash, not seed).",
+    ),
+  heatAvailable: zod
+    .number()
+    .optional()
+    .describe(
+      "Remaining heat headroom in INR = max(heatCapAmount - heatUsed, 0).",
+    ),
+  heatCapPct: zod
+    .number()
+    .optional()
+    .describe(
+      "Configured portfolio heat cap as a fraction of available cash (e.g. 0.06 = 6%).",
+    ),
+  riskBase: zod
+    .number()
+    .optional()
+    .describe(
+      "Capital base used for per-trade budget + heat cap = available cash (NOT seed).",
+    ),
+  riskPerTradePct: zod
+    .number()
+    .optional()
+    .describe("Per-trade risk budget as a fraction of risk-base."),
+  riskPerTradeAmount: zod
+    .number()
+    .optional()
+    .describe("Per-trade risk budget in INR = riskPerTradePct \* riskBase."),
 });
 
 /**

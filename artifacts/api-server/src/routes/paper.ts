@@ -36,6 +36,11 @@ import { requireOwner } from "../lib/userAuth";
 import {
   ensureDailyReset,
   topupAccount,
+  withdrawAccount,
+  getCapitalMovements,
+  getDeployedCapital,
+  getSegmentHeat,
+  PORTFOLIO_HEAT,
   FNO_RISK,
   EQUITY_RISK,
   getDailyRealizedDrawdown,
@@ -285,6 +290,26 @@ router.get("/paper/account", requireOwner, async (req, res, next) => {
       .from(ledgerTable)
       .where(eq(ledgerTable.status, "CLOSED"));
     const lifetimeRealizedPnl = Number(lifetimeSum ?? 0);
+
+    // Risk-base / heat / capital-movement surface. Risk-base = available
+    // cash (balance), NOT seed — matches the dynamic lot-sizing change so
+    // the UI shows the same base the sizing engine actually uses.
+    const availableCash = num(acct.balance);
+    const heatCapPct =
+      segment === "FNO"
+        ? PORTFOLIO_HEAT.MAX_FNO_HEAT_PCT
+        : PORTFOLIO_HEAT.MAX_EQ_HEAT_PCT;
+    const [deployedCapital, capital, heatUsed] = await Promise.all([
+      getDeployedCapital(segment as Segment),
+      getCapitalMovements(segment as Segment),
+      getSegmentHeat(segment as Segment),
+    ]);
+    const riskBase = availableCash;
+    const heatCapAmount = heatCapPct * riskBase;
+    const heatAvailable = Math.max(heatCapAmount - heatUsed, 0);
+    const riskPerTradePct = maxLossPctPerTrade;
+    const riskPerTradeAmount = riskPerTradePct * riskBase;
+
     const data = GetPaperAccountResponse.parse({
       segment,
       seedCapital: num(acct.seedCapital),
@@ -300,6 +325,17 @@ router.get("/paper/account", requireOwner, async (req, res, next) => {
       dailyDrawdownCapPct: dailyDD?.capPct,
       weeklyDrawdownPct: weeklyDD?.drawdownPct,
       weeklyDrawdownCapPct: weeklyDD?.capPct,
+      availableCash,
+      deployedCapital,
+      capitalAdded: capital.added,
+      capitalWithdrawn: capital.withdrawn,
+      heatUsed,
+      heatCapAmount,
+      heatAvailable,
+      heatCapPct,
+      riskBase,
+      riskPerTradePct,
+      riskPerTradeAmount,
     });
     return res.json(data);
   } catch (err) {
@@ -445,6 +481,43 @@ router.post("/paper/account/topup", requireOwner, async (req, res, next) => {
     const result = await topupAccount(segment as Segment, amount);
     if (!result.ok) {
       return res.status(500).json({ error: "Top-up failed" });
+    }
+    return res.json({ segment, amount, newBalance: result.newBalance });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * Manual withdrawal of paper cash. Owner-only. Mirrors /paper/account/topup
+ * but removes capital. Fail-closed: a withdrawal that exceeds available cash
+ * (= balance) is rejected with 400 and the user-facing block message —
+ * open-position capital is locked separately and cannot be withdrawn.
+ */
+router.post("/paper/account/withdraw", requireOwner, async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as { segment?: string; amount?: number };
+    const segment = String(body.segment ?? "").toUpperCase();
+    if (segment !== "FNO" && segment !== "EQUITY") {
+      return res.status(400).json({ error: "segment must be FNO or EQUITY" });
+    }
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: "amount must be a positive number" });
+    }
+    if (amount > 10_00_00_000) {
+      return res.status(400).json({ error: "amount exceeds ₹10,00,00,000 cap" });
+    }
+    const result = await withdrawAccount(segment as Segment, amount);
+    if (result.blocked) {
+      return res.status(400).json({
+        error:
+          "Withdrawal blocked — exceeds available cash. Open-position capital is already locked separately.",
+        newBalance: result.newBalance,
+      });
+    }
+    if (!result.ok) {
+      return res.status(500).json({ error: "Withdrawal failed" });
     }
     return res.json({ segment, amount, newBalance: result.newBalance });
   } catch (err) {

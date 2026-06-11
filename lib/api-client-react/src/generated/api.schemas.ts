@@ -3618,6 +3618,28 @@ export interface PaperAccountState {
   weeklyDrawdownPct?: number;
   /** Configured weekly DD cap fraction (0-1). */
   weeklyDrawdownCapPct?: number;
+  /** Withdrawable cash = balance (open-position capital is locked separately and not included). */
+  availableCash?: number;
+  /** Capital (INR notional) currently locked in OPEN positions for this segment. */
+  deployedCapital?: number;
+  /** Cumulative manual ADD_CAPITAL injections (INR) for this segment. */
+  capitalAdded?: number;
+  /** Cumulative manual WITHDRAW_CAPITAL withdrawals (INR) for this segment. */
+  capitalWithdrawn?: number;
+  /** Current portfolio heat (INR at-risk across OPEN positions) for this segment. */
+  heatUsed?: number;
+  /** Heat cap in INR = heatCapPct * availableCash (risk-base = available cash, not seed). */
+  heatCapAmount?: number;
+  /** Remaining heat headroom in INR = max(heatCapAmount - heatUsed, 0). */
+  heatAvailable?: number;
+  /** Configured portfolio heat cap as a fraction of available cash (e.g. 0.06 = 6%). */
+  heatCapPct?: number;
+  /** Capital base used for per-trade budget + heat cap = available cash (NOT seed). */
+  riskBase?: number;
+  /** Per-trade risk budget as a fraction of risk-base. */
+  riskPerTradePct?: number;
+  /** Per-trade risk budget in INR = riskPerTradePct * riskBase. */
+  riskPerTradeAmount?: number;
 }
 
 /**
