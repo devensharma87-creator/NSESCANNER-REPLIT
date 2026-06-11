@@ -1,0 +1,59 @@
+The implementation is accepted technically, but final production closure is pending two confirmations.
+
+Accepted implementation items:
+
+F&O sizing now uses available cash as risk base.
+PAPER_FIXED_LOTS is ceiling only.
+Dynamic sizing works.
+11:16 NIFTY example correctly sizes to 7 lots instead of fixed 10.
+RISK_TOO_WIDE_FOR_MIN_LOT works.
+PORTFOLIO_HEAT_CAP works.
+Add/Withdraw Capital works for F&O.
+Add/Withdraw Capital works for Equity.
+Ledger table exists.
+Ledger now includes note and created_by.
+api-server tests passed.
+typecheck passed.
+architect review passed.
+
+But do not call this fully closed until these are confirmed:
+
+Commit / merge confirmation:
+Confirm the latest gap-fix slice is committed and merged:
+note column
+created_by column
+route wiring for note
+createdBy="owner"
+capital ledger persistence test
+
+The report says this gap-fix was in the working tree/captured for commit, so confirm it is actually committed and not just local.
+
+Production DB migration confirmation:
+After deploy, run the additive production DB migration:
+
+ALTER TABLE paper_capital_event ADD COLUMN IF NOT EXISTS note text;
+ALTER TABLE paper_capital_event ADD COLUMN IF NOT EXISTS created_by text;
+
+No drizzle-kit push.
+No destructive migration.
+No historical rewrite.
+
+Production verification after migration:
+Confirm in production:
+Add Capital writes ledger row with note and created_by.
+Withdraw Capital writes ledger row with note and created_by.
+F&O withdrawal cannot exceed available balance.
+Equity withdrawal cannot exceed available balance.
+F&O Account UI shows available cash, risk base, heat cap, heat used, heat available, capital added, capital withdrawn.
+Dynamic sizing still uses available cash after deploy.
+
+Once these three are confirmed, close the task as:
+
+“F&O Paper Account Risk Base + Dynamic Lot Sizing + Capital Add/Withdraw.”
+
+Do not start any new task.
+Do not touch signal logic.
+Do not touch Backtest Lab.
+Do not touch INDstocks.
+Do not touch frontend-wide badges.
+Do not touch replit.md.
