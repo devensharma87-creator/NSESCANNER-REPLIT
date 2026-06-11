@@ -369,6 +369,14 @@ export const paperCapitalEventTable = pgTable(
     amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
     /** Cash balance AFTER this movement was applied. */
     balanceAfter: numeric("balance_after", { precision: 18, scale: 2 }).notNull(),
+    /** Optional free-text annotation supplied by the owner (nullable). */
+    note: text("note"),
+    /**
+     * Who initiated the movement (nullable). These routes are owner-only, so
+     * this is "owner" in practice; kept additive/nullable for the historical
+     * rows that predate the column.
+     */
+    createdBy: text("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

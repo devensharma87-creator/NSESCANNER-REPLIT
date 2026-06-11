@@ -403,6 +403,17 @@ function toMoney(n: number): string {
 }
 
 /**
+ * Normalise an optional owner-supplied ledger note: trim, collapse empty to
+ * null, and cap length so a fat-finger paste can't bloat the row.
+ */
+function normaliseNote(note: string | null | undefined): string | null {
+  if (typeof note !== "string") return null;
+  const trimmed = note.trim();
+  if (trimmed.length === 0) return null;
+  return trimmed.slice(0, 280);
+}
+
+/**
  * Look up (or lazily seed) the account row. Does NOT do daily refill —
  * call ensureDailyReset for that. Useful for read-only display.
  */
@@ -657,6 +668,7 @@ export async function recordOpen(segment: Segment): Promise<void> {
 export async function topupAccount(
   segment: Segment,
   amount: number,
+  opts?: { note?: string | null; createdBy?: string | null },
 ): Promise<{ ok: boolean; newBalance: number }> {
   if (!Number.isFinite(amount) || amount <= 0) {
     return { ok: false, newBalance: 0 };
@@ -681,6 +693,8 @@ export async function topupAccount(
       kind: "ADD_CAPITAL",
       amount: toMoney(amount),
       balanceAfter: toMoney(next),
+      note: normaliseNote(opts?.note),
+      createdBy: opts?.createdBy ?? null,
     });
     return { ok: true, newBalance: next };
   });
@@ -710,6 +724,7 @@ export async function topupAccount(
 export async function withdrawAccount(
   segment: Segment,
   amount: number,
+  opts?: { note?: string | null; createdBy?: string | null },
 ): Promise<{ ok: boolean; newBalance: number; blocked: boolean; reason?: string }> {
   if (!Number.isFinite(amount) || amount <= 0) {
     return { ok: false, newBalance: 0, blocked: false, reason: "INVALID_AMOUNT" };
@@ -743,6 +758,8 @@ export async function withdrawAccount(
       kind: "WITHDRAW_CAPITAL",
       amount: toMoney(amount),
       balanceAfter: toMoney(next),
+      note: normaliseNote(opts?.note),
+      createdBy: opts?.createdBy ?? null,
     });
     logger.info({ segment, amount, newBalance: next }, "Manual paper withdrawal (WITHDRAW_CAPITAL)");
     return { ok: true, newBalance: next, blocked: false };

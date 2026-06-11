@@ -109,6 +109,34 @@ describeDb("paper capital events — add / withdraw / ledger", () => {
     expect(after.dayRealizedPnl).toBeCloseTo(before.dayRealizedPnl, 6);
   });
 
+  it("persists optional note + created_by on the ledger row", async () => {
+    await topupAccount(TEST_SEG, 1_234, { note: "  manual reload  ", createdBy: "owner" });
+    const rows = await db
+      .select({
+        note: paperCapitalEventTable.note,
+        createdBy: paperCapitalEventTable.createdBy,
+        amount: paperCapitalEventTable.amount,
+      })
+      .from(paperCapitalEventTable)
+      .where(eq(paperCapitalEventTable.segment, TEST_SEG))
+      .orderBy(sql`${paperCapitalEventTable.createdAt} DESC`)
+      .limit(1);
+    expect(rows[0]!.note).toBe("manual reload"); // trimmed
+    expect(rows[0]!.createdBy).toBe("owner");
+    expect(parseFloat(rows[0]!.amount)).toBeCloseTo(1_234, 6);
+
+    // Withdraw with no note → stored as NULL, not empty string.
+    await withdrawAccount(TEST_SEG, 100, { note: "   ", createdBy: "owner" });
+    const wrows = await db
+      .select({ note: paperCapitalEventTable.note, kind: paperCapitalEventTable.kind })
+      .from(paperCapitalEventTable)
+      .where(eq(paperCapitalEventTable.segment, TEST_SEG))
+      .orderBy(sql`${paperCapitalEventTable.createdAt} DESC`)
+      .limit(1);
+    expect(wrows[0]!.kind).toBe("WITHDRAW_CAPITAL");
+    expect(wrows[0]!.note).toBeNull();
+  });
+
   it("rejects non-positive / non-finite amounts without ledger writes", async () => {
     const movesBefore = await getCapitalMovements(TEST_SEG);
     expect((await topupAccount(TEST_SEG, 0)).ok).toBe(false);

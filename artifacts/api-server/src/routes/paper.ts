@@ -464,7 +464,7 @@ router.post("/paper/positions/fo/:id/close", requireOwner, async (req, res, next
 
 router.post("/paper/account/topup", requireOwner, async (req, res, next) => {
   try {
-    const body = (req.body ?? {}) as { segment?: string; amount?: number };
+    const body = (req.body ?? {}) as { segment?: string; amount?: number; note?: string };
     const segment = String(body.segment ?? "").toUpperCase();
     if (segment !== "FNO" && segment !== "EQUITY") {
       return res.status(400).json({ error: "segment must be FNO or EQUITY" });
@@ -478,7 +478,10 @@ router.post("/paper/account/topup", requireOwner, async (req, res, next) => {
       // distort analytics by orders of magnitude.
       return res.status(400).json({ error: "amount exceeds ₹10,00,00,000 cap" });
     }
-    const result = await topupAccount(segment as Segment, amount);
+    const result = await topupAccount(segment as Segment, amount, {
+      note: typeof body.note === "string" ? body.note : null,
+      createdBy: "owner",
+    });
     if (!result.ok) {
       return res.status(500).json({ error: "Top-up failed" });
     }
@@ -496,7 +499,7 @@ router.post("/paper/account/topup", requireOwner, async (req, res, next) => {
  */
 router.post("/paper/account/withdraw", requireOwner, async (req, res, next) => {
   try {
-    const body = (req.body ?? {}) as { segment?: string; amount?: number };
+    const body = (req.body ?? {}) as { segment?: string; amount?: number; note?: string };
     const segment = String(body.segment ?? "").toUpperCase();
     if (segment !== "FNO" && segment !== "EQUITY") {
       return res.status(400).json({ error: "segment must be FNO or EQUITY" });
@@ -508,7 +511,10 @@ router.post("/paper/account/withdraw", requireOwner, async (req, res, next) => {
     if (amount > 10_00_00_000) {
       return res.status(400).json({ error: "amount exceeds ₹10,00,00,000 cap" });
     }
-    const result = await withdrawAccount(segment as Segment, amount);
+    const result = await withdrawAccount(segment as Segment, amount, {
+      note: typeof body.note === "string" ? body.note : null,
+      createdBy: "owner",
+    });
     if (result.blocked) {
       return res.status(400).json({
         error:

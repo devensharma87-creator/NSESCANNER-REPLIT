@@ -1,0 +1,218 @@
+Approved to proceed with implementation.
+
+Task:
+“F&O Paper Account Risk Base + Dynamic Lot Sizing + Capital Add/Withdraw”
+
+Your audit is accepted.
+
+Approved decisions:
+
+Use available cash as the F&O risk base.
+Use paper_account.balance, not seed capital, for:
+per-trade risk budget
+F&O portfolio heat cap
+dynamic lot sizing
+PAPER_FIXED_LOTS must become ceiling only.
+It must never force the trade size.
+Dynamic lot sizing is approved.
+If fixed lots are too large, reduce lots automatically to the maximum safe lot count.
+Approve the new ledger table:
+paper_capital_event
+
+Allowed DB change:
+
+CREATE TABLE IF NOT EXISTS only
+additive only
+no destructive migration
+no drizzle-kit push
+no historical rewrite
+no fake backfill
+
+Ledger fields approved:
+
+id
+account_type: FNO / EQUITY
+action: ADD_CAPITAL / WITHDRAW_CAPITAL
+amount
+note
+resulting_balance
+created_by
+timestamp
+Withdrawal-buffer interpretation approved:
+Use paper_account.balance as withdrawable cash because deployed capital is already deducted from balance when a position opens.
+
+Do not subtract deployed capital again.
+
+But show deployed/locked capital clearly in the UI.
+
+Example:
+
+Available Cash = withdrawable cash
+Deployed Capital / Locked in Open Positions = shown separately
+Withdrawal cannot exceed Available Cash
+If withdrawal exceeds balance, block with:
+“Withdrawal blocked — exceeds available cash. Open-position capital is already locked separately.”
+Apply Add Capital and Withdraw Capital to both:
+F&O account
+Equity account
+Capital movement must be separate from trading P&L.
+Adding capital is not profit.
+Withdrawing capital is not loss.
+
+Approved implementation:
+
+A. F&O dynamic sizing
+
+Formula:
+
+riskBase = availableCash
+
+perTradeRiskBudget = availableCash × maxLossPctPerTrade
+
+heatCap = availableCash × MAX_FNO_HEAT_PCT
+
+riskPerLot = abs(entryPremium - stopPremium) × lotSize
+
+maxLotsByTradeRisk = floor(perTradeRiskBudget / riskPerLot)
+
+maxLotsByPortfolioHeat = floor((heatCap - currentHeat) / riskPerLot)
+
+absoluteMaxLots = PAPER_FIXED_LOTS[index]
+
+finalLots = min(
+maxLotsByTradeRisk,
+maxLotsByPortfolioHeat,
+absoluteMaxLots
+)
+
+Rules:
+
+If finalLots >= 1, open with finalLots.
+If finalLots < 1 because one lot exceeds per-trade risk, block with RISK_TOO_WIDE_FOR_MIN_LOT.
+If finalLots < 1 because heat cap has no room, block with PORTFOLIO_HEAT_CAP.
+Keep final heat assertion as fail-closed protection.
+
+For the 11:16 NIFTY example:
+
+old fixed 10 lots must not open as 10
+with available cash around ₹10,06,281, dynamic sizing should calculate around 7 safe lots if all other gates pass
+log:
+“Dynamic sizing reduced lots from fixed 10 to 7 to stay within per-trade risk and portfolio heat.”
+
+B. F&O Account UI
+
+Improve the circled F&O Account section.
+
+Show clearly:
+
+Available Cash
+Risk Base: Available Cash
+Risk Per Trade % and amount
+Portfolio Heat Cap % and amount
+Heat Used
+Heat Available
+Deployed Capital / Locked in Open Positions
+Trades Opened Today
+Realised P&L Today
+Net vs Seed / Starting Capital
+Seed Capital
+Capital Added
+Capital Withdrawn
+Dynamic Lots: enabled
+Fixed Lots: ceiling only
+
+Make it clean, responsive, and not cramped.
+
+C. Add/Withdraw Capital
+
+Reuse existing topupAccount where possible, but add ledger recording.
+
+Add new withdrawAccount(segment, amount) with transaction safety:
+
+amount must be positive
+amount must be <= balance
+update balance and insert ledger event in one transaction
+return resulting balance
+show exact reason if blocked
+
+D. Equity
+
+Add the same Add Capital / Withdraw Capital UX to Equity.
+
+For Equity:
+
+Add increases cash
+Withdraw decreases cash
+Cannot withdraw more than available cash
+Capital movement stays separate from trading P&L
+
+Approved files:
+
+artifacts/api-server/src/lib/fnoSizingHelper.ts
+artifacts/api-server/src/lib/fnoSizingHelper.test.ts
+artifacts/api-server/src/lib/paperTradingFO.ts
+artifacts/api-server/src/lib/paperAccount.ts
+paper account route/controller files
+DB schema only for additive paper_capital_event
+Paper Trading UI components for F&O and Equity
+OpenAPI/codegen if endpoint/response fields change
+relevant tests only
+
+Do not touch:
+
+signal generation logic
+recovery-veto thresholds
+chase-veto thresholds
+anti-flip thresholds
+option-chain source safety
+P25 logic
+MFE/MAE logic except display alignment if unavoidable
+Watchlist
+Portfolio page
+Scanner
+Sector / Benchmark
+Backtest Lab
+INDstocks
+frontend-wide badges
+final trusted-layer burn-down
+replit.md
+
+Required tests:
+
+F&O sizing uses available cash, not seed.
+PAPER_FIXED_LOTS acts only as ceiling.
+Old NIFTY fixed 10-lot case does not open as 10 lots.
+Same NIFTY case dynamically resizes to safe lots.
+If one lot exceeds risk budget, block with RISK_TOO_WIDE_FOR_MIN_LOT.
+If heat cap has no room, block with PORTFOLIO_HEAT_CAP.
+INFO_ONLY cannot open.
+premiumTrusted=false cannot open.
+final heat assertion still blocks if projected heat exceeds cap.
+Add Capital increases F&O cash and writes ledger event.
+Withdraw Capital decreases F&O cash and writes ledger event.
+F&O withdrawal cannot exceed available balance.
+Add Capital works for Equity and writes ledger event.
+Withdraw Capital works for Equity and writes ledger event.
+Equity withdrawal cannot exceed available balance.
+Capital movement does not alter realised trading P&L.
+Typecheck passes.
+Relevant api-server tests pass.
+Scanner tests only if frontend/shared/generated types are touched.
+Architect review.
+
+Verification required:
+Return:
+
+DB table creation proof or explanation
+before/after 11:16 NIFTY sizing example
+F&O Add Capital proof
+F&O Withdraw Capital proof
+Equity Add Capital proof
+Equity Withdraw Capital proof
+UI summary proof
+tests/typecheck result
+files changed
+remaining limitations
+
+Cost-control:
+Keep this scoped. Do not expand into broader F&O signal work.

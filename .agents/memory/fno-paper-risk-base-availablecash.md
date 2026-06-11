@@ -30,3 +30,14 @@ the SAME transaction as the `paper_account.balance` mutation. Withdraw uses
 `SELECT ... FOR UPDATE` and blocks (no ledger row) when `balance < amount` so
 balance can never go negative; withdrawable = balance (open-position capital is
 locked separately and is not withdrawable).
+
+**Ledger column-name mapping (do NOT rename — renaming a live column is a
+destructive migration the approved spec forbids):** the approved field list
+maps to existing columns as `account_type`=`segment`, `action`=`kind`,
+`resulting_balance`=`balance_after`, `timestamp`=`created_at`. The two genuinely
+new approved fields `note` + `created_by` were added as nullable text via
+`ALTER TABLE paper_capital_event ADD COLUMN IF NOT EXISTS` (additive; NEVER
+drizzle-kit push). created_by is `"owner"` for route writes (owner-only routes,
+no per-user identity). These two columns are write-only so far — not surfaced in
+GET /paper/account, getCapitalMovements, or the UI.
+**Prod TODO:** re-run the same additive ALTER on the prod DB after deploy.
