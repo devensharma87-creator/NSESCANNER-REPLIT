@@ -1,0 +1,351 @@
+Final consolidated instruction:
+
+Start scoped task:
+
+“F&O Paper Account Risk Base + Dynamic Lot Sizing + Capital Add/Withdraw”
+
+Important context:
+We have already completed and accepted the following tasks. Do not reopen them:
+
+Watchlist canonical data path
+Portfolio resolver + full Kite master + BSE Kite pricing
+Portfolio layout/manual-add fixes
+Home / Market Pulse T003
+Charting Candle Source Honesty
+F&O option-chain signal-safety migration
+Scanner / Sector / Benchmark data cleanup
+Pre-Market & Global-Cues synthetic-value honesty
+F&O Signal Engine Rectification code phase
+PORTFOLIO_HEAT investigation
+
+Current finding:
+A real NIFTY VWAP_RECLAIM tradeable signal at around 11:16 IST was blocked by PORTFOLIO_HEAT.
+
+Investigation conclusion:
+This was not a false heat-gate bug.
+
+The heat gate worked correctly:
+
+currentHeat = 0
+newTradeHeat = ₹25,410
+heatCap = ₹12,000
+projectedHeat = ₹25,410
+condition: ₹25,410 > ₹12,000
+result: PORTFOLIO_HEAT block
+
+Root cause:
+The trade was oversized because PAPER_FIXED_LOTS forced 10 NIFTY lots. The issue is not the heat gate. The issue is fixed lot sizing.
+
+Owner decision:
+If a trade is blocked only because fixed lot size is too large, the system should automatically reduce the lot size according to available cash and risk limits.
+
+PAPER_FIXED_LOTS must become a ceiling only, not a forced quantity.
+
+Also, use available cash instead of seed capital for F&O risk sizing and portfolio heat capacity.
+
+Reason:
+The F&O paper account shows available cash around ₹10,06,281, while seed capital is ₹2,00,000. Using seed capital alone is too restrictive after capital has been added. Available cash is the practical paper-account risk base.
+
+Objective 1 — Dynamic F&O lot sizing using available cash
+
+Replace fixed-lot STANDARD sizing with available-cash-based dynamic sizing.
+
+Approved formula:
+
+riskBase = availableCash
+
+perTradeRiskBudget = availableCash × maxLossPctPerTrade
+
+heatCap = availableCash × MAX_FNO_HEAT_PCT
+
+riskPerLot = abs(entryPremium - stopPremium) × lotSize
+
+maxLotsByTradeRisk = floor(perTradeRiskBudget / riskPerLot)
+
+maxLotsByPortfolioHeat = floor((heatCap - currentHeat) / riskPerLot)
+
+absoluteMaxLots = PAPER_FIXED_LOTS[index]
+
+finalLots = min(
+maxLotsByTradeRisk,
+maxLotsByPortfolioHeat,
+absoluteMaxLots
+)
+
+Rules:
+
+PAPER_FIXED_LOTS is only the maximum ceiling.
+Never force fixed lot quantity.
+If fixed lots breach risk/heat, reduce lots automatically.
+If finalLots >= 1, open with finalLots.
+If finalLots < 1 because even 1 lot exceeds per-trade risk, block with:
+RISK_TOO_WIDE_FOR_MIN_LOT
+If finalLots < 1 because portfolio heat has no room, block with:
+PORTFOLIO_HEAT_CAP
+Keep the final heat assertion as fail-closed protection.
+Do not loosen the heat gate.
+Do not increase max risk percentages.
+Do not allow untrusted/stale/Yahoo/synthetic premium.
+Do not allow INFO_ONLY / BASELINE / OUTLOOK to open.
+Do not bypass recovery-veto, chase-veto, anti-flip, liquidity, or premium-trust gates.
+
+Correct example:
+If fixed lots = 10 but only 6 lots are safe, open 6.
+If only 1 lot is safe, open 1.
+If even 1 lot is unsafe, block.
+
+For the earlier NIFTY example:
+
+10 lots must not open.
+The system should compute the maximum safe lots using available cash.
+Open only if finalLots >= 1 and all other gates pass.
+Log clearly:
+“Dynamic sizing reduced lots from fixed 10 to X to stay within per-trade risk and portfolio heat.”
+
+Objective 2 — Apply same risk-base policy consistently
+
+Use available cash as risk base for:
+
+STANDARD F&O paper trades
+BASELINE only if BASELINE is allowed to size for paper testing
+any F&O paper lot sizing path
+
+But this does not mean BASELINE can open if the engine classifies it as INFO_ONLY. Signal class still controls paper eligibility.
+
+Eligibility remains:
+Only TRADEABLE_SIGNAL / tradeClass TRADEABLE / actionable true can open.
+
+Objective 3 — Fix circled F&O Account section
+
+The circled F&O Account section on the Paper Trading page should be cleaned up and expanded.
+
+Current issue:
+The section shows available cash and seed capital, but it does not clearly explain how risk sizing is calculated. It also lacks withdrawal.
+
+Improve the F&O Account panel to show:
+
+Available Cash
+Risk Base
+Risk Per Trade %
+Risk Per Trade Amount
+Portfolio Heat Cap %
+Portfolio Heat Cap Amount
+Heat Used
+Heat Available
+Open Positions
+Trades Opened Today
+Realised P&L Today
+Net vs Starting Capital / Seed
+Seed Capital / Starting Capital
+Capital Added
+Capital Withdrawn, if tracked
+
+Example display:
+
+Available Cash: ₹10,06,281
+Risk Base: Available Cash
+Risk Per Trade: 2.0% = ₹20,126
+Portfolio Heat Cap: 6.0% = ₹60,377
+Heat Used: ₹0
+Heat Available: ₹60,377
+Fixed Lots: ceiling only
+Dynamic Lots: enabled
+
+Make the UI clean, readable, responsive, and not cramped.
+
+Objective 4 — Add Capital and Withdraw Capital for F&O and Equity
+
+The Paper Trading page must support both:
+
+Add Capital
+Withdraw Capital
+
+For both account types:
+
+F&O
+Equity
+
+Requirements:
+
+Add Capital increases available cash.
+Withdraw Capital decreases available cash.
+Withdrawal cannot make cash negative.
+Withdrawal cannot violate reserved risk or margin needed for open positions.
+If open positions exist, compute safe withdrawable amount:
+withdrawableCash = availableCash - reservedRiskOrMarginBuffer
+If withdrawal is blocked, show exact reason:
+“Withdrawal blocked — open positions require reserved risk buffer.”
+Capital movement must be separate from trading P&L.
+Do not rewrite historical trading P&L.
+Do not count capital added as profit.
+Do not count capital withdrawn as trading loss.
+Store each transaction as a ledger/account event if infrastructure exists.
+
+Ledger/account event fields should include:
+
+accountType: FNO or EQUITY
+action: ADD_CAPITAL or WITHDRAW_CAPITAL
+amount
+timestamp
+note/reason
+resulting cash balance
+createdBy / owner if available
+
+If ledger table exists:
+Reuse it.
+
+If ledger table does not exist:
+Before coding schema change, report the existing schema and propose the minimal additive change.
+
+Allowed DB changes only:
+
+CREATE TABLE IF NOT EXISTS
+ALTER TABLE ADD COLUMN IF NOT EXISTS
+additive nullable fields only
+
+Not allowed:
+
+no destructive migration
+no drizzle-kit push
+no dropping tables
+no rewriting historical data
+no fake backfill
+
+Objective 5 — Equity paper account
+
+Apply the same Add Capital / Withdraw Capital UX to Equity.
+
+For Equity:
+
+Add Capital increases available equity paper cash.
+Withdraw Capital decreases available equity paper cash.
+Withdrawal must respect available cash and any reserved exposure/holdings rule.
+Capital movement must remain separate from realised/unrealised trading P&L.
+Show account summary clearly.
+
+Objective 6 — Audit first
+
+Before coding, inspect and report:
+
+Current F&O paper account fields:
+cash balance field
+seed capital field
+realised P&L field
+open position exposure field
+heat/current risk field
+available cash source
+Current Equity paper account fields:
+cash balance field
+holdings/exposure field
+realised/unrealised P&L fields
+available cash source
+Ledger/event model:
+exists YES/NO
+table name
+fields
+supports ADD_CAPITAL / WITHDRAW_CAPITAL YES/NO
+Current sizing code:
+fixed lot constants
+current risk base
+current heat cap calculation
+current per-trade risk calculation
+exact file/function
+UI:
+F&O Account component
+Equity Account component
+Add Capital button location
+where Withdraw Capital should be added
+
+After audit, give a short implementation plan and wait for approval if any DB change is needed.
+
+If no DB change is needed, proceed with scoped implementation after reporting the plan.
+
+Files likely touched:
+
+artifacts/api-server/src/lib/fnoSizingHelper.ts
+artifacts/api-server/src/lib/fnoSizingHelper.test.ts
+artifacts/api-server/src/lib/paperTradingFO.ts
+artifacts/api-server/src/lib/paperAccount.ts
+paper account route/controller files
+paper account DB/ledger model only if needed
+Paper Trading UI components for F&O and Equity
+OpenAPI/codegen if endpoints/fields are added or changed
+relevant tests only
+
+Do not touch:
+
+signal generation logic
+recovery-veto thresholds
+chase-veto thresholds
+anti-flip thresholds
+option-chain source safety
+P25 logic
+MFE/MAE logic except display alignment if unavoidable
+Watchlist
+Portfolio page
+Scanner
+Sector/Benchmark
+Backtest Lab
+INDstocks
+frontend-wide badges
+final trusted-layer burn-down
+replit.md
+
+Required tests:
+
+F&O sizing uses available cash, not seed.
+PAPER_FIXED_LOTS acts only as ceiling.
+Old NIFTY fixed 10-lot case must not open as 10 lots.
+Same NIFTY case dynamically resizes to safe lots if risk permits.
+If one lot exceeds available-cash risk budget, block with RISK_TOO_WIDE_FOR_MIN_LOT.
+If heat cap has no room, block with PORTFOLIO_HEAT_CAP.
+INFO_ONLY cannot open.
+BASELINE/OUTLOOK cannot open unless explicitly tradeable by existing engine rules.
+premiumTrusted=false cannot open.
+stale/untrusted/Yahoo/synthetic premium cannot open.
+final heat assertion still blocks if projected heat exceeds cap.
+Add Capital increases F&O cash.
+Withdraw Capital decreases F&O cash.
+F&O withdrawal cannot make cash negative.
+F&O withdrawal cannot violate reserved risk/open-position buffer.
+Add Capital works for Equity.
+Withdraw Capital works for Equity.
+Equity withdrawal cannot make cash negative.
+Capital movement does not alter realised trading P&L.
+Typecheck passes.
+Relevant api-server tests pass.
+Scanner tests only if frontend/shared/generated types are touched.
+Architect review.
+
+Required verification:
+Return:
+
+Current behaviour before fix.
+New dynamic sizing formula in code.
+Example using the 11:16 NIFTY case:
+old fixed lots
+old risk
+new dynamic lots
+new risk
+heat cap
+final decision
+Example where 1 lot is too risky and trade is blocked.
+Example where heat cap blocks due to existing exposure.
+F&O Account UI summary after change.
+Add Capital proof for F&O.
+Withdraw Capital proof for F&O.
+Add Capital proof for Equity.
+Withdraw Capital proof for Equity.
+Tests/typecheck result.
+Files changed.
+Remaining limitations.
+
+Cost-control:
+Keep this as a scoped Paper Trading account/risk task.
+Do not expand into broader F&O signal work.
+Do not run background work.
+Do not start unrelated cleanup.
+Stop and ask if schema change becomes larger than minimal additive ledger support.
+
+Final rule:
+A valid tradeable signal should not be rejected only because fixed lots are too large. It should be dynamically resized to the safest allowed lot count based on available cash, while keeping all risk, data-quality, and paper-open gates strict.
