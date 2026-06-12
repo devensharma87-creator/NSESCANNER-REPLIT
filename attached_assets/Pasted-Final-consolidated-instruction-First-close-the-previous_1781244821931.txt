@@ -1,0 +1,312 @@
+Final consolidated instruction:
+
+First, close the previous task:
+
+“F&O Paper Account Risk Base + Dynamic Lot Sizing + Capital Add/Withdraw”
+
+This task is accepted and closed.
+
+Accepted because:
+
+Published production schema is verified.
+paper_capital_event exists in production.
+strategy_definitions and strategy_engine_state were not dropped.
+Dynamic F&O sizing uses available cash as risk base.
+PAPER_FIXED_LOTS is ceiling only, not forced quantity.
+Dynamic sizing formula is verified:
+finalLots = min(byTradeRisk, byHeat, fixedLotsCeiling)
+Heat cap uses available cash.
+Final fail-closed heat assertion remains.
+Add Capital works for F&O.
+Withdraw Capital works for F&O.
+Add Capital works for Equity.
+Withdraw Capital works for Equity.
+Capital ledger rows write correctly.
+created_by = owner is verified.
+balance_after is correct.
+Capital movement does not alter realised trading P&L.
+Over-withdraw guard is verified.
+Note column is backend/schema verified. UI note input is accepted as out of scope for this task.
+No further work is pending on this task.
+
+Do not reopen:
+
+F&O paper sizing
+Add/Withdraw capital
+paper capital ledger
+dynamic lot sizing
+production DB migration
+note UI field
+
+Now start the next task, but investigation only:
+
+“F&O Signal UI / Popup / Alert State Mismatch Investigation”
+
+Do not code yet.
+Do not modify files.
+Do not restart anything.
+Do not force or simulate a trade.
+Do not reopen completed tasks.
+Do not touch replit.md.
+
+Context:
+I am sharing two screenshots from the F&O signalling page.
+
+Screenshot 1:
+A popup says:
+
+ENTRY TRIGGERED
+VWAP Reclaim — Long · Bullish
+Instrument: NIFTY 50 23350 CALL
+Spot Entry: 23,557.34
+Spot Stop Loss: 23,287.28
+Spot Target 1: 23,455.95
+Spot Target 2: 23,524.98
+Option Entry: 152.95
+Option Stop Loss: 116.20
+Option Target 1: 204.69
+Option Target 2: 240.90
+Generated: 10:41:22 IST
+Triggered: 10:41:22 IST
+Spot: 23,348.15
+Confidence: 75%
+
+Screenshot 2:
+The main F&O signal card shows:
+
+BUY CALL · NIFTY 23,350
+Baseline Outlook — Long Bias
+Waiting trigger
+Confidence: 50%
+RR: 2.22:1
+Regime: RANGING
+Trigger: 15-min close > 23455.95 — wait for confirmation
+Spot Entry: 23,455.95
+Spot Stop: 23,350.86
+Spot T1: 23,689.49
+Spot T2: 23,852.96
+Option LTP: ₹150.55
+Option Entry: ₹205.41
+Option SL: ₹150.21
+Option T1: ₹328.06
+Option T2: ₹413.92
+Confluence text says:
+“Spot vs VWAP bullish — Spot 23349.95 < VWAP 23350.03”
+
+Problem:
+The popup says ENTRY TRIGGERED, but the main card says Waiting trigger / Baseline Outlook / Long Bias. These cannot both be correct for the same signal state.
+
+This is a critical trust issue in the F&O signalling UI.
+
+Required read-only investigation:
+
+Identify whether popup and main card use the same backend signal object.
+
+Report:
+
+signal id
+index
+strike
+option type
+setup name
+tier
+tradeClass
+confidence
+generated time
+triggered time
+trigger status
+paper-trade allowed status
+
+Tell me whether the popup and card are:
+
+same signal object,
+different signal objects,
+stale cached object,
+TradingView alert object,
+or mixed snapshots.
+Compare exact data source for each surface:
+
+Check:
+
+popup
+main F&O card
+TradingView alert
+backend /options/signals response
+paper-trade open gate
+alert generation route / websocket / client state if applicable
+
+Report whether each surface uses:
+
+same backend payload,
+different payload,
+local cached state,
+stale client state,
+or derived/transformed values.
+Explain the core mismatch.
+
+Popup:
+
+ENTRY TRIGGERED
+VWAP Reclaim — Long / Bullish
+Confidence 75%
+
+Main card:
+
+Waiting trigger
+Baseline Outlook — Long Bias
+Confidence 50%
+
+Determine which one is correct.
+
+Tell me clearly:
+
+Is popup wrong?
+Is main card wrong?
+Is alert stale?
+Is TradingView alert disconnected?
+Is backend state inconsistent?
+Is UI mapping wrong?
+Validate long-side spot-level ordering.
+
+For BUY CALL / Long, required ordering is:
+
+spotStop < spotEntry < spotT1 < spotT2
+
+But popup appears to show:
+
+spotEntry = 23,557.34
+spotT1 = 23,455.95
+spotT2 = 23,524.98
+
+This is invalid because both targets are below entry.
+
+Investigate whether:
+
+popup field mapping is wrong,
+entry/target calculation is wrong,
+stale levels are mixed,
+target fields are shifted,
+or different signal snapshots are being combined.
+Validate option premium ordering.
+
+For BUY CALL / Long, required ordering is:
+
+optionStop < optionEntry < optionT1 < optionT2
+
+Popup:
+
+optionEntry 152.95
+optionSL 116.20
+optionT1 204.69
+optionT2 240.90
+
+Main card:
+
+optionLTP 150.55
+optionEntry 205.41
+optionSL 150.21
+optionT1 328.06
+optionT2 413.92
+
+Explain:
+
+which is live LTP,
+which is planned entry,
+which is triggered entry,
+which is paper-trade entry candidate,
+which value the paper trade would use,
+why popup and card differ so much.
+Validate VWAP confluence logic.
+
+Main card says:
+
+“Spot vs VWAP bullish — Spot 23349.95 < VWAP 23350.03”
+
+If spot is below VWAP, this should not be labelled bullish.
+
+Check:
+
+comparison logic,
+label mapping,
+rounding,
+stale VWAP source,
+confluence text builder,
+whether < is being labelled bullish incorrectly.
+
+Report exact file/function responsible.
+
+Verify paper-trade result for this exact BUY CALL.
+
+Report:
+
+Was it classified as TRADEABLE_SIGNAL or INFO_ONLY?
+Was it BASELINE or STANDARD?
+Did paper trade open?
+If no, exact reason:
+INFO_ONLY_NOT_TRADEABLE
+trigger not confirmed
+confidence floor
+HTF conflict
+recovery-veto
+chase-veto
+anti-flip
+liquidity
+premium trust
+sizing/risk
+other
+Verify invariants currently enforced in code.
+
+Check whether code enforces:
+
+BASELINE / INFO_ONLY cannot show true “ENTRY TRIGGERED”
+popup cannot say triggered unless backend trigger status is actually triggered
+TradingView alert cannot promote baseline into tradeable trigger
+long spot targets must be above entry
+short spot targets must be below entry
+long option targets must be above entry
+short option targets must be below entry
+main card and popup must share same signal id/state
+paper-trade gate can only open TRADEABLE signals
+alert display cannot bypass paper-trade gates
+Classification required.
+
+Give final classification:
+
+A) Popup is wrong / stale / using wrong fields
+B) Main card is wrong / stale
+C) TradingView alert is disconnected from backend state
+D) Backend signal object is internally inconsistent
+E) Field mapping bug in UI
+F) Multiple different signal objects are being mixed
+G) VWAP confluence text bug
+H) Level calculation bug
+I) Other
+
+Give minimal fix plan only.
+
+Do not implement yet.
+
+The fix plan must preserve:
+
+INFO_ONLY cannot open paper trades
+BASELINE cannot open paper trades
+only TRADEABLE_SIGNAL can show true tradeable entry
+TradingView alerts must not overstate signal quality
+paper-trade gate remains strict
+dynamic lot sizing stays unchanged
+F&O paper account work stays closed
+option-chain safety stays closed
+
+Required output:
+
+root cause
+files likely involved
+whether backend or frontend is wrong
+whether popup/alert is stale or mis-mapped
+whether any real trade was opened
+minimal fix plan
+tests that would be required
+risk level
+
+Do not code.
+Wait for approval before fixing.
