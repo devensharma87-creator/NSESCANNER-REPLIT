@@ -9,7 +9,7 @@
  * (lib/charting/indicators.ts) and passed in as index-aligned series. No
  * network, no trading logic.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import {
   createChart,
   createSeriesMarkers,
@@ -102,6 +102,8 @@ interface Props {
   showRsi: boolean;
   showCvd: boolean;
   showTime: boolean;
+  /** Current timeframe — used for setting appropriate default visible range. */
+  timeframe?: string;
   height?: number;
 }
 
@@ -218,7 +220,16 @@ function alignedLine(
   return out;
 }
 
-export function ChartingChart({
+export interface ChartingChartHandle {
+  /** Fit all loaded candles into the visible area. */
+  resetZoom: () => void;
+  /** Scroll to the latest candle with the default visible range. */
+  goToLatest: () => void;
+  /** Scroll to real-time and keep chart pinned to latest bar. */
+  lockToLatest: () => void;
+}
+
+export const ChartingChart = forwardRef<ChartingChartHandle, Props>(function ChartingChart({
   candles,
   chartType,
   emaSeries,
@@ -237,8 +248,9 @@ export function ChartingChart({
   showRsi,
   showCvd,
   showTime,
+  timeframe,
   height = 480,
-}: Props) {
+}, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const legendRef = useRef<HTMLDivElement | null>(null);
@@ -338,7 +350,8 @@ export function ChartingChart({
         priceFormat: { type: "volume" },
         priceScaleId: "vol",
         priceLineVisible: false,
-        lastValueVisible: false,
+        lastValueVisible: true,
+        title: "Volume",
       });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
       vol.setData(
@@ -499,11 +512,13 @@ export function ChartingChart({
           lineWidth: 2,
           priceLineVisible: false,
           lastValueVisible: true,
+          title: "RSI 14",
         },
         paneIndex,
       );
       rsi.setData(alignedLine(candles, rsiSeries));
       rsi.createPriceLine({ price: 70, color: "rgba(235,87,87,0.5)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "70" });
+      rsi.createPriceLine({ price: 50, color: "rgba(120,120,140,0.4)", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "" });
       rsi.createPriceLine({ price: 30, color: "rgba(0,162,91,0.5)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "30" });
       const panes = chart.panes();
       if (panes.length > paneIndex) panes[paneIndex]!.setHeight(Math.round(height * 0.28));
@@ -528,7 +543,34 @@ export function ChartingChart({
       if (panes.length > paneIndex) panes[paneIndex]!.setHeight(Math.round(height * 0.26));
     }
 
-    chart.timeScale().fitContent();
+    // Visible range: instead of fitContent() which compresses the chart,
+    // show a timeframe-appropriate window anchored to the newest bar.
+    if (candles.length > 0) {
+      // Default visible bar counts per timeframe
+      const visibleBars: Record<string, number> = {
+        "1m": 375,    // ~1 trading day (6.25h * 60)
+        "3m": 250,    // ~2 trading days
+        "5m": 225,    // ~3 trading days
+        "15m": 200,   // ~10-12 trading days
+        "30m": 160,   // ~20 trading days
+        "1h": 120,    // ~1-2 months
+        "1D": 252,    // ~1 year
+        "1W": 200,    // ~3-5 years
+        "1M": 120,    // max / 10 years
+      };
+      const targetBars = visibleBars[timeframe ?? "15m"] ?? 200;
+      if (candles.length > targetBars) {
+        // Show last N bars with some right padding
+        const fromBar = candles[candles.length - targetBars]!;
+        chart.timeScale().setVisibleRange({
+          from: toTime(fromBar.t) as Time,
+          to: toTime(candles[candles.length - 1]!.t + 3600) as Time,
+        });
+      } else {
+        // Show all bars if fewer than target
+        chart.timeScale().fitContent();
+      }
+    }
 
     // ── Crosshair-following OHLC legend (data-rich, pro-terminal style) ──
     // Reads straight from the supplied candle data, so it works for both
@@ -580,7 +622,24 @@ export function ChartingChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, chartType, emaKey, hasVwap, showVolume, showRsi, showCvd, showTime, height, emaSeries, vwapSeries, rsiSeries, cvdSeries, pocPrice, fvgZones, sweepMarkers, fibLevels, volumeProfile, showVolumeProfile, keyLevels, showKeyLevels]);
+  }, [candles, chartType, emaKey, hasVwap, showVolume, showRsi, showCvd, showTime, timeframe, height, emaSeries, vwapSeries, rsiSeries, cvdSeries, pocPrice, fvgZones, sweepMarkers, fibLevels, volumeProfile, showVolumeProfile, keyLevels, showKeyLevels]);
+
+  // Expose chart controls to parent via ref
+  useImperativeHandle(ref, () => ({
+    resetZoom: () => {
+      chartRef.current?.timeScale().fitContent();
+    },
+    goToLatest: () => {
+      if (!chartRef.current || candles.length === 0) return;
+      chartRef.current.timeScale().scrollToRealTime();
+    },
+    lockToLatest: () => {
+      if (!chartRef.current || candles.length === 0) return;
+      chartRef.current.timeScale().scrollToRealTime();
+      // lightweight-charts auto-scrolls on new data after scrollToRealTime
+      // is called, so this effectively pins the view to latest.
+    },
+  }), [candles]);
 
   return (
     <div style={{ position: "relative", width: "100%", height }}>
@@ -592,4 +651,4 @@ export function ChartingChart({
       <div ref={containerRef} style={{ width: "100%", height }} />
     </div>
   );
-}
+});

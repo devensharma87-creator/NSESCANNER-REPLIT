@@ -241,11 +241,40 @@ export function OptionSignalAlerter() {
     if (!current) return null;
     const s = current.signal;
     const isEntry = current.kind === "TRIGGERED";
-    const headerBg = isEntry ? "bg-cyan-500/10 border-cyan-500/40" : "bg-red-500/10 border-red-500/40";
-    const headerText = isEntry ? "text-cyan-300" : "text-red-300";
-    const title = isEntry ? "ENTRY TRIGGERED" : "STOP LOSS HIT";
+    const tier = (s.tier ?? "BASELINE").toUpperCase();
+    const isTradeable = tier === "HIGH_CONVICTION" || tier === "STANDARD";
+    const paperAllowed = isTradeable;
+    const paperReason = isTradeable
+      ? null
+      : tier === "INFO_ONLY"
+        ? "INFO_ONLY tier — informational outlook, not auto-traded"
+        : tier === "BASELINE"
+          ? "BASELINE tier — lower conviction, not auto-traded"
+          : `${tier} tier — not eligible for auto-trade`;
+
+    let headerBg: string;
+    let headerText: string;
+    let title: string;
+
+    if (!isEntry) {
+      // Stop-loss hit — always urgent
+      headerBg = "bg-red-500/10 border-red-500/40";
+      headerText = "text-red-300";
+      title = "STOP LOSS HIT";
+    } else if (isTradeable) {
+      headerBg = "bg-cyan-500/10 border-cyan-500/40";
+      headerText = "text-cyan-300";
+      title = "TRADEABLE ENTRY TRIGGERED";
+    } else {
+      // INFO_ONLY / BASELINE / demoted — entry level reached but not auto-traded
+      headerBg = "bg-amber-500/10 border-amber-500/40";
+      headerText = "text-amber-300";
+      title = "INFO ALERT — entry level reached";
+    }
+
     const optionLabel = `${s.indexName} ${s.strike} ${s.optionType}`;
-    return { s, isEntry, headerBg, headerText, title, optionLabel };
+    const signalId = `${s.signalDate}:${s.indexSymbol}:${s.setupKey}:${s.direction}`;
+    return { s, isEntry, headerBg, headerText, title, optionLabel, tier, isTradeable, paperAllowed, paperReason, signalId };
   }, [current]);
 
   if (!isOwner) return null;
@@ -270,6 +299,27 @@ export function OptionSignalAlerter() {
           <DialogDescription className="font-mono text-xs text-muted-foreground">
             {ui?.s.setupName ?? ui?.s.setupKey ?? "Setup"} · {ui?.s.direction}
           </DialogDescription>
+          {ui ? (
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider ${
+                ui.isTradeable
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                  : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+              }`}>
+                {ui.tier}
+              </span>
+              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider bg-zinc-700/50 text-zinc-400 border border-zinc-600/30">
+                Historical snapshot · {ui.isEntry ? "triggered" : "stopped"} at {formatTime(ui.isEntry ? ui.s.triggeredAt : ui.s.exitedAt)}
+              </span>
+              <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider ${
+                ui.paperAllowed
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  : "bg-zinc-700/50 text-zinc-500 border border-zinc-600/30"
+              }`}>
+                Paper trade: {ui.paperAllowed ? "YES" : "NO"}
+              </span>
+            </div>
+          ) : null}
         </DialogHeader>
 
         {ui ? (
@@ -362,6 +412,18 @@ export function OptionSignalAlerter() {
                 <div className="tabular-nums">{ui.s.confidence}%</div>
               </div>
             </div>
+
+            {/* Signal ID for traceability */}
+            <div className="text-[10px] font-mono text-muted-foreground/60 pt-1 border-t border-border/20 break-all">
+              Signal: {ui.signalId}
+            </div>
+
+            {/* Paper-trade reason when not allowed */}
+            {!ui.paperAllowed && ui.paperReason ? (
+              <div className="rounded border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-300/80">
+                {ui.paperReason}
+              </div>
+            ) : null}
 
             {!ui.isEntry && ui.s.exitPrice != null ? (
               <div className="rounded border border-red-500/40 bg-red-500/5 p-2 text-xs">

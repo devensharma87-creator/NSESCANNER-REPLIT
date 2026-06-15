@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,10 +11,11 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Legend, ReferenceLine,
   BarChart, Bar, Cell, PieChart, Pie, ComposedChart, AreaChart, Area, LabelList,
 } from "recharts";
-import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, ChevronRight, Info } from "lucide-react";
+import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, ChevronRight, Info, BarChart3, PieChart as PieChartIcon, Target, Table2, Zap, Eye } from "lucide-react";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
 
 const base = (import.meta as { env: { BASE_URL: string } }).env.BASE_URL;
+
 
 type Bucket = "LONG_BUILDUP" | "SHORT_BUILDUP" | "SHORT_COVERING" | "LONG_UNWINDING" | "NEUTRAL";
 
@@ -128,33 +129,539 @@ function fmtPct(n: number | undefined | null): string {
 }
 
 export default function OiLab() {
+  // ── Single source of truth for all OI Lab tabs ──────────────────────────────
+  // One hook call, one fetch interval, one underlying/expiry/strikesAround.
+  // All child tabs receive the same shared state — changing underlying or
+  // expiry in any tab's UnderlyingPicker updates every tab identically.
+  const shared = useOiInsights();
+
   return (
     <div className="container mx-auto py-6 space-y-6">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">OI Lab</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Bulk option-chain snapshots, futures OI buildup heatmap, and intraday OI delta tracking.
+            Professional option-chain analytics, OI insights, sentiment, and risk surfaces.
             All live from Kite — no caching beyond a few seconds.
           </p>
         </div>
         <DataSourceBadge source="kite" status="live" refreshMs={30_000} note="option chain + futures OI" />
       </div>
 
-      <Tabs defaultValue="insights" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="insights"><Sparkles className="w-4 h-4 mr-2" />OI Insights</TabsTrigger>
-          <TabsTrigger value="snapshot"><Download className="w-4 h-4 mr-2" />Bulk Snapshot</TabsTrigger>
-          <TabsTrigger value="heatmap"><Layers className="w-4 h-4 mr-2" />OI Heatmap</TabsTrigger>
-          <TabsTrigger value="tracker"><Activity className="w-4 h-4 mr-2" />Delta Tracker</TabsTrigger>
+      {/* ── Global underlying picker ── shared across all tabs ─────────────── */}
+      <UnderlyingPicker shared={shared} />
+
+      <Tabs defaultValue="overview" className="space-y-4">
+        <TabsList className="flex flex-wrap h-auto gap-1">
+          <TabsTrigger value="overview" id="oi-lab-tab-overview"><Eye className="w-4 h-4 mr-1.5" />Overview</TabsTrigger>
+          <TabsTrigger value="oi" id="oi-lab-tab-oi"><BarChart3 className="w-4 h-4 mr-1.5" />Open Interest</TabsTrigger>
+          <TabsTrigger value="pcr" id="oi-lab-tab-pcr"><PieChartIcon className="w-4 h-4 mr-1.5" />Put-Call Ratio</TabsTrigger>
+          <TabsTrigger value="maxpain" id="oi-lab-tab-maxpain"><Target className="w-4 h-4 mr-1.5" />Max Pain</TabsTrigger>
+          <TabsTrigger value="chain" id="oi-lab-tab-chain"><Table2 className="w-4 h-4 mr-1.5" />Option Chain</TabsTrigger>
+          <TabsTrigger value="multi" id="oi-lab-tab-multi"><Layers className="w-4 h-4 mr-1.5" />Multi OI &amp; Volume</TabsTrigger>
+          <TabsTrigger value="gex" id="oi-lab-tab-gex"><Zap className="w-4 h-4 mr-1.5" />Gamma Exposure</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="insights"><InsightsTab /></TabsContent>
-        <TabsContent value="snapshot"><SnapshotTab /></TabsContent>
-        <TabsContent value="heatmap"><HeatmapTab /></TabsContent>
-        <TabsContent value="tracker"><TrackerTab /></TabsContent>
+        {/* All tabs receive the same shared state — no independent hooks */}
+        <TabsContent value="overview"><OverviewTab shared={shared} /></TabsContent>
+        <TabsContent value="oi"><InsightsTab shared={shared} /></TabsContent>
+        <TabsContent value="pcr"><PcrTab shared={shared} /></TabsContent>
+        <TabsContent value="maxpain"><MaxPainTab shared={shared} /></TabsContent>
+        <TabsContent value="chain"><OptionChainTab shared={shared} /></TabsContent>
+        <TabsContent value="multi"><MultiOiTab /></TabsContent>
+        <TabsContent value="gex"><GexPlaceholder /></TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ─── Multi OI & Volume tab (wraps existing Snapshot / Heatmap / Tracker) ─────
+function MultiOiTab() {
+  return (
+    <Tabs defaultValue="snapshot" className="space-y-4">
+      <TabsList>
+        <TabsTrigger value="snapshot"><Download className="w-4 h-4 mr-2" />Bulk Snapshot</TabsTrigger>
+        <TabsTrigger value="heatmap"><Layers className="w-4 h-4 mr-2" />OI Heatmap</TabsTrigger>
+        <TabsTrigger value="tracker"><Activity className="w-4 h-4 mr-2" />Delta Tracker</TabsTrigger>
+      </TabsList>
+      <TabsContent value="snapshot"><SnapshotTab /></TabsContent>
+      <TabsContent value="heatmap"><HeatmapTab /></TabsContent>
+      <TabsContent value="tracker"><TrackerTab /></TabsContent>
+    </Tabs>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// OPTION CHAIN TAB — Phase D: Professional Option Chain Table Foundation
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Formatting: number to compact display (Cr / L / K) for OI/Volume */
+function fmtCompact(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1e7) return (n / 1e7).toFixed(2) + " Cr";
+  if (abs >= 1e5) return (n / 1e5).toFixed(2) + " L";
+  if (abs >= 1e3) return (n / 1e3).toFixed(1) + " K";
+  return n.toLocaleString("en-IN");
+}
+
+/** Safe display for nullable numbers — never shows 0 for missing */
+function safeNum(v: number | null | undefined, digits = 2): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return v.toFixed(digits);
+}
+
+/** OI Change %: only when both numerator and denominator are valid */
+function oiChgPct(oiChg: number | null | undefined, oi: number | null | undefined): string {
+  if (oiChg == null || oi == null || !Number.isFinite(oiChg) || !Number.isFinite(oi)) return "—";
+  const prevOi = oi - oiChg;
+  if (prevOi <= 0) return "—";
+  return ((oiChg / prevOi) * 100).toFixed(1) + "%";
+}
+
+/** Vol/OI ratio: only when OI > 0 */
+function volOi(vol: number | null | undefined, oi: number | null | undefined): string {
+  if (vol == null || oi == null || !Number.isFinite(vol) || !Number.isFinite(oi) || oi <= 0) return "—";
+  return (vol / oi).toFixed(2);
+}
+
+/** Intrinsic value: can legitimately be 0 (OTM). Returns null only if spot invalid */
+function intrinsic(spot: number | null | undefined, strike: number, type: "CE" | "PE"): number | null {
+  if (spot == null || !Number.isFinite(spot)) return null;
+  if (type === "CE") return Math.max(0, spot - strike);
+  return Math.max(0, strike - spot);
+}
+
+/** Time value: LTP - Intrinsic. Returns null if either input missing */
+function timeValue(ltp: number | null | undefined, intrin: number | null): string {
+  if (ltp == null || !Number.isFinite(ltp) || ltp <= 0 || intrin == null) return "—";
+  const tv = ltp - intrin;
+  // Negative TV can happen with stale/mismatched data — show with warning
+  if (tv < 0) return tv.toFixed(2) + " ⚠";
+  return tv.toFixed(2);
+}
+
+/** Buildup badge: compact label with color coding */
+const BUILDUP_MAP: Record<string, { label: string; full: string; cls: string }> = {
+  LONG_BUILDUP: { label: "LB", full: "Long Buildup — Price ↑ OI ↑", cls: "bg-green-500/20 text-green-400 border-green-500/30" },
+  SHORT_BUILDUP: { label: "SB", full: "Short Buildup — Price ↓ OI ↑", cls: "bg-red-500/20 text-red-400 border-red-500/30" },
+  SHORT_COVERING: { label: "SC", full: "Short Covering — Price ↑ OI ↓", cls: "bg-lime-500/20 text-lime-400 border-lime-500/30" },
+  LONG_UNWINDING: { label: "LU", full: "Long Unwinding — Price ↓ OI ↓", cls: "bg-orange-500/20 text-orange-400 border-orange-500/30" },
+  NEUTRAL: { label: "N", full: "Neutral — no clear buildup", cls: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30" },
+};
+
+function BuildupBadge({ buildup }: { buildup: string | null | undefined }) {
+  if (!buildup) return <span className="text-muted-foreground">—</span>;
+  const m = BUILDUP_MAP[buildup];
+  if (!m) return <span className="text-muted-foreground text-[10px]">{buildup}</span>;
+  return (
+    <span
+      title={m.full}
+      className={`inline-block px-1.5 py-0.5 text-[9px] font-mono font-bold rounded border cursor-help ${m.cls}`}
+    >
+      {m.label}
+    </span>
+  );
+}
+
+/** Greek cell: honest display — value, modelled badge, or — */
+function GreekCell({ value, digits = 4 }: { value: number | null | undefined; digits?: number }) {
+  if (value == null || !Number.isFinite(value)) return <span className="text-muted-foreground">—</span>;
+  return <span className="tabular-nums">{value.toFixed(digits)}</span>;
+}
+
+/** Change color: green for positive, red for negative, muted for zero/missing */
+function chgColor(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v) || v === 0) return "text-muted-foreground";
+  return v > 0 ? "text-green-400" : "text-red-400";
+}
+
+function OptionChainTab({ shared }: { shared: SharedOiState }) {
+  const { data, loading, error } = shared;
+
+  // ── Derived rows (memoized) ─────────────────────────────────────────────
+  const rows = useMemo(() => {
+    if (!data?.strikes?.length) return [];
+    const spot = data.spot;
+    return data.strikes.map(s => {
+      const ceIntrin = intrinsic(spot, s.strike, "CE");
+      const peIntrin = intrinsic(spot, s.strike, "PE");
+      return {
+        ...s,
+        ceIntrinsic: ceIntrin,
+        peIntrinsic: peIntrin,
+        ceTv: timeValue(s.ceLtp, ceIntrin),
+        peTv: timeValue(s.peLtp, peIntrin),
+        ceOiChgPct: oiChgPct(s.ceOiChg, s.ceOi),
+        peOiChgPct: oiChgPct(s.peOiChg, s.peOi),
+        ceVolOi: volOi(s.ceVolume, s.ceOi),
+        peVolOi: volOi(s.peVolume, s.peOi),
+      };
+    });
+  }, [data]);
+
+  // ── Loading / error / empty states ──────────────────────────────────────
+  if (loading && !data) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3">
+            <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Loading option chain…</span>
+          </div>
+          <div className="mt-4 space-y-2">
+            {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3">
+        <AlertTriangle className="w-4 h-4" /> {error}
+      </div>
+    );
+  }
+
+  if (!data || rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center space-y-3">
+          <Table2 className="w-10 h-10 mx-auto text-muted-foreground opacity-50" />
+          <p className="text-sm text-muted-foreground">No strikes available for {shared.underlying}.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const spot = data.spot;
+  const hasGreeks = rows.some(r => r.ceDelta != null || r.peDelta != null);
+
+  return (
+    <div className="space-y-3">
+      {/* ── Chain header bar ────────────────────────────────────────────────── */}
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Chain:</span>
+              <span className="font-mono font-bold">{data.underlying}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-mono">{data.expiry}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Spot:</span>
+              <span className="font-mono font-bold">{spot.toFixed(2)}</span>
+              {data.spotSource && (
+                <Badge variant="outline" className="text-[9px] px-1 py-0">{data.spotSource.toUpperCase()}</Badge>
+              )}
+              {data.spotTrusted === false && (
+                <Badge variant="destructive" className="text-[9px] px-1 py-0">UNTRUSTED</Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">ATM:</span>
+              <span className="font-mono">{data.atmStrike}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Max Pain:</span>
+              <span className="font-mono">{data.maxPain}</span>
+            </div>
+            {data.futurePrice != null && (
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Future:</span>
+                <span className="font-mono">{data.futurePrice.toFixed(2)}</span>
+                {data.futureSource && (
+                  <Badge variant="outline" className="text-[9px] px-1 py-0">{data.futureSource.toUpperCase()}</Badge>
+                )}
+              </div>
+            )}
+            {data.syntheticFuture != null && data.syntheticFutureModelled && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/30 text-amber-300">
+                SYNTH FUTURE · MODELLED
+              </Badge>
+            )}
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-muted-foreground">{rows.length} strikes</span>
+              {data.lotSize && <span className="text-muted-foreground">· lot {data.lotSize}</span>}
+              {loading && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Legend ──────────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground px-1">
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/20 border border-amber-500/40 inline-block" /> ATM</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/15 border border-orange-500/40 inline-block" /> Max Pain</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-green-500/5 border border-green-500/20 inline-block" /> ITM Calls / Puts</span>
+        <span className="flex items-center gap-1.5">— = unavailable</span>
+        {!hasGreeks && <span className="text-amber-400">· Greeks not available for this chain</span>}
+      </div>
+
+      {/* ── Table ───────────────────────────────────────────────────────────── */}
+      <div
+        className="oi-chain-wrap rounded-lg border border-border overflow-auto max-h-[75vh]"
+        style={{ scrollbarGutter: "stable" }}
+      >
+        <table className="w-full text-[11px] font-mono border-collapse" id="oi-chain-table">
+          {/* ── HEADER ─────────────────────────────────────────────────────── */}
+          <thead className="sticky top-0 z-20 bg-card">
+            {/* Group headers */}
+            <tr className="border-b border-border">
+              <th
+                colSpan={hasGreeks ? 15 : 11}
+                className="text-center text-[10px] uppercase tracking-wider font-semibold py-1.5 text-green-400 bg-green-500/5 border-r border-border"
+              >
+                CALLS
+              </th>
+              <th
+                className="text-center text-[10px] uppercase tracking-wider font-semibold py-1.5 bg-card border-r border-l border-border"
+                style={{ position: "sticky", left: 0, zIndex: 30 }}
+              >
+                STRIKE
+              </th>
+              <th
+                colSpan={hasGreeks ? 15 : 11}
+                className="text-center text-[10px] uppercase tracking-wider font-semibold py-1.5 text-red-400 bg-red-500/5"
+              >
+                PUTS
+              </th>
+            </tr>
+            {/* Column headers */}
+            <tr className="border-b border-border text-muted-foreground">
+              {/* Call columns */}
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">LTP</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">IV%</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Open Interest">OI</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change">OIΔ</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change %">OIΔ%</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Vol</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Volume / OI">V/OI</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Intrinsic Value">Int</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Time Value">TV</th>
+              <th className="px-1.5 py-1.5 text-center font-normal whitespace-nowrap" title="OI Buildup">Bld</th>
+              {hasGreeks && (
+                <>
+                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Δ</th>
+                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Γ</th>
+                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Θ</th>
+                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">V</th>
+                </>
+              )}
+              <th className="px-1 py-1.5 border-r border-border" />
+
+              {/* Strike column */}
+              <th
+                className="px-3 py-1.5 text-center font-semibold bg-card border-r border-l border-border whitespace-nowrap"
+                style={{ position: "sticky", left: 0, zIndex: 30 }}
+              >
+                Strike
+              </th>
+
+              {/* Put columns */}
+              <th className="px-1 py-1.5 border-l border-border" />
+              {hasGreeks && (
+                <>
+                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Δ</th>
+                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Γ</th>
+                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Θ</th>
+                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">V</th>
+                </>
+              )}
+              <th className="px-1.5 py-1.5 text-center font-normal whitespace-nowrap" title="OI Buildup">Bld</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Intrinsic Value">Int</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Time Value">TV</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">IV%</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">LTP</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Open Interest">OI</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change">OIΔ</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change %">OIΔ%</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Vol</th>
+              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Volume / OI">V/OI</th>
+            </tr>
+          </thead>
+
+          {/* ── BODY ─────────────────────────────────────────────────────────── */}
+          <tbody>
+            {rows.map(r => {
+              const isAtm = r.isAtm;
+              const isMaxPain = r.strike === data.maxPain;
+              const ceItm = spot > r.strike;   // Call is ITM when spot > strike
+              const peItm = spot < r.strike;   // Put is ITM when spot < strike
+
+              // Row background: ATM > MaxPain > ITM tint > default
+              let rowBg = "";
+              if (isAtm) rowBg = "bg-amber-500/10 border-y border-amber-500/30";
+              else if (isMaxPain) rowBg = "bg-orange-500/8 border-y border-orange-500/20";
+
+              return (
+                <tr
+                  key={r.strike}
+                  className={`${rowBg} hover:bg-zinc-800/50 transition-colors border-b border-border/40`}
+                >
+                  {/* ── CALL SIDE ─────────────────────────────────────────── */}
+                  <td className={`px-1.5 py-1 text-right tabular-nums ${ceItm ? "bg-green-500/5" : ""}`}>
+                    {r.ceLtp > 0 ? r.ceLtp.toFixed(2) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
+                    {safeNum(r.ceIv, 1)}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums ${ceItm ? "bg-green-500/5" : ""}`}>
+                    {r.ceOi > 0 ? fmtCompact(r.ceOi) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.ceOiChg)} ${ceItm ? "bg-green-500/5" : ""}`}>
+                    {r.ceOiChg !== 0 ? fmtCompact(r.ceOiChg) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.ceOiChg)} ${ceItm ? "bg-green-500/5" : ""}`}>
+                    {r.ceOiChgPct}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
+                    {r.ceVolume > 0 ? fmtCompact(r.ceVolume) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
+                    {r.ceVolOi}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
+                    {r.ceIntrinsic != null ? r.ceIntrinsic.toFixed(2) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
+                    {r.ceTv}
+                  </td>
+                  <td className={`px-1.5 py-1 text-center ${ceItm ? "bg-green-500/5" : ""}`}>
+                    <BuildupBadge buildup={r.ceBuildup} />
+                  </td>
+                  {hasGreeks && (
+                    <>
+                      <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceDelta} /></td>
+                      <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceGamma} digits={6} /></td>
+                      <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceTheta} /></td>
+                      <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceVega} /></td>
+                    </>
+                  )}
+                  <td className={`px-1 py-1 border-r border-border ${ceItm ? "bg-green-500/5" : ""}`} />
+
+                  {/* ── STRIKE COLUMN (sticky) ───────────────────────────── */}
+                  <td
+                    className={`px-3 py-1 text-center font-bold tabular-nums border-r border-l border-border whitespace-nowrap
+                      ${isAtm ? "bg-amber-500/15 text-amber-300" : isMaxPain ? "bg-orange-500/10 text-orange-300" : "bg-card"}`}
+                    style={{ position: "sticky", left: 0, zIndex: 10 }}
+                  >
+                    {r.strike}
+                    {isAtm && <span className="ml-1 text-[8px] text-amber-400 font-normal">ATM</span>}
+                    {isMaxPain && !isAtm && <span className="ml-1 text-[8px] text-orange-400 font-normal">MP</span>}
+                  </td>
+
+                  {/* ── PUT SIDE ──────────────────────────────────────────── */}
+                  <td className={`px-1 py-1 border-l border-border ${peItm ? "bg-red-500/5" : ""}`} />
+                  {hasGreeks && (
+                    <>
+                      <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peDelta} /></td>
+                      <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peGamma} digits={6} /></td>
+                      <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peTheta} /></td>
+                      <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peVega} /></td>
+                    </>
+                  )}
+                  <td className={`px-1.5 py-1 text-center ${peItm ? "bg-red-500/5" : ""}`}>
+                    <BuildupBadge buildup={r.peBuildup} />
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
+                    {r.peIntrinsic != null ? r.peIntrinsic.toFixed(2) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
+                    {r.peTv}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
+                    {safeNum(r.peIv, 1)}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums ${peItm ? "bg-red-500/5" : ""}`}>
+                    {r.peLtp > 0 ? r.peLtp.toFixed(2) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums ${peItm ? "bg-red-500/5" : ""}`}>
+                    {r.peOi > 0 ? fmtCompact(r.peOi) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.peOiChg)} ${peItm ? "bg-red-500/5" : ""}`}>
+                    {r.peOiChg !== 0 ? fmtCompact(r.peOiChg) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.peOiChg)} ${peItm ? "bg-red-500/5" : ""}`}>
+                    {r.peOiChgPct}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
+                    {r.peVolume > 0 ? fmtCompact(r.peVolume) : "—"}
+                  </td>
+                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
+                    {r.peVolOi}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Footer badges ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground px-1">
+        <span>Source: {data.source}</span>
+        <span>· {new Date(data.generatedAt).toLocaleTimeString()}</span>
+        {data.spotSource && <span>· Spot: {data.spotSource}</span>}
+        {data.spotTrusted === false && <span className="text-amber-400">· Spot untrusted — not for trade decisions</span>}
+        {hasGreeks && <span>· Greeks shown where available</span>}
+        {!hasGreeks && <span>· Greeks unavailable</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── GEX placeholder (honest unavailable state) ─────────────────────────────
+function GexPlaceholder() {
+  return (
+    <Card>
+      <CardContent className="p-8 text-center space-y-4">
+        <Zap className="w-12 h-12 mx-auto text-amber-400 opacity-50" />
+        <div>
+          <h3 className="text-lg font-semibold">Gamma Exposure (GEX)</h3>
+          <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto">
+            GEX computation engine is ready (Phase B). Full GEX chart visualization will be available
+            in a future phase after data validation.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <Badge variant="outline" className="text-xs border-amber-500/30 text-amber-300 bg-amber-500/10">
+            MODELLED GEX — not exchange provided
+          </Badge>
+          <Badge variant="outline" className="text-xs">Phase D — Coming Soon</Badge>
+        </div>
+        <div className="mt-4 max-w-md mx-auto text-left text-xs text-muted-foreground space-y-1.5 bg-zinc-900/50 rounded-lg p-4">
+          <div className="font-semibold text-foreground text-sm mb-2">GEX Status</div>
+          <div className="flex justify-between">
+            <span>Formula</span>
+            <span className="text-green-400">✓ Implemented</span>
+          </div>
+          <div className="flex justify-between">
+            <span>OI Unit Model</span>
+            <span className="text-green-400">✓ Verified (contracts × lotSize)</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Sign Convention</span>
+            <span className="text-green-400">✓ Call +ve, Put −ve</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Missing Data Guard</span>
+            <span className="text-green-400">✓ Returns null, never fake 0</span>
+          </div>
+          <div className="flex justify-between">
+            <span>UI Visualization</span>
+            <span className="text-amber-400">◌ Pending Phase D</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Signal / Paper Trade Use</span>
+            <span className="text-red-400">✕ Not permitted</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -955,6 +1462,14 @@ interface InsightResp {
   lotSize: number | null;
   source: string;
   generatedAt: string;
+  // Sprint 3 Phase B: provenance fields
+  spotSource?: string;
+  spotTrusted?: boolean;
+  futurePrice?: number | null;
+  futureSource?: string;
+  futureExpiry?: string | null;
+  syntheticFuture?: number | null;
+  syntheticFutureModelled?: boolean;
   pcrOi: number;
   intradayFlow: number;       // [-1, +1], + = bullish put-write flow
   intradayOiTrue: false;      // marker: OI Δ comes from a session-range proxy, not tick data
@@ -1200,27 +1715,20 @@ const TIMEFRAMES: { v: TimeFrame; l: string; ms: number | null }[] = [
   { v: "all", l: "All",         ms: null },
 ];
 
-function InsightsTab() {
+// ─── Shared data hook — used by Overview, PCR, Max Pain tabs ─────────────────
+function useOiInsights(defaultUnderlying = "NIFTY") {
   const [universe, setUniverse] = useState<{ indices: string[]; stocks: string[]; source?: string; count?: number; note?: string }>({ indices: [], stocks: [] });
-  const [underlying, setUnderlying] = useState("NIFTY");
-  const [strikesAround, setStrikesAround] = useState<"atm" | "5" | "10" | "20" | "all">("10");
+  const [underlying, setUnderlying] = useState(defaultUnderlying);
   const [expiry, setExpiry] = useState<string | undefined>(undefined);
+  const [strikesAround, setStrikesAround] = useState<"atm" | "5" | "10" | "20" | "all">("10");
+  const [timeframe, setTimeframe] = useState<TimeFrame>("all");
   const [data, setData] = useState<InsightResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [chartView, setChartView] = useState<"oi" | "oichg" | "pcr" | "pain">("oi");
-  const [timeframe, setTimeframe] = useState<TimeFrame>("all");
-  // The Δ-window snapshot history is now owned by the SERVER (see
-  // `pushOiInsightsSnapshot` / `resolveWindowDelta` in api-server's
-  // oiLab.ts). The client just sends `?window=…` and reads the
-  // server-supplied per-strike `*OiChgWindow` plus the `windowMode` /
-  // `windowBaselineAt` block. This eliminates the prior bug where
-  // "Last 3 min" appeared broken until the user kept the page open
-  // for 3+ minutes — the server is already polling and buffering.
+  const reqIdRef = useRef(0);
 
-  // Load universe once
   useEffect(() => {
     fetch(`${base}api/options/oi-lab/universe`, { credentials: "include" })
       .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
@@ -1228,17 +1736,7 @@ function InsightsTab() {
       .catch(() => {});
   }, []);
 
-  // Monotonic request id — only the most-recently-issued fetch is allowed
-  // to commit `setData`, so a stale in-flight response from a previous
-  // symbol/timeframe cannot overwrite the current one.
-  const reqIdRef = useRef(0);
-
-  // Load insights — re-fetches on underlying / expiry / strikes / timeframe
-  // change + every 30s. Passing `?window=` to the server makes it return
-  // per-strike Δ vs the snapshot taken N minutes ago. We always re-fetch
-  // when the timeframe pill changes so the window block is freshly
-  // computed — there's no client-side cache that could serve stale Δ.
-  const load = async () => {
+  const load = useCallback(async () => {
     setError(null);
     const myId = ++reqIdRef.current;
     try {
@@ -1258,21 +1756,16 @@ function InsightsTab() {
     } finally {
       if (myId === reqIdRef.current) setLoading(false);
     }
-  };
+  }, [underlying, expiry, strikesAround, timeframe]);
+
   useEffect(() => {
     setLoading(true);
     void load();
     const t = setInterval(load, 30_000);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [underlying, expiry, strikesAround, timeframe]);
+  }, [load]);
 
-  // Reset expiry on underlying change. We do NOT reset the timeframe — the
-  // server's snapshot history persists across symbol switches, so "Last
-  // 5 min" stays meaningful immediately.
-  useEffect(() => {
-    setExpiry(undefined);
-  }, [underlying]);
+  useEffect(() => { setExpiry(undefined); }, [underlying]);
 
   const allUnderlyings = useMemo(
     () => [...universe.indices, ...universe.stocks],
@@ -1284,6 +1777,739 @@ function InsightsTab() {
     return allUnderlyings.filter(s => s.includes(q)).slice(0, 200);
   }, [allUnderlyings, searchQ]);
 
+  return {
+    universe, underlying, setUnderlying, expiry, setExpiry,
+    strikesAround, setStrikesAround, timeframe, setTimeframe,
+    data, loading, error, load,
+    searchQ, setSearchQ, pickerOpen, setPickerOpen,
+    allUnderlyings, filteredUnderlyings,
+  };
+}
+
+// ─── SharedOiState type: single source of truth for all OI Lab tabs ──────────
+type SharedOiState = ReturnType<typeof useOiInsights>;
+
+// ─── Shared underlying picker widget ─────────────────────────────────────────
+function UnderlyingPicker({ shared }: { shared: SharedOiState }) {
+  const { universe, underlying, setUnderlying, data, loading, load,
+          searchQ, setSearchQ, pickerOpen, setPickerOpen, filteredUnderlyings,
+          strikesAround, setStrikesAround } = shared;
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative">
+            <button
+              onClick={() => { setPickerOpen(o => !o); setSearchQ(""); }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-background hover-row text-sm font-mono min-w-[180px]"
+            >
+              <Search className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="font-bold">{underlying}</span>
+              <span className="text-xs text-muted-foreground ml-auto">
+                {universe.source === "kite" ? `${universe.count}` : "live ↗"}
+              </span>
+            </button>
+            {pickerOpen && (
+              <div className="absolute z-50 left-0 mt-1.5 w-[320px] max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-md border border-border bg-popover shadow-2xl">
+                <div className="sticky top-0 bg-popover border-b border-border p-2">
+                  <Input
+                    autoFocus
+                    value={searchQ}
+                    onChange={e => setSearchQ(e.target.value)}
+                    placeholder="Search F&O underlying…"
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="p-1">
+                  {filteredUnderlyings.map(s => (
+                    <button
+                      key={s}
+                      onClick={() => { setUnderlying(s); setPickerOpen(false); }}
+                      className={`w-full text-left px-2 py-1 text-xs rounded hover-row font-mono ${
+                        underlying === s ? "bg-primary/15 text-primary" : ""
+                      } ${universe.indices.includes(s) ? "font-bold" : ""}`}
+                    >
+                      {s}
+                      {universe.indices.includes(s) && (
+                        <span className="ml-2 px-1 rounded text-[9px] bg-primary/20 text-primary">IDX</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {data && (
+            <>
+              <div className="flex items-baseline gap-2">
+                <div className="text-2xl font-bold tabular-nums">{data.spot.toFixed(2)}</div>
+                <Badge variant={data.changePercent >= 0 ? "default" : "destructive"} className="text-[11px]">
+                  {fmtPct(data.changePercent)}
+                </Badge>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                ATM <b className="text-foreground">{data.atmStrike}</b> · step {data.strikeStep}
+                {data.lotSize ? <> · lot {data.lotSize}</> : null}
+              </div>
+            </>
+          )}
+
+          <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/30">LIVE</span>
+            {data && <span>{new Date(data.generatedAt).toLocaleTimeString()}</span>}
+            <Button variant="ghost" size="sm" onClick={() => { void load(); }} disabled={loading}>
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
+        </div>
+
+        {data && (
+          <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-border">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] uppercase text-muted-foreground font-mono">Expiry:</span>
+              {data.expiries.slice(0, 6).map(e => (
+                <button
+                  key={e}
+                  onClick={() => shared.setExpiry(e)}
+                  className={`px-2 py-0.5 text-[11px] font-mono rounded border transition ${
+                    e === data.expiry
+                      ? "border-primary bg-primary/15 text-primary font-bold"
+                      : "border-border bg-card hover-row text-foreground/70"
+                  }`}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+              <span className="text-[10px] uppercase text-muted-foreground font-mono">Strikes ATM ±:</span>
+              {(["atm", "5", "10", "20", "all"] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => setStrikesAround(s)}
+                  className={`px-2 py-0.5 text-[11px] font-mono rounded border uppercase transition ${
+                    s === strikesAround
+                      ? "border-primary bg-primary/15 text-primary font-bold"
+                      : "border-border bg-card hover-row text-foreground/70"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// OVERVIEW TAB — Sprint 3 summary dashboard
+// ═════════════════════════════════════════════════════════════════════════════
+
+function OverviewTab({ shared }: { shared: SharedOiState }) {
+  const { data, loading, error } = shared;
+
+  const sentTone = data ? SENTIMENT_TONE[data.sentiment] : SENTIMENT_TONE.NEUTRAL;
+
+  // Data warnings
+  const warnings: string[] = [];
+  if (data) {
+    if (data.spotSource === "nse") warnings.push("Spot from NSE-direct — not for signal generation.");
+    if (data.spotSource === "unavailable") warnings.push("Spot source unavailable.");
+    if (!data.spotTrusted) warnings.push("Spot is not from a trusted real-time source.");
+    if (data.futureSource === "unavailable") warnings.push("Future price unavailable — Kite FUT instruments not loaded.");
+    if (data.syntheticFuture != null && data.syntheticFutureModelled) warnings.push("Synthetic future is modelled via put-call parity — not an exchange price.");
+    if (data.intradayOiTrue === false) warnings.push("OI change is a session-range proxy (Kite REST), not tick-level. Use Delta Tracker for precise Δ.");
+  }
+
+  return (
+    <div className="space-y-3">
+
+      {error && (
+        <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3">
+          <AlertTriangle className="w-4 h-4" /> {error}
+        </div>
+      )}
+
+      {loading && !data && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
+        </div>
+      )}
+
+      {data && (
+        <>
+          {/* ── Price & Source Provenance ────────────────────────────────────── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Spot Price */}
+            <Card>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">Spot Price</div>
+                <div className="text-2xl font-bold tabular-nums">{data.spot.toFixed(2)}</div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Badge variant={data.changePercent >= 0 ? "default" : "destructive"} className="text-[10px]">
+                    {fmtPct(data.changePercent)}
+                  </Badge>
+                  <Badge variant="outline" className="text-[9px] uppercase">
+                    {data.spotSource ?? data.source}
+                  </Badge>
+                  {data.spotTrusted && (
+                    <span className="text-[9px] text-green-400">✓ trusted</span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Future Price */}
+            <Card>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">Future Price</div>
+                {data.futurePrice != null ? (
+                  <>
+                    <div className="text-2xl font-bold tabular-nums">{data.futurePrice.toFixed(2)}</div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Badge variant="outline" className="text-[9px] uppercase">{data.futureSource}</Badge>
+                      {data.futureExpiry && (
+                        <span className="text-[9px] text-muted-foreground">exp {data.futureExpiry}</span>
+                      )}
+                      <span className="text-[9px] text-muted-foreground">
+                        basis {data.futurePrice > data.spot ? "+" : ""}{(data.futurePrice - data.spot).toFixed(2)}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-2xl font-bold text-muted-foreground">—</div>
+                    <div className="text-[10px] text-muted-foreground"
+                         title="Future price requires Kite FUT instrument data">
+                      Unavailable
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Synthetic Future */}
+            <Card>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">Synthetic Future</div>
+                {data.syntheticFuture != null ? (
+                  <>
+                    <div className="text-2xl font-bold tabular-nums">{data.syntheticFuture.toFixed(2)}</div>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-300 bg-amber-500/10">
+                        SYNTH FUTURE · MODELLED
+                      </Badge>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-2xl font-bold text-muted-foreground">—</div>
+                    <div className="text-[10px] text-muted-foreground"
+                         title="Synthetic future requires ATM CE and PE with non-zero LTP">
+                      ATM legs unavailable
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ATM & Expiry */}
+            <Card>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">ATM Strike</div>
+                <div className="text-2xl font-bold tabular-nums">{data.atmStrike}</div>
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span>Expiry: <b className="text-foreground">{data.expiry}</b></span>
+                  {data.lotSize && <span>· Lot: {data.lotSize}</span>}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* ── Market Metrics Grid ────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {(() => {
+              const pcrTone = data.pcrOi >= 1.3 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
+                : data.pcrOi <= 0.7 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
+                : "text-foreground border-border bg-card";
+              const painDist = data.spot - data.maxPain;
+              const painPct = data.spot > 0 ? (painDist / data.spot) * 100 : 0;
+              const painTone = Math.abs(painPct) < 0.3 ? "text-amber-300 border-amber-500/30 bg-amber-500/10"
+                : "text-foreground border-border bg-card";
+              const sentClass = `${sentTone.bg} ${sentTone.border}`;
+              const Tile = ({ label, value, sub, cls }: { label: string; value: string; sub?: string; cls: string }) => (
+                <div className={`rounded border px-2.5 py-1.5 ${cls}`}>
+                  <div className="text-[9px] uppercase tracking-wider font-mono opacity-80">{label}</div>
+                  <div className="text-base font-bold tabular-nums leading-tight">{value}</div>
+                  {sub && <div className="text-[10px] font-mono opacity-80 leading-tight">{sub}</div>}
+                </div>
+              );
+              return (
+                <>
+                  <Tile label="PCR (OI)" value={data.pcrOi.toFixed(2)}
+                    sub={data.pcrOi >= 1.3 ? "bullish bias" : data.pcrOi <= 0.7 ? "bearish bias" : "neutral"} cls={pcrTone} />
+                  <Tile label="PCR (Vol)" value={data.pcrVolume.toFixed(2)}
+                    sub="by volume" cls="text-foreground border-border bg-card" />
+                  <Tile label="Max Pain" value={String(data.maxPain)}
+                    sub={`${painDist >= 0 ? "+" : ""}${painDist.toFixed(0)} (${painPct >= 0 ? "+" : ""}${painPct.toFixed(1)}%)`} cls={painTone} />
+                  <Tile label="ATM IV" value={data.atmIv != null ? `${data.atmIv.toFixed(1)}%` : "—"}
+                    sub={data.atmIv != null ? (data.atmIv > 25 ? "elevated" : data.atmIv < 12 ? "subdued" : "normal") : undefined} cls="text-foreground border-border bg-card" />
+                  <Tile label="Call OI Δ" value={fmtNum(data.callOiAdded)}
+                    sub={`Total: ${fmtNum(data.totalCallOi)}`} cls={data.callOiAdded > 0 ? "text-rose-300 border-rose-500/30 bg-rose-500/10" : "text-foreground border-border bg-card"} />
+                  <Tile label="Put OI Δ" value={fmtNum(data.putOiAdded)}
+                    sub={`Total: ${fmtNum(data.totalPutOi)}`} cls={data.putOiAdded > 0 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10" : "text-foreground border-border bg-card"} />
+                </>
+              );
+            })()}
+          </div>
+
+          {/* ── Sentiment + Insight + R/S levels ──────────────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-3">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs uppercase font-mono tracking-wider flex items-center gap-2">
+                  <Activity className="w-3.5 h-3.5" /> Market Sentiment
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <SentimentGauge
+                  band={data.sentiment}
+                  score={data.sentimentScore}
+                  label={data.sentimentLabel}
+                  strengthPct={data.sentimentStrengthPct ?? Math.min(100, Math.abs(data.sentimentScore))}
+                />
+                <div className="mt-3 pt-3 border-t border-border space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">PCR (OI)</span>
+                    <span className="font-mono font-bold">{data.pcrOi.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">PCR (Volume)</span>
+                    <span className="font-mono">{data.pcrVolume.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Max Pain</span>
+                    <span className="font-mono font-bold">{data.maxPain}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">ATM IV</span>
+                    <span className="font-mono">{data.atmIv != null ? `${data.atmIv.toFixed(1)}%` : "—"}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Intraday Flow</span>
+                    <span className={`font-mono ${data.intradayFlow >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {data.intradayFlow >= 0 ? "+" : ""}{data.intradayFlow.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="space-y-3">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs uppercase font-mono tracking-wider">Market Insight</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <p className="text-sm leading-relaxed">{data.marketInsight}</p>
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed">{data.analysis}</p>
+                </CardContent>
+              </Card>
+
+              {/* Resistance / Support */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Card>
+                  <CardHeader className="pb-1">
+                    <CardTitle className="text-xs uppercase font-mono tracking-wider text-rose-400">
+                      Top Resistance (Call OI)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {data.topResistance.length > 0 ? (
+                      <div className="space-y-1">
+                        {data.topResistance.map((r, i) => (
+                          <div key={i} className="flex justify-between text-xs font-mono">
+                            <span>{r.strike}</span>
+                            <span className="text-muted-foreground">{fmtNum(r.oi)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground">— insufficient data</div>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-1">
+                    <CardTitle className="text-xs uppercase font-mono tracking-wider text-emerald-400">
+                      Top Support (Put OI)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {data.topSupport.length > 0 ? (
+                      <div className="space-y-1">
+                        {data.topSupport.map((r, i) => (
+                          <div key={i} className="flex justify-between text-xs font-mono">
+                            <span>{r.strike}</span>
+                            <span className="text-muted-foreground">{fmtNum(r.oi)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground">— insufficient data</div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Data warnings ─────────────────────────────────────────────── */}
+          {warnings.length > 0 && (
+            <Card className="border-amber-500/20">
+              <CardContent className="p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold text-amber-300">Data Warnings</div>
+                    {warnings.map((w, i) => (
+                      <div key={i} className="text-[11px] text-muted-foreground">{w}</div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Last updated ──────────────────────────────────────────────── */}
+          <div className="flex items-center justify-end gap-2 text-[10px] text-muted-foreground">
+            <span>Last updated: {new Date(data.generatedAt).toLocaleString()}</span>
+            <span>· Source: {data.source}</span>
+            <span>· {data.kind}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PUT-CALL RATIO TAB
+// ═════════════════════════════════════════════════════════════════════════════
+
+function PcrTab({ shared }: { shared: SharedOiState }) {
+  const { data, loading, error } = shared;
+
+  const pcrBars = useMemo(() => {
+    if (!data) return [];
+    return data.strikes.map(s => ({
+      strike: s.strike,
+      strikeLabel: String(s.strike),
+      pcr: s.pcr,
+      pcrCapped: Math.min(s.pcr, 3),
+      isAtm: s.isAtm,
+    }));
+  }, [data]);
+
+  // PCR interpretation
+  const pcrInterpretation = useMemo(() => {
+    if (!data) return { text: "Loading…", tone: "text-muted-foreground", badge: "neutral" as const };
+    const pcr = data.pcrOi;
+    if (pcr >= 1.5) return { text: "Strongly bullish — heavy put writing indicates writers expect support", tone: "text-emerald-300", badge: "bullish" as const };
+    if (pcr >= 1.3) return { text: "Mildly bullish — put OI exceeds call OI, suggesting support bias", tone: "text-emerald-300", badge: "bullish" as const };
+    if (pcr <= 0.5) return { text: "Strongly bearish — heavy call writing indicates resistance expectation", tone: "text-rose-300", badge: "bearish" as const };
+    if (pcr <= 0.7) return { text: "Mildly bearish — call OI exceeds put OI, suggesting resistance bias", tone: "text-rose-300", badge: "bearish" as const };
+    if (data.totalCallOi + data.totalPutOi < 100) return { text: "Insufficient data for reliable PCR interpretation", tone: "text-amber-300", badge: "insufficient" as const };
+    return { text: "Neutral — put/call ratio is balanced, no strong directional bias", tone: "text-zinc-300", badge: "neutral" as const };
+  }, [data]);
+
+  return (
+    <div className="space-y-3">
+
+      {error && (
+        <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3">
+          <AlertTriangle className="w-4 h-4" /> {error}
+        </div>
+      )}
+
+      {loading && !data && <Skeleton className="h-[400px] w-full" />}
+
+      {data && (
+        <>
+          {/* PCR Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <Card className={data.pcrOi >= 1.3 ? "border-emerald-500/30" : data.pcrOi <= 0.7 ? "border-rose-500/30" : ""}>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">PCR by OI</div>
+                <div className={`text-3xl font-bold tabular-nums ${data.pcrOi >= 1.3 ? "text-emerald-300" : data.pcrOi <= 0.7 ? "text-rose-300" : ""}`}>
+                  {data.pcrOi.toFixed(2)}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  Put OI: {fmtNum(data.totalPutOi)} · Call OI: {fmtNum(data.totalCallOi)}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">PCR by Volume</div>
+                <div className="text-3xl font-bold tabular-nums">{data.pcrVolume.toFixed(2)}</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {data.pcrVolume > 1 ? "More put volume than calls" : "More call volume than puts"}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">PCR by OI Change</div>
+                {data.callOiAdded !== 0 ? (
+                  <>
+                    <div className="text-3xl font-bold tabular-nums">
+                      {(Math.abs(data.putOiAdded) / Math.abs(data.callOiAdded)).toFixed(2)}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      Put Δ: {fmtNum(data.putOiAdded)} · Call Δ: {fmtNum(data.callOiAdded)}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-3xl font-bold text-muted-foreground">—</div>
+                    <div className="text-[10px] text-muted-foreground">Call OI change is zero</div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">Interpretation</div>
+                <Badge variant="outline" className={`text-xs ${
+                  pcrInterpretation.badge === "bullish" ? "border-emerald-500/30 text-emerald-300 bg-emerald-500/10" :
+                  pcrInterpretation.badge === "bearish" ? "border-rose-500/30 text-rose-300 bg-rose-500/10" :
+                  pcrInterpretation.badge === "insufficient" ? "border-amber-500/30 text-amber-300 bg-amber-500/10" :
+                  "border-border"
+                }`}>
+                  {pcrInterpretation.badge.toUpperCase()}
+                </Badge>
+                <div className={`text-[11px] mt-1 ${pcrInterpretation.tone}`}>{pcrInterpretation.text}</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* PCR by Strike Chart */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-mono">Put/Call Ratio by Strike</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {pcrBars.length > 0 ? (
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={pcrBars} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                    <XAxis dataKey="strikeLabel" tick={{ fontSize: 10 }} angle={-45} textAnchor="end" height={50} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => v.toFixed(1)} />
+                    <RTooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.[0]) return null;
+                        const d = payload[0].payload;
+                        return (
+                          <div className="rounded-md border border-zinc-700 bg-zinc-950/95 px-3 py-2 shadow-xl text-xs">
+                            <div className="font-semibold">Strike {d.strike} {d.isAtm ? " (ATM)" : ""}</div>
+                            <div className="text-muted-foreground mt-1">
+                              PCR: <span className="font-mono font-bold text-foreground">{d.pcr.toFixed(2)}</span>
+                              {d.pcr >= 1.3 && <span className="text-emerald-300 ml-1.5">bullish</span>}
+                              {d.pcr <= 0.7 && <span className="text-rose-300 ml-1.5">bearish</span>}
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <ReferenceLine y={1.3} stroke="#16a34a" strokeDasharray="5 5" label={{ value: "1.3 Bullish", position: "right", fontSize: 9, fill: "#16a34a" }} />
+                    <ReferenceLine y={0.7} stroke="#dc2626" strokeDasharray="5 5" label={{ value: "0.7 Bearish", position: "right", fontSize: 9, fill: "#dc2626" }} />
+                    <ReferenceLine y={1.0} stroke="#555" strokeDasharray="3 3" />
+                    <Bar dataKey="pcrCapped" radius={[2, 2, 0, 0]}>
+                      {pcrBars.map((d, i) => (
+                        <Cell key={i} fill={d.isAtm ? "#f59e0b" : d.pcr >= 1.3 ? "#16a34a" : d.pcr <= 0.7 ? "#dc2626" : "#6366f1"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-center text-muted-foreground py-8">No PCR data available</div>
+              )}
+              <div className="text-[10px] text-muted-foreground mt-2">
+                PCR capped at 3.0 for chart readability. Hover for actual values. Thresholds: ≥1.3 bullish, ≤0.7 bearish.
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MAX PAIN TAB
+// ═════════════════════════════════════════════════════════════════════════════
+
+function MaxPainTab({ shared }: { shared: SharedOiState }) {
+  const { data, loading, error } = shared;
+
+  const painBars = useMemo(() => {
+    if (!data) return [];
+    return data.strikes.map(s => ({
+      strike: s.strike,
+      strikeLabel: String(s.strike),
+      pain: s.painValue,
+      isAtm: s.isAtm,
+      isMaxPain: s.strike === data.maxPain,
+    }));
+  }, [data]);
+
+  const hasInsufficientData = data && data.strikes.every(s => s.painValue === 0);
+
+  return (
+    <div className="space-y-3">
+
+      {error && (
+        <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3">
+          <AlertTriangle className="w-4 h-4" /> {error}
+        </div>
+      )}
+
+      {loading && !data && <Skeleton className="h-[400px] w-full" />}
+
+      {data && (
+        <>
+          {/* Max Pain Summary */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Card className="border-amber-500/20">
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">Max Pain Strike</div>
+                <div className="text-3xl font-bold tabular-nums text-amber-300">{data.maxPain}</div>
+                <div className="text-[10px] text-muted-foreground"
+                     title="Max Pain is the strike at which the total value of outstanding options expires worthless — minimizing writer losses. Derived from current OI snapshot for the selected expiry.">
+                  Derived from current OI snapshot for {data.expiry}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">Spot vs Max Pain</div>
+                <div className="text-3xl font-bold tabular-nums">
+                  {data.spot > data.maxPain ? "+" : ""}{(data.spot - data.maxPain).toFixed(0)}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  {data.maxPainDeviation >= 0 ? "+" : ""}{data.maxPainDeviation.toFixed(2)}% deviation
+                  {Math.abs(data.maxPainDeviation) < 0.5 && (
+                    <span className="text-amber-300 ml-1">· near max pain</span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-3 space-y-1">
+                <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">Spot Price</div>
+                <div className="text-3xl font-bold tabular-nums">{data.spot.toFixed(2)}</div>
+                <div className="text-[10px] text-muted-foreground">
+                  Expiry: {data.expiry} · ATM: {data.atmStrike}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {hasInsufficientData ? (
+            <Card className="border-amber-500/20">
+              <CardContent className="p-8 text-center">
+                <AlertTriangle className="w-8 h-8 mx-auto text-amber-400 mb-3" />
+                <div className="text-sm font-semibold">Max pain unavailable — insufficient OI data</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  All strike pain values are zero, which indicates the OI data may be incomplete or the market is closed.
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-mono">Option Writer Pain by Strike</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={painBars} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                    <XAxis dataKey="strikeLabel" tick={{ fontSize: 10 }} angle={-45} textAnchor="end" height={50} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => fmtNum(v)} />
+                    <RTooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.[0]) return null;
+                        const d = payload[0].payload;
+                        return (
+                          <div className="rounded-md border border-zinc-700 bg-zinc-950/95 px-3 py-2 shadow-xl text-xs">
+                            <div className="font-semibold flex items-center gap-2">
+                              Strike {d.strike}
+                              {d.isAtm && <span className="text-[9px] uppercase bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">ATM</span>}
+                              {d.isMaxPain && <span className="text-[9px] uppercase bg-orange-500/20 text-orange-300 px-1.5 py-0.5 rounded">MAX PAIN</span>}
+                            </div>
+                            <div className="text-muted-foreground mt-1">
+                              Total writer pain: <span className="font-mono font-bold text-foreground">{fmtNum(d.pain)}</span>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                    {data.maxPain && (
+                      <ReferenceLine x={String(data.maxPain)} stroke="#f59e0b" strokeDasharray="5 5"
+                        label={{ value: `Max Pain ${data.maxPain}`, position: "top", fontSize: 10, fill: "#f59e0b" }} />
+                    )}
+                    <Bar dataKey="pain" radius={[2, 2, 0, 0]}>
+                      {painBars.map((d, i) => (
+                        <Cell key={i} fill={d.isMaxPain ? "#f59e0b" : d.isAtm ? "#6366f1" : "#4b5563"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="flex items-center gap-3 text-[10px] text-muted-foreground mt-2">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block" /> Max Pain Strike
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded bg-indigo-500 inline-block" /> ATM Strike
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded bg-zinc-600 inline-block" /> Other Strikes
+                  </span>
+                  <span className="ml-auto cursor-help underline decoration-dotted underline-offset-2"
+                        title="Max Pain is the strike price at which the total value of outstanding options (both calls and puts) would expire worthless — minimizing the aggregate financial pain for option writers. Derived from the current OI snapshot for the selected expiry. This is a theoretical level, not a price target.">
+                    What is Max Pain?
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// INSIGHTS TAB — Full OI chart analysis (promoted as "Open Interest" tab)
+// ═════════════════════════════════════════════════════════════════════════════
+function InsightsTab({ shared }: { shared: SharedOiState }) {
+  // ── All data state comes from the parent-owned SharedOiState ──────────────
+  // Only chartView is local to this tab — everything else is shared.
+  const { underlying, data, loading, error, load,
+          strikesAround, timeframe, setTimeframe } = shared;
+  const [chartView, setChartView] = useState<"oi" | "oichg" | "pcr" | "pain">("oi");
+
   // ── Chart data ─────────────────────────────────────────────────────────────
   // Defensive: coerce every numeric to a real Number (never NaN/undefined) so
   // Recharts can compute its YAxis domain. A single bad row used to leave the
@@ -1294,14 +2520,13 @@ function InsightsTab() {
   };
   // Resolve the active timeframe and its baseline snapshot (if any) from the
   // rolling history. The `mode` discriminator is the source of truth that
-  // every consumer (title, pills, oiBars, badge) reads from — so the pill
-  // label, the chart title, and the actual computed Δ can never disagree
-  // (the silent-mismatch bug the reviewer flagged). Possible modes:
+  // every consumer (title, pills, badge) reads from — so the pill
+  // label, the chart title, and the actual computed Δ can never disagree.
+  // Possible modes:
   //   - "all"          : All / since-open Δ from broker (default)
   //   - "exact"        : finite window AND we have a snap inside [cutoff, now)
   //   - "approx"       : finite window AND nearest available snap is OUTSIDE
-  //                      the requested window (older or newer-than-cutoff
-  //                      mismatch) — surfaced as "approx" badge
+  //                      the requested window
   //   - "fallback_open": finite window selected BUT no usable baseline
   //                      exists — Δ silently uses broker since-open AND the
   //                      title shows "since open" so the user is never lied
@@ -1481,120 +2706,6 @@ function InsightsTab() {
 
   return (
     <div className="space-y-3">
-      {/* Top bar — underlying + spot + meta */}
-      <Card>
-        <CardContent className="p-3">
-          <div className="flex flex-wrap items-center gap-4">
-            {/* Underlying picker */}
-            <div className="relative">
-              <button
-                onClick={() => { setPickerOpen(o => !o); setSearchQ(""); }}
-                className="flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-background hover-row text-sm font-mono min-w-[180px]"
-              >
-                <Search className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="font-bold">{underlying}</span>
-                <span className="text-xs text-muted-foreground ml-auto">
-                  {universe.source === "kite" ? `${universe.count}` : "live ↗"}
-                </span>
-              </button>
-              {pickerOpen && (
-                <div className="absolute z-50 left-0 mt-1.5 w-[320px] max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-md border border-border bg-popover shadow-2xl">
-                  <div className="sticky top-0 bg-popover border-b border-border p-2">
-                    <Input
-                      autoFocus
-                      value={searchQ}
-                      onChange={e => setSearchQ(e.target.value)}
-                      placeholder="Search F&O underlying…"
-                      className="h-8 text-xs"
-                    />
-                    {universe.note && (
-                      <div className="text-[10px] text-amber-400 mt-1.5">{universe.note}</div>
-                    )}
-                  </div>
-                  <div className="p-1">
-                    {filteredUnderlyings.map(s => (
-                      <button
-                        key={s}
-                        onClick={() => { setUnderlying(s); setPickerOpen(false); }}
-                        className={`w-full text-left px-2 py-1 text-xs rounded hover-row font-mono ${
-                          underlying === s ? "bg-primary/15 text-primary" : ""
-                        } ${universe.indices.includes(s) ? "font-bold" : ""}`}
-                      >
-                        {s}
-                        {universe.indices.includes(s) && (
-                          <span className="ml-2 px-1 rounded text-[9px] bg-primary/20 text-primary">IDX</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Spot */}
-            {data && (
-              <>
-                <div className="flex items-baseline gap-2">
-                  <div className="text-2xl font-bold tabular-nums">{data.spot.toFixed(2)}</div>
-                  <Badge variant={data.changePercent >= 0 ? "default" : "destructive"} className="text-[11px]">
-                    {fmtPct(data.changePercent)}
-                  </Badge>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  ATM <b className="text-foreground">{data.atmStrike}</b> · step {data.strikeStep}
-                  {data.lotSize ? <> · lot {data.lotSize}</> : null}
-                </div>
-              </>
-            )}
-
-            <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/30">LIVE</span>
-              {data && <span>{new Date(data.generatedAt).toLocaleTimeString()}</span>}
-              <Button variant="ghost" size="sm" onClick={() => { setLoading(true); void load(); }} disabled={loading}>
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-              </Button>
-            </div>
-          </div>
-
-          {/* Expiry + strikes-around chips */}
-          {data && (
-            <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-border">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] uppercase text-muted-foreground font-mono">Expiry:</span>
-                {data.expiries.slice(0, 6).map(e => (
-                  <button
-                    key={e}
-                    onClick={() => setExpiry(e)}
-                    className={`px-2 py-0.5 text-[11px] font-mono rounded border transition ${
-                      e === data.expiry
-                        ? "border-primary bg-primary/15 text-primary font-bold"
-                        : "border-border bg-card hover-row text-foreground/70"
-                    }`}
-                  >
-                    {e}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-1.5 flex-wrap ml-auto">
-                <span className="text-[10px] uppercase text-muted-foreground font-mono">Strikes ATM ±:</span>
-                {(["atm", "5", "10", "20", "all"] as const).map(s => (
-                  <button
-                    key={s}
-                    onClick={() => setStrikesAround(s)}
-                    className={`px-2 py-0.5 text-[11px] font-mono rounded border uppercase transition ${
-                      s === strikesAround
-                        ? "border-primary bg-primary/15 text-primary font-bold"
-                        : "border-border bg-card hover-row text-foreground/70"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {error && (
         <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3">

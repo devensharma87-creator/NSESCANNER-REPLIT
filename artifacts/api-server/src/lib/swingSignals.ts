@@ -199,6 +199,14 @@ export interface SwingSignal {
   atr14: number;
   /** 20-bar swing low actually used in the stop calc. */
   swing20Low: number;
+  /**
+   * Source of the ATR/swing levels.
+   * Currently always "yahoo" — daily bars from Yahoo Finance (delayed).
+   * These levels are NOT trade-grade until migrated to Kite historical.
+   */
+  levelsSource: "yahoo" | "kite";
+  /** Warnings about the data provenance of this signal. */
+  levelsWarnings: string[];
 }
 
 function istDateKey(d: Date = new Date()): string {
@@ -348,6 +356,10 @@ export async function buildSwingSignalFromRow(
     perShareRisk: r,
     atr14,
     swing20Low,
+    levelsSource: "yahoo",
+    levelsWarnings: [
+      "ATR(14) and swing-20-low derived from delayed Yahoo daily candles — not Kite trade-grade.",
+    ],
   };
 }
 

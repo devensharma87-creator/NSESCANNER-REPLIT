@@ -22,6 +22,8 @@ export interface BuildMetaInput {
   /** Yahoo/analytics → delayed + not-for-signals. */
   delayed: boolean;
   notForSignals: boolean;
+  /** When set, overrides the default derivation from notForSignals. */
+  notForTradeDecisions?: boolean;
   /** Seed warnings (e.g. "served from cache"). */
   warnings?: string[];
   /** When false, completeness validation marks the datum "incomplete". */
@@ -77,6 +79,7 @@ export function buildMeta(input: BuildMetaInput): DataMeta {
     isStale: fresh.isStale,
     delayed: input.delayed,
     notForSignals: input.notForSignals,
+    notForTradeDecisions: input.notForTradeDecisions ?? input.notForSignals,
     validationStatus,
     warnings,
   };
@@ -98,6 +101,7 @@ export function unavailableMeta(
     isStale: true,
     delayed: trustTier === "secondary_analytics",
     notForSignals: trustTier !== "authoritative",
+    notForTradeDecisions: trustTier !== "authoritative",
     validationStatus: "unavailable",
     warnings: [reason],
   };

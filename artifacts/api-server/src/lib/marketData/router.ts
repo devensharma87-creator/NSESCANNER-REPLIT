@@ -79,6 +79,7 @@ function aggregateMeta(quotes: Map<string, TrustedQuote>, nowMs = Date.now()): D
     isStale: anyStale,
     delayed: false,
     notForSignals: false,
+    notForTradeDecisions: false,
     validationStatus: "validated",
     warnings,
   };

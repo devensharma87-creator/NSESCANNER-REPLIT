@@ -210,6 +210,18 @@ function SetupCard({ sig, planNumber, totalPlans }: { sig: OptionSignal; planNum
           {(sig.ivRank != null || sig.ivPercentile != null) && (
             <IvChip ivRank={sig.ivRank} ivPercentile={sig.ivPercentile} />
           )}
+          {/* Live signal recalculation badge — shows the timestamp of the latest
+              server-side re-evaluation so the trader knows data freshness. */}
+          {sig.generatedAt && (
+            <span
+              className="text-[10px] font-mono text-muted-foreground/70 flex items-center gap-1"
+              title={`Signal re-evaluated at ${fmtIstTime(sig.generatedAt)} IST`}
+              data-testid="badge-live-signal"
+            >
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Live signal · {fmtIstTime(sig.generatedAt)}
+            </span>
+          )}
         </div>
       </div>
 

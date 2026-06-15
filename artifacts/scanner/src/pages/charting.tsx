@@ -21,12 +21,13 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, AlertTriangle, CandlestickChart, LineChart as LineIcon, X, Maximize2, Minimize2 } from "lucide-react";
+import { Search, AlertTriangle, CandlestickChart, LineChart as LineIcon, X, Maximize2, Minimize2, RotateCcw, ChevronsRight } from "lucide-react";
 import {
   ChartingChart,
   EMA_COLORS,
   VWAP_COLOR,
   type RenderCandle,
+  type ChartingChartHandle,
 } from "@/components/charting-chart";
 import {
   TIMEFRAMES,
@@ -302,6 +303,7 @@ export default function ChartingPage() {
   const chartCardRef = useRef<HTMLDivElement | null>(null);
   const [fitHeight, setFitHeight] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const chartApiRef = useRef<ChartingChartHandle | null>(null);
 
   // Fit-to-screen: measure the chart card's top edge and fill the viewport down
   // to a small bottom gap, so the entire chart + time axis is visible without
@@ -362,10 +364,20 @@ export default function ChartingPage() {
   }
 
   const source = resp?.source ?? null;
+  const sourceProvider = (resp as any)?.sourceProvider ?? source;
+  const sourceTier = (resp as any)?.sourceTier ?? "unavailable";
+  const volumeSourceLabel: string = (resp as any)?.volumeSource ?? "unknown";
+  const volumeSourceInstrument: string | null = (resp as any)?.volumeSourceInstrument ?? null;
+  const isVisualOnly: boolean = (resp as any)?.visualOnly ?? false;
+  const isStale: boolean = (resp as any)?.stale ?? false;
+  const isLive: boolean = (resp as any)?.live ?? false;
+  const chartWarnings: string[] = (resp as any)?.warnings ?? [];
   const isLoading = candlesQ.isLoading;
   const isError = candlesQ.isError;
   const hasNoData = !isLoading && !isError && source === "none";
   const hasData = !isLoading && !isError && candles.length > 0;
+
+  const [methodologyOpen, setMethodologyOpen] = useState(false);
 
   return (
     <div className={isFullscreen ? "fixed inset-0 z-50 overflow-auto bg-background p-3 space-y-3" : "space-y-3"}>
@@ -650,41 +662,74 @@ export default function ChartingPage() {
         </div>
       </Card>
 
-      {/* ── Header / badges ─────────────────────────────────────── */}
+      {/* ── Header / instrument identity / badges ────────────── */}
       <div ref={headerRef} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1">
-        <h2 className="font-mono text-lg font-semibold tracking-tight shrink-0">{selection.symbol}</h2>
-        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{selection.name}</span>
+        <h2 className="font-mono text-lg font-semibold tracking-tight shrink-0">{selection.name}</h2>
+        <span className="text-xs font-mono text-muted-foreground">
+          {selection.segment === "index" ? "NSE INDEX" : selection.segment === "equity" ? "NSE EQ" : "GLOBAL"}
+          {" · "}
+          {timeframe}
+        </span>
         <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-          {source && (
+          {/* Source badge */}
+          {sourceProvider && (
             <Badge
-              variant={source === "kite" ? "default" : source === "yahoo" ? "secondary" : "outline"}
+              variant={sourceProvider === "kite" ? "default" : sourceProvider === "yahoo" ? "secondary" : "outline"}
               className="text-[10px] uppercase font-mono"
               data-testid="badge-source"
             >
-              {source === "kite" ? "Kite" : source === "yahoo" ? "Yahoo · delayed" : "Data unavailable"}
+              {sourceProvider === "kite"
+                ? isLive ? "KITE LIVE" : isStale ? "KITE STALE" : "KITE HISTORICAL"
+                : sourceProvider === "yahoo"
+                  ? isVisualOnly
+                    ? "YAHOO DELAYED · VISUAL ONLY"
+                    : "YAHOO DELAYED"
+                  : "DATA UNAVAILABLE"}
             </Badge>
           )}
+          {/* Freshness badge */}
           {hasData && (
             <Badge
-              variant={source === "kite" && resp?.fresh ? "default" : "outline"}
+              variant={isLive ? "default" : isStale ? "destructive" : "outline"}
               className="text-[10px] uppercase font-mono"
               data-testid="badge-fresh"
             >
-              {source === "kite"
-                ? resp?.fresh
-                  ? "Live"
-                  : `Stale · ${fmtAge(resp?.asOf)}`
-                : `Last updated ${fmtAge(resp?.asOf)}`}
+              {isLive
+                ? "Live"
+                : isStale
+                  ? `Stale · ${fmtAge(resp?.asOf)}`
+                  : `${fmtAge(resp?.asOf)}`}
             </Badge>
           )}
-          {segment === "index" && source === "kite" && hasVolume && (
+          {/* Volume source badge */}
+          {hasData && volumeSourceLabel !== "none" && (
             <Badge
               variant="outline"
               className="text-[10px] uppercase font-mono"
-              title="Spot indices have no volume; this chart uses nearest-month index futures volume for VWAP / Volume Profile."
-              data-testid="badge-futures-volume"
+              title={
+                volumeSourceLabel === "futures_proxy"
+                  ? `Volume: nearest-month futures proxy${volumeSourceInstrument ? ` (${volumeSourceInstrument})` : ""}`
+                  : volumeSourceLabel === "unavailable"
+                    ? "No real volume available for this instrument"
+                    : "Actual traded volume"
+              }
+              data-testid="badge-volume-source"
             >
-              Vol · {selection.symbol} FUT
+              {volumeSourceLabel === "futures_proxy"
+                ? `VOL · ${selection.symbol} FUT`
+                : volumeSourceLabel === "unavailable"
+                  ? "NO REAL VOLUME"
+                  : "VOL · ACTUAL"}
+            </Badge>
+          )}
+          {/* Visual-only warning */}
+          {isVisualOnly && (
+            <Badge
+              variant="destructive"
+              className="text-[10px] uppercase font-mono"
+              data-testid="badge-visual-only"
+            >
+              NOT FOR SIGNALS
             </Badge>
           )}
           <button
@@ -735,60 +780,123 @@ export default function ChartingPage() {
         )}
 
         {hasData && (
-          <ChartingChart
-            candles={candles}
-            chartType={chartType}
-            emaSeries={emaSeries}
-            vwapSeries={vwapSeries}
-            rsiSeries={rsiSeries}
-            cvdSeries={cvdSeries}
-            pocPrice={pocPrice}
-            fvgZones={fvgZones}
-            sweepMarkers={sweepMarkers}
-            fibLevels={fibResult?.levels ?? null}
-            volumeProfile={volumeProfile}
-            showVolumeProfile={showVp}
-            keyLevels={keyLevelsFlat}
-            showKeyLevels={showKeyLevels}
-            showVolume={showVolume}
-            showRsi={showRsi}
-            showCvd={showCvd}
-            showTime={timeframeShowsTime(timeframe)}
-            height={effectiveHeight}
-          />
+          <>
+            {/* Chart control buttons */}
+            <div className="flex items-center gap-1.5 pb-1.5" data-testid="chart-controls">
+              <button
+                onClick={() => chartApiRef.current?.resetZoom()}
+                className="flex items-center gap-1 rounded border border-border/40 px-2 py-1 text-[10px] font-mono text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+                title="Fit all loaded candles into view"
+                data-testid="chart-reset-zoom"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset zoom
+              </button>
+              <button
+                onClick={() => chartApiRef.current?.goToLatest()}
+                className="flex items-center gap-1 rounded border border-border/40 px-2 py-1 text-[10px] font-mono text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+                title="Scroll to the latest candle"
+                data-testid="chart-go-to-latest"
+              >
+                <ChevronsRight className="h-3 w-3" />
+                Go to latest
+              </button>
+              <button
+                onClick={() => chartApiRef.current?.lockToLatest()}
+                className="flex items-center gap-1 rounded border border-border/40 px-2 py-1 text-[10px] font-mono text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+                title="Pin view to latest candle — new bars auto-scroll into view"
+                data-testid="chart-lock-to-latest"
+              >
+                <ChevronsRight className="h-3 w-3" />
+                Lock to latest
+              </button>
+
+              {/* Pane status labels */}
+              <span className="ml-auto flex items-center gap-2 text-[10px] font-mono text-muted-foreground/70">
+                {showVolume && (
+                  <span data-testid="pane-label-volume">
+                    {volumeSourceLabel === "futures_proxy"
+                      ? `VOL · FUTURES PROXY${volumeSourceInstrument ? ` (${volumeSourceInstrument})` : ""}`
+                      : volumeSourceLabel === "unavailable"
+                        ? "NO REAL VOLUME"
+                        : "VOL · ACTUAL"}
+                  </span>
+                )}
+                {showRsi && (
+                  <span data-testid="pane-label-rsi">RSI 14 · 70/50/30</span>
+                )}
+              </span>
+            </div>
+            <ChartingChart
+              ref={chartApiRef}
+              candles={candles}
+              chartType={chartType}
+              emaSeries={emaSeries}
+              vwapSeries={vwapSeries}
+              rsiSeries={rsiSeries}
+              cvdSeries={cvdSeries}
+              pocPrice={pocPrice}
+              fvgZones={fvgZones}
+              sweepMarkers={sweepMarkers}
+              fibLevels={fibResult?.levels ?? null}
+              volumeProfile={volumeProfile}
+              showVolumeProfile={showVp}
+              keyLevels={keyLevelsFlat}
+              showKeyLevels={showKeyLevels}
+              showVolume={showVolume}
+              showRsi={showRsi}
+              showCvd={showCvd}
+              showTime={timeframeShowsTime(timeframe)}
+              timeframe={timeframe}
+              height={effectiveHeight}
+            />
+          </>
         )}
       </Card>
 
-      <div className="px-1 text-[11px] text-muted-foreground space-y-1">
-        <p>
-          Read-only charting. Price data is sourced live from Zerodha Kite where available, otherwise from
-          delayed Yahoo Finance. All overlays (EMA, VWAP, RSI, FVG, CVD, POC, Sweeps, Fibonacci, Volume
-          Profile, Support/Resistance) are computed client-side in your browser for visualization only — this
-          is not trading advice.
-        </p>
-        <p>
-          <span className="font-mono">CVD*</span> is a candle-direction proxy (bar volume signed by close vs
-          open), not true tick-level order-flow delta — this feed has no bid/ask aggression data.
-          <span className="font-mono"> POC</span> / <span className="font-mono">Vol Profile</span> are
-          volume-profile approximations (no intrabar ticks) and need volume, so they are disabled on sources
-          that don't provide it (e.g. delayed Yahoo / global symbols).
-        </p>
-        <p>
-          <span className="font-mono">VWAP</span> is the intraday volume-weighted average price. Spot indices
-          carry no volume of their own, so on the Kite feed this chart overlays the nearest-month index
-          <span className="font-mono"> FUTURES</span> volume (shown by the{" "}
-          <span className="font-mono">Vol · FUT</span> badge) to make VWAP and Volume Profile meaningful — the
-          TradingView convention. When no real volume is available, VWAP is honestly disabled (no fabricated
-          volume).
-        </p>
-        <p>
-          <span className="font-mono">Fibonacci</span> is drawn off the dominant swing in the loaded window
-          (solid retracements 0→1.0, with the 0.5 / 0.618 golden pocket emphasized, plus dotted 1.272 / 1.618
-          extensions). <span className="font-mono">Support/Resistance</span>{" "}
-          ranks the 3 nearest levels on each side by clustering Fibonacci, price-action swings and — for F&amp;O
-          underlyings — option-chain OI; each label shows the sources that back it. Levels appear only when
-          there is enough data; nothing is fabricated.
-        </p>
+      {/* ── Methodology (collapsible drawer) ────────────────────── */}
+      <div className="px-1">
+        <button
+          onClick={() => setMethodologyOpen(v => !v)}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          data-testid="methodology-toggle"
+        >
+          <span className="font-mono">{methodologyOpen ? "▾" : "▸"}</span>
+          <span>Methodology & source notes</span>
+        </button>
+        {methodologyOpen && (
+          <div className="mt-1.5 pl-3 text-[11px] text-muted-foreground space-y-1 border-l border-border/30">
+            <p>
+              Read-only charting. Price data is sourced live from Zerodha Kite where available, otherwise from
+              delayed Yahoo Finance. All overlays (EMA, VWAP, RSI, FVG, CVD, POC, Sweeps, Fibonacci, Volume
+              Profile, Support/Resistance) are computed client-side in your browser for visualization only — this
+              is not trading advice.
+            </p>
+            <p>
+              <span className="font-mono">CVD*</span> is a candle-direction proxy (bar volume signed by close vs
+              open), not true tick-level order-flow delta — this feed has no bid/ask aggression data.
+              <span className="font-mono"> POC</span> / <span className="font-mono">Vol Profile</span> are
+              volume-profile approximations (no intrabar ticks) and need volume, so they are disabled on sources
+              that don't provide it (e.g. delayed Yahoo / global symbols).
+            </p>
+            <p>
+              <span className="font-mono">VWAP</span> is the intraday volume-weighted average price. Spot indices
+              carry no volume of their own, so on the Kite feed this chart overlays the nearest-month index
+              <span className="font-mono"> FUTURES</span> volume (shown by the{" "}
+              <span className="font-mono">Vol · FUT</span> badge) to make VWAP and Volume Profile meaningful — the
+              TradingView convention. When no real volume is available, VWAP is honestly disabled (no fabricated
+              volume).
+            </p>
+            <p>
+              <span className="font-mono">Fibonacci</span> is drawn off the dominant swing in the loaded window
+              (solid retracements 0→1.0, with the 0.5 / 0.618 golden pocket emphasized, plus dotted 1.272 / 1.618
+              extensions). <span className="font-mono">Support/Resistance</span>{" "}
+              ranks the 3 nearest levels on each side by clustering Fibonacci, price-action swings and — for F&amp;O
+              underlyings — option-chain OI; each label shows the sources that back it. Levels appear only when
+              there is enough data; nothing is fabricated.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

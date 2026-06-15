@@ -358,6 +358,21 @@ export interface OiInsightsResponse {
   lotSize: number | null;
   source: string;
   generatedAt: string;
+  // ── Sprint 3 Phase B: Provenance fields ──────────────────────────────────
+  /** Where the underlying spot price originated. */
+  spotSource: string;
+  /** True when spot is from a real-time trusted source (Kite or NSE). */
+  spotTrusted: boolean;
+  /** LTP of the nearest-month liquid FUT contract. Null when unavailable. */
+  futurePrice: number | null;
+  /** Source provenance for the future price ("kite" | "unavailable"). */
+  futureSource: string;
+  /** Expiry of the FUT contract used for futurePrice. */
+  futureExpiry: string | null;
+  /** Synthetic future from put-call parity at ATM. Null when ATM legs missing. */
+  syntheticFuture: number | null;
+  /** True when syntheticFuture is a modelled (not exchange-provided) value. */
+  syntheticFutureModelled: boolean;
   // Aggregates
   pcrOi: number;
   /** Intraday flow polarity in [-1, +1]. +1 = puts being accumulated heavily
@@ -752,6 +767,14 @@ export function computeOiInsights(chain: OcResponse, strikesAround = 20): OiInsi
     lotSize: chain.lotSize ?? null,
     source: chain.source,
     generatedAt: chain.generatedAt,
+    // Sprint 3 Phase B: provenance fields
+    spotSource: chain.spotSource ?? "unavailable",
+    spotTrusted: chain.spotTrusted ?? false,
+    futurePrice: chain.futurePrice ?? null,
+    futureSource: chain.futureSource ?? "unavailable",
+    futureExpiry: chain.futureExpiry ?? null,
+    syntheticFuture: chain.syntheticFuture ?? null,
+    syntheticFutureModelled: chain.syntheticFutureModelled === true,
     pcrOi,
     intradayFlow: +flowNet.toFixed(3),
     intradayOiTrue: false,

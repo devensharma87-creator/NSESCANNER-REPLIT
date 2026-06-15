@@ -59,9 +59,9 @@
     "kiteOptionChain"
   ],
   "lib/optionChain.ts": [
+    "kiteFeed",
     "kiteIndexQuotes",
-    "kiteOptionChain",
-    "yahoo"
+    "kiteOptionChain"
   ],
   "lib/optionSignalGates.ts": [
     "kiteIntraday"

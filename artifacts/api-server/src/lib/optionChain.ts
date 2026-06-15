@@ -10,9 +10,9 @@
  */
 
 import { logger } from "./logger";
-import { fetchChart } from "./yahoo";
 import { fetchKiteOptionChain } from "./kiteOptionChain";
 import { getKiteIndexQuotes } from "./kiteIndexQuotes";
+import { getLiveQuote } from "./kiteFeed";
 import { priceAndGreeks, yearsToExpiry } from "./blackScholes";
 import { computeMaxPainStrike } from "./optionAnalytics";
 
@@ -110,6 +110,15 @@ export interface OcSide {
   volume?: number; volOiRatio?: number | null;
   iv?: number;
   ltp?: number; ltpChgPct?: number | null;
+  /** Absolute LTP change vs prev close (₹). Null when prev close unavailable
+   *  (NSE-direct path doesn't return per-leg prev close). */
+  ltpChange?: number | null;
+  /** Per-leg OHLC for the current session. Populated from Kite's per-instrument
+   *  `ohlc` block. Null/undefined from the NSE-direct path (NSE doesn't
+   *  return per-leg session OHLC). */
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
   bid?: number; ask?: number; bidQty?: number; askQty?: number;
   delta?: number; theta?: number; gamma?: number; vega?: number;
   intrinsic?: number; intrinsicPct?: number | null; timeValue?: number;
@@ -124,6 +133,20 @@ export interface OcRow {
   pcrVol?: number | null;
   isMaxPain?: boolean;
 }
+/**
+ * Spot provenance — describes where the underlying spot price came from.
+ *
+ * IMPORTANT: `spotTrusted: true` means the spot is real-time and from an
+ * approved source (Kite or NSE-direct). It does NOT mean the spot is
+ * approved for F&O signal generation, paper-trade decisions, or risk sizing.
+ * Those paths remain Kite-only (via kiteIndexQuotes / kiteIntraday) and
+ * are not affected by this field.
+ */
+export type OcSpotSource = "kite" | "nse" | "unavailable";
+
+/** Source provenance for the nearest-month future price. */
+export type OcFutureSource = "kite" | "unavailable";
+
 export interface OcResponse {
   underlying: string;
   underlyingName: string;
@@ -140,6 +163,49 @@ export interface OcResponse {
   rows: OcRow[];
   source: string;
   generatedAt: string;
+  /**
+   * Where the underlying spot price originated.
+   * - "kite": live Kite broker feed (trusted)
+   * - "nse": NSE-direct option-chain underlyingValue (trusted for display)
+   * - "unavailable": no trusted source online
+   *
+   * NOTE: spotTrusted means the display spot is real. It does NOT
+   * grant permission for signal generation, paper-trade, or risk sizing.
+   * Those remain Kite-only.
+   */
+  spotSource: OcSpotSource;
+  /** True when spot is from a real-time trusted source (Kite or NSE). */
+  spotTrusted: boolean;
+
+  // ── Nearest-month futures (Sprint 3 — Phase B) ──────────────────────────
+  /**
+   * LTP of the nearest-month liquid FUT contract from Kite instrument master.
+   * Null when Kite is unavailable or no FUT contract found for this underlying.
+   * NOT a synthetic/modelled value — this is a real exchange-traded price.
+   *
+   * Source: same underlying, current nearest-month FUT, same-exchange only.
+   * NOT approved: weekly mini-futures, Yahoo, unofficial synthetic.
+   * NOT used for: paper-trade gate, F&O signal permission, risk sizing.
+   */
+  futurePrice?: number | null;
+  /** Source provenance for the future price. */
+  futureSource?: OcFutureSource;
+  /** Expiry of the FUT contract used for `futurePrice`. */
+  futureExpiry?: string | null;
+
+  // ── Synthetic future (Sprint 3 — Phase B) ───────────────────────────────
+  /**
+   * Synthetic future price derived from put-call parity at the ATM strike:
+   *   syntheticFuture = Strike + CE_LTP - PE_LTP
+   *
+   * MODELLED VALUE — labelled "SYNTH FUTURE · MODELLED" in UI.
+   * Null when ATM CE or PE LTP is missing or zero.
+   * NOT used for: paper-trade gate, F&O signal permission, risk sizing.
+   */
+  syntheticFuture?: number | null;
+  /** Always true when syntheticFuture is non-null — marks this as a
+   *  calculated value, not an exchange-provided price. */
+  syntheticFutureModelled?: true;
 }
 
 /**
@@ -338,6 +404,9 @@ export async function fetchOptionChain(underlying: string, expiryFilter?: string
   try {
     const kiteResult = await fetchKiteOptionChain(sym, expiryFilter);
     if (kiteResult) {
+      // Kite path — spot is from Kite broker feed.
+      kiteResult.spotSource = "kite";
+      kiteResult.spotTrusted = true;
       chainCache.set(cacheKey, { data: kiteResult, ts: Date.now() });
       return kiteResult;
     }
@@ -399,6 +468,10 @@ export async function fetchOptionChain(underlying: string, expiryFilter?: string
     rows: allRows,
     source: "NSE",
     generatedAt: new Date().toISOString(),
+    // NSE-direct: spot is from NSE underlyingValue field — real-time during market.
+    // Trusted for display. NOT for signal generation or paper-trade decisions.
+    spotSource: "nse",
+    spotTrusted: true,
   };
   finalizeChain(data);
   chainCache.set(cacheKey, { ts: Date.now(), data });
@@ -469,14 +542,24 @@ function inferEquityStep(rows: NseRow[], spot: number): number {
   return diffs[Math.floor(diffs.length / 2)]!;
 }
 
-/** Fetch a sensible spot price for a symbol when the NSE call fails — used as a
- *  warmup helper and for downstream analytics that still want a price. */
-export async function getSpotForUnderlying(symbol: string): Promise<number | null> {
+/**
+ * Fetch a trusted spot price for a symbol. Kite-only.
+ *
+ * Sources checked in order:
+ *   1. Kite index quotes (for indices: NIFTY, BANKNIFTY, etc.)
+ *   2. Kite live tick feed (for equities via getLiveQuote)
+ *
+ * Returns null when no trusted source is available.
+ * NO Yahoo fallback. NO synthetic spot.
+ *
+ * NOTE: This spot is for option-chain display/warmup only.
+ * F&O signal generation and paper-trade decisions use
+ * kiteIndexQuotes / kiteIntraday directly — not this helper.
+ */
+export async function getSpotForUnderlying(symbol: string): Promise<{ price: number; source: OcSpotSource } | null> {
   const sym = symbol.toUpperCase();
 
-  // Yahoo-style key the kiteIndexQuotes batch returns (single source of
-  // truth — kiteIndexQuotes uses NIFTY_FIN_SERVICE.NS for FINNIFTY, not
-  // the legacy ^CNXFIN that Yahoo's chart endpoint expects).
+  // 1. Kite index quotes batch (indices)
   const KITE_LTP_KEY: Record<string, string> = {
     NIFTY:      "^NSEI",
     BANKNIFTY:  "^NSEBANK",
@@ -490,26 +573,24 @@ export async function getSpotForUnderlying(symbol: string): Promise<number | nul
     try {
       const map = await getKiteIndexQuotes();
       const live = map?.get(ltpKey);
-      if (live && Number.isFinite(live.price) && live.price > 0) return live.price;
-    } catch { /* fall through to Yahoo */ }
+      if (live && Number.isFinite(live.price) && live.price > 0) {
+        return { price: live.price, source: "kite" };
+      }
+    } catch {
+      logger.debug({ sym }, "Kite index quote unavailable for spot lookup");
+    }
   }
 
-  // Yahoo fallback — used when Kite is offline OR the underlying is a
-  // single stock (not in the index basket above). Yahoo chart endpoint
-  // still uses the legacy index keys for indices.
-  const yahoo: Record<string, string> = {
-    NIFTY: "^NSEI",
-    BANKNIFTY: "^NSEBANK",
-    FINNIFTY: "^CNXFIN",
-    MIDCPNIFTY: "NIFTY_MID_SELECT.NS",
-    SENSEX: "^BSESN",
-    BANKEX: "BSE-BANK.BO",
-  };
-  const ticker = yahoo[sym];
-  if (ticker) {
-    const c = await fetchChart(ticker, "5d");
-    return c?.meta?.regularMarketPrice ?? null;
+  // 2. Kite live tick feed (equities subscribed via WebSocket)
+  const tick = getLiveQuote(sym);
+  if (tick && Number.isFinite(tick.ltp) && tick.ltp > 0) {
+    return { price: tick.ltp, source: "kite" };
   }
-  const c = await fetchChart(sym, "5d");
-  return c?.meta?.regularMarketPrice ?? null;
+
+  // No trusted source available — return null, NO Yahoo fallback.
+  logger.info(
+    { sym },
+    "getSpotForUnderlying: no trusted spot source available (Kite offline or symbol not subscribed)",
+  );
+  return null;
 }

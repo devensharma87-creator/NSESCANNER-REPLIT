@@ -35,6 +35,16 @@ export interface ChartCandlePoint {
 
 export type ChartSource = "kite" | "yahoo" | "none";
 
+/** Provenance / trust tier for chart candle responses. */
+export type ChartSourceTier = "authoritative" | "secondary_analytics" | "unavailable";
+
+/** Volume data origin for transparency. */
+export type ChartVolumeSource =
+  | "actual"           // Real traded volume from the same instrument
+  | "futures_proxy"    // Nearest-month futures volume merged onto spot index
+  | "unavailable"      // No volume data (e.g. spot index with no futures merge)
+  | "none";            // No candles at all
+
 export interface ChartCandlesResult {
   symbol: string;
   segment: ChartSegment;
@@ -44,6 +54,38 @@ export interface ChartCandlesResult {
   asOf: number | null;
   message?: string;
   candles: ChartCandlePoint[];
+
+  // --- Provenance (Phase 2) ---
+  /** Normalised provider that produced these candles. */
+  sourceProvider: ChartSource;
+  /** Trust tier of the source. */
+  sourceTier: ChartSourceTier;
+  /** True when the data is from a live session feed. */
+  live: boolean;
+  /** True for delayed / end-of-day feeds (Yahoo). */
+  delayed: boolean;
+  /** True when older than the freshness budget for this timeframe. */
+  stale: boolean;
+  /** True when a fallback source was used instead of the preferred one. */
+  fallbackUsed: boolean;
+  /** True when any candle data is synthetic / derived. */
+  synthetic: boolean;
+  /** True when data should be treated as visual reference only, not trade-grade. */
+  visualOnly: boolean;
+  /** ISO timestamp of when this response was generated. */
+  lastUpdatedAt: string;
+  /** Timezone convention for candle timestamps. */
+  timezone: "UTC";
+  /** How candle timestamps should be interpreted. */
+  candleTimeConvention: "open";
+  /** Origin of volume data. */
+  volumeSource: ChartVolumeSource;
+  /** Instrument from which volume was sourced (when futures_proxy). */
+  volumeSourceInstrument: string | null;
+  /** True when volume is from a proxy instrument. */
+  volumeProxy: boolean;
+  /** Human-readable notes about degradations, fallbacks, or missing data. */
+  warnings: string[];
 }
 
 type KiteInterval =
@@ -230,6 +272,12 @@ export function isFreshFor(
   return nowMs / 1000 - asOfSec <= TIMEFRAME_CONFIG[tf].freshnessSec;
 }
 
+interface FinalizeOpts {
+  volumeSource?: ChartVolumeSource;
+  volumeSourceInstrument?: string | null;
+  warnings?: string[];
+}
+
 function finalize(
   symbol: string,
   segment: ChartSegment,
@@ -237,9 +285,43 @@ function finalize(
   source: ChartSource,
   candles: ChartCandlePoint[],
   message?: string,
+  opts?: FinalizeOpts,
 ): ChartCandlesResult {
   const { asOf, fresh } = deriveFreshness(candles, tf);
-  return { symbol, segment, timeframe: tf, source, fresh, asOf, candles, ...(message ? { message } : {}) };
+  const isYahoo = source === "yahoo";
+  const isNone = source === "none";
+  const volumeSource = opts?.volumeSource ?? (isNone ? "none" : "actual");
+  const warnings = [...(opts?.warnings ?? [])];
+  if (isYahoo && (segment === "index" || segment === "equity")) {
+    warnings.push("YAHOO DELAYED · VISUAL ONLY · NOT FOR SIGNALS");
+  }
+  if (volumeSource === "futures_proxy") {
+    warnings.push(`Volume: nearest-month futures proxy${opts?.volumeSourceInstrument ? ` (${opts.volumeSourceInstrument})` : ""}`);
+  }
+  if (volumeSource === "unavailable") {
+    warnings.push("Volume unavailable for this instrument.");
+  }
+
+  return {
+    symbol, segment, timeframe: tf, source, fresh, asOf, candles,
+    ...(message ? { message } : {}),
+    // Provenance
+    sourceProvider: source,
+    sourceTier: source === "kite" ? "authoritative" : source === "yahoo" ? "secondary_analytics" : "unavailable",
+    live: source === "kite" && fresh,
+    delayed: isYahoo,
+    stale: !fresh && candles.length > 0,
+    fallbackUsed: isYahoo,
+    synthetic: false,
+    visualOnly: isYahoo && (segment === "index" || segment === "equity"),
+    lastUpdatedAt: new Date().toISOString(),
+    timezone: "UTC",
+    candleTimeConvention: "open",
+    volumeSource,
+    volumeSourceInstrument: opts?.volumeSourceInstrument ?? null,
+    volumeProxy: volumeSource === "futures_proxy",
+    warnings,
+  };
 }
 
 async function tryKite(
@@ -261,16 +343,7 @@ async function tryKite(
     return null; // global: Kite has no coverage
   }
   if (!chart) return null;
-  let candles = normalizeChart(chart);
-  // Spot indices carry no traded volume (Kite returns 0), so VWAP / Volume
-  // Profile are impossible from the cash index alone. Mirror pro terminals by
-  // weighting the index with its nearest-month FUTURES volume, aligned by
-  // timestamp. Done BEFORE aggregation so weekly/monthly buckets sum it too.
-  // Fail-OPEN: on any miss the spot candles (volume 0) are returned untouched.
-  if (meta.segment === "index") {
-    candles = await mergeIndexFuturesVolume(meta.symbol, cfg, candles);
-  }
-  if (cfg.aggregateTo) candles = aggregateCandles(candles, cfg.aggregateTo);
+  const candles = normalizeChart(chart);
   return candles.length > 0 ? candles : null;
 }
 
@@ -283,17 +356,24 @@ async function mergeIndexFuturesVolume(
   symbol: string,
   cfg: TimeframeConfig,
   candles: ChartCandlePoint[],
-): Promise<ChartCandlePoint[]> {
+): Promise<{ candles: ChartCandlePoint[]; volumeSource: ChartVolumeSource; volumeSourceInstrument: string | null }> {
   try {
     const volMap = await fetchIndexFuturesVolume(symbol, cfg.kiteInterval, cfg.kiteDaysBack);
-    if (!volMap || volMap.size === 0) return candles;
-    return candles.map(c => {
+    if (!volMap || volMap.size === 0) {
+      return { candles, volumeSource: "unavailable", volumeSourceInstrument: null };
+    }
+    const merged = candles.map(c => {
       const v = volMap.get(c.t);
       return v != null && v > 0 ? { ...c, v } : c;
     });
+    return {
+      candles: merged,
+      volumeSource: "futures_proxy",
+      volumeSourceInstrument: `${symbol} nearest-month futures`,
+    };
   } catch (err) {
     logger.warn({ err: (err as Error).message, symbol }, "chart: index futures volume merge failed");
-    return candles;
+    return { candles, volumeSource: "unavailable", volumeSourceInstrument: null };
   }
 }
 
@@ -357,29 +437,84 @@ export async function getChartCandles(
     return {
       symbol, segment, timeframe: tf, source: "none", fresh: false, asOf: null,
       candles: [], message: "Unknown instrument for this segment.",
+      // Provenance fields (none/empty)
+      sourceProvider: "none",
+      sourceTier: "unavailable",
+      live: false,
+      delayed: false,
+      stale: false,
+      fallbackUsed: false,
+      synthetic: false,
+      visualOnly: false,
+      lastUpdatedAt: new Date().toISOString(),
+      timezone: "UTC",
+      candleTimeConvention: "open",
+      volumeSource: "unavailable",
+      volumeSourceInstrument: null,
+      volumeProxy: false,
+      warnings: ["No data source available for this instrument."],
     };
   }
   const cfg = TIMEFRAME_CONFIG[tf];
 
+  let volumeSource: ChartVolumeSource = segment === "equity" ? "actual" : "unavailable";
+  let volumeSourceInstrument: string | null = null;
+
   try {
-    const kite = await tryKite(meta, cfg);
-    if (kite && kite.length > 0) return finalize(meta.symbol, segment, tf, "kite", kite);
+    let kiteCandles = await tryKite(meta, cfg);
+    if (kiteCandles && kiteCandles.length > 0) {
+      // Spot index volume merge
+      if (meta.segment === "index") {
+        const merged = await mergeIndexFuturesVolume(meta.symbol, cfg, kiteCandles);
+        kiteCandles = merged.candles;
+        volumeSource = merged.volumeSource;
+        volumeSourceInstrument = merged.volumeSourceInstrument;
+      }
+      if (cfg.aggregateTo) kiteCandles = aggregateCandles(kiteCandles, cfg.aggregateTo);
+      return finalize(meta.symbol, segment, tf, "kite", kiteCandles, undefined, {
+        volumeSource,
+        volumeSourceInstrument,
+      });
+    }
   } catch (err) {
     logger.warn({ err: (err as Error).message, symbol, segment, tf }, "chart: Kite source failed");
   }
-
-  try {
-    const yahoo = await tryYahoo(meta, cfg);
-    if (yahoo && yahoo.length > 0) return finalize(meta.symbol, segment, tf, "yahoo", yahoo);
-  } catch (err) {
-    logger.warn({ err: (err as Error).message, symbol, segment, tf }, "chart: Yahoo source failed");
+  // ── Yahoo fallback — ONLY for global instruments ─────────────────────────
+  // Indian equity/index segments MUST NOT silently fall back to Yahoo.
+  // If Kite candles are unavailable for Indian instruments, we return
+  // source: "none" with a clear message. Global segment has no Kite
+  // coverage, so Yahoo is the correct (and only) data source there.
+  if (segment === "global") {
+    try {
+      const yahoo = await tryYahoo(meta, cfg);
+      if (yahoo && yahoo.length > 0) {
+        return finalize(meta.symbol, segment, tf, "yahoo", yahoo, undefined, {
+          volumeSource: "actual",
+        });
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message, symbol, segment, tf }, "chart: Yahoo source failed");
+    }
+  } else {
+    // Indian equity/index: log the miss but do NOT fall through to Yahoo.
+    logger.info(
+      { symbol, segment, tf },
+      "chart: Kite candles unavailable for Indian instrument — returning unavailable (no Yahoo fallback)",
+    );
   }
 
-  const noYahoo = cfg.yahoo == null;
+  // All sources exhausted (or Indian instrument with Kite offline).
+  const isIndian = segment === "equity" || segment === "index";
   return finalize(
     meta.symbol, segment, tf, "none", [],
-    noYahoo
-      ? "Data unavailable for this timeframe from the fallback source — connect a live Kite session for intraday minute data."
+    isIndian
+      ? "Trusted candles (Kite) unavailable — connect a live Kite session for Indian instrument data."
       : "Data unavailable for this timeframe/source right now.",
+    {
+      volumeSource: "none",
+      warnings: isIndian
+        ? ["No trusted candle source available. Kite session required for Indian instruments."]
+        : [],
+    },
   );
 }

@@ -58,6 +58,11 @@ export interface DataMeta {
   delayed: boolean;
   /** Hard flag: this datum must never feed a signal/price/valuation decision. */
   notForSignals: boolean;
+  /** Hard flag: this datum must never feed trade decisions (portfolio valuation,
+   *  risk sizing, P&L, MFE/MAE, stop/target/entry calculations). Distinct from
+   *  notForSignals because analytics might be used for display but still not
+   *  qualify for any trade-relevant computation. */
+  notForTradeDecisions: boolean;
   /** Per-datum validation outcome. */
   validationStatus: ValidationStatus;
   /** Human-readable notes (degradations, fallbacks, missing fields). */

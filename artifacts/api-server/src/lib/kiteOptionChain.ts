@@ -282,6 +282,12 @@ export async function fetchKiteOptionChain(
       volume: q.volume,
       iv: ivPct,
       ltp,
+      // Per-leg OHLC — real exchange session values from Kite's per-instrument
+      // `ohlc` block (Sprint 3 Phase B). Open = session open (09:15 IST),
+      // High = session high, Low = session low. NOT modelled.
+      open: Number.isFinite(q.ohlc?.open) ? q.ohlc!.open : null,
+      high: Number.isFinite(q.ohlc?.high) ? q.ohlc!.high : null,
+      low:  Number.isFinite(q.ohlc?.low)  ? q.ohlc!.low  : null,
       bid: q.depth?.buy?.[0]?.price,
       ask: q.depth?.sell?.[0]?.price,
       bidQty: q.depth?.buy?.[0]?.quantity,
@@ -298,6 +304,12 @@ export async function fetchKiteOptionChain(
     // stays null).
     const prevCloseLtp = q.ohlc?.close;
     deriveSideMetrics(side, Number.isFinite(prevCloseLtp) ? prevCloseLtp : undefined);
+    // Absolute LTP change (₹) — only when prev-close is available (Sprint 3 B2).
+    if (Number.isFinite(prevCloseLtp) && prevCloseLtp! > 0 && Number.isFinite(ltp)) {
+      side.ltpChange = +(ltp - prevCloseLtp!).toFixed(2);
+    } else {
+      side.ltpChange = null;
+    }
 
     let row = strikeMap.get(leg.strike);
     if (!row) { row = { strike: leg.strike }; strikeMap.set(leg.strike, row); }
@@ -315,6 +327,61 @@ export async function fetchKiteOptionChain(
   );
   const lotSize = activeLegs[0]?.lot_size;
 
+  // ── B4: Nearest-month FUT lookup (Sprint 3) ──────────────────────────────
+  // Scan the instrument dump for FUT contracts on the same underlying. Pick
+  // the nearest-future expiry that hasn't expired. Then look up the LTP from
+  // the already-fetched quote map (no extra network call). Returns null when
+  // no FUT is listed or the quote is missing.
+  let futurePrice: number | null = null;
+  let futureSource: "kite" | "unavailable" = "unavailable";
+  let futureExpiry: string | null = null;
+  {
+    const todayIso2 = new Date().toISOString().slice(0, 10);
+    const futLegs = all.filter(
+      i => i.name === sym && i.instrument_type === "FUT",
+    );
+    const futExpiries = Array.from(
+      new Set(futLegs.map(f => expiryISO(f.expiry))),
+    ).filter(e => e >= todayIso2).sort();
+    if (futExpiries.length > 0) {
+      const nearestFutExpiry = futExpiries[0]!;
+      const futInst = futLegs.find(f => expiryISO(f.expiry) === nearestFutExpiry);
+      if (futInst) {
+        const futKey = `${futInst.exchange}:${futInst.tradingsymbol}`;
+        // Check if we already have the quote; if not, fetch it separately
+        let futQ = quoteMap.get(futKey);
+        if (!futQ) {
+          try {
+            const q2 = (await kc.getQuote([futKey])) as Record<string, KiteQuote>;
+            futQ = q2[futKey];
+          } catch { /* FUT quote unavailable — leave null */ }
+        }
+        if (futQ && Number.isFinite(futQ.last_price) && futQ.last_price > 0) {
+          futurePrice = +(futQ.last_price).toFixed(2);
+          futureSource = "kite";
+          futureExpiry = nearestFutExpiry;
+        }
+      }
+    }
+  }
+
+  // ── B5: Synthetic future from put-call parity (Sprint 3) ─────────────────
+  // syntheticFuture = ATM_Strike + CE_LTP - PE_LTP
+  // Null when either ATM leg is missing or has zero LTP.
+  // MODELLED VALUE — labelled "SYNTH FUTURE · MODELLED" in UI.
+  let syntheticFuture: number | null = null;
+  {
+    const atmRow = strikeMap.get(atmStrike);
+    const ceLtp = atmRow?.ce?.ltp;
+    const peLtp = atmRow?.pe?.ltp;
+    if (
+      ceLtp != null && Number.isFinite(ceLtp) && ceLtp > 0 &&
+      peLtp != null && Number.isFinite(peLtp) && peLtp > 0
+    ) {
+      syntheticFuture = +(atmStrike + ceLtp - peLtp).toFixed(2);
+    }
+  }
+
   const isIndex = sym in INDEX_SPOT_MAP;
   const out: OcResponse = {
     underlying: sym,
@@ -331,6 +398,16 @@ export async function fetchKiteOptionChain(
     rows,
     source: "kite",
     generatedAt: new Date().toISOString(),
+    // Kite path — spot is from Kite broker getQuote.
+    spotSource: "kite",
+    spotTrusted: true,
+    // Sprint 3 — nearest-month future
+    futurePrice,
+    futureSource,
+    futureExpiry,
+    // Sprint 3 — synthetic future (put-call parity)
+    syntheticFuture,
+    ...(syntheticFuture != null ? { syntheticFutureModelled: true as const } : {}),
   };
 
   // Stamp per-strike PCR (pcrOi/pcrVol), `isMaxPain` on the single max-pain

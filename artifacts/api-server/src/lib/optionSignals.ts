@@ -969,11 +969,15 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
   const align = Math.max(bullVotes, bearVotes);
 
   const conf = 35 + align * 5; // 35–55%
+  const spotAboveVwap = c.spot > c.vwap;
+  const spotAboveEma21 = c.spot > c.ema21;
+  const ema9AboveEma21 = c.ema9 > c.ema21;
+  const rsiAbove50 = c.rsi14 > 50;
   const drivers: SignalReason[] = [
-    { label: dir === "BULLISH" ? "Spot vs VWAP bullish" : "Spot vs VWAP bearish", detail: `Spot ${c.spot.toFixed(2)} ${c.spot > c.vwap ? ">" : "<"} VWAP ${c.vwap.toFixed(2)}.`, weight: 12, bullish: c.spot > c.vwap },
-    { label: dir === "BULLISH" ? "Spot vs EMA21 bullish" : "Spot vs EMA21 bearish", detail: `Spot ${c.spot > c.ema21 ? "above" : "below"} EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: c.spot > c.ema21 },
-    { label: c.ema9 > c.ema21 ? "EMA 9 > 21" : "EMA 9 < 21", detail: `EMA9 ${c.ema9.toFixed(2)} vs EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: c.ema9 > c.ema21 },
-    { label: `RSI ${c.rsi14.toFixed(1)}`, detail: `RSI ${c.rsi14 > 50 ? "above" : "below"} 50 — ${c.rsi14 > 50 ? "bullish" : "bearish"} bias.`, weight: 8, bullish: c.rsi14 > 50 },
+    { label: spotAboveVwap ? "Spot above VWAP" : "Spot below VWAP", detail: `Spot ${c.spot.toFixed(2)} ${spotAboveVwap ? ">" : "<"} VWAP ${c.vwap.toFixed(2)}.`, weight: 12, bullish: spotAboveVwap },
+    { label: spotAboveEma21 ? "Spot above EMA21" : "Spot below EMA21", detail: `Spot ${spotAboveEma21 ? "above" : "below"} EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: spotAboveEma21 },
+    { label: ema9AboveEma21 ? "EMA 9 > 21" : "EMA 9 < 21", detail: `EMA9 ${c.ema9.toFixed(2)} vs EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: ema9AboveEma21 },
+    { label: `RSI ${c.rsi14.toFixed(1)}`, detail: `RSI ${rsiAbove50 ? "above" : "below"} 50 — ${rsiAbove50 ? "bullish" : "bearish"} bias.`, weight: 8, bullish: rsiAbove50 },
   ];
 
   const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
