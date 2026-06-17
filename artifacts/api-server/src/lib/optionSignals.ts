@@ -1,8 +1,7 @@
 import type { OptionSignal, SignalReason } from "@workspace/api-zod";
 import type { YahooChart } from "./yahoo";
-import { fetchKiteIntraday, hasKiteIntradayCoverage } from "./kiteIntraday";
+import { centralIndexCandles, centralHasIndexCoverage, centralIndexQuotes } from "./marketData/compat";
 import { scoreConfluence, type ConfluenceInputs } from "./confluenceEngine";
-import { getKiteIndexQuotes } from "./kiteIndexQuotes";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
 import { classifyRegime, type RegimeResult } from "./regimeClassifier";
 import { recordAtmIv, computeIvMetrics } from "./ivHistory";
@@ -2254,7 +2253,7 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // card stuck on Waiting trigger" bug.
   let liveQuotes: Map<string, { price: number }> | null = null;
   try {
-    const q = await getKiteIndexQuotes();
+    const q = await centralIndexQuotes();
     if (q) liveQuotes = q;
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "live Kite quote fetch failed; using bar close as spot");
@@ -2271,8 +2270,8 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       // uses Yahoo (EOD bars, no live-data sensitivity).
       let intra: YahooChart | null = null;
       let intraSrc: "kite" | null = null;
-      if (hasKiteIntradayCoverage(cfg.yahoo)) {
-        intra = await fetchKiteIntraday(cfg.yahoo, "15minute", 5);
+      if (centralHasIndexCoverage(cfg.yahoo)) {
+        intra = await centralIndexCandles(cfg.yahoo, "15minute", 5);
         if (intra) intraSrc = "kite";
       }
       if (!intra) {
@@ -2288,7 +2287,7 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       // anywhere in the F&O pipeline, EOD bars included. If Kite cannot
       // serve the daily series we skip the index entirely rather than
       // degrade — surfaced via MissedSignals so the audit trail is honest.
-      const daily = await fetchKiteIntraday(cfg.yahoo, "day", 180);
+      const daily = await centralIndexCandles(cfg.yahoo, "day", 180);
       if (!daily) {
         suppressed.push({ index: cfg.symbol, reasons: [`daily_history_unavailable_kite (Yahoo fallback disabled — F&O is Kite-only)`] });
         continue;

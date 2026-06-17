@@ -1,4 +1,4 @@
-import { db, optionSignalHistoryTable } from "@workspace/db";
+import { db, optionSignalHistoryTable, paperTradeFoTable } from "@workspace/db";
 import type { OptionSignalHistoryRow } from "@workspace/db";
 import type { OptionSignal } from "@workspace/api-zod";
 import { and, eq, gte, sql } from "drizzle-orm";
@@ -7,6 +7,7 @@ import {
   onLifecycleUpsert,
   closePaperTradeForSignal,
   reconcileOrphanedPaperTrades,
+  getMissedSignals,
 } from "./paperTradingFO";
 
 /**
@@ -821,6 +822,43 @@ export async function expireOpenSignalsForToday(): Promise<number> {
   }
 }
 
+/**
+ * Execution truth — the ACTUAL outcome of the paper-trade attempt for this
+ * signal, derived from real DB records (paper_trade_fo / in-memory skip ring).
+ *
+ * This replaces the broken frontend-only "tier === HC → YES" logic.
+ * The popup, F&O Cockpit, and signal history must all derive their
+ * PAPER_TRADE badge from these fields, never from tier alone.
+ */
+export type PaperTradeExecutionStatus =
+  | "NOT_APPLICABLE"   // BASELINE / INFO_ONLY — never attempted
+  | "OPENED"           // paper_trade_fo row exists
+  | "BLOCKED"          // skip reason recorded (DD cap, heat, etc.)
+  | "NOT_CONFIRMED";   // HC/STANDARD but no open/skip evidence
+
+export type FinalAlertClass =
+  | "INFO_ONLY"
+  | "TRADEABLE_SIGNAL"
+  | "TRADEABLE_EXECUTION_BLOCKED"
+  | "PAPER_TRADE_OPENED"
+  | "EXECUTION_NOT_CONFIRMED"
+  | "STOPPED";
+
+export interface ExecutionTruth {
+  signalTier: string;
+  signalTradeable: boolean;
+
+  executionStatus: PaperTradeExecutionStatus;
+  executionBlockedReason: string | null;
+
+  paperTradeOpened: boolean;
+  paperTradePositionId: string | null;
+  paperTradeLots: number | null;
+  paperTradeEntryPremium: number | null;
+
+  finalAlertClass: FinalAlertClass;
+}
+
 export interface HistoryRow {
   signalDate: string;
   indexSymbol: string;
@@ -852,6 +890,25 @@ export interface HistoryRow {
   optionStopLoss: number | null;
   optionTarget1: number | null;
   optionTarget2: number | null;
+  /** Execution truth — the REAL paper-trade outcome from backend records. */
+  execution: ExecutionTruth;
+}
+
+function defaultExecutionTruth(tier: string | null): ExecutionTruth {
+  const infoTier = tier === "BASELINE" || tier === "INFO_ONLY";
+  return {
+    signalTier: tier ?? "—",
+    signalTradeable: !infoTier && tier != null,
+    executionStatus: infoTier ? "NOT_APPLICABLE" : "NOT_CONFIRMED",
+    executionBlockedReason: infoTier
+      ? (tier === "BASELINE" ? "BASELINE_NOT_TRADEABLE" : "INFO_ONLY_NOT_TRADEABLE")
+      : "NO_EXECUTION_RECORD_FOUND",
+    paperTradeOpened: false,
+    paperTradePositionId: null,
+    paperTradeLots: null,
+    paperTradeEntryPremium: null,
+    finalAlertClass: infoTier ? "INFO_ONLY" : "EXECUTION_NOT_CONFIRMED",
+  };
 }
 
 function toHistoryRow(r: OptionSignalHistoryRow): HistoryRow {
@@ -885,7 +942,211 @@ function toHistoryRow(r: OptionSignalHistoryRow): HistoryRow {
     optionStopLoss: r.optionStopLoss != null ? round2(num(r.optionStopLoss)) : null,
     optionTarget1: r.optionTarget1 != null ? round2(num(r.optionTarget1)) : null,
     optionTarget2: r.optionTarget2 != null ? round2(num(r.optionTarget2)) : null,
+    execution: defaultExecutionTruth(r.tier),
   };
+}
+
+/**
+ * Batch-enrich history rows with REAL execution truth from (in priority order):
+ *   1. paper_trade_fo — LEFT JOIN for OPENED trades (durable, DB)
+ *   2. fno_signal_reasoning — SKIPPED/MISSED_WINDOW rows (durable, DB)
+ *   3. In-memory missedRing — fallback for current-session skips (volatile)
+ *   4. Default — NOT_APPLICABLE (BASELINE/INFO_ONLY) or NOT_CONFIRMED
+ *
+ * This mirrors the same durable→ring priority used by paperDailySummaryFo.ts
+ * for skip reason aggregation (P17a).
+ *
+ * READ-ONLY — no schema change, no new table, no migration.
+ */
+async function enrichWithExecutionTruth(rows: HistoryRow[]): Promise<HistoryRow[]> {
+  if (rows.length === 0) return rows;
+
+  // Collect all signal dates in this batch for a single DB query
+  const dates = [...new Set(rows.map(r => r.signalDate))];
+
+  try {
+    // 1. Batch-fetch all paper_trade_fo rows for the relevant dates (DURABLE)
+    const paperTrades = await db
+      .select({
+        signalDate: paperTradeFoTable.signalDate,
+        indexSymbol: paperTradeFoTable.indexSymbol,
+        setupKey: paperTradeFoTable.setupKey,
+        direction: paperTradeFoTable.direction,
+        id: paperTradeFoTable.id,
+        lots: paperTradeFoTable.lots,
+        entryPremium: paperTradeFoTable.entryPremium,
+        status: paperTradeFoTable.status,
+      })
+      .from(paperTradeFoTable)
+      .where(
+        dates.length === 1
+          ? eq(paperTradeFoTable.signalDate, dates[0]!)
+          : sql`${paperTradeFoTable.signalDate} = ANY(${sql.raw(`ARRAY[${dates.map(d => `'${d}'`).join(",")}]::date[]`)})`
+      );
+
+    // Build a lookup map: key → paper trade info
+    const paperTradeMap = new Map<string, {
+      id: string;
+      lots: number;
+      entryPremium: number;
+      status: string;
+    }>();
+    for (const pt of paperTrades) {
+      const key = `${pt.signalDate}|${pt.indexSymbol}|${pt.setupKey}|${pt.direction}`;
+      paperTradeMap.set(key, {
+        id: pt.id,
+        lots: pt.lots,
+        entryPremium: num(pt.entryPremium),
+        status: pt.status,
+      });
+    }
+
+    // 2. Batch-fetch SKIPPED/MISSED_WINDOW from fno_signal_reasoning (DURABLE)
+    //    This is the persistent skip source that survives server restarts.
+    //    Uses raw SQL matching the same pattern as fetchDurableSkipReasons()
+    //    in paperDailySummaryFo.ts.
+    const durableSkipMap = new Map<string, string>(); // key → reason_code
+    try {
+      const dateClause = dates.length === 1
+        ? `signal_date = '${dates[0]}'`
+        : `signal_date = ANY(ARRAY[${dates.map(d => `'${d}'`).join(",")}]::date[])`;
+      const skipRows = (await db.execute(sql.raw(`
+        SELECT DISTINCT ON (signal_date, index_symbol, setup_key, direction)
+               signal_date, index_symbol, setup_key, direction, reason_code
+          FROM fno_signal_reasoning
+         WHERE ${dateClause}
+           AND decision IN ('SKIPPED','MISSED_WINDOW')
+         ORDER BY signal_date, index_symbol, setup_key, direction, captured_at DESC
+      `))) as unknown as { rows: Array<{
+        signal_date: string;
+        index_symbol: string;
+        setup_key: string;
+        direction: string;
+        reason_code: string | null;
+      }> };
+
+      for (const r of skipRows.rows) {
+        const key = `${r.signal_date}|${r.index_symbol}|${r.setup_key}|${r.direction}`;
+        durableSkipMap.set(key, r.reason_code ?? "UNKNOWN");
+      }
+    } catch (durableErr) {
+      logger.warn(
+        { err: (durableErr as Error).message },
+        "enrichWithExecutionTruth: durable skip query (fno_signal_reasoning) failed — falling back to in-memory ring",
+      );
+    }
+
+    // 3. Build fallback map from the in-memory missed/skipped signals ring
+    //    Only used when durable source has no entry for this signal.
+    const missed = getMissedSignals();
+    const ringSkipMap = new Map<string, string>(); // key → skipReason
+    for (const m of missed) {
+      const key = `${m.signalDate}|${m.indexSymbol}|${m.setupKey}|${m.direction}`;
+      if (!ringSkipMap.has(key)) {
+        ringSkipMap.set(key, m.skipReason);
+      }
+    }
+
+    // 4. Enrich each row using priority: paper_trade_fo > durable skip > ring skip > default
+    for (const row of rows) {
+      const key = `${row.signalDate}|${row.indexSymbol}|${row.setupKey}|${row.direction}`;
+      const tier = row.tier;
+      const infoTier = tier === "BASELINE" || tier === "INFO_ONLY";
+
+      if (infoTier) {
+        // INFO_ONLY / BASELINE — execution never attempted
+        row.execution = {
+          signalTier: tier ?? "—",
+          signalTradeable: false,
+          executionStatus: "NOT_APPLICABLE",
+          executionBlockedReason: tier === "BASELINE"
+            ? "BASELINE_NOT_TRADEABLE"
+            : "INFO_ONLY_NOT_TRADEABLE",
+          paperTradeOpened: false,
+          paperTradePositionId: null,
+          paperTradeLots: null,
+          paperTradeEntryPremium: null,
+          finalAlertClass: "INFO_ONLY",
+        };
+        continue;
+      }
+
+      // Priority 1: paper_trade_fo row exists — OPENED
+      const pt = paperTradeMap.get(key);
+      if (pt) {
+        const isStopped = row.status === "STOPPED";
+        row.execution = {
+          signalTier: tier ?? "—",
+          signalTradeable: true,
+          executionStatus: "OPENED",
+          executionBlockedReason: null,
+          paperTradeOpened: true,
+          paperTradePositionId: pt.id,
+          paperTradeLots: pt.lots,
+          paperTradeEntryPremium: pt.entryPremium,
+          finalAlertClass: isStopped ? "STOPPED" : "PAPER_TRADE_OPENED",
+        };
+        continue;
+      }
+
+      // Priority 2: durable fno_signal_reasoning SKIPPED row — BLOCKED
+      const durableSkip = durableSkipMap.get(key);
+      if (durableSkip) {
+        row.execution = {
+          signalTier: tier ?? "—",
+          signalTradeable: true,
+          executionStatus: "BLOCKED",
+          executionBlockedReason: durableSkip,
+          paperTradeOpened: false,
+          paperTradePositionId: null,
+          paperTradeLots: null,
+          paperTradeEntryPremium: null,
+          finalAlertClass: "TRADEABLE_EXECUTION_BLOCKED",
+        };
+        continue;
+      }
+
+      // Priority 3: in-memory missedRing — BLOCKED (current session only)
+      const ringSkip = ringSkipMap.get(key);
+      if (ringSkip) {
+        row.execution = {
+          signalTier: tier ?? "—",
+          signalTradeable: true,
+          executionStatus: "BLOCKED",
+          executionBlockedReason: ringSkip,
+          paperTradeOpened: false,
+          paperTradePositionId: null,
+          paperTradeLots: null,
+          paperTradeEntryPremium: null,
+          finalAlertClass: "TRADEABLE_EXECUTION_BLOCKED",
+        };
+        continue;
+      }
+
+      // Priority 4: no evidence — PENDING or NOT_CONFIRMED
+      const isPending = row.status === "PENDING";
+      row.execution = {
+        signalTier: tier ?? "—",
+        signalTradeable: true,
+        executionStatus: isPending ? "NOT_APPLICABLE" : "NOT_CONFIRMED",
+        executionBlockedReason: isPending ? null : "NO_EXECUTION_RECORD_FOUND",
+        paperTradeOpened: false,
+        paperTradePositionId: null,
+        paperTradeLots: null,
+        paperTradeEntryPremium: null,
+        finalAlertClass: isPending
+          ? "TRADEABLE_SIGNAL"
+          : "EXECUTION_NOT_CONFIRMED",
+      };
+    }
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "enrichWithExecutionTruth: paper trade lookup failed — rows will show NOT_CONFIRMED",
+    );
+  }
+
+  return rows;
 }
 
 /** All rows for today's IST trading date, sorted newest first. */
@@ -896,9 +1157,10 @@ export async function getTodayHistory(): Promise<HistoryRow[]> {
       .select()
       .from(optionSignalHistoryTable)
       .where(eq(optionSignalHistoryTable.signalDate, date));
-    return rows
+    const mapped = rows
       .map(toHistoryRow)
       .sort((a, b) => b.generatedAt.getTime() - a.generatedAt.getTime());
+    return enrichWithExecutionTruth(mapped);
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "getTodayHistory failed");
     return [];
@@ -914,9 +1176,10 @@ export async function getRecentHistory(days = 7): Promise<HistoryRow[]> {
       .select()
       .from(optionSignalHistoryTable)
       .where(gte(optionSignalHistoryTable.signalDate, cutoffKey));
-    return rows
+    const mapped = rows
       .map(toHistoryRow)
       .sort((a, b) => b.generatedAt.getTime() - a.generatedAt.getTime());
+    return enrichWithExecutionTruth(mapped);
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "getRecentHistory failed");
     return [];
@@ -930,9 +1193,10 @@ export async function getHistoryByDate(date: string): Promise<HistoryRow[]> {
       .select()
       .from(optionSignalHistoryTable)
       .where(eq(optionSignalHistoryTable.signalDate, date));
-    return rows
+    const mapped = rows
       .map(toHistoryRow)
       .sort((a, b) => b.generatedAt.getTime() - a.generatedAt.getTime());
+    return enrichWithExecutionTruth(mapped);
   } catch (err) {
     logger.warn({ err: (err as Error).message, date }, "getHistoryByDate failed");
     return [];
@@ -955,9 +1219,10 @@ export async function getHistoryByMonth(month: string): Promise<HistoryRow[]> {
           sql`${optionSignalHistoryTable.signalDate} < ${endDate}`,
         ),
       );
-    return rows
+    const mapped = rows
       .map(toHistoryRow)
       .sort((a, b) => b.generatedAt.getTime() - a.generatedAt.getTime());
+    return enrichWithExecutionTruth(mapped);
   } catch (err) {
     logger.warn({ err: (err as Error).message, month }, "getHistoryByMonth failed");
     return [];

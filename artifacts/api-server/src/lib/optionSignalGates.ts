@@ -1,7 +1,7 @@
 import { db, optionSignalHistoryTable, paperTradeFoTable } from "@workspace/db";
 import { and, eq, sql, gte } from "drizzle-orm";
 import { logger } from "./logger";
-import { fetchKiteIntraday } from "./kiteIntraday";
+import { centralIndexCandles } from "./marketData/compat";
 import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import type { OptionSignal } from "@workspace/api-zod";
@@ -353,7 +353,7 @@ async function loadSetupWinRates(): Promise<Map<string, SetupWinRate>> {
  */
 async function loadNifty5dReturn(): Promise<number | null> {
   try {
-    const bars = await fetchKiteIntraday("^NSEI", "day", RELATIVE_STRENGTH.LOOKBACK_DAYS + 5);
+    const bars = await centralIndexCandles("^NSEI", "day", RELATIVE_STRENGTH.LOOKBACK_DAYS + 5);
     if (!bars || bars.close.length < RELATIVE_STRENGTH.LOOKBACK_DAYS + 1) return null;
     const closes = bars.close;
     const last = closes[closes.length - 1]!;
@@ -386,7 +386,7 @@ async function loadVixSnapshot(): Promise<VixSnapshot> {
 
   let intradayPct: number | null = null;
   try {
-    const bars = await fetchKiteIntraday("^INDIAVIX", "15minute", 2);
+    const bars = await centralIndexCandles("^INDIAVIX", "15minute", 2);
     if (bars && bars.timestamps.length >= 2) {
       // Restrict to the most recent IST trading day's bars. The "5d"
       // Yahoo response stitches ~125 bars across 5 sessions, so a naive
@@ -434,7 +434,7 @@ async function loadVixSnapshot(): Promise<VixSnapshot> {
 
   let dayPct: number | null = null;
   try {
-    const vixDaily = await fetchKiteIntraday("^INDIAVIX", "day", 5);
+    const vixDaily = await centralIndexCandles("^INDIAVIX", "day", 5);
     if (vixDaily && vixDaily.close.length >= 2) {
       const c = vixDaily.meta.regularMarketPrice ?? vixDaily.close[vixDaily.close.length - 1]!;
       const p = vixDaily.close[vixDaily.close.length - 2]!;

@@ -14,7 +14,7 @@
 
 import type { Holding, NewsItem, QuarterlyFinancial } from "@workspace/api-zod";
 import { getEntry } from "./universe";
-import { fetchStatements } from "./yahoo";
+import { fetchStatements } from "./marketData/analyticsYahoo";
 import { getMarketNewsLive } from "./newsRss";
 
 /* ───────────────────────── Quarterly P&L (real, from Yahoo) ───────────────────────── */

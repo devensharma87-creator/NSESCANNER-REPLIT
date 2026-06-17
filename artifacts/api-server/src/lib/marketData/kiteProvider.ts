@@ -13,7 +13,7 @@ import { getKiteIndexQuotes } from "../kiteIndexQuotes";
 import { loadKiteQuotes, loadKiteEtfQuote } from "../kiteScanner";
 import { getLiveQuote, feedStatus } from "../kiteFeed";
 import { getKiteCreds } from "../kiteAuth";
-import { fetchKiteEquityIntraday } from "../kiteIntraday";
+import { fetchKiteEquityIntraday, fetchKiteIntraday, hasKiteIntradayCoverage } from "../kiteIntraday";
 import { buildMeta, isQuoteComplete } from "./validator";
 import type {
   Candle,
@@ -194,3 +194,54 @@ export async function getEquityCandles(
     }),
   };
 }
+
+/**
+ * Authoritative index candles (NIFTY, BANKNIFTY, SENSEX, INDIAVIX, etc).
+ * Wraps `fetchKiteIntraday` which uses the INDEX_TABLE to resolve Yahoo-style
+ * index symbols (e.g. "^NSEI") to Kite instrument tokens.
+ *
+ * Returns null when Kite is offline — NEVER fabricates bars.
+ */
+export async function getIndexCandles(
+  yahooSymbol: string,
+  interval: KiteInterval,
+  daysBack: number,
+): Promise<CandleSeries | null> {
+  const chart = await fetchKiteIntraday(yahooSymbol, interval, daysBack);
+  if (!chart || chart.close.length === 0) return null;
+  const candles: Candle[] = [];
+  for (let i = 0; i < chart.timestamps.length; i++) {
+    const o = chart.open[i];
+    const h = chart.high[i];
+    const l = chart.low[i];
+    const c = chart.close[i];
+    const ts = chart.timestamps[i];
+    if (o == null || h == null || l == null || c == null || ts == null) continue;
+    candles.push({
+      t: new Date(ts * 1000).toISOString(),
+      open: o,
+      high: h,
+      low: l,
+      close: c,
+      volume: chart.volume[i] ?? 0,
+    });
+  }
+  const lastTsSec = chart.timestamps[chart.timestamps.length - 1];
+  return {
+    symbol: yahooSymbol,
+    interval,
+    candles,
+    meta: buildMeta({
+      source: "kite",
+      trustTier: "authoritative",
+      asOfMs: lastTsSec != null ? lastTsSec * 1000 : null,
+      delayed: false,
+      notForSignals: false,
+      complete: candles.length > 0,
+    }),
+  };
+}
+
+/** True when the given Yahoo-style symbol has Kite index coverage. */
+export { hasKiteIntradayCoverage as hasIndexCoverage };
+

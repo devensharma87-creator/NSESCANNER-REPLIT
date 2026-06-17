@@ -1,5 +1,5 @@
 import { UNIVERSE } from "./universe";
-import { getAllSymbols } from "./nseBhavcopy";
+import { getAllSymbols } from "./marketData/referenceData";
 
 /**
  * Maps free-form company-name mentions in news headlines to canonical NSE symbols.

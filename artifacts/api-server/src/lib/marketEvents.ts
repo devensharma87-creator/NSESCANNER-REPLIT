@@ -1,4 +1,4 @@
-import YahooFinance from "yahoo-finance2";
+import { YahooFinance } from "./marketData/analyticsYahoo";
 import { UNIVERSE } from "./universe";
 import { logger } from "./logger";
 

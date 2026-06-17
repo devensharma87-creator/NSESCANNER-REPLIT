@@ -16,7 +16,7 @@
  *    India VIX (inverted)  ..... ×0.7
  */
 
-import { fetchIntraday, fetchIndexChart, fetchChart } from "./yahoo";
+import { fetchIntraday, fetchIndexChart, fetchChart } from "./marketData/analyticsYahoo";
 import { getGlobalIndices } from "./globalIndices";
 import { scanAll, getCachedScanRows, refreshScanInBackground } from "./scanner";
 import { getMarketEvents } from "./marketEvents";
@@ -27,7 +27,7 @@ import { fetchOptionChain } from "./optionChain";
 import { computeAnalytics } from "./optionAnalytics";
 import { getFiiDiiMonthly, getParticipantOi, type ParticipantOiRowDto } from "./instFlows";
 import { getLatestHeatmapCache, fetchOiHeatmap, type OiHeatmapRow } from "./oiLab";
-import { getDeliveryMap } from "./nseBhavcopy";
+import { getDeliveryMap } from "./marketData/referenceData";
 import { classifyOiBuildup, type OiBuildupResult } from "./oiBuildup";
 import { computeCompositeBias, type CompositeBiasResult } from "./compositeBias";
 import { deriveTradeSetups, type SetupLevels, type TradeSetup } from "./tradeSetups";

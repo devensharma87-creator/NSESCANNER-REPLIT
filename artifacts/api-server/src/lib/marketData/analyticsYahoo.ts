@@ -113,3 +113,55 @@ export async function getAnalyticsQuote(
   };
   return quote as AnalyticsQuote;
 }
+
+// ─── Display-only re-exports ────────────────────────────────────────────
+//
+// These re-export raw Yahoo functions through the central backbone so that
+// consumer files never import `./yahoo` directly. ALL data that flows
+// through these re-exports is display-only / secondary analytics.
+//
+// Owner policy: Yahoo is allowed ONLY for global/display-only/secondary
+// analytics where there is no Kite equivalent. No value from these
+// functions may appear as trade-grade.
+
+/** Yahoo financial statements (quarterly earnings, balance sheet). Display-only. */
+export { fetchStatements } from "../yahoo";
+
+/** Yahoo intraday chart (e.g. 15m bars for global indices). Display-only. */
+export { fetchIntraday } from "../yahoo";
+
+/** Yahoo index chart (daily candles for display). Display-only. */
+export { fetchIndexChart } from "../yahoo";
+
+/** Yahoo chart fetch (daily candles for display). Display-only. */
+export { fetchChart } from "../yahoo";
+
+/** Yahoo fundamentals data (P/E, market cap etc). Display-only. */
+export { fetchFundamentals } from "../yahoo";
+
+/** Yahoo raw chart fetch. Display-only. */
+export { fetchChartRaw } from "../yahoo";
+
+/** Yahoo candle + quote snapshot for global data layer. Display-only. */
+export { fetchYahooCandles, fetchYahooQuoteSnapshot } from "../global/yahoo";
+
+/** Yahoo types needed by consumer files. */
+export type { YahooChart, YahooMeta } from "../yahoo";
+export type { YfCandle } from "../global/yahoo";
+
+/** yahoo-finance2 SDK re-export for display-only consumers (e.g. earnings calendar). */
+export { default as YahooFinance } from "yahoo-finance2";
+
+/** Yahoo ticker resolver (e.g. ZOMATO→ETERNAL mapping). Display-only. */
+export { yahooTickerFor } from "../yahoo";
+
+/** Yahoo batch-quote endpoint for scanner (Kite-offline fallback). Display-only. */
+export { fetchYahooBatchQuotes } from "../yahoo";
+export type { YahooBatchQuote } from "../yahoo";
+
+/** Yahoo global breaker state — display-only, so scanners can skip enrichment. */
+export { isYahooPaused, yahooPausedForMs } from "../yahoo";
+
+/** Yahoo fundamentals type — used by deepscan/swingScannerData. Display-only. */
+export type { YahooFundamentals } from "../yahoo";
+

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { fetchIntraday } from "../lib/yahoo";
-import { fetchKiteIntraday, hasKiteIntradayCoverage } from "../lib/kiteIntraday";
+import { fetchIntraday } from "../lib/marketData/analyticsYahoo";
+import { centralIndexCandles, centralHasIndexCoverage } from "../lib/marketData/compat";
 import { ema, rsi, macd, adx, avgVolume } from "../lib/indicators";
 import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics } from "../lib/optionAnalytics";
@@ -64,8 +64,8 @@ async function fetchIndexEnrichment(idx: typeof INDICES[number]): Promise<IndexE
 
   const [intraResult, optionsResult] = await Promise.allSettled([
     (async () => {
-      let intra = hasKiteIntradayCoverage(idx.yahoo)
-        ? await fetchKiteIntraday(idx.yahoo, "5minute", 1).catch(() => null)
+      let intra = centralHasIndexCoverage(idx.yahoo)
+        ? await centralIndexCandles(idx.yahoo, "5minute", 1).catch(() => null)
         : null;
       if (!intra || intra.close.length < 10) {
         intra = await fetchIntraday(idx.yahoo, "5m", "1d").catch(() => null);

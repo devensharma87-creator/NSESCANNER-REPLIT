@@ -35,7 +35,7 @@ import { scoreAndPlan, type SwingScanResult } from "./swingScanner";
 import { fetchDailyBars, fetchBenchmarkBarsResilient, fetchFundamentalsForSwing, type SwingBenchmarkSource } from "./swingScannerData";
 import { isFreshFor } from "./chartDatafeed";
 import { NIFTY500_SYMBOLS } from "./watchlistLists";
-import { loadKiteQuotes } from "./kiteScanner";
+import { centralBatchEquityQuotes } from "./marketData/compat";
 import { logger } from "./logger";
 import { lookupSector } from "./sectorMap";
 
@@ -496,7 +496,7 @@ export interface IntradayRefreshResult {
  * `loadKiteQuotes`.
  */
 export type DbHandle = Pick<typeof db, "select" | "update">;
-export type QuotesLoader = (symbols: string[]) => Promise<Map<string, import("./kiteScanner").KiteScannerQuote> | null>;
+export type QuotesLoader = (symbols: string[]) => Promise<Map<string, import("./marketData/compat").KiteScannerQuote> | null>;
 
 export async function runIntradayRefresh(
   dbHandle?: DbHandle,
@@ -509,7 +509,7 @@ export async function runIntradayRefresh(
   const startedMs = Date.now();
   intradayHealth.cyclesTotal++;
   const dbh: DbHandle = dbHandle ?? db;
-  const loader: QuotesLoader = quotesLoader ?? loadKiteQuotes;
+  const loader: QuotesLoader = quotesLoader ?? centralBatchEquityQuotes;
   try {
     // Latest available scan_date (NOT strictly today — see S2 note above).
     const latest = await dbh

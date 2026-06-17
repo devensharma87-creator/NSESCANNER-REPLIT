@@ -17,7 +17,7 @@
  * never a fabricated neutral verdict.
  */
 
-import { fetchKiteIntraday, fetchKiteEquityIntraday } from "./kiteIntraday";
+import { centralIndexCandles, centralEquityCandles } from "./marketData/compat";
 import { ema, rsi, sessionVwap } from "./indicators";
 
 export interface LiveBiasSnapshot {
@@ -113,10 +113,10 @@ export async function computeLiveBias(
   if (kind === "INDEX") {
     const yh = INDEX_TO_YAHOO[sym];
     if (!yh) return null;
-    const k = await fetchKiteIntraday(yh, "15minute", 5).catch(() => null);
+    const k = await centralIndexCandles(yh, "15minute", 5).catch(() => null);
     if (k && k.close.length >= 6) intra = k;
   } else {
-    const k = await fetchKiteEquityIntraday(sym, "15minute", 5).catch(() => null);
+    const k = await centralEquityCandles(sym, "15minute", 5).catch(() => null);
     if (k && k.close.length >= 6) intra = k;
   }
 

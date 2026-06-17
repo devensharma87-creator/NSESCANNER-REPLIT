@@ -14,12 +14,12 @@ const uiSrc = fs.readFileSync(
 // Helper: extract entire Phase D section (helpers + component)
 const phaseDSection = uiSrc.slice(
   uiSrc.indexOf("// OPTION CHAIN TAB"),
-  uiSrc.indexOf("// ─── GEX placeholder")
+  uiSrc.indexOf("// ─── GEX Tab")
 );
 // Narrower: just the OptionChainTab component body
 const chainSection = uiSrc.slice(
   uiSrc.indexOf("function OptionChainTab("),
-  uiSrc.indexOf("// ─── GEX placeholder")
+  uiSrc.indexOf("// ─── GEX Tab")
 );
 
 // ── 1. Component existence & shared state ───────────────────────────────────

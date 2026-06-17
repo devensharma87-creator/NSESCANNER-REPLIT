@@ -10,11 +10,10 @@
  * `fetchKiteEquityIntraday`, Yahoo chart helpers).
  */
 import {
-  fetchKiteIntraday,
-  fetchKiteEquityIntraday,
-  fetchKiteEquityIntradayByToken,
-} from "./kiteIntraday";
-import { fetchChart, fetchChartRaw, fetchIntraday, type YahooChart } from "./yahoo";
+  centralEquityCandlesByToken as fetchKiteEquityIntradayByToken,
+} from "./marketData/compat";
+import { centralIndexCandles, centralEquityCandles } from "./marketData/compat";
+import { fetchChart, fetchChartRaw, fetchIntraday, type YahooChart } from "./marketData/analyticsYahoo";
 import { resolveInstrument, type ChartSegment, type ChartInstrumentMeta } from "./chartInstruments";
 import { resolveInstrument as resolveMasterInstrument } from "./marketData/instrumentResolver";
 import { fetchIndexFuturesVolume } from "./indexFuturesVolume";
@@ -330,7 +329,7 @@ async function tryKite(
 ): Promise<ChartCandlePoint[] | null> {
   let chart: YahooChart | null = null;
   if (meta.segment === "index") {
-    chart = await fetchKiteIntraday(meta.yahoo, cfg.kiteInterval, cfg.kiteDaysBack);
+    chart = await centralIndexCandles(meta.yahoo, cfg.kiteInterval, cfg.kiteDaysBack);
   } else if (meta.segment === "equity") {
     // Prefer the canonical resolver's instrument_token when present: it works
     // for BSE-listed equities (e.g. NSDL) too, whereas the NSE-only symbol
@@ -338,7 +337,7 @@ async function tryKite(
     // token here and keep the existing symbol path (unchanged behaviour).
     chart = meta.instrumentToken != null
       ? await fetchKiteEquityIntradayByToken(meta.instrumentToken, meta.symbol, cfg.kiteInterval, cfg.kiteDaysBack)
-      : await fetchKiteEquityIntraday(meta.symbol, cfg.kiteInterval, cfg.kiteDaysBack);
+      : await centralEquityCandles(meta.symbol, cfg.kiteInterval, cfg.kiteDaysBack);
   } else {
     return null; // global: Kite has no coverage
   }

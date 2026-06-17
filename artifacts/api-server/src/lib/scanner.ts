@@ -1,12 +1,12 @@
 import type { Indicators, Quote, StockHistory, StockRow } from "@workspace/api-zod";
 import { UNIVERSE, INACTIVE_SYMBOLS, type UniverseEntry } from "./universe";
-import { fetchChart, fetchIntraday, yahooTickerFor, type YahooChart } from "./yahoo";
+import { fetchChart, fetchIntraday, yahooTickerFor, type YahooChart } from "./marketData/analyticsYahoo";
 import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportResistance, volumeProfile, pivots } from "./indicators";
 import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
-import { getDeliveryPct } from "./nseBhavcopy";
-import { getLiveQuote } from "./kiteFeed";
-import { fetchKiteEquityIntraday } from "./kiteIntraday";
+import { getDeliveryPct } from "./marketData/referenceData";
+import { centralLiveQuote } from "./marketData/compat";
+import { centralEquityCandles } from "./marketData/compat";
 import { buildSourceProvenance } from "./scannerProvenance";
 
 interface CachedHistory {
@@ -54,7 +54,7 @@ async function getIntradayVwap(symbol: string): Promise<number | null> {
     // Yahoo via yahooTickerFor() so renamed tickers (ZOMATO→ETERNAL,
     // MCDOWELL-N→UNITDSPR, NIPPONLIFE→NAM-INDIA, GMRINFRA→GMRAIRPORT)
     // still resolve.
-    let intra = await fetchKiteEquityIntraday(symbol, "15minute", 1);
+    let intra = await centralEquityCandles(symbol, "15minute", 1);
     if (!intra || intra.close.length < 4) {
       intra = await fetchIntraday(yahooTickerFor(symbol), "15m", "1d");
     }
@@ -87,7 +87,7 @@ function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
   // are required to be REAL. If any one is missing we drop the quote
   // entirely (`return null`) — the caller treats that as "no data" and
   // never presents a fake one to the user.
-  const live = getLiveQuote(entry.symbol);
+  const live = centralLiveQuote(entry.symbol);
   const closes = chart.close;
   const lastIdx = closes.length - 1;
   const todayOpenY = chart.open[lastIdx] ?? null;
@@ -300,7 +300,7 @@ async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
   // `asOf` still carries the freshest displayed instant (the Kite LTP when
   // present) so freshness reflects the live price; the split is spelled out in
   // a warning. Quote is required, so an `asOf` source always resolves here.
-  const live = getLiveQuote(entry.symbol);
+  const live = centralLiveQuote(entry.symbol);
   const asOfMs = live ? live.ts : new Date(quote.updatedAt).getTime();
   const provenance = buildSourceProvenance({
     provider: "yahoo",

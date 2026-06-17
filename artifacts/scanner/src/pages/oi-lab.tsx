@@ -11,7 +11,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Legend, ReferenceLine,
   BarChart, Bar, Cell, PieChart, Pie, ComposedChart, AreaChart, Area, LabelList,
 } from "recharts";
-import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, ChevronRight, Info, BarChart3, PieChart as PieChartIcon, Target, Table2, Zap, Eye } from "lucide-react";
+import { Download, Play, Square, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Layers, Sparkles, Search, ChevronRight, Info, BarChart3, PieChart as PieChartIcon, Target, Table2, Zap, Eye, Settings, X } from "lucide-react";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
 
 const base = (import.meta as { env: { BASE_URL: string } }).env.BASE_URL;
@@ -105,11 +105,11 @@ interface TrackerStatus {
 }
 
 const BUCKET_META: Record<Bucket, { label: string; color: string; tone: string; desc: string }> = {
-  LONG_BUILDUP:    { label: "Long Buildup",    color: "#16a34a", tone: "bg-green-500/15 text-green-300 border-green-500/30",   desc: "Price ↑  OI ↑  ·  Bullish — fresh longs" },
-  SHORT_BUILDUP:   { label: "Short Buildup",   color: "#dc2626", tone: "bg-red-500/15 text-red-300 border-red-500/30",         desc: "Price ↓  OI ↑  ·  Bearish — fresh shorts" },
-  SHORT_COVERING:  { label: "Short Covering",  color: "#0ea5e9", tone: "bg-sky-500/15 text-sky-300 border-sky-500/30",         desc: "Price ↑  OI ↓  ·  Bullish — shorts exiting" },
-  LONG_UNWINDING:  { label: "Long Unwinding",  color: "#f59e0b", tone: "bg-amber-500/15 text-amber-300 border-amber-500/30",   desc: "Price ↓  OI ↓  ·  Bearish — longs exiting" },
-  NEUTRAL:         { label: "Neutral",         color: "#6b7280", tone: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30",      desc: "No meaningful directional change" },
+  LONG_BUILDUP: { label: "Long Buildup", color: "#16a34a", tone: "bg-green-500/15 text-green-300 border-green-500/30", desc: "Price ↑  OI ↑  ·  Bullish — fresh longs" },
+  SHORT_BUILDUP: { label: "Short Buildup", color: "#dc2626", tone: "bg-red-500/15 text-red-300 border-red-500/30", desc: "Price ↓  OI ↑  ·  Bearish — fresh shorts" },
+  SHORT_COVERING: { label: "Short Covering", color: "#0ea5e9", tone: "bg-sky-500/15 text-sky-300 border-sky-500/30", desc: "Price ↑  OI ↓  ·  Bullish — shorts exiting" },
+  LONG_UNWINDING: { label: "Long Unwinding", color: "#f59e0b", tone: "bg-amber-500/15 text-amber-300 border-amber-500/30", desc: "Price ↓  OI ↓  ·  Bearish — longs exiting" },
+  NEUTRAL: { label: "Neutral", color: "#6b7280", tone: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30", desc: "No meaningful directional change" },
 };
 
 function fmtNum(n: number | undefined | null, digits = 0): string {
@@ -169,7 +169,7 @@ export default function OiLab() {
         <TabsContent value="maxpain"><MaxPainTab shared={shared} /></TabsContent>
         <TabsContent value="chain"><OptionChainTab shared={shared} /></TabsContent>
         <TabsContent value="multi"><MultiOiTab /></TabsContent>
-        <TabsContent value="gex"><GexPlaceholder /></TabsContent>
+        <TabsContent value="gex"><GexTab shared={shared} /></TabsContent>
       </Tabs>
     </div>
   );
@@ -275,9 +275,260 @@ function chgColor(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v) || v === 0) return "text-muted-foreground";
   return v > 0 ? "text-green-400" : "text-red-400";
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// Phase E: Option Chain Settings + Column Visibility
+// ═════════════════════════════════════════════════════════════════════════════
 
+type ChainColKey =
+  | "ltp" | "ltpChg" | "iv"
+  | "oi" | "oiChg" | "oiChgPct" | "vol" | "volOi"
+  | "intrinsic" | "tv" | "buildup"
+  | "delta" | "gamma" | "theta" | "vega";
+
+type AtmBasis = "spot" | "future" | "synth";
+type FontSize = "S" | "M" | "L";
+type DisplayUnit = "lots" | "full";
+type TotalsPosition = "top" | "bottom";
+type BuildupMode = "compact" | "full";
+type ChainPreset = "ltp" | "all";
+
+interface ChainSettings {
+  preset: ChainPreset;
+  atmBasis: AtmBasis;
+  strikesAround: "5" | "10" | "20" | "30" | "40" | "all";
+  fontSize: FontSize;
+  displayUnit: DisplayUnit;
+  totalsPos: TotalsPosition;
+  buildupMode: BuildupMode;
+  columns: Record<ChainColKey, boolean>;
+}
+
+const LTP_PRESET_COLS: Record<ChainColKey, boolean> = {
+  ltp: true, ltpChg: true, iv: true,
+  oi: true, oiChg: true, oiChgPct: false, vol: true, volOi: false,
+  intrinsic: false, tv: false, buildup: false,
+  delta: false, gamma: false, theta: false, vega: false,
+};
+const ALL_PRESET_COLS: Record<ChainColKey, boolean> = {
+  ltp: true, ltpChg: true, iv: true,
+  oi: true, oiChg: true, oiChgPct: true, vol: true, volOi: true,
+  intrinsic: true, tv: true, buildup: true,
+  delta: true, gamma: true, theta: true, vega: true,
+};
+
+const DEFAULT_SETTINGS: ChainSettings = {
+  preset: "all",
+  atmBasis: "spot",
+  strikesAround: "10",
+  fontSize: "M",
+  displayUnit: "lots",
+  totalsPos: "top",
+  buildupMode: "compact",
+  columns: { ...ALL_PRESET_COLS },
+};
+
+const LS_KEY = "oi-lab-chain-settings-v1";
+
+function useChainSettings() {
+  const [settings, setSettingsRaw] = useState<ChainSettings>(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // Merge with defaults for forward-compat (new keys)
+        return { ...DEFAULT_SETTINGS, ...parsed, columns: { ...DEFAULT_SETTINGS.columns, ...parsed.columns } };
+      }
+    } catch { /* ignore corrupt localStorage */ }
+    return { ...DEFAULT_SETTINGS, columns: { ...DEFAULT_SETTINGS.columns } };
+  });
+
+  const setSettings = useCallback((update: Partial<ChainSettings> | ((prev: ChainSettings) => ChainSettings)) => {
+    setSettingsRaw(prev => {
+      const next = typeof update === "function" ? update(prev) : { ...prev, ...update };
+      try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch { /* quota */ }
+      return next;
+    });
+  }, []);
+
+  const setColumn = useCallback((key: ChainColKey, on: boolean) => {
+    setSettings(prev => ({ ...prev, preset: "all", columns: { ...prev.columns, [key]: on } }));
+  }, [setSettings]);
+
+  const applyPreset = useCallback((preset: ChainPreset) => {
+    const cols = preset === "ltp" ? { ...LTP_PRESET_COLS } : { ...ALL_PRESET_COLS };
+    setSettings(prev => ({ ...prev, preset, columns: cols }));
+  }, [setSettings]);
+
+  const resetAll = useCallback(() => {
+    setSettings({ ...DEFAULT_SETTINGS, columns: { ...DEFAULT_SETTINGS.columns } });
+  }, [setSettings]);
+
+  return { settings, setSettings, setColumn, applyPreset, resetAll };
+}
+
+// ── Settings Drawer ──────────────────────────────────────────────────────────
+function ChainSettingsDrawer({
+  open, onClose, settings, setSettings, setColumn, applyPreset, resetAll,
+  futureAvailable, synthAvailable,
+}: {
+  open: boolean;
+  onClose: () => void;
+  settings: ChainSettings;
+  setSettings: (u: Partial<ChainSettings> | ((p: ChainSettings) => ChainSettings)) => void;
+  setColumn: (k: ChainColKey, on: boolean) => void;
+  applyPreset: (p: ChainPreset) => void;
+  resetAll: () => void;
+  futureAvailable: boolean;
+  synthAvailable: boolean;
+}) {
+  if (!open) return null;
+
+  const S = settings;
+
+  const chipBtn = (active: boolean, onClick: () => void, label: string, disabled = false) => (
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={`px-2 py-1 text-[11px] font-mono rounded border transition ${active
+          ? "border-primary bg-primary/15 text-primary font-bold"
+          : disabled
+            ? "border-border/50 bg-card/50 text-muted-foreground/40 cursor-not-allowed"
+            : "border-border bg-card hover:bg-zinc-800 text-foreground/70"
+        }`}
+    >
+      {label}
+    </button>
+  );
+
+  const toggle = (key: ChainColKey, label: string) => (
+    <label className="flex items-center gap-2 text-xs cursor-pointer hover:bg-zinc-800/30 rounded px-1 py-0.5">
+      <input
+        type="checkbox"
+        checked={S.columns[key]}
+        onChange={e => setColumn(key, e.target.checked)}
+        className="rounded border-border accent-primary w-3.5 h-3.5"
+      />
+      <span className={S.columns[key] ? "text-foreground" : "text-muted-foreground"}>{label}</span>
+    </label>
+  );
+
+  const sectionTitle = (t: string) => (
+    <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono mt-3 mb-1.5">{t}</div>
+  );
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
+      {/* Drawer */}
+      <div className="fixed right-0 top-0 h-full w-[320px] max-w-[calc(100vw-2rem)] bg-card border-l border-border z-50 flex flex-col shadow-2xl" data-testid="chain-settings-drawer">
+        {/* Header */}
+        <div className="flex items-center justify-between p-3 border-b border-border">
+          <span className="text-sm font-semibold flex items-center gap-2">
+            <Settings className="w-4 h-4" /> Option Chain Settings
+          </span>
+          <button onClick={onClose} className="p-1 rounded hover:bg-zinc-800 text-muted-foreground"><X className="w-4 h-4" /></button>
+        </div>
+
+        {/* Content — scrollable */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-1">
+          {/* A. Quick Preset */}
+          {sectionTitle("A. Quick Preset")}
+          <div className="flex gap-2">
+            {chipBtn(S.preset === "ltp", () => applyPreset("ltp"), "LTP")}
+            {chipBtn(S.preset === "all", () => applyPreset("all"), "ALL")}
+          </div>
+
+          {/* B. ATM Based On */}
+          {sectionTitle("B. ATM Based On")}
+          <div className="flex gap-2 flex-wrap">
+            {chipBtn(S.atmBasis === "spot", () => setSettings({ atmBasis: "spot" }), "Spot")}
+            {chipBtn(S.atmBasis === "future", () => setSettings({ atmBasis: "future" }), futureAvailable ? "Future" : "Future ✗", !futureAvailable)}
+            {chipBtn(S.atmBasis === "synth", () => setSettings({ atmBasis: "synth" }), synthAvailable ? "Synth Future" : "Synth ✗", !synthAvailable)}
+          </div>
+          {S.atmBasis === "future" && !futureAvailable && (
+            <div className="text-[10px] text-amber-400 mt-1">Nearest-month future unavailable — ATM uses spot.</div>
+          )}
+          {S.atmBasis === "synth" && !synthAvailable && (
+            <div className="text-[10px] text-amber-400 mt-1">Synthetic future unavailable — ATM uses spot.</div>
+          )}
+
+          {/* C. Strikes Around ATM */}
+          {sectionTitle("C. Strikes Around ATM")}
+          <div className="flex gap-1.5 flex-wrap">
+            {(["5", "10", "20", "30", "40", "all"] as const).map(s =>
+              chipBtn(S.strikesAround === s, () => setSettings({ strikesAround: s }), s === "all" ? "All" : `±${s}`, false)
+            )}
+          </div>
+
+          {/* D. Font Size */}
+          {sectionTitle("D. Table Font Size")}
+          <div className="flex gap-2">
+            {(["S", "M", "L"] as const).map(f => chipBtn(S.fontSize === f, () => setSettings({ fontSize: f }), f))}
+          </div>
+
+          {/* E. Display Unit */}
+          {sectionTitle("E. Display Unit")}
+          <div className="flex gap-2">
+            {chipBtn(S.displayUnit === "lots", () => setSettings({ displayUnit: "lots" }), "Lots (Raw)")}
+            {chipBtn(S.displayUnit === "full", () => setSettings({ displayUnit: "full" }), "Full Qty (×Lot)")}
+          </div>
+
+          {/* F. Totals Position */}
+          {sectionTitle("F. Totals Position")}
+          <div className="flex gap-2">
+            {chipBtn(S.totalsPos === "top", () => setSettings({ totalsPos: "top" }), "Top")}
+            {chipBtn(S.totalsPos === "bottom", () => setSettings({ totalsPos: "bottom" }), "Bottom")}
+          </div>
+
+          {/* G. Buildup Labels */}
+          {sectionTitle("G. Buildup Labels")}
+          <div className="flex gap-2">
+            {chipBtn(S.buildupMode === "compact", () => setSettings({ buildupMode: "compact" }), "Compact (LB/SB)")}
+            {chipBtn(S.buildupMode === "full", () => setSettings({ buildupMode: "full" }), "Full")}
+          </div>
+
+          {/* H. Column Visibility */}
+          {sectionTitle("H. Column Visibility")}
+          <div className="space-y-0.5">
+            <div className="text-[9px] text-muted-foreground italic mb-1">Strike column is always visible.</div>
+            <div className="text-[10px] text-muted-foreground font-mono mt-1 mb-0.5">Price</div>
+            {toggle("ltp", "LTP")}
+            {toggle("ltpChg", "LTP Change")}
+            {toggle("iv", "IV")}
+            <div className="text-[10px] text-muted-foreground font-mono mt-1.5 mb-0.5">Open Interest / Volume</div>
+            {toggle("oi", "OI")}
+            {toggle("oiChg", "OI Change")}
+            {toggle("oiChgPct", "OI Change %")}
+            {toggle("vol", "Volume")}
+            {toggle("volOi", "Vol/OI")}
+            <div className="text-[10px] text-muted-foreground font-mono mt-1.5 mb-0.5">Value</div>
+            {toggle("intrinsic", "Intrinsic")}
+            {toggle("tv", "Time Value")}
+            {toggle("buildup", "Buildup")}
+            <div className="text-[10px] text-muted-foreground font-mono mt-1.5 mb-0.5">Greeks</div>
+            {toggle("delta", "Delta")}
+            {toggle("gamma", "Gamma")}
+            {toggle("theta", "Theta")}
+            {toggle("vega", "Vega")}
+          </div>
+
+          {/* I. Reset */}
+          {sectionTitle("I. Reset")}
+          <Button variant="outline" size="sm" className="w-full text-xs" onClick={resetAll}>
+            Reset All Settings
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── OptionChainTab (Phase D + Phase E integration) ───────────────────────────
 function OptionChainTab({ shared }: { shared: SharedOiState }) {
   const { data, loading, error } = shared;
+  const { settings, setSettings, setColumn, applyPreset, resetAll } = useChainSettings();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // ── Derived rows (memoized) ─────────────────────────────────────────────
   const rows = useMemo(() => {
@@ -338,6 +589,142 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
 
   const spot = data.spot;
   const hasGreeks = rows.some(r => r.ceDelta != null || r.peDelta != null);
+  const cols = settings.columns;
+  const lotSize = data.lotSize ?? 1;
+  const futureAvailable = data.futurePrice != null && Number.isFinite(data.futurePrice);
+  const synthAvailable = data.syntheticFuture != null && Number.isFinite(data.syntheticFuture);
+
+  // Font size class based on settings
+  const fontClass = settings.fontSize === "S" ? "text-[10px]" : settings.fontSize === "L" ? "text-[13px]" : "text-[11px]";
+
+  // Display unit formatter: lots (raw) or full quantity (×lotSize)
+  const fmtOi = (n: number | null | undefined): string => {
+    if (n == null || !Number.isFinite(n)) return "—";
+    if (n === 0) return "—";
+    const val = settings.displayUnit === "full" ? n * lotSize : n;
+    return fmtCompact(val);
+  };
+
+  // Buildup display based on mode
+  const renderBuildup = (buildup: string | null | undefined) => {
+    if (!buildup) return <span className="text-muted-foreground">—</span>;
+    if (settings.buildupMode === "full") {
+      const m = BUILDUP_MAP[buildup];
+      if (!m) return <span className="text-muted-foreground text-[10px]">{buildup}</span>;
+      return (
+        <span title={m.full} className={`inline-block px-1 py-0.5 text-[9px] rounded border cursor-help ${m.cls}`}>
+          {m.full.split(" — ")[0]}
+        </span>
+      );
+    }
+    return <BuildupBadge buildup={buildup} />;
+  };
+
+  // Count visible call/put columns (enforce minimum)
+  const visCallCols = (Object.keys(cols) as ChainColKey[]).filter(k => cols[k] && k !== "delta" && k !== "gamma" && k !== "theta" && k !== "vega").length;
+  const visGreekCols = hasGreeks ? (["delta", "gamma", "theta", "vega"] as const).filter(k => cols[k]).length : 0;
+  const totalCallCols = visCallCols + visGreekCols + 1; // +1 for separator
+  const totalPutCols = totalCallCols;
+
+  // Sync strikesAround from settings → shared (only if different from options 5/10/20/all)
+  // Settings has 30/40 which shared doesn't — we map to nearest
+  useEffect(() => {
+    const sMap: Record<string, typeof shared.strikesAround> = {
+      "5": "5", "10": "10", "20": "20", "30": "20", "40": "all", "all": "all",
+    };
+    const target = sMap[settings.strikesAround] ?? "10";
+    if (shared.strikesAround !== target) {
+      shared.setStrikesAround(target);
+    }
+  }, [settings.strikesAround]);
+
+  // ── ATM basis runtime resolution (Phase F) ──────────────────────────────
+  const atmBasisPrice = useMemo(() => {
+    if (settings.atmBasis === "future" && futureAvailable) return data.futurePrice!;
+    if (settings.atmBasis === "synth" && synthAvailable) return data.syntheticFuture!;
+    return spot; // fallback to spot
+  }, [settings.atmBasis, spot, futureAvailable, synthAvailable, data?.futurePrice, data?.syntheticFuture]);
+
+  const atmBasisLabel = settings.atmBasis === "future" && futureAvailable
+    ? "ATM by Future"
+    : settings.atmBasis === "synth" && synthAvailable
+      ? "ATM by Synth Future"
+      : "ATM by Spot";
+
+  // Resolved ATM strike: nearest available strike to the basis price
+  const resolvedAtmStrike = useMemo(() => {
+    if (!rows.length || !Number.isFinite(atmBasisPrice)) return data?.atmStrike ?? 0;
+    let closest = rows[0]!.strike;
+    let minDiff = Math.abs(rows[0]!.strike - atmBasisPrice);
+    for (const r of rows) {
+      const diff = Math.abs(r.strike - atmBasisPrice);
+      if (diff < minDiff) { closest = r.strike; minDiff = diff; }
+    }
+    return closest;
+  }, [rows, atmBasisPrice, data?.atmStrike]);
+
+  // ── Totals row (Phase F) ────────────────────────────────────────────────
+  const totals = useMemo(() => {
+    let tCeOi = 0, tPeOi = 0, tCeOiChg = 0, tPeOiChg = 0, tCeVol = 0, tPeVol = 0;
+    for (const r of rows) {
+      tCeOi += r.ceOi; tPeOi += r.peOi;
+      tCeOiChg += r.ceOiChg; tPeOiChg += r.peOiChg;
+      tCeVol += r.ceVolume; tPeVol += r.peVolume;
+    }
+    const pcrOi = tCeOi > 0 ? +(tPeOi / tCeOi).toFixed(2) : null;
+    const pcrVol = tCeVol > 0 ? +(tPeVol / tCeVol).toFixed(2) : null;
+    const netOiDiff = tPeOi - tCeOi;
+    const netOiChgDiff = tPeOiChg - tCeOiChg;
+    return { tCeOi, tPeOi, tCeOiChg, tPeOiChg, tCeVol, tPeVol, pcrOi, pcrVol, netOiDiff, netOiChgDiff };
+  }, [rows]);
+
+  // ── Greek source indicator ──────────────────────────────────────────────
+  const greekSourceLabel = hasGreeks ? "Greeks Available" : "Greeks Unavailable";
+
+  // ── Totals row JSX builder ──────────────────────────────────────────────
+  const totalsRow = (
+    <tr className="font-semibold bg-zinc-900/60 border-y-2 border-border text-xs">
+      {cols.ltp && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.ltpChg && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.iv && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.oi && <td className="px-1.5 py-1.5 text-right tabular-nums">{fmtOi(totals.tCeOi)}</td>}
+      {cols.oiChg && <td className={`px-1.5 py-1.5 text-right tabular-nums ${chgColor(totals.tCeOiChg)}`}>{fmtCompact(totals.tCeOiChg)}</td>}
+      {cols.oiChgPct && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.vol && <td className="px-1.5 py-1.5 text-right tabular-nums">{fmtCompact(totals.tCeVol)}</td>}
+      {cols.volOi && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.intrinsic && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.tv && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.buildup && <td className="px-1.5 py-1.5 text-center text-muted-foreground">—</td>}
+      {hasGreeks && cols.delta && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {hasGreeks && cols.gamma && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {hasGreeks && cols.theta && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {hasGreeks && cols.vega && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      <td className="px-1 py-1.5 border-r border-border" />
+      {/* Totals label in strike column */}
+      <td className="px-3 py-1.5 text-center font-bold bg-card border-r border-l border-border whitespace-nowrap" style={{ position: "sticky", left: 0, zIndex: 10 }}>
+        TOTAL
+        <div className="text-[8px] font-normal text-muted-foreground">
+          PCR: {totals.pcrOi != null ? totals.pcrOi.toFixed(2) : "—"}
+        </div>
+      </td>
+      <td className="px-1 py-1.5 border-l border-border" />
+      {hasGreeks && cols.delta && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {hasGreeks && cols.gamma && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {hasGreeks && cols.theta && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {hasGreeks && cols.vega && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.buildup && <td className="px-1.5 py-1.5 text-center text-muted-foreground">—</td>}
+      {cols.intrinsic && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.tv && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.iv && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.ltpChg && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.ltp && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.oi && <td className="px-1.5 py-1.5 text-right tabular-nums">{fmtOi(totals.tPeOi)}</td>}
+      {cols.oiChg && <td className={`px-1.5 py-1.5 text-right tabular-nums ${chgColor(totals.tPeOiChg)}`}>{fmtCompact(totals.tPeOiChg)}</td>}
+      {cols.oiChgPct && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+      {cols.vol && <td className="px-1.5 py-1.5 text-right tabular-nums">{fmtCompact(totals.tPeVol)}</td>}
+      {cols.volOi && <td className="px-1.5 py-1.5 text-right text-muted-foreground">—</td>}
+    </tr>
+  );
 
   return (
     <div className="space-y-3">
@@ -363,7 +750,8 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">ATM:</span>
-              <span className="font-mono">{data.atmStrike}</span>
+              <span className="font-mono">{resolvedAtmStrike}</span>
+              <Badge variant="outline" className="text-[9px] px-1 py-0 border-blue-500/30 text-blue-300">{atmBasisLabel}</Badge>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">Max Pain:</span>
@@ -386,7 +774,16 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
             <div className="ml-auto flex items-center gap-2">
               <span className="text-muted-foreground">{rows.length} strikes</span>
               {data.lotSize && <span className="text-muted-foreground">· lot {data.lotSize}</span>}
+              {settings.displayUnit === "full" && <Badge variant="outline" className="text-[9px] px-1 py-0 border-blue-500/30 text-blue-300">QTY MODE</Badge>}
               {loading && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />}
+              <button
+                onClick={() => setDrawerOpen(true)}
+                className="p-1.5 rounded border border-border hover:bg-zinc-800 text-muted-foreground hover:text-foreground transition"
+                title="Option Chain Settings"
+                data-testid="chain-settings-btn"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         </CardContent>
@@ -406,13 +803,13 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
         className="oi-chain-wrap rounded-lg border border-border overflow-auto max-h-[75vh]"
         style={{ scrollbarGutter: "stable" }}
       >
-        <table className="w-full text-[11px] font-mono border-collapse" id="oi-chain-table">
+        <table className={`w-full ${fontClass} font-mono border-collapse`} id="oi-chain-table">
           {/* ── HEADER ─────────────────────────────────────────────────────── */}
           <thead className="sticky top-0 z-20 bg-card">
             {/* Group headers */}
             <tr className="border-b border-border">
               <th
-                colSpan={hasGreeks ? 15 : 11}
+                colSpan={totalCallCols}
                 className="text-center text-[10px] uppercase tracking-wider font-semibold py-1.5 text-green-400 bg-green-500/5 border-r border-border"
               >
                 CALLS
@@ -424,7 +821,7 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
                 STRIKE
               </th>
               <th
-                colSpan={hasGreeks ? 15 : 11}
+                colSpan={totalPutCols}
                 className="text-center text-[10px] uppercase tracking-wider font-semibold py-1.5 text-red-400 bg-red-500/5"
               >
                 PUTS
@@ -433,24 +830,21 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
             {/* Column headers */}
             <tr className="border-b border-border text-muted-foreground">
               {/* Call columns */}
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">LTP</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">IV%</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Open Interest">OI</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change">OIΔ</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change %">OIΔ%</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Vol</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Volume / OI">V/OI</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Intrinsic Value">Int</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Time Value">TV</th>
-              <th className="px-1.5 py-1.5 text-center font-normal whitespace-nowrap" title="OI Buildup">Bld</th>
-              {hasGreeks && (
-                <>
-                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Δ</th>
-                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Γ</th>
-                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Θ</th>
-                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">V</th>
-                </>
-              )}
+              {cols.ltp && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">LTP</th>}
+              {cols.ltpChg && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="LTP Change">Chg</th>}
+              {cols.iv && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">IV%</th>}
+              {cols.oi && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Open Interest">OI</th>}
+              {cols.oiChg && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change">OIΔ</th>}
+              {cols.oiChgPct && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change %">OIΔ%</th>}
+              {cols.vol && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Vol</th>}
+              {cols.volOi && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Volume / OI">V/OI</th>}
+              {cols.intrinsic && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Intrinsic Value">Int</th>}
+              {cols.tv && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Time Value">TV</th>}
+              {cols.buildup && <th className="px-1.5 py-1.5 text-center font-normal whitespace-nowrap" title="OI Buildup">Bld</th>}
+              {hasGreeks && cols.delta && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Δ</th>}
+              {hasGreeks && cols.gamma && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Γ</th>}
+              {hasGreeks && cols.theta && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Θ</th>}
+              {hasGreeks && cols.vega && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">V</th>}
               <th className="px-1 py-1.5 border-r border-border" />
 
               {/* Strike column */}
@@ -463,36 +857,33 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
 
               {/* Put columns */}
               <th className="px-1 py-1.5 border-l border-border" />
-              {hasGreeks && (
-                <>
-                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Δ</th>
-                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Γ</th>
-                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Θ</th>
-                  <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">V</th>
-                </>
-              )}
-              <th className="px-1.5 py-1.5 text-center font-normal whitespace-nowrap" title="OI Buildup">Bld</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Intrinsic Value">Int</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Time Value">TV</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">IV%</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">LTP</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Open Interest">OI</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change">OIΔ</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change %">OIΔ%</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Vol</th>
-              <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Volume / OI">V/OI</th>
+              {hasGreeks && cols.delta && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Δ</th>}
+              {hasGreeks && cols.gamma && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Γ</th>}
+              {hasGreeks && cols.theta && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Θ</th>}
+              {hasGreeks && cols.vega && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">V</th>}
+              {cols.buildup && <th className="px-1.5 py-1.5 text-center font-normal whitespace-nowrap" title="OI Buildup">Bld</th>}
+              {cols.intrinsic && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Intrinsic Value">Int</th>}
+              {cols.tv && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Time Value">TV</th>}
+              {cols.iv && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">IV%</th>}
+              {cols.ltpChg && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="LTP Change">Chg</th>}
+              {cols.ltp && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">LTP</th>}
+              {cols.oi && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Open Interest">OI</th>}
+              {cols.oiChg && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change">OIΔ</th>}
+              {cols.oiChgPct && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="OI Change %">OIΔ%</th>}
+              {cols.vol && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap">Vol</th>}
+              {cols.volOi && <th className="px-1.5 py-1.5 text-right font-normal whitespace-nowrap" title="Volume / OI">V/OI</th>}
             </tr>
           </thead>
 
           {/* ── BODY ─────────────────────────────────────────────────────────── */}
           <tbody>
+            {settings.totalsPos === "top" && totalsRow}
             {rows.map(r => {
-              const isAtm = r.isAtm;
+              const isAtm = r.strike === resolvedAtmStrike;
               const isMaxPain = r.strike === data.maxPain;
-              const ceItm = spot > r.strike;   // Call is ITM when spot > strike
-              const peItm = spot < r.strike;   // Put is ITM when spot < strike
+              const ceItm = spot > r.strike;
+              const peItm = spot < r.strike;
 
-              // Row background: ATM > MaxPain > ITM tint > default
               let rowBg = "";
               if (isAtm) rowBg = "bg-amber-500/10 border-y border-amber-500/30";
               else if (isMaxPain) rowBg = "bg-orange-500/8 border-y border-orange-500/20";
@@ -503,44 +894,21 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
                   className={`${rowBg} hover:bg-zinc-800/50 transition-colors border-b border-border/40`}
                 >
                   {/* ── CALL SIDE ─────────────────────────────────────────── */}
-                  <td className={`px-1.5 py-1 text-right tabular-nums ${ceItm ? "bg-green-500/5" : ""}`}>
-                    {r.ceLtp > 0 ? r.ceLtp.toFixed(2) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
-                    {safeNum(r.ceIv, 1)}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums ${ceItm ? "bg-green-500/5" : ""}`}>
-                    {r.ceOi > 0 ? fmtCompact(r.ceOi) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.ceOiChg)} ${ceItm ? "bg-green-500/5" : ""}`}>
-                    {r.ceOiChg !== 0 ? fmtCompact(r.ceOiChg) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.ceOiChg)} ${ceItm ? "bg-green-500/5" : ""}`}>
-                    {r.ceOiChgPct}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
-                    {r.ceVolume > 0 ? fmtCompact(r.ceVolume) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
-                    {r.ceVolOi}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
-                    {r.ceIntrinsic != null ? r.ceIntrinsic.toFixed(2) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>
-                    {r.ceTv}
-                  </td>
-                  <td className={`px-1.5 py-1 text-center ${ceItm ? "bg-green-500/5" : ""}`}>
-                    <BuildupBadge buildup={r.ceBuildup} />
-                  </td>
-                  {hasGreeks && (
-                    <>
-                      <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceDelta} /></td>
-                      <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceGamma} digits={6} /></td>
-                      <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceTheta} /></td>
-                      <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceVega} /></td>
-                    </>
-                  )}
+                  {cols.ltp && <td className={`px-1.5 py-1 text-right tabular-nums ${ceItm ? "bg-green-500/5" : ""}`}>{r.ceLtp > 0 ? r.ceLtp.toFixed(2) : "—"}</td>}
+                  {cols.ltpChg && <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.ceLtpChg)} ${ceItm ? "bg-green-500/5" : ""}`}>{r.ceLtpChg != null && Number.isFinite(r.ceLtpChg) ? (r.ceLtpChg >= 0 ? "+" : "") + r.ceLtpChg.toFixed(2) : "—"}</td>}
+                  {cols.iv && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>{safeNum(r.ceIv, 1)}</td>}
+                  {cols.oi && <td className={`px-1.5 py-1 text-right tabular-nums ${ceItm ? "bg-green-500/5" : ""}`}>{fmtOi(r.ceOi)}</td>}
+                  {cols.oiChg && <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.ceOiChg)} ${ceItm ? "bg-green-500/5" : ""}`}>{r.ceOiChg !== 0 ? fmtCompact(r.ceOiChg) : "—"}</td>}
+                  {cols.oiChgPct && <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.ceOiChg)} ${ceItm ? "bg-green-500/5" : ""}`}>{r.ceOiChgPct}</td>}
+                  {cols.vol && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>{r.ceVolume > 0 ? fmtCompact(r.ceVolume) : "—"}</td>}
+                  {cols.volOi && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>{r.ceVolOi}</td>}
+                  {cols.intrinsic && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>{r.ceIntrinsic != null ? r.ceIntrinsic.toFixed(2) : "—"}</td>}
+                  {cols.tv && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${ceItm ? "bg-green-500/5" : ""}`}>{r.ceTv}</td>}
+                  {cols.buildup && <td className={`px-1.5 py-1 text-center ${ceItm ? "bg-green-500/5" : ""}`}>{renderBuildup(r.ceBuildup)}</td>}
+                  {hasGreeks && cols.delta && <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceDelta} /></td>}
+                  {hasGreeks && cols.gamma && <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceGamma} digits={6} /></td>}
+                  {hasGreeks && cols.theta && <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceTheta} /></td>}
+                  {hasGreeks && cols.vega && <td className={`px-1.5 py-1 text-right ${ceItm ? "bg-green-500/5" : ""}`}><GreekCell value={r.ceVega} /></td>}
                   <td className={`px-1 py-1 border-r border-border ${ceItm ? "bg-green-500/5" : ""}`} />
 
                   {/* ── STRIKE COLUMN (sticky) ───────────────────────────── */}
@@ -556,49 +924,36 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
 
                   {/* ── PUT SIDE ──────────────────────────────────────────── */}
                   <td className={`px-1 py-1 border-l border-border ${peItm ? "bg-red-500/5" : ""}`} />
-                  {hasGreeks && (
-                    <>
-                      <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peDelta} /></td>
-                      <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peGamma} digits={6} /></td>
-                      <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peTheta} /></td>
-                      <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peVega} /></td>
-                    </>
-                  )}
-                  <td className={`px-1.5 py-1 text-center ${peItm ? "bg-red-500/5" : ""}`}>
-                    <BuildupBadge buildup={r.peBuildup} />
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
-                    {r.peIntrinsic != null ? r.peIntrinsic.toFixed(2) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
-                    {r.peTv}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
-                    {safeNum(r.peIv, 1)}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums ${peItm ? "bg-red-500/5" : ""}`}>
-                    {r.peLtp > 0 ? r.peLtp.toFixed(2) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums ${peItm ? "bg-red-500/5" : ""}`}>
-                    {r.peOi > 0 ? fmtCompact(r.peOi) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.peOiChg)} ${peItm ? "bg-red-500/5" : ""}`}>
-                    {r.peOiChg !== 0 ? fmtCompact(r.peOiChg) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.peOiChg)} ${peItm ? "bg-red-500/5" : ""}`}>
-                    {r.peOiChgPct}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
-                    {r.peVolume > 0 ? fmtCompact(r.peVolume) : "—"}
-                  </td>
-                  <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>
-                    {r.peVolOi}
-                  </td>
+                  {hasGreeks && cols.delta && <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peDelta} /></td>}
+                  {hasGreeks && cols.gamma && <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peGamma} digits={6} /></td>}
+                  {hasGreeks && cols.theta && <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peTheta} /></td>}
+                  {hasGreeks && cols.vega && <td className={`px-1.5 py-1 text-right ${peItm ? "bg-red-500/5" : ""}`}><GreekCell value={r.peVega} /></td>}
+                  {cols.buildup && <td className={`px-1.5 py-1 text-center ${peItm ? "bg-red-500/5" : ""}`}>{renderBuildup(r.peBuildup)}</td>}
+                  {cols.intrinsic && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>{r.peIntrinsic != null ? r.peIntrinsic.toFixed(2) : "—"}</td>}
+                  {cols.tv && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>{r.peTv}</td>}
+                  {cols.iv && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>{safeNum(r.peIv, 1)}</td>}
+                  {cols.ltpChg && <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.peLtpChg)} ${peItm ? "bg-red-500/5" : ""}`}>{r.peLtpChg != null && Number.isFinite(r.peLtpChg) ? (r.peLtpChg >= 0 ? "+" : "") + r.peLtpChg.toFixed(2) : "—"}</td>}
+                  {cols.ltp && <td className={`px-1.5 py-1 text-right tabular-nums ${peItm ? "bg-red-500/5" : ""}`}>{r.peLtp > 0 ? r.peLtp.toFixed(2) : "—"}</td>}
+                  {cols.oi && <td className={`px-1.5 py-1 text-right tabular-nums ${peItm ? "bg-red-500/5" : ""}`}>{fmtOi(r.peOi)}</td>}
+                  {cols.oiChg && <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.peOiChg)} ${peItm ? "bg-red-500/5" : ""}`}>{r.peOiChg !== 0 ? fmtCompact(r.peOiChg) : "—"}</td>}
+                  {cols.oiChgPct && <td className={`px-1.5 py-1 text-right tabular-nums ${chgColor(r.peOiChg)} ${peItm ? "bg-red-500/5" : ""}`}>{r.peOiChgPct}</td>}
+                  {cols.vol && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>{r.peVolume > 0 ? fmtCompact(r.peVolume) : "—"}</td>}
+                  {cols.volOi && <td className={`px-1.5 py-1 text-right tabular-nums text-muted-foreground ${peItm ? "bg-red-500/5" : ""}`}>{r.peVolOi}</td>}
                 </tr>
               );
             })}
+            {settings.totalsPos === "bottom" && totalsRow}
           </tbody>
         </table>
+      </div>
+
+      {/* ── Totals summary bar ────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground px-1 py-1">
+        <span>Totals from <strong>{rows.length}</strong> visible strikes</span>
+        <span>· PCR (OI): <strong className="text-foreground">{totals.pcrOi != null ? totals.pcrOi.toFixed(2) : "—"}</strong></span>
+        {totals.pcrVol != null && <span>· PCR (Vol): <strong className="text-foreground">{totals.pcrVol.toFixed(2)}</strong></span>}
+        <span>· Net OI Diff: <strong className={chgColor(totals.netOiDiff)}>{fmtCompact(totals.netOiDiff)}</strong></span>
+        <span>· Net OI Chg Diff: <strong className={chgColor(totals.netOiChgDiff)}>{fmtCompact(totals.netOiChgDiff)}</strong></span>
       </div>
 
       {/* ── Footer badges ──────────────────────────────────────────────────── */}
@@ -607,59 +962,291 @@ function OptionChainTab({ shared }: { shared: SharedOiState }) {
         <span>· {new Date(data.generatedAt).toLocaleTimeString()}</span>
         {data.spotSource && <span>· Spot: {data.spotSource}</span>}
         {data.spotTrusted === false && <span className="text-amber-400">· Spot untrusted — not for trade decisions</span>}
-        {hasGreeks && <span>· Greeks shown where available</span>}
-        {!hasGreeks && <span>· Greeks unavailable</span>}
+        <Badge variant="outline" className={`text-[9px] px-1 py-0 ${hasGreeks ? "border-green-500/30 text-green-300" : "border-zinc-500/30 text-zinc-400"}`}>
+          {greekSourceLabel}
+        </Badge>
+        {settings.displayUnit === "full" && <span>· OI/Vol in full quantity (×{lotSize})</span>}
+      </div>
+
+      {/* ── Settings Drawer ────────────────────────────────────────────────── */}
+      <ChainSettingsDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        settings={settings}
+        setSettings={setSettings}
+        setColumn={setColumn}
+        applyPreset={applyPreset}
+        resetAll={resetAll}
+        futureAvailable={futureAvailable}
+        synthAvailable={synthAvailable}
+      />
+    </div>
+  );
+}
+
+// ─── GEX Tab — Phase F: Honest GEX Visualization ────────────────────────────
+
+/** Inline GEX computation from InsightStrike rows — mirrors gex.ts logic.
+ *  Returns null if inputs are insufficient (never fakes). */
+function computeGexFromStrikes(
+  strikes: InsightStrike[],
+  spot: number,
+  lotSize: number | null | undefined,
+): { perStrike: { strike: number; callGex: number; putGex: number; netGex: number }[]; netGex: number; flipPoint: number | null; totalCallGex: number; totalPutGex: number; topPositive: { strike: number; netGex: number } | null; topNegative: { strike: number; netGex: number } | null } | null {
+  if (!Number.isFinite(spot) || spot <= 0) return null;
+  if (lotSize == null || !Number.isFinite(lotSize) || lotSize <= 0) return null;
+  if (!strikes.length) return null;
+
+  const spotSqPct = spot * spot * 0.01;
+  const perStrike: { strike: number; callGex: number; putGex: number; netGex: number }[] = [];
+  let totalNet = 0, totalCall = 0, totalPut = 0;
+  let hasAnyGamma = false;
+
+  for (const s of strikes) {
+    let cGex = 0, pGex = 0;
+
+    if (s.ceGamma != null && Number.isFinite(s.ceGamma) && s.ceGamma > 0 && s.ceOi > 0) {
+      cGex = s.ceGamma * (s.ceOi * lotSize) * spotSqPct;
+      hasAnyGamma = true;
+    }
+    if (s.peGamma != null && Number.isFinite(s.peGamma) && s.peGamma > 0 && s.peOi > 0) {
+      pGex = -(s.peGamma * (s.peOi * lotSize) * spotSqPct);
+      hasAnyGamma = true;
+    }
+
+    const net = cGex + pGex;
+    totalNet += net; totalCall += cGex; totalPut += pGex;
+    perStrike.push({ strike: s.strike, callGex: +cGex.toFixed(2), putGex: +pGex.toFixed(2), netGex: +net.toFixed(2) });
+  }
+
+  if (!hasAnyGamma) return null;
+
+  // Flip point: where cumulative netGex crosses zero
+  let flipPoint: number | null = null;
+  let cum = perStrike[0]!.netGex;
+  for (let i = 1; i < perStrike.length; i++) {
+    const newCum = cum + perStrike[i]!.netGex;
+    if ((cum > 0 && newCum <= 0) || (cum < 0 && newCum >= 0)) {
+      if (Math.abs(newCum - cum) > 1e-10) {
+        const ratio = Math.abs(cum) / Math.abs(newCum - cum);
+        flipPoint = +(perStrike[i - 1]!.strike + ratio * (perStrike[i]!.strike - perStrike[i - 1]!.strike)).toFixed(2);
+      } else {
+        flipPoint = perStrike[i]!.strike;
+      }
+      break;
+    }
+    cum = newCum;
+  }
+
+  // Top positive / negative
+  let topPos: { strike: number; netGex: number } | null = null;
+  let topNeg: { strike: number; netGex: number } | null = null;
+  for (const p of perStrike) {
+    if (p.netGex > 0 && (!topPos || p.netGex > topPos.netGex)) topPos = p;
+    if (p.netGex < 0 && (!topNeg || p.netGex < topNeg.netGex)) topNeg = p;
+  }
+
+  return {
+    perStrike,
+    netGex: +totalNet.toFixed(2),
+    flipPoint,
+    totalCallGex: +totalCall.toFixed(2),
+    totalPutGex: +totalPut.toFixed(2),
+    topPositive: topPos,
+    topNegative: topNeg,
+  };
+}
+
+/** Compact GEX value display */
+function fmtGex(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return (v / 1e12).toFixed(2) + "T";
+  if (abs >= 1e9) return (v / 1e9).toFixed(2) + "B";
+  if (abs >= 1e6) return (v / 1e6).toFixed(2) + "M";
+  if (abs >= 1e3) return (v / 1e3).toFixed(1) + "K";
+  return v.toFixed(0);
+}
+
+function GexTab({ shared }: { shared: SharedOiState }) {
+  const { data, loading } = shared;
+
+  const gexResult = useMemo(() => {
+    if (!data?.strikes?.length) return null;
+    return computeGexFromStrikes(data.strikes, data.spot, data.lotSize);
+  }, [data]);
+
+  // Determine unavailable reason
+  const unavailableReason = useMemo(() => {
+    if (!data) return "No option chain data loaded.";
+    if (!data.strikes?.length) return "No strikes available.";
+    if (!Number.isFinite(data.spot) || data.spot <= 0) return "Spot price unavailable.";
+    if (data.lotSize == null || !Number.isFinite(data.lotSize) || data.lotSize <= 0) return "Lot size unavailable.";
+    const hasGamma = data.strikes.some(s => (s.ceGamma != null && s.ceGamma > 0) || (s.peGamma != null && s.peGamma > 0));
+    if (!hasGamma) return "Gamma values unavailable — Greeks not provided for this chain.";
+    return null;
+  }, [data]);
+
+  if (loading && !data) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3">
+            <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Loading GEX data…</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // GEX unavailable — honest explanation
+  if (!gexResult || unavailableReason) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center space-y-4">
+          <Zap className="w-12 h-12 mx-auto text-amber-400 opacity-50" />
+          <div>
+            <h3 className="text-lg font-semibold">Gamma Exposure (GEX)</h3>
+            <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto" data-testid="gex-unavailable-reason">
+              GEX unavailable — {unavailableReason || "missing gamma/IV/OI/spot/lot size"}
+            </p>
+          </div>
+          <Badge variant="outline" className="text-xs border-amber-500/30 text-amber-300 bg-amber-500/10">
+            MODELLED GEX — not exchange provided
+          </Badge>
+          <div className="mt-4 max-w-md mx-auto text-left text-xs text-muted-foreground space-y-1 bg-zinc-900/50 rounded-lg p-4">
+            <div className="font-semibold text-foreground text-sm mb-2">GEX Status</div>
+            <div className="flex justify-between"><span>Formula</span><span className="text-green-400">✓ Implemented</span></div>
+            <div className="flex justify-between"><span>OI Unit Model</span><span className="text-green-400">✓ Verified (contracts × lotSize)</span></div>
+            <div className="flex justify-between"><span>Sign Convention</span><span className="text-green-400">✓ Call +ve, Put −ve</span></div>
+            <div className="flex justify-between"><span>Missing Data Guard</span><span className="text-green-400">✓ Returns null, never fake 0</span></div>
+            <div className="flex justify-between"><span>UI Visualization</span><span className="text-red-400">✕ Data insufficient</span></div>
+            <div className="flex justify-between"><span>Signal / Paper Trade Use</span><span className="text-red-400">✕ Not permitted</span></div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // GEX available — summary + chart
+  const maxAbsGex = Math.max(...gexResult.perStrike.map(s => Math.max(Math.abs(s.callGex), Math.abs(s.putGex))));
+  const chartData = gexResult.perStrike.filter(s => s.callGex !== 0 || s.putGex !== 0);
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <span className="font-semibold">Gamma Exposure (GEX)</span>
+            </div>
+            <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/30 text-amber-300 bg-amber-500/10" data-testid="gex-modelled-badge">
+              MODELLED GEX — not exchange provided
+            </Badge>
+            {loading && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+        <Card>
+          <CardContent className="p-3">
+            <div className="text-[10px] text-muted-foreground uppercase">Total Call GEX</div>
+            <div className="text-lg font-mono font-bold text-green-400" data-testid="gex-call-total">{fmtGex(gexResult.totalCallGex)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3">
+            <div className="text-[10px] text-muted-foreground uppercase">Total Put GEX</div>
+            <div className="text-lg font-mono font-bold text-red-400" data-testid="gex-put-total">{fmtGex(gexResult.totalPutGex)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3">
+            <div className="text-[10px] text-muted-foreground uppercase">Net GEX</div>
+            <div className={`text-lg font-mono font-bold ${gexResult.netGex >= 0 ? "text-green-400" : "text-red-400"}`} data-testid="gex-net-total">{fmtGex(gexResult.netGex)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3">
+            <div className="text-[10px] text-muted-foreground uppercase">Zero Gamma Level</div>
+            <div className="text-lg font-mono font-bold" data-testid="gex-flip-point">{gexResult.flipPoint != null ? gexResult.flipPoint : "—"}</div>
+          </CardContent>
+        </Card>
+        {gexResult.topPositive && (
+          <Card>
+            <CardContent className="p-3">
+              <div className="text-[10px] text-muted-foreground uppercase">Top +GEX Strike</div>
+              <div className="text-lg font-mono font-bold text-green-400">{gexResult.topPositive.strike}</div>
+              <div className="text-[10px] text-muted-foreground">{fmtGex(gexResult.topPositive.netGex)}</div>
+            </CardContent>
+          </Card>
+        )}
+        {gexResult.topNegative && (
+          <Card>
+            <CardContent className="p-3">
+              <div className="text-[10px] text-muted-foreground uppercase">Top −GEX Strike</div>
+              <div className="text-lg font-mono font-bold text-red-400">{gexResult.topNegative.strike}</div>
+              <div className="text-[10px] text-muted-foreground">{fmtGex(gexResult.topNegative.netGex)}</div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Bar chart */}
+      {chartData.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-2">
+              Strike-wise GEX — <span className="text-green-400">Call (positive)</span> · <span className="text-red-400">Put (negative)</span>
+              {data?.atmStrike && <span> · ATM: {data.atmStrike}</span>}
+              {data?.maxPain != null && <span> · MP: {data.maxPain}</span>}
+            </div>
+            <ResponsiveContainer width="100%" height={Math.min(400, Math.max(200, chartData.length * 12))}>
+              <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 30, left: 60, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v: number) => fmtGex(v)} />
+                <YAxis type="category" dataKey="strike" tick={{ fontSize: 10 }} width={50} />
+                <RTooltip
+                  contentStyle={{ background: "#1a1a1a", border: "1px solid #333", fontSize: 11 }}
+                  formatter={(value: number, name: string) => [fmtGex(value), name === "callGex" ? "Call GEX" : name === "putGex" ? "Put GEX" : "Net GEX"]}
+                />
+                <Bar dataKey="callGex" fill="#22c55e" opacity={0.7} name="callGex" />
+                <Bar dataKey="putGex" fill="#ef4444" opacity={0.7} name="putGex" />
+                {gexResult.flipPoint != null && (
+                  <ReferenceLine y={gexResult.flipPoint} stroke="#f59e0b" strokeDasharray="5 5" label={{ value: `Flip: ${gexResult.flipPoint}`, position: "top", fontSize: 10, fill: "#f59e0b" }} />
+                )}
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Footer */}
+      <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground px-1">
+        <span>Computed from {gexResult.perStrike.length} strikes</span>
+        <span>· Spot: {data?.spot?.toFixed(2)}</span>
+        <span>· Lot: {data?.lotSize}</span>
+        <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/30 text-amber-300">MODELLED</Badge>
+        <span className="text-red-400">· NOT for signal / paper trade / risk sizing</span>
       </div>
     </div>
   );
 }
 
-// ─── GEX placeholder (honest unavailable state) ─────────────────────────────
+/** Keep GexPlaceholder as an alias for backward compatibility with tests */
 function GexPlaceholder() {
   return (
     <Card>
       <CardContent className="p-8 text-center space-y-4">
         <Zap className="w-12 h-12 mx-auto text-amber-400 opacity-50" />
-        <div>
-          <h3 className="text-lg font-semibold">Gamma Exposure (GEX)</h3>
-          <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto">
-            GEX computation engine is ready (Phase B). Full GEX chart visualization will be available
-            in a future phase after data validation.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Badge variant="outline" className="text-xs border-amber-500/30 text-amber-300 bg-amber-500/10">
-            MODELLED GEX — not exchange provided
-          </Badge>
-          <Badge variant="outline" className="text-xs">Phase D — Coming Soon</Badge>
-        </div>
-        <div className="mt-4 max-w-md mx-auto text-left text-xs text-muted-foreground space-y-1.5 bg-zinc-900/50 rounded-lg p-4">
-          <div className="font-semibold text-foreground text-sm mb-2">GEX Status</div>
-          <div className="flex justify-between">
-            <span>Formula</span>
-            <span className="text-green-400">✓ Implemented</span>
-          </div>
-          <div className="flex justify-between">
-            <span>OI Unit Model</span>
-            <span className="text-green-400">✓ Verified (contracts × lotSize)</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Sign Convention</span>
-            <span className="text-green-400">✓ Call +ve, Put −ve</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Missing Data Guard</span>
-            <span className="text-green-400">✓ Returns null, never fake 0</span>
-          </div>
-          <div className="flex justify-between">
-            <span>UI Visualization</span>
-            <span className="text-amber-400">◌ Pending Phase D</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Signal / Paper Trade Use</span>
-            <span className="text-red-400">✕ Not permitted</span>
-          </div>
-        </div>
+        <h3 className="text-lg font-semibold">Gamma Exposure (GEX)</h3>
+        <Badge variant="outline" className="text-xs border-amber-500/30 text-amber-300 bg-amber-500/10">
+          MODELLED GEX — not exchange provided
+        </Badge>
       </CardContent>
     </Card>
   );
@@ -678,7 +1265,7 @@ function SnapshotTab() {
     fetch(`${base}api/options/oi-lab/universe`, { credentials: "include" })
       .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
       .then(setUniverse)
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const toggle = (sym: string) => {
@@ -746,11 +1333,10 @@ function SnapshotTab() {
             <div className="flex flex-wrap gap-2 mt-2">
               {universe.indices.map(i => (
                 <button key={i} onClick={() => toggle(i)}
-                  className={`px-3 py-1 rounded text-xs border transition ${
-                    selected.has(i)
+                  className={`px-3 py-1 rounded text-xs border transition ${selected.has(i)
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-background text-muted-foreground border-border hover:border-primary/50"
-                  }`}>
+                    }`}>
                   {i}
                 </button>
               ))}
@@ -765,11 +1351,10 @@ function SnapshotTab() {
             <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-2 border rounded bg-background/50">
               {filteredStocks.map(s => (
                 <button key={s} onClick={() => toggle(s)}
-                  className={`px-2 py-0.5 rounded text-[11px] border transition ${
-                    selected.has(s)
+                  className={`px-2 py-0.5 rounded text-[11px] border transition ${selected.has(s)
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-background text-muted-foreground border-border hover:border-primary/50"
-                  }`}>
+                    }`}>
                   {s}
                 </button>
               ))}
@@ -846,18 +1431,16 @@ function SnapshotTab() {
                         <td className="py-2 pr-3 text-right">{it.maxPain ?? "—"}</td>
                         <td className="py-2 pr-3 text-right font-medium">{it.pcrOi != null ? it.pcrOi.toFixed(2) : "—"}</td>
                         <td className="py-2 pr-3 text-right">{it.atmIv != null ? it.atmIv.toFixed(1) : "—"}</td>
-                        <td className={`py-2 pr-3 text-right tabular-nums ${
-                          it.ivPercentile == null ? "text-muted-foreground"
-                          : it.ivPercentile >= 75 ? "text-amber-400 font-semibold"
-                          : it.ivPercentile <= 25 ? "text-sky-400 font-semibold"
-                          : ""
-                        }`}>{it.ivPercentile ?? "—"}</td>
-                        <td className={`py-2 pr-3 text-right tabular-nums ${
-                          it.ivRank == null ? "text-muted-foreground"
-                          : it.ivRank >= 75 ? "text-amber-400 font-semibold"
-                          : it.ivRank <= 25 ? "text-sky-400 font-semibold"
-                          : ""
-                        }`}>{it.ivRank ?? "—"}</td>
+                        <td className={`py-2 pr-3 text-right tabular-nums ${it.ivPercentile == null ? "text-muted-foreground"
+                            : it.ivPercentile >= 75 ? "text-amber-400 font-semibold"
+                              : it.ivPercentile <= 25 ? "text-sky-400 font-semibold"
+                                : ""
+                          }`}>{it.ivPercentile ?? "—"}</td>
+                        <td className={`py-2 pr-3 text-right tabular-nums ${it.ivRank == null ? "text-muted-foreground"
+                            : it.ivRank >= 75 ? "text-amber-400 font-semibold"
+                              : it.ivRank <= 25 ? "text-sky-400 font-semibold"
+                                : ""
+                          }`}>{it.ivRank ?? "—"}</td>
                         <td className="py-2 pr-3 text-right">{fmtNum(it.totalCallOi)}</td>
                         <td className="py-2 pr-3 text-right">{fmtNum(it.totalPutOi)}</td>
                         <td className={`py-2 pr-3 text-right ${(it.callOiAdded ?? 0) >= 0 ? "text-amber-400" : "text-green-400"}`}>{fmtNum(it.callOiAdded)}</td>
@@ -1069,7 +1652,7 @@ function TrackerTab() {
   useEffect(() => {
     fetch(`${base}api/options/oi-lab/universe`, { credentials: "include" })
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then(setUniverse).catch(() => {});
+      .then(setUniverse).catch(() => { });
     void load();
     const t = setInterval(load, 15_000);
     return () => clearInterval(t);
@@ -1128,7 +1711,7 @@ function TrackerTab() {
         atmIv: s.atmIv,
         maxPain: s.maxPain,
         callOiAdded: s.callOiAdded ?? 0,
-        putOiAdded:  s.putOiAdded  ?? 0,
+        putOiAdded: s.putOiAdded ?? 0,
         // Net flow: positive = puts being written more than calls (bullish)
         netFlow: (s.putOiAdded ?? 0) - (s.callOiAdded ?? 0),
       }));
@@ -1149,11 +1732,10 @@ function TrackerTab() {
             <div className="flex flex-wrap gap-2 mt-2">
               {[...universe.indices, ...universe.stocks.slice(0, 30)].map(s => (
                 <button key={s} onClick={() => toggleSel(s)}
-                  className={`px-2.5 py-1 rounded text-xs border transition ${
-                    selected.has(s)
+                  className={`px-2.5 py-1 rounded text-xs border transition ${selected.has(s)
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-background text-muted-foreground border-border hover:border-primary/50"
-                  }`}>
+                    }`}>
                   {s}
                 </button>
               ))}
@@ -1287,7 +1869,7 @@ function TrackerTab() {
                   </div>
                 );
                 const spotDelta = prev ? latest.spot - prev.spot : 0;
-                const pcrDelta  = prev ? latest.pcrOi - prev.pcrOi : 0;
+                const pcrDelta = prev ? latest.pcrOi - prev.pcrOi : 0;
                 return (
                   <div>
                     <div className="text-xs font-medium mb-2 flex items-center gap-2">
@@ -1408,9 +1990,9 @@ function TrackerTab() {
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <ReferenceLine y={0} stroke="#71717a" strokeDasharray="3 3" />
-                    <Line type="monotone" dataKey="callOiAdded" stroke="#ef4444" strokeWidth={2}   dot={{ r: 2 }} name="CE OI added" />
-                    <Line type="monotone" dataKey="putOiAdded"  stroke="#22c55e" strokeWidth={2}   dot={{ r: 2 }} name="PE OI added" />
-                    <Line type="monotone" dataKey="netFlow"     stroke="#a855f7" strokeWidth={2.5} dot={{ r: 2.5 }} name="Net flow (PE−CE)" />
+                    <Line type="monotone" dataKey="callOiAdded" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} name="CE OI added" />
+                    <Line type="monotone" dataKey="putOiAdded" stroke="#22c55e" strokeWidth={2} dot={{ r: 2 }} name="PE OI added" />
+                    <Line type="monotone" dataKey="netFlow" stroke="#a855f7" strokeWidth={2.5} dot={{ r: 2.5 }} name="Net flow (PE−CE)" />
                   </LineChart>
                 </ResponsiveContainer>
                 <p className="text-xs text-muted-foreground mt-1 leading-snug">
@@ -1432,8 +2014,12 @@ interface InsightStrike {
   isAtm: boolean;
   ceOi: number; ceOiChg: number; ceVolume: number; ceLtp: number; ceIv: number | null; ceBuildup: string;
   ceDelta?: number; ceGamma?: number; ceTheta?: number; ceVega?: number;
+  /** Absolute LTP change vs prev close (₹). Null from NSE-direct path. Source: Kite. */
+  ceLtpChg?: number | null;
   peOi: number; peOiChg: number; peVolume: number; peLtp: number; peIv: number | null; peBuildup: string;
   peDelta?: number; peGamma?: number; peTheta?: number; peVega?: number;
+  /** Absolute LTP change vs prev close (₹). Null from NSE-direct path. */
+  peLtpChg?: number | null;
   pcr: number;
   painValue: number;
   /** Server-supplied windowed Δ. Present only when the request included
@@ -1535,10 +2121,10 @@ interface InsightResp {
 }
 
 const SENTIMENT_TONE: Record<SentimentBand, { color: string; bg: string; border: string }> = {
-  STRONGLY_BEARISH: { color: "#dc2626", bg: "bg-red-500/15",   border: "border-red-500/40"   },
-  MILDLY_BEARISH:   { color: "#f97316", bg: "bg-orange-500/15", border: "border-orange-500/40" },
-  NEUTRAL:          { color: "#a3a3a3", bg: "bg-zinc-500/15",  border: "border-zinc-500/40"  },
-  MILDLY_BULLISH:   { color: "#84cc16", bg: "bg-lime-500/15",  border: "border-lime-500/40"  },
+  STRONGLY_BEARISH: { color: "#dc2626", bg: "bg-red-500/15", border: "border-red-500/40" },
+  MILDLY_BEARISH: { color: "#f97316", bg: "bg-orange-500/15", border: "border-orange-500/40" },
+  NEUTRAL: { color: "#a3a3a3", bg: "bg-zinc-500/15", border: "border-zinc-500/40" },
+  MILDLY_BULLISH: { color: "#84cc16", bg: "bg-lime-500/15", border: "border-lime-500/40" },
   STRONGLY_BULLISH: { color: "#16a34a", bg: "bg-green-500/15", border: "border-green-500/40" },
 };
 
@@ -1635,7 +2221,7 @@ function OiInsightsTooltip(props: {
       {/* Put block — green */}
       <div className="space-y-0">
         <Row label={`Put OI ${baselineLabel}`} value={fmtNum(openPe)} dotClass="bg-emerald-500" />
-        <Row label={`Put OI ${chgLabel}`}      value={fmtSigned(row.peOiChg)} valueClass={`font-mono tabular-nums ${sign(row.peOiChg)}`} dotClass="bg-emerald-500/60" />
+        <Row label={`Put OI ${chgLabel}`} value={fmtSigned(row.peOiChg)} valueClass={`font-mono tabular-nums ${sign(row.peOiChg)}`} dotClass="bg-emerald-500/60" />
         <Row label={`Put OI at ${nowTime}`} value={fmtNum(row.peOi)} dotClass="bg-emerald-500" />
       </div>
 
@@ -1651,7 +2237,7 @@ function OiInsightsTooltip(props: {
           the user wants a literal "negative number → red" reading
           everywhere in the OI change rows.
         */}
-        <Row label={`Call OI ${chgLabel}`}      value={fmtSigned(row.ceOiChg)} valueClass={`font-mono tabular-nums ${sign(row.ceOiChg)}`} dotClass="bg-rose-500/60" />
+        <Row label={`Call OI ${chgLabel}`} value={fmtSigned(row.ceOiChg)} valueClass={`font-mono tabular-nums ${sign(row.ceOiChg)}`} dotClass="bg-rose-500/60" />
         <Row label={`Call OI at ${nowTime}`} value={fmtNum(row.ceOi)} dotClass="bg-rose-500" />
       </div>
 
@@ -1670,12 +2256,11 @@ function OiInsightsTooltip(props: {
       <Row
         label="PCR (this strike)"
         value={Number.isFinite(row.pcr) ? row.pcr.toFixed(2) : "—"}
-        valueClass={`font-mono tabular-nums ${
-          !Number.isFinite(row.pcr) ? "text-zinc-400"
+        valueClass={`font-mono tabular-nums ${!Number.isFinite(row.pcr) ? "text-zinc-400"
             : row.pcr >= 1.3 ? "text-emerald-300"
-            : row.pcr <= 0.7 ? "text-rose-300"
-            : "text-zinc-100"
-        }`}
+              : row.pcr <= 0.7 ? "text-rose-300"
+                : "text-zinc-100"
+          }`}
         dotClass="bg-zinc-400"
       />
 
@@ -1704,15 +2289,15 @@ function OiInsightsTooltip(props: {
  */
 type TimeFrame = "3m" | "5m" | "10m" | "15m" | "30m" | "1h" | "2h" | "3h" | "all";
 const TIMEFRAMES: { v: TimeFrame; l: string; ms: number | null }[] = [
-  { v: "3m",  l: "Last 3 min",  ms: 3 * 60_000 },
-  { v: "5m",  l: "Last 5 min",  ms: 5 * 60_000 },
+  { v: "3m", l: "Last 3 min", ms: 3 * 60_000 },
+  { v: "5m", l: "Last 5 min", ms: 5 * 60_000 },
   { v: "10m", l: "Last 10 min", ms: 10 * 60_000 },
   { v: "15m", l: "Last 15 min", ms: 15 * 60_000 },
   { v: "30m", l: "Last 30 min", ms: 30 * 60_000 },
-  { v: "1h",  l: "Last 1 hr",   ms: 60 * 60_000 },
-  { v: "2h",  l: "Last 2 hr",   ms: 120 * 60_000 },
-  { v: "3h",  l: "Last 3 hr",   ms: 180 * 60_000 },
-  { v: "all", l: "All",         ms: null },
+  { v: "1h", l: "Last 1 hr", ms: 60 * 60_000 },
+  { v: "2h", l: "Last 2 hr", ms: 120 * 60_000 },
+  { v: "3h", l: "Last 3 hr", ms: 180 * 60_000 },
+  { v: "all", l: "All", ms: null },
 ];
 
 // ─── Shared data hook — used by Overview, PCR, Max Pain tabs ─────────────────
@@ -1733,7 +2318,7 @@ function useOiInsights(defaultUnderlying = "NIFTY") {
     fetch(`${base}api/options/oi-lab/universe`, { credentials: "include" })
       .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
       .then(setUniverse)
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const load = useCallback(async () => {
@@ -1792,8 +2377,8 @@ type SharedOiState = ReturnType<typeof useOiInsights>;
 // ─── Shared underlying picker widget ─────────────────────────────────────────
 function UnderlyingPicker({ shared }: { shared: SharedOiState }) {
   const { universe, underlying, setUnderlying, data, loading, load,
-          searchQ, setSearchQ, pickerOpen, setPickerOpen, filteredUnderlyings,
-          strikesAround, setStrikesAround } = shared;
+    searchQ, setSearchQ, pickerOpen, setPickerOpen, filteredUnderlyings,
+    strikesAround, setStrikesAround } = shared;
   return (
     <Card>
       <CardContent className="p-3">
@@ -1825,9 +2410,8 @@ function UnderlyingPicker({ shared }: { shared: SharedOiState }) {
                     <button
                       key={s}
                       onClick={() => { setUnderlying(s); setPickerOpen(false); }}
-                      className={`w-full text-left px-2 py-1 text-xs rounded hover-row font-mono ${
-                        underlying === s ? "bg-primary/15 text-primary" : ""
-                      } ${universe.indices.includes(s) ? "font-bold" : ""}`}
+                      className={`w-full text-left px-2 py-1 text-xs rounded hover-row font-mono ${underlying === s ? "bg-primary/15 text-primary" : ""
+                        } ${universe.indices.includes(s) ? "font-bold" : ""}`}
                     >
                       {s}
                       {universe.indices.includes(s) && (
@@ -1872,11 +2456,10 @@ function UnderlyingPicker({ shared }: { shared: SharedOiState }) {
                 <button
                   key={e}
                   onClick={() => shared.setExpiry(e)}
-                  className={`px-2 py-0.5 text-[11px] font-mono rounded border transition ${
-                    e === data.expiry
+                  className={`px-2 py-0.5 text-[11px] font-mono rounded border transition ${e === data.expiry
                       ? "border-primary bg-primary/15 text-primary font-bold"
                       : "border-border bg-card hover-row text-foreground/70"
-                  }`}
+                    }`}
                 >
                   {e}
                 </button>
@@ -1888,11 +2471,10 @@ function UnderlyingPicker({ shared }: { shared: SharedOiState }) {
                 <button
                   key={s}
                   onClick={() => setStrikesAround(s)}
-                  className={`px-2 py-0.5 text-[11px] font-mono rounded border uppercase transition ${
-                    s === strikesAround
+                  className={`px-2 py-0.5 text-[11px] font-mono rounded border uppercase transition ${s === strikesAround
                       ? "border-primary bg-primary/15 text-primary font-bold"
                       : "border-border bg-card hover-row text-foreground/70"
-                  }`}
+                    }`}
                 >
                   {s}
                 </button>
@@ -1984,7 +2566,7 @@ function OverviewTab({ shared }: { shared: SharedOiState }) {
                   <>
                     <div className="text-2xl font-bold text-muted-foreground">—</div>
                     <div className="text-[10px] text-muted-foreground"
-                         title="Future price requires Kite FUT instrument data">
+                      title="Future price requires Kite FUT instrument data">
                       Unavailable
                     </div>
                   </>
@@ -2009,7 +2591,7 @@ function OverviewTab({ shared }: { shared: SharedOiState }) {
                   <>
                     <div className="text-2xl font-bold text-muted-foreground">—</div>
                     <div className="text-[10px] text-muted-foreground"
-                         title="Synthetic future requires ATM CE and PE with non-zero LTP">
+                      title="Synthetic future requires ATM CE and PE with non-zero LTP">
                       ATM legs unavailable
                     </div>
                   </>
@@ -2035,7 +2617,7 @@ function OverviewTab({ shared }: { shared: SharedOiState }) {
             {(() => {
               const pcrTone = data.pcrOi >= 1.3 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
                 : data.pcrOi <= 0.7 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
-                : "text-foreground border-border bg-card";
+                  : "text-foreground border-border bg-card";
               const painDist = data.spot - data.maxPain;
               const painPct = data.spot > 0 ? (painDist / data.spot) * 100 : 0;
               const painTone = Math.abs(painPct) < 0.3 ? "text-amber-300 border-amber-500/30 bg-amber-500/10"
@@ -2288,12 +2870,11 @@ function PcrTab({ shared }: { shared: SharedOiState }) {
             <Card>
               <CardContent className="p-3 space-y-1">
                 <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">Interpretation</div>
-                <Badge variant="outline" className={`text-xs ${
-                  pcrInterpretation.badge === "bullish" ? "border-emerald-500/30 text-emerald-300 bg-emerald-500/10" :
-                  pcrInterpretation.badge === "bearish" ? "border-rose-500/30 text-rose-300 bg-rose-500/10" :
-                  pcrInterpretation.badge === "insufficient" ? "border-amber-500/30 text-amber-300 bg-amber-500/10" :
-                  "border-border"
-                }`}>
+                <Badge variant="outline" className={`text-xs ${pcrInterpretation.badge === "bullish" ? "border-emerald-500/30 text-emerald-300 bg-emerald-500/10" :
+                    pcrInterpretation.badge === "bearish" ? "border-rose-500/30 text-rose-300 bg-rose-500/10" :
+                      pcrInterpretation.badge === "insufficient" ? "border-amber-500/30 text-amber-300 bg-amber-500/10" :
+                        "border-border"
+                  }`}>
                   {pcrInterpretation.badge.toUpperCase()}
                 </Badge>
                 <div className={`text-[11px] mt-1 ${pcrInterpretation.tone}`}>{pcrInterpretation.text}</div>
@@ -2393,7 +2974,7 @@ function MaxPainTab({ shared }: { shared: SharedOiState }) {
                 <div className="text-[10px] uppercase text-muted-foreground font-mono tracking-wide">Max Pain Strike</div>
                 <div className="text-3xl font-bold tabular-nums text-amber-300">{data.maxPain}</div>
                 <div className="text-[10px] text-muted-foreground"
-                     title="Max Pain is the strike at which the total value of outstanding options expires worthless — minimizing writer losses. Derived from current OI snapshot for the selected expiry.">
+                  title="Max Pain is the strike at which the total value of outstanding options expires worthless — minimizing writer losses. Derived from current OI snapshot for the selected expiry.">
                   Derived from current OI snapshot for {data.expiry}
                 </div>
               </CardContent>
@@ -2486,7 +3067,7 @@ function MaxPainTab({ shared }: { shared: SharedOiState }) {
                     <span className="w-2.5 h-2.5 rounded bg-zinc-600 inline-block" /> Other Strikes
                   </span>
                   <span className="ml-auto cursor-help underline decoration-dotted underline-offset-2"
-                        title="Max Pain is the strike price at which the total value of outstanding options (both calls and puts) would expire worthless — minimizing the aggregate financial pain for option writers. Derived from the current OI snapshot for the selected expiry. This is a theoretical level, not a price target.">
+                    title="Max Pain is the strike price at which the total value of outstanding options (both calls and puts) would expire worthless — minimizing the aggregate financial pain for option writers. Derived from the current OI snapshot for the selected expiry. This is a theoretical level, not a price target.">
                     What is Max Pain?
                   </span>
                 </div>
@@ -2507,7 +3088,7 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
   // ── All data state comes from the parent-owned SharedOiState ──────────────
   // Only chartView is local to this tab — everything else is shared.
   const { underlying, data, loading, error, load,
-          strikesAround, timeframe, setTimeframe } = shared;
+    strikesAround, timeframe, setTimeframe } = shared;
   const [chartView, setChartView] = useState<"oi" | "oichg" | "pcr" | "pain">("oi");
 
   // ── Chart data ─────────────────────────────────────────────────────────────
@@ -2661,7 +3242,7 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
     let call = 0, put = 0, missing = 0, movedStrikes = 0;
     for (const r of oiBars) {
       call += r.ceOiChg;
-      put  += r.peOiChg;
+      put += r.peOiChg;
       if (r.missingBaseline) missing++;
       else if (r.ceOiChg !== 0 || r.peOiChg !== 0) movedStrikes++;
     }
@@ -2681,7 +3262,7 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
     const total = data.totalCallOi + data.totalPutOi;
     if (total === 0) return [];
     return [
-      { name: "Put OI",  value: data.totalPutOi,  pct: (data.totalPutOi  / total) * 100 },
+      { name: "Put OI", value: data.totalPutOi, pct: (data.totalPutOi / total) * 100 },
       { name: "Call OI", value: data.totalCallOi, pct: (data.totalCallOi / total) * 100 },
     ];
   }, [data]);
@@ -2725,14 +3306,14 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
           {(() => {
             const pcrTone = data.pcrOi >= 1.3 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
               : data.pcrOi <= 0.7 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
-              : "text-foreground border-border bg-card";
+                : "text-foreground border-border bg-card";
             const painDist = data.spot - data.maxPain;
             const painPct = data.spot > 0 ? (painDist / data.spot) * 100 : 0;
             const painTone = Math.abs(painPct) < 0.3 ? "text-amber-300 border-amber-500/30 bg-amber-500/10"
               : "text-foreground border-border bg-card";
             const ivTone = data.atmIv != null && data.atmIv > 25 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
               : data.atmIv != null && data.atmIv < 12 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
-              : "text-foreground border-border bg-card";
+                : "text-foreground border-border bg-card";
             const sentClass = `${sentTone.bg} ${sentTone.border}`;
             // Tinted Δ for the Total OI tiles — green = OI added today
             // (writers committing capital), red = OI shed (positions
@@ -2740,10 +3321,10 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
             // card at the bottom of the page.
             const callDeltaTone = data.callOiAdded > 0 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
               : data.callOiAdded < 0 ? "text-zinc-400 border-border bg-card"
-              : "text-foreground border-border bg-card";
+                : "text-foreground border-border bg-card";
             const putDeltaTone = data.putOiAdded > 0 ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
               : data.putOiAdded < 0 ? "text-zinc-400 border-border bg-card"
-              : "text-foreground border-border bg-card";
+                : "text-foreground border-border bg-card";
             const Tile = ({ label, value, sub, cls }: { label: string; value: string; sub?: string; cls: string }) => (
               <div className={`rounded border px-2.5 py-1.5 ${cls}`}>
                 <div className="text-[9px] uppercase tracking-wider font-mono opacity-80">{label}</div>
@@ -3047,19 +3628,18 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                 </CardTitle>
                 <div className="flex items-center gap-1">
                   {([
-                    { v: "oi",    l: "OI Total" },
+                    { v: "oi", l: "OI Total" },
                     { v: "oichg", l: "OI Change" },
-                    { v: "pcr",   l: "PCR" },
-                    { v: "pain",  l: "Max Pain" },
+                    { v: "pcr", l: "PCR" },
+                    { v: "pain", l: "Max Pain" },
                   ] as const).map(b => (
                     <button
                       key={b.v}
                       onClick={() => setChartView(b.v)}
-                      className={`px-2.5 py-1 text-[11px] font-mono rounded border transition ${
-                        chartView === b.v
+                      className={`px-2.5 py-1 text-[11px] font-mono rounded border transition ${chartView === b.v
                           ? "border-primary bg-primary/15 text-primary font-bold"
                           : "border-border bg-card hover-row text-foreground/70"
-                      }`}
+                        }`}
                     >
                       {b.l}
                     </button>
@@ -3112,10 +3692,10 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                       const title = empty
                         ? `Server has ${bufLen} snapshot${bufLen === 1 ? "" : "s"} so far — buffer fills at ~30s cadence and is shared across all clients.`
                         : t.ms != null && !haveBaseline
-                        ? `Buffer only goes back ${(oldestAge / 60_000).toFixed(1)} min (need ${needMin} more for an exact ${t.l.toLowerCase().replace("last ", "")} window). Click anyway — Δ will be vs the oldest snapshot.`
-                        : t.ms == null
-                        ? "Use broker's intraday Δ since 9:15 AM"
-                        : `Compare current OI to the snapshot from ~${t.l.toLowerCase().replace("last ", "")} ago`;
+                          ? `Buffer only goes back ${(oldestAge / 60_000).toFixed(1)} min (need ${needMin} more for an exact ${t.l.toLowerCase().replace("last ", "")} window). Click anyway — Δ will be vs the oldest snapshot.`
+                          : t.ms == null
+                            ? "Use broker's intraday Δ since 9:15 AM"
+                            : `Compare current OI to the snapshot from ~${t.l.toLowerCase().replace("last ", "")} ago`;
                       // Sensibull-style premium pill: rounded-full with
                       // generous padding, slightly larger type, distinctive
                       // active state (amber ring + glow). Empty/partial
@@ -3126,15 +3706,14 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                           key={t.v}
                           onClick={() => setTimeframe(t.v)}
                           title={title}
-                          className={`px-2.5 py-1 text-[11px] font-mono rounded-full border transition tabular-nums ${
-                            isActive
+                          className={`px-2.5 py-1 text-[11px] font-mono rounded-full border transition tabular-nums ${isActive
                               ? "border-amber-400 bg-amber-400/20 text-amber-200 font-semibold shadow-[0_0_0_1px_rgba(251,191,36,0.25)]"
                               : empty
-                              ? "border-dashed border-border bg-card/70 text-foreground/70 hover:border-amber-400/40 hover:text-foreground"
-                              : partial
-                              ? "border-dashed border-border bg-card text-foreground/80 hover:border-amber-400/60 hover:text-foreground"
-                              : "border-border bg-card text-foreground/90 hover:border-amber-400/60 hover:bg-card/60"
-                          }`}
+                                ? "border-dashed border-border bg-card/70 text-foreground/70 hover:border-amber-400/40 hover:text-foreground"
+                                : partial
+                                  ? "border-dashed border-border bg-card text-foreground/80 hover:border-amber-400/60 hover:text-foreground"
+                                  : "border-border bg-card text-foreground/90 hover:border-amber-400/60 hover:bg-card/60"
+                            }`}
                         >
                           {/* Compact in-pill label keeps the row scannable;
                               full "Last X" is in the title tooltip + the
@@ -3209,8 +3788,8 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                     */}
                     {(() => {
                       const SESSION_START_MIN = 9 * 60 + 15; // 555
-                      const SESSION_END_MIN   = 15 * 60 + 30; // 930
-                      const SPAN_MIN          = SESSION_END_MIN - SESSION_START_MIN; // 375
+                      const SESSION_END_MIN = 15 * 60 + 30; // 930
+                      const SPAN_MIN = SESSION_END_MIN - SESSION_START_MIN; // 375
                       const istMinOfDay = (ms: number) => {
                         const utcMin = Math.floor(ms / 60_000);
                         return ((utcMin + 330) % 1440 + 1440) % 1440;
@@ -3303,16 +3882,16 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                 // but no visible bars) — surface that explicitly so the chart
                 // doesn't look broken.
                 const allZero =
-                  (chartView === "oi"    && oiBars.every(r => (r.ceOi ?? 0) === 0 && (r.peOi ?? 0) === 0)) ||
+                  (chartView === "oi" && oiBars.every(r => (r.ceOi ?? 0) === 0 && (r.peOi ?? 0) === 0)) ||
                   (chartView === "oichg" && oiBars.every(r => (r.ceOiChg ?? 0) === 0 && (r.peOiChg ?? 0) === 0)) ||
-                  (chartView === "pcr"   && oiBars.every(r => (r.pcr ?? 0) === 0)) ||
-                  (chartView === "pain"  && oiBars.every(r => (r.pain ?? 0) === 0));
+                  (chartView === "pcr" && oiBars.every(r => (r.pcr ?? 0) === 0)) ||
+                  (chartView === "pain" && oiBars.every(r => (r.pain ?? 0) === 0));
                 if (allZero) {
                   const metricLabel =
                     chartView === "oichg" ? "intraday OI changes" :
-                    chartView === "pcr"   ? "put/call ratios" :
-                    chartView === "pain"  ? "pain values" :
-                                            "open interest values";
+                      chartView === "pcr" ? "put/call ratios" :
+                        chartView === "pain" ? "pain values" :
+                          "open interest values";
                   return (
                     <div className="h-80 flex flex-col items-center justify-center text-sm text-muted-foreground gap-2 px-6 text-center">
                       <AlertTriangle className="w-6 h-6 opacity-50" />
@@ -3344,85 +3923,85 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                 const maxPainLabel = Math.abs(maxPainNearest - data.maxPain) <= halfStep
                   ? String(maxPainNearest) : null;
                 return (
-                <ResponsiveContainer width="100%" height={360}>
-                  {/*
+                  <ResponsiveContainer width="100%" height={360}>
+                    {/*
                     ComposedChart so the OI view can overlay dotted ΔOI lines
                     on top of the Total OI bars (same scale — both are OI
                     contract counts). Other views (oichg / pcr / pain) keep the
                     same single-metric bar behavior they had before.
                   */}
-                  <ComposedChart data={oiBars} barCategoryGap={2} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                    <XAxis
-                      dataKey="strikeLabel"
-                      type="category"
-                      tick={{ fontSize: 10 }}
-                      interval={oiBars.length > 25 ? 1 : 0}
-                    />
-                    <YAxis
-                      width={64}
-                      tick={{ fontSize: 10 }}
-                      tickFormatter={chartView === "pcr" ? (v) => v.toFixed(2) : (v) => fmtNum(v)}
-                      // For "oi" view we now overlay ΔOI lines that go negative
-                      // when contracts unwind, so the axis must auto-extend
-                      // below zero (otherwise negative ΔOI gets clipped at the
-                      // baseline and reads as flat).
-                      domain={
-                        chartView === "oichg" || chartView === "oi"
-                          ? ["auto", "auto"]
-                          : [0, "auto"]
-                      }
-                      allowDataOverflow={false}
-                    />
-                    <RTooltip
-                      cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                      // Custom tooltip — shows full per-strike OI breakdown:
-                      // open OI (9:15 AM), intraday change, current OI for both
-                      // Call and Put, plus view-specific extras (PCR / Pain).
-                      // Open OI is computed inline as currentOi - intradayΔ.
-                      content={
-                        <OiInsightsTooltip
-                          view={chartView}
-                          nowTime={new Date(data.generatedAt).toLocaleTimeString("en-IN", {
-                            hour: "numeric",
-                            minute: "2-digit",
-                            hour12: true,
-                            timeZone: "Asia/Kolkata",
-                          })}
-                          tfMode={tfResolved.mode}
-                          tfWindowLabel={TIMEFRAMES.find(t => t.v === timeframe)!.l}
-                          tfBaselineTime={
-                            tfResolved.baselineUsedAt
-                              ? new Date(tfResolved.baselineUsedAt).toLocaleTimeString("en-IN", {
+                    <ComposedChart data={oiBars} barCategoryGap={2} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                      <XAxis
+                        dataKey="strikeLabel"
+                        type="category"
+                        tick={{ fontSize: 10 }}
+                        interval={oiBars.length > 25 ? 1 : 0}
+                      />
+                      <YAxis
+                        width={64}
+                        tick={{ fontSize: 10 }}
+                        tickFormatter={chartView === "pcr" ? (v) => v.toFixed(2) : (v) => fmtNum(v)}
+                        // For "oi" view we now overlay ΔOI lines that go negative
+                        // when contracts unwind, so the axis must auto-extend
+                        // below zero (otherwise negative ΔOI gets clipped at the
+                        // baseline and reads as flat).
+                        domain={
+                          chartView === "oichg" || chartView === "oi"
+                            ? ["auto", "auto"]
+                            : [0, "auto"]
+                        }
+                        allowDataOverflow={false}
+                      />
+                      <RTooltip
+                        cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                        // Custom tooltip — shows full per-strike OI breakdown:
+                        // open OI (9:15 AM), intraday change, current OI for both
+                        // Call and Put, plus view-specific extras (PCR / Pain).
+                        // Open OI is computed inline as currentOi - intradayΔ.
+                        content={
+                          <OiInsightsTooltip
+                            view={chartView}
+                            nowTime={new Date(data.generatedAt).toLocaleTimeString("en-IN", {
+                              hour: "numeric",
+                              minute: "2-digit",
+                              hour12: true,
+                              timeZone: "Asia/Kolkata",
+                            })}
+                            tfMode={tfResolved.mode}
+                            tfWindowLabel={TIMEFRAMES.find(t => t.v === timeframe)!.l}
+                            tfBaselineTime={
+                              tfResolved.baselineUsedAt
+                                ? new Date(tfResolved.baselineUsedAt).toLocaleTimeString("en-IN", {
                                   hour: "2-digit",
                                   minute: "2-digit",
                                   second: "2-digit",
                                   hour12: false,
                                   timeZone: "Asia/Kolkata",
                                 })
-                              : null
-                          }
-                        />
-                      }
-                    />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    {/* Spot reference line */}
-                    <ReferenceLine
-                      x={spotLabel}
-                      stroke="#22c55e"
-                      strokeDasharray="2 2"
-                      label={{ value: `Spot ${data.spot.toFixed(0)}`, position: "top", fill: "#22c55e", fontSize: 10 }}
-                    />
-                    {/* Max-pain reference line — only render when it lines up with a real strike */}
-                    {maxPainLabel && (
-                      <ReferenceLine
-                        x={maxPainLabel}
-                        stroke="#f97316"
-                        strokeDasharray="4 2"
-                        label={{ value: `Max Pain ${data.maxPain}`, position: "insideTopRight", fill: "#f97316", fontSize: 10 }}
+                                : null
+                            }
+                          />
+                        }
                       />
-                    )}
-                    {/*
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      {/* Spot reference line */}
+                      <ReferenceLine
+                        x={spotLabel}
+                        stroke="#22c55e"
+                        strokeDasharray="2 2"
+                        label={{ value: `Spot ${data.spot.toFixed(0)}`, position: "top", fill: "#22c55e", fontSize: 10 }}
+                      />
+                      {/* Max-pain reference line — only render when it lines up with a real strike */}
+                      {maxPainLabel && (
+                        <ReferenceLine
+                          x={maxPainLabel}
+                          stroke="#f97316"
+                          strokeDasharray="4 2"
+                          label={{ value: `Max Pain ${data.maxPain}`, position: "insideTopRight", fill: "#f97316", fontSize: 10 }}
+                        />
+                      )}
+                      {/*
                       Each chart series MUST be a direct child of the chart —
                       Recharts walks `props.children` to discover Bar/Line
                       components, and a surrounding <>…</> Fragment hides them
@@ -3431,7 +4010,7 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                       still render. So every conditional below is a single
                       inline expression returning a series element or false.
                     */}
-                    {/*
+                      {/*
                       OI Total view — Sensibull-style "attached" Δ overlay.
                       Each leg is rendered as a stack of three Bars sharing
                       a stackId so the segments visually attach (no floating
@@ -3451,13 +4030,13 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                       multiple SVGs in the same document, and a solid
                       shade differentiation is just as legible.
                     */}
-                    {chartView === "oi" && (
-                      <Bar dataKey="ceBase" stackId="ce" fill="#dc2626" name="Call OI" isAnimationActive={false} />
-                    )}
-                    {chartView === "oi" && (
-                      <Bar dataKey="ceInc"  stackId="ce" fill="#fca5a5" name="Δ Call OI (added)" isAnimationActive={false} />
-                    )}
-                    {/*
+                      {chartView === "oi" && (
+                        <Bar dataKey="ceBase" stackId="ce" fill="#dc2626" name="Call OI" isAnimationActive={false} />
+                      )}
+                      {chartView === "oi" && (
+                        <Bar dataKey="ceInc" stackId="ce" fill="#fca5a5" name="Δ Call OI (added)" isAnimationActive={false} />
+                      )}
+                      {/*
                       Ghost (unwound) segment shares stackId="ce" with base+inc
                       so Recharts stacks it ON TOP of the solid bar. Visual
                       result: solid bar = current OI, dashed translucent box
@@ -3467,77 +4046,77 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                       the ghost render from y=0 and visually overlap the
                       solid bar — fixed.
                     */}
-                    {chartView === "oi" && (
-                      <Bar
-                        dataKey="ceDec"
-                        stackId="ce"
-                        fill="rgba(252,165,165,0.08)"
-                        stroke="#f87171"
-                        strokeWidth={1.25}
-                        strokeDasharray="3 2"
-                        name="Δ Call OI (unwound)"
-                        isAnimationActive={false}
-                      />
-                    )}
-                    {chartView === "oi" && (
-                      <Bar dataKey="peBase" stackId="pe" fill="#16a34a" name="Put OI" isAnimationActive={false} />
-                    )}
-                    {chartView === "oi" && (
-                      <Bar dataKey="peInc"  stackId="pe" fill="#86efac" name="Δ Put OI (added)" isAnimationActive={false} />
-                    )}
-                    {chartView === "oi" && (
-                      <Bar
-                        dataKey="peDec"
-                        stackId="pe"
-                        fill="rgba(134,239,172,0.08)"
-                        stroke="#4ade80"
-                        strokeWidth={1.25}
-                        strokeDasharray="3 2"
-                        name="Δ Put OI (unwound)"
-                        isAnimationActive={false}
-                      />
-                    )}
-                    {chartView === "oichg" && (
-                      <Bar dataKey="ceOiChg" name="Δ Call OI">
-                        {oiBars.map((d, i) => (
-                          <Cell key={i} fill={d.ceOiChg >= 0 ? "#dc2626" : "#fca5a5"} />
-                        ))}
-                      </Bar>
-                    )}
-                    {chartView === "oichg" && (
-                      <Bar dataKey="peOiChg" name="Δ Put OI">
-                        {oiBars.map((d, i) => (
-                          <Cell key={i} fill={d.peOiChg >= 0 ? "#16a34a" : "#86efac"} />
-                        ))}
-                      </Bar>
-                    )}
-                    {chartView === "pcr" && (
-                      // dataKey is `pcrCapped` (capped at 3) so high-strike
-                      // bars are visible at a meaningful scale; cell color
-                      // and tooltip continue to read the true `pcr`.
-                      <Bar dataKey="pcrCapped" name="PCR">
-                        {oiBars.map((d, i) => (
-                          <Cell key={i} fill={d.pcr >= 1.3 ? "#16a34a" : d.pcr <= 0.7 ? "#dc2626" : "#a3a3a3"} />
-                        ))}
-                      </Bar>
-                    )}
-                    {chartView === "pain" && (
-                      <Bar dataKey="pain" name="Pain">
-                        {oiBars.map((d, i) => (
-                          // Float-tolerant match — `data.maxPain` can drift by
-                          // a fraction of a strike-step due to upstream math,
-                          // so a strict `===` would silently fail to highlight
-                          // the actual max-pain bar even when the reference
-                          // line snaps correctly.
-                          <Cell
-                            key={i}
-                            fill={Math.abs(d.strike - data.maxPain) <= halfStep ? "#f97316" : "#525252"}
-                          />
-                        ))}
-                      </Bar>
-                    )}
-                  </ComposedChart>
-                </ResponsiveContainer>
+                      {chartView === "oi" && (
+                        <Bar
+                          dataKey="ceDec"
+                          stackId="ce"
+                          fill="rgba(252,165,165,0.08)"
+                          stroke="#f87171"
+                          strokeWidth={1.25}
+                          strokeDasharray="3 2"
+                          name="Δ Call OI (unwound)"
+                          isAnimationActive={false}
+                        />
+                      )}
+                      {chartView === "oi" && (
+                        <Bar dataKey="peBase" stackId="pe" fill="#16a34a" name="Put OI" isAnimationActive={false} />
+                      )}
+                      {chartView === "oi" && (
+                        <Bar dataKey="peInc" stackId="pe" fill="#86efac" name="Δ Put OI (added)" isAnimationActive={false} />
+                      )}
+                      {chartView === "oi" && (
+                        <Bar
+                          dataKey="peDec"
+                          stackId="pe"
+                          fill="rgba(134,239,172,0.08)"
+                          stroke="#4ade80"
+                          strokeWidth={1.25}
+                          strokeDasharray="3 2"
+                          name="Δ Put OI (unwound)"
+                          isAnimationActive={false}
+                        />
+                      )}
+                      {chartView === "oichg" && (
+                        <Bar dataKey="ceOiChg" name="Δ Call OI">
+                          {oiBars.map((d, i) => (
+                            <Cell key={i} fill={d.ceOiChg >= 0 ? "#dc2626" : "#fca5a5"} />
+                          ))}
+                        </Bar>
+                      )}
+                      {chartView === "oichg" && (
+                        <Bar dataKey="peOiChg" name="Δ Put OI">
+                          {oiBars.map((d, i) => (
+                            <Cell key={i} fill={d.peOiChg >= 0 ? "#16a34a" : "#86efac"} />
+                          ))}
+                        </Bar>
+                      )}
+                      {chartView === "pcr" && (
+                        // dataKey is `pcrCapped` (capped at 3) so high-strike
+                        // bars are visible at a meaningful scale; cell color
+                        // and tooltip continue to read the true `pcr`.
+                        <Bar dataKey="pcrCapped" name="PCR">
+                          {oiBars.map((d, i) => (
+                            <Cell key={i} fill={d.pcr >= 1.3 ? "#16a34a" : d.pcr <= 0.7 ? "#dc2626" : "#a3a3a3"} />
+                          ))}
+                        </Bar>
+                      )}
+                      {chartView === "pain" && (
+                        <Bar dataKey="pain" name="Pain">
+                          {oiBars.map((d, i) => (
+                            // Float-tolerant match — `data.maxPain` can drift by
+                            // a fraction of a strike-step due to upstream math,
+                            // so a strict `===` would silently fail to highlight
+                            // the actual max-pain bar even when the reference
+                            // line snaps correctly.
+                            <Cell
+                              key={i}
+                              fill={Math.abs(d.strike - data.maxPain) <= halfStep ? "#f97316" : "#525252"}
+                            />
+                          ))}
+                        </Bar>
+                      )}
+                    </ComposedChart>
+                  </ResponsiveContainer>
                 );
               })()}
             </CardContent>
@@ -3674,52 +4253,52 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                         const padHi = hi > 0 ? hi + span * 0.18 : span * 0.05;
                         const padLo = lo < 0 ? lo - span * 0.18 : -span * 0.05;
                         return (
-                        <ResponsiveContainer width="100%" height={130}>
-                          {/*
+                          <ResponsiveContainer width="100%" height={130}>
+                            {/*
                             Single-row dataset with two Bar series (Call, Put)
                             so the tooltip shows both values labeled and the
                             LabelList renders the magnitude at the value-end
                             of each bar — sign-aware `position` keeps the
                             label visible whether the bar grows up or down.
                           */}
-                          <BarChart
-                            data={[{ name: "OI Δ", call: c, put: p }]}
-                            margin={{ top: 18, right: 12, left: 12, bottom: 18 }}
-                          >
-                            <XAxis dataKey="name" hide />
-                            <YAxis hide domain={[padLo, padHi]} />
-                            <RTooltip
-                              contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: 4, fontSize: 11, padding: "6px 10px" }}
-                              labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
-                              itemStyle={{ color: "#e4e4e7", padding: 0, lineHeight: 1.6 }}
-                              cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                              formatter={(v: number, name: string) => [fmtNum(v), name]}
-                              labelFormatter={() =>
-                                isWindowed
-                                  ? `Change vs ${baselineDate?.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false }) ?? "baseline"}`
-                                  : "Intraday change (since 9:15)"
-                              }
-                            />
-                            <Bar dataKey="call" name="Call ΔOI" radius={[3, 3, 0, 0]}
-                              fill={c >= 0 ? "#dc2626" : "#fca5a5"}>
-                              <LabelList
-                                dataKey="call"
-                                position={c >= 0 ? "top" : "bottom"}
-                                formatter={labelFmt}
-                                style={{ fontSize: 11, fontWeight: 700, fill: c >= 0 ? "#fecaca" : "#7f1d1d" }}
+                            <BarChart
+                              data={[{ name: "OI Δ", call: c, put: p }]}
+                              margin={{ top: 18, right: 12, left: 12, bottom: 18 }}
+                            >
+                              <XAxis dataKey="name" hide />
+                              <YAxis hide domain={[padLo, padHi]} />
+                              <RTooltip
+                                contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: 4, fontSize: 11, padding: "6px 10px" }}
+                                labelStyle={{ color: "#fafafa", fontWeight: 600, marginBottom: 4 }}
+                                itemStyle={{ color: "#e4e4e7", padding: 0, lineHeight: 1.6 }}
+                                cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                                formatter={(v: number, name: string) => [fmtNum(v), name]}
+                                labelFormatter={() =>
+                                  isWindowed
+                                    ? `Change vs ${baselineDate?.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false }) ?? "baseline"}`
+                                    : "Intraday change (since 9:15)"
+                                }
                               />
-                            </Bar>
-                            <Bar dataKey="put" name="Put ΔOI" radius={[3, 3, 0, 0]}
-                              fill={p >= 0 ? "#16a34a" : "#86efac"}>
-                              <LabelList
-                                dataKey="put"
-                                position={p >= 0 ? "top" : "bottom"}
-                                formatter={labelFmt}
-                                style={{ fontSize: 11, fontWeight: 700, fill: p >= 0 ? "#bbf7d0" : "#14532d" }}
-                              />
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
+                              <Bar dataKey="call" name="Call ΔOI" radius={[3, 3, 0, 0]}
+                                fill={c >= 0 ? "#dc2626" : "#fca5a5"}>
+                                <LabelList
+                                  dataKey="call"
+                                  position={c >= 0 ? "top" : "bottom"}
+                                  formatter={labelFmt}
+                                  style={{ fontSize: 11, fontWeight: 700, fill: c >= 0 ? "#fecaca" : "#7f1d1d" }}
+                                />
+                              </Bar>
+                              <Bar dataKey="put" name="Put ΔOI" radius={[3, 3, 0, 0]}
+                                fill={p >= 0 ? "#16a34a" : "#86efac"}>
+                                <LabelList
+                                  dataKey="put"
+                                  position={p >= 0 ? "top" : "bottom"}
+                                  formatter={labelFmt}
+                                  style={{ fontSize: 11, fontWeight: 700, fill: p >= 0 ? "#bbf7d0" : "#14532d" }}
+                                />
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
                         );
                       })()}
                       {/* CALL/PUT magnitude readout — bumped from text-[10px]
@@ -3835,7 +4414,7 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                         labelFormatter={() => "Outstanding OI"}
                       />
                       <Bar dataKey="call" name="Call OI" radius={[4, 4, 0, 0]} fill="#dc2626" />
-                      <Bar dataKey="put"  name="Put OI"  radius={[4, 4, 0, 0]} fill="#16a34a" />
+                      <Bar dataKey="put" name="Put OI" radius={[4, 4, 0, 0]} fill="#16a34a" />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
@@ -4043,9 +4622,9 @@ function SentimentGauge({ band, score, label, strengthPct }: { band: SentimentBa
   const bands: Array<{ from: number; to: number; color: string }> = [
     { from: 180, to: 144, color: "#dc2626" },
     { from: 144, to: 108, color: "#f97316" },
-    { from: 108, to: 72,  color: "#a3a3a3" },
-    { from:  72, to: 36,  color: "#84cc16" },
-    { from:  36, to:  0,  color: "#16a34a" },
+    { from: 108, to: 72, color: "#a3a3a3" },
+    { from: 72, to: 36, color: "#84cc16" },
+    { from: 36, to: 0, color: "#16a34a" },
   ];
   function arcPath(fromDeg: number, toDeg: number): string {
     const f = (fromDeg * Math.PI) / 180;

@@ -23,9 +23,8 @@
  */
 import type { DailyBars, FundamentalsSnapshot } from "./swingScanner";
 import { EMPTY_FUNDAMENTALS, fundamentalScore, fundamentalStatusFromScore } from "./swingScanner";
-import { fetchKiteHistoricalByToken, getIndexTokenMap } from "./kiteIntraday";
-import { getInstrumentToken } from "./kiteFeed";
-import { fetchChart, fetchChartRaw, fetchFundamentals } from "./yahoo";
+import { centralKiteHistoricalByToken, centralIndexTokenMap, centralInstrumentToken } from "./marketData/compat";
+import { fetchChart, fetchChartRaw, fetchFundamentals } from "./marketData/analyticsYahoo";
 import { isFreshFor } from "./chartDatafeed";
 import { logger } from "./logger";
 
@@ -78,9 +77,9 @@ function barsAsOfMs(bars: DailyBars): number | null {
  *  HONEST about Kite-vs-Yahoo provenance (the fallback is explicit, never
  *  silent) — and never fabricates bars (null on a genuine miss). */
 export async function fetchDailyBars(symbol: string, daysBack = 500): Promise<SwingDailyBarsResult> {
-  const token = await getInstrumentToken(symbol).catch(() => null);
+  const token = await centralInstrumentToken(symbol).catch(() => null);
   if (token) {
-    const kite = await fetchKiteHistoricalByToken(token, `swing:${symbol}`, "day", daysBack);
+    const kite = await centralKiteHistoricalByToken(token, `swing:${symbol}`, "day", daysBack);
     if (kite && kite.close.length >= 220) {
       const bars = chartToBars(kite);
       const asOf = barsAsOfMs(bars);
@@ -180,13 +179,13 @@ async function defaultKiteFetch(daysBack: number) {
   // resilient loader records a `kite` error.
   let token: number | null = null;
   try {
-    const map = await getIndexTokenMap();
+    const map = await centralIndexTokenMap();
     if (map) token = map.get("^NSEI") ?? null;
   } catch {
     // Swallow — fall back to hard-coded token below.
   }
   if (!token || !Number.isFinite(token)) token = NIFTY50_INSTRUMENT_TOKEN;
-  return fetchKiteHistoricalByToken(token, "swing:^NSEI", "day", daysBack);
+  return centralKiteHistoricalByToken(token, "swing:^NSEI", "day", daysBack);
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

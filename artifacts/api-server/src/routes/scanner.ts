@@ -23,11 +23,10 @@ import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { computeSectorCoverage } from "../lib/sectorCoverage";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground, getScanRowsFast } from "../lib/scanner";
-import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
-import { isRecognisedEtf, loadKiteEtfQuote, getEtfRecognitionDiagnostics, checkEtfRecognition } from "../lib/kiteScanner";
+import { centralIndexQuotes, centralIsRecognisedEtf, centralLoadKiteEtfQuote, centralGetEtfRecognitionDiagnostics, centralCheckEtfRecognition } from "../lib/marketData/compat";
 import { loadEtfNav } from "../lib/etfNav";
 import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
-import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/yahoo";
+import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/marketData/analyticsYahoo";
 import { pivots } from "../lib/indicators";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
 import { getMarketEvents, computeMarketStatus } from "../lib/marketEvents";
@@ -102,7 +101,7 @@ router.get("/market/summary", async (_req, res, next) => {
     // Try Kite first for the Indian indices. This call is bounded by the
     // 10s in-module cache and a single Kite getQuote batch — typically
     // returns in under 300ms even on a cold cache.
-    const kiteQuotes = await getKiteIndexQuotes().catch(() => null);
+    const kiteQuotes = await centralIndexQuotes().catch(() => null);
 
     const indices = await Promise.all(INDEX_SYMBOLS.map(async i => {
       const slug = i.slug;
@@ -490,8 +489,8 @@ router.get("/stocks/:symbol", async (req, res, next) => {
 router.get("/etf/diagnostics", requireOwner, async (req, res, next) => {
   try {
     const symbolParam = typeof req.query["symbol"] === "string" ? req.query["symbol"] : "";
-    const diagnostics = await getEtfRecognitionDiagnostics();
-    const check = symbolParam.trim() ? await checkEtfRecognition(symbolParam) : null;
+    const diagnostics = await centralGetEtfRecognitionDiagnostics();
+    const check = symbolParam.trim() ? await centralCheckEtfRecognition(symbolParam) : null;
     res.json({ ...diagnostics, check });
   } catch (err) { next(err); }
 });
@@ -504,11 +503,11 @@ router.get("/etf/diagnostics", requireOwner, async (req, res, next) => {
 router.get("/etf/:symbol/quote", async (req, res, next) => {
   try {
     const symbol = String(req.params["symbol"] ?? "").trim().toUpperCase();
-    if (!(await isRecognisedEtf(symbol))) {
+    if (!(await centralIsRecognisedEtf(symbol))) {
       res.status(404).json({ error: "Not a recognised ETF" });
       return;
     }
-    const q = await loadKiteEtfQuote(symbol);
+    const q = await centralLoadKiteEtfQuote(symbol);
     if (!q) {
       // Distinguish "Kite offline" (null map upstream) from "no quote": both
       // surface here as null. A logged-out Kite is the common cause, so treat

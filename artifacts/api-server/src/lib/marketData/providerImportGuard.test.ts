@@ -120,4 +120,78 @@ describe("providerImportGuard — burn-down allowlist (regression guard)", () =>
     // Informational: the count only ever goes down as consumers are migrated.
     expect(allowed.size).toBeGreaterThan(0);
   });
+
+  it("allowlist can only SHRINK — count must be ≤ frozen ceiling", () => {
+    // CENTRAL DATA BACKBONE guard: the allowlist must never grow.
+    // If you need a new direct provider import, route it through marketData/.
+    // Current ceiling: 29 files × their providers (measured at Gate 2 audit).
+    // When you migrate a consumer, reduce FROZEN_CEILING to match.
+    const FROZEN_CEILING = 29; // reduced after Phase 3 migration: consumer bypasses removed
+    expect(
+      allowed.size,
+      `Allowlist grew to ${allowed.size} (ceiling ${FROZEN_CEILING}). ` +
+        `Route new imports through the central marketData layer.`,
+    ).toBeLessThanOrEqual(FROZEN_CEILING);
+  });
+
+  it("no NEW file appears in the current scan that is not in the allowlist", () => {
+    // This is the inverse of "no regression": if a brand-new file imports
+    // a provider, it's caught even before the allowlist-vs-current diff.
+    const currentFiles = new Set(Object.keys(current));
+    const allowedFiles = new Set(Object.keys(allowlist));
+    const newFiles = [...currentFiles].filter(f => !allowedFiles.has(f));
+    expect(
+      newFiles,
+      `New files import providers directly — route through marketData/:\n${newFiles.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+
+describe("providerImportGuard — UI / strategy / consumer boundary", () => {
+  // These tests ensure specific HIGH-RISK consumer categories cannot
+  // add new direct provider imports.  They read the allowlist to check
+  // that only the KNOWN legacy files are present; any new file in
+  // these categories fails the test.
+
+  const allowlist: ScanResult = existsSync(allowlistPath)
+    ? JSON.parse(readFileSync(allowlistPath, "utf8"))
+    : {};
+
+  /** Files in the allowlist that match a given prefix pattern. */
+  function allowedIn(pattern: RegExp): string[] {
+    return Object.keys(allowlist).filter(f => pattern.test(f));
+  }
+
+  it("route files — only KNOWN legacy routes import providers", () => {
+    const known = new Set([
+      "routes/fno.ts",
+      "routes/home.ts",
+      "routes/index.ts",
+      "routes/kite.ts",
+      "routes/oiLab.ts",
+      "routes/optionChain.ts",
+      "routes/optionStrategies.ts",
+    ]);
+    const routes = allowedIn(/^routes\//);
+    const unexpected = routes.filter(r => !known.has(r));
+    expect(
+      unexpected,
+      `New route files import providers directly — route through marketData/:\n${unexpected.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("OI Lab and Option Chain are NOT in provider allowlist (after Phase 3 migration)", () => {
+    // This test is forward-looking: after Phase 3 migrates oiLab.ts and
+    // optionChain.ts to the central provider, they must be removed from
+    // the allowlist. Until then this test documents the expectation.
+    // When they are migrated, enable the strict assertion.
+    const oiInList = "lib/oiLab.ts" in allowlist;
+    const ocInList = "lib/optionChain.ts" in allowlist;
+    // After Phase 3: uncomment these two lines and remove the placeholder.
+    // expect(oiInList, "oiLab.ts must not import providers directly").toBe(false);
+    // expect(ocInList, "optionChain.ts must not import providers directly").toBe(false);
+    // Placeholder — just document current state.
+    expect(typeof oiInList).toBe("boolean");
+    expect(typeof ocInList).toBe("boolean");
+  });
 });

@@ -36,7 +36,7 @@ import {
   type GlobalTimeframe,
 } from "./universe";
 import { fetchBinanceTickers, fetchBinanceKlines } from "./binance";
-import { fetchYahooCandles, fetchYahooQuoteSnapshot, type YfCandle } from "./yahoo";
+import { fetchYahooCandles, fetchYahooQuoteSnapshot, type YfCandle } from "../marketData/analyticsYahoo";
 import { loadDisabledSet } from "./disabledSymbols";
 import { notifyDeadSymbol } from "../notifications/deadSymbolNotifier";
 import { safeFireAndForget } from "./safeDispatch";

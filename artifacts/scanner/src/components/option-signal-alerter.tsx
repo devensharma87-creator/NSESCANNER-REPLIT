@@ -237,20 +237,99 @@ export function OptionSignalAlerter() {
   };
 
   // Compose UI bits derived from the current alert.
+  // EXECUTION TRUTH: uses backend `execution` fields (from paper_trade_fo /
+  // skip ring), NEVER derives paper-trade status from tier alone.
   const ui = useMemo(() => {
     if (!current) return null;
     const s = current.signal;
     const isEntry = current.kind === "TRIGGERED";
     const tier = (s.tier ?? "BASELINE").toUpperCase();
-    const isTradeable = tier === "HIGH_CONVICTION" || tier === "STANDARD";
-    const paperAllowed = isTradeable;
-    const paperReason = isTradeable
-      ? null
-      : tier === "INFO_ONLY"
-        ? "INFO_ONLY tier — informational outlook, not auto-traded"
-        : tier === "BASELINE"
-          ? "BASELINE tier — lower conviction, not auto-traded"
+
+    // --- Execution truth from backend (additive fields) ---
+    // The backend sends `execution` on signal-history rows. For the
+    // Orval-generated OptionSignalHistoryItem type we cast to access
+    // the additive field without touching codegen.
+    const exec = (s as Record<string, unknown>).execution as {
+      signalTier?: string;
+      signalTradeable?: boolean;
+      executionStatus?: string;
+      executionBlockedReason?: string | null;
+      paperTradeOpened?: boolean;
+      paperTradePositionId?: string | null;
+      paperTradeLots?: number | null;
+      paperTradeEntryPremium?: number | null;
+      finalAlertClass?: string;
+    } | undefined;
+
+    const execStatus = exec?.executionStatus ?? "NOT_CONFIRMED";
+    const isOpened = execStatus === "OPENED";
+    const isBlocked = execStatus === "BLOCKED";
+    const isInfoOnly = execStatus === "NOT_APPLICABLE";
+    const isNotConfirmed = execStatus === "NOT_CONFIRMED";
+    const blockReason = exec?.executionBlockedReason ?? null;
+
+    // --- Paper trade badge (4-state, never YES) ---
+    let paperBadgeLabel: string;
+    let paperBadgeTone: "opened" | "blocked" | "info" | "notconfirmed";
+    if (isOpened) {
+      paperBadgeLabel = "PAPER TRADE: OPENED";
+      paperBadgeTone = "opened";
+    } else if (isBlocked) {
+      paperBadgeLabel = "PAPER TRADE: BLOCKED";
+      paperBadgeTone = "blocked";
+    } else if (isInfoOnly) {
+      paperBadgeLabel = "PAPER TRADE: NO";
+      paperBadgeTone = "info";
+    } else {
+      paperBadgeLabel = "PAPER TRADE: NOT CONFIRMED";
+      paperBadgeTone = "notconfirmed";
+    }
+
+    // --- Paper trade reason text ---
+    let paperReason: string | null = null;
+    if (isBlocked && blockReason) {
+      const friendlyReasons: Record<string, string> = {
+        DAILY_DD_CAP: "Blocked — daily drawdown cap latched",
+        WEEKLY_DD_CAP: "Blocked — weekly drawdown cap latched",
+        PORTFOLIO_HEAT: "Blocked — portfolio heat cap exceeded",
+        PORTFOLIO_HEAT_CAP: "Blocked — portfolio heat cap exceeded",
+        RISK_TOO_WIDE_FOR_MIN_LOT: "Blocked — risk too wide for minimum lot sizing",
+        PREMIUM_UNTRUSTED: "Blocked — option premium is not Kite-trusted",
+        DUPLICATE_POSITION: "Blocked — duplicate open position exists",
+        MARKET_CLOSED: "Blocked — market is closed",
+        CONSECUTIVE_STOPS: "Blocked — consecutive stops circuit breaker",
+        DAILY_TRADE_CAP: "Blocked — daily trade cap reached",
+        BASELINE_DAILY_CAP: "Blocked — baseline daily trade cap reached",
+        BASELINE_DAILY_DD_CAP: "Blocked — baseline daily DD cap latched",
+        BASELINE_CONSECUTIVE_LOSSES: "Blocked — baseline consecutive losses",
+        BASELINE_GUARDRAIL_STATS_UNAVAILABLE: "Blocked — guardrail stats unavailable",
+        INSUFFICIENT_BALANCE: "Blocked — insufficient paper account balance",
+        BUDGET_TOO_TIGHT: "Blocked — budget too tight for minimum position",
+        TIME_FILTER_LATE: "Blocked — too late in the session for new entries",
+        BASELINE_LATE: "Blocked — too late for baseline entries",
+        LIQUIDITY_LTP: "Blocked — option LTP liquidity check failed",
+        LIQUIDITY_SPREAD: "Blocked — option bid-ask spread too wide",
+        LIQUIDITY_OI: "Blocked — option open interest too low",
+        LIQUIDITY_CHAIN_MISSING: "Blocked — live option chain unavailable",
+        INVALID_PREMIUM_PLAN: "Blocked — premium plan validation failed",
+        DATA_QUALITY_DELAYED: "Blocked — data quality is delayed (not live Kite)",
+        DATA_QUALITY_STALE: "Blocked — data quality is stale",
+        MISSED_WINDOW: "Blocked — signal already exited before paper trade could open",
+        INFO_ONLY_NOT_TRADEABLE: "Info-only — not eligible for auto-trade",
+        BASELINE_NOT_TRADEABLE: "Baseline — lower conviction, not auto-traded",
+        CONFIDENCE_FLOOR: "Blocked — confidence below minimum floor",
+      };
+      paperReason = friendlyReasons[blockReason] ?? `Blocked — ${blockReason}`;
+    } else if (isInfoOnly) {
+      paperReason = tier === "BASELINE"
+        ? "BASELINE tier — lower conviction, not auto-traded"
+        : tier === "INFO_ONLY"
+          ? "INFO_ONLY tier — informational outlook, not auto-traded"
           : `${tier} tier — not eligible for auto-trade`;
+    } else if (isNotConfirmed) {
+      paperReason = "Execution not confirmed — no paper trade record found for this signal. "
+        + "This may indicate a server restart or timing gap.";
+    }
 
     let headerBg: string;
     let headerText: string;
@@ -261,20 +340,35 @@ export function OptionSignalAlerter() {
       headerBg = "bg-red-500/10 border-red-500/40";
       headerText = "text-red-300";
       title = "STOP LOSS HIT";
-    } else if (isTradeable) {
+    } else if (isOpened) {
+      // Execution confirmed — paper trade was actually opened
       headerBg = "bg-cyan-500/10 border-cyan-500/40";
       headerText = "text-cyan-300";
       title = "TRADEABLE ENTRY TRIGGERED";
+    } else if (isBlocked) {
+      // Tradeable signal but execution was blocked by a guardrail
+      headerBg = "bg-amber-500/10 border-amber-500/40";
+      headerText = "text-amber-300";
+      title = "TRADEABLE SETUP — EXECUTION BLOCKED";
+    } else if (isNotConfirmed && (tier === "HIGH_CONVICTION" || tier === "STANDARD")) {
+      // HC/STANDARD but no evidence of execution
+      headerBg = "bg-amber-500/10 border-amber-500/40";
+      headerText = "text-amber-300";
+      title = "TRADEABLE SETUP — EXECUTION NOT CONFIRMED";
     } else {
       // INFO_ONLY / BASELINE / demoted — entry level reached but not auto-traded
       headerBg = "bg-amber-500/10 border-amber-500/40";
       headerText = "text-amber-300";
-      title = "INFO ALERT — entry level reached";
+      title = "INFO ALERT — ENTRY LEVEL REACHED";
     }
 
     const optionLabel = `${s.indexName} ${s.strike} ${s.optionType}`;
     const signalId = `${s.signalDate}:${s.indexSymbol}:${s.setupKey}:${s.direction}`;
-    return { s, isEntry, headerBg, headerText, title, optionLabel, tier, isTradeable, paperAllowed, paperReason, signalId };
+    return {
+      s, isEntry, headerBg, headerText, title, optionLabel, tier,
+      paperBadgeLabel, paperBadgeTone, paperReason, signalId,
+      exec, isOpened, isBlocked,
+    };
   }, [current]);
 
   if (!isOwner) return null;
@@ -302,7 +396,7 @@ export function OptionSignalAlerter() {
           {ui ? (
             <div className="flex flex-wrap gap-1.5 mt-1.5">
               <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider ${
-                ui.isTradeable
+                ui.exec?.signalTradeable
                   ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
                   : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
               }`}>
@@ -312,11 +406,15 @@ export function OptionSignalAlerter() {
                 Historical snapshot · {ui.isEntry ? "triggered" : "stopped"} at {formatTime(ui.isEntry ? ui.s.triggeredAt : ui.s.exitedAt)}
               </span>
               <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider ${
-                ui.paperAllowed
+                ui.paperBadgeTone === "opened"
                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                  : "bg-zinc-700/50 text-zinc-500 border border-zinc-600/30"
+                  : ui.paperBadgeTone === "blocked"
+                    ? "bg-red-500/20 text-red-300 border border-red-500/30"
+                    : ui.paperBadgeTone === "notconfirmed"
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                      : "bg-zinc-700/50 text-zinc-500 border border-zinc-600/30"
               }`}>
-                Paper trade: {ui.paperAllowed ? "YES" : "NO"}
+                {ui.paperBadgeLabel}
               </span>
             </div>
           ) : null}
@@ -390,6 +488,22 @@ export function OptionSignalAlerter() {
               </div>
             ) : null}
 
+            {/* Paper trade details when OPENED */}
+            {ui.isOpened && ui.exec ? (
+              <div className="rounded border border-emerald-500/30 bg-emerald-500/5 p-2 text-xs space-y-1">
+                <div className="text-emerald-300 uppercase tracking-wider text-[10px] font-bold">Paper trade opened</div>
+                {ui.exec.paperTradeLots != null && (
+                  <div className="text-muted-foreground">Lots: <span className="text-foreground">{ui.exec.paperTradeLots}</span></div>
+                )}
+                {ui.exec.paperTradeEntryPremium != null && (
+                  <div className="text-muted-foreground">Entry premium: <span className="text-foreground tabular-nums">₹{ui.exec.paperTradeEntryPremium.toFixed(2)}</span></div>
+                )}
+                {ui.exec.paperTradePositionId && (
+                  <div className="text-muted-foreground/60 text-[10px] break-all">ID: {ui.exec.paperTradePositionId}</div>
+                )}
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-border/40">
               <div>
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Generated</div>
@@ -418,9 +532,15 @@ export function OptionSignalAlerter() {
               Signal: {ui.signalId}
             </div>
 
-            {/* Paper-trade reason when not allowed */}
-            {!ui.paperAllowed && ui.paperReason ? (
-              <div className="rounded border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-300/80">
+            {/* Execution block reason */}
+            {(ui.isBlocked || ui.paperBadgeTone === "info" || ui.paperBadgeTone === "notconfirmed") && ui.paperReason ? (
+              <div className={`rounded border p-2 text-xs ${
+                ui.isBlocked
+                  ? "border-red-500/30 bg-red-500/5 text-red-300/80"
+                  : ui.paperBadgeTone === "notconfirmed"
+                    ? "border-amber-500/30 bg-amber-500/5 text-amber-300/80"
+                    : "border-amber-500/30 bg-amber-500/5 text-amber-300/80"
+              }`}>
                 {ui.paperReason}
               </div>
             ) : null}

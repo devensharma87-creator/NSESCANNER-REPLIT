@@ -34,13 +34,13 @@
 
 import type { Quote, StockRow, Recommendation } from "@workspace/api-zod";
 import { buildSourceProvenance, type DataSourceProvider } from "./scannerProvenance";
-import { fetchIntraday, fetchChart, yahooTickerFor, isYahooPaused, yahooPausedForMs, fetchYahooBatchQuotes, type YahooBatchQuote } from "./yahoo";
+import { fetchIntraday, fetchChart, yahooTickerFor, isYahooPaused, yahooPausedForMs, fetchYahooBatchQuotes, type YahooBatchQuote } from "./marketData/analyticsYahoo";
 import { ema, rsi, atr, sessionVwap, macd as macdSeries } from "./indicators";
-import { getAllSymbols, getDeliveryMap } from "./nseBhavcopy";
+import { getAllSymbols, getDeliveryMap } from "./marketData/referenceData";
 import { UNIVERSE, INACTIVE_SYMBOLS } from "./universe";
 import { logger } from "./logger";
 import { loadBlob, saveBlob } from "./diskCache";
-import { loadKiteNseEqInstruments, loadKiteQuotes, type KiteScannerQuote } from "./kiteScanner";
+import { centralKiteNseEqInstruments, centralBatchEquityQuotes, type KiteScannerQuote } from "./marketData/compat";
 import { buildAllSwingSignals } from "./swingSignals";
 import { runEquityPaperTradingTick } from "./paperTradingEq";
 import { EQUITY_RISK } from "./paperAccount";
@@ -527,7 +527,7 @@ async function performFullScan(): Promise<Cache> {
   let sourceDate = "";
   let degraded = false;
 
-  const kiteInst = await loadKiteNseEqInstruments();
+  const kiteInst = await centralKiteNseEqInstruments();
   if (kiteInst && kiteInst.list.length > 0) {
     symbolList = kiteInst.list.map(i => i.tradingsymbol);
     sourceDate = `kite:${new Date(kiteInst.fetchedAt).toISOString().slice(0, 10)}`;
@@ -561,7 +561,7 @@ async function performFullScan(): Promise<Cache> {
   progress.running = true;
 
   // ── 2. KITE QUOTES (primary price source) ──────────────────────────
-  const kiteQuotes = await loadKiteQuotes(symbolList);
+  const kiteQuotes = await centralBatchEquityQuotes(symbolList);
   if (kiteQuotes && kiteQuotes.size > 0) {
     logger.info({ requested: symbolList.length, returned: kiteQuotes.size }, "Kite scanner: quote pass complete");
   } else if (!kiteQuotes) {

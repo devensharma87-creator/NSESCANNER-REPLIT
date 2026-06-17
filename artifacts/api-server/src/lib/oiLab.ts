@@ -24,7 +24,7 @@
 import { logger } from "./logger";
 import { isFnoUnderlying } from "./optionChain";
 import type { OcResponse, OcSide } from "./optionChain";
-import { fetchKiteOptionChain } from "./kiteOptionChain";
+import { getOptionChain as getCentralOptionChain } from "./marketData/optionChainProvider";
 import { computeAnalytics, type OptionAnalytics } from "./optionAnalytics";
 import { enrichAnalyticsWithIv } from "./ivHistory";
 import { getRestClient, getActiveSession } from "./kiteAuth";
@@ -33,12 +33,13 @@ import { loadFnoInstruments, type FnoInstrument } from "./kiteFnoInstruments";
 import { fetchKiteOiHistoricalByToken } from "./kiteIntraday";
 
 /**
- * OI Lab is strictly Kite-only — we do NOT use the NSE fallback that
- * `fetchOptionChain` allows, because OI Lab's whole purpose is live broker
- * data integrity. If Kite is down/expired, we surface a hard error.
+ * OI Lab uses TRADE_GRADE mode — Kite only. If Kite is down/expired, the
+ * central provider returns an explicit unavailable result (no NSE/Yahoo
+ * fallback). This function unwraps the central result for compatibility.
  */
 async function fetchKiteOnlyChain(sym: string): Promise<OcResponse | null> {
-  return await fetchKiteOptionChain(sym);
+  const result = await getCentralOptionChain(sym, "TRADE_GRADE");
+  return result.ok && result.data ? result.data.chain : null;
 }
 
 // ─── Universe ────────────────────────────────────────────────────────────────
@@ -316,6 +317,9 @@ export interface OiStrikeRow {
   ceGamma?: number;
   ceTheta?: number;
   ceVega?: number;
+  /** Absolute LTP change vs prev close (₹). Null when prev close unavailable
+   *  (NSE-direct path doesn't return per-leg prev close). Source: Kite. */
+  ceLtpChg?: number | null;
   // Puts
   peOi: number;
   peOiChg: number;
@@ -327,6 +331,8 @@ export interface OiStrikeRow {
   peGamma?: number;
   peTheta?: number;
   peVega?: number;
+  /** Absolute LTP change vs prev close (₹). Null when prev close unavailable. */
+  peLtpChg?: number | null;
   // Per-strike PCR (OI)
   pcr: number;
   // Max-pain payout if expiry pinned at this strike (lower = more pain to writers AT this strike)
@@ -733,6 +739,7 @@ export function computeOiInsights(chain: OcResponse, strikesAround = 20): OiInsi
       ceGamma: r.ce?.gamma,
       ceTheta: r.ce?.theta,
       ceVega:  r.ce?.vega,
+      ceLtpChg: r.ce?.ltpChange ?? null,
       peOi,
       peOiChg: r.pe?.chgOi ?? 0,
       peVolume: r.pe?.volume ?? 0,
@@ -743,6 +750,7 @@ export function computeOiInsights(chain: OcResponse, strikesAround = 20): OiInsi
       peGamma: r.pe?.gamma,
       peTheta: r.pe?.theta,
       peVega:  r.pe?.vega,
+      peLtpChg: r.pe?.ltpChange ?? null,
       pcr: ceOi > 0 ? +(peOi / ceOi).toFixed(2) : 0,
       painValue: painByStrike.get(r.strike) ?? 0,
     };
@@ -1467,9 +1475,8 @@ export async function fetchOiInsights(
 ): Promise<OiInsightsResponse | null> {
   hydrateOiInsightsHistoryFromDisk();
   const sym = underlying.toUpperCase();
-  const chain = expiry
-    ? await fetchKiteOptionChain(sym, expiry)
-    : await fetchKiteOnlyChain(sym);
+  const result = await getCentralOptionChain(sym, "TRADE_GRADE", expiry);
+  const chain = result.ok && result.data ? result.data.chain : null;
   if (!chain) return null;
   const insights = computeOiInsights(chain, strikesAround);
   // Push the snapshot AFTER computing insights so the snapshot's ts

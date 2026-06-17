@@ -30,10 +30,10 @@
  * refreshes feel real-time without hammering Yahoo.
  */
 
-import { fetchChart, fetchChartRaw, fetchIntraday, type YahooChart } from "./yahoo";
-import { fetchKiteIntraday, hasKiteIntradayCoverage } from "./kiteIntraday";
+import { fetchChart, fetchChartRaw, fetchIntraday, type YahooChart } from "./marketData/analyticsYahoo";
+import { centralIndexCandles, centralHasIndexCoverage, centralIndexQuotes } from "./marketData/compat";
 import { ema, sessionVwap, volumeProfile } from "./indicators";
-import { getKiteIndexQuotes, type KiteIndexQuote } from "./kiteIndexQuotes";
+import type { KiteIndexQuote } from "./kiteIndexQuotes";
 import { getGiftNifty } from "./giftNifty";
 import { getTvQuotes, type TvQuote } from "./tvQuotes";
 import { SOURCE_PRIORITY, UNKNOWN_SOURCE_PRIORITY } from "./marketData/provenance";
@@ -629,7 +629,7 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
       });
     });
   const [kiteMap, tvMap] = await Promise.all([
-    withDeadline("kiteIndexQuotes", getKiteIndexQuotes(), null as Map<string, KiteIndexQuote> | null).catch(err => {
+    withDeadline("kiteIndexQuotes", centralIndexQuotes(), null as Map<string, KiteIndexQuote> | null).catch(err => {
       logger.warn({ err: (err as Error).message }, "indicesBoard: Kite batch failed; falling back to Yahoo");
       return null;
     }),
@@ -648,8 +648,8 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
     // (zero delay vs Yahoo's ~15-min lag); otherwise Yahoo (covers global
     // benchmarks and commodities Kite doesn't carry). Daily 1y stays on
     // Yahoo for everyone — Kite's daily series only goes back ~60 days.
-    const intradayKite = hasKiteIntradayCoverage(cfg.yahoo)
-      ? fetchKiteIntraday(cfg.yahoo, "5minute", 1).catch(() => null)
+    const intradayKite = centralHasIndexCoverage(cfg.yahoo)
+      ? centralIndexCandles(cfg.yahoo, "5minute", 1).catch(() => null)
       : Promise.resolve(null);
     // INDIA category cfg.yahoo entries are NSE-style bare symbols (or already
     // fully-qualified ".NS") — `fetchChart` correctly applies the rename map +

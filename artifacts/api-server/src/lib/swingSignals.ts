@@ -35,7 +35,7 @@
  */
 import type { StockRow } from "@workspace/api-zod";
 import { atr } from "./indicators";
-import { fetchChart } from "./yahoo";
+import { fetchChart } from "./marketData/analyticsYahoo";
 import { logger } from "./logger";
 import { getEntry } from "./universe";
 

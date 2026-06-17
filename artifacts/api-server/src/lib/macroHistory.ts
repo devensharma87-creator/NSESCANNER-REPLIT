@@ -1,4 +1,4 @@
-import { fetchChartRaw } from "./yahoo";
+import { fetchChartRaw } from "./marketData/analyticsYahoo";
 import { logger } from "./logger";
 
 export interface MacroPoint {

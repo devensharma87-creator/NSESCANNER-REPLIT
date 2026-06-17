@@ -1,7 +1,7 @@
 import type { MarketTrend, SignalReason, SectorSummary, StockRow } from "@workspace/api-zod";
 import { scanAll, getCachedScanRows, refreshScanInBackground } from "./scanner";
-import { fetchIntraday, fetchIndexChart } from "./yahoo";
-import { fetchKiteIntraday } from "./kiteIntraday";
+import { fetchIntraday, fetchIndexChart } from "./marketData/analyticsYahoo";
+import { centralIndexCandles } from "./marketData/compat";
 import { ema, rsi, sessionVwap } from "./indicators";
 import { isFreshFor } from "./chartDatafeed";
 import { SECTORS } from "./universe";
@@ -61,7 +61,7 @@ export async function getMarketTrend(): Promise<MarketTrend> {
   ]) {
     try {
       // Kite-first for live 15-min index candles (no Yahoo 15-min delay).
-      let intra = await fetchKiteIntraday(idx.sym, "15minute", 5);
+      let intra = await centralIndexCandles(idx.sym, "15minute", 5);
       let intraSource: "kite" | "yahoo" | null =
         intra && intra.close.length >= 6 ? "kite" : null;
       if (!intra || intra.close.length < 6) {

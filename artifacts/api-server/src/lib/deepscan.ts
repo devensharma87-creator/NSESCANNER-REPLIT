@@ -11,9 +11,9 @@
  */
 
 import { UNIVERSE, getEntry, INDEX_CONSTITUENTS, type UniverseEntry } from "./universe";
-import { fetchChart, fetchIntraday, fetchFundamentals, yahooTickerFor, type YahooFundamentals } from "./yahoo";
+import { fetchChart, fetchIntraday, fetchFundamentals, yahooTickerFor, type YahooFundamentals } from "./marketData/analyticsYahoo";
 import { ema } from "./indicators";
-import { getAllSymbols } from "./nseBhavcopy";
+import { getAllSymbols } from "./marketData/referenceData";
 import { buildSourceProvenance, type SourceProvenance } from "./scannerProvenance";
 import type { ChartTimeframe } from "./chartDatafeed";
 

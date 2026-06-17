@@ -209,6 +209,43 @@ export async function getEquityCandles(
   return { ok: true, data: series as TrustedCandleSeries, meta: series.meta };
 }
 
+/** Authoritative index candles (NIFTY, BANKNIFTY, INDIAVIX, SENSEX, etc). */
+export async function getIndexCandles(
+  yahooSymbol: string,
+  interval: KiteInterval,
+  daysBack: number,
+): Promise<MarketDataResult<TrustedCandleSeries>> {
+  let series: CandleSeries | null = null;
+  try {
+    series = await kite.getIndexCandles(yahooSymbol, interval, daysBack);
+  } catch {
+    series = null;
+  }
+  if (!series) {
+    const reason = KITE_OFFLINE_REASON;
+    return {
+      ok: false,
+      data: null,
+      meta: unavailableMeta("kite", "authoritative", reason),
+      reason,
+    };
+  }
+  if (!isTradeableMeta(series.meta)) {
+    return {
+      ok: false,
+      data: null,
+      meta: series.meta,
+      reason: series.meta.warnings[0] ?? "Index candles not tradeable.",
+    };
+  }
+  return { ok: true, data: series as TrustedCandleSeries, meta: series.meta };
+}
+
+/** True when the given Yahoo-style symbol has Kite index coverage. */
+export function hasIndexCoverage(yahooSymbol: string): boolean {
+  return kite.hasIndexCoverage(yahooSymbol);
+}
+
 // Authoritative option-chain facade (Kite NFO). Re-exported so consumers reach
 // it through the same router surface as the quote/candle facades.
 export {

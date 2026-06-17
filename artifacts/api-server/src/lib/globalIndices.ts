@@ -1,6 +1,6 @@
 import type { IndexQuote } from "@workspace/api-zod";
-import { fetchIntraday, fetchIndexChart } from "./yahoo";
-import type { YahooChart } from "./yahoo";
+import { fetchIntraday, fetchIndexChart } from "./marketData/analyticsYahoo";
+import type { YahooChart } from "./marketData/analyticsYahoo";
 import { ema, rsi, sessionVwap } from "./indicators";
 import { getGiftNifty } from "./giftNifty";
 import { logger } from "./logger";

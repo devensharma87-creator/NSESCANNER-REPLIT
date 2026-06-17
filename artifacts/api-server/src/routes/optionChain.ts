@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { fetchOptionChain } from "../lib/optionChain";
-import { buildOptionChainProvenance } from "../lib/marketData/optionChainProvenance";
+import { getOptionChain as getCentralOptionChain } from "../lib/marketData/optionChainProvider";
+// optionChainProvenance import removed — provenance now from central provider meta
 import { computeAnalytics } from "../lib/optionAnalytics";
 import { enrichAnalyticsWithIv } from "../lib/ivHistory";
 import { getActiveSession } from "../lib/kiteAuth";
@@ -15,7 +15,8 @@ router.get("/options/chain/:underlying", async (req, res): Promise<void> => {
   if (!underlying) { res.status(400).json({ error: "underlying required" }); return; }
 
   try {
-    const chain = await fetchOptionChain(underlying, expiry);
+    const result = await getCentralOptionChain(underlying, "DISPLAY", expiry);
+    const chain = result.ok && result.data ? result.data.chain : null;
     if (!chain) {
       const kiteSession = await getActiveSession().catch(() => null);
       const detail = kiteSession
@@ -26,16 +27,13 @@ router.get("/options/chain/:underlying", async (req, res): Promise<void> => {
         detail,
         kiteAuthenticated: !!kiteSession,
         underlying,
+        reason: result.reason ?? undefined,
       });
       return;
     }
-    // Display-only provenance envelope (owner policy 2026-06-10): the chain
-    // page may render an NSE-direct/Yahoo fallback, but it must NEVER be
-    // silent. We attach an honest source/freshness/trust verdict so the UI
-    // can badge it "NSE fallback — Kite unavailable. Display only; not used
-    // for official signals or trades." This is purely informational — signal
-    // and paper-trade decisions gate on premium provenance independently.
-    const provenance = buildOptionChainProvenance(chain);
+    // Provenance from the central provider — includes DataMeta envelope with
+    // source, trust tier, freshness, stale flag, notForSignals, warnings.
+    const provenance = result.data!.meta;
     res.json({ ...chain, provenance });
   } catch (err) {
     logger.error({ err: (err as Error).message, underlying }, "Option chain handler crashed");
@@ -49,9 +47,10 @@ router.get("/options/analytics/:underlying", async (req, res): Promise<void> => 
   if (!underlying) { res.status(400).json({ error: "underlying required" }); return; }
 
   try {
-    const chain = await fetchOptionChain(underlying, expiry);
+    const result = await getCentralOptionChain(underlying, "DISPLAY", expiry);
+    const chain = result.ok && result.data ? result.data.chain : null;
     if (!chain) {
-      res.status(503).json({ error: "Option chain unavailable", underlying });
+      res.status(503).json({ error: "Option chain unavailable", underlying, reason: result.reason ?? undefined });
       return;
     }
     const analytics = computeAnalytics(chain);
@@ -79,8 +78,9 @@ router.get("/options/chain/:underlying/export", async (req, res): Promise<void> 
   if (!underlying) { res.status(400).json({ error: "underlying required" }); return; }
 
   try {
-    const chain = await fetchOptionChain(underlying, expiry);
-    if (!chain) { res.status(503).json({ error: "Option chain unavailable", underlying }); return; }
+    const result = await getCentralOptionChain(underlying, "DISPLAY", expiry);
+    const chain = result.ok && result.data ? result.data.chain : null;
+    if (!chain) { res.status(503).json({ error: "Option chain unavailable", underlying, reason: result.reason ?? undefined }); return; }
     const flat = chain.rows.map(r => ({
       strike: r.strike,
       atm: r.strike === chain.atmStrike ? "Y" : "",

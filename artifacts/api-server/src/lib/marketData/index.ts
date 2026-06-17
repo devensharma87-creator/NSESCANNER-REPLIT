@@ -90,6 +90,8 @@ export {
   getEquityQuote,
   getEquityQuotes,
   getEquityCandles,
+  getIndexCandles,
+  hasIndexCoverage,
   getLtp,
   getIndexQuotes,
   getIndexQuote,
@@ -103,6 +105,13 @@ export {
   type TrustedOptionChain,
   type OptionChainEvaluation,
 } from "./router";
+
+export {
+  clearOptionChainCache,
+  getOptionChainCacheStats,
+  type OptionChainMode,
+  type OptionChainMeta,
+} from "./optionChainProvider";
 
 export {
   candleProvenanceFromMeta,
@@ -122,3 +131,10 @@ export {
   type ProviderState,
   type SymbolDiagnostic,
 } from "./diagnostics";
+
+export {
+  centralIndexCandles,
+  centralHasIndexCoverage,
+  centralEquityCandles,
+  centralIndexQuotes,
+} from "./compat";

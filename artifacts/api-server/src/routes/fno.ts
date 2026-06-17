@@ -44,7 +44,7 @@ import { getEnvironmentLabel } from "../lib/paperAutoTradeFlag";
 import { getReasoningLoggerHealth } from "../lib/fnoSignalReasoningLogger";
 import { feedStatus } from "../lib/kiteFeed";
 import { getActiveSession, getKiteCreds } from "../lib/kiteAuth";
-import { getKiteIndexQuotes } from "../lib/kiteIndexQuotes";
+import { centralIndexQuotes } from "../lib/marketData/compat";
 import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics } from "../lib/optionAnalytics";
 import { OPTION_INDICES } from "../lib/optionSignals";
@@ -102,7 +102,7 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
 
     const wanted = typeof req.query["index"] === "string" ? req.query["index"].toUpperCase() : null;
     const indices = OPTION_INDICES.filter((c) => !wanted || c.symbol === wanted);
-    const quotes = await getKiteIndexQuotes().catch(() => null);
+    const quotes = await centralIndexQuotes().catch(() => null);
 
     const perIndex = await Promise.all(
       indices.map(async (cfg) => {

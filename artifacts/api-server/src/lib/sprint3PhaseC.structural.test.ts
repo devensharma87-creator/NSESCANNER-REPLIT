@@ -300,7 +300,8 @@ describe("Phase C — GEX placeholder", () => {
   it("shows GEX status checklist", () => {
     expect(uiSrc).toContain("✓ Implemented");
     expect(uiSrc).toContain("✓ Verified (contracts × lotSize)");
-    expect(uiSrc).toContain("◌ Pending Phase D");
+    // Phase F upgraded GEX: unavailable state shows "Data insufficient" instead of "Pending Phase D"
+    expect(uiSrc).toContain("Data insufficient");
     expect(uiSrc).toContain("✕ Not permitted");
   });
 
