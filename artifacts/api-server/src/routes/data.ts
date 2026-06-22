@@ -187,7 +187,7 @@ router.get("/data/diagnostics/portfolio", async (req, res, next) => {
         let resolvedSymbol = null;
         let exchange = null;
         let instrumentToken = null;
-        let reason = r.reason ?? "Not found in master";
+        let reason: string | null = r.reason ?? "Not found in master";
 
         if (r.resolved && r.instrument) {
           const inst = r.instrument;
