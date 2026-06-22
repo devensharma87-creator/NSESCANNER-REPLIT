@@ -61,6 +61,7 @@ export interface DetailLike {
   quote?: {
     price?: number | null;
     previousClose?: number | null;
+    updatedAt?: string | null;
   } | null;
   indicators?: {
     rsi14?: number | null;
@@ -283,7 +284,7 @@ export async function resolveHolding(
         instrumentType: cls,
         dataSource: "stock-detail",
         reason: null,
-        priceState: isStaleDate(detail?.quote?.price) ? "KITE STALE" : "KITE LIVE",
+        priceState: isStaleDate(detail?.quote?.updatedAt) ? "KITE STALE" : "KITE LIVE",
       }),
     };
   }
@@ -346,7 +347,7 @@ export async function resolveHolding(
           instrumentType,
           dataSource: "stock-detail",
           reason: null,
-          priceState: isStaleDate(detail?.quote?.price) ? "KITE STALE" : "KITE LIVE",
+          priceState: isStaleDate(detail?.quote?.updatedAt) ? "KITE STALE" : "KITE LIVE",
         }),
       };
     }
