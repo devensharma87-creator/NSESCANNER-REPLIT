@@ -30,6 +30,7 @@ import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
 // Mocks — wired BEFORE the route module import so the gate is what we measure.
@@ -297,7 +298,7 @@ describe("S2a — GET /api/stocks-to-watch/diagnostics/intraday-refresh", () => 
   });
 
   it("test 10: route uses the same strict owner-only middleware as the peer sector-coverage diagnostic (static-source check)", () => {
-    const here = path.dirname(new URL(import.meta.url).pathname);
+    const here = path.dirname(fileURLToPath(import.meta.url));
     const src = readFileSync(path.join(here, "..", "stocksToWatch.ts"), "utf8");
     const block = src.split('"/stocks-to-watch/diagnostics/intraday-refresh"')[1] ?? "";
     // The same four signals that gate the peer /sector-coverage route.
@@ -311,7 +312,7 @@ describe("S2a — GET /api/stocks-to-watch/diagnostics/intraday-refresh", () => 
   });
 
   it("test 11: handler body references NO forbidden side-effect tokens (Kite/DB/refresh)", () => {
-    const here = path.dirname(new URL(import.meta.url).pathname);
+    const here = path.dirname(fileURLToPath(import.meta.url));
     const src = readFileSync(path.join(here, "..", "stocksToWatch.ts"), "utf8");
     const block = src.split('"/stocks-to-watch/diagnostics/intraday-refresh"')[1] ?? "";
     // Tokens built at runtime so this test file itself can't satisfy the match.

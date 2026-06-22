@@ -209,6 +209,39 @@ export async function getEquityCandles(
   return { ok: true, data: series as TrustedCandleSeries, meta: series.meta };
 }
 
+/** Authoritative candles for a BSE/NSE symbol by its instrument token (charting/historical). */
+export async function getEquityCandlesByToken(
+  instrumentToken: number,
+  label: string,
+  interval: KiteInterval,
+  daysBack: number,
+): Promise<MarketDataResult<TrustedCandleSeries>> {
+  let series: CandleSeries | null = null;
+  try {
+    series = await kite.getEquityCandlesByToken(instrumentToken, label, interval, daysBack);
+  } catch {
+    series = null;
+  }
+  if (!series) {
+    const reason = KITE_OFFLINE_REASON;
+    return {
+      ok: false,
+      data: null,
+      meta: unavailableMeta("kite", "authoritative", reason),
+      reason,
+    };
+  }
+  if (!isTradeableMeta(series.meta)) {
+    return {
+      ok: false,
+      data: null,
+      meta: series.meta,
+      reason: series.meta.warnings[0] ?? "Candles not tradeable.",
+    };
+  }
+  return { ok: true, data: series as TrustedCandleSeries, meta: series.meta };
+}
+
 /** Authoritative index candles (NIFTY, BANKNIFTY, INDIAVIX, SENSEX, etc). */
 export async function getIndexCandles(
   yahooSymbol: string,

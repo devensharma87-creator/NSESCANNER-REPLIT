@@ -28,7 +28,7 @@ function makeFetchers(over: Partial<EnrichFetchers> = {}): EnrichFetchers {
   return {
     stockDetail: vi.fn(async () => null),
     searchInstruments: vi.fn(async () => []),
-    candles: vi.fn(async () => []),
+    candles: vi.fn(async () => ({ candles: [] })),
     ...over,
   };
 }
@@ -126,7 +126,7 @@ describe("resolveHolding cascade", () => {
     const searchInstruments = vi.fn(async () => [
       { symbol: "ABCAPITAL", name: "Aditya Birla Capital", segment: "equity", type: "Equity" },
     ]);
-    const candles = vi.fn(async () => Array.from({ length: 60 }, (_, i) => ({ c: 200 + i })));
+    const candles = vi.fn(async () => ({ candles: Array.from({ length: 60 }, (_, i) => ({ c: 200 + i })) }));
     const fx = makeFetchers({ searchInstruments, candles });
     const r = await resolveHolding({ symbol: "ABCAPITAL" }, fx);
     expect(r.meta.dataSource).toBe("chart-candles");
@@ -138,7 +138,7 @@ describe("resolveHolding cascade", () => {
     const searchInstruments = vi.fn(async () => [
       { symbol: "NIFTYBEES", name: "Nippon Nifty BeES", segment: "equity", type: "ETF" },
     ]);
-    const candles = vi.fn(async () => Array.from({ length: 5 }, (_, i) => ({ c: 250 + i })));
+    const candles = vi.fn(async () => ({ candles: Array.from({ length: 5 }, (_, i) => ({ c: 250 + i })) }));
     const fx = makeFetchers({ searchInstruments, candles });
     const r = await resolveHolding({ symbol: "NIFTYBEES" }, fx);
     expect(r.meta.instrumentType).toBe("Index ETF");

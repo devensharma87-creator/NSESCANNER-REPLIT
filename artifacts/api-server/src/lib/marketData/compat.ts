@@ -160,13 +160,16 @@ export { loadKiteNseEqInstruments as centralKiteNseEqInstruments } from "../kite
 
 // ─── Token-based equity candles ─────────────────────────────────────────
 
-/**
- * Central candle service for BSE/token-based equities.
- * Wraps `kiteIntraday.fetchKiteEquityIntradayByToken` through the backbone.
- * Used by chartDatafeed.ts and swingScannerData.ts for instruments resolved
- * by instrument token rather than NSE symbol.
- */
-export { fetchKiteEquityIntradayByToken as centralEquityCandlesByToken } from "../kiteIntraday";
+export async function centralEquityCandlesByToken(
+  instrumentToken: number,
+  label: string,
+  interval: "minute" | "3minute" | "5minute" | "10minute" | "15minute" | "30minute" | "60minute" | "day",
+  daysBack: number,
+): Promise<YahooChart | null> {
+  const result = await router.getEquityCandlesByToken(instrumentToken, label, interval, daysBack);
+  if (!result.ok || !result.data) return null;
+  return seriesToYahooChart(result.data);
+}
 
 /**
  * Central Kite historical data by token (for swing benchmark + daily bars).

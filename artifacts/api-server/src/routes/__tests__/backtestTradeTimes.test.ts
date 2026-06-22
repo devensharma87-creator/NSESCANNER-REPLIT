@@ -292,7 +292,7 @@ async function firstReplayInstrument(): Promise<string | null> {
   return best?.sym ?? null;
 }
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
 const describeDb = hasDb ? describe : describe.skip;
 
 describeDb("Backtest Lab — persisted trade times stay in-session (live DB)", () => {

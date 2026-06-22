@@ -92,6 +92,10 @@ export type UnavailableReason =
   | "Kite quote unavailable"
   | "ETF fundamentals unavailable"
   | "Awaiting data source"
+  | "PRICE UNAVAILABLE"
+  | "UNRESOLVED SYMBOL"
+  | "BSE TOKEN NOT FOUND"
+  | "KITE QUOTE UNAVAILABLE"
   | null;
 
 /** Resolution metadata produced by the enrichment cascade (provenance, never fabricated). */
@@ -113,6 +117,14 @@ export interface EnrichmentMeta {
   dataSource: DataSource;
   /** Null when fully enriched; otherwise the precise reason live price is absent. */
   reason: UnavailableReason;
+  priceState?:
+    | "KITE LIVE"
+    | "KITE STALE"
+    | "PRICE UNAVAILABLE"
+    | "UNRESOLVED SYMBOL"
+    | "BSE TOKEN NOT FOUND"
+    | "KITE QUOTE UNAVAILABLE"
+    | null;
 }
 
 export interface HoldingMetrics {

@@ -77,7 +77,7 @@ describe("HEAT_SQL_FNO — text shape (companion fragment, pinned for parity)", 
  * then ROLLBACK so the test leaves zero footprint on the dev DB. Skips
  * cleanly when DATABASE_URL is unset (CI without DB).
  */
-const dbAvailable = Boolean(process.env.DATABASE_URL);
+const dbAvailable = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
 const describeDb = dbAvailable ? describe : describe.skip;
 
 describeDb("HEAT_SQL_EQ — live DB execution against the real schema", () => {

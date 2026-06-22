@@ -167,16 +167,24 @@ export function HoldingsTable({
                         MANUAL
                       </span>
                     )}
-                    {!loading && manualCmp == null && !live.available && (
+                    {!loading && manualCmp == null && resolution.priceState && (
                       <span
-                        className="rounded border border-amber-500/40 bg-amber-500/10 px-1 text-[9px] font-medium text-amber-500"
+                        className={`rounded border px-1 text-[9px] font-medium ${
+                          resolution.priceState === "KITE LIVE"
+                            ? "border-green-500/40 bg-green-500/10 text-green-400"
+                            : resolution.priceState === "KITE STALE"
+                              ? "border-amber-500/40 bg-amber-500/10 text-amber-500"
+                              : "border-red-500/40 bg-red-500/10 text-red-500"
+                        }`}
                         title={
-                          provenance
-                            ? `Unpriced — ${reasonText} (${provenance}). Preserved; excluded from live valuation. Use Edit to enter a manual price.`
-                            : `Unpriced — ${reasonText}. Preserved; excluded from live valuation. Use Edit to enter a manual price.`
+                          resolution.priceState === "KITE LIVE"
+                            ? "Live price resolved and priced through central quote service"
+                            : resolution.priceState === "KITE STALE"
+                              ? "Stale price (older than 24h)"
+                              : `Price unavailable: ${reasonText} (${provenance || "No metadata"}). Preserved; excluded from live valuation. Use Edit to enter a manual price.`
                         }
                       >
-                        UNPRICED
+                        {resolution.priceState}
                       </span>
                     )}
                   </div>

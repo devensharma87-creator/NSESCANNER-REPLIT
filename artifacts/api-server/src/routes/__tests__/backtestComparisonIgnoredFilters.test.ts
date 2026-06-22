@@ -205,7 +205,7 @@ function assertHonestyColumn(
   return { rowsChecked: rows.length, aggsChecked: byStrategy.length };
 }
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
 const describeDb = hasDb ? describe : describe.skip;
 
 describeDb("Backtest Lab — COMPARE ignoredFilters honesty column over HTTP (live DB)", () => {

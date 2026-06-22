@@ -33,7 +33,7 @@ function skipReasonOf(
   return d.action === "SKIP" ? d.skipReason : undefined;
 }
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
 const dbit = hasDb ? it : it.skip;
 
 afterAll(async () => {

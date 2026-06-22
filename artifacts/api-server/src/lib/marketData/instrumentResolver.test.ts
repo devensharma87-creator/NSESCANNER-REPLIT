@@ -28,6 +28,10 @@ describe("normalizeSymbol (pure)", () => {
     expect(normalizeSymbol("NSE:BDL")).toBe("BDL");
     expect(normalizeSymbol("are&m")).toBe("ARE&M");
     expect(normalizeSymbol("INDHOTEL.BO")).toBe("INDHOTEL");
+    expect(normalizeSymbol("CPSE ETF")).toBe("CPSEETF");
+    expect(normalizeSymbol("CPSEETF")).toBe("CPSEETF");
+    expect(normalizeSymbol("  CpSe eTf.Ns  ")).toBe("CPSEETF");
+    expect(normalizeSymbol("are & m")).toBe("ARE&M");
   });
   it("returns empty for blank input", () => {
     expect(normalizeSymbol("   ")).toBe("");
@@ -97,6 +101,16 @@ describe("resolveInstrument never fabricates", () => {
     expect(r.instrument?.exchange).toBe("BSE");
     expect(r.instrument?.bse_code).toBe("544467");
     expect(r.matched_via).toBe("bse-code");
+  });
+
+  it("searchMaster supports numeric scrip codes", () => {
+    const hits = searchMaster("544467");
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].symbol).toBe("NSDL");
+    expect(hits[0].exchange).toBe("BSE");
+
+    const badHits = searchMaster("999999");
+    expect(badHits.length).toBe(0);
   });
 
   it("resolves NSDL (BSE-only) by symbol", () => {

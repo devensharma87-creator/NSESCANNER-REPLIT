@@ -24,6 +24,13 @@ import {
 } from "./symbol";
 import { sma, rsi14 } from "./indicators";
 
+function isStaleDate(dateStr: string | Date | undefined | null): boolean {
+  if (!dateStr) return false;
+  const t = new Date(dateStr).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t > 24 * 3600 * 1000;
+}
+
 export const EMPTY_LIVE: LiveMetrics = {
   available: false,
   sector: null,
@@ -84,6 +91,7 @@ export interface InstrumentLike {
 }
 
 export interface CandleLike {
+  t?: number;
   c: number;
 }
 
@@ -91,12 +99,13 @@ export interface CandleLike {
 export interface EtfQuoteLike {
   price?: number | null;
   previousClose?: number | null;
+  updatedAt?: string | null;
 }
 
 export interface EnrichFetchers {
   stockDetail: (symbol: string) => Promise<DetailLike | null>;
   searchInstruments: (q: string) => Promise<InstrumentLike[]>;
-  candles: (symbol: string, segment: string) => Promise<CandleLike[]>;
+  candles: (symbol: string, segment: string) => Promise<{ candles: CandleLike[]; errorType?: string } | null>;
   /**
    * Optional lightweight Kite-quote branch for whitelisted ETFs (NIFTYBEES,
    * GOLDBEES, BANKBEES, …). ETFs are not in the curated/scored equity catalog,
@@ -238,6 +247,7 @@ function meta(partial: Partial<EnrichmentMeta> & {
     fundamentalsApplicable: classFundamentalsApplicable(partial.instrumentType),
     dataSource: null,
     reason: null,
+    priceState: null,
     ...partial,
   };
 }
@@ -273,6 +283,7 @@ export async function resolveHolding(
         instrumentType: cls,
         dataSource: "stock-detail",
         reason: null,
+        priceState: isStaleDate(detail?.quote?.price) ? "KITE STALE" : "KITE LIVE",
       }),
     };
   }
@@ -280,7 +291,7 @@ export async function resolveHolding(
   // --- Step 1b: lightweight Kite-quote branch for whitelisted ETFs --------
   // ETFs (NIFTYBEES/GOLDBEES/BANKBEES, …) are not in the curated/scored equity
   // catalog, so stockDetail above 404s and the search below comes back empty.
-  // The dedicated ETF quote endpoint resolves a real CMP for them. Gate on the
+  // The dedicated ETF branch resolves a real CMP for them. Gate on the
   // heuristic ETF classification so we never fire it for plain equities.
   const etfCls = alias?.instrumentType ?? classifyInstrument(primarySymbol, holding.name);
   let etfTried = false;
@@ -302,6 +313,7 @@ export async function resolveHolding(
           fundamentalsApplicable: false,
           dataSource: "etf-quote",
           reason: null,
+          priceState: isStaleDate(quote?.updatedAt) ? "KITE STALE" : "KITE LIVE",
         }),
       };
     }
@@ -334,6 +346,7 @@ export async function resolveHolding(
           instrumentType,
           dataSource: "stock-detail",
           reason: null,
+          priceState: isStaleDate(detail?.quote?.price) ? "KITE STALE" : "KITE LIVE",
         }),
       };
     }
@@ -341,10 +354,13 @@ export async function resolveHolding(
 
   // --- Step 3: candle fallback for CMP (price-only) -----------------------
   if (resolvedSymbol && segment) {
-    const candles = (await safe(() => fx.candles(resolvedSymbol, segment))) ?? [];
+    const candleRes = await safe(() => fx.candles(resolvedSymbol, segment));
+    const candles = candleRes?.candles ?? [];
     const candleLive = liveFromCandles(candles, detail?.profile?.sector ?? null);
     if (candleLive.available) {
       const fundsApplicable = classFundamentalsApplicable(instrumentType);
+      const lastCandle = candles[candles.length - 1];
+      const isStale = lastCandle && lastCandle.t ? (Date.now() / 1000 - lastCandle.t > 24 * 3600 * 2) : false;
       return {
         live: candleLive,
         meta: meta({
@@ -358,6 +374,7 @@ export async function resolveHolding(
           fundamentalsApplicable: fundsApplicable,
           dataSource: "chart-candles",
           reason: fundsApplicable ? null : "ETF fundamentals unavailable",
+          priceState: isStale ? "KITE STALE" : "KITE LIVE",
         }),
       };
     }
@@ -388,18 +405,32 @@ export async function resolveHolding(
           fundamentalsApplicable: false,
           dataSource: "etf-quote",
           reason: null,
+          priceState: isStaleDate(quote?.updatedAt) ? "KITE STALE" : "KITE LIVE",
         }),
       };
     }
   }
 
   // --- Step 4: preserved but unresolved — precise reason ------------------
-  const reason: UnavailableReason =
-    instruments.length === 0
-      ? "No instrument match"
-      : !resolvedSymbol
-        ? "Symbol not found"
-        : "CMP unavailable";
+  const candleRes = resolvedSymbol && segment ? await safe(() => fx.candles(resolvedSymbol, segment)) : null;
+  const errorType = candleRes?.errorType;
+
+  let priceState: EnrichmentMeta["priceState"] = "PRICE UNAVAILABLE";
+  let reason: UnavailableReason = "CMP unavailable";
+
+  if (instruments.length === 0 || !resolvedSymbol) {
+    priceState = "UNRESOLVED SYMBOL";
+    reason = "No instrument match";
+  } else if (errorType === "TOKEN_NOT_FOUND") {
+    priceState = exchange === "BSE" ? "BSE TOKEN NOT FOUND" : "UNRESOLVED SYMBOL";
+    reason = exchange === "BSE" ? "BSE TOKEN NOT FOUND" : "UNRESOLVED SYMBOL";
+  } else if (errorType === "CANDLES_UNAVAILABLE") {
+    priceState = "KITE QUOTE UNAVAILABLE";
+    reason = "Kite quote unavailable";
+  } else {
+    priceState = "PRICE UNAVAILABLE";
+    reason = "CMP unavailable";
+  }
 
   return {
     live: { ...EMPTY_LIVE, sector: holding.name ? null : null },
@@ -413,6 +444,7 @@ export async function resolveHolding(
       instrumentType,
       dataSource: null,
       reason,
+      priceState,
     }),
   };
 }

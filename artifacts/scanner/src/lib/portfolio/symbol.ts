@@ -52,7 +52,15 @@ export interface SymbolAlias {
   reason: string;
 }
 
-export const SYMBOL_ALIASES: readonly SymbolAlias[] = [];
+export const SYMBOL_ALIASES: readonly SymbolAlias[] = [
+  {
+    input: "AMARAJABAT",
+    canonical: "ARE&M",
+    exchange: "NSE",
+    instrumentType: "Equity",
+    reason: "Amara Raja Batteries renamed to Amara Raja Energy & Mobility",
+  },
+];
 
 export function lookupAlias(normalised: string): SymbolAlias | null {
   return SYMBOL_ALIASES.find(a => a.input === normalised) ?? null;

@@ -14,7 +14,7 @@ import {
  * is unset. Snapshots and restores the single active row so it never clobbers a
  * manually-set dev token.
  */
-const hasDb = !!process.env["DATABASE_URL"];
+const hasDb = !!process.env["DATABASE_URL"] && !process.env["DATABASE_URL"].includes("dummy");
 const ACTIVE_ID = "active";
 
 (hasDb ? describe : describe.skip)("indstocksTokenStore (live DB)", () => {

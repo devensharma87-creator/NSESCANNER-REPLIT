@@ -371,6 +371,8 @@ export default function ChartingPage() {
   const isVisualOnly: boolean = (resp as any)?.visualOnly ?? false;
   const isStale: boolean = (resp as any)?.stale ?? false;
   const isLive: boolean = (resp as any)?.live ?? false;
+  const errorType: string | null = (resp as any)?.errorType ?? null;
+  const message: string | null = resp?.message ?? null;
   const chartWarnings: string[] = (resp as any)?.warnings ?? [];
   const isLoading = candlesQ.isLoading;
   const isError = candlesQ.isError;
@@ -679,12 +681,20 @@ export default function ChartingPage() {
               data-testid="badge-source"
             >
               {sourceProvider === "kite"
-                ? isLive ? "KITE LIVE" : isStale ? "KITE STALE" : "KITE HISTORICAL"
+                ? isLive
+                  ? "KITE LIVE"
+                  : isStale
+                    ? "KITE STALE"
+                    : "KITE HISTORICAL"
                 : sourceProvider === "yahoo"
                   ? isVisualOnly
                     ? "YAHOO DELAYED · VISUAL ONLY"
                     : "YAHOO DELAYED"
-                  : "DATA UNAVAILABLE"}
+                  : errorType === "TOKEN_NOT_FOUND" || message === "TOKEN NOT FOUND"
+                    ? "DATA UNAVAILABLE — TOKEN NOT FOUND"
+                    : errorType === "CANDLES_UNAVAILABLE" || message === "CANDLES UNAVAILABLE"
+                      ? "DATA UNAVAILABLE — CANDLES UNAVAILABLE"
+                      : `DATA UNAVAILABLE — ${message || "REASON UNKNOWN"}`}
             </Badge>
           )}
           {/* Freshness badge */}

@@ -67,8 +67,10 @@ type ChartSegment = "index" | "equity" | "global";
 const FETCHERS: EnrichFetchers = {
   stockDetail: symbol => getStockDetail(symbol),
   searchInstruments: async q => (await searchChartInstruments({ q })).instruments,
-  candles: async (symbol, segment) =>
-    (await getChartCandles({ symbol, segment: segment as ChartSegment, tf: "1D" })).candles,
+  candles: async (symbol, segment) => {
+    const r = await getChartCandles({ symbol, segment: segment as ChartSegment, tf: "1D" });
+    return { candles: r.candles, errorType: (r as any).errorType };
+  },
   etfQuote: symbol => getEtfQuote(symbol),
 };
 

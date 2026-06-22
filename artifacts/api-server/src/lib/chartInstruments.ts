@@ -124,6 +124,7 @@ export interface ChartInstrumentDto {
    * `kite_master` = the full on-disk Kite instrument master (long-tail NSE/BSE).
    */
   source: "curated" | "kite_master";
+  instrumentToken?: number;
 }
 
 function toDto(m: ChartInstrumentMeta): ChartInstrumentDto {
@@ -134,6 +135,7 @@ function toDto(m: ChartInstrumentMeta): ChartInstrumentDto {
     exchange: m.exchange,
     type: m.type,
     source: "curated",
+    instrumentToken: m.instrumentToken,
   };
 }
 
@@ -178,6 +180,7 @@ export interface MasterHit {
   name: string;
   exchange: string | null;
   type: string;
+  instrumentToken?: number;
 }
 
 /**
@@ -206,6 +209,7 @@ export function mergeMasterHits(
       exchange: h.exchange,
       type: h.type,
       source: "kite_master",
+      instrumentToken: h.instrumentToken,
     });
     if (extra.length >= limit) break;
   }

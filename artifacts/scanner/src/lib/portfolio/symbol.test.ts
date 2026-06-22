@@ -89,8 +89,11 @@ describe("fundamentalsApplicable / isEtfClass", () => {
 });
 
 describe("alias layer", () => {
-  it("is empty by default (verified-only)", () => {
-    expect(SYMBOL_ALIASES).toHaveLength(0);
+  it("contains verified aliases", () => {
+    expect(SYMBOL_ALIASES).toHaveLength(1);
+    expect(SYMBOL_ALIASES[0].input).toBe("AMARAJABAT");
+    expect(SYMBOL_ALIASES[0].canonical).toBe("ARE&M");
+    expect(lookupAlias("AMARAJABAT")?.canonical).toBe("ARE&M");
     expect(lookupAlias("ANYTHING")).toBeNull();
   });
 });

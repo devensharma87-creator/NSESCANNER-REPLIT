@@ -140,7 +140,7 @@ async function req(
 // Limit & integrity tests — require a real DB. Auto-skip without one.
 // ===========================================================================
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
 const describeDb = hasDb ? describe : describe.skip;
 
 describeDb("Portfolio routes — limits & integrity (live DB)", () => {

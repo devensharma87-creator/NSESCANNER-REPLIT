@@ -107,12 +107,12 @@ function alnum(s: string): string {
 /** Strip exchange suffixes / whitespace; preserve `&` and other ticker chars. */
 export function normalizeSymbol(raw: string): string {
   let s = (raw ?? "").trim().toUpperCase();
-  s = s.replace(/\s+/g, " ");
+  s = s.replace(/\s+/g, "");
   // Drop common Yahoo/exchange suffixes.
   s = s.replace(/\.(NS|BO|BSE|NSE)$/i, "");
   // Drop a "NSE:"/"BSE:" prefix if the user pasted a kite key.
   s = s.replace(/^(NSE|BSE):/i, "");
-  return s.trim();
+  return s;
 }
 
 function isEtf(sym: string, name: string): boolean {
@@ -314,6 +314,7 @@ export interface InstrumentSearchHit {
   exchange: string;
   type: string; // "Equity" | "ETF"
   instrument_type: string; // NSE_EQUITY etc.
+  instrumentToken?: number;
 }
 
 /**
@@ -326,7 +327,16 @@ export function searchMaster(query: string, limit = 25): InstrumentSearchHit[] {
   const idx = getIndex();
   const qa = alnum(q);
   const scored: { inst: CanonicalInstrument; score: number }[] = [];
+
+  if (/^\d+$/.test(q)) {
+    const codeHit = idx.byBseCode.get(q);
+    if (codeHit) {
+      scored.push({ inst: codeHit, score: 0 });
+    }
+  }
+
   for (const inst of idx.all) {
+    if (/^\d+$/.test(q) && inst.bse_code === q) continue;
     const sym = inst.canonical_symbol;
     const name = inst.display_name.toUpperCase();
     let score = -1;
@@ -349,5 +359,6 @@ export function searchMaster(query: string, limit = 25): InstrumentSearchHit[] {
     exchange: s.inst.exchange,
     type: s.inst.instrument_type.endsWith("ETF") ? "ETF" : "Equity",
     instrument_type: s.inst.instrument_type,
+    instrumentToken: s.inst.instrument_token,
   }));
 }

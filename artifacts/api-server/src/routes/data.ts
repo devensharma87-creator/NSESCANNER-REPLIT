@@ -13,7 +13,8 @@ import {
 import { resolveInstrument } from "../lib/marketData/instrumentResolver";
 import { getChartCandles } from "../lib/chartDatafeed";
 import { UNIVERSE } from "../lib/universe";
-import { INSTRUMENT_ASSET_CLASSES, type InstrumentAssetClass } from "@workspace/db";
+import { INSTRUMENT_ASSET_CLASSES, type InstrumentAssetClass, db } from "@workspace/db";
+import { portfolioHoldingsTable } from "@workspace/db/schema";
 
 /**
  * /api/data/* — owner-only diagnostics for the central market-data layer.
@@ -167,6 +168,73 @@ router.get("/data/diagnostics/portfolio-resolution", async (req, res, next) => {
       note: "Valuation uses Kite as authoritative with a Yahoo fallback for instruments Kite cannot serve (quote_source is surfaced per row).",
       count: holdings.length,
       holdings,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/data/diagnostics/portfolio", async (req, res, next) => {
+  try {
+    const holdings = await db.select().from(portfolioHoldingsTable);
+    const uniqueSymbols = Array.from(new Set(holdings.map(h => h.symbol.toUpperCase())));
+
+    const resolved = await Promise.all(
+      uniqueSymbols.map(async (raw_symbol) => {
+        const r = resolveInstrument(raw_symbol);
+        let quote_status = "UNAVAILABLE";
+        let priceState = "PRICE UNAVAILABLE";
+        let resolvedSymbol = null;
+        let exchange = null;
+        let instrumentToken = null;
+        let reason = r.reason ?? "Not found in master";
+
+        if (r.resolved && r.instrument) {
+          const inst = r.instrument;
+          resolvedSymbol = inst.canonical_symbol;
+          exchange = inst.exchange;
+          instrumentToken = inst.instrument_token;
+          reason = null;
+
+          try {
+            const c = await getChartCandles(inst.canonical_symbol, "equity", "1D");
+            if (c.source === "kite" && c.candles.length > 0) {
+              quote_status = "FOUND";
+              priceState = c.fresh ? "KITE LIVE" : "KITE STALE";
+            } else {
+              quote_status = "MISSING";
+              priceState = "KITE QUOTE UNAVAILABLE";
+              reason = "Kite returned no candles for token";
+            }
+          } catch (err) {
+            quote_status = "ERROR";
+            priceState = "PRICE UNAVAILABLE";
+            reason = (err as Error).message;
+          }
+        } else {
+          priceState = "UNRESOLVED SYMBOL";
+        }
+
+        const isIncluded = priceState === "KITE LIVE" || priceState === "KITE STALE";
+
+        return {
+          original_symbol: raw_symbol,
+          normalized_symbol: r.normalized,
+          exchange,
+          resolver_status: r.resolved ? "RESOLVED" : "UNRESOLVED",
+          instrumentToken,
+          quote_status,
+          priceState,
+          unavailable_reason: reason,
+          valuation_inclusion: isIncluded ? "INCLUDED" : "EXCLUDED",
+        };
+      })
+    );
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      uniqueHoldingsCount: uniqueSymbols.length,
+      holdings: resolved,
     });
   } catch (err) {
     next(err);

@@ -52,6 +52,7 @@ export interface ChartCandlesResult {
   fresh: boolean;
   asOf: number | null;
   message?: string;
+  errorType?: "TOKEN_NOT_FOUND" | "CANDLES_UNAVAILABLE" | "UNKNOWN_INSTRUMENT";
   candles: ChartCandlePoint[];
 
   // --- Provenance (Phase 2) ---
@@ -275,6 +276,7 @@ interface FinalizeOpts {
   volumeSource?: ChartVolumeSource;
   volumeSourceInstrument?: string | null;
   warnings?: string[];
+  errorType?: "TOKEN_NOT_FOUND" | "CANDLES_UNAVAILABLE" | "UNKNOWN_INSTRUMENT";
 }
 
 function finalize(
@@ -304,6 +306,7 @@ function finalize(
   return {
     symbol, segment, timeframe: tf, source, fresh, asOf, candles,
     ...(message ? { message } : {}),
+    ...(opts?.errorType ? { errorType: opts.errorType } : {}),
     // Provenance
     sourceProvider: source,
     sourceTier: source === "kite" ? "authoritative" : source === "yahoo" ? "secondary_analytics" : "unavailable",
@@ -410,17 +413,15 @@ export async function getChartCandles(
   tf: ChartTimeframe,
 ): Promise<ChartCandlesResult> {
   let meta = resolveInstrument(symbol, segment);
-  // Canonical-master fallback: the curated registry only knows the ~280-name
-  // scanner UNIVERSE, so any other real NSE/BSE equity or ETF (TRIDENT, BDL,
-  // CDSL, ARE&M, NSDL, …) misses above. Resolve it against the full Kite
-  // instrument master so Kite/Yahoo can still price it. Equity segment only —
-  // index/global remain curated.
-  if ((!meta || meta.segment !== segment) && segment === "equity") {
+  let resolvedFromResolver = false;
+
+  // Always query the canonical resolver for equities so we get the authoritative exchange + token.
+  if (segment === "equity") {
     const r = resolveMasterInstrument(symbol, { preferExchange: "NSE" });
     if (r.resolved && r.instrument) {
       const inst = r.instrument;
       const isEtf = inst.instrument_type.endsWith("ETF");
-      const fallback: ChartInstrumentMeta = {
+      meta = {
         symbol: inst.canonical_symbol,
         name: inst.display_name,
         segment: "equity",
@@ -429,13 +430,17 @@ export async function getChartCandles(
         yahoo: `${inst.canonical_symbol}.${inst.exchange === "BSE" ? "BO" : "NS"}`,
         instrumentToken: inst.instrument_token,
       };
-      meta = fallback;
+      resolvedFromResolver = true;
     }
   }
+
   if (!meta || meta.segment !== segment) {
+    const isTokenNotFound = segment === "equity" && !resolvedFromResolver;
     return {
       symbol, segment, timeframe: tf, source: "none", fresh: false, asOf: null,
-      candles: [], message: "Unknown instrument for this segment.",
+      candles: [],
+      message: isTokenNotFound ? "TOKEN NOT FOUND" : "Unknown instrument for this segment.",
+      errorType: isTokenNotFound ? "TOKEN_NOT_FOUND" : "UNKNOWN_INSTRUMENT",
       // Provenance fields (none/empty)
       sourceProvider: "none",
       sourceTier: "unavailable",
@@ -448,10 +453,12 @@ export async function getChartCandles(
       lastUpdatedAt: new Date().toISOString(),
       timezone: "UTC",
       candleTimeConvention: "open",
-      volumeSource: "unavailable",
+      volumeSource: "none",
       volumeSourceInstrument: null,
       volumeProxy: false,
-      warnings: ["No data source available for this instrument."],
+      warnings: isTokenNotFound
+        ? ["Instrument token not found in Kite master."]
+        : ["No data source available for this instrument."],
     };
   }
   const cfg = TIMEFRAME_CONFIG[tf];
@@ -504,16 +511,20 @@ export async function getChartCandles(
 
   // All sources exhausted (or Indian instrument with Kite offline).
   const isIndian = segment === "equity" || segment === "index";
+  const isCandlesUnavailable = segment === "equity" && resolvedFromResolver;
   return finalize(
     meta.symbol, segment, tf, "none", [],
-    isIndian
-      ? "Trusted candles (Kite) unavailable — connect a live Kite session for Indian instrument data."
-      : "Data unavailable for this timeframe/source right now.",
+    isCandlesUnavailable
+      ? "CANDLES UNAVAILABLE"
+      : isIndian
+        ? "Trusted candles (Kite) unavailable — connect a live Kite session for Indian instrument data."
+        : "Data unavailable for this timeframe/source right now.",
     {
       volumeSource: "none",
       warnings: isIndian
         ? ["No trusted candle source available. Kite session required for Indian instruments."]
         : [],
+      errorType: isCandlesUnavailable ? "CANDLES_UNAVAILABLE" : undefined,
     },
   );
 }

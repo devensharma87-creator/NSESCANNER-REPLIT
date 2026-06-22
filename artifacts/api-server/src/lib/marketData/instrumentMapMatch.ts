@@ -67,7 +67,11 @@ export function normaliseExpiry(raw: string | null | undefined): string | null {
     return new Date(ms).toISOString().slice(0, 10);
   }
   const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  if (Number.isNaN(d.getTime())) return null;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 export function matchInstrument(

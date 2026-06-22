@@ -161,7 +161,7 @@ export function looksLikeEtf(symbol: string, name?: string): boolean {
   const n = (name ?? "").toUpperCase();
   if (/INAV$/.test(s)) return false;     // indicative-NAV feed, not a tradeable unit
   if (/BEES$/.test(s)) return true;      // Nippon BeES family
-  if (/I?ETF$/.test(s)) return true;     // ...ETF or ...IETF issuer naming
+  if (/ETF/.test(s)) return true;       // Match ETF anywhere in symbol
   if (/\bETF\b/.test(n)) return true;    // descriptive name says ETF
   if (/EXCHANGE\s+TRADED/.test(n)) return true;
   return false;

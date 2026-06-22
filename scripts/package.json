@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "find-holdings": "tsx ./src/find_holdings.ts",
     "refresh-nifty500-sectors": "tsx ./src/refreshNifty500SectorReference.ts",
     "dedupe-fno-reasoning": "tsx ./src/dedupeFnoSignalReasoning.ts",
     "fix-backtest-trade-times": "tsx ./src/fixBacktestTradeTimes.ts",

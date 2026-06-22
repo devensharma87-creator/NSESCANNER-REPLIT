@@ -28,7 +28,7 @@ import {
  *
  * Skips cleanly when DATABASE_URL is unset (CI without a DB).
  */
-const dbAvailable = Boolean(process.env.DATABASE_URL);
+const dbAvailable = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
 const describeDb = dbAvailable ? describe : describe.skip;
 
 // Unique per-process so parallel test files (threads pool) never collide.
