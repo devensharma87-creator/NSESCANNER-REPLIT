@@ -1,5 +1,5 @@
 import { useGetGlobalIndices, getGetGlobalIndicesQueryKey } from "@workspace/api-client-react";
-import { TrendingUp, TrendingDown, Globe, Play, Pause, ExternalLink } from "lucide-react";
+import { TrendingUp, TrendingDown, Globe, Play, Pause, ExternalLink, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useState, useMemo } from "react";
@@ -188,7 +188,7 @@ function Cell({ label, value, tone }: { label: string; value: string; tone?: "bu
 }
 
 export default function GlobalStrip() {
-  const { data, isLoading } = useGetGlobalIndices({
+  const { data, isLoading, isError } = useGetGlobalIndices({
     query: { refetchInterval: 30000, queryKey: getGetGlobalIndicesQueryKey() },
   });
   const [playing, setPlaying] = useState(true);
@@ -249,7 +249,14 @@ export default function GlobalStrip() {
               <Skeleton className="h-7 w-36" />
             </div>
           ) : blocks.length === 0 ? (
-            <span className="text-xs text-muted-foreground">No data</span>
+            <span
+              className="text-xs font-mono uppercase tracking-wider text-amber-400 inline-flex items-center gap-1.5"
+              data-testid="global-strip-degraded"
+              title="Global indices are sourced from Yahoo Finance (display-only). They never feed any trade decision."
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {isError ? "Global data degraded · Yahoo unavailable" : "Global data unavailable · no Yahoo data"}
+            </span>
           ) : (
             <div className="global-strip-track" data-paused={!playing}>
               <div className="flex items-center gap-3 shrink-0">{blocks}</div>

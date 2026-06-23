@@ -2,7 +2,8 @@ import { Router, type IRouter } from "express";
 import crypto from "node:crypto";
 import { buildLoginUrl, clearSession, completeLogin, forceRefreshInstruments, getActiveSession, getKiteCreds, storeImportedSession, exportInstrumentsCache, type ExportedSession } from "../lib/kiteAuth";
 import { addTickListener, feedStatus, getAllLiveQuotes, getLiveQuote, startTicker, stopTicker, subscribe } from "../lib/kiteFeed";
-import { requireOwner } from "../lib/userAuth";
+import { getKiteReadiness } from "../lib/kiteReadiness";
+import { requireOwner, requireOwnerStrict } from "../lib/userAuth";
 import { logger } from "../lib/logger";
 
 function getAppPassword(): string | undefined {
@@ -31,6 +32,14 @@ router.use("/kite", (req, res, next) => {
   if (p === "/callback" || p === "/export-session" || p === "/import-session" || p === "/export-instruments") {
     return next();
   }
+  // Owner-only session metadata READS must never leak on a public shared link.
+  // `requireOwner` bypasses GET/HEAD in public-access mode, so /status (api-key
+  // preview, user id/name, login/expiry times, feed + readiness) and /login-url
+  // (login URL embedding the api_key) use the strict gate that requires a real
+  // owner cookie for every method.
+  if (p === "/status" || p === "/login-url") {
+    return requireOwnerStrict(req, res, next);
+  }
   return requireOwner(req, res, next);
 });
 
@@ -47,6 +56,7 @@ router.get("/kite/status", async (_req, res) => {
     loginTime: session?.loginTime?.toISOString() ?? null,
     expiresAt: session?.expiresAt?.toISOString() ?? null,
     feed: feedStatus(),
+    readiness: await getKiteReadiness(),
   });
 });
 

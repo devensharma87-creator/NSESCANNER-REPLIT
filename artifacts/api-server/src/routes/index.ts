@@ -27,6 +27,7 @@ import dataRouter from "./data";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
 import { bootstrapKite } from "../lib/kiteFeed";
+import { startKiteReadinessScheduler } from "../lib/kiteReadinessScheduler";
 import { startSwingScanScheduler } from "../lib/swingScannerStore";
 import { startOptionSnapshotIngestor } from "../lib/optionChainSnapshotIngestor";
 import { startCandleWarehouse } from "../lib/candleWarehouseIngestor";
@@ -66,6 +67,9 @@ router.use(dataRouter);                 // /data/* — owner-only diagnostics fo
 scheduleBootJob("inst-flows-refresher", BOOT_STAGGER_MS.instFlowsRefresher, startInstFlowsRefresher);
 // Try to resume Kite live feed if a valid session is already in the DB.
 void bootstrapKite();
+// Pre-open Kite reconnect safeguard — visibility-only escalating log if the
+// session is offline as the market open approaches (08:40–09:20 IST).
+startKiteReadinessScheduler();
 // Swing-scanner scheduler — once-per-IST-day deep scan after 15:35 +
 // 15-min intraday LTP refresh during market hours. Single-replica
 // assumption (latches live in-process).

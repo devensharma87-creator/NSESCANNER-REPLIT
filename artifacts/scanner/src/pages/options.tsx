@@ -29,6 +29,8 @@ import type {
   OptionSignalHistoryItem,
 } from "@workspace/api-client-react";
 import { deriveSetupExplanation } from "@/lib/setupExplanation";
+import { useKiteReadiness } from "@/components/global-status-banner";
+import { deriveFnoEmptyReason, buildFnoIndexRows, type FnoIndexRow } from "@/lib/fnoEmptyState";
 
 const SETUP_ICON: Record<string, React.ReactNode> = {
   TREND_CONTINUATION: <Zap className="w-4 h-4" />,
@@ -573,11 +575,45 @@ function useTriggerToasts(signals: OptionSignal[] | undefined) {
   }, [signals, toast]);
 }
 
+function FnoIndexStatusTable({ rows }: { rows: FnoIndexRow[] }) {
+  return (
+    <div className="overflow-x-auto" data-testid="fno-index-table">
+      <table className="w-full text-[11px] font-mono border-collapse">
+        <thead>
+          <tr className="text-muted-foreground border-b border-border/60 text-left">
+            <th className="py-1.5 pr-3 font-medium">Index</th>
+            <th className="py-1.5 pr-3 font-medium">Live Kite Data</th>
+            <th className="py-1.5 pr-3 font-medium">Last Candle</th>
+            <th className="py-1.5 pr-3 font-medium">Option Chain</th>
+            <th className="py-1.5 pr-3 font-medium">Candidate?</th>
+            <th className="py-1.5 pr-3 font-medium">State</th>
+            <th className="py-1.5 font-medium">Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.index} className="border-b border-border/30 align-top" data-testid={`fno-index-row-${r.index}`}>
+              <td className="py-1.5 pr-3 font-bold text-foreground">{r.index}</td>
+              <td className={`py-1.5 pr-3 ${r.liveKiteData === "Live" ? "text-emerald-400" : r.liveKiteData === "Offline" ? "text-red-400" : "text-muted-foreground"}`}>{r.liveKiteData}</td>
+              <td className="py-1.5 pr-3 text-muted-foreground">{r.lastCandle}</td>
+              <td className={`py-1.5 pr-3 ${r.optionChain === "Available" ? "text-emerald-400" : r.optionChain === "Unavailable" ? "text-red-400" : "text-muted-foreground"}`}>{r.optionChain}</td>
+              <td className={`py-1.5 pr-3 ${r.candidate.startsWith("Yes") ? "text-emerald-400" : "text-muted-foreground"}`}>{r.candidate}</td>
+              <td className="py-1.5 pr-3 text-muted-foreground">{r.state}</td>
+              <td className="py-1.5 text-muted-foreground/90 whitespace-normal break-words">{r.reason}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function OptionsPage() {
   const [tab, setTab] = useState<Tab>("live");
   const { data, isLoading } = useGetOptionSignals({
     query: { refetchInterval: 30000, queryKey: getGetOptionSignalsQueryKey() },
   });
+  const readiness = useKiteReadiness();
   useTriggerToasts(data?.signals);
 
   const grouped = useMemo(() => {
@@ -699,9 +735,16 @@ export default function OptionsPage() {
         </div>
       ) : grouped.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center">
-            <div className="text-muted-foreground font-mono text-sm">No high-conviction setups right now — all indices in chop / between confluences.</div>
-            <div className="text-xs text-muted-foreground/70 mt-1">Check back as the session develops. (Filters: ≥60% confidence, multi-indicator alignment required.)</div>
+          <CardContent className="py-8 space-y-4">
+            <div className="text-center space-y-1">
+              <div className="text-muted-foreground font-mono text-sm" data-testid="fno-empty-reason">
+                {deriveFnoEmptyReason(data, readiness)}
+              </div>
+              <div className="text-xs text-muted-foreground/70">
+                Per-index live-data &amp; gate status below. (High-conviction filters: ≥60% confidence, multi-indicator alignment.)
+              </div>
+            </div>
+            <FnoIndexStatusTable rows={buildFnoIndexRows(data, readiness)} />
           </CardContent>
         </Card>
       ) : (

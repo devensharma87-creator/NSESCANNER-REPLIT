@@ -246,8 +246,12 @@ describe("Options page blank panel fix", () => {
     expect(optionsSrc).toContain("isLoading");
   });
 
-  it("Live setups tab has no-signals empty state", () => {
-    expect(optionsSrc).toContain("No high-conviction setups right now");
+  it("Live setups tab has no-signals empty state (cause-specific)", () => {
+    // PART C replaced the static "No high-conviction setups" copy with a
+    // cause-specific explanation + per-index diagnostics table. Guard the
+    // anti-blank-panel intent against the new markers.
+    expect(optionsSrc).toContain("fno-empty-reason");
+    expect(optionsSrc).toContain("deriveFnoEmptyReason");
   });
 
   it("Report tab exists and is a function component", () => {

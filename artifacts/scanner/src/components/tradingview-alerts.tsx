@@ -122,6 +122,74 @@ function fmtNum(n?: number): string {
   return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 }
 
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+}
+
+/** Alerts within this many minutes of "now" are considered LIVE. */
+export const TV_ALERT_FRESH_MINUTES = 120;
+
+export type TvFreshnessState = "LIVE" | "STALE" | "NO_ALERTS_RECEIVED" | "WEBHOOK_NOT_CONFIGURED";
+
+export interface TvFreshness {
+  state: TvFreshnessState;
+  newestReceivedAt: string | null;
+  newestAgeMinutes: number | null;
+}
+
+/**
+ * PURE freshness classifier (unit-tested). Priority: no webhook secret →
+ * WEBHOOK_NOT_CONFIGURED; no alerts → NO_ALERTS_RECEIVED; newest within the
+ * window → LIVE; else STALE. Prevents 2-month-old rows from rendering as live.
+ */
+export function deriveTvFreshness(input: {
+  alerts: { receivedAt: string }[];
+  secretConfigured: boolean;
+  now?: Date;
+  windowMinutes?: number;
+}): TvFreshness {
+  const now = input.now ?? new Date();
+  const windowMinutes = input.windowMinutes ?? TV_ALERT_FRESH_MINUTES;
+  if (!input.secretConfigured) {
+    return { state: "WEBHOOK_NOT_CONFIGURED", newestReceivedAt: null, newestAgeMinutes: null };
+  }
+  let newestMs = -Infinity;
+  let newestIso: string | null = null;
+  for (const a of input.alerts ?? []) {
+    const t = new Date(a.receivedAt).getTime();
+    if (Number.isFinite(t) && t > newestMs) {
+      newestMs = t;
+      newestIso = a.receivedAt;
+    }
+  }
+  if (newestIso === null) {
+    return { state: "NO_ALERTS_RECEIVED", newestReceivedAt: null, newestAgeMinutes: null };
+  }
+  const ageMin = (now.getTime() - newestMs) / 60_000;
+  return {
+    state: ageMin <= windowMinutes ? "LIVE" : "STALE",
+    newestReceivedAt: newestIso,
+    newestAgeMinutes: ageMin,
+  };
+}
+
+function isAlertStale(receivedAt: string, now: Date, windowMinutes: number): boolean {
+  const t = new Date(receivedAt).getTime();
+  if (!Number.isFinite(t)) return true;
+  return (now.getTime() - t) / 60_000 > windowMinutes;
+}
+
+function freshnessBadge(state: TvFreshnessState): { label: string; cls: string } {
+  switch (state) {
+    case "LIVE": return { label: "LIVE", cls: "border-signal-strong-buy/40 text-signal-strong-buy" };
+    case "STALE": return { label: "STALE", cls: "border-amber-500/40 text-amber-400" };
+    case "NO_ALERTS_RECEIVED": return { label: "NO ALERTS", cls: "border-border text-muted-foreground" };
+    case "WEBHOOK_NOT_CONFIGURED": return { label: "WEBHOOK OFF", cls: "border-red-500/40 text-red-400" };
+  }
+}
+
 export function TradingViewAlerts() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -129,6 +197,7 @@ export function TradingViewAlerts() {
   const [sideF, setSideF] = useState<string>("ALL");
   const [symbolF, setSymbolF] = useState<string>("");
   const [strategyF, setStrategyF] = useState<string>("ALL");
+  const [showStale, setShowStale] = useState(false);
 
   const { data } = useQuery<AlertsResponse>({
     queryKey: ["tv-alerts"],
@@ -141,6 +210,9 @@ export function TradingViewAlerts() {
   });
 
   const alerts = data?.alerts ?? [];
+  const secretConfigured = data?.secretConfigured ?? false;
+  const now = new Date();
+  const freshness = deriveTvFreshness({ alerts, secretConfigured, now });
 
   const { strategies, filtered } = useMemo(() => {
     const stratSet = new Set<string>();
@@ -179,7 +251,10 @@ export function TradingViewAlerts() {
             <Radio className="w-4 h-4 text-primary" />
             <h2 className="font-mono font-bold text-sm uppercase tracking-wider">TradingView Alerts</h2>
             <Badge variant="outline" className="font-mono text-[10px] border-border">
-              {filtered.length}/{alerts.length} live
+              {filtered.length}/{alerts.length} shown
+            </Badge>
+            <Badge variant="outline" className={`font-mono text-[10px] ${freshnessBadge(freshness.state).cls}`} data-testid="tv-freshness-badge">
+              {freshnessBadge(freshness.state).label}
             </Badge>
             {data?.secretConfigured && (
               <Badge variant="outline" className="font-mono text-[10px] border-signal-strong-buy/40 text-signal-strong-buy">
@@ -285,18 +360,38 @@ export function TradingViewAlerts() {
           </div>
         )}
 
-        {filtered.length === 0 ? (
-          <div className="text-xs font-mono text-muted-foreground py-4 text-center border border-dashed border-border/50 rounded">
-            {alerts.length === 0
-              ? "No alerts received yet — set up the webhook above to start streaming TradingView signals here."
-              : "No alerts match the current filters."}
+        {freshness.state === "WEBHOOK_NOT_CONFIGURED" ? (
+          <div className="text-xs font-mono text-amber-300/90 py-4 text-center border border-dashed border-amber-500/40 rounded" data-testid="tv-webhook-not-configured">
+            TradingView webhook not configured — set the webhook secret to start receiving alerts.
+          </div>
+        ) : freshness.state === "NO_ALERTS_RECEIVED" ? (
+          <div className="text-xs font-mono text-muted-foreground py-4 text-center border border-dashed border-border/50 rounded" data-testid="tv-no-alerts">
+            No alerts received yet — set up the webhook above to start streaming TradingView signals here.
           </div>
         ) : (
-          <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
-            {filtered.map(a => {
-              const tone = sideTone(a.side);
-              const uTone = urgencyTone(a.urgency);
-              const hasLevels = a.stopLoss != null || a.target1 != null || a.target2 != null;
+          <div className="space-y-1.5">
+            {freshness.state === "STALE" && (
+              <div className="flex items-center justify-between gap-2 flex-wrap rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-mono text-amber-200" data-testid="tv-stale-note">
+                <span>
+                  TradingView alerts stale — latest received {freshness.newestReceivedAt ? fmtDate(freshness.newestReceivedAt) : "—"}. Check webhook configuration.
+                </span>
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] shrink-0" onClick={() => setShowStale(s => !s)} data-testid="tv-toggle-stale">
+                  {showStale ? "Hide stale alerts" : "Show stale alerts"}
+                </Button>
+              </div>
+            )}
+            {freshness.state === "LIVE" || showStale ? (
+              filtered.length === 0 ? (
+                <div className="text-xs font-mono text-muted-foreground py-4 text-center border border-dashed border-border/50 rounded">
+                  No alerts match the current filters.
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
+                  {filtered.map(a => {
+                    const tone = sideTone(a.side);
+                    const uTone = urgencyTone(a.urgency);
+                    const hasLevels = a.stopLoss != null || a.target1 != null || a.target2 != null;
+                    const rowStale = isAlertStale(a.receivedAt, now, TV_ALERT_FRESH_MINUTES);
               return (
                 <div
                   key={a.id}
@@ -328,8 +423,13 @@ export function TradingViewAlerts() {
                         {a.setupKey}
                       </span>
                     )}
-                    <span className="ml-auto text-[10px] font-mono text-muted-foreground shrink-0">
-                      {formatDistanceToNow(new Date(a.receivedAt), { addSuffix: true })}
+                    <span className="ml-auto flex items-center gap-1 text-[10px] font-mono text-muted-foreground shrink-0">
+                      {rowStale && (
+                        <span className="px-1 py-0.5 rounded border border-amber-500/40 text-amber-400 text-[9px] font-bold" data-testid="tv-row-stale">STALE</span>
+                      )}
+                      <span title={fmtDate(a.receivedAt)}>
+                        {rowStale ? fmtDate(a.receivedAt) : formatDistanceToNow(new Date(a.receivedAt), { addSuffix: true })}
+                      </span>
                     </span>
                   </div>
 
@@ -372,7 +472,10 @@ export function TradingViewAlerts() {
                   )}
                 </div>
               );
-            })}
+                  })}
+                </div>
+              )
+            ) : null}
           </div>
         )}
       </CardContent>

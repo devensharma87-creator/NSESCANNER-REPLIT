@@ -15,3 +15,4 @@ export * from "./portfolio";
 export * from "./backtest";
 export * from "./instrumentMap";
 export * from "./indstocksToken";
+export * from "./appState";

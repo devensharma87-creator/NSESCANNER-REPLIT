@@ -1,5 +1,5 @@
 import { useGetGlobalIndices, getGetGlobalIndicesQueryKey, useGetMarketMacroHistory, getGetMarketMacroHistoryQueryKey } from "@workspace/api-client-react";
-import { Globe2 } from "lucide-react";
+import { Globe2, AlertTriangle } from "lucide-react";
 
 const CUES = [
   { symbol: "GIFTNIFTY", label: "GIFT Nifty" },
@@ -54,7 +54,7 @@ function Sparkline({ points, invert }: { points: SparkPoint[]; invert: boolean }
 }
 
 export default function GlobalCuesStrip() {
-  const { data } = useGetGlobalIndices({
+  const { data, isError } = useGetGlobalIndices({
     query: { refetchInterval: 30000, queryKey: getGetGlobalIndicesQueryKey() },
   });
   const { data: macro } = useGetMarketMacroHistory({
@@ -64,6 +64,14 @@ export default function GlobalCuesStrip() {
   const indices = data?.indices ?? [];
   const macroBySymbol = new Map((macro?.series ?? []).map(s => [s.symbol, s]));
 
+  // Honesty guard: count cues that have a real positive price. When NONE render
+  // (Yahoo fetch failed or returned nothing) we surface an explicit degraded
+  // note instead of a silent empty row — never a fabricated 0.00 print.
+  const renderableCount = CUES.reduce((n, cue) => {
+    const item = indices.find(ix => ix.symbol === cue.symbol);
+    return item && Number.isFinite(item.price) && item.price > 0 ? n + 1 : n;
+  }, 0);
+
   return (
     <div className="rounded-lg border border-border bg-card/50 px-3 py-2">
       <div className="flex items-center gap-2 mb-1.5">
@@ -72,6 +80,16 @@ export default function GlobalCuesStrip() {
           Global Cues
         </span>
       </div>
+      {renderableCount === 0 ? (
+        <div
+          className="flex items-center gap-1.5 text-[11px] font-mono text-amber-400 py-0.5"
+          data-testid="global-cues-degraded"
+          title="Global cues are sourced from Yahoo Finance (display-only). They never feed any trade decision."
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {isError ? "Global cues degraded · Yahoo unavailable" : "Global cues unavailable · no Yahoo data"}
+        </div>
+      ) : (
       <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-thin">
         {CUES.map((cue, i) => {
           const item = indices.find(ix => ix.symbol === cue.symbol);
@@ -108,6 +126,7 @@ export default function GlobalCuesStrip() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

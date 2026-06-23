@@ -1,0 +1,169 @@
+CODER PROMPT #1 — STAGE 0 + STAGE 1: Operational Stability Closure
+Copy everything below the line to the coder.
+
+CONTEXT & GROUND RULES (read fully before writing any code)
+This is a visibility, safety, and hygiene task. You are not changing any trading logic.
+Do NOT touch any of these (confirm in your final report that each is untouched):
+
+F&O signal scoring / detectors / confluence (optionSignals.ts signal generation)
+Vetoes & gates: RECOVERY_VETO, CHASE_VETO, ANTI_FLIP, P25, premiumTrusted, HC_EMISSION_FLOOR
+DD latches, heat cap, dynamic lot sizing (fnoSizingHelper.ts, equitySizingHelper.ts)
+Capital ledger / paper-account math (paperAccount.ts, capital events)
+Option-chain / OI math (optionAnalytics.ts, gex.ts, optionChainProvider.ts)
+Scanner strategy logic, backtest logic, swing scoring
+replit.md, package/lock files
+Any destructive DB migration. Additive only. No drizzle-kit push that drops tables.
+
+Two prerequisites you must verify before starting (these are already-fixed-in-source items — do not rebuild them):
+
+lib/candleWarehouseIngestor.ts daily-tick query already uses instrument_token = ANY(${tokens}::bigint[]) (single array param). Confirm it reads this way. If yes, do not modify it.
+lib/optionSignals.ts already runs a 30-second server-side trigger sweep (TRIGGER_SWEEP_INTERVAL_MS) that calls getOptionSignals() during market hours. Confirm it exists. Do not add a second loop.
+
+If either differs from the above, stop and report before proceeding — the source you're working on may not match what I reviewed.
+
+PART 0 — DEPLOY-READINESS + GUARDED WAREHOUSE BACKFILL
+0.1 Confirm the two prerequisites above. Report exact line numbers.
+0.2 The candle table is empty in production because the fixed ingestor was never deployed/backfilled. Add a manual, owner-only, additive backfill trigger (if one does not already exist via routes/candleWarehouse.ts):
+
+Endpoint: POST /api/candle-warehouse/backfill (owner-gated with requireOwnerStrict).
+Order: indices first (NIFTY/BANKNIFTY/SENSEX day), then NIFTY-500 day, then 15minute where the provider permits.
+Use the existing syncCandles({ ... }) path with ignoreSymbolCap: true for the manual trigger. Writes must be additive upserts only.
+Return per-universe counts: attempted, ok, rowsWritten, errors.
+
+0.3 Do not wire any user-facing feature to read from the warehouse yet. It stays write-side only this stage.
+Acceptance: backfill endpoint returns rising row counts; no change to any existing page.
+
+PART A — KITE SESSION READINESS + PRE-OPEN SAFEGUARD
+Root problem: Kite token expires daily at 06:00 IST (next6amIST() in lib/kiteAuth.ts). There is no pre-open check and no auto-relogin. On 2026-06-23 login happened at 15:21, so the whole session ran blind.
+A.1 — Central readiness service. Create lib/kiteReadiness.ts exporting getKiteReadiness(): Promise<KiteReadiness>. Build it on top of existing functions — do not duplicate their logic:
+
+session: getActiveSession() from lib/kiteAuth.ts
+feed: feedStatus() from lib/kiteFeed.ts
+market session: computeMarketStatus(now) from lib/marketEvents.ts (returns "open" | "closed" | "pre_open" — reuse it, do not reimplement IST math)
+
+Return this exact shape:
+tsinterface KiteReadiness {
+  state: KiteReadinessState;          // see enum below
+  severity: "ok" | "info" | "warn" | "critical";
+  sessionPresent: boolean;
+  sessionValid: boolean;
+  loginTime: string | null;           // ISO
+  expiresAt: string | null;           // ISO
+  kiteOfflineSince: string | null;    // ISO; persisted, see A.3
+  marketSession: "open" | "closed" | "pre_open";
+  isPreOpenWindow: boolean;           // 08:45–09:15 IST
+  feedConnected: boolean;             // feedStatus().connected
+  feedRunning: boolean;               // feedStatus().running
+  userActionRequired: boolean;        // true when owner must reconnect
+  checkedAt: string;                  // ISO now
+}
+
+type KiteReadinessState =
+  | "KITE_READY"
+  | "KITE_EXPIRES_SOON"               // valid but < 30 min to 06:00 expiry
+  | "KITE_EXPIRED"
+  | "KITE_OFFLINE_PREOPEN"            // expired/missing during 08:45–09:15
+  | "KITE_OFFLINE_MARKET_HOURS"      // expired/missing during 09:15–15:30
+  | "KITE_CONNECTED_BUT_FEED_STALE"; // session valid but feed disconnected
+State precedence (evaluate top-down, first match wins):
+
+No/expired session + market open → KITE_OFFLINE_MARKET_HOURS (critical)
+No/expired session + isPreOpenWindow → KITE_OFFLINE_PREOPEN (critical)
+No/expired session otherwise → KITE_EXPIRED (warn)
+Valid session + feed not connected during market open → KITE_CONNECTED_BUT_FEED_STALE (warn)
+Valid session + < 30 min to expiry → KITE_EXPIRES_SOON (info)
+Otherwise → KITE_READY (ok)
+
+A.2 — Expose it. Extend the existing GET /api/kite/status in routes/kite.ts to include a readiness: KiteReadiness field (keep all current fields for backward compatibility). Do not break the existing response shape.
+A.3 — Persist kiteOfflineSince. When readiness first becomes offline (no valid session), record a timestamp; clear it when a valid session returns. Store it in a small additive table or a single-row key-value (your call — additive migration only). This is what makes "offline since 06:00" possible in the banner.
+A.4 — Pre-open scheduled check. Add a scheduler entry (reuse the bootScheduler.ts / existing interval pattern — do not invent a new cron framework):
+
+Runs every ~5 min, no-op outside 08:40–09:20 IST.
+At ~08:45 IST: if session expired/missing → log a warn "Kite logged out — reconnect before open".
+At ~09:05 IST: if still offline → log error-level "Kite still offline — 10 min to open".
+These logs are the server-side trail; the user-facing surface is the banner (Part B).
+
+A.5 — Honest auto-login stance. Kite OAuth requires a manual authorise step. Do not build fake auto-login. The reconnect action is the existing /api/kite/login-url → Zerodha → /api/kite/callback flow. Surface a one-tap "Reconnect Kite" link that hits that flow. State the manual requirement plainly in the banner copy.
+
+PART B — GLOBAL DATA-DEGRADED BANNER (the #1 UX fix)
+Root problem: KiteOfflineBanner (components/kite-offline-banner.tsx) exists but is imported in only 3 pages (scanner.tsx, deep-scan.tsx, stock-detail.tsx). There is no persistent app-shell banner. So on a Kite-offline day the user sees many half-empty panels and concludes "the site is broken."
+B.1 — One global banner, one mount point. Mount a global status banner inside components/layout.tsx (the Layout component that wraps every route via RoutedShell → <Layout> in App.tsx). Render it just below the existing PublicModeBanner / strips, above {children}.
+B.2 — Data source. Drive it from the extended GET /api/kite/status readiness field (Part A.2), polled via @tanstack/react-query (the existing banner already uses useQuery against /api/provider/status — follow that exact pattern, including credentials: "include" and a sensible refetchInterval, e.g. 60s; pause refetch when tab hidden).
+B.3 — Behaviour:
+
+severity critical or warn → show full-width banner with: state headline, last login time, expires-at, offline-since, feed status, a one-line impact summary, and a "Reconnect Kite" button (→ /api/kite/login-url flow).
+severity ok or info → collapse to a small status chip (do not nag with a full bar when healthy). KITE_EXPIRES_SOON shows the chip in amber.
+Never show the full banner when marketSession === "closed" AND session simply expired overnight on a non-trading moment — instead show the quiet chip. (A logged-out state at 03:00 on a Sunday is not an emergency.) Full critical banner is reserved for KITE_OFFLINE_PREOPEN and KITE_OFFLINE_MARKET_HOURS.
+
+B.4 — Banner copy (use these exact strings):
+
+Pre-open offline: Kite session is offline. Reconnect before market open to enable live data, F&O signals, charts, watchlist, scanner, and paper trading.
+Market-hours offline: Kite live data is offline. Trade-grade Indian data, F&O signals, charts, watchlist prices, and paper-trading execution are degraded or unavailable.
+Feed stale: Kite session is valid but the live feed is disconnected. Prices may be delayed until the feed reconnects.
+
+B.5 — Do not remove the existing per-page KiteOfflineBanner usages. Leave them; the global banner is additive. (We can de-dupe later — not this stage.)
+
+PART C — F&O "NO LIVE DATA" EXPLANATION
+Root problem: pages/options.tsx shows {totalSignals} live setups across {grouped.length} indices (line ~637) and No high-conviction setups right now — all indices in chop / between confluences. (line ~703). When the real cause is Kite-offline or market-closed, that copy is misleading.
+C.1 — Replace the empty-state with a cause-specific message. When totalSignals === 0, show the exact reason instead of the generic chop line. Reasons, in priority order:
+
+market closed → No setups because the market is closed.
+Kite offline (from readiness) → No setups because Kite live intraday data is unavailable. Reconnect Kite.
+option chain unavailable → No setups because the option chain is unavailable.
+all candidates below floor / vetoed → No setups because no candidate cleared the confidence floor or risk gates right now.
+
+Derive the reason from the existing /api/kite/status readiness + the F&O response (the engine already logs no_live_kite_intraday; surface it, don't recompute it).
+C.2 — Per-index status table. Above or beside the empty-state, render a small table for NIFTY / BANKNIFTY / SENSEX:
+| Index | Live Kite Data | Last Candle | Option Chain | Candidate? | State | Reason |
+Populate from data the F&O API already returns / the readiness service. Do not invent values — if a field is unknown, render —. The reason vocabulary already exists server-side (no_live_kite_intraday, market_closed, option_chain_unavailable, premium_untrusted, below_confidence_floor, plus the veto names). Reuse those exact strings; do not create new ones. If the backend doesn't currently return per-index reasons to the frontend, add a read-only field to the existing F&O response that surfaces the already-logged fno_signal_reasoning reason per index — without changing how signals are generated.
+C.3 — No logic changes. This is display only. Do not change signal generation, thresholds, or emission.
+
+PART D — TRADINGVIEW STALE-ALERT CLEANUP
+Root problem: tv_alerts is dormant (newest row 2026-04-24). The F&O page renders these as if live ("2 months ago" rows).
+D.1 — Freshness states. In the TradingView alerts panel (in pages/options.tsx and/or its component), compute a freshness state from the newest alert timestamp:
+
+LIVE — newest alert within freshness window (define TV_ALERT_FRESH_MINUTES, default 120).
+STALE — newest alert older than the window.
+NO_ALERTS_RECEIVED — table empty.
+WEBHOOK_NOT_CONFIGURED — webhook env/secret absent.
+
+D.2 — UI behaviour. If STALE: hide stale rows behind a Show stale alerts toggle, OR keep them visible but each row strongly labelled STALE with the received date. 2-month-old rows must never appear as live. Show a one-line note: TradingView alerts stale — latest received [date]. Check webhook configuration.
+D.3 — No destructive deletes. Do not delete historical tv_alerts rows. Mark/label only.
+
+PART E — EQUITY TEST-POSITION CLEANUP (propose before applying)
+Root problem: 3 single-share test buys pollute the equity paper open book: MOTHERSON qty=1, GMRINFRA qty=1, OBEROIRLTY qty=1. They also consume 3 of the 10 concurrent equity slots — which is the live CONCURRENT_CAP reason equity auto-trading is frozen (visible in the equity decision audit: Concurrent-open cap reached: 10 ≥ 10).
+E.1 — Propose first, do not auto-execute. Return a short proposal with three options:
+
+A: Close them via the existing safe close path with exit reason TEST_POSITION_CLEANUP.
+B: Mark them TEST/MANUAL, exclude from performance analytics, keep in book.
+C: Keep but badge TEST in the UI.
+
+E.2 — Preferred: Option A using the existing close/archive mechanism (paperTradingEq.ts close path) with the audit reason — only after I confirm. The capital ledger and realized-P&L must stay honest: if closing a 1-share test position registers a tiny P&L, that's fine; do not special-case the ledger.
+E.3 — Do not alter the concurrent-cap value or any sizing/ledger logic. Freeing slots happens naturally once the test positions close.
+
+PART F — YAHOO DEGRADED-STATE VISIBILITY (UI only)
+Root problem: Yahoo lanes fail wholesale in prod. Yahoo is correctly fenced as never-tradeable; the gap is purely that failures show as blank/sparse panels instead of a clear degraded state.
+F.1 Where Yahoo powers display-only / global / FX data and the fetch fails, show: GLOBAL DATA DEGRADED / YAHOO UNAVAILABLE / YAHOO DELAYED. No blank panels, no fake values, no silent failure.
+F.2 — Do NOT reintroduce Yahoo into any Indian trade-grade path, and do not change the guard layer. This is status-label UI only.
+
+TESTS REQUIRED
+Add/confirm tests (follow existing patterns in lib/__tests__ and routes/__tests__):
+
+Readiness: expired session + market open → KITE_OFFLINE_MARKET_HOURS; expired + pre-open window → KITE_OFFLINE_PREOPEN; valid + feed down during open → KITE_CONNECTED_BUT_FEED_STALE; valid fresh → KITE_READY; < 30 min to expiry → KITE_EXPIRES_SOON.
+Banner logic: critical/warn → full banner; ok/info → chip; closed+overnight-expired → chip not full banner; correct copy string per state.
+F&O explanation: Kite-offline → no_live_kite_intraday reason surfaced; market-closed reason; below-floor reason; per-index table renders with — for unknowns; no signal threshold or emission changed (assert existing F&O tests still pass).
+TV alerts: newest > window → STALE; empty → NO_ALERTS_RECEIVED; fresh → LIVE.
+Test positions: cleanup uses existing close path; capital ledger unchanged in structure; action is auditable.
+Regression (must stay green): provider import guard, central data backbone, F&O execution truth, option-chain/OI, dynamic sizing, capital ledger, portfolio/chart tests.
+
+
+LIVE SMOKE (after deploy)
+
+Warehouse backfill endpoint returns rising counts; 5-min daily-tick error spam gone from logs.
+Global banner appears when Kite session is expired during market/pre-open; collapses to chip when healthy/overnight.
+"Reconnect Kite" link initiates the real OAuth flow.
+F&O page explains no_live_kite_intraday instead of the generic chop line; per-index table shows NIFTY/BANKNIFTY/SENSEX.
+TradingView panel does not show 2-month-old alerts as live.
+Yahoo/global failure shows a degraded label, not a blank panel.
+Portfolio, charting, Option Chain, OI Lab unchanged.
+No fabricated values anywhere; no PAPER_TRADE: YES side effects.

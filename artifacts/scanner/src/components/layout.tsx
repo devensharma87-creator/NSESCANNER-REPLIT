@@ -12,6 +12,7 @@ import { isSeoManagedPath } from "@/lib/seo-config";
 import { useAuth } from "@/hooks/use-auth";
 import { logout, type AllowedTabKey } from "@/lib/auth-api";
 import { PublicModeBanner } from "@/components/public-mode-banner";
+import { GlobalStatusBanner } from "@/components/global-status-banner";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -200,6 +201,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className={`min-h-[100dvh] flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary ${publicMode ? "pt-9" : ""}`}>
       {publicMode && <PublicModeBanner />}
+      <GlobalStatusBanner />
       <div className={`sticky ${publicMode ? "top-9" : "top-0"} z-40 w-full bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/65 border-b border-border`}>
       <header className="w-full border-b border-border">
         <div className="w-full px-4 flex h-20 items-center gap-4 min-w-0">

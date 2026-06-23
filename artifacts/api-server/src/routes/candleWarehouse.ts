@@ -13,6 +13,8 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { getSession } from "../lib/userAuth";
 import { isPublicAccessEnabled } from "../lib/publicAccess";
+import { logger } from "../lib/logger";
+import { randomUUID } from "node:crypto";
 import {
   isCandleWarehouseEnabled,
   getEnabledUniverses,
@@ -134,6 +136,170 @@ router.post("/candles/sync", strictOwner, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ───────────── Guarded full backfill (PART 0 — async job) ─────────────
+//
+// POST /api/candle-warehouse/backfill        — owner-only; kicks off ONE
+//                                              detached background job and
+//                                              returns 202 + jobId.
+// GET  /api/candle-warehouse/backfill/status — owner-only; in-memory
+//                                              progress (per-universe
+//                                              attempted/ok/rowsWritten/
+//                                              errors). Persistent evidence
+//                                              also lands in candle_sync_run.
+//
+// Deterministic order: indices(day) → NIFTY-500(day) → F&O-stocks(day) →
+// indices(15m) → F&O-stocks(15m). swing-500 15m is intentionally excluded
+// (too heavy for a single manual run). Writes are the EXISTING additive
+// upserts via syncCandles({ ignoreSymbolCap:true, kind:"BACKFILL" }); this
+// endpoint adds NO ingest logic and feeds NO user-facing feature (warehouse
+// stays write-side only this stage). A single in-flight guard prevents
+// accidental resource exhaustion. Long-running (minutes), hence detached +
+// status-poll rather than a blocking request.
+
+interface BackfillStepResult {
+  universe: CandleUniverse;
+  interval: CandleInterval;
+  attempted: number;
+  ok: number;
+  rowsWritten: number;
+  errors: number;
+  errorSample: Array<{ symbol: string; message: string }>;
+}
+
+interface BackfillJob {
+  jobId: string;
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  totalSteps: number;
+  completedSteps: number;
+  current: { universe: CandleUniverse; interval: CandleInterval } | null;
+  steps: BackfillStepResult[];
+  error: string | null;
+}
+
+let backfillJob: BackfillJob | null = null;
+
+const DAY_UNIVERSE_ORDER: CandleUniverse[] = ["indices", "swing-500", "fno-stocks"];
+// swing-500 15-minute intentionally excluded — 500 symbols of intraday is
+// far too heavy for a single manual backfill.
+const M15_UNIVERSE_ORDER: CandleUniverse[] = ["indices", "fno-stocks"];
+
+function buildBackfillSteps(
+  universesFilter: Set<CandleUniverse> | null,
+  intervalsFilter: Set<CandleInterval> | null,
+): Array<{ universe: CandleUniverse; interval: CandleInterval }> {
+  const steps: Array<{ universe: CandleUniverse; interval: CandleInterval }> = [];
+  const wantInterval = (i: CandleInterval): boolean => !intervalsFilter || intervalsFilter.has(i);
+  const wantUniverse = (u: CandleUniverse): boolean => !universesFilter || universesFilter.has(u);
+  if (wantInterval("day")) {
+    for (const u of DAY_UNIVERSE_ORDER) if (wantUniverse(u)) steps.push({ universe: u, interval: "day" });
+  }
+  if (wantInterval("15minute")) {
+    for (const u of M15_UNIVERSE_ORDER) if (wantUniverse(u)) steps.push({ universe: u, interval: "15minute" });
+  }
+  return steps;
+}
+
+function csvToSet<T extends string>(raw: string, allowed: Set<T>): Set<T> | null {
+  const valid = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s): s is T => allowed.has(s as T));
+  return valid.length ? new Set(valid) : null;
+}
+
+async function runBackfillJob(
+  job: BackfillJob,
+  steps: Array<{ universe: CandleUniverse; interval: CandleInterval }>,
+): Promise<void> {
+  try {
+    for (const step of steps) {
+      job.current = step;
+      try {
+        const r = await syncCandles({
+          interval: step.interval,
+          universe: step.universe,
+          kind: "BACKFILL",
+          ignoreSymbolCap: true,
+        });
+        job.steps.push({
+          universe: step.universe,
+          interval: step.interval,
+          attempted: r.symbolsAttempted,
+          ok: r.symbolsOk,
+          rowsWritten: r.rowsWritten,
+          errors: r.errors.length,
+          errorSample: r.errors.slice(0, 5),
+        });
+      } catch (err) {
+        // syncCandles already swallows per-symbol errors; this only fires on
+        // an unexpected throw. Record it as a failed step and keep going.
+        job.steps.push({
+          universe: step.universe,
+          interval: step.interval,
+          attempted: 0,
+          ok: 0,
+          rowsWritten: 0,
+          errors: 1,
+          errorSample: [{ symbol: "*", message: (err as Error).message }],
+        });
+      }
+      job.completedSteps += 1;
+    }
+    job.status = "completed";
+  } catch (err) {
+    job.status = "failed";
+    job.error = (err as Error).message;
+  } finally {
+    job.current = null;
+    job.finishedAt = new Date().toISOString();
+    logger.info(
+      { jobId: job.jobId, status: job.status, completedSteps: job.completedSteps },
+      "candle-warehouse: backfill job finished",
+    );
+  }
+}
+
+router.post("/candle-warehouse/backfill", strictOwner, (req, res) => {
+  if (backfillJob && backfillJob.status === "running") {
+    res.status(409).json({ ok: false, error: "already_running", job: backfillJob });
+    return;
+  }
+  const universesFilter = csvToSet(String(req.query["universes"] ?? ""), ALLOWED_UNIVERSES);
+  const intervalsFilter = csvToSet(String(req.query["intervals"] ?? ""), ALLOWED_INTERVALS);
+  const steps = buildBackfillSteps(universesFilter, intervalsFilter);
+  if (steps.length === 0) {
+    res.status(400).json({
+      ok: false,
+      error: "no_steps",
+      hint: "universes∈{indices,fno-stocks,swing-500}, intervals∈{day,15minute}",
+    });
+    return;
+  }
+  const job: BackfillJob = {
+    jobId: randomUUID(),
+    status: "running",
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    totalSteps: steps.length,
+    completedSteps: 0,
+    current: null,
+    steps: [],
+    error: null,
+  };
+  backfillJob = job;
+  logger.info({ jobId: job.jobId, totalSteps: steps.length }, "candle-warehouse: backfill job started");
+  // Detached on purpose (multi-minute). Progress + errors land on the job
+  // object and are observable via the status endpoint.
+  void runBackfillJob(job, steps);
+  res.status(202).json({ ok: true, jobId: job.jobId, status: job.status, totalSteps: job.totalSteps });
+});
+
+router.get("/candle-warehouse/backfill/status", strictOwner, (_req, res) => {
+  res.json({ ok: true, job: backfillJob });
 });
 
 export default router;

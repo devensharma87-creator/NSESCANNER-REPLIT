@@ -12,6 +12,10 @@
     "kiteFnoInstruments",
     "kiteIntraday"
   ],
+  "lib/kiteReadiness.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
   "lib/oiLab.ts": [
     "kiteAuth",
     "kiteFnoInstruments",
