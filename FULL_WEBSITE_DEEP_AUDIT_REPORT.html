@@ -1,0 +1,1121 @@
+<!doctype html>
+  <html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Full Website Deep Audit Report</title>
+  <style>
+  :root{--ink:#1a1f29;--muted:#5b6675;--line:#e2e6ec;--bg:#ffffff;--accent:#0b5cad;--soft:#f5f7fa;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:#eef1f5;color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .page{max-width:980px;margin:32px auto;background:var(--bg);padding:56px 64px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-radius:8px;}
+  h1{font-size:30px;line-height:1.25;margin:0 0 8px;letter-spacing:-.01em;}
+  h2{font-size:21px;margin:38px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line);letter-spacing:-.01em;}
+  h3{font-size:17px;margin:26px 0 8px;}
+  h4{font-size:13px;margin:18px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+  p{margin:10px 0;}
+  a{color:var(--accent);word-break:break-word;}
+  strong{color:#0c1320;}
+  code{background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font:13px/1.4 "SF Mono",ui-monospace,Menlo,Consolas,monospace;}
+  hr{border:none;border-top:1px solid var(--line);margin:28px 0;}
+  blockquote{margin:14px 0;padding:10px 16px;background:#fff8e6;border-left:4px solid #e3b341;border-radius:4px;color:#5b4b16;}
+  blockquote p{margin:4px 0;}
+  ul,ol{margin:10px 0;padding-left:24px;}
+  li{margin:4px 0;}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13px;}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;}
+  th{background:var(--soft);font-weight:600;}
+  tr:nth-child(even) td{background:#fafbfc;}
+  .meta{color:var(--muted);font-size:13px;margin-top:4px;}
+  @media print{
+    body{background:#fff;}
+    .page{box-shadow:none;margin:0;max-width:none;padding:0 8mm;border-radius:0;}
+    h2,h3{page-break-after:avoid;}
+    table,tr,blockquote,li{page-break-inside:avoid;}
+    @page{margin:14mm 10mm;}
+  }
+  </style>
+  </head><body>
+  <div class="page">
+  <p class="meta">Generated 2026-06-23 &middot; Tip: open this file and use your browser's Print &rarr; "Save as PDF" to get a PDF copy.</p>
+  <h1>FULL WEBSITE DEEP AUDIT REPORT</h1>
+<p><strong>Project:</strong> Indian Stock Market Scanner (monorepo: api-server + scanner + global + mockup-sandbox)
+<strong>Audit date:</strong> 2026-06-23, ~16:26 IST (market closed; Tuesday)
+<strong>Audit type:</strong> READ-ONLY. No code changed, no fixes applied, no UI touched, no workflows restarted, no features started.
+<strong>Method:</strong> Combined <strong>(a) full code audit</strong> (8 area-by-area code explorations across the whole repo) <strong>+ (b) live production audit</strong> (read-only queries against the production database, production deployment logs, and dev workflow/console logs).</p>
+<blockquote>
+<p><strong>Important:</strong> This is a findings report only. Nothing was fixed. A prioritised fix list is in §17 — awaiting your approval before any change.</p>
+</blockquote>
+<hr>
+<h2>0. THE SINGLE MOST IMPORTANT FINDING (read this first)</h2>
+<p><strong>The Kite (Zerodha) session expires every day at 06:00 IST and there is NO automated daily re-login. Today (2026-06-23) you did not log in until 15:21 — i.e. after the market had already closed at 15:30. So for the ENTIRE trading session (09:15–15:30) the live data feed was offline.</strong></p>
+<p>Hard proof from production:</p>
+<table>
+<thead>
+<tr>
+<th>Evidence</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kite_session.login_time</code> (today)</td>
+<td><strong>15:21 IST</strong></td>
+</tr>
+<tr>
+<td><code>kite_session.expires_at</code></td>
+<td>2026-06-24 06:00 IST</td>
+</tr>
+<tr>
+<td>F&amp;O engine reasoning logged at 09:15 (all 3 indices)</td>
+<td><code>PRE_EMISSION_REJECTED · no_live_kite_intraday (Kite session expired / throttled / index uncovered)</code></td>
+</tr>
+<tr>
+<td><code>paper_daily_summary_fo</code> 2026-06-23</td>
+<td>signals_generated <strong>0</strong>, valid_candidates <strong>0</strong>, trades_opened <strong>0</strong></td>
+</tr>
+<tr>
+<td>Prod scan logs <em>after</em> 15:21 (~15:48+)</td>
+<td><code>kiteOffline=false</code> (Kite came back only after you logged in)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>This is the actual reason the F&amp;O page showed &quot;0 setups across 0 indices&quot; even on a strong-move day.</strong> It is NOT a bug in the signal logic — the engine <em>correctly</em> refused to emit option signals when it had no authoritative (Kite) intraday data, and instead of faking it with Yahoo (which is also failing right now, see §14), it emitted nothing. The system behaved honestly. The operational gap is that <strong>nobody/no cron logged Kite in before the open</strong>, so the whole day ran blind.</p>
+<p>Knock-on effects of the same root cause:</p>
+<ul>
+<li>F&amp;O auto paper-trader has opened <strong>0 trades for 8 days</strong> (last open 2026-06-15) — many of those days Kite was offline during the session.</li>
+<li>Live scanner / Home / charts fell back to Yahoo during the session — and Yahoo is currently failing wholesale (206/206 equity symbols failing), so several panels were sparse/stale all day.</li>
+<li>Option-chain snapshots for today only exist for the 15:30 capture (after re-login).</li>
+</ul>
+<p><strong>Fix direction (not yet done):</strong> add a daily Kite token bootstrap + a loud pre-open &quot;Kite is logged out — reconnect now&quot; alert so a missed login can't silently kill the whole trading day. Details in §8 and §17.</p>
+<hr>
+<h2>1. EXECUTIVE SUMMARY — AREA STATUS TABLE</h2>
+<p>Status legend: ✅ Working · 🟡 Working-but-limited · 🔴 Broken/failing · ⚫ Hidden/stale
+Severity legend: Critical / High / Medium / Low / Cosmetic</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Area</th>
+<th>Status</th>
+<th>Severity</th>
+<th>Production-usable?</th>
+<th>Main issue</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>Home / Dashboard</td>
+<td>🟡</td>
+<td>Medium</td>
+<td>Yes</td>
+<td>Several panels depend on Kite (offline pre-15:21 today) or Yahoo (failing) → sparse during outages; honesty is good</td>
+</tr>
+<tr>
+<td>B</td>
+<td>Watchlist</td>
+<td>✅</td>
+<td>Low</td>
+<td>Yes</td>
+<td>Kite-priced, Yahoo banned; missing symbols labelled honestly</td>
+</tr>
+<tr>
+<td>C</td>
+<td>Portfolio Analyser</td>
+<td>✅</td>
+<td>Low</td>
+<td>Yes</td>
+<td>No fabrication; null/“n/a” for missing CMP; re-verified clean (§13)</td>
+</tr>
+<tr>
+<td>D</td>
+<td>Charting</td>
+<td>✅</td>
+<td>Low</td>
+<td>Yes</td>
+<td>Kite intraday + Yahoo &quot;visual only&quot; labelled; warehouse NOT used here so unaffected by §K bug</td>
+</tr>
+<tr>
+<td>E</td>
+<td>Scanner / Stock Intelligence</td>
+<td>🟡</td>
+<td>Medium</td>
+<td>Yes</td>
+<td>Full scan hard-timeouts → serves cached 198 rows; bhavcopy blocked in prod</td>
+</tr>
+<tr>
+<td>F</td>
+<td>Swing Engine (Pro Swing v3)</td>
+<td>🟡</td>
+<td>Medium</td>
+<td>Yes</td>
+<td>Runs daily (476 rows today) but 24–50 symbols error each run; one total failure 2026-06-19</td>
+</tr>
+<tr>
+<td>G</td>
+<td>F&amp;O Intraday Engine</td>
+<td>🟡</td>
+<td><strong>High (operational)</strong></td>
+<td>Yes (when Kite up)</td>
+<td>0 setups = Kite offline all session + pull-based engine; logic is sound but blind without daily login</td>
+</tr>
+<tr>
+<td>H</td>
+<td>Option Chain / OI Lab</td>
+<td>✅</td>
+<td>Low</td>
+<td>Yes</td>
+<td>Kite→NSE fallback, all modelled values (GEX/Greeks) labelled; snapshots fresh</td>
+</tr>
+<tr>
+<td>I</td>
+<td>Paper Trading</td>
+<td>🟡</td>
+<td>Medium</td>
+<td>Yes</td>
+<td>Honest &amp; gated; but 0 F&amp;O opens for 8 days, and 3 single-share equity test positions polluting the open book</td>
+</tr>
+<tr>
+<td>J</td>
+<td>Backtest Lab</td>
+<td>🟡</td>
+<td>Medium</td>
+<td>Yes</td>
+<td>Option P&amp;L is a <strong>synthetic ATM delta-0.5 proxy</strong> (labelled) — not real historical premiums</td>
+</tr>
+<tr>
+<td>K</td>
+<td>Data Backbone — candle warehouse</td>
+<td>🔴</td>
+<td>Medium</td>
+<td>Yes (nothing reads it yet)</td>
+<td><code>candle</code> table is <strong>EMPTY (0 rows)</strong>; daily tick fails on malformed SQL every ~5 min</td>
+</tr>
+<tr>
+<td>K</td>
+<td>Data Backbone — Yahoo fallback</td>
+<td>🔴</td>
+<td>High</td>
+<td>Degraded</td>
+<td>Yahoo failing wholesale (equity 206/206, index 30/30, fx 35/35) → no safety net when Kite down</td>
+</tr>
+<tr>
+<td>K</td>
+<td>Data Backbone — TradingView alerts</td>
+<td>⚫</td>
+<td>Medium</td>
+<td>No</td>
+<td><code>tv_alerts</code> has <strong>4 rows, newest 2026-04-24</strong> (~2 months stale) — webhook dormant</td>
+</tr>
+<tr>
+<td>L</td>
+<td>Auth / Infra</td>
+<td>✅</td>
+<td>Low</td>
+<td>Yes</td>
+<td>HMAC session cookies, role gates, public read mode; DB pool healthy</td>
+</tr>
+<tr>
+<td>M</td>
+<td>UI/UX / Navigation</td>
+<td>🟡</td>
+<td>Low</td>
+<td>Yes</td>
+<td>Stale-but-real data can read as &quot;broken&quot; without a louder global &quot;Kite offline / data degraded&quot; banner</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>2. LIVE PRODUCTION STATE SNAPSHOT (evidence captured 2026-06-23 ~16:26 IST)</h2>
+<table>
+<thead>
+<tr>
+<th>Subsystem</th>
+<th>Live state</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kite session</td>
+<td>Valid now (login 15:21, expires 06-24 06:00). <strong>Was offline 06:00→15:21 today.</strong></td>
+<td>🔴 operational</td>
+</tr>
+<tr>
+<td><code>candle</code> warehouse</td>
+<td><strong>0 rows.</strong> Sync runs write 0 rows. Daily tick errors continuously.</td>
+<td>🔴</td>
+</tr>
+<tr>
+<td><code>option_chain_snapshot</code></td>
+<td>Fresh: NIFTY/BANKNIFTY/SENSEX all captured 06-23 15:30 (~78–80k rows each)</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>swing_scan_result</code></td>
+<td>476 rows for 06-23 (deep scan finished 15:38); 24 errors</td>
+<td>🟡</td>
+</tr>
+<tr>
+<td><code>swing_scan_run</code> history</td>
+<td>06-23 ok (476/24); 06-22 ok (450/50); <strong>06-19 total failure (0 scanned / 500 errors)</strong>; 06-15 ok</td>
+<td>🟡</td>
+</tr>
+<tr>
+<td><code>tv_alerts</code></td>
+<td>4 rows total; earliest 04-23, <strong>latest 2026-04-24</strong></td>
+<td>⚫ stale</td>
+</tr>
+<tr>
+<td><code>paper_account</code></td>
+<td>FNO free balance ₹10,06,361 (seed ₹2,00,000); EQUITY free balance ₹2,05,098 (seed ₹10,00,000, rest deployed)</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>paper_trade_fo</code></td>
+<td>28 CLOSED, <strong>0 OPEN, last open 2026-06-15</strong></td>
+<td>🟡</td>
+</tr>
+<tr>
+<td><code>paper_trade_eq</code></td>
+<td>20 CLOSED + 10 OPEN (last open 06-16)</td>
+<td>🟡 (3 test positions)</td>
+</tr>
+<tr>
+<td><code>paper_trade_combo</code></td>
+<td>empty (no combos ever)</td>
+<td>⚫ unused</td>
+</tr>
+<tr>
+<td><code>fno_signal_reasoning</code> today</td>
+<td>3 rows, all <code>PRE_EMISSION_REJECTED / no_live_kite_intraday</code>, all @ 09:15</td>
+<td>🔴 root cause</td>
+</tr>
+<tr>
+<td><code>option_signal_history</code></td>
+<td>last signal_date <strong>2026-06-22</strong> (none today)</td>
+<td>consistent w/ Kite offline</td>
+</tr>
+<tr>
+<td><code>paper_daily_summary_fo</code></td>
+<td>06-23: 0/0/0 · 06-22: 5 sig / 3 valid / 0 opened / 3 skipped · 06-19: 4 sig / 7 valid / 0 opened / 7 skipped</td>
+<td>🟡 0 opens despite candidates</td>
+</tr>
+<tr>
+<td><code>fii_dii_daily</code></td>
+<td>latest 06-22 (1-day lag, normal)</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>iv_history</code></td>
+<td>NIFTY/BANKNIFTY/SENSEX/FINNIFTY/MIDCPNIFTY current to 06-23; BANKEX/NIFTYNXT50 stale (05-08)</td>
+<td>✅ (main indices)</td>
+</tr>
+<tr>
+<td><code>global_live_prices</code></td>
+<td>392 symbols, newest 16:29 (fresh); 1 failing; some stale since 05-20</td>
+<td>🟡</td>
+</tr>
+<tr>
+<td><code>global_sync_logs</code> (Yahoo)</td>
+<td><strong>yahoo-equity 206/206 failed, yahoo 30/30, yahoo-index 30/30, yahoo-fx 35/35 failed</strong>; binance ok</td>
+<td>🔴</td>
+</tr>
+<tr>
+<td><code>backtest_runs</code></td>
+<td>6 runs, all COMPLETE, last 06-22</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p>Recurring production log warnings (every few minutes):</p>
+<ul>
+<li><code>candle-warehouse: daily tick failed … ANY(($2, $3, $4)::bigint[]) … params: day,256265,260105,265</code> (malformed array cast)</li>
+<li><code>NSE bhavcopy fetch failed for last 7 trading days</code> (NSE blocking cloud IPs; dev still loads 06-22 bhavcopy)</li>
+<li><code>scanAll hard-timeout reached, returning partial/cached … returned=198</code></li>
+<li><code>Kite scanner: getQuote batch failed … ECONNRESET</code> (intermittent)</li>
+<li><code>Yahoo chart failed … No data found, symbol may be delisted … LTIM.NS</code></li>
+</ul>
+<hr>
+<h2>3. WHAT'S WORKING (with proof + data source + limitation)</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Proof it works</th>
+<th>Data source</th>
+<th>Limitation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Market indices board</td>
+<td><code>/api/indices</code> live; renders <code>—</code> for nulls, &quot;Live&quot; vs &quot;~15min delayed&quot; badge</td>
+<td>Kite → Yahoo fallback</td>
+<td>Sparse when both offline</td>
+</tr>
+<tr>
+<td>Watchlist</td>
+<td>Kite-priced batches, 60s cache, source badge, honest <code>missingSymbols</code></td>
+<td>Kite only (Yahoo banned)</td>
+<td>Off-universe trend is heuristic</td>
+</tr>
+<tr>
+<td>Portfolio Analyser</td>
+<td>Saves per-user; enriches via stockDetail→etfQuote→search→candles; null when no CMP</td>
+<td>Kite (+ alias/BSE resolver)</td>
+<td>XIRR needs purchase dates; sector weights honestly &quot;unavailable&quot;</td>
+</tr>
+<tr>
+<td>Charting</td>
+<td><code>/api/chart/candles</code> returns provenance + freshness; LIVE/STALE/DELAYED/VISUAL-ONLY badges</td>
+<td>Kite intraday; Yahoo &quot;visual only&quot; for Indian, primary for global</td>
+<td>Global intraday depth limited; CVD/VP approximated</td>
+</tr>
+<tr>
+<td>Option Chain page</td>
+<td><code>/options/chain</code> + <code>/options/analytics</code>; KITE LIVE vs NSE FALLBACK badge</td>
+<td>Kite → NSE</td>
+<td>NSE fallback marked &quot;display only, not for signals&quot;</td>
+</tr>
+<tr>
+<td>OI Lab</td>
+<td><code>/options/oi-lab/insights</code>; sentiment, windowed OI deltas; MODELLED badges</td>
+<td>Kite snapshots (+ historical backfill)</td>
+<td>GEX/Greeks are Black-Scholes modelled (labelled)</td>
+</tr>
+<tr>
+<td>Swing scanner</td>
+<td>476 rows persisted today; A–D grades; provenance per symbol</td>
+<td>Kite daily (500d) → Yahoo; 15-min LTP refresh</td>
+<td>Per-run symbol errors (§9)</td>
+</tr>
+<tr>
+<td>Paper trading (manual + auto)</td>
+<td>Atomic txns, heat caps, DD latches, capital ledger; honest skip reasons</td>
+<td>Kite for marks</td>
+<td>Auto-open gated to prod + Kite up</td>
+</tr>
+<tr>
+<td>Backtest Lab</td>
+<td>6 COMPLETE runs; honest data-quality + modelled-premium labels</td>
+<td>Real 15-min spot CSVs</td>
+<td>Synthetic option P&amp;L (§11)</td>
+</tr>
+<tr>
+<td>Auth &amp; public read mode</td>
+<td>HMAC session cookies, role gates, <code>/legal/*</code> bypass</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Data diagnostics</td>
+<td><code>/api/data/diagnostics</code>, <code>/symbol/:s</code>, <code>/system/status</code>, <code>/paper/diagnostics/*</code></td>
+<td>—</td>
+<td>Owner-gated</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>4. BROKEN / FAILING (table)</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Where</th>
+<th>Symptom (live)</th>
+<th>Root cause</th>
+<th>Severity</th>
+<th>Fix needed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Candle warehouse daily tick</td>
+<td><code>candleWarehouseIngestor.ts</code> (daily tick query)</td>
+<td>Fails every ~5 min in prod; <code>candle</code> table = 0 rows; sync writes 0</td>
+<td>Malformed SQL: <code>instrument_token = ANY(($2,$3,$4)::bigint[])</code> casts a record tuple to <code>bigint[]</code> → query throws before any fetch</td>
+<td>Medium</td>
+<td>Rewrite as <code>= ANY($1::bigint[])</code> with a single array param (or <code>IN (…)</code>). Then backfill</td>
+</tr>
+<tr>
+<td>Yahoo fallback (all lanes)</td>
+<td>global pump + Indian fallback</td>
+<td><code>global_sync_logs</code>: equity 206/206, index 30/30, fx 35/35, yahoo 30/30 all failing</td>
+<td>Yahoo endpoints blocking the prod cloud IP / rate-limited</td>
+<td>High</td>
+<td>Treat Yahoo as best-effort; ensure UI shows degraded clearly; consider a second delayed source</td>
+</tr>
+<tr>
+<td>TradingView alerts feed</td>
+<td><code>tv_alerts</code>, webhook route</td>
+<td>Page shows alerts from &quot;2 months ago&quot;; only 4 rows ever, newest 2026-04-24</td>
+<td>Webhook has received nothing since 2026-04-24 (TradingView alerts not configured/expired upstream)</td>
+<td>Medium</td>
+<td>Either re-wire TradingView alerts, or hide/age-label the panel so 2-month-old rows don't look &quot;live&quot;</td>
+</tr>
+<tr>
+<td>NSE bhavcopy (prod)</td>
+<td>bhavcopy fetcher</td>
+<td><code>NSE bhavcopy fetch failed for last 7 trading days</code> (prod)</td>
+<td>NSE rejects cloud IPs; dev still loads (06-22)</td>
+<td>Medium</td>
+<td>Fallback source for delivery%/bhavcopy, or label as last-available date</td>
+</tr>
+<tr>
+<td>Full NSE scan timeout</td>
+<td><code>fullNseScanner.ts</code> / scanAll</td>
+<td><code>scanAll hard-timeout … returned=198</code> repeatedly; full Kite scan does complete 4298 separately</td>
+<td>Quoting 8,760-instrument universe exceeds the hard time budget; serves cached 198-row subset</td>
+<td>Medium</td>
+<td>Raise/parallelise budget, or make the cached-fallback explicit in UI</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Note: items in §4 are <em>failing</em>, but the <strong>site as a whole stays usable</strong> because each has an honest fallback (cached rows, &quot;n/a&quot;, delayed labels) rather than fabricated data.</p>
+</blockquote>
+<hr>
+<h2>5. WORKS-BUT-LIMITED (list)</h2>
+<ol>
+<li><strong>Home panels</strong> — correct and honest, but visibly sparse whenever Kite is offline (pre-15:21 today) or Yahoo is down (now). Reads as &quot;broken&quot; to a user without a louder banner (see §16).</li>
+<li><strong>Scanner breadth/sectors/top-movers</strong> — derived from the same scan that timeouts to 198 cached rows; during timeouts the breadth is computed off a reduced set.</li>
+<li><strong>Swing engine</strong> — works daily but loses 24–50 symbols/run to source errors, and had a full failure on 2026-06-19 (0 scanned / 500 errors).</li>
+<li><strong>F&amp;O engine</strong> — logic is sound but <strong>pull-based</strong> (only runs when <code>/options/signals</code> is requested) and <strong>fully dependent on a live Kite session</strong>; both must hold for setups to appear.</li>
+<li><strong>Equity paper auto-trader</strong> — enabled in prod, but no equity auto-opens recently; open book mixes real sized positions with 3 single-share test buys.</li>
+<li><strong>Backtest Lab</strong> — usable for directional/structure study, but option P&amp;L is a delta proxy, so absolute ₹ outcomes are approximations, not broker-accurate.</li>
+<li><strong>IV history</strong> — main indices current; BANKEX &amp; NIFTYNXT50 stale since 2026-05-08.</li>
+<li><strong>Global multi-asset app</strong> — crypto (binance) fresh; Yahoo-sourced equity/fx/index symbols mostly failing right now.</li>
+</ol>
+<hr>
+<h2>6. HIDDEN / DISABLED / STALE (table)</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Location</th>
+<th>Current state</th>
+<th>Why</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>INDstocks secondary provider</td>
+<td><code>marketData/indstocks*</code></td>
+<td>Disabled (<code>INDSTOCKS_ENABLED</code> off)</td>
+<td>Scaffold/foundation only; failover signal-block deferred</td>
+<td>Keep disabled until adapter + mappings verified</td>
+</tr>
+<tr>
+<td>Candle warehouse (read side)</td>
+<td><code>candleWarehouse*</code></td>
+<td>Empty, write-only, tick broken</td>
+<td>No user-facing consumer reads it yet</td>
+<td>Fix tick + backfill <em>or</em> park it explicitly; remove log noise</td>
+</tr>
+<tr>
+<td>TradingView alerts</td>
+<td><code>tv_alerts</code></td>
+<td>Stale (newest 04-24)</td>
+<td>Upstream alerts not firing</td>
+<td>Re-wire or hide/age-label</td>
+</tr>
+<tr>
+<td>Combo paper-trader lane</td>
+<td><code>paper_trade_combo*</code></td>
+<td>0 combos ever</td>
+<td>Owner-only manual lane, unused</td>
+<td>Keep (functional), low priority</td>
+</tr>
+<tr>
+<td>FINNIFTY / MIDCPNIFTY (F&amp;O signals)</td>
+<td><code>OPTION_INDICES</code></td>
+<td>Removed from signal universe</td>
+<td>Low weekly OTM liquidity</td>
+<td>Intentional — leave out</td>
+</tr>
+<tr>
+<td>BANKEX / NIFTYNXT50 IV</td>
+<td><code>iv_history</code></td>
+<td>Stale since 05-08</td>
+<td>Not in active capture set</td>
+<td>Confirm intended</td>
+</tr>
+<tr>
+<td>Equity test positions</td>
+<td><code>paper_trade_eq</code> (OPEN)</td>
+<td>MOTHERSON / GMRINFRA / OBEROIRLTY @ qty=1</td>
+<td>Look like manual 1-share test buys</td>
+<td>Close/clean so the open book reflects only real sizing</td>
+</tr>
+<tr>
+<td>&quot;Load from Database&quot; (Portfolio)</td>
+<td>portfolio page</td>
+<td>Disabled in v1</td>
+<td>Not configured</td>
+<td>Intended</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>7. DATA-SOURCE MATRIX (per feature)</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Primary</th>
+<th>Fallback</th>
+<th>Trade-grade?</th>
+<th>Display-only path</th>
+<th>Modelled values</th>
+<th>Stale handling</th>
+<th>Missing handling</th>
+<th>Risk</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Indices board</td>
+<td>Kite</td>
+<td>Yahoo (15m)</td>
+<td>Kite only</td>
+<td>Yahoo labelled &quot;~15min delayed&quot;</td>
+<td>—</td>
+<td>&quot;Live&quot; vs &quot;delayed&quot; badge</td>
+<td><code>—</code></td>
+<td>Low</td>
+</tr>
+<tr>
+<td>Watchlist</td>
+<td>Kite</td>
+<td>none (Yahoo banned)</td>
+<td>Yes</td>
+<td>—</td>
+<td>trend heuristic off-universe</td>
+<td>stale-but-complete cache</td>
+<td><code>missingSymbols</code></td>
+<td>Low</td>
+</tr>
+<tr>
+<td>Portfolio</td>
+<td>Kite (+resolver)</td>
+<td>candles</td>
+<td>Valuation only on real CMP</td>
+<td>—</td>
+<td>—</td>
+<td>manual CMP only if live null</td>
+<td>null / &quot;n/a&quot;</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>Charting (Indian)</td>
+<td>Kite</td>
+<td>Yahoo &quot;visual only&quot;</td>
+<td>Kite only</td>
+<td>Yahoo = VISUAL ONLY / NOT FOR SIGNALS</td>
+<td>indicators client-side</td>
+<td>LIVE/STALE/DELAYED badge</td>
+<td>empty state</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>Charting (global)</td>
+<td>Yahoo</td>
+<td>—</td>
+<td>No</td>
+<td>whole tab delayed</td>
+<td>—</td>
+<td>DELAYED badge</td>
+<td>empty</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>Scanner</td>
+<td>Kite</td>
+<td>Yahoo</td>
+<td>signal=source-stamped</td>
+<td>—</td>
+<td>—</td>
+<td>cached 198 on timeout</td>
+<td>drops rows (no fake)</td>
+<td>Medium</td>
+</tr>
+<tr>
+<td>Swing</td>
+<td>Kite daily</td>
+<td>Yahoo</td>
+<td>source-stamped</td>
+<td>—</td>
+<td>zones/FVG/VP computed</td>
+<td>per-symbol error skip</td>
+<td>warnings[]</td>
+<td>Medium</td>
+</tr>
+<tr>
+<td>Option chain</td>
+<td>Kite</td>
+<td>NSE</td>
+<td>TRADE_GRADE=Kite-only</td>
+<td>NSE=DISPLAY ONLY</td>
+<td>—</td>
+<td>STALE/PARTIAL OI badge</td>
+<td>503</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>OI Lab metrics</td>
+<td>Kite snapshot</td>
+<td>NSE</td>
+<td>—</td>
+<td>—</td>
+<td>GEX, Greeks, synthetic future (MODELLED)</td>
+<td>freshness badge</td>
+<td>partial flag</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>F&amp;O signals</td>
+<td>Kite intraday + chain</td>
+<td><strong>none</strong> (Yahoo prohibited)</td>
+<td>Yes</td>
+<td>—</td>
+<td>premium model in backtest only</td>
+<td>rejects if not LIVE_KITE</td>
+<td>PRE_EMISSION_REJECTED</td>
+<td>High (needs Kite up)</td>
+</tr>
+<tr>
+<td>Paper marks</td>
+<td>Kite</td>
+<td>—</td>
+<td>Yes</td>
+<td>—</td>
+<td>—</td>
+<td>skip if untrusted</td>
+<td>skip reasons</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>Backtest</td>
+<td>real spot CSV</td>
+<td>—</td>
+<td>study only</td>
+<td>—</td>
+<td><strong>ATM delta-0.5 premium proxy</strong></td>
+<td>data-quality labels</td>
+<td>&quot;unavailable&quot;</td>
+<td>Medium</td>
+</tr>
+<tr>
+<td>Home global cues</td>
+<td>Yahoo / TV proxy</td>
+<td>—</td>
+<td>No</td>
+<td>delayed</td>
+<td>—</td>
+<td>omit if non-finite</td>
+<td>null</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>FII/DII, participant OI</td>
+<td>NSE</td>
+<td>—</td>
+<td>reference</td>
+<td>—</td>
+<td>—</td>
+<td>1-day lag normal</td>
+<td>—</td>
+<td>Low</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Bottom line on honesty:</strong> across every surface audited, the code <strong>omits or labels</strong> missing/secondary/modelled data — it does <strong>not</strong> fabricate (<code>?? 0</code> is avoided; nulls and explicit &quot;n/a&quot;/&quot;unavailable&quot;/&quot;MODELLED&quot;/&quot;VISUAL ONLY&quot; are used). This is a genuine strength and was re-confirmed in code in Home, Watchlist, Portfolio, Charting, Option Chain, and the market-data guard layer.</p>
+<hr>
+<h2>8. KITE-OFFLINE BEHAVIOR + SESSION MANAGEMENT</h2>
+<h3>8a. What happens to each feature when Kite is offline</h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Works without Kite?</th>
+<th>What breaks</th>
+<th>User message</th>
+<th>Correct behavior?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Home indices</td>
+<td>Partially</td>
+<td>Live LTP → falls to Yahoo (currently failing)</td>
+<td>&quot;~15min delayed&quot; / <code>—</code></td>
+<td>✅ honest</td>
+</tr>
+<tr>
+<td>Watchlist</td>
+<td>No (Yahoo banned)</td>
+<td>Prices unavailable</td>
+<td>missing/empty</td>
+<td>✅ honest (won't fake)</td>
+</tr>
+<tr>
+<td>Portfolio CMP</td>
+<td>Degraded</td>
+<td>CMP null</td>
+<td>&quot;n/a&quot; + manual CMP</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Charting Indian</td>
+<td>Visual only</td>
+<td>No live/intraday Kite</td>
+<td>&quot;VISUAL ONLY&quot; Yahoo</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Scanner</td>
+<td>Degraded</td>
+<td>Yahoo fallback (failing now)</td>
+<td>cached/sparse</td>
+<td>🟡 sparse, not labelled loudly</td>
+</tr>
+<tr>
+<td>Swing</td>
+<td>Degraded</td>
+<td>Yahoo daily fallback</td>
+<td>warnings[]</td>
+<td>🟡</td>
+</tr>
+<tr>
+<td>Option chain</td>
+<td>Yes (NSE)</td>
+<td>Kite→NSE</td>
+<td>&quot;NSE FALLBACK · DISPLAY ONLY&quot;</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><strong>F&amp;O signals</strong></td>
+<td><strong>No</strong></td>
+<td><strong>No emission at all</strong></td>
+<td><code>no_live_kite_intraday</code> → 0 setups</td>
+<td>✅ honest, but invisible to user as a <em>cause</em></td>
+</tr>
+<tr>
+<td>Paper auto-trade</td>
+<td>No</td>
+<td>No opens (untrusted)</td>
+<td>skip reason</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<h3>8b. Session lifecycle (today's failure mode)</h3>
+<ul>
+<li>Tokens expire <strong>daily at 06:00 IST</strong> (<code>next6amIST()</code>); <code>getActiveSession()</code> returns null past expiry.</li>
+<li>Reconnect = manual: <strong>Login to Kite</strong> → <code>/api/kite/login-url</code> → Zerodha OAuth → <code>/api/kite/callback</code>.</li>
+<li>Token stored in Postgres <code>kite_session</code> (AES-256-GCM at rest if <code>KITE_TOKEN_ENC_KEY</code> set).</li>
+<li>WebSocket ticker auto-reconnects, and a dev instance can mirror a prod session (<code>KITE_MIRROR_URL</code>) — <strong>but neither obtains a fresh token after the daily 06:00 expiry.</strong></li>
+<li><strong>There is NO daily auto-login cron.</strong> Today that meant: expired 06:00 → not re-logged until 15:21 → entire session blind.</li>
+</ul>
+<h3>8c. Recommendation (not implemented)</h3>
+<ol>
+<li>A pre-open scheduled check (~08:45 IST) that, if <code>kite_session</code> is expired/missing, raises a <strong>loud, unmissable &quot;Kite logged out — reconnect before open&quot;</strong> alert (banner + ideally push/email).</li>
+<li>Persisted <code>KITE_OFFLINE_SINCE</code> surfaced as a global banner so a missed login is obvious within seconds, not after a confusing &quot;0 setups&quot; day.</li>
+<li>(Optional) semi-automated token refresh if a request-token capture flow is acceptable to you.</li>
+</ol>
+<hr>
+<h2>9. SWING ENGINE — DEEP AUDIT</h2>
+<ul>
+<li><strong>What it is:</strong> TS port of &quot;Pro Swing Scanner v3&quot;; deterministic math (EMA/RSI/ATR/ADX/VWAP, supply-demand zones, FVG, fixed volume profile). Surfaced on <code>/stocks-to-watch</code>.</li>
+<li><strong>Data:</strong> Kite daily (500 bars) → Yahoo fallback; 15-min intraday LTP refresh during market hours; NIFTY 50 benchmark loader (Yahoo→retry→Kite); Yahoo fundamentals (6h cache).</li>
+<li><strong>Scoring:</strong> Technical + SMC + Volume + Momentum + Fundamental + Risk + Context + RS → A–D quality grade. Buy-zone from ATR buffer; T1 = <code>price + max(range·0.55, ATR·2.5)</code>; stop = <code>max(support, price − max(range·0.25, ATR·1.2))</code>.</li>
+<li><strong>Cadence:</strong> Deep scan once/day after 15:35 IST; cold-start latch keyed off the <code>swing_scan_run</code> audit row.</li>
+<li><strong>Live state:</strong> 06-23 → 476 results, 24 errors; 06-22 → 450/50; <strong>06-19 → 0 scanned / 500 errors (total failure)</strong>; 06-15 → 443/57.</li>
+</ul>
+<p><strong>Findings:</strong></p>
+<ul>
+<li>🟡 <strong>Persistent per-run symbol errors (24–50/run).</strong> Likely Kite historical throttling / Yahoo fallback failures for a subset; not fatal but erodes coverage.</li>
+<li>🔴 <strong>Whole-run failure on 2026-06-19</strong> (0 scanned). Correlates with that day's broader Kite/Yahoo trouble. No automatic retry surfaced.</li>
+<li>🟡 <strong>RS goes neutral</strong> when the NIFTY benchmark fetch fails (Yahoo down) — can flip RS-dependent grades silently.</li>
+<li>🟡 <strong>Single-replica scheduler assumption</strong> — fine for one instance; would double-run if scaled.</li>
+<li>⚪ Fundamentals lack QoQ growth (uses ratios endpoint, not statements); volume profile fixed at 48 bins (coarse for low-priced names).</li>
+<li><strong>Trade-grade?</strong> Plans are <strong>modelled once/day</strong> (labelled); only Kite-sourced price/OI is treated as authoritative. Honest.</li>
+</ul>
+<hr>
+<h2>10. F&amp;O INTRADAY ENGINE — DEEP AUDIT (the &quot;0 setups&quot; question)</h2>
+<h3>10a. Architecture</h3>
+<ul>
+<li><strong>Universe:</strong> NIFTY (weekly Tue), BANKNIFTY (monthly), SENSEX (weekly Tue). FINNIFTY/MIDCPNIFTY intentionally removed.</li>
+<li><strong>Execution:</strong> <strong>Per-request</strong> on <code>GET /options/signals</code> (pull-based). No always-on background signal loop; reasoning is logged only when the page/API is hit.</li>
+<li><strong>Gating:</strong> market hours 09:15–15:30 IST; requires Kite session; data must be <code>LIVE_KITE_FULL/PARTIAL</code> (Yahoo prohibited for F&amp;O).</li>
+<li><strong>Emission:</strong> HIGH_CONVICTION (conf ≥ 65, tradeable) vs BASELINE (35–64, INFO_ONLY under SIGNAL_HYGIENE_V2). <code>HC_EMISSION_FLOOR = 65</code>.</li>
+<li><strong>Gates/vetoes:</strong> RECOVERY_VETO, CHASE_VETO, ANTI-FLIP (45 min post-stop), P25 evidence, premiumTrusted (complete non-stale Kite chain), VIX-spike/circuit-breaker suppression, daily 2.5% / weekly 5% DD latches.</li>
+<li><strong>Paper execution:</strong> <code>isPaperAutoTradingEnabled()</code> gates writes; dev read-only, prod enabled; opens are single-transaction with cap checks.</li>
+</ul>
+<h3>10b. Why &quot;0 setups across 0 indices&quot; — enumerated, with TODAY's actual cause flagged</h3>
+<table>
+<thead>
+<tr>
+<th>Cause</th>
+<th>Triggers 0 setups when…</th>
+<th>Today 2026-06-23?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Market closed</strong></td>
+<td>weekend/holiday/outside 09:15–15:30</td>
+<td>✅ true NOW (16:26, post-close)</td>
+</tr>
+<tr>
+<td><strong>Kite session offline</strong></td>
+<td>no live intraday → <code>no_live_kite_intraday</code></td>
+<td>✅ <strong>TRUE 06:00–15:21 (root cause)</strong></td>
+</tr>
+<tr>
+<td>Pull-based engine idle</td>
+<td>nobody requests <code>/options/signals</code></td>
+<td>✅ contributed (only 3 logs all day, @09:15)</td>
+</tr>
+<tr>
+<td>Option chain unavailable</td>
+<td><code>fetchOptionChain</code> null/empty</td>
+<td>followed from Kite offline</td>
+</tr>
+<tr>
+<td>Warm-up incomplete</td>
+<td>&lt;2 bars / &lt;50 daily for EMA50</td>
+<td>n/a (no feed)</td>
+</tr>
+<tr>
+<td>All candidates below floor</td>
+<td>confluence &lt; 65</td>
+<td>n/a (none generated)</td>
+</tr>
+<tr>
+<td>VIX-spike / circuit breaker</td>
+<td>global suppression</td>
+<td>not reached</td>
+</tr>
+</tbody>
+</table>
+<h3>10c. Per-index table — TODAY (2026-06-23)</h3>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Live Kite data?</th>
+<th>Candidate generated?</th>
+<th>Decision logged</th>
+<th>Reason</th>
+<th>Setup emitted?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NIFTY</td>
+<td>❌ (offline till 15:21)</td>
+<td>❌</td>
+<td>PRE_EMISSION_REJECTED @09:15</td>
+<td><code>no_live_kite_intraday</code></td>
+<td>No</td>
+</tr>
+<tr>
+<td>BANKNIFTY</td>
+<td>❌</td>
+<td>❌</td>
+<td>PRE_EMISSION_REJECTED @09:15</td>
+<td><code>no_live_kite_intraday</code></td>
+<td>No</td>
+</tr>
+<tr>
+<td>SENSEX</td>
+<td>❌</td>
+<td>❌</td>
+<td>PRE_EMISSION_REJECTED @09:15</td>
+<td><code>no_live_kite_intraday</code></td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<p><code>paper_daily_summary_fo</code> 06-23: <strong>signals 0 / valid 0 / opened 0 / skipped 0</strong> — consistent: the engine never had data to evaluate.</p>
+<h3>10d. But even on days WITH data, 0 trades open</h3>
+<ul>
+<li>06-22: 5 signals, 3 valid candidates, <strong>0 opened</strong>, 3 skipped.</li>
+<li>06-19: 4 signals, 7 candidates, <strong>0 opened</strong>, 7 skipped.</li>
+<li>Last actual F&amp;O paper open: <strong>2026-06-15</strong> (8 days ago).</li>
+</ul>
+<p>This is a <strong>secondary finding worth a focused look (separate from Kite):</strong> when candidates do exist, the gate stack (premiumTrusted / DD latch / heat / baseline guardrails / time cutoffs) is rejecting 100% of them. That may be correct risk discipline, <em>or</em> the gates may be over-tight. The skip-reason breakdown (<code>/api/paper/diagnostics/untriggered/fo</code> and <code>paper_daily_summary_fo.skipped_by_reason</code>) should be reviewed before any tuning. <strong>No change made.</strong></p>
+<h3>10e. Verdict</h3>
+<p>The &quot;0 setups&quot; is <strong>not a logic bug</strong> — it is (1) market closed now and (2) Kite offline the whole session today. The engine behaved honestly. The real fixes are operational (daily Kite login + loud banner, §8) plus a review of why valid candidates never convert to opens (§10d).</p>
+<hr>
+<h2>11. BACKTEST LAB — AUDIT</h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Finding</th>
+<th>Honest label present?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Candle source</td>
+<td>Real 15-min SPOT candles from <code>tools/fno-backtester/data/*.csv</code>; fingerprinted for cache invalidation</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><strong>Option premium</strong></td>
+<td><strong>SYNTHETIC</strong> — fixed <strong>ATM delta ≈ 0.5 proxy</strong> on the real spot move; no historical premiums, no theta/IV term structure</td>
+<td>✅ &quot;Option P&amp;L uses a labeled ATM delta proxy (</td>
+</tr>
+<tr>
+<td>Charges/slippage</td>
+<td><code>gross − (charges + slippagePoints·ATM_DELTA·qty·2)</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Signal source</td>
+<td>Re-runs live strategy logic over historical spot (<code>directional.ts</code>/<code>replay.ts</code>/registry)</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Export</td>
+<td><code>csvExport.ts</code> includes <code>dataBlockedCount</code>, <code>riskBlockedCount</code> (trades not taken)</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Live state</td>
+<td>6 runs, all COMPLETE, last 06-22</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Verdict:</strong> Directionally useful and <strong>honestly labelled</strong>, but absolute ₹ P&amp;L is an approximation (linear delta, volatility-blind). Treat as a strategy-structure study, not a broker-accurate simulator. (Matches the prior &quot;Backtest Lab synthetic premium&quot; note — a candidate for a real-premium upgrade later, not part of this audit's fixes.)</p>
+<hr>
+<h2>12. OPTION CHAIN / OI LAB — AUDIT</h2>
+<ul>
+<li><strong>Single source of truth:</strong> central <code>optionChainProvider.ts</code>. DISPLAY mode = Kite→NSE fallback; TRADE_GRADE mode = Kite-only (used by signals/backtest).</li>
+<li><strong>Consistency:</strong> PCR, total OI, Max Pain, OI clusters all computed from the <strong>same snapshot</strong> in a single request (<code>optionAnalytics.ts</code>). GEX from <code>gex.ts</code> (Gamma·Qty·Spot²·0.01). IV rank/percentile from <code>iv_history</code>. ATM basis selectable (spot / future / synthetic-future via put-call parity).</li>
+<li><strong>Labels:</strong> <code>KITE LIVE</code> vs <code>NSE FALLBACK / DISPLAY ONLY</code>; <code>MODELLED GEX</code>, <code>MODELLED GREEKS</code>, <code>Synthetic Future (Modelled)</code>; <code>STALE</code> and <code>PARTIAL OI</code> badges; 503 with explicit reason if both sources fail.</li>
+<li><strong>Live state:</strong> snapshots fresh (all 3 underlyings @15:30). IV history current for main indices.</li>
+</ul>
+<p><strong>Verdict:</strong> ✅ Solid and honest. Modelled values (Greeks/GEX/synthetic future) are clearly distinguished from exchange data. No fabrication. Only nit: GEX/Greeks accuracy is bounded by the Black-Scholes assumptions (expected and labelled).</p>
+<hr>
+<h2>13. PORTFOLIO ANALYSER — RE-VERIFICATION</h2>
+<p>Re-checked specifically for valuation honesty and edge cases:</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fabricated CMP / <code>?? 0</code>?</td>
+<td>❌ none — null when unavailable, UI shows &quot;n/a&quot;/&quot;-&quot;</td>
+</tr>
+<tr>
+<td>Manual CMP overriding live?</td>
+<td>❌ <code>applyManualCmp</code> only fills when live CMP is null; forces <code>previousClose=null</code> so no fake day-P&amp;L</td>
+</tr>
+<tr>
+<td>BSE-only / renamed / ETF symbols</td>
+<td>✅ resolver handles NSE+BSE, alias map (e.g. AMARAJABAT→ARE&amp;M), ETF whitelist, BSE scrip codes</td>
+</tr>
+<tr>
+<td>Unpriced holdings</td>
+<td>✅ counted as <code>missingCount</code> / <code>investedNotEnriched</code>, summed only over available</td>
+</tr>
+<tr>
+<td>XIRR</td>
+<td>✅ Newton-Raphson + bisection fallback; returns null if no convergence/dates</td>
+</tr>
+<tr>
+<td>Benchmark</td>
+<td>✅ real NIFTY series windowed to first covered candle; &quot;unavailable&quot; when absent; sector over/under-weight honestly not fabricated</td>
+</tr>
+<tr>
+<td>Diagnostics</td>
+<td><code>/api/portfolio/resolve-debug</code> available</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Verdict:</strong> ✅ Clean. Confirms the earlier &quot;Portfolio never fabricates&quot; memory. No issues found.</p>
+<hr>
+<h2>14. DATA BACKBONE — STATUS</h2>
+<ul>
+<li><strong>Trusted layer (<code>marketData/</code>):</strong> import guard active; allowlist down to <strong>12 files</strong> (from 34 at foundation) — burn-down progressing. <code>DataMeta</code> carries source/trustTier/asOf/isStale/notForSignals/notForTradeDecisions/validationStatus. Write-guard prevents lower-trust rows overwriting Kite rows (provenance priority).</li>
+<li><strong>Yahoo fencing:</strong> ✅ Yahoo (<code>secondary_analytics</code>) can <strong>never</strong> be <code>TradeableBrand</code>; only fresh Kite (<code>authoritative</code>) is tradeable. Hard-stale rejected.</li>
+<li><strong>INDstocks:</strong> disabled (scaffold), failover loud-labelled but signal-block deferred.</li>
+<li>🔴 <strong>Candle warehouse:</strong> <code>candle</code> = <strong>0 rows</strong>; daily tick fails on <code>ANY(($2,$3,$4)::bigint[])</code>; sync writes 0. No user feature reads it yet, so <strong>no user-visible impact</strong>, but it's dead infra + constant log noise. (Matches &quot;drizzle-kit push drops out-of-schema tables&quot; caution — fix the query and backfill with <code>ALTER</code>-safe ops, don't push.)</li>
+<li>🔴 <strong>Yahoo lanes:</strong> failing wholesale right now (see §2) — the fallback safety net is effectively gone while Kite is the only working source.</li>
+<li>⚫ <strong>TradingView:</strong> dormant since 2026-04-24.</li>
+<li>🟡 <strong>NSE bhavcopy:</strong> blocked from prod cloud IP (dev still loads 06-22).</li>
+</ul>
+<hr>
+<h2>15. AUTH / INFRA</h2>
+<ul>
+<li>HMAC-SHA256 HttpOnly session cookies, role-based gates, public read-only mode, <code>/legal/*</code> login bypass — all present and functioning.</li>
+<li>DB: <code>pg.Pool</code> (max 10, keepAlive, 30s idle, 10s connect timeout); staggered boot scheduler to avoid connection storms.</li>
+<li>Instrument master warm-start: 6h disk cache with exponential backoff on fetch failure.</li>
+<li>Diagnostics: <code>/api/data/diagnostics</code>, <code>/symbol/:s</code>, <code>/portfolio-resolution</code>, <code>/data/compare</code>, <code>/system/status</code> (owner-gated).</li>
+<li>Owner-only Infra-Health dashboard at <code>/infra-health</code> consolidates security/sector/warehouse/option-snapshot/equity-risk.</li>
+</ul>
+<p><strong>Verdict:</strong> ✅ Healthy. (Reminder from prior memory: owner-only READ surfaces exposing secrets/token metadata must use <code>requireOwnerStrict</code>, not <code>requireOwner</code> — worth a spot-check during any future auth change, not part of this audit.)</p>
+<hr>
+<h2>16. UI/UX / NAVIGATION</h2>
+<ul>
+<li>Dev browser console: clean (only Vite HMR messages). No frontend JS errors observed.</li>
+<li>All 4 workflows running (api-server, scanner, global, mockup-sandbox).</li>
+<li><strong>Main UX gap:</strong> the app is <em>honest</em> about degraded data (sparse panels, &quot;n/a&quot;, delayed badges) but there is <strong>no single, loud, global banner</strong> that says &quot;Kite is logged out / live data degraded.&quot; So on a day like today, a user sees many half-empty panels and &quot;0 setups&quot; and reasonably concludes &quot;the site is broken,&quot; when the real message should be &quot;reconnect Kite.&quot; Per-page banners exist (KiteOfflineBanner on Scanner/Detail/Deep Scan) but not a persistent global one tied to session expiry.</li>
+<li><strong>Stale-but-real reads as broken:</strong> TradingView &quot;2 months ago&quot; and stale global tiles look like bugs because they aren't age-labelled prominently.</li>
+</ul>
+<p><strong>Recommendation (not implemented):</strong> one global status strip driven by <code>/api/kite/status</code> + data-diagnostics: &quot;Kite: OFFLINE since 06:00 — Reconnect&quot; and age badges on any panel older than its budget.</p>
+<hr>
+<h2>17. PRIORITISED REMEDIATION (awaiting your approval — nothing changed yet)</h2>
+<h3>Fix first (operational / highest user impact)</h3>
+<ol>
+<li><strong>Daily Kite login + loud pre-open alert</strong> (§0/§8). Removes the #1 cause of dead trading days. <em>Operational + small code.</em></li>
+<li><strong>Global &quot;Kite offline / data degraded&quot; banner</strong> (§16). Turns confusing &quot;0 setups / empty panels&quot; into a clear &quot;reconnect&quot; prompt. <em>Frontend.</em></li>
+<li><strong>Candle-warehouse daily-tick SQL fix</strong> (<code>= ANY($1::bigint[])</code>) + backfill (§4/§14). Stops 5-minute error spam; makes the warehouse real. <em>Small, contained.</em></li>
+</ol>
+<h3>Should fix (correctness / coverage)</h3>
+<ol start="4">
+<li><strong>Yahoo fallback resilience</strong> (§4/§14) — accept it's flaky; ensure UI degradation is explicit; evaluate a second delayed source.</li>
+<li><strong>Review F&amp;O &quot;valid candidates → 0 opens for 8 days&quot;</strong> (§10d) via skip-reason diagnostics before any gate tuning.</li>
+<li><strong>Full-scan timeout</strong> (§4) — raise/parallelise budget or label the 198-row cached fallback.</li>
+<li><strong>Swing per-run errors + 06-19 failure</strong> (§9) — add retry/visibility.</li>
+<li><strong>TradingView alerts</strong> (§4) — re-wire or hide/age-label.</li>
+<li><strong>Clean 3 single-share test positions</strong> from the equity paper open book (§6).</li>
+</ol>
+<h3>Can wait</h3>
+<ol start="10">
+<li>NSE bhavcopy prod fallback (§4). 11. BANKEX/NIFTYNXT50 IV staleness (§5). 12. Backtest real-premium upgrade (§11). 13. Volume-profile bin granularity (§9).</li>
+</ol>
+<h3>Don't touch (intentional / correct)</h3>
+<ul>
+<li>Yahoo never tradeable; F&amp;O Yahoo prohibition; FINNIFTY/MIDCPNIFTY exclusion; INDstocks disabled; &quot;no fabrication&quot; omit-or-label policy; portfolio advisory-field non-persistence; combo lane isolation. <strong>These are correct — leave as-is.</strong></li>
+</ul>
+<hr>
+<h2>APPENDIX — RAW EVIDENCE (read-only)</h2>
+<p><strong>Production now:</strong> 2026-06-23 16:26 IST (Tue, post-close).
+<strong>Kite:</strong> user &quot;Devendra Ramkishan Sharma&quot;, login 15:21, expires 06-24 06:00, valid=true.
+<strong>candle:</strong> <code>count = 0</code>.
+<strong>Today's F&amp;O reasoning (all 3):</strong> <code>PRE_EMISSION_REJECTED · OTHER · &quot;no_live_kite_intraday (Kite session expired / throttled / index uncovered)&quot;</code> @ 09:15.
+<strong>paper_daily_summary_fo:</strong> 06-23 [0/0/0/0] · 06-22 [5 sig/3 valid/0 open/3 skip] · 06-19 [4/7/0/7].
+<strong>paper_trade_fo (last opens):</strong> all CLOSED, newest opened 06-15 (BANKNIFTY VWAP_RECLAIM, STOPPED −20,113).
+<strong>Equity OPEN book:</strong> BERGEPAINT(505), COALINDIA(156), FORTIS(141), GLAND(49), INDIGO(25), LT(27), PHOENIXLTD(60) [real sizing]; MOTHERSON(1), GMRINFRA(1), OBEROIRLTY(1) [single-share = likely tests].
+<strong>tv_alerts:</strong> 4 rows, 2026-04-23 → 2026-04-24.
+<strong>option_chain_snapshot:</strong> NIFTY/BANKNIFTY/SENSEX all 06-23 15:30, ~78–80k rows each.
+<strong>swing_scan_run:</strong> 06-23 476/24; 06-22 450/50; 06-19 0/500; 06-15 443/57.
+<strong>global_sync_logs (Yahoo):</strong> equity 206/206 failed, yahoo 30/30, index 30/30, fx 35/35; binance ok.
+<strong>candle_sync_run:</strong> INCREMENTAL 15minute last 06-23 13:19 (rows 0); day last 06-22 18:36 (rows 0).
+<strong>Recurring prod log errors:</strong> candle-warehouse daily tick (<code>ANY(($2,$3,$4)::bigint[])</code>); NSE bhavcopy fail 7d; scanAll hard-timeout → 198; Kite getQuote ECONNRESET; Yahoo chart fail (LTIM.NS).</p>
+<p><em>End of report. No code, data, UI, or configuration was modified during this audit.</em></p>
+
+  </div>
+  </body></html>

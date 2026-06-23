@@ -77,4 +77,10 @@ title = "Project Backup — Source + Safe DB Export (2026-05-27)"
 id = "ZWidbw8Bnr2H42x8djE9O"
 uri = "file://FULL_WEBSITE_DEEP_AUDIT_REPORT.md"
 type = "text"
-title = "Full Website Deep Audit Report"
+title = "Full Website Deep Audit Report (Markdown)"
+
+[[outputs]]
+id = "tlXGbPcOfXpZSZ25HUXRX"
+uri = "file://FULL_WEBSITE_DEEP_AUDIT_REPORT.docx"
+type = "word_document"
+title = "Full Website Deep Audit Report (Word — open & export to PDF)"
