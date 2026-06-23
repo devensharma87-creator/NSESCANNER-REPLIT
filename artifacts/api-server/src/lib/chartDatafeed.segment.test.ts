@@ -125,7 +125,7 @@ describe("Provider guard structural checks", () => {
       if (!fs.existsSync(filePath)) continue; // skip if not present
       const src = fs.readFileSync(filePath, "utf-8");
       // Runtime Yahoo imports (not type-only)
-      const imports = (src.match(/^import\s+\{[^}]+\}\s+from\s+["'].*yahoo.*["']/gm) ?? [])
+      const imports = (src.match(/^import\s+\{[^}]+\}\s+from\s+["'].*yahoo.*["']/gm) ?? [] as string[])
         .filter(line => !line.startsWith("import type"));
       expect(imports).toHaveLength(0);
     }

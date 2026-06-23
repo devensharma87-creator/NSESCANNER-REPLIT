@@ -95,6 +95,8 @@ describe("flattenChainToRows", () => {
     maxPainStrike: 25000,
     source: "kite",
     generatedAt: "2026-05-15T10:00:00.000Z",
+    spotSource: "kite" as const,
+    spotTrusted: true,
     rows: [
       {
         strike: 24950,

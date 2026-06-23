@@ -19,6 +19,7 @@ function meta(over: Partial<DataMeta> = {}): DataMeta {
     isStale: false,
     delayed: false,
     notForSignals: false,
+    notForTradeDecisions: false,
     validationStatus: "validated",
     warnings: [],
     ...over,

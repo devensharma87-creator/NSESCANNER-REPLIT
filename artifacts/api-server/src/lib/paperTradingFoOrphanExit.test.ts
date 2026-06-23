@@ -70,6 +70,8 @@ function makeChain(
     ],
     source: "TEST",
     generatedAt: new Date().toISOString(),
+    spotSource: "kite" as const,
+    spotTrusted: true,
   };
 }
 

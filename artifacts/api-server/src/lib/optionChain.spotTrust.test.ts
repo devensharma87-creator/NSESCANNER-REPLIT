@@ -136,7 +136,7 @@ describe("Option chain spot trust contract", () => {
 
       // Runtime (non-type) imports from yahoo must be zero.
       // Type-only imports are allowed but not required.
-      const runtimeImports = (src.match(/^import\s+\{[^}]+\}\s+from\s+["']\.\/(yahoo|yahoo-finance2)["']/gm) ?? [])
+      const runtimeImports = (src.match(/^import\s+\{[^}]+\}\s+from\s+["']\.\/(yahoo|yahoo-finance2)["']/gm) ?? [] as string[])
         .filter(line => !line.match(/^import\s+type\s/));
       expect(runtimeImports).toHaveLength(0);
     });

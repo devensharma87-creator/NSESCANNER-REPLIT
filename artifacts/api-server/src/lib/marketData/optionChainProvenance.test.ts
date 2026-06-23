@@ -29,6 +29,8 @@ function chain(overrides: Partial<OcResponse> = {}): OcResponse {
     ] as OcResponse["rows"],
     source: "kite",
     generatedAt: new Date(NOW).toISOString(),
+    spotSource: "kite" as const,
+    spotTrusted: true,
     ...overrides,
   };
 }

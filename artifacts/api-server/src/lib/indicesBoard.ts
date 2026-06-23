@@ -677,7 +677,10 @@ export async function getIndicesBoard(opts: { force?: boolean } = {}): Promise<I
       intra = await fetchIntraday(cfg.yahoo, "5m", "1d").catch(() => null);
       intraSource = intra ? "yahoo" : null;
     }
-    const kite = cfg.kiteYahooKey && kiteMap ? kiteMap.get(cfg.kiteYahooKey) : undefined;
+    // centralIndexQuotes() returns an inline compat type with optional OHLC/change
+    // fields; cast to KiteIndexQuote since the data originates from the Kite router
+    // and buildItem guards on kite being truthy before using any field.
+    const kite = cfg.kiteYahooKey && kiteMap ? kiteMap.get(cfg.kiteYahooKey) as KiteIndexQuote | undefined : undefined;
     const tv = cfg.tvSymbol ? tvMap.get(cfg.tvSymbol) : undefined;
     const row = buildItem(cfg, daily, intra, tv, kite, intraSource);
     if (cfg.proxyNote && cfg.yahooDaily && cfg.yahooDaily !== cfg.yahoo) {

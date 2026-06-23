@@ -22,6 +22,8 @@ function chain(over: Partial<OcResponse> = {}): OcResponse {
     rows,
     source: "kite",
     generatedAt: "2026-06-09T05:00:00.000Z",
+    spotSource: "kite" as const,
+    spotTrusted: true,
     ...over,
   };
 }

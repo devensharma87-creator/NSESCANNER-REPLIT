@@ -74,6 +74,7 @@ function indMeta(over: Partial<DataMeta> = {}): DataMeta {
     isStale: false,
     delayed: false,
     notForSignals: true,
+    notForTradeDecisions: true,
     validationStatus: "unvalidated",
     warnings: [],
     ...over,

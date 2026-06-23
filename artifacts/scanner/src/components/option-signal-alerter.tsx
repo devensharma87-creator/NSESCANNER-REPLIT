@@ -249,7 +249,7 @@ export function OptionSignalAlerter() {
     // The backend sends `execution` on signal-history rows. For the
     // Orval-generated OptionSignalHistoryItem type we cast to access
     // the additive field without touching codegen.
-    const exec = (s as Record<string, unknown>).execution as {
+    const exec = (s as unknown as Record<string, unknown>).execution as {
       signalTier?: string;
       signalTradeable?: boolean;
       executionStatus?: string;

@@ -107,7 +107,7 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
     const perIndex = await Promise.all(
       indices.map(async (cfg) => {
         const q = quotes?.get(cfg.yahoo) ?? null;
-        const spotAgeMs = q ? now - q.asOf : null;
+        const spotAgeMs = q && q.asOf != null ? now - q.asOf : null;
         const spotStatus: HealthSeverity = q
           ? classifyFreshness(spotAgeMs, SPOT_WARN_MS, SPOT_FAIL_MS)
           : "unavailable";
@@ -208,7 +208,7 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
             ? {
                 status: spotStatus,
                 price: q.price,
-                asOf: new Date(q.asOf).toISOString(),
+                asOf: q.asOf != null ? new Date(q.asOf).toISOString() : null,
                 ageSec: spotAgeMs != null ? Math.round(spotAgeMs / 1000) : null,
               }
             : { status: "unavailable" as HealthSeverity, reason: "no live index quote" },

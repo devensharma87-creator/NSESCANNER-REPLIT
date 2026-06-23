@@ -666,6 +666,9 @@ export async function openManualPaperEquityTrade(
     perShareRisk: r,
     atr14,
     swing20Low,
+    // ATR and swing-low on this path always come from Yahoo daily bars (delayed).
+    levelsSource: "yahoo",
+    levelsWarnings: [],
   };
   logger.info(
     { symbol: row.symbol, entry: entryPrice, stop: stopPrice, t1: target1Price, t2: target2Price, qtyOverride: opts?.qty ?? null },

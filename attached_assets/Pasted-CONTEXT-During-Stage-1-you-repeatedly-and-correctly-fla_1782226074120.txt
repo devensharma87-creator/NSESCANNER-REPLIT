@@ -1,0 +1,39 @@
+CONTEXT
+During Stage 1 you repeatedly and correctly flagged that main does not fully typecheck. The errors are pre-existing type debt from honesty-layer fields (notForTradeDecisions, spotSource/spotTrusted/levelsSource/levelsWarnings, Kite-quote nullability) being added to lib types whose consumers and a test fixture were never updated. A stale .d.ts masked them until typecheck:libs rebuilt.
+This is a dedicated cleanup task. Goal: get the entire monorepo to typecheck green on main, changing only type annotations and test fixtures — zero behavioural change.
+WHY THIS MATTERS
+A repo that doesn't typecheck clean masks new errors (this is precisely how the warehouse SQL bug survived into production). Before we build Stage 2 on top, the baseline must be green.
+SCOPE
+In scope (type-only / fixture-only edits):
+
+routes/fno.ts — nullability mismatches around centralIndexQuotes() / quote consumption.
+lib/scanner.ts — DataMeta/honesty-field type mismatches.
+lib/watchlistBasket.test.ts — the meta() fixture is missing notForTradeDecisions (and any other newly-required DataMeta fields). Update the fixture literal to satisfy the current DataMeta type.
+components/option-signal-alerter.tsx:252 (scanner) — the pre-existing cast error.
+Any other file that surfaces in a libs-first full typecheck.
+
+Hard rules:
+
+Run typecheck:libs (or the canonical libs-first build) FIRST, every time, so you're working against fresh declarations — not stale .d.ts. Report the true baseline error list before fixing.
+Type annotations, narrowing, and test fixtures only. No change to runtime behaviour, no change to what any function returns, no change to trading logic, gates, sizing, ledger, or option-chain math. If a fix would require changing a runtime value (not just its type), stop and report — that's out of scope.
+For nullability: prefer correct narrowing/guards over as casts and over ! non-null assertions. Use a cast only where the value is provably non-null and a guard would be contrived; document why in a comment.
+Do not weaken types to silence errors (no any, no @ts-ignore, no @ts-expect-error unless paired with a one-line justification and a follow-up note).
+replit.md, package/lock files, and all forbidden Stage-1 surfaces remain untouched.
+
+ACCEPTANCE
+
+typecheck:libs green, then api-server typecheck green and scanner typecheck green — zero errors, top to bottom.
+Full api-server + scanner test suites still pass (run them; they were 1908+12 and 711 last stage — they must not regress).
+git diff touches only type annotations and test fixtures.
+
+FINAL REPORT
+
+The true baseline error list (post typecheck:libs), file-by-file.
+Each fix: file, the type problem, the fix approach (narrowing vs. guard vs. cast), and why it's behaviour-preserving.
+Confirmation: no runtime value changed; no any/@ts-ignore introduced; trading surfaces untouched.
+Green typecheck output for libs, api-server, and scanner.
+Test-suite pass counts (must match or exceed prior).
+
+Stop after this. This is cleanup, not Stage 2.
+
+Once main is green and PART E is done in production, tell me and I'll write the Stage 2 prompt (data-infrastructure reliability: warehouse coverage diagnostics, full-NSE-scan partial-coverage labelling, NSE bhavcopy fallback, Yahoo degraded-state hardening). Doing the typecheck cleanup first means Stage 2 gets built on a baseline where new errors actually surface instead of hiding.

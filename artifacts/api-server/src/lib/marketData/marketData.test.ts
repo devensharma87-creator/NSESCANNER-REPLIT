@@ -166,6 +166,7 @@ describe("guard", () => {
     isStale: false,
     delayed: false,
     notForSignals: false,
+    notForTradeDecisions: false,
     validationStatus: "validated",
     warnings: [],
   });

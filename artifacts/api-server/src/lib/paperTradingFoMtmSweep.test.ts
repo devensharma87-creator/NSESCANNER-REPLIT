@@ -57,6 +57,8 @@ function makeChain(strike: number, ce?: number, pe?: number): OcResponse {
     ],
     source: "TEST",
     generatedAt: new Date().toISOString(),
+    spotSource: "kite" as const,
+    spotTrusted: true,
   };
 }
 
