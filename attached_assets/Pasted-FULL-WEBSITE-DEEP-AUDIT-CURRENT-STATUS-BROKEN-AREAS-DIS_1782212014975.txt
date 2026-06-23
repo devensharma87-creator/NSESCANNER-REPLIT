@@ -1,0 +1,652 @@
+FULL WEBSITE DEEP AUDIT — CURRENT STATUS, BROKEN AREAS, DISABLED FEATURES, DATA SOURCES, AND REMAINING WORK
+
+Do not start coding.
+
+Do not fix anything yet.
+
+Do not make UI changes.
+
+Do not start a new feature.
+
+Do not assume previous reports are fully correct.
+
+I need a complete current-state audit of the live website and codebase so we can plan the remaining work properly and stop doing small scattered fixes.
+
+This audit must answer clearly:
+
+what is working
+what is partially working
+what is not working
+what is disabled
+what is hidden / stale / old
+what still depends on expired Kite session
+what has data source issues
+what is using real data
+what is using display-only / Yahoo / modelled / synthetic data
+what needs fixing first
+how much work remains
+what can wait
+what should not be touched
+
+No coding until this audit is submitted and approved.
+
+====================================================
+
+AUDIT SCOPE
+====================================================
+
+Audit the complete website, backend, frontend, data layer, engines, routes, and live Replit deployment.
+
+Cover every major area:
+
+A. Home / Dashboard
+
+indices
+market pulse
+market trend
+global cues
+pre-market
+top movers
+sector views
+source badges
+stale/unavailable states
+
+B. Watchlist
+
+quote loading
+live CMP
+source badge
+search/add/remove
+missing symbols
+stale data handling
+unavailable data handling
+
+C. Portfolio Analyser
+
+holdings count
+price-enriched count
+unpriced count
+unresolved symbols
+BSE-only symbols
+ETFs
+renamed symbols / aliases
+XIRR
+allocation
+P&L
+source badges
+diagnostics endpoint
+valuation honesty
+
+D. Charting
+
+NSE equity charts
+BSE equity charts
+indices
+global symbols
+candle source
+timeframe handling
+volume
+indicators
+unavailable states
+source badges
+Yahoo/global display-only path
+current chart limitations
+comparison with TradingView/NSE where practical
+
+E. Scanner / Stock Intelligence
+
+curated scanner
+full NSE scanner
+deep scan
+swing scan
+stock detail pages
+recommendations
+indicators
+volume/VWAP/RSI/MACD/EMA logic
+data source
+source provenance
+whether outputs are trade-grade or display-only
+disabled filters / hidden features
+
+F. Swing Trading Engine
+
+Audit deeply:
+
+data source used
+signal logic
+daily / intraday data dependency
+Yahoo dependency, if any
+Kite/warehouse dependency
+signal generation
+scoring
+risk/reward
+stop/target logic
+whether signals are live, delayed, modelled, or display-only
+whether any signal can be considered trade-grade
+missing source badges
+false-positive/false-negative risk
+current limitations
+whether the engine is actually usable now
+
+G. F&O Intraday Engine
+
+Audit deeply:
+
+monitored indices
+why page sometimes shows 0 live setups
+why strong market moves did not create signals
+whether setup generation is running
+whether baseline/info-only is working
+whether HIGH_CONVICTION / STANDARD is working
+recovery-veto
+chase-veto
+anti-flip
+P25
+premiumTrusted
+option-chain dependency
+paper-trade execution truth
+cockpit/history/popup consistency
+skipped/missed table
+guardrail latches
+risk blocks
+stale TradingView alerts
+old alerts showing “2 months ago”
+whether F&O engine is currently usable or only partially working
+
+H. Option Chain / OI Lab
+
+Option Chain page
+OI Lab overview
+Open Interest
+PCR
+Max Pain
+GEX
+IV/Greeks
+Multi OI & Volume
+ATM basis
+Kite vs NSE fallback
+source badge
+modelled labels
+central snapshot usage
+stale/unavailable handling
+whether calculations are correct and consistent
+
+I. Paper Trading
+
+F&O paper account
+Equity paper account
+add capital
+withdraw capital
+ledger
+dynamic lot sizing
+risk base
+heat cap
+execution truth
+skipped/blocked/opened status
+daily/weekly drawdown latch
+reports
+P&L
+whether old/test trades pollute UI
+whether paper trading is safe to use
+
+J. Backtest Lab
+
+Audit honestly:
+
+real data vs modelled data
+option premium source
+synthetic assumptions
+candle source
+signal source
+export columns
+labels
+fake/missing data risks
+whether results can be trusted
+what must be fixed before using it for decisions
+
+K. Data Backbone
+
+Confirm current status:
+
+central data backbone
+provider import guard
+remaining allowlist
+data source contracts
+source provenance
+missingReason
+stale flags
+notForSignals
+notForTradeDecisions
+modelled/synthetic flags
+Yahoo fencing
+NSE fallback labelling
+Kite session dependency
+BSE master dependency
+
+L. Authentication / Infrastructure
+
+Replit deployment
+DB connection
+Kite session
+Kite token expiry behavior
+BSE/NSE instrument master warm-start
+cache files
+environment variables
+diagnostics endpoints
+production build health
+console/API errors
+
+M. UI / UX / Navigation
+
+broken pages
+disabled tabs
+hidden features
+old/stale data
+blank panels
+wrong badges
+confusing labels
+responsiveness
+page load speed
+navigation issues
+any duplicate/conflicting pages
+
+Use both:
+
+Code audit
+Live website audit
+
+For code audit:
+
+search all routes
+search frontend pages/components
+search data services
+search signal engines
+search scanner engines
+search paper trading
+search backtest
+search provider imports
+search TODO/FIXME/disabled flags
+search feature flags
+search mock/synthetic/proxy data
+search old fallback logic
+search hardcoded values
+search stale test/demo data
+
+For live audit:
+
+open every main page
+check API responses
+check browser console
+check network errors
+check source badges
+check unavailable messages
+check stale data
+check blank panels
+check whether data changes after refresh
+check whether Kite session status affects the page correctly
+
+Do not rely only on tests.
+Do not rely only on previous walkthroughs.
+Use current production state.
+
+Return one report:
+
+FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+
+The report must include these sections.
+
+Give a simple table:
+
+Area	Status	Severity	Production Usable?	Main Issue
+
+Status values:
+
+WORKING
+PARTIALLY WORKING
+NOT WORKING
+DISABLED
+HIDDEN
+STALE
+NEEDS KITE SESSION
+NEEDS DATA FIX
+NEEDS UI FIX
+NEEDS ARCHITECTURE FIX
+
+Severity:
+
+CRITICAL
+HIGH
+MEDIUM
+LOW
+
+List everything currently working properly.
+
+For each item include:
+
+feature/page
+proof
+data source
+limitations
+whether production usable
+
+List every broken feature.
+
+For each:
+
+| Feature | Page/File | Symptom | Root Cause | Data Source Involved | Severity | Fix Needed | Estimated Time |
+
+List every feature that works but has limitations.
+
+Examples:
+
+works only when Kite session is active
+works only for curated symbols
+works only for NSE, not BSE
+works but source badge missing
+works but output is display-only
+works but old/stale data visible
+works but no clear error reason
+
+Find features that are:
+
+hidden in UI
+disabled by feature flag
+present in code but not linked
+linked but non-functional
+showing old/test/demo data
+showing stale alerts
+created but unused
+
+Return:
+
+| Feature | Location | Current State | Why Disabled/Stale | Should Fix / Remove / Keep Later |
+
+For every major feature, provide:
+
+| Feature | Primary Source | Fallback Source | Trade-grade? | Display-only? | Modelled? | Stale Handling | Missing Handling | Risk |
+
+Cover:
+
+Watchlist
+Portfolio
+Charting
+Scanner
+Swing
+Deep Scan
+F&O Engine
+Option Chain
+OI Lab
+Paper Trading
+Backtest
+Home/Market Pulse
+Global data
+Fundamentals
+
+Explain exactly what breaks when Kite session is offline.
+
+Include:
+
+| Feature | Works Without Kite? | What Breaks | User Message | Correct Behavior? |
+
+Specifically check:
+
+Portfolio CMP
+Chart candles
+Option Chain
+OI Lab
+F&O signals
+Scanner live prices
+BSE instrument master
+Paper trading execution
+
+Also report:
+
+how Kite reconnect is done
+how token expiry is detected
+what user sees when token expires
+whether auto-reconnect or admin warning exists
+whether daily token refresh workflow is needed
+
+Return a dedicated deep audit.
+
+Include:
+
+data sources
+timeframes
+scoring logic
+signal types
+trend filters
+entry/stop/target logic
+risk/reward logic
+Yahoo/Kite/warehouse dependency
+trade-grade or display-only status
+source badges
+current failures
+false signal risks
+missing tests
+live proof
+final recommendation: usable / not usable / needs fix
+
+Return a dedicated deep audit.
+
+Focus on the issue:
+
+“Market had strong down move but no signals were generated.”
+
+Audit:
+
+whether monitored indices list is loaded
+whether index quote/candles are available
+whether signal loop is running
+whether setup candidates are being generated
+whether candidates are being demoted
+exact gate/veto reasons
+premiumTrusted status
+option chain status
+risk guardrail status
+daily/weekly DD latch status
+paper account status
+old TradingView alerts
+why UI says 0 setups across 0 indices
+whether alert feed is stale
+whether signal engine is disabled by config/session/market timing/data unavailability
+
+Required output:
+
+| Index | Data Available? | Candidate Generated? | Direction | Tier | Gate Result | Veto Reason | Premium Trusted? | Execution Status | Final Reason |
+
+Also include:
+
+what should have happened during today’s down move
+whether system correctly avoided signal or missed it
+exact fix required
+
+Audit:
+
+real vs synthetic data
+option premium model
+candle source
+strategy source
+export fields
+labels
+fake/proxy risks
+whether current output is safe to trust
+what must be fixed
+
+Return:
+
+| Backtest Area | Current State | Real/Modelled/Synthetic | Risk | Fix Needed |
+
+Audit:
+
+same central snapshot usage
+PCR
+Max Pain
+GEX
+IV
+Greeks
+buildup
+source badges
+stale/unavailable states
+Kite/NSE fallback rules
+whether calculations are consistent
+whether UI is complete
+
+Since recent work was done here, verify again:
+
+Portfolio:
+
+holdings count
+resolved count
+priced count
+unpriced count
+unresolved symbols
+NSDL status
+MAM150ETF status
+source badges
+
+Chart:
+
+RELIANCE
+TRIDENT
+ARE&M
+NSDL
+HDFCBANK/TCS
+NIFTY/SENSEX
+invalid symbol
+
+List:
+
+tests passing
+tests failing
+skipped tests
+DB-dependent tests
+pre-existing path bugs
+missing tests
+high-risk areas without tests
+
+Return:
+
+| Test Area | Status | Missing Tests | Risk |
+
+Check:
+
+owner-only diagnostics
+admin endpoints
+Kite token exposure
+raw provider payload exposure
+portfolio data privacy
+paper trading endpoints
+diagnostics routes
+auth guards
+
+Check:
+
+slow pages
+duplicate API calls
+cache behavior
+TTL
+stale cache
+rate limit risks
+Kite API dependency
+Yahoo pause behavior
+server errors
+frontend console errors
+
+Create a final prioritized plan.
+
+Group into:
+
+A. CRITICAL — must fix before using website seriously
+B. HIGH — fix before adding new features
+C. MEDIUM — improvement
+D. LOW — polish/later
+
+For each fix:
+
+| Priority | Fix | Area | Why Important | Estimated Time | Risk | Files Likely Touched |
+
+Give realistic estimates:
+
+time to reach stable accurate core platform
+time to reach professional trading platform
+time to finish charting tools
+time to finish Pine import
+time to fix Backtest Lab
+time to fully harden F&O engine
+
+Use ranges:
+
+best case
+realistic case
+worst case
+
+List areas that should not be touched unless specifically approved.
+
+At minimum:
+
+signal thresholds
+recovery/chase/anti-flip thresholds
+P25
+paper trading risk rules
+dynamic sizing
+capital ledger
+chart library switch
+Pine Lab
+drawing toolbar
+package/lock files
+replit.md
+destructive DB migrations
+
+This is audit-only.
+
+Do not code.
+
+Do not “quick fix”.
+
+Do not change config.
+
+Do not change thresholds.
+
+Do not restart architecture.
+
+Do not remove features.
+
+Do not mark something working without proof.
+
+Do not hide limitations.
+
+Use evidence only.
+
+Where proof is missing, write:
+
+“NOT VERIFIED — proof required.”
+
+Return only:
+
+FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+
+It must include:
+
+executive summary
+working list
+broken list
+partial list
+disabled/hidden/stale list
+data source matrix
+Kite dependency map
+Swing engine audit
+F&O engine audit
+Backtest audit
+Option Chain/OI audit
+Portfolio/chart audit
+test coverage audit
+security audit
+performance audit
+priority fix plan
+time estimate
+remaining limitations
+
+End with:
+
+Awaiting owner review. No coding performed.
