@@ -1,0 +1,85 @@
+STAGE 4: REAL-PREMIUM F&O BACKTEST REPLAY
+Copy everything below the line to the coder.
+
+PURPOSE & THE ONE RULE THAT MATTERS MOST
+Today the F&O backtest computes option P&L as a labelled ATM delta-0.5 proxy on the spot move (lib/backtest/directional.ts, ATM_DELTA = 0.5, optionEntry: null // no historical premium — unknown, not fabricated). That is honest but not tradeable-accurate: it ignores IV, theta, and the actual premium path. This stage adds a real-premium replay mode that prices trades from the option-chain snapshots you've actually captured (option_chain_snapshot table — real per-strike LTP, IV, OI, bid/ask, Greeks, every 5 min, ATM±10, current+next expiry, retention 825 days).
+THE ONE RULE: This feature's entire value is telling you the truth about your edge. A real-premium backtest that quietly fills gaps, interpolates missing strikes, or falls back to the proxy without a glaring label is worse than useless — it manufactures false confidence, which is the exact failure the platform's honesty layer exists to prevent. Every number this produces must be traceable to a real captured premium or be loudly marked as modelled/unavailable. When in doubt, refuse and label — never fill. If you ever find yourself interpolating, averaging, or substituting to "make the backtest work," stop — that instinct is the bug.
+
+NON-NEGOTIABLE RULES
+
+Do not change signal generation, detectors, gates, vetoes, P25, premiumTrusted, sizing, capital ledger, or option-chain math. This is a backtest/analytics feature only.
+Do not modify, delete, or backfill the option_chain_snapshot ingestor or its data. Replay is read-only against captured snapshots.
+Do not fabricate premiums, IV, Greeks, or fees. Honest null/UNAVAILABLE, never synthesised zeros or interpolated values (unless explicitly modelled and labelled per §4).
+Additive DB only. No destructive migrations. replit.md and lockfiles untouched.
+Do not trigger any ingestion, sync, or backfill job this session.
+Where the data can't support a real-replay trade, the trade is excluded or flagged, never silently proxied.
+
+
+PART 1 — PRICING MODE TAXONOMY (the labelling backbone)
+Define an explicit, exhaustive pricing-mode enum that every backtested trade carries. Extend the existing honest-mode scaffolding in routes/backtest.ts / lib/backtest/ rather than inventing a parallel system:
+tstype PricingMode =
+  | "REAL_CAPTURED_PREMIUM"   // entry AND exit both priced from a real captured snapshot within tolerance
+  | "REAL_PARTIAL"            // one leg real, the other had to be modelled/nearest — degraded, still labelled
+  | "BLACK_SCHOLES_MODELLED"  // priced from captured IV + BS, when LTP missing but IV present
+  | "SYNTHETIC_DELTA_PROXY"   // the existing ATM delta-0.5 proxy (unchanged, kept for comparison)
+  | "UNAVAILABLE";            // no usable data — trade excluded from ₹ P&L entirely
+Every trade row, every export, and every summary must carry its mode. A backtest run's headline ₹ P&L must state the mode mix (e.g. "142 trades: 88 REAL_CAPTURED, 31 REAL_PARTIAL, 14 BS_MODELLED, 9 UNAVAILABLE-excluded"). A run is only as trustworthy as its weakest-weighted mode — surface that, don't bury it.
+
+PART 2 — THE REPLAY PRICER (read-only against snapshots)
+Create lib/backtest/premiumReplay.ts. Given a signal's (underlying, direction, strike-selection rule, entry time, exit time, expiry), it resolves entry and exit premiums from option_chain_snapshot:
+2.1 — Strike & contract resolution. Use the same strike-selection rule the live engine uses (nearest ATM CE/PE for the signal's direction — match it exactly; if you're unsure how the engine picks the strike, read it and replicate, do not guess). Resolve the contract: (underlying, expiry, strike, optType).
+2.2 — Snapshot lookup with explicit tolerance. Snapshots are bucketed every 5 min. For a signal entry at time T:
+
+Find the snapshot row for that exact contract with captured_at at or before T, within a hard tolerance (define REPLAY_ENTRY_TOLERANCE_MIN, default 5; never silently exceed it).
+If the nearest snapshot is outside tolerance → this leg is not REAL_CAPTURED. Mark accordingly (BS-modelled if IV available, else UNAVAILABLE). Do not grab a far-away snapshot and pretend it's the entry price.
+Use the snapshot's LTP as the premium. If LTP is null but bid/ask present, use mid and flag it. If both null → not real for that leg.
+
+2.3 — Exit pricing. Same resolution at exit time (stop/target/T2/time-exit). The exit snapshot must be the real contract's premium at exit time within tolerance. Apply the same honesty: outside tolerance or missing → degrade the mode, never fabricate.
+2.4 — Greeks/IV passthrough. When present in the snapshot, carry entry IV, delta, theta into the trade row for diagnostics (so you can later see "this trade lost on theta despite a right directional call"). Null when absent — never computed-and-presented-as-captured.
+2.5 — Hard exclusions. A trade where neither a real nor BS-modelled premium can be resolved for both entry and exit is UNAVAILABLE and is excluded from ₹ P&L aggregates (but still counted and shown, so coverage is visible). Excluding-and-disclosing is honest; including-with-a-guess is not.
+
+PART 3 — COVERAGE GATE (refuse to mislead)
+Extend the existing snapshotCoverage() / GET /backtest/fno/snapshot-coverage:
+3.1 Before a real-replay run, compute and return coverage for the requested window: per underlying, what date range of snapshots exists, % of 5-min buckets present during market hours, and which expiries are covered. The captured archive only goes back to when capture started — a real-replay request for a date before coverage must return a clear "no captured data for this window" result, not an empty or proxy-filled run.
+3.2 If a run's resolvable-trade rate falls below a threshold (define REPLAY_MIN_COVERAGE_PCT, e.g. 60%), the run still completes but the result is prominently flagged "LOW COVERAGE — N% of trades could not be priced from captured data; ₹ P&L reflects only the priced subset and may not be representative." Don't hide a thin run behind a confident-looking number.
+
+PART 4 — COST MODEL (separate, explicit, toggleable)
+Real premium without real costs is still a fantasy for F&O. Add a transparent cost model applied on top of resolved premiums, itemised so it's auditable:
+4.1 Per round-trip: brokerage (flat per order), STT (on sell side, options rate), exchange transaction charges, SEBI charges, GST on (brokerage + txn), stamp duty (buy side). Use current published rates; put them in one clearly-labelled constants block with a comment citing the rate and date, so they're updatable.
+4.2 Slippage/spread: model entry/exit slippage from the snapshot's real bid/ask spread when present (e.g. buy at ask, sell at bid, or a configurable fraction of spread). When spread is null, use a labelled default and mark the trade's cost basis as "spread modelled."
+4.3 Report gross ₹ P&L and net ₹ P&L (after costs) separately, plus total costs. The gap between gross and net is often the whole story in F&O — make it impossible to miss.
+
+PART 5 — UI / EXPORT (impossible to confuse modes)
+5.1 In the Backtest Lab UI, a real-replay run must visually distinguish the modes per trade (badge/colour) and show the mode-mix summary up top. The SYNTHETIC_DELTA_PROXY run and the REAL_CAPTURED_PREMIUM run must be unmistakably different on screen — a user glancing at the page must never mistake a proxy run for a real one. Keep the proxy mode available side-by-side for comparison (it's useful to see proxy vs real divergence), but never as a silent fallback.
+5.2 CSV/JSON export per trade must include: pricingMode, entryPremiumSource (captured_at of the snapshot used, or "modelled"/"unavailable"), exitPremiumSource, entryIv, entryDelta, entryTheta, grossPnl, costs (itemised), netPnl, withinTolerance (bool), coverageFlag. Export must be audit-grade: someone should be able to trace every ₹ back to a specific captured snapshot row or a labelled model.
+5.3 Run-level export header: window, mode-mix, coverage %, total gross, total costs, total net, and an explicit "trades excluded (UNAVAILABLE): N".
+
+PART 6 — TESTS (this is where the honesty is enforced)
+
+Entry/exit both within tolerance + real LTP → REAL_CAPTURED_PREMIUM, premiums match the seeded snapshot rows exactly.
+Entry snapshot outside tolerance → mode degrades (BS or UNAVAILABLE), never silently uses the out-of-tolerance row as if real.
+LTP null, IV present → BLACK_SCHOLES_MODELLED, flagged.
+Neither premium resolvable → UNAVAILABLE, trade excluded from ₹ aggregates but counted in the trade list and coverage.
+Cost model: net = gross − itemised costs; STT only on sell, stamp only on buy; gross and net both reported.
+Coverage gate: request for a pre-coverage window → "no captured data," not an empty/proxy run; sub-threshold run → LOW COVERAGE flag present.
+Anti-fabrication test (required): assert that no code path produces a non-null premium that isn't traceable to either a captured snapshot row or an explicitly-modelled-and-flagged value. No interpolation, no averaging across strikes, no zero-fill.
+Regression: existing proxy mode (SYNTHETIC_DELTA_PROXY) still works unchanged; existing backtest tests stay green.
+
+
+RUNNING TESTS
+The api-server suite needs ~130s and the agent bash tool kills at 120s; vitest config files crash in v4.1.5 + type:module — use the CLI flag already baked into the script (vitest run --pool=threads). If you can't get an unbounded run, write to a logfile and poll, or report "owner-run required" with the exact command (pnpm --filter @workspace/api-server run test in the Replit Shell). Do not infer-and-skip — last few sessions that was a recurring problem; report the literal pass line or the explicit blocker.
+
+FINAL REPORT
+
+Files changed.
+PricingMode enum + how each is assigned.
+The replay pricer's resolution + tolerance logic.
+Coverage gate behaviour (incl. pre-coverage and low-coverage cases).
+Cost model: itemised rates used + gross/net reporting.
+UI/export: how modes are made unmistakable.
+Tests added (esp. the anti-fabrication test) + literal pass line or explicit blocker.
+A sample real-replay run on a window you DO have coverage for: the mode-mix, coverage %, gross vs net ₹, and excluded count — so we can see it working on real data.
+Confirmations: no signal/gate/sizing/ledger logic changed; no snapshot data modified; no fabrication path exists; no ingestion/backfill triggered; additive-only; replit.md/lockfiles untouched.
+Remaining limitations — especially: how far back does real coverage actually go, and what's the realistic minimum window before a real-replay backtest is statistically meaningful.
+
+Stop after this stage.
