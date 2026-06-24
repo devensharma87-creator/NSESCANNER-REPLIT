@@ -1,0 +1,47 @@
+Cleanup only. No feature work. No trading-logic changes. No new endpoints.
+This task is not done until both items below produce the literal evidence specified. "Probably passing," "should be fine," "T007 confirmed earlier," and "environmental, skipping" are not acceptable conclusions. If you are blocked, you state the exact blocker and what you need from me — you do not substitute an inference.
+
+ITEM 1 — GET BOTH TEST SUITES TO RUN GREEN, FOR REAL
+Context: The api-server and scanner suites have failed to complete under your harness for three consecutive sessions (timeouts / exit -1). We have had no clean pass since the typecheck-debt session. You have repeatedly fallen back on "T007 confirmed 1908+711 passing." That fallback is now banned. I need a clean run in this session.
+1.1 — Diagnose the actual cause. Determine why the suites don't complete. Candidates: vitest pool config, a test that opens a DB/socket/port not available in your environment, an unclosed handle keeping the process alive, a global setup hook that hangs, or a real timeout under load. Report the specific root cause with evidence (the hanging test/file, the open handle, the missing resource — name it).
+1.2 — Fix it the right way. Make the suites run to completion. Acceptable fixes: pool/concurrency config, proper teardown of open handles, correctly mocking/guarding a test that needs an unavailable external resource, splitting a run that exceeds a timeout. Not acceptable: deleting tests, .skip-ing tests to make the run "pass," loosening assertions, or reducing coverage to dodge the slow part. If a test genuinely cannot run in your environment (e.g. needs live Kite), you may guard it with a clearly-labelled environment skip only if you list every such test explicitly in the report and explain why — and those are reported as "skipped (environment)," never counted as passing.
+1.3 — Required evidence (paste the literal tail of each run):
+
+api-server: full run to completion, with the final Test Files … / Tests … passed line and total count.
+scanner: same.
+Prior baseline for reference: api-server 1908 (+12), scanner 711. If your green run shows fewer tests executed than before, explain every missing test (skipped? deleted? renamed?) — a lower count is a finding, not a pass.
+
+1.4 — If, after genuine diagnosis, the blocker is environmental and unfixable from your side: state precisely (a) which command, (b) the exact error/timeout, (c) what resource is missing, and (d) the exact command I should run on my end to get the green result. Do not close Item 1 as done in that case — mark it "blocked, owner action required" and give me the runnable command.
+
+ITEM 2 — FULL SCHEMA-DROP AUDIT (the real fix, not just strategyControl)
+Context: You found strategyControl.ts had been deleted from source while its tables (strategy_definitions, 9 rows; strategy_engine_state, 2 rows) held live data — meaning drizzle-kit push on the next publish would have dropped them. That is one instance of a class of bug: any production table that exists in the live DB but is absent from the drizzle schema is one publish away from deletion. Find all of them.
+2.1 — Enumerate the divergence, completely. Against the production database (confirm you are querying production, not dev — state the connection target):
+
+List every table that exists in the live production DB (with its row count).
+List every table registered in the drizzle schema.
+Produce the set difference: every table that exists in production but is NOT in the drizzle schema. This is the at-risk list. Report it in full — table name + row count for each. Do not stop at the first one; enumerate all.
+
+2.2 — Recreate each at-risk table's schema additively. For every table on the at-risk list, recreate its drizzle schema definition (as you did for strategyControl.ts) — reconstructed from the live table's actual columns, types, constraints, and primary/foreign keys (verify against the live DB, not a guess; use the compiled .d.ts only as a cross-check). Add each to the schema barrel. Additive only — you are describing tables that already exist so push leaves them alone; you are not creating, altering, renaming, or dropping anything.
+2.3 — Prove the database is now safe. Run drizzle-kit push in dry-run / preview mode against production and paste the full diff output. The required result: zero drops, zero destructive alters, zero renames, zero column removals across the entire database. A clean no-op (or additive-only) diff is the pass condition. If the diff still shows ANY destructive operation on ANY table, that table is not yet protected — fix it and re-run until the dry-run is clean. Do not apply a real push unless it is provably additive/no-op, and report exactly what (if anything) you applied.
+2.4 — Confirm no data was touched. Re-report the row counts for strategy_definitions, strategy_engine_state, and every table you added a schema for, to confirm none lost rows during this work.
+
+ABSOLUTE RULES
+
+No trading-logic changes (signal scoring, vetoes/gates, P25, premiumTrusted, DD latches, heat cap, sizing, capital-ledger math, option-chain/OI math — all untouched).
+No feature work, no new endpoints, no UI changes.
+Schema work is describe-existing-tables only — additive. No drizzle-kit push that drops/alters/renames anything.
+No deleting or skipping tests to fake a pass (see 1.2).
+replit.md, package/lock files untouched.
+Do not trigger any backfill, sync, or write job this session (last session a backfill was run unprompted — do not repeat that).
+Where blocked, report the exact blocker and the command I need to run — never infer-and-skip.
+
+
+FINAL REPORT — must contain all of:
+
+Test suites: root cause of the timeouts (named, with evidence); the fix applied; the literal final pass-line for both suites with totals; any environment-skipped tests listed explicitly; or, if blocked, the exact command for me to run.
+Schema audit: the complete at-risk list (every prod table missing from schema, with row counts); the schema files you created; the full drizzle-kit push dry-run diff proving zero destructive operations DB-wide.
+Data integrity: before/after row counts for every affected table, confirming no rows lost.
+Confirmations: no trading logic changed; no tests deleted/skipped-to-pass; no backfill/write jobs triggered; no destructive migration; replit.md and lockfiles untouched.
+Anything still blocked + exactly what you need from me.
+
+Stop after this. Do not start Stage 2.

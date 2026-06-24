@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --pool=threads",
     "backfill:swing-sector": "tsx ./src/scripts/backfill-swing-sector.ts",
     "rotate:kite-key": "tsx ./src/scripts/rotateKiteTokenEncKey.ts",
     "fetch:index-candles": "tsx ./src/scripts/fetchKiteIndexCandles.ts"
