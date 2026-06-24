@@ -1,0 +1,75 @@
+CODER PROMPT #3 (REVISED — POST-PUBLISH) — VERIFY LIVE DEPLOY + REPAIR + RESOLVE PART E
+Copy everything below the line to the coder.
+
+PURPOSE
+Stage 1 has already been published to production (marketscannerbydev.in). This task is to verify the live deploy is actually working, check for one specific data-loss risk that the auto-publish may have triggered, repair it if so, and resolve PART E (equity test-position cleanup) against the live app — which the previous session left wrongly concluded as "moot."
+Do not assume the publish succeeded cleanly just because it completed. Verify each thing with evidence. Where you cannot execute, report the blocker and stop — do not substitute a convenient conclusion.
+
+PART 0 — CHECK FOR (AND REPAIR) THE app_state DROP RISK — DO THIS FIRST
+This is the highest-priority check because the risky step has already run.
+scripts/post-merge.sh runs pnpm --filter db push (drizzle-kit push) automatically on publish. This reconciles the production DB to match the drizzle schema. In Stage 1, the app_state table (which persists kiteOfflineSince) was created via raw CREATE TABLE IF NOT EXISTS and is not registered in the drizzle schema. Therefore the publish may have dropped app_state or otherwise diverged.
+Do this now:
+0.1 Confirm, read-only against production, whether the app_state table still exists and has its expected columns. Report exactly what you find.
+0.2 Confirm whether app_state is registered in the drizzle schema (lib/db/schema*.ts). Report yes/no.
+0.3 Based on 0.1 and 0.2:
+
+If app_state was dropped: the offline-since persistence is silently broken on production. Add app_state to the drizzle schema as an additive table definition matching the original raw DDL exactly (same name, columns, types, keys), re-create the table on production additively (CREATE TABLE IF NOT EXISTS), and confirm the readiness service can write/read it again. Then confirm a subsequent drizzle-kit push treats it as a no-op (so it won't be dropped on the next publish).
+If app_state survived but is NOT in the schema: it's living on borrowed time — the next publish could drop it. Add it to the drizzle schema additively now so it's permanent, and confirm push sees it as already-present.
+If app_state is already in the schema and intact: confirm push is a no-op for it and move on.
+
+0.4 Run a drizzle-kit push dry-run / preview against production and report the exact diff it currently intends to apply. If that diff would drop, rename, or alter ANY existing table or column, stop and report — we have a schema-vs-DB divergence that must be resolved before the next publish silently destroys data. Additive-only is the rule.
+
+PART 1 — CONFIRM THE LIVE BUILD IS HEALTHY
+1.1 Confirm production is running the Stage 1 + typecheck-cleanup build (the merged main).
+1.2 Check production logs and confirm:
+
+The candle-warehouse daily-tick error is gone (previously candle-warehouse: daily tick failed every ~5 min). Its absence confirms the already-fixed SQL is now live.
+kite readiness scheduler started appears in boot logs.
+No crash loops or new boot errors from the Stage 1 imports.
+
+1.3 Confirm the test suites pass from a clean run (the previous session hit environment exit -1 and never got a clean result). Run api-server + scanner with --pool=threads to a logfile and report actual pass counts (prior baseline: api-server 1908+12, scanner 711). If they won't run clean, report why.
+
+PART 2 — PRODUCTION SMOKE VERIFICATION (concrete, with evidence)
+Run each against the live production site and report the result with a screenshot or response body. Any failure is called out plainly.
+2.1 — Global Kite banner. Confirm the app-shell GlobalStatusBanner renders with correct severity + copy when Kite is offline/expired, and collapses to the small chip when healthy. Confirm "Reconnect Kite" initiates the real OAuth flow (/api/kite/login-url → Zerodha → /api/kite/callback).
+2.2 — /api/kite/status readiness + auth. Confirm it returns the full KiteReadiness shape, and that it's owner-strict gated: anonymous → 401 AUTH_REQUIRED (verify the security fix held through publish); owner → 200 with readiness populated.
+2.3 — F&O no-data explanation. On pages/options.tsx, confirm 0-setups shows the cause-specific reason (market closed / no_live_kite_intraday / option chain unavailable / below floor), not the old generic "all indices in chop" line. Confirm the per-index table (NIFTY/BANKNIFTY/SENSEX) renders with — for genuinely-unknown fields (no fabricated values).
+2.4 — TradingView alert freshness. Confirm 2-month-old rows are no longer shown as live (labelled STALE or behind the toggle).
+2.5 — Yahoo degraded state. Where Yahoo display-only data fails, confirm a degraded label appears instead of a blank panel. No fabricated values.
+2.6 — Warehouse backfill endpoint. Confirm POST /api/candle-warehouse/backfill exists on production and is owner-strict gated (anon → 401). Do not run a full backfill yet unless you confirm it won't overload the live instance — just confirm the endpoint responds, and report whether a backfill should be a separate scheduled step.
+2.7 — Unchanged surfaces. Spot-check Portfolio, Charting, Option Chain, OI Lab render unchanged. Stage 1 was visibility-only; confirm no regression.
+
+PART 3 — RESOLVE PART E (equity test positions) — FOR REAL
+Background: The previous session confirmed at its start that production had all 3 test positions OPEN: MOTHERSON (qty=1), GMRINFRA (qty=1), OBEROIRLTY (qty=1). It then tried to close them against the dev API, got "Not found," couldn't find a production endpoint, queried dev, saw only BERGEPAINT, and wrongly declared PART E "moot." That conclusion is rejected — the owner saw all 3 live in production screenshots. Now that the app is published, the production app is reachable.
+3.1 — Establish production reality, read-only first. Query the production database (read-only) for these 3 positions: symbol, qty, status, position id, entry price, opened-at. Report exactly what you find, and state explicitly which database you queried (confirm via connection target, not assumption). Outcomes:
+
+All 3 OPEN → proceed to 3.2.
+Some/all CLOSED → show the close records (reason, timestamp) as proof.
+Not present → show the query + full open-equity-book listing as proof.
+
+Do not infer production state from the dev DB.
+3.2 — Close via the existing close path ONLY (if open). If any are OPEN, close them through the deployed production app using:
+POST /api/paper/positions/eq/:id/close (owner-gated, routes/paper.ts:1474) with exit reason TEST_POSITION_CLEANUP.
+Do NOT write directly to the production DB to close positions — that bypasses the close path and the capital ledger and corrupts realized-P&L. The close must go through the app endpoint.
+3.3 — If you cannot reach the production app to execute (no owner session, endpoint unreachable): stop and report the exact blocker and give me the precise steps to do it myself (e.g. "log into marketscannerbydev.in → Paper Trading → Equity → click Close on these 3 rows"). Do not declare it done or moot.
+3.4 — After closing, report: each of the 3 now CLOSED with reason TEST_POSITION_CLEANUP; realized-P&L per close (should be tiny; ledger honest); the freed concurrent-slot count (equity was frozen at CONCURRENT_CAP 10/10 — confirm it dropped); and confirmation BERGEPAINT (qty=113) and all real positions were left untouched.
+
+ABSOLUTE RULES
+
+No trading-logic changes: signal scoring, vetoes/gates, P25, premiumTrusted, DD latches, heat cap, sizing, capital-ledger math, option-chain/OI math — untouched.
+No fabricated values. Honest undefined/null/—, never fake zeros.
+Additive DB only. Any schema change for app_state must be additive; the drizzle-kit push diff must be additive/no-op. No drops.
+replit.md, package/lock files untouched.
+Where you cannot execute, report the blocker — never substitute a convenient conclusion.
+
+
+FINAL REPORT REQUIRED
+
+app_state status: does it still exist on production? Is it in the drizzle schema? The exact drizzle-kit push dry-run diff. What you repaired (if anything).
+Build health: warehouse error-spam gone? readiness scheduler started? typecheck green? test pass counts from a clean run.
+Smoke 2.1–2.7: each with evidence; failures called out.
+PART E: which DB you queried (proof it was production); read-only state of all 3; close actions taken or exact blocker; realized-P&L per close; freed slot count; real positions untouched.
+Confirmations: no trading logic / thresholds / guardrails / sizing / ledger changed; no fabricated values; no tables dropped (beyond confirming whether app_state was already dropped by the auto-push); replit.md untouched.
+Remaining limitations / anything you need from me.
+
+Stop after this. Do not start Stage 2. Once the live deploy is verified and PART E is genuinely resolved, I'll send the Stage 2 prompt.
