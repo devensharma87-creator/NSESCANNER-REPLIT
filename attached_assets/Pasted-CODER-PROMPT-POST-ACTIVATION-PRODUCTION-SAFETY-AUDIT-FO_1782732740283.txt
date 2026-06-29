@@ -1,0 +1,412 @@
+CODER PROMPT — POST-ACTIVATION PRODUCTION SAFETY AUDIT FOR F&O PAPER RISK GUARDS
+
+The F&O Paper Auto-Open Risk Guard Pack has now been activated in code.
+
+Recent completed changes:
+
+1. `FNO_GUARD_CONFIG.mode`
+
+   * changed from `"shadow"` to `"paper_block"`
+
+2. `disableSensexPaperAutoOpen`
+
+   * changed from `false` to `true`
+
+3. `riskGuardSimulation.ts`
+
+   * fixed netImprovement formula:
+   * wrong: double-counted blocked winners
+   * correct: `netImprovement = -(netPnlAvoided)`
+
+4. Guard test updated for `paper_block`.
+
+5. Verification already reported:
+
+   * 27/27 guard tests passed
+   * 711/711 scanner tests passed
+   * full typecheck clean
+   * API server healthy
+
+This task is not for new strategy work. This is a production safety audit after activation.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not change signal logic.
+
+Do not change F&O scoring.
+
+Do not change setup detection.
+
+Do not change recovery-veto, chase-veto, anti-flip, P25, premiumTrusted, HC emission floor, DD rules, heat cap, dynamic lot sizing, capital ledger, option-chain math, OI/GEX/Greeks, or paper account P&L math.
+
+Do not loosen any guard.
+
+Do not make BANKNIFTY stricter unless a production bug is found.
+
+Do not add new thresholds.
+
+Do not disable NIFTY.
+
+Do not remove SENSEX from UI/reports/backtests.
+
+SENSEX must only be blocked from F&O paper auto-open, not from signal display, diagnostics, option-chain, replay, or reports.
+
+No destructive DB migration.
+
+No fake data.
+
+No secrets in logs.
+
+====================================================
+PART A — CONFIRM DEPLOYMENT STATE
+=================================
+
+First verify whether the activated code is actually deployed to production.
+
+Check:
+
+1. Production health:
+
+   * `GET /api/healthz`
+   * Expected: HTTP 200
+
+2. Confirm production code/config shows:
+
+   * `mode: "paper_block"`
+   * `disableSensexPaperAutoOpen: true`
+
+3. Confirm simulation endpoint still works:
+
+   * `GET /api/backtest/fno/runs/:id/risk-guard-simulation`
+
+4. Confirm unauthenticated request is still blocked:
+
+   * Expected: HTTP 401
+
+5. Confirm owner-authenticated request works:
+
+   * Expected: HTTP 200
+
+6. Confirm Backtest Lab / Replay Diagnostics Panel renders:
+
+   * Guard mode badge must show `PAPER-BLOCK`
+   * Scenario cards must still render
+   * No console crash
+
+If production still shows `shadow`, report that deploy is pending and stop before claiming live protection is active.
+
+====================================================
+PART B — RE-RUN SIMULATION ON PRODUCTION AFTER FORMULA FIX
+==========================================================
+
+Re-run risk-guard simulation on the production ALL run:
+
+`e103be4f-d803-438d-8982-f01146faa210`
+
+Also re-run on:
+
+NIFTY:
+
+`eecacd3a-2352-4694-bc84-15a952312643`
+
+BANKNIFTY:
+
+`f9d0e1e7-278d-41f2-96a9-664b31fc578d`
+
+SENSEX:
+
+`f19ee8e9-f561-4669-9574-26bd04c90810`
+
+Report corrected scenario table:
+
+* LOW_PREMIUM_ONLY
+* THETA_RISK_ONLY
+* SAME_STRIKE_STOP_COOLDOWN_ONLY
+* SENSEX_DISABLE_ONLY
+* COMBINED_G1_G2_G3
+* COMBINED_G1_G2_G3_G4
+* BANKNIFTY_PROTECTION_CHECK
+
+For each:
+
+* blocked trades
+* winners blocked
+* losers blocked
+* baseline net P&L
+* simulated net P&L
+* net improvement
+* BANKNIFTY impact
+* NIFTY impact
+* SENSEX impact
+* pass/fail
+
+Required confirmation:
+
+* Correct formula is now visible in UI/API.
+* Old wrong pessimistic values are gone.
+* All scenario values match corrected backend computation.
+
+====================================================
+PART C — VERIFY PAPER-BLOCK LIVE PATH
+=====================================
+
+Inspect the live F&O paper auto-open path and confirm the guard is inserted in the correct place.
+
+Required confirmation:
+
+1. Guard runs after premium plan validation.
+2. Guard runs before expensive chain fetch.
+3. In `paper_block` mode, block decision returns no paper trade.
+4. In `paper_block` mode, allowed decision continues normally.
+5. In `shadow` mode, it would never block.
+6. DB failure in recent STOP lookup is fail-open and logs warning.
+7. Blocked candidates receive structured reason:
+
+   * `PAPER_RISK_GUARD_BLOCKED`
+   * plus specific reason code.
+
+Specific reason codes to verify:
+
+* `SENSEX_DISABLED_BY_REPLAY_DIAGNOSTICS`
+* `LOW_ENTRY_PREMIUM`
+* `NEAR_EXPIRY_THETA_RISK`
+* `SAME_STRIKE_DIRECTION_STOP_COOLDOWN`
+
+====================================================
+PART D — SAFETY TEST WITH DRY-RUN / MOCK CANDIDATES
+===================================================
+
+Create or run a targeted non-production dry-run test for each case.
+
+Do not open real paper trades for testing.
+
+Test cases:
+
+1. BANKNIFTY high-premium valid candidate
+
+   * should be allowed
+
+2. BANKNIFTY low-premium near-expiry candidate
+
+   * should be blocked
+
+3. NIFTY premium below ₹250
+
+   * should be blocked
+
+4. NIFTY high-premium valid candidate
+
+   * should be allowed unless other guard applies
+
+5. SENSEX any candidate
+
+   * should be blocked from paper auto-open
+   * signal display must remain visible
+
+6. Same strike/direction after STOP within 90 minutes
+
+   * should be blocked
+
+7. Same strike/direction after more than 90 minutes
+
+   * should be allowed
+
+8. Same underlying but different strike
+
+   * should be allowed
+
+9. Same strike but opposite direction
+
+   * should be allowed
+
+10. Null premium / null expiry
+
+* must fail safely according to existing test design
+* no crash
+
+Report each test result.
+
+====================================================
+PART E — PRODUCTION PAPER TRADE AUDIT AFTER ACTIVATION
+======================================================
+
+Query recent F&O paper trades after activation time.
+
+Report:
+
+1. Activation timestamp / deployment timestamp.
+2. Number of F&O paper candidates after activation.
+3. Number allowed.
+4. Number blocked.
+5. Blocked count by reason.
+6. Blocked count by underlying.
+7. Any BANKNIFTY blocked.
+8. Any SENSEX blocked.
+9. Any NIFTY low-premium blocked.
+10. Any same-strike cooldown blocked.
+
+If market is closed and no post-activation candidates exist, report that clearly and provide the query/check that will be used on the next market day.
+
+====================================================
+PART F — VERIFY SENSEX BEHAVIOR
+===============================
+
+SENSEX must not disappear from the platform.
+
+Verify:
+
+1. SENSEX F&O signal page still shows SENSEX signals/setups if generated.
+2. SENSEX option-chain still works.
+3. SENSEX replay/backtest still works.
+4. SENSEX diagnostics still works.
+5. SENSEX paper auto-open is blocked only at paper-trade open step.
+6. UI reason is clear:
+
+   * “SENSEX paper auto-open disabled by replay diagnostics.”
+7. SENSEX is not removed from monthly reports or analytics.
+
+====================================================
+PART G — VERIFY BANKNIFTY PROTECTION
+====================================
+
+BANKNIFTY is the most important instrument to preserve.
+
+Verify:
+
+1. High-premium BANKNIFTY candidates are not blocked.
+2. BANKNIFTY target-type historical winners are not blocked by broad DTE rule.
+3. DTE guard blocks only near-expiry + low premium, not every DTE <= 5 trade.
+4. BANKNIFTY paper auto-open remains possible when guard allows.
+5. If BANKNIFTY candidate is blocked, reason must be legitimate and shown.
+
+Final BANKNIFTY verdict must be one:
+
+* `BANKNIFTY_PROTECTED_IN_PAPER_BLOCK`
+* `BANKNIFTY_AT_RISK_CONFIG_NEEDS_ROLLBACK`
+* `NO_BANKNIFTY_CANDIDATE_YET_POST_ACTIVATION`
+
+If `BANKNIFTY_AT_RISK_CONFIG_NEEDS_ROLLBACK`, immediately recommend reverting to shadow mode.
+
+====================================================
+PART H — UI / DIAGNOSTICS VERIFICATION
+======================================
+
+Open the Backtest Lab and F&O diagnostics pages.
+
+Verify:
+
+1. Guard mode displays `PAPER-BLOCK`.
+2. Active guards are displayed.
+3. Simulation cards show corrected net improvement.
+4. Blocked trade list expands.
+5. Candidate-level reason is visible where applicable.
+6. UI clearly says:
+
+   * “These guards affect paper auto-open only.”
+   * “Signal generation is unchanged.”
+7. No console errors.
+8. No stale shadow-mode wording remains.
+
+====================================================
+PART I — LOGGING / OBSERVABILITY
+================================
+
+Verify logs contain enough information without leaking secrets.
+
+For blocked candidates, logs must include:
+
+* timestamp
+* underlying
+* direction
+* option type
+* strike
+* premium
+* expiry
+* DTE
+* reason code
+* mode = paper_block
+
+Logs must not include:
+
+* auth tokens
+* session cookies
+* Kite tokens
+* passwords
+* private secrets
+
+====================================================
+PART J — TESTS
+==============
+
+Run:
+
+1. Guard unit tests
+2. Scanner tests
+3. api-server typecheck
+4. scanner typecheck
+5. Any targeted route test if available
+6. Any dry-run paper auto-open test if implemented
+
+If full api-server suite times out due known environment limitation, report that exactly and do not hide it.
+
+====================================================
+PART K — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Files touched
+2. Files confirmed untouched
+3. Production deploy verification
+4. Final guard config
+5. Simulation endpoint verification
+6. Corrected simulation table
+7. Live paper-block path verification
+8. Dry-run candidate test results
+9. Post-activation paper trade audit
+10. SENSEX behavior verification
+11. BANKNIFTY protection verification
+12. UI verification
+13. Logging verification
+14. Tests run
+15. Any blocker
+16. Final go/no-go verdict
+
+Final verdict must be exactly one:
+
+* `PAPER_BLOCK_ACTIVE_AND_SAFE`
+* `PAPER_BLOCK_ACTIVE_BUT_NEEDS_MONITORING`
+* `ROLL_BACK_TO_SHADOW_RECOMMENDED`
+* `DEPLOY_PENDING_NOT_ACTIVE_YET`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* Production config is verified.
+* Formula fix is verified in simulation output.
+* Paper-block path is verified.
+* SENSEX is blocked only from paper auto-open, not removed.
+* BANKNIFTY allowed path is protected.
+* UI shows paper-block correctly.
+* Logs are safe.
+* Tests/typechecks are run.
+* Final verdict is explicit.
+
+====================================================
+IMPORTANT
+=========
+
+This is the first safety audit after enabling blocking.
+
+Do not add anything new.
+
+Do not change thresholds unless production audit proves immediate danger.
+
+If BANKNIFTY is harmed, revert to shadow mode.
+
+If production is not deployed, do not claim protection is active.
