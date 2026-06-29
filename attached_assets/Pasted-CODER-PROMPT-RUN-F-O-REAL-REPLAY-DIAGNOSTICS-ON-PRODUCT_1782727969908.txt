@@ -1,0 +1,483 @@
+CODER PROMPT — RUN F&O REAL REPLAY DIAGNOSTICS ON PRODUCTION RUNS + GIVE FINAL DECISION REPORT
+
+The diagnostic pack has been built and merged.
+
+Do not write new strategy code.
+
+Do not change live trading behavior.
+
+Do not change signal logic.
+
+Do not change F&O scoring.
+
+Do not change recovery-veto, chase-veto, anti-flip, P25, premiumTrusted, HC emission floor, DD guardrails, heat cap, dynamic lot sizing, capital ledger, paper account math, option-chain math, or scanner/swing strategy logic.
+
+This task is only to run the new diagnostics against the completed production replay runs and produce the evidence report.
+
+====================================================
+CURRENT COMPLETED BUILD
+=======================
+
+The previous task delivered:
+
+Backend:
+
+* `src/lib/backtest/diagnostics.ts`
+* `src/lib/backtest/diagnostics.test.ts`
+* `GET /api/backtest/fno/runs/:id/diagnostics`
+
+Frontend:
+
+* `src/lib/backtest/useReplayDiagnostics.ts`
+* `src/components/backtest/ReplayDiagnosticsPanel.tsx`
+* Backtest Lab panel injected for `SNAPSHOT_PREMIUM_REPLAY` runs
+
+Verification already completed:
+
+* 59 diagnostics tests passed
+* 711 scanner tests passed
+* api-server typecheck clean
+* scanner typecheck clean
+* Endpoint correctly returns 401 without auth
+* Browser owner session should work because the hook uses credentials/include
+
+====================================================
+RUN IDS TO ANALYSE
+==================
+
+Use these exact production run IDs:
+
+Combined ALL run:
+
+`e103be4f-d803-438d-8982-f01146faa210`
+
+NIFTY-only run:
+
+`eecacd3a-2352-4694-bc84-15a952312643`
+
+BANKNIFTY-only run:
+
+`f9d0e1e7-278d-41f2-96a9-664b31fc578d`
+
+SENSEX-only run:
+
+`f19ee8e9-f561-4669-9574-26bd04c90810`
+
+For each run, call:
+
+`GET /api/backtest/fno/runs/:id/diagnostics`
+
+Use owner-authenticated production session.
+
+Do not expose cookies or secrets.
+
+If curl returns 401, that is not a route failure. Use browser session / authenticated owner request.
+
+====================================================
+PART A — VERIFY PRODUCTION DIAGNOSTIC ENDPOINT
+==============================================
+
+For each run ID, confirm:
+
+* HTTP status
+* runId returned
+* run mode
+* underlying/instrument
+* total trades analysed
+* total priced trades
+* total unavailable trades
+* whether diagnostic JSON has all required sections
+
+Required sections:
+
+1. `byUnderlying`
+2. `bySetup`
+3. `byDirection`
+4. `byOptionType`
+5. `byExitReason`
+6. `byTimeOfDay`
+7. `byDayOfWeek`
+8. `byExpiryDistance`
+9. `byPremiumBucket`
+10. `byCostBucket`
+11. `bySnapshotAvailability`
+12. `worstLossClusters`
+13. `bestProfitClusters`
+14. `reentryClusters`
+15. `simulationOnlyRecommendations`
+
+If any section is missing, report it. Do not silently patch unless the bug is tiny and isolated.
+
+====================================================
+PART B — COLLECT ACTUAL DIAGNOSTIC RESULTS
+==========================================
+
+For the combined ALL run, produce these tables:
+
+1. Underlying comparison
+
+For each:
+
+* NIFTY
+* BANKNIFTY
+* SENSEX
+
+Report:
+
+* priced trades
+* unavailable trades
+* win rate
+* gross P&L
+* total costs
+* net P&L
+* profit factor
+* expectancy per trade
+* best trade
+* worst trade
+
+2. Setup performance
+
+For each setup/setupKey:
+
+* trade count
+* win rate
+* gross P&L
+* total cost
+* net P&L
+* profit factor
+* expectancy
+* best trade
+* worst trade
+
+Mark setups as:
+
+* `PROFITABLE_EARLY_SAMPLE`
+* `WEAK_EARLY_SAMPLE`
+* `COST_SENSITIVE`
+* `NOT_ENOUGH_SAMPLE`
+
+3. Direction performance
+
+Split by:
+
+* BULL CALL
+* BEAR PUT
+
+Report:
+
+* trade count
+* win rate
+* gross P&L
+* net P&L
+* profit factor
+
+4. Exit reason performance
+
+Split by:
+
+* TARGET
+* STOP
+* EOD_EXIT
+* any other exit reason
+
+Report:
+
+* count
+* win rate
+* gross P&L
+* costs
+* net P&L
+* average hold time if available
+
+Goal:
+
+Find whether the losses are coming from bad entries, stops, EOD exits, or expiry traps.
+
+====================================================
+PART C — SENSEX WEAKNESS DECISION
+=================================
+
+SENSEX was weak in the replay:
+
+* 14 priced trades
+* 4 wins / 10 losses
+* 28.6% win rate
+* net P&L around −₹45,907
+* profit factor around 0.38
+
+Now use diagnostics to answer:
+
+1. Is SENSEX weak across all setups or only one setup?
+2. Is weakness mostly CALL side, PUT side, or both?
+3. Is weakness mostly STOP exits or EOD exits?
+4. Is weakness concentrated in Jun 11–17 reversal cluster?
+5. What is SENSEX result excluding Jun 11–17?
+6. What is SENSEX result excluding worst trade?
+7. What is SENSEX result excluding best and worst trade?
+8. Is SENSEX weakness due to strategy, data coverage, option liquidity/spread, or sample size?
+
+Return one of these exact verdicts:
+
+* `SENSEX_DISABLE_NOT_JUSTIFIED_YET`
+* `SENSEX_REDUCE_SIZE_ONLY`
+* `SENSEX_REQUIRE_STRICTER_FILTERS`
+* `SENSEX_TEMP_DISABLE_RECOMMENDED`
+* `SENSEX_NEEDS_MORE_DATA`
+
+Do not apply this verdict in code. This is report-only.
+
+====================================================
+PART D — BANKNIFTY EDGE ROBUSTNESS
+==================================
+
+BANKNIFTY was strong:
+
+* 25 priced trades
+* 15 wins / 10 losses
+* 60% win rate
+* net P&L around +₹36,527
+* profit factor around 1.62
+
+Use diagnostics to answer:
+
+1. Is BANKNIFTY profitable after removing best trade?
+2. Is BANKNIFTY profitable after removing worst trade?
+3. Is BANKNIFTY profitable after removing both best and worst trade?
+4. Is profit spread across setups or only one setup?
+5. Is profit spread across CALL and PUT, or only one side?
+6. Is profit concentrated in early June only?
+7. Is BANKNIFTY affected by expiry-day theta trap?
+
+Return one of these exact verdicts:
+
+* `BANKNIFTY_EDGE_APPEARS_ROBUST_EARLY_SAMPLE`
+* `BANKNIFTY_EDGE_DEPENDS_ON_OUTLIER`
+* `BANKNIFTY_EDGE_NEEDS_MORE_DATA`
+* `BANKNIFTY_KEEP_UNCHANGED`
+
+Do not change BANKNIFTY logic.
+
+====================================================
+PART E — NIFTY COST DRAG DECISION
+=================================
+
+NIFTY was mildly weak but cost-sensitive:
+
+* 10 priced trades
+* 4 wins / 6 losses
+* net P&L around −₹6,347
+* costs were high relative to gross movement
+
+Use diagnostics to answer:
+
+1. Which premium bucket loses most?
+2. Are trades below ₹125 or ₹200 causing most cost drag?
+3. Is spread cost the main issue?
+4. Is NIFTY losing because of wrong direction or because trades are too small/low premium?
+5. Does NIFTY improve if low-premium trades are excluded in simulation?
+6. Does NIFTY improve if same-day re-entry after stop is blocked in simulation?
+
+Return one of these exact verdicts:
+
+* `NIFTY_MIN_PREMIUM_FILTER_RECOMMENDED`
+* `NIFTY_MIN_EXPECTED_EDGE_FILTER_RECOMMENDED`
+* `NIFTY_NO_CHANGE_MORE_DATA`
+* `NIFTY_TEMP_DISABLE_NOT_JUSTIFIED`
+
+Do not implement filter yet.
+
+====================================================
+PART F — EXPIRY / THETA RISK AUDIT
+==================================
+
+Focus especially on:
+
+BANKNIFTY 55100PUT on 2026-05-26
+
+Known replay result:
+
+* Entry premium: 140.95
+* Exit premium: 5.50
+* Net loss approx −₹24,610
+* Exit reason: STOP
+
+Answer:
+
+1. Was this 0DTE, 1DTE, or another expiry-distance bucket?
+2. Did expiry-day gate exist in the code path?
+3. Did expiry-day gate fire?
+4. Was the signal allowed as HIGH_CONVICTION, BASELINE, INFO_ONLY, or another state?
+5. Why did it open?
+6. Would a 0DTE/near-expiry OTM theta guard have blocked it?
+7. How many other trades fall in the same expiry-risk bucket?
+8. What is total P&L of same expiry-risk bucket?
+
+Return one verdict:
+
+* `EXPIRY_THETA_GUARD_RECOMMENDED`
+* `EXPIRY_THETA_GUARD_NOT_YET_JUSTIFIED`
+* `EXPIRY_RISK_NEEDS_MORE_DATA`
+
+Do not implement the guard yet.
+
+====================================================
+PART G — SNAPSHOT UNAVAILABLE ROOT CAUSE
+========================================
+
+Analyse all 72 unavailable signals.
+
+Group by root cause:
+
+* missing entry snapshot
+* missing exit snapshot
+* missing strike
+* missing expiry
+* missing contract
+* missing bid/ask
+* missing LTP
+* signal outside snapshot window
+* stale snapshot rejected
+* no matching chain row
+* other
+
+Report:
+
+* top 10 unavailable causes
+* top 10 unavailable dates
+* unavailable count by underlying
+* unavailable count by time of day
+* unavailable count by expiry distance
+* unavailable count by strike distance from ATM if available
+
+Answer:
+
+1. Is this mostly historical archive sparsity?
+2. Is this because capture cadence is too slow?
+3. Is this because strike range is too narrow?
+4. Is this because signal times do not align with capture times?
+5. Would 1-minute ATM±3 strike capture likely improve it?
+6. Is code change needed now or should we wait 4 weeks?
+
+Return one verdict:
+
+* `SNAPSHOT_1MIN_CAPTURE_RECOMMENDED_NOW`
+* `SNAPSHOT_STRIKE_RANGE_EXPANSION_RECOMMENDED`
+* `SNAPSHOT_WAIT_AND_MONITOR_4_WEEKS`
+* `SNAPSHOT_UNAVAILABLE_NEEDS_BUGFIX`
+
+====================================================
+PART H — SIMULATION-ONLY RULES
+==============================
+
+List every simulation-only rule produced by diagnostics.
+
+Examples:
+
+* minimum premium filter
+* minimum expected gross edge
+* no re-entry after stop same day
+* one trade per strike per day
+* exclude 0DTE OTM contracts
+* SENSEX stricter entry filter
+* NIFTY cost-aware filter
+
+For each simulation rule, report:
+
+* rule name
+* affected trades
+* original net P&L
+* simulated net P&L
+* improvement / deterioration
+* whether sample size is enough
+* whether recommended for live implementation
+
+Clearly label every one:
+
+`SIMULATION ONLY — NOT ACTIVE IN LIVE TRADING`
+
+====================================================
+PART I — UI PANEL SCREENSHOT / MANUAL CHECK
+===========================================
+
+Open Backtest Lab in the browser with one `SNAPSHOT_PREMIUM_REPLAY` run selected.
+
+Confirm:
+
+1. `Real Replay Diagnostics` panel is visible.
+2. Underlying Comparison renders.
+3. Setup Performance renders.
+4. Cost Drag renders.
+5. Expiry/Theta Risk renders.
+6. Snapshot Missing Reasons renders.
+7. Simulation-only rules show clear badge.
+8. Page does not crash.
+9. Existing Backtest Lab result panel still works.
+
+If possible, take or provide a screenshot note.
+
+====================================================
+PART J — FINAL DECISION REPORT
+==============================
+
+Final report must include:
+
+1. Endpoint verification
+2. UI panel verification
+3. Combined ALL diagnostic summary
+4. NIFTY diagnostic summary
+5. BANKNIFTY diagnostic summary
+6. SENSEX diagnostic summary
+7. Setup-level winners and losers
+8. Direction-level winners and losers
+9. Exit-reason analysis
+10. Time-of-day analysis
+11. Expiry/theta risk conclusion
+12. Cost-drag conclusion
+13. Re-entry conclusion
+14. Snapshot-unavailable conclusion
+15. Simulation-only rules ranked by improvement
+16. Final recommended next coding pack
+
+Final recommended next coding pack must be exactly one of:
+
+* `IMPLEMENT_NIFTY_MIN_EDGE_FILTER`
+* `IMPLEMENT_SENSEX_STRICTER_FILTER_OR_TEMP_DISABLE`
+* `IMPLEMENT_EXPIRY_THETA_GUARD`
+* `IMPROVE_SNAPSHOT_CAPTURE`
+* `NO_CODE_CHANGE_COLLECT_MORE_DATA`
+* `FIX_DIAGNOSTIC_BUGS_FIRST`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+This task is complete only if:
+
+* Diagnostics endpoint is called on all 4 run IDs.
+* The actual production diagnostic JSON is used.
+* UI panel is manually verified.
+* SENSEX weakness is explained deeper than current summary.
+* NIFTY cost drag is explained deeper than current summary.
+* BANKNIFTY robustness is tested.
+* Expiry/theta risk is checked.
+* Snapshot unavailable causes are grouped.
+* Simulation-only rules are ranked.
+* No live trading rule is changed.
+* No signal logic is changed.
+* No risk guardrail is changed.
+* No destructive DB operation is performed.
+* Final report gives one exact next coding pack.
+
+====================================================
+IMPORTANT
+=========
+
+This is a read-only evidence task.
+
+Do not fix strategy yet.
+
+Do not disable anything yet.
+
+Do not add new trading rules yet.
+
+Run diagnostics, interpret, and recommend exactly one next coding pack.
