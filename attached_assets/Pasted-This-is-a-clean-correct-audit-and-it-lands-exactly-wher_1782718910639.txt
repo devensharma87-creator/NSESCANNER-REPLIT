@@ -1,0 +1,36 @@
+This is a clean, correct audit — and it lands exactly where I expected, which is reassuring on both counts. Let me give you the read, then the decision you actually need to make.
+The headline: your logic is identical. That's the answer you were looking for.
+The thing you were worried about — "will production calculate differently than what I tested in dev?" — has a clear, code-level answer: no. Every indicator (RSI, EMA, MACD, ATR, Supertrend, VWAP), the entire swing engine, and the full F&O scoring/gate stack are pure functions with zero environment-specific branches. The coder confirmed process.env, NODE_ENV, and REPLIT_DEPLOYMENT don't appear anywhere in those paths. Same candle in → same number out, in both environments, by construction. Setup names are hardcoded constants, not DB-driven, so they can't drift either.
+That is the right result, and it's worth pausing on: it means when dev work ships to prod, you are not shipping logic that computes differently than what you validated. The thing you feared isn't happening. You can stop worrying about it.
+The one real caveat — and it's the important sentence in the whole report
+
+"The logic is identical; the data source is not. Dev uses Yahoo (~15min delayed) when Kite is offline; prod uses Kite live."
+
+This is the actual nuance you need to internalize, because it's the only way the two environments can ever show different numbers for the same symbol at the same moment: same math, different inputs. If you're ever comparing a dev value to a prod value and they differ, that's the cause — not a bug, just dev falling back to delayed Yahoo while prod has live Kite. Your honesty layer already labels this (the YAHOO/STALE badges you saw in the scanner screenshot). So "they don't match" will sometimes be true and correct — it means one side had fresher data, which is exactly what the labels are there to tell you.
+The two "mismatches" were both non-bugs, correctly diagnosed
+
+"Setup performance unavailable" → dev's monthly report was scoped to June, and dev has zero June trades (all 7 are May test trades). Empty input → empty section. STALE_INPUT, not a bug. Prod is correct.
+"Give-back review unavailable" → PAPER_FO_SHADOW_EXITS_ENABLED simply isn't set in dev. CONFIG_DIFFERENCE, not a bug. One env var.
+
+Both are exactly the kind of false alarm that a blanket "diff everything" audit would have buried you in. Targeting the audit at logic parity on identical input is what kept this to two clean, explained findings instead of 200 noise rows.
+Now — the decisions. And I'd hold on most of them.
+The coder offered three fixes. Here's my honest take on each:
+Fix 1 — set PAPER_FO_SHADOW_EXITS_ENABLED=1 in dev. Harmless, trivial, makes dev's give-back panel render. Approve it — but understand it changes nothing real; it just makes a dev panel non-blank. Low value, low risk, fine to do.
+Fix 2 — add the MFE/MAE columns to prod. The coder was admirably honest here: these columns are declared in schema but not used by any live path (shadow-exits uses max_runup/max_drawdown instead). So this is cosmetic schema-alignment, not a functional fix. Don't do it on its own. But — there's a reason to batch it (below).
+Fix 3 — the Stage 4 columns STILL aren't on prod. This is the one that actually matters, and it's the same blocker from two messages ago: the 10 backtest_trades columns never made it to production, so your real-premium backtest still cannot run. Everything you built Stage 4 for is sitting behind this.
+What I'd actually tell the coder
+Don't do these as three separate fiddly steps. The schema-migration step is the thing that's been unreliable across multiple publishes — so do it once, deliberately, and verify. Here's the prompt:
+
+Approved actions, do them precisely:
+1. Set PAPER_FO_SHADOW_EXITS_ENABLED=1 in the dev environment. Confirm the give-back panel renders. (Cosmetic dev parity — fine.)
+2. This is the one that matters: the production schema is still missing the 10 Stage 4 backtest_trades columns, which blocks the real-premium backtest entirely. Stop relying on the publish-time migration — it has silently failed twice. Apply the missing columns directly and additively to the production database via ALTER TABLE backtest_trades ADD COLUMN IF NOT EXISTS ... for each of the 10, matching the exact types/nullability in the Drizzle schema. While you're there, also add the two MFE/MAE columns (max_favorable_excursion, max_adverse_excursion) the same way, since they're declared in schema and missing on prod — batch them into the same additive operation. All additive, all nullable, zero drops, existing rows untouched.
+3. Then run a complete prod-vs-schema column diff across every table and report any other column the schema declares but prod is missing. We've now found this drift twice (strategyControl, backtest_trades) — I want the full list so we stop discovering it one table at a time. Apply any other missing additive columns the same way. Report don't-drop anything; if prod has a column the schema lacks, list it for me, don't remove it.
+4. Verify: re-query prod, confirm all expected columns present on backtest_trades and paper_trade_fo, confirm option_chain_snapshot row count unchanged.
+5. Then — and only after columns are confirmed — run the first real SNAPSHOT_PREMIUM_REPLAY backtest (NIFTY/BANKNIFTY/SENSEX, May 18–Jun 29) and report the actual mode-mix, coverage %, gross/net P&L, and REAL_CAPTURED trade count, verbatim.
+Additive only, no trading logic touched, no fabrication, replit.md/lockfiles untouched. Literal before/after column counts as evidence.
+
+This does the cheap parity fix, finally unblocks Stage 4 properly (direct ALTER instead of a third hopeful publish), catches any remaining schema drift in one sweep, and then runs the backtest you've been waiting four sessions to see — all in one go.
+The bigger picture, said plainly
+You came into this worried production and live were diverging. The audit proved your logic is identical — the only divergence possible is data freshness, which is labelled. That worry is resolved. You can let it go.
+What's left is not a parity problem — it's the same schema-migration unreliability that's now bitten you three times (nearly dropped strategy tables, skipped backtest columns, skipped MFE columns). The lesson is bigger than any one fix: Replit's auto-migration cannot be trusted for this repo, so additive schema changes should be applied by explicit ADD COLUMN IF NOT EXISTS, not left to publish. Put that in your playbook. Step 3 above (the full drift sweep) closes the book on it.
+And then — finally — the backtest runs, and you get the number that actually matters for your end-2026 decision: does your F&O edge survive real premium and costs. Everything since Stage 4 started has been plumbing to get to that one answer. This prompt gets you there.
