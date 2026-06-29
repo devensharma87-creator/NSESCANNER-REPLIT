@@ -30,6 +30,7 @@ import {
   type SimulationResult,
   type DiagDayCluster,
 } from "@/lib/backtest/useReplayDiagnostics";
+import { RiskGuardSimulationPanel } from "./RiskGuardSimulationPanel";
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -681,6 +682,15 @@ export function ReplayDiagnosticsPanel({ runId }: { runId: string }) {
             </div>
           </div>
         ))}
+      </Section>
+
+      {/* 11. Risk Guard Shadow Simulation */}
+      <Section
+        title="11 · Risk Guard Shadow Simulation"
+        icon={<ShieldAlert className="h-4 w-4 text-amber-400" />}
+        defaultOpen={false}
+      >
+        <RiskGuardSimulationPanel runId={runId} />
       </Section>
 
       {/* Footer */}

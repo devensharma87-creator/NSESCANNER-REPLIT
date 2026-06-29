@@ -1,0 +1,579 @@
+CODER PROMPT — F&O PAPER AUTO-OPEN RISK GUARD PACK: SHADOW SIMULATION FIRST, CONTROLLED PAPER BLOCK SECOND
+
+You are taking over after the production F&O Real Replay Diagnostics report.
+
+Do not start broad refactoring.
+
+Do not change signal generation.
+
+Do not change F&O scoring.
+
+Do not change recovery-veto, chase-veto, anti-flip, P25, premiumTrusted, HC emission floor, confluence scoring, setup detection, option-chain math, OI/GEX/Greeks, capital ledger, dynamic lot sizing, or paper account P&L math.
+
+This task is only to add a controlled F&O paper auto-open risk guard layer based on the diagnostic evidence.
+
+====================================================
+BACKGROUND — DIAGNOSTIC EVIDENCE
+================================
+
+The production replay diagnostics produced the following hard numbers:
+
+ALL priced trades:
+
+* 49 REAL_CAPTURED_PREMIUM trades out of 121 total signals
+* Overall net P&L: approx −₹15,729
+* BANKNIFTY: +₹36,527 net, 60% win rate
+* NIFTY: −₹6,348 net, 50% win rate but cost-sensitive
+* SENSEX: −₹45,908 net, 28.6% win rate
+* TARGET exits: +₹79,246 net, 87.5% win rate
+* EOD_EXIT exits: +₹26,176 net, 61.9% win rate
+* STOP exits: −₹1,21,150 net, 20% win rate
+* ₹100–199 premium bucket: approx −₹55,819 net
+* Near-expiry theta disasters:
+
+  * BANKNIFTY 55100 PUT May 26: entry ₹140.95 → exit ₹5.50, approx −₹24,495
+  * SENSEX 75900 PUT May 27: approx −₹15,242
+* Confirmed same-strike re-entry damage:
+
+  * NIFTY 24050 CALL Jun 17 repeated after STOP
+  * SENSEX 77100 CALL Jun 17 repeated after STOP
+
+The diagnostic report proposed these guards:
+
+G1 — DTE / theta-risk guard
+G2 — minimum premium gate
+G3 — same strike/direction cooldown after STOP
+G4 — SENSEX paper auto-open disable / strict mode
+
+Important caution:
+
+Do NOT blindly implement a blanket DTE ≤ 5 block or blanket BANKNIFTY ₹500 premium block without exact simulation, because BANKNIFTY is profitable and some valid winners may also fall inside broad filters.
+
+This task must therefore be done in two stages:
+
+1. Shadow simulation using historical replay trades.
+2. Controlled paper auto-open blocking only after exact impact is proven.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not modify:
+
+* F&O signal scoring
+* setup detection
+* confluence logic
+* recovery-veto
+* chase-veto
+* anti-flip
+* P25
+* premiumTrusted rule
+* risk sizing
+* dynamic lots
+* heat cap
+* DD latches
+* capital ledger
+* option-chain math
+* live quote / snapshot math
+* existing backtest pricing math
+
+Allowed:
+
+* Add pure risk guard module
+* Add tests
+* Add diagnostics
+* Add shadow-mode evaluation
+* Add paper auto-open block reasons
+* Add UI badges / panel explaining blocked candidates
+* Add environment/config flags
+* Add simulation-only report
+
+No destructive DB migration.
+
+No fake values.
+
+No silent fallback.
+
+No live order placement logic.
+
+This is paper-trading auto-open only.
+
+====================================================
+PART A — CREATE PURE F&O RISK GUARD MODULE
+==========================================
+
+Create a pure module, for example:
+
+`src/lib/fnoPaperRiskGuards.ts`
+
+or use the existing nearest F&O/paper-trading guard location if one already exists.
+
+Export:
+
+```ts
+export type FnoPaperRiskGuardReason =
+  | "SENSEX_DISABLED_BY_REPLAY_DIAGNOSTICS"
+  | "LOW_ENTRY_PREMIUM"
+  | "NEAR_EXPIRY_THETA_RISK"
+  | "SAME_STRIKE_DIRECTION_STOP_COOLDOWN"
+  | "BAD_TIME_WINDOW_SHADOW_ONLY"
+  | "HIGH_COST_TO_EDGE_RATIO_SHADOW_ONLY";
+
+export interface FnoPaperRiskGuardInput {
+  underlying: "NIFTY" | "BANKNIFTY" | "SENSEX";
+  direction: "BULLISH" | "BEARISH";
+  optionType: "CALL" | "PUT";
+  strike: number;
+  entryPremium: number | null;
+  entryTime: string;
+  expiry: string | null;
+  pricingMode?: string | null;
+  setupKey?: string | null;
+  setupName?: string | null;
+  candidateTier?: string | null;
+  premiumTrusted?: boolean | null;
+  expectedGrossEdge?: number | null;
+  estimatedCosts?: number | null;
+}
+
+export interface RecentStoppedTrade {
+  underlying: string;
+  direction: string;
+  optionType: string;
+  strike: number;
+  exitTime: string;
+  exitReason: string;
+}
+
+export interface FnoPaperRiskGuardDecision {
+  allowed: boolean;
+  severity: "info" | "warn" | "block";
+  reasons: FnoPaperRiskGuardReason[];
+  explanation: string[];
+  metrics: {
+    dteCalendarDays: number | null;
+    entryPremium: number | null;
+    minPremiumRequired: number | null;
+    minutesSinceSameStrikeStop: number | null;
+    costToEdgeRatio: number | null;
+  };
+}
+```
+
+Core function:
+
+```ts
+evaluateFnoPaperRiskGuards(
+  input: FnoPaperRiskGuardInput,
+  recentStoppedTrades: RecentStoppedTrade[],
+  config: FnoPaperRiskGuardConfig
+): FnoPaperRiskGuardDecision
+```
+
+This function must be pure and fully unit-tested.
+
+====================================================
+PART B — CONFIGURATION
+======================
+
+Add a config object, not hardcoded scattered logic.
+
+Suggested config:
+
+```ts
+interface FnoPaperRiskGuardConfig {
+  mode: "shadow" | "paper_block";
+  disableSensexPaperAutoOpen: boolean;
+
+  minEntryPremium: {
+    NIFTY: number;
+    BANKNIFTY: number;
+    SENSEX: number;
+  };
+
+  thetaRisk: {
+    enabled: boolean;
+    maxDteCalendarDays: number;
+    onlyWhenPremiumBelowThreshold: boolean;
+  };
+
+  sameStrikeStopCooldown: {
+    enabled: boolean;
+    minutes: number;
+  };
+
+  badTimeWindowShadowOnly: {
+    enabled: boolean;
+    windowsIST: Array<{ from: string; to: string }>;
+  };
+}
+```
+
+Initial proposed config:
+
+```ts
+mode: "shadow" initially
+
+disableSensexPaperAutoOpen: true in paper_block mode only
+
+minEntryPremium:
+  NIFTY: 250
+  BANKNIFTY: 500
+  SENSEX: 250
+
+thetaRisk:
+  enabled: true
+  maxDteCalendarDays: 5
+  onlyWhenPremiumBelowThreshold: true
+
+sameStrikeStopCooldown:
+  enabled: true
+  minutes: 90
+
+badTimeWindowShadowOnly:
+  enabled: true
+  windowsIST:
+    - 10:00 to 11:00
+```
+
+Critical rule:
+
+DTE/theta guard must NOT block every DTE ≤ 5 trade blindly.
+
+It should block only when:
+
+* DTE <= configured max DTE
+  AND
+* entry premium is below that underlying’s minimum premium threshold
+  OR
+* option is materially OTM if moneyness is available
+  OR
+* expected gross edge is lower than estimated costs if those fields exist
+
+Reason:
+
+The diagnostic damage came from near-expiry low-premium theta traps, not from every near-expiry trade.
+
+====================================================
+PART C — HISTORICAL SHADOW SIMULATION FIRST
+===========================================
+
+Before adding live paper blocking, run the guard module against the 49 real-captured replay trades and all unavailable trades where enough fields exist.
+
+Use these production run IDs:
+
+ALL:
+
+`e103be4f-d803-438d-8982-f01146faa210`
+
+NIFTY:
+
+`eecacd3a-2352-4694-bc84-15a952312643`
+
+BANKNIFTY:
+
+`f9d0e1e7-278d-41f2-96a9-664b31fc578d`
+
+SENSEX:
+
+`f19ee8e9-f561-4669-9574-26bd04c90810`
+
+Create a simulation function or endpoint:
+
+`GET /api/backtest/fno/runs/:id/risk-guard-simulation`
+
+or include it under existing diagnostics if cleaner.
+
+For each proposed guard, report:
+
+1. Trades blocked
+2. Winning trades blocked
+3. Losing trades blocked
+4. Gross P&L avoided
+5. Net P&L avoided
+6. Net P&L lost from blocked winners
+7. Net improvement
+8. Count by underlying
+9. Count by setup
+10. Count by exit reason
+11. Count by premium bucket
+12. Count by DTE bucket
+
+Must show exact blocked trade list:
+
+* underlying
+* date/time
+* direction
+* option type
+* strike
+* entry premium
+* expiry
+* DTE
+* exit reason
+* gross P&L
+* net P&L
+* guard reason
+
+This is non-negotiable.
+
+Do not accept projected improvement like “would save ₹67,000” unless the blocked trade list proves it.
+
+====================================================
+PART D — REQUIRED SIMULATION SCENARIOS
+======================================
+
+Run these scenarios separately:
+
+Scenario 1:
+
+`LOW_PREMIUM_ONLY`
+
+* NIFTY < ₹250
+* SENSEX < ₹250
+* BANKNIFTY < ₹500
+
+Scenario 2:
+
+`THETA_RISK_ONLY`
+
+* DTE <= 5
+* entry premium below threshold
+* no blanket DTE block
+
+Scenario 3:
+
+`SAME_STRIKE_STOP_COOLDOWN_ONLY`
+
+* same underlying + direction + option type + strike
+* previous STOP within 90 minutes
+
+Scenario 4:
+
+`SENSEX_DISABLE_ONLY`
+
+* blocks SENSEX paper auto-open only
+
+Scenario 5:
+
+`COMBINED_G1_G2_G3`
+
+* low premium + theta + cooldown
+* SENSEX not disabled
+
+Scenario 6:
+
+`COMBINED_G1_G2_G3_G4`
+
+* low premium + theta + cooldown + SENSEX disabled
+
+Scenario 7:
+
+`BANKNIFTY_PROTECTION_CHECK`
+
+* apply G1/G2/G3 only to BANKNIFTY
+* verify whether BANKNIFTY remains profitable
+* report if profitable trades are wrongly blocked
+
+====================================================
+PART E — SIMULATION ACCEPTANCE THRESHOLDS
+=========================================
+
+Do not enable paper-block mode unless simulation proves:
+
+1. Combined G1/G2/G3 improves net P&L.
+2. It does not reduce BANKNIFTY net P&L by more than 20%.
+3. It blocks at least one of the two theta disasters.
+4. It blocks NIFTY Jun-17 re-entry or proves why cooldown did not catch it.
+5. It improves or neutralizes SENSEX if SENSEX remains enabled.
+6. Blocked winners are explicitly listed and acceptable.
+7. No BANKNIFTY high-quality TARGET winner is blocked without clear reason.
+
+If these conditions fail, keep all guards in shadow mode and report.
+
+====================================================
+PART F — PAPER AUTO-OPEN INTEGRATION
+====================================
+
+Only after Part C–E simulation is complete and passes acceptance, integrate guards into the F&O paper auto-open path.
+
+Integration requirements:
+
+* The signal may still be shown in UI.
+* The candidate may still be logged.
+* The engine must not open a paper trade if guard decision is block.
+* Blocked candidate must get structured reason:
+
+  * `PAPER_RISK_GUARD_BLOCKED`
+  * plus specific guard reason(s)
+* It must appear in skip-reason / diagnostics table.
+* Do not hide blocked setups.
+* Do not convert blocked setups into fake losses/wins.
+* Do not count blocked setups as opened trades.
+* Do not affect backtest unless user explicitly selects simulation mode.
+* Do not affect BANKNIFTY if guard says allowed.
+
+If `config.mode === "shadow"`:
+
+* Never block
+* Only log what would have been blocked
+* Show “SHADOW ONLY” in diagnostics
+
+If `config.mode === "paper_block"`:
+
+* Block only paper auto-open
+* Never block UI visibility
+* Never block option-chain display
+* Never block backtest
+
+====================================================
+PART G — SENSEX PAPER AUTO-OPEN CONTROL
+=======================================
+
+Add a specific SENSEX paper auto-open control.
+
+If enabled:
+
+* SENSEX F&O signals still appear.
+* SENSEX option-chain still works.
+* SENSEX backtest still works.
+* SENSEX replay still works.
+* SENSEX paper auto-open is blocked.
+* UI reason:
+  `SENSEX paper auto-open disabled by replay diagnostics: 28.6% WR, −₹45,908 net on latest real-premium replay.`
+
+This must be configurable.
+
+Do not delete SENSEX.
+
+Do not remove it from reports.
+
+Do not hardcode permanent disable.
+
+====================================================
+PART H — UI / DIAGNOSTICS
+=========================
+
+Add guard visibility in the existing F&O diagnostics / backtest diagnostics area.
+
+Required display:
+
+1. Guard mode:
+
+   * SHADOW
+   * PAPER_BLOCK
+
+2. Active guards:
+
+   * Low premium
+   * Near-expiry theta risk
+   * Same strike cooldown
+   * SENSEX paper disable
+
+3. Last simulation result:
+
+   * blocked trades
+   * net improvement
+   * winners blocked
+   * losers blocked
+   * BANKNIFTY impact
+   * SENSEX impact
+   * NIFTY impact
+
+4. Candidate-level reason:
+
+   * blocked / allowed / shadow-only
+   * reason codes
+   * explanation
+
+All UI text must clearly state:
+
+`These guards affect paper auto-open only. They do not change signal generation.`
+
+====================================================
+PART I — TESTS
+==============
+
+Add unit tests for:
+
+1. DTE calculation
+2. Low-premium gate
+3. Theta-risk gate with premium threshold
+4. Theta-risk does not block high-premium valid trade
+5. Same-strike stop cooldown blocks matching re-entry
+6. Same-strike cooldown does not block different strike
+7. Same-strike cooldown does not block opposite direction
+8. Same-strike cooldown expires after 90 minutes
+9. SENSEX disable blocks only SENSEX
+10. Shadow mode never blocks
+11. Paper-block mode blocks
+12. Multiple reasons are returned correctly
+13. Null premium fails safely
+14. Null expiry fails safely
+15. BANKNIFTY high-premium TARGET-like fixture is not blocked by theta guard
+16. Historical simulation calculates blocked winners and losers correctly
+17. No division-by-zero
+18. Config defaults are safe
+
+Add integration test if practical for paper auto-open guard decision.
+
+No live API calls in tests.
+
+====================================================
+PART J — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Files touched
+2. Files confirmed untouched
+3. Tests run
+4. Simulation endpoint / function output
+5. Scenario-by-scenario result table
+6. Exact blocked trade list per scenario
+7. Combined P&L improvement / deterioration
+8. BANKNIFTY impact
+9. NIFTY impact
+10. SENSEX impact
+11. Winners blocked
+12. Losers blocked
+13. Whether G1/G2/G3 passed acceptance
+14. Whether SENSEX disable is justified
+15. Whether paper-block mode was enabled or left shadow-only
+16. Exact guard config
+17. UI verification
+18. Any blocker
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* Guard module is pure and tested.
+* Historical simulation is run against the production replay trades.
+* Each guard scenario is reported separately.
+* Exact blocked trades are listed.
+* BANKNIFTY profitable edge is protected.
+* SENSEX paper auto-open control is configurable.
+* Shadow mode exists.
+* Paper-block mode exists.
+* No signal logic is changed.
+* No scoring logic is changed.
+* No risk sizing logic is changed.
+* No destructive DB operation is performed.
+* UI/diagnostics clearly explain guard decisions.
+* Tests pass or any blocker is clearly reported.
+
+====================================================
+IMPORTANT
+=========
+
+This is a controlled risk layer, not a strategy rewrite.
+
+BANKNIFTY is currently the only clearly profitable instrument. Do not accidentally damage it.
+
+SENSEX is currently the weakest instrument. Do not let it auto-open paper trades unless explicitly allowed.
+
+NIFTY needs cost-aware filtering, but premium-only filtering must be simulation-proven first.
+
+Do not implement any blanket rule that blocks profitable trades without showing the exact blocked-trade evidence.

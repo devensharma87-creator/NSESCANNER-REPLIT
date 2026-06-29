@@ -70,6 +70,11 @@ import {
   logFnoReasoning,
   type FnoReasoningDecision,
 } from "./fnoSignalReasoningLogger";
+import {
+  evaluateFnoPaperRiskGuards,
+  FNO_GUARD_CONFIG,
+  type RecentStoppedTrade,
+} from "./fnoPaperRiskGuards";
 
 /**
  * Risk tier for an auto-opened paper trade.
@@ -590,6 +595,101 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
       );
     }
     return null;
+  }
+
+  // ─── F&O Paper Risk Guards ─────────────────────────────────────────────
+  // Evaluates DTE/theta, low-premium, re-entry cooldown, and SENSEX-disable
+  // guards based on replay-diagnostics evidence. Shadow mode (default): never
+  // blocks, only logs what would have been blocked. Paper-block mode: blocks
+  // the open when a hard-block guard fires. Does NOT change signal scoring.
+  {
+    const guardInput = {
+      underlying: indexSymbol as "NIFTY" | "BANKNIFTY" | "SENSEX",
+      direction: direction as "BULLISH" | "BEARISH",
+      optionType: signal.leg.type as "CALL" | "PUT",
+      strike: signal.leg.strike,
+      entryPremium: optionEntry,
+      entryTime: new Date().toISOString(),
+      expiry: signal.leg.expiry ?? null,
+      pricingMode: null,
+      setupKey: setupKey,
+      setupName: signal.setupName ?? null,
+      candidateTier: tier,
+      premiumTrusted: signal.premiumTrusted ?? null,
+      expectedGrossEdge: null,
+      estimatedCosts: null,
+    };
+
+    // Load recent STOPPED trades for cooldown check (last 90 min window).
+    const cooldownWindowMs = FNO_GUARD_CONFIG.sameStrikeStopCooldown.minutes * 60_000;
+    const cooldownCutoff = new Date(Date.now() - cooldownWindowMs);
+    let recentStoppedTrades: RecentStoppedTrade[] = [];
+    try {
+      const recentRows = await db
+        .select({
+          indexSymbol: paperTradeFoTable.indexSymbol,
+          direction: paperTradeFoTable.direction,
+          optionType: paperTradeFoTable.optionType,
+          strike: paperTradeFoTable.strike,
+          exitedAt: paperTradeFoTable.exitedAt,
+          exitReason: paperTradeFoTable.exitReason,
+        })
+        .from(paperTradeFoTable)
+        .where(
+          and(
+            eq(paperTradeFoTable.exitReason, "STOPPED"),
+            sql`${paperTradeFoTable.exitedAt} >= ${cooldownCutoff}`,
+          ),
+        )
+        .limit(50);
+      recentStoppedTrades = recentRows
+        .filter((r) => r.strike !== null && r.optionType !== null && r.exitedAt !== null)
+        .map((r) => ({
+          underlying: r.indexSymbol,
+          direction: r.direction,
+          optionType: r.optionType!,
+          strike: Number(r.strike),
+          exitTime:
+            r.exitedAt instanceof Date
+              ? r.exitedAt.toISOString()
+              : String(r.exitedAt),
+          exitReason: r.exitReason ?? "STOPPED",
+        }));
+    } catch (err) {
+      // Fail-open: cooldown check skipped if DB query fails.
+      logger.warn(
+        { indexSymbol, setupKey, err: (err as Error).message },
+        "Paper FO risk guard: recent-stops query failed (cooldown check skipped)",
+      );
+    }
+
+    const guardDecision = evaluateFnoPaperRiskGuards(
+      guardInput,
+      recentStoppedTrades,
+      FNO_GUARD_CONFIG,
+    );
+
+    if (guardDecision.reasons.length > 0) {
+      logger.info(
+        {
+          indexSymbol,
+          setupKey,
+          mode: FNO_GUARD_CONFIG.mode,
+          allowed: guardDecision.allowed,
+          severity: guardDecision.severity,
+          reasons: guardDecision.reasons,
+          metrics: guardDecision.metrics,
+        },
+        `Paper FO risk guard: ${guardDecision.allowed ? "ALLOWED" : "BLOCKED"} (${FNO_GUARD_CONFIG.mode})`,
+      );
+    }
+
+    if (!guardDecision.allowed) {
+      if (recordSkip("PAPER_RISK_GUARD_BLOCKED")) {
+        // Already logged above.
+      }
+      return null;
+    }
   }
 
   // ─── Pass-1 option-leg liquidity gates ────────────────────────────────
@@ -2585,7 +2685,9 @@ export type SkipReason =
   | "BUDGET_TOO_TIGHT"
   | "INFO_ONLY_NOT_TRADEABLE"
   | "PREMIUM_UNTRUSTED"
-  | "INSUFFICIENT_BALANCE";
+  | "INSUFFICIENT_BALANCE"
+  /** F&O risk guard blocked this open (DTE/theta, low premium, re-entry cooldown, or SENSEX disable). */
+  | "PAPER_RISK_GUARD_BLOCKED";
 
 export interface MissedSignal {
   signalDate: string;

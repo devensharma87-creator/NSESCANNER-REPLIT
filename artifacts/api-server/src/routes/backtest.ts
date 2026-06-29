@@ -73,6 +73,8 @@ import {
   computeDiagnostics,
   type DiagTrade,
 } from "../lib/backtest/diagnostics";
+import { computeRiskGuardSimulation } from "../lib/backtest/riskGuardSimulation";
+import { FNO_GUARD_CONFIG } from "../lib/fnoPaperRiskGuards";
 
 const router: IRouter = Router();
 
@@ -1123,6 +1125,89 @@ router.get(
 
     const diagnostics = computeDiagnostics(meta, diagTrades);
     return res.json(diagnostics);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// GET /backtest/fno/runs/:id/risk-guard-simulation
+// Shadow simulation: runs 7 guard scenarios against all replay trades.
+// All output tagged SIMULATION_ONLY. Never blocks live trading.
+// ---------------------------------------------------------------------------
+router.get(
+  "/backtest/fno/runs/:id/risk-guard-simulation",
+  requireSubscriberOrOwner("BACKTEST_LAB"),
+  async (req, res) => {
+    const row = await ownedRun(req);
+    if (!row) return res.status(404).json({ error: "not_found" });
+
+    const tradeRows = await db
+      .select()
+      .from(backtestTradesTable)
+      .where(eq(backtestTradesTable.runId, row.id))
+      .orderBy(backtestTradesTable.sortIndex);
+
+    // Resolve expiry dates via option_chain_snapshot join (same as diagnostics route).
+    const expiryMap = new Map<string, string>();
+    try {
+      const expiryRes = await db.execute(sql`
+        WITH priced AS (
+          SELECT id, index_symbol, strike, option_type, entry_premium_source
+          FROM backtest_trades
+          WHERE run_id = ${row.id}
+            AND pricing_mode = 'REAL_CAPTURED_PREMIUM'
+            AND entry_premium_source ~ '^[0-9]{4}'
+        )
+        SELECT p.id::text, TO_CHAR(ocs.expiry, 'YYYY-MM-DD') AS expiry
+        FROM priced p
+        JOIN option_chain_snapshot ocs
+          ON  ocs.underlying  = p.index_symbol
+          AND ocs.strike::float8 = ROUND(p.strike::float8)
+          AND ocs.opt_type    = p.option_type
+          AND ocs.captured_at = p.entry_premium_source::timestamptz
+        LIMIT 500
+      `);
+      for (const r of expiryRes.rows ?? []) {
+        const er = r as { id: string; expiry: string | null };
+        if (er.id && er.expiry) expiryMap.set(er.id, er.expiry);
+      }
+    } catch {
+      // Fail-open: expiry data missing → DTE-based guards won't fire for those trades.
+    }
+
+    const diagTrades: DiagTrade[] = tradeRows.map((t) => {
+      const costs = (t.costsJson as Record<string, number> | null) ?? null;
+      const spreadCost = costs?.spreadCost ?? null;
+      const totalCosts = costs?.total ?? null;
+      const explicitCosts =
+        totalCosts !== null && spreadCost !== null ? totalCosts - spreadCost : null;
+      return {
+        id: t.id,
+        indexSymbol: t.indexSymbol,
+        setupKey: t.setupKey ?? null,
+        setupName: t.setupName ?? null,
+        direction: t.direction,
+        optionType: t.optionType ?? null,
+        strike: t.strike ?? null,
+        entryAt: t.entryAt instanceof Date ? t.entryAt.toISOString() : (t.entryAt ?? null),
+        exitAt: t.exitAt instanceof Date ? t.exitAt.toISOString() : (t.exitAt ?? null),
+        optionEntry: t.optionEntry ?? null,
+        optionExit: t.optionExit ?? null,
+        grossPnl: t.grossPnl ?? null,
+        spreadCost: spreadCost !== undefined ? spreadCost : null,
+        explicitCosts: explicitCosts !== undefined ? explicitCosts : null,
+        totalCosts: totalCosts !== undefined ? totalCosts : null,
+        netPnl: t.netPnl ?? null,
+        pricingMode: t.pricingMode ?? null,
+        exitReason: t.exitReason ?? null,
+        tier: t.tier ?? null,
+        entryPremiumSource: t.entryPremiumSource ?? null,
+        exitPremiumSource: t.exitPremiumSource ?? null,
+        expiryDate: expiryMap.get(t.id) ?? null,
+      };
+    });
+
+    const result = computeRiskGuardSimulation(diagTrades, FNO_GUARD_CONFIG);
+    return res.json(result);
   },
 );
 
