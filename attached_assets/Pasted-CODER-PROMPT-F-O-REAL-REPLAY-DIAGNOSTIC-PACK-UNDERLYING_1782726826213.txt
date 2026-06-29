@@ -1,0 +1,603 @@
+CODER PROMPT — F&O REAL REPLAY DIAGNOSTIC PACK: UNDERLYING-SPECIFIC REVIEW + COST/EXPIRY RISK AUDIT
+
+Do not start new feature work.
+
+Do not change signal generation logic.
+
+Do not change F&O scoring.
+
+Do not change recovery-veto, chase-veto, anti-flip, P25, premiumTrusted, HC emission floor, DD guardrails, heat cap, dynamic lot sizing, or capital ledger.
+
+Do not loosen any risk guardrail.
+
+Do not disable SENSEX, NIFTY, or BANKNIFTY automatically in live trading yet.
+
+This task is an evidence-building diagnostic pack only. The objective is to understand why the real premium replay shows BANKNIFTY strong, SENSEX weak, NIFTY cost-sensitive, and many signals unavailable.
+
+====================================================
+BACKGROUND
+==========
+
+The production `SNAPSHOT_PREMIUM_REPLAY` run for 2026-05-18 to 2026-06-29 completed successfully.
+
+Combined ALL result:
+
+* Total signals: 121
+* REAL_CAPTURED_PREMIUM: 49
+* UNAVAILABLE: 72
+* REAL_CAPTURED share: 40.5%
+* Gross P&L: +₹2,554.50
+* Total costs: ₹18,282.52
+* Net P&L: −₹15,728.02
+* Win rate: 46.94%
+* Profit factor: 0.91
+
+By underlying:
+
+BANKNIFTY:
+
+* 25 priced trades
+* 15 wins / 10 losses
+* Win rate: 60.0%
+* Gross P&L: +₹48,660.00
+* Costs: ₹12,132.72
+* Net P&L: +₹36,527.28
+* Profit factor: 1.62
+
+NIFTY:
+
+* 10 priced trades
+* 4 wins / 6 losses
+* Win rate: 40.0%
+* Gross P&L: −₹3,472.50
+* Costs: ₹2,875.24
+* Net P&L: −₹6,347.74
+* Profit factor: 0.82
+* Cost drag is very high relative to gross movement.
+
+SENSEX:
+
+* 14 priced trades
+* 4 wins / 10 losses
+* Win rate: 28.6%
+* Gross P&L: −₹42,633.00
+* Costs: ₹3,274.56
+* Net P&L: −₹45,907.56
+* Profit factor: 0.38
+
+Snapshot coverage:
+
+* NIFTY: 55.0%
+* BANKNIFTY: 53.2%
+* SENSEX: 54.6%
+
+Important conclusion:
+
+BANKNIFTY looks good. Do not disturb it.
+
+SENSEX is the weakest. But do not disable it yet without setup/time/regime evidence.
+
+NIFTY is not deeply broken, but cost drag is high.
+
+The next task is to create a proper diagnostic breakdown so the next action is evidence-based, not emotional.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not modify:
+
+* `lib/optionSignals.ts` scoring logic
+* setup detection
+* confluence logic
+* veto thresholds
+* anti-flip logic
+* P25
+* premiumTrusted rule
+* F&O sizing
+* capital ledger
+* paper account math
+* option-chain math
+* OI/GEX/Greeks
+* live paper-trade opening logic
+* existing stop/target logic
+
+Allowed:
+
+* Add diagnostic endpoints
+* Add read-only analytics
+* Add report tables
+* Add UI diagnostic panels
+* Add tests for diagnostic calculations
+* Add configuration proposal output, but do not enforce it live
+* Add “what would have happened” simulation, clearly labelled SIMULATION_ONLY
+
+No destructive database migration.
+
+No fake data.
+
+No Yahoo data for trade-grade decisions.
+
+No silent fallback.
+
+====================================================
+PART A — BUILD F&O REPLAY DIAGNOSTIC ENDPOINT
+=============================================
+
+Create a read-only diagnostic endpoint.
+
+Suggested route:
+
+`GET /api/backtest/fno/runs/:runId/diagnostics`
+
+It must work for these run IDs:
+
+* Combined ALL run: `e103be4f-d803-438d-8982-f01146faa210`
+* NIFTY run: `eecacd3a-2352-4694-bc84-15a952312643`
+* BANKNIFTY run: `f9d0e1e7-278d-41f2-96a9-664b31fc578d`
+* SENSEX run: `f19ee8e9-f561-4669-9574-26bd04c90810`
+
+The endpoint must return structured JSON with these sections:
+
+1. `byUnderlying`
+2. `bySetup`
+3. `byDirection`
+4. `byOptionType`
+5. `byExitReason`
+6. `byTimeOfDay`
+7. `byDayOfWeek`
+8. `byExpiryDistance`
+9. `byPremiumBucket`
+10. `byCostBucket`
+11. `bySnapshotAvailability`
+12. `worstLossClusters`
+13. `bestProfitClusters`
+14. `reentryClusters`
+15. `simulationOnlyRecommendations`
+
+====================================================
+PART B — SETUP-LEVEL BREAKDOWN
+==============================
+
+For each underlying and setup type, calculate:
+
+* totalSignals
+* pricedTrades
+* unavailableTrades
+* realCapturedPercent
+* wins
+* losses
+* winRate
+* grossPnl
+* totalCosts
+* netPnl
+* avgWin
+* avgLoss
+* profitFactor
+* expectancyPerTrade
+* maxDrawdown
+* bestTrade
+* worstTrade
+
+Group by:
+
+* underlying
+* setupName / setupKey
+* direction
+* optionType
+* exitReason
+
+The goal is to answer:
+
+* Is SENSEX weak across all setups, or only one setup?
+* Is NIFTY weak because of specific low-premium setups?
+* Is BANKNIFTY profitable across multiple setups or due to one lucky trade?
+* Are PUT setups or CALL setups causing most damage?
+* Are EOD exits worse than TARGET/STOP exits?
+
+====================================================
+PART C — TIME-OF-DAY ANALYSIS
+=============================
+
+Bucket trades by entry time:
+
+* 09:15–09:30
+* 09:30–10:00
+* 10:00–11:00
+* 11:00–12:30
+* 12:30–14:00
+* 14:00–15:00
+* 15:00–15:20
+
+For each bucket, calculate:
+
+* trade count
+* win rate
+* gross P&L
+* cost
+* net P&L
+* profit factor
+* expectancy
+* average entry premium
+* average spread cost
+* unavailable count
+
+The goal is to answer:
+
+* Are early trades profitable?
+* Are afternoon trades failing?
+* Did Jun 11–17 losses cluster at a specific time?
+* Does SENSEX enter too late after move completion?
+* Does NIFTY lose because it enters low-premium late-day contracts?
+
+====================================================
+PART D — EXPIRY-DISTANCE / THETA RISK ANALYSIS
+==============================================
+
+For each trade, calculate days-to-expiry at entry.
+
+Bucket:
+
+* 0DTE
+* 1DTE
+* 2DTE
+* 3–5DTE
+* > 5DTE
+
+For each bucket, calculate:
+
+* trades
+* wins
+* losses
+* win rate
+* gross P&L
+* costs
+* net P&L
+* average entry premium
+* average exit premium
+* average premium decay
+* worst trade
+* average holding time
+
+Special audit:
+
+Find the May-26 BANKNIFTY 55100PUT trade:
+
+* Entry premium: 140.95
+* Exit premium: 5.50
+* Net loss: approx −₹24,610
+* Exit reason: STOP
+
+For this trade, report:
+
+* expiry date
+* days to expiry
+* whether expiry-day gate existed
+* whether expiry-day gate fired
+* whether it was HIGH_CONVICTION, BASELINE, INFO_ONLY, or another state
+* why it was allowed to open
+* whether a minimum premium decay / theta-risk guard would have blocked it
+
+Do not change the gate yet. Just report.
+
+====================================================
+PART E — COST DRAG ANALYSIS
+===========================
+
+For each underlying and trade, calculate:
+
+* grossPnl
+* spreadCost
+* explicitCharges
+* totalCosts
+* costAsPercentOfPremiumMove
+* costAsPercentOfEntryPremium
+* costAsPercentOfRisk
+* netPnl
+
+Bucket trades by entry premium:
+
+* <₹75
+* ₹75–₹125
+* ₹125–₹200
+* ₹200–₹400
+* ₹400–₹800
+* > ₹800
+
+For each bucket, calculate:
+
+* trade count
+* win rate
+* gross P&L
+* total costs
+* net P&L
+* profit factor
+* expectancy
+
+The goal is to answer:
+
+* Is NIFTY losing because low-premium options cannot overcome spread/charges?
+* Is BANKNIFTY winning because premium movement is large enough?
+* What minimum entry premium or expected move is needed before a trade is worth taking?
+
+Do not enforce the filter yet.
+
+Output only a recommendation like:
+
+`SIMULATION_ONLY_MIN_ENTRY_PREMIUM = ₹___`
+
+or
+
+`SIMULATION_ONLY_MIN_EXPECTED_GROSS_EDGE = ₹___`
+
+====================================================
+PART F — RE-ENTRY / SAME-DAY DUPLICATE AUDIT
+============================================
+
+Find same-underlying, same-direction, same-strike repeated trades on the same day.
+
+Example already identified:
+
+* NIFTY Jun-17
+* 24050CALL
+* Two BULL entries
+* Both stopped
+
+For each re-entry cluster, report:
+
+* underlying
+* date
+* strike
+* direction
+* option type
+* number of entries
+* total gross P&L
+* total costs
+* total net P&L
+* exit reasons
+* time gap between entries
+
+Then simulate:
+
+* What if no re-entry after stop for same underlying/direction/strike on same day?
+* What if 30-minute cooldown after stop?
+* What if one trade per strike per day?
+
+Clearly label these as:
+
+`SIMULATION_ONLY`
+
+Do not enforce the rule live.
+
+====================================================
+PART G — SENSEX WEAKNESS AUDIT
+==============================
+
+SENSEX is the biggest concern.
+
+Create a focused SENSEX diagnostic:
+
+1. List all 14 priced SENSEX trades.
+2. Group by direction:
+
+   * BULL CALL
+   * BEAR PUT
+3. Group by exit reason:
+
+   * STOP
+   * TARGET
+   * EOD_EXIT
+4. Group by time-of-day.
+5. Group by premium bucket.
+6. Group by days-to-expiry.
+7. Group by setup type.
+8. Compare SENSEX signal quality vs BANKNIFTY signal quality for same dates.
+
+Questions to answer:
+
+* Is SENSEX weak because of timing?
+* Is SENSEX weak because of option liquidity/spread?
+* Is SENSEX weak because of expiry structure?
+* Is SENSEX weak because the index whipsaws more?
+* Is SENSEX weak only during Jun 11–17 reversal cluster?
+* Would SENSEX still be weak if Jun 11–17 is excluded?
+
+Run a simulation:
+
+`SENSEX_EXCLUDING_JUN_11_TO_JUN_17`
+
+Report:
+
+* trades
+* win rate
+* gross P&L
+* costs
+* net P&L
+* profit factor
+
+Do not disable SENSEX yet.
+
+====================================================
+PART H — BANKNIFTY PRESERVATION CHECK
+=====================================
+
+BANKNIFTY is profitable.
+
+Do not change BANKNIFTY logic.
+
+But verify whether the profit is robust.
+
+Calculate:
+
+* BANKNIFTY result excluding best trade
+* BANKNIFTY result excluding worst trade
+* BANKNIFTY result excluding both best and worst trade
+* BANKNIFTY result excluding Jun 3 best trade
+* BANKNIFTY result after costs
+* BANKNIFTY result by setup
+* BANKNIFTY result by direction
+* BANKNIFTY result by expiry distance
+
+Goal:
+
+Confirm whether BANKNIFTY edge is broad or concentrated.
+
+If BANKNIFTY remains profitable after removing best trade, say:
+
+`BANKNIFTY_EDGE_APPEARS_ROBUST_EARLY_SAMPLE`
+
+If not, say:
+
+`BANKNIFTY_EDGE_DEPENDS_ON_OUTLIER_TRADE`
+
+Do not change BANKNIFTY.
+
+====================================================
+PART I — SNAPSHOT AVAILABILITY ANALYSIS
+=======================================
+
+The replay still has many unavailable trades.
+
+Analyze the 72 unavailable signals.
+
+For each unavailable trade/signal, identify reason:
+
+* missing entry snapshot
+* missing exit snapshot
+* missing strike
+* missing expiry
+* missing option type
+* missing bid/ask
+* missing LTP
+* no matching contract
+* signal outside snapshot window
+* stale snapshot rejected
+
+Group unavailable reasons by:
+
+* underlying
+* date
+* time
+* strike distance from ATM
+* days-to-expiry
+* direction
+* option type
+
+Output:
+
+* top 10 unavailable root causes
+* top dates with unavailable signals
+* whether 1-minute snapshots would solve it
+* whether ATM±3 strike capture would solve it
+* whether broader strike capture is needed
+* whether the issue is historical only and will improve naturally
+
+No code change to snapshot cadence yet unless the evidence clearly proves current cadence is structurally insufficient.
+
+====================================================
+PART J — UI PANEL
+=================
+
+Add a new read-only panel in Backtest Lab or F&O Reports:
+
+Title:
+
+`Real Replay Diagnostics`
+
+Sections:
+
+1. Underlying Comparison
+2. Setup Performance
+3. Cost Drag
+4. Expiry/Theta Risk
+5. Time-of-Day
+6. Snapshot Missing Reasons
+7. Simulation-Only Rules
+8. Next Recommended Fix
+
+The panel must clearly show:
+
+* This is based on `SNAPSHOT_PREMIUM_REPLAY`.
+* UNAVAILABLE trades are excluded from P&L.
+* Simulation-only rules are not active in live trading.
+* No live signal logic has been changed.
+
+====================================================
+PART K — TESTS
+==============
+
+Add tests for diagnostic calculations.
+
+Minimum tests:
+
+1. Cost bucket classification
+2. Expiry-distance classification
+3. Time-of-day bucket classification
+4. Setup-level aggregation
+5. Underlying-level aggregation
+6. Re-entry cluster detection
+7. Excluding date-range simulation
+8. Excluding best/worst trade simulation
+9. Unavailable reason grouping
+10. No division-by-zero for empty groups
+
+Tests must use fixtures.
+
+Do not use live API calls in tests.
+
+====================================================
+PART L — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Files touched
+2. Files confirmed untouched
+3. Tests run
+4. Diagnostic endpoint response sample
+5. Combined ALL diagnostic summary
+6. NIFTY diagnostic summary
+7. BANKNIFTY diagnostic summary
+8. SENSEX diagnostic summary
+9. Cost-drag conclusion
+10. Expiry-risk conclusion
+11. Snapshot-unavailable conclusion
+12. Re-entry conclusion
+13. Whether BANKNIFTY edge is robust or outlier-dependent
+14. Whether SENSEX weakness remains after excluding Jun 11–17
+15. Recommended next fix pack
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* New diagnostics are read-only.
+* No live trading rule is changed.
+* No signal logic is changed.
+* No risk rule is changed.
+* No sizing rule is changed.
+* No destructive DB operation is performed.
+* Diagnostics explain SENSEX weakness better than the current summary.
+* Diagnostics explain NIFTY cost drag better than the current summary.
+* Diagnostics explain BANKNIFTY robustness.
+* Unavailable trades are grouped by root cause.
+* Simulation-only rules are clearly labelled and not active.
+* Tests pass or any test blocker is clearly reported with exact reason.
+
+====================================================
+IMPORTANT FINAL NOTE
+====================
+
+This is the “measure twice, cut once” task.
+
+Do not implement minimum-premium filters yet.
+
+Do not disable SENSEX yet.
+
+Do not change expiry-day guards yet.
+
+Do not add a new strategy yet.
+
+Only build the evidence layer so the next fix is mathematically justified.

@@ -18,6 +18,7 @@
  * never a fabricated number where the source is missing.
  */
 import { useMemo, useState } from "react";
+import { ReplayDiagnosticsPanel } from "@/components/backtest/ReplayDiagnosticsPanel";
 import {
   useListBacktestRuns,
   useCreateBacktestRun,
@@ -2091,6 +2092,18 @@ export default function BacktestLab() {
 
           {/* data quality */}
           {dq && <DataQualityPanel dq={dq} />}
+
+          {/* Real Replay Diagnostics — only for SNAPSHOT_PREMIUM_REPLAY runs */}
+          {run?.backtestMode === "SNAPSHOT_PREMIUM_REPLAY" && activeRunId && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Real Replay Diagnostics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ReplayDiagnosticsPanel runId={activeRunId} />
+              </CardContent>
+            </Card>
+          )}
 
           {/* trades */}
           <Card>
