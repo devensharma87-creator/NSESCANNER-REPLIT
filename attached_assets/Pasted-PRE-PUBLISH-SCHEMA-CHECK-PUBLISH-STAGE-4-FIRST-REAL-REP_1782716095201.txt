@@ -1,0 +1,46 @@
+PRE-PUBLISH SCHEMA CHECK + PUBLISH STAGE 4 + FIRST REAL REPLAY RUN
+Copy below the line.
+
+CONTEXT
+Stage 4 (SNAPSHOT_PREMIUM_REPLAY) is built, unit-tested (28/28), and typecheck-green, but not published to production. The prod DB is missing backtest_run and backtest_trade, so the replay route can't run there yet. Production has a real option-chain archive: ~252k snapshots, May 18–Jun 29, ~52% bucket fill across NIFTY/BANKNIFTY/SENSEX. This task publishes Stage 4 safely and then proves it end-to-end on that real data.
+PART 1 — PRE-PUBLISH SAFETY (do this BEFORE publishing)
+Publishing runs pnpm --filter db push (drizzle-kit push) against production automatically. We have prior history of an auto-push nearly dropping live tables. Before you publish:
+1.1 Run a drizzle-kit push dry-run / preview against the production database (read-only — do NOT apply). Confirm the connection target is production and prove it.
+1.2 Paste the full diff. The required result: the diff adds backtest_run and backtest_trade and the new option_chain_snapshot columns, and drops/alters nothing else. Zero DROP TABLE, zero DROP COLUMN, zero destructive ALTER across the entire database.
+1.3 If the diff shows any destructive operation on any existing table → STOP, do not publish, report it. That's a landmine to fix first (recreate the missing schema file additively, as with strategyControl.ts).
+1.4 If the tool can't dry-run without applying, stop and tell me — do not apply blind.
+PART 2 — PUBLISH
+2.1 Only after Part 1 shows a clean additive-only diff: publish Stage 4.
+2.2 Confirm on prod: backtest_run and backtest_trade now exist; the new option_chain_snapshot columns exist; the archive data (~252k rows) is untouched (re-confirm row count); no other table changed.
+2.3 Confirm the app boots clean and the existing suites still pass (literal pass line, Shell if needed).
+PART 3 — THE FIRST REAL REPLAY RUN (the payoff)
+Run a SNAPSHOT_PREMIUM_REPLAY backtest against the best-covered window and report the actual result, not a projection:
+3.1 First, hit GET /api/backtest/fno/snapshot-coverage for the full archive window per underlying; report real coverage % at the engine's actual tolerance setting (state the tolerance used).
+3.2 Run the replay over a covered window (e.g. NIFTY, May 18–Jun 29). Report literally:
+
+total trades
+mode-mix: counts of REAL_CAPTURED_PREMIUM / REAL_PARTIAL / BLACK_SCHOLES_MODELLED / UNAVAILABLE
+coverage % and whether the LOW COVERAGE flag fired
+gross ₹ P&L, total costs (itemised), net ₹ P&L
+excluded (UNAVAILABLE) count
+win rate on the priced subset
+
+3.3 Repeat briefly for BANKNIFTY and SENSEX so we see all three.
+3.4 Do not tune anything to make the result look better. If net P&L is negative after costs, report it honestly — that is a finding, not a failure. The point is truth, not a good-looking number.
+RULES
+
+Additive-only DB. No destructive push (Part 1 gates this).
+No signal/gate/sizing/ledger logic changed. Replay is read-only against snapshots.
+No fabrication — UNAVAILABLE trades excluded from ₹ aggregates, never proxied silently.
+No re-running or modifying the snapshot ingestor.
+Literal evidence for every claim; explicit owner-run command if blocked.
+
+FINAL REPORT
+
+Pre-publish dry-run diff (full) + confirmation it's additive-only.
+Publish confirmation + prod table/column/row-count checks.
+Suite pass line post-publish.
+The real replay results for all three underlyings (§3.2–3.3), verbatim.
+Your honest read: how much of the result is real-captured vs modelled, and how many real-captured trades there are (the number that determines whether the result means anything yet).
+
+Stop after this.
