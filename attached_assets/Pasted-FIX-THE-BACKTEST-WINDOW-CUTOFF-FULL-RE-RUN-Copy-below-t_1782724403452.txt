@@ -1,0 +1,48 @@
+FIX THE BACKTEST WINDOW CUTOFF + FULL RE-RUN
+Copy below the line.
+
+GOAL: The SNAPSHOT_PREMIUM_REPLAY backtest silently ran only May 18–Jun 5 because the candle CSVs the backtester reads (tools/fno-backtester/data/*.csv) were stale on prod — they end Jun 5, while the prod snapshot archive goes to Jun 29. The refreshed Jun 29 CSVs exist in the dev workspace but are gitignored, so they never deploy. Fix this so prod has the full window, then re-run the complete backtest. This is a data/deploy fix only — no logic changes.
+STEP 1 — Make the candle CSVs deployable (keep the rest of the ignore rule)
+The data directory is gitignored at .gitignore lines 76–77:
+tools/fno-backtester/data/
+tools/fno-backtester/backtest_trades_*.csv
+The three index candle CSVs (the fetch:index-candles output that the backtester reads for spot candles) must be committed so they deploy. The generated backtest-trade CSVs should stay ignored. Replace line 76 with a narrower rule that ignores everything in data/ except the three index candle files. Edit .gitignore so the block reads:
+# F&O backtester generated data
+tools/fno-backtester/data/*
+!tools/fno-backtester/data/NIFTY.csv
+!tools/fno-backtester/data/BANKNIFTY.csv
+!tools/fno-backtester/data/SENSEX.csv
+tools/fno-backtester/backtest_trades_*.csv
+(Use the exact filenames the fetch:index-candles script writes — confirm them in artifacts/api-server/src/scripts/fetchKiteIndexCandles.ts before committing; if they differ from NIFTY.csv/BANKNIFTY.csv/SENSEX.csv, use the real names in the ! exceptions.)
+This keeps the "regenerate via fetch" design for everything else, but lets the three spot-candle files travel to prod.
+STEP 2 — Confirm the CSVs are fresh, then commit
+
+Confirm the dev CSVs already extend to Jun 29 (the prior session ran fetch:index-candles successfully — verify the last row date in each of the three files is ~2026-06-29). If for any reason they're stale again, re-run pnpm --filter @workspace/api-server run fetch:index-candles (dev Kite session must be valid).
+git add the three index CSVs and confirm git status shows exactly those three files staged — nothing else, no backtest_trades_*.csv.
+
+STEP 3 — Deploy so prod picks up the full-window CSVs
+Deploy via the normal Replit publish. Pre-publish, run the schema dry-run (we've been burned by the auto-migration before): confirm the diff is zero destructive operations — this deploy should touch no schema at all, only the committed CSV files. If the diff shows any DROP/destructive ALTER, stop and report.
+STEP 4 — Re-run the full backtest on prod, report verbatim
+Once deployed, trigger SNAPSHOT_PREMIUM_REPLAY against prod for the full window:
+
+Window: 2026-05-18 to 2026-06-29
+Instruments: NIFTY, BANKNIFTY, SENSEX (ALL)
+
+Report verbatim, exactly as last session:
+
+actual window covered (confirm it now reaches Jun 29, not Jun 5)
+total signals + mode-mix (REAL_CAPTURED_PREMIUM / BS_MODELLED / UNAVAILABLE counts and %)
+coverage % per underlying
+gross ₹, itemised costs, net ₹
+win rate, profit factor, best/worst trade, max drawdown
+per-instrument breakdown (NIFTY / BANKNIFTY / SENSEX: trades, W/L, gross, net)
+the full list of REAL_CAPTURED_PREMIUM trades with strike, gross, net, exit reason
+
+RULES
+
+Data/deploy fix only. No changes to the backtester logic, the pricer, the cost model, signal logic, gates, or any trading code.
+Do not tune any threshold or parameter to change the result. The number is the number — report it honestly.
+Additive/no-op schema only; replit.md untouched; only the three CSVs and the one .gitignore line change.
+Literal evidence: the last-row date of each CSV before/after, the git status showing only three files, the schema dry-run diff, and the verbatim backtest output.
+
+Stop after the re-run. Report the results.

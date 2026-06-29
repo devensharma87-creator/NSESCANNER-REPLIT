@@ -73,5 +73,8 @@ Thumbs.db
 .local/
 
 # F&O backtester generated data (regenerate via fetch:index-candles)
-tools/fno-backtester/data/
+tools/fno-backtester/data/*
+!tools/fno-backtester/data/NIFTY.csv
+!tools/fno-backtester/data/BANKNIFTY.csv
+!tools/fno-backtester/data/SENSEX.csv
 tools/fno-backtester/backtest_trades_*.csv
