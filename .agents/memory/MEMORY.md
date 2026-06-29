@@ -25,3 +25,4 @@
 - [F&O paper sizing/heat base = availableCash](fno-paper-risk-base-availablecash.md) — F&O lot sizing + heat cap key off free cash (balance), not seed; PAPER_FIXED_LOTS is a ceiling; heat cap shrinks as premium deploys (not a bug); capital ledger writes share the balance-mutation tx.
 - [vitest pool fixes — scanner vmThreads, api-server CLI threads](vitest-pool-fixes.md) — scanner=vmThreads+forceExit in config; api-server=--pool=threads in package.json script (config files crash in vitest 4.1.5+type:module).
 - [strategyControl.ts protects strategy tables](strategy-control-schema.md) — strategy_definitions + strategy_engine_state recreated in Drizzle schema; without it drizzle-kit push would prompt DROP on next publish.
+- [Risk-guard sim netImprovement](risk-guard-sim-net-improvement.md) — scenario netImprovement must equal -(netPnlAvoided); never re-subtract blocked-winner P&L (double-count flips protective scenarios falsely negative).
