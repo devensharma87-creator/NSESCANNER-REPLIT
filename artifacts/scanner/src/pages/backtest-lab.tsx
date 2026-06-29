@@ -202,6 +202,12 @@ const BACKTEST_MODES: {
     label: "Compare",
     blurb: "Official Engine side-by-side with the selected strategies on identical candles.",
   },
+  {
+    key: "SNAPSHOT_PREMIUM_REPLAY",
+    label: "Real Premium Replay",
+    blurb:
+      "Directional signals priced from REAL captured option premiums. Every ₹ is traceable to a snapshot row — no proxy.",
+  },
 ];
 
 const OFFICIAL_SUBMODES: { key: BacktestRunRequestMode; label: string; blurb: string }[] = [
@@ -298,6 +304,12 @@ function buildTradesCsv(trades: BacktestTrade[]): string {
     "tier",
     "regime",
     "modeled",
+    "pricingMode",
+    "entryPremiumSource",
+    "exitPremiumSource",
+    "entryIv",
+    "grossPnl",
+    "netPnl",
   ] as const;
   const esc = (v: unknown): string => {
     if (v == null) return "";
@@ -476,6 +488,70 @@ function DataQualityPanel({ dq }: { dq: BacktestDataQuality }) {
               ) : (
                 "No option-chain snapshots captured yet — a faithful 2yr option replay accrues as the prod ingestor runs."
               )}
+            </div>
+          </div>
+        )}
+
+        {dq.pricingModeMix && (
+          <div className={`rounded-md border p-2 ${dq.pricingModeMix.lowCoverage ? "border-amber-500/50 bg-amber-500/5" : "border-border bg-card/60"}`}>
+            <div className="font-medium text-foreground">
+              Real Premium Replay — pricing mode mix
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {dq.pricingModeMix.realCaptured > 0 && (
+                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300" title="Priced from real captured LTP or mid(bid,ask)">
+                  Real {dq.pricingModeMix.realCaptured}
+                </span>
+              )}
+              {dq.pricingModeMix.realPartial > 0 && (
+                <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-300" title="Entry real, exit BS-modelled (or vice-versa)">
+                  Partial {dq.pricingModeMix.realPartial}
+                </span>
+              )}
+              {dq.pricingModeMix.bsModelled > 0 && (
+                <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300" title="Both legs priced from captured IV via Black-Scholes">
+                  BS-modelled {dq.pricingModeMix.bsModelled}
+                </span>
+              )}
+              {dq.pricingModeMix.syntheticDeltaProxy > 0 && (
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300" title="Legacy ATM delta proxy — no snapshot available">
+                  Delta-proxy {dq.pricingModeMix.syntheticDeltaProxy}
+                </span>
+              )}
+              {dq.pricingModeMix.unavailable > 0 && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground" title="No data for either leg — excluded from ₹ P&L">
+                  n/a {dq.pricingModeMix.unavailable}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 text-muted-foreground">
+              Coverage: {dq.pricingModeMix.coveragePct.toFixed(1)}% of trades priced
+              ({dq.pricingModeMix.total} total)
+            </div>
+            {dq.pricingModeMix.lowCoverage && dq.pricingModeMix.coverageFlag && (
+              <div className="mt-1 text-amber-300">
+                ⚠ {dq.pricingModeMix.coverageFlag}
+              </div>
+            )}
+          </div>
+        )}
+
+        {dq.underlyingCoverage && dq.underlyingCoverage.length > 0 && (
+          <div className="rounded-md border border-border bg-card/60 p-2">
+            <div className="font-medium text-foreground">Per-underlying snapshot coverage</div>
+            <div className="mt-1.5 space-y-1">
+              {dq.underlyingCoverage.map((uc) => (
+                <div key={uc.underlying} className="flex items-center gap-2">
+                  <span className="w-24 font-medium">{uc.underlying}</span>
+                  <span className={`text-[10px] ${uc.coveragePct < 40 ? "text-rose-400" : uc.coveragePct < 70 ? "text-amber-300" : "text-emerald-400"}`}>
+                    {uc.coveragePct.toFixed(0)}%
+                  </span>
+                  <span className="text-muted-foreground">{uc.capturedBuckets} of ~{uc.expectedBuckets} buckets</span>
+                  {uc.earliest && uc.latest && (
+                    <span className="text-muted-foreground">{shortDate(uc.earliest)} → {shortDate(uc.latest)}</span>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -1230,9 +1306,29 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
               )}
               <td className="px-2 py-1.5">
                 <span title={t.setupName ?? undefined}>{t.setupKey ?? "—"}</span>
-                {t.modeled && (
+                {t.modeled && !t.pricingMode && (
                   <span className="ml-1 rounded bg-amber-500/15 px-1 text-[9px] text-amber-300" title="Delta-proxy fill — modeled, not a real option price">
                     modeled
+                  </span>
+                )}
+                {t.pricingMode === "REAL_CAPTURED_PREMIUM" && (
+                  <span className="ml-1 rounded bg-emerald-500/15 px-1 text-[9px] text-emerald-300" title="Priced from real captured option premium (LTP or mid)">
+                    real
+                  </span>
+                )}
+                {t.pricingMode === "REAL_PARTIAL" && (
+                  <span className="ml-1 rounded bg-sky-500/15 px-1 text-[9px] text-sky-300" title="One leg real, one BS-modelled from IV">
+                    partial
+                  </span>
+                )}
+                {t.pricingMode === "BLACK_SCHOLES_MODELLED" && (
+                  <span className="ml-1 rounded bg-violet-500/15 px-1 text-[9px] text-violet-300" title="Both legs priced from IV via Black-Scholes (no LTP/mid captured)">
+                    BS
+                  </span>
+                )}
+                {t.pricingMode === "UNAVAILABLE" && (
+                  <span className="ml-1 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="No snapshot data — excluded from ₹ P&L">
+                    n/a
                   </span>
                 )}
               </td>
@@ -1263,9 +1359,20 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
                 className={`px-2 py-1.5 text-right tabular-nums ${
                   t.pnl == null ? "text-muted-foreground" : t.pnl > 0 ? "text-emerald-400" : t.pnl < 0 ? "text-rose-400" : ""
                 }`}
-                title={t.pnl == null ? "Excluded from P&L — no captured outcome (not fabricated)" : undefined}
+                title={
+                  t.pnl == null
+                    ? "Excluded from P&L — no captured outcome (not fabricated)"
+                    : t.grossPnl != null && t.costs != null
+                      ? `Gross: ${money(t.grossPnl)} · Costs: ₹${t.costs.total.toFixed(0)} · Net: ${money(t.pnl)}`
+                      : undefined
+                }
               >
                 {t.pnl == null ? "n/a" : money(t.pnl)}
+                {t.grossPnl != null && t.costs != null && (
+                  <span className="ml-1 text-[9px] text-muted-foreground" title={`Costs: brokerage ₹${t.costs.brokerage} + STT ₹${t.costs.stt.toFixed(2)} + txn ₹${t.costs.exchangeTxn.toFixed(2)} + GST ₹${t.costs.gst.toFixed(2)} + stamp ₹${t.costs.stampDuty.toFixed(2)} + spread ₹${(t.costs.spreadCost ?? 0).toFixed(0)}${t.costs.spreadModelled ? " (modelled)" : ""}`}>
+                    -₹{t.costs.total.toFixed(0)}
+                  </span>
+                )}
               </td>
               <td className="px-2 py-1.5 text-muted-foreground">{t.exitReason ?? "—"}</td>
             </tr>
@@ -1923,15 +2030,41 @@ export default function BacktestLab() {
 
           {/* summary stats */}
           {summary && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-              <Stat label="Decided trades" value={String(summary.totalTrades)} hint="Trades with a captured / modeled outcome" />
-              <Stat label="Win rate" value={pct(summary.winRate)} />
-              <Stat label="Net P&L" value={money(summary.totalPnl)} tone={toneFor(summary.totalPnl)} />
-              <Stat label="Profit factor" value={num(summary.profitFactor)} tone={toneFor((summary.profitFactor ?? 1) - 1)} />
-              <Stat label="Expectancy" value={money(summary.expectancy)} tone={toneFor(summary.expectancy)} />
-              <Stat label="Max DD" value={money(summary.maxDrawdown)} tone="neg" />
-              <Stat label="Return" value={pct(summary.returnPct)} tone={toneFor(summary.returnPct)} />
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+                <Stat label="Decided trades" value={String(summary.totalTrades)} hint="Trades with a captured / modeled outcome" />
+                <Stat label="Win rate" value={pct(summary.winRate)} />
+                <Stat
+                  label="Net P&L"
+                  value={money(summary.totalPnl)}
+                  tone={toneFor(summary.totalPnl)}
+                  hint={summary.totalGrossPnl != null && summary.totalCosts != null ? `Gross: ${money(summary.totalGrossPnl)} − Costs: ${money(summary.totalCosts)}` : undefined}
+                />
+                <Stat label="Profit factor" value={num(summary.profitFactor)} tone={toneFor((summary.profitFactor ?? 1) - 1)} />
+                <Stat label="Expectancy" value={money(summary.expectancy)} tone={toneFor(summary.expectancy)} />
+                <Stat label="Max DD" value={money(summary.maxDrawdown)} tone="neg" />
+                <Stat label="Return" value={pct(summary.returnPct)} tone={toneFor(summary.returnPct)} />
+              </div>
+              {summary.totalGrossPnl != null && summary.totalCosts != null && (
+                <div className="flex flex-wrap gap-4 rounded-md border border-border bg-card/60 px-3 py-2 text-xs">
+                  <div>
+                    <span className="text-muted-foreground">Gross P&L </span>
+                    <span className={summary.totalGrossPnl >= 0 ? "text-emerald-400" : "text-rose-400"}>{money(summary.totalGrossPnl)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">F&O Costs </span>
+                    <span className="text-rose-400">−{money(summary.totalCosts)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Net P&L </span>
+                    <span className={(summary.totalNetPnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}>{money(summary.totalNetPnl ?? summary.totalPnl)}</span>
+                  </div>
+                  <div className="text-muted-foreground" title="All real-world NSE F&O cost items: brokerage, STT, exchange txn, SEBI, GST, stamp, bid-ask spread">
+                    <span className="italic">cost model: 2026-04-01 NSE rates</span>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {/* charts */}

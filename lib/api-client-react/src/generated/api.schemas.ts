@@ -4506,7 +4506,7 @@ export const BacktestRunRequestInstrument = {
 } as const;
 
 /**
- * V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison.
+ * V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. SNAPSHOT_PREMIUM_REPLAY prices directional trades from real captured option_chain_snapshot rows — every premium is traceable or loudly flagged.
  */
 export type BacktestRunRequestBacktestMode =
   (typeof BacktestRunRequestBacktestMode)[keyof typeof BacktestRunRequestBacktestMode];
@@ -4515,6 +4515,7 @@ export const BacktestRunRequestBacktestMode = {
   OFFICIAL_ENGINE: "OFFICIAL_ENGINE",
   STRATEGY_RESEARCH: "STRATEGY_RESEARCH",
   COMPARE_OFFICIAL_VS_STRATEGIES: "COMPARE_OFFICIAL_VS_STRATEGIES",
+  SNAPSHOT_PREMIUM_REPLAY: "SNAPSHOT_PREMIUM_REPLAY",
 } as const;
 
 /**
@@ -4558,7 +4559,7 @@ export interface BacktestRunRequest {
   startingCapital?: number;
   /** Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1. */
   riskPerTradePct?: number;
-  /** V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. */
+  /** V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. SNAPSHOT_PREMIUM_REPLAY prices directional trades from real captured option_chain_snapshot rows — every premium is traceable or loudly flagged. */
   backtestMode?: BacktestRunRequestBacktestMode;
   /** Strategy ids for STRATEGY_RESEARCH / COMPARE runs (subset of the catalog from GET /backtest/fno/strategies). */
   strategies?: string[] | null;
@@ -4614,6 +4615,12 @@ export interface BacktestSummary {
   worstTradePnl?: number | null;
   byInstrument?: BacktestInstrumentStat[];
   equityCurve?: BacktestEquityPoint[];
+  /** Stage 4: Total gross P&L (pre-costs) across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs. */
+  totalGrossPnl?: number | null;
+  /** Stage 4: Total F&O round-trip costs across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs. */
+  totalCosts?: number | null;
+  /** Stage 4: Total net P&L (post-costs). Equals totalPnl for SNAPSHOT_PREMIUM_REPLAY. Null for other runs. */
+  totalNetPnl?: number | null;
 }
 
 export interface BacktestCoverageWindow {
@@ -4633,6 +4640,47 @@ export interface BacktestSnapshotCoverage {
 }
 
 /**
+ * Stage 4: Pricing mode breakdown for a SNAPSHOT_PREMIUM_REPLAY backtest run.
+ */
+export interface BacktestPricingModeMix {
+  /** Trades priced from real captured LTP or mid(bid,ask). */
+  realCaptured: number;
+  /** Trades with one leg real and the other BS-modelled. */
+  realPartial: number;
+  /** Trades priced from captured IV via Black-Scholes (LTP/mid absent). */
+  bsModelled: number;
+  /** Trades priced via the legacy ATM delta proxy (unchanged from Mode B). */
+  syntheticDeltaProxy: number;
+  /** Trades with no usable data for either leg — excluded from ₹ P&L. */
+  unavailable: number;
+  total: number;
+  /** (realCaptured + realPartial + bsModelled) / total × 100. */
+  coveragePct: number;
+  /** True when coveragePct < 60. */
+  lowCoverage: boolean;
+  /** Human-readable LOW COVERAGE warning when lowCoverage=true. */
+  coverageFlag?: string | null;
+}
+
+/**
+ * Stage 4: Per-underlying snapshot coverage stats for a specific date window.
+ */
+export interface SnapshotUnderlyingCoverage {
+  underlying: string;
+  earliest?: string | null;
+  latest?: string | null;
+  /** Count of distinct captured_at snapshots in the window. */
+  capturedBuckets: number;
+  /** Trading days with any data × 75 (75 = 5-min intervals in market hours 09:15–15:30 IST). */
+  expectedBuckets: number;
+  /** capturedBuckets / expectedBuckets × 100. */
+  coveragePct: number;
+  /** Distinct option expiry dates found in the window. */
+  expiries?: string[];
+  hasData: boolean;
+}
+
+/**
  * Honesty panel: states exactly which inputs were real vs unavailable vs modeled for this run.
  */
 export interface BacktestDataQuality {
@@ -4647,6 +4695,10 @@ export interface BacktestDataQuality {
   modeledFields: string[];
   warnings: string[];
   notes?: string[];
+  /** Stage 4: Pricing mode mix breakdown — only present for SNAPSHOT_PREMIUM_REPLAY runs. */
+  pricingModeMix?: BacktestPricingModeMix | null;
+  /** Stage 4: Per-underlying snapshot coverage detail — only for SNAPSHOT_PREMIUM_REPLAY runs. */
+  underlyingCoverage?: SnapshotUnderlyingCoverage[] | null;
 }
 
 export type BacktestRunStatus =
@@ -4743,7 +4795,7 @@ export interface BacktestRun {
   summary?: BacktestSummary | null;
   dataQuality?: BacktestDataQuality | null;
   error?: string | null;
-  /** V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs). */
+  /** V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES | SNAPSHOT_PREMIUM_REPLAY (null for legacy runs). */
   backtestMode?: string | null;
   selectedStrategies?: string[] | null;
   /** Confirmation-filter config the run was executed with (null for Official-engine runs). Lets a re-run reproduce this run's filters exactly. */
@@ -4782,6 +4834,30 @@ export interface BacktestRunListResponse {
 }
 
 export type BacktestTradeStrategyParams = { [key: string]: unknown } | null;
+
+/**
+ * Stage 4: Itemised F&O round-trip costs for one trade (NSE rates, effective 2026-04-01).
+ */
+export interface FnoCostBreakdown {
+  /** Flat brokerage × 2 orders. ₹ */
+  brokerage: number;
+  /** STT on exit (sell) leg: 0.05% of exit premium × qty. ₹ */
+  stt: number;
+  /** NSE exchange transaction charge on both legs. ₹ */
+  exchangeTxn: number;
+  /** SEBI turnover charge on both legs. ₹ */
+  sebiCharges: number;
+  /** 18% GST on (brokerage + exchangeTxn + sebiCharges). ₹ */
+  gst: number;
+  /** Stamp duty on buy (entry) leg. ₹ */
+  stampDuty: number;
+  /** Bid-ask half-spread cost for both legs. Null when not applicable. ₹ */
+  spreadCost?: number | null;
+  /** True when real bid/ask unavailable and a default 0.5% spread was used. */
+  spreadModelled: boolean;
+  /** Sum of all cost items. ₹ */
+  total: number;
+}
 
 export interface BacktestTrade {
   id: string;
@@ -4824,6 +4900,26 @@ export interface BacktestTrade {
   historicalSetupMatch?: string | null;
   passedConditions?: string[] | null;
   failedConditions?: string[] | null;
+  /** Stage 4: REAL_CAPTURED_PREMIUM | REAL_PARTIAL | BLACK_SCHOLES_MODELLED | SYNTHETIC_DELTA_PROXY | UNAVAILABLE. Null for non-SNAPSHOT_PREMIUM_REPLAY trades. */
+  pricingMode?: string | null;
+  /** Stage 4: ISO timestamp of the snapshot used for entry pricing, or 'modelled' (BS from IV), or 'unavailable'. */
+  entryPremiumSource?: string | null;
+  /** Stage 4: ISO timestamp of the snapshot used for exit pricing, or 'modelled' (BS from IV), or 'unavailable'. */
+  exitPremiumSource?: string | null;
+  /** Stage 4: IV (%) from the entry snapshot. Null when not captured. */
+  entryIv?: number | null;
+  /** Stage 4: Delta from the entry snapshot. Null when not captured. */
+  entryDelta?: number | null;
+  /** Stage 4: Theta from the entry snapshot. Null when not captured. */
+  entryTheta?: number | null;
+  /** Stage 4: Gross P&L before F&O costs. Null when pricingMode=UNAVAILABLE. */
+  grossPnl?: number | null;
+  /** Stage 4: Itemised F&O cost breakdown. Null for non-SNAPSHOT_PREMIUM_REPLAY trades. */
+  costs?: FnoCostBreakdown | null;
+  /** Stage 4: Net P&L after F&O costs. Null when pricingMode=UNAVAILABLE. */
+  netPnl?: number | null;
+  /** Stage 4: true when both entry and exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN (5 min) of the signal time. */
+  withinTolerance?: boolean | null;
 }
 
 export interface BacktestTradesResponse {

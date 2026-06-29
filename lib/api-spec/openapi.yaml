@@ -5500,8 +5500,8 @@ components:
         riskPerTradePct: { type: number, description: "Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1." }
         backtestMode:
           type: string
-          enum: [OFFICIAL_ENGINE, STRATEGY_RESEARCH, COMPARE_OFFICIAL_VS_STRATEGIES]
-          description: "V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison."
+          enum: [OFFICIAL_ENGINE, STRATEGY_RESEARCH, COMPARE_OFFICIAL_VS_STRATEGIES, SNAPSHOT_PREMIUM_REPLAY]
+          description: "V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. SNAPSHOT_PREMIUM_REPLAY prices directional trades from real captured option_chain_snapshot rows — every premium is traceable or loudly flagged."
         strategies:
           type: array
           nullable: true
@@ -5569,6 +5569,9 @@ components:
         equityCurve:
           type: array
           items: { $ref: "#/components/schemas/BacktestEquityPoint" }
+        totalGrossPnl: { type: number, nullable: true, description: "Stage 4: Total gross P&L (pre-costs) across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs." }
+        totalCosts: { type: number, nullable: true, description: "Stage 4: Total F&O round-trip costs across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs." }
+        totalNetPnl: { type: number, nullable: true, description: "Stage 4: Total net P&L (post-costs). Equals totalPnl for SNAPSHOT_PREMIUM_REPLAY. Null for other runs." }
 
     BacktestCoverageWindow:
       type: object
@@ -5603,6 +5606,15 @@ components:
         notes:
           type: array
           items: { type: string }
+        pricingModeMix:
+          allOf: [{ $ref: "#/components/schemas/BacktestPricingModeMix" }]
+          nullable: true
+          description: "Stage 4: Pricing mode mix breakdown — only present for SNAPSHOT_PREMIUM_REPLAY runs."
+        underlyingCoverage:
+          type: array
+          nullable: true
+          items: { $ref: "#/components/schemas/SnapshotUnderlyingCoverage" }
+          description: "Stage 4: Per-underlying snapshot coverage detail — only for SNAPSHOT_PREMIUM_REPLAY runs."
 
     BacktestRun:
       type: object
@@ -5624,7 +5636,7 @@ components:
           allOf: [{ $ref: "#/components/schemas/BacktestDataQuality" }]
           nullable: true
         error: { type: string, nullable: true }
-        backtestMode: { type: string, nullable: true, description: "V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs)." }
+        backtestMode: { type: string, nullable: true, description: "V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES | SNAPSHOT_PREMIUM_REPLAY (null for legacy runs)." }
         selectedStrategies:
           type: array
           nullable: true
@@ -5725,6 +5737,19 @@ components:
           type: array
           nullable: true
           items: { type: string }
+        pricingMode: { type: string, nullable: true, description: "Stage 4: REAL_CAPTURED_PREMIUM | REAL_PARTIAL | BLACK_SCHOLES_MODELLED | SYNTHETIC_DELTA_PROXY | UNAVAILABLE. Null for non-SNAPSHOT_PREMIUM_REPLAY trades." }
+        entryPremiumSource: { type: string, nullable: true, description: "Stage 4: ISO timestamp of the snapshot used for entry pricing, or 'modelled' (BS from IV), or 'unavailable'." }
+        exitPremiumSource: { type: string, nullable: true, description: "Stage 4: ISO timestamp of the snapshot used for exit pricing, or 'modelled' (BS from IV), or 'unavailable'." }
+        entryIv: { type: number, nullable: true, description: "Stage 4: IV (%) from the entry snapshot. Null when not captured." }
+        entryDelta: { type: number, nullable: true, description: "Stage 4: Delta from the entry snapshot. Null when not captured." }
+        entryTheta: { type: number, nullable: true, description: "Stage 4: Theta from the entry snapshot. Null when not captured." }
+        grossPnl: { type: number, nullable: true, description: "Stage 4: Gross P&L before F&O costs. Null when pricingMode=UNAVAILABLE." }
+        costs:
+          allOf: [{ $ref: "#/components/schemas/FnoCostBreakdown" }]
+          nullable: true
+          description: "Stage 4: Itemised F&O cost breakdown. Null for non-SNAPSHOT_PREMIUM_REPLAY trades."
+        netPnl: { type: number, nullable: true, description: "Stage 4: Net P&L after F&O costs. Null when pricingMode=UNAVAILABLE." }
+        withinTolerance: { type: boolean, nullable: true, description: "Stage 4: true when both entry and exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN (5 min) of the signal time." }
 
     BacktestTradesResponse:
       type: object
@@ -5775,6 +5800,53 @@ components:
         underlyings:
           type: array
           items: { type: string }
+
+    BacktestPricingModeMix:
+      type: object
+      description: "Stage 4: Pricing mode breakdown for a SNAPSHOT_PREMIUM_REPLAY backtest run."
+      required: [realCaptured, realPartial, bsModelled, syntheticDeltaProxy, unavailable, total, coveragePct, lowCoverage]
+      properties:
+        realCaptured: { type: integer, description: "Trades priced from real captured LTP or mid(bid,ask)." }
+        realPartial: { type: integer, description: "Trades with one leg real and the other BS-modelled." }
+        bsModelled: { type: integer, description: "Trades priced from captured IV via Black-Scholes (LTP/mid absent)." }
+        syntheticDeltaProxy: { type: integer, description: "Trades priced via the legacy ATM delta proxy (unchanged from Mode B)." }
+        unavailable: { type: integer, description: "Trades with no usable data for either leg — excluded from ₹ P&L." }
+        total: { type: integer }
+        coveragePct: { type: number, description: "(realCaptured + realPartial + bsModelled) / total × 100." }
+        lowCoverage: { type: boolean, description: "True when coveragePct < 60." }
+        coverageFlag: { type: string, nullable: true, description: "Human-readable LOW COVERAGE warning when lowCoverage=true." }
+
+    FnoCostBreakdown:
+      type: object
+      description: "Stage 4: Itemised F&O round-trip costs for one trade (NSE rates, effective 2026-04-01)."
+      required: [brokerage, stt, exchangeTxn, sebiCharges, gst, stampDuty, spreadModelled, total]
+      properties:
+        brokerage: { type: number, description: "Flat brokerage × 2 orders. ₹" }
+        stt: { type: number, description: "STT on exit (sell) leg: 0.05% of exit premium × qty. ₹" }
+        exchangeTxn: { type: number, description: "NSE exchange transaction charge on both legs. ₹" }
+        sebiCharges: { type: number, description: "SEBI turnover charge on both legs. ₹" }
+        gst: { type: number, description: "18% GST on (brokerage + exchangeTxn + sebiCharges). ₹" }
+        stampDuty: { type: number, description: "Stamp duty on buy (entry) leg. ₹" }
+        spreadCost: { type: number, nullable: true, description: "Bid-ask half-spread cost for both legs. Null when not applicable. ₹" }
+        spreadModelled: { type: boolean, description: "True when real bid/ask unavailable and a default 0.5% spread was used." }
+        total: { type: number, description: "Sum of all cost items. ₹" }
+
+    SnapshotUnderlyingCoverage:
+      type: object
+      description: "Stage 4: Per-underlying snapshot coverage stats for a specific date window."
+      required: [underlying, capturedBuckets, expectedBuckets, coveragePct, hasData]
+      properties:
+        underlying: { type: string }
+        earliest: { type: string, format: date-time, nullable: true }
+        latest: { type: string, format: date-time, nullable: true }
+        capturedBuckets: { type: integer, description: "Count of distinct captured_at snapshots in the window." }
+        expectedBuckets: { type: integer, description: "Trading days with any data × 75 (75 = 5-min intervals in market hours 09:15–15:30 IST)." }
+        coveragePct: { type: number, description: "capturedBuckets / expectedBuckets × 100." }
+        expiries:
+          type: array
+          items: { type: string }
+          description: "Distinct option expiry dates found in the window."
+        hasData: { type: boolean }
 
     BacktestDeleteResponse:
       type: object

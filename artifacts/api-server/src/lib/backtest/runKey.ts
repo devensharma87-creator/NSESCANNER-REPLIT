@@ -60,10 +60,11 @@ export interface RunKeyInputs {
 
 /**
  * Returns a stable sha256 key for modeled runs, or `null` for REAL_REPLAY
- * (live data — must never be deduped).
+ * and SNAPSHOT_PREMIUM_REPLAY (both depend on live/captured data that may
+ * evolve — must never be deduped).
  */
 export function computeBacktestRunKey(i: RunKeyInputs): string | null {
-  if (i.mode === "REAL_REPLAY") return null;
+  if (i.mode === "REAL_REPLAY" || i.backtestMode === "SNAPSHOT_PREMIUM_REPLAY") return null;
   const canonical = stableStringify({
     engineVersion: BACKTEST_ENGINE_VERSION,
     mode: i.mode,

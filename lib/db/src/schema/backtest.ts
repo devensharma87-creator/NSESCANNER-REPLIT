@@ -151,6 +151,27 @@ export const backtestTradesTable = pgTable(
     failedConditions: jsonb("failed_conditions"),
     /** Preserves chronological order within the run. */
     sortIndex: integer("sort_index").notNull().default(0),
+    // ---- Stage 4: Snapshot Premium Replay (additive; null for other modes) ---
+    /** REAL_CAPTURED_PREMIUM | REAL_PARTIAL | BLACK_SCHOLES_MODELLED | SYNTHETIC_DELTA_PROXY | UNAVAILABLE */
+    pricingMode: text("pricing_mode"),
+    /** ISO timestamp of the snapshot used for entry, or "modelled"/"unavailable". */
+    entryPremiumSource: text("entry_premium_source"),
+    /** ISO timestamp of the snapshot used for exit, or "modelled"/"unavailable". */
+    exitPremiumSource: text("exit_premium_source"),
+    /** IV from the entry snapshot (null when not captured). */
+    entryIv: doublePrecision("entry_iv"),
+    /** Delta from the entry snapshot (null when not captured). */
+    entryDelta: doublePrecision("entry_delta"),
+    /** Theta from the entry snapshot (null when not captured). */
+    entryTheta: doublePrecision("entry_theta"),
+    /** Gross P&L before F&O costs (null = UNAVAILABLE trade). ₹ */
+    grossPnl: doublePrecision("gross_pnl"),
+    /** Itemised F&O cost breakdown JSON (FnoCostBreakdown). */
+    costsJson: jsonb("costs_json"),
+    /** Net P&L after F&O costs (null = UNAVAILABLE trade). ₹ */
+    netPnl: doublePrecision("net_pnl"),
+    /** true when both entry AND exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN. */
+    withinTolerance: boolean("within_tolerance"),
   },
   (t) => ({
     byRun: index("backtest_trades_run_idx").on(t.runId),

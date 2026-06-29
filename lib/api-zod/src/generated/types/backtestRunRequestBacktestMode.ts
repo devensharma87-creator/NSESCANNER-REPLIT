@@ -7,7 +7,7 @@
  */
 
 /**
- * V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison.
+ * V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. SNAPSHOT_PREMIUM_REPLAY prices directional trades from real captured option_chain_snapshot rows — every premium is traceable or loudly flagged.
  */
 export type BacktestRunRequestBacktestMode =
   (typeof BacktestRunRequestBacktestMode)[keyof typeof BacktestRunRequestBacktestMode];
@@ -16,4 +16,5 @@ export const BacktestRunRequestBacktestMode = {
   OFFICIAL_ENGINE: "OFFICIAL_ENGINE",
   STRATEGY_RESEARCH: "STRATEGY_RESEARCH",
   COMPARE_OFFICIAL_VS_STRATEGIES: "COMPARE_OFFICIAL_VS_STRATEGIES",
+  SNAPSHOT_PREMIUM_REPLAY: "SNAPSHOT_PREMIUM_REPLAY",
 } as const;

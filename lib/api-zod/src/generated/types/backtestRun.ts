@@ -24,7 +24,7 @@ export interface BacktestRun {
   summary?: BacktestSummary | null;
   dataQuality?: BacktestDataQuality | null;
   error?: string | null;
-  /** V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs). */
+  /** V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES | SNAPSHOT_PREMIUM_REPLAY (null for legacy runs). */
   backtestMode?: string | null;
   selectedStrategies?: string[] | null;
   /** Confirmation-filter config the run was executed with (null for Official-engine runs). Lets a re-run reproduce this run's filters exactly. */

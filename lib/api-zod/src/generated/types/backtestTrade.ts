@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BacktestTradeStrategyParams } from "./backtestTradeStrategyParams";
+import type { FnoCostBreakdown } from "./fnoCostBreakdown";
 
 export interface BacktestTrade {
   id: string;
@@ -48,4 +49,24 @@ export interface BacktestTrade {
   historicalSetupMatch?: string | null;
   passedConditions?: string[] | null;
   failedConditions?: string[] | null;
+  /** Stage 4: REAL_CAPTURED_PREMIUM | REAL_PARTIAL | BLACK_SCHOLES_MODELLED | SYNTHETIC_DELTA_PROXY | UNAVAILABLE. Null for non-SNAPSHOT_PREMIUM_REPLAY trades. */
+  pricingMode?: string | null;
+  /** Stage 4: ISO timestamp of the snapshot used for entry pricing, or 'modelled' (BS from IV), or 'unavailable'. */
+  entryPremiumSource?: string | null;
+  /** Stage 4: ISO timestamp of the snapshot used for exit pricing, or 'modelled' (BS from IV), or 'unavailable'. */
+  exitPremiumSource?: string | null;
+  /** Stage 4: IV (%) from the entry snapshot. Null when not captured. */
+  entryIv?: number | null;
+  /** Stage 4: Delta from the entry snapshot. Null when not captured. */
+  entryDelta?: number | null;
+  /** Stage 4: Theta from the entry snapshot. Null when not captured. */
+  entryTheta?: number | null;
+  /** Stage 4: Gross P&L before F&O costs. Null when pricingMode=UNAVAILABLE. */
+  grossPnl?: number | null;
+  /** Stage 4: Itemised F&O cost breakdown. Null for non-SNAPSHOT_PREMIUM_REPLAY trades. */
+  costs?: FnoCostBreakdown | null;
+  /** Stage 4: Net P&L after F&O costs. Null when pricingMode=UNAVAILABLE. */
+  netPnl?: number | null;
+  /** Stage 4: true when both entry and exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN (5 min) of the signal time. */
+  withinTolerance?: boolean | null;
 }

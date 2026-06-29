@@ -65,6 +65,10 @@ import {
   type StrategyId,
   type ComparisonUnit,
 } from "../lib/backtest/strategies";
+import {
+  runSnapshotPremiumReplay,
+  buildUnderlyingCoverage,
+} from "../lib/backtest/snapshotPremiumBacktest";
 
 const router: IRouter = Router();
 
@@ -602,6 +606,7 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
     let to: string;
     let dataQuality: unknown;
     let comparison: BacktestStrategyComparisonOut | null = null;
+    let snapshotPremiumTotals: { totalGrossPnl: number; totalCosts: number; totalNetPnl: number } | null = null;
 
     if (backtestMode === "STRATEGY_RESEARCH") {
       const r = await runStrategyResearch({
@@ -693,6 +698,24 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
           ...dq.notes,
         ],
       } satisfies BacktestDataQualityOut;
+    } else if (backtestMode === "SNAPSHOT_PREMIUM_REPLAY") {
+      const r = await runSnapshotPremiumReplay({
+        instruments,
+        fromDate: body.fromDate ?? null,
+        toDate: body.toDate ?? null,
+        startingCapital,
+        riskPerTradePct,
+        lots,
+      });
+      trades = r.trades;
+      from = r.from;
+      to = r.to;
+      dataQuality = r.dataQuality;
+      snapshotPremiumTotals = {
+        totalGrossPnl: r.totalGrossPnl,
+        totalCosts: r.totalCosts,
+        totalNetPnl: r.totalNetPnl,
+      };
     } else if (body.mode === "REAL_REPLAY") {
       const r = await runRealReplay({
         instruments,
@@ -719,7 +742,10 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
       dataQuality = r.dataQuality;
     }
 
-    const summary = computeSummary(trades, startingCapital);
+    const baseSummary = computeSummary(trades, startingCapital);
+    const summary = snapshotPremiumTotals
+      ? { ...baseSummary, ...snapshotPremiumTotals }
+      : baseSummary;
 
     // The run row and its child trade/blocked rows are written in ONE
     // transaction so a run is never observable half-written. On the
@@ -822,6 +848,17 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
           passedConditions: t.passedConditions ?? null,
           failedConditions: t.failedConditions ?? null,
           sortIndex: i,
+          // Stage 4: Snapshot Premium Replay fields (null for all other modes)
+          pricingMode: t.pricingMode ?? null,
+          entryPremiumSource: t.entryPremiumSource ?? null,
+          exitPremiumSource: t.exitPremiumSource ?? null,
+          entryIv: t.entryIv ?? null,
+          entryDelta: t.entryDelta ?? null,
+          entryTheta: t.entryTheta ?? null,
+          grossPnl: t.grossPnl ?? null,
+          costsJson: (t.costs as unknown as Record<string, unknown> | null) ?? null,
+          netPnl: t.netPnl ?? null,
+          withinTolerance: t.withinTolerance ?? null,
         })),
       );
     }
@@ -975,6 +1012,17 @@ router.get("/backtest/fno/runs/:id/trades", requireSubscriberOrOwner("BACKTEST_L
     historicalSetupMatch: t.historicalSetupMatch ?? null,
     passedConditions: (t.passedConditions as string[] | null) ?? null,
     failedConditions: (t.failedConditions as string[] | null) ?? null,
+    // Stage 4: Snapshot Premium Replay fields
+    pricingMode: t.pricingMode ?? null,
+    entryPremiumSource: t.entryPremiumSource ?? null,
+    exitPremiumSource: t.exitPremiumSource ?? null,
+    entryIv: t.entryIv ?? null,
+    entryDelta: t.entryDelta ?? null,
+    entryTheta: t.entryTheta ?? null,
+    grossPnl: t.grossPnl ?? null,
+    costs: (t.costsJson as Record<string, unknown> | null) ?? null,
+    netPnl: t.netPnl ?? null,
+    withinTolerance: t.withinTolerance ?? null,
   }));
   return res.json({ items });
 });
@@ -1009,7 +1057,20 @@ router.get("/backtest/fno/runs/:id/blocked", requireSubscriberOrOwner("BACKTEST_
   return res.json({ items });
 });
 
-router.get("/backtest/fno/snapshot-coverage", requireSubscriberOrOwner("BACKTEST_LAB"), async (_req, res) => {
+router.get("/backtest/fno/snapshot-coverage", requireSubscriberOrOwner("BACKTEST_LAB"), async (req, res) => {
+  const { from, to, underlying } = req.query as {
+    from?: string;
+    to?: string;
+    underlying?: string;
+  };
+
+  // Detail mode: when from+to+underlying are all provided, return per-underlying stats.
+  if (from && to && underlying) {
+    const syms = underlying.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const details = await Promise.all(syms.map((sym) => buildUnderlyingCoverage(sym, from, to)));
+    return res.json({ underlyings: details });
+  }
+
   const cov = await snapshotCoverage();
   return res.json(cov);
 });

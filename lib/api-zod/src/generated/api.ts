@@ -8131,10 +8131,11 @@ export const CreateBacktestRunBody = zod
         "OFFICIAL_ENGINE",
         "STRATEGY_RESEARCH",
         "COMPARE_OFFICIAL_VS_STRATEGIES",
+        "SNAPSHOT_PREMIUM_REPLAY",
       ])
       .optional()
       .describe(
-        "V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY\/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison.",
+        "V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY\/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. SNAPSHOT_PREMIUM_REPLAY prices directional trades from real captured option_chain_snapshot rows — every premium is traceable or loudly flagged.",
       ),
     strategies: zod
       .array(zod.string())
@@ -8261,6 +8262,24 @@ export const GetBacktestRunResponse = zod.object({
           }),
         )
         .optional(),
+      totalGrossPnl: zod
+        .number()
+        .nullish()
+        .describe(
+          "Stage 4: Total gross P&L (pre-costs) across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs.",
+        ),
+      totalCosts: zod
+        .number()
+        .nullish()
+        .describe(
+          "Stage 4: Total F&O round-trip costs across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs.",
+        ),
+      totalNetPnl: zod
+        .number()
+        .nullish()
+        .describe(
+          "Stage 4: Total net P&L (post-costs). Equals totalPnl for SNAPSHOT_PREMIUM_REPLAY. Null for other runs.",
+        ),
     })
     .describe(
       "Computed performance summary. Win-rate \/ profit-factor \/ averages are null when undefined (zero-denominator) — never fabricated.",
@@ -8301,6 +8320,84 @@ export const GetBacktestRunResponse = zod.object({
         ),
       warnings: zod.array(zod.string()),
       notes: zod.array(zod.string()).optional(),
+      pricingModeMix: zod
+        .object({
+          realCaptured: zod
+            .number()
+            .describe("Trades priced from real captured LTP or mid(bid,ask)."),
+          realPartial: zod
+            .number()
+            .describe("Trades with one leg real and the other BS-modelled."),
+          bsModelled: zod
+            .number()
+            .describe(
+              "Trades priced from captured IV via Black-Scholes (LTP\/mid absent).",
+            ),
+          syntheticDeltaProxy: zod
+            .number()
+            .describe(
+              "Trades priced via the legacy ATM delta proxy (unchanged from Mode B).",
+            ),
+          unavailable: zod
+            .number()
+            .describe(
+              "Trades with no usable data for either leg — excluded from ₹ P&L.",
+            ),
+          total: zod.number(),
+          coveragePct: zod
+            .number()
+            .describe(
+              "(realCaptured + realPartial + bsModelled) \/ total × 100.",
+            ),
+          lowCoverage: zod.boolean().describe("True when coveragePct < 60."),
+          coverageFlag: zod
+            .string()
+            .nullish()
+            .describe(
+              "Human-readable LOW COVERAGE warning when lowCoverage=true.",
+            ),
+        })
+        .describe(
+          "Stage 4: Pricing mode breakdown for a SNAPSHOT_PREMIUM_REPLAY backtest run.",
+        )
+        .nullish()
+        .describe(
+          "Stage 4: Pricing mode mix breakdown — only present for SNAPSHOT_PREMIUM_REPLAY runs.",
+        ),
+      underlyingCoverage: zod
+        .array(
+          zod
+            .object({
+              underlying: zod.string(),
+              earliest: zod.coerce.date().nullish(),
+              latest: zod.coerce.date().nullish(),
+              capturedBuckets: zod
+                .number()
+                .describe(
+                  "Count of distinct captured_at snapshots in the window.",
+                ),
+              expectedBuckets: zod
+                .number()
+                .describe(
+                  "Trading days with any data × 75 (75 = 5-min intervals in market hours 09:15–15:30 IST).",
+                ),
+              coveragePct: zod
+                .number()
+                .describe("capturedBuckets \/ expectedBuckets × 100."),
+              expiries: zod
+                .array(zod.string())
+                .optional()
+                .describe("Distinct option expiry dates found in the window."),
+              hasData: zod.boolean(),
+            })
+            .describe(
+              "Stage 4: Per-underlying snapshot coverage stats for a specific date window.",
+            ),
+        )
+        .nullish()
+        .describe(
+          "Stage 4: Per-underlying snapshot coverage detail — only for SNAPSHOT_PREMIUM_REPLAY runs.",
+        ),
     })
     .describe(
       "Honesty panel: states exactly which inputs were real vs unavailable vs modeled for this run.",
@@ -8311,7 +8408,7 @@ export const GetBacktestRunResponse = zod.object({
     .string()
     .nullish()
     .describe(
-      "V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES (null for legacy runs).",
+      "V2: OFFICIAL_ENGINE | STRATEGY_RESEARCH | COMPARE_OFFICIAL_VS_STRATEGIES | SNAPSHOT_PREMIUM_REPLAY (null for legacy runs).",
     ),
   selectedStrategies: zod.array(zod.string()).nullish(),
   filters: zod
@@ -8517,6 +8614,96 @@ export const GetBacktestRunTradesResponse = zod.object({
       historicalSetupMatch: zod.string().nullish(),
       passedConditions: zod.array(zod.string()).nullish(),
       failedConditions: zod.array(zod.string()).nullish(),
+      pricingMode: zod
+        .string()
+        .nullish()
+        .describe(
+          "Stage 4: REAL_CAPTURED_PREMIUM | REAL_PARTIAL | BLACK_SCHOLES_MODELLED | SYNTHETIC_DELTA_PROXY | UNAVAILABLE. Null for non-SNAPSHOT_PREMIUM_REPLAY trades.",
+        ),
+      entryPremiumSource: zod
+        .string()
+        .nullish()
+        .describe(
+          "Stage 4: ISO timestamp of the snapshot used for entry pricing, or 'modelled' (BS from IV), or 'unavailable'.",
+        ),
+      exitPremiumSource: zod
+        .string()
+        .nullish()
+        .describe(
+          "Stage 4: ISO timestamp of the snapshot used for exit pricing, or 'modelled' (BS from IV), or 'unavailable'.",
+        ),
+      entryIv: zod
+        .number()
+        .nullish()
+        .describe(
+          "Stage 4: IV (%) from the entry snapshot. Null when not captured.",
+        ),
+      entryDelta: zod
+        .number()
+        .nullish()
+        .describe(
+          "Stage 4: Delta from the entry snapshot. Null when not captured.",
+        ),
+      entryTheta: zod
+        .number()
+        .nullish()
+        .describe(
+          "Stage 4: Theta from the entry snapshot. Null when not captured.",
+        ),
+      grossPnl: zod
+        .number()
+        .nullish()
+        .describe(
+          "Stage 4: Gross P&L before F&O costs. Null when pricingMode=UNAVAILABLE.",
+        ),
+      costs: zod
+        .object({
+          brokerage: zod.number().describe("Flat brokerage × 2 orders. ₹"),
+          stt: zod
+            .number()
+            .describe("STT on exit (sell) leg: 0.05% of exit premium × qty. ₹"),
+          exchangeTxn: zod
+            .number()
+            .describe("NSE exchange transaction charge on both legs. ₹"),
+          sebiCharges: zod
+            .number()
+            .describe("SEBI turnover charge on both legs. ₹"),
+          gst: zod
+            .number()
+            .describe("18% GST on (brokerage + exchangeTxn + sebiCharges). ₹"),
+          stampDuty: zod.number().describe("Stamp duty on buy (entry) leg. ₹"),
+          spreadCost: zod
+            .number()
+            .nullish()
+            .describe(
+              "Bid-ask half-spread cost for both legs. Null when not applicable. ₹",
+            ),
+          spreadModelled: zod
+            .boolean()
+            .describe(
+              "True when real bid\/ask unavailable and a default 0.5% spread was used.",
+            ),
+          total: zod.number().describe("Sum of all cost items. ₹"),
+        })
+        .describe(
+          "Stage 4: Itemised F&O round-trip costs for one trade (NSE rates, effective 2026-04-01).",
+        )
+        .nullish()
+        .describe(
+          "Stage 4: Itemised F&O cost breakdown. Null for non-SNAPSHOT_PREMIUM_REPLAY trades.",
+        ),
+      netPnl: zod
+        .number()
+        .nullish()
+        .describe(
+          "Stage 4: Net P&L after F&O costs. Null when pricingMode=UNAVAILABLE.",
+        ),
+      withinTolerance: zod
+        .boolean()
+        .nullish()
+        .describe(
+          "Stage 4: true when both entry and exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN (5 min) of the signal time.",
+        ),
     }),
   ),
 });

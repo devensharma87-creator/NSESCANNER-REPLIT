@@ -27,7 +27,7 @@ export interface BacktestRunRequest {
   startingCapital?: number;
   /** Percent of capital risked per trade (DIRECTIONAL sizing). Defaults to 1. */
   riskPerTradePct?: number;
-  /** V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. */
+  /** V2 selector. OFFICIAL_ENGINE (default) runs the existing REAL_REPLAY/DIRECTIONAL engine. STRATEGY_RESEARCH runs the generic strategy registry. COMPARE runs both for side-by-side comparison. SNAPSHOT_PREMIUM_REPLAY prices directional trades from real captured option_chain_snapshot rows — every premium is traceable or loudly flagged. */
   backtestMode?: BacktestRunRequestBacktestMode;
   /** Strategy ids for STRATEGY_RESEARCH / COMPARE runs (subset of the catalog from GET /backtest/fno/strategies). */
   strategies?: string[] | null;

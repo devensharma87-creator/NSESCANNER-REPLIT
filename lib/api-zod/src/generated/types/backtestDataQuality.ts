@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BacktestCoverageWindow } from "./backtestCoverageWindow";
+import type { BacktestPricingModeMix } from "./backtestPricingModeMix";
 import type { BacktestSnapshotCoverage } from "./backtestSnapshotCoverage";
+import type { SnapshotUnderlyingCoverage } from "./snapshotUnderlyingCoverage";
 
 /**
  * Honesty panel: states exactly which inputs were real vs unavailable vs modeled for this run.
@@ -23,4 +25,8 @@ export interface BacktestDataQuality {
   modeledFields: string[];
   warnings: string[];
   notes?: string[];
+  /** Stage 4: Pricing mode mix breakdown — only present for SNAPSHOT_PREMIUM_REPLAY runs. */
+  pricingModeMix?: BacktestPricingModeMix | null;
+  /** Stage 4: Per-underlying snapshot coverage detail — only for SNAPSHOT_PREMIUM_REPLAY runs. */
+  underlyingCoverage?: SnapshotUnderlyingCoverage[] | null;
 }

@@ -33,4 +33,10 @@ export interface BacktestSummary {
   worstTradePnl?: number | null;
   byInstrument?: BacktestInstrumentStat[];
   equityCurve?: BacktestEquityPoint[];
+  /** Stage 4: Total gross P&L (pre-costs) across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs. */
+  totalGrossPnl?: number | null;
+  /** Stage 4: Total F&O round-trip costs across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs. */
+  totalCosts?: number | null;
+  /** Stage 4: Total net P&L (post-costs). Equals totalPnl for SNAPSHOT_PREMIUM_REPLAY. Null for other runs. */
+  totalNetPnl?: number | null;
 }

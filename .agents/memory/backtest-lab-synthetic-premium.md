@@ -1,20 +1,34 @@
 ---
-name: Backtest Lab — synthetic option-premium modelling (deferred rectification)
-description: Audit finding that Strategy Research / Backtest Lab option premiums are synthetic; needs its own later task, kept OUT of the Portfolio/Home data-authenticity lanes.
+name: Backtest Lab — real vs synthetic option premiums
+description: SNAPSHOT_PREMIUM_REPLAY (Stage 4) ships real premium replay for DIRECTIONAL runs. Strategy Research still uses the synthetic delta-proxy layer.
 ---
 
-# Backtest Lab option-premium layer is synthetic (deferred to its own task)
+# Backtest Lab — real vs synthetic option premiums
 
-**Finding (owner audit, not yet actioned):** The Strategy Research / Backtest Lab option-premium layer is synthetic, not market-derived:
-- premium ≈ a fixed ~0.40% of spot,
-- a fixed ~0.50 delta,
-- no theta, no IV,
-- and the stop-loss documentation does not match the modelled behaviour.
+## SNAPSHOT_PREMIUM_REPLAY (Stage 4, shipped)
+The DIRECTIONAL backtest mode now has a `SNAPSHOT_PREMIUM_REPLAY` path that prices
+trades from real `option_chain_snapshot` rows (LTP → mid → BS-from-IV priority).
+Every ₹ is traceable or loudly flagged as UNAVAILABLE. Coverage gate: if <60% of
+trades can be priced, a LOW COVERAGE warning is emitted. Cost model uses real NSE
+rates effective 2026-04-01 (STT 0.05% sell, stamp 0.003% buy, exchange 0.053%, etc.).
 
-**Why this matters:** On a money/trading app this is a data-authenticity issue of the same family as the Home/Portfolio audit — modelled numbers presented without honest labelling. But it is a SEPARATE lane.
+The key files:
+- `artifacts/api-server/src/lib/backtest/premiumReplay.ts` — pure pricer (BS, costs, coverage)
+- `artifacts/api-server/src/lib/backtest/snapshotPremiumBacktest.ts` — DB-backed runner
+- `artifacts/api-server/src/routes/backtest.ts` — SNAPSHOT_PREMIUM_REPLAY branch
+
+## Strategy Research still uses the synthetic layer
+- premium ≈ fixed ~0.40% of spot, fixed ~0.50 delta, no theta/no IV
+- This is an honest label limitation in the Strategy Research lane only
+- A separate "Strategy Research premium labelling" task is needed if that mode should also get real premiums
+
+**Why the lanes are separate:** SNAPSHOT_PREMIUM_REPLAY only works with the
+DIRECTIONAL signal engine (it uses captured option-chain snapshots that align with
+directional signal timestamps). Strategy Research generates its own synthetic trades
+on real spot candles and has no corresponding snapshot anchor.
 
 **How to apply:**
-- Do NOT fold this into the Portfolio Analyser work or into T003 (Home/Market-Pulse index analytics honesty). Keep the lanes separate.
-- This needs its own later task: "Backtest Lab rectification + labelling" — either source real option premiums or clearly label the modelled premium/greeks as synthetic, and fix the stop-loss documentation mismatch.
-- Owner sequencing: (now) close scoped Portfolio T004 → (next) T003 index analytics honesty → (later) Backtest Lab rectification.
-- **Full deferred spec lives in `docs/backtest-lab-rectification-backlog.md`** (audit findings + required labels/pricing-modes REAL_CHAIN/BLACK_SCHOLES_MODELLED/SYNTHETIC_DELTA_PROXY + missing export columns + tests + acceptance + the 37.5%-vs-30% stop mismatch). Spot/calendar/lot data verified authentic; only the option-premium layer is synthetic.
+- For DIRECTIONAL / Official Engine runs: use SNAPSHOT_PREMIUM_REPLAY
+- Strategy Research synthetic premiums: still a deferred audit item
+- Full deferred spec for Strategy Research: `docs/backtest-lab-rectification-backlog.md`
+  (37.5% vs 30% stop mismatch, missing export columns, etc.)
