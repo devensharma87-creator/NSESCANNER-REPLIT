@@ -417,10 +417,12 @@ function runScenario(spec: ScenarioSpec, trades: DiagTrade[]): GuardScenarioResu
     }
   }
 
-  const netImprovement = -(netPnlAvoided) - netPnlLostFromBlockedWinners;
-  // netPnlAvoided is negative (saved losses), so -netPnlAvoided = absolute saving.
-  // netPnlLostFromBlockedWinners is positive (opportunity cost).
-  // netImprovement > 0 means we saved more than we gave up.
+  // netPnlAvoided = Σ netPnl of ALL blocked trades (winners + losers combined).
+  // If blocked trades collectively lost money (netPnlAvoided < 0), not taking them
+  // improves P&L by exactly -(netPnlAvoided).  Winners are already included in that
+  // sum — subtracting netPnlLostFromBlockedWinners again would double-count them.
+  // netImprovement > 0 means the guards improve total net P&L.
+  const netImprovement = -(netPnlAvoided);
 
   return {
     simulationType: "SIMULATION_ONLY",

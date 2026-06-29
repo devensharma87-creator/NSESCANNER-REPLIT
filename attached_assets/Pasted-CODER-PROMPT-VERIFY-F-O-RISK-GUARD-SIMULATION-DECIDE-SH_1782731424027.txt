@@ -1,0 +1,524 @@
+CODER PROMPT — VERIFY F&O RISK GUARD SIMULATION + DECIDE SHADOW VS PAPER_BLOCK ACTIVATION
+
+The F&O Paper Auto-Open Risk Guard Pack has been built and merged.
+
+Current guard mode:
+
+`FNO_GUARD_CONFIG.mode = "shadow"`
+
+This means no live paper trade is blocked yet. The system only logs / reports what would have been blocked.
+
+This task is to verify the guard simulation on real production replay runs and decide whether to switch from `shadow` to `paper_block`.
+
+Do not add new strategy logic.
+
+Do not change signal scoring.
+
+Do not change recovery-veto, chase-veto, anti-flip, P25, premiumTrusted, HC emission floor, confluence scoring, setup detection, option-chain math, capital ledger, dynamic lot sizing, DD rules, heat cap, or paper P&L math.
+
+Do not touch BANKNIFTY logic unless simulation proves the guard does not damage it.
+
+Do not touch `replit.md` unless there is a very specific correction needed. If it was touched in the previous task, verify the change was limited and did not trim or rewrite unrelated content.
+
+====================================================
+CURRENT IMPLEMENTED FEATURES
+============================
+
+The previous task delivered:
+
+1. Pure module:
+
+`src/lib/fnoPaperRiskGuards.ts`
+
+Implemented guards:
+
+* G1 — near-expiry theta risk:
+
+  * DTE <= 5
+  * premium below threshold
+* G2 — low entry premium:
+
+  * NIFTY < ₹250
+  * BANKNIFTY < ₹500
+  * SENSEX < ₹250
+* G3 — same-strike / same-direction STOP cooldown:
+
+  * 90 minutes
+* G4 — SENSEX paper auto-open disable
+* Shadow observers:
+
+  * bad time window 10:00–11:00 IST
+  * high cost-to-edge ratio
+
+2. Live integration:
+
+`paperTradingFO.ts`
+
+* Guard runs after premium plan validation.
+* Guard runs before expensive chain fetch.
+* In shadow mode it never blocks.
+* New skip reason exists:
+
+  * `PAPER_RISK_GUARD_BLOCKED`
+
+3. Simulation endpoint:
+
+`GET /api/backtest/fno/runs/:id/risk-guard-simulation`
+
+Simulation scenarios:
+
+* LOW_PREMIUM_ONLY
+* THETA_RISK_ONLY
+* SAME_STRIKE_STOP_COOLDOWN_ONLY
+* SENSEX_DISABLE_ONLY
+* COMBINED_G1_G2_G3
+* COMBINED_G1_G2_G3_G4
+* BANKNIFTY_PROTECTION_CHECK
+
+4. Frontend:
+
+Replay Diagnostics Panel Section 11 now shows:
+
+* guard mode
+* active config
+* scenario cards
+* acceptance checks
+* blocked trade list
+
+5. Tests already passed:
+
+* 27/27 guard unit tests
+* 711/711 scanner tests
+* api-server typecheck clean
+* scanner typecheck clean
+
+====================================================
+ABSOLUTE RULES
+==============
+
+This is a verification + controlled activation task.
+
+Do not rewrite the guard module unless a bug is found.
+
+Do not broaden the rules.
+
+Do not add stricter thresholds without simulation proof.
+
+Do not enable `paper_block` until production simulation results are reviewed.
+
+Do not permanently disable any index in the UI.
+
+Do not remove SENSEX from analysis.
+
+Do not hide blocked setups.
+
+Do not count blocked setups as opened trades.
+
+Do not modify historical replay results.
+
+No destructive database migration.
+
+No fake data.
+
+No secrets in logs.
+
+====================================================
+PART A — DEPLOY / PRODUCTION VERIFICATION
+=========================================
+
+Confirm the merged guard pack is deployed to production.
+
+Verify:
+
+1. Production app health:
+
+   * `GET /api/healthz`
+   * Expected: HTTP 200
+
+2. Owner auth works.
+
+3. Simulation endpoint exists and is auth-protected:
+
+   * unauthenticated request should return 401
+   * authenticated owner request should return 200
+
+4. Backtest Lab loads without crash.
+
+5. Replay Diagnostics Panel Section 11 is visible for `SNAPSHOT_PREMIUM_REPLAY` runs.
+
+Report:
+
+* production deploy version / timestamp if available
+* endpoint status
+* UI status
+* any console errors
+
+====================================================
+PART B — RUN SIMULATION ON ALL FOUR PRODUCTION RUNS
+===================================================
+
+Run the risk-guard simulation endpoint on these exact run IDs:
+
+Combined ALL:
+
+`e103be4f-d803-438d-8982-f01146faa210`
+
+NIFTY:
+
+`eecacd3a-2352-4694-bc84-15a952312643`
+
+BANKNIFTY:
+
+`f9d0e1e7-278d-41f2-96a9-664b31fc578d`
+
+SENSEX:
+
+`f19ee8e9-f561-4669-9574-26bd04c90810`
+
+Endpoint:
+
+`GET /api/backtest/fno/runs/:id/risk-guard-simulation`
+
+For each run, capture full JSON and report:
+
+* runId
+* scenario count
+* config used
+* mode
+* total trades evaluated
+* scenarios returned
+* blocked trade counts
+* winners blocked
+* losers blocked
+* net improvement / deterioration
+* BANKNIFTY impact
+* NIFTY impact
+* SENSEX impact
+
+====================================================
+PART C — SCENARIO-BY-SCENARIO TABLE
+===================================
+
+For the combined ALL run, produce a table:
+
+Scenario columns:
+
+1. LOW_PREMIUM_ONLY
+2. THETA_RISK_ONLY
+3. SAME_STRIKE_STOP_COOLDOWN_ONLY
+4. SENSEX_DISABLE_ONLY
+5. COMBINED_G1_G2_G3
+6. COMBINED_G1_G2_G3_G4
+7. BANKNIFTY_PROTECTION_CHECK
+
+For each scenario report:
+
+* trades blocked
+* winning trades blocked
+* losing trades blocked
+* blocked gross P&L
+* blocked costs
+* blocked net P&L
+* net improvement
+* BANKNIFTY net impact
+* NIFTY net impact
+* SENSEX net impact
+* best blocked winner
+* worst blocked loser
+* acceptance pass/fail
+
+Important:
+
+A blocked loser improves result.
+
+A blocked winner hurts result.
+
+Show the signs clearly.
+
+====================================================
+PART D — EXACT BLOCKED TRADE LIST
+=================================
+
+For each scenario, list every blocked trade.
+
+Required fields:
+
+* date
+* entry time
+* underlying
+* direction
+* option type
+* strike
+* entry premium
+* expiry
+* DTE
+* exit reason
+* gross P&L
+* costs
+* net P&L
+* guard reason
+* whether it was winner or loser
+
+This is mandatory.
+
+Do not report “saved ₹X” without listing the exact trades that created that saving.
+
+====================================================
+PART E — BANKNIFTY PROTECTION CHECK
+===================================
+
+BANKNIFTY is currently the only clearly profitable instrument.
+
+Previous diagnostic result:
+
+* BANKNIFTY net: approx +₹36,527
+* win rate: 60%
+* profit factor: 1.62
+* robust after excluding best/worst outliers
+
+Therefore guard activation must not damage BANKNIFTY.
+
+For BANKNIFTY, report:
+
+1. Baseline net P&L.
+2. Net P&L after LOW_PREMIUM_ONLY.
+3. Net P&L after THETA_RISK_ONLY.
+4. Net P&L after SAME_STRIKE_STOP_COOLDOWN_ONLY.
+5. Net P&L after COMBINED_G1_G2_G3.
+6. Net P&L after COMBINED_G1_G2_G3_G4.
+7. Number of profitable BANKNIFTY trades blocked.
+8. Whether any TARGET winner was blocked.
+9. Whether May-26 BANKNIFTY 55100PUT theta disaster was blocked.
+10. Final verdict:
+
+Use exactly one:
+
+* `BANKNIFTY_PROTECTED`
+* `BANKNIFTY_DAMAGED_BY_GUARDS`
+* `BANKNIFTY_NEEDS_CONFIG_ADJUSTMENT`
+
+If BANKNIFTY net is reduced by more than 20%, do not enable paper_block.
+
+====================================================
+PART F — NIFTY FILTER CHECK
+===========================
+
+Previous diagnostic result:
+
+* NIFTY net: approx −₹6,348
+* cost-sensitive
+* 10 priced trades only
+* low sample size
+
+For NIFTY, report:
+
+1. Baseline net P&L.
+2. Which scenario improves NIFTY most.
+3. Whether low-premium filter helps or hurts.
+4. Whether same-strike STOP cooldown catches Jun-17 24050CALL re-entry.
+5. Whether any profitable NIFTY TARGET trade is blocked.
+6. Whether NIFTY should be:
+
+   * unchanged
+   * paper-block filtered
+   * kept shadow-only due to sample size
+
+Use exactly one verdict:
+
+* `NIFTY_GUARD_FILTER_RECOMMENDED`
+* `NIFTY_KEEP_SHADOW_MORE_DATA`
+* `NIFTY_FILTER_DAMAGES_WINNERS`
+
+====================================================
+PART G — SENSEX CONTROL CHECK
+=============================
+
+Previous diagnostic result:
+
+* SENSEX net: approx −₹45,908
+* win rate: 28.6%
+* STOP win rate: 0%
+* structurally weak in this period
+
+For SENSEX, report:
+
+1. Baseline net P&L.
+2. Net after LOW_PREMIUM_ONLY.
+3. Net after THETA_RISK_ONLY.
+4. Net after COMBINED_G1_G2_G3.
+5. Net after SENSEX_DISABLE_ONLY.
+6. Net after COMBINED_G1_G2_G3_G4.
+7. Whether SENSEX weakness is solved by guards or still remains.
+8. Whether any SENSEX winners are blocked by SENSEX disable.
+9. Whether SENSEX should be:
+
+   * disabled from paper auto-open
+   * strict filtered
+   * kept shadow-only
+
+Use exactly one verdict:
+
+* `SENSEX_PAPER_DISABLE_RECOMMENDED`
+* `SENSEX_STRICT_FILTER_RECOMMENDED`
+* `SENSEX_KEEP_SHADOW_MORE_DATA`
+
+====================================================
+PART H — ACCEPTANCE CHECK FOR PAPER_BLOCK
+=========================================
+
+Paper-block mode can be enabled only if all these pass:
+
+1. `COMBINED_G1_G2_G3` improves total net P&L.
+2. `COMBINED_G1_G2_G3` does not reduce BANKNIFTY net P&L by more than 20%.
+3. At least one theta disaster is blocked:
+
+   * BANKNIFTY 55100PUT May 26
+   * SENSEX 75900PUT May 27
+4. Same-strike cooldown catches at least one damaging re-entry or explains why it cannot.
+5. Blocked winners are acceptable and explicitly listed.
+6. No high-quality BANKNIFTY TARGET winner is blocked without clear reason.
+7. Guard mode / reason appears in UI.
+
+If any fail:
+
+* leave `mode = "shadow"`
+* report exact failure reason
+* do not activate paper_block
+
+====================================================
+PART I — ACTIVATION DECISION
+============================
+
+After completing Part A–H, make one decision.
+
+Possible final decisions:
+
+1. `KEEP_SHADOW_MODE`
+
+   * Use if simulation is unclear or damages BANKNIFTY.
+
+2. `ENABLE_G1_G2_G3_PAPER_BLOCK`
+
+   * Use if combined guards improve net P&L and protect BANKNIFTY.
+
+3. `ENABLE_G1_G2_G3_PLUS_SENSEX_DISABLE`
+
+   * Use if SENSEX remains structurally damaging and combined result improves.
+
+4. `ADJUST_CONFIG_AND_RETEST`
+
+   * Use if thresholds are too broad, especially BANKNIFTY ₹500 or DTE <= 5.
+
+If enabling paper_block:
+
+* Change config from:
+
+  * `mode: "shadow"`
+* To:
+
+  * `mode: "paper_block"`
+
+Do not change thresholds unless simulation proves a specific threshold is too broad.
+
+If activation is done, run typecheck and tests again.
+
+====================================================
+PART J — UI MANUAL VERIFICATION
+===============================
+
+Open Backtest Lab with the combined ALL run selected.
+
+Verify:
+
+1. Replay Diagnostics Panel renders.
+2. Guard Simulation section renders.
+3. Guard mode badge is visible.
+4. All 7 scenario cards render.
+5. Acceptance pass/fail display works.
+6. Blocked trade details expand correctly.
+7. UI clearly says:
+
+   * “These guards affect paper auto-open only.”
+   * “Signal generation is unchanged.”
+8. No page crash.
+9. No console errors.
+
+If `paper_block` is enabled, verify UI shows paper-block mode.
+
+====================================================
+PART K — TESTS
+==============
+
+Run:
+
+1. Guard unit tests.
+2. Diagnostics tests if touched.
+3. api-server typecheck.
+4. scanner typecheck.
+5. scanner tests.
+6. Any targeted route test if available.
+
+Expected known issue:
+
+Full api-server suite may timeout due existing environment limits. If it times out, report exact timeout and confirm targeted tests passed.
+
+====================================================
+PART L — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Files touched
+2. Files confirmed untouched
+3. Deploy verification
+4. Endpoint verification
+5. UI verification
+6. Scenario-by-scenario simulation table
+7. Exact blocked trade list
+8. BANKNIFTY protection result
+9. NIFTY result
+10. SENSEX result
+11. Acceptance criteria pass/fail
+12. Final activation decision
+13. Final guard config
+14. Tests run
+15. Any blocker
+16. Clear statement:
+
+* signal logic unchanged
+* scoring unchanged
+* sizing unchanged
+* capital ledger unchanged
+* option-chain math unchanged
+* no destructive DB operation
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* Simulation is run on production replay data.
+* Exact blocked trade list is shown.
+* BANKNIFTY impact is measured.
+* NIFTY impact is measured.
+* SENSEX impact is measured.
+* Activation decision is evidence-based.
+* If paper_block is enabled, all tests/typechecks are rerun.
+* If evidence is weak, shadow mode remains.
+* No live signal logic is changed.
+* No risk sizing logic is changed.
+* No capital ledger logic is changed.
+* No destructive migration is performed.
+
+====================================================
+IMPORTANT FINAL NOTE
+====================
+
+Do not activate blocking because the guard exists.
+
+Activate only if the simulation proves it improves risk without damaging BANKNIFTY.
+
+BANKNIFTY protection is the most important acceptance gate.
+
+If there is any doubt, keep shadow mode and report.

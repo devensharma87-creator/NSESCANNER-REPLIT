@@ -443,8 +443,9 @@ describe("evaluateFnoPaperRiskGuards — multiple reasons and edge cases", () =>
     expect(dec.reasons).not.toContain("NEAR_EXPIRY_THETA_RISK");
   });
 
-  it("default FNO_GUARD_CONFIG is shadow mode", () => {
-    expect(FNO_GUARD_CONFIG.mode).toBe("shadow");
+  it("default FNO_GUARD_CONFIG is paper_block mode (activated 2026-06-29 after simulation acceptance)", () => {
+    expect(FNO_GUARD_CONFIG.mode).toBe("paper_block");
+    expect(FNO_GUARD_CONFIG.disableSensexPaperAutoOpen).toBe(true);
   });
 
   it("default config has correct thresholds", () => {

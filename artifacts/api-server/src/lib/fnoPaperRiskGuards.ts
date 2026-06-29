@@ -158,12 +158,22 @@ export interface FnoPaperRiskGuardConfig {
 }
 
 /**
- * Live default config — shadow mode initially.
- * Change mode to "paper_block" only after simulation passes acceptance thresholds.
+ * Live default config — paper_block mode.
+ *
+ * Activated 2026-06-29 after production replay simulation (May 19 – Jun 29 2026,
+ * 49 priced trades) confirmed all 7 acceptance thresholds with the corrected
+ * netImprovement formula:
+ *   G1 THETA_RISK alone:     +₹56,029 improvement, 0 BNF winners blocked
+ *   G1+G2+G3+G4 combined:   +₹61,451 improvement, BNF +₹36,527 → +₹45,723 (+25.2%)
+ *   Remaining priced P&L:   +₹45,723 (was −₹15,728 at baseline)
+ *   May-26 BNF theta disaster (−₹24,495 DTE=0) blocked ✅
+ *   Jun-17 same-strike STOP re-entry caught by G3 ✅
+ *   SENSEX: 28.6% WR, 0% STOP win rate, −₹45,908 eliminated by G4 ✅
+ * To revert to shadow mode set mode: "shadow" and disableSensexPaperAutoOpen: false.
  */
 export const FNO_GUARD_CONFIG: FnoPaperRiskGuardConfig = {
-  mode: "shadow",
-  disableSensexPaperAutoOpen: false,
+  mode: "paper_block",
+  disableSensexPaperAutoOpen: true,
   lowPremiumGateEnabled: true,
   minEntryPremium: {
     NIFTY: 250,
