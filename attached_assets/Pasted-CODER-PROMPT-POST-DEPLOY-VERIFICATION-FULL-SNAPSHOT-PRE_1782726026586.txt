@@ -1,0 +1,446 @@
+CODER PROMPT — POST-DEPLOY VERIFICATION + FULL SNAPSHOT PREMIUM REPLAY RE-RUN
+
+You are taking over from the previous completed task.
+
+Do not start any new feature work.
+
+Do not change trading logic.
+
+Do not change F&O thresholds.
+
+Do not loosen guardrails.
+
+Do not modify signal scoring, recovery-veto, chase-veto, anti-flip, P25, premiumTrusted, capital ledger, paper-trading risk rules, option-chain math, swing scoring, or scanner strategy logic.
+
+This task is only for post-deploy verification and first full production replay after the committed candle CSV update.
+
+====================================================
+CURRENT CONTEXT
+===============
+
+The previous task committed the following:
+
+1. `.gitignore` narrowed so these three F&O backtester CSVs are now included:
+
+   * `tools/fno-backtester/data/NIFTY.csv`
+   * `tools/fno-backtester/data/BANKNIFTY.csv`
+   * `tools/fno-backtester/data/SENSEX.csv`
+
+2. All three CSVs should now contain candles up to:
+
+   * `2026-06-29 13:15:00`
+
+3. Previous production backtest was incomplete because production still served old CSVs ending around:
+
+   * `2026-06-05`
+
+4. Previous real replay result was therefore only for actual effective window:
+
+   * May 18 to Jun 5, 2026
+
+5. Required next step:
+
+   * Confirm production is now serving the Jun-29 CSVs after publish.
+   * Re-run full `SNAPSHOT_PREMIUM_REPLAY`.
+   * Report exact production results verbatim.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not touch these files unless explicitly required for read-only inspection:
+
+* `lib/optionSignals.ts`
+* `lib/fnoSizingHelper.ts`
+* `lib/equitySizingHelper.ts`
+* `lib/paperAccount.ts`
+* `lib/optionAnalytics.ts`
+* `lib/gex.ts`
+* `lib/optionChainProvider.ts`
+* scanner strategy files
+* swing scoring files
+* capital ledger files
+* `replit.md`
+* `package.json`
+* lock files
+
+No destructive DB migration.
+
+No `drizzle-kit push` unless you first show the full dry-run output and confirm there are no destructive operations.
+
+No production write except running the approved backtest endpoint or approved read-only diagnostics.
+
+No fake values.
+
+No manual editing of results.
+
+No summarising without raw numbers.
+
+====================================================
+PART A — VERIFY DEPLOYMENT PICKED UP NEW CSV FILES
+==================================================
+
+First confirm production is actually serving the updated F&O candle CSVs.
+
+Check production-visible candle coverage for all three:
+
+* NIFTY
+* BANKNIFTY
+* SENSEX
+
+Required proof:
+
+1. Latest candle timestamp for each underlying.
+2. Total row count for each underlying.
+3. First candle timestamp for each underlying.
+4. Whether latest timestamp is at least `2026-06-29 13:15:00`.
+
+Expected:
+
+* NIFTY latest >= `2026-06-29 13:15:00`
+* BANKNIFTY latest >= `2026-06-29 13:15:00`
+* SENSEX latest >= `2026-06-29 13:15:00`
+
+If production still shows Jun-5 data, STOP and report:
+
+* Deployment did not include new CSVs, or production is loading data from a different path.
+* Do not run the replay.
+* Do not create any new endpoint unless approved.
+* Provide exact file path and loader path causing the issue.
+
+====================================================
+PART B — PRODUCTION HEALTH + AUTH CHECK
+=======================================
+
+Before running replay, verify:
+
+1. Production app health:
+
+   * `GET /api/healthz`
+   * Expected: 200
+
+2. Owner auth works:
+
+   * Use owner/browser session cookie.
+   * Do not expose cookie or secrets in logs.
+
+3. Backtest route is reachable.
+
+4. Snapshot archive exists:
+
+   * Query or endpoint check for `option_chain_snapshot`.
+   * Confirm row count.
+   * Confirm min and max captured timestamp.
+   * Confirm archive reaches Jun 29, 2026.
+
+Report:
+
+* `option_chain_snapshot` total rows
+* earliest captured timestamp
+* latest captured timestamp
+* available underlyings
+* whether NIFTY/BANKNIFTY/SENSEX all exist
+
+====================================================
+PART C — SNAPSHOT COVERAGE CHECK BEFORE REPLAY
+==============================================
+
+Call the production coverage endpoint for each underlying:
+
+1. `/api/backtest/fno/snapshot-coverage?from=2026-05-18&to=2026-06-29&underlying=NIFTY`
+2. `/api/backtest/fno/snapshot-coverage?from=2026-05-18&to=2026-06-29&underlying=BANKNIFTY`
+3. `/api/backtest/fno/snapshot-coverage?from=2026-05-18&to=2026-06-29&underlying=SENSEX`
+
+For each, report:
+
+* underlying
+* from
+* to
+* captured buckets
+* expected buckets
+* coveragePct
+* earliest snapshot
+* latest snapshot
+* lowCoverageWarning true/false
+
+Do not continue silently if coverage is 0.
+
+If coverage is low, still run replay, but clearly mark result as low-coverage.
+
+====================================================
+PART D — RUN FULL REAL PREMIUM REPLAY ON PRODUCTION
+===================================================
+
+Run the backtest using production API, owner-authenticated.
+
+Required mode:
+
+* `backtestMode = SNAPSHOT_PREMIUM_REPLAY`
+
+Required window:
+
+* From: `2026-05-18`
+* To: `2026-06-29`
+
+Required instruments:
+
+* First run: `ALL` / combined NIFTY + BANKNIFTY + SENSEX
+* Then run individually:
+
+  1. NIFTY
+  2. BANKNIFTY
+  3. SENSEX
+
+Use the existing standard directional strategy config. Do not change strategy parameters.
+
+Do not change stop/target logic.
+
+Do not change trade filters.
+
+Do not exclude losing trades.
+
+Do not manually remove unavailable trades.
+
+The replay engine must classify pricing honestly:
+
+* `REAL_CAPTURED_PREMIUM`
+* `REAL_PARTIAL`
+* `BLACK_SCHOLES_MODELLED`
+* `SYNTHETIC_DELTA_PROXY`
+* `UNAVAILABLE`
+
+For this task, we are mainly checking how much is real captured vs unavailable.
+
+====================================================
+PART E — REQUIRED OUTPUT FOR EACH RUN
+=====================================
+
+For the combined run and each individual underlying, report the following exactly.
+
+1. Run identity
+
+* runId
+* status
+* requestedFrom
+* requestedTo
+* actualFirstTradeTime
+* actualLastTradeTime
+* underlying/instrument
+* backtestMode
+
+2. Trade count
+
+* total signals
+* total trades
+* priced trades
+* unavailable trades
+* excludedCount
+
+3. Mode mix
+
+Report exact counts and percentages:
+
+* REAL_CAPTURED_PREMIUM
+* REAL_PARTIAL
+* BLACK_SCHOLES_MODELLED
+* SYNTHETIC_DELTA_PROXY
+* UNAVAILABLE
+
+4. Coverage
+
+* coveragePct
+* lowCoverageWarning
+* captured buckets
+* expected buckets
+
+5. P&L
+
+Report separately:
+
+* gross P&L
+* brokerage
+* STT
+* exchange charges
+* SEBI charges
+* stamp duty
+* GST
+* total costs
+* net P&L
+
+6. Performance
+
+* win rate on priced trades only
+* loss rate on priced trades only
+* profit factor
+* max drawdown
+* average win
+* average loss
+* best trade
+* worst trade
+
+7. By underlying table
+
+For combined run, give:
+
+* underlying
+* trades
+* wins
+* losses
+* win rate
+* gross P&L
+* total costs
+* net P&L
+* best trade
+* worst trade
+
+8. Full trade list
+
+For every priced trade, report:
+
+* underlying
+* direction
+* option type
+* strike
+* entry time
+* exit time
+* entry premium
+* exit premium
+* pricing mode
+* exit reason
+* gross P&L
+* costs
+* net P&L
+
+For unavailable trades, report at least:
+
+* underlying
+* direction
+* strike
+* entry time
+* exit time if available
+* reason unavailable
+* missing entry snapshot / missing exit snapshot / missing contract / missing premium
+
+====================================================
+PART F — INTERPRETATION RULES
+=============================
+
+Do not overstate results.
+
+Use these interpretation rules:
+
+1. If `REAL_CAPTURED_PREMIUM + REAL_PARTIAL >= 40%`:
+
+   * Archive has usable real fuel.
+   * Net P&L is meaningful for early edge review.
+
+2. If mostly `BLACK_SCHOLES_MODELLED`:
+
+   * Replay is mathematically improved but still not fully real-premium driven.
+   * Do not call it final real P&L.
+
+3. If mostly `UNAVAILABLE`:
+
+   * The signal times are not aligning with snapshot capture windows, or snapshot capture is too sparse.
+   * Recommend fixing capture cadence/alignment before judging strategy edge.
+
+4. If combined net P&L is negative:
+
+   * Do not immediately change signal logic.
+   * First split by underlying, setup, market regime, time of day, and exit reason.
+
+5. If one underlying is profitable and others are weak:
+
+   * Recommend instrument-specific enablement rather than global logic change.
+
+6. If costs turn gross profit into net loss:
+
+   * Recommend cost-aware signal filters, minimum premium movement, and minimum expected edge threshold.
+   * Do not change sizing yet.
+
+====================================================
+PART G — POST-RUN DIAGNOSTIC BREAKDOWN
+======================================
+
+After replay, produce a diagnostic table:
+
+A. Data issue or strategy issue?
+
+Classify every major weakness as one of:
+
+* DATA_COVERAGE_ISSUE
+* SNAPSHOT_ALIGNMENT_ISSUE
+* COST_DRAG_ISSUE
+* UNDERLYING_SPECIFIC_WEAKNESS
+* EXIT_LOGIC_WEAKNESS
+* ENTRY_LOGIC_WEAKNESS
+* MARKET_REGIME_ISSUE
+* NOT_ENOUGH_SAMPLE
+
+B. Required next fix proposal
+
+Based only on evidence, recommend the next single fix pack.
+
+Possible next fix packs:
+
+1. Snapshot capture cadence/alignment improvement
+2. F&O candidate-to-open audit
+3. Cost-aware edge filter
+4. Underlying-specific enable/disable rules
+5. Exit reason analysis
+6. Setup-level performance review
+7. No code change — collect more data
+
+Do not recommend Pine import, charting work, UI redesign, or new strategy logic from this replay unless the data directly proves it is needed.
+
+====================================================
+PART H — FINAL REPORT FORMAT
+============================
+
+Final report must have these sections:
+
+1. Deployment CSV verification
+2. Production health and auth verification
+3. Snapshot archive coverage
+4. Combined ALL replay result
+5. NIFTY-only replay result
+6. BANKNIFTY-only replay result
+7. SENSEX-only replay result
+8. Mode-mix comparison
+9. Cost impact analysis
+10. Best/worst trade analysis
+11. Data problem vs strategy problem classification
+12. Exact next recommended fix pack
+13. Files touched
+14. Files confirmed untouched
+15. Tests run / checks run
+16. Any blocker
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* Production confirms CSV candle data reaches Jun 29.
+* Snapshot archive coverage is reported.
+* Full `SNAPSHOT_PREMIUM_REPLAY` is run on production.
+* Results are reported with gross, costs, and net.
+* Mode mix is reported honestly.
+* Unavailable trades are not hidden.
+* No signal logic is modified.
+* No risk guardrail is loosened.
+* No destructive DB operation is performed.
+* Final report clearly states whether the next bottleneck is data coverage, costs, entry logic, exit logic, or sample size.
+
+====================================================
+IMPORTANT FINAL NOTE
+====================
+
+This is not a coding sprint unless deployment verification fails.
+
+If deployment verification succeeds, run replay and report.
+
+If deployment verification fails, stop and report the exact loader/deployment problem.
+
+Do not start new features.
