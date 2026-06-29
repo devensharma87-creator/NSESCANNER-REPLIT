@@ -1,0 +1,736 @@
+Deep Audit Production Data vs Live Data + Analytical Skill Matching
+
+You are acting as a professional Indian stock market data auditor, F&O analyst, swing trading analyst, and production-grade full-stack engineer.
+
+I want a deep audit of my website’s production system and live market data system. The goal is to compare:
+
+Production data currently shown/used by the website
+Live data coming from real market/data APIs
+Analytical logic/skills available in production
+Analytical logic/skills possible or already available in live data
+Which version is better
+What must be kept, replaced, corrected, merged, or removed
+
+The final objective is:
+
+Match production data with live data, identify all differences, and keep the best version of either production or live data without breaking the website.
+
+1. Non-Negotiable Rules
+
+Do not assume anything.
+
+Do not fabricate any value.
+
+Do not silently replace production logic.
+
+Do not delete any existing useful production feature.
+
+Do not trust data only because it is displayed on the website.
+
+Do not trust live data unless source, timestamp, and freshness are verified.
+
+Do not use Yahoo or any untrusted fallback for tradeable signals, F&O signals, option-chain decisions, scanner signals, or portfolio valuation unless clearly marked as INFO ONLY / UNTRUSTED.
+
+Kite/NSE/BSE/trusted provider data must be treated as primary where available.
+
+Every data point must carry:
+
+source
+asOf
+freshness
+confidence
+trusted/untrusted flag
+2. Main Objective
+
+Perform a complete comparison between:
+
+A. Production System
+
+Audit what the production website currently uses:
+
+Database tables
+API routes
+Backend services
+Frontend data rendering
+Scanner engine
+Swing trading engine
+F&O engine
+Option-chain module
+Charting module
+Portfolio module
+Market Pulse / Home page
+Pre-market / Global cues
+Index analytics
+Sector analytics
+Recommendations
+Watchlist
+Technical analysis calculations
+Signal generation logic
+Risk management / paper trade logic
+Any cached or stale values
+Any synthetic/fallback/proxy values
+B. Live Data System
+
+Audit what live APIs currently provide:
+
+Kite live quote
+Kite historical candles
+NSE/BSE data if available
+Option-chain source
+F&O contracts
+Futures prices
+OI data
+Volume
+LTP
+Bid/ask
+OHLC
+Index data
+Sector data
+Corporate/fundamental data if any
+Any third-party source like INDstocks, Datafeed, IndianAPI, EODHD, etc.
+Any fallback data source
+3. Data Matching Requirement
+
+Create a field-by-field matching system.
+
+For each symbol/index/contract, compare production value against live value.
+
+Minimum matching fields:
+
+symbol
+exchange
+instrument_token
+trading_symbol
+canonical_symbol
+LTP
+open
+high
+low
+close
+previous_close
+change %
+volume
+average_volume
+VWAP
+52-week high
+52-week low
+bid
+ask
+lot size
+expiry
+strike
+option type
+OI
+change in OI
+IV
+delta
+gamma
+theta
+vega
+PCR
+support
+resistance
+trend
+momentum
+RSI
+MACD
+EMA
+SMA
+Supertrend
+ATR
+ADX
+VWAP
+volume spike
+breakout status
+signal direction
+signal confidence
+risk-reward
+stop loss
+target
+entry price
+data timestamp
+data source
+freshness status
+
+For every mismatch, classify it as:
+
+MATCH
+MINOR_DIFFERENCE
+MATERIAL_DIFFERENCE
+STALE_PRODUCTION
+STALE_LIVE
+SOURCE_CONFLICT
+CALCULATION_BUG
+SYMBOL_MAPPING_BUG
+MISSING_IN_PRODUCTION
+MISSING_IN_LIVE
+UNTRUSTED_FALLBACK
+SYNTHETIC_VALUE
+DANGEROUS_FOR_TRADING
+4. Production vs Live Analytical Skill Audit
+
+Do not only compare numbers. Also compare analytical ability.
+
+For each module, audit whether production has better logic or live data enables better logic.
+
+Modules to audit:
+1. Market Pulse / Home Page
+
+Check:
+
+Index trend accuracy
+Market breadth
+Advance/decline
+Sector strength
+Nifty/Bank Nifty/Sensex trend
+Pre-market cues
+Global cues
+India VIX
+Gap-up/gap-down logic
+Opening bias
+Intraday bias
+Final market mood label
+
+Compare production logic with live data reality.
+
+2. Watchlist
+
+Check:
+
+Symbol resolution
+Kite master mapping
+BSE/NSE fallback
+LTP accuracy
+Day P&L
+Change %
+Volume
+Technical status
+Recommendation status
+Missing symbols
+Stale symbols
+Wrong exchange mapping
+3. Portfolio
+
+Check:
+
+Holding symbol mapping
+Manual add flow
+Autocomplete
+Current value
+Total P&L
+Day P&L
+Weight %
+Portfolio-level risk
+Sector exposure
+Recommendation engine
+Exit/add/hold logic
+Benchmark comparison
+
+Confirm if production portfolio data is matching live quote data.
+
+4. Scanner / Deep Scan
+
+Check:
+
+Scan universe
+Full Kite master usage
+Limited curated universe issue
+Breakout scans
+Volume scans
+Momentum scans
+RSI/MACD scans
+Swing trade setup
+Trend filter
+False positive signals
+Data freshness
+Whether scanner uses trusted live data or stale/cached data
+5. Swing Trading Engine
+
+Audit:
+
+Entry logic
+Trend confirmation
+Multi-timeframe confirmation
+Volume confirmation
+Breakout validation
+Pullback logic
+Support/resistance
+Stop loss
+Target
+Risk-reward
+Position sizing
+False breakout filter
+Gap filter
+News/event risk if available
+Data source quality
+
+Compare production swing signals with live data-derived signals.
+
+6. F&O Engine
+
+Audit deeply.
+
+Check:
+
+Spot price accuracy
+Futures price accuracy
+Option-chain accuracy
+OI and change in OI
+PCR
+Max pain
+IV
+Greeks if available
+Strike selection
+Expiry selection
+CALL/PUT signal logic
+Recovery veto
+Chase veto
+Anti-flip cooldown
+Signal confidence
+Risk-reward
+Paper trade opening logic
+Circuit breaker
+Whether INFO_ONLY signals are wrongly opening trades
+Whether baseline outlook is wrongly treated as tradeable signal
+
+Production must follow this rule:
+
+TRADEABLE_SIGNAL = only high-conviction setup where all gates pass.
+INFO_ONLY = baseline outlook, weak setup, stale data, Yahoo data, synthetic data, or vetoed setup.
+
+Only TRADEABLE_SIGNAL can open a paper trade.
+
+7. Option Chain / OI Lab
+
+Check:
+
+Option-chain source
+Expiry correctness
+Strike availability
+ATM/ITM/OTM classification
+OI concentration
+Change in OI
+IV
+Greeks
+PCR
+Max pain
+Support/resistance derived from OI
+Data freshness
+Stale chain detection
+Whether option-chain is real or synthetic
+
+Any synthetic option-chain must be clearly marked:
+
+SYNTHETIC
+INFO_ONLY
+NOT_FOR_TRADE
+8. Charting
+
+Check:
+
+Candle source
+Timeframe accuracy
+OHLC correctness
+Intraday vs historical source
+Missing candles
+Delayed candles
+Indicator calculations
+Volume bars
+Corporate action adjustment
+Data gaps
+Compare production chart candles with live/historical candles
+
+Chart must clearly show:
+
+source
+asOf
+fresh/stale
+trusted/untrusted
+5. Data Difference Calculation
+
+For every numerical field, calculate difference as:
+
+absolute_difference = production_value - live_value
+percentage_difference = absolute_difference / live_value * 100
+
+Classify tolerance:
+
+0% to 0.10% = acceptable
+0.10% to 0.50% = minor
+0.50% to 1.00% = warning
+Above 1.00% = material issue
+Above 3.00% = critical issue
+
+For fast-moving intraday data, compare only if timestamps are close.
+
+Timestamp rule:
+
+If production timestamp and live timestamp difference > 60 seconds:
+  mark as STALE_TIMESTAMP_DIFFERENCE
+
+For EOD data:
+
+If date mismatch exists:
+  mark as STALE_EOD_DATA
+6. Symbol Mapping Audit
+
+Deep audit symbol mapping because wrong symbol mapping can destroy all analysis.
+
+Check:
+
+symbol aliases
+NSE vs BSE mismatch
+instrument_token mismatch
+expired F&O contracts
+wrong expiry
+wrong strike
+wrong lot size
+duplicate symbols
+old company names
+renamed symbols
+merged/de-merged symbols
+manual portfolio symbols
+autocomplete search results
+scanner universe
+watchlist universe
+
+Known areas to check carefully:
+
+HDFC
+TRIDENT
+BDL
+CDSL
+ARE&M
+BLS
+INDHOTEL
+NSDL
+TMCV / TMPV
+Nifty
+Bank Nifty
+Sensex
+Fin Nifty
+Midcap Nifty
+7. Best Version Selection Logic
+
+For every module, field, and calculation, decide which one is better:
+
+KEEP_PRODUCTION
+KEEP_LIVE
+MERGE_BOTH
+REPLACE_PRODUCTION_WITH_LIVE
+KEEP_PRODUCTION_LOGIC_BUT_USE_LIVE_DATA
+KEEP_LIVE_DATA_BUT_RETAIN_PRODUCTION_UI
+REMOVE_UNTRUSTED
+DISABLE_FOR_TRADING
+INFO_ONLY
+
+Decision rules:
+
+Keep Production if:
+Production has better UI
+Production has better user workflow
+Production has useful analytical logic
+Production has better historical context
+Production has better caching but source is still valid
+Production calculation is correct and live source only gives raw data
+Keep Live if:
+Production value is stale
+Production source is untrusted
+Live data is fresher
+Production has synthetic/fake values
+Production has wrong calculations
+Production has wrong symbol mapping
+Live has more reliable source
+Merge Both if:
+Production has better analytical calculation
+Live has better raw data
+Production has better UI but live has better source
+Production has saved user preferences/watchlist/portfolio
+Live has accurate prices but production has useful derived indicators
+
+Final principle:
+
+Best system = production UI + production useful analytics + trusted live data + honest provenance + strict signal gating.
+
+8. Required Output Files
+
+Create the following audit files:
+
+1. FULL_PRODUCTION_VS_LIVE_DATA_AUDIT_REPORT.md
+
+Must include:
+
+Executive Summary
+Critical Findings
+Data Source Map
+Production Data Flow
+Live Data Flow
+API Route Audit
+Database Table Audit
+Frontend Module Audit
+Symbol Mapping Issues
+Stale Data Issues
+Wrong Calculation Issues
+Synthetic/Fallback Data Issues
+Trading Safety Issues
+Module-wise Gap Analysis
+Recommended Fix Priority
+2. PRODUCTION_LIVE_MATCH_MATRIX.csv
+
+Columns:
+
+module
+symbol
+exchange
+field_name
+production_value
+production_source
+production_timestamp
+live_value
+live_source
+live_timestamp
+absolute_difference
+percentage_difference
+status
+severity
+recommended_action
+3. ANALYTICAL_SKILL_GAP_MATRIX.md
+
+Compare production vs live capability module-wise:
+
+Module
+Production Skill
+Live Data Skill
+Missing Skill
+Wrong Skill
+Better Version
+Recommended Final Version
+
+Example:
+
+F&O Engine
+Production has recovery veto and anti-flip cooldown, but option-chain freshness is uncertain.
+Live data has better option-chain/OI freshness.
+Final version should retain production veto logic but use live trusted option-chain only.
+4. BEST_VERSION_SELECTION_REPORT.md
+
+For every module, clearly state:
+
+What to keep from production
+What to keep from live
+What to merge
+What to remove
+What to disable
+What should be marked INFO_ONLY
+What is dangerous for trading
+5. IMPLEMENTATION_PLAN_TO_KEEP_BEST_VERSION.md
+
+This should include exact file-level changes:
+
+files to modify
+functions to change
+data routes to replace
+database fields to add
+frontend labels to add
+tests to run
+rollback plan
+risk level
+
+Do not implement until the audit is complete unless explicitly instructed.
+
+9. Must-Check Backend Areas
+
+Audit all backend files related to:
+
+routes
+api
+services
+data providers
+market data layer
+Kite client
+NSE/BSE client
+INDstocks client
+option chain client
+scanner engine
+F&O engine
+swing engine
+portfolio engine
+watchlist engine
+chart candle service
+pre-market service
+global indices service
+market trend service
+technical indicator calculations
+paper trading service
+backtest service
+database schema
+scheduled jobs
+cache layer
+
+Search for dangerous patterns:
+
+Yahoo
+fallback
+mock
+synthetic
+dummy
+hardcoded
+stale
+cached
+proxy
+estimated
+random
+placeholder
+manual
+sample
+test data
+
+Any such value used in trading or scanner logic must be flagged.
+
+10. Must-Check Frontend Areas
+
+Audit all frontend pages/components related to:
+
+Home
+Market Pulse
+Watchlist
+Portfolio
+Scanner
+Deep Scan
+F&O
+Option Chain
+Charting
+Backtest
+Paper Trading
+Recommendations
+Stock detail page
+Index detail page
+Sector page
+
+Check whether frontend displays:
+
+source
+timestamp
+freshness
+trusted/untrusted label
+INFO_ONLY label
+TRADEABLE_SIGNAL label
+stale data warning
+synthetic data warning
+
+If not, flag it.
+
+11. Data Freshness Rules
+
+Apply these rules:
+
+Live Intraday Equity / Index
+Fresh = less than 60 seconds old
+Warning = 60 to 180 seconds old
+Stale = more than 180 seconds old
+Option Chain
+Fresh = less than 60 seconds old
+Warning = 60 to 120 seconds old
+Stale = more than 120 seconds old
+Historical Candles
+Intraday candle must match selected timeframe.
+Daily candle must match latest trading day.
+No future candle allowed.
+No missing candle allowed without warning.
+12. Trading Safety Rules
+
+Any signal must be blocked or demoted to INFO_ONLY if:
+
+source is untrusted
+data is stale
+symbol mapping is uncertain
+option chain is stale
+OI data missing
+price mismatch above tolerance
+indicator calculation mismatch
+production and live trend conflict
+market recovery veto triggered
+chase veto triggered
+risk-reward below threshold
+stop loss invalid
+target invalid
+entry price stale
+
+Only this can be tradeable:
+
+trusted source
+fresh data
+correct symbol mapping
+all calculations verified
+all signal gates passed
+risk-reward valid
+no veto active
+13. Final Decision Format
+
+For every module, give the final result like this:
+
+Module: F&O Engine
+
+Production Strength:
+- Good signal lifecycle
+- Existing recovery/chase veto
+- Anti-flip cooldown
+
+Production Weakness:
+- Needs strict live option-chain freshness verification
+- Must ensure INFO_ONLY does not open trades
+
+Live Strength:
+- Fresher option-chain/OI data if trusted source works
+
+Live Weakness:
+- Raw data only; does not provide full trading decision logic
+
+Final Decision:
+KEEP_PRODUCTION_LOGIC_BUT_USE_LIVE_TRUSTED_DATA
+
+Action:
+- Keep production F&O signal engine
+- Replace stale/untrusted input with live trusted source
+- Add strict provenance
+- Block trade if live data unavailable
+14. Final Priority Ranking
+
+Rank all issues as:
+
+P0 = Dangerous trading/data issue
+P1 = Major wrong value or stale data
+P2 = Important analytical improvement
+P3 = UI/source transparency improvement
+P4 = Nice-to-have
+
+P0 examples:
+
+Wrong CALL/PUT signal
+Stale option chain used for trade
+Yahoo/fallback used as tradeable source
+Wrong index direction
+Wrong portfolio price
+Wrong F&O expiry/strike
+Synthetic option premium treated as real
+INFO_ONLY signal opening paper trade
+15. Final Expected Result
+
+At the end, I want a clear answer:
+
+1. Is production data matching live data?
+2. Where exactly is it different?
+3. Which production logic is better?
+4. Which live data is better?
+5. Which features should be kept from production?
+6. Which features should be replaced by live data?
+7. Which values are stale, synthetic, or dangerous?
+8. Which modules are safe for trading?
+9. Which modules should be INFO_ONLY?
+10. What is the exact step-by-step implementation plan to keep the best version?
+
+The final system should become:
+
+Production UI + best existing analytics + trusted live data + strict freshness + source honesty + trading-safe signal gating.
+
+Do a deep audit. Do not miss any file, route, calculation, API, database table, frontend display, or signal path.
