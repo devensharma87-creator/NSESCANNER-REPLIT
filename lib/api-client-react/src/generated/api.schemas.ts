@@ -5211,6 +5211,279 @@ export interface MacroHistoryResponse {
   generatedAt: string;
 }
 
+/**
+ * Manual owner override for event / corporate-action inputs the data layer cannot confirm. All optional; omitted fields are left unchanged.
+ */
+export interface SwingEventOverrideInput {
+  resultDateKnown?: boolean | null;
+  /** ISO yyyy-mm-dd; stored as text to avoid timezone shifts. */
+  resultDate?: string | null;
+  corporateActionRisk?: boolean | null;
+}
+
+export type SwingStageRequestAsmGsmStatus =
+  | (typeof SwingStageRequestAsmGsmStatus)[keyof typeof SwingStageRequestAsmGsmStatus]
+  | null;
+
+export const SwingStageRequestAsmGsmStatus = {
+  NONE: "NONE",
+  ASM: "ASM",
+  GSM: "GSM",
+} as const;
+
+/**
+ * Stage a swing-cash candidate. The client supplies ONLY the immutable swing plan + known context; the server fetches the live quote itself (Kite authoritative, Yahoo never trade-grade) and stamps all data-trust fields — a client can never assert trade-grade freshness. Broker execution is hard-disabled; staging places NO real order.
+ */
+export interface SwingStageRequest {
+  /**
+   * @minLength 1
+   * @maxLength 40
+   */
+  symbol: string;
+  sector?: string | null;
+  exchange?: string | null;
+  tradingSymbol?: string | null;
+  instrumentToken?: number | null;
+  entry: number;
+  stop: number;
+  target1: number;
+  target2?: number | null;
+  atr?: number | null;
+  rr?: number | null;
+  entryZoneLow?: number | null;
+  entryZoneHigh?: number | null;
+  signalAgeDays?: number | null;
+  validityExpiryMs?: number | null;
+  triggered?: boolean;
+  avgTradedValue?: number | null;
+  volume?: number | null;
+  spreadPct?: number | null;
+  deliveryPct?: number | null;
+  asmGsmStatus?: SwingStageRequestAsmGsmStatus;
+  circuitRisk?: boolean | null;
+  daysToResult?: number | null;
+  isResultDay?: boolean;
+  corporateActionRisk?: boolean | null;
+  eventDataAvailable?: boolean;
+  resultScheduleKnown?: boolean;
+  newsRiskAvailable?: boolean;
+  /** Owner-supplied context: was benchmark / relative-strength data available when this candidate was generated? Like `sector`, this is known signal context, NOT a live trade-grade-freshness claim (the server still stamps all freshness/source fields itself). Omitted or false → the Phase-1 data-trust gate marks the candidate REVIEW_REQUIRED and fail-closes; only an explicit `true` satisfies the benchmark requirement. Never fabricated server-side. */
+  benchmarkAvailable?: boolean | null;
+  setupKey?: string | null;
+  signalId?: string | null;
+  eventOverride?: SwingEventOverrideInput;
+}
+
+/**
+ * Optional event override applied to the live re-check (approve / refresh).
+ */
+export interface SwingRecheckBody {
+  eventOverride?: SwingEventOverrideInput;
+}
+
+export interface SwingRejectBody {
+  /** @maxLength 300 */
+  reason?: string | null;
+}
+
+export interface SwingKillSwitchBody {
+  enabled: boolean;
+  /** @maxLength 300 */
+  reason?: string | null;
+}
+
+export type SwingExecutionStatusMode =
+  (typeof SwingExecutionStatusMode)[keyof typeof SwingExecutionStatusMode];
+
+export const SwingExecutionStatusMode = {
+  paper_only: "paper_only",
+  live_dry_run: "live_dry_run",
+  live_staged_approval: "live_staged_approval",
+  live_auto_small_size: "live_auto_small_size",
+} as const;
+
+export type SwingExecutionStatusBrokerStatus =
+  (typeof SwingExecutionStatusBrokerStatus)[keyof typeof SwingExecutionStatusBrokerStatus];
+
+export const SwingExecutionStatusBrokerStatus = {
+  DISABLED: "DISABLED",
+} as const;
+
+export interface SwingExecutionStatus {
+  mode: SwingExecutionStatusMode;
+  liveCashSwingOrderEnabled: boolean;
+  brokerExecutionEnabled: boolean;
+  brokerStatus: SwingExecutionStatusBrokerStatus;
+  summary: string;
+}
+
+export interface SwingKillSwitchState {
+  enabled: boolean;
+  reason?: string | null;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
+export type SwingStagedOrderStatus =
+  (typeof SwingStagedOrderStatus)[keyof typeof SwingStagedOrderStatus];
+
+export const SwingStagedOrderStatus = {
+  STAGED: "STAGED",
+  APPROVAL_REQUIRED: "APPROVAL_REQUIRED",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+  EXPIRED: "EXPIRED",
+  CANCELLED: "CANCELLED",
+  WATCH_ONLY: "WATCH_ONLY",
+  DRY_RUN_PLACED: "DRY_RUN_PLACED",
+  BROKER_DISABLED: "BROKER_DISABLED",
+} as const;
+
+export type SwingStagedOrderApprovalStatus =
+  (typeof SwingStagedOrderApprovalStatus)[keyof typeof SwingStagedOrderApprovalStatus];
+
+export const SwingStagedOrderApprovalStatus = {
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+  EXPIRED: "EXPIRED",
+  WATCH_ONLY: "WATCH_ONLY",
+} as const;
+
+export type SwingStagedOrderBrokerStatus =
+  (typeof SwingStagedOrderBrokerStatus)[keyof typeof SwingStagedOrderBrokerStatus];
+
+export const SwingStagedOrderBrokerStatus = {
+  BROKER_DISABLED: "BROKER_DISABLED",
+  DRY_RUN: "DRY_RUN",
+  DRY_RUN_PLACED: "DRY_RUN_PLACED",
+} as const;
+
+export type SwingStagedOrderRiskDecision = { [key: string]: unknown } | null;
+
+export type SwingStagedOrderRecheckDecision = { [key: string]: unknown } | null;
+
+export type SwingStagedOrderMissedOpportunity = {
+  [key: string]: unknown;
+} | null;
+
+/**
+ * A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null / BROKER_DISABLED.
+ */
+export interface SwingStagedOrder {
+  id: string;
+  symbol: string;
+  exchange?: string | null;
+  tradingSymbol?: string | null;
+  instrumentToken?: number | null;
+  side: string;
+  productType?: string;
+  orderType?: string;
+  entryPrice: number;
+  limitPrice?: number | null;
+  stopLoss: number;
+  target1: number;
+  target2?: number | null;
+  quantity: number;
+  capitalRequired?: number;
+  maxRisk?: number;
+  riskPercent?: number;
+  sector?: string | null;
+  setupKey?: string | null;
+  signalId?: string | null;
+  dataSource?: string;
+  dataAsOf?: string | null;
+  status: SwingStagedOrderStatus;
+  approvalStatus: SwingStagedOrderApprovalStatus;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
+  expiresAt: string;
+  executionMode: string;
+  brokerStatus: SwingStagedOrderBrokerStatus;
+  brokerOrderId?: string | null;
+  eventRiskStatus?: string | null;
+  manualReviewRequired?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  riskDecision?: SwingStagedOrderRiskDecision;
+  recheckDecision?: SwingStagedOrderRecheckDecision;
+  missedOpportunity?: SwingStagedOrderMissedOpportunity;
+}
+
+export interface SwingStatusResponse {
+  execution: SwingExecutionStatus;
+  killSwitch: SwingKillSwitchState;
+}
+
+export interface SwingKillSwitchResponse {
+  killSwitch: SwingKillSwitchState;
+}
+
+export type SwingStageResponseDecision = { [key: string]: unknown } | null;
+
+export interface SwingStageResponse {
+  staged: boolean;
+  status: string;
+  reason?: string | null;
+  order?: SwingStagedOrder;
+  decision?: SwingStageResponseDecision;
+  execution: SwingExecutionStatus;
+}
+
+export interface SwingOrderListResponse {
+  items: SwingStagedOrder[];
+  execution: SwingExecutionStatus;
+}
+
+export interface SwingOrderDetailResponse {
+  order: SwingStagedOrder;
+  execution: SwingExecutionStatus;
+}
+
+export type SwingApproveResponseDecision = { [key: string]: unknown } | null;
+
+export type SwingApproveResponseAvailability = {
+  [key: string]: unknown;
+} | null;
+
+export interface SwingApproveResponse {
+  approved: boolean;
+  status?: string | null;
+  reason?: string | null;
+  order?: SwingStagedOrder;
+  decision?: SwingApproveResponseDecision;
+  availability?: SwingApproveResponseAvailability;
+  execution: SwingExecutionStatus;
+}
+
+export type SwingRefreshResponseDecision = { [key: string]: unknown } | null;
+
+export type SwingRefreshResponseAvailability = {
+  [key: string]: unknown;
+} | null;
+
+export interface SwingRefreshResponse {
+  ok: boolean;
+  reason?: string | null;
+  order?: SwingStagedOrder;
+  decision?: SwingRefreshResponseDecision;
+  availability?: SwingRefreshResponseAvailability;
+  execution: SwingExecutionStatus;
+}
+
+export interface SwingTransitionResponse {
+  ok: boolean;
+  reason?: string | null;
+  order?: SwingStagedOrder;
+  execution: SwingExecutionStatus;
+}
+
+export interface SwingExpireStaleResponse {
+  expired: number;
+  execution: SwingExecutionStatus;
+}
+
 export type ListStocksParams = {
   sector?: string;
   signal?: ListStocksSignal;
@@ -5520,3 +5793,10 @@ export const GetGlobalInstrumentIndicatorsTimeframe = {
   "4h": "4h",
   "1d": "1d",
 } as const;
+
+export type ListSwingStagedOrdersParams = {
+  /**
+   * Optional comma-separated status filter.
+   */
+  status?: string;
+};

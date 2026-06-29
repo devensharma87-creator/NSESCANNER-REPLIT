@@ -97,6 +97,7 @@ import type {
   ListPaperCombosParams,
   ListSectorsResponse,
   ListStocksParams,
+  ListSwingStagedOrdersParams,
   MacroHistoryResponse,
   MarketEventsResponse,
   MarketSummary,
@@ -140,6 +141,19 @@ import type {
   StockHistory,
   StockRow,
   StockStatements,
+  SwingApproveResponse,
+  SwingExpireStaleResponse,
+  SwingKillSwitchBody,
+  SwingKillSwitchResponse,
+  SwingOrderDetailResponse,
+  SwingOrderListResponse,
+  SwingRecheckBody,
+  SwingRefreshResponse,
+  SwingRejectBody,
+  SwingStageRequest,
+  SwingStageResponse,
+  SwingStatusResponse,
+  SwingTransitionResponse,
   SymbolDiagnostic,
   TopScans,
   WatchlistResponse,
@@ -6789,6 +6803,963 @@ export const useReplacePortfolioHoldings = <
   TContext
 > => {
   return useMutation(getReplacePortfolioHoldingsMutationOptions(options));
+};
+
+/**
+ * @summary Swing-cash execution mode, broker-disabled status, and kill-switch state
+ */
+export const getGetSwingExecutionStatusUrl = () => {
+  return `/api/swing/status`;
+};
+
+export const getSwingExecutionStatus = async (
+  options?: RequestInit,
+): Promise<SwingStatusResponse> => {
+  return customFetch<SwingStatusResponse>(getGetSwingExecutionStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSwingExecutionStatusQueryKey = () => {
+  return [`/api/swing/status`] as const;
+};
+
+export const getGetSwingExecutionStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSwingExecutionStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSwingExecutionStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetSwingExecutionStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSwingExecutionStatus>>
+  > = ({ signal }) => getSwingExecutionStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSwingExecutionStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSwingExecutionStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSwingExecutionStatus>>
+>;
+export type GetSwingExecutionStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Swing-cash execution mode, broker-disabled status, and kill-switch state
+ */
+
+export function useGetSwingExecutionStatus<
+  TData = Awaited<ReturnType<typeof getSwingExecutionStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSwingExecutionStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSwingExecutionStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only: engage/disengage the swing-cash kill switch
+ */
+export const getSetSwingKillSwitchUrl = () => {
+  return `/api/swing/kill-switch`;
+};
+
+export const setSwingKillSwitch = async (
+  swingKillSwitchBody: SwingKillSwitchBody,
+  options?: RequestInit,
+): Promise<SwingKillSwitchResponse> => {
+  return customFetch<SwingKillSwitchResponse>(getSetSwingKillSwitchUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(swingKillSwitchBody),
+  });
+};
+
+export const getSetSwingKillSwitchMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setSwingKillSwitch>>,
+    TError,
+    { data: BodyType<SwingKillSwitchBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setSwingKillSwitch>>,
+  TError,
+  { data: BodyType<SwingKillSwitchBody> },
+  TContext
+> => {
+  const mutationKey = ["setSwingKillSwitch"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setSwingKillSwitch>>,
+    { data: BodyType<SwingKillSwitchBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setSwingKillSwitch(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetSwingKillSwitchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setSwingKillSwitch>>
+>;
+export type SetSwingKillSwitchMutationBody = BodyType<SwingKillSwitchBody>;
+export type SetSwingKillSwitchMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only: engage/disengage the swing-cash kill switch
+ */
+export const useSetSwingKillSwitch = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setSwingKillSwitch>>,
+    TError,
+    { data: BodyType<SwingKillSwitchBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setSwingKillSwitch>>,
+  TError,
+  { data: BodyType<SwingKillSwitchBody> },
+  TContext
+> => {
+  return useMutation(getSetSwingKillSwitchMutationOptions(options));
+};
+
+/**
+ * @summary List this user's staged swing-cash orders (ownerKey-scoped)
+ */
+export const getListSwingStagedOrdersUrl = (
+  params?: ListSwingStagedOrdersParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/swing/staged-orders?${stringifiedParams}`
+    : `/api/swing/staged-orders`;
+};
+
+export const listSwingStagedOrders = async (
+  params?: ListSwingStagedOrdersParams,
+  options?: RequestInit,
+): Promise<SwingOrderListResponse> => {
+  return customFetch<SwingOrderListResponse>(
+    getListSwingStagedOrdersUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListSwingStagedOrdersQueryKey = (
+  params?: ListSwingStagedOrdersParams,
+) => {
+  return [`/api/swing/staged-orders`, ...(params ? [params] : [])] as const;
+};
+
+export const getListSwingStagedOrdersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSwingStagedOrders>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSwingStagedOrdersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listSwingStagedOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListSwingStagedOrdersQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listSwingStagedOrders>>
+  > = ({ signal }) =>
+    listSwingStagedOrders(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSwingStagedOrders>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListSwingStagedOrdersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSwingStagedOrders>>
+>;
+export type ListSwingStagedOrdersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List this user's staged swing-cash orders (ownerKey-scoped)
+ */
+
+export function useListSwingStagedOrders<
+  TData = Awaited<ReturnType<typeof listSwingStagedOrders>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSwingStagedOrdersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listSwingStagedOrders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListSwingStagedOrdersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only: stage a swing-cash candidate (server fetches the live quote; places NO real order)
+ */
+export const getStageSwingStagedOrderUrl = () => {
+  return `/api/swing/staged-orders`;
+};
+
+export const stageSwingStagedOrder = async (
+  swingStageRequest: SwingStageRequest,
+  options?: RequestInit,
+): Promise<SwingStageResponse> => {
+  return customFetch<SwingStageResponse>(getStageSwingStagedOrderUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(swingStageRequest),
+  });
+};
+
+export const getStageSwingStagedOrderMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof stageSwingStagedOrder>>,
+    TError,
+    { data: BodyType<SwingStageRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof stageSwingStagedOrder>>,
+  TError,
+  { data: BodyType<SwingStageRequest> },
+  TContext
+> => {
+  const mutationKey = ["stageSwingStagedOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof stageSwingStagedOrder>>,
+    { data: BodyType<SwingStageRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return stageSwingStagedOrder(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StageSwingStagedOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof stageSwingStagedOrder>>
+>;
+export type StageSwingStagedOrderMutationBody = BodyType<SwingStageRequest>;
+export type StageSwingStagedOrderMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only: stage a swing-cash candidate (server fetches the live quote; places NO real order)
+ */
+export const useStageSwingStagedOrder = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof stageSwingStagedOrder>>,
+    TError,
+    { data: BodyType<SwingStageRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof stageSwingStagedOrder>>,
+  TError,
+  { data: BodyType<SwingStageRequest> },
+  TContext
+> => {
+  return useMutation(getStageSwingStagedOrderMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only: expire this user's TTL-passed staged orders
+ */
+export const getExpireStaleSwingStagedOrdersUrl = () => {
+  return `/api/swing/staged-orders/expire-stale`;
+};
+
+export const expireStaleSwingStagedOrders = async (
+  options?: RequestInit,
+): Promise<SwingExpireStaleResponse> => {
+  return customFetch<SwingExpireStaleResponse>(
+    getExpireStaleSwingStagedOrdersUrl(),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getExpireStaleSwingStagedOrdersMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof expireStaleSwingStagedOrders>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof expireStaleSwingStagedOrders>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["expireStaleSwingStagedOrders"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof expireStaleSwingStagedOrders>>,
+    void
+  > = () => {
+    return expireStaleSwingStagedOrders(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExpireStaleSwingStagedOrdersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof expireStaleSwingStagedOrders>>
+>;
+
+export type ExpireStaleSwingStagedOrdersMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only: expire this user's TTL-passed staged orders
+ */
+export const useExpireStaleSwingStagedOrders = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof expireStaleSwingStagedOrders>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof expireStaleSwingStagedOrders>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getExpireStaleSwingStagedOrdersMutationOptions(options));
+};
+
+/**
+ * @summary Read one staged swing-cash order
+ */
+export const getGetSwingStagedOrderUrl = (id: string) => {
+  return `/api/swing/staged-orders/${id}`;
+};
+
+export const getSwingStagedOrder = async (
+  id: string,
+  options?: RequestInit,
+): Promise<SwingOrderDetailResponse> => {
+  return customFetch<SwingOrderDetailResponse>(getGetSwingStagedOrderUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSwingStagedOrderQueryKey = (id: string) => {
+  return [`/api/swing/staged-orders/${id}`] as const;
+};
+
+export const getGetSwingStagedOrderQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSwingStagedOrder>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSwingStagedOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSwingStagedOrderQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSwingStagedOrder>>
+  > = ({ signal }) => getSwingStagedOrder(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSwingStagedOrder>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSwingStagedOrderQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSwingStagedOrder>>
+>;
+export type GetSwingStagedOrderQueryError = ErrorType<void>;
+
+/**
+ * @summary Read one staged swing-cash order
+ */
+
+export function useGetSwingStagedOrder<
+  TData = Awaited<ReturnType<typeof getSwingStagedOrder>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSwingStagedOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSwingStagedOrderQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only: live re-check a staged order (no state transition)
+ */
+export const getRefreshSwingStagedOrderUrl = (id: string) => {
+  return `/api/swing/staged-orders/${id}/refresh`;
+};
+
+export const refreshSwingStagedOrder = async (
+  id: string,
+  swingRecheckBody?: SwingRecheckBody,
+  options?: RequestInit,
+): Promise<SwingRefreshResponse> => {
+  return customFetch<SwingRefreshResponse>(getRefreshSwingStagedOrderUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(swingRecheckBody),
+  });
+};
+
+export const getRefreshSwingStagedOrderMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshSwingStagedOrder>>,
+    TError,
+    { id: string; data: BodyType<SwingRecheckBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshSwingStagedOrder>>,
+  TError,
+  { id: string; data: BodyType<SwingRecheckBody> },
+  TContext
+> => {
+  const mutationKey = ["refreshSwingStagedOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshSwingStagedOrder>>,
+    { id: string; data: BodyType<SwingRecheckBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return refreshSwingStagedOrder(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshSwingStagedOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshSwingStagedOrder>>
+>;
+export type RefreshSwingStagedOrderMutationBody = BodyType<SwingRecheckBody>;
+export type RefreshSwingStagedOrderMutationError = ErrorType<void>;
+
+/**
+ * @summary Owner-only: live re-check a staged order (no state transition)
+ */
+export const useRefreshSwingStagedOrder = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshSwingStagedOrder>>,
+    TError,
+    { id: string; data: BodyType<SwingRecheckBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshSwingStagedOrder>>,
+  TError,
+  { id: string; data: BodyType<SwingRecheckBody> },
+  TContext
+> => {
+  return useMutation(getRefreshSwingStagedOrderMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only: fast approval with fail-closed live re-check (places NO real order)
+ */
+export const getApproveSwingStagedOrderUrl = (id: string) => {
+  return `/api/swing/staged-orders/${id}/approve`;
+};
+
+export const approveSwingStagedOrder = async (
+  id: string,
+  swingRecheckBody?: SwingRecheckBody,
+  options?: RequestInit,
+): Promise<SwingApproveResponse> => {
+  return customFetch<SwingApproveResponse>(getApproveSwingStagedOrderUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(swingRecheckBody),
+  });
+};
+
+export const getApproveSwingStagedOrderMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveSwingStagedOrder>>,
+    TError,
+    { id: string; data: BodyType<SwingRecheckBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof approveSwingStagedOrder>>,
+  TError,
+  { id: string; data: BodyType<SwingRecheckBody> },
+  TContext
+> => {
+  const mutationKey = ["approveSwingStagedOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof approveSwingStagedOrder>>,
+    { id: string; data: BodyType<SwingRecheckBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return approveSwingStagedOrder(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApproveSwingStagedOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof approveSwingStagedOrder>>
+>;
+export type ApproveSwingStagedOrderMutationBody = BodyType<SwingRecheckBody>;
+export type ApproveSwingStagedOrderMutationError = ErrorType<void>;
+
+/**
+ * @summary Owner-only: fast approval with fail-closed live re-check (places NO real order)
+ */
+export const useApproveSwingStagedOrder = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveSwingStagedOrder>>,
+    TError,
+    { id: string; data: BodyType<SwingRecheckBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof approveSwingStagedOrder>>,
+  TError,
+  { id: string; data: BodyType<SwingRecheckBody> },
+  TContext
+> => {
+  return useMutation(getApproveSwingStagedOrderMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only: reject a staged order with an optional reason
+ */
+export const getRejectSwingStagedOrderUrl = (id: string) => {
+  return `/api/swing/staged-orders/${id}/reject`;
+};
+
+export const rejectSwingStagedOrder = async (
+  id: string,
+  swingRejectBody?: SwingRejectBody,
+  options?: RequestInit,
+): Promise<SwingTransitionResponse> => {
+  return customFetch<SwingTransitionResponse>(
+    getRejectSwingStagedOrderUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(swingRejectBody),
+    },
+  );
+};
+
+export const getRejectSwingStagedOrderMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectSwingStagedOrder>>,
+    TError,
+    { id: string; data: BodyType<SwingRejectBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rejectSwingStagedOrder>>,
+  TError,
+  { id: string; data: BodyType<SwingRejectBody> },
+  TContext
+> => {
+  const mutationKey = ["rejectSwingStagedOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rejectSwingStagedOrder>>,
+    { id: string; data: BodyType<SwingRejectBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return rejectSwingStagedOrder(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RejectSwingStagedOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof rejectSwingStagedOrder>>
+>;
+export type RejectSwingStagedOrderMutationBody = BodyType<SwingRejectBody>;
+export type RejectSwingStagedOrderMutationError = ErrorType<void>;
+
+/**
+ * @summary Owner-only: reject a staged order with an optional reason
+ */
+export const useRejectSwingStagedOrder = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectSwingStagedOrder>>,
+    TError,
+    { id: string; data: BodyType<SwingRejectBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof rejectSwingStagedOrder>>,
+  TError,
+  { id: string; data: BodyType<SwingRejectBody> },
+  TContext
+> => {
+  return useMutation(getRejectSwingStagedOrderMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only: mark a staged order watch-only
+ */
+export const getWatchSwingStagedOrderUrl = (id: string) => {
+  return `/api/swing/staged-orders/${id}/watch`;
+};
+
+export const watchSwingStagedOrder = async (
+  id: string,
+  options?: RequestInit,
+): Promise<SwingTransitionResponse> => {
+  return customFetch<SwingTransitionResponse>(getWatchSwingStagedOrderUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getWatchSwingStagedOrderMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof watchSwingStagedOrder>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof watchSwingStagedOrder>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["watchSwingStagedOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof watchSwingStagedOrder>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return watchSwingStagedOrder(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type WatchSwingStagedOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof watchSwingStagedOrder>>
+>;
+
+export type WatchSwingStagedOrderMutationError = ErrorType<void>;
+
+/**
+ * @summary Owner-only: mark a staged order watch-only
+ */
+export const useWatchSwingStagedOrder = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof watchSwingStagedOrder>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof watchSwingStagedOrder>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getWatchSwingStagedOrderMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only: manually expire one staged order now (regardless of TTL)
+ */
+export const getExpireSwingStagedOrderUrl = (id: string) => {
+  return `/api/swing/staged-orders/${id}/expire`;
+};
+
+export const expireSwingStagedOrder = async (
+  id: string,
+  options?: RequestInit,
+): Promise<SwingTransitionResponse> => {
+  return customFetch<SwingTransitionResponse>(
+    getExpireSwingStagedOrderUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getExpireSwingStagedOrderMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof expireSwingStagedOrder>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof expireSwingStagedOrder>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["expireSwingStagedOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof expireSwingStagedOrder>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return expireSwingStagedOrder(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExpireSwingStagedOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof expireSwingStagedOrder>>
+>;
+
+export type ExpireSwingStagedOrderMutationError = ErrorType<void>;
+
+/**
+ * @summary Owner-only: manually expire one staged order now (regardless of TTL)
+ */
+export const useExpireSwingStagedOrder = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof expireSwingStagedOrder>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof expireSwingStagedOrder>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getExpireSwingStagedOrderMutationOptions(options));
 };
 
 /**

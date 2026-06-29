@@ -1,0 +1,626 @@
+CODER PROMPT — SWING CASH PHASE 2: ORDER STAGING + FAST APPROVAL QUEUE, BROKER EXECUTION DISABLED
+
+Phase 1 of Swing Cash Live-Readiness is complete.
+
+Current state from Phase 1:
+
+* Pure swing-cash validation modules are built.
+* `swingCashTypes` exists.
+* Data trust gate exists.
+* Entry validity gate exists.
+* Liquidity gate exists.
+* Event risk gate exists.
+* Exposure gate exists.
+* Position sizing exists.
+* Cost model exists.
+* Composer `swingCashRiskGuards` exists.
+* Default mode is still safest mode.
+* Current status: `PAPER_ONLY_STILL_ACTIVE`.
+* No schema/routes/scheduler/UI/broker execution was wired yet.
+* 83/83 scoped tests passed.
+* api-server typecheck passed.
+* Architect review passed after fail-closed fixes.
+
+Now build Phase 2.
+
+This task is to create the **Swing Cash Order Staging + Fast Approval Queue**.
+
+This is NOT live broker execution.
+
+====================================================
+OBJECTIVE
+=========
+
+Build a professional swing cash staging workflow so valid swing opportunities can be captured quickly without blind automation.
+
+The system should:
+
+1. Take a validated swing candidate.
+2. Re-run the Phase 1 risk gates.
+3. Create a staged order if all gates pass or require review.
+4. Show it in an approval queue.
+5. Let the owner approve/reject/watch/expire quickly.
+6. Recheck data before approval.
+7. Track missed opportunities.
+8. Keep broker execution hard-disabled.
+9. Keep current swing logic unchanged.
+
+Final target after this task:
+
+`LIVE_DRY_RUN_READY`
+
+or
+
+`STAGED_APPROVAL_READY_BUT_BROKER_DISABLED`
+
+No real order should be placed.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not activate live trading.
+
+Do not place real broker orders.
+
+Do not add real broker order placement in active mode.
+
+Do not change swing signal scoring.
+
+Do not change entry/SL/target formulas.
+
+Do not change existing swing thresholds.
+
+Do not loosen risk controls.
+
+Do not touch F&O engine, F&O risk guards, option-chain math, F&O paper trading, F&O scoring, or capital ledger.
+
+Do not use Yahoo/delayed/untrusted data for trade-grade live staging.
+
+Do not silently fallback to untrusted data.
+
+No destructive DB migration.
+
+No fake values.
+
+No secrets in logs.
+
+Do not trim or rewrite `replit.md`.
+
+Everything must be additive, tested, and production-safe.
+
+====================================================
+PART 0 — VERIFY PHASE 1 BEFORE CODING
+=====================================
+
+Before coding, verify and report:
+
+1. Phase 1 modules exist:
+
+   * `swingCashTypes`
+   * data trust gate
+   * entry gate
+   * liquidity gate
+   * event risk gate
+   * exposure gate
+   * sizing engine
+   * cost model
+   * `swingCashRiskGuards` composer
+
+2. Default config is still safe:
+
+   * paper-only / no live execution
+   * manual approval required
+   * Kite-only trade-grade
+   * all gates fail closed
+
+3. Existing tests still pass:
+
+   * scoped swing-cash tests
+   * api-server typecheck
+
+If Phase 1 is missing or unsafe, stop and report before coding.
+
+====================================================
+PART A — ADD SWING ORDER STAGING TABLE
+======================================
+
+Add an additive DB table only.
+
+Table name:
+
+`swing_order_staging`
+
+Required fields:
+
+* `id`
+* `created_at`
+* `updated_at`
+* `symbol`
+* `exchange`
+* `trading_symbol`
+* `instrument_token`
+* `side`
+* `product_type`
+* `order_type`
+* `entry_price`
+* `limit_price`
+* `stop_loss`
+* `target_1`
+* `target_2`
+* `quantity`
+* `capital_required`
+* `max_risk`
+* `risk_percent`
+* `sector`
+* `setup_key`
+* `signal_id`
+* `data_source`
+* `data_as_of`
+* `risk_decision_json`
+* `status`
+* `approval_status`
+* `approved_by`
+* `approved_at`
+* `expires_at`
+* `broker_order_id`
+* `broker_status`
+* `broker_response_json`
+* `rejection_reason`
+* `execution_mode`
+* `missed_opportunity_json`
+
+Allowed `status` values:
+
+* `STAGED`
+* `APPROVAL_REQUIRED`
+* `APPROVED`
+* `REJECTED`
+* `EXPIRED`
+* `CANCELLED`
+* `WATCH_ONLY`
+* `DRY_RUN_PLACED`
+* `BROKER_DISABLED`
+
+Allowed `approval_status` values:
+
+* `PENDING`
+* `APPROVED`
+* `REJECTED`
+* `EXPIRED`
+* `WATCH_ONLY`
+
+Important:
+
+* Use additive migration only.
+* No destructive DB push.
+* If using Drizzle, do a dry-run and report the exact SQL before applying.
+* Existing tables must not be dropped or altered destructively.
+
+====================================================
+PART B — CREATE STAGING SERVICE
+===============================
+
+Create a service, for example:
+
+`src/lib/swingOrderStaging.ts`
+
+The service must provide:
+
+1. `stageSwingOrder(candidate, portfolioState, config)`
+2. `listStagedOrders(filters)`
+3. `approveStagedOrder(id, ownerId)`
+4. `rejectStagedOrder(id, ownerId, reason)`
+5. `expireStagedOrders(now)`
+6. `markWatchOnly(id, ownerId)`
+7. `refreshAndRecheckStagedOrder(id)`
+
+Rules:
+
+1. Every staged order must store full `riskDecisionJson`.
+2. Every staged order must have an expiry time.
+3. Approval must recheck latest data before changing status.
+4. If data is stale at approval time, approval must fail.
+5. If price has moved outside entry validity zone, approval must fail.
+6. If sector/single-stock/cash limits changed, approval must fail.
+7. If event risk appears after staging, approval must fail or require review.
+8. If broker execution is disabled, approval must not place broker order.
+
+====================================================
+PART C — EXECUTION MODES
+========================
+
+Add or reuse a config with clear modes:
+
+* `PAPER_ONLY`
+* `LIVE_DRY_RUN`
+* `LIVE_STAGED_APPROVAL`
+* `LIVE_AUTO_SMALL_SIZE`
+
+Default must remain:
+
+`PAPER_ONLY`
+
+For this Phase 2 task, allowed final mode is only:
+
+`LIVE_DRY_RUN`
+
+or
+
+`LIVE_STAGED_APPROVAL` with broker execution disabled.
+
+Add hard flag:
+
+`LIVE_CASH_SWING_ORDER_ENABLED=false`
+
+Rules:
+
+1. If this flag is false, no broker order can be placed.
+2. Approval can only mark staged order as approved/dry-run.
+3. Broker fields must remain null or `BROKER_DISABLED`.
+4. No real order placement code should run.
+
+====================================================
+PART D — API ROUTES
+===================
+
+Add owner/subscriber-gated API routes.
+
+Suggested routes:
+
+1. `POST /api/swing/staged-orders`
+
+   * stages a candidate after risk validation
+
+2. `GET /api/swing/staged-orders`
+
+   * lists staged orders
+
+3. `GET /api/swing/staged-orders/:id`
+
+   * reads one staged order
+
+4. `POST /api/swing/staged-orders/:id/approve`
+
+   * owner approval with final data recheck
+
+5. `POST /api/swing/staged-orders/:id/reject`
+
+   * reject with reason
+
+6. `POST /api/swing/staged-orders/:id/watch`
+
+   * mark watch-only
+
+7. `POST /api/swing/staged-orders/:id/expire`
+
+   * manual expire
+
+8. `POST /api/swing/staged-orders/expire-stale`
+
+   * expires stale staged orders
+
+Auth:
+
+* Read can be subscriber/owner.
+* Approve/reject/watch/expire must be owner-gated.
+* Do not expose secrets.
+
+Responses must include:
+
+* staged order
+* risk decision
+* approval status
+* execution mode
+* broker disabled status
+* data freshness
+* expiry state
+
+====================================================
+PART E — FAST APPROVAL UI
+=========================
+
+Create a Swing Live Queue / Approval Queue page or panel.
+
+Suggested title:
+
+`Swing Cash Live Queue`
+
+Each card must show:
+
+* symbol
+* company name if available
+* sector
+* setup
+* signal score
+* entry
+* LTP
+* stop loss
+* target 1
+* target 2
+* R:R
+* quantity
+* capital required
+* max loss
+* risk %
+* sector exposure after entry
+* single-stock exposure after entry
+* data source
+* data asOf
+* freshness status
+* event risk
+* liquidity status
+* risk decision
+* expiry countdown
+* current status
+
+Buttons:
+
+* Approve
+* Reject
+* Watch only
+* Expire
+* Refresh / Recheck
+
+Approval button must show clearly:
+
+`Broker execution disabled — this approval will not place a real order.`
+
+Do not create a misleading “Buy Now” button.
+
+====================================================
+PART F — MISSED OPPORTUNITY TRACKER
+===================================
+
+For every staged order that expires or is not approved in time, track:
+
+* signal time
+* stage time
+* approval deadline
+* price at signal
+* price at staging
+* price at expiry
+* highest price after staging
+* lowest price after staging
+* whether target would have hit
+* whether stop would have hit
+* estimated missed P&L
+* reason missed:
+
+  * owner not approved
+  * expired
+  * price moved away
+  * data stale
+  * risk blocked
+  * market closed
+  * broker disabled
+  * watch only
+
+Store in `missed_opportunity_json`.
+
+Do not fabricate. If price path data is unavailable, mark:
+
+`MISSED_PNL_UNAVAILABLE`
+
+====================================================
+PART G — FINAL DATA RECHECK BEFORE APPROVAL
+===========================================
+
+Before approval, re-run:
+
+1. Data trust gate
+2. Entry validity gate
+3. Liquidity gate
+4. Event risk gate
+5. Exposure gate
+6. Position sizing
+7. Cost model
+8. Composer `swingCashRiskGuards`
+
+Approval fails if:
+
+* data is stale
+* LTP is missing
+* source is not trade-grade
+* entry is chased
+* R:R deteriorated below config
+* sector cap exceeded
+* single-stock cap exceeded
+* duplicate position exists
+* event risk requires review
+* available cash insufficient
+* staged order expired
+
+Approval must return exact reason.
+
+====================================================
+PART H — EVENT / CORPORATE ACTION PRIORITY
+==========================================
+
+Event/corporate-action data is still a weakness.
+
+For this phase:
+
+1. If reliable event data exists, wire it into the event-risk gate.
+2. If not, add manual event-risk override fields:
+
+   * result date known?
+   * result date
+   * corporate action risk
+   * event risk status
+   * manual review required
+
+Do not fabricate result dates.
+
+If event data unavailable, live approval should show:
+
+`EVENT_DATA_UNAVAILABLE_REVIEW_REQUIRED`
+
+This does not block staging, but it should block auto-live and require manual approval.
+
+====================================================
+PART I — DRY-RUN BROKER ADAPTER
+===============================
+
+Add broker dry-run adapter only.
+
+It must never place real orders.
+
+Required functions:
+
+* `placeOrderDryRun(order)`
+* `cancelOrderDryRun(orderId)`
+* `getOrderStatusDryRun(orderId)`
+* `reconcileDryRun()`
+
+Dry-run placement should return:
+
+* fake dry-run order id
+* status `DRY_RUN_PLACED`
+* brokerStatus `BROKER_DISABLED` or `DRY_RUN`
+* full request payload for audit
+
+Do not connect this to real broker order placement.
+
+====================================================
+PART J — KILL SWITCH STUB
+=========================
+
+Add a kill-switch status interface if one does not exist.
+
+For this phase, it can be a conservative stub.
+
+Fields:
+
+* `enabled`
+* `reason`
+* `updatedAt`
+* `updatedBy`
+
+If kill switch is enabled:
+
+* no new staged orders
+* no approvals
+* no dry-run placements
+
+Do not wire real broker kill-switch yet if broker execution is disabled, but prepare the interface.
+
+====================================================
+PART K — UI / NAVIGATION
+========================
+
+Add navigation entry if appropriate:
+
+* `Swing Live Queue`
+* or add under existing Swing / Paper Trading area
+
+Must not confuse with real live trading.
+
+UI must clearly say:
+
+* `Current mode: PAPER_ONLY / LIVE_DRY_RUN`
+* `Broker execution: DISABLED`
+* `Approval does not place a real order`
+* `This is staging and dry-run only`
+
+====================================================
+PART L — TESTS
+==============
+
+Add tests for:
+
+1. Staging valid candidate
+2. Staging blocked when risk guard blocks
+3. Staged order stores risk decision JSON
+4. Staged order expires
+5. Approve rechecks data
+6. Approval fails if data stale
+7. Approval fails if entry chased
+8. Approval fails if sector cap exceeded
+9. Approval fails if duplicate stock exists
+10. Approval fails if event risk requires review
+11. Reject staged order
+12. Watch-only staged order
+13. Dry-run broker never places real order
+14. `LIVE_CASH_SWING_ORDER_ENABLED=false` prevents real order
+15. Kill switch blocks staging
+16. Kill switch blocks approval
+17. Missed opportunity JSON is created on expiry
+18. No Yahoo trade-grade staging
+19. No destructive schema change
+20. No F&O imports or coupling
+
+Run:
+
+* scoped swing-cash tests
+* staging tests
+* api-server typecheck
+* scanner typecheck if UI touched
+* scanner tests if UI touched
+
+Do not hide failures.
+
+====================================================
+PART M — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Files touched
+2. Files confirmed untouched
+3. Schema changes and exact SQL
+4. Current mode
+5. Broker execution status
+6. Staging service summary
+7. API route summary
+8. UI summary
+9. Final data recheck summary
+10. Event-risk handling
+11. Dry-run broker summary
+12. Kill-switch summary
+13. Missed opportunity tracker summary
+14. Tests run
+15. Any blocker
+16. Exact status
+
+Final status must be exactly one:
+
+* `PAPER_ONLY_STILL_ACTIVE`
+* `LIVE_DRY_RUN_READY`
+* `LIVE_STAGED_APPROVAL_READY_BUT_BROKER_DISABLED`
+* `STAGING_BUILT_BUT_NEEDS_FIXES`
+* `ROLLBACK_REQUIRED`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* Order staging table exists.
+* Staged orders store full risk decision.
+* Approval queue exists.
+* Approval rechecks latest data.
+* Broker execution is disabled.
+* Dry-run adapter does not place real orders.
+* Kill switch blocks staging/approval.
+* Missed opportunity tracking exists.
+* UI clearly says no real broker order is placed.
+* Tests pass or blockers are clearly reported.
+* F&O is untouched.
+* Swing signal logic is untouched.
+* No destructive migration is performed.
+
+====================================================
+IMPORTANT FINAL NOTE
+====================
+
+This is Phase 2 workflow only.
+
+Do not enable real broker orders.
+
+Do not build blind automation.
+
+The goal is to avoid missing opportunities by staging them fast, while keeping execution safe and controlled.
+
+If anything is uncertain, keep the system in `PAPER_ONLY` or `LIVE_DRY_RUN`, not live execution.

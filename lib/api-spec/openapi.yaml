@@ -21,6 +21,7 @@ tags:
   - name: global-screener
   - name: global-status
   - name: portfolio
+  - name: swing
 paths:
   /healthz:
     get:
@@ -1314,6 +1315,214 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Portfolio" }
+
+  /swing/status:
+    get:
+      operationId: getSwingExecutionStatus
+      tags: [swing]
+      summary: Swing-cash execution mode, broker-disabled status, and kill-switch state
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingStatusResponse" }
+
+  /swing/kill-switch:
+    post:
+      operationId: setSwingKillSwitch
+      tags: [swing]
+      summary: "Owner-only: engage/disengage the swing-cash kill switch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SwingKillSwitchBody" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingKillSwitchResponse" }
+
+  /swing/staged-orders:
+    get:
+      operationId: listSwingStagedOrders
+      tags: [swing]
+      summary: List this user's staged swing-cash orders (ownerKey-scoped)
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema: { type: string }
+          description: "Optional comma-separated status filter."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingOrderListResponse" }
+    post:
+      operationId: stageSwingStagedOrder
+      tags: [swing]
+      summary: "Owner-only: stage a swing-cash candidate (server fetches the live quote; places NO real order)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SwingStageRequest" }
+      responses:
+        "200":
+          description: "Validated but NOT stageable (hard block / kill switch / invalid plan / zero qty)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingStageResponse" }
+        "201":
+          description: Staged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingStageResponse" }
+
+  /swing/staged-orders/expire-stale:
+    post:
+      operationId: expireStaleSwingStagedOrders
+      tags: [swing]
+      summary: "Owner-only: expire this user's TTL-passed staged orders"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingExpireStaleResponse" }
+
+  /swing/staged-orders/{id}:
+    get:
+      operationId: getSwingStagedOrder
+      tags: [swing]
+      summary: Read one staged swing-cash order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingOrderDetailResponse" }
+        "404":
+          description: Not found
+
+  /swing/staged-orders/{id}/refresh:
+    post:
+      operationId: refreshSwingStagedOrder
+      tags: [swing]
+      summary: "Owner-only: live re-check a staged order (no state transition)"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SwingRecheckBody" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingRefreshResponse" }
+        "404":
+          description: Not found
+
+  /swing/staged-orders/{id}/approve:
+    post:
+      operationId: approveSwingStagedOrder
+      tags: [swing]
+      summary: "Owner-only: fast approval with fail-closed live re-check (places NO real order)"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SwingRecheckBody" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingApproveResponse" }
+        "404":
+          description: Not found
+
+  /swing/staged-orders/{id}/reject:
+    post:
+      operationId: rejectSwingStagedOrder
+      tags: [swing]
+      summary: "Owner-only: reject a staged order with an optional reason"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SwingRejectBody" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingTransitionResponse" }
+        "404":
+          description: Not found
+
+  /swing/staged-orders/{id}/watch:
+    post:
+      operationId: watchSwingStagedOrder
+      tags: [swing]
+      summary: "Owner-only: mark a staged order watch-only"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingTransitionResponse" }
+        "404":
+          description: Not found
+
+  /swing/staged-orders/{id}/expire:
+    post:
+      operationId: expireSwingStagedOrder
+      tags: [swing]
+      summary: "Owner-only: manually expire one staged order now (regardless of TTL)"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingTransitionResponse" }
+        "404":
+          description: Not found
 
   /backtest/fno/runs:
     get:
@@ -6265,3 +6474,215 @@ components:
           type: array
           items: { $ref: "#/components/schemas/MacroSparkline" }
         generatedAt: { type: string, format: date-time }
+
+    SwingEventOverrideInput:
+      type: object
+      description: "Manual owner override for event / corporate-action inputs the data layer cannot confirm. All optional; omitted fields are left unchanged."
+      properties:
+        resultDateKnown: { type: boolean, nullable: true }
+        resultDate:
+          type: string
+          nullable: true
+          description: "ISO yyyy-mm-dd; stored as text to avoid timezone shifts."
+        corporateActionRisk: { type: boolean, nullable: true }
+
+    SwingStageRequest:
+      type: object
+      description: "Stage a swing-cash candidate. The client supplies ONLY the immutable swing plan + known context; the server fetches the live quote itself (Kite authoritative, Yahoo never trade-grade) and stamps all data-trust fields — a client can never assert trade-grade freshness. Broker execution is hard-disabled; staging places NO real order."
+      required: [symbol, entry, stop, target1]
+      properties:
+        symbol: { type: string, minLength: 1, maxLength: 40 }
+        sector: { type: string, nullable: true }
+        exchange: { type: string, nullable: true }
+        tradingSymbol: { type: string, nullable: true }
+        instrumentToken: { type: integer, nullable: true }
+        entry: { type: number }
+        stop: { type: number }
+        target1: { type: number }
+        target2: { type: number, nullable: true }
+        atr: { type: number, nullable: true }
+        rr: { type: number, nullable: true }
+        entryZoneLow: { type: number, nullable: true }
+        entryZoneHigh: { type: number, nullable: true }
+        signalAgeDays: { type: number, nullable: true }
+        validityExpiryMs: { type: number, nullable: true }
+        triggered: { type: boolean }
+        avgTradedValue: { type: number, nullable: true }
+        volume: { type: number, nullable: true }
+        spreadPct: { type: number, nullable: true }
+        deliveryPct: { type: number, nullable: true }
+        asmGsmStatus: { type: string, enum: [NONE, ASM, GSM], nullable: true }
+        circuitRisk: { type: boolean, nullable: true }
+        daysToResult: { type: number, nullable: true }
+        isResultDay: { type: boolean }
+        corporateActionRisk: { type: boolean, nullable: true }
+        eventDataAvailable: { type: boolean }
+        resultScheduleKnown: { type: boolean }
+        newsRiskAvailable: { type: boolean }
+        benchmarkAvailable:
+          type: boolean
+          nullable: true
+          description: "Owner-supplied context: was benchmark / relative-strength data available when this candidate was generated? Like `sector`, this is known signal context, NOT a live trade-grade-freshness claim (the server still stamps all freshness/source fields itself). Omitted or false → the Phase-1 data-trust gate marks the candidate REVIEW_REQUIRED and fail-closes; only an explicit `true` satisfies the benchmark requirement. Never fabricated server-side."
+        setupKey: { type: string, nullable: true }
+        signalId: { type: string, nullable: true }
+        eventOverride: { $ref: "#/components/schemas/SwingEventOverrideInput" }
+
+    SwingRecheckBody:
+      type: object
+      description: "Optional event override applied to the live re-check (approve / refresh)."
+      properties:
+        eventOverride: { $ref: "#/components/schemas/SwingEventOverrideInput" }
+
+    SwingRejectBody:
+      type: object
+      properties:
+        reason: { type: string, nullable: true, maxLength: 300 }
+
+    SwingKillSwitchBody:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        reason: { type: string, nullable: true, maxLength: 300 }
+
+    SwingExecutionStatus:
+      type: object
+      required: [mode, liveCashSwingOrderEnabled, brokerExecutionEnabled, brokerStatus, summary]
+      properties:
+        mode: { type: string, enum: [paper_only, live_dry_run, live_staged_approval, live_auto_small_size] }
+        liveCashSwingOrderEnabled: { type: boolean }
+        brokerExecutionEnabled: { type: boolean }
+        brokerStatus: { type: string, enum: [DISABLED] }
+        summary: { type: string }
+
+    SwingKillSwitchState:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        reason: { type: string, nullable: true }
+        updatedAt: { type: string, nullable: true }
+        updatedBy: { type: string, nullable: true }
+
+    SwingStagedOrder:
+      type: object
+      description: "A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null / BROKER_DISABLED."
+      required: [id, symbol, side, entryPrice, stopLoss, target1, quantity, status, approvalStatus, brokerStatus, executionMode, expiresAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        symbol: { type: string }
+        exchange: { type: string, nullable: true }
+        tradingSymbol: { type: string, nullable: true }
+        instrumentToken: { type: integer, nullable: true }
+        side: { type: string }
+        productType: { type: string }
+        orderType: { type: string }
+        entryPrice: { type: number }
+        limitPrice: { type: number, nullable: true }
+        stopLoss: { type: number }
+        target1: { type: number }
+        target2: { type: number, nullable: true }
+        quantity: { type: integer }
+        capitalRequired: { type: number }
+        maxRisk: { type: number }
+        riskPercent: { type: number }
+        sector: { type: string, nullable: true }
+        setupKey: { type: string, nullable: true }
+        signalId: { type: string, nullable: true }
+        dataSource: { type: string }
+        dataAsOf: { type: string, format: date-time, nullable: true }
+        status: { type: string, enum: [STAGED, APPROVAL_REQUIRED, APPROVED, REJECTED, EXPIRED, CANCELLED, WATCH_ONLY, DRY_RUN_PLACED, BROKER_DISABLED] }
+        approvalStatus: { type: string, enum: [PENDING, APPROVED, REJECTED, EXPIRED, WATCH_ONLY] }
+        approvedBy: { type: string, nullable: true }
+        approvedAt: { type: string, format: date-time, nullable: true }
+        rejectionReason: { type: string, nullable: true }
+        expiresAt: { type: string, format: date-time }
+        executionMode: { type: string }
+        brokerStatus: { type: string, enum: [BROKER_DISABLED, DRY_RUN, DRY_RUN_PLACED] }
+        brokerOrderId: { type: string, nullable: true }
+        eventRiskStatus: { type: string, nullable: true }
+        manualReviewRequired: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        riskDecision: { type: object, additionalProperties: true, nullable: true }
+        recheckDecision: { type: object, additionalProperties: true, nullable: true }
+        missedOpportunity: { type: object, additionalProperties: true, nullable: true }
+
+    SwingStatusResponse:
+      type: object
+      required: [execution, killSwitch]
+      properties:
+        execution: { $ref: "#/components/schemas/SwingExecutionStatus" }
+        killSwitch: { $ref: "#/components/schemas/SwingKillSwitchState" }
+
+    SwingKillSwitchResponse:
+      type: object
+      required: [killSwitch]
+      properties:
+        killSwitch: { $ref: "#/components/schemas/SwingKillSwitchState" }
+
+    SwingStageResponse:
+      type: object
+      required: [staged, status, execution]
+      properties:
+        staged: { type: boolean }
+        status: { type: string }
+        reason: { type: string, nullable: true }
+        order: { $ref: "#/components/schemas/SwingStagedOrder" }
+        decision: { type: object, additionalProperties: true, nullable: true }
+        execution: { $ref: "#/components/schemas/SwingExecutionStatus" }
+
+    SwingOrderListResponse:
+      type: object
+      required: [items, execution]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SwingStagedOrder" }
+        execution: { $ref: "#/components/schemas/SwingExecutionStatus" }
+
+    SwingOrderDetailResponse:
+      type: object
+      required: [order, execution]
+      properties:
+        order: { $ref: "#/components/schemas/SwingStagedOrder" }
+        execution: { $ref: "#/components/schemas/SwingExecutionStatus" }
+
+    SwingApproveResponse:
+      type: object
+      required: [approved, execution]
+      properties:
+        approved: { type: boolean }
+        status: { type: string, nullable: true }
+        reason: { type: string, nullable: true }
+        order: { $ref: "#/components/schemas/SwingStagedOrder" }
+        decision: { type: object, additionalProperties: true, nullable: true }
+        availability: { type: object, additionalProperties: true, nullable: true }
+        execution: { $ref: "#/components/schemas/SwingExecutionStatus" }
+
+    SwingRefreshResponse:
+      type: object
+      required: [ok, execution]
+      properties:
+        ok: { type: boolean }
+        reason: { type: string, nullable: true }
+        order: { $ref: "#/components/schemas/SwingStagedOrder" }
+        decision: { type: object, additionalProperties: true, nullable: true }
+        availability: { type: object, additionalProperties: true, nullable: true }
+        execution: { $ref: "#/components/schemas/SwingExecutionStatus" }
+
+    SwingTransitionResponse:
+      type: object
+      required: [ok, execution]
+      properties:
+        ok: { type: boolean }
+        reason: { type: string, nullable: true }
+        order: { $ref: "#/components/schemas/SwingStagedOrder" }
+        execution: { $ref: "#/components/schemas/SwingExecutionStatus" }
+
+    SwingExpireStaleResponse:
+      type: object
+      required: [expired, execution]
+      properties:
+        expired: { type: integer }
+        execution: { $ref: "#/components/schemas/SwingExecutionStatus" }

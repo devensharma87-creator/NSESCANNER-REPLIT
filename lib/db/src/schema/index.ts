@@ -17,3 +17,4 @@ export * from "./instrumentMap";
 export * from "./indstocksToken";
 export * from "./appState";
 export * from "./strategyControl";
+export * from "./swingOrderStaging";

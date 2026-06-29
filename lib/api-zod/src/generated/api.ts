@@ -8042,6 +8042,858 @@ export const ReplacePortfolioHoldingsResponse = zod.object({
 });
 
 /**
+ * @summary Swing-cash execution mode, broker-disabled status, and kill-switch state
+ */
+export const GetSwingExecutionStatusResponse = zod.object({
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+  killSwitch: zod.object({
+    enabled: zod.boolean(),
+    reason: zod.string().nullish(),
+    updatedAt: zod.string().nullish(),
+    updatedBy: zod.string().nullish(),
+  }),
+});
+
+/**
+ * @summary Owner-only: engage/disengage the swing-cash kill switch
+ */
+export const setSwingKillSwitchBodyReasonMax = 300;
+
+export const SetSwingKillSwitchBody = zod.object({
+  enabled: zod.boolean(),
+  reason: zod.string().max(setSwingKillSwitchBodyReasonMax).nullish(),
+});
+
+export const SetSwingKillSwitchResponse = zod.object({
+  killSwitch: zod.object({
+    enabled: zod.boolean(),
+    reason: zod.string().nullish(),
+    updatedAt: zod.string().nullish(),
+    updatedBy: zod.string().nullish(),
+  }),
+});
+
+/**
+ * @summary List this user's staged swing-cash orders (ownerKey-scoped)
+ */
+export const ListSwingStagedOrdersQueryParams = zod.object({
+  status: zod.coerce
+    .string()
+    .optional()
+    .describe("Optional comma-separated status filter."),
+});
+
+export const ListSwingStagedOrdersResponse = zod.object({
+  items: zod.array(
+    zod
+      .object({
+        id: zod.string().uuid(),
+        symbol: zod.string(),
+        exchange: zod.string().nullish(),
+        tradingSymbol: zod.string().nullish(),
+        instrumentToken: zod.number().nullish(),
+        side: zod.string(),
+        productType: zod.string().optional(),
+        orderType: zod.string().optional(),
+        entryPrice: zod.number(),
+        limitPrice: zod.number().nullish(),
+        stopLoss: zod.number(),
+        target1: zod.number(),
+        target2: zod.number().nullish(),
+        quantity: zod.number(),
+        capitalRequired: zod.number().optional(),
+        maxRisk: zod.number().optional(),
+        riskPercent: zod.number().optional(),
+        sector: zod.string().nullish(),
+        setupKey: zod.string().nullish(),
+        signalId: zod.string().nullish(),
+        dataSource: zod.string().optional(),
+        dataAsOf: zod.coerce.date().nullish(),
+        status: zod.enum([
+          "STAGED",
+          "APPROVAL_REQUIRED",
+          "APPROVED",
+          "REJECTED",
+          "EXPIRED",
+          "CANCELLED",
+          "WATCH_ONLY",
+          "DRY_RUN_PLACED",
+          "BROKER_DISABLED",
+        ]),
+        approvalStatus: zod.enum([
+          "PENDING",
+          "APPROVED",
+          "REJECTED",
+          "EXPIRED",
+          "WATCH_ONLY",
+        ]),
+        approvedBy: zod.string().nullish(),
+        approvedAt: zod.coerce.date().nullish(),
+        rejectionReason: zod.string().nullish(),
+        expiresAt: zod.coerce.date(),
+        executionMode: zod.string(),
+        brokerStatus: zod.enum([
+          "BROKER_DISABLED",
+          "DRY_RUN",
+          "DRY_RUN_PLACED",
+        ]),
+        brokerOrderId: zod.string().nullish(),
+        eventRiskStatus: zod.string().nullish(),
+        manualReviewRequired: zod.boolean().optional(),
+        createdAt: zod.coerce.date(),
+        updatedAt: zod.coerce.date(),
+        riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+        recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+        missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
+      })
+      .describe(
+        "A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null \/ BROKER_DISABLED.",
+      ),
+  ),
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+});
+
+/**
+ * @summary Owner-only: stage a swing-cash candidate (server fetches the live quote; places NO real order)
+ */
+export const stageSwingStagedOrderBodySymbolMax = 40;
+
+export const StageSwingStagedOrderBody = zod
+  .object({
+    symbol: zod.string().min(1).max(stageSwingStagedOrderBodySymbolMax),
+    sector: zod.string().nullish(),
+    exchange: zod.string().nullish(),
+    tradingSymbol: zod.string().nullish(),
+    instrumentToken: zod.number().nullish(),
+    entry: zod.number(),
+    stop: zod.number(),
+    target1: zod.number(),
+    target2: zod.number().nullish(),
+    atr: zod.number().nullish(),
+    rr: zod.number().nullish(),
+    entryZoneLow: zod.number().nullish(),
+    entryZoneHigh: zod.number().nullish(),
+    signalAgeDays: zod.number().nullish(),
+    validityExpiryMs: zod.number().nullish(),
+    triggered: zod.boolean().optional(),
+    avgTradedValue: zod.number().nullish(),
+    volume: zod.number().nullish(),
+    spreadPct: zod.number().nullish(),
+    deliveryPct: zod.number().nullish(),
+    asmGsmStatus: zod.enum(["NONE", "ASM", "GSM"]).nullish(),
+    circuitRisk: zod.boolean().nullish(),
+    daysToResult: zod.number().nullish(),
+    isResultDay: zod.boolean().optional(),
+    corporateActionRisk: zod.boolean().nullish(),
+    eventDataAvailable: zod.boolean().optional(),
+    resultScheduleKnown: zod.boolean().optional(),
+    newsRiskAvailable: zod.boolean().optional(),
+    benchmarkAvailable: zod
+      .boolean()
+      .nullish()
+      .describe(
+        "Owner-supplied context: was benchmark \/ relative-strength data available when this candidate was generated? Like `sector`, this is known signal context, NOT a live trade-grade-freshness claim (the server still stamps all freshness\/source fields itself). Omitted or false → the Phase-1 data-trust gate marks the candidate REVIEW_REQUIRED and fail-closes; only an explicit `true` satisfies the benchmark requirement. Never fabricated server-side.",
+      ),
+    setupKey: zod.string().nullish(),
+    signalId: zod.string().nullish(),
+    eventOverride: zod
+      .object({
+        resultDateKnown: zod.boolean().nullish(),
+        resultDate: zod
+          .string()
+          .nullish()
+          .describe("ISO yyyy-mm-dd; stored as text to avoid timezone shifts."),
+        corporateActionRisk: zod.boolean().nullish(),
+      })
+      .optional()
+      .describe(
+        "Manual owner override for event \/ corporate-action inputs the data layer cannot confirm. All optional; omitted fields are left unchanged.",
+      ),
+  })
+  .describe(
+    "Stage a swing-cash candidate. The client supplies ONLY the immutable swing plan + known context; the server fetches the live quote itself (Kite authoritative, Yahoo never trade-grade) and stamps all data-trust fields — a client can never assert trade-grade freshness. Broker execution is hard-disabled; staging places NO real order.",
+  );
+
+export const StageSwingStagedOrderResponse = zod.object({
+  staged: zod.boolean(),
+  status: zod.string(),
+  reason: zod.string().nullish(),
+  order: zod
+    .object({
+      id: zod.string().uuid(),
+      symbol: zod.string(),
+      exchange: zod.string().nullish(),
+      tradingSymbol: zod.string().nullish(),
+      instrumentToken: zod.number().nullish(),
+      side: zod.string(),
+      productType: zod.string().optional(),
+      orderType: zod.string().optional(),
+      entryPrice: zod.number(),
+      limitPrice: zod.number().nullish(),
+      stopLoss: zod.number(),
+      target1: zod.number(),
+      target2: zod.number().nullish(),
+      quantity: zod.number(),
+      capitalRequired: zod.number().optional(),
+      maxRisk: zod.number().optional(),
+      riskPercent: zod.number().optional(),
+      sector: zod.string().nullish(),
+      setupKey: zod.string().nullish(),
+      signalId: zod.string().nullish(),
+      dataSource: zod.string().optional(),
+      dataAsOf: zod.coerce.date().nullish(),
+      status: zod.enum([
+        "STAGED",
+        "APPROVAL_REQUIRED",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "CANCELLED",
+        "WATCH_ONLY",
+        "DRY_RUN_PLACED",
+        "BROKER_DISABLED",
+      ]),
+      approvalStatus: zod.enum([
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "WATCH_ONLY",
+      ]),
+      approvedBy: zod.string().nullish(),
+      approvedAt: zod.coerce.date().nullish(),
+      rejectionReason: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      executionMode: zod.string(),
+      brokerStatus: zod.enum(["BROKER_DISABLED", "DRY_RUN", "DRY_RUN_PLACED"]),
+      brokerOrderId: zod.string().nullish(),
+      eventRiskStatus: zod.string().nullish(),
+      manualReviewRequired: zod.boolean().optional(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
+    })
+    .optional()
+    .describe(
+      "A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null \/ BROKER_DISABLED.",
+    ),
+  decision: zod.record(zod.string(), zod.unknown()).nullish(),
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+});
+
+/**
+ * @summary Owner-only: expire this user's TTL-passed staged orders
+ */
+export const ExpireStaleSwingStagedOrdersResponse = zod.object({
+  expired: zod.number(),
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+});
+
+/**
+ * @summary Read one staged swing-cash order
+ */
+export const GetSwingStagedOrderParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const GetSwingStagedOrderResponse = zod.object({
+  order: zod
+    .object({
+      id: zod.string().uuid(),
+      symbol: zod.string(),
+      exchange: zod.string().nullish(),
+      tradingSymbol: zod.string().nullish(),
+      instrumentToken: zod.number().nullish(),
+      side: zod.string(),
+      productType: zod.string().optional(),
+      orderType: zod.string().optional(),
+      entryPrice: zod.number(),
+      limitPrice: zod.number().nullish(),
+      stopLoss: zod.number(),
+      target1: zod.number(),
+      target2: zod.number().nullish(),
+      quantity: zod.number(),
+      capitalRequired: zod.number().optional(),
+      maxRisk: zod.number().optional(),
+      riskPercent: zod.number().optional(),
+      sector: zod.string().nullish(),
+      setupKey: zod.string().nullish(),
+      signalId: zod.string().nullish(),
+      dataSource: zod.string().optional(),
+      dataAsOf: zod.coerce.date().nullish(),
+      status: zod.enum([
+        "STAGED",
+        "APPROVAL_REQUIRED",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "CANCELLED",
+        "WATCH_ONLY",
+        "DRY_RUN_PLACED",
+        "BROKER_DISABLED",
+      ]),
+      approvalStatus: zod.enum([
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "WATCH_ONLY",
+      ]),
+      approvedBy: zod.string().nullish(),
+      approvedAt: zod.coerce.date().nullish(),
+      rejectionReason: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      executionMode: zod.string(),
+      brokerStatus: zod.enum(["BROKER_DISABLED", "DRY_RUN", "DRY_RUN_PLACED"]),
+      brokerOrderId: zod.string().nullish(),
+      eventRiskStatus: zod.string().nullish(),
+      manualReviewRequired: zod.boolean().optional(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
+    })
+    .describe(
+      "A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null \/ BROKER_DISABLED.",
+    ),
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+});
+
+/**
+ * @summary Owner-only: live re-check a staged order (no state transition)
+ */
+export const RefreshSwingStagedOrderParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const RefreshSwingStagedOrderBody = zod
+  .object({
+    eventOverride: zod
+      .object({
+        resultDateKnown: zod.boolean().nullish(),
+        resultDate: zod
+          .string()
+          .nullish()
+          .describe("ISO yyyy-mm-dd; stored as text to avoid timezone shifts."),
+        corporateActionRisk: zod.boolean().nullish(),
+      })
+      .optional()
+      .describe(
+        "Manual owner override for event \/ corporate-action inputs the data layer cannot confirm. All optional; omitted fields are left unchanged.",
+      ),
+  })
+  .describe(
+    "Optional event override applied to the live re-check (approve \/ refresh).",
+  );
+
+export const RefreshSwingStagedOrderResponse = zod.object({
+  ok: zod.boolean(),
+  reason: zod.string().nullish(),
+  order: zod
+    .object({
+      id: zod.string().uuid(),
+      symbol: zod.string(),
+      exchange: zod.string().nullish(),
+      tradingSymbol: zod.string().nullish(),
+      instrumentToken: zod.number().nullish(),
+      side: zod.string(),
+      productType: zod.string().optional(),
+      orderType: zod.string().optional(),
+      entryPrice: zod.number(),
+      limitPrice: zod.number().nullish(),
+      stopLoss: zod.number(),
+      target1: zod.number(),
+      target2: zod.number().nullish(),
+      quantity: zod.number(),
+      capitalRequired: zod.number().optional(),
+      maxRisk: zod.number().optional(),
+      riskPercent: zod.number().optional(),
+      sector: zod.string().nullish(),
+      setupKey: zod.string().nullish(),
+      signalId: zod.string().nullish(),
+      dataSource: zod.string().optional(),
+      dataAsOf: zod.coerce.date().nullish(),
+      status: zod.enum([
+        "STAGED",
+        "APPROVAL_REQUIRED",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "CANCELLED",
+        "WATCH_ONLY",
+        "DRY_RUN_PLACED",
+        "BROKER_DISABLED",
+      ]),
+      approvalStatus: zod.enum([
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "WATCH_ONLY",
+      ]),
+      approvedBy: zod.string().nullish(),
+      approvedAt: zod.coerce.date().nullish(),
+      rejectionReason: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      executionMode: zod.string(),
+      brokerStatus: zod.enum(["BROKER_DISABLED", "DRY_RUN", "DRY_RUN_PLACED"]),
+      brokerOrderId: zod.string().nullish(),
+      eventRiskStatus: zod.string().nullish(),
+      manualReviewRequired: zod.boolean().optional(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
+    })
+    .optional()
+    .describe(
+      "A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null \/ BROKER_DISABLED.",
+    ),
+  decision: zod.record(zod.string(), zod.unknown()).nullish(),
+  availability: zod.record(zod.string(), zod.unknown()).nullish(),
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+});
+
+/**
+ * @summary Owner-only: fast approval with fail-closed live re-check (places NO real order)
+ */
+export const ApproveSwingStagedOrderParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const ApproveSwingStagedOrderBody = zod
+  .object({
+    eventOverride: zod
+      .object({
+        resultDateKnown: zod.boolean().nullish(),
+        resultDate: zod
+          .string()
+          .nullish()
+          .describe("ISO yyyy-mm-dd; stored as text to avoid timezone shifts."),
+        corporateActionRisk: zod.boolean().nullish(),
+      })
+      .optional()
+      .describe(
+        "Manual owner override for event \/ corporate-action inputs the data layer cannot confirm. All optional; omitted fields are left unchanged.",
+      ),
+  })
+  .describe(
+    "Optional event override applied to the live re-check (approve \/ refresh).",
+  );
+
+export const ApproveSwingStagedOrderResponse = zod.object({
+  approved: zod.boolean(),
+  status: zod.string().nullish(),
+  reason: zod.string().nullish(),
+  order: zod
+    .object({
+      id: zod.string().uuid(),
+      symbol: zod.string(),
+      exchange: zod.string().nullish(),
+      tradingSymbol: zod.string().nullish(),
+      instrumentToken: zod.number().nullish(),
+      side: zod.string(),
+      productType: zod.string().optional(),
+      orderType: zod.string().optional(),
+      entryPrice: zod.number(),
+      limitPrice: zod.number().nullish(),
+      stopLoss: zod.number(),
+      target1: zod.number(),
+      target2: zod.number().nullish(),
+      quantity: zod.number(),
+      capitalRequired: zod.number().optional(),
+      maxRisk: zod.number().optional(),
+      riskPercent: zod.number().optional(),
+      sector: zod.string().nullish(),
+      setupKey: zod.string().nullish(),
+      signalId: zod.string().nullish(),
+      dataSource: zod.string().optional(),
+      dataAsOf: zod.coerce.date().nullish(),
+      status: zod.enum([
+        "STAGED",
+        "APPROVAL_REQUIRED",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "CANCELLED",
+        "WATCH_ONLY",
+        "DRY_RUN_PLACED",
+        "BROKER_DISABLED",
+      ]),
+      approvalStatus: zod.enum([
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "WATCH_ONLY",
+      ]),
+      approvedBy: zod.string().nullish(),
+      approvedAt: zod.coerce.date().nullish(),
+      rejectionReason: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      executionMode: zod.string(),
+      brokerStatus: zod.enum(["BROKER_DISABLED", "DRY_RUN", "DRY_RUN_PLACED"]),
+      brokerOrderId: zod.string().nullish(),
+      eventRiskStatus: zod.string().nullish(),
+      manualReviewRequired: zod.boolean().optional(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
+    })
+    .optional()
+    .describe(
+      "A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null \/ BROKER_DISABLED.",
+    ),
+  decision: zod.record(zod.string(), zod.unknown()).nullish(),
+  availability: zod.record(zod.string(), zod.unknown()).nullish(),
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+});
+
+/**
+ * @summary Owner-only: reject a staged order with an optional reason
+ */
+export const RejectSwingStagedOrderParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const rejectSwingStagedOrderBodyReasonMax = 300;
+
+export const RejectSwingStagedOrderBody = zod.object({
+  reason: zod.string().max(rejectSwingStagedOrderBodyReasonMax).nullish(),
+});
+
+export const RejectSwingStagedOrderResponse = zod.object({
+  ok: zod.boolean(),
+  reason: zod.string().nullish(),
+  order: zod
+    .object({
+      id: zod.string().uuid(),
+      symbol: zod.string(),
+      exchange: zod.string().nullish(),
+      tradingSymbol: zod.string().nullish(),
+      instrumentToken: zod.number().nullish(),
+      side: zod.string(),
+      productType: zod.string().optional(),
+      orderType: zod.string().optional(),
+      entryPrice: zod.number(),
+      limitPrice: zod.number().nullish(),
+      stopLoss: zod.number(),
+      target1: zod.number(),
+      target2: zod.number().nullish(),
+      quantity: zod.number(),
+      capitalRequired: zod.number().optional(),
+      maxRisk: zod.number().optional(),
+      riskPercent: zod.number().optional(),
+      sector: zod.string().nullish(),
+      setupKey: zod.string().nullish(),
+      signalId: zod.string().nullish(),
+      dataSource: zod.string().optional(),
+      dataAsOf: zod.coerce.date().nullish(),
+      status: zod.enum([
+        "STAGED",
+        "APPROVAL_REQUIRED",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "CANCELLED",
+        "WATCH_ONLY",
+        "DRY_RUN_PLACED",
+        "BROKER_DISABLED",
+      ]),
+      approvalStatus: zod.enum([
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "WATCH_ONLY",
+      ]),
+      approvedBy: zod.string().nullish(),
+      approvedAt: zod.coerce.date().nullish(),
+      rejectionReason: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      executionMode: zod.string(),
+      brokerStatus: zod.enum(["BROKER_DISABLED", "DRY_RUN", "DRY_RUN_PLACED"]),
+      brokerOrderId: zod.string().nullish(),
+      eventRiskStatus: zod.string().nullish(),
+      manualReviewRequired: zod.boolean().optional(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
+    })
+    .optional()
+    .describe(
+      "A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null \/ BROKER_DISABLED.",
+    ),
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+});
+
+/**
+ * @summary Owner-only: mark a staged order watch-only
+ */
+export const WatchSwingStagedOrderParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const WatchSwingStagedOrderResponse = zod.object({
+  ok: zod.boolean(),
+  reason: zod.string().nullish(),
+  order: zod
+    .object({
+      id: zod.string().uuid(),
+      symbol: zod.string(),
+      exchange: zod.string().nullish(),
+      tradingSymbol: zod.string().nullish(),
+      instrumentToken: zod.number().nullish(),
+      side: zod.string(),
+      productType: zod.string().optional(),
+      orderType: zod.string().optional(),
+      entryPrice: zod.number(),
+      limitPrice: zod.number().nullish(),
+      stopLoss: zod.number(),
+      target1: zod.number(),
+      target2: zod.number().nullish(),
+      quantity: zod.number(),
+      capitalRequired: zod.number().optional(),
+      maxRisk: zod.number().optional(),
+      riskPercent: zod.number().optional(),
+      sector: zod.string().nullish(),
+      setupKey: zod.string().nullish(),
+      signalId: zod.string().nullish(),
+      dataSource: zod.string().optional(),
+      dataAsOf: zod.coerce.date().nullish(),
+      status: zod.enum([
+        "STAGED",
+        "APPROVAL_REQUIRED",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "CANCELLED",
+        "WATCH_ONLY",
+        "DRY_RUN_PLACED",
+        "BROKER_DISABLED",
+      ]),
+      approvalStatus: zod.enum([
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "WATCH_ONLY",
+      ]),
+      approvedBy: zod.string().nullish(),
+      approvedAt: zod.coerce.date().nullish(),
+      rejectionReason: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      executionMode: zod.string(),
+      brokerStatus: zod.enum(["BROKER_DISABLED", "DRY_RUN", "DRY_RUN_PLACED"]),
+      brokerOrderId: zod.string().nullish(),
+      eventRiskStatus: zod.string().nullish(),
+      manualReviewRequired: zod.boolean().optional(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
+    })
+    .optional()
+    .describe(
+      "A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null \/ BROKER_DISABLED.",
+    ),
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+});
+
+/**
+ * @summary Owner-only: manually expire one staged order now (regardless of TTL)
+ */
+export const ExpireSwingStagedOrderParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const ExpireSwingStagedOrderResponse = zod.object({
+  ok: zod.boolean(),
+  reason: zod.string().nullish(),
+  order: zod
+    .object({
+      id: zod.string().uuid(),
+      symbol: zod.string(),
+      exchange: zod.string().nullish(),
+      tradingSymbol: zod.string().nullish(),
+      instrumentToken: zod.number().nullish(),
+      side: zod.string(),
+      productType: zod.string().optional(),
+      orderType: zod.string().optional(),
+      entryPrice: zod.number(),
+      limitPrice: zod.number().nullish(),
+      stopLoss: zod.number(),
+      target1: zod.number(),
+      target2: zod.number().nullish(),
+      quantity: zod.number(),
+      capitalRequired: zod.number().optional(),
+      maxRisk: zod.number().optional(),
+      riskPercent: zod.number().optional(),
+      sector: zod.string().nullish(),
+      setupKey: zod.string().nullish(),
+      signalId: zod.string().nullish(),
+      dataSource: zod.string().optional(),
+      dataAsOf: zod.coerce.date().nullish(),
+      status: zod.enum([
+        "STAGED",
+        "APPROVAL_REQUIRED",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "CANCELLED",
+        "WATCH_ONLY",
+        "DRY_RUN_PLACED",
+        "BROKER_DISABLED",
+      ]),
+      approvalStatus: zod.enum([
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "WATCH_ONLY",
+      ]),
+      approvedBy: zod.string().nullish(),
+      approvedAt: zod.coerce.date().nullish(),
+      rejectionReason: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      executionMode: zod.string(),
+      brokerStatus: zod.enum(["BROKER_DISABLED", "DRY_RUN", "DRY_RUN_PLACED"]),
+      brokerOrderId: zod.string().nullish(),
+      eventRiskStatus: zod.string().nullish(),
+      manualReviewRequired: zod.boolean().optional(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
+      missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
+    })
+    .optional()
+    .describe(
+      "A staged swing-cash order. NOT a broker order and NOT a paper-trade ledger entry — broker execution is hard-disabled, so broker fields stay null \/ BROKER_DISABLED.",
+    ),
+  execution: zod.object({
+    mode: zod.enum([
+      "paper_only",
+      "live_dry_run",
+      "live_staged_approval",
+      "live_auto_small_size",
+    ]),
+    liveCashSwingOrderEnabled: zod.boolean(),
+    brokerExecutionEnabled: zod.boolean(),
+    brokerStatus: zod.enum(["DISABLED"]),
+    summary: zod.string(),
+  }),
+});
+
+/**
  * @summary List the current user's backtest runs (metadata only)
  */
 export const ListBacktestRunsResponse = zod.object({

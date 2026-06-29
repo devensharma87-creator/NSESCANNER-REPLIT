@@ -275,6 +275,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   items: [
                     { href: "/options", label: "F\u00A0&\u00A0O Intraday", desc: "Live F&O setup board", isActive: l => l === "/options", tab: "FNO" },
                     { href: "/strategies", label: "Strategies", desc: "Strategy idea simulator & education", isActive: l => l.startsWith("/strategies"), tab: "STRATEGIES" },
+                    { href: "/swing-cash", label: "Swing Cash", desc: "Staged swing-cash orders & fast approval queue", isActive: l => l.startsWith("/swing-cash"), ownerOnly: true },
                     { href: "/paper-trading", label: "Paper Trading", desc: "Paper positions & live trades", isActive: l => l.startsWith("/paper-trading"), ownerOnly: true },
                     { href: "/paper-reports", label: "P&L Reports", desc: "P&L, drawdown, MFE/MAE & journal analytics", isActive: l => l.startsWith("/paper-reports"), ownerOnly: true },
                   ],
