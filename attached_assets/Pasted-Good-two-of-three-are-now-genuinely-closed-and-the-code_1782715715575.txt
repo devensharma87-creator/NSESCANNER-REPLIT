@@ -1,0 +1,31 @@
+Good — two of three are now genuinely closed, and the coder was honest about the third instead of fudging it. But the third is not "done," and I want to make sure you read it correctly because there's a subtlety that matters.
+What's now real
+Tests: 28/28 passing, with literal evidence. And importantly, the 3 initial failures were honestly diagnosed as test errors, not code errors — and the explanations are correct and reassuring:
+
+The spread one confirms explicit-field-takes-priority logic is right.
+The SEBI charge (₹10/crore) math checks out.
+The rounding-order one is a real subtlety (rounding intermediates vs components) but it's a ~0.02 paisa cosmetic tolerance issue, not a pricing bug.
+
+The fact that the BS pricer, put-call parity, mode classification, and the anti-fabrication test all pass means the math is sound. That's the thing I most wanted verified, and it is.
+Scanner typecheck: green. The "timeout" was the sandbox wall-clock, not TS errors — confirmed by a clean run with a longer budget. Fine.
+The third item — read this carefully
+The coder is correct that it can't produce a real run from dev: option_chain_snapshot has 0 rows in dev because the ingestor only runs in production. And it's correct that the engine behaving as "100% UNAVAILABLE, pnl null, LOW COVERAGE firing" in dev is the engine working honestly, not breaking. That's actually a clean demonstration that the fail-closed path works.
+But here's what you must not let slide: the coder reframed Item C from "prove it works on real data" to "this isn't a code task, it's a post-deploy observation step" — and then stopped. That reframing is technically true but it quietly converts the single most important unknown into someone else's problem. The question I actually care about is still completely unanswered:
+
+Does your production option_chain_snapshot archive contain enough real data, over a window overlapping your signals, to produce a meaningful real-premium backtest — and if so, what does that backtest say?
+
+Nobody has looked. The engine is unit-verified; whether it has anything real to chew on is unknown. You could deploy this and discover your prod archive is two weeks deep and 70% UNAVAILABLE, or you could discover it's three months deep and mostly REAL_CAPTURED. Those are wildly different realities for your end-of-2026 decision, and the difference is one query you haven't run.
+What to actually do
+This genuinely is now a you task, run against production — but it's two minutes and it's the payoff for this whole stage. After your next deploy (or right now if this is already live), from a session logged into marketscannerbydev.in, hit:
+GET /api/backtest/fno/snapshot-coverage?from=2025-01-01&to=2026-06-29&underlying=NIFTY
+That tells you how far back your real archive goes and what % of 5-min buckets are filled. Then run one SNAPSHOT_PREMIUM_REPLAY backtest over the best-covered window and read the mode-mix.
+The number that matters: what fraction comes back REAL_CAPTURED_PREMIUM?
+
+If it's a healthy fraction over a multi-week window → you now have, for the first time, a real answer to "does my 65% survive theta and costs." Look at gross vs net.
+If it's mostly BS_MODELLED or UNAVAILABLE → the engine is fine, your archive just isn't deep enough yet. That's not a failure; it means the clock starts now and every day forward accumulates real evidence. You'd note the earliest date a real run becomes statistically usable and let it bake.
+
+Either answer is valuable. The only bad outcome is not looking — which is exactly where the coder's reframing would leave you if you accept "it's a post-deploy step" as closure.
+Status, honestly
+Stage 4 is 2.5 of 3 verified. The engine is built and the math is unit-proven. What's unproven is whether it has real fuel — and that's not a code question, it's a look at your own production data question that only you can answer right now.
+So: go run that coverage query against prod and paste me what comes back — the date range, the bucket %, and if you do a run, the mode-mix and gross/net. That single result tells me three things at once: whether the feature works end-to-end, how deep your real archive is, and whether you're anywhere close to having enough real-premium trades to say anything about your edge. Once I see it, I'll tell you plainly where you stand and whether the next move is Stage 2, Stage 3, or just "let the archive accumulate and go finish CMA."
+That last option is real, by the way. If the honest answer is "archive's only a few weeks deep," the highest-value thing you can do for the next stretch isn't another coder prompt — it's let the data accumulate, run your live paper engine, and put your energy into the CMA group you have left. The platform compounds in the background either way.
