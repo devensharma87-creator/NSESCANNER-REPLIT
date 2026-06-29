@@ -1,0 +1,56 @@
+I compared the two sets carefully, side by side, field by field. There's a real divergence — but before you spend a coder session "fixing" it, you need to understand what it actually is, because most of what you're seeing is correct behavior, and treating it as a bug would break your platform.
+Let me show you what the numbers actually say.
+The two environments are showing different trade histories — and that's largely by design
+Here's the core fact the screenshots reveal, in the apps' own words:
+
+Production (Image 5): "env=production · PAPER_TRADING_ENABLED override is set to a truthy value" — the auto-trader is live and recording new paper trades.
+Live/dev (Image 12, 13, 14): "env=development · New auto-opens are suppressed so dev cannot diverge from prod. Existing dev history stays visible. Manual buys still work for testing."
+
+Read that dev banner again, because it's the whole answer: the system deliberately suppresses auto-trading in dev so the two environments accumulate different trade books. They're supposed to differ. Dev has old manual test trades (the closed combos from 13–19 May in Image 12, the TATASTEEL/NMDC manual buys in Image 14); production has the real auto-traded book. These are two different paper-trading ledgers, not the same data rendered inconsistently.
+So your instinct — "production and live should match exactly" — is wrong for the paper-trading trade history, and the platform was explicitly built to make them differ. If you force them to match, you'd be breaking a safety feature.
+The concrete divergences, and what each one actually means
+Let me put the F&O numbers next to each other so you see it precisely:
+MetricProduction (Img 2,4,7)Live/Dev (Img 9,11,13)What it isF&O closed trades287Different trade books (dev auto-suppressed) — expectedF&O gross P&L+₹5,716.90+₹6,508.30Different books — expectedF&O win rate39.3% / 40.7%42.9% / 60.0%Different books — expectedP25 evidence rows19/20 (Img 7)0/20 then 7 (Img 13)Different books — expectedEquity realized P&L₹1,42,761 (Img 3,6)₹67,024 (Img 10,14)Different books — expectedEquity open positions6 live (Img 6)0 (Img 14)Prod auto-traded; dev suppressed — expected
+Every one of these differences traces to the same root: two separate ledgers. None of them is a calculation bug. The math within each environment is internally consistent (gross − costs = net checks out on every screen; win/loss counts match trade counts).
+But there are two things in here that are NOT just "different books" and deserve attention:
+1. Image 11 (a "live" screenshot) shows "Setup performance unavailable from current payload" and "Give-back review unavailable" — while the equivalent production screen (Image 4) shows all of it populated. That's not a different-ledger difference; that's a payload/endpoint difference — one environment's report API is returning fields the other isn't. That is a real consistency gap worth checking: same code, different data availability. Could be the dev DB lacks the MFE/MAE rows, or an endpoint version differs.
+2. The Image 7 production F&O cockpit shows "Kite data unavailable — F&O is Kite-only since 2026-05-06" in the skip-reasons, and "SIGNALS TODAY: 0." So on production, the F&O auto-trader may be sitting idle because of intraday Kite gaps — which connects to why prod only has 28 F&O trades over weeks. That's worth understanding, but it's a Stage 3 skip-reason-analysis question, not a parity bug.
+What I think you're really worried about — and the honest reframe
+You said: "production data gets live after completing everything... there should not be any difference between both." I understand the goal now: you want confidence that when dev work ships to prod, the analytics and signal logic produce identical results on identical inputs — that you're not shipping a version that calculates RSI or a swing signal or an F&O score differently than what you tested.
+That is a legitimate and important goal. But it is not what these screenshots can show, because these screenshots compare different trade histories, not the same calculation on the same input. Comparing a 28-trade prod book against a 7-trade dev book tells you nothing about whether the logic matches — it only tells you the books differ, which you already know they should.
+To actually answer "does the logic produce identical output," you have to feed the same input to both and diff the computed result — same symbol, same candle, same timestamp → is RSI/Supertrend/swing-signal/F&O-score identical? That's a real, tight, checkable audit. The giant 15-section prompt you pasted earlier won't do it cleanly; it'll drown in the ledger differences and report 200 "mismatches" that are all just different-book noise.
+So here's the prompt — a parity-of-logic audit, not a ledger diff
+This targets the thing you actually care about and explicitly ignores the expected ledger differences.
+
+CODER PROMPT — LOGIC PARITY AUDIT (dev vs prod): same input → same output
+Copy below the line.
+
+GOAL: Verify that the analytical and signal logic produces identical results on identical inputs across dev and prod. This is NOT a comparison of trade histories — dev deliberately suppresses auto-trading (env=development · auto-opens suppressed so dev cannot diverge from prod), so the paper-trading books are expected to differ and must be excluded from this audit. We are auditing computation, not ledgers.
+FIRST, state the framing in your report: confirm that dev's suppressed auto-trader means trade-count / P&L / win-rate / P25 differences between the two environments are EXPECTED and are NOT findings. Do not report them as mismatches.
+WHAT TO ACTUALLY COMPARE — same input, same output:
+1. Indicator parity. Pick 20 liquid symbols (15 equity across sectors + NIFTY/BANKNIFTY/SENSEX/FINNIFTY/MIDCPNIFTY). For each, take the same OHLC candle series (same symbol, same timeframe, same date range — use a fixed historical window both environments can read identically, e.g. last 60 daily candles ending on a settled date). Compute through both environments' code paths and diff field-by-field: RSI, EMA(9/20/50/200), SMA, MACD, ATR, ADX, Supertrend, VWAP, 52w-high/low, volume metrics. Report any field where the two environments produce different values on the same input beyond floating-point tolerance (0.01%). Those are real bugs.
+2. Swing-signal parity. For those same symbols on the same fixed candle window, run the swing engine in both environments and diff: signal direction, entry/SL/target, R:R, the swing state (ACCUMULATION/BREAKOUT_READY/etc.), and any RS/benchmark value. Same input must yield same signal. Report divergences.
+3. F&O-scoring parity. For NIFTY/BANKNIFTY/SENSEX, feed the same option-chain snapshot row (from option_chain_snapshot, same captured_at) to both environments' F&O scoring path and diff: computed confidence/score, strike selection, PCR, max-pain, IV read, the gate evaluations (recovery/chase/anti-flip/P25/premiumTrusted). Same chain in → same score and same gate verdicts out. Report divergences.
+4. The real payload gap I already spotted (investigate this specifically): On the reports/analytics endpoints, one environment renders "Setup performance" and "MFE/MAE give-back" fully while the other shows "unavailable from current payload." Determine why — is it a different endpoint version, a missing DB table/rows in one environment, or a code difference? This is a genuine consistency gap (same feature, different availability). Report the cause and whether prod or dev is correct.
+RULES:
+
+Exclude all paper-trading ledger differences (trade counts, P&L, win rate, positions, P25 row counts) — those are expected by design. Do not report them.
+Use identical inputs for every comparison — if you can't get the same input into both environments, say so; don't compare different inputs and call it a mismatch.
+No fabrication. No trading-logic changes — this is read-only audit. replit.md/lockfiles untouched.
+For every real divergence found, classify: CALCULATION_BUG / SYMBOL_MAPPING_BUG / STALE_INPUT / PAYLOAD_DIFFERENCE / CONFIG_DIFFERENCE, and state which environment is correct.
+
+REPORT:
+
+The framing confirmation (ledger differences excluded and why).
+Indicator parity: table of any same-input divergences, or "all identical within tolerance."
+Swing-signal parity: same.
+F&O-scoring parity: same.
+The payload-gap root cause (item 4) + which env is correct + the fix.
+A clear bottom line: does the logic produce identical output on identical input, yes/no, with the exceptions listed.
+
+Do not implement fixes yet — audit first. If divergences are found, propose fixes for my approval.
+
+That's the prompt that answers your real question. Three things I want to make sure land:
+You don't have a data-integrity disaster — you have two ledgers behaving as designed. The 28-vs-7 trades, the different P&L, the different win rates: all expected, all explained by the dev auto-suppression that the app literally tells you about on screen. Don't let the surface differences alarm you. If I'd just dumped a "200 mismatches found" report on you, it would have been 195 false alarms.
+The one genuinely worth chasing is the payload gap (Image 11 "unavailable" vs Image 4 populated). That's the only thing in these 14 screenshots that looks like the same feature giving different results for a non-ledger reason. The prompt targets it specifically.
+And the deeper point for your end-2026 decision: the question "do prod and live match" matters far less than "is my edge real." These screenshots show prod F&O at ~40% win rate and ₹5.7K gross — on a book that's still tiny and still partly idle because of intraday Kite gaps (Image 7). That, not parity, is the signal worth your attention. Once you've confirmed logic parity with this audit, the next real move is still Stage 4's real-premium backtest telling you whether 40% wins survive costs — and the honest answer to that is the one that decides whether you go full-time, not whether two dashboards show the same number.
