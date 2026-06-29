@@ -1,0 +1,1027 @@
+CODER PROMPT — PROFESSIONAL SWING CASH LIVE-TRADING READINESS + FAST EXECUTION SYSTEM
+
+We now want to make the Swing Trading Cash Segment professional, accurate, reliable, and ready for controlled live trading.
+
+Important context:
+
+The swing audit showed the strategy has promising paper performance and a solid signal/risk framework, but it is NOT ready for blind autonomous real-money trading yet.
+
+Current verdict:
+
+* Suitable for small supervised manual-execution micro-pilot only.
+* Not ready for full-size live trading.
+* Not ready for autonomous broker order placement until execution, reconciliation, risk, event, sector, and data-safety layers are built.
+
+Problem:
+
+Manual intervention may take time and we may miss opportunities. Therefore we need a professional fast-execution workflow.
+
+Goal:
+
+Build a professional Swing Cash Live-Readiness and Fast Execution system that can:
+
+1. Detect valid swing opportunities automatically.
+2. Validate data, risk, liquidity, sector exposure, event risk, and entry validity.
+3. Auto-stage orders instantly.
+4. Provide one-click approval for the owner.
+5. Support optional guarded auto-execution later, only after paper/dry-run proof.
+6. Never place live orders blindly without safety gates.
+7. Never use fake, stale, delayed, or untrusted data for trade-grade decisions.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not activate live trading by default.
+
+Do not place real broker orders during this task unless explicitly approved after dry-run verification.
+
+Do not change swing scoring logic blindly.
+
+Do not change entry/SL/target logic blindly.
+
+Do not loosen risk controls.
+
+Do not use Yahoo/delayed/untrusted data for trade-grade swing entries.
+
+Do not silently replace Kite/trusted data with fallback data.
+
+Do not delete useful production features.
+
+Do not run destructive DB migrations.
+
+Do not expose broker tokens, Kite tokens, auth cookies, passwords, or secrets in logs.
+
+Do not touch F&O engine, F&O risk guards, F&O scoring, option-chain math, capital ledger, or F&O paper trading unless directly required for shared broker-safety infrastructure.
+
+This task is for Swing Cash Segment only.
+
+Everything must be professional-grade, tested, auditable, and production-safe.
+
+====================================================
+MAIN OBJECTIVE
+==============
+
+Build a Swing Cash Live-Execution Readiness Pack with these layers:
+
+1. Data trust gate
+2. Signal validity gate
+3. Entry freshness gate
+4. Risk and position-sizing gate
+5. Liquidity gate
+6. Sector and single-stock exposure gate
+7. Event/corporate-action risk gate
+8. Order staging system
+9. Owner fast-approval workflow
+10. Broker execution dry-run mode
+11. Broker order placement layer, disabled by default
+12. Order reconciliation layer
+13. Kill-switch and rollback controls
+14. Live audit logs
+15. Go-live dashboard
+
+Final result must allow:
+
+* `PAPER_ONLY`
+* `LIVE_DRY_RUN`
+* `LIVE_STAGED_APPROVAL`
+* `LIVE_AUTO_SMALL_SIZE`
+
+But default must remain safest mode.
+
+====================================================
+PART A — CURRENT SWING SYSTEM MAP
+=================================
+
+First map the full current swing system.
+
+Report all files/functions/routes involved in:
+
+1. Swing scanner
+2. Swing signal generation
+3. Signal scoring
+4. STRONG_BUY / BUY / AVOID classification
+5. Daily scan scheduler
+6. Manual scan trigger
+7. Signal storage
+8. Paper equity auto-open
+9. Paper equity exits
+10. Entry/SL/target calculations
+11. R:R calculation
+12. Position sizing
+13. Portfolio integration
+14. Swing UI pages
+15. Equity paper trade reports
+16. Data source layer
+17. Kite quote/candle path
+18. Yahoo/fallback path if any
+19. Logs and diagnostics
+20. Existing risk gates
+
+Final output:
+
+* architecture map
+* trade lifecycle map
+* data-flow map
+* signal-to-order map
+* current limitations
+
+Do not write code until this map is complete.
+
+====================================================
+PART B — PROFESSIONAL DATA TRUST GATE
+=====================================
+
+Before any swing signal becomes tradeable, validate data.
+
+Required fields per candidate:
+
+* symbol
+* exchange
+* tradingSymbol
+* instrumentToken
+* canonicalSymbol
+* LTP
+* OHLC
+* daily candle asOf
+* intraday quote asOf
+* volume
+* average volume
+* benchmark source
+* sector source
+* data source
+* freshness
+* trustedForTrade
+* fallbackUsed
+* fallbackReason
+* stale flag
+* missing field list
+
+Classification:
+
+* `TRADE_GRADE_KITE`
+* `TRADE_GRADE_LICENSED`
+* `INFO_ONLY_YAHOO`
+* `STALE`
+* `UNAVAILABLE`
+* `UNTRUSTED`
+
+Rules:
+
+1. Only `TRADE_GRADE_KITE` or approved licensed source can create live-cash trade candidate.
+2. Yahoo/delayed data can show chart/analytics only.
+3. If daily candle is stale, candidate is blocked.
+4. If LTP is stale, candidate is blocked.
+5. If benchmark/sector data missing, candidate becomes `REVIEW_REQUIRED`, not auto-executable.
+6. Every blocked candidate must show exact reason.
+
+Add tests for:
+
+* stale candle rejection
+* stale LTP rejection
+* Yahoo-only rejection
+* missing benchmark handling
+* missing sector handling
+* valid Kite data allowed
+
+====================================================
+PART C — SIGNAL VALIDITY / ENTRY FRESHNESS GATE
+===============================================
+
+A swing signal may be good, but entry can be missed.
+
+Build a gate that classifies every signal as:
+
+* `ENTRY_VALID_NOW`
+* `ENTRY_WAITING_FOR_TRIGGER`
+* `ENTRY_ALREADY_CHASED`
+* `ENTRY_STALE`
+* `ENTRY_TOO_CLOSE_TO_TARGET`
+* `ENTRY_TOO_CLOSE_TO_STOP`
+* `ENTRY_INVALID_DATA`
+* `ENTRY_REVIEW_REQUIRED`
+
+For each candidate calculate:
+
+* planned entry
+* entry zone high
+* entry zone low
+* current LTP
+* % distance from entry
+* % distance from stop
+* % distance from target
+* ATR distance
+* chase score
+* signal age
+* bars since signal
+* validity expiry time/date
+* gap-up risk
+* whether price already moved too far
+
+Professional rules:
+
+1. Do not auto-stage if price is already chased.
+2. Do not auto-stage if current price is too close to target.
+3. Do not auto-stage if R:R has deteriorated below minimum.
+4. Do not auto-stage stale signal.
+5. If signal is valid but not triggered, put it in watch queue.
+6. If signal triggers intraday, stage order instantly.
+
+Add tests for:
+
+* fresh entry valid
+* stale signal blocked
+* chased entry blocked
+* entry close to target blocked
+* deteriorated R:R blocked
+* waiting-for-trigger state
+
+====================================================
+PART D — SWING CASH RISK GUARD MODULE
+=====================================
+
+Create a pure module, for example:
+
+`src/lib/swingCashRiskGuards.ts`
+
+Export a pure function:
+
+```ts
+evaluateSwingCashRisk(candidate, portfolioState, config): SwingCashRiskDecision
+```
+
+Inputs should include:
+
+* candidate symbol
+* entry
+* stop
+* target1
+* target2
+* R:R
+* ATR
+* LTP
+* sector
+* market cap bucket
+* average traded value
+* delivery %
+* existing holdings
+* open swing positions
+* current sector exposure
+* single-stock exposure
+* available cash
+* total swing capital
+* event risk flags
+* data trust flags
+
+Decision output:
+
+```ts
+interface SwingCashRiskDecision {
+  allowed: boolean;
+  mode: "paper" | "dry_run" | "staged_approval" | "auto_live";
+  severity: "info" | "warn" | "block";
+  reasons: string[];
+  explanation: string[];
+  metrics: {
+    proposedQty: number;
+    capitalRequired: number;
+    maxLoss: number;
+    riskPercent: number;
+    positionValuePercent: number;
+    sectorExposureAfter: number;
+    singleStockExposureAfter: number;
+    rr: number;
+    stopDistancePercent: number;
+    tradedValue: number | null;
+  };
+}
+```
+
+Required block reasons:
+
+* `DATA_NOT_TRADE_GRADE`
+* `ENTRY_STALE`
+* `ENTRY_CHASED`
+* `RR_TOO_WEAK`
+* `STOP_TOO_WIDE`
+* `STOP_TOO_TIGHT`
+* `POSITION_SIZE_TOO_HIGH`
+* `RISK_PER_TRADE_EXCEEDED`
+* `SECTOR_EXPOSURE_EXCEEDED`
+* `SINGLE_STOCK_EXPOSURE_EXCEEDED`
+* `MAX_OPEN_POSITIONS_REACHED`
+* `MAX_DAILY_ENTRIES_REACHED`
+* `MAX_WEEKLY_ENTRIES_REACHED`
+* `LOW_LIQUIDITY`
+* `HIGH_SPREAD`
+* `ASM_GSM_RISK`
+* `EVENT_RISK`
+* `RESULT_DAY_RISK`
+* `DUPLICATE_POSITION`
+* `CONSECUTIVE_DAY_STACKING`
+* `INSUFFICIENT_CASH`
+* `MARKET_REGIME_RISK_OFF`
+
+Default config should be conservative:
+
+```ts
+mode: "dry_run"
+
+riskPerTradePct: 0.5
+maxPositionValuePct: 5
+maxOpenPositions: 8
+maxSectorExposurePct: 25
+maxSingleStockExposurePct: 8
+maxDailyNewEntries: 2
+maxWeeklyNewEntries: 5
+minRR: 2.0
+maxStopDistancePct: 8
+minStopDistancePct: 1
+minAverageTradedValue: 5_00_00_000
+avoidResultDay: true
+avoidAsmGsm: true
+avoidHighImpactCorporateAction: true
+preventDuplicateOpenPosition: true
+preventConsecutiveDaySameStock: true
+reserveCashPct: 20
+```
+
+No live auto mode by default.
+
+Add full unit tests.
+
+====================================================
+PART E — POSITION SIZING ENGINE
+===============================
+
+Build a professional cash position sizing engine.
+
+Inputs:
+
+* total swing capital
+* available cash
+* risk per trade %
+* entry price
+* stop price
+* risk per share
+* max position value %
+* lot not applicable
+* cash quantity rounding
+* brokerage/slippage buffer
+* reserve cash %
+
+Output:
+
+* recommended quantity
+* capital required
+* max loss if SL hit
+* max loss with gap buffer
+* risk %
+* position value %
+* blocked / allowed
+* reason
+
+Rules:
+
+1. Quantity must be risk-based, not only slot-based.
+2. Respect max capital per trade.
+3. Respect max loss per trade.
+4. Respect available cash.
+5. Respect reserve cash.
+6. If stop distance is too wide, reduce quantity or block.
+7. If quantity too small, mark as not worth trading.
+
+Example:
+
+If capital = ₹10,00,000 and risk = 0.5%, max risk = ₹5,000.
+
+If entry = ₹1,000 and SL = ₹950, risk/share = ₹50.
+
+Max qty by risk = 100 shares.
+
+Then cap by max position value too.
+
+Add tests for:
+
+* normal sizing
+* wide stop reducing qty
+* insufficient cash
+* reserve cash
+* max position cap
+* min viable quantity
+* gap-risk buffer
+
+====================================================
+PART F — LIQUIDITY / EXECUTION GATE
+===================================
+
+Build hard liquidity checks for cash live trades.
+
+For each candidate check:
+
+* average daily traded value
+* volume
+* delivery %
+* bid/ask spread if available
+* circuit limit risk
+* ASM/GSM status if available
+* stock price band
+* recent abnormal gap/circuit behavior
+* impact cost estimate
+
+Rules:
+
+1. Block if average traded value below threshold.
+2. Block if spread too high.
+3. Block if stock in ASM/GSM, if data available.
+4. Block if frequent circuit risk.
+5. Warn if delivery % too low.
+6. Warn if stock has event volatility.
+
+Classification:
+
+* `LIQUIDITY_OK`
+* `LOW_TRADED_VALUE`
+* `LOW_VOLUME`
+* `HIGH_SPREAD`
+* `CIRCUIT_RISK`
+* `ASM_GSM_RISK`
+* `EXECUTION_RISK`
+
+If ASM/GSM data is not available, say:
+
+`ASM_GSM_UNAVAILABLE_REVIEW_REQUIRED`
+
+Do not fabricate.
+
+====================================================
+PART G — SECTOR + SINGLE-STOCK EXPOSURE CONTROL
+===============================================
+
+Add exposure logic.
+
+For every staged/live candidate calculate:
+
+* current sector exposure
+* sector exposure after entry
+* current single-stock exposure
+* single-stock exposure after entry
+* correlated positions
+* number of existing positions in same sector
+
+Rules:
+
+1. Block if sector exposure after entry > 25%.
+2. Block if single-stock exposure after entry > 8%.
+3. Block duplicate open stock.
+4. Block consecutive-day same-stock stacking unless manually approved.
+5. Warn if same theme/sector already crowded.
+
+This directly addresses previous audit gaps.
+
+Add tests.
+
+====================================================
+PART H — EVENT / RESULT / CORPORATE ACTION RISK LAYER
+=====================================================
+
+Add event-risk detection.
+
+Sources:
+
+* existing corporate-action data if available
+* NSE/BSE official data if available
+* configured manual event calendar if no reliable API exists
+* earnings/result date provider if available
+* fallback: mark unavailable, do not fabricate
+
+For each candidate, classify:
+
+* `EVENT_CLEAR`
+* `RESULT_WITHIN_3_DAYS`
+* `CORPORATE_ACTION_RISK`
+* `NEWS_RISK_UNAVAILABLE`
+* `EVENT_DATA_UNAVAILABLE_REVIEW_REQUIRED`
+
+Rules:
+
+1. Block fresh live entry on result day.
+2. Warn/block if result within next 3 trading days.
+3. Block major corporate-action uncertainty.
+4. If event data unavailable, require manual approval for live mode.
+
+Do not use random web scraping as trade-grade.
+
+====================================================
+PART I — ORDER STAGING SYSTEM
+=============================
+
+Build an order staging system before real execution.
+
+A staged order is not a broker order yet.
+
+Create database table if needed, additive only:
+
+`swing_order_staging`
+
+Fields:
+
+* id
+* createdAt
+* updatedAt
+* symbol
+* exchange
+* tradingSymbol
+* instrumentToken
+* side
+* productType
+* orderType
+* entryPrice
+* limitPrice
+* stopLoss
+* target1
+* target2
+* quantity
+* capitalRequired
+* maxRisk
+* riskPercent
+* sector
+* setupKey
+* signalId
+* dataSource
+* dataAsOf
+* riskDecisionJson
+* status
+* approvalStatus
+* approvedBy
+* approvedAt
+* expiresAt
+* brokerOrderId
+* brokerStatus
+* rejectionReason
+* executionMode
+
+Statuses:
+
+* `STAGED`
+* `APPROVAL_REQUIRED`
+* `APPROVED`
+* `EXPIRED`
+* `CANCELLED`
+* `PLACED`
+* `REJECTED`
+* `FILLED`
+* `PARTIAL_FILLED`
+* `FAILED_RECONCILIATION`
+
+Approval statuses:
+
+* `PENDING`
+* `APPROVED`
+* `REJECTED`
+* `AUTO_APPROVED_SMALL_SIZE`
+
+Rules:
+
+1. Signal can stage order automatically if all gates pass.
+2. Staged order expires if not approved within configured time.
+3. Owner can approve/reject quickly.
+4. No broker order is placed unless mode allows.
+5. Every staged order stores full risk decision.
+
+====================================================
+PART J — FAST APPROVAL WORKFLOW
+===============================
+
+To avoid missing opportunities, build fast approval:
+
+1. Swing Live Queue page / panel.
+2. Mobile-friendly approval cards.
+3. Each card shows:
+
+   * stock
+   * LTP
+   * entry
+   * SL
+   * target
+   * R:R
+   * quantity
+   * capital
+   * max loss
+   * sector exposure
+   * data freshness
+   * risk flags
+   * reason for signal
+4. Buttons:
+
+   * Approve
+   * Reject
+   * Modify qty
+   * Skip today
+   * Watch only
+5. Approval requires final data recheck.
+6. Approval expires if price moves beyond entry zone.
+
+Add optional notification:
+
+* Telegram / email / app notification / browser notification if existing infra supports it.
+* Do not add paid integration unless approved.
+
+The goal is to reduce approval time to seconds, not minutes.
+
+====================================================
+PART K — BROKER EXECUTION LAYER — DISABLED BY DEFAULT
+=====================================================
+
+Build broker order placement abstraction but keep disabled by default.
+
+Suggested modes:
+
+* `PAPER_ONLY`
+* `LIVE_DRY_RUN`
+* `LIVE_STAGED_APPROVAL`
+* `LIVE_AUTO_SMALL_SIZE`
+
+Default:
+
+`PAPER_ONLY` or `LIVE_DRY_RUN`
+
+Execution layer must support:
+
+1. Place order
+2. Cancel order
+3. Check order status
+4. Reconcile orders
+5. Handle partial fill
+6. Handle rejected order
+7. Handle RMS/margin rejection
+8. Handle exchange closed
+9. Handle price band rejection
+10. Handle duplicate order idempotency
+11. Store brokerOrderId
+12. Store broker response
+13. Never retry blindly
+
+Order placement must be behind a hard config flag:
+
+```ts
+LIVE_CASH_SWING_ORDER_ENABLED=false
+```
+
+If false, no real order can be placed.
+
+Add tests/mocks.
+
+Do not place real orders in this task unless separately approved.
+
+====================================================
+PART L — RECONCILIATION + KILL SWITCH
+=====================================
+
+Before real live mode, system must reconcile.
+
+Add:
+
+1. Daily order reconciliation.
+2. Holdings reconciliation.
+3. Open staged order reconciliation.
+4. Broker position vs app position comparison.
+5. Mismatch alert.
+6. Kill switch.
+
+Kill switch must stop:
+
+* new staging
+* new approval
+* new broker orders
+* auto-open
+* auto-exit
+
+Kill switch reasons:
+
+* Kite disconnected
+* data stale
+* broker error
+* reconciliation mismatch
+* daily loss cap hit
+* weekly loss cap hit
+* unknown order status
+* owner manual kill
+
+Add UI and endpoint for kill switch if not already exists.
+
+====================================================
+PART M — LIVE CASH RISK CAPS
+============================
+
+Add config, disabled by default until approved.
+
+Conservative starting config:
+
+```ts
+mode: "LIVE_STAGED_APPROVAL"
+
+totalSwingCapital: 1000000
+liveCapitalCapPct: 10
+maxLiveCapital: 100000
+riskPerTradePct: 0.5
+maxRiskPerTrade: 500
+maxPositionValuePct: 5
+maxOpenLivePositions: 3
+maxDailyLiveEntries: 1
+maxWeeklyLiveEntries: 3
+maxSectorExposurePct: 25
+maxSingleStockExposurePct: 8
+requireManualApproval: true
+allowAutoApprovalBelowValue: false
+autoApprovalMaxValue: 0
+blockIfKiteOffline: true
+blockIfDataStale: true
+blockOnEventRisk: true
+blockOnLowLiquidity: true
+blockOnWeakRR: true
+```
+
+Important:
+
+Start very small.
+
+Manual approval required initially.
+
+No autonomous full-size mode.
+
+====================================================
+PART N — COST / SLIPPAGE MODEL
+==============================
+
+Add real cash delivery cost model.
+
+Include:
+
+* brokerage
+* STT
+* exchange transaction charges
+* SEBI charges
+* stamp duty
+* GST
+* DP charges on sell if applicable
+* slippage assumption
+* gap-risk buffer
+
+For each candidate show:
+
+* gross target profit
+* estimated charges
+* slippage
+* net target profit
+* expected R after cost
+* whether trade still passes min R:R
+
+Do not overstate expected profit.
+
+====================================================
+PART O — SWING LIVE DASHBOARD
+=============================
+
+Create or improve dashboard:
+
+Title:
+
+`Swing Cash Live Readiness`
+
+Sections:
+
+1. Kite/data health
+2. Current swing mode
+3. Kill switch status
+4. Today’s staged orders
+5. Approval queue
+6. Risk-cap usage
+7. Sector exposure
+8. Single-stock exposure
+9. Data freshness
+10. Event-risk warnings
+11. Open live/paper positions
+12. Missed opportunities
+13. Rejected/blocked candidates
+14. Performance summary
+15. Broker reconciliation status
+
+Every candidate must show:
+
+* Approved
+* Rejected
+* Blocked
+* Expired
+* Waiting for trigger
+* Staged
+* Paper-only
+
+====================================================
+PART P — MISSED OPPORTUNITY TRACKER
+===================================
+
+Because manual intervention may miss trades, track missed opportunities.
+
+For every valid candidate that was not entered:
+
+* signal time
+* stage time
+* approval deadline
+* whether owner approved
+* whether expired
+* price at signal
+* price at expiry
+* max favourable move after signal
+* whether trade would have hit target
+* whether trade would have hit SL
+* missed P&L estimate
+* reason missed:
+
+  * owner not approved
+  * expired
+  * price moved away
+  * data stale
+  * risk blocked
+  * market closed
+  * broker dry-run only
+
+This tells us whether automation is truly needed or whether alerts/approval are enough.
+
+====================================================
+PART Q — BACKTEST / PAPER / LIVE COMPARISON
+===========================================
+
+Add comparison report:
+
+* signal generated
+* order staged
+* owner approved
+* broker order placed
+* order filled
+* paper equivalent entry
+* actual live entry
+* slippage
+* paper P&L
+* live P&L
+* difference
+* reason for difference
+
+This is essential before scaling.
+
+====================================================
+PART R — MODES AND RELEASE PLAN
+===============================
+
+Implement modes clearly:
+
+Mode 1:
+
+`PAPER_ONLY`
+
+* Existing behavior.
+* No live staging.
+
+Mode 2:
+
+`LIVE_DRY_RUN`
+
+* Creates staged orders.
+* Simulates broker placement.
+* No real order.
+
+Mode 3:
+
+`LIVE_STAGED_APPROVAL`
+
+* Creates staged orders.
+* Owner approves.
+* Broker order can be placed only if global live flag enabled.
+
+Mode 4:
+
+`LIVE_AUTO_SMALL_SIZE`
+
+* Only after at least 30 trading days of staged approval success.
+* Only tiny size.
+* Only if all reconciliation clean.
+
+Do not jump directly to Mode 4.
+
+====================================================
+PART S — TESTS
+==============
+
+Add tests for:
+
+1. Swing data trust gate
+2. Entry validity gate
+3. Risk guard module
+4. Position sizing
+5. Sector exposure
+6. Single-stock exposure
+7. Duplicate position block
+8. Consecutive-day same-stock block
+9. Liquidity gate
+10. Event risk gate
+11. Staging creation
+12. Staging expiry
+13. Approval flow
+14. Approval final data recheck
+15. Kill switch blocks orders
+16. Broker disabled flag prevents real order
+17. Dry-run never places broker order
+18. Idempotency prevents duplicate order
+19. Reconciliation mismatch triggers alert
+20. Cost model calculation
+21. Missed opportunity tracker
+22. No Yahoo trade-grade path
+23. Stale Kite blocks live entry
+24. Insufficient cash blocks
+25. Max daily entries blocks
+26. Sector cap blocks
+27. Manual approval required in initial live mode
+
+Run:
+
+* api-server typecheck
+* scanner typecheck
+* relevant unit tests
+* scanner tests if UI touched
+* route tests if endpoints added
+
+Do not hide failures.
+
+====================================================
+PART T — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Architecture changes
+2. Files touched
+3. Files confirmed untouched
+4. Current swing mode
+5. Data trust gate summary
+6. Entry validity gate summary
+7. Risk guard summary
+8. Position sizing summary
+9. Liquidity gate summary
+10. Sector/single-stock cap summary
+11. Event-risk summary
+12. Order staging summary
+13. Fast approval workflow summary
+14. Broker execution layer status
+15. Kill switch status
+16. Cost/slippage model status
+17. Live dashboard status
+18. Missed opportunity tracking status
+19. Tests run
+20. Any blocker
+21. Exact go-live status
+
+Final status must be exactly one:
+
+* `PAPER_ONLY_STILL_ACTIVE`
+* `LIVE_DRY_RUN_READY`
+* `LIVE_STAGED_APPROVAL_READY_BUT_DISABLED`
+* `LIVE_STAGED_APPROVAL_ENABLED`
+* `LIVE_AUTO_NOT_READY`
+* `ROLLBACK_REQUIRED`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* No real order is placed without explicit approval.
+* Live broker execution is hard-disabled by default.
+* Swing signals are trade-grade gated.
+* Entry validity is checked.
+* Risk-based position sizing exists.
+* Sector cap exists.
+* Single-stock stacking prevention exists.
+* Liquidity gate exists.
+* Event-risk gate exists or unavailable data forces manual review.
+* Order staging exists.
+* Fast approval exists.
+* Kill switch exists or gap is clearly reported.
+* Cost/slippage model exists.
+* Missed opportunity tracker exists.
+* Tests pass or blockers are clearly reported.
+* Final status is explicit.
+
+====================================================
+IMPORTANT FINAL NOTE
+====================
+
+The goal is not blind automation.
+
+The goal is professional-grade fast execution.
+
+First make the system capable of staging and approving trades safely.
+
+Only after dry-run and staged-approval evidence should we allow small-size auto-live.
+
+If there is any doubt, keep real broker order placement disabled.

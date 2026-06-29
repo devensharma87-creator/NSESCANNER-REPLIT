@@ -90,3 +90,9 @@ id = "K-ZQ4NNeCQVKtBFIep15q"
 uri = "file://exports/indian-stock-scanner-source.zip"
 type = "unspecified"
 title = "Indian Stock Scanner — essential source (runnable)"
+
+[[outputs]]
+id = "5odtXLdPqJe7dNbx6yjjJ"
+uri = "file://.local/website-export/indian-stock-scanner-export-2026-06-29.zip"
+type = "unspecified"
+title = "Indian Stock Scanner — Full Website Export (screenshots + data)"
