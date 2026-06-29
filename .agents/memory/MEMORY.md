@@ -27,3 +27,4 @@
 - [strategyControl.ts protects strategy tables](strategy-control-schema.md) — strategy_definitions + strategy_engine_state recreated in Drizzle schema; without it drizzle-kit push would prompt DROP on next publish.
 - [Equity-swing perf: exclude MANUAL_OVERRIDE](equity-swing-perf-manual-override-contamination.md) — blended paper_trade_eq WR overstates the AUTONOMOUS edge; partition out MANUAL_OVERRIDE and gate scaling on autonomous-only count.
 - [Risk-guard sim netImprovement](risk-guard-sim-net-improvement.md) — scenario netImprovement must equal -(netPnlAvoided); never re-subtract blocked-winner P&L (double-count flips protective scenarios falsely negative).
+- [NaN/Infinity comparisons fail OPEN](nan-comparison-fails-open.md) — fail-closed risk gates must validate finiteness+sign of every numeric input AND config before any threshold compare; NaN>cap is false → fails open.
