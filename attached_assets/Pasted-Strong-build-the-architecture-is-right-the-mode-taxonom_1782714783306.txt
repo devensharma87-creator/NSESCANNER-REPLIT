@@ -1,0 +1,32 @@
+Strong build — the architecture is right, the mode taxonomy is faithfully implemented, and the anti-fabrication discipline is there. But the report has the exact gap I warned about, and you need to close it before you trust a single number this produces. Let me be precise about what's solid and what's unverified.
+What looks genuinely good
+The core design landed correctly: real captured premium with an LTP → mid → BS-from-IV priority per leg, the 5-mode classification, the 60% coverage gate, the real NSE cost model with dated rates (₹20 brokerage, STT 0.05% sell, stamp on buy — those are right), gross/net split in the UI, and the per-trade badges that make modes visually distinct. The DB change was additive (ADD COLUMN IF NOT EXISTS, no drizzle-kit push). The anti-fabrication unit test exists (UNAVAILABLE → null P&L). On paper, this is exactly the Stage 4 you asked for.
+The three things that are NOT verified — and one is critical
+1. The tests never actually ran. Again. The report ends with "Run manually: pnpm --filter @workspace/api-server run test." That's the fourth time a session has shipped without a literal green pass line. For Stage 1–cleanup that was tolerable (type-only changes). For Stage 4 it is not — this is brand-new financial math (a Black-Scholes pricer, put-call parity, cost arithmetic, mode classification) that has never been executed. "30+ unit cases written" is not "30+ unit cases passing." Untested option-pricing code is precisely the kind of thing that's subtly wrong in a way that looks right. You must run the suite yourself in the Replit Shell and confirm the premiumReplay.test.ts cases pass before you believe any ₹ figure.
+2. The scanner typecheck timed out — so the UI half is unverified. The coder got api-server green but "scanner tsc keeps timing out." It asserts the errors aren't new, but it didn't prove the frontend typechecks. The backtest-lab UI changes (badges, cost tooltip, gross/net row) could have a type error sitting in them. Run the scanner typecheck in the Shell too.
+3. There's no sample run on real data. I explicitly asked for Item 8 — "a sample real-replay run on a window you DO have coverage for: mode-mix, coverage %, gross vs net ₹, excluded count." The report doesn't contain it. This is the single most important missing piece, and here's why it matters more than the other two combined:
+
+You do not actually know whether you have any usable captured coverage yet.
+
+Everything in this build is machinery to price trades from option_chain_snapshot data. But nobody has confirmed that table has enough real rows, over a window that overlaps your actual signals, to produce a non-trivial real-replay run. It's entirely possible the first real run comes back "94% UNAVAILABLE" because capture started recently or the 5-min buckets don't line up with signal times. You could have a beautiful pricing engine with almost nothing to price. Until you see one real run with a real mode-mix, Stage 4 is unproven in the only way that counts.
+What to do — in order, before you trust this
+A. Run the tests (Shell tab):
+pnpm --filter @workspace/api-server run test
+Confirm the count went up from 1920 and premiumReplay.test.ts passes. If the BS-pricer or put-call-parity tests fail, the pricing math is wrong and nothing downstream is trustworthy.
+B. Run the scanner typecheck (Shell tab):
+pnpm --filter @workspace/scanner run typecheck
+Confirm green, or capture the errors.
+C. This is the one that matters — check your actual coverage, then do one real run. First, hit the coverage endpoint for a recent window:
+GET /backtest/fno/snapshot-coverage?from=<date>&to=<date>&underlying=NIFTY
+See how far back real snapshots go and what % of buckets are filled. Then run one SNAPSHOT_PREMIUM_REPLAY backtest over a window you have coverage for, and look at the mode-mix. What you're looking for: is a meaningful fraction REAL_CAPTURED_PREMIUM? If it's mostly BLACK_SCHOLES_MODELLED or UNAVAILABLE, the engine works but your archive isn't deep enough yet — which is fine and expected, but you need to know it.
+The prompt to send back
+
+Stage 4 is shipped but unverified on three counts. Before I trust any output, close these — do not declare done until each has literal evidence:
+1. Run the api-server test suite to completion and paste the literal pass line, including the premiumReplay.test.ts results. This is new financial math (Black-Scholes, put-call parity, cost arithmetic) that has never executed. "Tests written" ≠ "tests pass." If you can't get an unbounded run, give me the exact Shell command and mark it owner-run — but it must actually run.
+2. Run the scanner typecheck to completion and confirm green (or list the errors). You reported it "timed out" — that's not a pass. If it's a genuine size/timeout issue, give me the command to run in the Shell.
+3. This is the important one: prove the feature works on real captured data. Query GET /backtest/fno/snapshot-coverage for the widest window with data and report: how far back real snapshots actually go, and what % of 5-min market-hours buckets are populated, per underlying. Then run ONE SNAPSHOT_PREMIUM_REPLAY backtest over a covered window and report the actual result: total trades, the mode-mix (how many REAL_CAPTURED vs REAL_PARTIAL vs BS_MODELLED vs UNAVAILABLE), coverage %, gross ₹, total costs, net ₹, and excluded count. I need to see it work on real data, not just compile. If real coverage is too thin for a meaningful run, say so plainly and tell me the earliest date a real-replay backtest will be statistically usable.
+Do not infer-and-skip on any of these. Literal evidence or an explicit owner-run command for each.
+
+
+The honest status: Stage 4's engine is built and looks well-architected, but it is 0-for-3 on verification, and the one verification that matters most — does it actually price real trades from real data — hasn't been attempted. Don't let the polished summary lull you. The whole reason you built this was to stop trusting numbers you can't trace; apply that exact standard to the feature itself. Run A, B, and C, and the answer to "can I trust my 65% win rate" finally starts becoming knowable — but only after you've seen a real run with a real mode-mix, not before.
+When you've got those three results, send them to me and I'll tell you what they mean for your edge and whether you're ready for Stage 2 or Stage 3 next.
