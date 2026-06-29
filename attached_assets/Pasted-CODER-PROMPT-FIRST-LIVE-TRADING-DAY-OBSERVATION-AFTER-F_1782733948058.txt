@@ -1,0 +1,412 @@
+CODER PROMPT — FIRST LIVE TRADING DAY OBSERVATION AFTER F&O PAPER_BLOCK ACTIVATION
+
+The F&O Paper Auto-Open Risk Guard Pack is now active in production.
+
+Current production verdict from the last safety audit:
+
+`PAPER_BLOCK_ACTIVE_BUT_NEEDS_MONITORING`
+
+Reason:
+
+The guard was activated after market close, so it has not yet processed a real live market session.
+
+This task is a live-session observation and audit task only.
+
+Do not change strategy logic.
+
+Do not change signal scoring.
+
+Do not change thresholds.
+
+Do not change recovery-veto, chase-veto, anti-flip, P25, premiumTrusted, HC emission floor, DD rules, heat cap, dynamic lot sizing, capital ledger, option-chain math, OI/GEX/Greeks, or paper P&L math.
+
+Do not loosen any guard.
+
+Do not disable NIFTY.
+
+Do not remove SENSEX from UI, reports, diagnostics, option-chain, or backtests.
+
+SENSEX must remain visible but blocked only from paper auto-open.
+
+No destructive DB migration.
+
+No fake data.
+
+No secrets in logs.
+
+====================================================
+OBJECTIVE
+=========
+
+Observe the first full live market session after `paper_block` activation and verify:
+
+1. The guard blocks only bad paper auto-open candidates.
+2. BANKNIFTY valid high-premium candidates can still open.
+3. SENSEX signals remain visible but SENSEX paper auto-open is blocked.
+4. NIFTY low-premium / theta-risk / cooldown candidates are blocked correctly.
+5. Skip reasons are honest and visible.
+6. No signal logic was changed.
+7. No production regression occurred.
+
+====================================================
+PART A — PRE-MARKET CHECK, 08:45–09:15 IST
+==========================================
+
+Before market open, verify:
+
+1. Production health:
+
+   * `GET /api/healthz`
+   * Expected: HTTP 200
+
+2. Kite readiness:
+
+   * owner-authenticated `/api/kite/status`
+   * Confirm:
+
+     * session valid
+     * feed connected or ready
+     * market status correct
+     * no expired-session blind spot
+
+3. F&O guard config:
+
+   * `mode = "paper_block"`
+   * `disableSensexPaperAutoOpen = true`
+   * NIFTY min premium = ₹250
+   * BANKNIFTY min premium = ₹500
+   * SENSEX min premium = ₹250
+   * theta DTE <= 5 with low-premium condition
+   * cooldown = 90 minutes
+
+4. UI:
+
+   * Backtest / Replay Diagnostics shows `PAPER-BLOCK MODE`
+   * F&O page does not show stale shadow-only wording as the main state
+   * Any old “shadow simulation” wording is cosmetic only and does not change behavior
+
+Report pre-market status clearly.
+
+====================================================
+PART B — LIVE MARKET OBSERVATION WINDOW
+=======================================
+
+Observe from:
+
+* 09:15 IST to 15:30 IST
+
+At minimum, check these windows:
+
+1. 09:15–09:45
+2. 10:00–11:00
+3. 11:00–12:30
+4. 12:30–14:00
+5. 14:00–15:20
+6. Post-close after 15:30
+
+For each window, capture:
+
+* F&O signals generated
+* valid candidates
+* paper open attempts
+* paper opens allowed
+* paper opens blocked
+* skip reasons
+* guard reasons
+* underlying-wise split:
+
+  * NIFTY
+  * BANKNIFTY
+  * SENSEX
+
+====================================================
+PART C — PAPER_RISK_GUARD_BLOCKED AUDIT
+=======================================
+
+Query / logs / DB must report all blocked candidates.
+
+For each blocked candidate, report:
+
+* timestamp
+* underlying
+* direction
+* option type
+* strike
+* entry premium
+* expiry
+* DTE
+* setupKey / setupName
+* guard reason
+* full explanation
+* whether signal still appeared in UI
+* whether paper trade was correctly not opened
+
+Reason codes expected:
+
+* `SENSEX_DISABLED_BY_REPLAY_DIAGNOSTICS`
+* `LOW_ENTRY_PREMIUM`
+* `NEAR_EXPIRY_THETA_RISK`
+* `SAME_STRIKE_DIRECTION_STOP_COOLDOWN`
+
+If any blocked candidate has missing reason details, report it as an observability bug.
+
+====================================================
+PART D — BANKNIFTY PROTECTION CHECK
+===================================
+
+BANKNIFTY is the most important instrument to preserve.
+
+During the live session, verify:
+
+1. BANKNIFTY signals still generate.
+2. BANKNIFTY valid high-premium candidates are not blocked wrongly.
+3. BANKNIFTY paper auto-open remains possible when guard allows.
+4. No blanket DTE rule blocks good BANKNIFTY trades.
+5. If BANKNIFTY is blocked, the reason is legitimate:
+
+   * low premium
+   * theta-risk low premium
+   * same-strike STOP cooldown
+
+Report:
+
+* BANKNIFTY candidates generated
+* BANKNIFTY candidates allowed
+* BANKNIFTY candidates blocked
+* BANKNIFTY paper trades opened
+* BANKNIFTY guard false positives, if any
+
+Final BANKNIFTY verdict must be one:
+
+* `BANKNIFTY_FLOW_OK`
+* `BANKNIFTY_NO_CANDIDATE_TODAY`
+* `BANKNIFTY_FALSE_BLOCK_FOUND`
+* `BANKNIFTY_NEEDS_ROLLBACK_TO_SHADOW`
+
+If false block found, do not silently patch. Report exact trade and reason.
+
+====================================================
+PART E — SENSEX CONTROL CHECK
+=============================
+
+Verify SENSEX behavior:
+
+1. SENSEX remains visible in F&O signals.
+2. SENSEX option-chain works.
+3. SENSEX diagnostics and backtest still work.
+4. SENSEX paper auto-open is blocked only at paper open stage.
+5. SENSEX blocked reason is clear:
+
+   * `SENSEX_DISABLED_BY_REPLAY_DIAGNOSTICS`
+
+Report:
+
+* SENSEX signals generated
+* SENSEX candidates blocked
+* any SENSEX paper trades opened after activation
+
+Expected:
+
+* SENSEX paper trades opened after activation = 0
+
+If SENSEX paper trade opens, this is a critical bug.
+
+====================================================
+PART F — NIFTY LOW-PREMIUM / COOLDOWN CHECK
+===========================================
+
+Verify NIFTY guard behavior:
+
+1. NIFTY signals still generate.
+2. NIFTY candidates below ₹250 are blocked.
+3. NIFTY high-premium candidates are allowed unless another guard applies.
+4. Same-strike/direction cooldown works after STOP.
+5. Opposite direction or different strike is not wrongly blocked.
+
+Report:
+
+* NIFTY candidates generated
+* NIFTY candidates allowed
+* NIFTY candidates blocked
+* blocked reason split
+* any false positives
+
+Final NIFTY verdict must be one:
+
+* `NIFTY_GUARD_OK`
+* `NIFTY_NO_CANDIDATE_TODAY`
+* `NIFTY_FALSE_BLOCK_FOUND`
+* `NIFTY_NEEDS_CONFIG_REVIEW`
+
+====================================================
+PART G — LIVE PAPER TRADE BOOK AUDIT
+====================================
+
+After market close, audit F&O paper trades.
+
+Report:
+
+1. Open F&O paper trades before session.
+2. New F&O paper trades opened during session.
+3. Closed F&O paper trades during session.
+4. Trade count by underlying.
+5. Trade count by setup.
+6. Trade count by reason:
+
+   * opened
+   * blocked
+   * skipped by other gate
+7. Any SENSEX open after activation.
+8. Any BANKNIFTY valid candidate blocked incorrectly.
+9. Any low-premium NIFTY/SENSEX candidate allowed incorrectly.
+
+Do not manually close or edit trades unless separately approved.
+
+====================================================
+PART H — DAILY SUMMARY / SKIP REASON AUDIT
+==========================================
+
+Check daily F&O summary tables and skip-reason logs.
+
+Report:
+
+* signals_generated
+* valid_candidates
+* trades_opened
+* trades_blocked_by_guard
+* trades_skipped_by_existing_risk
+* top skip reasons
+* top guard reasons
+* per-underlying summary
+
+If daily summary does not separately count guard-blocked candidates, report this as a required observability improvement.
+
+====================================================
+PART I — UI VERIFICATION
+========================
+
+Verify UI after live session:
+
+1. F&O page shows signals / no-signals honestly.
+2. Blocked candidates are not hidden.
+3. Guard reason is visible.
+4. Paper trade book does not show blocked candidates as open trades.
+5. Backtest Lab guard panel still works.
+6. No console errors.
+7. No stale “shadow only” language causes confusion.
+
+Cosmetic issue to note:
+
+Previous audit found some old wording like “Risk Guard Shadow Simulation” or pre-activation advisory still exists. Do not change it during live observation unless it causes serious confusion. Report exact location for a later cleanup prompt.
+
+====================================================
+PART J — LOGGING / SECRET SAFETY
+================================
+
+Review production logs.
+
+Confirm logs include enough for blocked candidates:
+
+* timestamp
+* underlying
+* direction
+* option type
+* strike
+* premium
+* expiry
+* DTE
+* reason code
+* mode = paper_block
+
+Confirm logs do not expose:
+
+* Kite token
+* auth cookie
+* password
+* session secret
+* database URL
+* API secrets
+
+If direction / optionType / strike / expiry are not discrete fields and only appear inside text, report as an observability improvement.
+
+Do not change logs during this task unless there is a critical secret leak.
+
+====================================================
+PART K — TESTS / REGRESSION CHECK
+=================================
+
+Run:
+
+1. Guard unit tests
+2. scanner tests
+3. api-server typecheck
+4. scanner typecheck
+
+If full api-server suite times out due existing environment limit, report exact reason and targeted test results.
+
+Do not hide test failures.
+
+====================================================
+PART L — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Pre-market Kite/data readiness
+2. Production guard config
+3. Live-session signal summary
+4. Guard-blocked candidate list
+5. BANKNIFTY protection result
+6. NIFTY guard result
+7. SENSEX control result
+8. Daily paper trade book audit
+9. Skip reason / daily summary audit
+10. UI verification
+11. Logging verification
+12. Tests run
+13. Any false positives
+14. Any false negatives
+15. Any required rollback
+16. Any observability improvement needed
+17. Final verdict
+
+Final verdict must be exactly one:
+
+* `PAPER_BLOCK_CONFIRMED_SAFE_AFTER_LIVE_SESSION`
+* `PAPER_BLOCK_SAFE_BUT_NEEDS_MORE_DAYS`
+* `PAPER_BLOCK_NEEDS_CONFIG_REVIEW`
+* `ROLLBACK_TO_SHADOW_REQUIRED`
+* `NO_LIVE_CANDIDATES_OBSERVED`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* One live market session is observed.
+* BANKNIFTY allowed path is checked.
+* SENSEX block is checked.
+* NIFTY guard behavior is checked.
+* All blocked candidates are listed.
+* No false block is hidden.
+* No SENSEX paper auto-open occurs.
+* No signal logic is changed.
+* No sizing logic is changed.
+* No capital ledger logic is changed.
+* No destructive DB operation is performed.
+* Final verdict is explicit.
+
+====================================================
+IMPORTANT
+=========
+
+This is observation, not development.
+
+Do not tune thresholds during the trading day.
+
+Do not patch strategy during the trading day.
+
+If a critical bug appears, stop and report before changing anything.
+
+The only acceptable emergency action is rollback to `shadow` if BANKNIFTY is clearly being damaged or SENSEX opens despite disable.
