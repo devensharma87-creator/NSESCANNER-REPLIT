@@ -1,0 +1,355 @@
+CODER PROMPT — PHASE 2: TELEGRAM OWNER ALERT DELIVERY FOR F&O DATA FAILURE + SIGNAL READINESS
+
+Post-deploy verification is complete.
+
+Current verified status:
+
+* `/api/fno/no-signal-gap` works.
+* F&O Kite Session Banner is deployed.
+* F&O Diagnostics Section K is deployed.
+* `DAILY_HISTORY_WARMUP` classification is working.
+* `NO_LIVE_KITE_INTRADAY` classification is working.
+* Owner alert stub exists in `alerting.ts`.
+* Alert stub has 1-hour dedup.
+* Alert stub currently logs WARN only.
+* Telegram/webhook delivery is pending.
+* No F&O logic was changed.
+* No broker execution is enabled.
+
+Now implement Telegram owner alert delivery.
+
+This is alert delivery only.
+
+====================================================
+OBJECTIVE
+=========
+
+Connect Telegram delivery to the existing owner alert stub so the owner receives real-time alerts when F&O becomes blind due to data/session issues.
+
+Primary alert types:
+
+1. Kite session expired.
+2. F&O all indices suppressed due to no live Kite intraday.
+3. Daily history warmup lasting during market hours.
+4. F&O data recovered after reconnect.
+5. No F&O signal gap caused by data issue.
+6. Swing staged-order alert later only if safe and already supported.
+
+Start with F&O data/session alerts only.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not change F&O signal logic.
+
+Do not change F&O thresholds.
+
+Do not change swing logic.
+
+Do not enable live trading.
+
+Do not place real orders.
+
+Do not enable broker execution.
+
+Do not use Yahoo/stale data for trade-grade F&O.
+
+Do not bypass `no_live_kite_intraday`.
+
+Do not fabricate signals.
+
+Do not run destructive DB migrations.
+
+Do not trim or rewrite `replit.md`.
+
+Do not log Telegram bot token or chat ID.
+
+Alert failure must never crash the signal cycle.
+
+Alert delivery must be best-effort and safe.
+
+====================================================
+PART A — TELEGRAM CONFIG
+========================
+
+Use Replit Secrets / environment variables:
+
+* `TELEGRAM_BOT_TOKEN`
+* `TELEGRAM_CHAT_ID`
+
+Rules:
+
+1. If both secrets exist, Telegram delivery is enabled.
+2. If either secret is missing, keep WARN-log stub only.
+3. Never log token.
+4. Never expose chat ID in public API.
+5. Do not hardcode secrets.
+6. Do not add paid WhatsApp integration.
+
+Add config status:
+
+* `TELEGRAM_ENABLED`
+* `TELEGRAM_DISABLED_MISSING_TOKEN`
+* `TELEGRAM_DISABLED_MISSING_CHAT_ID`
+* `TELEGRAM_DISABLED_MISSING_CONFIG`
+
+====================================================
+PART B — ALERT DELIVERY IMPLEMENTATION
+======================================
+
+Update existing `alerting.ts`.
+
+Keep existing behaviour:
+
+* 1-hour dedup
+* structured WARN log
+* no spam loop
+
+Add:
+
+`sendTelegramAlert(event, message, metadata)`
+
+Telegram API:
+
+`https://api.telegram.org/bot<token>/sendMessage`
+
+Payload:
+
+* `chat_id`
+* `text`
+* `parse_mode` optional
+* `disable_web_page_preview: true`
+
+Timeout:
+
+* 5 seconds max
+
+Retry:
+
+* no infinite retry
+* at most 1 retry for transient network failure
+* no retry for invalid token/chat id
+
+Failure behaviour:
+
+* log safe error code only
+* do not throw to caller
+* do not block F&O cycle
+
+====================================================
+PART C — ALERT MESSAGE FORMAT
+=============================
+
+Message must be short, actionable, and professional.
+
+Format:
+
+`🚨 F&O DATA ALERT`
+
+Fields:
+
+* Event
+* Current status
+* Affected indices
+* Suppression reason
+* Last valid F&O signal time
+* Trading-day gap
+* Kite session status
+* Owner action required
+* Dashboard path
+
+Example:
+
+`🚨 F&O DATA ALERT
+Event: F&O signals disabled
+Status: NO_LIVE_KITE_INTRADAY
+Affected: NIFTY, BANKNIFTY, SENSEX
+Last signal: 17-Jun 08:20 IST
+Gap: 9 trading days
+Action: Reconnect Kite/Zerodha
+Dashboard: /options or /fno-diagnostics`
+
+Rules:
+
+1. Do not include secrets.
+2. Do not say “BUY” or “SELL”.
+3. Do not send trade recommendations yet.
+4. Alert must clearly say if this is a data issue, not market condition.
+
+====================================================
+PART D — ALERT TRIGGERS
+=======================
+
+Wire Telegram only to existing alert events first.
+
+Required triggers:
+
+1. `FNO_KITE_SESSION_MISSING`
+2. `FNO_ALL_SUPPRESSED_NO_LIVE_KITE`
+3. `FNO_DAILY_HISTORY_WARMUP`
+4. `FNO_DATA_RECOVERED`
+5. `FNO_SIGNAL_GAP_DATA_RELATED`
+
+If existing events have different names, map carefully and document.
+
+Do not create duplicate alerts every 30 seconds.
+
+Dedup key must include:
+
+* event name
+* severity
+* optionally affected indices
+
+Default dedup window:
+
+* 1 hour
+
+====================================================
+PART E — RECOVERY ALERT
+=======================
+
+Add one recovery alert:
+
+When previous state was data-related suppression and current state becomes F&O data-ready again, send:
+
+`✅ F&O DATA RECOVERED`
+
+Include:
+
+* recovered time
+* indices recovered
+* current bars available
+* signal cycle resumed
+* dashboard path
+
+Do not spam recovery every cycle.
+
+One recovery alert per incident is enough.
+
+====================================================
+PART F — OWNER TEST ENDPOINT
+============================
+
+Add owner-only test endpoint if safe:
+
+`POST /api/alerts/test-telegram`
+
+Behaviour:
+
+* owner-only
+* sends test Telegram message
+* returns delivery status
+* no secrets returned
+* if config missing, returns missing config status
+* rate-limited or deduped
+
+Test message:
+
+`✅ Telegram alert test from Market Scanner. Broker execution remains disabled.`
+
+Do not expose this endpoint to non-owner.
+
+====================================================
+PART G — UI STATUS
+==================
+
+Add Telegram alert status to Admin / Infra Health / F&O Diagnostics if easy and safe.
+
+Show:
+
+* Telegram configured: yes/no
+* last alert event
+* last alert time
+* last alert status
+* delivery failure reason code if any
+
+Do not show token or chat id.
+
+If UI is not easy in this task, backend status is enough and UI can be next phase.
+
+====================================================
+PART H — TESTS
+==============
+
+Add tests for:
+
+1. missing token disables Telegram
+2. missing chat id disables Telegram
+3. both secrets enable Telegram
+4. alert dedup prevents spam
+5. Telegram send success
+6. Telegram send timeout handled safely
+7. Telegram failure does not throw
+8. no token/chat id appears in logs
+9. owner test endpoint is owner-only
+10. non-owner test endpoint returns 401/403
+11. F&O cycle does not crash if Telegram fails
+12. recovery alert sends once
+
+Run:
+
+* api-server typecheck
+* alerting tests
+* F&O reasoning tests if touched
+* scanner typecheck if UI touched
+* scanner tests if UI touched
+
+If full suite is heavy, run scoped tests and explain.
+
+====================================================
+PART I — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Files touched.
+2. Files confirmed untouched.
+3. Telegram config status.
+4. Alert events wired.
+5. Dedup behaviour.
+6. Recovery alert behaviour.
+7. Test endpoint status.
+8. UI status if added.
+9. Tests run.
+10. Remaining blocker.
+11. Exact next action.
+
+Final verdict must be exactly one:
+
+* `TELEGRAM_ALERTS_ENABLED`
+* `TELEGRAM_CODE_READY_SECRETS_PENDING`
+* `TELEGRAM_ALERTS_STUB_RETAINED_CONFIG_MISSING`
+* `TELEGRAM_ALERTS_FAILED_PROVIDER_ERROR`
+* `ROLLBACK_REQUIRED`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* Telegram delivery is implemented safely.
+* Missing secrets do not break the app.
+* Alert failure does not break F&O cycles.
+* 1-hour dedup remains working.
+* No secrets are logged.
+* Owner test endpoint works or config-missing is reported.
+* F&O logic unchanged.
+* Broker execution unchanged.
+* Tests pass or blockers reported.
+* Final verdict explicit.
+
+====================================================
+IMPORTANT
+=========
+
+This task is only for owner alert delivery.
+
+Do not add trade alerts yet.
+
+Do not send buy/sell signals yet.
+
+First prove data/session alerts are reliable.
+
+After this works, we can add swing staged-order alerts and high-quality signal alerts.

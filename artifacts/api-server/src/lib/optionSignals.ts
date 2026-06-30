@@ -1700,6 +1700,13 @@ interface FnoCycleMeta {
 let lastCycleMeta: FnoCycleMeta | null = null;
 
 /**
+ * Recovery alert tracking (process-local).
+ * Set true when all indices are suppressed due to a data/session issue.
+ * Cleared (and FNO_DATA_RECOVERED fired) when the suppression lifts.
+ */
+let prevCycleWasDataSuppressed = false;
+
+/**
  * Returns the metadata from the most recent completed F&O signal cycle,
  * or null if no cycle has run yet. Safe to call at any time — never triggers
  * a new cycle. Consumed by /fno/data-health for intraday bar readiness.
@@ -2660,28 +2667,59 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     "F&O getOptionSignals: cycle complete",
   );
 
-  // Owner alert: fire when ALL configured indices are suppressed and the
-  // dominant reason is a Kite session/data failure (not market conditions).
-  // 1-hour dedup in alertOwner prevents spam across 30s cycles.
-  if (suppressed.length >= OPTION_INDICES.length && out.length === 0) {
+  // Owner alert: fire when ALL configured indices are suppressed due to a
+  // data/session failure. 1-hour dedup in alertOwner prevents spam across 30s cycles.
+  // Recovery alert fires when a previously data-suppressed cycle clears.
+  {
     const allReasons = suppressed.flatMap(s => s.reasons ?? []);
     const hasKiteExpiry = allReasons.some(r => r.includes("no_live_kite_intraday"));
-    const hasHistoryGap = allReasons.some(r =>
-      r.includes("daily_history_unavailable_kite") || r.includes("daily_history_warmup_kite"),
+    const hasHistoryWarmup = allReasons.some(r => r.includes("daily_history_warmup_kite"));
+    const hasHistoryUnavailable = allReasons.some(r =>
+      r.includes("daily_history_unavailable_kite"),
     );
-    if (hasKiteExpiry) {
+    const isAllDataSuppressed =
+      suppressed.length >= OPTION_INDICES.length &&
+      out.length === 0 &&
+      (hasKiteExpiry || hasHistoryWarmup || hasHistoryUnavailable);
+    const affectedIndices = suppressed.map(s => s.index);
+
+    if (suppressed.length >= OPTION_INDICES.length && out.length === 0) {
+      if (hasKiteExpiry) {
+        alertOwner(
+          "FNO_KITE_SESSION_MISSING",
+          "All F&O indices suppressed: Kite session expired or unreachable. No signals until session is renewed.",
+          { affectedIndices, dashboardPath: "/options or /fno-diagnostics", isDataIssue: true },
+        );
+      } else if (hasHistoryWarmup) {
+        alertOwner(
+          "FNO_DAILY_HISTORY_WARMUP",
+          "All F&O indices suppressed: Kite daily history warming up after fresh login. Next cycle retries automatically.",
+          { affectedIndices, dashboardPath: "/fno-diagnostics", isDataIssue: true },
+        );
+      } else if (hasHistoryUnavailable) {
+        alertOwner(
+          "FNO_DAILY_HISTORY_UNAVAILABLE",
+          "All F&O indices suppressed: Kite daily history unavailable. Check /fno-diagnostics data-health.",
+          { affectedIndices, dashboardPath: "/fno-diagnostics", isDataIssue: true },
+        );
+      }
+    }
+
+    // Recovery: previous cycle was data-suppressed, this cycle is not → alert cleared.
+    if (prevCycleWasDataSuppressed && !isAllDataSuppressed) {
+      const recoveredIndices = OPTION_INDICES.map(c => c.symbol);
       alertOwner(
-        "FNO_KITE_SESSION_MISSING",
-        "All F&O indices suppressed: Kite session expired or unreachable. " +
-        "No signals will emit until the session is renewed. Check /fno-diagnostics.",
-      );
-    } else if (hasHistoryGap) {
-      alertOwner(
-        "FNO_DAILY_HISTORY_UNAVAILABLE",
-        "All F&O indices suppressed: Kite daily history unavailable (not warmup). " +
-        "Check /fno-diagnostics data-health.",
+        "FNO_DATA_RECOVERED",
+        `F&O data connection restored. Signal cycle resumed. Indices: ${recoveredIndices.join(", ")}.`,
+        {
+          affectedIndices: recoveredIndices,
+          recoveredAt: new Date().toISOString(),
+          dashboardPath: "/fno-diagnostics",
+          isDataIssue: false,
+        },
       );
     }
+    prevCycleWasDataSuppressed = isAllDataSuppressed;
   }
   // Stamp the last-cycle metadata so /fno/data-health can surface intraday bar
   // readiness without needing to call getOptionSignals() (which would trigger

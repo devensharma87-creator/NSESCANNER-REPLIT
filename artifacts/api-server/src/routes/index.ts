@@ -25,6 +25,7 @@ import fnoRouter from "./fno";
 import backtestRouter from "./backtest";
 import dataRouter from "./data";
 import swingStagingRouter from "./swingStaging";
+import alertsRouter from "./alerts";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
 import { bootstrapKite } from "../lib/kiteFeed";
@@ -61,6 +62,7 @@ router.use(fnoRouter);                  // /fno/* — owner-only READ-ONLY conso
 router.use(backtestRouter);             // /backtest/fno/* — Backtest Lab (owner OR subscriber; ownerKey-scoped) — REAL_REPLAY + DIRECTIONAL honest backtests, no fabricated option data
 router.use(dataRouter);                 // /data/* — owner-only diagnostics for the central market-data layer (trust-tier policy + Kite/INDstocks/Yahoo health + per-symbol probe)
 router.use(swingStagingRouter);         // /swing/* — Phase 2 Swing CASH live-readiness staging + fast-approval queue (broker HARD-DISABLED; reads subscriber+owner, mutations owner-only)
+router.use(alertsRouter);               // /alerts/* — owner-only alert diagnostics (GET /alerts/status) + Telegram test (POST /alerts/test-telegram)
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 // W6-P4A: staggered to the back of the cold-start window (heaviest boot job —
