@@ -17,7 +17,7 @@
  * Sections: A Data Health · B Signal Allowed/Blocked · C Kite/WS/Chain
  * status · D Today · E Gate Waterfall · F No-Trade Reasons · G Setup
  * Performance · H Dormant-Detector warning · I Gross-vs-Net note ·
- * J Premium-target informational note.
+ * J Premium-target informational note · K Signal Gap.
  */
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,7 +62,9 @@ import {
   useFnoNoTradeReasons,
   useFnoSetupPerformance,
   useFnoBlockedSignals,
+  useFnoNoSignalGap,
   type PerIndexHealth,
+  type NoSignalGapResponse,
 } from "@/lib/fno/diagnostics-fetch";
 
 const SEVERITY_LABEL: Record<Severity, string> = {
@@ -158,6 +160,7 @@ export default function FnODiagnosticsPage() {
   const noTrade = useFnoNoTradeReasons(auto);
   const setupPerf = useFnoSetupPerformance(auto);
   const blocked = useFnoBlockedSignals(auto);
+  const gap = useFnoNoSignalGap(true);
 
   function refreshAll() {
     void health.refetch();
@@ -166,6 +169,7 @@ export default function FnODiagnosticsPage() {
     void noTrade.refetch();
     void setupPerf.refetch();
     void blocked.refetch();
+    void gap.refetch();
     setTick((t) => t + 1);
   }
 
@@ -198,6 +202,16 @@ export default function FnODiagnosticsPage() {
   const kiteDbReadCode = (health.data?.kite?.session as { dbReadCode?: string } | undefined)?.dbReadCode;
   const kiteSessionDbFailed =
     kiteDbReadCode === "DB_POOL_CONNECTION_TERMINATED" || kiteDbReadCode === "DB_SESSION_READ_FAILED";
+
+  // ── K. Signal-gap severity ──
+  const gapSeverity: Severity = useMemo(() => {
+    if (gap.isError) return "fail";
+    if (!gap.data) return "unavailable";
+    const g = gap.data as NoSignalGapResponse;
+    if (g.isDataRelatedGap && (g.gapTradingDays ?? 0) > 5) return "fail";
+    if (g.isDataRelatedGap && (g.gapTradingDays ?? 0) > 0) return "warn";
+    return "ok";
+  }, [gap.data, gap.isError]);
 
   return (
     <div className="container mx-auto px-4 py-6 space-y-6 max-w-6xl">
@@ -848,6 +862,99 @@ export default function FnODiagnosticsPage() {
           </p>
           <p>The ATM straddle / expected-move figures above are a direct CE+PE LTP sum, never an approximation.</p>
         </div>
+      </SectionShell>
+
+      {/* ── K. Signal Gap ────────────────────────────────────── */}
+      <SectionShell
+        title="K · Signal Gap"
+        icon={Signal}
+        severity={gapSeverity}
+        description="Last F&O signal dates + Mon–Fri trading-day gap. Identifies data-related outages vs normal market quiet. Trading-day count is Mon–Fri only — no NSE holiday list is maintained server-side."
+        testId="section-signal-gap"
+      >
+        {gap.isError ? (
+          <ErrorNote error={gap.error} />
+        ) : gap.isLoading && !gap.data ? (
+          <div className="text-sm text-muted-foreground">Loading…</div>
+        ) : (() => {
+          const g = gap.data as NoSignalGapResponse | undefined;
+          if (!g) return <div className="text-sm text-muted-foreground">No gap data available.</div>;
+          const lastAny = g.lastSignal?.any;
+          const lastHc  = g.lastSignal?.highConviction;
+          const dist    = g.suppressionReasonDistribution ?? [];
+          return (
+            <div className="space-y-4">
+              {/* Gap summary banner */}
+              {g.isDataRelatedGap && (g.gapTradingDays ?? 0) > 0 && (
+                <div className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+                  <span>
+                    <span className="font-semibold font-mono">{g.gapTradingDays}</span> trading day{g.gapTradingDays !== 1 ? "s" : ""} without a signal ·{" "}
+                    <span className="font-mono">{g.gapReason}</span>
+                  </span>
+                  <span className="ml-auto text-[11px] font-mono text-muted-foreground shrink-0">
+                    DATA ISSUE · NOT MARKET CONDITION
+                  </span>
+                </div>
+              )}
+
+              {/* Last signal table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-muted-foreground border-b">
+                      <th className="py-2 pr-4">Signal type</th>
+                      <th className="py-2 pr-4">Last at (IST)</th>
+                      <th className="py-2">Gap (Mon–Fri days)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="tabular-nums text-sm">
+                    {[
+                      { label: "Any (HC or Baseline)", iso: lastAny, gap: g.gapTradingDays },
+                      { label: "High-Conviction only",  iso: lastHc,  gap: null },
+                      { label: "Paper trade opened",    iso: g.lastSignal?.paperTradeOpen, gap: null },
+                    ].map(({ label, iso, gap: d }) => (
+                      <tr key={label} className="border-b border-border/40">
+                        <td className="py-1.5 pr-4 text-muted-foreground">{label}</td>
+                        <td className="py-1.5 pr-4 font-mono">
+                          {iso
+                            ? new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                            : <Na reason="no signal on record" />}
+                        </td>
+                        <td className="py-1.5">
+                          {d != null ? (
+                            <span className={d > 5 ? "text-rose-400 font-bold" : d > 1 ? "text-amber-400" : ""}>
+                              {d} day{d !== 1 ? "s" : ""}
+                            </span>
+                          ) : <Na />}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Dominant suppression reasons */}
+              {dist.length > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">Dominant suppression reasons (last 30 days):</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {dist.slice(0, 8).map(r => (
+                      <Badge key={r.reasonCode} variant="outline" className="font-mono text-[11px]">
+                        {r.reasonCode} <span className="ml-1 text-muted-foreground">×{r.count}</span>
+                      </Badge>
+                    ))}
+                  </div>
+                  {!g.isDataRelatedGap && (
+                    <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
+                      <Info className="h-3 w-3" /> Reasons are engine/market-condition suppressions, not data infrastructure failures.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </SectionShell>
 
       <p className="text-xs text-muted-foreground text-center">

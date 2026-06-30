@@ -1,6 +1,8 @@
 import type { OptionSignal, SignalReason } from "@workspace/api-zod";
 import type { YahooChart } from "./yahoo";
 import { centralIndexCandles, centralHasIndexCoverage, centralIndexQuotes } from "./marketData/compat";
+import { getActiveSessionStatus } from "./kiteAuth";
+import { alertOwner } from "./alerting";
 import { scoreConfluence, type ConfluenceInputs } from "./confluenceEngine";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
 import { classifyRegime, type RegimeResult } from "./regimeClassifier";
@@ -2280,6 +2282,23 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     logger.warn({ err: (err as Error).message }, "live Kite quote fetch failed; using bar close as spot");
   }
 
+  // For DAILY_HISTORY_WARMUP detection: check session freshness once per cycle.
+  // When the session was established < 5 min ago, a null daily series is likely
+  // a transient cold-start artifact (Kite's historical REST API warms up slightly
+  // after login) rather than a hard failure. Classify separately so the UI shows
+  // "warming up" instead of "error". Fail-open: if session age is unreadable,
+  // sessionAgeMs stays null and we fall through to the normal error path.
+  const SESSION_WARMUP_MS = 5 * 60 * 1000; // 5 minutes
+  let sessionAgeMs: number | null = null;
+  try {
+    const sessionStatus = await getActiveSessionStatus();
+    if (sessionStatus.session?.loginTime) {
+      sessionAgeMs = Date.now() - new Date(sessionStatus.session.loginTime).getTime();
+    }
+  } catch {
+    // fail-open: treat as unknown session age
+  }
+
   for (const cfg of OPTION_INDICES) {
     try {
       // STRICT KITE-ONLY for intraday F&O signal emission (2026-05-06).
@@ -2310,7 +2329,18 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       // degrade — surfaced via MissedSignals so the audit trail is honest.
       const daily = await centralIndexCandles(cfg.yahoo, "day", 180);
       if (!daily) {
-        suppressed.push({ index: cfg.symbol, reasons: [`daily_history_unavailable_kite (Yahoo fallback disabled — F&O is Kite-only)`] });
+        // Distinguish between a fresh-session warmup (transient) and a hard
+        // data failure. Intraday is already confirmed present above, so the
+        // Kite session itself is valid — this is a historical-API warmup lag.
+        const isWarmup = sessionAgeMs !== null && sessionAgeMs < SESSION_WARMUP_MS;
+        suppressed.push({
+          index: cfg.symbol,
+          reasons: [
+            isWarmup
+              ? `daily_history_warmup_kite (session ${Math.round(sessionAgeMs! / 1000)}s old — history API warming up, next cycle retries automatically)`
+              : `daily_history_unavailable_kite (Yahoo fallback disabled — F&O is Kite-only)`,
+          ],
+        });
         continue;
       }
       const r = buildSignalsForIndex(cfg, intra, daily, gateCtx);
@@ -2629,6 +2659,30 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     { signalCount: out.length, indicesWithBars, highConvictionCount, baselineCount, suppressedSummary },
     "F&O getOptionSignals: cycle complete",
   );
+
+  // Owner alert: fire when ALL configured indices are suppressed and the
+  // dominant reason is a Kite session/data failure (not market conditions).
+  // 1-hour dedup in alertOwner prevents spam across 30s cycles.
+  if (suppressed.length >= OPTION_INDICES.length && out.length === 0) {
+    const allReasons = suppressed.flatMap(s => s.reasons ?? []);
+    const hasKiteExpiry = allReasons.some(r => r.includes("no_live_kite_intraday"));
+    const hasHistoryGap = allReasons.some(r =>
+      r.includes("daily_history_unavailable_kite") || r.includes("daily_history_warmup_kite"),
+    );
+    if (hasKiteExpiry) {
+      alertOwner(
+        "FNO_KITE_SESSION_MISSING",
+        "All F&O indices suppressed: Kite session expired or unreachable. " +
+        "No signals will emit until the session is renewed. Check /fno-diagnostics.",
+      );
+    } else if (hasHistoryGap) {
+      alertOwner(
+        "FNO_DAILY_HISTORY_UNAVAILABLE",
+        "All F&O indices suppressed: Kite daily history unavailable (not warmup). " +
+        "Check /fno-diagnostics data-health.",
+      );
+    }
+  }
   // Stamp the last-cycle metadata so /fno/data-health can surface intraday bar
   // readiness without needing to call getOptionSignals() (which would trigger
   // a full cycle refresh from the diagnostics route).

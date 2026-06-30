@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { OptionSignalSet } from "@workspace/api-client-react";
 import type { KiteReadiness } from "@/components/global-status-banner";
-import { deriveFnoEmptyReason, buildFnoIndexRows, FNO_TABLE_INDICES } from "./fnoEmptyState";
+import { deriveFnoEmptyReason, buildFnoIndexRows, deriveSessionBannerState, FNO_TABLE_INDICES } from "./fnoEmptyState";
 
 /**
  * Unit tests for the PURE F&O no-live-data helpers (PART C). Display-only:
@@ -155,5 +155,115 @@ describe("buildFnoIndexRows", () => {
     expect(buildFnoIndexRows(mkSet({ marketState: "closed" }), null)[0]!.state).toBe("Closed");
     expect(buildFnoIndexRows(mkSet({ marketState: "pre_open" }), null)[0]!.state).toBe("Pre-open");
     expect(buildFnoIndexRows(mkSet({}), null)[0]!.state).toBe("—");
+  });
+});
+
+// ─── deriveSessionBannerState ──────────────────────────────────────────────
+
+describe("deriveSessionBannerState", () => {
+  /** All 3 F&O indices suppressed with a specific reason on each. */
+  function mkAllSuppressed(reason: string): OptionSignalSet {
+    return mkSet({
+      marketState: "open",
+      suppressed: FNO_TABLE_INDICES.map((index) => ({ index, reasons: [reason] })),
+    });
+  }
+
+  it("returns show:false when readiness is null (non-owner)", () => {
+    const state = deriveSessionBannerState(mkAllSuppressed("no_live_kite_intraday"), null, null, null);
+    expect(state.show).toBe(false);
+  });
+
+  it("returns show:false when market is closed", () => {
+    const data = mkSet({ marketState: "closed" });
+    const state = deriveSessionBannerState(data, mkReadiness({}), null, null);
+    expect(state.show).toBe(false);
+  });
+
+  it("returns show:false when data is undefined/null", () => {
+    const state = deriveSessionBannerState(undefined as unknown as OptionSignalSet, mkReadiness({}), null, null);
+    expect(state.show).toBe(false);
+  });
+
+  it("returns show:false when fewer than 3 indices are suppressed", () => {
+    const data = mkSet({
+      marketState: "open",
+      suppressed: [{ index: "NIFTY", reasons: ["no_live_kite_intraday"] }],
+    });
+    const state = deriveSessionBannerState(data, mkReadiness({}), null, null);
+    expect(state.show).toBe(false);
+  });
+
+  it("returns show:false when at least one index has a live signal", () => {
+    const data = mkSet({
+      marketState: "open",
+      signals: [{ index: "NIFTY" }],
+      suppressed: [
+        { index: "BANKNIFTY", reasons: ["no_live_kite_intraday"] },
+        { index: "SENSEX",    reasons: ["no_live_kite_intraday"] },
+      ],
+    });
+    const state = deriveSessionBannerState(data, mkReadiness({}), null, null);
+    expect(state.show).toBe(false);
+  });
+
+  it("classifies KITE_SESSION_EXPIRED when all 3 suppressed with no_live_kite_intraday", () => {
+    const state = deriveSessionBannerState(
+      mkAllSuppressed("no_live_kite_intraday (session expired)"),
+      mkReadiness({}), 8, "2026-06-20T09:00:00Z",
+    );
+    expect(state.show).toBe(true);
+    if (!state.show) return;
+    expect(state.kind).toBe("KITE_SESSION_EXPIRED");
+    expect(state.isDataIssue).toBe(true);
+    expect(state.gapTradingDays).toBe(8);
+    expect(state.lastSignalAt).toBe("2026-06-20T09:00:00Z");
+  });
+
+  it("classifies FNO_DATA_WARMING_UP when all 3 suppressed with daily_history_warmup", () => {
+    const state = deriveSessionBannerState(
+      mkAllSuppressed("daily_history_warmup_kite (session 45s old — history API warming up)"),
+      mkReadiness({}), 0, null,
+    );
+    expect(state.show).toBe(true);
+    if (!state.show) return;
+    expect(state.kind).toBe("FNO_DATA_WARMING_UP");
+    expect(state.isDataIssue).toBe(true);
+  });
+
+  it("classifies FNO_ALL_SUPPRESSED for non-data reasons (not marked isDataIssue)", () => {
+    const state = deriveSessionBannerState(
+      mkAllSuppressed("circuit-breaker veto: 2 stops today"),
+      mkReadiness({}), null, null,
+    );
+    expect(state.show).toBe(true);
+    if (!state.show) return;
+    expect(state.kind).toBe("FNO_ALL_SUPPRESSED");
+    expect(state.isDataIssue).toBe(false);
+  });
+
+  it("KITE_SESSION_EXPIRED takes precedence over DAILY_HISTORY_WARMUP in mixed reasons", () => {
+    const data = mkSet({
+      marketState: "open",
+      suppressed: [
+        { index: "NIFTY",     reasons: ["no_live_kite_intraday (session expired)"] },
+        { index: "BANKNIFTY", reasons: ["daily_history_warmup_kite (session 10s)"] },
+        { index: "SENSEX",    reasons: ["no_live_kite_intraday (session expired)"] },
+      ],
+    });
+    const state = deriveSessionBannerState(data, mkReadiness({}), 3, null);
+    expect(state.show).toBe(true);
+    if (!state.show) return;
+    expect(state.kind).toBe("KITE_SESSION_EXPIRED");
+  });
+
+  it("passes through gapTradingDays=null when not provided", () => {
+    const state = deriveSessionBannerState(
+      mkAllSuppressed("no_live_kite_intraday (session expired)"),
+      mkReadiness({}), null, null,
+    );
+    expect(state.show).toBe(true);
+    if (!state.show) return;
+    expect(state.gapTradingDays).toBeNull();
   });
 });

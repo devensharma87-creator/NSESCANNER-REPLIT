@@ -20,7 +20,7 @@ import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Crosshair, Zap, Activity, Layers, Repeat, RotateCcw,
   Clock, CheckCircle2, XCircle, Hourglass, BarChart3, IndianRupee, Eye,
   Download, FileSpreadsheet, CalendarDays, ChevronLeft, ChevronRight,
-  ShieldCheck, Ban, Info,
+  ShieldCheck, Ban, Info, AlertTriangle,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -30,7 +30,96 @@ import type {
 } from "@workspace/api-client-react";
 import { deriveSetupExplanation } from "@/lib/setupExplanation";
 import { useKiteReadiness } from "@/components/global-status-banner";
-import { deriveFnoEmptyReason, buildFnoIndexRows, type FnoIndexRow } from "@/lib/fnoEmptyState";
+import { deriveFnoEmptyReason, buildFnoIndexRows, deriveSessionBannerState, type FnoIndexRow, type FnoBannerState } from "@/lib/fnoEmptyState";
+import { useFnoNoSignalGap } from "@/lib/fno/diagnostics-fetch";
+
+const API_BASE = import.meta.env.BASE_URL;
+
+async function reconnectKite(): Promise<void> {
+  try {
+    const r = await fetch(`${API_BASE}api/kite/login-url`, { credentials: "include" });
+    if (r.ok) {
+      const j = (await r.json()) as { url?: string };
+      if (j?.url) { window.location.href = j.url; return; }
+    }
+  } catch { /* fall through */ }
+  window.location.href = `${API_BASE}kite`;
+}
+
+/**
+ * Owner-only banner shown when all F&O indices are suppressed due to a
+ * Kite data issue (session expired, history warming up, etc.).
+ * Explicitly labels data issues so the owner doesn't mistake them for
+ * a quiet market day.
+ */
+function FnoKiteSessionBanner({ state }: { state: FnoBannerState }) {
+  if (!state.show) return null;
+  const { kind, gapTradingDays, lastSignalAt, isDataIssue } = state;
+
+  type K = "KITE_SESSION_EXPIRED" | "FNO_DATA_WARMING_UP" | "FNO_ALL_SUPPRESSED";
+  const config: Record<K, { title: string; body: string; tone: string; icon: React.ReactNode }> = {
+    KITE_SESSION_EXPIRED: {
+      title: "Kite session expired — no F&O signals",
+      body: "Signals require a live Kite intraday connection. All F&O indices are suppressed. Renew the session to resume.",
+      tone: "border-rose-500/40 bg-rose-500/10",
+      icon: <XCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />,
+    },
+    FNO_DATA_WARMING_UP: {
+      title: "F&O data warming up after login",
+      body: "Kite historical API is initialising after session renewal. Signals resume automatically in the next cycle (~30 s).",
+      tone: "border-amber-500/40 bg-amber-500/10",
+      icon: <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />,
+    },
+    FNO_ALL_SUPPRESSED: {
+      title: "All F&O indices suppressed",
+      body: "Risk gates, circuit breaker, or market conditions are suppressing all setups right now.",
+      tone: "border-amber-500/40 bg-amber-500/10",
+      icon: <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />,
+    },
+  };
+
+  const { title, body, tone, icon } = config[kind];
+
+  return (
+    <div className={`rounded-md border px-4 py-3 text-sm ${tone}`}>
+      <div className="flex items-start gap-2">
+        {icon}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold">{title}</span>
+            {isDataIssue && (
+              <span className="text-[11px] font-mono font-normal text-muted-foreground px-1.5 py-0.5 rounded border border-border/50 shrink-0">
+                DATA ISSUE · NOT MARKET CONDITION
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">{body}</p>
+          <div className="flex items-center gap-4 text-xs mt-1.5 flex-wrap">
+            {typeof gapTradingDays === "number" && gapTradingDays > 0 && (
+              <span className="font-mono">
+                <span className="font-bold">{gapTradingDays}</span>
+                {" "}trading day{gapTradingDays !== 1 ? "s" : ""} without a signal
+              </span>
+            )}
+            {lastSignalAt && (
+              <span className="text-muted-foreground">
+                Last signal {formatDistanceToNow(new Date(lastSignalAt), { addSuffix: true })}
+              </span>
+            )}
+            {kind === "KITE_SESSION_EXPIRED" && (
+              <button
+                onClick={() => void reconnectKite()}
+                className="ml-auto underline font-semibold shrink-0 hover:opacity-80"
+              >
+                Reconnect Kite →
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const SETUP_ICON: Record<string, React.ReactNode> = {
   TREND_CONTINUATION: <Zap className="w-4 h-4" />,
@@ -614,6 +703,13 @@ export default function OptionsPage() {
     query: { refetchInterval: 30000, queryKey: getGetOptionSignalsQueryKey() },
   });
   const readiness = useKiteReadiness();
+  const noSignalGap = useFnoNoSignalGap(readiness !== null);
+  const bannerState = deriveSessionBannerState(
+    data,
+    readiness,
+    noSignalGap.data?.gapTradingDays,
+    noSignalGap.data?.lastSignal?.any,
+  );
   useTriggerToasts(data?.signals);
 
   const grouped = useMemo(() => {
@@ -678,6 +774,12 @@ export default function OptionsPage() {
       </div>
 
       <TradingViewAlerts />
+
+      {/* Kite session / data-gap banner — owner-only, shows when all F&O
+          indices are suppressed due to a data issue so the owner knows
+          immediately it is NOT a market condition. Non-owners see nothing
+          (readiness is null → bannerState.show is false). */}
+      <FnoKiteSessionBanner state={bannerState} />
 
       {/* Phase-1 quality-gate status banner. Honest explanation for why
           the live tab may be empty (or thinned out) on the current

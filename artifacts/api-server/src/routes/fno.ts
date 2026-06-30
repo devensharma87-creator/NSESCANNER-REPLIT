@@ -17,7 +17,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, paperTradeFoTable } from "@workspace/db";
 import { requireOwner } from "../lib/userAuth";
 import {
@@ -49,6 +49,7 @@ import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics } from "../lib/optionAnalytics";
 import { OPTION_INDICES, getLastFnoCycleState } from "../lib/optionSignals";
 import { istDateOf } from "../lib/paperDailySummaryFo";
+import { alertOwner } from "../lib/alerting";
 
 const router: IRouter = Router();
 
@@ -379,6 +380,123 @@ router.get("/fno/diagnostics/blocked-signals", requireOwner, async (req, res, ne
     const capN = Number((req.query as Record<string, unknown>).cap);
     const cap = Number.isFinite(capN) && capN > 0 ? Math.floor(capN) : BLOCKED_EVENTS_DEFAULT_CAP;
     return res.json({ filters, blocked: buildBlockedSignalsReview(rows, cap) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * Count Mon–Fri days strictly between `from` (exclusive) and `to` (inclusive
+ * date-portion). Honest: no NSE public holiday list is maintained server-side.
+ */
+function countTradingDays(from: Date, to: Date): number {
+  let count = 0;
+  const cursor = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const end    = new Date(to.getFullYear(),   to.getMonth(),   to.getDate());
+  while (cursor < end) {
+    cursor.setDate(cursor.getDate() + 1);
+    const day = cursor.getDay(); // 0=Sun, 6=Sat
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+}
+
+/**
+ * GET /fno/no-signal-gap — last F&O signal dates + Mon-Fri trading-day gap
+ * + dominant suppression reason distribution (last 30 calendar days).
+ *
+ * Owner-only. Lets the owner distinguish between a data/infra issue and a
+ * normal market-conditions quiet period. Does not change any signal or trade.
+ *
+ * Trading-day count is Mon–Fri only — no NSE public holiday adjustment
+ * (honest: we do not maintain a server-side holiday list).
+ */
+router.get("/fno/no-signal-gap", requireOwner, async (_req, res, next) => {
+  try {
+    const now = new Date();
+
+    // Last signal dates per tier from option_signal_history
+    const lastSignalRows = await db.execute(sql`
+      SELECT
+        MAX(generated_at)                                                AS last_any,
+        MAX(CASE WHEN tier = 'HIGH_CONVICTION' THEN generated_at END)   AS last_hc,
+        MAX(CASE WHEN tier = 'BASELINE'        THEN generated_at END)   AS last_baseline
+      FROM option_signal_history
+    `);
+    const r0 = (lastSignalRows.rows[0] ?? {}) as Record<string, unknown>;
+    const lastAny      = r0["last_any"]      ? new Date(r0["last_any"]      as string) : null;
+    const lastHc       = r0["last_hc"]       ? new Date(r0["last_hc"]       as string) : null;
+    const lastBaseline = r0["last_baseline"] ? new Date(r0["last_baseline"] as string) : null;
+
+    // Last paper-trade open date
+    const lastTradeRows = await db.execute(sql`
+      SELECT MAX(opened_at) AS last_open FROM paper_trade_fo
+    `);
+    const t0 = (lastTradeRows.rows[0] ?? {}) as Record<string, unknown>;
+    const lastTradeOpen = t0["last_open"] ? new Date(t0["last_open"] as string) : null;
+
+    // Mon–Fri gap from last-signal date to today
+    const gapTradingDays = lastAny != null ? countTradingDays(lastAny, now) : null;
+
+    // Dominant suppression reason in the last 30 days
+    const reasonRows = await db.execute(sql`
+      SELECT reason_code, COUNT(*) AS cnt
+      FROM fno_signal_reasoning
+      WHERE decision = 'PRE_EMISSION_REJECTED'
+        AND captured_at >= NOW() - INTERVAL '30 days'
+      GROUP BY reason_code
+      ORDER BY cnt DESC
+      LIMIT 10
+    `);
+    const topReason = ((reasonRows.rows[0] ?? {}) as Record<string, unknown>)["reason_code"] as string ?? null;
+
+    // Map to a stable UI-facing gap reason code
+    let gapReason: string;
+    if (!lastAny) {
+      gapReason = "NO_SIGNALS_EVER";
+    } else if (topReason === "NO_LIVE_KITE_INTRADAY") {
+      gapReason = "NO_SIGNALS_KITE_SESSION_EXPIRED";
+    } else if (topReason === "DAILY_HISTORY_UNAVAILABLE" || topReason === "DAILY_HISTORY_WARMUP") {
+      gapReason = "NO_SIGNALS_DAILY_HISTORY_GAP";
+    } else if (topReason === "MARKET_CLOSED") {
+      gapReason = "NO_SIGNALS_MARKET_CLOSED";
+    } else if (gapTradingDays !== null && gapTradingDays <= 1) {
+      gapReason = "WITHIN_NORMAL_RANGE";
+    } else if (topReason) {
+      gapReason = "NO_SIGNALS_ENGINE_SUPPRESSED";
+    } else {
+      gapReason = "NO_SIGNALS_REASON_UNKNOWN";
+    }
+
+    const isDataRelatedGap = [
+      "NO_SIGNALS_KITE_SESSION_EXPIRED",
+      "NO_SIGNALS_DAILY_HISTORY_GAP",
+    ].includes(gapReason);
+
+    // Alert when gap is data-related and spans at least one trading day
+    if (isDataRelatedGap && gapTradingDays !== null && gapTradingDays > 0) {
+      alertOwner(
+        "FNO_DATA_GAP_DETECTED",
+        `F&O signal gap: ${gapTradingDays} trading day(s) without a signal. Reason: ${gapReason}.`,
+      );
+    }
+
+    return res.json({
+      generatedAt: now.toISOString(),
+      lastSignal: {
+        any:           lastAny?.toISOString()       ?? null,
+        highConviction: lastHc?.toISOString()       ?? null,
+        baseline:    lastBaseline?.toISOString()    ?? null,
+        paperTradeOpen: lastTradeOpen?.toISOString() ?? null,
+      },
+      gapTradingDays,
+      gapReason,
+      isDataRelatedGap,
+      suppressionReasonDistribution: (reasonRows.rows as Array<Record<string, unknown>>).map(r => ({
+        reasonCode: r["reason_code"] as string,
+        count:      Number(r["cnt"]),
+      })),
+    });
   } catch (err) {
     return next(err);
   }

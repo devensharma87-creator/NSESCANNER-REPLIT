@@ -228,3 +228,35 @@ export function useFnoBlockedSignals(auto: boolean) {
     ...commonOptions(auto),
   });
 }
+
+// ── no-signal gap ─────────────────────────────────────────────────────────────
+
+export interface NoSignalGapResponse {
+  generatedAt: string;
+  lastSignal: {
+    any: string | null;
+    highConviction: string | null;
+    baseline: string | null;
+    paperTradeOpen: string | null;
+  };
+  gapTradingDays: number | null;
+  gapReason: string;
+  isDataRelatedGap: boolean;
+  suppressionReasonDistribution: Array<{ reasonCode: string; count: number }>;
+}
+
+/**
+ * Owner-only: last F&O signal dates + trading-day gap + dominant suppression reason.
+ * Only enabled when `enabled=true` (pass `readiness !== null` to restrict to owners).
+ * Refetches every 2 minutes — not a live metric, just orientation.
+ */
+export function useFnoNoSignalGap(enabled: boolean) {
+  return useQuery({
+    queryKey: ["fno-diagnostics", "no-signal-gap"],
+    queryFn: () => fetchJson<NoSignalGapResponse>("/api/fno/no-signal-gap"),
+    enabled,
+    staleTime: 60_000,
+    refetchInterval: enabled ? 120_000 : (false as const),
+    retry: 1,
+  });
+}

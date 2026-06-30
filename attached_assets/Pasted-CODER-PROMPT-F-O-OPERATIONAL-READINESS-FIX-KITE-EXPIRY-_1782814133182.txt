@@ -1,0 +1,300 @@
+CODER PROMPT — F&O OPERATIONAL READINESS FIX: KITE EXPIRY BANNER, NO-SIGNAL COUNTER, DAILY HISTORY WARMUP, OWNER ALERTS
+
+The F&O Signal Gap Audit is complete.
+
+Root cause confirmed:
+
+The index charts from 15.06.2026 to 30.06.2026 showed strong market movement.
+The system did not generate useful F&O signals because Kite session expired around 17.06.2026 and was not renewed until 30.06.2026.
+The engine correctly failed-closed with no_live_kite_intraday.
+No F&O signal logic bug was confirmed.
+No formula bug was confirmed.
+No high-conviction threshold issue was confirmed.
+No paper_block guard issue was confirmed.
+No threshold or scoring change is needed right now.
+
+What was already done:
+
+no_live_kite_intraday is now classified as NO_LIVE_KITE_INTRADAY.
+daily_history_unavailable_kite is now classified as DAILY_HISTORY_UNAVAILABLE.
+Tests pass.
+Full forensic report exists.
+
+Now we need operational hardening so this problem never stays hidden again.
+
+Add professional F&O operational readiness visibility and alerting.
+
+The system must clearly tell the owner:
+
+Kite session expired.
+F&O signals are disabled because live Kite intraday data is unavailable.
+No F&O signal has been generated for N trading days.
+Daily history is temporarily warming up after fresh login.
+Action required: reconnect Zerodha / Kite before market.
+No signal does not mean “market has no opportunity” when data is unavailable.
+
+This is an observability and operational-safety task only.
+
+Do not change F&O signal logic.
+
+Do not change F&O thresholds.
+
+Do not change high-conviction scoring.
+
+Do not change paper_block guards.
+
+Do not change swing engine.
+
+Do not enable live trading.
+
+Do not place real orders.
+
+Do not use Yahoo/stale/untrusted data for F&O trade-grade signals.
+
+Do not bypass no_live_kite_intraday.
+
+Do not fabricate candles.
+
+Do not run destructive DB migrations.
+
+Do not trim or rewrite replit.md.
+
+This task is only about readiness, visibility, warning, and owner action.
+
+Add a clear banner on F&O-related pages when Kite session is expired or unreadable.
+
+Pages:
+
+F&O Intraday
+F&O Diagnostics
+Paper Trading F&O section if applicable
+Infra Health
+Status/Admin
+
+Banner states:
+
+KITE_SESSION_ACTIVE
+KITE_SESSION_EXPIRES_SOON
+KITE_SESSION_EXPIRED
+KITE_SESSION_DB_READ_FAILED
+FNO_SIGNALS_DISABLED_NO_LIVE_KITE
+FNO_DATA_WARMING_UP_AFTER_LOGIN
+
+Required banner message examples:
+
+Kite session expired — F&O signals are disabled safely. Reconnect Zerodha to resume live F&O signals.
+Kite connected, but F&O intraday bars are unavailable — no trade-grade F&O signals will be generated.
+Fresh Kite login detected — daily history is warming up. Next signal cycle will retry automatically.
+
+Banner must show:
+
+Kite login status
+expiry time
+last successful F&O signal date/time
+current suppression reason
+number of trading days since last valid F&O signal
+owner action needed
+
+Add a professional no-signal duration counter.
+
+Calculate:
+
+last F&O signal generated date
+last high-conviction signal date
+last baseline/INFO_ONLY signal date
+last paper trade open date
+current trading days since last F&O signal
+suppression reason distribution during gap
+
+Show:
+
+No F&O signals for X trading days
+
+But classify reason:
+
+NO_SIGNALS_BECAUSE_NO_LIVE_KITE
+NO_SIGNALS_BECAUSE_MARKET_CHOPPY
+NO_SIGNALS_BECAUSE_DATA_WARMUP
+NO_SIGNALS_BECAUSE_OPTION_DATA_MISSING
+NO_SIGNALS_BECAUSE_ENGINE_SUPPRESSED
+NO_SIGNALS_REASON_UNKNOWN
+
+Important:
+
+If the reason is data-related, UI must not imply the market had no opportunity.
+
+It should say:
+
+No F&O signal due to data availability, not necessarily due to market condition.
+
+Implement the planned improvement:
+
+If:
+
+fresh Kite login happened recently, and
+15-minute intraday bars are available, but
+180-day daily history is temporarily unavailable within first 5 minutes after login,
+
+then classify as:
+
+DAILY_HISTORY_WARMUP
+
+instead of hard error.
+
+Rules:
+
+Do not generate tradeable signal without required daily history.
+Do not use stale daily history.
+Do not use Yahoo fallback.
+Retry automatically on next 30-second cycle.
+Show warmup state clearly in UI.
+
+Expected message:
+
+Kite reconnected. Daily history is warming up; F&O signals will retry automatically.
+
+Add or improve a Market Open Readiness check.
+
+Before 09:15 IST, system should verify:
+
+Kite session active
+Kite expiry valid
+Kite REST quote working
+Kite historical daily working
+Kite 15-minute intraday working
+NIFTY token resolved
+BANKNIFTY token resolved
+SENSEX token resolved
+option-chain legs available
+F&O cycle ready
+scanner source fresh
+
+Output state:
+
+READY_FOR_FNO
+EQUITY_ONLY_READY
+KITE_LOGIN_REQUIRED
+FNO_DATA_DEGRADED
+OPTION_CHAIN_DEGRADED
+DB_SESSION_READ_FAILED
+
+Show this on Infra Health and F&O Diagnostics.
+
+Add alert hook only if existing alert/notification infrastructure exists.
+
+If no infrastructure exists, create a small interface/stub and report as Phase 2.
+
+Alert events:
+
+Kite session expired during market hours.
+Kite session expires before next market open.
+F&O suppressed for more than 1 trading day due to NO_LIVE_KITE_INTRADAY.
+F&O data recovered after reconnect.
+Daily history warmup lasting more than 5 minutes.
+No F&O signal for N days due to data issue.
+
+Telegram should be preferred first.
+
+WhatsApp should be later only through a reliable approved provider.
+
+Do not add paid WhatsApp integration without approval.
+
+Alert message must include:
+
+issue
+current status
+last valid F&O signal time
+action required
+dashboard link if available
+
+Example:
+
+F&O signals disabled: Kite session expired. Last valid signal: 17-Jun 11:10 IST. Reconnect Zerodha to resume trade-grade F&O signals.
+
+Infra Health must clearly separate:
+
+Kite session
+Kite REST
+Kite WebSocket
+F&O daily history
+F&O intraday bars
+option-chain legs
+signal cycle status
+no-signal duration
+trade permission state
+
+Trade permission states:
+
+FNO_TRADE_READY
+FNO_INFO_ONLY
+FNO_DISABLED_KITE_SESSION
+FNO_DISABLED_NO_INTRADAY
+FNO_DISABLED_DAILY_HISTORY
+FNO_DISABLED_OPTION_CHAIN
+FNO_DISABLED_UNKNOWN
+
+Do not show a green state just because Kite WebSocket is connected.
+
+Add tests for:
+
+no_live_kite_intraday maps to no-live-Kite state.
+daily_history_unavailable_kite maps to daily-history state.
+fresh login + daily history unavailable maps to DAILY_HISTORY_WARMUP.
+expired Kite session shows F&O disabled banner.
+no-signal duration counter counts trading days correctly.
+no-signal duration excludes weekends/market holidays if calendar available.
+UI does not show “market no opportunity” when reason is data issue.
+owner alert generated for Kite expiry.
+owner alert not duplicated repeatedly.
+no F&O trade signal generated during warmup.
+
+Run:
+
+api-server typecheck
+relevant F&O tests
+scanner typecheck if UI touched
+scanner tests if UI touched
+
+If full suite is heavy, run scoped tests and report honestly.
+
+Final report must include:
+
+Files touched.
+Files confirmed untouched.
+Banner states added.
+No-signal counter logic.
+Daily history warmup logic.
+Readiness check output.
+Alert status.
+Infra Health changes.
+Tests run.
+Screenshots or endpoint output if UI changed.
+Any blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+FNO_OPERATIONAL_READINESS_FIXED
+FNO_READINESS_UI_DONE_ALERTS_PENDING
+FNO_ALERTS_STUBBED_PROVIDER_PENDING
+FNO_WARMUP_LOGIC_DONE_NEEDS_LIVE_PROOF
+BLOCKED_BY_PROVIDER_OR_AUTH
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+owner can clearly see Kite expiry/session issue
+owner can see why F&O signals are disabled
+no-signal duration is visible
+daily history warmup is classified
+data-related no-signal state is not confused with market condition
+no signal logic is changed
+no unsafe fallback is introduced
+tests pass or blockers are reported
+final verdict is explicit
+
+The market moved but the system had no signal because Kite was unavailable.
+
+That is acceptable only if the system loudly tells the owner in real time.
+
+A professional trading tool must never silently stay blind for 12 trading days.
