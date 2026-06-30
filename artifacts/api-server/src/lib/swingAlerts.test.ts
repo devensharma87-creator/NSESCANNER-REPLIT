@@ -163,6 +163,34 @@ describe("buildSwingOrderText — message format", () => {
     const text = buildSwingOrderText("SWING_ORDER_STAGED", makeRow({ brokerStatus: "DRY_RUN" }));
     expect(text).toContain("Broker execution DISABLED");
   });
+
+  // ── Data-source honesty ──────────────────────────────────────────────────────
+
+  it("labels data line as 'Risk eval:' not bare 'Data: kite'", () => {
+    const text = buildSwingOrderText("SWING_ORDER_STAGED", makeRow());
+    // Must NOT say bare "Data: kite" — that can imply the entry price IS the Kite price
+    expect(text).not.toMatch(/^Data: kite$/m);
+    // Must say "Risk eval:" to clarify this is the risk-evaluation data source
+    expect(text).toContain("Risk eval:");
+  });
+
+  it("includes a note that entry is the staged limit order price", () => {
+    const text = buildSwingOrderText("SWING_ORDER_STAGED", makeRow());
+    expect(text).toContain("staged limit order price");
+    expect(text).toContain("not current market price");
+  });
+
+  it("APPROVAL_REQUIRED message also carries the limit-price note", () => {
+    const text = buildSwingOrderText("SWING_ORDER_APPROVAL_REQUIRED", makeRow());
+    expect(text).toContain("Risk eval:");
+    expect(text).toContain("staged limit order price");
+  });
+
+  it("EXPIRED message also carries the limit-price note", () => {
+    const text = buildSwingOrderText("SWING_ORDER_EXPIRED", makeRow());
+    expect(text).toContain("Risk eval:");
+    expect(text).toContain("staged limit order price");
+  });
 });
 
 // ── buildSwingBlockedText ─────────────────────────────────────────────────────

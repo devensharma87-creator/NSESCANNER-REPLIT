@@ -1,0 +1,337 @@
+CODER PROMPT — POST-PUBLISH VERIFICATION: SWING MANUAL EXPIRE ALERT FIX + PRICING DISCREPANCY CHECK
+
+The Swing staged-order Telegram alert system was implemented and verified in dev.
+
+A real gap was found and fixed:
+
+manuallyExpireSwingOrder was not firing SWING_ORDER_EXPIRED.
+TTL expiry path already fired expiry alert.
+Manual expiry path is now fixed.
+Dev verification showed manual expire now produces lastSwingAlert.event = SWING_ORDER_EXPIRED with telegramStatus: SENT.
+
+Now production must be verified after publish.
+
+Also verify a pricing/message discrepancy seen in Telegram test alerts.
+
+Two Telegram swing alert messages were received:
+
+Signal 1:
+
+Event: Order staged for approval [SAMPLE]
+Symbol: RELIANCE
+Setup: Breakout_Swing_Long
+Entry: ₹2,450.00
+SL: ₹2,350.00
+Target 1: ₹2,650.00 Target 2: ₹2,800.00
+R:R: 2.00 Qty: 10 Risk: 0.50%
+Capital: ₹24,500.00 Max Risk: ₹1,000.00
+Sector: Energy
+Data: kite (sample data — not a real order)
+Status: Broker execution DISABLED
+Action: Review in Swing Live Queue
+
+Signal 2:
+
+Event: Manual approval required
+Symbol: RELIANCE
+Setup: VERIFY_ALERT_TEST
+Entry: ₹1,400.00
+SL: ₹1,344.00
+Target 1: ₹1,512.00 Target 2: ₹1,568.00
+R:R: 2.00 Qty: 3 Risk: 0.17%
+Capital: ₹4,200.00 Max Risk: ₹168.00
+Sector: Energy
+Data: kite (as of 30 Jun, 19:06 IST)
+Status: Broker execution DISABLED
+Action: Review in Swing Live Queue
+
+Problem:
+
+Signal 1 is clearly marked [SAMPLE], so sample pricing is acceptable.
+Signal 2 is not clearly marked as sample, but RELIANCE entry is shown as ₹1,400.
+This may be a manually created test row, but the message says Data: kite, which can mislead the owner into thinking the price is a real Kite market price.
+If this is a test row, it must clearly say TEST ORDER — NOT REAL MARKET PRICE.
+If this is a real staged order, the price must match the staged order DB row and must be traceable to fresh Kite data.
+
+This must be checked and corrected before calling production swing alerts fully verified.
+
+Verify in production that the Swing staged-order Telegram alert system is fully safe and complete, including:
+
+Manual-expire alert fix.
+Swing staged-order alert delivery.
+Test/sample alert labelling.
+Real staged-order pricing accuracy.
+Data source/freshness honesty.
+Broker execution disabled.
+No real order placement.
+
+This is verification and correction only.
+
+Do not add unrelated features.
+
+Do not change swing scoring.
+
+Do not change entry/SL/target formula unless a formatting/source bug is found.
+
+Do not change risk thresholds.
+
+Do not change F&O logic.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not send buy/sell trade recommendation spam.
+
+Do not trim or rewrite replit.md.
+
+Report:
+
+production deployment timestamp
+commit/hash
+API health
+frontend health
+server start time
+alert routes mounted
+swing staging routes mounted
+/alerts/status includes lastSwingAlert
+/alerts/test-swing-staged-order exists
+
+If missing, report:
+
+SWING_ALERT_FIX_NOT_DEPLOYED
+
+Verify unauthenticated access:
+
+GET /api/alerts/status
+POST /api/alerts/test-swing-staged-order
+swing staging endpoints
+
+Expected:
+
+unauthenticated request rejected
+no data leakage
+no secret leakage
+
+Verify owner access:
+
+owner can read status
+owner can send test alert
+immediate second test alert is rate-limited/deduped
+
+Call:
+
+POST /api/alerts/test-swing-staged-order
+
+Expected:
+
+telegramStatus: SENT
+message arrives in Telegram
+message must clearly say [SAMPLE] or TEST ALERT
+message must clearly say not a real order
+message must clearly say broker execution disabled
+no real order
+no DB write unless intentionally using a safe test row
+
+If test/sample data is used, the message must not say or imply that the price is real live Kite data.
+
+Acceptable sample data wording:
+
+Data: sample data — not a real order
+
+or
+
+Data: TEST ONLY — not live market price
+
+Not acceptable for sample/test endpoint:
+
+Data: kite without clear test/sample warning.
+
+Only if safe.
+
+Preconditions:
+
+LIVE_CASH_SWING_ORDER_ENABLED=false
+broker execution disabled
+staging table exists
+owner auth available
+test staged order can be expired/cancelled
+no real broker order can be placed
+
+Create one safe test staged order.
+
+Verify:
+
+row created
+status is STAGED or APPROVAL_REQUIRED
+broker status is BROKER_DISABLED
+broker order id is null
+Telegram alert is sent
+/alerts/status.lastSwingAlert updates
+
+Message must include:
+
+symbol
+setup
+entry
+SL
+target
+R
+quantity
+capital
+max risk
+data source
+data timestamp/freshness
+broker disabled status
+
+For the real staged-order alert, verify every price shown in Telegram against the source of truth.
+
+Check these values:
+
+symbol
+exchange
+entry
+LTP/CMP if available
+SL
+target 1
+target 2
+R
+quantity
+capital
+max risk
+risk percentage
+sector
+data source
+data as-of time
+
+For each field, report:
+
+value in Telegram
+value in DB staged row
+value from candidate object/source payload
+value from Kite if claimed as Kite
+whether it matches
+
+Rules:
+
+If price comes from DB staged row, say Data: staged order snapshot.
+If price comes from fresh Kite quote, say Data: Kite fresh as of <time>.
+If price is manually mocked, say Data: TEST ORDER — not real market price.
+Do not label mocked or manual test pricing as Kite.
+Do not label stale pricing as fresh.
+Do not show unrealistic RELIANCE entry like ₹1,400 as live Kite data unless it is actually verified from source.
+If a test row is used, the setup name should clearly include TEST and message must clearly say not a real market signal.
+
+If mismatch is found, fix the alert formatter/source label only.
+
+Do not change swing trading logic.
+
+Use the same test staged order.
+
+Call manual expire endpoint.
+
+Verify:
+
+order status becomes EXPIRED
+Telegram alert event is SWING_ORDER_EXPIRED
+telegramStatus: SENT
+/alerts/status.lastSwingAlert.event = SWING_ORDER_EXPIRED
+no real broker order exists
+no duplicate spam
+
+This is the main fix being production-verified.
+
+Verify code wiring for:
+
+SWING_ORDER_STAGED
+SWING_ORDER_APPROVAL_REQUIRED
+SWING_ORDER_EXPIRED from TTL expiry
+SWING_ORDER_EXPIRED from manual expiry
+SWING_ORDER_REJECTED
+SWING_ORDER_APPROVED_DRY_RUN
+SWING_ORDER_BLOCKED_BY_RISK
+
+Do not force every event in production unless safe.
+
+Code inspection is acceptable for non-tested events.
+
+Confirm:
+
+broker execution disabled
+no real order placed
+no broker order id from real broker
+F&O signal logic untouched
+swing scoring untouched
+swing formulas untouched unless alert-label bug fix required
+risk thresholds untouched
+no buy/sell recommendation alerts
+no WhatsApp added
+no destructive DB changes
+no sample/test price labelled as live Kite
+
+Run:
+
+api-server typecheck
+scanner typecheck if frontend touched
+swing alert tests
+alerting tests
+swing staging tests if touched
+
+Add/adjust tests if required for:
+
+sample alert clearly says sample/test
+test endpoint does not label sample data as Kite
+real staged-order alert uses staged row values
+mocked test row cannot be labelled as live Kite
+manual expire alert fires
+
+If full suite is heavy, run scoped tests and report honestly.
+
+Final report must include:
+
+Deployment verification.
+Auth/rate-limit result.
+Test alert result.
+Real staged-order alert result.
+Pricing discrepancy investigation.
+Whether RELIANCE ₹1,400 was sample/manual/test or real Kite-derived value.
+What was fixed, if anything.
+Manual expire alert fix result.
+/alerts/status.lastSwingAlert result.
+Event hook coverage.
+Broker execution status.
+Tests run.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+SWING_STAGED_ALERTS_PROD_VERIFIED
+SWING_MANUAL_EXPIRE_ALERT_FIX_VERIFIED
+SWING_ALERT_PRICING_LABEL_FIXED_AND_VERIFIED
+SWING_ALERT_PRICE_MISMATCH_FOUND_NEEDS_FIX
+SWING_ALERT_FIX_NOT_DEPLOYED
+SWING_ALERTS_PROD_CONFIG_ERROR
+SWING_ALERTS_PROD_PROVIDER_ERROR
+SWING_STAGED_ALERT_SKIPPED_UNSAFE_TO_TEST
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production build is verified
+Telegram test message works
+test/sample message is clearly labelled
+real staged-order alert works if safe
+Telegram price fields are checked against source
+no sample/manual test price is labelled as live Kite
+manual expire alert works
+broker execution remains disabled
+no real order is placed
+tests/typechecks pass
+final verdict is explicit
+
+This is the final production verification for Swing staged-order alerts.
+
+Do not start F&O signal alerts until this passes.
+
+The main thing to verify now is not only whether Telegram sends, but whether the alert data is truthful, source-honest, and not misleading.

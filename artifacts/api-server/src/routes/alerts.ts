@@ -79,7 +79,7 @@ router.post("/alerts/test-swing-staged-order", requireOwner, async (_req, res, n
       "R:R: 2.00  Qty: 10  Risk: 0.50%",
       "Capital: \u20B924,500.00  Max Risk: \u20B91,000.00",
       "Sector: Energy",
-      "Data: kite (sample data \u2014 not a real order)",
+      "Risk eval: kite (sample data \u2014 not a real order)",
       "Status: Broker execution DISABLED",
       "Action: Review in Swing Live Queue",
     ].join("\n");

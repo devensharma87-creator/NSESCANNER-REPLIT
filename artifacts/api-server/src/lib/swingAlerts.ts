@@ -107,7 +107,8 @@ export function buildSwingOrderText(event: string, row: SwingOrderStagingRow): s
     `R:R: ${rr}  Qty: ${row.quantity}  Risk: ${row.riskPercent.toFixed(2)}%`,
     `Capital: ${inr(row.capitalRequired)}  Max Risk: ${inr(row.maxRisk)}`,
     `Sector: ${row.sector ?? "n/a"}`,
-    `Data: ${row.dataSource} (as of ${fmtDataAge(row.dataAsOf)})`,
+    `Risk eval: ${row.dataSource} (as of ${fmtDataAge(row.dataAsOf)})`,
+    "Note: Entry is the staged limit order price — not current market price",
     "Status: Broker execution DISABLED",
     "Action: Review in Swing Live Queue",
   ];
