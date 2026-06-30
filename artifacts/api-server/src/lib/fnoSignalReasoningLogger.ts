@@ -508,6 +508,8 @@ export function classifySuppressionReason(reason: string): string {
   if (r.includes("global suppression")) return "GLOBAL_SUPPRESSION";
   if (r.includes("no_bars") || r.includes("no bars")) return "NO_BARS";
   if (r === "error" || r.startsWith("error")) return "DETECTOR_ERROR";
+  if (r.includes("no_live_kite_intraday") || r.includes("no live kite intraday")) return "NO_LIVE_KITE_INTRADAY";
+  if (r.includes("daily_history_unavailable_kite") || r.includes("daily history unavailable")) return "DAILY_HISTORY_UNAVAILABLE";
   return "OTHER";
 }
 

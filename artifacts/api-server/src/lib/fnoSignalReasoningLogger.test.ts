@@ -411,6 +411,8 @@ describe("P14b — upstream emission helpers", () => {
     expect(classifySuppressionReason("flip cooldown")).toBe("BIAS_FLIP");
     expect(classifySuppressionReason("market_closed: post-market")).toBe("MARKET_CLOSED");
     expect(classifySuppressionReason("partial_indicators: not enough bars")).toBe("PARTIAL_INDICATORS");
+    expect(classifySuppressionReason("no_live_kite_intraday (Kite session expired / throttled / index uncovered) — Yahoo fallback disabled to prevent stale-data signals")).toBe("NO_LIVE_KITE_INTRADAY");
+    expect(classifySuppressionReason("daily_history_unavailable_kite (Yahoo fallback disabled — F&O is Kite-only)")).toBe("DAILY_HISTORY_UNAVAILABLE");
     expect(classifySuppressionReason("something else entirely")).toBe("OTHER");
   });
 

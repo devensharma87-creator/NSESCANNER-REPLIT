@@ -1,0 +1,602 @@
+CODER PROMPT — PROFESSIONAL F&O SIGNAL GAP AUDIT: INDEX MOVED BUT SYSTEM GENERATED NO SIGNALS
+
+We have an important production issue.
+
+TradingView 30-minute charts for SENSEX, NIFTY and BANKNIFTY from 15.06.2026 to 30.06.2026 show multiple sizeable market movements:
+
+* sharp up-move after 15 June
+* range expansion
+* pullbacks
+* strong recovery swings
+* rejection from upper range
+* selloff into 30 June
+* multiple intraday and multi-day directional opportunities
+
+However, our system generated no useful F&O signals during this period.
+
+This must be investigated professionally.
+
+Do not assume the signal logic is wrong.
+
+Do not assume the signal logic is right.
+
+Do not blindly loosen thresholds.
+
+Do not change F&O scoring without evidence.
+
+Do not change risk guards blindly.
+
+This is a root-cause audit + rectification plan.
+
+====================================================
+OBJECTIVE
+=========
+
+Find exactly why the F&O engine did not generate actionable signals despite visible movement in NIFTY, BANKNIFTY and SENSEX between 15.06.2026 and 30.06.2026.
+
+We need to determine whether the issue is:
+
+1. Data availability problem
+2. Kite intraday candle problem
+3. Index token / instrument mapping problem
+4. F&O cycle scheduler problem
+5. Daily history problem
+6. Option-chain / premium availability problem
+7. Signal scoring too strict
+8. High-conviction gate too restrictive
+9. Recovery/chase/veto logic overblocking
+10. Paper risk guard overblocking
+11. Signal generated but hidden from UI
+12. INFO_ONLY/baseline generated but not visible
+13. Wrong timeframe / wrong candle aggregation
+14. Calculation/formula error
+15. Incorrect market-regime interpretation
+16. Production/dev mismatch
+
+Final goal:
+
+* Make F&O engine data-rich, accurate, reliable and professionally useful.
+* It should detect valid market setups when genuine movement exists.
+* It must still fail closed when data is missing/stale/untrusted.
+* It must not produce fake or overfit signals.
+
+====================================================
+INPUT CHARTS TO COMPARE
+=======================
+
+Use the supplied TradingView screenshots:
+
+1. SENSEX 30-minute chart, 15.06.2026 to 30.06.2026
+2. NIFTY 30-minute chart, 15.06.2026 to 30.06.2026
+3. BANKNIFTY 30-minute chart, 15.06.2026 to 30.06.2026
+
+These charts show clear market movement inside the highlighted range.
+
+Important:
+
+Use the charts as an external visual benchmark only.
+
+Do not copy TradingView signals.
+
+Do not fabricate TradingView data.
+
+Use our own Kite/warehouse data to reproduce the same period candle-by-candle.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not enable live trading.
+
+Do not place real orders.
+
+Do not change F&O thresholds blindly.
+
+Do not loosen risk guards blindly.
+
+Do not use Yahoo/stale/delayed data for trade-grade F&O.
+
+Do not fabricate candles.
+
+Do not generate synthetic signals.
+
+Do not bypass `no_live_kite_intraday`.
+
+Do not remove safety gates.
+
+Do not touch swing engine unless only checking shared data infrastructure.
+
+Do not touch broker execution.
+
+Do not run destructive DB migrations.
+
+Do not trim or rewrite `replit.md`.
+
+This is an audit-first task.
+
+Only make fixes if the root cause is proven and the fix is safe.
+
+====================================================
+PART A — RECONSTRUCT THE PERIOD FROM OUR DATA
+=============================================
+
+For the period 15.06.2026 to 30.06.2026, reconstruct internal candles for:
+
+* NIFTY
+* BANKNIFTY
+* SENSEX
+
+Use trade-grade/internal sources only:
+
+* Kite historical candles
+* internal candle warehouse
+* trusted cached candles with source/asOf
+* no Yahoo for trade-grade analysis
+
+For each index report:
+
+* candle count
+* timeframe
+* source
+* first candle timestamp
+* last candle timestamp
+* missing candle count
+* stale candle count
+* duplicate candle count
+* gaps during market hours
+* daily history availability
+* intraday history availability
+* source/freshness label
+
+Compare broad shape with TradingView visually:
+
+* does our candle series show the same large moves?
+* are dates/times aligned?
+* are highs/lows roughly consistent?
+* are there missing sessions?
+* are candles shifted by timezone?
+* is the 30-minute aggregation correct?
+
+Output verdict per index:
+
+* `CANDLES_MATCH_MARKET_MOVE`
+* `CANDLES_MISSING`
+* `CANDLES_STALE`
+* `CANDLES_TIMEZONE_SHIFTED`
+* `CANDLES_WRONG_TOKEN`
+* `CANDLES_UNAVAILABLE`
+
+====================================================
+PART B — SIGNAL PIPELINE TRACE
+==============================
+
+For every F&O signal cycle from 15.06.2026 to 30.06.2026, trace:
+
+* cycle time
+* underlying
+* bars available or not
+* daily history available or not
+* intraday history available or not
+* option-chain available or not
+* index quote available or not
+* signal engine ran or skipped
+* suppression reason
+* baseline generated or not
+* high-conviction generated or not
+* INFO_ONLY generated or not
+* candidate generated or not
+* guard invoked or not
+* guard allowed/blocked
+* paper open attempted or not
+* UI row created or not
+
+Produce a table:
+
+| Date/Time | Index | Data State | Engine State | Signal State | Guard State | Final Outcome | Reason |
+
+This is mandatory.
+
+====================================================
+PART C — WHY NO SIGNALS DESPITE MARKET MOVEMENT
+===============================================
+
+Classify the exact no-signal cause for each meaningful market move.
+
+For each visible movement window, analyze:
+
+1. 15 June breakout / range start
+2. 17–18 June up-move
+3. 23–24 June selloff/recovery
+4. 24–25 June rally
+5. 25–26 June rejection/selloff
+6. 29–30 June decline/range weakness
+
+For each window and each index:
+
+* did our candles exist?
+* did signal cycle run?
+* did setup detector see direction?
+* did baseline trigger?
+* did high-conviction trigger?
+* what score was calculated?
+* which gate blocked it?
+* was block correct?
+* was signal only INFO_ONLY?
+* did UI show it?
+* did paper trader ignore it correctly?
+
+Final classification:
+
+* `NO_SIGNAL_BECAUSE_DATA_MISSING`
+* `NO_SIGNAL_BECAUSE_ENGINE_NOT_RUNNING`
+* `NO_SIGNAL_BECAUSE_SCORE_TOO_LOW`
+* `NO_SIGNAL_BECAUSE_GATE_BLOCKED`
+* `NO_SIGNAL_BECAUSE_OPTION_DATA_MISSING`
+* `NO_SIGNAL_BECAUSE_PREMIUM_UNTRUSTED`
+* `NO_SIGNAL_BECAUSE_UI_HIDDEN`
+* `NO_SIGNAL_CORRECT_MARKET_WAS_CHOPPY`
+* `BUG_CONFIRMED`
+
+====================================================
+PART D — FORMULA AND MATH AUDIT
+===============================
+
+Audit all mathematical calculations used by F&O signal engine.
+
+Check formulas for:
+
+* EMA
+* VWAP
+* RSI if used
+* ATR if used
+* ADX if used
+* volume pressure
+* price momentum
+* trend strength
+* breakout strength
+* recovery veto
+* chase veto
+* anti-flip cooldown
+* confidence score
+* baseline score
+* high-conviction score
+* risk-reward
+* option premium validation
+* stop loss
+* target
+* position sizing
+* P&L
+* guard simulation metrics
+
+For each formula report:
+
+* file/function
+* exact equation
+* input data
+* timeframe
+* rounding
+* expected behaviour
+* edge cases
+* test coverage
+* mismatch if any
+
+If any formula is mathematically weak or inconsistent, propose fix with evidence.
+
+Do not change formulas blindly.
+
+====================================================
+PART E — HIGH-CONVICTION GATE AUDIT
+===================================
+
+Audit whether high-conviction requirements are too strict.
+
+For every major movement window, report:
+
+* calculated score
+* required score
+* missing components
+* failed conditions
+* whether failure was justified
+* whether setup should have been baseline/info-only
+* whether setup should have been tradeable
+
+Check:
+
+* are thresholds impossible during real Indian index movement?
+* does the engine require too many confirmations at once?
+* does it miss early trend moves?
+* does it enter too late?
+* does recovery/chase veto demote too aggressively?
+* does premium validation block too often?
+* does option-chain unavailability block valid index signal visibility?
+
+Output:
+
+* `HIGH_CONVICTION_GATE_OK`
+* `HIGH_CONVICTION_TOO_STRICT`
+* `HIGH_CONVICTION_DATA_DEPENDENT`
+* `HIGH_CONVICTION_NEEDS_BACKTEST`
+* `HIGH_CONVICTION_BUG`
+
+====================================================
+PART F — INFO_ONLY / BASELINE VISIBILITY AUDIT
+==============================================
+
+Even if a setup is not tradeable, the website should show market intelligence.
+
+Audit whether baseline / INFO_ONLY signals were generated and visible.
+
+Check:
+
+* market bias
+* trend direction
+* range state
+* support/resistance
+* breakout/rejection
+* recovery/chase veto
+* reason not tradeable
+* data quality
+* option-chain state
+* guard block reason
+
+If no tradeable signal appears, the UI should still explain:
+
+* market moved but no trade due to X
+* data missing
+* setup weak
+* premium untrusted
+* risk guard blocked
+* already chased
+* no R:R
+* F&O disabled safely
+
+Add or propose:
+
+`No Trade Explanation Panel`
+
+Do not open trades from INFO_ONLY.
+
+====================================================
+PART G — PAPER_BLOCK GUARD AUDIT
+================================
+
+Confirm whether the paper_block guard blocked anything during this period.
+
+For each guard-blocked candidate report:
+
+* index
+* direction
+* option type
+* strike
+* premium
+* DTE
+* reason
+* whether block was correct
+* if trade would have won/lost based on replay
+
+Important:
+
+The guard should block bad trades, not all trades.
+
+If no candidates reached the guard, say clearly:
+
+`GUARD_NOT_TESTED_BECAUSE_NO_CANDIDATES_REACHED_IT`
+
+====================================================
+PART H — OPTION CHAIN / PREMIUM AVAILABILITY AUDIT
+==================================================
+
+For each movement window, check whether the engine had option data.
+
+Report:
+
+* option-chain available or not
+* expiry selected
+* strikes available
+* CE/PE count
+* premium trusted or not
+* LTP/bid/ask available
+* spread acceptable or not
+* selected strike valid or not
+* reason if option data missing
+
+Classify:
+
+* `OPTION_DATA_OK`
+* `OPTION_CHAIN_MISSING`
+* `STRIKE_SELECTION_FAILED`
+* `PREMIUM_UNTRUSTED`
+* `SPREAD_TOO_WIDE`
+* `EXPIRY_SELECTION_ERROR`
+* `TOKEN_MAPPING_ERROR`
+
+====================================================
+PART I — DEV VS PRODUCTION COMPARISON
+=====================================
+
+Run the same historical/simulation check in dev and production.
+
+Compare:
+
+* candle source
+* candle count
+* F&O signal cycles
+* option-chain data
+* signal count
+* suppression reasons
+* scores
+* guard outcomes
+* UI results
+
+Report any mismatch:
+
+* `DEV_PROD_MATCH`
+* `PROD_DATA_MISSING`
+* `PROD_DB_POOL_ISSUE`
+* `PROD_KITE_REST_ISSUE`
+* `PROD_CONFIG_MISMATCH`
+* `PROD_SCHEMA_MISMATCH`
+
+====================================================
+PART J — RECTIFICATION PLAN
+===========================
+
+After the audit, propose exact fixes only where proven.
+
+Possible fix categories:
+
+1. Data path fix
+2. Candle warehouse fix
+3. Index token mapping fix
+4. Timezone/aggregation fix
+5. Scheduler fix
+6. Signal visibility fix
+7. Baseline/INFO_ONLY UI fix
+8. High-conviction threshold backtest
+9. Guard observability fix
+10. Option-chain availability fix
+11. Infra Health fix
+12. Test fixture addition
+
+Do not implement broad changes without evidence.
+
+If a small safe fix is obvious, implement it with tests.
+
+If a logic/tuning change is needed, produce a simulation-first plan.
+
+====================================================
+PART K — PROFESSIONAL IMPROVEMENT REQUIREMENTS
+==============================================
+
+The final system should be professional.
+
+It must show:
+
+* market moved / no trade reason
+* data source
+* candle freshness
+* option-chain readiness
+* signal score
+* failed conditions
+* guard status
+* confidence
+* expected R:R
+* tradeable vs info-only
+* replay evidence
+* historical missed opportunities
+* setup performance
+
+Add to plan:
+
+1. F&O No-Trade Explanation Panel
+2. F&O Missed-Move Replay Report
+3. Signal Pipeline Debugger
+4. Data Readiness Score
+5. Option-Chain Readiness Score
+6. Setup Quality Score
+7. Guard Decision Timeline
+8. Daily F&O Opportunity Report
+
+====================================================
+PART L — TESTS / VERIFICATION
+=============================
+
+Run or add tests for:
+
+* candle reconstruction
+* 30-minute aggregation
+* timezone alignment
+* NIFTY token mapping
+* BANKNIFTY token mapping
+* SENSEX token mapping
+* signal cycle suppression reasons
+* high-conviction score components
+* INFO_ONLY visibility
+* option-chain availability
+* no Yahoo trade-grade fallback
+* guard invocation when candidate exists
+* no paper open from baseline/INFO_ONLY
+
+Run:
+
+* api-server typecheck
+* relevant F&O tests
+* scanner typecheck if UI touched
+* scanner tests if UI touched
+
+If full suite is too heavy, run scoped tests and explain resource limits honestly.
+
+====================================================
+PART M — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Executive finding.
+2. Whether our candles match TradingView movement.
+3. Why no signals were generated.
+4. Data availability by index.
+5. Signal pipeline trace.
+6. Movement-window audit.
+7. Formula/math audit.
+8. High-conviction gate audit.
+9. INFO_ONLY/baseline visibility audit.
+10. Paper_block guard audit.
+11. Option-chain/premium audit.
+12. Dev vs production comparison.
+13. Bugs found.
+14. Fixes implemented, if any.
+15. Fixes proposed but not implemented.
+16. Tests run.
+17. Files touched.
+18. Files confirmed untouched.
+19. Exact next action.
+
+Final verdict must be exactly one:
+
+* `NO_SIGNAL_DUE_TO_DATA_PATH`
+* `NO_SIGNAL_DUE_TO_ENGINE_TOO_STRICT`
+* `NO_SIGNAL_DUE_TO_UI_VISIBILITY`
+* `NO_SIGNAL_CORRECT_BEHAVIOUR`
+* `BUG_CONFIRMED_FIX_REQUIRED`
+* `SIMULATION_REQUIRED_BEFORE_LOGIC_CHANGE`
+* `FNO_SIGNAL_ENGINE_RECTIFIED`
+* `FNO_SIGNAL_ENGINE_NEEDS_REDESIGN`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* the three supplied TradingView chart windows are considered
+* internal candles are reconstructed for 15.06.2026 to 30.06.2026
+* NIFTY, BANKNIFTY and SENSEX are audited separately
+* no-signal cause is classified
+* formulas are checked
+* score/gate failures are explained
+* option-chain availability is checked
+* paper_block guard involvement is checked
+* dev/prod mismatch is checked
+* no unsafe logic change is made
+* final verdict is explicit
+
+====================================================
+IMPORTANT
+=========
+
+This is a professional trader tool.
+
+A moving market with no signal is acceptable only if the system clearly proves why no trade was valid.
+
+If data was missing, fix data.
+
+If the engine was too strict, prove it with replay before changing.
+
+If UI hid useful baseline signals, fix visibility.
+
+If guards blocked correctly, show evidence.
+
+No blind tuning.
+No fake signals.
+No unsafe automation.
