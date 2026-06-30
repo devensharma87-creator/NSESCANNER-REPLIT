@@ -323,11 +323,42 @@ export async function fetchKiteHistoricalByToken(
     } catch (err) {
       const errMsg = (err as Error).message ?? "";
       const kiteErrCode = classifyKiteHistoricalError(errMsg);
-      logger.warn(
-        { err: errMsg, kiteErrCode, cacheLabel, interval, token },
-        "Kite getHistoricalData failed",
-      );
-      return null;
+
+      if (kiteErrCode === "KITE_NETWORK_ERROR") {
+        // One bounded retry for transient ECONNRESET. Reserve a second
+        // throttle slot first so the retry still honours the 2.5 req/s
+        // budget; skip the retry if the queue is full rather than risk a
+        // burst.
+        const retrySlotOk = await reserveHistoricalSlot();
+        if (!retrySlotOk) {
+          logger.warn(
+            { kiteErrCode: "KITE_TRANSIENT_FAILED", cacheLabel, interval, token, reason: "retry_slot_unavailable" },
+            "Kite getHistoricalData ECONNRESET — retry skipped: throttle queue full",
+          );
+          return null;
+        }
+        const jitterMs = 500 + Math.random() * 300; // 500–800 ms
+        await new Promise(r => setTimeout(r, jitterMs));
+        try {
+          raw = (await kc.getHistoricalData(token, interval, fromStr, toStr, false, false)) as RawCandle[];
+          logger.info(
+            { kiteErrCode: "KITE_TRANSIENT_RECOVERED", cacheLabel, interval, token, jitterMs: Math.round(jitterMs) },
+            "Kite getHistoricalData recovered after one retry",
+          );
+        } catch (retryErr) {
+          logger.warn(
+            { err: (retryErr as Error).message ?? "", kiteErrCode: "KITE_TRANSIENT_FAILED", cacheLabel, interval, token },
+            "Kite getHistoricalData retry also failed",
+          );
+          return null;
+        }
+      } else {
+        logger.warn(
+          { err: errMsg, kiteErrCode, cacheLabel, interval, token },
+          "Kite getHistoricalData failed",
+        );
+        return null;
+      }
     }
 
     if (!Array.isArray(raw) || raw.length === 0) return null;

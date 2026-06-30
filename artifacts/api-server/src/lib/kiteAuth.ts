@@ -73,6 +73,31 @@ export interface ActiveSession {
   expiresAt: Date;
 }
 
+/**
+ * Classified result code from a Kite session DB read.
+ *
+ * - DB_SESSION_OK             — session row present, valid, decrypted.
+ * - DB_SESSION_MISSING        — no row found in kite_session.
+ * - DB_SESSION_EXPIRED        — row present but expiresAt is in the past.
+ * - DB_POOL_CONNECTION_TERMINATED — DB pool handed a zombie/dead TCP
+ *   connection; a 200 ms retry was attempted automatically.
+ * - DB_SESSION_READ_FAILED    — DB query or decrypt threw an unexpected error.
+ */
+export type KiteSessionReadCode =
+  | "DB_SESSION_OK"
+  | "DB_SESSION_MISSING"
+  | "DB_SESSION_EXPIRED"
+  | "DB_POOL_CONNECTION_TERMINATED"
+  | "DB_SESSION_READ_FAILED";
+
+export interface ActiveSessionStatus {
+  session: ActiveSession | null;
+  code: KiteSessionReadCode;
+  /** True when the primary pool read hit a zombie connection but the
+   *  200 ms retry succeeded — useful for diagnostic surfaces. */
+  recoveredByRetry?: true;
+}
+
 /** Read API key + secret from env. Returns null if either is missing. */
 export function getKiteCreds(): KiteCreds | null {
   const apiKey = process.env["KITE_API_KEY"]?.trim();
@@ -169,51 +194,158 @@ export async function completeLogin(requestToken: string): Promise<ActiveSession
  *  re-writes it as ciphertext so the next dump is clean. Lazy migration
  *  failures never fail the read (we have a working session — log and move on).
  */
-export async function getActiveSession(): Promise<ActiveSession | null> {
-  try {
-    const rows = await db.select().from(kiteSessionTable).where(eq(kiteSessionTable.id, ACTIVE_ID)).limit(1);
-    const r = rows[0];
-    if (!r) return null;
-    if (r.expiresAt.getTime() <= Date.now()) return null;
+/**
+ * Detect whether a DB error is a connection-termination class error.
+ *
+ * These are transient pool errors where `pg.Pool` handed out a stale/zombie
+ * TCP connection that the managed-PG side had already half-closed.  Drizzle
+ * surfaces this as a "Failed query" message with an empty or absent cause
+ * body — the exact fingerprint observed in production against `kite_session`,
+ * `option_signal_history`, and `global_screener_presets`.
+ *
+ * We also recognise socket-level signals (ECONNRESET, broken pipe) and the
+ * PostgreSQL SQLSTATE codes for admin-shutdown (57P01) and connection-failure
+ * (08006) that bubble up through the cause chain.
+ */
+function isDbConnectionTerminated(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? "").toLowerCase();
+  const causeMsg = String((err as any)?.cause?.message ?? "").toLowerCase();
+  const causeCode = String((err as any)?.cause?.code ?? "");
+  if (msg.includes("connection terminated") || causeMsg.includes("connection terminated")) return true;
+  if (msg.includes("econnreset") || causeMsg.includes("econnreset")) return true;
+  if (msg.includes("broken pipe") || causeMsg.includes("broken pipe")) return true;
+  // Drizzle zombie-connection fingerprint: starts with "failed query" and
+  // the underlying cause has no message body.
+  if (msg.startsWith("failed query") && !causeMsg) return true;
+  // SQLSTATE: 57P01 = admin_shutdown, 08006 = connection_failure
+  if (causeCode === "57P01" || causeCode === "08006") return true;
+  return false;
+}
 
-    let apiKey: string;
-    let accessToken: string;
-    let publicToken: string | null;
+/**
+ * Read the active Kite session from the DB pool and return a classified
+ * status result.
+ *
+ * On a DB pool connection-termination error (zombie TCP connection), retries
+ * once after 200 ms so a transient pool hiccup does not suppress F&O signals
+ * for the rest of the cycle.  If the retry also fails, returns
+ * `code: "DB_SESSION_READ_FAILED"` — never treats an uncertain DB state as
+ * "session valid".
+ *
+ * Logs are structured for grep: look for `dbErrCode` in production logs.
+ * Access-token values are NEVER logged.
+ */
+export async function getActiveSessionStatus(): Promise<ActiveSessionStatus> {
+  async function tryRead(): Promise<
+    { result: ActiveSessionStatus } | { connectionTerminated: true }
+  > {
     try {
-      apiKey = decryptToken(r.apiKey)!;
-      accessToken = decryptToken(r.accessToken)!;
-      publicToken = decryptToken(r.publicToken);
-    } catch (err) {
-      // Decrypt failure (key missing or tag mismatch) → treat as no session
-      // so the daily login flow recovers. Don't expose token internals.
-      logger.warn({ err: (err as Error).message }, "Kite session decrypt failed — treating as no session");
-      return null;
-    }
-
-    // Lazy migration: encrypt-on-read if the row is plaintext and a key is now
-    // configured. Best-effort — never fail the read on migration failure.
-    if (isEncryptionKeyConfigured() && (!isEncrypted(r.apiKey) || !isEncrypted(r.accessToken))) {
-      void db
-        .update(kiteSessionTable)
-        .set({
-          apiKey: encryptToken(apiKey),
-          accessToken: encryptToken(accessToken),
-          publicToken: publicToken ? encryptToken(publicToken) : null,
-        })
+      const rows = await db
+        .select()
+        .from(kiteSessionTable)
         .where(eq(kiteSessionTable.id, ACTIVE_ID))
-        .then(() => {
-          logger.info({ userId: r.userId }, "Kite session migrated plaintext→encrypted at rest");
-        })
-        .catch((err: Error) => {
-          logger.warn({ err: err.message }, "Kite session lazy-encrypt migration failed (will retry next read)");
-        });
-    }
+        .limit(1);
+      const r = rows[0];
+      if (!r) return { result: { session: null, code: "DB_SESSION_MISSING" } };
+      if (r.expiresAt.getTime() <= Date.now()) return { result: { session: null, code: "DB_SESSION_EXPIRED" } };
 
-    return { apiKey, accessToken, userId: r.userId, userName: r.userName, loginTime: r.loginTime, expiresAt: r.expiresAt };
-  } catch (err) {
-    logger.warn({ err: (err as Error).message }, "Kite session read failed");
-    return null;
+      let apiKey: string;
+      let accessToken: string;
+      let publicToken: string | null;
+      try {
+        apiKey = decryptToken(r.apiKey)!;
+        accessToken = decryptToken(r.accessToken)!;
+        publicToken = decryptToken(r.publicToken);
+      } catch (decErr) {
+        // Decrypt failure (key missing or tag mismatch) → treat as no session
+        // so the daily login flow recovers. Don't expose token internals.
+        logger.warn(
+          { err: (decErr as Error).message },
+          "Kite session decrypt failed — treating as no session",
+        );
+        return { result: { session: null, code: "DB_SESSION_READ_FAILED" } };
+      }
+
+      // Lazy migration: encrypt-on-read if the row is plaintext and a key is
+      // now configured. Best-effort — never fail the read on migration failure.
+      if (isEncryptionKeyConfigured() && (!isEncrypted(r.apiKey) || !isEncrypted(r.accessToken))) {
+        void db
+          .update(kiteSessionTable)
+          .set({
+            apiKey: encryptToken(apiKey),
+            accessToken: encryptToken(accessToken),
+            publicToken: publicToken ? encryptToken(publicToken) : null,
+          })
+          .where(eq(kiteSessionTable.id, ACTIVE_ID))
+          .then(() => {
+            logger.info({ userId: r.userId }, "Kite session migrated plaintext→encrypted at rest");
+          })
+          .catch((mErr: Error) => {
+            logger.warn(
+              { err: mErr.message },
+              "Kite session lazy-encrypt migration failed (will retry next read)",
+            );
+          });
+      }
+
+      return {
+        result: {
+          session: {
+            apiKey,
+            accessToken,
+            userId: r.userId,
+            userName: r.userName,
+            loginTime: r.loginTime,
+            expiresAt: r.expiresAt,
+          },
+          code: "DB_SESSION_OK",
+        },
+      };
+    } catch (err) {
+      if (isDbConnectionTerminated(err)) return { connectionTerminated: true };
+      logger.warn(
+        { err: (err as Error).message, dbErrCode: "DB_SESSION_READ_FAILED" },
+        "Kite session read failed",
+      );
+      return { result: { session: null, code: "DB_SESSION_READ_FAILED" } };
+    }
   }
+
+  const first = await tryRead();
+  if ("result" in first) return first.result;
+
+  // DB pool handed a zombie TCP connection.  Wait 200 ms so the pool can
+  // evict the dead client, then try once more with a fresh checkout.
+  logger.warn(
+    { dbErrCode: "DB_POOL_CONNECTION_TERMINATED" },
+    "Kite session read: pool zombie connection — retrying once after 200 ms",
+  );
+  await new Promise((r) => setTimeout(r, 200));
+
+  const retry = await tryRead();
+  if ("connectionTerminated" in retry) {
+    logger.warn(
+      { dbErrCode: "DB_SESSION_READ_FAILED" },
+      "Kite session read: retry also hit zombie connection",
+    );
+    return { session: null, code: "DB_SESSION_READ_FAILED" };
+  }
+  if (retry.result.session) {
+    logger.info(
+      { dbErrCode: "DB_POOL_CONNECTION_TERMINATED", recoveredByRetry: true },
+      "Kite session read: recovered after retry",
+    );
+    return { ...retry.result, recoveredByRetry: true };
+  }
+  return retry.result;
+}
+
+/** Read the active Kite session from DB. Returns null when absent, expired,
+ *  or on any DB error (including pool zombie connections — retried once).
+ *  Compatibility wrapper around {@link getActiveSessionStatus}. */
+export async function getActiveSession(): Promise<ActiveSession | null> {
+  const { session } = await getActiveSessionStatus();
+  return session;
 }
 
 /** Delete the active session (manual logout). */

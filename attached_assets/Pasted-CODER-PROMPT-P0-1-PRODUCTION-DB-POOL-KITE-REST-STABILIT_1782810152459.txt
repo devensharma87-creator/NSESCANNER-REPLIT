@@ -1,0 +1,365 @@
+CODER PROMPT — P0.1 PRODUCTION DB POOL + KITE REST STABILITY HARDENING AND NEXT MARKET-OPEN VERIFICATION
+
+Production post-deploy verification is complete.
+
+Confirmed:
+
+* P0 fix is deployed.
+* `/api/fno/data-health` / F&O cycle fields are live.
+* `KITE_REST_TIMEOUT` classification is working.
+* Kite REST now fails fast at ~15s instead of hanging 30–60s.
+* Yahoo fallback remains blocked for F&O trade-grade use.
+* `swing_order_staging` exists in production.
+* Swing Phase 2 status remains `LIVE_STAGED_APPROVAL_READY_BUT_BROKER_DISABLED`.
+* Broker execution remains hard-disabled.
+* No real orders placed.
+
+Remaining production issue:
+
+* F&O still suppressed with `no_live_kite_intraday`.
+* Kite REST is still showing `ECONNABORTED` / `ECONNRESET` from production.
+* Production DB has a valid `kite_session`, but app-side Drizzle/pg pool sometimes hits zombie/dead TCP connections and fails reads.
+* This can make Kite session appear unreadable even though the DB row is valid.
+
+This is a reliability-hardening task.
+
+Do not add new features.
+
+Do not change trading logic.
+
+Do not enable live trading.
+
+====================================================
+OBJECTIVE
+=========
+
+Make production DB/Kite reliability more robust and verify the next market open.
+
+Focus only on:
+
+1. DB pool zombie-connection resilience.
+2. Kite session read reliability.
+3. Kite REST failure classification and bounded retry.
+4. F&O intraday bar availability.
+5. Infra Health honesty.
+6. Next market-open observation.
+
+Final goal:
+
+* Valid Kite session should be readable reliably by app code.
+* Dead DB connections should self-heal.
+* Kite REST errors should be classified clearly.
+* F&O should run only when fresh Kite bars are available.
+* If bars are unavailable, F&O must remain safely suppressed.
+* No fake fallback.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not change F&O signal logic.
+
+Do not change F&O thresholds.
+
+Do not change swing signal logic.
+
+Do not change risk guards.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not use Yahoo/delayed/untrusted data for trade-grade F&O.
+
+Do not bypass `no_live_kite_intraday`.
+
+Do not fabricate candles.
+
+Do not run destructive DB migrations.
+
+Do not trim or rewrite `replit.md`.
+
+Do not touch capital ledger, paper P&L math, option premium math, swing scoring, F&O scoring, or live execution.
+
+====================================================
+PART A — CONFIRM CURRENT PRODUCTION STATE
+=========================================
+
+Report current production status:
+
+* current IST time
+* market open/closed
+* deployment timestamp
+* Kite session row exists or not
+* Kite session expiry
+* app-side Kite session read success/failure
+* DB direct query success/failure
+* Drizzle/pg pool errors
+* Kite REST quote status
+* Kite historical status
+* F&O intraday bar status
+* option-chain leg status
+* `/api/fno/data-health` state
+* F&O suppression reason
+
+Classify:
+
+* `DB_POOL_HEALTHY`
+* `DB_POOL_ZOMBIE_CONNECTIONS`
+* `KITE_REST_HEALTHY`
+* `KITE_REST_DEGRADED`
+* `FNO_BARS_AVAILABLE`
+* `FNO_BARS_UNAVAILABLE`
+
+====================================================
+PART B — DB POOL ZOMBIE CONNECTION HARDENING
+============================================
+
+Investigate and harden production DB pool behaviour.
+
+Known issue:
+
+* Direct fresh DB query works.
+* App-side pooled Drizzle/pg query sometimes fails.
+* Error pattern suggests stale/zombie TCP connections.
+
+Audit:
+
+1. DB pool creation/config.
+2. idle timeout.
+3. connection timeout.
+4. max lifetime if supported.
+5. keepalive settings.
+6. retry behaviour on connection termination.
+7. whether failed connection is evicted.
+8. whether startup burst causes pool instability.
+9. whether serverless/prod environment kills idle TCP sockets.
+
+Implement safe hardening only if needed:
+
+* TCP keepalive if supported.
+* shorter idle timeout than platform/network idle kill.
+* connection timeout classification.
+* one safe retry on connection-terminated/session-read query only.
+* evict bad connection.
+* no infinite retry.
+* no retry storm.
+* no masking of real schema errors.
+
+For Kite session read specifically:
+
+* if DB query fails due to connection termination, retry once with fresh connection/pool-safe path.
+* if session truly missing/expired, report honestly.
+* never treat DB read failure as logged-in.
+* never log access tokens.
+
+Add error classification:
+
+* `DB_POOL_CONNECTION_TERMINATED`
+* `DB_POOL_QUERY_TIMEOUT`
+* `DB_SESSION_READ_FAILED`
+* `DB_SESSION_MISSING`
+* `DB_SESSION_EXPIRED`
+* `DB_SCHEMA_ERROR`
+
+Acceptance:
+
+* Valid production Kite session can be read reliably.
+* DB connection failures are classified.
+* If DB pool fails, Infra Health says DB pool issue, not session missing.
+* No secrets logged.
+
+====================================================
+PART C — KITE REST BOUNDED RETRY / CLASSIFICATION CHECK
+=======================================================
+
+Review current Kite REST behaviour after P0 fix.
+
+Do not loosen data rules.
+
+Check:
+
+1. quote calls
+2. historical calls
+3. option-chain/instrument-master calls
+4. index quote batch
+5. F&O intraday bar calls
+
+Current timeout is 15 seconds.
+
+Confirm whether we need:
+
+* one bounded retry for transient `ECONNRESET`
+* no retry for auth/session errors
+* no retry for rate limit unless backoff-safe
+* no retry storm during F&O cycle
+* separate queue priority for live F&O bar path
+
+If code change is needed, keep it minimal:
+
+* one retry max
+* jittered backoff
+* classify error
+* preserve fail-closed behaviour
+* no stale fallback
+
+Classify:
+
+* `KITE_REST_TIMEOUT`
+* `KITE_REST_ECONNRESET`
+* `KITE_REST_RATE_LIMIT`
+* `KITE_SESSION_EXPIRED`
+* `KITE_HISTORICAL_UNAVAILABLE`
+* `KITE_TRANSIENT_RECOVERED`
+* `KITE_TRANSIENT_FAILED`
+
+====================================================
+PART D — F&O DATA PATH VERIFICATION
+===================================
+
+Verify F&O data path after DB/Kite hardening.
+
+Check:
+
+* NIFTY 15-min intraday bars
+* BANKNIFTY 15-min intraday bars
+* SENSEX 15-min intraday bars
+* daily history availability
+* latest candle timestamp
+* bar count
+* candle freshness
+* option-chain legs
+* option-chain expiry selection
+* `/api/fno/data-health`
+
+Expected:
+
+* If bars are fresh, F&O cycle can proceed.
+* If bars are unavailable, F&O remains suppressed.
+* No Yahoo fallback.
+* No stale previous-day candles.
+* No synthetic candles.
+
+====================================================
+PART E — INFRA HEALTH HONESTY
+=============================
+
+Infra Health must show the real state clearly.
+
+Ensure it distinguishes:
+
+1. Kite session valid but DB pool read failing.
+2. Kite connected but REST degraded.
+3. Equity quotes working but F&O bars unavailable.
+4. F&O signals disabled safely.
+5. Option chain partially available.
+
+Required message examples:
+
+* `Kite session valid, but app DB pool read failed — retrying safely.`
+* `Kite connected, but F&O intraday bars unavailable — F&O signals disabled.`
+* `Equity quotes available; F&O data degraded.`
+* `F&O disabled safely: no_live_kite_intraday.`
+
+Do not show generic “Kite connected” as green if F&O is unusable.
+
+====================================================
+PART F — NEXT MARKET-OPEN OBSERVATION
+=====================================
+
+At next live market open, observe at least 3 F&O cycles.
+
+For each cycle report:
+
+* time
+* Kite session read status
+* DB pool status
+* REST quote status
+* historical call status
+* indicesWithBars
+* allBarsAvailable
+* suppressedSummary
+* signalCount
+* highConvictionCount
+* valid candidates
+* guard blocks if any
+* paper opens if any
+
+Do not force signals.
+
+Do not change thresholds.
+
+Do not create fake test trades.
+
+====================================================
+PART G — TESTS / VERIFICATION
+=============================
+
+Run:
+
+* api-server typecheck
+* DB pool/session read test if available
+* Kite error-classification tests if added
+* F&O data-health tests if added
+* swing staging scoped tests if touched
+* scanner typecheck if UI touched
+* scanner tests if UI touched
+
+If full suite is too heavy, run scoped tests and explain resource limits.
+
+====================================================
+PART H — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Root cause summary.
+2. DB pool finding.
+3. Kite session read result.
+4. Kite REST result.
+5. F&O bar result.
+6. Option-chain result.
+7. Infra Health result.
+8. Files touched.
+9. Files confirmed untouched.
+10. Tests run.
+11. Live observation result.
+12. Remaining blocker.
+13. Exact next action.
+
+Final verdict must be exactly one:
+
+* `DB_POOL_HARDENED_FNO_READY_FOR_OBSERVATION`
+* `FNO_DATA_RECOVERED_LIVE`
+* `FNO_STILL_BLOCKED_BY_KITE_REST`
+* `DB_POOL_STILL_UNSTABLE`
+* `KITE_PROVIDER_NETWORK_BLOCKER`
+* `NO_CODE_CHANGE_NEEDED_MONITOR_NEXT_OPEN`
+* `ROLLBACK_REQUIRED`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* DB pool issue is explained.
+* Kite session read is verified.
+* Kite REST status is verified.
+* F&O bar status is verified.
+* Infra Health is honest.
+* No trading logic is changed.
+* No broker execution is enabled.
+* No fake fallback is introduced.
+* No destructive migration is done.
+* Final verdict is explicit.
+
+====================================================
+IMPORTANT
+=========
+
+This is still P0 reliability work.
+
+Do not move to alerts, charting, or new features until F&O data reliability is proven.
+
+A professional trading system must first prove that its data path is reliable and fail-closed.

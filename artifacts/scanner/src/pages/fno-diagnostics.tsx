@@ -195,6 +195,9 @@ export default function FnODiagnosticsPage() {
   const kiteSessionPresent = Boolean(
     (health.data?.kite?.session as { present?: boolean } | undefined)?.present,
   );
+  const kiteDbReadCode = (health.data?.kite?.session as { dbReadCode?: string } | undefined)?.dbReadCode;
+  const kiteSessionDbFailed =
+    kiteDbReadCode === "DB_POOL_CONNECTION_TERMINATED" || kiteDbReadCode === "DB_SESSION_READ_FAILED";
 
   return (
     <div className="container mx-auto px-4 py-6 space-y-6 max-w-6xl">
@@ -370,7 +373,7 @@ export default function FnODiagnosticsPage() {
       <SectionShell
         title="C · Kite / Feed / Chain Status"
         icon={Radio}
-        severity={kiteSessionPresent ? "ok" : "fail"}
+        severity={kiteSessionPresent ? "ok" : kiteSessionDbFailed ? "warn" : "fail"}
         description="Upstream data-source connectivity."
         testId="section-kite-status"
       >
@@ -385,6 +388,8 @@ export default function FnODiagnosticsPage() {
               <div className="font-medium">
                 {kiteSessionPresent ? (
                   <span className="text-emerald-500">Active</span>
+                ) : kiteSessionDbFailed ? (
+                  <span className="text-amber-500">DB read failed</span>
                 ) : (
                   <span className="text-rose-500">Absent</span>
                 )}
@@ -413,8 +418,10 @@ export default function FnODiagnosticsPage() {
         )}
         {!kiteSessionPresent && health.data && (
           <p className="text-xs text-amber-500 mt-3 flex items-center gap-1">
-            <Info className="h-3 w-3" /> Without a live Kite session, F&O signals are not data-fresh; non-Kite
-            option data is never treated as F&O-live.
+            <Info className="h-3 w-3" />
+            {kiteSessionDbFailed
+              ? `Kite session may be valid — DB pool read failed (${kiteDbReadCode}). F&O signals suppressed until the DB connection recovers.`
+              : "Without a live Kite session, F&O signals are not data-fresh; non-Kite option data is never treated as F&O-live."}
           </p>
         )}
       </SectionShell>

@@ -43,7 +43,7 @@ import { getMissedSignals } from "../lib/paperTradingFO";
 import { getEnvironmentLabel } from "../lib/paperAutoTradeFlag";
 import { getReasoningLoggerHealth } from "../lib/fnoSignalReasoningLogger";
 import { feedStatus } from "../lib/kiteFeed";
-import { getActiveSession, getKiteCreds } from "../lib/kiteAuth";
+import { getActiveSessionStatus, getKiteCreds, type ActiveSessionStatus } from "../lib/kiteAuth";
 import { centralIndexQuotes } from "../lib/marketData/compat";
 import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics } from "../lib/optionAnalytics";
@@ -81,7 +81,10 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
   try {
     const now = Date.now();
     const creds = getKiteCreds();
-    const session = await getActiveSession().catch(() => null);
+    const sessionStatus = await getActiveSessionStatus().catch(
+      (): ActiveSessionStatus => ({ session: null, code: "DB_SESSION_READ_FAILED" }),
+    );
+    const session = sessionStatus.session;
     const feed = feedStatus();
 
     const kite = {
@@ -95,8 +98,14 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
             minsToExpiry: session.expiresAt
               ? Math.floor((new Date(session.expiresAt).getTime() - now) / 60000)
               : null,
+            dbReadCode: sessionStatus.code,
+            recoveredByRetry: sessionStatus.recoveredByRetry ?? false,
           }
-        : { present: false as const },
+        : {
+            present: false as const,
+            dbReadCode: sessionStatus.code,
+            recoveredByRetry: sessionStatus.recoveredByRetry ?? false,
+          },
       feed,
     };
 

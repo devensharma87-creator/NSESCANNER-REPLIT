@@ -23,11 +23,15 @@ if (!process.env.DATABASE_URL) {
  * unrelated tables (`option_signal_history`, `global_screener_presets`,
  * `kite_session`) after Kite ticker reconnect storms.
  *
- * - `keepAlive: true` — keeps the TCP socket alive so the managed PG
- *   side doesn't reap it as idle.
- * - `idleTimeoutMillis: 30_000` — recycle our own idle conns *before* the
- *   server kills them. 30 s is well under the typical 60–120 s server
- *   reaper window.
+ * - `keepAlive: true` — enables SO_KEEPALIVE on the TCP socket.
+ * - `keepAliveInitialDelayMillis: 10_000` — sends the first keepalive probe
+ *   10 s after the connection is established, well before a managed-PG
+ *   reaper can classify the socket as idle and half-close it.  Without this
+ *   delay, `keepAlive:true` alone depends on the OS default (often 2 h) and
+ *   provides no protection against short-window managed-PG reapers.
+ * - `idleTimeoutMillis: 10_000` — recycle our own idle conns every 10 s.
+ *   Production shows connections dying faster than the previous 30 s window;
+ *   10 s keeps the pool ahead of the network reaper on Replit managed PG.
  * - `max: 10` — bounded pool keeps us under managed PG's per-tenant
  *   connection limit even with two replicas.
  * - `connectionTimeoutMillis: 10_000` — fail fast on connect rather than
@@ -45,7 +49,8 @@ if (!process.env.DATABASE_URL) {
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   keepAlive: true,
-  idleTimeoutMillis: 30_000,
+  keepAliveInitialDelayMillis: 10_000,
+  idleTimeoutMillis: 10_000,
   connectionTimeoutMillis: 10_000,
   max: 10,
 });
