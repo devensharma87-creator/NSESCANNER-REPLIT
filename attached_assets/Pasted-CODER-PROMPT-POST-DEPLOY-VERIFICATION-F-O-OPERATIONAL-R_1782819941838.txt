@@ -1,0 +1,235 @@
+CODER PROMPT — POST-DEPLOY VERIFICATION: F&O OPERATIONAL READINESS UI, NO-SIGNAL GAP, DAILY HISTORY WARMUP
+
+The F&O operational readiness hardening has been completed.
+
+Implemented:
+
+DAILY_HISTORY_WARMUP classification
+/api/fno/no-signal-gap owner-only endpoint
+owner alert stub with 1-hour dedup
+F&O Kite Session Banner
+F&O Diagnostics Section K · Signal Gap
+data-issue vs market-condition distinction
+tests/typechecks passed
+
+Now verify the deployment professionally.
+
+This is verification only.
+
+Do not add new features.
+
+Do not change F&O signal logic.
+
+Do not change thresholds.
+
+Do not change swing logic.
+
+Do not enable live trading.
+
+Do not place real orders.
+
+Do not enable broker execution.
+
+Do not use Yahoo/stale data for trade-grade F&O.
+
+Do not trim or rewrite replit.md.
+
+Verify that production now clearly warns the owner when F&O is disabled due to Kite/session/data issues.
+
+Confirm:
+
+F&O readiness banner is visible when needed.
+/api/fno/no-signal-gap works.
+F&O Diagnostics Section K works.
+DAILY_HISTORY_WARMUP is classified correctly.
+NO_LIVE_KITE_INTRADAY is classified correctly.
+Data issue is not confused with market no-opportunity.
+Owner alert stub logs correctly.
+No trading logic changed.
+No real orders are possible.
+
+Confirm production is running latest build.
+
+Report:
+
+deployment time
+API health
+frontend health
+server start time
+whether /api/fno/no-signal-gap exists
+whether F&O Diagnostics Section K appears
+whether F&O banner code is live
+
+If route/UI is missing, report:
+
+FNO_READINESS_DEPLOYMENT_INCOMPLETE
+
+Check:
+
+GET /api/fno/no-signal-gap
+
+Report:
+
+HTTP status
+owner auth behaviour
+unauthenticated behaviour
+last F&O signal time
+last high-conviction signal time
+last paper-trade-open time
+trading-day gap count
+dominant suppression reason
+data-related gap flag
+market-condition gap flag
+
+Expected:
+
+owner-only route works
+unauthenticated request rejected
+response separates data issue from market condition
+timestamps displayed in IST where applicable
+
+Check F&O signals page.
+
+Verify banner states:
+
+KITE_SESSION_EXPIRED
+FNO_DATA_WARMING_UP
+FNO_ALL_SUPPRESSED
+normal/no-banner state
+
+Report:
+
+when banner appears
+message shown
+CTA shown or not
+last signal age shown or not
+trading-day gap shown or not
+DATA ISSUE · NOT MARKET CONDITION pill shown when applicable
+
+Important:
+
+If all indices are suppressed due to data issue, UI must not imply “no market opportunity.”
+
+Check F&O Diagnostics.
+
+Verify Section K shows:
+
+last signal table
+Any signal timestamp
+High-conviction timestamp
+Paper-trade-open timestamp
+trading-day gap counter
+dominant suppression reason badges
+data-issue warning if applicable
+
+Report UI clarity:
+
+clear
+partially clear
+misleading
+broken
+
+Simulate or observe warmup condition safely.
+
+Condition:
+
+fresh Kite login
+intraday bars available
+daily history temporarily unavailable within 5 minutes
+
+Expected classification:
+
+DAILY_HISTORY_WARMUP
+
+Rules:
+
+no tradeable signal generated during warmup
+next 30-second cycle retries
+UI shows transient warmup state
+not treated as permanent failure
+
+Do not fake live trades.
+
+Do not loosen data rules.
+
+Verify alert stub behaviour.
+
+Check:
+
+alert logs fire for all-three-index suppression
+1-hour dedup works
+no spam loop
+no secrets in logs
+Telegram integration remains pending
+WhatsApp not added
+
+Report status:
+
+ALERT_STUB_WORKING
+ALERT_STUB_NOT_TRIGGERED
+ALERT_PROVIDER_PENDING
+ALERT_LOGGING_BROKEN
+
+Confirm:
+
+F&O signal logic unchanged
+F&O thresholds unchanged
+risk guards unchanged
+no Yahoo trade-grade fallback
+no fake candles
+no broker execution
+no real orders
+swing engine untouched except no shared safety regression
+
+Run:
+
+api-server typecheck
+scanner typecheck
+relevant F&O tests
+F&O reasoning logger tests
+F&O empty-state/banner tests
+scanner tests if UI touched
+
+Report exact pass/fail counts.
+
+If full suite is too heavy, run scoped tests and explain.
+
+Final report must include:
+
+Deployment verification.
+/api/fno/no-signal-gap result.
+Banner verification.
+Diagnostics Section K verification.
+Daily history warmup verification.
+Owner alert stub verification.
+Safety check.
+Tests run.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+FNO_OPERATIONAL_READINESS_VERIFIED
+FNO_READINESS_UI_DEPLOYED_NEEDS_LIVE_PROOF
+FNO_ALERTS_STUBBED_PROVIDER_PENDING
+FNO_READINESS_DEPLOYMENT_INCOMPLETE
+FNO_READINESS_BUG_FOUND
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production route is checked
+banner is checked
+diagnostics Section K is checked
+warmup state is checked or honestly marked not observable
+alert stub is checked
+no trading logic changed
+no broker execution enabled
+tests run
+final verdict explicit
+
+This verification is required before Telegram/WhatsApp alerts.
+
+First prove the owner can see when F&O is blind.
+
+Then build real alert delivery.
