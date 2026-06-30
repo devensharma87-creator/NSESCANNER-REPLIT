@@ -179,7 +179,7 @@ When a staged order expires (sweep or explicit expire), `missed_opportunity_json
 **None blocking the target status.** One documented limitation carried to Phase 3:
 - **Concurrent-approval window**: approval/refresh re-evaluate exposure caps against the stage-time **frozen** `portfolioState`, not a live per-approval rebuild of committed state. Acceptable here because the broker is hard-disabled (positions are notional, no real capital at risk). Live re-derivation is a documented Phase-3 hardening item; the `buildSwingPortfolioState` docstring now states this honestly.
 
-Operational reminder (not a code blocker): run `swing_order_staging.sql` once against the **prod** DB after deploy (dev already applied).
+~~Operational reminder: run `swing_order_staging.sql` once against the **prod** DB after deploy.~~ **RESOLVED (2026-06-30):** Confirmed via read-only `executeSql` query against the production DB — `swing_order_staging` EXISTS in production (`exists=t`). Replit's publish flow applied the Drizzle schema diff automatically, as expected. No manual psql run needed.
 
 ---
 
