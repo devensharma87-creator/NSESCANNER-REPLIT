@@ -1,0 +1,427 @@
+CODER PROMPT — POST-PRODUCTION PUBLISH VERIFICATION: KITE/F&O DATA PATH + SWING STAGING READINESS
+
+Production has now been published after the P0 Kite/F&O reliability fix.
+
+This is a post-deployment verification task.
+
+Do not start new features.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change thresholds.
+
+Do not place real orders.
+
+Do not enable broker execution.
+
+Do not enable auto-live trading.
+
+Do not use Yahoo/stale/untrusted data for trade-grade F&O or swing execution.
+
+Do not run destructive DB operations.
+
+Do not trim or rewrite `replit.md`.
+
+The goal is to prove that the production deployment is now reliable, safe, and correctly fail-closed.
+
+====================================================
+OBJECTIVE
+=========
+
+Verify production after publish.
+
+Confirm:
+
+1. P0 Kite timeout fix is live in production.
+2. Kite REST no longer hangs / starves F&O cycle.
+3. F&O intraday 15-minute bars are available when Kite is valid.
+4. F&O signal cycle status is visible through `/api/fno/data-health`.
+5. Option-chain legs are available for NIFTY and BANKNIFTY.
+6. SENSEX remains disabled for paper auto-open.
+7. Yahoo/stale fallback is not used for trade-grade F&O.
+8. Swing staging production migration is applied or safely pending.
+9. Broker execution remains hard-disabled.
+10. No real order can be placed.
+
+====================================================
+PART A — DEPLOYMENT CONFIRMATION
+================================
+
+Confirm production is running the latest published build.
+
+Report:
+
+* production deployment timestamp
+* current commit/hash if available
+* server start time
+* API health
+* frontend health
+* whether new P0 files/changes are present in production
+* whether `/api/fno/data-health` includes the new `fnoSignalCycle` object
+
+Expected new production behavior:
+
+* `fnoSignalCycle.indicesWithBars`
+* `fnoSignalCycle.allBarsAvailable`
+* `fnoSignalCycle.suppressedSummary`
+* `fnoSignalCycle.signalCount`
+
+If these fields are missing, report:
+
+`P0_FIX_NOT_DEPLOYED`
+
+====================================================
+PART B — KITE SESSION / REST HEALTH CHECK
+=========================================
+
+Check production Kite health.
+
+Report:
+
+* Kite login status
+* user ID if safe
+* token expiry
+* session DB read status
+* WebSocket status
+* REST quote status
+* REST historical status
+* timeout behavior
+* reconnect behavior
+* any `ECONNABORTED`
+* any rate-limit error
+* any DB session error
+* any stale source date mismatch
+
+Important:
+
+The previous root cause was KiteConnect default timeout missing, causing long REST hangs and F&O throttle starvation.
+
+Verify after publish:
+
+* REST calls fail fast if broken.
+* No 30–60 second hanging calls.
+* No throttle starvation.
+* No retry storm.
+* Errors are classified.
+
+Classify result:
+
+* `KITE_REST_HEALTHY`
+* `KITE_REST_DEGRADED`
+* `KITE_SESSION_ERROR`
+* `KITE_TIMEOUT_STILL_PRESENT`
+* `KITE_RATE_LIMITED`
+
+====================================================
+PART C — F&O INTRADAY BAR CHECK
+===============================
+
+Verify fresh 15-minute intraday bars for:
+
+* NIFTY
+* BANKNIFTY
+* SENSEX
+
+For each, report:
+
+* instrument token
+* source
+* interval
+* latest candle timestamp
+* candle count
+* freshness
+* whether accepted as trade-grade
+* whether rejected
+* rejection reason if any
+
+Expected:
+
+* NIFTY and BANKNIFTY bars should be available when Kite is healthy.
+* If SENSEX data is unavailable, it must fail closed.
+* No Yahoo/stale/synthetic bars.
+
+Verdict per index:
+
+* `BARS_FRESH`
+* `BARS_STALE`
+* `BARS_UNAVAILABLE`
+* `TOKEN_MAPPING_ERROR`
+* `KITE_HISTORICAL_ERROR`
+
+====================================================
+PART D — F&O SIGNAL CYCLE CHECK
+===============================
+
+Observe at least 2–3 F&O signal cycles after publish.
+
+For each cycle, report:
+
+* cycle time
+* indicesWithBars
+* allBarsAvailable
+* suppressedSummary
+* signalCount
+* highConvictionCount
+* baselineCount
+* valid candidates
+* paper opens
+* skipped candidates
+* guard-blocked candidates
+
+If no signals are generated, identify whether it is because:
+
+* no market setup existed
+* bars unavailable
+* daily history unavailable
+* option-chain unavailable
+* guard blocked
+* market closed
+* Kite degraded
+
+Do not force signals.
+
+Do not change thresholds.
+
+====================================================
+PART E — OPTION-CHAIN LEG CHECK
+===============================
+
+Verify option-chain legs in production.
+
+Check:
+
+* NIFTY
+* BANKNIFTY
+* SENSEX
+
+For each, report:
+
+* expiry selected
+* strikes found
+* CE count
+* PE count
+* source
+* freshness
+* any missing leg reason
+* whether data is trade-grade
+* whether signal engine can use it
+
+Expected:
+
+* NIFTY legs available.
+* BANKNIFTY legs available.
+* SENSEX visible for analytics only, but no paper auto-open.
+
+If legs are missing, report exact reason:
+
+* instrument master stale
+* token mapping issue
+* expiry selection issue
+* Kite REST issue
+* segment mismatch
+* BSE/NFO mapping issue
+
+====================================================
+PART F — F&O PAPER_BLOCK GUARD SAFETY
+=====================================
+
+Confirm current F&O safety state.
+
+Report:
+
+* paper_block mode active or not
+* SENSEX paper auto-open disabled or not
+* NIFTY premium guard active or not
+* BANKNIFTY premium guard active or not
+* theta guard active or not
+* same-strike cooldown active or not
+* any guard-blocked candidates
+* any paper trades opened after publish
+
+Safety requirements:
+
+1. INFO_ONLY/baseline must not open paper trades.
+2. Yahoo/stale data must not open paper trades.
+3. SENSEX must not auto-open paper trades.
+4. BANKNIFTY must not be falsely blocked if valid high-quality candidate appears.
+5. No real broker order.
+
+====================================================
+PART G — INFRA HEALTH / UI CHECK
+================================
+
+Check production UI/status pages.
+
+Pages/endpoints:
+
+* Infra Health
+* Kite Live Feed
+* F&O Intraday
+* F&O Diagnostics
+* Paper Trading
+* Paper Reports
+* Admin/Status
+* `/api/fno/data-health`
+
+Report whether UI clearly shows:
+
+* Kite login
+* REST health
+* WebSocket health
+* F&O intraday bar status
+* option-chain leg status
+* F&O signals enabled/disabled
+* exact suppression reason
+* stale/cached status
+* source/freshness
+* trade permission state
+
+If UI only says “Kite connected” while F&O bars are unavailable, mark:
+
+`UI_HEALTH_MISLEADING`
+
+====================================================
+PART H — SWING STAGING PROD MIGRATION CHECK
+===========================================
+
+Check production Swing Phase 2 readiness.
+
+The previous report said:
+
+* Swing Phase 2 is ready as `LIVE_STAGED_APPROVAL_READY_BUT_BROKER_DISABLED`.
+* `swing_order_staging.sql` must be applied once against production DB after deploy.
+
+Now verify:
+
+1. Does `swing_order_staging` table exist in production?
+2. If not, apply only the approved additive SQL migration:
+   `docs/swing-cash-live-readiness/migrations/swing_order_staging.sql`
+3. Before applying, show/dry-run exact SQL.
+4. Confirm no destructive SQL.
+5. Confirm table columns/check constraints/indexes.
+6. Confirm Swing Live Queue route exists.
+7. Confirm owner auth works.
+8. Confirm `LIVE_CASH_SWING_ORDER_ENABLED=false`.
+9. Confirm broker status remains `BROKER_DISABLED`.
+10. Confirm staged approval cannot place real order.
+
+If migration applied, report:
+
+`SWING_STAGING_PROD_MIGRATION_APPLIED`
+
+If already applied, report:
+
+`SWING_STAGING_PROD_READY`
+
+If cannot apply, report blocker.
+
+Do not create a real broker order.
+
+====================================================
+PART I — SAFE STAGING SMOKE TEST
+================================
+
+Only if production migration exists and owner auth is available.
+
+Perform one safe staged-order smoke test only if it cannot place a real order.
+
+Requirements:
+
+* broker execution must be disabled
+* use dry-run/staged mode only
+* order must show `BROKER_DISABLED`
+* no broker SDK call
+* no real order
+* test row can be marked `CANCELLED` or `EXPIRED` after verification
+
+Report:
+
+* staged order created or not
+* risk decision saved or not
+* approval recheck works or not
+* broker disabled status
+* row cleanup/expiry status
+
+If unsafe, skip this part and report why.
+
+====================================================
+PART J — TESTS / VERIFICATION
+=============================
+
+Run:
+
+* api-server typecheck
+* scanner typecheck if UI touched
+* relevant F&O data-health tests
+* Kite/F&O data path tests if available
+* swing staging scoped tests
+* scanner tests if UI touched
+
+If full test suite is too heavy, run scoped tests and explain honestly.
+
+====================================================
+PART K — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Production deployment confirmation.
+2. Kite session health.
+3. Kite REST health.
+4. Kite WebSocket health.
+5. F&O intraday bar status.
+6. F&O signal cycle status.
+7. Option-chain leg status.
+8. F&O paper_block guard status.
+9. Infra Health / UI status.
+10. Swing staging migration status.
+11. Broker execution status.
+12. Any staged-order smoke result.
+13. Any remaining blocker.
+14. Tests/checks run.
+15. Exact next action.
+
+Final verdict must be exactly one:
+
+* `PROD_P0_FIX_VERIFIED_LIVE`
+* `PROD_P0_FIX_DEPLOYED_NEEDS_MARKET_OBSERVATION`
+* `FNO_DATA_STILL_DEGRADED`
+* `P0_FIX_NOT_DEPLOYED`
+* `SWING_STAGING_PROD_READY_BROKER_DISABLED`
+* `SWING_MIGRATION_PENDING`
+* `ROLLBACK_REQUIRED`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* Production deployment is verified.
+* `/api/fno/data-health` new fields are checked.
+* Kite REST timeout behavior is checked.
+* F&O intraday bars are checked.
+* Option-chain legs are checked.
+* F&O guard safety is checked.
+* Swing staging production migration is checked.
+* Broker execution remains disabled.
+* No real order is placed.
+* No F&O/swing logic is changed.
+* No destructive DB operation is done.
+* Final verdict is explicit.
+
+====================================================
+IMPORTANT
+=========
+
+This is post-deploy verification.
+
+Do not add new features.
+
+Do not start Telegram/WhatsApp alerts yet.
+
+First prove that production data is stable and trade-grade.
+
+A professional trading system must prove data reliability before automation.
