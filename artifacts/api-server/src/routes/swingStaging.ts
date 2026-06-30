@@ -54,6 +54,7 @@ import {
   expireStaleSwingOrders,
   buildSwingPortfolioState,
 } from "../lib/swingOrderStaging";
+import { alertSwingOrderBlockedByRisk } from "../lib/swingAlerts";
 
 const router: IRouter = Router();
 
@@ -257,6 +258,12 @@ router.post("/swing/staged-orders", requireOwner, async (req, res) => {
     eventOverride,
     now,
   });
+  // BLOCKED_BY_RISK alert — fire-and-forget, never affects the response.
+  if (!result.staged && result.reason === "NOT_STAGEABLE_HARD_BLOCK") {
+    try {
+      alertSwingOrderBlockedByRisk(candidate.symbol, b.setupKey ?? null, [result.reason]);
+    } catch { /* safe-fail */ }
+  }
   res.status(result.staged ? 201 : 200).json({
     staged: result.staged,
     status: result.status,

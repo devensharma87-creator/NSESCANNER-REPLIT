@@ -46,6 +46,12 @@ import {
 import { getSwingCashBookCapital, getSwingExecutionMode } from "./swingLiveExecutionConfig";
 import { isKillSwitchActive } from "./swingKillSwitch";
 import { placeOrderDryRun } from "./swingDryRunBroker";
+import {
+  alertSwingOrderStaged,
+  alertSwingOrderExpired,
+  alertSwingOrderRejected,
+  alertSwingOrderApprovedDryRun,
+} from "./swingAlerts";
 
 // ---------------------------------------------------------------------------
 // Lifecycle vocab (kept in sync with the schema CHECK constraints).
@@ -376,6 +382,10 @@ export async function stageSwingOrder(
   };
 
   const [row] = await db.insert(swingOrderStagingTable).values(values).returning();
+  // Alert after successful DB write — fire-and-forget, never rolls back staging.
+  if (row) {
+    try { alertSwingOrderStaged(row); } catch { /* safe-fail */ }
+  }
   return { staged: true, status, decision, row };
 }
 
@@ -424,7 +434,11 @@ export async function expireStaleSwingOrders(
       })
       .where(and(eq(swingOrderStagingTable.id, r.id), eq(swingOrderStagingTable.status, r.status)))
       .returning({ id: swingOrderStagingTable.id });
-    if (res.length) expired++;
+    if (res.length) {
+      expired++;
+      // Alert after successful expire — fire-and-forget, never rolls back expiry.
+      try { alertSwingOrderExpired(r); } catch { /* safe-fail */ }
+    }
   }
   return expired;
 }
@@ -648,7 +662,12 @@ export async function approveSwingOrder(
     )
     .returning();
   if (res.length === 0) return { approved: false, reason: "CONCURRENT_MODIFICATION" };
-  return { approved: true, status: newStatus, decision, availability, row: res[0] };
+  const approvedRow = res[0];
+  // Alert dry-run approvals — fire-and-forget, never rolls back approval.
+  if (newStatus === "DRY_RUN_PLACED") {
+    try { alertSwingOrderApprovedDryRun(approvedRow); } catch { /* safe-fail */ }
+  }
+  return { approved: true, status: newStatus, decision, availability, row: approvedRow };
 }
 
 // ---------------------------------------------------------------------------
@@ -690,7 +709,10 @@ export async function rejectSwingOrder(
     .where(and(eq(swingOrderStagingTable.id, id), eq(swingOrderStagingTable.status, row.status)))
     .returning();
   if (!res.length) return { ok: false, reason: "CONCURRENT_MODIFICATION" };
-  return { ok: true, row: res[0] };
+  const rejectedRow = res[0];
+  // Alert after successful rejection — fire-and-forget.
+  try { alertSwingOrderRejected(rejectedRow); } catch { /* safe-fail */ }
+  return { ok: true, row: rejectedRow };
 }
 
 export async function markWatchOnlySwingOrder(

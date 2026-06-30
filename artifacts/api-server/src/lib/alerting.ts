@@ -237,6 +237,25 @@ function dispatchTelegramBackground(event: string, text: string): void {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
+ * Lower-level alert sender for alert types that build their own Telegram text.
+ * Caller supplies pre-built `telegramText`; `buildTelegramText` is NOT called.
+ * Supports an optional custom dedup window (defaults to DEDUP_WINDOW_MS = 1h).
+ * Never throws. Best-effort Telegram delivery in the background.
+ */
+export function alertOwnerRaw(
+  dedupKey: string,
+  logMessage: string,
+  telegramText: string,
+  dedupWindowMs: number = DEDUP_WINDOW_MS,
+): void {
+  const now = Date.now();
+  if (now - (lastAlerted.get(dedupKey) ?? 0) < dedupWindowMs) return;
+  lastAlerted.set(dedupKey, now);
+  logger.warn({ alertEvent: dedupKey }, `OWNER_ALERT [${dedupKey}]: ${logMessage}`);
+  dispatchTelegramBackground(dedupKey, telegramText);
+}
+
+/**
  * Fire an owner alert for `event` at most once per DEDUP_WINDOW_MS.
  *
  * Always logs at WARN level. If Telegram is configured, delivers via Telegram

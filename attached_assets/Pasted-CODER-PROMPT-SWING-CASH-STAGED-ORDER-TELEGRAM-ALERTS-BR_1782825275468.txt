@@ -1,0 +1,206 @@
+CODER PROMPT — SWING CASH STAGED-ORDER TELEGRAM ALERTS, BROKER EXECUTION STILL DISABLED
+
+Telegram owner alert delivery is production-verified.
+
+Current status:
+
+Telegram alerts are enabled and tested in production.
+F&O data/session alerts work.
+/alerts/status works.
+/alerts/test-telegram works.
+Infra Health has F&O Signal Gap section.
+Swing Cash Phase 2 is ready as LIVE_STAGED_APPROVAL_READY_BUT_BROKER_DISABLED.
+Broker execution remains disabled.
+No real order can be placed.
+
+Now implement Telegram alerts for Swing Cash staged orders.
+
+This is alerting only.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not add buy/sell recommendation alerts beyond staged-order approval notification.
+
+Send Telegram alerts when a Swing Cash order is staged and needs owner approval.
+
+The goal is to reduce missed opportunities by notifying the owner instantly when a valid swing candidate enters the staged approval queue.
+
+Do not change swing signal logic.
+
+Do not change swing scoring.
+
+Do not change entry/SL/target formulas.
+
+Do not change risk guard thresholds.
+
+Do not enable live trading.
+
+Do not enable broker execution.
+
+Do not place real broker orders.
+
+Do not touch F&O signal logic.
+
+Do not change F&O alerts except shared alert utility if needed.
+
+Do not expose Telegram secrets.
+
+Do not trim or rewrite replit.md.
+
+Alert delivery failure must not break staging.
+
+Wire Telegram alerts for these Swing Cash events:
+
+SWING_ORDER_STAGED
+SWING_ORDER_APPROVAL_REQUIRED
+SWING_ORDER_EXPIRED
+SWING_ORDER_REJECTED
+SWING_ORDER_APPROVED_DRY_RUN
+SWING_ORDER_BLOCKED_BY_RISK
+
+Start with staged/approval-required alerts as highest priority.
+
+Telegram message must be professional, short, and actionable.
+
+Example:
+
+📌 SWING CASH ALERT Event: Order staged for approval Symbol: RELIANCE Setup: Breakout / Swing Long Entry: ₹____ LTP: ₹____ SL: ₹____ Target 1: ₹____ Target 2: ₹____ R:R: ____ Qty: ____ Capital: ₹____ Max Risk: ₹____ Sector: ____ Data: Kite, fresh Status: Broker execution disabled Action: Review in Swing Live Queue
+
+Rules:
+
+Do not say “Buy Now”.
+Do not imply guaranteed profit.
+Must clearly say broker execution is disabled.
+Must show risk and stop loss.
+Must show data source/freshness.
+Must include dashboard path if available.
+Must not expose internal IDs unless useful.
+
+Use existing alert dedup system.
+
+Dedup by:
+
+event
+symbol
+setupKey
+stagedOrderId
+
+Default dedup:
+
+15 minutes for same staged order alert
+1 hour for repeated blocked/risk alerts if same symbol/setup
+
+No alert spam every scanner cycle.
+
+Integrate alert call inside the Swing order staging flow.
+
+When a staged order is created:
+
+if status is STAGED or APPROVAL_REQUIRED, send Telegram alert
+if risk guard blocks staging, optionally send blocked alert only if owner-actionable
+if order expires, send expiry alert
+if owner approves dry-run, send approval/dry-run alert
+
+Important:
+
+Alert must run after DB save succeeds.
+
+If Telegram fails:
+
+do not roll back staged order
+log safe error
+continue normally
+
+Add owner-only test endpoint if needed:
+
+POST /alerts/test-swing-staged-order
+
+It should send a sample Swing staged-order Telegram message.
+
+Rules:
+
+owner-only
+no real order
+no DB write required unless safer to use existing test row
+must say broker execution disabled
+rate-limited
+
+Extend /alerts/status if useful.
+
+Show:
+
+last swing alert event
+last swing alert time
+last swing alert delivery status
+Telegram enabled status
+
+Do not expose secrets.
+
+Add tests for:
+
+staged order alert sends when order is staged
+approval-required alert sends
+expiry alert sends
+rejected alert sends if implemented
+approved dry-run alert sends
+blocked-by-risk alert does not spam
+Telegram failure does not fail staging
+dedup prevents duplicate alerts
+no secrets in message/logs
+broker execution remains disabled
+owner test endpoint is owner-only
+non-owner rejected
+
+Run:
+
+api-server typecheck
+alerting tests
+swing staging tests
+scanner typecheck if UI touched
+scanner tests if UI touched
+
+Final report must include:
+
+Files touched.
+Files confirmed untouched.
+Swing alert events wired.
+Message format.
+Dedup behaviour.
+Test endpoint status.
+/alerts/status update if any.
+Tests run.
+Broker execution status.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+SWING_STAGED_ORDER_ALERTS_ENABLED
+SWING_ALERTS_CODE_READY_NEEDS_PROD_TEST
+SWING_ALERTS_STUBBED_CONFIG_PENDING
+SWING_ALERTS_FAILED_PROVIDER_ERROR
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+owner receives Telegram alert for staged swing order
+message includes entry, SL, target, R, quantity, max risk, data source, and broker-disabled status
+alert failure cannot break staging
+dedup prevents spam
+no secrets exposed
+no broker execution enabled
+no swing/F&O logic changed
+tests pass or blockers reported
+final verdict explicit
+
+This task is only for Swing staged-order alerts.
+
+Do not add automatic trade execution.
+
+Do not add buy/sell signal spam.
+
+Do not add WhatsApp yet.
+
+The purpose is fast owner review, not blind automation.
