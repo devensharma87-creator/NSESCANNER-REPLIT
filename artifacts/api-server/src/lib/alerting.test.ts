@@ -31,12 +31,15 @@ afterEach(() => {
 
 describe("getTelegramStatus — config detection", () => {
   it("returns TELEGRAM_DISABLED_MISSING_CONFIG when both secrets absent", () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "");
     const s = getTelegramStatus();
     expect(s.enabled).toBe(false);
     expect(s.status).toBe("TELEGRAM_DISABLED_MISSING_CONFIG");
   });
 
   it("returns TELEGRAM_DISABLED_MISSING_TOKEN when only CHAT_ID set", () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
     vi.stubEnv("TELEGRAM_CHAT_ID", "123456");
     const s = getTelegramStatus();
     expect(s.enabled).toBe(false);
@@ -45,6 +48,7 @@ describe("getTelegramStatus — config detection", () => {
 
   it("returns TELEGRAM_DISABLED_MISSING_CHAT_ID when only BOT_TOKEN set", () => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:abc123");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "");
     const s = getTelegramStatus();
     expect(s.enabled).toBe(false);
     expect(s.status).toBe("TELEGRAM_DISABLED_MISSING_CHAT_ID");
@@ -93,6 +97,8 @@ describe("alertOwner — dedup prevents spam", () => {
 
 describe("sendTestTelegramMessage", () => {
   it("returns STUB_NO_CONFIG when secrets are missing", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "");
     const result = await sendTestTelegramMessage();
     expect(result.enabled).toBe(false);
     expect(result.telegramStatus).toMatch(/TELEGRAM_DISABLED/);
@@ -236,6 +242,8 @@ describe("getLastAlertRecord", () => {
   });
 
   it("records STUB_NO_CONFIG when secrets are missing", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "");
     alertOwner("STUB_TEST", "msg without secrets");
     await new Promise(r => setTimeout(r, 50));
 

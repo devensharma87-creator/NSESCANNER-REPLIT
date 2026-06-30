@@ -50,6 +50,7 @@ import { computeAnalytics } from "../lib/optionAnalytics";
 import { OPTION_INDICES, getLastFnoCycleState } from "../lib/optionSignals";
 import { istDateOf } from "../lib/paperDailySummaryFo";
 import { alertOwner } from "../lib/alerting";
+import { countTradingDays } from "../lib/fnoTradingDays";
 
 const router: IRouter = Router();
 
@@ -384,22 +385,6 @@ router.get("/fno/diagnostics/blocked-signals", requireOwner, async (req, res, ne
     return next(err);
   }
 });
-
-/**
- * Count Mon–Fri days strictly between `from` (exclusive) and `to` (inclusive
- * date-portion). Honest: no NSE public holiday list is maintained server-side.
- */
-function countTradingDays(from: Date, to: Date): number {
-  let count = 0;
-  const cursor = new Date(from.getFullYear(), from.getMonth(), from.getDate());
-  const end    = new Date(to.getFullYear(),   to.getMonth(),   to.getDate());
-  while (cursor < end) {
-    cursor.setDate(cursor.getDate() + 1);
-    const day = cursor.getDay(); // 0=Sun, 6=Sat
-    if (day !== 0 && day !== 6) count++;
-  }
-  return count;
-}
 
 /**
  * GET /fno/no-signal-gap — last F&O signal dates + Mon-Fri trading-day gap

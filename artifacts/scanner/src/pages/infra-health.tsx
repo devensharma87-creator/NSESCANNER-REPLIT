@@ -41,6 +41,7 @@ import {
   Radio,
   Receipt,
   KeyRound,
+  Signal,
 } from "lucide-react";
 import { Seo } from "@/components/seo";
 import {
@@ -207,6 +208,19 @@ interface CandidatesDiag {
 interface SizingPreviewResp {
   preview: { verdict: "ACCEPT" | "REJECT"; reason: string | null; qty?: number | null; capitalDeployed?: number | null; risk?: number | null };
   input: { symbol: string; entry: number; stop: number };
+}
+interface FnoSignalGapResp {
+  generatedAt: string;
+  lastSignal: {
+    any: string | null;
+    highConviction: string | null;
+    baseline: string | null;
+    paperTradeOpen: string | null;
+  };
+  gapTradingDays: number | null;
+  gapReason: string;
+  isDataRelatedGap: boolean;
+  suppressionReasonDistribution: Array<{ reasonCode: string; count: number }>;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -1986,6 +2000,110 @@ interface IndstocksTokenStatusResp {
   updatedBy: string | null;
 }
 
+// ── F&O Signal Gap section ────────────────────────────────────────────────
+
+function FnoSignalGapSection({ data, error, loading }: FetchState<FnoSignalGapResp>): React.ReactElement {
+  let severity: Severity = "ok";
+  if (loading && !data) severity = "disabled";
+  else if (error) severity = "warn";
+  else if (data) {
+    if (data.isDataRelatedGap && (data.gapTradingDays ?? 0) > 5) severity = "fail";
+    else if (data.isDataRelatedGap && (data.gapTradingDays ?? 0) > 0) severity = "warn";
+    else severity = "ok";
+  }
+
+  function fmtIst(iso: string | null | undefined): string {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  }
+
+  const gapReasonLabel: Record<string, string> = {
+    WITHIN_NORMAL_RANGE:               "FNO_TRADE_READY",
+    NO_SIGNALS_KITE_SESSION_EXPIRED:   "FNO_DISABLED_KITE_SESSION",
+    NO_SIGNALS_DAILY_HISTORY_GAP:      "FNO_DISABLED_DAILY_HISTORY_GAP",
+    NO_SIGNALS_ENGINE_SUPPRESSED:      "FNO_ENGINE_SUPPRESSED",
+    NO_SIGNALS_MARKET_CLOSED:          "FNO_MARKET_CLOSED",
+    NO_SIGNALS_REASON_UNKNOWN:         "FNO_REASON_UNKNOWN",
+    NO_SIGNALS_EVER:                   "FNO_NO_SIGNALS_EVER",
+  };
+
+  return (
+    <SectionShell
+      title="F&O Signal Gap"
+      icon={Signal}
+      severity={severity}
+      description="Last F&O signal dates + Mon–Fri trading-day gap. Identifies data-related outages vs normal market quiet. Trading-day count is Mon–Fri only — no NSE holiday list is maintained server-side."
+      testId="section-fno-signal-gap"
+    >
+      {error && <div className="text-sm text-rose-500">Failed: {error}</div>}
+      {loading && !data && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {data && (() => {
+        const tradeReady = !data.isDataRelatedGap || (data.gapTradingDays ?? 0) === 0;
+        const statusLabel = gapReasonLabel[data.gapReason] ?? data.gapReason;
+        return (
+          <div className="space-y-4">
+            {/* Status row */}
+            <div className="flex items-center gap-3">
+              <SeverityIcon s={severity} />
+              <span className={`font-mono text-sm ${severity === "fail" ? "text-rose-400" : severity === "warn" ? "text-amber-400" : "text-emerald-400"}`}>
+                {statusLabel}
+              </span>
+              {!tradeReady && data.isDataRelatedGap && (
+                <span className="ml-auto text-[11px] font-mono text-rose-400 shrink-0">DATA ISSUE · NOT MARKET CONDITION</span>
+              )}
+            </div>
+
+            {/* Alert banner if data gap */}
+            {data.isDataRelatedGap && (data.gapTradingDays ?? 0) > 0 && (
+              <div className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+                <span>
+                  <span className="font-semibold font-mono">{data.gapTradingDays}</span> trading day{data.gapTradingDays !== 1 ? "s" : ""} without a signal ·{" "}
+                  <span className="font-mono text-xs">{data.gapReason}</span>
+                </span>
+              </div>
+            )}
+
+            {/* Last signal table */}
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b">
+                  <th className="py-1.5 pr-4">Signal type</th>
+                  <th className="py-1.5">Last at (IST)</th>
+                </tr>
+              </thead>
+              <tbody className="tabular-nums">
+                {([
+                  { label: "Any (HC or Baseline)", iso: data.lastSignal.any },
+                  { label: "High-Conviction only",  iso: data.lastSignal.highConviction },
+                  { label: "Paper trade opened",    iso: data.lastSignal.paperTradeOpen },
+                ] as Array<{ label: string; iso: string | null }>).map(({ label, iso }) => (
+                  <tr key={label} className="border-b border-border/40">
+                    <td className="py-1.5 pr-4 text-muted-foreground">{label}</td>
+                    <td className="py-1.5 font-mono text-xs">{fmtIst(iso)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Gap + top suppression reason */}
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span>Mon–Fri gap: <span className={`font-mono font-semibold ${(data.gapTradingDays ?? 0) > 5 ? "text-rose-400" : (data.gapTradingDays ?? 0) > 1 ? "text-amber-400" : "text-foreground"}`}>{data.gapTradingDays ?? "—"} day{data.gapTradingDays !== 1 ? "s" : ""}</span></span>
+              {data.suppressionReasonDistribution[0] && (
+                <span>Top reason: <span className="font-mono text-foreground">{data.suppressionReasonDistribution[0].reasonCode}</span> ({data.suppressionReasonDistribution[0].count})</span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+    </SectionShell>
+  );
+}
+
 function IndstocksTokenSection({
   auto,
   tick,
@@ -2198,6 +2316,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const observability = useEndpoint<ObservabilityResp>("api/paper/diagnostics/fno-observability", auto, tick);
   const shadowCosts = useEndpoint<ShadowCostsResp>("api/paper/analytics/fo/shadow-costs", auto, tick);
   const shadowExits = useEndpoint<ShadowExitsResp>("api/paper/analytics/fo/shadow-exits", auto, tick);
+  const fnoGap = useEndpoint<FnoSignalGapResp>("api/fno/no-signal-gap", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -2221,8 +2340,14 @@ export default function InfraHealthPage(): React.ReactElement {
     severities.push(deriveSnapshotSectionSeverity(snapshot, analytics, nowMs, 15));
     if (candle.data) severities.push(deriveCandleSeverity(candle.data.byInterval, nowMs).severity);
     else if (candle.error) severities.push("fail");
+    if (fnoGap.data) {
+      const { isDataRelatedGap, gapTradingDays } = fnoGap.data;
+      if (isDataRelatedGap && (gapTradingDays ?? 0) > 5) severities.push("fail");
+      else if (isDataRelatedGap && (gapTradingDays ?? 0) > 0) severities.push("warn");
+      else severities.push("ok");
+    } else if (fnoGap.error) severities.push("warn");
     return rollUp(severities);
-  }, [security, sector, snapshot, analytics, candle, nowMs]);
+  }, [security, sector, snapshot, analytics, candle, fnoGap]);
 
   const anyLoading = security.loading || sector.loading || snapshot.loading || analytics.loading || candle.loading || candidates.loading;
 
@@ -2299,6 +2424,9 @@ export default function InfraHealthPage(): React.ReactElement {
             exactOnly={exactOnly}
             onToggleExact={() => setExactOnly(v => !v)}
           />
+        </div>
+        <div className="md:col-span-2">
+          <FnoSignalGapSection {...fnoGap} />
         </div>
       </div>
     </div>

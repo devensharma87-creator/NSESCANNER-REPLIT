@@ -1,0 +1,251 @@
+CODER PROMPT — POST-PRODUCTION VERIFICATION: TELEGRAM OWNER ALERT DELIVERY
+
+Production has now been published after enabling Telegram owner alert delivery.
+
+This is a post-deployment verification task.
+
+Do not add new features.
+
+Do not change F&O signal logic.
+
+Do not change thresholds.
+
+Do not change swing logic.
+
+Do not enable live trading.
+
+Do not place real orders.
+
+Do not enable broker execution.
+
+Do not send buy/sell trade alerts yet.
+
+Do not use Yahoo/stale data for trade-grade F&O.
+
+Do not trim or rewrite replit.md.
+
+The goal is to prove Telegram owner alerts work safely in production.
+
+Verify production Telegram alert delivery for F&O data/session alerts.
+
+Confirm:
+
+Production has Telegram configuration.
+/alerts/status works in production.
+/alerts/test-telegram sends a Telegram message from production.
+Auth gate works.
+Rate limit works.
+No secrets are exposed.
+F&O data/session alerts are wired.
+Alert dedup works.
+Alert failure cannot crash F&O signal cycle.
+Broker execution remains disabled.
+
+Verify production is running the latest alert build.
+
+Report:
+
+production deployment timestamp
+server start time
+API health
+frontend health
+current commit/hash if available
+whether alertsRouter is mounted
+whether /alerts/status exists
+whether /alerts/test-telegram exists
+
+If routes are missing, report:
+
+TELEGRAM_ALERT_BUILD_NOT_DEPLOYED
+
+Check production environment safely.
+
+Do not print secrets.
+
+Report only:
+
+TELEGRAM_BOT_TOKEN present: yes/no
+TELEGRAM_CHAT_ID present: yes/no
+Telegram config status:
+TELEGRAM_ENABLED
+TELEGRAM_DISABLED_MISSING_TOKEN
+TELEGRAM_DISABLED_MISSING_CHAT_ID
+TELEGRAM_DISABLED_MISSING_CONFIG
+
+Do not expose token.
+
+Do not expose chat id.
+
+Test unauthenticated access:
+
+GET /alerts/status
+POST /alerts/test-telegram
+
+Expected:
+
+unauthenticated request rejected
+no alert data leaked
+no secrets leaked
+
+Then test owner authenticated access.
+
+Expected:
+
+owner can access status
+owner can trigger test alert
+
+Report status codes.
+
+Trigger one owner-only production test message:
+
+POST /alerts/test-telegram
+
+Expected Telegram message:
+
+✅ Telegram alert test from Market Scanner. Broker execution remains disabled.
+
+Report:
+
+HTTP status
+telegramStatus
+configStatus
+delivery success/failure
+response body excluding secrets
+
+If successful, verdict:
+
+TELEGRAM_PROD_TEST_SENT
+
+If failed, classify:
+
+TELEGRAM_CONFIG_MISSING
+TELEGRAM_INVALID_TOKEN
+TELEGRAM_INVALID_CHAT_ID
+TELEGRAM_NETWORK_ERROR
+TELEGRAM_PROVIDER_ERROR
+UNKNOWN_TELEGRAM_ERROR
+
+Test duplicate test alert immediately after first alert.
+
+Expected:
+
+second test call is blocked/rate-limited or safely deduped
+no Telegram spam
+
+Report:
+
+first call status
+second call status
+rate-limit/dedup behaviour
+
+Verify alertOwner dedup remains:
+
+1-hour dedup by event key
+no duplicate data-alert every 30 seconds
+recovery alert sends once per incident
+
+Call:
+
+GET /alerts/status
+
+Report:
+
+Telegram enabled yes/no
+config status
+last alert event if any
+last alert time if any
+last telegram status
+last error code if any
+
+Confirm:
+
+no token returned
+no chat id returned
+no secrets in JSON
+no secrets in logs
+
+Confirm the following alert events are wired in production code:
+
+FNO_KITE_SESSION_MISSING
+FNO_DAILY_HISTORY_WARMUP
+FNO_DAILY_HISTORY_UNAVAILABLE
+FNO_DATA_RECOVERED
+
+Check logs or code paths.
+
+If a data/session suppression is currently happening, verify alert fires once and is deduped.
+
+If no suppression is happening, do not force unsafe conditions. Report:
+
+NO_LIVE_ALERT_CONDITION_OBSERVED
+
+Confirm:
+
+F&O signal logic unchanged
+F&O thresholds unchanged
+F&O risk guards unchanged
+no buy/sell signal alerts added
+no trade recommendation alerts added
+swing logic unchanged
+broker execution disabled
+no real order placed
+alert failure cannot crash F&O cycle
+no secret leakage
+
+Run:
+
+api-server typecheck
+alerting tests
+F&O reasoning logger tests
+scanner typecheck if frontend touched
+scanner tests if frontend touched
+
+If full suite is too heavy, run scoped tests and report honestly.
+
+Final report must include:
+
+Deployment verification.
+Telegram config status.
+Auth gate result.
+Test message result.
+Rate-limit/dedup result.
+/alerts/status result.
+F&O alert wiring result.
+Safety check.
+Tests run.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+TELEGRAM_PROD_VERIFIED
+TELEGRAM_PROD_CODE_READY_SECRETS_MISSING
+TELEGRAM_PROD_CONFIG_ERROR
+TELEGRAM_PROD_PROVIDER_ERROR
+TELEGRAM_PROD_ROUTE_NOT_DEPLOYED
+TELEGRAM_PROD_VERIFIED_NO_LIVE_ALERT_CONDITION
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production route is verified
+Telegram config is checked without exposing secrets
+owner test alert is sent or blocker is classified
+unauthenticated access is rejected
+rate-limit/dedup is checked
+/alerts/status is checked
+no secrets are exposed
+F&O logic remains unchanged
+broker execution remains disabled
+tests/typechecks are run
+final verdict is explicit
+
+This is production verification only.
+
+Do not add swing staged-order alerts yet.
+
+Do not add F&O buy/sell signal alerts yet.
+
+Do not add WhatsApp yet.
+
+First prove Telegram data/session alerts are production-safe.
