@@ -1,0 +1,408 @@
+CODER PROMPT — P0 URGENT: PRODUCTION KITE + F&O DATA RELIABILITY FIX, NO LOGIC CHANGE, NO LIVE ORDER
+
+We need to make the website workable as soon as possible.
+
+The live market observation showed the real blocker:
+
+* Kite appears connected in some places, but production F&O trade-grade data is degraded.
+* F&O intraday 15-minute bars are unavailable.
+* Kite REST calls show `ECONNABORTED`.
+* Kite WebSocket is flapping in production.
+* Kite session DB read is failing with: `Failed query: params: active,1`.
+* F&O cycles are suppressed with `daily_history_unavailable_kite` / `no_live_kite_intraday`.
+* Equity quotes may refresh, but F&O engine cannot generate signals without trusted intraday bars.
+* The system correctly failed closed. Do not change this safety behavior.
+
+This is a P0 reliability task.
+
+====================================================
+OBJECTIVE
+=========
+
+Fix the production Kite/F&O data reliability path so that the website can reliably receive trade-grade Indian market data during live sessions.
+
+Priority:
+
+1. Production Kite session reliability.
+2. Production Kite REST reliability.
+3. F&O intraday candle availability.
+4. F&O option-chain legs availability.
+5. Correct Infra Health visibility.
+6. Swing staging production readiness check.
+7. No change to trading logic.
+
+Final goal:
+
+* F&O engine receives fresh trusted Kite intraday bars.
+* If data is unavailable, it still fails closed.
+* Infra Health clearly explains the exact problem.
+* No fake fallback is used.
+* No live order is placed.
+
+====================================================
+ABSOLUTE RULES
+==============
+
+Do not change F&O signal logic.
+
+Do not change F&O thresholds.
+
+Do not change swing signal logic.
+
+Do not loosen any guard.
+
+Do not enable live trading.
+
+Do not place real orders.
+
+Do not enable broker execution.
+
+Do not use Yahoo/delayed/untrusted data for trade-grade F&O.
+
+Do not bypass `no_live_kite_intraday`.
+
+Do not fabricate candles.
+
+Do not fake option-chain legs.
+
+Do not run destructive DB migrations.
+
+Do not trim or rewrite `replit.md`.
+
+Do not touch capital ledger, paper P&L math, option premium math, F&O scoring, swing scoring, or risk sizing unless directly required for diagnostics and approved.
+
+This is a data reliability and observability fix only.
+
+====================================================
+PART A — REPRODUCE THE PRODUCTION ISSUE
+=======================================
+
+First reproduce and document the issue.
+
+Check in production and dev separately:
+
+1. Kite login status.
+2. Kite token expiry.
+3. Kite session DB read.
+4. Kite REST quote call.
+5. Kite historical candle call.
+6. NIFTY intraday 15-minute bars.
+7. BANKNIFTY intraday 15-minute bars.
+8. SENSEX intraday 15-minute bars.
+9. Option-chain legs for NIFTY.
+10. Option-chain legs for BANKNIFTY.
+11. Option-chain legs for SENSEX.
+12. WebSocket connect/disconnect timeline.
+13. Index quote freshness.
+14. Equity quote freshness.
+15. Scanner source date.
+16. Any stale/cached source date mismatch.
+
+Report exact difference:
+
+* dev vs production
+* REST vs WebSocket
+* equity vs F&O
+* quote vs historical candle
+* index vs option-chain
+* session DB vs runtime memory
+
+Do not guess.
+
+====================================================
+PART B — FIX KITE SESSION DB READ FAILURE
+=========================================
+
+Investigate and fix:
+
+`Failed query: params: active,1`
+
+Check:
+
+1. Current Kite session table schema.
+2. Production DB schema.
+3. Query code.
+4. Parameter binding.
+5. Owner key / active session filter.
+6. Migration drift between dev and prod.
+7. Any table/column mismatch.
+8. Any index/constraint issue.
+9. Whether session fetch fails only in prod.
+
+Acceptance:
+
+* Production can read active Kite session reliably.
+* Session fetch errors are logged with safe detail.
+* No secrets are logged.
+* If session is missing/expired, UI says exactly that.
+* No silent fallback.
+
+====================================================
+PART C — FIX KITE REST STABILITY
+================================
+
+Investigate `ECONNABORTED` on:
+
+* `getQuote`
+* `getHistoricalData`
+* index quote batch
+* F&O candle fetch
+* option-chain related calls
+
+Check:
+
+1. Timeout settings.
+2. Retry policy.
+3. Backoff policy.
+4. Rate limiting.
+5. Request batching.
+6. Concurrent Kite calls.
+7. Production network/runtime limits.
+8. Whether calls are too parallel during market hours.
+9. Whether server restart causes burst calls.
+10. Whether session expiry is causing misleading timeout errors.
+
+Add safe improvements only:
+
+* bounded retries
+* jittered backoff
+* request timeout classification
+* Kite error classification
+* no infinite retry
+* no blocking event loop
+* no retry storm
+
+Classify errors:
+
+* `KITE_SESSION_EXPIRED`
+* `KITE_REST_TIMEOUT`
+* `KITE_RATE_LIMIT`
+* `KITE_NETWORK_ERROR`
+* `KITE_HISTORICAL_UNAVAILABLE`
+* `KITE_OPTION_CHAIN_UNAVAILABLE`
+* `KITE_WEBSOCKET_FLAPPING`
+* `KITE_DB_SESSION_READ_FAILED`
+
+====================================================
+PART D — FIX F&O INTRADAY CANDLE PATH
+=====================================
+
+F&O engine must not run without trusted fresh intraday bars.
+
+Audit and fix the path that provides intraday bars for:
+
+* NIFTY
+* BANKNIFTY
+* SENSEX
+
+Check:
+
+1. Instrument token resolution.
+2. Exchange segment.
+3. Correct index symbol mapping.
+4. Historical interval used.
+5. From/to time.
+6. Timezone.
+7. Trading-day calendar.
+8. Market-hours handling.
+9. Candle freshness rule.
+10. Cache behaviour.
+11. Warehouse fallback behaviour.
+12. Why dev/prod differ.
+
+Acceptance:
+
+* If Kite returns fresh 15-minute bars, F&O engine receives them.
+* If Kite does not return bars, F&O remains suppressed.
+* No Yahoo fallback.
+* No stale previous-day candles.
+* No synthetic candles.
+* Logs clearly say which exact bar path failed.
+
+====================================================
+PART E — FIX OPTION-CHAIN LEGS AVAILABILITY
+===========================================
+
+Production observed “no F&O legs found” for major indices.
+
+Audit:
+
+1. Instrument master freshness.
+2. NSE/BFO/NFO segment mapping.
+3. Weekly/monthly expiry resolution.
+4. Strike filtering.
+5. Option chain facade.
+6. Index-to-option mapping:
+
+   * NIFTY
+   * BANKNIFTY
+   * SENSEX
+7. Whether production instrument master is stale or incomplete.
+8. Whether BSE SENSEX option mapping differs.
+
+Acceptance:
+
+* NIFTY option-chain legs available when Kite data is valid.
+* BANKNIFTY option-chain legs available when Kite data is valid.
+* SENSEX option-chain remains visible for analytics but does not auto-open paper trades.
+* If legs are unavailable, UI/logs say exact reason.
+
+====================================================
+PART F — INFRA HEALTH / STATUS PAGE FIX
+=======================================
+
+Infra Health must not simply say “Kite connected” if F&O is broken.
+
+Add or improve status fields:
+
+1. Kite login.
+2. Kite REST healthy.
+3. Kite WebSocket healthy.
+4. Active Kite session DB readable.
+5. Equity quotes fresh.
+6. Index quotes fresh.
+7. F&O intraday bars fresh.
+8. Option-chain legs available.
+9. Scanner source date.
+10. F&O trade permission state.
+
+Add clear states:
+
+* `TRADE_READY`
+* `EQUITY_ONLY_READY`
+* `FNO_DATA_DEGRADED`
+* `KITE_SESSION_EXPIRED`
+* `KITE_REST_UNSTABLE`
+* `FNO_SIGNALS_DISABLED`
+* `DATA_STALE`
+
+If F&O bars are unavailable, show:
+
+`Kite connected, but F&O intraday data unavailable — F&O signals disabled safely.`
+
+====================================================
+PART G — SWING PHASE 2 PRODUCTION READINESS CHECK
+=================================================
+
+Do not enable broker execution.
+
+Check only:
+
+1. Is `swing_order_staging` table applied in production?
+2. If not, apply only the approved additive SQL migration after dry-run.
+3. Confirm no destructive SQL.
+4. Confirm Swing Live Queue route exists.
+5. Confirm owner auth works.
+6. Confirm `LIVE_CASH_SWING_ORDER_ENABLED=false`.
+7. Confirm broker status remains `BROKER_DISABLED`.
+8. Confirm staging can exist without placing real order.
+
+Do not create live broker order.
+
+If staging is tested, use dry-run/staged only and clearly report:
+
+`BROKER_EXECUTION_DISABLED — NO REAL ORDER PLACED`
+
+====================================================
+PART H — LIVE SESSION SAFETY CHECK
+==================================
+
+After fixes, observe one or more F&O cycles during market hours.
+
+Report:
+
+* did fresh bars arrive?
+* did signals generate?
+* did candidates reach guard?
+* did guard allow/block?
+* did any paper trade open?
+* was any signal suppressed?
+* were suppressions correct?
+* was Yahoo avoided?
+* was SENSEX auto-open still disabled?
+* did BANKNIFTY valid candidate remain eligible?
+
+If no candidate appears, do not force one.
+
+====================================================
+PART I — TESTS / VERIFICATION
+=============================
+
+Run:
+
+1. Kite session unit/integration tests if available.
+2. F&O candle path tests.
+3. Option-chain leg resolution tests.
+4. Data freshness tests.
+5. Infra health response tests.
+6. Swing staging migration safety check.
+7. api-server typecheck.
+8. scanner typecheck if UI touched.
+9. relevant scanner tests if UI touched.
+
+If full test suite is too heavy, run scoped tests and explain resource limitation honestly.
+
+====================================================
+PART J — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Root cause.
+2. Dev vs prod difference.
+3. Files touched.
+4. Files confirmed untouched.
+5. DB/schema changes, if any.
+6. Whether prod session DB read is fixed.
+7. Whether Kite REST is stable.
+8. Whether WebSocket is stable.
+9. Whether F&O intraday bars are available.
+10. Whether option-chain legs are available.
+11. Whether F&O engine still fails closed when data is unavailable.
+12. Infra Health changes.
+13. Swing staging prod migration status.
+14. Tests run.
+15. Live-session observation after fix.
+16. Remaining blockers.
+17. Next action.
+
+Final verdict must be exactly one:
+
+* `PROD_KITE_FNO_DATA_FIXED`
+* `PROD_KITE_PARTIALLY_FIXED_NEEDS_MORE_OBSERVATION`
+* `FNO_STILL_BLOCKED_BY_KITE_DATA`
+* `SESSION_DB_SCHEMA_FIX_REQUIRED`
+* `KITE_PROVIDER_LIMIT_OR_RATE_LIMIT_BLOCKER`
+* `ROLLBACK_REQUIRED`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* Production Kite session DB read is explained and fixed or blocker identified.
+* F&O intraday candle path is explained and fixed or blocker identified.
+* Option-chain legs issue is explained and fixed or blocker identified.
+* Infra Health clearly shows F&O data readiness.
+* No F&O logic was changed.
+* No swing logic was changed.
+* No broker execution was enabled.
+* No real order was placed.
+* No fake/stale/Yahoo trade-grade fallback was introduced.
+* Tests/typechecks are run.
+* Final verdict is explicit.
+
+====================================================
+IMPORTANT
+=========
+
+Do not waste time on cosmetic work.
+
+This is the current P0 blocker.
+
+Fix production data reliability first.
+
+A professional trading website is useless if the data path is unreliable.
+
+Make it accurate, live, source-honest, and fail-closed.

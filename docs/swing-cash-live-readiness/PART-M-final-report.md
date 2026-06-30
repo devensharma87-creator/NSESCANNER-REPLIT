@@ -1,7 +1,7 @@
 # PART M — Swing CASH Phase 2 Final Report
 
 **Feature:** Swing CASH Live-Readiness — Phase 2: Order Staging + Fast Approval Queue
-**Date:** 2026-06-29
+**Build dates:** 2026-06-29 (P1–P4) · 2026-06-30 (P5 verification pass)
 **Build type:** Additive only. Broker execution HARD-DISABLED. No real order can be placed.
 
 ---
@@ -150,14 +150,27 @@ When a staged order expires (sweep or explicit expire), `missed_opportunity_json
 
 ## 14. Tests run
 
+### P4 session (2026-06-29)
 - `swingOrderStaging.test.ts` — **25/25** (Part L cases 1–20; injected DB/adapter/clock/kill-switch).
 - Scoped final regression (`--pool=threads`): `swingOrderStaging.test.ts` + `swingCashRiskGuards.test.ts` + `swingCashDataTrust.test.ts` — **50/50 passing**.
 - `pnpm --filter @workspace/api-server run typecheck` — **clean**.
 - `pnpm --filter @workspace/scanner run typecheck` — **clean**.
 - `pnpm --filter @workspace/scanner run test` — **711/711**.
 - `pnpm --filter @workspace/api-spec run codegen` (incl. `typecheck:libs`) — **clean**.
-- The full api-server vitest suite OOMs in this environment; tests were run scoped with `--pool=threads` per the repo's documented convention.
 - Architect (evaluate_task) — **PASS**, no blockers; confirmed Phase-1 pure modules unmodified.
+
+### P5 verification pass (2026-06-30)
+- `swingOrderStaging.test.ts` — **25/25** (`vitest run --pool=threads swingOrderStaging`).
+- `swingCash*` (8 files) — **83/83** (`vitest run --pool=threads swingCash`).
+- Scoped 3-file regression — **50/50** (`vitest run --pool=threads swingOrderStaging swingCashRiskGuards swingCashDataTrust`).
+- `pnpm --filter @workspace/api-server exec tsc --noEmit` — **clean** (zero errors).
+- `pnpm --filter @workspace/scanner run test` — **711/711**.
+- DB: `swing_order_staging` table present (4 rows), `swing_kill_switch` state = `enabled:false`.
+- `/swing/status` endpoint — **401** (correct: auth-gated, unauthenticated returns 401 not 404).
+- Architect (evaluate_task, P5) — **PASS**. Status `LIVE_STAGED_APPROVAL_READY_BUT_BROKER_DISABLED` confirmed safe. No blocking risks.
+  - Non-obvious risk noted (not blocking): in `live_dry_run` mode, `approveSwingOrder` records `DRY_RUN_PLACED` and a synthetic `DRYRUN-` broker ID even when `LIVE_CASH_SWING_ORDER_ENABLED=false`. This is NOT a real-order risk (no broker SDK, no real call), but weakens the doc claim that broker fields stay null/BROKER_DISABLED when the hard flag is false. **Mitigation**: explicitly document this in the status line comments, or gate dry-run finalization behind the hard flag in a Phase-3 hardening pass.
+  - Recommendation: short-circuit the `/swing/staged-orders` route on kill-switch before any live quote fetch to make the kill-switch operationally immediate (Phase-3 hardening, not blocking today).
+- The full api-server vitest suite is run scoped with `--pool=threads` per the repo's documented convention; the full suite exceeds the bash subprocess memory budget in this environment.
 
 ---
 

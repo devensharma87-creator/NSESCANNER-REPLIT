@@ -1685,6 +1685,27 @@ interface CachedSignals { ts: number; data: OptionSignalsResult; }
 let cache: CachedSignals | null = null;
 const TTL = 30 * 1000;
 
+/** Metadata stamped after each completed F&O signal cycle (never reset between TTL refreshes). */
+interface FnoCycleMeta {
+  ts: number;
+  indicesWithBars: number;
+  suppressed: { index: string; reasons: string[] }[];
+  suppressedSummary: string;
+  signalCount: number;
+  highConvictionCount: number;
+  baselineCount: number;
+}
+let lastCycleMeta: FnoCycleMeta | null = null;
+
+/**
+ * Returns the metadata from the most recent completed F&O signal cycle,
+ * or null if no cycle has run yet. Safe to call at any time — never triggers
+ * a new cycle. Consumed by /fno/data-health for intraday bar readiness.
+ */
+export function getLastFnoCycleState(): FnoCycleMeta | null {
+  return lastCycleMeta;
+}
+
 /**
  * Session-level signal lock: once a setup of a given (date, index, setupKey, direction) is
  * emitted, its entry/SL/T1/T2 levels are FROZEN for the rest of the IST trading session.
@@ -2603,11 +2624,23 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // Sweep open rows to EXPIRED after market close (no-op intra-session).
   await expireOpenSignalsForToday().catch(() => 0);
 
+  const suppressedSummary = suppressed.map(s => `${s.index}:[${s.reasons.join("; ")}]`).join(" | ");
   logger.info(
-    { signalCount: out.length, indicesWithBars, highConvictionCount, baselineCount,
-      suppressedSummary: suppressed.map(s => `${s.index}:[${s.reasons.join("; ")}]`).join(" | ") },
+    { signalCount: out.length, indicesWithBars, highConvictionCount, baselineCount, suppressedSummary },
     "F&O getOptionSignals: cycle complete",
   );
+  // Stamp the last-cycle metadata so /fno/data-health can surface intraday bar
+  // readiness without needing to call getOptionSignals() (which would trigger
+  // a full cycle refresh from the diagnostics route).
+  lastCycleMeta = {
+    ts: Date.now(),
+    indicesWithBars,
+    suppressed,
+    suppressedSummary,
+    signalCount: out.length,
+    highConvictionCount,
+    baselineCount,
+  };
   const result: OptionSignalsResult = {
     signals: out,
     diagnostics: {

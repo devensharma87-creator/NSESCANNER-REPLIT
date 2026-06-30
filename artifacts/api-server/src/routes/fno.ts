@@ -47,7 +47,7 @@ import { getActiveSession, getKiteCreds } from "../lib/kiteAuth";
 import { centralIndexQuotes } from "../lib/marketData/compat";
 import { fetchOptionChain } from "../lib/optionChain";
 import { computeAnalytics } from "../lib/optionAnalytics";
-import { OPTION_INDICES } from "../lib/optionSignals";
+import { OPTION_INDICES, getLastFnoCycleState } from "../lib/optionSignals";
 import { istDateOf } from "../lib/paperDailySummaryFo";
 
 const router: IRouter = Router();
@@ -227,11 +227,33 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
       }),
     );
 
+    // Expose the last completed F&O signal-cycle metadata so operators can
+    // see intraday bar readiness without triggering a new cycle.  This is
+    // the top-level diagnostic for the "no_live_kite_intraday" suppression
+    // pattern: indicesWithBars=0 + a suppressedSummary containing the reason
+    // is the definitive sign that the cycle ran but Kite bars were unavailable.
+    const lastCycle = getLastFnoCycleState();
+    const fnoSignalCycle = lastCycle
+      ? {
+          ranAt: new Date(lastCycle.ts).toISOString(),
+          ageMs: Date.now() - lastCycle.ts,
+          indicesWithBars: lastCycle.indicesWithBars,
+          indicesConfigured: OPTION_INDICES.length,
+          allBarsAvailable: lastCycle.indicesWithBars === OPTION_INDICES.length,
+          signalCount: lastCycle.signalCount,
+          highConvictionCount: lastCycle.highConvictionCount,
+          baselineCount: lastCycle.baselineCount,
+          suppressedSummary: lastCycle.suppressedSummary,
+          suppressed: lastCycle.suppressed,
+        }
+      : { ranAt: null, indicesWithBars: 0, indicesConfigured: OPTION_INDICES.length, allBarsAvailable: false, note: "no cycle has run yet since server start" };
+
     return res.json({
       generatedAt: new Date().toISOString(),
       environment: getEnvironmentLabel(),
       universe: OPTION_INDICES.map((c) => c.symbol),
       kite,
+      fnoSignalCycle,
       perIndex,
       reasoningLogger: getReasoningLoggerHealth(),
       note:

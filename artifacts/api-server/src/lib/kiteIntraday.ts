@@ -180,16 +180,31 @@ function cacheKey(yahoo: string, interval: string, daysBack: number): string {
 // MAX_QUEUE bounds the queue depth so a Kite outage cannot pile up
 // dozens of waiting callers — over the cap we fail fast and the caller
 // falls back to Yahoo immediately rather than waiting tens of seconds.
+//
+// BACKFILL_MAX_QUEUE (separate cap for OI backfill):
+//   OI Lab backfill fires ATM±7 strikes × 2 sides per index on restart,
+//   potentially queuing 40+ calls. Without a separate cap these easily
+//   fill the 30-slot shared queue and starve the F&O signal sweep —
+//   which only needs 6 index-candle calls per cycle. The backfill cap
+//   limits OI backfill concurrency to 8 slots; the sweep always has
+//   room even under burst conditions.
 const HISTORICAL_MIN_INTERVAL_MS = 400; // ≈ 2.5 req/sec, headroom under Kite's 3/sec limit.
 const HISTORICAL_MAX_QUEUE = 30;
+const BACKFILL_MAX_QUEUE = 8; // OI backfill cannot hold more than 8 of the 30 shared slots.
 
 let nextSlotAt = 0;
 let pendingCount = 0;
+let backfillPendingCount = 0; // tracks only OI backfill callers (subset of pendingCount)
 const inflight = new Map<string, Promise<YahooChart | null>>();
 
-async function reserveHistoricalSlot(): Promise<boolean> {
+async function reserveHistoricalSlot(opts?: { isBackfill?: boolean }): Promise<boolean> {
+  // Backfill-specific cap: OI backfill callers are limited to BACKFILL_MAX_QUEUE
+  // slots so they cannot crowd out the F&O signal sweep (which needs at most
+  // 6 index-candle slots per cycle but gets suppressed if the queue is full).
+  if (opts?.isBackfill && backfillPendingCount >= BACKFILL_MAX_QUEUE) return false;
   if (pendingCount >= HISTORICAL_MAX_QUEUE) return false;
   pendingCount++;
+  if (opts?.isBackfill) backfillPendingCount++;
   try {
     const now = Date.now();
     const slot = Math.max(now, nextSlotAt);
@@ -199,7 +214,40 @@ async function reserveHistoricalSlot(): Promise<boolean> {
     return true;
   } finally {
     pendingCount--;
+    if (opts?.isBackfill) backfillPendingCount--;
   }
+}
+
+// ---- Kite error classifier ----
+//
+// ECONNABORTED = axios request timeout or TCP reset.
+// TokenException / 403 = Kite session expired or invalid.
+// 429 / "Too many" = Kite rate limit.
+// Other network errors = transient connectivity failure.
+//
+// Logged as `kiteErrCode` so production logs are grep-able.
+export type KiteHistoricalErrCode =
+  | "KITE_REST_TIMEOUT"
+  | "KITE_SESSION_EXPIRED"
+  | "KITE_RATE_LIMIT"
+  | "KITE_NETWORK_ERROR"
+  | "KITE_UNKNOWN_ERROR";
+
+export function classifyKiteHistoricalError(msg: string): KiteHistoricalErrCode {
+  const m = msg.toLowerCase();
+  if (m.includes("econnaborted") || m.includes("etimedout") || m.includes("timeout")) {
+    return "KITE_REST_TIMEOUT";
+  }
+  if (m.includes("tokenexception") || m.includes("403") || m.includes("session") || m.includes("invalid api_key")) {
+    return "KITE_SESSION_EXPIRED";
+  }
+  if (m.includes("429") || m.includes("too many") || m.includes("rate limit")) {
+    return "KITE_RATE_LIMIT";
+  }
+  if (m.includes("econnreset") || m.includes("econnrefused") || m.includes("enetunreach") || m.includes("network")) {
+    return "KITE_NETWORK_ERROR";
+  }
+  return "KITE_UNKNOWN_ERROR";
 }
 
 type KiteInterval = "minute" | "3minute" | "5minute" | "10minute" | "15minute" | "30minute" | "60minute" | "day";
@@ -273,9 +321,11 @@ export async function fetchKiteHistoricalByToken(
     try {
       raw = (await kc.getHistoricalData(token, interval, fromStr, toStr, false, false)) as RawCandle[];
     } catch (err) {
+      const errMsg = (err as Error).message ?? "";
+      const kiteErrCode = classifyKiteHistoricalError(errMsg);
       logger.warn(
-        { err: (err as Error).message, cacheLabel, interval, token },
-        "Kite getHistoricalData failed; caller will fall back to Yahoo",
+        { err: errMsg, kiteErrCode, cacheLabel, interval, token },
+        "Kite getHistoricalData failed",
       );
       return null;
     }
@@ -461,11 +511,11 @@ export async function fetchKiteOiHistoricalByToken(
   fromIst: Date,
   toIst: Date,
 ): Promise<KiteOiCandle[] | null> {
-  const slotOk = await reserveHistoricalSlot();
+  const slotOk = await reserveHistoricalSlot({ isBackfill: true });
   if (!slotOk) {
     logger.warn(
-      { cacheLabel, interval, token, queueDepth: pendingCount },
-      "Kite OI historical-data throttle queue full; backfill skipping leg",
+      { cacheLabel, interval, token, queueDepth: pendingCount, backfillDepth: backfillPendingCount },
+      "Kite OI historical-data throttle queue full or backfill cap reached; skipping leg",
     );
     return null;
   }
@@ -484,8 +534,10 @@ export async function fetchKiteOiHistoricalByToken(
     // stitching — option legs don't roll). 6th arg `oi` = true.
     raw = (await kc.getHistoricalData(token, interval, fromStr, toStr, false, true)) as RawOiCandle[];
   } catch (err) {
+    const errMsg = (err as Error).message ?? "";
+    const kiteErrCode = classifyKiteHistoricalError(errMsg);
     logger.warn(
-      { err: (err as Error).message, cacheLabel, interval, token },
+      { err: errMsg, kiteErrCode, cacheLabel, interval, token },
       "Kite OI getHistoricalData failed; backfill skipping leg",
     );
     return null;

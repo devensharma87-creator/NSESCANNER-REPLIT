@@ -18,12 +18,43 @@ import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 import { KiteConnect } from "kiteconnect";
 import { loadBlob, saveBlob } from "./diskCache";
+
+/**
+ * Hard per-request timeout for every Kite REST call.
+ *
+ * Without this the KiteConnect SDK uses no timeout (axios default = 0 =
+ * infinite), so a slow `getHistoricalData` response hangs for the OS TCP
+ * reset interval (30–60 s). During market hours that blocks the shared
+ * historical-data throttle slot for up to 60 s, starving the F&O signal
+ * sweep and producing a cascade of "ECONNABORTED" / "no_live_kite_intraday"
+ * suppressions even when the Kite session is perfectly valid.
+ *
+ * 15 s gives `getHistoricalData` enough room for large daily-bar series
+ * (180-day history) and large instrument CSVs (NFO/BFO dumps are ~1–3 MB)
+ * while failing fast enough that the throttle queue drains normally.
+ */
 import {
   encryptToken,
   decryptToken,
   isEncrypted,
   isEncryptionKeyConfigured,
 } from "./kiteCrypto";
+
+/**
+ * Hard per-request timeout for every Kite REST call.
+ *
+ * Without this the KiteConnect SDK uses no timeout (axios default = undefined =
+ * infinite), so a slow `getHistoricalData` response hangs for the OS TCP
+ * reset interval (30–60 s). During market hours that blocks the shared
+ * historical-data throttle slot for up to 60 s, starving the F&O signal
+ * sweep and producing a cascade of "ECONNABORTED" / "no_live_kite_intraday"
+ * suppressions even when the Kite session is perfectly valid.
+ *
+ * 15 s gives `getHistoricalData` enough room for large daily-bar series
+ * (180-day history) and large instrument CSVs (NFO/BFO dumps are ~1–3 MB)
+ * while failing fast enough that the throttle queue drains normally.
+ */
+const KITE_HTTP_TIMEOUT_MS = 15_000;
 
 const ACTIVE_ID = "active";
 const KITE_LOGIN_BASE = "https://kite.zerodha.com/connect/login";
@@ -73,7 +104,7 @@ export async function completeLogin(requestToken: string): Promise<ActiveSession
   const creds = getKiteCreds();
   if (!creds) throw new Error("KITE_API_KEY and KITE_API_SECRET must be configured");
 
-  const kc = new KiteConnect({ api_key: creds.apiKey });
+  const kc = new KiteConnect({ api_key: creds.apiKey, timeout: KITE_HTTP_TIMEOUT_MS });
   // generateSession returns SessionData (camel/snake mix in TS types)
   const session = (await kc.generateSession(requestToken, creds.apiSecret)) as {
     access_token: string;
@@ -468,7 +499,7 @@ export async function forceRefreshInstruments(): Promise<{
   const cleared = clearInstrumentsCooldown();
   // Deliberately NOT wrapped — we want the SDK's getInstruments to throw
   // on upstream failure so the admin route can report a real error.
-  const rawKc = new KiteConnect({ api_key: session.apiKey });
+  const rawKc = new KiteConnect({ api_key: session.apiKey, timeout: KITE_HTTP_TIMEOUT_MS });
   rawKc.setAccessToken(session.accessToken);
   const results: Record<string, { count: number } | { error: string }> = {};
   const exchanges = ["NSE", "NFO", "BFO"] as const;
@@ -497,7 +528,7 @@ export async function forceRefreshInstruments(): Promise<{
 export async function getRestClient(): Promise<{ kc: any; session: ActiveSession } | null> {
   const session = await getActiveSession();
   if (!session) return null;
-  const kc = new KiteConnect({ api_key: session.apiKey });
+  const kc = new KiteConnect({ api_key: session.apiKey, timeout: KITE_HTTP_TIMEOUT_MS });
   kc.setAccessToken(session.accessToken);
   wrapGetInstruments(kc);
   return { kc, session };

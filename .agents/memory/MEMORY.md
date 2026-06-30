@@ -29,3 +29,5 @@
 - [Equity-swing perf: exclude MANUAL_OVERRIDE](equity-swing-perf-manual-override-contamination.md) — blended paper_trade_eq WR overstates the AUTONOMOUS edge; partition out MANUAL_OVERRIDE and gate scaling on autonomous-only count.
 - [Risk-guard sim netImprovement](risk-guard-sim-net-improvement.md) — scenario netImprovement must equal -(netPnlAvoided); never re-subtract blocked-winner P&L (double-count flips protective scenarios falsely negative).
 - [NaN/Infinity comparisons fail OPEN](nan-comparison-fails-open.md) — fail-closed risk gates must validate finiteness+sign of every numeric input AND config before any threshold compare; NaN>cap is false → fails open.
+- [KiteConnect timeout is undefined by default](kiteconnect-timeout-default.md) — KiteConnect v5 has no default timeout; OS TCP reset (30-60s) + ECONNABORTED starves the throttle queue → F&O cycle suppression; always pass timeout:15000.
+- [F&O OI backfill queue starvation](fno-backfill-queue-starvation.md) — OI backfill shares the 30-slot throttle queue; use a separate `isBackfill:true` cap (BACKFILL_MAX_QUEUE=8) or backfill crowds out live signal-sweep slots.
