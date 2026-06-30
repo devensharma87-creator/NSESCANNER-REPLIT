@@ -1,0 +1,251 @@
+CODER PROMPT — POST-PRODUCTION VERIFICATION: SWING STAGED-ORDER TELEGRAM ALERTS
+
+Swing staged-order Telegram alerts have been implemented.
+
+Current reported status:
+
+SWING_STAGED_ORDER_ALERTS_ENABLED
+alertOwnerRaw() added
+swingAlerts.ts added
+staged/approval/expired/rejected/dry-run/block-risk alerts wired
+/api/alerts/test-swing-staged-order added
+/alerts/status includes lastSwingAlert
+54/54 alert tests passed
+typecheck clean
+broker execution remains disabled
+F&O and swing logic untouched
+
+Production has now to be verified.
+
+This is verification only.
+
+Do not add new features.
+
+Do not change F&O logic.
+
+Do not change swing scoring.
+
+Do not change entry/SL/target formulas.
+
+Do not change risk guard thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not send buy/sell trade recommendations.
+
+Do not trim or rewrite replit.md.
+
+Verify that Swing staged-order Telegram alerts work safely in production.
+
+Confirm:
+
+Production has the latest swing alert build.
+/api/alerts/test-swing-staged-order works.
+/alerts/status shows lastSwingAlert.
+Owner auth works.
+Rate limit works.
+Telegram message format is correct.
+Real staged-order alert fires after DB save.
+Alert failure cannot break staging.
+Dedup prevents spam.
+Broker execution remains hard-disabled.
+
+Verify production build.
+
+Report:
+
+deployment timestamp
+current commit/hash
+API health
+frontend health
+/api/alerts/test-swing-staged-order exists
+/api/alerts/status includes lastSwingAlert
+Swing staging routes exist
+Swing Live Queue route exists
+
+If missing, report:
+
+SWING_ALERT_BUILD_NOT_DEPLOYED
+
+Test unauthenticated:
+
+POST /api/alerts/test-swing-staged-order
+GET /api/alerts/status
+
+Expected:
+
+unauthenticated rejected
+no alert data leaked
+no secrets leaked
+
+Test owner authenticated:
+
+owner can call test endpoint
+owner can read status
+
+Test rate limit:
+
+first test call sends
+immediate second test call is blocked/rate-limited or deduped
+no Telegram spam
+
+Trigger one owner-only production test message:
+
+POST /api/alerts/test-swing-staged-order
+
+Expected message must include:
+
+SWING CASH ALERT
+event
+symbol
+entry
+stop loss
+target
+R
+quantity
+capital
+max risk
+data source
+broker execution disabled
+
+Report:
+
+HTTP status
+Telegram delivery status
+config status
+response body excluding secrets
+whether message arrived
+
+If failed, classify:
+
+TELEGRAM_CONFIG_ERROR
+TELEGRAM_PROVIDER_ERROR
+TELEGRAM_RATE_LIMITED
+AUTH_ERROR
+UNKNOWN_ERROR
+
+Only if safe.
+
+Create one staged swing order in production only if all conditions are true:
+
+broker execution disabled
+LIVE_CASH_SWING_ORDER_ENABLED=false
+staging table exists
+owner auth available
+order cannot place real broker order
+staged order can be expired/cancelled after test
+
+The staged test must clearly remain:
+
+BROKER_EXECUTION_DISABLED — NO REAL ORDER PLACED
+
+Verify:
+
+DB row created
+alert sent after DB save
+message contains correct fields
+/alerts/status.lastSwingAlert updates
+staged row is then marked EXPIRED or CANCELLED
+no broker order id from real broker
+no real order placed
+
+If unsafe, skip and report why.
+
+Verify code wiring for:
+
+SWING_ORDER_STAGED
+SWING_ORDER_APPROVAL_REQUIRED
+SWING_ORDER_EXPIRED
+SWING_ORDER_REJECTED
+SWING_ORDER_APPROVED_DRY_RUN
+SWING_ORDER_BLOCKED_BY_RISK
+
+Do not force all events in production unless safe.
+
+At minimum:
+
+test endpoint verifies message format
+one safe staged-order event verifies live path
+code inspection verifies remaining events
+
+Verify:
+
+same staged order does not spam repeatedly
+blocked-by-risk alerts dedup by symbol/setup
+Telegram failure does not roll back staging
+alert delivery failure is logged safely
+no token/chat id in logs
+no alert crash can break swing staging
+
+Confirm:
+
+broker execution disabled
+no real order placed
+F&O signal logic untouched
+swing scoring untouched
+swing formulas untouched
+risk thresholds untouched
+no buy/sell recommendation spam
+no WhatsApp added
+no destructive DB operation
+
+Run:
+
+api-server typecheck
+alerting tests
+swing alert tests
+swing staging tests if touched
+scanner typecheck if UI touched
+scanner tests if UI touched
+
+If full suite is heavy, run scoped tests and report honestly.
+
+Final report must include:
+
+Deployment verification.
+Auth/rate-limit result.
+Test Telegram result.
+Real staged-order alert result or reason skipped.
+/alerts/status.lastSwingAlert result.
+Dedup result.
+Failure-safety result.
+Broker execution status.
+Tests run.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+SWING_STAGED_ALERTS_PROD_VERIFIED
+SWING_ALERTS_CODE_READY_NEEDS_PROD_TEST
+SWING_ALERTS_PROD_CONFIG_ERROR
+SWING_ALERTS_PROD_PROVIDER_ERROR
+SWING_ALERTS_ROUTE_NOT_DEPLOYED
+SWING_STAGED_ALERT_SKIPPED_UNSAFE_TO_TEST
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production route is verified
+Telegram test message is sent or blocker classified
+auth gate works
+rate-limit/dedup works
+lastSwingAlert status is checked
+one real staged-order path is verified if safe
+broker execution remains disabled
+no real order is placed
+no logic is changed
+tests/typechecks pass
+final verdict explicit
+
+This is production verification only.
+
+Do not add F&O buy/sell signal alerts yet.
+
+Do not enable broker execution.
+
+Do not add WhatsApp yet.
+
+First prove swing staged-order alerts are production-safe.

@@ -760,7 +760,10 @@ export async function manuallyExpireSwingOrder(
     .where(and(eq(swingOrderStagingTable.id, id), eq(swingOrderStagingTable.status, row.status)))
     .returning();
   if (!res.length) return { ok: false, reason: "CONCURRENT_MODIFICATION" };
-  return { ok: true, row: res[0] };
+  const expiredRow = res[0];
+  // Alert after successful manual expire — fire-and-forget.
+  try { alertSwingOrderExpired(expiredRow); } catch { /* safe-fail */ }
+  return { ok: true, row: expiredRow };
 }
 
 export async function cancelSwingOrder(
