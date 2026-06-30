@@ -1,0 +1,426 @@
+You are working on my production project: NSE Stock Screener / Hrishiassociates.
+
+The project is an Indian market analytics and trading website with:
+
+NSE/BSE stock screener
+Kite-first live market data
+Swing trading engine
+F&O / option-chain signal engine
+Watchlist, portfolio, scanner, charting, technical scan, market pulse, pre-market/global cues
+Telegram alert delivery
+Data-source honesty/provenance requirements
+Production site: marketscannerbydev.in / Hrishiassociates
+
+My objective now is LLM TOKEN SAVING THROUGH COMPLETE PROJECT INDEXING.
+
+Currently, every new LLM task consumes too many tokens because the agent repeatedly scans the whole codebase. I want a professional indexing system so future agents can understand the project quickly by reading a compact index instead of loading the full repository again and again.
+
+Your task is to create a complete, automatic, always-updated project indexing system.
+
+STRICT RULES:
+
+Do not change trading logic.
+Do not change production business behavior.
+Do not change UI unless required only for documentation links, and avoid that unless necessary.
+Do not refactor unrelated code.
+Do not introduce fake data, synthetic assumptions, or misleading labels.
+Do not remove any existing files unless clearly obsolete and confirmed by evidence.
+Keep this task focused only on project indexing, documentation indexing, and index freshness enforcement.
+The index must help future Replit/LLM agents understand the repo with minimum tokens.
+The index must update automatically whenever code changes.
+Index freshness must be enforced so the agent/developer cannot forget to update it.
+
+PROJECT CONTEXT THAT MUST BE CAPTURED IN THE INDEX:
+
+This is an Indian stock market website.
+Kite must remain the priority and trusted source for all live price-sensitive data.
+Other lower-cost APIs may be used only for fundamentals, financial statements, ratios, shareholding, corporate actions, IPO/news, analyst views, target-price display, mutual fund/basic non-trading pages.
+Live trading/scanner/signal decisions must not rely on untrusted or stale data.
+Any Yahoo/synthetic/proxy/stale data must be honestly labeled and must not overwrite Kite-trusted values.
+Swing staged-order Telegram alert wording has already been production-verified. Important wording:
+“Risk eval: kite”
+“Entry is the staged limit order price — not current market price”
+Old misleading “Data: kite” wording must not return.
+Telegram bot/signal delivery is important.
+Portfolio resolver, Kite instrument master, BSE pricing, scanner, option chain, charting, and data provenance are critical areas.
+The project needs professional-grade auditability, source honesty, and low-token agent onboarding.
+
+MAIN DELIVERABLE:
+Create a durable indexing system under a clear folder such as:
+
+docs/llm-index/
+
+Create or update the following files:
+
+docs/llm-index/AGENT_START_HERE.md
+Purpose:
+The first file every future LLM/Replit Agent must read.
+Keep it compact.
+Target size: maximum 1,500–2,500 words.
+Must explain:
+What the project is
+How the repo is structured
+Which files/folders matter most
+Which index files to read next depending on task
+Current source-of-truth data policy
+Strict do-not-break rules
+Standard verification commands
+Index update commands
+Where production-sensitive logic lives
+docs/llm-index/PROJECT_MAP.md
+Purpose:
+Human-readable map of the complete codebase.
+Include major folders, major files, purpose, dependencies, risk level.
+Mention whether each area is frontend, backend, shared, database, script, config, test, or documentation.
+Mark critical areas:
+data layer
+Kite integration
+option chain
+F&O engine
+swing engine
+alerting/Telegram
+portfolio
+scanner
+charting
+auth
+database schema
+deployment/config
+docs/llm-index/CRITICAL_FLOWS.md
+Purpose:
+Explain the most important flows end-to-end:
+Kite data ingestion / live quotes
+market pulse / indices / pre-market/global cues
+scanner/deep scan flow
+swing signal flow
+F&O option-chain signal flow
+Telegram alert delivery flow
+portfolio manual add/resolver/pricing flow
+chart candle source/provenance flow
+auth-protected production endpoints
+For each flow include:
+Entry file/API route
+Main service files
+Data source used
+Database tables touched
+Frontend components using it
+Risk level
+Verification method/tests
+docs/llm-index/API_ROUTES_INDEX.md
+Purpose:
+List all backend API routes.
+Include route path, method, file, auth requirement, purpose, major dependencies, response type, and risk level.
+Mark production-sensitive routes.
+Mark sample/test-only routes clearly.
+Mark rate-limited routes clearly.
+Mark Telegram-related routes clearly.
+docs/llm-index/DATABASE_INDEX.md
+Purpose:
+Summarize schema/tables/models/migrations.
+Include:
+table/model name
+purpose
+main fields
+used by which flows
+source/provenance fields if any
+risk notes
+Do not dump full schema blindly. Summarize compactly but accurately.
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+Purpose:
+This is extremely important.
+Document every market data source used in the app:
+Kite
+NSE/BSE if used
+IndianAPI / fundamentals provider if used
+Yahoo or any proxy/synthetic provider if still present
+local DB/cache/warehouse
+any mock/sample/test data
+For each source:
+What it is allowed for
+What it is NOT allowed for
+Whether it can affect live signals/trading decisions
+Freshness expectations
+Fallback behavior
+UI label requirement
+Whether it can overwrite trusted data
+Known risks
+Must clearly state:
+Kite is the trusted priority for live price-sensitive data.
+Fundamentals/basic non-live data may use cheaper providers if clearly separated.
+Synthetic/proxy/stale values must be labeled honestly.
+No fake fallback should silently appear as real market data.
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+Purpose:
+List all test commands, typecheck commands, lint/build commands, smoke-test commands, production verification commands if present.
+Include what each command verifies.
+Include which commands must be run after:
+data-layer changes
+signal-engine changes
+alert/Telegram changes
+frontend changes
+DB/schema changes
+API route changes
+Include known important tests such as alerting/swing/F&O/data provenance tests if present.
+docs/llm-index/CHANGELOG_FOR_AGENTS.md
+Purpose:
+Compact running changelog meant for future agents.
+Add current indexing task as first entry.
+Future changes must be appended here.
+Format:
+Date/time
+Change summary
+Files touched
+Risk
+Verification run
+Index updated: yes/no
+docs/llm-index/FILE_SUMMARIES.json
+Purpose:
+Machine-readable file index.
+For every relevant source file include:
+path
+file type
+purpose summary
+exports/functions/classes/routes detected
+imports/dependencies
+related flows
+risk level
+last modified time
+content hash
+This should be generated automatically by script, not manually maintained.
+docs/llm-index/INDEX_MANIFEST.json
+Purpose:
+Machine-readable manifest of index freshness.
+Include:
+generatedAt
+repo branch
+latest commit if available
+index version
+script version
+included file count
+ignored file count
+per-file hashes
+docs generated
+verification status
+Root-level AGENT.md or REPLIT_AGENT.md
+Purpose:
+Very short root instruction file.
+It must tell every future agent:
+“Before doing any work, read docs/llm-index/AGENT_START_HERE.md.”
+Include the exact indexing update command.
+Include the exact stale-index check command.
+
+AUTOMATIC INDEXING REQUIREMENT:
+Create scripts so the index can be regenerated automatically.
+
+Preferred implementation:
+
+Use TypeScript/Node if the project already uses TypeScript/Node.
+Otherwise use the repo’s existing language/tooling.
+Create scripts such as:
+
+scripts/generate-llm-index.ts
+scripts/check-llm-index.ts
+
+or similar names.
+
+The generator must:
+
+Scan the repository.
+Ignore:
+node_modules
+.git
+build/dist/cache folders
+logs
+binary assets
+huge generated files
+env/secrets
+Include:
+source files
+config files
+schema/migration files
+API route files
+shared types/contracts
+tests
+scripts
+important docs
+Extract useful metadata:
+imports
+exports
+functions/classes
+route definitions
+DB/schema references
+environment variable names without exposing values
+test files
+Create/update JSON and markdown index files.
+Avoid dumping entire source code into docs.
+Summarize compactly.
+Use deterministic output as much as possible.
+Keep token-saving in mind: summaries, not huge pasted code.
+
+The checker must:
+
+Compare current repo file hashes with INDEX_MANIFEST.json.
+Fail if relevant source files changed but index was not regenerated.
+Print a clear error:
+which files changed
+what command to run
+Pass only when index is fresh.
+
+PACKAGE / WORKFLOW INTEGRATION:
+Add package scripts, depending on existing project tooling. Example:
+
+npm run index:llm
+npm run index:llm:check
+
+Integrate the stale-index check into the safest existing verification path, for example:
+
+npm run check
+npm run typecheck
+npm test
+or a dedicated npm run verify:index
+
+Do not break existing workflows. If adding to a global check could be too disruptive, create a separate command and document clearly.
+
+GIT HOOK / AUTO-UPDATE REQUIREMENT:
+Add a lightweight local enforcement mechanism so the index is updated every time without fail.
+
+Preferred:
+
+Add a pre-commit hook or documented hook script that runs:
+npm run index:llm
+or npm run index:llm:check
+If the repo already uses Husky/lint-staged, integrate with that.
+If no hook framework exists, create a simple documented setup script:
+scripts/install-git-hooks.sh
+It should install a pre-commit hook that checks index freshness.
+Do not force unsafe global installation.
+Document exactly how to enable it.
+
+Also add a CI/Replit verification command so even if the hook is missed, stale index is caught.
+
+IMPORTANT: “EVERY TIME WITHOUT FAIL” means:
+
+Generate command exists.
+Check command exists.
+Hook or workflow enforcement exists.
+Root agent instructions tell future agents to update it.
+Changelog requires every future change to mention index updated yes/no.
+
+TOKEN-SAVING AGENT WORKFLOW:
+Document this exact future workflow in AGENT_START_HERE.md:
+
+For every future task:
+
+First read docs/llm-index/AGENT_START_HERE.md.
+Then read only the specific index file related to the task:
+APIs → API_ROUTES_INDEX.md
+database → DATABASE_INDEX.md
+data quality → DATA_SOURCES_AND_PROVENANCE.md
+signals → CRITICAL_FLOWS.md
+tests → TEST_AND_VERIFICATION_INDEX.md
+Only open source files that the index says are relevant.
+After code changes, run:
+normal relevant tests
+npm run index:llm
+npm run index:llm:check
+Update CHANGELOG_FOR_AGENTS.md.
+
+INDEX QUALITY REQUIREMENTS:
+The generated index must be useful, not decorative.
+
+For every important file, classify risk:
+
+LOW: docs, static helper, low-impact UI
+MEDIUM: frontend logic, non-critical API, scripts
+HIGH: data source, scanner, portfolio pricing, DB, auth, alerts
+CRITICAL: Kite/live data, F&O engine, swing engine, Telegram production alerting, source provenance, trading decision logic, authentication/payment/security
+
+For every file, classify domain:
+
+frontend
+backend
+shared
+database
+data-source
+trading-engine
+alerting
+charting
+portfolio
+scanner
+auth
+tests
+config
+docs
+scripts
+
+For every important flow, include:
+
+owner files
+consumer files
+source of truth
+stale/fallback behavior
+tests
+known dangers
+
+SECURITY REQUIREMENTS:
+
+Never write secret values into index files.
+It is okay to list environment variable names only.
+Mask anything that looks like token, API key, password, cookie, session secret, DB URL.
+Do not read or expose .env values.
+Do not include personal credentials.
+Do not include production cookies or tokens.
+
+DATA HONESTY REQUIREMENTS:
+The index must preserve these project rules:
+
+Kite is trusted for live price-sensitive data.
+Non-Kite data must be classified by allowed use.
+Any fallback/proxy/synthetic/sample data must be labeled.
+Signal engine must not silently use stale/untrusted data.
+Telegram alerts must clearly distinguish staged limit price from market price.
+“Data: kite” misleading label must not return for staged entries.
+
+VERIFICATION REQUIRED:
+After implementing, run all relevant commands available in the repo, at minimum:
+
+Typecheck if available.
+Existing test suite if reasonably available.
+Index generation command.
+Index freshness check command.
+Any existing alerting/swing tests if available.
+Any existing data provenance tests if available.
+
+If some command is not available or fails due to unrelated existing issue, document it honestly in final report.
+
+FINAL RESPONSE REQUIRED FROM YOU:
+Create a final markdown report named:
+
+LLM_INDEXING_IMPLEMENTATION_REPORT.md
+
+The report must include:
+
+Summary of what was implemented.
+Files created/updated.
+Commands added.
+How future agents should use the index.
+How the index updates automatically.
+How stale index is detected.
+Verification commands run and results.
+Any limitations.
+Any follow-up recommendations.
+
+ACCEPTANCE CRITERIA:
+This task is complete only when:
+
+docs/llm-index/AGENT_START_HERE.md exists and is useful.
+Full markdown indexes exist.
+Machine-readable JSON indexes exist.
+Index generator exists.
+Index checker exists.
+Package/workflow commands exist.
+Hook or documented enforcement exists.
+Stale index check fails when source changes without regeneration.
+Stale index check passes after regeneration.
+No secrets are included.
+Existing trading/business behavior is unchanged.
+Final implementation report exists.
