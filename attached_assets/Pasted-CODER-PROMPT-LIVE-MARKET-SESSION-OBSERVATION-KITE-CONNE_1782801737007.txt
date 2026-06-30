@@ -1,0 +1,300 @@
+CODER PROMPT — LIVE MARKET SESSION OBSERVATION: KITE CONNECTED, F&O PAPER_BLOCK + SWING STAGED-APPROVAL SAFETY
+
+Live market session is currently running and Kite is connected.
+
+This is an observation-only task.
+
+Do not change code.
+
+Do not change thresholds.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not place real orders.
+
+Do not enable broker execution.
+
+Do not activate auto-live trading.
+
+Do not run destructive DB operations.
+
+Do not trim or rewrite `replit.md`.
+
+The goal is to observe the live market session professionally and confirm whether the current F&O `paper_block` guard and Swing Cash staged-approval system behave safely with live Kite data.
+
+====================================================
+OBJECTIVE
+=========
+
+Observe the live session while Kite is connected and produce a professional live-session report covering:
+
+1. Kite/data readiness during market hours.
+2. F&O `paper_block` guard live behavior.
+3. BANKNIFTY/NIFTY/SENSEX candidate behavior.
+4. Any F&O paper opens, skips, blocks, or false positives.
+5. Swing Cash Phase 2 deployment/readiness status.
+6. Whether Swing staging is available in production.
+7. Whether broker execution remains disabled.
+8. Whether any opportunity was missed due to no staging/approval.
+9. Any data, source, freshness, or UI issue seen during live market.
+
+====================================================
+PART A — CONFIRM LIVE SESSION + KITE READINESS
+==============================================
+
+Report:
+
+* current IST time
+* market open/closed status
+* Kite loggedIn status
+* Kite feed connected status
+* subscribed instruments count
+* token expiry time
+* quote freshness
+* option-chain freshness
+* candle freshness
+* any stale/degraded data warning
+* any Kite disconnect/reconnect during observation
+
+Verdict:
+
+* `KITE_READY`
+* `KITE_DEGRADED`
+* `KITE_OFFLINE`
+* `DATA_STALE`
+* `OBSERVATION_BLOCKED`
+
+====================================================
+PART B — F&O PAPER_BLOCK LIVE OBSERVATION
+=========================================
+
+Observe F&O engine live behavior.
+
+Report by underlying:
+
+* NIFTY
+* BANKNIFTY
+* SENSEX
+
+For each:
+
+* signals generated
+* valid candidates
+* tradeable candidates
+* info-only candidates
+* paper opens
+* skipped candidates
+* guard-blocked candidates
+* skip reasons
+* guard reasons
+* setup name
+* direction
+* option type
+* strike
+* expiry
+* entry premium
+* data source
+* data freshness
+* whether candidate was allowed or blocked
+* whether block was correct
+
+Important checks:
+
+1. BANKNIFTY high-quality candidates should not be falsely blocked.
+2. NIFTY low-premium / chased / theta-risk candidates should be blocked if applicable.
+3. SENSEX must not auto-open paper trades.
+4. INFO_ONLY / baseline / vetoed setups must never open paper trades.
+5. Yahoo/stale/untrusted data must never open paper trades.
+6. Guard blocks must show exact reason.
+7. No real broker order should exist.
+
+====================================================
+PART C — F&O GUARD COUNTERS / SUMMARY
+=====================================
+
+Check:
+
+* `paper_daily_summary_fo`
+* skipped_by_reason
+* `PAPER_RISK_GUARD_BLOCKED`
+* signals_generated
+* valid_candidates
+* trades_opened
+* skipped_total
+* by underlying if available
+* logs around guard decisions
+
+If guard-specific counters are missing, report as observability gap.
+
+Do not add counters in this task.
+
+Just report.
+
+====================================================
+PART D — SWING CASH PHASE 2 STATUS CHECK
+========================================
+
+Check the current Swing Cash Phase 2 deployment status.
+
+Report:
+
+* current swing mode
+* `LIVE_CASH_SWING_ORDER_ENABLED` value
+* broker execution status
+* `swing_order_staging` table exists in prod or not
+* whether migration was applied to prod
+* Swing Live Queue page available or not
+* owner route auth working or not
+* staged-order API working or not
+* dry-run adapter available or not
+* kill switch status
+* approval queue status
+
+Important:
+
+If `swing_order_staging` migration is not applied to prod, do not use staging. Report:
+
+`PROD_STAGING_MIGRATION_PENDING`
+
+If staging exists, only verify safely. Do not create live broker orders.
+
+====================================================
+PART E — SWING LIVE SESSION OBSERVATION
+=======================================
+
+Observe swing scanner / cash signal behavior during live market.
+
+Report:
+
+* new swing candidates today
+* waiting-for-trigger candidates
+* entry-valid-now candidates
+* chased/stale candidates
+* blocked candidates
+* reason blocked
+* Kite data source/freshness
+* sector/benchmark availability
+* event-risk status
+* liquidity status
+* whether candidate could be staged
+* whether manual approval would be required
+* whether any opportunity moved before approval
+
+Do not auto-stage orders unless staging is already deployed, migration is applied, and broker execution is disabled.
+
+If any staging test is performed, it must be dry-run/staged only and must clearly show:
+
+`BROKER_EXECUTION_DISABLED — NO REAL ORDER PLACED`
+
+====================================================
+PART F — MISSED OPPORTUNITY CHECK
+=================================
+
+During live session, identify whether any opportunity was missed because of delay.
+
+For each missed or potential missed candidate:
+
+* symbol
+* setup
+* signal time
+* LTP at signal
+* current LTP
+* entry zone
+* SL
+* target
+* R:R
+* reason missed
+* price moved beyond entry or not
+* whether order staging would have helped
+* whether Telegram/WhatsApp alert would have helped
+
+Do not fabricate missed P&L.
+
+If data unavailable, mark:
+
+`MISSED_PNL_UNAVAILABLE`
+
+====================================================
+PART G — UI / DASHBOARD CHECK
+=============================
+
+Check live UI pages:
+
+* F&O Intraday
+* F&O Diagnostics
+* Paper Trading
+* Paper Reports
+* Swing Scanner
+* Swing Cash Live Queue, if deployed
+* Infra Health
+* Kite Live Feed
+* Status/Admin
+
+Report:
+
+* data visible or not
+* source/freshness visible or not
+* guard status visible or not
+* broker disabled status visible or not
+* stale wording issue
+* misleading button/text issue
+* page broken or working
+* missing decision fields
+
+Do not make UI changes.
+
+====================================================
+PART H — POST-CLOSE SUMMARY
+===========================
+
+After market close, produce final session report:
+
+1. Session date
+2. Kite readiness
+3. F&O signals generated
+4. F&O valid candidates
+5. F&O paper opens
+6. F&O guard blocks
+7. BANKNIFTY status
+8. NIFTY status
+9. SENSEX status
+10. Any false block
+11. Any false allow
+12. Swing candidates
+13. Swing staged-order readiness
+14. Missed opportunities
+15. Broker execution status
+16. Data quality issues
+17. UI/reporting gaps
+18. Logs checked
+19. DB tables checked
+20. Tests/checks run, if any
+21. Exact next action
+
+====================================================
+FINAL VERDICT
+=============
+
+Final verdict must be exactly one:
+
+* `LIVE_SESSION_CONFIRMED_SAFE`
+* `LIVE_SESSION_SAFE_BUT_NEEDS_MORE_DAYS`
+* `NO_LIVE_CANDIDATES_OBSERVED`
+* `FNO_GUARD_NEEDS_REVIEW`
+* `SWING_STAGING_PROD_MIGRATION_PENDING`
+* `KITE_DATA_ISSUE_BLOCKED_OBSERVATION`
+* `ROLLBACK_REQUIRED`
+
+====================================================
+IMPORTANT
+=========
+
+This is not a coding task.
+
+This is live-market observation.
+
+Do not change anything during live session unless there is a critical safety emergency.
+
+If anything is uncertain, do not trade, do not stage, do not approve, and report honestly.
