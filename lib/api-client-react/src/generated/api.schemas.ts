@@ -328,6 +328,122 @@ export interface ScannerRowProvenance {
   warnings: string[];
 }
 
+/**
+ * kite=live/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed.
+ */
+export type ScannerRowSourceSource =
+  (typeof ScannerRowSourceSource)[keyof typeof ScannerRowSourceSource];
+
+export const ScannerRowSourceSource = {
+  kite: "kite",
+  yahoo: "yahoo",
+  cache: "cache",
+  computed: "computed",
+  none: "none",
+} as const;
+
+/**
+ * TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo/cache; STALE=past freshness budget; NO_FEED=no source.
+ */
+export type ScannerRowSourceSourceStatus =
+  (typeof ScannerRowSourceSourceStatus)[keyof typeof ScannerRowSourceSourceStatus];
+
+export const ScannerRowSourceSourceStatus = {
+  TRADE_GRADE: "TRADE_GRADE",
+  DELAYED: "DELAYED",
+  INFO_ONLY: "INFO_ONLY",
+  STALE: "STALE",
+  NO_FEED: "NO_FEED",
+} as const;
+
+/**
+ * Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false.
+ */
+export interface ScannerRowSource {
+  symbol: string;
+  /** kite=live/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed. */
+  source: ScannerRowSourceSource;
+  /** TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo/cache; STALE=past freshness budget; NO_FEED=no source. */
+  sourceStatus: ScannerRowSourceSourceStatus;
+  /** ISO 8601 timestamp of the quote, or null. */
+  asOf: string | null;
+  /** Seconds between asOf and build time. */
+  freshnessSec: number | null;
+  /** True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false. */
+  canDriveSignals: boolean;
+  /** True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals. */
+  canDriveTradeAlerts: boolean;
+  /** First user-facing warning from provenance.warnings, or null. */
+  warning: string | null;
+}
+
+export interface ScannerRowCounts {
+  total: number;
+  /** Rows with TRADE_GRADE Kite source. */
+  kiteLive: number;
+  /** Rows with stale or EOD Kite source. */
+  kiteStale: number;
+  /** Rows with fresh delayed Yahoo source. */
+  yahooDelayed: number;
+  /** Rows with stale Yahoo source. */
+  yahooStale: number;
+  /** Rows with cache/computed source. */
+  cache: number;
+  /** Rows with no source resolved. */
+  noFeed: number;
+}
+
+export type ScannerSourceHealthMarketSession =
+  (typeof ScannerSourceHealthMarketSession)[keyof typeof ScannerSourceHealthMarketSession];
+
+export const ScannerSourceHealthMarketSession = {
+  open: "open",
+  closed: "closed",
+  pre_open: "pre_open",
+  unknown: "unknown",
+} as const;
+
+/**
+ * KITE_TRADE_GRADE=all rows live Kite; KITE_PARTIAL=some Kite; YAHOO_INFO_ONLY=all Yahoo; STALE_CACHE=all stale Kite; MIXED_SOURCES=mix; NO_FEED=nothing.
+ */
+export type ScannerSourceHealthSourceStatus =
+  (typeof ScannerSourceHealthSourceStatus)[keyof typeof ScannerSourceHealthSourceStatus];
+
+export const ScannerSourceHealthSourceStatus = {
+  KITE_TRADE_GRADE: "KITE_TRADE_GRADE",
+  KITE_PARTIAL: "KITE_PARTIAL",
+  YAHOO_INFO_ONLY: "YAHOO_INFO_ONLY",
+  STALE_CACHE: "STALE_CACHE",
+  MIXED_SOURCES: "MIXED_SOURCES",
+  NO_FEED: "NO_FEED",
+} as const;
+
+/**
+ * Part C scan-level source health. Aggregates row-level provenance across all scanner rows. canDriveSignals is ONLY true when sourceStatus=KITE_TRADE_GRADE (all rows are fresh Kite).
+ */
+export interface ScannerSourceHealth {
+  /** Opaque scan identifier, or null. */
+  scanId: string | null;
+  /** ISO 8601 timestamp of when the scan was computed, or null. */
+  scanAt: string | null;
+  marketSession: ScannerSourceHealthMarketSession;
+  /** KITE_TRADE_GRADE=all rows live Kite; KITE_PARTIAL=some Kite; YAHOO_INFO_ONLY=all Yahoo; STALE_CACHE=all stale Kite; MIXED_SOURCES=mix; NO_FEED=nothing. */
+  sourceStatus: ScannerSourceHealthSourceStatus;
+  /** True ONLY when sourceStatus=KITE_TRADE_GRADE. */
+  tradeGrade: boolean;
+  /** Same invariant as tradeGrade. */
+  canDriveSignals: boolean;
+  rowCounts: ScannerRowCounts;
+  /** ISO 8601 timestamp of the oldest row asOf, or null. */
+  oldestAsOf: string | null;
+  /** ISO 8601 timestamp of the newest row asOf, or null. */
+  newestAsOf: string | null;
+  /** User-facing warning describing source mix/degradation, or null. */
+  warning: string | null;
+  /** Deep-link action hint (e.g. '/kite'), or null. */
+  action: string | null;
+}
+
 export interface StockRow {
   symbol: string;
   name: string;
@@ -337,6 +453,8 @@ export interface StockRow {
   recommendation: Recommendation;
   /** Optional honest source/freshness/trust labelling for this row's quote. */
   provenance?: ScannerRowProvenance;
+  /** Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows. */
+  rowSource?: ScannerRowSource;
 }
 
 export interface Candle {

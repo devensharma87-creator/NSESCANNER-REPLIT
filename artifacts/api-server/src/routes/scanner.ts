@@ -9,6 +9,7 @@ import {
   GetOptionSignalReportResponse,
   GetOptionSignalsResponse,
   GetSectorResponse,
+  GetScanHealthResponse,
   GetStockDetailResponse,
   GetStockHistoryResponse,
   GetTopScansResponse,
@@ -19,6 +20,8 @@ import {
 } from "@workspace/api-zod";
 import type { StockRow } from "@workspace/api-zod";
 import { shouldDemoteSignal } from "../lib/scannerProvenance";
+import { buildScannerSourceHealth } from "../lib/scannerSourceHealth";
+import { getKiteReadiness } from "../lib/kiteReadiness";
 import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { computeSectorCoverage } from "../lib/sectorCoverage";
@@ -682,6 +685,21 @@ router.get("/scan/top", async (_req, res, next) => {
       warnings,
       nonAuthoritativeCount,
     });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get("/scan/health", async (_req, res, next) => {
+  try {
+    const rows = await getScanRowsFast();
+    const readiness = await getKiteReadiness();
+    const now = new Date().toISOString();
+    const health = buildScannerSourceHealth(rows, {
+      marketSession: readiness.marketSession,
+      scanAt: now,
+      scanId: null,
+    });
+    const data = GetScanHealthResponse.parse(health);
     res.json(data);
   } catch (err) { next(err); }
 });

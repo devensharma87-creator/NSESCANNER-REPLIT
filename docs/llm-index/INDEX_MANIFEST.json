@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T15:07:24.774Z",
+  "generatedAt": "2026-07-01T15:43:18.989Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -133,9 +133,9 @@
       "mtime": "2026-06-10T11:14:40.329Z"
     },
     "artifacts/api-server/src/routes/scanner.ts": {
-      "hash": "16ec80712fcafb04",
-      "lines": 1009,
-      "mtime": "2026-06-23T15:25:25.791Z"
+      "hash": "fe26f0737458614e",
+      "lines": 1027,
+      "mtime": "2026-07-01T15:32:38.870Z"
     },
     "artifacts/api-server/src/routes/stocksToWatch.ts": {
       "hash": "04b6672e08fd4469",
@@ -838,14 +838,19 @@
       "mtime": "2026-05-06T13:58:33.718Z"
     },
     "artifacts/api-server/src/lib/scanner.ts": {
-      "hash": "7d68436e880ebfc2",
-      "lines": 497,
-      "mtime": "2026-06-17T03:43:06.664Z"
+      "hash": "2d633f796b25c5d1",
+      "lines": 499,
+      "mtime": "2026-07-01T15:32:34.847Z"
     },
     "artifacts/api-server/src/lib/scannerProvenance.ts": {
       "hash": "7178a551ddd70efd",
       "lines": 159,
       "mtime": "2026-06-10T13:10:53.086Z"
+    },
+    "artifacts/api-server/src/lib/scannerSourceHealth.ts": {
+      "hash": "aa17e084c4422335",
+      "lines": 289,
+      "mtime": "2026-07-01T15:28:18.514Z"
     },
     "artifacts/api-server/src/lib/scoring.ts": {
       "hash": "f33b2a96eb65076f",
@@ -1158,9 +1163,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "2abf76b742d77e81",
-      "lines": 6689,
-      "mtime": "2026-06-29T15:15:50.844Z"
+      "hash": "498491d6968cb1b2",
+      "lines": 6760,
+      "mtime": "2026-07-01T15:33:51.566Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
@@ -1193,9 +1198,9 @@
       "mtime": "2026-07-01T14:21:47.802Z"
     },
     "artifacts/scanner/src/pages/deep-scan.tsx": {
-      "hash": "ddfb021a44f39ec9",
+      "hash": "535eb988f5617b0c",
       "lines": 800,
-      "mtime": "2026-06-10T13:15:53.911Z"
+      "mtime": "2026-07-01T15:39:58.790Z"
     },
     "artifacts/scanner/src/pages/flows.tsx": {
       "hash": "058a866a725ec386",
@@ -1303,9 +1308,9 @@
       "mtime": "2026-07-01T11:05:04.295Z"
     },
     "artifacts/scanner/src/pages/scanner.tsx": {
-      "hash": "ae5011265547f1b2",
-      "lines": 773,
-      "mtime": "2026-07-01T13:34:04.510Z"
+      "hash": "2fb8664ff0fb4c2d",
+      "lines": 825,
+      "mtime": "2026-07-01T15:41:21.254Z"
     },
     "artifacts/scanner/src/pages/sector-detail.tsx": {
       "hash": "3fbd325cc77d2d9b",

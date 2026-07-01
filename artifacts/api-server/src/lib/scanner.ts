@@ -8,6 +8,7 @@ import { getDeliveryPct } from "./marketData/referenceData";
 import { centralLiveQuote } from "./marketData/compat";
 import { centralEquityCandles } from "./marketData/compat";
 import { buildSourceProvenance } from "./scannerProvenance";
+import { toScannerRowSource } from "./scannerSourceHealth";
 
 interface CachedHistory {
   fetchedAt: number;
@@ -318,6 +319,7 @@ async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
     indicators: computed.indicators,
     recommendation,
     provenance,
+    rowSource: toScannerRowSource(provenance, entry.symbol),
   };
 }
 

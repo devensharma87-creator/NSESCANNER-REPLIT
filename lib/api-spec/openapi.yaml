@@ -315,6 +315,19 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ChartCandlesResponse" }
 
+  /scan/health:
+    get:
+      operationId: getScanHealth
+      tags: [scan]
+      summary: "Scan-level source health — aggregate provenance across all scanner rows (Part C)"
+      description: "Returns ScannerSourceHealth computed over the current cached scanner rows. canDriveSignals is only true when all rows are fresh Kite trade-grade (sourceStatus=KITE_TRADE_GRADE). Callers must check this before treating any scan result as an actionable signal."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScannerSourceHealth" }
+
   /scan/top:
     get:
       operationId: getTopScans
@@ -2164,6 +2177,60 @@ components:
           type: array
           items: { type: string }
 
+    ScannerRowSource:
+      type: object
+      description: "Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false."
+      required: [symbol, source, sourceStatus, asOf, freshnessSec, canDriveSignals, canDriveTradeAlerts, warning]
+      properties:
+        symbol: { type: string }
+        source:
+          type: string
+          enum: [kite, yahoo, cache, computed, none]
+          description: "kite=live/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed."
+        sourceStatus:
+          type: string
+          enum: [TRADE_GRADE, DELAYED, INFO_ONLY, STALE, NO_FEED]
+          description: "TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo/cache; STALE=past freshness budget; NO_FEED=no source."
+        asOf: { type: string, nullable: true, description: "ISO 8601 timestamp of the quote, or null." }
+        freshnessSec: { type: integer, nullable: true, description: "Seconds between asOf and build time." }
+        canDriveSignals: { type: boolean, description: "True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false." }
+        canDriveTradeAlerts: { type: boolean, description: "True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals." }
+        warning: { type: string, nullable: true, description: "First user-facing warning from provenance.warnings, or null." }
+
+    ScannerRowCounts:
+      type: object
+      required: [total, kiteLive, kiteStale, yahooDelayed, yahooStale, cache, noFeed]
+      properties:
+        total: { type: integer }
+        kiteLive: { type: integer, description: "Rows with TRADE_GRADE Kite source." }
+        kiteStale: { type: integer, description: "Rows with stale or EOD Kite source." }
+        yahooDelayed: { type: integer, description: "Rows with fresh delayed Yahoo source." }
+        yahooStale: { type: integer, description: "Rows with stale Yahoo source." }
+        cache: { type: integer, description: "Rows with cache/computed source." }
+        noFeed: { type: integer, description: "Rows with no source resolved." }
+
+    ScannerSourceHealth:
+      type: object
+      description: "Part C scan-level source health. Aggregates row-level provenance across all scanner rows. canDriveSignals is ONLY true when sourceStatus=KITE_TRADE_GRADE (all rows are fresh Kite)."
+      required: [scanId, scanAt, marketSession, sourceStatus, tradeGrade, canDriveSignals, rowCounts, oldestAsOf, newestAsOf, warning, action]
+      properties:
+        scanId: { type: string, nullable: true, description: "Opaque scan identifier, or null." }
+        scanAt: { type: string, nullable: true, description: "ISO 8601 timestamp of when the scan was computed, or null." }
+        marketSession:
+          type: string
+          enum: [open, closed, pre_open, unknown]
+        sourceStatus:
+          type: string
+          enum: [KITE_TRADE_GRADE, KITE_PARTIAL, YAHOO_INFO_ONLY, STALE_CACHE, MIXED_SOURCES, NO_FEED]
+          description: "KITE_TRADE_GRADE=all rows live Kite; KITE_PARTIAL=some Kite; YAHOO_INFO_ONLY=all Yahoo; STALE_CACHE=all stale Kite; MIXED_SOURCES=mix; NO_FEED=nothing."
+        tradeGrade: { type: boolean, description: "True ONLY when sourceStatus=KITE_TRADE_GRADE." }
+        canDriveSignals: { type: boolean, description: "Same invariant as tradeGrade." }
+        rowCounts: { $ref: "#/components/schemas/ScannerRowCounts" }
+        oldestAsOf: { type: string, nullable: true, description: "ISO 8601 timestamp of the oldest row asOf, or null." }
+        newestAsOf: { type: string, nullable: true, description: "ISO 8601 timestamp of the newest row asOf, or null." }
+        warning: { type: string, nullable: true, description: "User-facing warning describing source mix/degradation, or null." }
+        action: { type: string, nullable: true, description: "Deep-link action hint (e.g. '/kite'), or null." }
+
     StockRow:
       type: object
       required: [symbol, name, sector, quote, recommendation]
@@ -2178,6 +2245,10 @@ components:
           allOf:
             - $ref: "#/components/schemas/ScannerRowProvenance"
           description: "Optional honest source/freshness/trust labelling for this row's quote."
+        rowSource:
+          allOf:
+            - $ref: "#/components/schemas/ScannerRowSource"
+          description: "Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows."
 
     Candle:
       type: object

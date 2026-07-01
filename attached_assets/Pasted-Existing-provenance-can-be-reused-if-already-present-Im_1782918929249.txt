@@ -1,0 +1,129 @@
+Existing provenance can be reused if already present.
+
+Important:
+
+* Kite fresh row may be trade-grade.
+* Kite stale row is not trade-grade.
+* Yahoo delayed row is info-only.
+* Yahoo stale row is info-only/stale.
+* Cache row is cache/info-only unless proven fresh Kite.
+* No-feed row must not be scored as actionable.
+
+====================================================
+PART E — UI FIXES
+
+Update Scanner / Deep Scan UI.
+
+Scan-level banner must show:
+
+* current source mix
+* scan time
+* oldest data timestamp
+* market session
+* whether output is trade-grade or info-only
+* why Yahoo/stale/cache is being used
+* action needed, if any
+
+Row-level badges must clearly show:
+
+* Kite live
+* Kite stale
+* Yahoo delayed / info-only
+* Yahoo stale / info-only
+* Cached / info-only
+* No feed
+* Computed only
+
+If scan contains mixed sources:
+
+Show:
+
+Mixed sources — not all rows are trade-grade
+
+If scan is Yahoo/stale:
+
+Show:
+
+Info-only scan — not suitable for tradeable signals
+
+Do not hide Yahoo/stale rows. Label them honestly.
+
+====================================================
+PART F — SCORE / ACTION HONESTY
+
+Audit scanner score labels.
+
+If a row is not trade-grade:
+
+* do not show it as actionable without warning
+* if score is still shown, label it:
+    * score based on delayed/stale data
+    * info-only
+* do not trigger tradeable signal labels from stale/Yahoo rows
+* do not show Strong Buy/Strong Sell as trade-grade if source is not trade-grade
+
+If existing logic intentionally scores delayed rows for display, keep score but label clearly.
+
+Do not change scoring formula unless there is a source-safety bug.
+
+====================================================
+PART G — F&O / SWING CONSUMER SAFETY
+
+Verify scanner consumers:
+
+* F&O engine
+* Swing engine
+* Watchlist recommendations
+* Portfolio recommendations
+* Home bullish/bearish setups
+* Telegram alerts
+
+Confirm:
+
+* Yahoo/stale scanner rows cannot create tradeable F&O alerts.
+* Yahoo/stale scanner rows cannot create swing staged orders as trade-grade.
+* Yahoo/stale rows cannot open paper trades as trade-grade.
+* Any recommendations from stale/Yahoo scanner rows are info-only.
+
+If any safety gap exists, fix only that source-gating bug.
+
+====================================================
+PART H — DEEP SCAN CHECK
+
+Apply the same source-honesty rules to Deep Scan.
+
+Verify:
+
+* Deep Scan source labels
+* Deep Scan freshness
+* Deep Scan row source
+* Deep Scan ranking source
+* Deep Scan action labels
+* stale/cache handling
+* no-feed handling
+
+If Deep Scan shares scanner components, ensure labels propagate there too.
+
+====================================================
+PART I — TESTS
+
+Add/update tests for:
+
+1. Scanner source health contract.
+2. Row-level source classification.
+3. Kite fresh row = trade-grade.
+4. Kite stale row = not trade-grade.
+5. Yahoo delayed row = info-only.
+6. Yahoo stale row = info-only/stale.
+7. Cache row = cache/info-only unless proven fresh Kite.
+8. No-feed row = not actionable.
+9. Mixed scan downgrades aggregate status.
+10. Full Yahoo scan is info-only.
+11. Market closed with Kite session active does not produce false offline warning.
+12. Strong Buy from Yahoo stale row is labelled info-only, not trade-grade.
+13. F&O consumer rejects Yahoo/stale rows.
+14. Swing consumer rejects Yahoo/stale rows for trade-grade staging.
+15. UI shows scan-level source mix.
+16. UI shows row-level source badges.
+17. No secrets in scanner APIs.
+18. No trading mutation.

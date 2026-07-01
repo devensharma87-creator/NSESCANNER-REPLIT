@@ -9,6 +9,7 @@ import type { Indicators } from "./indicators";
 import type { Quote } from "./quote";
 import type { Recommendation } from "./recommendation";
 import type { ScannerRowProvenance } from "./scannerRowProvenance";
+import type { ScannerRowSource } from "./scannerRowSource";
 
 export interface StockRow {
   symbol: string;
@@ -19,4 +20,6 @@ export interface StockRow {
   recommendation: Recommendation;
   /** Optional honest source/freshness/trust labelling for this row's quote. */
   provenance?: ScannerRowProvenance;
+  /** Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows. */
+  rowSource?: ScannerRowSource;
 }

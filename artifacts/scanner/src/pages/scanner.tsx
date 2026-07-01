@@ -1,6 +1,7 @@
 import {
   useListStocks,
   getListStocksQueryKey,
+  useGetScanHealth,
 } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -299,6 +300,56 @@ function RowSourceFlag({ provenance }: { provenance?: StockRow["provenance"] }) 
   );
 }
 
+/**
+ * Scan-level source health banner (Part C).
+ * Shows nothing when all rows are trade-grade Kite (clean state).
+ * For the curated scanner this will always show YAHOO_INFO_ONLY — which is
+ * the honest, intentional state: swing indicators come from Yahoo daily data.
+ */
+function ScannerHealthBanner({ className }: { className?: string }) {
+  const { data: health } = useGetScanHealth();
+  if (!health || health.tradeGrade) return null;
+
+  const toneMap: Record<string, string> = {
+    YAHOO_INFO_ONLY:
+      "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    KITE_PARTIAL:
+      "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    STALE_CACHE:
+      "border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-400",
+    MIXED_SOURCES:
+      "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    NO_FEED:
+      "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400",
+  };
+  const tone = toneMap[health.sourceStatus] ?? toneMap["YAHOO_INFO_ONLY"];
+
+  return (
+    <div
+      className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${tone} ${className ?? ""}`}
+      data-testid="scanner-health-banner"
+      role="status"
+      aria-label={`Scanner source status: ${health.sourceStatus}`}
+    >
+      <span className="font-mono font-semibold shrink-0 uppercase tracking-wide">
+        {health.sourceStatus.replace(/_/g, " ")}
+      </span>
+      {health.warning && (
+        <span className="leading-relaxed">{health.warning}</span>
+      )}
+      {health.action && (
+        <a
+          href={health.action}
+          className="shrink-0 underline underline-offset-2 hover:opacity-80"
+          aria-label="Connect Kite to enable trade-grade signals"
+        >
+          Connect Kite →
+        </a>
+      )}
+    </div>
+  );
+}
+
 const Row = memo(function Row({ stock, top, onBuy }: { stock: StockRow; top: number; onBuy: (symbol: string) => void }) {
   const q = stock.quote;
   const ind = stock.indicators;
@@ -528,6 +579,7 @@ export default function ScannerPage() {
   return (
     <div className="w-full max-w-none px-4 py-6 space-y-4">
       <KiteOfflineBanner />
+      <ScannerHealthBanner />
       <QuickBuyEqDialog
         open={buyOpen}
         onClose={() => setBuyOpen(false)}

@@ -455,6 +455,57 @@ export const GetMarketTrendResponse = zod.object({
             .describe(
               "Optional honest source\/freshness\/trust labelling for this row's quote.",
             ),
+          rowSource: zod
+            .object({
+              symbol: zod.string(),
+              source: zod
+                .enum(["kite", "yahoo", "cache", "computed", "none"])
+                .describe(
+                  "kite=live\/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed.",
+                ),
+              sourceStatus: zod
+                .enum([
+                  "TRADE_GRADE",
+                  "DELAYED",
+                  "INFO_ONLY",
+                  "STALE",
+                  "NO_FEED",
+                ])
+                .describe(
+                  "TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo\/cache; STALE=past freshness budget; NO_FEED=no source.",
+                ),
+              asOf: zod
+                .string()
+                .nullable()
+                .describe("ISO 8601 timestamp of the quote, or null."),
+              freshnessSec: zod
+                .number()
+                .nullable()
+                .describe("Seconds between asOf and build time."),
+              canDriveSignals: zod
+                .boolean()
+                .describe(
+                  "True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false.",
+                ),
+              canDriveTradeAlerts: zod
+                .boolean()
+                .describe(
+                  "True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals.",
+                ),
+              warning: zod
+                .string()
+                .nullable()
+                .describe(
+                  "First user-facing warning from provenance.warnings, or null.",
+                ),
+            })
+            .describe(
+              "Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false.",
+            )
+            .optional()
+            .describe(
+              "Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows.",
+            ),
         }),
       }),
     )
@@ -766,6 +817,57 @@ export const GetMarketTrendResponse = zod.object({
             .optional()
             .describe(
               "Optional honest source\/freshness\/trust labelling for this row's quote.",
+            ),
+          rowSource: zod
+            .object({
+              symbol: zod.string(),
+              source: zod
+                .enum(["kite", "yahoo", "cache", "computed", "none"])
+                .describe(
+                  "kite=live\/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed.",
+                ),
+              sourceStatus: zod
+                .enum([
+                  "TRADE_GRADE",
+                  "DELAYED",
+                  "INFO_ONLY",
+                  "STALE",
+                  "NO_FEED",
+                ])
+                .describe(
+                  "TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo\/cache; STALE=past freshness budget; NO_FEED=no source.",
+                ),
+              asOf: zod
+                .string()
+                .nullable()
+                .describe("ISO 8601 timestamp of the quote, or null."),
+              freshnessSec: zod
+                .number()
+                .nullable()
+                .describe("Seconds between asOf and build time."),
+              canDriveSignals: zod
+                .boolean()
+                .describe(
+                  "True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false.",
+                ),
+              canDriveTradeAlerts: zod
+                .boolean()
+                .describe(
+                  "True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals.",
+                ),
+              warning: zod
+                .string()
+                .nullable()
+                .describe(
+                  "First user-facing warning from provenance.warnings, or null.",
+                ),
+            })
+            .describe(
+              "Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false.",
+            )
+            .optional()
+            .describe(
+              "Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows.",
             ),
         }),
       }),
@@ -1179,6 +1281,51 @@ export const ListSectorsResponse = zod.object({
           .describe(
             "Optional honest source\/freshness\/trust labelling for this row's quote.",
           ),
+        rowSource: zod
+          .object({
+            symbol: zod.string(),
+            source: zod
+              .enum(["kite", "yahoo", "cache", "computed", "none"])
+              .describe(
+                "kite=live\/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed.",
+              ),
+            sourceStatus: zod
+              .enum(["TRADE_GRADE", "DELAYED", "INFO_ONLY", "STALE", "NO_FEED"])
+              .describe(
+                "TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo\/cache; STALE=past freshness budget; NO_FEED=no source.",
+              ),
+            asOf: zod
+              .string()
+              .nullable()
+              .describe("ISO 8601 timestamp of the quote, or null."),
+            freshnessSec: zod
+              .number()
+              .nullable()
+              .describe("Seconds between asOf and build time."),
+            canDriveSignals: zod
+              .boolean()
+              .describe(
+                "True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false.",
+              ),
+            canDriveTradeAlerts: zod
+              .boolean()
+              .describe(
+                "True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals.",
+              ),
+            warning: zod
+              .string()
+              .nullable()
+              .describe(
+                "First user-facing warning from provenance.warnings, or null.",
+              ),
+          })
+          .describe(
+            "Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false.",
+          )
+          .optional()
+          .describe(
+            "Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows.",
+          ),
       }),
     }),
   ),
@@ -1508,6 +1655,51 @@ export const GetSectorResponse = zod.object({
         .describe(
           "Optional honest source\/freshness\/trust labelling for this row's quote.",
         ),
+      rowSource: zod
+        .object({
+          symbol: zod.string(),
+          source: zod
+            .enum(["kite", "yahoo", "cache", "computed", "none"])
+            .describe(
+              "kite=live\/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed.",
+            ),
+          sourceStatus: zod
+            .enum(["TRADE_GRADE", "DELAYED", "INFO_ONLY", "STALE", "NO_FEED"])
+            .describe(
+              "TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo\/cache; STALE=past freshness budget; NO_FEED=no source.",
+            ),
+          asOf: zod
+            .string()
+            .nullable()
+            .describe("ISO 8601 timestamp of the quote, or null."),
+          freshnessSec: zod
+            .number()
+            .nullable()
+            .describe("Seconds between asOf and build time."),
+          canDriveSignals: zod
+            .boolean()
+            .describe(
+              "True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false.",
+            ),
+          canDriveTradeAlerts: zod
+            .boolean()
+            .describe(
+              "True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals.",
+            ),
+          warning: zod
+            .string()
+            .nullable()
+            .describe(
+              "First user-facing warning from provenance.warnings, or null.",
+            ),
+        })
+        .describe(
+          "Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false.",
+        )
+        .optional()
+        .describe(
+          "Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows.",
+        ),
     }),
   }),
   stocks: zod.array(
@@ -1802,6 +1994,51 @@ export const GetSectorResponse = zod.object({
         .describe(
           "Optional honest source\/freshness\/trust labelling for this row's quote.",
         ),
+      rowSource: zod
+        .object({
+          symbol: zod.string(),
+          source: zod
+            .enum(["kite", "yahoo", "cache", "computed", "none"])
+            .describe(
+              "kite=live\/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed.",
+            ),
+          sourceStatus: zod
+            .enum(["TRADE_GRADE", "DELAYED", "INFO_ONLY", "STALE", "NO_FEED"])
+            .describe(
+              "TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo\/cache; STALE=past freshness budget; NO_FEED=no source.",
+            ),
+          asOf: zod
+            .string()
+            .nullable()
+            .describe("ISO 8601 timestamp of the quote, or null."),
+          freshnessSec: zod
+            .number()
+            .nullable()
+            .describe("Seconds between asOf and build time."),
+          canDriveSignals: zod
+            .boolean()
+            .describe(
+              "True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false.",
+            ),
+          canDriveTradeAlerts: zod
+            .boolean()
+            .describe(
+              "True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals.",
+            ),
+          warning: zod
+            .string()
+            .nullable()
+            .describe(
+              "First user-facing warning from provenance.warnings, or null.",
+            ),
+        })
+        .describe(
+          "Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false.",
+        )
+        .optional()
+        .describe(
+          "Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows.",
+        ),
     }),
   ),
 });
@@ -2095,6 +2332,51 @@ export const ListStocksResponseItem = zod.object({
     .optional()
     .describe(
       "Optional honest source\/freshness\/trust labelling for this row's quote.",
+    ),
+  rowSource: zod
+    .object({
+      symbol: zod.string(),
+      source: zod
+        .enum(["kite", "yahoo", "cache", "computed", "none"])
+        .describe(
+          "kite=live\/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed.",
+        ),
+      sourceStatus: zod
+        .enum(["TRADE_GRADE", "DELAYED", "INFO_ONLY", "STALE", "NO_FEED"])
+        .describe(
+          "TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo\/cache; STALE=past freshness budget; NO_FEED=no source.",
+        ),
+      asOf: zod
+        .string()
+        .nullable()
+        .describe("ISO 8601 timestamp of the quote, or null."),
+      freshnessSec: zod
+        .number()
+        .nullable()
+        .describe("Seconds between asOf and build time."),
+      canDriveSignals: zod
+        .boolean()
+        .describe(
+          "True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false.",
+        ),
+      canDriveTradeAlerts: zod
+        .boolean()
+        .describe(
+          "True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals.",
+        ),
+      warning: zod
+        .string()
+        .nullable()
+        .describe(
+          "First user-facing warning from provenance.warnings, or null.",
+        ),
+    })
+    .describe(
+      "Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false.",
+    )
+    .optional()
+    .describe(
+      "Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows.",
     ),
 });
 export const ListStocksResponse = zod.array(ListStocksResponseItem);
@@ -2690,6 +2972,71 @@ export const GetChartCandlesResponse = zod.object({
 });
 
 /**
+ * Returns ScannerSourceHealth computed over the current cached scanner rows. canDriveSignals is only true when all rows are fresh Kite trade-grade (sourceStatus=KITE_TRADE_GRADE). Callers must check this before treating any scan result as an actionable signal.
+ * @summary Scan-level source health — aggregate provenance across all scanner rows (Part C)
+ */
+export const GetScanHealthResponse = zod
+  .object({
+    scanId: zod
+      .string()
+      .nullable()
+      .describe("Opaque scan identifier, or null."),
+    scanAt: zod
+      .string()
+      .nullable()
+      .describe("ISO 8601 timestamp of when the scan was computed, or null."),
+    marketSession: zod.enum(["open", "closed", "pre_open", "unknown"]),
+    sourceStatus: zod
+      .enum([
+        "KITE_TRADE_GRADE",
+        "KITE_PARTIAL",
+        "YAHOO_INFO_ONLY",
+        "STALE_CACHE",
+        "MIXED_SOURCES",
+        "NO_FEED",
+      ])
+      .describe(
+        "KITE_TRADE_GRADE=all rows live Kite; KITE_PARTIAL=some Kite; YAHOO_INFO_ONLY=all Yahoo; STALE_CACHE=all stale Kite; MIXED_SOURCES=mix; NO_FEED=nothing.",
+      ),
+    tradeGrade: zod
+      .boolean()
+      .describe("True ONLY when sourceStatus=KITE_TRADE_GRADE."),
+    canDriveSignals: zod.boolean().describe("Same invariant as tradeGrade."),
+    rowCounts: zod.object({
+      total: zod.number(),
+      kiteLive: zod.number().describe("Rows with TRADE_GRADE Kite source."),
+      kiteStale: zod.number().describe("Rows with stale or EOD Kite source."),
+      yahooDelayed: zod
+        .number()
+        .describe("Rows with fresh delayed Yahoo source."),
+      yahooStale: zod.number().describe("Rows with stale Yahoo source."),
+      cache: zod.number().describe("Rows with cache\/computed source."),
+      noFeed: zod.number().describe("Rows with no source resolved."),
+    }),
+    oldestAsOf: zod
+      .string()
+      .nullable()
+      .describe("ISO 8601 timestamp of the oldest row asOf, or null."),
+    newestAsOf: zod
+      .string()
+      .nullable()
+      .describe("ISO 8601 timestamp of the newest row asOf, or null."),
+    warning: zod
+      .string()
+      .nullable()
+      .describe(
+        "User-facing warning describing source mix\/degradation, or null.",
+      ),
+    action: zod
+      .string()
+      .nullable()
+      .describe("Deep-link action hint (e.g. '\/kite'), or null."),
+  })
+  .describe(
+    "Part C scan-level source health. Aggregates row-level provenance across all scanner rows. canDriveSignals is ONLY true when sourceStatus=KITE_TRADE_GRADE (all rows are fresh Kite).",
+  );
+
+/**
  * @summary Top buy and sell ideas right now
  */
 export const GetTopScansResponse = zod.object({
@@ -2985,6 +3332,51 @@ export const GetTopScansResponse = zod.object({
         .describe(
           "Optional honest source\/freshness\/trust labelling for this row's quote.",
         ),
+      rowSource: zod
+        .object({
+          symbol: zod.string(),
+          source: zod
+            .enum(["kite", "yahoo", "cache", "computed", "none"])
+            .describe(
+              "kite=live\/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed.",
+            ),
+          sourceStatus: zod
+            .enum(["TRADE_GRADE", "DELAYED", "INFO_ONLY", "STALE", "NO_FEED"])
+            .describe(
+              "TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo\/cache; STALE=past freshness budget; NO_FEED=no source.",
+            ),
+          asOf: zod
+            .string()
+            .nullable()
+            .describe("ISO 8601 timestamp of the quote, or null."),
+          freshnessSec: zod
+            .number()
+            .nullable()
+            .describe("Seconds between asOf and build time."),
+          canDriveSignals: zod
+            .boolean()
+            .describe(
+              "True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false.",
+            ),
+          canDriveTradeAlerts: zod
+            .boolean()
+            .describe(
+              "True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals.",
+            ),
+          warning: zod
+            .string()
+            .nullable()
+            .describe(
+              "First user-facing warning from provenance.warnings, or null.",
+            ),
+        })
+        .describe(
+          "Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false.",
+        )
+        .optional()
+        .describe(
+          "Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows.",
+        ),
     }),
   ),
   topSells: zod.array(
@@ -3278,6 +3670,51 @@ export const GetTopScansResponse = zod.object({
         .optional()
         .describe(
           "Optional honest source\/freshness\/trust labelling for this row's quote.",
+        ),
+      rowSource: zod
+        .object({
+          symbol: zod.string(),
+          source: zod
+            .enum(["kite", "yahoo", "cache", "computed", "none"])
+            .describe(
+              "kite=live\/EOD Kite; yahoo=delayed Yahoo daily; cache=cached no-source; computed=derived only; none=no feed.",
+            ),
+          sourceStatus: zod
+            .enum(["TRADE_GRADE", "DELAYED", "INFO_ONLY", "STALE", "NO_FEED"])
+            .describe(
+              "TRADE_GRADE=Kite fresh intraday; DELAYED=Kite EOD; INFO_ONLY=Yahoo\/cache; STALE=past freshness budget; NO_FEED=no source.",
+            ),
+          asOf: zod
+            .string()
+            .nullable()
+            .describe("ISO 8601 timestamp of the quote, or null."),
+          freshnessSec: zod
+            .number()
+            .nullable()
+            .describe("Seconds between asOf and build time."),
+          canDriveSignals: zod
+            .boolean()
+            .describe(
+              "True ONLY when sourceStatus=TRADE_GRADE. Yahoo, stale, and no-feed rows are always false.",
+            ),
+          canDriveTradeAlerts: zod
+            .boolean()
+            .describe(
+              "True ONLY when sourceStatus=TRADE_GRADE. Mirrors canDriveSignals.",
+            ),
+          warning: zod
+            .string()
+            .nullable()
+            .describe(
+              "First user-facing warning from provenance.warnings, or null.",
+            ),
+        })
+        .describe(
+          "Part D row-level source contract. Flat, consumer-friendly re-expression of ScannerRowProvenance using scanner UI vocabulary. canDriveSignals and canDriveTradeAlerts are ONLY true when sourceStatus=TRADE_GRADE (fresh Kite intraday). Yahoo, stale, EOD, cache, and no-feed rows are always false.",
+        )
+        .optional()
+        .describe(
+          "Optional Part D row-level source contract — flat consumer-friendly re-expression of provenance. canDriveSignals is only true for fresh Kite trade-grade rows.",
         ),
     }),
   ),

@@ -1,0 +1,145 @@
+CODER PROMPT — PHASE 1 DATA ACCURACY: SCANNER / DEEP SCAN DATA-PATH AUDIT AND FIX
+
+Home / Market Pulse source-honesty is now production verified.
+
+Accepted verdict:
+
+HOME_MARKET_PULSE_DATA_ACCURACY_PROD_VERIFIED
+
+Previously accepted:
+
+CANONICAL_MARKET_DATA_HEALTH_PROD_VERIFIED
+
+Now continue Phase 1 data foundation work.
+
+Next page: Scanner / Deep Scan.
+
+User problem:
+
+Scanner still visibly shows Yahoo stale rows and the user does not trust whether scanner results are live, delayed, stale, Kite-based, Yahoo-based, cache-based, or trade-grade.
+
+This task is not a strategy task.
+
+This task is not a UI beautification task.
+
+This is a data-path accuracy and source-honesty task.
+
+Do not add unrelated features.
+
+Do not change F&O strategy logic.
+
+Do not change swing strategy logic.
+
+Do not change thresholds.
+
+Do not change scoring logic unless a source-honesty safety bug is found.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not hide Yahoo/stale warnings.
+
+Do not fake missing data.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+====================================================
+OBJECTIVE
+
+Make Scanner / Deep Scan professionally source-honest and data-path accurate.
+
+For every scanner result, badge, row, score, setup, alert, and summary:
+
+1. Identify exact source.
+2. Identify freshness/as-of time.
+3. Identify whether it is Kite, Yahoo, cache, computed, unavailable, or no-feed.
+4. Classify it as:
+    * TRADE_GRADE
+    * INFO_ONLY
+    * DELAYED
+    * STALE
+    * CACHE
+    * COMPUTED
+    * NO_FEED
+    * UNAVAILABLE
+5. Clearly show row-level source.
+6. Clearly show scan-level source mix.
+7. Clearly show whether scanner output can drive signals.
+8. Never show Yahoo stale rows as trade-grade.
+9. Never silently rank stale/no-feed rows as actionable.
+10. Align scanner page with /api/data-health/market.
+
+====================================================
+PART A — USE LLM INDEX FIRST
+
+Read first:
+
+* AGENT.md
+* docs/llm-index/AGENT_START_HERE.md
+* docs/llm-index/CRITICAL_FLOWS.md
+* docs/llm-index/API_ROUTES_INDEX.md
+* docs/llm-index/DATABASE_INDEX.md
+* docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+* docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+* FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+* FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md
+
+Use the index to locate:
+
+* Scanner page
+* Deep Scan page
+* scanner row component
+* scanner API routes
+* full NSE scanner route
+* scanner source/provenance logic
+* Yahoo fallback logic
+* Kite scanner quote batch logic
+* scanner cache logic
+* scanner scoring functions
+* scanner result type definitions
+* F&O/swing consumers of scanner output
+* source badges and warnings
+
+Report which files govern scanner data path.
+
+====================================================
+PART B — SCANNER DATA PATH TRACE
+
+Trace the full scanner path:
+
+Kite / Yahoo / cache / DB → scanner fetcher → scanner computation → API response → frontend row → badges/score/action labels
+
+For each step, report:
+
+* file/function
+* input source
+* fallback behavior
+* freshness/as-of source
+* cache behavior
+* source label produced
+* canDriveSignals value
+* stale behavior
+* error/no-feed behavior
+
+Answer these directly:
+
+1. When does scanner use Kite?
+2. When does scanner use Yahoo?
+3. When does scanner use cache?
+4. When does scanner mark a row stale?
+5. When does scanner mark full scan stale?
+6. Can Yahoo rows affect ranking?
+7. Can Yahoo rows affect F&O signals?
+8. Can Yahoo rows affect swing setups?
+9. Can stale rows appear as strong buy/sell?
+10. Does scanner summary explain source mix?
+
+====================================================
+PART C — SCAN-LEVEL SOURCE CONTRACT
+
+Create or formalize a scan-level source contract.

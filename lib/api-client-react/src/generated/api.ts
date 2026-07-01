@@ -135,6 +135,7 @@ import type {
   PostOptionStrategyCustom400,
   PreMarketReport,
   RefreshInstFlows200,
+  ScannerSourceHealth,
   SearchChartInstrumentsParams,
   SectorDetail,
   StockDetail,
@@ -1474,6 +1475,82 @@ export function useGetChartCandles<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetChartCandlesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns ScannerSourceHealth computed over the current cached scanner rows. canDriveSignals is only true when all rows are fresh Kite trade-grade (sourceStatus=KITE_TRADE_GRADE). Callers must check this before treating any scan result as an actionable signal.
+ * @summary Scan-level source health — aggregate provenance across all scanner rows (Part C)
+ */
+export const getGetScanHealthUrl = () => {
+  return `/api/scan/health`;
+};
+
+export const getScanHealth = async (
+  options?: RequestInit,
+): Promise<ScannerSourceHealth> => {
+  return customFetch<ScannerSourceHealth>(getGetScanHealthUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetScanHealthQueryKey = () => {
+  return [`/api/scan/health`] as const;
+};
+
+export const getGetScanHealthQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScanHealth>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScanHealth>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetScanHealthQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getScanHealth>>> = ({
+    signal,
+  }) => getScanHealth({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScanHealth>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScanHealthQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScanHealth>>
+>;
+export type GetScanHealthQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Scan-level source health — aggregate provenance across all scanner rows (Part C)
+ */
+
+export function useGetScanHealth<
+  TData = Awaited<ReturnType<typeof getScanHealth>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScanHealth>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScanHealthQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

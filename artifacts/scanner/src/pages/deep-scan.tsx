@@ -230,7 +230,7 @@ export default function DeepScan() {
           <h1 className="text-2xl font-bold font-mono tracking-tight">DEEP SCAN</h1>
           <p className="text-xs text-muted-foreground font-mono">Search any NSE stock or Indian index — full chart, EMAs, VWAP, returns, fundamentals.</p>
           <div className="mt-2 flex justify-center">
-            <DataSourceBadge source="mixed" status="live" refreshMs={30_000} note="Kite quote · Yahoo daily history · server-computed indicators" />
+            <DataSourceBadge source="mixed" status="delayed" refreshMs={30_000} note="Live Kite price quote · Yahoo daily history for indicators (delayed ~15 min) · server-computed signals" />
           </div>
         </div>
 

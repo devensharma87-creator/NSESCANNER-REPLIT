@@ -3788,7 +3788,7 @@
   {
     "path": "artifacts/api-server/src/lib/scanner.ts",
     "purpose": "scanner",
-    "lines": 497,
+    "lines": 499,
     "exports": [
       "getHistory",
       "scanAll",
@@ -3802,7 +3802,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "7d68436e880ebfc2"
+    "hash": "2d633f796b25c5d1"
   },
   {
     "path": "artifacts/api-server/src/lib/scannerFastPath.test.ts",
@@ -3842,6 +3842,35 @@
     "externalImports": [],
     "routes": [],
     "hash": "7178a551ddd70efd"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/scannerSourceHealth.test.ts",
+    "purpose": "test",
+    "lines": 307,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "0e0ef2718cda8b64"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/scannerSourceHealth.ts",
+    "purpose": "scanner",
+    "lines": 289,
+    "exports": [
+      "ScannerRowSourceKind",
+      "ScannerRowSourceStatus",
+      "ScannerRowSource",
+      "ScannerSourceStatusKind",
+      "ScannerRowCounts",
+      "ScannerSourceHealth",
+      "toScannerRowSource",
+      "buildScannerSourceHealth"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "aa17e084c4422335"
   },
   {
     "path": "artifacts/api-server/src/lib/scoring.entrySafety.test.ts",
@@ -5605,7 +5634,7 @@
   {
     "path": "artifacts/api-server/src/routes/scanner.ts",
     "purpose": "api-route",
-    "lines": 1009,
+    "lines": 1027,
     "exports": [],
     "externalImports": [
       "express",
@@ -5633,7 +5662,7 @@
       "GET /stocks/:symbol/statements",
       "GET /stocks/:symbol/history"
     ],
-    "hash": "16ec80712fcafb04"
+    "hash": "fe26f0737458614e"
   },
   {
     "path": "artifacts/api-server/src/routes/stocksToWatch.ts",
@@ -6949,7 +6978,7 @@
       "@/components/ui/signal-badge"
     ],
     "routes": [],
-    "hash": "ddfb021a44f39ec9"
+    "hash": "535eb988f5617b0c"
   },
   {
     "path": "artifacts/scanner/src/pages/flows.tsx",
@@ -7295,7 +7324,7 @@
   {
     "path": "artifacts/scanner/src/pages/scanner.tsx",
     "purpose": "ui-page",
-    "lines": 773,
+    "lines": 825,
     "exports": [],
     "externalImports": [
       "wouter",
@@ -7310,7 +7339,7 @@
       "@/components/ui/data-source-badge"
     ],
     "routes": [],
-    "hash": "ae5011265547f1b2"
+    "hash": "2fb8664ff0fb4c2d"
   },
   {
     "path": "artifacts/scanner/src/pages/sector-detail.tsx",

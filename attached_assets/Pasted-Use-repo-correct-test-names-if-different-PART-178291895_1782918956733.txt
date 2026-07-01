@@ -1,0 +1,80 @@
+Use repo-correct test names if different.
+
+====================================================
+PART J — PRODUCTION VERIFICATION
+
+After publish, verify on:
+
+https://marketscannerbydev.in
+
+Check:
+
+1. Scanner page.
+2. Deep Scan page.
+3. Scanner API response.
+4. Row-level badges.
+5. Scan-level banner.
+6. Source mix summary.
+7. Market closed behavior.
+8. Yahoo delayed/stale behavior.
+9. Kite stale behavior.
+10. No-feed behavior.
+11. F&O/swing safety gates.
+12. /api/data-health/market alignment.
+13. No secrets exposed.
+14. No trading state mutated.
+15. Broker execution disabled.
+
+Provide screenshots or production bundle/API evidence.
+
+====================================================
+PART K — FINAL REPORT
+
+Final report must include:
+
+1. Scanner data path trace.
+2. Files touched.
+3. Scan-level source contract.
+4. Row-level source contract.
+5. UI changes.
+6. Score/action honesty result.
+7. F&O/swing consumer safety result.
+8. Deep Scan result.
+9. Tests run.
+10. LLM index result.
+11. Production verification result.
+12. Remaining blockers.
+13. Exact next action.
+
+Final verdict must be exactly one:
+
+* SCANNER_DEEP_SCAN_DATA_ACCURACY_PROD_VERIFIED
+* SCANNER_SOURCE_HONESTY_FIXED
+* SCANNER_DEEP_SCAN_PARTIAL_SOURCE_HONEST
+* SCANNER_BUILD_NOT_DEPLOYED
+* SCANNER_SOURCE_GAP_REMAINS
+* ROLLBACK_REQUIRED
+
+====================================================
+ACCEPTANCE CRITERIA
+
+Task is complete only if:
+
+* scanner data path is fully traced
+* scan-level source contract exists
+* row-level source contract exists
+* scan-level banner shows source mix/freshness/trade-grade status
+* row-level badges are source-honest
+* Yahoo/stale rows are info-only
+* no-feed rows are not actionable
+* stale rows are not silently trade-grade
+* score/action labels are honest
+* F&O/swing consumers are safe
+* Deep Scan follows same rules
+* /api/data-health/market alignment verified
+* no secrets exposed
+* no trading state mutated
+* broker execution disabled
+* tests pass
+* LLM index fresh
+* production verification confirms fix
