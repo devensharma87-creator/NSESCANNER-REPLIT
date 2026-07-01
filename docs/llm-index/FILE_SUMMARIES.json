@@ -1278,6 +1278,37 @@
     "hash": "b0045e29d7f87cf6"
   },
   {
+    "path": "artifacts/api-server/src/lib/fnoSignalAlerts.test.ts",
+    "purpose": "test",
+    "lines": 288,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "cc39710112a85f52"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoSignalAlerts.ts",
+    "purpose": "alerting",
+    "lines": 311,
+    "exports": [
+      "FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS",
+      "FNO_SIGNAL_DEDUP_MS",
+      "FnoTradeAlertInput",
+      "FnoSignalAlertRecord",
+      "getLastFnoSignalAlertRecord",
+      "resetFnoSignalAlertState",
+      "shouldSendFnoTradeAlert",
+      "buildFnoSignalAlertText",
+      "alertFnoTradeableSignal",
+      "buildFnoSampleAlertText"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "0dd33897afae6b20"
+  },
+  {
     "path": "artifacts/api-server/src/lib/fnoSignalReasoningFingerprint.test.ts",
     "purpose": "test",
     "lines": 201,
@@ -3538,7 +3569,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingFO.ts",
     "purpose": "paper-trading",
-    "lines": 2966,
+    "lines": 2992,
     "exports": [
       "TradeTier",
       "LifecycleHookInput",
@@ -3567,7 +3598,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "15580a804ae9904d"
+    "hash": "2185334a52deaea9"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFoMtmSweep.test.ts",
@@ -5015,7 +5046,7 @@
   {
     "path": "artifacts/api-server/src/routes/alerts.ts",
     "purpose": "api-route",
-    "lines": 106,
+    "lines": 154,
     "exports": [],
     "externalImports": [
       "express"
@@ -5023,9 +5054,10 @@
     "routes": [
       "GET /alerts/status",
       "POST /alerts/test-telegram",
-      "POST /alerts/test-swing-staged-order"
+      "POST /alerts/test-swing-staged-order",
+      "POST /alerts/test-fno-trade-signal"
     ],
-    "hash": "bde72ec55a9a6229"
+    "hash": "f14b873c1d5366b5"
   },
   {
     "path": "artifacts/api-server/src/routes/auth.ts",

@@ -33,6 +33,7 @@ import {
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
+import { alertFnoTradeableSignal } from "./fnoSignalAlerts";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import {
   isAutoTradeableSizingTier,
@@ -2946,7 +2947,7 @@ export async function tryOpenPaperTrades(
     }
 
     try {
-      await openPaperTrade({
+      const opened = await openPaperTrade({
         prev: null,
         next: status,
         exited: false,
@@ -2955,6 +2956,31 @@ export async function tryOpenPaperTrades(
         direction,
         tier,
       });
+      // Alert owner when a genuine new paper trade is opened (all gates passed).
+      // alertFnoTradeableSignal is safe-fail — never blocks the F&O cycle.
+      if (opened) {
+        const openedAt =
+          opened.openedAt instanceof Date
+            ? opened.openedAt
+            : new Date(opened.openedAt as string);
+        alertFnoTradeableSignal({
+          indexSymbol:    signal.index,
+          direction,
+          setupKey:       signal.setupKey ?? "",
+          signalDate,
+          confidence:     Math.round(signal.confidence ?? 0),
+          entryPremium:   Number(opened.entryPremium) || 0,
+          stopPremium:    opened.stopPremium    != null ? Number(opened.stopPremium)    : null,
+          target1Premium: opened.target1Premium != null ? Number(opened.target1Premium) : null,
+          target2Premium: opened.target2Premium != null ? Number(opened.target2Premium) : null,
+          lots:           opened.lots,
+          lotSize:        opened.lotSize,
+          strike:         opened.strike         != null ? Number(opened.strike)         : null,
+          expiry:         signal.leg?.expiry     ?? null,
+          optionType:     (opened.optionType as "CE" | "PE" | null) ?? null,
+          openedAt,
+        });
+      }
     } catch (err) {
       logger.warn(
         { err: (err as Error).message, idx: signal.index, setup: signal.setupKey },

@@ -1,0 +1,307 @@
+CODER PROMPT — F&O HIGH-QUALITY SIGNAL TELEGRAM ALERTS WITH TRADEABLE / INFO-ONLY SEPARATION
+
+The LLM indexing system is now fully verified.
+
+Before starting, follow the new agent workflow:
+
+1. Read root AGENT.md.
+2. Read docs/llm-index/AGENT_START_HERE.md.
+3. For this task, also read:
+    * docs/llm-index/CRITICAL_FLOWS.md
+    * docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+    * docs/llm-index/API_ROUTES_INDEX.md
+    * docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+4. Open only the source files identified by the index as relevant.
+
+Current verified status:
+
+* F&O operational readiness is production-verified.
+* F&O data/session Telegram alerts are production-verified.
+* Swing staged-order Telegram alerts are production-verified.
+* Swing alert price-honesty fix is production-verified.
+* LLM indexing system is fully verified.
+* Broker execution remains disabled.
+* No real orders are allowed.
+
+Now implement Telegram alerts for F&O high-quality signals only.
+
+This is alerting only.
+
+====================================================
+OBJECTIVE
+
+Send Telegram alerts only when the F&O engine produces a genuinely tradeable, high-quality signal.
+
+The alert must clearly distinguish:
+
+1. TRADEABLE_SIGNAL
+2. INFO_ONLY
+3. WATCHLIST_SETUP
+4. BLOCKED / SUPPRESSED
+
+Only TRADEABLE_SIGNAL should trigger an actionable Telegram alert.
+
+Everything else may be logged or shown in UI, but must not be sent as a trade alert unless explicitly labelled as info-only and owner-approved later.
+
+====================================================
+ABSOLUTE RULES
+
+Do not change F&O signal logic.
+
+Do not change F&O thresholds.
+
+Do not change F&O scoring.
+
+Do not change recovery veto / chase veto / guard logic.
+
+Do not weaken any gate.
+
+Do not make blocked signals tradeable.
+
+Do not send baseline/outlook as trade alerts.
+
+Do not send info-only signals as trade alerts.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not add auto-trading.
+
+Do not use Yahoo/stale/proxy data for trade-grade F&O.
+
+Do not fabricate missing option-chain data.
+
+Do not label stale/modelled/synthetic data as live.
+
+Do not change swing logic.
+
+Do not change portfolio/scanner/charting logic.
+
+Do not expose Telegram secrets.
+
+Do not trim or rewrite replit.md.
+
+Alert failure must not crash the F&O cycle.
+
+After changes, update the LLM index.
+
+====================================================
+PART A — USE INDEX FIRST
+
+Start by reading:
+
+* AGENT.md
+* docs/llm-index/AGENT_START_HERE.md
+* docs/llm-index/CRITICAL_FLOWS.md
+* docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+* docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+
+Then identify exact files for:
+
+* F&O signal generation
+* F&O signal classification
+* F&O paper trade opening
+* F&O alerting
+* Telegram alert utility
+* F&O diagnostics/no-signal gap
+* relevant tests
+
+Report which index files guided the file selection.
+
+====================================================
+PART B — DEFINE ALERT ELIGIBILITY
+
+Implement a strict eligibility function, preferably pure/testable:
+
+shouldSendFnoTradeAlert(signal): boolean
+
+It must return true only when all are true:
+
+1. Signal is high-conviction / tradeable.
+2. Signal has passed every F&O gate.
+3. Signal is not baseline/outlook.
+4. Signal is not info-only.
+5. Signal is not suppressed.
+6. Signal is not blocked by recovery veto, chase veto, data veto, stale-data veto, or risk guard.
+7. Signal has fresh Kite/trusted data.
+8. Option-chain data is fresh/trusted enough.
+9. Entry, SL, target, R:R, quantity/risk fields are present and valid.
+10. Signal is not duplicate of a recently alerted signal.
+
+If any condition fails, do not send a trade alert.
+
+====================================================
+PART C — ALERT MESSAGE FORMAT
+
+Telegram message must be professional, short, and non-misleading.
+
+Example format:
+
+⚡ F&O TRADEABLE SIGNAL
+
+Fields:
+
+* Index: NIFTY / BANKNIFTY / SENSEX
+* Direction: CALL / PUT
+* Instrument: option symbol/strike/expiry
+* Signal type: TRADEABLE_SIGNAL
+* Confidence score
+* Entry zone
+* Stop loss
+* Target 1
+* Target 2
+* R:R
+* Max risk
+* Validity / expiry time
+* Data source: Kite / trusted option-chain source
+* Data as-of time
+* Guard status: all gates passed
+* Broker execution: DISABLED
+* Action: Review manually before trading
+
+Required wording:
+
+Broker execution DISABLED — no order placed.
+
+Required warning:
+
+Manual review required. This is not auto-executed.
+
+Do not write:
+
+* guaranteed profit
+* sure shot
+* buy now
+* auto order placed
+* risk-free
+* blindly enter
+
+====================================================
+PART D — INFO-ONLY / BLOCKED SIGNAL HANDLING
+
+Do not send Telegram trade alerts for:
+
+* baseline market view
+* INFO_ONLY
+* WATCHLIST_SETUP without trigger
+* suppressed signal
+* blocked signal
+* recovery-veto signal
+* chase-veto signal
+* stale-data signal
+* missing option-chain signal
+* modelled/synthetic-only signal
+
+If logging is useful, log internally only.
+
+Optional: if an info-only alert already exists, it must clearly say:
+
+INFO ONLY — NOT A TRADE ALERT
+
+But do not add info-only Telegram alerts in this task unless already present.
+
+====================================================
+PART E — DEDUP / SPAM CONTROL
+
+Use existing Telegram alerting dedup.
+
+Dedup key should include:
+
+* index
+* direction
+* strike
+* expiry
+* signal type
+* setup id if available
+
+Default dedup:
+
+* same exact signal: 30 minutes minimum
+* same index/direction repeated: avoid spam unless materially new setup
+* do not alert every 30-second cycle
+
+If same signal updates slightly, do not spam.
+
+====================================================
+PART F — ALERT DELIVERY INTEGRATION
+
+Integrate alert call only after the signal has been fully classified as tradeable.
+
+Preferred location:
+
+* after signal generation and validation
+* after data gates
+* after suppression checks
+* before or after paper-trade creation depending on existing architecture
+
+Important:
+
+* Do not make paper trade creation depend on Telegram success.
+* Do not make signal cycle fail if Telegram fails.
+* Alert delivery must be fire-and-forget / safe-fail.
+* If Telegram provider fails, log safe error only.
+
+====================================================
+PART G — TEST ENDPOINT
+
+Add owner-only test endpoint if useful:
+
+POST /api/alerts/test-fno-trade-signal
+
+It should send a sample F&O tradeable-signal message.
+
+Rules:
+
+* owner-only
+* rate-limited
+* must clearly say [SAMPLE]
+* must say no real order placed
+* must say broker execution disabled
+* must not create a paper trade
+* must not create a real order
+* must not use real signal state unless explicitly requested
+
+====================================================
+PART H — ALERT STATUS
+
+Extend /api/alerts/status if useful.
+
+Show:
+
+* last F&O trade alert event
+* last F&O trade alert time
+* telegramStatus
+* dedup status if available
+
+Do not expose secrets.
+
+====================================================
+PART I — TESTS
+
+Add tests for:
+
+1. high-conviction tradeable signal sends alert
+2. baseline/outlook does not send alert
+3. info-only does not send alert
+4. watchlist setup does not send alert
+5. suppressed signal does not send alert
+6. recovery-veto signal does not send alert
+7. chase-veto signal does not send alert
+8. stale/no-live-Kite signal does not send alert
+9. missing option-chain signal does not send alert
+10. duplicate signal dedup prevents spam
+11. Telegram failure does not crash F&O cycle
+12. broker execution remains disabled
+13. test endpoint owner-only
+14. sample endpoint message says sample/no real order
+15. no secrets appear in logs/messages
+
+Run relevant existing tests:
+
+* F&O reasoning logger tests
+* F&O signal tests
+* alerting tests
+* api-server typecheck
+* scanner typecheck if frontend touched
+* scanner tests if frontend touched

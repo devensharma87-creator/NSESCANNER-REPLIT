@@ -4,6 +4,7 @@
  * GET  /alerts/status                   — Telegram config status + last alert records (no secrets).
  * POST /alerts/test-telegram            — Send a test Telegram message; rate-limited to 1/30s.
  * POST /alerts/test-swing-staged-order  — Send a sample Swing staged-order alert; rate-limited to 1/30s.
+ * POST /alerts/test-fno-trade-signal    — Send a sample F&O tradeable signal alert; rate-limited to 1/30s.
  */
 import { Router, type IRouter } from "express";
 import { requireOwner } from "../lib/userAuth";
@@ -15,6 +16,10 @@ import {
   resetAlertDedup,
 } from "../lib/alerting";
 import { getLastSwingAlertRecord } from "../lib/swingAlerts";
+import {
+  getLastFnoSignalAlertRecord,
+  buildFnoSampleAlertText,
+} from "../lib/fnoSignalAlerts";
 
 const router: IRouter = Router();
 
@@ -24,6 +29,7 @@ router.get("/alerts/status", requireOwner, (_req, res, next) => {
       telegram: getTelegramStatus(),
       lastAlert: getLastAlertRecord(),
       lastSwingAlert: getLastSwingAlertRecord(),
+      lastFnoSignalAlert: getLastFnoSignalAlertRecord(),
     });
   } catch (err) {
     next(err);
@@ -33,6 +39,7 @@ router.get("/alerts/status", requireOwner, (_req, res, next) => {
 /** In-process rate limits for the test endpoints — prevents accidental spam. */
 let lastTestSentAt = 0;
 let lastSwingTestSentAt = 0;
+let lastFnoTestSentAt = 0;
 const TEST_RATE_LIMIT_MS = 30_000;
 
 router.post("/alerts/test-telegram", requireOwner, async (_req, res, next) => {
@@ -96,6 +103,47 @@ router.post("/alerts/test-swing-staged-order", requireOwner, async (_req, res, n
       sent: true,
       telegramStatus: lastAlert?.event === testDedupKey ? lastAlert.telegramStatus : "DISPATCHED",
       note: "Sample message only — no DB write, no real order, broker execution disabled.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /alerts/test-fno-trade-signal
+ *
+ * Send a clearly-labeled [SAMPLE] F&O tradeable signal alert to Telegram.
+ * Owner-only. Rate-limited to 1 call per 30 seconds.
+ *
+ * Does NOT create a paper trade, does NOT use real signal state,
+ * does NOT enable broker execution.
+ */
+router.post("/alerts/test-fno-trade-signal", requireOwner, async (_req, res, next) => {
+  try {
+    const now = Date.now();
+    if (now - lastFnoTestSentAt < TEST_RATE_LIMIT_MS) {
+      const retryAfterSec = Math.ceil((TEST_RATE_LIMIT_MS - (now - lastFnoTestSentAt)) / 1000);
+      res.status(429).json({
+        error: "rate_limited",
+        message: `Test endpoint rate-limited. Retry after ${retryAfterSec}s.`,
+      });
+      return;
+    }
+    lastFnoTestSentAt = now;
+
+    const sampleText = buildFnoSampleAlertText(now);
+    const testDedupKey = "FNO_TEST_TRADEABLE_SIGNAL";
+    resetAlertDedup(testDedupKey);
+    alertOwnerRaw(testDedupKey, "Test F&O tradeable signal alert [SAMPLE]", sampleText, 0);
+
+    // alertOwnerRaw dispatches Telegram in the background — wait briefly for delivery.
+    await new Promise(r => setTimeout(r, 500));
+
+    const lastAlert = getLastAlertRecord();
+    res.json({
+      sent: true,
+      telegramStatus: lastAlert?.event === testDedupKey ? lastAlert.telegramStatus : "DISPATCHED",
+      note: "Sample message only — no paper trade created, no real order, broker execution disabled.",
     });
   } catch (err) {
     next(err);
