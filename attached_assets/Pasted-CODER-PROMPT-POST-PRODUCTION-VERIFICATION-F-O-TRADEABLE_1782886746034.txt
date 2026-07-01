@@ -1,0 +1,252 @@
+CODER PROMPT — POST-PRODUCTION VERIFICATION: F&O TRADEABLE SIGNAL TELEGRAM ALERTS
+
+F&O tradeable-signal Telegram alerts have been implemented and dev-verified.
+
+Reported implementation:
+
+* lib/fnoSignalAlerts.ts added
+* shouldSendFnoTradeAlert() added
+* buildFnoSignalAlertText() added
+* alertFnoTradeableSignal() added
+* buildFnoSampleAlertText() added
+* paperTradingFO.ts now calls alert after openPaperTrade() returns a new paper trade row
+* routes/alerts.ts now includes:
+    * GET /alerts/status with lastFnoSignalAlert
+    * POST /alerts/test-fno-trade-signal
+* sample endpoint is owner-only and rate-limited
+* tests: 31/31 new F&O alert tests
+* total tests: 76/76
+* full typecheck clean
+* LLM index regenerated
+* F&O logic, thresholds, risk guards, and broker execution untouched
+
+Now production must be verified after publish.
+
+This is verification only.
+
+Do not add new features.
+
+Do not change F&O logic.
+
+Do not change F&O thresholds.
+
+Do not change F&O scoring.
+
+Do not change paper-trade rules.
+
+Do not change risk guards.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not add auto-trading.
+
+Do not change swing logic.
+
+Do not use Yahoo/stale/proxy data for trade-grade F&O.
+
+Do not send info-only/baseline/watchlist/suppressed signals as trade alerts.
+
+Do not expose Telegram secrets.
+
+Do not trim or rewrite replit.md.
+
+====================================================
+OBJECTIVE
+
+Verify production F&O tradeable-signal Telegram alerts are safe, source-honest, and correctly gated.
+
+Confirm:
+
+1. Production has latest F&O alert build.
+2. /api/alerts/test-fno-trade-signal works.
+3. /api/alerts/status includes lastFnoSignalAlert.
+4. Sample alert is clearly labelled [SAMPLE].
+5. No paper trade or real order is created by sample endpoint.
+6. Real F&O tradeable alert fires only after a new paper trade opens.
+7. Baseline/info-only/watchlist/suppressed signals do not alert.
+8. Duplicate/stale old paper rows do not alert.
+9. Broker execution remains disabled.
+10. No real order is placed.
+11. LLM index remains fresh.
+
+====================================================
+PART A — DEPLOYMENT CONFIRMATION
+
+Report:
+
+* production deployment timestamp
+* current commit/hash
+* API health
+* frontend health
+* server start time
+* alert routes mounted
+* /api/alerts/status exists
+* /api/alerts/test-fno-trade-signal exists
+* lastFnoSignalAlert appears in status response
+
+If missing, report:
+
+FNO_ALERT_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — AUTH / RATE LIMIT CHECK
+
+Verify unauthenticated access:
+
+* GET /api/alerts/status
+* POST /api/alerts/test-fno-trade-signal
+
+Expected:
+
+* unauthenticated request rejected
+* no alert data leaked
+* no secret leaked
+
+Verify owner authenticated access:
+
+* owner can read status
+* owner can send test F&O alert
+* immediate second test call is rate-limited/deduped
+* no Telegram spam
+
+====================================================
+PART C — SAMPLE TEST ALERT CHECK
+
+Call:
+
+POST /api/alerts/test-fno-trade-signal
+
+Verify Telegram message includes:
+
+* [SAMPLE]
+* F&O TRADEABLE SIGNAL or equivalent
+* index
+* direction
+* option instrument/strike/expiry
+* entry
+* stop loss
+* target
+* R:R
+* confidence if available
+* data source/as-of if available
+* Broker execution DISABLED — no order placed
+* Manual review required. This is not auto-executed.
+
+Verify it does NOT:
+
+* create a paper trade
+* create a real order
+* say guaranteed profit
+* say buy now
+* imply auto-execution
+* expose secrets
+
+Report:
+
+* HTTP status
+* telegramStatus
+* whether message arrived
+* rate-limit result
+* status response excluding secrets
+
+====================================================
+PART D — REAL TRADEABLE ALERT PATH CHECK
+
+Only if safe and naturally observable.
+
+The real alert must fire only when:
+
+* F&O engine opens a new paper trade
+* openPaperTrade() returns a new row
+* row is fresh, under 5 minutes old
+* entry/SL/targets/lots/lot size/confidence fields are valid
+* signal is not stale/replayed from old idempotency row
+* broker execution is disabled
+
+If a real tradeable paper trade occurs during market hours, verify:
+
+* paper trade row created
+* Telegram alert sent
+* /api/alerts/status.lastFnoSignalAlert updates
+* alert message matches the paper trade row
+* no real broker order placed
+
+If no live tradeable F&O paper trade occurs, do not force one unsafely. Report:
+
+NO_LIVE_FNO_TRADEABLE_SIGNAL_OBSERVED
+
+====================================================
+PART E — NEGATIVE ELIGIBILITY CHECK
+
+Verify, by tests/code inspection/logs, that Telegram trade alerts do NOT send for:
+
+* baseline/outlook
+* INFO_ONLY
+* WATCHLIST_SETUP
+* suppressed setup
+* blocked setup
+* recovery-veto setup
+* chase-veto setup
+* stale Kite/no-live-Kite setup
+* missing option-chain setup
+* invalid entry/SL/target/lots
+* old idempotency row after process restart
+
+Do not loosen any existing gate.
+
+====================================================
+PART F — DEDUP CHECK
+
+Verify:
+
+* same exact F&O alert is deduped for at least 30 minutes
+* dedup key includes signal identity such as date/index/direction/setup
+* repeated 30-second cycles do not spam Telegram
+* process restart does not send stale old row due to fresh-open check
+
+====================================================
+PART G — MESSAGE SOURCE-HONESTY CHECK
+
+Verify alert text is accurate.
+
+Check:
+
+* data source shown honestly
+* stale/proxy/synthetic/sample data not labelled as fresh trade-grade
+* sample endpoint is clearly sample
+* broker execution disabled wording present
+* manual review wording present
+* no trade is represented as executed
+
+If option-chain or price data is not fresh/trusted, alert must not send.
+
+====================================================
+PART H — SAFETY CHECK
+
+Confirm:
+
+* broker execution disabled
+* no real order placed
+* no broker order id from real broker
+* no F&O logic changed
+* no thresholds changed
+* no risk guards changed
+* no paper-trade rules changed
+* no Yahoo trade-grade fallback
+* no swing logic changed
+* no WhatsApp added
+* no destructive DB changes
+
+====================================================
+PART I — TESTS + INDEX CHECK
+
+Run:
+
+* api-server typecheck
+* F&O alert tests
+* alerting tests
+* F&O reasoning tests
+* scanner typecheck if frontend touched
+* scanner tests if frontend touched
