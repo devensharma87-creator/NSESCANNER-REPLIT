@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T11:08:17.738Z",
+  "generatedAt": "2026-07-01T11:25:36.977Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -268,9 +268,9 @@
       "mtime": "2026-04-29T13:07:30.486Z"
     },
     "artifacts/api-server/src/lib/dailyReports.ts": {
-      "hash": "262456126dc3207d",
-      "lines": 982,
-      "mtime": "2026-07-01T10:59:00.035Z"
+      "hash": "a403c0cae82b47e6",
+      "lines": 984,
+      "mtime": "2026-07-01T11:20:10.452Z"
     },
     "artifacts/api-server/src/lib/dataProvider.ts": {
       "hash": "f1b97c30a4f41b49",
@@ -1171,6 +1171,11 @@
       "hash": "03e1a10b04e5283f",
       "lines": 914,
       "mtime": "2026-06-22T12:58:01.206Z"
+    },
+    "artifacts/scanner/src/pages/daily-analysis.tsx": {
+      "hash": "6ca4a3d03d6c3398",
+      "lines": 649,
+      "mtime": "2026-07-01T11:19:16.682Z"
     },
     "artifacts/scanner/src/pages/dashboard.tsx": {
       "hash": "b7f46fe3300758de",

@@ -845,9 +845,10 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 982,
+    "lines": 984,
     "exports": [
       "ensureDailyReportRunsTable",
+      "tryClaimScheduledReport",
       "DataCoverageStatus",
       "DataCoverageEntry",
       "DAILY_ANALYSIS_COVERAGE",
@@ -865,15 +866,25 @@
       "DailyReportRecord",
       "getLastPreMarketReportRecord",
       "getLastPostMarketReportRecord",
-      "ReportRunRow",
-      "getReportHistory"
+      "ReportRunRow"
     ],
     "externalImports": [
       "drizzle-orm",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "262456126dc3207d"
+    "hash": "a403c0cae82b47e6"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/dailyReportsDedupContract.test.ts",
+    "purpose": "test",
+    "lines": 265,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "2f4a04b455ebd504"
   },
   {
     "path": "artifacts/api-server/src/lib/dataProvider.ts",
@@ -6808,6 +6819,21 @@
     ],
     "routes": [],
     "hash": "03e1a10b04e5283f"
+  },
+  {
+    "path": "artifacts/scanner/src/pages/daily-analysis.tsx",
+    "purpose": "ui-page",
+    "lines": 649,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "@tanstack/react-query",
+      "@/hooks/use-auth",
+      "@/components/ui/card",
+      "@/components/ui/badge"
+    ],
+    "routes": [],
+    "hash": "6ca4a3d03d6c3398"
   },
   {
     "path": "artifacts/scanner/src/pages/dashboard.tsx",
