@@ -1,0 +1,351 @@
+CODER PROMPT — FULL WEBSITE AUDIT TRIAGE + PHASE 0 SAFETY FIX PLAN
+
+The full website deep audit report has been created:
+
+FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+
+Reported summary:
+
+1,135 lines
+30 frontend pages audited
+28 API route files mapped
+23 DB tables audited
+formulas reviewed
+schedulers audited
+data-source honesty matrix completed
+31 prioritized fixes listed
+final verdict: audit complete
+
+Before implementing any fixes, we must reconcile the audit report with the latest production state because some old 2026-06-23 findings may now be stale.
+
+Example:
+
+The report preserved this older finding:
+
+Kite session expiry at 06:00 IST with no automated alert
+
+But we already implemented and production-verified F&O Kite/session/data Telegram alerts and diagnostics.
+
+So do not blindly implement from the report.
+
+This task is triage and Phase 0 planning only, with optional tiny safe verification probes.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change thresholds.
+
+Do not change formulas.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not add unrelated features.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+Create a verified triage plan from the audit report.
+
+For every finding in FULL_WEBSITE_DEEP_AUDIT_REPORT.md, classify it as:
+
+OPEN
+ALREADY_FIXED
+STALE_FINDING
+PARTIALLY_FIXED
+NEEDS_PRODUCTION_VERIFICATION
+NEEDS_DESIGN_DECISION
+DEFERRED
+BLOCKED
+
+Then produce the exact Phase 0 implementation order.
+
+Create a new file:
+
+FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md
+
+Read:
+
+AGENT.md
+docs/llm-index/AGENT_START_HERE.md
+docs/llm-index/PROJECT_MAP.md
+docs/llm-index/CRITICAL_FLOWS.md
+docs/llm-index/API_ROUTES_INDEX.md
+docs/llm-index/DATABASE_INDEX.md
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+
+Use the LLM index first. Do not scan blindly.
+
+For each major audit finding, verify whether it is still true today.
+
+Specifically verify these known areas:
+
+Kite session expiry alert
+
+Check whether current system already has:
+
+F&O Kite session missing alert
+F&O daily history unavailable alert
+F&O daily history warmup alert
+/api/fno/no-signal-gap
+/fno-diagnostics
+Infra Health F&O section
+Telegram alerting for data/session issue
+
+Classify the audit finding correctly.
+
+Candle warehouse broken
+
+Verify:
+
+is candle warehouse still broken?
+is SQL still malformed?
+is it actually used by any production feature?
+does Kite charting bypass it?
+what pages are affected?
+Yahoo wholesale failing
+
+Verify:
+
+where Yahoo/global data is used
+whether it is labelled info-only
+whether failure affects production UI
+whether any trade-grade path still depends on it
+ATR divergence
+
+Verify:
+
+scanner ATR formula
+chart ATR formula
+which one is Wilder’s
+which one drives trade logic
+which one is UI-only
+whether mismatch can mislead users
+daily_report_runs schema drift
+
+Verify:
+
+table exists
+created by raw SQL or formal schema
+Drizzle schema coverage
+production safety
+migration requirement
+Swing order TTL gap
+
+Verify:
+
+do expired orders only expire on read?
+is there a background sweep?
+does Telegram expiry depend on read?
+what user-facing risk exists?
+G1-G4 risk guards shadow mode
+
+Verify:
+
+what are G1-G4 guards?
+where they are implemented
+what simulation shows
+why block mode is not enabled
+what evidence is required before enabling
+F&O execution reactive loop
+
+Verify:
+
+whether no independent tick loop is a product gap or intentional design
+how signals currently run
+whether scheduler/cycle frequency is enough
+what risk exists
+Login security
+
+Verify:
+
+no login rate limiting?
+no lockout?
+no 2FA?
+no audit logging?
+owner-only route protection coverage?
+
+In FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md, create a table with:
+
+ID
+module
+audit finding
+current status
+evidence checked
+production impact
+risk level
+implementation priority
+recommended action
+files likely affected
+tests required
+production verification required
+
+Use statuses:
+
+OPEN
+ALREADY_FIXED
+STALE_FINDING
+PARTIALLY_FIXED
+NEEDS_PRODUCTION_VERIFICATION
+NEEDS_DESIGN_DECISION
+DEFERRED
+BLOCKED
+
+Identify true Phase 0 items.
+
+Phase 0 means:
+
+security risk
+data corruption risk
+fake/misleading data risk
+production instability
+duplicate automation risk
+order/trading safety risk
+auth/secret risk
+
+Expected candidates to evaluate:
+
+Login rate limiting / owner auth hardening
+Formalize daily_report_runs schema if schema drift is real
+Candle warehouse broken if it affects production data
+Any trade-grade route still depending on Yahoo/proxy/stale data
+Any alert/report scheduler duplicate risk still open
+Any endpoint that can mutate state without owner auth
+Any sample/test endpoint that can spam
+Any broker execution gate weakness
+Any secret exposure risk
+
+Do not include cosmetic UI issues in Phase 0.
+
+Identify Phase 1 data foundation items.
+
+Expected candidates:
+
+GIFT Nifty source integration
+India VIX trusted source
+FII/DII data freshness
+participant OI automation
+market breadth
+news/events provider
+global cues provider replacement
+option-chain summary extraction into Pre/Post
+level validation/VWAP tracking
+sector/stock movement summary
+
+For each, note:
+
+source needed
+cost/licensing concern
+trade-grade or info-only
+API/provider candidates if already known
+whether this should wait for vendor decision
+
+Do not integrate providers in this task.
+
+Identify formula/calculation issues needing standardization.
+
+Expected candidates:
+
+ATR formula mismatch
+CPR/pivot consistency
+PCR / Max Pain implementation audit
+VWAP availability
+expected range formula
+VIX implied move
+option-chain support/resistance calculation
+portfolio risk calculations
+backtest P&L assumptions
+
+For each, state:
+
+current formula
+preferred professional formula
+user-facing impact
+test needed
+
+Identify UI/page issues after safety/data/formulas.
+
+Do not start with cosmetic work, but list:
+
+broken layouts
+missing source badges
+missing as-of times
+missing coverage matrix
+missing history
+missing drilldowns
+incomplete tables
+owner-only controls
+loading/error states
+
+At the end of the triage plan, recommend the next implementation task.
+
+It should be small enough to verify fully.
+
+Preferred next task should likely be one of:
+
+PHASE_0_AUTH_RATE_LIMIT_AND_OWNER_SECURITY
+PHASE_0_DB_SCHEMA_DRIFT_DAILY_REPORT_RUNS
+PHASE_0_CANDLE_WAREHOUSE_PRODUCTION_FIX
+PHASE_0_ALERT_SCHEDULER_DEDUP_HARDENING
+
+Choose based on verified risk.
+
+Do not choose a large all-in-one task.
+
+This task should mostly create/edit only:
+
+FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md
+
+If the report file is added/updated, run:
+
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If you run safe read-only tests or route probes, report them.
+
+Do not run destructive commands.
+
+Final response must include:
+
+Whether the audit report was read fully.
+Number of findings triaged.
+Findings marked already fixed.
+Findings marked stale.
+Findings still open.
+True Phase 0 items.
+Phase 1 data foundation items.
+Phase 2 formula items.
+Phase 3 UI items.
+Exact next implementation task.
+Files created/updated.
+LLM index result.
+Remaining blockers.
+
+Final verdict must be exactly one:
+
+FULL_WEBSITE_AUDIT_TRIAGE_COMPLETE
+FULL_WEBSITE_AUDIT_TRIAGE_INCOMPLETE
+FULL_WEBSITE_CRITICAL_RISK_REQUIRES_IMMEDIATE_FIX
+FULL_WEBSITE_AUDIT_FINDINGS_STALE_NEED_REWRITE
+
+Task is complete only if:
+
+FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md exists
+every audit finding is classified
+stale/current findings are separated
+Phase 0 is clearly identified
+Phase 1/2/3 are clearly separated
+next implementation task is specific
+no trading state is mutated
+no broker execution enabled
+no real order placed
+LLM index fresh
