@@ -1,0 +1,246 @@
+CODER PROMPT — POST-PUBLISH PRODUCTION VERIFICATION: SCANNER PHASE A KITE QUOTE OVERLAY
+
+Scanner Trade-Grade Upgrade Phase A has been completed in dev/main.
+
+Reported delivered work:
+
+* scanner.ts
+    * pre-fetches centralBatchEquityQuotes() once before the scan loop
+    * quoteFromChart() now uses Kite batch quote for:
+        * LTP
+        * OHLC
+        * previous close
+        * volume
+        * change/change %
+    * scan falls back safely to Yahoo-only if Kite quote batch fails
+* scannerProvenance.ts
+    * added kitePriceOverlay?: boolean
+    * threaded through source provenance
+* scannerSourceHealth.ts
+    * added kitePriceRows
+    * KITE_PARTIAL fires before YAHOO_INFO_ONLY when Kite overlay rows are present
+* openapi.yaml
+    * ScannerRowProvenance.kitePriceOverlay added
+    * codegen regenerated
+* providerImportAllowlist.json
+    * added pre-existing burn-down entries:
+        * dailyReports.ts
+        * marketDataHealth.ts
+        * optionSignals.ts
+    * scanner itself routes through marketData/compat.ts, not direct provider import
+* Tests:
+    * targeted API tests: 36/36 pass
+    * provider import guard: 19/19 pass
+    * scanner frontend tests: 749/749 pass
+    * full monorepo typecheck clean
+
+Important invariants:
+
+* provider: "yahoo" remains for signal/indicator source.
+* Yahoo daily candles still drive indicators/signals.
+* Kite is currently price overlay only.
+* Scanner must show KITE_PARTIAL, not KITE_TRADE_GRADE.
+* canDriveSignals must remain false.
+* canDriveTradeAlerts must remain false.
+* No scoring formula changed.
+* No F&O/swing/trading/broker logic changed.
+* No DB/schema changes.
+* No on-demand Kite historical calls.
+
+Now publish and perform production verification.
+
+Do not add new features.
+
+Do not change scoring formulas.
+
+Do not change F&O strategy.
+
+Do not change swing strategy.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not hide Yahoo warnings.
+
+Do not fake trade-grade status.
+
+Do not set canDriveSignals=true.
+
+Do not set canDriveTradeAlerts=true.
+
+Do not fetch Kite historical candles on demand.
+
+Do not trim or rewrite replit.md.
+
+====================================================
+OBJECTIVE
+
+Verify production now has Scanner Phase A Kite quote overlay.
+
+Production URL:
+
+https://marketscannerbydev.in
+
+Confirm:
+
+1. Production serves latest Phase A build.
+2. Scanner uses one Kite batch quote call for curated universe.
+3. Rows show kitePriceOverlay: true where Kite quote is available.
+4. Scanner health shows KITE_PARTIAL when Kite price overlay exists.
+5. Scanner does not show KITE_TRADE_GRADE.
+6. canDriveSignals=false.
+7. canDriveTradeAlerts=false.
+8. Yahoo remains indicator/signal source.
+9. No on-demand Kite historical calls occur.
+10. No trading state is mutated.
+11. Broker execution remains disabled.
+
+====================================================
+PART A — DEPLOYMENT CONFIRMATION
+
+Report:
+
+* current production PID / boot timestamp
+* production commit/hash if available
+* latest workspace commit/hash
+* production frontend bundle path
+* API health
+* frontend health
+
+Check production bundle/API for Phase A markers:
+
+* kitePriceOverlay
+* KITE_PARTIAL
+* kitePriceRows
+* canDriveSignals
+* canDriveTradeAlerts
+* warning/message equivalent to:
+    * Price is Kite-fresh; indicators still use Yahoo daily candles
+    * or equivalent source-honest wording
+
+If markers are absent, stop and report:
+
+SCANNER_KITE_QUOTE_OVERLAY_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — API VERIFICATION
+
+Authenticated owner calls:
+
+* GET /api/scan/health
+* scanner list endpoint used by Scanner page
+* GET /api/data-health/market
+
+Verify /api/scan/health returns:
+
+* sourceStatus
+* tradeGrade
+* canDriveSignals
+* rowCounts
+* kitePriceRows if exposed
+* oldestAsOf
+* newestAsOf
+* warning
+* action
+
+Expected after Phase A when Kite quotes are available:
+
+* sourceStatus: KITE_PARTIAL
+* tradeGrade: false
+* canDriveSignals: false
+
+Verify scanner rows include:
+
+* provenance.kitePriceOverlay: true where Kite quote was available
+* price fields from Kite where available
+* indicator/source provider still Yahoo
+* rowSource.canDriveSignals: false
+* rowSource.canDriveTradeAlerts: false
+
+If Kite quote unavailable, verify fallback remains safely Yahoo/info-only.
+
+====================================================
+PART C — SCANNER UI VERIFICATION
+
+Open production Scanner page while authenticated.
+
+Verify:
+
+* scan-level banner shows KITE_PARTIAL or equivalent.
+* message clearly says:
+    * Kite price overlay is active
+    * indicators still use Yahoo daily candles
+    * scanner remains info-only until Kite candle warehouse is active
+* row-level badges/source labels show mixed source honestly.
+* no row is presented as full trade-grade.
+* no score/action is presented as tradeable due to Kite price overlay alone.
+
+Take screenshot evidence if possible.
+
+====================================================
+PART D — SOURCE-HONESTY CHECK
+
+Verify source truth:
+
+* price source: Kite where quote available
+* indicator source: Yahoo daily candles
+* overall scanner status: partial/info-only
+* canDriveSignals=false
+* canDriveTradeAlerts=false
+* no Yahoo warning hidden
+* no stale warning hidden
+* no fake KITE_TRADE_GRADE
+
+====================================================
+PART E — NO ON-DEMAND HISTORICAL CHECK
+
+Verify by code/logs:
+
+* scanner does not call Kite historical candles inside scan loop.
+* no per-row Kite historical calls.
+* no candle warehouse change.
+* no DB/schema change.
+* no scheduler change.
+
+Kite historical/candle warehouse is Phase B, not this task.
+
+====================================================
+PART F — F&O / SWING SAFETY CHECK
+
+Verify:
+
+* Kite price overlay rows cannot generate tradeable F&O signals.
+* Kite price overlay rows cannot open F&O paper trades as trade-grade.
+* Kite price overlay rows cannot create swing staged orders as trade-grade.
+* shouldDemoteSignal() or equivalent still demotes because indicator source is Yahoo/info-only.
+* F&O/swing tests still pass.
+
+====================================================
+PART G — PROVIDER IMPORT GUARD REVIEW
+
+Confirm scanner imports remain guard-safe:
+
+* scanner path uses marketData/compat.ts
+* no direct forbidden provider import added by this task
+
+Also report the allowlist additions:
+
+* dailyReports.ts
+* marketDataHealth.ts
+* optionSignals.ts
+
+Classify them as:
+
+* pre-existing burn-down entries
+* not introduced by Phase A
+* should be reviewed later in provider-import burn-down task
+
+Do not expand this task to fix those files now.
+
+====================================================
+PART H — TESTS + INDEX
