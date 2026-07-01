@@ -208,6 +208,9 @@ export function buildScannerSourceHealth(
   let yahooStale = 0;
   let cache = 0;
   let noFeed = 0;
+  // Phase A scanner upgrade: rows where a Kite REST batch quote was used for
+  // price/OHLC/volume/prevClose while the signal/indicator source is Yahoo.
+  let kitePriceRows = 0;
   let oldestAsOfSec: number | null = null;
   let newestAsOfSec: number | null = null;
 
@@ -222,6 +225,8 @@ export function buildScannerSourceHealth(
     else if (source === "yahoo") yahooStale++;
     else if (source === "cache" || source === "computed") cache++;
     else noFeed++;
+
+    if (prov?.kitePriceOverlay === true) kitePriceRows++;
 
     if (prov?.asOf != null) {
       if (oldestAsOfSec === null || prov.asOf < oldestAsOfSec) oldestAsOfSec = prov.asOf;
@@ -246,6 +251,14 @@ export function buildScannerSourceHealth(
   } else if (total === kiteLive) {
     sourceStatus = "KITE_TRADE_GRADE";
     tradeGrade = true;
+  } else if (yahooDelayed + yahooStale === total && kitePriceRows > 0) {
+    // Phase A: all rows are Yahoo-indicator sourced, but Kite REST batch quotes
+    // are supplying live price/OHLC/volume/prevClose. Scanner remains info-only
+    // (canDriveSignals=false) until Phase B wires Kite candles for indicators.
+    sourceStatus = "KITE_PARTIAL";
+    warning =
+      `Kite price overlay active for ${kitePriceRows} of ${total} rows. ` +
+      "Scanner indicators still use Yahoo daily candles — info-only until Kite candle warehouse is active (Phase B).";
   } else if (yahooDelayed + yahooStale === total) {
     sourceStatus = "YAHOO_INFO_ONLY";
     warning =

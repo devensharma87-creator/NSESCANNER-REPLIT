@@ -1,0 +1,82 @@
+Use actual repo naming and types.
+
+====================================================
+PART D — PROVENANCE / SOURCE HONESTY
+
+Update provenance so the row clearly reflects mixed source:
+
+* price source: Kite when quote available
+* indicator source: Yahoo daily candles
+* overall row status: KITE_PARTIAL or equivalent mixed/info-only
+* canDriveSignals: false
+* canDriveTradeAlerts: false
+* warning:
+    * Price is Kite-fresh; indicators still use Yahoo daily candles. Info-only until Kite candle warehouse is active.
+
+Do not mark as full TRADE_GRADE.
+
+If no Kite quote:
+
+* use current Yahoo path
+* label as YAHOO_INFO_ONLY or existing equivalent
+
+====================================================
+PART E — SCAN-LEVEL HEALTH
+
+Update buildScannerSourceHealth() if required.
+
+Expected behavior:
+
+If most/all rows have Kite quote but Yahoo indicators:
+
+* scan-level source status:
+    * KITE_PARTIAL
+* tradeGrade: false
+* canDriveSignals: false
+* warning:
+    * Kite prices available, but scanner indicators still use Yahoo daily candles. Info-only until Kite candle warehouse is active.
+
+If no Kite quotes:
+
+* retain YAHOO_INFO_ONLY
+
+If mixed Kite quote availability:
+
+* use MIXED_SOURCES or KITE_PARTIAL with row counts, whichever is already semantically correct
+* no trade-grade claim
+
+====================================================
+PART F — UI BEHAVIOR
+
+Scanner banner should now show a more accurate message:
+
+If Kite quotes are present but indicators are Yahoo:
+
+Kite price overlay active; indicators use Yahoo daily candles. Scanner remains info-only until Kite candle warehouse is active.
+
+Rows should show:
+
+* price source: Kite
+* indicator source: Yahoo/info-only
+* overall: not trade-grade
+
+Do not hide the info-only warning.
+
+====================================================
+PART G — TESTS
+
+Add/update tests for:
+
+1. Kite quote used for LTP when available.
+2. Kite quote used for previous close/change/change%.
+3. Kite quote used for OHLC/volume if available.
+4. Yahoo chart quote used only when Kite quote missing.
+5. Indicators still use Yahoo candles.
+6. Row with Kite quote + Yahoo indicators is KITE_PARTIAL, not TRADE_GRADE.
+7. canDriveSignals remains false.
+8. canDriveTradeAlerts remains false.
+9. Scan-level health becomes KITE_PARTIAL when Kite quotes exist but indicators are Yahoo.
+10. Full Yahoo path remains YAHOO_INFO_ONLY.
+11. No on-demand Kite historical calls are made.
+12. No scoring formula changes.
+13. F&O/swing consumer safety remains intact.

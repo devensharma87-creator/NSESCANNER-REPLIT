@@ -1,0 +1,139 @@
+CODER PROMPT — SCANNER TRADE-GRADE UPGRADE PHASE A: KITE BATCH QUOTE OVERLAY FOR CURATED SCANNER
+
+The Scanner Trade-Grade Upgrade Audit is complete.
+
+Accepted verdict:
+
+SCANNER_TRADE_GRADE_UPGRADE_AUDIT_COMPLETE
+
+Key audit finding:
+
+Current scanner is honest but not trade-grade.
+
+Current path:
+
+Yahoo 6-month daily candles → indicators/signals
+Kite live quote/OHLC only as overlay or limited price source
+
+Therefore current scanner signal source remains:
+
+YAHOO_INFO_ONLY
+
+The recommended migration is phased.
+
+Do not jump to full trade-grade scanner yet.
+
+This task is Phase A only.
+
+====================================================
+OBJECTIVE
+
+Upgrade the curated scanner price path to Kite-first using one batch quote call.
+
+Expected result:
+
+* curated scanner fetches Kite quotes for the scanner universe before the scan loop
+* quoteFromChart() or equivalent accepts a pre-fetched Kite quote
+* buildRow uses Kite quote for:
+    * LTP
+    * day open/high/low/close if available
+    * previous close
+    * change
+    * change %
+    * volume if available
+* Yahoo daily candles remain the indicator source for now
+* scanner source status should become KITE_PARTIAL, not KITE_TRADE_GRADE
+* rowSource should clearly say price is Kite but indicators are still Yahoo/info-only
+* canDriveSignals and canDriveTradeAlerts must remain false until Phase B candle warehouse is complete
+
+This is a data-path upgrade, not a strategy change.
+
+====================================================
+DO NOT DO
+
+Do not change scoring formulas.
+
+Do not change F&O strategy.
+
+Do not change swing strategy.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not make scanner trade-grade yet.
+
+Do not set canDriveSignals=true.
+
+Do not set canDriveTradeAlerts=true.
+
+Do not remove Yahoo labels.
+
+Do not hide stale warnings.
+
+Do not fake missing data.
+
+Do not fetch Kite historical candles on-demand.
+
+Do not start candle warehouse work in this task.
+
+Do not expand to full NSE universe.
+
+Do not trim or rewrite replit.md.
+
+====================================================
+PART A — READ REQUIRED FILES
+
+Read first:
+
+* AGENT.md
+* docs/llm-index/AGENT_START_HERE.md
+* docs/llm-index/CRITICAL_FLOWS.md
+* docs/llm-index/API_ROUTES_INDEX.md
+* docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+* docs/SCANNER_TRADE_GRADE_UPGRADE_AUDIT.md
+
+Use the audit report to locate:
+
+* scanner.ts
+* quoteFromChart()
+* buildRow()
+* loadKiteQuotes()
+* Kite quote batch helpers
+* scanner universe builder
+* row provenance
+* scannerSourceHealth.ts
+* scanner source-health tests
+
+====================================================
+PART B — CURRENT PATH CONFIRMATION
+
+Before coding, confirm the current path:
+
+1. Where Yahoo chart data is fetched.
+2. Where indicators are computed from Yahoo candles.
+3. Where quote fields are currently derived.
+4. Where Kite quote overlay/helper exists.
+5. Where rowSource is stamped.
+6. Where scan-level health is built.
+7. Why current status is YAHOO_INFO_ONLY.
+
+Report exact files/functions.
+
+====================================================
+PART C — IMPLEMENT KITE BATCH QUOTE OVERLAY
+
+Implement the smallest safe change:
+
+1. Before the scanner loop, call Kite batch quote helper once for the curated scanner symbols.
+2. Do not call Kite quote per row.
+3. Pass pre-fetched quote into buildRow().
+4. Modify quoteFromChart() or equivalent to prefer Kite quote when present.
+5. Fall back to Yahoo chart quote only if Kite quote is missing/unavailable.
+6. Preserve Yahoo daily candles for indicators.
+7. Preserve existing scan timeout behavior.
+8. Do not add expensive historical candle calls.

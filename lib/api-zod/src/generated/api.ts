@@ -447,6 +447,11 @@ export const GetMarketTrendResponse = zod.object({
                 .nullable()
                 .describe("Why the source is unavailable (null when present)."),
               warnings: zod.array(zod.string()),
+              kitePriceOverlay: zod
+                .boolean()
+                .describe(
+                  "Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price\/OHLC\/volume\/prevClose while the signal\/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY.",
+                ),
             })
             .describe(
               "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
@@ -810,6 +815,11 @@ export const GetMarketTrendResponse = zod.object({
                 .nullable()
                 .describe("Why the source is unavailable (null when present)."),
               warnings: zod.array(zod.string()),
+              kitePriceOverlay: zod
+                .boolean()
+                .describe(
+                  "Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price\/OHLC\/volume\/prevClose while the signal\/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY.",
+                ),
             })
             .describe(
               "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
@@ -1273,6 +1283,11 @@ export const ListSectorsResponse = zod.object({
               .nullable()
               .describe("Why the source is unavailable (null when present)."),
             warnings: zod.array(zod.string()),
+            kitePriceOverlay: zod
+              .boolean()
+              .describe(
+                "Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price\/OHLC\/volume\/prevClose while the signal\/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY.",
+              ),
           })
           .describe(
             "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
@@ -1647,6 +1662,11 @@ export const GetSectorResponse = zod.object({
             .nullable()
             .describe("Why the source is unavailable (null when present)."),
           warnings: zod.array(zod.string()),
+          kitePriceOverlay: zod
+            .boolean()
+            .describe(
+              "Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price\/OHLC\/volume\/prevClose while the signal\/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY.",
+            ),
         })
         .describe(
           "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
@@ -1986,6 +2006,11 @@ export const GetSectorResponse = zod.object({
             .nullable()
             .describe("Why the source is unavailable (null when present)."),
           warnings: zod.array(zod.string()),
+          kitePriceOverlay: zod
+            .boolean()
+            .describe(
+              "Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price\/OHLC\/volume\/prevClose while the signal\/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY.",
+            ),
         })
         .describe(
           "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
@@ -2325,6 +2350,11 @@ export const ListStocksResponseItem = zod.object({
         .nullable()
         .describe("Why the source is unavailable (null when present)."),
       warnings: zod.array(zod.string()),
+      kitePriceOverlay: zod
+        .boolean()
+        .describe(
+          "Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price\/OHLC\/volume\/prevClose while the signal\/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY.",
+        ),
     })
     .describe(
       "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
@@ -3324,6 +3354,11 @@ export const GetTopScansResponse = zod.object({
             .nullable()
             .describe("Why the source is unavailable (null when present)."),
           warnings: zod.array(zod.string()),
+          kitePriceOverlay: zod
+            .boolean()
+            .describe(
+              "Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price\/OHLC\/volume\/prevClose while the signal\/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY.",
+            ),
         })
         .describe(
           "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",
@@ -3663,6 +3698,11 @@ export const GetTopScansResponse = zod.object({
             .nullable()
             .describe("Why the source is unavailable (null when present)."),
           warnings: zod.array(zod.string()),
+          kitePriceOverlay: zod
+            .boolean()
+            .describe(
+              "Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price\/OHLC\/volume\/prevClose while the signal\/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY.",
+            ),
         })
         .describe(
           "Honest source\/freshness\/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable.",

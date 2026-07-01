@@ -3,6 +3,10 @@
     "kiteFeed",
     "kiteIntraday"
   ],
+  "lib/dailyReports.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
   "lib/dataProvider.ts": [
     "kiteAuth",
     "kiteFeed"
@@ -16,6 +20,9 @@
     "kiteAuth",
     "kiteFeed"
   ],
+  "lib/marketDataHealth.ts": [
+    "kiteFeed"
+  ],
   "lib/oiLab.ts": [
     "kiteAuth",
     "kiteFnoInstruments",
@@ -25,6 +32,9 @@
     "kiteFeed",
     "kiteIndexQuotes",
     "kiteOptionChain"
+  ],
+  "lib/optionSignals.ts": [
+    "kiteAuth"
   ],
   "lib/systemStatus.ts": [
     "kiteAuth",

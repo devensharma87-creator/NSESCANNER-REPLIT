@@ -3788,7 +3788,7 @@
   {
     "path": "artifacts/api-server/src/lib/scanner.ts",
     "purpose": "scanner",
-    "lines": 499,
+    "lines": 531,
     "exports": [
       "getHistory",
       "scanAll",
@@ -3802,7 +3802,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "2d633f796b25c5d1"
+    "hash": "92ef0968e329b850"
   },
   {
     "path": "artifacts/api-server/src/lib/scannerFastPath.test.ts",
@@ -3829,7 +3829,7 @@
   {
     "path": "artifacts/api-server/src/lib/scannerProvenance.ts",
     "purpose": "scanner",
-    "lines": 159,
+    "lines": 178,
     "exports": [
       "DataSourceProvider",
       "DataTrustTier",
@@ -3841,23 +3841,23 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "7178a551ddd70efd"
+    "hash": "f63eabaaec14ee58"
   },
   {
     "path": "artifacts/api-server/src/lib/scannerSourceHealth.test.ts",
     "purpose": "test",
-    "lines": 307,
+    "lines": 407,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "0e0ef2718cda8b64"
+    "hash": "5a8e33b688159e5e"
   },
   {
     "path": "artifacts/api-server/src/lib/scannerSourceHealth.ts",
     "purpose": "scanner",
-    "lines": 289,
+    "lines": 302,
     "exports": [
       "ScannerRowSourceKind",
       "ScannerRowSourceStatus",
@@ -3870,7 +3870,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "aa17e084c4422335"
+    "hash": "8bbe05d3e6fa4cea"
   },
   {
     "path": "artifacts/api-server/src/lib/scoring.entrySafety.test.ts",

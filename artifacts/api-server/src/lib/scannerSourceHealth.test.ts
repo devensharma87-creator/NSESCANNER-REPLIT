@@ -68,6 +68,23 @@ function nullProv() {
   });
 }
 
+/**
+ * Phase A: Yahoo signal source + Kite batch price overlay.
+ * Indicators remain Yahoo; price/OHLC/volume comes from Kite REST batch quote.
+ */
+function yahooWithKiteOverlayProv() {
+  return buildSourceProvenance({
+    provider: "yahoo",
+    asOfSec: nowSec - 30, // Kite batch quote ts (fresh)
+    tf: "15m",
+    now: NOW,
+    kitePriceOverlay: true,
+    warnings: [
+      "Kite batch quote used for price/OHLC/volume. Scanner indicators still use Yahoo daily candles — info-only until Kite candle warehouse is active (Phase B).",
+    ],
+  });
+}
+
 function makeRow(prov: ReturnType<typeof buildSourceProvenance> | null | undefined) {
   return { symbol: "TEST", provenance: prov };
 }
@@ -302,5 +319,88 @@ describe("F&O / swing consumer safety — signal demotion gates", () => {
     const rs3 = toScannerRowSource(kiteOk, "NIFTY");
     expect(rs3.canDriveSignals).toBe(true);
     expect(shouldDemoteSignal(kiteOk)).toBe(false);
+  });
+});
+
+// ── Phase A: Kite price overlay (scanner trade-grade upgrade) ─────────────────
+
+describe("Phase A — Kite batch quote price overlay", () => {
+  it("[Test 19] kitePriceOverlay=true is stored on the provenance envelope", () => {
+    const p = yahooWithKiteOverlayProv();
+    expect(p.kitePriceOverlay).toBe(true);
+    expect(p.sourceProvider).toBe("yahoo"); // signal source stays Yahoo
+    expect(p.notForSignals).toBe(true);     // canDriveSignals stays false
+    expect(p.notForTradeDecisions).toBe(true);
+  });
+
+  it("[Test 20] Phase A row: source=yahoo, sourceStatus=INFO_ONLY, canDriveSignals=false", () => {
+    const prov = yahooWithKiteOverlayProv();
+    const rs = toScannerRowSource(prov, "RELIANCE");
+    expect(rs.source).toBe("yahoo");
+    expect(rs.sourceStatus).toBe("INFO_ONLY");
+    expect(rs.canDriveSignals).toBe(false);
+    expect(rs.canDriveTradeAlerts).toBe(false);
+    // Warning from provenance is forwarded
+    expect(rs.warning).toMatch(/Kite batch quote/i);
+  });
+
+  it("[Test 21] All Phase A rows (Yahoo + kitePriceOverlay) → scan-level KITE_PARTIAL", () => {
+    const rows = [
+      makeRow(yahooWithKiteOverlayProv()),
+      makeRow(yahooWithKiteOverlayProv()),
+      makeRow(yahooWithKiteOverlayProv()),
+    ];
+    const h = buildScannerSourceHealth(rows, { marketSession: "open" });
+    expect(h.sourceStatus).toBe("KITE_PARTIAL");
+    expect(h.tradeGrade).toBe(false);
+    expect(h.canDriveSignals).toBe(false);
+    // All rows still count as yahooDelayed in rowCounts (signal source is Yahoo)
+    expect(h.rowCounts.yahooDelayed).toBe(3);
+    expect(h.rowCounts.kiteLive).toBe(0);
+    expect(h.rowCounts.total).toBe(3);
+  });
+
+  it("[Test 22] Phase A KITE_PARTIAL warning mentions Kite price overlay and Phase B", () => {
+    const rows = [
+      makeRow(yahooWithKiteOverlayProv()),
+      makeRow(yahooWithKiteOverlayProv()),
+    ];
+    const h = buildScannerSourceHealth(rows);
+    expect(h.sourceStatus).toBe("KITE_PARTIAL");
+    expect(h.warning).toMatch(/Kite price overlay active/i);
+    expect(h.warning).toMatch(/2 of 2/);
+    expect(h.warning).toMatch(/Phase B/i);
+  });
+
+  it("[Test 23] Mixed Phase A rows and plain Yahoo rows → still KITE_PARTIAL (all are Yahoo-signal)", () => {
+    // Some rows got Kite batch quote, some didn't (e.g. symbol not found in Kite)
+    const rows = [
+      makeRow(yahooWithKiteOverlayProv()), // Kite price overlay
+      makeRow(yahooProvFresh()),            // plain Yahoo, no overlay
+    ];
+    const h = buildScannerSourceHealth(rows);
+    expect(h.sourceStatus).toBe("KITE_PARTIAL");
+    expect(h.rowCounts.yahooDelayed).toBe(2);
+    expect(h.warning).toMatch(/1 of 2/); // only 1 row has overlay
+  });
+
+  it("[Test 24] Plain Yahoo rows WITHOUT overlay → YAHOO_INFO_ONLY (overlay=false does not trigger KITE_PARTIAL)", () => {
+    const rows = [
+      makeRow(yahooProvFresh()),
+      makeRow(yahooProvFresh()),
+    ];
+    const h = buildScannerSourceHealth(rows);
+    expect(h.sourceStatus).toBe("YAHOO_INFO_ONLY");
+    expect(h.tradeGrade).toBe(false);
+    expect(h.canDriveSignals).toBe(false);
+  });
+
+  it("[Test 25] kitePriceOverlay=false by default on provenance (no regression)", () => {
+    const p = yahooProvFresh();
+    expect(p.kitePriceOverlay).toBe(false);
+    const pNull = buildSourceProvenance({ provider: null, asOfSec: null, tf: "1D", now: NOW });
+    expect(pNull.kitePriceOverlay).toBe(false);
+    const pKite = kiteProvFresh();
+    expect(pKite.kitePriceOverlay).toBe(false);
   });
 });

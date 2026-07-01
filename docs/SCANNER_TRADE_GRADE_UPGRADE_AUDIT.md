@@ -1,11 +1,20 @@
 # SCANNER TRADE-GRADE UPGRADE FEASIBILITY AUDIT
 
 **Date:** 2026-07-01  
-**Status:** AUDIT COMPLETE — no app logic changed  
+**Status:** PHASE A SHIPPED — Kite batch-quote price overlay live  
 **Preconditions accepted:**
 - `SCANNER_DEEP_SCAN_DATA_ACCURACY_PROD_VERIFIED`
 - `CANONICAL_MARKET_DATA_HEALTH_PROD_VERIFIED`
 - `HOME_MARKET_PULSE_DATA_ACCURACY_PROD_VERIFIED`
+
+**Phase A delivery (2026-07-01):**
+- `scanner.ts`: pre-fetches `centralBatchEquityQuotes()` before scan loop; `quoteFromChart()` uses Kite batch price/OHLC/prevClose/volume when available; falls back gracefully to Yahoo meta / WebSocket tick.
+- `scannerProvenance.ts`: `kitePriceOverlay?: boolean` added to `BuildSourceProvenanceInput` + `SourceProvenance`; threaded through all three return paths.
+- `scannerSourceHealth.ts`: `kitePriceRows` counter; `KITE_PARTIAL` branch fires before `YAHOO_INFO_ONLY` when batch overlay rows are present.
+- `lib/api-spec/openapi.yaml`: `ScannerRowProvenance.kitePriceOverlay` (boolean, required) added + codegen regenerated.
+- `providerImportAllowlist.json`: added `dailyReports.ts`, `marketDataHealth.ts`, `optionSignals.ts` as pre-existing burn-down entries (not introduced by Phase A).
+- Tests: 7 new Phase A tests in `scannerSourceHealth.test.ts` (Tests 19–25). All 36 targeted + 749 scanner frontend + full typecheck green.
+- **Signal source unchanged**: `provider: "yahoo"`, `canDriveSignals: false`. Phase B (candle warehouse) needed for full trade-grade promotion.
 
 ---
 

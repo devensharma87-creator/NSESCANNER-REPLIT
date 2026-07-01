@@ -2155,7 +2155,7 @@ components:
     ScannerRowProvenance:
       type: object
       description: "Honest source/freshness/trust labelling for a scanner row's quote, using the same vocabulary as IndexAnalyticsProvenance. Kite is authoritative; Yahoo is a delayed secondary_analytics reference that must never drive signals; absent source is unavailable."
-      required: [sourceProvider, sourcePriority, trustTier, delayed, notForSignals, notForTradeDecisions, asOf, freshnessSec, isStale, missingReason, warnings]
+      required: [sourceProvider, sourcePriority, trustTier, delayed, notForSignals, notForTradeDecisions, asOf, freshnessSec, isStale, missingReason, warnings, kitePriceOverlay]
       properties:
         sourceProvider:
           type: string
@@ -2176,6 +2176,9 @@ components:
         warnings:
           type: array
           items: { type: string }
+        kitePriceOverlay:
+          type: boolean
+          description: "Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price/OHLC/volume/prevClose while the signal/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY."
 
     ScannerRowSource:
       type: object

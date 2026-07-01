@@ -1,0 +1,82 @@
+Use repo-correct test paths if different.
+
+====================================================
+PART H — DEV VERIFICATION
+
+Verify in dev:
+
+* scanner still loads
+* scan completes within existing timeout
+* scan-level status is KITE_PARTIAL when Kite quotes available
+* rows with Kite quotes show Kite price source
+* indicator source remains Yahoo/info-only
+* canDriveSignals=false
+* canDriveTradeAlerts=false
+* no trading state mutation
+* broker execution disabled
+
+====================================================
+PART I — PRODUCTION VERIFICATION AFTER PUBLISH
+
+After publish, verify on:
+
+https://marketscannerbydev.in
+
+Check:
+
+1. Production bundle includes Phase A markers.
+2. Scanner API rows show Kite price overlay where available.
+3. Scanner health shows KITE_PARTIAL, not KITE_TRADE_GRADE.
+4. Yahoo-only rows remain info-only.
+5. No row has canDriveSignals=true.
+6. No row has canDriveTradeAlerts=true.
+7. No scoring formula changed.
+8. No Kite historical on-demand calls occur.
+9. No secrets exposed.
+10. No trading state mutated.
+11. Broker execution disabled.
+
+====================================================
+PART J — FINAL REPORT
+
+Final report must include:
+
+1. Current path confirmation.
+2. Files touched.
+3. Kite batch quote overlay implementation.
+4. Provenance/source-honesty result.
+5. Scan-level health result.
+6. UI/banner result.
+7. Tests run.
+8. LLM index result.
+9. Dev verification result.
+10. Production verification status.
+11. Remaining blockers.
+12. Exact next action.
+
+Final verdict must be exactly one:
+
+* SCANNER_KITE_QUOTE_OVERLAY_PROD_VERIFIED
+* SCANNER_KITE_QUOTE_OVERLAY_DEV_VERIFIED
+* SCANNER_KITE_QUOTE_OVERLAY_BUILD_NOT_DEPLOYED
+* SCANNER_KITE_QUOTE_OVERLAY_SOURCE_GAP
+* ROLLBACK_REQUIRED
+
+====================================================
+ACCEPTANCE CRITERIA
+
+Task is complete only if:
+
+* scanner uses one Kite batch quote call for curated universe
+* Kite quote is used for price fields where available
+* Yahoo candles remain indicator source
+* scan status is KITE_PARTIAL, not trade-grade
+* canDriveSignals=false
+* canDriveTradeAlerts=false
+* no on-demand Kite historical candle calls
+* no scoring formula change
+* no trading state mutation
+* broker execution disabled
+* tests pass
+* LLM index fresh
+* production verification completed after publish

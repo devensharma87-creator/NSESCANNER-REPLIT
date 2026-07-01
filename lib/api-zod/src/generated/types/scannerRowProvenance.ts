@@ -32,4 +32,6 @@ export interface ScannerRowProvenance {
   /** Why the source is unavailable (null when present). */
   missingReason: string | null;
   warnings: string[];
+  /** Phase A scanner upgrade flag. True when a Kite REST batch quote was used for price/OHLC/volume/prevClose while the signal/indicator source (sourceProvider) remains Yahoo daily candles. canDriveSignals stays false until Phase B (Kite candle warehouse). Scan-level health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY. */
+  kitePriceOverlay: boolean;
 }

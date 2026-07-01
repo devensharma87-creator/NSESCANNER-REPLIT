@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T16:45:09.252Z",
+  "generatedAt": "2026-07-01T17:09:52.803Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -838,19 +838,19 @@
       "mtime": "2026-05-06T13:58:33.718Z"
     },
     "artifacts/api-server/src/lib/scanner.ts": {
-      "hash": "2d633f796b25c5d1",
-      "lines": 499,
-      "mtime": "2026-07-01T15:32:34.847Z"
+      "hash": "92ef0968e329b850",
+      "lines": 531,
+      "mtime": "2026-07-01T17:00:59.301Z"
     },
     "artifacts/api-server/src/lib/scannerProvenance.ts": {
-      "hash": "7178a551ddd70efd",
-      "lines": 159,
-      "mtime": "2026-06-10T13:10:53.086Z"
+      "hash": "f63eabaaec14ee58",
+      "lines": 178,
+      "mtime": "2026-07-01T16:58:46.696Z"
     },
     "artifacts/api-server/src/lib/scannerSourceHealth.ts": {
-      "hash": "aa17e084c4422335",
-      "lines": 289,
-      "mtime": "2026-07-01T15:28:18.514Z"
+      "hash": "8bbe05d3e6fa4cea",
+      "lines": 302,
+      "mtime": "2026-07-01T16:59:16.366Z"
     },
     "artifacts/api-server/src/lib/scoring.ts": {
       "hash": "f33b2a96eb65076f",
@@ -1163,9 +1163,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "498491d6968cb1b2",
-      "lines": 6760,
-      "mtime": "2026-07-01T15:33:51.566Z"
+      "hash": "c5c6ad30a2a43b44",
+      "lines": 6763,
+      "mtime": "2026-07-01T17:03:48.022Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",

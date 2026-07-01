@@ -5,8 +5,8 @@ import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportR
 import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
 import { getDeliveryPct } from "./marketData/referenceData";
-import { centralLiveQuote } from "./marketData/compat";
-import { centralEquityCandles } from "./marketData/compat";
+import { centralLiveQuote, centralEquityCandles, centralBatchEquityQuotes } from "./marketData/compat";
+import type { KiteScannerQuote } from "./marketData/compat";
 import { buildSourceProvenance } from "./scannerProvenance";
 import { toScannerRowSource } from "./scannerSourceHealth";
 
@@ -73,42 +73,51 @@ async function getIntradayVwap(symbol: string): Promise<number | null> {
   }
 }
 
-function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
+function quoteFromChart(
+  entry: UniverseEntry,
+  chart: YahooChart,
+  kiteQuote?: KiteScannerQuote | null,
+): Quote | null {
   const meta = chart.meta;
-  if (meta.regularMarketPrice == null) return null;
-  // Prefer the live Kite tick for *price + intraday H/L/V* if available; fall
-  // back to Yahoo (~15-min delayed) otherwise. We always keep the historical
-  // chart-derived prevClose & 52-week levels from Yahoo since Kite ticks
-  // don't carry those.
+  // Phase A: a valid Kite batch quote can supply the price even when Yahoo
+  // meta lacks a regularMarketPrice (e.g. stale/expired Yahoo session).
+  // Without any price source at all there is nothing to show — drop the row.
+  const hasKiteQuote = kiteQuote != null && kiteQuote.lastPrice > 0;
+  if (!hasKiteQuote && meta.regularMarketPrice == null) return null;
+
+  // Price-source hierarchy (Phase A):
+  //   1. Kite REST batch quote  — fresh REST snapshot, covers every symbol,
+  //      provides prevClose (ohlc.close = previous session close).
+  //   2. Kite WebSocket tick    — real-time in-memory; no prevClose field.
+  //   3. Yahoo meta             — ~15-min delayed fallback.
   //
-  // Strict no-synthetic policy: previously we collapsed missing prevClose to
-  // `regularMarketPrice` (zero change), and missing high/low to
-  // `Math.max/min(price, todayOpen)` — both fabricate a "real" quote field
-  // out of the live price. Now: previousClose, high, low, and todayOpen
-  // are required to be REAL. If any one is missing we drop the quote
-  // entirely (`return null`) — the caller treats that as "no data" and
-  // never presents a fake one to the user.
-  const live = centralLiveQuote(entry.symbol);
+  // Yahoo daily chart is ALWAYS used for: 52-week H/L, avgVolume, and
+  // indicator inputs (close series, OHLC arrays). These never come from Kite.
+  //
+  // Strict no-synthetic policy: previousClose, high, low, and todayOpen must
+  // be REAL. If all sources are missing for a field, drop the entire row.
+  const live = centralLiveQuote(entry.symbol);  // WebSocket tick (secondary)
   const closes = chart.close;
   const lastIdx = closes.length - 1;
   const todayOpenY = chart.open[lastIdx] ?? null;
-  const prevCloseRaw = lastIdx >= 1
-    ? (closes[lastIdx - 1] ?? meta.chartPreviousClose ?? null)
-    : (meta.chartPreviousClose ?? null);
 
-  const price = live?.ltp ?? meta.regularMarketPrice;
-  const todayOpen = live?.open ?? todayOpenY;
-  const high = live?.high ?? meta.regularMarketDayHigh ?? null;
-  const low = live?.low ?? meta.regularMarketDayLow ?? null;
-  // Volume must be REAL — Kite tick → Yahoo meta → last daily-bar volume.
-  // If all three are missing we used to silently substitute 0, which then
-  // routed through scoring's `volRatio < 0.6` "Low volume" rule and biased
-  // every score bearish. No-synthetic policy: drop the quote instead.
-  const volumeRaw = live?.volume ?? meta.regularMarketVolume ?? chart.volume[lastIdx] ?? null;
-  if (
-    prevCloseRaw == null || todayOpen == null || high == null || low == null
-    || volumeRaw == null
-  ) {
+  const price = hasKiteQuote ? kiteQuote.lastPrice : (live?.ltp ?? meta.regularMarketPrice!);
+  const todayOpen = hasKiteQuote ? kiteQuote.open : (live?.open ?? todayOpenY);
+  const high = hasKiteQuote ? kiteQuote.high : (live?.high ?? meta.regularMarketDayHigh ?? null);
+  const low = hasKiteQuote ? kiteQuote.low : (live?.low ?? meta.regularMarketDayLow ?? null);
+  // Volume: Kite batch quote → WebSocket tick → Yahoo meta → last daily bar.
+  const volumeRaw = hasKiteQuote
+    ? kiteQuote.volume
+    : (live?.volume ?? meta.regularMarketVolume ?? chart.volume[lastIdx] ?? null);
+  // prevClose: Kite OHLC.close = previous session close (best source).
+  // WebSocket tick has no prevClose field; fall back to Yahoo chart history.
+  const prevCloseRaw = hasKiteQuote
+    ? kiteQuote.close
+    : (lastIdx >= 1
+        ? (closes[lastIdx - 1] ?? meta.chartPreviousClose ?? null)
+        : (meta.chartPreviousClose ?? null));
+
+  if (prevCloseRaw == null || todayOpen == null || high == null || low == null || volumeRaw == null) {
     return null;
   }
   const prevClose = prevCloseRaw;
@@ -116,7 +125,10 @@ function quoteFromChart(entry: UniverseEntry, chart: YahooChart): Quote | null {
   const change = price - prevClose;
   const changePct = prevClose > 0 ? (change / prevClose) * 100 : 0;
   const avgV = avgVolume(chart.volume.slice(0, -1).filter(v => v > 0), 20);
-  const updatedAt = live ? new Date(live.ts) : new Date((meta.regularMarketTime ?? Date.now() / 1000) * 1000);
+  // updatedAt: Kite batch quote ts → WebSocket tick ts → Yahoo meta time.
+  const updatedAt = hasKiteQuote
+    ? new Date(kiteQuote.ts)
+    : (live ? new Date(live.ts) : new Date((meta.regularMarketTime ?? Date.now() / 1000) * 1000));
   return {
     symbol: entry.symbol,
     name: meta.longName ?? meta.shortName ?? entry.name,
@@ -264,10 +276,14 @@ function lastVal(arr: (number | null)[]): number | null {
 
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 
-async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
+async function buildRow(
+  entry: UniverseEntry,
+  kiteQuotes?: Map<string, KiteScannerQuote> | null,
+): Promise<StockRow | null> {
+  const kiteQuote = kiteQuotes?.get(entry.symbol) ?? null;
   const chart = await getHistory(entry.symbol, "6mo");
   if (!chart || chart.close.length < 30) return null;
-  const quote = quoteFromChart(entry, chart);
+  const quote = quoteFromChart(entry, chart, kiteQuote);
   if (!quote) return null;
   const intraVwap = await getIntradayVwap(entry.symbol);
   const computed = computeIndicators(chart, quote, intraVwap);
@@ -291,25 +307,30 @@ async function buildRow(entry: UniverseEntry): Promise<StockRow | null> {
     rsiSeries: computed.rsiSeries,
     macdHistSeries: computed.macdHistSeries,
   });
-  // Honest SIGNAL labelling. This row's recommendation/score is computed
-  // ENTIRELY from the Yahoo daily history (`getHistory` -> `fetchChart`) plus a
-  // Yahoo/Kite intraday VWAP — there is NO Kite candle path feeding the swing
-  // indicators here. A live Kite LTP only overlays the *price*; it does NOT
-  // make the SIGNAL authoritative. So we label provenance by the SIGNAL source
-  // (Yahoo), which keeps `shouldDemoteSignal` honest: a Kite price tick can
-  // never silently promote a Yahoo-derived swing signal to "authoritative".
-  // `asOf` still carries the freshest displayed instant (the Kite LTP when
-  // present) so freshness reflects the live price; the split is spelled out in
-  // a warning. Quote is required, so an `asOf` source always resolves here.
-  const live = centralLiveQuote(entry.symbol);
-  const asOfMs = live ? live.ts : new Date(quote.updatedAt).getTime();
+
+  // Honest SIGNAL labelling — Phase A (Kite price overlay):
+  // Recommendation/score is computed ENTIRELY from the Yahoo daily chart and
+  // Yahoo/Kite intraday VWAP. Kite data only supplies the live price/OHLC/volume.
+  // Signal source stays "yahoo" so shouldDemoteSignal() remains honest — a Kite
+  // batch quote can never promote a Yahoo-derived swing signal to authoritative.
+  //
+  // kitePriceOverlay=true when the Kite REST batch quote was used for price.
+  // asOf tracks the freshest displayed timestamp (Kite batch ts > WS tick > Yahoo).
+  // scan-level health reads kitePriceOverlay to emit KITE_PARTIAL (not YAHOO_INFO_ONLY).
+  const kitePriceUsed = kiteQuote != null && kiteQuote.lastPrice > 0;
+  const asOfMs = new Date(quote.updatedAt).getTime(); // already set to best source in quoteFromChart
+  const provWarning = kitePriceUsed
+    ? "Kite batch quote used for price/OHLC/volume. Scanner indicators still use Yahoo daily candles — info-only until Kite candle warehouse is active (Phase B)."
+    : (() => {
+        const ws = centralLiveQuote(entry.symbol);
+        return ws ? "Live price from Kite; swing indicators derived from delayed Yahoo daily candles." : "";
+      })();
   const provenance = buildSourceProvenance({
     provider: "yahoo",
     asOfSec: Number.isFinite(asOfMs) ? Math.floor(asOfMs / 1000) : null,
     tf: "15m",
-    warnings: live
-      ? ["Live price from Kite; swing indicators derived from delayed Yahoo daily candles."]
-      : [],
+    kitePriceOverlay: kitePriceUsed,
+    warnings: provWarning ? [provWarning] : [],
   });
   return {
     symbol: entry.symbol,
@@ -342,6 +363,17 @@ async function performScan(acc?: ScanAccumulator): Promise<StockRow[]> {
   let nullCount = 0;
   // Skip explicitly inactive symbols (delisted, no live feed) so we don't spam logs.
   const universe = UNIVERSE.filter(u => !u.inactive && !INACTIVE_SYMBOLS.has(u.symbol.toUpperCase()));
+
+  // Phase A: pre-fetch Kite REST batch quotes for the full curated universe in
+  // one call before the worker loop starts. 280 symbols fit within the 480-symbol
+  // batch limit, so this is a single round-trip (~1s). Returns null when Kite is
+  // offline or the session is expired — buildRow() falls back to the existing
+  // Yahoo + WebSocket tick path unchanged, so the scan is never blocked.
+  const kiteQuotes = await centralBatchEquityQuotes(universe.map(u => u.symbol)).catch(() => null);
+  if (kiteQuotes !== null) {
+    logger.info({ hits: kiteQuotes.size, universe: universe.length }, "scanner kite batch quotes fetched");
+  }
+
   const concurrency = 6;
   let cursor = 0;
   async function worker() {
@@ -349,7 +381,7 @@ async function performScan(acc?: ScanAccumulator): Promise<StockRow[]> {
       const idx = cursor++;
       const entry = universe[idx]!;
       try {
-        const r = await buildRow(entry);
+        const r = await buildRow(entry, kiteQuotes);
         if (r) rows.push(r);
         else nullCount++;
       } catch (err) {

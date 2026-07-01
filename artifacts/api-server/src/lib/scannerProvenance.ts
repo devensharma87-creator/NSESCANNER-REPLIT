@@ -50,6 +50,14 @@ export interface SourceProvenance {
   missingReason: string | null;
   /** User-facing warnings (no raw provider-failure internals). */
   warnings: string[];
+  /**
+   * Phase A scanner upgrade flag. True when a Kite REST batch quote was used
+   * for price/OHLC/volume/prevClose while the signal/indicator source remains
+   * Yahoo daily candles. Consumers should NOT treat this as trade-grade — the
+   * signal source is still Yahoo (canDriveSignals stays false). Scan-level
+   * health uses this to surface KITE_PARTIAL instead of YAHOO_INFO_ONLY.
+   */
+  kitePriceOverlay: boolean;
 }
 
 /** End-of-day timeframes: a fresh EOD bar is still EOD, so it is `delayed`,
@@ -80,6 +88,14 @@ export interface BuildSourceProvenanceInput {
   missingReason?: string | null;
   /** Extra user-facing warnings to surface alongside the point. */
   warnings?: readonly string[];
+  /**
+   * Phase A scanner upgrade flag. True when a Kite REST batch quote was used
+   * for price/OHLC/volume/prevClose while `provider` (the signal/indicator
+   * source) remains Yahoo daily candles. Allows scan-level health to surface
+   * KITE_PARTIAL instead of YAHOO_INFO_ONLY, while keeping canDriveSignals=false
+   * until Phase B (Kite candle warehouse for indicators) is complete.
+   */
+  kitePriceOverlay?: boolean;
 }
 
 /**
@@ -109,6 +125,7 @@ export function buildSourceProvenance(
       isStale: null,
       missingReason: input.missingReason ?? "No trusted source resolved for this data point",
       warnings,
+      kitePriceOverlay: false,
     };
   }
 
@@ -130,6 +147,7 @@ export function buildSourceProvenance(
       isStale,
       missingReason: null,
       warnings,
+      kitePriceOverlay: input.kitePriceOverlay ?? false,
     };
   }
 
@@ -146,6 +164,7 @@ export function buildSourceProvenance(
     isStale,
     missingReason: null,
     warnings,
+    kitePriceOverlay: input.kitePriceOverlay ?? false,
   };
 }
 
