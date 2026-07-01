@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T13:51:30.650Z",
+  "generatedAt": "2026-07-01T14:25:00.923Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -1188,9 +1188,9 @@
       "mtime": "2026-07-01T11:19:16.682Z"
     },
     "artifacts/scanner/src/pages/dashboard.tsx": {
-      "hash": "b7f46fe3300758de",
-      "lines": 266,
-      "mtime": "2026-06-10T13:36:13.977Z"
+      "hash": "4c90dd8fc3e4d149",
+      "lines": 319,
+      "mtime": "2026-07-01T14:21:47.802Z"
     },
     "artifacts/scanner/src/pages/deep-scan.tsx": {
       "hash": "ddfb021a44f39ec9",
@@ -1411,6 +1411,11 @@
       "hash": "0b4a62f77517925f",
       "lines": 1236,
       "mtime": "2026-06-10T15:14:00.679Z"
+    },
+    "artifacts/scanner/src/lib/homeMarketPulseSourceMap.ts": {
+      "hash": "dde67d76bbae4d5d",
+      "lines": 328,
+      "mtime": "2026-07-01T14:10:17.486Z"
     },
     "artifacts/scanner/src/lib/infraHealth.ts": {
       "hash": "e1e787fb7dbc4675",

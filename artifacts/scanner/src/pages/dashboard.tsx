@@ -13,7 +13,7 @@ import {
   Home as HomeIcon, AlertTriangle,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DataSourceBadge } from "@/components/ui/data-source-badge";
+import { SectionSourceLabel } from "@/components/ui/section-source-label";
 import TrendCard from "@/components/trend-card";
 import MarketMoodGauge from "@/components/mmi-gauge";
 import IndicesBoard from "@/components/indices-board";
@@ -104,6 +104,40 @@ export default function Home() {
     };
   }, [allStocks]);
 
+  // Honest source roll-up for the movers cards: aggregated from each row's
+  // provenance so a Kite tick never silently promotes a Yahoo/stale row.
+  const moversRuntime = useMemo(() => {
+    const rows = [...topGainers, ...topLosers];
+    if (rows.length === 0) return { hasData: false };
+    let fallbackUsed = false;
+    let isStale = false;
+    let asOf: number | null = null;
+    for (const r of rows) {
+      const p = r.provenance;
+      // Missing provenance can't be confirmed authoritative — downgrade rather
+      // than let an unlabelled row silently pass as trade-grade.
+      if (!p) { fallbackUsed = true; continue; }
+      if (p.sourceProvider === "yahoo" || p.delayed === true) fallbackUsed = true;
+      if (p.isStale === true) isStale = true;
+      // Aggregate "as of" = OLDEST row time, so a single fresh row never
+      // overstates the freshness of the whole card.
+      if (typeof p.asOf === "number" && Number.isFinite(p.asOf)) {
+        asOf = asOf == null ? p.asOf : Math.min(asOf, p.asOf);
+      }
+    }
+    return { hasData: true, fallbackUsed, isStale, asOf };
+  }, [topGainers, topLosers]);
+
+  // Honest source roll-up for the setups cards (cached scanner picks).
+  const setupsRuntime = useMemo(() => {
+    const count = (topScans?.topBuys?.length ?? 0) + (topScans?.topSells?.length ?? 0);
+    return {
+      hasData: count > 0,
+      asOf: topScans?.generatedAt ?? null,
+      fallbackUsed: (topScans?.nonAuthoritativeCount ?? 0) > 0,
+    };
+  }, [topScans]);
+
   return (
     <div className="w-full max-w-none px-4 lg:px-6 2xl:px-8 py-6 space-y-8">
       <Seo path="/" />
@@ -115,7 +149,14 @@ export default function Home() {
             <p className="text-sm text-muted-foreground">Live market overview, indices fact-pack, top movers and setups.</p>
           </div>
         </div>
-        <DataSourceBadge source="mixed" status="live" refreshMs={30_000} note="Kite live · Yahoo fallback for global / commodity / FX" />
+        <div className="max-w-xs text-right text-[10px] font-mono leading-snug text-muted-foreground">
+          Every section below is labelled with its data source &amp; trust grade.
+          <span className="block mt-0.5">
+            <span className="text-emerald-500 font-semibold">Trade-grade</span> = live Kite ·{" "}
+            <span className="text-amber-500 font-semibold">Delayed</span> = Yahoo ~15m ·{" "}
+            <span className="text-sky-500 font-semibold">Info/Computed</span> = context only, never a live signal.
+          </span>
+        </div>
       </header>
 
       <section className="space-y-2">
@@ -151,9 +192,12 @@ export default function Home() {
             <CardTitle className="text-base font-mono flex items-center gap-2">
               <Flame className="w-5 h-5 text-signal-strong-buy" /> TOP GAINERS — TODAY
             </CardTitle>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-              by % · full Nifty universe ({universeCount})
-            </span>
+            <div className="flex items-center gap-2">
+              <SectionSourceLabel sectionId="top-movers" runtime={moversRuntime} />
+              <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                by % · full Nifty universe ({universeCount})
+              </span>
+            </div>
           </CardHeader>
           <CardContent>
             {stocksLoading ? <Skeleton className="h-72 w-full" /> : stocksError ? (
@@ -173,9 +217,12 @@ export default function Home() {
             <CardTitle className="text-base font-mono flex items-center gap-2">
               <Snowflake className="w-5 h-5 text-signal-strong-sell" /> TOP LOSERS — TODAY
             </CardTitle>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-              by % · full Nifty universe ({universeCount})
-            </span>
+            <div className="flex items-center gap-2">
+              <SectionSourceLabel sectionId="top-movers" runtime={moversRuntime} />
+              <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                by % · full Nifty universe ({universeCount})
+              </span>
+            </div>
           </CardHeader>
           <CardContent>
             {stocksLoading ? <Skeleton className="h-72 w-full" /> : stocksError ? (
@@ -207,6 +254,9 @@ export default function Home() {
             <CardTitle className="text-base font-mono flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-signal-strong-buy" /> TOP BULLISH SETUPS
             </CardTitle>
+            <div className="pt-1">
+              <SectionSourceLabel sectionId="top-setups" runtime={setupsRuntime} />
+            </div>
           </CardHeader>
           <CardContent>
             {scansLoading ? <Skeleton className="h-32 w-full" /> : (
@@ -233,6 +283,9 @@ export default function Home() {
             <CardTitle className="text-base font-mono flex items-center gap-2">
               <TrendingDown className="w-5 h-5 text-signal-strong-sell" /> TOP BEARISH SETUPS
             </CardTitle>
+            <div className="pt-1">
+              <SectionSourceLabel sectionId="top-setups" runtime={setupsRuntime} />
+            </div>
           </CardHeader>
           <CardContent>
             {scansLoading ? <Skeleton className="h-32 w-full" /> : (

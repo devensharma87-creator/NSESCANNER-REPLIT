@@ -1,6 +1,7 @@
 import { useGetMarketTrend, getGetMarketTrendQueryKey, useGetGlobalIndices, getGetGlobalIndicesQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Gauge } from "lucide-react";
+import { SectionSourceLabel } from "@/components/ui/section-source-label";
 
 interface Zone { from: number; to: number; label: string; color: string; }
 
@@ -104,7 +105,10 @@ export default function MarketMoodGauge() {
           <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
             <Gauge className="w-4 h-4" /> MARKET MOOD INDEX
           </div>
-          <div className="text-[10px] font-mono text-muted-foreground">Composite of trend · breadth · vol</div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-muted-foreground hidden sm:inline">Composite of trend · breadth · vol</span>
+            <SectionSourceLabel sectionId="market-mood" runtime={{ hasData: true }} />
+          </div>
         </div>
 
         <div className="flex items-baseline gap-3">

@@ -6121,6 +6121,36 @@
     "hash": "0b4a62f77517925f"
   },
   {
+    "path": "artifacts/scanner/src/lib/homeMarketPulseSourceMap.test.ts",
+    "purpose": "test",
+    "lines": 169,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "6e146904fcb20d60"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/homeMarketPulseSourceMap.ts",
+    "purpose": "market-data",
+    "lines": 328,
+    "exports": [
+      "HomeSourceCategory",
+      "HomeSourceStatus",
+      "HomeSectionDescriptor",
+      "HomeSectionRuntime",
+      "HomeSectionSource",
+      "HOME_MARKET_PULSE_SECTIONS",
+      "getHomeSectionDescriptor",
+      "resolveHomeSectionSource",
+      "resolveHomeSectionSourceById"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "dde67d76bbae4d5d"
+  },
+  {
     "path": "artifacts/scanner/src/lib/infraHealth.test.ts",
     "purpose": "test",
     "lines": 339,
@@ -6884,7 +6914,7 @@
   {
     "path": "artifacts/scanner/src/pages/dashboard.tsx",
     "purpose": "ui-page",
-    "lines": 266,
+    "lines": 319,
     "exports": [],
     "externalImports": [
       "wouter",
@@ -6892,14 +6922,14 @@
       "@/components/ui/signal-badge",
       "@/components/seo",
       "@/components/ui/skeleton",
-      "@/components/ui/data-source-badge",
+      "@/components/ui/section-source-label",
       "@/components/trend-card",
       "@/components/mmi-gauge",
       "@/components/indices-board",
       "@/components/home/global-cues-strip"
     ],
     "routes": [],
-    "hash": "b7f46fe3300758de"
+    "hash": "4c90dd8fc3e4d149"
   },
   {
     "path": "artifacts/scanner/src/pages/deep-scan.tsx",

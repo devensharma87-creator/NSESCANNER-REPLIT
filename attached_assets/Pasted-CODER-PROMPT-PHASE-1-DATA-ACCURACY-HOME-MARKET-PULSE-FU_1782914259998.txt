@@ -1,0 +1,373 @@
+CODER PROMPT — PHASE 1 DATA ACCURACY: HOME / MARKET PULSE FULL DATA-PATH AUDIT AND FIX
+
+The canonical market data health fix is production verified.
+
+Accepted verdict:
+
+CANONICAL_MARKET_DATA_HEALTH_PROD_VERIFIED
+
+Now we must continue the data foundation work.
+
+The next issue is Home / Market Pulse.
+
+The website may now have consistent global Kite/Yahoo health status, but the Home / Market Pulse page itself may still show mixed, stale, delayed, cached, Yahoo, Kite, computed, and unavailable values without complete per-card source accuracy.
+
+This is not a signal task.
+
+This is not a UI beautification task.
+
+This is a data-path accuracy task.
+
+Do not add unrelated features.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not hide warnings.
+
+Do not fake missing data.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+Make the Home / Market Pulse page professionally source-honest and data-path accurate.
+
+For every card, panel, metric, index, global cue, market breadth item, sector item, top gainer/loser, and setup shown on the Home page:
+
+Identify exact data source.
+Identify exact API/path producing it.
+Identify freshness/as-of time.
+Identify whether it is Kite, Yahoo, DB cache, computed, scanner cache, option-chain, NSE archive, or missing.
+Classify it as:
+TRADE_GRADE
+INFO_ONLY
+DELAYED
+STALE
+COMPUTED
+SOURCE_NOT_INTEGRATED
+UNAVAILABLE
+Show source/freshness labels in the UI.
+Never show missing data as zero.
+Never show Yahoo/global delayed data as trade-grade.
+Never show fake green status when underlying sections are mixed/stale.
+Use the canonical market data health contract where applicable.
+
+Read first:
+
+AGENT.md
+docs/llm-index/AGENT_START_HERE.md
+docs/llm-index/CRITICAL_FLOWS.md
+docs/llm-index/API_ROUTES_INDEX.md
+docs/llm-index/DATABASE_INDEX.md
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md
+
+Use the index to locate:
+
+Home page component
+Market Pulse component
+index cards
+global cues
+Indian indices widgets
+market breadth
+top gainers/losers
+bullish/bearish setups
+sector components
+market trend widgets
+APIs backing the Home page
+data source helpers
+Yahoo/global services
+Kite index data services
+scanner cache services
+
+Report which files govern Home / Market Pulse.
+
+Create a full inventory of every visible Home / Market Pulse element.
+
+For each visible element, record:
+
+UI label/name
+component file
+API route used
+backend function used
+data source
+fallback source if any
+freshness/as-of
+current label shown
+whether label is accurate
+whether it is trade-grade or info-only
+problem found
+required fix
+
+Cover at least:
+
+Top market status strip.
+Global unavailable / Yahoo warning.
+FII/DII values.
+Expiry/date labels.
+Sector heatmap / sector move cards.
+Market breadth widget.
+Indian indices cards:
+Nifty
+Bank Nifty
+Fin Nifty
+Midcap Nifty
+Sensex
+Bankex
+Index detailed card:
+day range
+52-week range
+session OHLC
+previous OHLC
+daily EMAs
+market profile
+CPR/pivots
+option levels
+OI walls
+PCR
+Max Pain
+neutral/bullish/bearish labels
+Markets — indices, commodities, ADRs, FX.
+Overall market trend.
+Market mood index.
+F&O ban list.
+Top gainers.
+Top losers.
+Top bullish setups.
+Top bearish setups.
+Footer/disclaimer on Home.
+
+For each Home page data group, trace the path:
+
+Example:
+
+Kite API / Yahoo / DB / scanner cache → backend helper → API route → frontend hook → UI component → displayed label
+
+For each path, answer:
+
+Where does the raw data come from?
+Is there a fallback?
+Is there cache?
+What is the as-of time?
+How is freshness calculated?
+Can stale data appear as fresh?
+Can Yahoo data appear as Kite?
+Is the page using canonical /api/data-health/market where needed?
+Is the data allowed to drive trade-grade decisions?
+Is the UI label honest?
+
+Create or extend a Home-specific source contract.
+
+Suggested:
+
+HomeMarketPulseSourceMap
+
+For each Home section, return:
+
+{
+  sectionId: string,
+  label: string,
+  source: "kite" | "yahoo" | "scanner_cache" | "db" | "computed" | "nse_archive" | "missing",
+  sourceStatus: "TRADE_GRADE" | "INFO_ONLY" | "DELAYED" | "STALE" | "COMPUTED" | "SOURCE_NOT_INTEGRATED" | "UNAVAILABLE",
+  asOf: string | null,
+  freshnessSec: number | null,
+  canDriveSignals: boolean,
+  fallbackUsed: boolean,
+  warning: string | null
+}
+
+Use repo naming conventions.
+
+Do not duplicate unnecessary logic if a source contract already exists.
+
+Update Home / Market Pulse UI so every section shows clear source status.
+
+Examples:
+
+Kite live
+Kite market closed
+Kite stale
+Yahoo delayed / info-only
+Yahoo stale / info-only
+Computed from Kite
+Scanner cache
+NSE archive / info-only
+Unavailable — source not integrated
+
+Important:
+
+Global cues from Yahoo must show Yahoo delayed / info-only.
+Indian index live data from Kite can show Kite trade-grade only if ticks/fresh quote exist.
+If market is closed, show Kite market closed / last session.
+If index values are cached, show cached as of.
+If a metric is unavailable, do not show 0.
+If mixed sources are used, show Mixed sources and expand details.
+
+Audit and fix index cards.
+
+For Nifty / Bank Nifty / Fin Nifty / Midcap Nifty / Sensex / Bankex:
+
+Verify:
+
+current value source
+change source
+OHLC source
+previous close source
+day range source
+52-week range source
+daily EMA source
+CPR/pivot source
+option levels source
+PCR source
+Max Pain source
+OI walls source
+
+Each must show:
+
+source
+as-of
+trade-grade/info-only
+unavailable if missing
+
+Do not show derived values if required input is missing.
+
+Audit and fix global/commodity/ADR/FX section.
+
+If Yahoo/global source is used:
+
+label as delayed/info-only
+show as-of time
+do not call live/trade-grade
+show failure clearly if Yahoo blocked/failing
+do not silently omit unavailable data
+
+If no reliable provider exists, show:
+
+Unavailable — provider not integrated
+
+Audit and fix:
+
+market breadth
+sector strength
+top gainers/losers
+bullish/bearish setups
+
+Verify:
+
+data source
+scan time
+scanner source mix
+Kite rows vs Yahoo rows
+stale rows
+whether setup is trade-grade
+whether setup is info-only
+
+If setup is based on Yahoo stale rows:
+
+label it info-only
+do not present as trade-grade signal
+
+Add/update tests for:
+
+Home source map includes every visible section.
+Global Yahoo data is labelled info-only/delayed.
+Kite market closed is labelled last-session/market-closed, not live.
+Mixed Kite/Yahoo sources show mixed warning.
+Missing metrics are unavailable, not zero.
+Index cards expose source/as-of.
+Scanner-derived setups show scanner source mix.
+Bullish/bearish setups based on stale Yahoo are info-only.
+Footer/home disclaimer does not overclaim.
+Home page uses canonical market data health.
+No secrets in Home data APIs.
+No trading mutation.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/marketDataHealth.test.ts src/lib/home*.test.ts src/lib/alerting.test.ts
+pnpm --filter @workspace/scanner exec vitest run src/pages/home*.test.tsx src/components/*source*.test.tsx
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Use repo-correct files if names differ.
+
+After publish, verify on:
+
+https://marketscannerbydev.in
+
+Check:
+
+Home / Market Pulse page.
+Every major card has source/freshness label.
+Global cues show info-only/delayed.
+Indian indices show correct Kite/market-closed/freshness status.
+Sector/setup cards show scanner source mix.
+Top gainers/losers show source/as-of.
+No fake zero for unavailable metrics.
+No fake green all-live status.
+Footer/disclaimer remains honest.
+/api/data-health/market still works.
+No secrets exposed.
+No trading state mutated.
+Broker execution disabled.
+
+Provide screenshot/text evidence.
+
+Final report must include:
+
+Home page inventory.
+Data path trace.
+Files touched.
+Source contract summary.
+UI changes.
+Index card result.
+Global/commodity/ADR/FX result.
+Market breadth/sector/setup result.
+Source-honesty result.
+Tests run.
+LLM index result.
+Production verification result.
+Remaining blockers.
+Exact next action.
+
+Final verdict must be exactly one:
+
+HOME_MARKET_PULSE_DATA_ACCURACY_PROD_VERIFIED
+HOME_MARKET_PULSE_SOURCE_HONESTY_FIXED
+HOME_MARKET_PULSE_PARTIAL_SOURCE_HONEST
+HOME_MARKET_PULSE_BUILD_NOT_DEPLOYED
+HOME_MARKET_PULSE_SOURCE_GAP_REMAINS
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+Home / Market Pulse data path is fully traced
+every major Home section has source/freshness status
+global/Yahoo data is info-only
+Kite data is not overclaimed as live when market closed/stale
+mixed sources are clearly labelled
+unavailable metrics are not fake zero
+scanner-derived setups show source mix
+no secrets exposed
+no trading state mutated
+broker execution disabled
+tests pass
+LLM index fresh
+production verification confirms the Home page is source-honest

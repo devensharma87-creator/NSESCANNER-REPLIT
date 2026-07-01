@@ -1,5 +1,6 @@
 import { useGetGlobalIndices, getGetGlobalIndicesQueryKey, useGetMarketMacroHistory, getGetMarketMacroHistoryQueryKey } from "@workspace/api-client-react";
 import { Globe2, AlertTriangle } from "lucide-react";
+import { SectionSourceLabel } from "@/components/ui/section-source-label";
 
 const CUES = [
   { symbol: "GIFTNIFTY", label: "GIFT Nifty" },
@@ -79,6 +80,8 @@ export default function GlobalCuesStrip() {
         <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground font-semibold">
           Global Cues
         </span>
+        <div className="flex-1" />
+        <SectionSourceLabel sectionId="global-cues" runtime={{ hasData: renderableCount > 0 }} />
       </div>
       {renderableCount === 0 ? (
         <div

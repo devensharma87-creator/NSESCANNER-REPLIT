@@ -3,6 +3,7 @@ import {
   useGetHomeEnrichment, getGetHomeEnrichmentQueryKey,
 } from "@workspace/api-client-react";
 import { MessageSquare } from "lucide-react";
+import { SectionSourceLabel } from "@/components/ui/section-source-label";
 
 function generateNarrative(
   trend: { bias: string; score: number; headline: string; breadth: { advancers: number; decliners: number; advanceDeclineRatio?: number } },
@@ -26,9 +27,11 @@ function generateNarrative(
     if (pcrParts.length > 0) parts.push(pcrParts.join(". ") + ".");
   }
 
-  const adRatio = trend.breadth.advanceDeclineRatio ?? 0;
-  if (adRatio >= 2) parts.push("Broad-based participation with strong breadth.");
-  else if (adRatio <= 0.5) parts.push("Breadth is weak — declines dominate across the board.");
+  const adRatio = trend.breadth.advanceDeclineRatio;
+  if (typeof adRatio === "number" && Number.isFinite(adRatio)) {
+    if (adRatio >= 2) parts.push("Broad-based participation with strong breadth.");
+    else if (adRatio <= 0.5) parts.push("Breadth is weak — declines dominate across the board.");
+  }
 
   return parts.join(" ");
 }
@@ -60,8 +63,8 @@ export default function MarketTake() {
         <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground font-semibold">
           Market Take
         </span>
-        <span className="text-[10px] font-mono text-muted-foreground/50 ml-auto">
-          Auto-generated from live data
+        <span className="ml-auto">
+          <SectionSourceLabel sectionId="market-take" runtime={{ hasData: true }} />
         </span>
       </div>
       <p className="text-sm leading-relaxed">{narrative}</p>

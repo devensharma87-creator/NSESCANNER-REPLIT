@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { DataSourceBadge, type DataSource, type FeedStatus } from "@/components/ui/data-source-badge";
+import { SectionSourceLabel } from "@/components/ui/section-source-label";
 
 /** Client mirror of the server's `15m` candle freshness budget (45 min). */
 const INDEX_INTRADAY_STALE_AFTER_MS = 2_700_000;
@@ -65,6 +66,9 @@ export default function TrendCard() {
           <span className="flex items-center gap-2"><Activity className="w-4 h-4" /> OVERALL MARKET TREND</span>
           <span className={`text-xs font-mono ${style.color}`}>{style.label} · score {data.score}</span>
         </CardTitle>
+        <div className="pt-1">
+          <SectionSourceLabel sectionId="market-trend" runtime={{ hasData: true }} />
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm">{data.headline}</p>

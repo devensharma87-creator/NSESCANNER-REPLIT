@@ -6,6 +6,7 @@ import {
 import type { IndexBoardItem, HomeIndexEnrichment } from "@workspace/api-client-react";
 import IndexExpandedPanel from "./index-expanded-panel";
 import { Activity } from "lucide-react";
+import { SectionSourceLabel } from "@/components/ui/section-source-label";
 
 const INDIAN_KEYS = ["NIFTY50", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"];
 
@@ -163,6 +164,22 @@ export default function IndexTabs() {
     return INDIAN_KEYS.map(k => items.find(i => i.key === k)).filter((i): i is IndexBoardItem => i != null);
   }, [boardData]);
 
+  // Honest, row-aware source grade for the Indian-indices section: trade-grade
+  // only when the broker session is live AND every displayed index is a Kite
+  // tick. Aggregate "as of" is the oldest row so one fresh tick can't overstate
+  // the whole section's freshness.
+  const indicesRuntime = useMemo(() => {
+    if (indianIndices.length === 0) return { hasData: false };
+    const allKite = (boardData?.kiteAuthenticated ?? false) && indianIndices.every(i => i.source === "kite");
+    let asOf: number | null = null;
+    for (const i of indianIndices) {
+      if (typeof i.asOf === "number" && Number.isFinite(i.asOf)) {
+        asOf = asOf == null ? i.asOf : Math.min(asOf, i.asOf);
+      }
+    }
+    return { hasData: true, fallbackUsed: !allKite, asOf: asOf ?? boardData?.lastUpdated ?? null };
+  }, [indianIndices, boardData]);
+
   const enrichmentMap = useMemo(() => {
     const m = new Map<string, HomeIndexEnrichment>();
     for (const e of enrichment?.indices ?? []) m.set(e.key, e);
@@ -186,6 +203,13 @@ export default function IndexTabs() {
         <Activity className="h-4 w-4 text-primary" />
         <h2 className="text-sm font-bold uppercase tracking-wider text-foreground">Indian Indices</h2>
         <div className="flex-1 border-t border-border ml-2" />
+        {boardData && (
+          <SectionSourceLabel
+            sectionId="home-indices"
+            runtime={indicesRuntime}
+            className="mr-1.5"
+          />
+        )}
         {boardData && (
           <span className="text-[10px] font-mono text-muted-foreground">
             {boardData.kiteAuthenticated ? (

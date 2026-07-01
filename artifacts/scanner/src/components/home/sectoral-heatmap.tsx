@@ -1,5 +1,6 @@
 import { useListSectors, getListSectorsQueryKey } from "@workspace/api-client-react";
 import { LayoutGrid } from "lucide-react";
+import { SectionSourceLabel } from "@/components/ui/section-source-label";
 
 function getBgColor(pct: number): string {
   if (pct >= 2) return "bg-emerald-600/90";
@@ -33,6 +34,7 @@ export default function SectoralHeatmap() {
         <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground font-semibold">
           Sectoral Heatmap
         </span>
+        <SectionSourceLabel sectionId="sectoral-heatmap" runtime={{ hasData: sorted.length > 0 }} />
         <div className="flex-1" />
         <div className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground/50">
           <span className="w-2 h-2 rounded-sm bg-emerald-500/70" /> bullish
@@ -42,18 +44,20 @@ export default function SectoralHeatmap() {
       </div>
       <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-1">
         {sorted.map(sec => {
-          const pct = sec.avgChangePercent ?? 0;
+          const rawPct = sec.avgChangePercent;
+          const hasPct = rawPct != null && Number.isFinite(rawPct);
+          const pct = hasPct ? rawPct : 0;
           return (
             <div
               key={sec.sector}
-              className={`rounded px-2 py-1.5 text-center transition-colors ${getBgColor(pct)} ${getTextColor(pct)}`}
-              title={`${sec.sector}: ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% | ${sec.gainers}↑ ${sec.losers}↓ | Top: ${sec.topPick?.symbol ?? "—"}`}
+              className={`rounded px-2 py-1.5 text-center transition-colors ${hasPct ? `${getBgColor(pct)} ${getTextColor(pct)}` : "bg-muted/40 text-muted-foreground"}`}
+              title={`${sec.sector}: ${hasPct ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "no average — data unavailable"} | ${sec.gainers}↑ ${sec.losers}↓ | Top: ${sec.topPick?.symbol ?? "—"}`}
             >
               <div className="text-[10px] font-semibold truncate leading-tight">
                 {sec.sector.replace(/_/g, " ")}
               </div>
               <div className="text-[11px] font-mono font-bold tabular-nums mt-0.5">
-                {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
+                {hasPct ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—"}
               </div>
               <div className="text-[9px] opacity-70 font-mono">
                 {sec.gainers}↑ {sec.losers}↓

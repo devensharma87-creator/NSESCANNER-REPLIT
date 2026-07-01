@@ -39,6 +39,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useGetIndicesBoard, getGetIndicesBoardQueryKey } from "@workspace/api-client-react";
 import type { IndexBoardItem, IndexAnalyticsProvenance } from "@workspace/api-client-react";
 import { Activity, Globe2, Flame, AlertTriangle, Building2, DollarSign } from "lucide-react";
+import { SectionSourceLabel } from "@/components/ui/section-source-label";
 
 type Cat = "INDIA" | "GLOBAL" | "COMMODITY" | "ADR" | "FX";
 
@@ -145,6 +146,23 @@ export default function IndicesBoard({ embedded = false }: { embedded?: boolean 
   const activeRows = grouped.get(active) ?? [];
   const ActiveIcon = SECTIONS.find(s => s.key === active)?.icon ?? Activity;
 
+  // Honest, row-aware source grade for the whole mixed board. This panel always
+  // blends live Indian Kite ticks with delayed global/commodity/FX rows, so it
+  // is trade-grade ONLY if the broker session is live AND every displayed row is
+  // a Kite tick (in practice → DELAYED, which is the honest board-level verdict;
+  // per-row source is shown on each card). Aggregate "as of" = oldest row.
+  const marketsRuntime = useMemo(() => {
+    if (items.length === 0) return { hasData: false };
+    const allKite = (data?.kiteAuthenticated ?? false) && items.every(it => it.source === "kite");
+    let asOf: number | null = null;
+    for (const it of items) {
+      if (typeof it.asOf === "number" && Number.isFinite(it.asOf)) {
+        asOf = asOf == null ? it.asOf : Math.min(asOf, it.asOf);
+      }
+    }
+    return { hasData: true, fallbackUsed: !allKite, asOf: asOf ?? data?.lastUpdated ?? null };
+  }, [items, data]);
+
   return (
     <div className={embedded ? "w-full" : "w-full px-4 lg:px-6 2xl:px-8 py-6"}>
       <header className={`flex items-end justify-between gap-4 ${embedded ? "mb-3" : "mb-5"}`}>
@@ -177,6 +195,11 @@ export default function IndicesBoard({ embedded = false }: { embedded?: boolean 
                   Yahoo fallback (~15 min delayed)
                 </span>
               )}
+            </div>
+          )}
+          {data && (
+            <div className="mt-1 flex justify-end">
+              <SectionSourceLabel sectionId="home-markets" runtime={marketsRuntime} />
             </div>
           )}
         </div>

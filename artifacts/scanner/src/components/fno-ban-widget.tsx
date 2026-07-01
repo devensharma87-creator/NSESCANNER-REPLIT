@@ -2,6 +2,7 @@ import { useGetFnoBanList, getGetFnoBanListQueryKey } from "@workspace/api-clien
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertOctagon, Ban, ShieldCheck, Loader2 } from "lucide-react";
 import { Link } from "wouter";
+import { SectionSourceLabel } from "@/components/ui/section-source-label";
 
 /**
  * F&O Ban List widget for the Home page.
@@ -52,9 +53,12 @@ export default function FnoBanWidget() {
           <CardTitle className="text-base font-mono flex items-center gap-2">
             <Ban className="w-5 h-5 text-muted-foreground" /> F&amp;O BAN LIST
           </CardTitle>
-          <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-            unavailable
-          </span>
+          <div className="flex items-center gap-2">
+            <SectionSourceLabel sectionId="fno-ban" runtime={{ hasData: false }} />
+            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+              unavailable
+            </span>
+          </div>
         </CardHeader>
         <CardContent className="py-3 text-xs font-mono text-muted-foreground">
           NSE upstream unreachable — list will resume once the archive responds.
@@ -70,9 +74,12 @@ export default function FnoBanWidget() {
           <CardTitle className="text-base font-mono flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-signal-strong-buy" /> F&amp;O BAN LIST
           </CardTitle>
-          <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-            all clear
-          </span>
+          <div className="flex items-center gap-2">
+            <SectionSourceLabel sectionId="fno-ban" runtime={{ hasData: true }} />
+            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+              all clear
+            </span>
+          </div>
         </CardHeader>
         <CardContent className="py-3 text-xs font-mono text-muted-foreground">
           No F&amp;O underlyings are currently restricted.
@@ -87,9 +94,12 @@ export default function FnoBanWidget() {
         <CardTitle className="text-base font-mono flex items-center gap-2">
           <AlertOctagon className="w-5 h-5 text-signal-strong-sell" /> F&amp;O BAN LIST
         </CardTitle>
-        <span className="text-[10px] font-mono uppercase tracking-wider text-signal-strong-sell font-bold">
-          {data.count} restricted · square-off only
-        </span>
+        <div className="flex items-center gap-2">
+          <SectionSourceLabel sectionId="fno-ban" runtime={{ hasData: true }} />
+          <span className="text-[10px] font-mono uppercase tracking-wider text-signal-strong-sell font-bold">
+            {data.count} restricted · square-off only
+          </span>
+        </div>
       </CardHeader>
       <CardContent className="pt-2 pb-3">
         <div className="flex flex-wrap gap-1.5">

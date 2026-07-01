@@ -6,6 +6,16 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-07-01 — Home / Market Pulse Per-Section Source Honesty (Phase 1)
+
+- Every Home page section now renders a visible source/freshness label from a single pure contract: `artifacts/scanner/src/lib/homeMarketPulseSourceMap.ts` (`resolveHomeSectionSource` — `canDriveSignals` true ONLY when descriptor permits AND status is `TRADE_GRADE`)
+- New `SectionSourceLabel` (`components/ui/section-source-label.tsx`, `data-testid=section-source-<id>`) wired across all Home components (sentiment-bar, breadth-bar, sectoral-heatmap, market-breadth, fno-ban-widget, indices-board, index-tabs, trend-card, mmi-gauge, market-take, dashboard movers+setups)
+- Row-aware board grades: `home-markets` + `home-indices` trade-grade only when every displayed row is a Kite tick + session live; aggregate `asOf` = OLDEST row; dashboard `moversRuntime` treats missing provenance as non-trade-grade
+- Fake-zero fixes: VIX null→"—", breadth 0→unavailable, sector null→"—", market-take breadth narrative gated on finite `advanceDeclineRatio`
+- Scope: frontend + pure contract/tests ONLY — no trading/F&O/swing/broker/scheduler/DB/schema change
+- **Re-read if**: touching Home page data labels or adding a new Home section — extend the descriptor table in `homeMarketPulseSourceMap.ts`
+- **Files**: `artifacts/scanner/src/lib/homeMarketPulseSourceMap.ts` (+ `.test.ts`), `artifacts/scanner/src/components/ui/section-source-label.tsx`, `artifacts/scanner/src/pages/dashboard.tsx`, `artifacts/scanner/src/components/home/*`, `artifacts/scanner/src/components/{indices-board,trend-card,mmi-gauge,fno-ban-widget}.tsx`
+
 ## 2026-07-01 — LLM Index System Formally Verified
 
 - Full verification audit conducted against all acceptance criteria (Parts A–K)
