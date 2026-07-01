@@ -133,8 +133,10 @@ export async function ensureDailyReportRunsTable(): Promise<void> {
  * Attempt to claim a scheduled report run via INSERT ON CONFLICT DO NOTHING.
  * Returns true if THIS worker claimed it, false if another worker already did.
  * Fail-open: if DB is unavailable, returns true (allows send to proceed).
+ *
+ * Exported for unit testing (multi-worker dedup contract).
  */
-async function tryClaimScheduledReport(reportType: string, istDate: string): Promise<boolean> {
+export async function tryClaimScheduledReport(reportType: string, istDate: string): Promise<boolean> {
   try {
     const result = (await db.execute(sql`
       INSERT INTO daily_report_runs (report_type, ist_date, worker_id, status)

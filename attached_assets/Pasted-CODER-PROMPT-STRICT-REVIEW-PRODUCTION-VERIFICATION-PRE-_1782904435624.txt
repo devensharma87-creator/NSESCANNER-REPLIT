@@ -1,0 +1,454 @@
+CODER PROMPT — STRICT REVIEW + PRODUCTION VERIFICATION: PRE/POST ANALYSIS MODULE IS NOT ACCEPTED UNTIL FULL WEBSITE TAB + BOT + DEDUP ARE VERIFIED
+
+You have implemented the Pre/Post Market Analysis module foundation.
+
+Reported work completed:
+
+Backend:
+
+alerting.ts
+getPrePostTelegramConfig
+getPrePostTelegramStatus
+sendPrePostTelegramMessage
+dedicated PREPOST bot support
+no fallback to default bot
+PREPOST disabled statuses
+dailyReports.ts
+PREPOST bot routing
+DB dedup via daily_report_runs
+raw CREATE TABLE IF NOT EXISTS
+DAILY_ANALYSIS_COVERAGE map
+ReportSendResult
+getReportHistory
+routes/dailyAnalysis.ts
+GET /api/daily-analysis/status
+GET /api/daily-analysis/pre-market/latest
+GET /api/daily-analysis/post-market/latest
+GET /api/daily-analysis/history
+POST /api/daily-analysis/generate-pre-market
+POST /api/daily-analysis/generate-post-market
+routes/alerts.ts
+prepostTelegram field in /alerts/status
+
+Frontend:
+
+premarket.tsx
+DailyAnalysisStatusPanel
+owner-only role gate
+PREPOST bot status badge
+last send times/result
+manual Send Pre / Send Post buttons
+auto-refresh via useQuery
+
+Tests:
+
+dailyReports.test.ts 79 tests
+scanner tests 721/721
+typechecks clean
+LLM index updated
+
+Important: this work is not fully accepted yet.
+
+The user’s requirement is for the whole website, not only Telegram routing or a small status panel.
+
+The website must have a professional Pre/Post Analysis module with all required analysis sections visible, source-labelled, and production verified.
+
+Also, before production verification, these secrets must be added in Replit:
+
+PREPOST_TELEGRAM_BOT_TOKEN
+PREPOST_TELEGRAM_CHAT_ID
+
+Do not expose these values.
+
+Do not add unrelated features.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change thresholds.
+
+Do not change risk guards.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not create real broker orders.
+
+Do not mutate trading state except safe report-history/report-status/dedup metadata.
+
+Do not silently use default Telegram bot for Pre/Post reports.
+
+Do not expose Telegram secrets.
+
+Do not trim or rewrite replit.md.
+
+Perform strict verification and close all gaps so the Pre/Post Analysis module is truly complete as a website feature.
+
+Confirm and fix if needed:
+
+Production uses latest build.
+PREPOST secrets are present.
+Pre-market reports go to the new Pre/Post analysis bot.
+Post-market reports go to the new Pre/Post analysis bot.
+Urgent alerts still go to the existing/default bot.
+istDate is ISO format.
+Multi-worker scheduled report dedup is durable and safe.
+Website Pre/Post Analysis tab shows the full analysis structure, not just a small status panel.
+API exposes full pre/post analysis structure and coverage matrix.
+Missing data is shown honestly.
+Source/freshness/as-of status is shown.
+No trading state is mutated.
+Broker execution remains disabled.
+Tests and LLM index are clean.
+replit.md change is safe/additive only.
+
+Report:
+
+current workspace commit/hash
+production commit/hash if available
+production PID / boot timestamp
+whether PREPOST secrets are configured
+whether production has new /api/daily-analysis/* routes
+whether production has prepostTelegram in /api/alerts/status
+whether production has ISO lastPreMarketReport.istDate
+whether daily reports currently go to PREPOST bot or default bot
+whether old urgent alerts still use default bot
+whether daily_report_runs exists in production DB
+whether website Pre/Post UI is only a status panel or full analysis tab
+
+The API and website tab must support all these pre-market sections:
+
+Overnight global cues
+GIFT Nifty / SGX Nifty
+FII / DII previous session activity
+Participant-wise open interest daily change
+India VIX
+Key levels for:
+Nifty
+Bank Nifty
+Sensex
+CPR and pivots
+Price-action support/resistance
+Option-chain support/resistance
+Max Pain
+PCR
+Expected range:
+ATM straddle
+VIX implied
+ATR(14)
+News and events
+Expiry / rollover
+Bias and trade plan
+
+For each section, report:
+
+implemented in builder?
+returned by API?
+visible in website tab?
+source shown?
+as-of shown?
+freshness shown?
+unavailable/source-not-integrated status shown?
+
+Do not mark complete if the section exists only in a coverage map but is not visible in API/UI.
+
+The API and website tab must support all these post-market sections:
+
+Index performance
+Market breadth
+FII / DII provisional data
+Participant-wise OI change
+Option-chain end-of-day change
+Level validation
+Sector and stock moves
+News recap
+Global status check
+Tomorrow setup
+Trade journal tie-in
+
+For each section, report:
+
+implemented in builder?
+returned by API?
+visible in website tab?
+source shown?
+as-of shown?
+freshness shown?
+unavailable/source-not-integrated status shown?
+
+Do not mark complete if the UI only shows a status panel.
+
+Verify whether a real website tab/page exists.
+
+Required UI:
+
+Top status cards:
+report status
+pre-market generated time
+post-market generated time
+Telegram delivery status
+Pre/Post bot status
+data-quality status
+scheduler status
+Pre-Market Analysis panel:
+all required pre-market sections
+source
+as-of time
+freshness
+unavailable status
+Post-Market Analysis panel:
+all required post-market sections
+source
+as-of time
+freshness
+unavailable status
+Data coverage matrix:
+global cues
+GIFT Nifty
+FII/DII cash
+FII/DII F&O
+participant OI
+VIX
+option chain
+max pain
+PCR
+straddle range
+ATR range
+news/events
+sector breadth
+market breadth
+trade journal
+Manual owner controls:
+generate pre-market
+send pre-market
+generate post-market
+send post-market
+refresh
+view last Telegram status
+Report history:
+date
+report type
+generated at
+sent at
+Telegram status
+data-quality status
+view details
+
+If only DailyAnalysisStatusPanel exists, build the missing full tab/panels before final verification.
+
+Verify routing:
+
+POST /api/alerts/test-pre-market-report
+sends to PREPOST bot
+response has telegramDestination: "prepost"
+response has prepostTelegramStatus
+no paper trade created
+no real order placed
+broker execution disabled
+POST /api/alerts/test-post-market-report
+sends to PREPOST bot
+response has telegramDestination: "prepost"
+response has prepostTelegramStatus
+no paper trade created
+no real order placed
+broker execution disabled
+Existing urgent test alert:
+still sends to default bot
+does not use PREPOST bot
+Missing PREPOST secrets:
+returns clear PREPOST disabled status
+does not silently fallback to default bot
+
+Do not expose token/chat id.
+
+Verify daily_report_runs durable dedup.
+
+Report:
+
+table exists
+unique key exists on (report_type, ist_date)
+scheduled report acquires durable lock before send
+manual test endpoints bypass daily lock but remain rate-limited
+concurrent simulated workers cannot both send same scheduled report
+failed send retry behavior is safe
+no destructive DB migration
+no trading table modification
+
+Run or create a test that simulates two workers attempting same scheduled report.
+
+Expected:
+
+one sends or locks
+the other skips
+no duplicate Telegram report
+
+Verify:
+
+"lastPreMarketReport": {
+  "istDate": "YYYY-MM-DD"
+}
+
+and:
+
+"lastPostMarketReport": {
+  "istDate": "YYYY-MM-DD"
+}
+
+Expected:
+
+ISO date like 2026-07-01
+not 01 Jul 202
+
+For every section:
+
+missing data must be Unavailable — not tracked yet or Unavailable — data source not integrated yet
+no fake zero
+no estimated value unless explicitly labelled
+no Yahoo/proxy data as trade-grade
+global cues labelled info-only if not trusted
+Kite session and F&O daily bars are separate
+option-chain levels only trade-grade if trusted Kite option-chain is available
+report must not say fully ready if F&O daily bars/option-chain unavailable
+
+Verify before and after manual endpoints:
+
+F&O paper trade count unchanged
+Swing staged order count unchanged
+broker order count unchanged
+no real broker order
+no new paper trade created
+no signal changed
+no threshold changed
+no trade decision changed
+
+Allowed mutation only:
+
+report history
+report status
+Telegram delivery status
+durable dedup metadata
+
+You touched replit.md.
+
+Audit it.
+
+Report:
+
+exact diff
+was it additive only?
+were any existing instructions removed?
+were any trading rules changed?
+were any thresholds changed?
+was anything rewritten or trimmed?
+
+If unsafe, revert.
+
+If safe, document.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/dailyReports.test.ts src/lib/alerting.test.ts src/lib/fnoSignalAlerts.test.ts src/lib/swingAlerts.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Add tests if missing for:
+
+all pre-market section keys
+all post-market section keys
+UI/API coverage matrix
+missing data not zero
+PREPOST routing
+urgent bot still default
+ISO istDate
+multi-worker DB dedup
+no secrets
+no trading mutation
+
+Report exact pass/fail counts.
+
+After publish, verify on:
+
+https://marketscannerbydev.in
+
+API health.
+/api/alerts/status.
+/api/daily-analysis/status.
+/api/daily-analysis/pre-market/latest.
+/api/daily-analysis/post-market/latest.
+/api/daily-analysis/history.
+Manual pre-market report to PREPOST bot.
+Manual post-market report to PREPOST bot.
+Urgent/default alert still goes to default bot.
+Website Pre/Post Analysis tab loads.
+All required sections are visible.
+Coverage matrix is visible.
+Missing data is honestly labelled.
+istDate is ISO.
+Multi-worker dedup is active.
+No trading state mutation.
+No real order placed.
+No secrets exposed.
+Rate-limit works.
+
+Final report must include:
+
+Current state.
+Files touched.
+Sections implemented.
+Sections visible in API.
+Sections visible in website tab.
+Data coverage matrix.
+Available data.
+Missing/source-not-integrated data.
+PREPOST bot result.
+Default bot result.
+istDate result.
+Multi-worker dedup result.
+Trading state safety.
+replit.md audit.
+Test results.
+LLM index result.
+Production verification result.
+Remaining gaps.
+Exact next action.
+
+Final verdict must be exactly one:
+
+PREPOST_FULL_ANALYSIS_MODULE_PROD_VERIFIED
+PREPOST_BACKEND_READY_FRONTEND_TAB_INCOMPLETE
+PREPOST_TELEGRAM_ROUTING_PROD_VERIFIED
+PREPOST_ANALYSIS_TAB_PROD_VERIFIED
+DAILY_REPORTS_MULTIWORKER_DEDUP_FIXED
+PREPOST_DATA_COVERAGE_PARTIAL_SOURCE_HONEST
+PREPOST_TELEGRAM_SECRETS_MISSING
+DAILY_REPORTS_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production uses latest build
+daily reports use PREPOST bot
+urgent alerts use default bot
+full Pre/Post Analysis tab exists
+all required pre-market sections exist in API and UI
+all required post-market sections exist in API and UI
+data coverage matrix is visible
+missing data is honest
+source/freshness/as-of is shown
+istDate is ISO
+scheduled duplicate risk is controlled durably
+endpoints are owner-only
+endpoints are rate-limited
+no trading state is mutated
+broker execution remains disabled
+no secrets exposed
+tests pass
+LLM index fresh
+production verification confirms everything
