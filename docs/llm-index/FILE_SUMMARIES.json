@@ -842,7 +842,7 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 603,
+    "lines": 604,
     "exports": [
       "PreMarketKite",
       "PreMarketFno",
@@ -870,7 +870,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "e48973aebe00099e"
+    "hash": "892b4da4dfe03a41"
   },
   {
     "path": "artifacts/api-server/src/lib/dataProvider.ts",

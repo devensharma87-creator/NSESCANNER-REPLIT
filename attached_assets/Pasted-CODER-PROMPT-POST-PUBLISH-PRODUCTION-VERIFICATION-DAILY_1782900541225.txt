@@ -1,0 +1,306 @@
+CODER PROMPT — POST-PUBLISH PRODUCTION VERIFICATION: DAILY TELEGRAM REPORTS + REPLIT.MD SAFETY AUDIT
+
+Daily Telegram reports have been implemented in the workspace.
+
+Reported implementation:
+
+Pre-market report at 08:50 IST
+Post-market report at 15:45 IST
+Weekend skip
+22h once-per-day dedup
+Owner-only manual endpoint:
+POST /api/alerts/test-pre-market-report
+POST /api/alerts/test-post-market-report
+/api/alerts/status includes:
+lastPreMarketReport
+lastPostMarketReport
+Missing data displays:
+Unavailable — not tracked yet
+No Kite API calls during report gathering
+No trading state mutation
+No paper trade creation
+No real order placement
+55 new tests
+221 total targeted tests passing
+typecheck clean
+LLM index refreshed
+
+Now production must be verified after publish.
+
+Also audit the replit.md change because the instruction was:
+
+Do not trim or rewrite replit.md.
+
+If replit.md was only safely appended with a small architecture entry, document it. If it was rewritten/trimmed/damaged, revert that change.
+
+This is production verification and safety audit only.
+
+Do not add new features.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not expose Telegram secrets.
+
+Do not trim or rewrite replit.md.
+
+Verify that Daily Telegram Reports are production-safe and source-honest.
+
+Confirm:
+
+Production serves the latest daily-report build.
+Manual pre-market report endpoint works.
+Manual post-market report endpoint works.
+Telegram receives both reports.
+Reports are clearly labelled [MANUAL TEST] when manually triggered.
+Reports do not create trades/orders.
+Reports do not mutate trading state.
+Reports do not fake missing metrics.
+Scheduler is registered safely.
+Dedup/rate-limit prevents spam.
+replit.md was not improperly modified.
+Tests and LLM index remain clean.
+
+Check production:
+
+https://marketscannerbydev.in
+
+Report:
+
+deployment timestamp
+current production PID / boot timestamp
+previous PID if visible
+current commit/hash
+API health
+frontend health
+whether new report routes exist
+whether /api/alerts/status includes:
+lastPreMarketReport
+lastPostMarketReport
+
+If production does not include new report routes, report:
+
+DAILY_REPORTS_BUILD_NOT_DEPLOYED
+
+Verify unauthenticated access:
+
+POST /api/alerts/test-pre-market-report
+POST /api/alerts/test-post-market-report
+GET /api/alerts/status
+
+Expected:
+
+HTTP 401
+no report data leaked
+no secrets leaked
+
+Verify owner authenticated access:
+
+owner can call pre-market test endpoint
+owner can call post-market test endpoint
+owner can read report status
+
+Call production:
+
+POST /api/alerts/test-pre-market-report
+
+Expected:
+
+HTTP 200
+Telegram delivery status SENT or DISPATCHED
+Telegram message arrives
+message is labelled [MANUAL TEST]
+no trade/order created
+no broker execution
+no secrets exposed
+
+Report key fields included:
+
+date/time
+market status
+Kite session status
+F&O daily bars/history status
+F&O no-signal gap status
+scanner readiness if available
+swing queue summary
+alert readiness
+owner action required
+data-quality warnings
+
+Call production:
+
+POST /api/alerts/test-post-market-report
+
+Expected:
+
+HTTP 200
+Telegram delivery status SENT or DISPATCHED
+Telegram message arrives
+message is labelled [MANUAL TEST]
+no trade/order created
+no broker execution
+no secrets exposed
+
+Report key fields included:
+
+F&O paper trade summary
+swing order recap
+scanner summary
+data-health summary
+Telegram alert summary
+unavailable metrics labelled correctly
+next action / pending items
+
+Immediately call each manual endpoint again.
+
+Expected:
+
+HTTP 429 or safe dedup response
+no Telegram spam
+
+Verify scheduled reports use once-per-IST-day dedup.
+
+Report:
+
+manual endpoint rate limit
+scheduler dedup key
+whether dedup is in-memory or persistent
+restart limitation if any
+
+If dedup is in-memory only, document limitation and do not overclaim.
+
+Verify report text follows these rules:
+
+Missing metrics say:
+Unavailable — not tracked yet
+No fake zero for unavailable metric.
+Kite session and F&O daily-bars status are separate.
+Global/pre-market cues are labelled source-honestly.
+Yahoo/proxy/synthetic data is not labelled trade-grade.
+No sample/test data appears as live market data.
+No report says system is fully ready if F&O daily bars/option-chain are unavailable.
+
+Report exact examples from the Telegram messages.
+
+Before and after manual report endpoints, verify no trading state changed.
+
+Check if available:
+
+F&O paper trade count unchanged
+Swing staged order count unchanged
+broker order count unchanged
+no real broker order
+no new paper trade created by report endpoint
+no DB mutation except alert/report status metadata if designed
+
+Confirm:
+
+broker execution disabled
+no real order placed
+
+Verify scheduler registration.
+
+Report:
+
+pre-market schedule time
+post-market schedule time
+timezone handling
+weekend skip
+once-per-day dedup
+whether market holiday handling exists
+whether scheduler starts once per server process
+whether autoscale/multiple-worker duplicate risk exists
+
+If market holiday detection is not implemented, state:
+
+Market holiday detection not implemented — weekend skip only.
+
+Do not fake holiday support.
+
+Audit the replit.md change.
+
+Run:
+
+git diff HEAD~1 -- replit.md
+
+or equivalent.
+
+Report:
+
+was replit.md changed?
+if yes, was it only additive?
+was anything trimmed?
+was anything rewritten?
+did it remove existing project instructions?
+did it change trading/business behavior?
+should the change stay or be reverted?
+
+If replit.md was trimmed/reorganized/replaced, revert it.
+
+If only a tiny daily-report architecture note was added, document as safe.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/dailyReports.test.ts src/lib/alerting.test.ts src/lib/fnoSignalAlerts.test.ts src/lib/swingAlerts.test.ts
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If test file names differ, use repo-correct names.
+
+Report exact pass/fail counts.
+
+Final report must include:
+
+Deployment verification.
+Auth result.
+Pre-market manual report result.
+Post-market manual report result.
+Telegram delivery result.
+Rate-limit/dedup result.
+Source-honesty result.
+Trading-state safety result.
+Scheduler status.
+replit.md audit result.
+Tests run.
+LLM index result.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+DAILY_REPORTS_PROD_VERIFIED
+DAILY_REPORTS_TEST_ENDPOINTS_PROD_VERIFIED_SCHEDULER_PENDING_LIVE_RUN
+DAILY_REPORTS_BUILD_NOT_DEPLOYED
+DAILY_REPORTS_SOURCE_HONESTY_GAP
+DAILY_REPORTS_SPAM_CONTROL_GAP
+REPLIT_MD_UNSAFE_CHANGE_REVERTED
+DAILY_REPORTS_TELEGRAM_PROVIDER_ERROR
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production serves latest report build
+pre-market manual endpoint sends Telegram
+post-market manual endpoint sends Telegram
+both are owner-only
+both are rate-limited
+both are source-honest
+reports do not mutate trading state
+broker execution remains disabled
+scheduler is safely registered or clearly pending
+replit.md is safe
+tests pass
+LLM index fresh
+final verdict explicit

@@ -527,10 +527,11 @@ export async function sendPreMarketReport(
 ): Promise<void> {
   const data = await gatherPreMarketData(nowMs, isManualTest);
   const text = buildPreMarketReport(data);
-  const dedupKey = `PRE_MARKET_REPORT::${data.istDatetime.slice(0, 10)}`;
+  const { date: istDate } = istInfo(nowMs);
+  const dedupKey = `PRE_MARKET_REPORT::${istDate}`;
   alertOwnerRaw(dedupKey, `Pre-market readiness report (${data.istDatetime})`, text, 22 * 60 * 60_000);
   lastPreMarketRecord = {
-    istDate: data.istDatetime.slice(0, 10),
+    istDate,
     sentAt: nowMs,
     type: "pre-market",
     isManualTest,
