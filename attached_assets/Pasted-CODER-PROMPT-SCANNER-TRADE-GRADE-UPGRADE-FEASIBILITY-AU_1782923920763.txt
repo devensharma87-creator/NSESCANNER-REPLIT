@@ -1,0 +1,356 @@
+CODER PROMPT — SCANNER TRADE-GRADE UPGRADE FEASIBILITY AUDIT: KITE-FIRST LIVE SCANNER
+
+Scanner / Deep Scan source-honesty is now production verified.
+
+Accepted verdict:
+
+SCANNER_DEEP_SCAN_DATA_ACCURACY_PROD_VERIFIED
+
+Previously accepted:
+
+* CANONICAL_MARKET_DATA_HEALTH_PROD_VERIFIED
+* HOME_MARKET_PULSE_DATA_ACCURACY_PROD_VERIFIED
+
+Now the scanner is honest, but it appears to remain mostly info-only / Yahoo-delayed for curated scanner output.
+
+The next question is:
+
+Should Scanner / Deep Scan remain info-only, or can we upgrade it into a fresh Kite-driven trade-grade scanner?
+
+This is an audit/design task first.
+
+Do not implement yet.
+
+Do not change trading logic.
+
+Do not change F&O strategy.
+
+Do not change swing strategy.
+
+Do not change thresholds.
+
+Do not change scoring formulas.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not remove Yahoo labels.
+
+Do not hide stale warnings.
+
+Do not fake missing data.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+====================================================
+OBJECTIVE
+
+Audit what is required to convert Scanner / Deep Scan from honest info-only output into a reliable Kite-first trade-grade scanner.
+
+Answer:
+
+1. Which scanner data currently comes from Yahoo?
+2. Which scanner data currently comes from Kite?
+3. Which scanner data comes from cache/DB/computed values?
+4. What fields are required for scanner scoring?
+5. Which of those fields can be obtained reliably from Kite?
+6. Which fields require historical candles?
+7. Which fields require intraday candles?
+8. Which fields require daily candles?
+9. Which fields are unavailable from Kite without extra storage?
+10. What needs to be stored in the database?
+11. What rate limits / API constraints apply?
+12. What is the safest implementation path?
+
+====================================================
+PART A — USE LLM INDEX FIRST
+
+Read first:
+
+* AGENT.md
+* docs/llm-index/AGENT_START_HERE.md
+* docs/llm-index/CRITICAL_FLOWS.md
+* docs/llm-index/API_ROUTES_INDEX.md
+* docs/llm-index/DATABASE_INDEX.md
+* docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+* docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+* FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+* FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md
+
+Use the index to locate:
+
+* scanner data fetchers
+* full NSE scanner
+* curated scanner
+* Deep Scan
+* scoring functions
+* technical indicator functions
+* Kite quote batch logic
+* Kite instrument master
+* historical candle helpers
+* candle warehouse
+* Yahoo fallback logic
+* scanner cache
+* source provenance logic
+
+====================================================
+PART B — CURRENT SCANNER DATA INVENTORY
+
+Create a detailed table for every scanner field.
+
+For each field, document:
+
+* field name
+* UI usage
+* scoring usage
+* source today
+* freshness today
+* fallback today
+* whether it is required for trade-grade scanning
+* whether Kite can provide it directly
+* whether it needs candle history
+* whether it needs database storage
+* whether it is currently info-only
+* risk if used for trading
+
+Cover at least:
+
+* symbol
+* exchange
+* LTP
+* change %
+* volume
+* average volume
+* relative volume
+* high/low/open/close
+* previous close
+* VWAP
+* RSI
+* MACD
+* EMA/SMA
+* Supertrend
+* ATR
+* ADX
+* Bollinger Bands
+* support/resistance
+* breakout/breakdown status
+* volume spike
+* sector
+* market cap if any
+* score
+* action label
+* setup type
+* source provenance
+* rowSource
+* canDriveSignals
+* canDriveTradeAlerts
+
+====================================================
+PART C — KITE CAPABILITY AUDIT
+
+Audit what Kite can support for scanner.
+
+Check current codebase usage only; do not browse external docs unless needed.
+
+Classify each required scanner input:
+
+* KITE_QUOTE_REALTIME
+* KITE_WEBSOCKET_TICK
+* KITE_HISTORICAL_INTRADAY
+* KITE_HISTORICAL_DAILY
+* REQUIRES_LOCAL_WAREHOUSE
+* REQUIRES_NON_KITE_PROVIDER
+* NOT_AVAILABLE
+* COMPUTED_FROM_KITE
+
+For each, document:
+
+* existing helper/function if any
+* missing helper/function if any
+* rate-limit risk
+* caching requirement
+* refresh frequency
+* market-hours behavior
+* after-market behavior
+
+====================================================
+PART D — CANDLE WAREHOUSE REQUIREMENT
+
+Audit candle warehouse status.
+
+Answer:
+
+1. Is candle warehouse still broken or fixed?
+2. Are rows being stored?
+3. Which timeframes are stored?
+4. Which symbols are stored?
+5. Is the malformed SQL issue fully fixed?
+6. Is candle warehouse used by scanner?
+7. If not used, what would be required?
+8. Can daily/intraday indicators be computed from stored Kite candles?
+9. What backfill is needed?
+10. What scheduler is needed?
+11. What DB indexes are needed?
+12. What freshness checks are needed?
+
+Do not change schema yet.
+
+Only audit and propose.
+
+====================================================
+PART E — SCANNER ARCHITECTURE OPTIONS
+
+Propose at least three architecture options.
+
+Option 1 — Honest Info-Only Scanner
+
+* Keep current Yahoo/delayed scanner.
+* Clearly label info-only.
+* No trade-grade use.
+* Lowest cost.
+
+Option 2 — Hybrid Kite Realtime + Cached Historical
+
+* Use Kite quotes/ticks for LTP/change/volume.
+* Use local candle warehouse for indicators.
+* Compute indicators from stored Kite candles.
+* Trade-grade only when all required data fresh.
+
+Option 3 — Full Kite Trade-Grade Scanner
+
+* Kite instrument master universe.
+* Kite live quote batching / WebSocket feed.
+* Local intraday/daily candle warehouse.
+* Scheduled backfill.
+* Indicator computation from Kite-sourced candles.
+* Strict source gates.
+* Scanner rows trade-grade only if all required inputs are fresh Kite/local-Kite-derived.
+
+For each option include:
+
+* benefits
+* risks
+* implementation size
+* API/rate-limit risk
+* DB requirements
+* data freshness guarantee
+* whether it can drive signals
+* estimated complexity
+* recommended/not recommended
+
+====================================================
+PART F — UNIVERSE AND RATE-LIMIT AUDIT
+
+Audit scanner universe.
+
+Answer:
+
+* current curated universe size
+* full NSE universe size used/available
+* Kite instrument master coverage
+* number of symbols feasible per scan
+* quote batch limits if known from code
+* WebSocket token subscription limits if known from code
+* current subscribed tokens count
+* expected scan frequency
+* whether scanning all NSE live is feasible
+* whether staged scanning is needed
+* whether watchlist/priority universe is better
+
+Do not guess. If unknown, mark unknown and identify code/provider check needed.
+
+====================================================
+PART G — TRADE-GRADE RULE DEFINITION
+
+Define exactly when a scanner row may be trade-grade.
+
+Example:
+
+A scanner row is TRADE_GRADE only if:
+
+* symbol resolved from Kite instrument master
+* LTP/change/volume from fresh Kite quote/tick
+* OHLC/previous close from Kite or local Kite-derived candle
+* indicators computed from Kite/local-Kite-derived candles
+* all required inputs have asOf
+* freshness is within threshold
+* no Yahoo/non-Kite fallback used
+* no missing critical field
+* market session state compatible
+* rowSource.canDriveSignals = true
+* rowSource.canDriveTradeAlerts = true
+
+Produce final rule.
+
+====================================================
+PART H — MIGRATION PLAN
+
+Create a phased implementation plan.
+
+Suggested:
+
+Phase 1 — scanner data inventory and source gate hardening
+Phase 2 — Kite quote batch scanner for curated universe
+Phase 3 — candle warehouse repair/backfill
+Phase 4 — indicator computation from Kite candles
+Phase 5 — trade-grade row qualification
+Phase 6 — F&O/swing consumer integration
+Phase 7 — production monitoring and alerting
+
+For each phase:
+
+* files likely affected
+* DB changes
+* tests required
+* production verification required
+* rollback plan
+* risk level
+
+====================================================
+PART I — RECOMMENDATION
+
+Give a clear recommendation.
+
+Answer:
+
+* Should we upgrade scanner to Kite trade-grade now?
+* Should we first fix candle warehouse?
+* Should we use curated universe before full NSE?
+* Should we keep Yahoo scanner as info-only fallback?
+* What is the safest first implementation task?
+* What should not be attempted yet?
+
+====================================================
+PART J — FINAL DELIVERABLE
+
+Create:
+
+SCANNER_TRADE_GRADE_UPGRADE_AUDIT.md
+
+The report must include:
+
+1. Executive summary.
+2. Current scanner state.
+3. Field-by-field data inventory.
+4. Kite capability matrix.
+5. Candle warehouse requirement.
+6. Architecture options.
+7. Universe/rate-limit analysis.
+8. Trade-grade row definition.
+9. Migration plan.
+10. Recommendation.
+11. Exact next implementation task.
+
+====================================================
+PART K — TESTS / INDEX
+
+This is audit/design only.
+
+Do not change app logic.
+
+If report file is added, run:
