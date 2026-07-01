@@ -364,8 +364,8 @@ export interface PreMarketReportData {
 
 export function buildPreMarketReport(data: PreMarketReportData): string {
   const header = data.isManualTest
-    ? "🌅 PRE-MARKET READINESS [MANUAL TEST]"
-    : "🌅 PRE-MARKET READINESS";
+    ? "🌅 PRE-MARKET ANALYSIS [MANUAL TEST]"
+    : "🌅 PRE-MARKET ANALYSIS";
   const lines: string[] = [header, `Date: ${data.istDatetime} IST`, ""];
 
   if (data.isWeekend) {
@@ -375,6 +375,51 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
     return lines.join("\n");
   }
 
+  // ── ANALYSIS SECTIONS (data availability honest labels) ──
+
+  lines.push("── OVERNIGHT GLOBAL CUES ──");
+  lines.push("Global cues: Unavailable — data source not integrated yet");
+  lines.push("(No real-time global provider configured; /global shows Yahoo-delayed reference)");
+
+  lines.push("");
+  lines.push("── GIFT NIFTY / SGX NIFTY ──");
+  lines.push("GIFT Nifty: Unavailable — data source not integrated yet");
+  lines.push("(No NSE IFSC / CME integration)");
+
+  lines.push("");
+  lines.push("── FII / DII ACTIVITY ──");
+  lines.push("FII/DII cash: Info-only (NSE archive) — see /flows page");
+  lines.push("Participant OI: Info-only (NSE archive) — see /flows page");
+  lines.push("FII F&O index futures / options: Unavailable — data source not integrated yet");
+
+  lines.push("");
+  lines.push("── INDIA VIX ──");
+  lines.push("India VIX: Unavailable — data source not integrated yet");
+  lines.push("ATM IV: Available via option chain snapshot — see /option-chain");
+
+  lines.push("");
+  lines.push("── KEY LEVELS (NIFTY / BANKNIFTY / SENSEX) ──");
+  lines.push("Key levels / CPR: Available (Kite) — see /premarket page");
+  lines.push("Previous OHLC, CPR, floor pivots: Active when Kite session is connected");
+
+  lines.push("");
+  lines.push("── OPTION CHAIN ──");
+  lines.push("Option chain analytics: Available (Kite) — see /option-chain");
+  lines.push("PCR, Max Pain, OI walls: From Kite option chain snapshots");
+
+  lines.push("");
+  lines.push("── EXPECTED RANGE ──");
+  lines.push("ATM straddle range: Available (Kite) — see /option-chain");
+  lines.push("VIX-implied range: Unavailable — India VIX not separately tracked");
+
+  lines.push("");
+  lines.push("── NEWS & EVENTS ──");
+  lines.push("News & events: Unavailable — data source not integrated yet");
+  lines.push("(No domestic/global news provider configured)");
+
+  // ── OPERATIONAL SECTIONS (live Kite/F&O/swing state) ──
+
+  lines.push("");
   lines.push("── KITE SESSION ──");
   if (data.kite.sessionPresent) {
     lines.push(`Status: ✅ Active${data.kite.user ? ` (${data.kite.user})` : ""}`);
@@ -427,6 +472,15 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
   }
 
   lines.push("");
+  lines.push("── EXPIRY / ROLLOVER ──");
+  if (data.fno != null && data.fno.indicesWithBars > 0) {
+    lines.push("Expiry check: Active (Kite F&O instruments — DTE tracked per index)");
+    lines.push("Details: See /fno-diagnostics for expiry dates and DTE");
+  } else {
+    lines.push("Expiry check: Unavailable — Kite session or daily bars required");
+  }
+
+  lines.push("");
   lines.push("── SWING STAGING ──");
   if (data.swing != null) {
     lines.push(`Pending approval: ${data.swing.pending + data.swing.approvalRequired}`);
@@ -458,15 +512,20 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
   }
 
   lines.push("");
-  lines.push("── DATA COVERAGE ──");
-  lines.push("Global cues: Unavailable — data source not integrated yet");
-  lines.push("GIFT Nifty: Unavailable — data source not integrated yet");
-  lines.push("FII/DII cash: Info-only (NSE archive) — see /flows page");
-  lines.push("Participant OI: Info-only (NSE archive) — see /flows page");
-  lines.push("India VIX: Unavailable — data source not integrated yet");
-  lines.push("Key levels / CPR: Available (Kite) — see /premarket page");
-  lines.push("Option chain analytics: Available (Kite) — see /option-chain");
-  lines.push("News & events: Unavailable — data source not integrated yet");
+  lines.push("── BIAS & TRADE PLAN ──");
+  const kiteOk = data.kite.sessionPresent;
+  const barsOk = data.fno != null && data.fno.indicesWithBars === data.fno.indicesConfigured;
+  if (!kiteOk) {
+    lines.push("Bias: Cannot derive — Kite session missing");
+    lines.push("Action: Reconnect Kite before market open");
+  } else if (!barsOk) {
+    lines.push("Bias: Cannot derive — F&O daily bars unavailable");
+    lines.push("Action: Check /fno-diagnostics");
+  } else {
+    lines.push("Data ready for pre-market session (Kite ✅, F&O bars ✅)");
+    lines.push("Bias / key levels / option chain: See /premarket and /option-chain");
+    lines.push("(Automated bias not computed — see /option-chain for PCR / Max Pain confluence)");
+  }
 
   lines.push("");
   lines.push("Broker execution: DISABLED");
@@ -502,7 +561,8 @@ export interface PostMarketAlerts {
 
 export interface PostMarketReportData {
   isManualTest: boolean;
-  istDate: string;
+  istDate: string;         // ISO YYYY-MM-DD — used for API/status/history/dedup
+  datetimeStr?: string;    // DD MMM YYYY HH:mm — Telegram display (optional; falls back to istDate)
   isWeekend: boolean;
   fno: PostMarketFno | null;
   swing: PostMarketSwing | null;
@@ -515,7 +575,9 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
   const header = data.isManualTest
     ? "🌇 POST-MARKET SUMMARY [MANUAL TEST]"
     : "🌇 POST-MARKET SUMMARY";
-  const lines: string[] = [header, `Date: ${data.istDate}`, ""];
+  // Telegram shows human-readable datetime; API/status/history always use ISO istDate
+  const displayDate = data.datetimeStr != null ? `${data.datetimeStr} IST` : data.istDate;
+  const lines: string[] = [header, `Date: ${displayDate}`, ""];
 
   if (data.isWeekend) {
     lines.push("⚠ Weekend — no market session today.");
@@ -523,6 +585,55 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
     return lines.join("\n");
   }
 
+  // ── ANALYSIS SECTIONS (data availability honest labels) ──
+
+  lines.push("── INDEX PERFORMANCE ──");
+  lines.push("Index performance: Available (Kite) — see /premarket page");
+  lines.push("Today's OHLC (Nifty, BankNifty, Sensex): Active when Kite session is connected");
+
+  lines.push("");
+  lines.push("── MARKET BREADTH ──");
+  lines.push("Market breadth (adv/dec): Unavailable — data source not integrated yet");
+  lines.push("(NSE advance/decline, 52-week highs/lows, DMA breadth not tracked)");
+
+  lines.push("");
+  lines.push("── FII / DII ACTIVITY ──");
+  lines.push("FII/DII cash flows: Info-only (NSE archive) — see /flows page");
+  lines.push("F&O participant data: Unavailable — data source not integrated yet");
+
+  lines.push("");
+  lines.push("── PARTICIPANT OI CHANGE ──");
+  lines.push("FII / DII / Pro / Client OI: Unavailable — data source not integrated yet");
+  lines.push("(NSE participant OI CSV: info-only, see /flows page)");
+
+  lines.push("");
+  lines.push("── OPTION CHAIN EOD ──");
+  lines.push("Option chain EOD change: Available (Kite) — see /option-chain");
+  lines.push("OI changes, PCR shift, Max Pain shift: From Kite option chain snapshots");
+
+  lines.push("");
+  lines.push("── LEVEL VALIDATION ──");
+  lines.push("Level validation (CPR/VWAP): Unavailable — data source not integrated yet");
+  lines.push("(Intraday VWAP tracking not implemented)");
+
+  lines.push("");
+  lines.push("── SECTOR MOVES ──");
+  lines.push("Sector moves: Info-only (scanner) — see /sectors page");
+  lines.push("(Not trade-grade; delayed data)");
+
+  lines.push("");
+  lines.push("── NEWS RECAP ──");
+  lines.push("News recap: Unavailable — data source not integrated yet");
+  lines.push("(No news provider configured)");
+
+  lines.push("");
+  lines.push("── GLOBAL STATUS CHECK ──");
+  lines.push("Global status check: Info-only (Yahoo Finance delayed)");
+  lines.push("US futures / Europe close: see /global for reference (not trade-grade)");
+
+  // ── OPERATIONAL SECTIONS (live DB / in-process state) ──
+
+  lines.push("");
   lines.push("── F&O PAPER TRADES (today) ──");
   if (data.fno != null) {
     lines.push(`Opened: ${data.fno.tradesOpened} (HC: ${data.fno.hcOpened}, BASELINE: ${data.fno.baselineOpened})`);
@@ -567,15 +678,29 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
   }
 
   lines.push("");
-  lines.push("── DATA COVERAGE ──");
-  lines.push("Index performance: Available (Kite) — see /premarket page");
-  lines.push("Market breadth (adv/dec): Unavailable — data source not integrated yet");
-  lines.push("FII/DII cash flows: Info-only (NSE archive) — see /flows page");
-  lines.push("Option chain EOD change: Available (Kite) — see /option-chain");
-  lines.push("Level validation (CPR/VWAP): Unavailable — data source not integrated yet");
-  lines.push("Sector moves: Info-only (scanner) — see /sectors page");
-  lines.push("News recap: Unavailable — data source not integrated yet");
-  lines.push("Global status check: Info-only (Yahoo Finance delayed)");
+  lines.push("── TRADE JOURNAL TIE-IN ──");
+  if (data.fno != null) {
+    if (data.fno.tradesOpened > 0) {
+      const pnlStr = data.fno.totalPnl != null
+        ? `₹${data.fno.totalPnl >= 0 ? "+" : ""}${data.fno.totalPnl.toLocaleString("en-IN")}`
+        : "P&L unavailable";
+      lines.push(`Session: ${data.fno.tradesOpened} trade(s) opened, ${data.fno.tradesClosed} closed`);
+      lines.push(`Realized P&L: ${pnlStr}`);
+    } else {
+      lines.push("No F&O paper trades opened today");
+    }
+  } else {
+    lines.push("Trade data: Unavailable — not tracked yet");
+  }
+
+  lines.push("");
+  lines.push("── TOMORROW SETUP ──");
+  if (data.fno != null && data.fno.signalsGenerated > 0) {
+    lines.push(`F&O signals generated today: ${data.fno.signalsGenerated}`);
+  }
+  lines.push("Key levels / option chain: Available (Kite) — check /premarket and /option-chain");
+  lines.push("Expiry / news events: See /fno-diagnostics");
+  lines.push("(Preliminary bias not automated — based on available data above)");
 
   lines.push("");
   lines.push("Broker execution: DISABLED — no real orders placed.");
@@ -753,7 +878,7 @@ export async function gatherPostMarketData(
   nowMs: number = Date.now(),
   isManualTest = false,
 ): Promise<PostMarketReportData> {
-  const { date, dayOfWeek } = istInfo(nowMs);
+  const { date, dayOfWeek, datetimeStr } = istInfo(nowMs);
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
   let fno: PostMarketFno | null = null;
@@ -805,7 +930,7 @@ export async function gatherPostMarketData(
     lastSwingAlertIst: swingAlert ? formatIstHM(swingAlert.at) : null,
   };
 
-  return { isManualTest, istDate: date, isWeekend, fno, swing, alerts };
+  return { isManualTest, istDate: date, datetimeStr, isWeekend, fno, swing, alerts };
 }
 
 // ── Send helpers (gather + build + PREPOST bot send + DB dedup) ───────────────

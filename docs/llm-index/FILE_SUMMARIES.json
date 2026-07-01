@@ -834,18 +834,18 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.test.ts",
     "purpose": "test",
-    "lines": 718,
+    "lines": 878,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "49959dc937c83687"
+    "hash": "b39aac94eeb77200"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 984,
+    "lines": 1109,
     "exports": [
       "ensureDailyReportRunsTable",
       "tryClaimScheduledReport",
@@ -873,7 +873,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "a403c0cae82b47e6"
+    "hash": "cf9dcd9f9eb3581e"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReportsDedupContract.test.ts",

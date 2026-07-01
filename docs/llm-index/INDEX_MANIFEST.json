@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T11:25:36.977Z",
+  "generatedAt": "2026-07-01T11:53:50.920Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -268,9 +268,9 @@
       "mtime": "2026-04-29T13:07:30.486Z"
     },
     "artifacts/api-server/src/lib/dailyReports.ts": {
-      "hash": "a403c0cae82b47e6",
-      "lines": 984,
-      "mtime": "2026-07-01T11:20:10.452Z"
+      "hash": "cf9dcd9f9eb3581e",
+      "lines": 1109,
+      "mtime": "2026-07-01T11:49:24.900Z"
     },
     "artifacts/api-server/src/lib/dataProvider.ts": {
       "hash": "f1b97c30a4f41b49",

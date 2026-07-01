@@ -114,7 +114,7 @@ function makePreMarket(overrides: Partial<PreMarketReportData> = {}): PreMarketR
 describe("buildPreMarketReport — healthy system", () => {
   it("includes the header", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("🌅 PRE-MARKET READINESS");
+    expect(text).toContain("🌅 PRE-MARKET ANALYSIS");
   });
 
   it("does NOT include [MANUAL TEST] when isManualTest=false", () => {
@@ -713,5 +713,165 @@ describe("istDate format regression — must be ISO YYYY-MM-DD", () => {
 
   it("IST offset string '01 Jul 2026' does NOT pass ISO regex (guards against off-shift bug)", () => {
     expect("01 Jul 2026").not.toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// ── Pre-market builder — analysis section headers present ──────────────────────
+
+describe("buildPreMarketReport — analysis section headers present", () => {
+  it("shows OVERNIGHT GLOBAL CUES section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── OVERNIGHT GLOBAL CUES ──");
+  });
+
+  it("shows GIFT NIFTY section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── GIFT NIFTY / SGX NIFTY ──");
+  });
+
+  it("shows FII / DII ACTIVITY section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── FII / DII ACTIVITY ──");
+  });
+
+  it("shows INDIA VIX section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── INDIA VIX ──");
+  });
+
+  it("shows KEY LEVELS section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── KEY LEVELS (NIFTY / BANKNIFTY / SENSEX) ──");
+  });
+
+  it("shows OPTION CHAIN section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── OPTION CHAIN ──");
+  });
+
+  it("shows EXPECTED RANGE section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── EXPECTED RANGE ──");
+  });
+
+  it("shows NEWS & EVENTS section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── NEWS & EVENTS ──");
+  });
+
+  it("shows EXPIRY / ROLLOVER section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── EXPIRY / ROLLOVER ──");
+  });
+
+  it("shows BIAS & TRADE PLAN section header", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("── BIAS & TRADE PLAN ──");
+  });
+
+  it("does not show section headers on weekend", () => {
+    const text = buildPreMarketReport(makePreMarket({ isWeekend: true }));
+    expect(text).not.toContain("── OVERNIGHT GLOBAL CUES ──");
+    expect(text).not.toContain("── OPTION CHAIN ──");
+  });
+});
+
+// ── Post-market builder — analysis section headers present ─────────────────────
+
+describe("buildPostMarketReport — analysis section headers present", () => {
+  it("shows INDEX PERFORMANCE section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── INDEX PERFORMANCE ──");
+  });
+
+  it("shows MARKET BREADTH section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── MARKET BREADTH ──");
+  });
+
+  it("shows FII / DII ACTIVITY section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── FII / DII ACTIVITY ──");
+  });
+
+  it("shows PARTICIPANT OI CHANGE section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── PARTICIPANT OI CHANGE ──");
+  });
+
+  it("shows OPTION CHAIN EOD section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── OPTION CHAIN EOD ──");
+  });
+
+  it("shows LEVEL VALIDATION section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── LEVEL VALIDATION ──");
+  });
+
+  it("shows SECTOR MOVES section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── SECTOR MOVES ──");
+  });
+
+  it("shows NEWS RECAP section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── NEWS RECAP ──");
+  });
+
+  it("shows GLOBAL STATUS CHECK section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── GLOBAL STATUS CHECK ──");
+  });
+
+  it("shows TOMORROW SETUP section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── TOMORROW SETUP ──");
+  });
+
+  it("shows TRADE JOURNAL TIE-IN section header", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("── TRADE JOURNAL TIE-IN ──");
+  });
+
+  it("does not show section headers on weekend", () => {
+    const text = buildPostMarketReport(makePostMarket({ isWeekend: true }));
+    expect(text).not.toContain("── INDEX PERFORMANCE ──");
+    expect(text).not.toContain("── OPTION CHAIN EOD ──");
+  });
+});
+
+// ── Post-market builder — date display format ──────────────────────────────────
+
+describe("buildPostMarketReport — datetimeStr display", () => {
+  it("uses datetimeStr for display when provided", () => {
+    const data = makePostMarket({ datetimeStr: "01 Jul 2026 15:45" });
+    const text = buildPostMarketReport(data);
+    expect(text).toContain("Date: 01 Jul 2026 15:45 IST");
+  });
+
+  it("falls back to ISO istDate when datetimeStr is absent", () => {
+    const data = makePostMarket();
+    const text = buildPostMarketReport(data);
+    expect(text).toContain("Date: 2026-07-01");
+  });
+
+  it("istDate is always ISO YYYY-MM-DD regardless of display format", () => {
+    const data = makePostMarket({ datetimeStr: "01 Jul 2026 15:45" });
+    expect(data.istDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// ── Pre-market builder — ANALYSIS title vs old READINESS ──────────────────────
+
+describe("buildPreMarketReport — title is ANALYSIS not READINESS", () => {
+  it("title is PRE-MARKET ANALYSIS", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("PRE-MARKET ANALYSIS");
+  });
+
+  it("title is NOT PRE-MARKET READINESS", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).not.toContain("PRE-MARKET READINESS");
   });
 });
