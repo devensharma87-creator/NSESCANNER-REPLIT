@@ -1,0 +1,232 @@
+CODER PROMPT — POST-PUBLISH RECHECK: DAILY REPORT IST DATE FIX + SCHEDULER READINESS
+
+The Daily Telegram Reports feature has been production verified for manual endpoints.
+
+Previous verification confirmed:
+
+POST /api/alerts/test-pre-market-report works in production.
+POST /api/alerts/test-post-market-report works in production.
+Telegram delivery confirmed SENT.
+Unauthenticated access returns 401.
+Immediate repeat calls return 429.
+No paper trade created.
+No real order placed.
+Broker execution disabled.
+Source honesty verified.
+replit.md change was safe and additive only.
+158/158 targeted tests passed.
+Typecheck clean.
+LLM index fresh.
+
+During verification, one bug was found:
+
+lastPreMarketReport.istDate showed malformed value:
+
+01 Jul 202
+
+Root cause:
+
+sendPreMarketReport used data.istDatetime.slice(0, 10) on a human-readable display string.
+
+Fix already made in workspace:
+
+sendPreMarketReport now uses istInfo(nowMs).date and should return ISO date like:
+
+2026-07-01
+
+Now production must be rechecked after publish.
+
+This is verification only.
+
+Do not add new features.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not trim or rewrite replit.md.
+
+Verify production now has the istDate fix for Daily Telegram Reports and that scheduler readiness remains intact.
+
+Confirm:
+
+Production is serving latest build.
+lastPreMarketReport.istDate is ISO format.
+lastPostMarketReport.istDate is ISO format.
+Manual report endpoints still work.
+Telegram still sends.
+No trading state is mutated.
+Scheduler remains registered.
+Tests and LLM index remain clean.
+
+Check production:
+
+https://marketscannerbydev.in
+
+Report:
+
+deployment timestamp
+current production PID / boot timestamp
+previous PID if visible
+current commit/hash
+API health
+whether latest istDate fix is live
+
+If old build is still serving, report:
+
+DAILY_REPORT_ISTDATE_FIX_NOT_DEPLOYED
+
+Verify unauthenticated access:
+
+POST /api/alerts/test-pre-market-report
+POST /api/alerts/test-post-market-report
+GET /api/alerts/status
+
+Expected:
+
+HTTP 401
+no report data leaked
+no secrets leaked
+
+Authenticated owner checks:
+
+Call:
+
+POST /api/alerts/test-pre-market-report
+
+Expected:
+
+HTTP 200
+Telegram SENT or DISPATCHED
+message labelled [MANUAL TEST]
+no paper trade created
+no real order placed
+broker execution disabled
+Call:
+
+POST /api/alerts/test-post-market-report
+
+Expected:
+
+HTTP 200
+Telegram SENT or DISPATCHED
+message labelled [MANUAL TEST]
+no paper trade created
+no real order placed
+broker execution disabled
+
+Call:
+
+GET /api/alerts/status
+
+Verify:
+
+"lastPreMarketReport": {
+  "istDate": "YYYY-MM-DD"
+}
+
+and:
+
+"lastPostMarketReport": {
+  "istDate": "YYYY-MM-DD"
+}
+
+Expected:
+
+lastPreMarketReport.istDate must be 2026-07-01 style ISO date.
+It must not be 01 Jul 202.
+lastPostMarketReport.istDate must also be ISO date.
+No secrets exposed.
+
+Immediately call both manual endpoints again.
+
+Expected:
+
+HTTP 429 or safe dedup
+no Telegram spam
+
+Report exact result.
+
+Verify before/after if available:
+
+F&O paper trade count unchanged
+Swing staged order count unchanged
+no broker order created
+no real order placed
+no paper trade created by report endpoint
+no DB mutation except in-process report status metadata if designed
+
+Verify scheduler remains registered:
+
+pre-market window: 08:50–09:10 IST
+post-market window: 15:45–16:15 IST
+weekend skip
+22h / once-per-day dedup
+timezone logic
+setInterval .unref() if still used
+scheduler starts once per server process
+
+Report limitations honestly:
+
+market holiday detection not implemented unless truly present
+dedup is in-memory unless persistent storage exists
+multi-worker/autoscale duplicate risk if still applicable
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/dailyReports.test.ts src/lib/alerting.test.ts src/lib/fnoSignalAlerts.test.ts src/lib/swingAlerts.test.ts
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If command names differ, use repo-correct commands.
+
+Report exact pass/fail counts.
+
+Final report must include:
+
+Deployment verification.
+Auth result.
+Pre-market manual report result.
+Post-market manual report result.
+lastPreMarketReport.istDate result.
+lastPostMarketReport.istDate result.
+Rate-limit result.
+Trading-state safety result.
+Scheduler readiness result.
+Tests run.
+LLM index result.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+DAILY_REPORTS_PROD_VERIFIED
+DAILY_REPORT_ISTDATE_FIX_PROD_VERIFIED
+DAILY_REPORTS_TEST_ENDPOINTS_PROD_VERIFIED_SCHEDULER_PENDING_LIVE_RUN
+DAILY_REPORT_ISTDATE_FIX_NOT_DEPLOYED
+DAILY_REPORTS_SPAM_CONTROL_GAP
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production serves latest fix
+lastPreMarketReport.istDate is ISO date
+manual pre-market report still sends Telegram
+manual post-market report still sends Telegram
+both are owner-only
+both are rate-limited
+no trading state is mutated
+broker execution remains disabled
+scheduler readiness is confirmed
+tests pass
+LLM index fresh
+final verdict explicit
