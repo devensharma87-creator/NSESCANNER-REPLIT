@@ -1,0 +1,289 @@
+CODER PROMPT — POST-PUBLISH PRODUCTION VERIFICATION: SCANNER / DEEP SCAN SOURCE HONESTY
+
+The Scanner / Deep Scan source-honesty work has been completed in dev/main.
+
+Reported delivered work:
+
+* New pure module:
+    * scannerSourceHealth.ts
+* Row-level source contract:
+    * ScannerRowSource
+    * toScannerRowSource()
+    * invariant:
+        * canDriveSignals
+        * canDriveTradeAlerts
+        * only true for fresh Kite intraday / TRADE_GRADE
+        * Yahoo, stale, EOD, cache, no-feed rows are always false
+* Scan-level source contract:
+    * ScannerSourceHealth
+    * buildScannerSourceHealth()
+    * statuses:
+        * KITE_TRADE_GRADE
+        * KITE_PARTIAL
+        * MIXED_SOURCES
+        * STALE_CACHE
+        * YAHOO_INFO_ONLY
+        * NO_FEED
+* OpenAPI/codegen:
+    * ScannerRowSource
+    * ScannerRowCounts
+    * ScannerSourceHealth
+    * rowSource added to StockRow
+    * new endpoint:
+        * GET /api/scan/health
+    * generated hook:
+        * useGetScanHealth
+* Backend wiring:
+    * scanner.ts buildRow() stamps rowSource
+    * routes/scanner.ts exposes /scan/health
+* Frontend:
+    * Scanner page includes ScannerHealthBanner
+    * banner is silent when trade-grade
+    * amber for YAHOO_INFO_ONLY
+    * orange for stale
+    * red for no-feed
+    * Deep Scan hardcoded status="live" fixed to status="delayed" with honest Yahoo daily indicator note
+* Tests:
+    * 18/18 scanner source-health tests pass
+    * 749/749 scanner frontend tests pass
+    * both packages typecheck clean
+
+Important: this is not accepted as production verified until the app is published and production is checked.
+
+Do not add new features.
+
+Do not change F&O strategy logic.
+
+Do not change swing strategy logic.
+
+Do not change thresholds.
+
+Do not change scoring formula unless a source-safety bug is found.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not hide Yahoo/stale warnings.
+
+Do not fake missing data.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+====================================================
+OBJECTIVE
+
+Verify that production now has Scanner / Deep Scan source honesty.
+
+Production URL:
+
+https://marketscannerbydev.in
+
+Confirm:
+
+1. Production serves latest scanner source-honesty build.
+2. /api/scan/health exists and is auth-gated.
+3. Scanner API rows include rowSource.
+4. Scanner page shows scan-level source banner.
+5. Scanner rows show source honesty.
+6. Yahoo/stale rows are info-only.
+7. No-feed rows are not actionable.
+8. Deep Scan no longer claims Yahoo daily indicators are live.
+9. F&O/swing consumers cannot use Yahoo/stale/no-feed rows as trade-grade.
+10. /api/data-health/market remains aligned.
+11. No secrets exposed.
+12. No trading state mutated.
+13. Broker execution remains disabled.
+
+====================================================
+PART A — DEPLOYMENT CONFIRMATION
+
+Report:
+
+* current production PID / boot timestamp
+* production commit/hash if available
+* latest workspace commit/hash
+* production frontend bundle path
+* whether bundle contains scanner source-honesty markers, such as:
+    * ScannerHealthBanner
+    * YAHOO_INFO_ONLY
+    * KITE_TRADE_GRADE
+    * canDriveTradeAlerts
+    * rowSource
+    * ScannerRowSource
+    * Deep Scan delayed-data note
+* API health
+* frontend health
+
+If production is still old, stop and report:
+
+SCANNER_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — API VERIFICATION
+
+Authenticated owner calls:
+
+* GET /api/scan/health
+* existing scanner list/full scan endpoint used by Scanner page
+* existing Deep Scan endpoint if separate
+* GET /api/data-health/market
+
+Verify /api/scan/health returns:
+
+* scan ID or null
+* scan timestamp
+* market session
+* source status
+* tradeGrade
+* canDriveSignals
+* row counts:
+    * total
+    * kiteLive
+    * kiteStale
+    * yahooDelayed
+    * yahooStale
+    * cache
+    * noFeed
+* oldestAsOf
+* newestAsOf
+* warning
+* action
+
+Verify scanner rows include rowSource:
+
+* source
+* sourceStatus
+* asOf
+* freshnessSec
+* canDriveSignals
+* canDriveTradeAlerts
+* warning
+
+Verify no secrets are exposed.
+
+====================================================
+PART C — SCANNER UI VERIFICATION
+
+Open production Scanner page.
+
+Verify:
+
+* ScannerHealthBanner is visible when scan is not trade-grade.
+* If scanner is Yahoo info-only, banner says so clearly.
+* If mixed sources, banner says mixed and not all rows are trade-grade.
+* If stale/cache/no-feed, warning is clear.
+* Row-level source badges are visible.
+* Scan time/freshness is visible.
+* Trade-grade vs info-only status is visible.
+* Scores from non-trade-grade data are labelled honestly.
+
+Take screenshot evidence if possible.
+
+====================================================
+PART D — DEEP SCAN UI VERIFICATION
+
+Open production Deep Scan page.
+
+Verify:
+
+* Deep Scan no longer says Yahoo daily indicators are live.
+* It shows delayed/info-only wording.
+* Source/freshness labels are visible.
+* No stale/Yahoo rows are presented as trade-grade.
+* No-feed rows are not actionable.
+
+Take screenshot evidence if possible.
+
+====================================================
+PART E — ROW-LEVEL SOURCE VERIFICATION
+
+Verify production rows show equivalent labels:
+
+* Kite live
+* Kite stale
+* Yahoo delayed / info-only
+* Yahoo stale / info-only
+* Cached / info-only
+* No feed
+* Computed only
+
+Exact wording can differ, but meaning must be unambiguous.
+
+For each row category found, verify:
+
+* source is correct
+* as-of/freshness is correct
+* canDriveSignals is correct
+* canDriveTradeAlerts is correct
+
+====================================================
+PART F — SCORE / ACTION HONESTY CHECK
+
+Verify:
+
+* non-trade-grade row can still show display score only if labelled info-only.
+* Strong Buy / Strong Sell from Yahoo/stale rows is not shown as trade-grade.
+* row actions do not imply live trading readiness when source is delayed/stale.
+* scanner summary explains whether output can drive signals.
+
+Do not change scoring formula unless a source-safety bug is found.
+
+====================================================
+PART G — F&O / SWING CONSUMER SAFETY CHECK
+
+Verify by code/tests:
+
+* Yahoo rows cannot generate tradeable F&O signals.
+* Yahoo rows cannot open F&O paper trades.
+* Yahoo rows cannot create swing staged orders as trade-grade.
+* stale/cache/no-feed rows cannot drive trade alerts.
+* Watchlist/Portfolio recommendations from stale/Yahoo rows, if any, are info-only.
+
+No real orders.
+
+No paper trades.
+
+No state mutation.
+
+====================================================
+PART H — CANONICAL DATA HEALTH ALIGNMENT
+
+Call:
+
+GET /api/data-health/market
+
+Verify Scanner / Deep Scan aligns with it.
+
+Example:
+
+If data-health says:
+
+MARKET_CLOSED_SESSION_ACTIVE
+
+then Scanner should not show false offline/live-feed-error warning.
+
+If scanner source health says YAHOO_INFO_ONLY, Scanner should clearly say info-only.
+
+====================================================
+PART I — SECURITY / SAFETY CHECK
+
+Verify:
+
+* /api/scan/health is owner/auth gated.
+* scanner APIs expose no secrets.
+* no tokens
+* no chat IDs
+* no API keys
+* no DB URLs
+* no trading mutation
+* no broker execution
+* no real order placed
+* no paper trade created
+
+====================================================
+PART J — TESTS + INDEX
