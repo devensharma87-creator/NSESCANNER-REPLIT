@@ -1,0 +1,254 @@
+CODER PROMPT — FINAL POST-PUBLISH CHECK: F&O TRADEABLE SIGNAL TELEGRAM ALERTS
+
+The previous production check confirmed that production was still running the old build.
+
+Findings before publish:
+
+Production URL: https://marketscannerbydev.in
+API health: 200
+Telegram config: enabled
+Production autoTradingEnabled: true
+/api/alerts/status worked but did not include lastFnoSignalAlert
+/api/alerts/test-fno-trade-signal returned 404
+Dev build already verified:
+sample endpoint worked
+auth gate worked
+rate limit worked
+76/76 tests passed
+typecheck clean
+LLM index fresh
+
+Now the app has been published.
+
+Run final production verification only.
+
+Do not add new features.
+
+Do not change F&O logic.
+
+Do not change thresholds.
+
+Do not change paper-trade rules.
+
+Do not change risk guards.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not tune strategy.
+
+Do not send info-only alerts.
+
+Do not use Yahoo/stale/proxy data for trade-grade F&O.
+
+Do not expose Telegram secrets.
+
+Do not trim or rewrite replit.md.
+
+Verify that the latest F&O tradeable-signal Telegram alert build is now live on production.
+
+Confirm:
+
+/api/alerts/status now includes lastFnoSignalAlert.
+/api/alerts/test-fno-trade-signal no longer returns 404.
+Sample F&O Telegram alert sends from production.
+Auth gate works.
+Rate limit works.
+Sample alert creates no paper trade and no real order.
+Broker execution remains disabled.
+Real tradeable alert path is ready for next live paper trade.
+LLM index remains fresh.
+
+Check production:
+
+https://marketscannerbydev.in
+
+Report:
+
+deployment timestamp
+production commit/hash
+API health
+frontend health
+server start time
+deployment logs
+/api/alerts/status response shape
+whether lastFnoSignalAlert exists
+whether /api/alerts/test-fno-trade-signal exists
+
+If still missing, report:
+
+FNO_ALERT_BUILD_NOT_DEPLOYED
+
+Unauthenticated checks:
+
+GET /api/alerts/status
+POST /api/alerts/test-fno-trade-signal
+
+Expected:
+
+401 unauthenticated
+no alert data leaked
+no secrets leaked
+
+Authenticated owner checks:
+
+GET /api/alerts/status
+POST /api/alerts/test-fno-trade-signal
+
+Expected:
+
+status returns alert fields
+test endpoint sends sample alert
+
+Call production:
+
+POST /api/alerts/test-fno-trade-signal
+
+Expected:
+
+HTTP 200
+telegramStatus is SENT or DISPATCHED
+Telegram message arrives
+message is clearly [SAMPLE]
+message says no paper trade created
+message says no real order placed
+message says broker execution disabled
+message says manual review required
+no secrets in response or logs
+
+Confirm sample endpoint does not create:
+
+paper trade
+real broker order
+DB trade row unless intentionally documented as test-only
+
+Immediately call the sample endpoint again.
+
+Expected:
+
+429 or safe dedup response
+no Telegram spam
+
+Call:
+
+GET /api/alerts/status
+
+Verify response includes:
+
+telegram
+lastAlert
+lastSwingAlert
+lastFnoSignalAlert
+
+Expected:
+
+lastFnoSignalAlert field exists
+it may be null until a real paper trade opens
+sample endpoint should not falsely populate lastFnoSignalAlert unless intentionally designed
+
+Do not force unsafe F&O trades.
+
+Verify production is ready for real alert path:
+
+autoTradingEnabled / paper F&O environment status
+paper-trading enabled status
+broker execution status
+F&O cycle status
+Kite data status
+option-chain freshness if available
+
+If a real tradeable F&O paper trade opens naturally during verification:
+
+confirm Telegram alert sent
+confirm lastFnoSignalAlert updates
+confirm alert matches paper trade row
+confirm no real order placed
+
+If no live tradeable paper trade occurs, report:
+
+NO_LIVE_FNO_TRADEABLE_SIGNAL_OBSERVED
+
+This is acceptable.
+
+Confirm by tests/code inspection/logs that alerts do not send for:
+
+baseline/outlook
+info-only
+watchlist setup
+suppressed setup
+blocked setup
+recovery-veto setup
+chase-veto setup
+stale/no-live-Kite setup
+missing option-chain setup
+invalid entry/SL/target/lots
+old idempotency row after restart
+
+Confirm:
+
+no F&O logic changed
+no thresholds changed
+no risk guards changed
+no broker execution
+no real order
+no Yahoo trade-grade fallback
+no secrets exposed
+
+Run:
+
+api-server typecheck
+F&O alert tests
+alerting tests
+F&O paper risk guard tests
+F&O reasoning tests if available
+
+Also run:
+
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Report exact results.
+
+Final report must include:
+
+Deployment verification.
+Auth result.
+Sample endpoint result.
+Telegram delivery result.
+Rate-limit result.
+/alerts/status.lastFnoSignalAlert result.
+Real alert path readiness.
+Real alert observed or not observed.
+Negative eligibility check.
+Broker execution status.
+Tests run.
+LLM index result.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+FNO_TRADEABLE_ALERTS_PROD_VERIFIED
+FNO_TRADEABLE_ALERTS_PROD_VERIFIED_NO_LIVE_SIGNAL_OBSERVED
+FNO_ALERT_BUILD_NOT_DEPLOYED
+FNO_ALERT_SAMPLE_TEST_FAILED
+FNO_ALERT_ELIGIBILITY_BUG_FOUND
+FNO_ALERT_SOURCE_HONESTY_BUG_FOUND
+FNO_ALERTS_PROVIDER_ERROR
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+latest build is deployed
+/alerts/status includes lastFnoSignalAlert
+sample endpoint exists
+sample Telegram alert sends
+auth gate works
+rate limit works
+sample creates no trade/order
+broker execution remains disabled
+real alert path is ready or naturally verified
+tests pass
+LLM index fresh
+final verdict explicit
