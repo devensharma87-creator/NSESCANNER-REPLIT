@@ -1,0 +1,256 @@
+CODER PROMPT — FINAL RECHECK AFTER PUBLISH: F&O ALERT HONESTY FIX MUST BE LIVE
+
+I have now clicked Publish / Confirm in Replit for the latest fix commit.
+
+Previous state before publish:
+
+Workspace fix commit: 7f5fc094
+Dev/workspace tests: 90/90 pass
+Typecheck clean
+LLM index 308/308 fresh
+Production was still old build:
+POST /api/alerts/test-fno-trade-signal with no body returned HTTP 200
+response did not include sampleOnly
+response did not include priceSource
+Telegram sample alert still used old behavior
+Expected new behavior:
+no-body request must return HTTP 400 confirmation_required
+only { "confirmSampleAlert": true } should send sample alert
+response must include sampleOnly: true
+response must include paperTradeCreated: false
+response must include realOrderPlaced: false
+response must include priceSource: "SAMPLE_NOT_LIVE"
+
+This is post-publish verification only.
+
+Do not add new features.
+
+Do not change F&O logic.
+
+Do not change thresholds.
+
+Do not change risk guards.
+
+Do not change paper-trade rules.
+
+Do not change swing logic.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not trigger repeated Telegram test spam.
+
+Do not expose Telegram secrets.
+
+Do not trim or rewrite replit.md.
+
+Verify that production now serves the latest F&O alert honesty fix.
+
+Production URL:
+
+https://marketscannerbydev.in
+
+Confirm:
+
+New deployment booted.
+Production is no longer old build.
+Sample endpoint requires confirmation.
+Sample alert no longer labels dummy price as Kite.
+Sample endpoint creates no paper trade and no real order.
+Real F&O alert formatter remains source-honest.
+Broker execution remains disabled.
+
+Check deployment logs and production route behavior.
+
+Report:
+
+latest production boot timestamp
+current production PID
+previous PID if visible
+current commit/hash if available
+API health
+whether production is running commit 7f5fc094 or later
+whether old pid/build has been replaced
+
+If still old build, report:
+
+FNO_ALERT_HONESTY_FIX_NOT_DEPLOYED
+
+Call production sample endpoint with no body:
+
+curl -i -X POST https://marketscannerbydev.in/api/alerts/test-fno-trade-signal \
+  -H "Cookie: <owner session cookie>"
+
+Expected new behavior:
+
+HTTP 400
+confirmation_required
+no Telegram alert sent
+no paper trade created
+no real order placed
+
+If this returns HTTP 200, production is still old build.
+
+Stop immediately and report:
+
+FNO_ALERT_HONESTY_FIX_NOT_DEPLOYED
+
+Only after Part B confirms HTTP 400.
+
+Call:
+
+curl -i -X POST https://marketscannerbydev.in/api/alerts/test-fno-trade-signal \
+  -H "Cookie: <owner session cookie>" \
+  -H "Content-Type: application/json" \
+  -d '{"confirmSampleAlert":true}'
+
+Expected:
+
+HTTP 200
+Telegram sent
+response includes:
+sampleOnly: true
+paperTradeCreated: false
+realOrderPlaced: false
+priceSource: "SAMPLE_NOT_LIVE"
+
+Verify received Telegram message.
+
+Required wording:
+
+[SAMPLE — NOT A REAL TRADE]
+F&O TRADE ALERT FORMAT TEST
+Price source: SAMPLE DATA — not Kite, not live market price
+Market data: NOT QUERIED — no Kite API call made
+Paper trade created: NO
+Real order placed: NO
+Broker execution: DISABLED
+manual review warning
+
+Forbidden wording in sample alert:
+
+Data source: Kite
+trusted option-chain
+all gates passed
+wording implying ₹125 came from Kite
+wording implying real signal was generated
+wording implying order was placed
+
+Report exact relevant Telegram lines.
+
+Immediately call the confirmation-true endpoint again.
+
+Expected:
+
+HTTP 429 or safe dedup
+no repeated Telegram spam
+
+Do not keep repeatedly testing the endpoint.
+
+Call:
+
+GET /api/alerts/status
+
+Verify:
+
+telegram exists
+lastAlert exists
+lastSwingAlert exists
+lastFnoSignalAlert exists
+no secrets exposed
+
+By code inspection or test result, verify real F&O alert formatter says:
+
+Price source: Paper trade snapshot (at open time)
+Premium source: Kite trusted option-chain
+Note: Entry premium is the snapshot at open — current price may differ
+
+Do not force unsafe real F&O trade.
+
+If no real tradeable paper trade occurs, report:
+
+NO_LIVE_FNO_TRADEABLE_SIGNAL_OBSERVED
+
+Verify FNO_DAILY_HISTORY_UNAVAILABLE wording is precise.
+
+Expected meaning:
+
+Kite session can be live
+F&O daily bars/history can still be unavailable
+action should not say reconnect Kite unless actual session missing
+
+Expected wording:
+
+Kite session is active — F&O daily bars unavailable. Check /fno-diagnostics
+
+or equivalent.
+
+Confirm:
+
+broker execution disabled
+no real order placed
+sample endpoint creates no paper trade
+no F&O logic changed
+no thresholds changed
+no risk guards changed
+no paper-trade rules changed
+no swing scoring changed
+no Yahoo trade-grade fallback
+no secrets exposed
+no destructive DB changes
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/fnoSignalAlerts.test.ts src/lib/alerting.test.ts src/lib/swingAlerts.test.ts src/lib/fnoSignalReasoningLogger.test.ts
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Report exact pass/fail counts.
+
+Final report must include:
+
+Deployment verification.
+Old-build detection result.
+Confirmation gate result.
+Telegram message honesty result.
+Exact old misleading wording removed.
+Exact new source-honest wording confirmed.
+Rate-limit/spam result.
+/alerts/status result.
+Real alert formatter result.
+F&O data-alert wording result.
+Broker execution status.
+Tests run.
+LLM index result.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+FNO_ALERT_PRICE_HONESTY_PROD_VERIFIED
+FNO_SAMPLE_ALERT_SOURCE_LABEL_FIXED_PROD_VERIFIED
+FNO_ALERT_HONESTY_FIX_NOT_DEPLOYED
+FNO_ALERT_SAMPLE_CONFIRMATION_GATE_FAILED
+FNO_ALERT_SOURCE_HONESTY_BUG_STILL_PRESENT
+FNO_DATA_ALERT_WORDING_STILL_MISLEADING
+TELEGRAM_ALERT_SPAM_CONTROL_NEEDS_DB_DEDUP
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production serves latest fix
+no-body sample endpoint returns 400
+confirm-true sample endpoint sends
+sample message no longer says dummy price came from Kite
+sample message clearly says not live market price
+sample endpoint creates no paper trade
+sample endpoint creates no real order
+real F&O formatter uses paper snapshot / Kite premium-source wording
+data alert wording is accurate
+spam controls are verified
+broker execution remains disabled
+tests pass
+LLM index fresh
+final verdict explicit
