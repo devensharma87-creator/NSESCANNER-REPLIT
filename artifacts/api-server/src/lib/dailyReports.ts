@@ -10,16 +10,27 @@
  *     in-process alert records. Each section fails-open independently.
  *   – Scheduler latches (`maybeRunPreMarketReport`, `maybeRunPostMarketReport`)
  *     follow the same 60-second tick + date-latch pattern as paperDailySummaryFo.ts.
+ *   – DB-backed dedup (`daily_report_runs` table) prevents multi-worker duplicate
+ *     sends on autoscale deployments. Manual test calls bypass DB dedup.
+ *
+ * Telegram routing:
+ *   – Pre/Post Analysis bot (PREPOST_TELEGRAM_BOT_TOKEN + PREPOST_TELEGRAM_CHAT_ID)
+ *     receives: pre-market reports and post-market reports.
+ *   – Default urgent bot (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)
+ *     receives: F&O signal alerts, swing alerts, urgent operational alerts.
+ *   – If Pre/Post bot config is missing: PREPOST_TELEGRAM_DISABLED_* status.
+ *     Daily reports are NOT routed to the default bot (fail-closed separation).
  *
  * Source-honesty contract:
- *   – All data is labeled with its source (Kite session, in-process state, DB).
- *   – Missing data is shown as "Unavailable — not tracked yet", never as 0.
+ *   – Missing data is shown as "Unavailable — not tracked yet" or
+ *     "Unavailable — data source not integrated yet", never as 0.
  *   – No Kite API calls are made during gathering (uses in-process state only).
  *   – No trading logic, signals, paper-trade creation, or broker execution.
  *   – Telegram secrets are NEVER logged or returned from any function here.
  *
  * Weekend behaviour: skip the report on IST Saturday/Sunday.
- * Dedup: latch key = `PRE_MARKET_REPORT::YYYY-MM-DD` / `POST_MARKET_REPORT::YYYY-MM-DD`.
+ * Dedup: DB-backed UNIQUE(report_type, ist_date) prevents multi-worker duplicates.
+ *        In-memory latch as fast-path to skip DB round-trip if already sent.
  */
 
 import { sql } from "drizzle-orm";
@@ -28,10 +39,18 @@ import { logger } from "./logger";
 import { getActiveSessionStatus } from "./kiteAuth";
 import { feedStatus } from "./kiteFeed";
 import { getLastFnoCycleState, OPTION_INDICES } from "./optionSignals";
-import { computeDailySummaryFo, istDateOf } from "./paperDailySummaryFo";
-import { getLastAlertRecord, alertOwnerRaw } from "./alerting";
+import { computeDailySummaryFo } from "./paperDailySummaryFo";
+import { getLastAlertRecord } from "./alerting";
 import { getLastSwingAlertRecord } from "./swingAlerts";
 import { getLastFnoSignalAlertRecord } from "./fnoSignalAlerts";
+import {
+  sendPrePostTelegramMessage,
+  getPrePostTelegramStatus,
+  type PrePostTelegramConfigStatus,
+} from "./alerting";
+
+// Re-export for use by routes
+export type { PrePostTelegramConfigStatus };
 
 // ── IST helpers ───────────────────────────────────────────────────────────────
 
@@ -68,13 +87,231 @@ function formatIstHM(epochMs: number): string {
   }
 }
 
-function minsAgoStr(epochMs: number, nowMs: number): string {
-  const diffMin = Math.round((nowMs - epochMs) / 60_000);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const h = Math.floor(diffMin / 60);
-  const m = diffMin % 60;
+function minsAgoLabel(mins: number): string {
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
   return m > 0 ? `${h}h ${m}m ago` : `${h}h ago`;
 }
+
+// ── DB-backed multi-worker dedup ──────────────────────────────────────────────
+
+const WORKER_ID = `pid-${process.pid}`;
+let tableReady = false;
+
+/**
+ * Idempotent table creation — uses raw SQL (NOT drizzle-kit push, which would
+ * drop out-of-schema tables). Safe to call on every server start.
+ */
+export async function ensureDailyReportRunsTable(): Promise<void> {
+  if (tableReady) return;
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS daily_report_runs (
+        id SERIAL PRIMARY KEY,
+        report_type TEXT NOT NULL,
+        ist_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        worker_id TEXT,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        sent_at TIMESTAMPTZ,
+        telegram_status TEXT,
+        error_code TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(report_type, ist_date)
+      )
+    `);
+    tableReady = true;
+    logger.info({ worker: WORKER_ID }, "dailyReports: daily_report_runs table ready");
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "dailyReports: failed to ensure daily_report_runs table");
+  }
+}
+
+/**
+ * Attempt to claim a scheduled report run via INSERT ON CONFLICT DO NOTHING.
+ * Returns true if THIS worker claimed it, false if another worker already did.
+ * Fail-open: if DB is unavailable, returns true (allows send to proceed).
+ */
+async function tryClaimScheduledReport(reportType: string, istDate: string): Promise<boolean> {
+  try {
+    const result = (await db.execute(sql`
+      INSERT INTO daily_report_runs (report_type, ist_date, worker_id, status)
+      VALUES (${reportType}, ${istDate}, ${WORKER_ID}, 'CLAIMED')
+      ON CONFLICT (report_type, ist_date) DO NOTHING
+      RETURNING id
+    `)) as unknown as { rows: Array<{ id: number }> };
+    return result.rows.length > 0;
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, reportType, istDate },
+      "dailyReports: DB dedup claim failed — proceeding fail-open",
+    );
+    return true;
+  }
+}
+
+async function updateReportRunStatus(
+  reportType: string,
+  istDate: string,
+  status: string,
+  telegramStatus: string | null,
+  errorCode: string | null,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      UPDATE daily_report_runs
+      SET status = ${status},
+          sent_at = CASE WHEN ${status} = 'SENT' THEN NOW() ELSE sent_at END,
+          telegram_status = ${telegramStatus},
+          error_code = ${errorCode},
+          updated_at = NOW()
+      WHERE report_type = ${reportType}
+        AND ist_date = ${istDate}
+        AND worker_id = ${WORKER_ID}
+    `);
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "dailyReports: failed to update report run status");
+  }
+}
+
+// ── Data coverage matrix ──────────────────────────────────────────────────────
+
+export type DataCoverageStatus =
+  | "AVAILABLE"
+  | "STALE"
+  | "UNAVAILABLE"
+  | "SOURCE_NOT_INTEGRATED"
+  | "INFO_ONLY"
+  | "TRADE_GRADE";
+
+export interface DataCoverageEntry {
+  status: DataCoverageStatus;
+  source: string | null;
+  note: string;
+}
+
+/**
+ * Honest data availability map for every section in the pre/post market analysis.
+ * AVAILABLE = current app tracks this from a trusted source.
+ * INFO_ONLY = data exists but is not trade-grade (Yahoo, NSE archive, etc.).
+ * SOURCE_NOT_INTEGRATED = data point requires a new provider not yet integrated.
+ */
+export const DAILY_ANALYSIS_COVERAGE: Record<string, DataCoverageEntry> = {
+  // Pre-market
+  overnightGlobalCues: {
+    status: "INFO_ONLY",
+    source: "yahoo-finance",
+    note: "US/Asia/Europe indices via Yahoo Finance — delayed, not trade-grade; sourced from global scanner",
+  },
+  giftNifty: {
+    status: "SOURCE_NOT_INTEGRATED",
+    source: null,
+    note: "GIFT Nifty / SGX Nifty not tracked — no integration with NSE IFSC or Bloomberg",
+  },
+  fiiDiiCash: {
+    status: "INFO_ONLY",
+    source: "nse-archive",
+    note: "NSE FII/DII cash daily flows — info-only; available via /api/inst/fii-dii",
+  },
+  fiiDiiFno: {
+    status: "SOURCE_NOT_INTEGRATED",
+    source: null,
+    note: "FII F&O index futures / options participant data not tracked in real-time",
+  },
+  participantOi: {
+    status: "INFO_ONLY",
+    source: "nse-archive",
+    note: "NSE participant OI CSV — info-only; available via /api/inst/participant-oi",
+  },
+  indiaVix: {
+    status: "SOURCE_NOT_INTEGRATED",
+    source: null,
+    note: "India VIX not separately tracked; ATM IV available via option chain snapshot",
+  },
+  keyLevelsOhlc: {
+    status: "AVAILABLE",
+    source: "kite",
+    note: "Previous day OHLC from Kite historical data — available if Kite session active",
+  },
+  cprPivots: {
+    status: "AVAILABLE",
+    source: "computed",
+    note: "CPR and classic floor pivots computed from Kite OHLC — see /premarket for full display",
+  },
+  optionChainAnalytics: {
+    status: "AVAILABLE",
+    source: "kite",
+    note: "PCR, max pain, OI walls via Kite option chain snapshot — see /option-chain",
+  },
+  expectedRange: {
+    status: "AVAILABLE",
+    source: "kite",
+    note: "ATM straddle premium and VIX-implied range from Kite option chain snapshot",
+  },
+  newsEvents: {
+    status: "SOURCE_NOT_INTEGRATED",
+    source: null,
+    note: "Domestic/global news and events calendar not integrated — no provider configured",
+  },
+  expiryRollover: {
+    status: "AVAILABLE",
+    source: "kite",
+    note: "Expiry check from Kite F&O instruments master — weekly/monthly expiry dates",
+  },
+  biasTradePlan: {
+    status: "INFO_ONLY",
+    source: "computed",
+    note: "Bias derived from available data (F&O readiness, session state); not a trading recommendation",
+  },
+  // Post-market
+  indexPerformance: {
+    status: "AVAILABLE",
+    source: "kite",
+    note: "Today OHLCV from Kite historical data — available if session active",
+  },
+  marketBreadth: {
+    status: "SOURCE_NOT_INTEGRATED",
+    source: null,
+    note: "NSE advance/decline, 52-week high/low not tracked — no integration",
+  },
+  optionChainEod: {
+    status: "AVAILABLE",
+    source: "kite",
+    note: "EOD OI change, PCR shift, max pain shift from option chain snapshots",
+  },
+  levelValidation: {
+    status: "SOURCE_NOT_INTEGRATED",
+    source: null,
+    note: "CPR/VWAP validation requires intraday VWAP tracking — not implemented",
+  },
+  sectorMoves: {
+    status: "INFO_ONLY",
+    source: "scanner",
+    note: "Scanner sector data — info-only, not trade-grade",
+  },
+  newsRecap: {
+    status: "SOURCE_NOT_INTEGRATED",
+    source: null,
+    note: "News recap requires a news provider — not integrated",
+  },
+  globalStatusCheck: {
+    status: "INFO_ONLY",
+    source: "yahoo-finance",
+    note: "US futures / European closing data via Yahoo Finance — delayed, not trade-grade",
+  },
+  tradeJournal: {
+    status: "AVAILABLE",
+    source: "db",
+    note: "Paper trade daily summary from DB — F&O paper trade outcomes for the session",
+  },
+  tomorrowSetup: {
+    status: "INFO_ONLY",
+    source: "computed",
+    note: "Preliminary setup derived from available data; not a trading recommendation",
+  },
+};
 
 // ── Pre-market data interfaces ────────────────────────────────────────────────
 
@@ -180,11 +417,10 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
       lines.push("Signal cycle: ❌ NOT READY — Kite session missing");
     } else {
       lines.push("Signal cycle: ⚠ NOT READY — daily bars unavailable");
-      lines.push("Note: Kite session is active. F&O daily bars may still be loading.");
       lines.push("Action: Check /fno-diagnostics");
     }
   } else {
-    lines.push("Daily bars: Unavailable — no F&O cycle has run since server start");
+    lines.push("Daily bars: Unavailable — not tracked yet");
     lines.push("Signal cycle: Unavailable — not tracked yet");
   }
 
@@ -218,18 +454,22 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
   } else {
     lines.push("Last swing alert: None");
   }
-  lines.push("Broker execution: DISABLED");
 
   lines.push("");
+  lines.push("── DATA COVERAGE ──");
+  lines.push("Global cues: Unavailable — data source not integrated yet");
+  lines.push("GIFT Nifty: Unavailable — data source not integrated yet");
+  lines.push("FII/DII cash: Info-only (NSE archive) — see /flows page");
+  lines.push("Participant OI: Info-only (NSE archive) — see /flows page");
+  lines.push("India VIX: Unavailable — data source not integrated yet");
+  lines.push("Key levels / CPR: Available (Kite) — see /premarket page");
+  lines.push("Option chain analytics: Available (Kite) — see /option-chain");
+  lines.push("News & events: Unavailable — data source not integrated yet");
+
+  lines.push("");
+  lines.push("Broker execution: DISABLED");
   lines.push("Source: Kite session + in-process state. Not a trading recommendation.");
   return lines.join("\n");
-}
-
-function minsAgoLabel(mins: number): string {
-  if (mins < 60) return `${mins}m ago`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m > 0 ? `${h}h ${m}m ago` : `${h}h ago`;
 }
 
 // ── Post-market data interfaces ───────────────────────────────────────────────
@@ -325,19 +565,32 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
   }
 
   lines.push("");
+  lines.push("── DATA COVERAGE ──");
+  lines.push("Index performance: Available (Kite) — see /premarket page");
+  lines.push("Market breadth (adv/dec): Unavailable — data source not integrated yet");
+  lines.push("FII/DII cash flows: Info-only (NSE archive) — see /flows page");
+  lines.push("Option chain EOD change: Available (Kite) — see /option-chain");
+  lines.push("Level validation (CPR/VWAP): Unavailable — data source not integrated yet");
+  lines.push("Sector moves: Info-only (scanner) — see /sectors page");
+  lines.push("News recap: Unavailable — data source not integrated yet");
+  lines.push("Global status check: Info-only (Yahoo Finance delayed)");
+
+  lines.push("");
   lines.push("Broker execution: DISABLED — no real orders placed.");
   lines.push("Source: DB paper trade records + in-process state.");
   return lines.join("\n");
 }
 
-// ── Last report records (no secrets, safe for /alerts/status) ────────────────
+// ── Last report records (no secrets, safe for status endpoints) ───────────────
 
 export interface DailyReportRecord {
   istDate: string;
   sentAt: number;
   type: "pre-market" | "post-market";
   isManualTest: boolean;
-  telegramStatus: "SENT" | "STUB_NO_CONFIG" | "SEND_FAILED" | "DISPATCHED";
+  telegramStatus: string;
+  telegramDestination: "prepost";
+  prepostConfigStatus: string;
 }
 
 let lastPreMarketRecord: DailyReportRecord | null = null;
@@ -351,13 +604,53 @@ export function getLastPostMarketReportRecord(): DailyReportRecord | null {
   return lastPostMarketRecord ? { ...lastPostMarketRecord } : null;
 }
 
+// ── Report history (DB query — no secrets) ────────────────────────────────────
+
+export interface ReportRunRow {
+  reportType: string;
+  istDate: string;
+  status: string;
+  workerId: string | null;
+  startedAt: string;
+  sentAt: string | null;
+  telegramStatus: string | null;
+  errorCode: string | null;
+  createdAt: string;
+}
+
+export async function getReportHistory(limit = 30): Promise<ReportRunRow[]> {
+  try {
+    const result = (await db.execute(sql`
+      SELECT report_type, ist_date, status, worker_id, started_at, sent_at,
+             telegram_status, error_code, created_at
+      FROM daily_report_runs
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `)) as unknown as { rows: Array<Record<string, unknown>> };
+    return result.rows.map(r => ({
+      reportType: String(r["report_type"] ?? ""),
+      istDate: String(r["ist_date"] ?? ""),
+      status: String(r["status"] ?? ""),
+      workerId: r["worker_id"] != null ? String(r["worker_id"]) : null,
+      startedAt: String(r["started_at"] ?? ""),
+      sentAt: r["sent_at"] != null ? String(r["sent_at"]) : null,
+      telegramStatus: r["telegram_status"] != null ? String(r["telegram_status"]) : null,
+      errorCode: r["error_code"] != null ? String(r["error_code"]) : null,
+      createdAt: String(r["created_at"] ?? ""),
+    }));
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "dailyReports: failed to query report history — table may not exist yet");
+    return [];
+  }
+}
+
 // ── Data gatherers (async, fail-open per section) ─────────────────────────────
 
 export async function gatherPreMarketData(
   nowMs: number = Date.now(),
   isManualTest = false,
 ): Promise<PreMarketReportData> {
-  const { date, datetimeStr, dayOfWeek } = istInfo(nowMs);
+  const { datetimeStr, dayOfWeek } = istInfo(nowMs);
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
   let kite: PreMarketKite;
@@ -403,12 +696,9 @@ export async function gatherPreMarketData(
         suppressed: isSuppressed,
         suppressedSummary: cycle.suppressedSummary ?? "",
       };
-    } else {
-      fno = null;
     }
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPreMarketData fno section failed");
-    fno = null;
   }
 
   let swing: PreMarketSwing | null = null;
@@ -441,7 +731,6 @@ export async function gatherPreMarketData(
     swing = { pending, approvalRequired, approved, expired };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPreMarketData swing section failed");
-    swing = null;
   }
 
   const dataAlert = getLastAlertRecord();
@@ -478,7 +767,6 @@ export async function gatherPostMarketData(
     };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData fno section failed");
-    fno = null;
   }
 
   let swing: PostMarketSwing | null = null;
@@ -502,7 +790,6 @@ export async function gatherPostMarketData(
     };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData swing section failed");
-    swing = null;
   }
 
   const dataAlert = getLastAlertRecord();
@@ -519,43 +806,126 @@ export async function gatherPostMarketData(
   return { isManualTest, istDate: date, isWeekend, fno, swing, alerts };
 }
 
-// ── Send helpers (gather + build + alertOwnerRaw) ─────────────────────────────
+// ── Send helpers (gather + build + PREPOST bot send + DB dedup) ───────────────
 
+export type ReportSendResult = "SENT" | "DEDUP_SKIPPED" | "SEND_FAILED" | "CONFIG_MISSING" | "DISPATCHED";
+
+function toReportSendResult(sendResult: string): ReportSendResult {
+  if (sendResult === "SENT") return "SENT";
+  if (sendResult.startsWith("PREPOST_TELEGRAM_DISABLED")) return "CONFIG_MISSING";
+  return "SEND_FAILED";
+}
+
+/**
+ * Gather data, build the pre-market report, send to PREPOST Telegram bot.
+ *
+ * @param isManualTest  If true, bypasses DB dedup (manual test still rate-limited by route).
+ * @returns "SENT" | "DEDUP_SKIPPED" | "SEND_FAILED" | "CONFIG_MISSING"
+ */
 export async function sendPreMarketReport(
   nowMs: number = Date.now(),
   isManualTest = false,
-): Promise<void> {
+): Promise<ReportSendResult> {
   const data = await gatherPreMarketData(nowMs, isManualTest);
   const text = buildPreMarketReport(data);
   const { date: istDate } = istInfo(nowMs);
-  const dedupKey = `PRE_MARKET_REPORT::${istDate}`;
-  alertOwnerRaw(dedupKey, `Pre-market readiness report (${data.istDatetime})`, text, 22 * 60 * 60_000);
+
+  if (!isManualTest) {
+    const claimed = await tryClaimScheduledReport("PRE_MARKET", istDate);
+    if (!claimed) {
+      logger.info(
+        { istDate, worker: WORKER_ID },
+        "dailyReports: pre-market report already claimed by another worker — skipping",
+      );
+      return "DEDUP_SKIPPED";
+    }
+  }
+
+  const sendResult = await sendPrePostTelegramMessage(text);
+  const result = toReportSendResult(sendResult);
+
+  if (!isManualTest) {
+    await updateReportRunStatus(
+      "PRE_MARKET",
+      istDate,
+      result === "SENT" ? "SENT" : "FAILED",
+      sendResult,
+      result !== "SENT" ? sendResult : null,
+    );
+  }
+
+  const prepostStatus = getPrePostTelegramStatus();
   lastPreMarketRecord = {
     istDate,
     sentAt: nowMs,
     type: "pre-market",
     isManualTest,
-    telegramStatus: "DISPATCHED",
+    telegramStatus: sendResult,
+    telegramDestination: "prepost",
+    prepostConfigStatus: prepostStatus.status,
   };
-  logger.info({ istDatetime: data.istDatetime, isManualTest }, "dailyReports: pre-market report sent");
+
+  logger.info(
+    { istDatetime: data.istDatetime, isManualTest, telegramStatus: sendResult, telegramDestination: "prepost" },
+    "dailyReports: pre-market report sent",
+  );
+  return result;
 }
 
+/**
+ * Gather data, build the post-market report, send to PREPOST Telegram bot.
+ *
+ * @param isManualTest  If true, bypasses DB dedup (manual test still rate-limited by route).
+ * @returns "SENT" | "DEDUP_SKIPPED" | "SEND_FAILED" | "CONFIG_MISSING"
+ */
 export async function sendPostMarketReport(
   nowMs: number = Date.now(),
   isManualTest = false,
-): Promise<void> {
+): Promise<ReportSendResult> {
   const data = await gatherPostMarketData(nowMs, isManualTest);
   const text = buildPostMarketReport(data);
-  const dedupKey = `POST_MARKET_REPORT::${data.istDate}`;
-  alertOwnerRaw(dedupKey, `Post-market summary (${data.istDate})`, text, 22 * 60 * 60_000);
+  const istDate = data.istDate;
+
+  if (!isManualTest) {
+    const claimed = await tryClaimScheduledReport("POST_MARKET", istDate);
+    if (!claimed) {
+      logger.info(
+        { istDate, worker: WORKER_ID },
+        "dailyReports: post-market report already claimed by another worker — skipping",
+      );
+      return "DEDUP_SKIPPED";
+    }
+  }
+
+  const sendResult = await sendPrePostTelegramMessage(text);
+  const result = toReportSendResult(sendResult);
+
+  if (!isManualTest) {
+    await updateReportRunStatus(
+      "POST_MARKET",
+      istDate,
+      result === "SENT" ? "SENT" : "FAILED",
+      sendResult,
+      result !== "SENT" ? sendResult : null,
+    );
+  }
+
+  const prepostStatus = getPrePostTelegramStatus();
   lastPostMarketRecord = {
-    istDate: data.istDate,
+    istDate,
     sentAt: nowMs,
     type: "post-market",
     isManualTest,
-    telegramStatus: "DISPATCHED",
+    telegramStatus: sendResult,
+    telegramDestination: "prepost",
+    prepostConfigStatus: prepostStatus.status,
   };
-  logger.info({ istDate: data.istDate, isManualTest }, "dailyReports: post-market report sent");
+
+  logger.info(
+    { istDate, isManualTest, telegramStatus: sendResult, telegramDestination: "prepost" },
+    "dailyReports: post-market report sent",
+  );
+  return result;
 }
 
 // ── Scheduler latches (60s tick, same pattern as paperDailySummaryFo.ts) ──────
@@ -568,10 +938,14 @@ export async function maybeRunPreMarketReport(): Promise<void> {
   const { date, minOfDay, dayOfWeek } = istInfo();
   if (dayOfWeek === 0 || dayOfWeek === 6) return;
   if (minOfDay < PRE_MARKET_START_MIN || minOfDay >= PRE_MARKET_START_MIN + PRE_MARKET_WINDOW_MIN) return;
-  if (lastPreMarketReportDate === date) return;
+  if (lastPreMarketReportDate === date) return; // fast in-memory dedup
   try {
-    await sendPreMarketReport(Date.now(), false);
-    lastPreMarketReportDate = date;
+    const result = await sendPreMarketReport(Date.now(), false);
+    // Set latch regardless — SENT, DEDUP_SKIPPED, or even CONFIG_MISSING all mean
+    // this date's window is done for this worker. Only retry on actual send failure.
+    if (result !== "SEND_FAILED") {
+      lastPreMarketReportDate = date;
+    }
   } catch (err) {
     logger.warn({ err: (err as Error).message, date }, "dailyReports: pre-market report failed — will retry next tick");
   }
@@ -585,16 +959,20 @@ export async function maybeRunPostMarketReport(): Promise<void> {
   const { date, minOfDay, dayOfWeek } = istInfo();
   if (dayOfWeek === 0 || dayOfWeek === 6) return;
   if (minOfDay < POST_MARKET_START_MIN || minOfDay >= POST_MARKET_START_MIN + POST_MARKET_WINDOW_MIN) return;
-  if (lastPostMarketReportDate === date) return;
+  if (lastPostMarketReportDate === date) return; // fast in-memory dedup
   try {
-    await sendPostMarketReport(Date.now(), false);
-    lastPostMarketReportDate = date;
+    const result = await sendPostMarketReport(Date.now(), false);
+    if (result !== "SEND_FAILED") {
+      lastPostMarketReportDate = date;
+    }
   } catch (err) {
     logger.warn({ err: (err as Error).message, date }, "dailyReports: post-market report failed — will retry next tick");
   }
 }
 
-// ── Module-load side-effect: install 60s tick ─────────────────────────────────
+// ── Module-load side-effect: ensure table + install 60s tick ─────────────────
+
+void ensureDailyReportRunsTable().catch(() => undefined);
 
 const REPORT_TICK_MS = 60_000;
 setInterval(() => {

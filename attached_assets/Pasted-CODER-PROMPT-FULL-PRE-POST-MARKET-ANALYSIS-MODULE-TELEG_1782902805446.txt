@@ -1,0 +1,1000 @@
+CODER PROMPT — FULL PRE/POST MARKET ANALYSIS MODULE: TELEGRAM BOT + WEBSITE TAB + ISTDATE FIX + MULTI-WORKER DEDUP
+
+We are finalizing and expanding the Daily Pre-Market and Post-Market Analysis feature.
+
+Important: This is no longer only a small readiness report.
+
+The user has provided a required structure for professional daily market analysis covering:
+
+PRE-MARKET:
+
+Overnight global cues
+GIFT Nifty / SGX Nifty
+FII / DII activity
+Participant-wise open interest
+India VIX
+Key levels for Nifty, Bank Nifty, Sensex
+Option-chain support/resistance
+Max Pain
+PCR
+Expected range
+News and events
+Expiry / rollover
+Bias and trade plan
+
+POST-MARKET:
+
+Index performance
+Market breadth
+FII / DII activity
+Participant-wise OI change
+Option-chain end-of-day change
+Level validation
+Sector and stock moves
+News recap
+Global status check
+Tomorrow setup
+Trade journal tie-in
+
+These sections must be supported in:
+
+Telegram reports sent to the new Pre/Post analysis bot.
+Website Pre/Post Analysis tab.
+Backend report builder/schema.
+API endpoints.
+Source-honesty/freshness logic.
+
+Do not fake data. If a data point is not currently available in the app, show:
+
+Unavailable — not tracked yet
+
+or:
+
+Unavailable — data source not integrated yet
+
+Do not estimate or invent.
+
+Current implemented status:
+
+Daily pre-market report exists.
+Daily post-market report exists.
+Manual endpoints are working in production.
+Telegram delivery was confirmed.
+Auth gate works.
+Rate limit works.
+No paper trade or real order is created.
+Broker execution remains disabled.
+Source honesty is partly implemented.
+Scheduler fired live once for post-market report.
+istDate fix is committed in workspace but not yet deployed.
+A new Telegram bot has been created for daily analysis.
+
+New bot purpose:
+
+Pre and Post analysis
+
+New Replit Secrets:
+
+PREPOST_TELEGRAM_BOT_TOKEN
+PREPOST_TELEGRAM_CHAT_ID
+
+Existing Telegram bot must continue receiving:
+
+F&O data/session alerts
+F&O tradeable signal alerts
+Swing staged-order alerts
+urgent operational alerts
+
+New Pre/Post bot must receive only:
+
+daily pre-market analysis
+daily post-market analysis
+future daily market analysis reports
+
+Important live finding:
+
+Production had multiple workers:
+
+pid=19 sent post-market report successfully.
+pid=22 also attempted the same report around 50 seconds later.
+pid=22 timed out, so duplicate Telegram message was not delivered that time.
+This proves multi-worker duplicate risk exists.
+Current in-memory dedup is not enough for autoscale/multi-worker production.
+
+Do not add unrelated features.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change signal thresholds.
+
+Do not change risk guards.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not create real broker orders.
+
+Do not mutate trading state except safe report-status/dedup metadata if required.
+
+Do not silently use Yahoo/stale/proxy data as trade-grade.
+
+Do not expose Telegram secrets.
+
+Do not trim or rewrite replit.md.
+
+Build a professional Pre/Post Market Analysis module with:
+
+Correct istDate fix deployed and verified.
+Dedicated Pre/Post Telegram bot routing.
+Existing urgent alerts still routed to original bot.
+Multi-worker duplicate scheduled report protection.
+Full pre-market analysis schema.
+Full post-market analysis schema.
+Website Pre/Post Analysis tab.
+API endpoints for latest report, history, manual generation, and status.
+Source/freshness/provenance for every data section.
+Missing data shown honestly.
+No trading state mutation.
+Broker execution disabled.
+
+Before coding, read:
+
+AGENT.md
+docs/llm-index/AGENT_START_HERE.md
+docs/llm-index/CRITICAL_FLOWS.md
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+docs/llm-index/API_ROUTES_INDEX.md
+docs/llm-index/DATABASE_INDEX.md
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+
+Use the index to identify exact files for:
+
+Telegram alert utility
+daily report builder
+alert/report routing
+scheduler
+alert status endpoint
+F&O data health
+option chain
+scanner
+market pulse
+indices
+portfolio if used
+website routing/navigation
+UI tab components
+database/dedup infrastructure
+tests
+
+Report which index files guided the work.
+
+Verify current workspace and production state.
+
+Report:
+
+workspace commit/hash
+production commit/hash if available
+production PID / boot timestamp
+whether istDate fix is in workspace
+whether production still shows malformed lastPreMarketReport.istDate
+whether Pre/Post bot secrets exist
+whether daily reports currently use old default bot
+whether scheduled reports currently have multi-worker duplicate risk
+what daily report fields already exist
+which required fields are missing
+
+Expected known issues:
+
+workspace has istDate fix
+production may still show 01 Jul 202
+daily reports likely still use default Telegram bot
+report content is too basic versus required professional analysis
+website Pre/Post tab may not exist or may not contain the required analysis sections
+multi-worker duplicate risk exists
+
+Implement two Telegram destinations.
+
+Default urgent bot:
+
+Secrets:
+
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+
+Used for:
+
+F&O data/session alerts
+F&O tradeable signal alerts
+Swing staged-order alerts
+urgent operational alerts
+Pre/Post analysis bot:
+
+Secrets:
+
+PREPOST_TELEGRAM_BOT_TOKEN
+PREPOST_TELEGRAM_CHAT_ID
+
+Used only for:
+
+pre-market analysis
+post-market analysis
+future daily market analysis reports
+
+Rules:
+
+do not silently send daily reports to the urgent/default bot if Pre/Post bot config is missing
+if Pre/Post bot config is missing, return clear config-missing status
+no token/chat id may be returned or logged
+only config status may be shown
+
+Statuses:
+
+PREPOST_TELEGRAM_ENABLED
+PREPOST_TELEGRAM_DISABLED_MISSING_TOKEN
+PREPOST_TELEGRAM_DISABLED_MISSING_CHAT_ID
+PREPOST_TELEGRAM_DISABLED_MISSING_CONFIG
+
+Manual endpoint responses must include:
+
+sent
+telegramDestination: "prepost"
+prepostTelegramStatus
+paperTradeCreated: false
+realOrderPlaced: false
+brokerExecution: "DISABLED"
+
+Build/extend the pre-market report builder to support the following sections exactly.
+
+The Telegram version may be concise, but the website/API version must preserve full section structure.
+
+OVERNIGHT GLOBAL CUES
+
+Include:
+
+US markets closing levels and % change:
+Dow
+S&P 500
+Nasdaq
+Key US market drivers
+Asian markets:
+Nikkei
+Hang Seng
+Shanghai Composite
+Kospi
+Taiwan
+European markets previous close:
+FTSE
+DAX
+CAC
+US 10Y Treasury yield
+Dollar Index / DXY
+Crude oil:
+Brent
+WTI
+Overnight geopolitical/macro trigger
+
+If unavailable, show source-honest unavailable status.
+
+GIFT NIFTY / SGX NIFTY
+
+Include:
+
+current GIFT Nifty level
+Nifty previous close
+implied gap-up/gap-down in points
+implied gap-up/gap-down in %
+overnight GIFT Nifty range if available
+FII / DII ACTIVITY — PREVIOUS SESSION
+
+Include:
+
+cash market FII net buy/sell in ₹ crore
+cash market DII net buy/sell in ₹ crore
+F&O FII index futures net position change
+index futures long/short contracts if available
+index futures value in ₹ crore if available
+FII index options net premium bought/sold
+calls vs puts if available
+net FII long-short ratio in index futures
+PARTICIPANT-WISE OPEN INTEREST — DAILY CHANGE
+
+Include:
+
+FII index futures OI:
+long %
+short %
+net change vs prior day
+DII index futures OI
+Pro index futures OI
+Client index futures OI
+Index options calls/puts breakdown if data allows
+Stock futures aggregate OI trend
+interpretation:
+who is adding
+who is unwinding
+what it implies for bias
+INDIA VIX
+
+Include:
+
+current VIX level
+previous close
+% change
+interpretation:
+complacency
+fear building
+normal volatility
+volatility expansion/contraction
+KEY LEVELS — PRICE ACTION + OPTION CHAIN
+
+For each index:
+
+Nifty
+Bank Nifty
+Sensex
+
+Include:
+
+previous day Open
+previous day High
+previous day Low
+previous day Close
+CPR:
+TC
+Pivot
+BC
+standard pivot levels:
+S1/S2/S3
+R1/R2/R3
+price-action supports:
+S1
+S2
+S3
+price-action resistances / targets:
+T1
+T2
+T3
+option-chain support:
+highest Put OI strikes S1/S2/S3
+option-chain resistance:
+highest Call OI strikes T1/T2/T3
+Max Pain
+OI-based PCR
+volume-based PCR
+major OI concentration shift vs previous day
+EXPECTED RANGE FOR THE DAY
+
+Include:
+
+ATM straddle premium implied range
+India VIX implied 1-day move using VIX / sqrt(252)
+ATR(14)-based expected range
+final consolidated range estimate
+rationale for final range
+NEWS & EVENTS
+
+Include:
+
+Domestic:
+
+RBI/government policy
+CPI
+IIP
+PMI
+GST collections
+trade data
+major corporate earnings/events
+results calendar
+board meetings
+corporate actions
+bulk/block deals
+
+Global:
+
+Fed/ECB commentary
+central bank events
+US jobs
+US CPI
+FOMC
+geopolitical developments
+
+Sector triggers:
+
+banking
+IT
+auto
+pharma
+metals
+energy
+
+If no news source is integrated, say unavailable.
+
+EXPIRY / ROLLOVER CHECK
+
+Include:
+
+whether today is weekly/monthly expiry for:
+Nifty
+Bank Nifty
+Sensex
+rollover % if near monthly expiry
+cost of carry if available
+unusual OI buildup at expiry strikes
+BIAS & TRADE PLAN
+
+Include:
+
+overall bias:
+bullish
+bearish
+range-bound
+no-trade/data unavailable
+2–3 line rationale combining:
+global cues
+OI positioning
+option data
+price levels
+key trigger levels:
+above X = bullish
+below Y = bearish
+opening range strategy:
+gap-up handling
+gap-down handling
+flat open handling
+risk flags:
+event risk
+low liquidity
+holiday-adjacent session
+expiry risk
+data-quality risk
+
+Build/extend the post-market report builder to support the following sections exactly.
+
+Telegram version can be concise, but website/API version must preserve full structure.
+
+INDEX PERFORMANCE
+
+Include:
+
+Nifty close, points change, % change
+Bank Nifty close, points change, % change
+Sensex close, points change, % change
+Nifty Midcap 100 close/change
+Nifty Bank vs Nifty Financial Services comparison
+day Open/High/Low/Close
+close location:
+near high
+near low
+mid-range
+candle structure:
+doji
+bullish engulfing
+bearish engulfing
+long upper wick
+long lower wick
+inside bar
+outside bar
+trend candle
+tomorrow implication
+MARKET BREADTH
+
+Include:
+
+NSE advance/decline ratio
+BSE advance/decline ratio
+new 52-week highs
+new 52-week lows
+% stocks above:
+20 DMA
+50 DMA
+200 DMA
+sectoral breadth:
+leading sectors
+lagging sectors
+FII / DII ACTIVITY — TODAY PROVISIONAL
+
+Include:
+
+FII cash net buy/sell ₹ crore
+DII cash net buy/sell ₹ crore
+FII index futures net change:
+long
+short
+₹ crore if available
+FII index options net premium flow:
+calls
+puts
+net long-short ratio change vs pre-market read
+PARTICIPANT-WISE OI CHANGE — END OF DAY
+
+Include:
+
+FII net OI change in index futures
+DII net OI change in index futures
+Pro net OI change
+Client net OI change
+Index options calls/puts OI change
+classification:
+long buildup
+short buildup
+long unwinding
+short covering
+stock futures aggregate OI trend
+OPTION CHAIN — END OF DAY CHANGE
+
+For each index:
+
+Nifty
+Bank Nifty
+Sensex
+
+Include:
+
+top 3–5 call OI addition strikes
+top 3–5 call OI unwinding strikes
+top 3–5 put OI addition strikes
+top 3–5 put OI unwinding strikes
+PCR shift:
+open
+close
+Max Pain shift vs pre-market
+new support zones for tomorrow:
+S1
+S2
+S3
+new resistance/target zones:
+T1
+T2
+T3
+India VIX close vs open
+VIX implication
+LEVEL VALIDATION
+
+Include:
+
+did pre-market S1/S2/S3 hold, break, or retest?
+did T1/T2/T3 hold, break, or retest?
+CPR respected or violated
+pivot respected or violated
+VWAP behavior:
+trend day
+mean reversion day
+VWAP reclaim
+VWAP rejection
+tomorrow playbook note
+SECTOR & STOCK MOVES
+
+Include:
+
+top gaining sectors
+top losing sectors
+key drivers
+top gainers by %
+top losers by %
+top gainers/losers by value, if available
+volume shockers
+unusual activity
+index-moving stock-specific news
+NEWS RECAP
+
+Include:
+
+what actually drove today’s session
+whether pre-market thesis was confirmed/refuted
+surprise data releases
+RBI/government commentary
+global shocks
+corporate results announced post-market
+likely next-day impact
+GLOBAL STATUS CHECK — LIVE AS OF NOW
+
+Include:
+
+European markets currently trading
+US futures
+GIFT Nifty after-hours trend, if available
+crude/DXY/yield update if available
+TOMORROW SETUP
+
+Include:
+
+domestic events tomorrow
+global events tomorrow
+expiry/rollover note
+preliminary tomorrow bias
+watchlist levels carried forward
+key support/resistance for tomorrow
+TRADE JOURNAL TIE-IN
+
+Include:
+
+did actual price action match pre-market bias?
+where did plan work?
+where did plan fail?
+data-driven reason
+one-line discipline note:
+position sizing
+no-trade trigger
+emotional flag
+overtrading flag
+loss-control reminder
+
+Create or upgrade the website tab:
+
+Suggested tab name:
+
+Pre/Post Analysis
+
+This tab must show:
+
+Top summary cards:
+Today’s report status
+Pre-market report generated time
+Post-market report generated time
+Telegram delivery status
+Pre/Post bot status
+Data quality status
+Scheduler status
+Pre-Market Analysis panel:
+
+Use all pre-market sections from Part D.
+
+Each section must show:
+
+value
+source
+as-of time
+freshness status
+unavailable status if missing
+Post-Market Analysis panel:
+
+Use all post-market sections from Part E.
+
+Each section must show:
+
+value
+source
+as-of time
+freshness status
+unavailable status if missing
+Manual controls:
+
+Owner-only if auth exists:
+
+Generate pre-market report now
+Send pre-market report to Pre/Post bot
+Generate post-market report now
+Send post-market report to Pre/Post bot
+Refresh data
+View last Telegram status
+Report history:
+
+Show latest reports by date:
+
+report type
+generated at
+sent at
+Telegram status
+data-quality status
+view details
+Data coverage matrix:
+
+Show which data is available or missing:
+
+global cues
+GIFT Nifty
+FII/DII cash
+FII/DII F&O
+participant OI
+VIX
+option chain
+max pain
+PCR
+straddle range
+ATR range
+news/events
+sector breadth
+market breadth
+trade journal
+
+Status values:
+
+AVAILABLE
+STALE
+UNAVAILABLE
+SOURCE_NOT_INTEGRATED
+INFO_ONLY
+TRADE_GRADE
+
+Do not show missing data as zero.
+
+Add or update API endpoints.
+
+Suggested endpoints:
+
+GET /api/daily-analysis/status
+GET /api/daily-analysis/pre-market/latest
+GET /api/daily-analysis/post-market/latest
+GET /api/daily-analysis/history
+POST /api/daily-analysis/generate-pre-market
+POST /api/daily-analysis/generate-post-market
+POST /api/alerts/test-pre-market-report
+POST /api/alerts/test-post-market-report
+
+Owner-only for generation/send endpoints.
+
+Public/auth behavior should match existing app security design.
+
+Each response must include:
+
+report type
+IST date
+generated at
+source coverage
+unavailable fields
+Telegram destination
+Telegram status
+no secrets
+
+Map each required data point to current app source.
+
+For each item, classify:
+
+currently available
+partially available
+unavailable
+requires new provider/API
+unsafe for trade-grade
+info-only
+
+Do not integrate expensive new providers in this task unless already available.
+
+Create a report/constant like:
+
+dailyAnalysisDataCoverage
+
+It should list all sections and source status.
+
+Examples:
+
+Kite index OHLC: available if existing candles/history exist
+Option chain: available if Kite trusted option-chain available
+VIX: available only if trusted source exists, otherwise unavailable
+FII/DII: available only if current app stores it, otherwise unavailable
+Participant OI: unavailable until integrated
+Global cues: info-only if current global service is proxy/Yahoo
+News/events: unavailable unless provider exists
+Corporate actions: unavailable unless IndianAPI/other provider is integrated
+
+Ensure:
+
+"lastPreMarketReport": {
+  "istDate": "YYYY-MM-DD"
+}
+
+and:
+
+"lastPostMarketReport": {
+  "istDate": "YYYY-MM-DD"
+}
+
+Expected:
+
+2026-07-01
+not 01 Jul 202
+
+Use ISO date from IST utility, not sliced human-readable text.
+
+Current limitation:
+
+in-memory latch/dedup works only per process
+autoscale can run multiple workers
+today pid=19 and pid=22 both attempted post-market report
+this can duplicate reports in future
+
+Implement durable scheduled-report dedup.
+
+Preferred solution:
+
+DB-backed report send lock/table or existing durable store.
+
+Example table:
+
+daily_report_runs
+
+Fields:
+
+id
+report_type
+ist_date
+status
+worker_id
+started_at
+sent_at
+telegram_status
+error_code
+created_at
+updated_at
+
+Unique key:
+
+(report_type, ist_date)
+
+Rules:
+
+Before scheduled send, acquire durable lock.
+If another worker already sent or started recently, skip.
+Manual test endpoints may bypass daily lock but must remain rate-limited.
+Failed scheduled send may be retryable only within safe window.
+Do not create duplicate Telegram report from multiple workers.
+Do not mutate trading data.
+Migration must be additive only.
+No destructive DB change.
+
+Preserve:
+
+pre-market window: 08:50–09:10 IST
+post-market window: 15:45–16:15 IST
+weekend skip
+timezone IST
+scheduler does not block shutdown
+scheduler does not run many times per minute
+scheduled report sent once per IST day
+
+Report honestly:
+
+market holiday detection not implemented unless truly present
+autoscale duplicate risk fixed or still pending
+
+Every report and UI section must obey:
+
+Missing metrics say:
+Unavailable — not tracked yet
+or Unavailable — data source not integrated yet
+No fake zero for unavailable data.
+Kite session status and F&O daily bars status are separate.
+Global/pre-market cues are source-labelled.
+Yahoo/proxy/synthetic data is never labelled trade-grade.
+Sample/test data never appears as live market data.
+Report must not say fully ready if F&O daily bars/option-chain are unavailable.
+Telegram report must be concise but honest.
+Website tab can be detailed.
+
+Verify before/after report endpoints:
+
+F&O paper trade count unchanged
+Swing staged order count unchanged
+broker order count unchanged
+no real broker order
+no new paper trade created
+no trading decision changed
+no signal logic changed
+
+Allowed mutation only:
+
+report history
+report status
+report send status
+durable dedup metadata
+
+Add/update tests for:
+
+pre-market report has all required section keys.
+post-market report has all required section keys.
+missing required data is marked unavailable, not zero.
+pre-market report uses Pre/Post bot.
+post-market report uses Pre/Post bot.
+missing Pre/Post token disables daily report send.
+missing Pre/Post chat id disables daily report send.
+urgent F&O alerts still use default bot.
+swing alerts still use default bot.
+endpoint response includes telegramDestination: "prepost".
+no secrets in response/logs.
+istDate is ISO date.
+report endpoints do not create trades/orders.
+scheduled pre-market report dedups across simulated workers.
+scheduled post-market report dedups across simulated workers.
+manual tests are rate-limited separately.
+website data coverage matrix returns correct statuses.
+pre/post tab API returns source/freshness for each section.
+full Telegram message stays concise and does not exceed practical Telegram length.
+report history does not expose secrets.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/dailyReports.test.ts src/lib/alerting.test.ts src/lib/fnoSignalAlerts.test.ts src/lib/swingAlerts.test.ts
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Add new UI/API tests if repo has existing frontend test pattern.
+
+After publish, verify on:
+
+https://marketscannerbydev.in
+
+Pre/Post bot secrets are present.
+POST /api/alerts/test-pre-market-report sends to new Pre/Post bot.
+POST /api/alerts/test-post-market-report sends to new Pre/Post bot.
+Existing urgent test alert still goes to original bot.
+/api/alerts/status shows both Telegram config statuses safely.
+lastPreMarketReport.istDate is ISO date.
+lastPostMarketReport.istDate is ISO date.
+report endpoints are owner-only.
+rate-limit works.
+no trading state is mutated.
+no real order placed.
+scheduled dedup/lock exists and prevents multi-worker duplicates.
+Pre/Post Analysis tab loads.
+Pre/Post Analysis tab shows all required sections.
+Missing sections are marked unavailable/source-not-integrated.
+No fake data is displayed.
+Report history works if implemented.
+Telegram report is concise and source-honest.
+
+Do not wait for next day live scheduler if manual verification proves the lock path. If live scheduler window occurs, verify naturally.
+
+Final report must include:
+
+Index files read.
+Files touched.
+Telegram routing design.
+Default urgent bot status.
+Pre/Post bot status.
+Pre-market report sections implemented.
+Post-market report sections implemented.
+Website Pre/Post tab status.
+API endpoints added/updated.
+Data coverage matrix.
+Which data is available.
+Which data is unavailable/source-not-integrated.
+Pre-market test result.
+Post-market test result.
+Which bot received each message.
+/alerts/status result.
+istDate result.
+Scheduler dedup implementation.
+Multi-worker duplicate risk status.
+Auth/rate-limit result.
+Trading-state safety result.
+Tests run.
+LLM index result.
+Production verification result.
+Remaining blockers.
+Exact next action.
+
+Final verdict must be exactly one:
+
+PREPOST_FULL_ANALYSIS_MODULE_PROD_VERIFIED
+PREPOST_TELEGRAM_ROUTING_PROD_VERIFIED
+PREPOST_ANALYSIS_TAB_PROD_VERIFIED
+DAILY_REPORTS_MULTIWORKER_DEDUP_FIXED
+DAILY_REPORT_ISTDATE_FIX_PROD_VERIFIED
+PREPOST_TELEGRAM_SECRETS_MISSING
+PREPOST_DATA_COVERAGE_PARTIAL_SOURCE_HONEST
+DAILY_REPORTS_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+daily reports use new Pre/Post Telegram bot
+urgent alerts still use default bot
+Pre/Post Analysis website tab exists or is upgraded
+tab includes all required pre-market sections
+tab includes all required post-market sections
+source/freshness/unavailable status is shown
+no fake data is displayed
+no secrets exposed
+report endpoints are owner-only
+report endpoints are rate-limited
+istDate is ISO date
+scheduled report duplicate risk is fixed or explicitly blocked
+no trading state is mutated
+broker execution remains disabled
+tests pass
+LLM index fresh
+production verification confirms correct bot delivery and tab behavior

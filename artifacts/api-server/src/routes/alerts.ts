@@ -12,6 +12,7 @@ import { Router, type IRouter } from "express";
 import { requireOwner } from "../lib/userAuth";
 import {
   getTelegramStatus,
+  getPrePostTelegramStatus,
   getLastAlertRecord,
   sendTestTelegramMessage,
   alertOwnerRaw,
@@ -35,6 +36,7 @@ router.get("/alerts/status", requireOwner, (_req, res, next) => {
   try {
     res.json({
       telegram: getTelegramStatus(),
+      prepostTelegram: getPrePostTelegramStatus(),
       lastAlert: getLastAlertRecord(),
       lastSwingAlert: getLastSwingAlertRecord(),
       lastFnoSignalAlert: getLastFnoSignalAlertRecord(),
@@ -209,15 +211,14 @@ router.post("/alerts/test-pre-market-report", requireOwner, async (_req, res, ne
     }
     lastPreMarketTestSentAt = now;
 
-    await sendPreMarketReport(now, true);
-
-    // Brief wait for background Telegram dispatch.
-    await new Promise(r => setTimeout(r, 600));
+    const result = await sendPreMarketReport(now, true);
 
     res.json({
       sent: true,
+      result,
       type: "pre-market",
       isManualTest: true,
+      telegramDestination: "prepost",
       paperTradeCreated: false,
       realOrderPlaced: false,
       brokerExecution: "DISABLED",
@@ -251,15 +252,14 @@ router.post("/alerts/test-post-market-report", requireOwner, async (_req, res, n
     }
     lastPostMarketTestSentAt = now;
 
-    await sendPostMarketReport(now, true);
-
-    // Brief wait for background Telegram dispatch.
-    await new Promise(r => setTimeout(r, 600));
+    const result = await sendPostMarketReport(now, true);
 
     res.json({
       sent: true,
+      result,
       type: "post-market",
       isManualTest: true,
+      telegramDestination: "prepost",
       paperTradeCreated: false,
       realOrderPlaced: false,
       brokerExecution: "DISABLED",

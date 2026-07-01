@@ -309,3 +309,54 @@ export async function sendTestTelegramMessage(): Promise<{
     configStatus: "TELEGRAM_ENABLED",
   };
 }
+
+// ── Pre/Post Analysis Telegram bot ───────────────────────────────────────────
+// Dedicated bot for daily pre-market and post-market analysis reports.
+// COMPLETELY SEPARATE from the default urgent/operational bot.
+// Default bot: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID → F&O alerts, swing alerts, urgent ops.
+// Pre/Post bot: PREPOST_TELEGRAM_BOT_TOKEN + PREPOST_TELEGRAM_CHAT_ID → daily analysis only.
+
+export type PrePostTelegramConfigStatus =
+  | "PREPOST_TELEGRAM_ENABLED"
+  | "PREPOST_TELEGRAM_DISABLED_MISSING_TOKEN"
+  | "PREPOST_TELEGRAM_DISABLED_MISSING_CHAT_ID"
+  | "PREPOST_TELEGRAM_DISABLED_MISSING_CONFIG";
+
+type PrePostTelegramConfig =
+  | { enabled: false; status: Exclude<PrePostTelegramConfigStatus, "PREPOST_TELEGRAM_ENABLED"> }
+  | { enabled: true; status: "PREPOST_TELEGRAM_ENABLED"; token: string; chatId: string };
+
+/**
+ * Lazy reader for Pre/Post bot config.
+ * NEVER logs or returns token/chatId.
+ */
+function getPrePostTelegramConfig(): PrePostTelegramConfig {
+  const token = process.env["PREPOST_TELEGRAM_BOT_TOKEN"];
+  const chatId = process.env["PREPOST_TELEGRAM_CHAT_ID"];
+  if (!token && !chatId) return { enabled: false, status: "PREPOST_TELEGRAM_DISABLED_MISSING_CONFIG" };
+  if (!token) return { enabled: false, status: "PREPOST_TELEGRAM_DISABLED_MISSING_TOKEN" };
+  if (!chatId) return { enabled: false, status: "PREPOST_TELEGRAM_DISABLED_MISSING_CHAT_ID" };
+  return { enabled: true, status: "PREPOST_TELEGRAM_ENABLED", token, chatId };
+}
+
+/** Returns Pre/Post Telegram config status — safe to expose publicly (no secrets). */
+export function getPrePostTelegramStatus(): { enabled: boolean; status: PrePostTelegramConfigStatus } {
+  const cfg = getPrePostTelegramConfig();
+  return { enabled: cfg.enabled, status: cfg.status };
+}
+
+/**
+ * Send a message to the dedicated Pre/Post Analysis Telegram bot.
+ * NEVER falls back to the default urgent/operational bot.
+ * If Pre/Post bot config is missing: returns the missing-config status string.
+ * Never throws.
+ */
+export async function sendPrePostTelegramMessage(text: string): Promise<string> {
+  const cfg = getPrePostTelegramConfig();
+  if (!cfg.enabled) return cfg.status;
+  try {
+    return await doSendTelegramMessage(cfg.token, cfg.chatId, text);
+  } catch {
+    return "UNEXPECTED_ERROR";
+  }
+}

@@ -1,0 +1,408 @@
+CODER PROMPT — DAILY REPORTS FINALIZATION: ISTDATE FIX, PRE/POST BOT ROUTING, AND MULTI-WORKER DEDUP
+
+We are finalizing the Daily Pre-Market and Post-Market Telegram Reports.
+
+Current status:
+
+Daily pre-market report is implemented.
+Daily post-market report is implemented.
+Manual endpoints are working in production.
+Telegram delivery was confirmed.
+Auth gate works.
+Rate limit works.
+No paper trade or real order is created.
+Broker execution remains disabled.
+Source honesty is mostly correct.
+Scheduler fired live once for the post-market report.
+istDate fix is committed in workspace but not yet deployed.
+A new separate Telegram bot has been created for daily market analysis reports.
+
+New bot purpose:
+
+Pre and Post analysis
+
+New Replit Secrets:
+
+PREPOST_TELEGRAM_BOT_TOKEN
+PREPOST_TELEGRAM_CHAT_ID
+
+Existing Telegram bot must continue receiving:
+
+F&O data/session alerts
+F&O tradeable signal alerts
+Swing staged-order alerts
+urgent operational alerts
+
+New Pre/Post bot must receive only:
+
+daily pre-market readiness report
+daily post-market summary report
+future daily market analysis reports
+
+Important live finding:
+
+The post-market scheduler fired in production. However, production had multiple workers:
+
+pid=19 sent the post-market report successfully.
+pid=22 also attempted the same report around 50 seconds later.
+pid=22 Telegram delivery timed out, so duplicate was not delivered this time.
+This proves multi-worker duplicate risk exists.
+Current in-memory dedup is not enough for autoscale/multi-worker production.
+
+This task must finalize daily reports professionally.
+
+Do not add unrelated features.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state except safe report-status/dedup metadata if required.
+
+Do not expose Telegram secrets.
+
+Do not trim or rewrite replit.md.
+
+Complete Daily Reports production readiness by implementing and verifying:
+
+istDate fix is deployed and production verified.
+Pre-market and post-market reports go to the new Pre/Post analysis Telegram bot.
+Urgent/trade alerts continue going to the original Telegram bot.
+Multi-worker duplicate scheduled report risk is controlled.
+Manual report endpoints remain owner-only and rate-limited.
+Reports remain source-honest.
+No trading state is mutated.
+Broker execution remains disabled.
+
+Before coding, read:
+
+AGENT.md
+docs/llm-index/AGENT_START_HERE.md
+docs/llm-index/CRITICAL_FLOWS.md
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+docs/llm-index/API_ROUTES_INDEX.md
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+
+Use the index to identify exact files for:
+
+Telegram alert utility
+daily reports builder
+alert/report routing
+scheduler
+alert status endpoint
+tests
+DB/dedup infrastructure if needed
+
+Report which index files guided the work.
+
+Verify current workspace and production state.
+
+Report:
+
+current workspace commit/hash
+production commit/hash if available
+production PID / boot timestamp
+whether istDate fix is in workspace
+whether production still shows malformed lastPreMarketReport.istDate
+whether production currently has new Pre/Post bot routing or not
+whether scheduled reports are currently using original Telegram bot
+
+Expected known issue:
+
+workspace has istDate fix
+production may still show 01 Jul 202
+daily reports still likely use default Telegram bot
+multi-worker duplicate risk exists
+
+Implement two Telegram destinations.
+
+Default urgent bot:
+
+Secrets:
+
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+
+Used for:
+
+F&O data/session alerts
+F&O tradeable signal alerts
+Swing staged-order alerts
+urgent operational alerts
+Pre/Post analysis bot:
+
+Secrets:
+
+PREPOST_TELEGRAM_BOT_TOKEN
+PREPOST_TELEGRAM_CHAT_ID
+
+Used for:
+
+pre-market report
+post-market report
+future daily market analysis report
+
+Rules:
+
+do not silently send daily reports to the urgent/default bot if Pre/Post bot config is missing
+if Pre/Post bot config is missing, return clear config-missing status
+no token/chat id may be returned or logged
+only config status may be shown
+
+Statuses:
+
+PREPOST_TELEGRAM_ENABLED
+PREPOST_TELEGRAM_DISABLED_MISSING_TOKEN
+PREPOST_TELEGRAM_DISABLED_MISSING_CHAT_ID
+PREPOST_TELEGRAM_DISABLED_MISSING_CONFIG
+
+Change daily report delivery so:
+
+pre-market report sends to Pre/Post analysis bot
+post-market report sends to Pre/Post analysis bot
+urgent alerts continue using the existing default bot
+
+Manual endpoint responses must include:
+
+sent
+telegramDestination: "prepost"
+prepostTelegramStatus
+paperTradeCreated: false
+realOrderPlaced: false
+brokerExecution: "DISABLED"
+
+If Pre/Post bot config is missing:
+
+return clear config status
+do not send report to wrong bot silently
+do not fail/crash server
+
+Update /api/alerts/status safely.
+
+It should show:
+
+default Telegram status
+Pre/Post Telegram status
+lastPreMarketReport
+lastPostMarketReport
+last alert statuses if already present
+
+Do not expose:
+
+Telegram token
+chat id
+cookies
+secrets
+DB URL
+API keys
+
+Ensure:
+
+"lastPreMarketReport": {
+  "istDate": "YYYY-MM-DD"
+}
+
+and:
+
+"lastPostMarketReport": {
+  "istDate": "YYYY-MM-DD"
+}
+
+Expected:
+
+2026-07-01
+not 01 Jul 202
+
+Use ISO date from IST date utility, not sliced human-readable text.
+
+Current limitation:
+
+in-memory latch/dedup works only per process
+autoscale can run multiple workers
+today pid=19 and pid=22 both attempted post-market report
+this can duplicate reports in the future
+
+Implement a safer dedup for scheduled reports.
+
+Preferred solution:
+
+DB-backed report send lock/table or existing durable store.
+
+Example table or record:
+
+daily_report_runs
+
+Fields:
+
+id
+report_type — pre-market/post-market
+ist_date
+status — started/sent/failed/skipped
+worker_id or pid
+started_at
+sent_at
+telegram_status
+error_code
+unique key on (report_type, ist_date)
+
+Rules:
+
+Before sending scheduled report, acquire durable lock.
+If another worker already sent or started recently, skip.
+Manual test endpoints may bypass daily lock but must remain rate-limited.
+Failed scheduled send may be retryable only within safe window.
+Do not create duplicate Telegram report from multiple workers.
+Do not mutate trading data.
+If adding a DB table is too risky, implement best available durable guard and document limitation clearly.
+
+If a migration is required:
+
+make it additive only
+no destructive migration
+no trading table modification
+include tests
+verify in production
+
+Verify and preserve:
+
+pre-market window: 08:50–09:10 IST
+post-market window: 15:45–16:15 IST
+weekend skip
+market holiday detection not implemented unless truly present
+timezone is IST
+scheduler does not block shutdown
+scheduler does not run many times per minute
+scheduled report is sent once per IST day
+
+Report limitations honestly:
+
+market holiday detection not implemented
+autoscale duplicate risk fixed or still pending
+
+Reports must obey:
+
+Missing metrics say:
+Unavailable — not tracked yet
+No fake zero for unavailable metric.
+Kite session status and F&O daily-bars status are separate.
+Global/pre-market cues are labelled source-honestly.
+Yahoo/proxy/synthetic data is not labelled trade-grade.
+No sample/test data appears as live market data.
+Report must not say system is fully ready if F&O daily bars/option-chain are unavailable.
+
+Verify before/after manual endpoints:
+
+F&O paper trade count unchanged
+Swing staged order count unchanged
+broker order count unchanged
+no real broker order
+no new paper trade created by report endpoint
+no trading decision changed
+no signal logic changed
+
+Only allowed mutation:
+
+report send status / durable dedup metadata if implemented
+
+Add/update tests for:
+
+pre-market report uses Pre/Post bot.
+post-market report uses Pre/Post bot.
+missing Pre/Post token disables daily report send.
+missing Pre/Post chat id disables daily report send.
+urgent F&O alerts still use default bot.
+swing alerts still use default bot.
+report endpoint response includes telegramDestination: "prepost".
+no secrets in response/logs.
+istDate is ISO date.
+report endpoints do not create trades/orders.
+scheduled pre-market report dedups across simulated workers.
+scheduled post-market report dedups across simulated workers.
+manual tests can still be rate-limited separately.
+source honesty for missing data.
+DB lock/migration if implemented.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/dailyReports.test.ts src/lib/alerting.test.ts src/lib/fnoSignalAlerts.test.ts src/lib/swingAlerts.test.ts
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Use repo-correct commands if names differ.
+
+After publish, verify on:
+
+https://marketscannerbydev.in
+
+Pre/Post bot secrets are present.
+POST /api/alerts/test-pre-market-report sends to new Pre/Post bot.
+POST /api/alerts/test-post-market-report sends to new Pre/Post bot.
+Existing urgent test alert still goes to original bot.
+/api/alerts/status shows both Telegram config statuses safely.
+lastPreMarketReport.istDate is ISO date.
+lastPostMarketReport.istDate is ISO date.
+report endpoints are owner-only.
+rate-limit works.
+no trading state is mutated.
+no real order placed.
+scheduled dedup/lock exists and prevents multi-worker duplicates.
+
+Do not wait for next day live scheduler if manual verification proves the lock path. If live scheduler window occurs, verify naturally.
+
+Final report must include:
+
+Index files read.
+Files touched.
+Telegram routing design.
+Default urgent bot status.
+Pre/Post bot status.
+Pre-market test result.
+Post-market test result.
+Which bot received each message.
+/alerts/status result.
+istDate result.
+Scheduler dedup implementation.
+Multi-worker duplicate risk status.
+Auth/rate-limit result.
+Trading-state safety result.
+Tests run.
+LLM index result.
+Production verification result.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+PREPOST_TELEGRAM_ROUTING_PROD_VERIFIED
+DAILY_REPORT_ISTDATE_FIX_PROD_VERIFIED
+DAILY_REPORTS_MULTIWORKER_DEDUP_FIXED
+DAILY_REPORTS_PROD_VERIFIED
+PREPOST_TELEGRAM_SECRETS_MISSING
+PREPOST_REPORTS_PROVIDER_ERROR
+DAILY_REPORTS_BUILD_NOT_DEPLOYED
+DAILY_REPORTS_SPAM_CONTROL_GAP
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+daily reports use new Pre/Post Telegram bot
+urgent alerts still use default bot
+no secrets exposed
+report endpoints are owner-only
+report endpoints are rate-limited
+istDate is ISO date
+scheduled report duplicate risk is fixed or explicitly blocked
+no trading state is mutated
+broker execution remains disabled
+tests pass
+LLM index fresh
+production verification confirms correct bot delivery

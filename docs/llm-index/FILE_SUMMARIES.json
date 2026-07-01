@@ -37,7 +37,7 @@
   {
     "path": "artifacts/api-server/src/lib/alerting.ts",
     "purpose": "alerting",
-    "lines": 312,
+    "lines": 363,
     "exports": [
       "TelegramConfigStatus",
       "getTelegramStatus",
@@ -50,11 +50,14 @@
       "doSendTelegramMessage",
       "alertOwnerRaw",
       "alertOwner",
-      "sendTestTelegramMessage"
+      "sendTestTelegramMessage",
+      "PrePostTelegramConfigStatus",
+      "getPrePostTelegramStatus",
+      "sendPrePostTelegramMessage"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "c1f6874a65c5b1b5"
+    "hash": "1cae0b3334960320"
   },
   {
     "path": "artifacts/api-server/src/lib/appStateStore.ts",
@@ -831,19 +834,23 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.test.ts",
     "purpose": "test",
-    "lines": 557,
+    "lines": 718,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "77e57fe9f455148d"
+    "hash": "49959dc937c83687"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 604,
+    "lines": 982,
     "exports": [
+      "ensureDailyReportRunsTable",
+      "DataCoverageStatus",
+      "DataCoverageEntry",
+      "DAILY_ANALYSIS_COVERAGE",
       "PreMarketKite",
       "PreMarketFno",
       "PreMarketSwing",
@@ -858,19 +865,15 @@
       "DailyReportRecord",
       "getLastPreMarketReportRecord",
       "getLastPostMarketReportRecord",
-      "gatherPreMarketData",
-      "gatherPostMarketData",
-      "sendPreMarketReport",
-      "sendPostMarketReport",
-      "maybeRunPreMarketReport",
-      "maybeRunPostMarketReport"
+      "ReportRunRow",
+      "getReportHistory"
     ],
     "externalImports": [
       "drizzle-orm",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "892b4da4dfe03a41"
+    "hash": "262456126dc3207d"
   },
   {
     "path": "artifacts/api-server/src/lib/dataProvider.ts",
@@ -5103,7 +5106,7 @@
       "POST /alerts/test-pre-market-report",
       "POST /alerts/test-post-market-report"
     ],
-    "hash": "294a7ec98c6badbb"
+    "hash": "1ae1a3e93433d7ad"
   },
   {
     "path": "artifacts/api-server/src/routes/auth.ts",
@@ -5181,6 +5184,24 @@
       "GET /chart/audit"
     ],
     "hash": "c74130131b3e0b87"
+  },
+  {
+    "path": "artifacts/api-server/src/routes/dailyAnalysis.ts",
+    "purpose": "api-route",
+    "lines": 188,
+    "exports": [],
+    "externalImports": [
+      "express"
+    ],
+    "routes": [
+      "GET /daily-analysis/status",
+      "GET /daily-analysis/pre-market/latest",
+      "GET /daily-analysis/post-market/latest",
+      "GET /daily-analysis/history",
+      "POST /daily-analysis/generate-pre-market",
+      "POST /daily-analysis/generate-post-market"
+    ],
+    "hash": "512b1fae5b720743"
   },
   {
     "path": "artifacts/api-server/src/routes/data.ts",
@@ -5321,13 +5342,13 @@
   {
     "path": "artifacts/api-server/src/routes/index.ts",
     "purpose": "api-route",
-    "lines": 94,
+    "lines": 96,
     "exports": [],
     "externalImports": [
       "express"
     ],
     "routes": [],
-    "hash": "afe9901ad5e7f756"
+    "hash": "736363412d9f20d1"
   },
   {
     "path": "artifacts/api-server/src/routes/indices.ts",
@@ -7152,7 +7173,7 @@
   {
     "path": "artifacts/scanner/src/pages/premarket.tsx",
     "purpose": "ui-page",
-    "lines": 2156,
+    "lines": 2335,
     "exports": [],
     "externalImports": [
       "@workspace/api-client-react",
@@ -7162,10 +7183,12 @@
       "@/components/ui/badge",
       "wouter",
       "date-fns",
-      "react"
+      "react",
+      "@tanstack/react-query",
+      "@/hooks/use-auth"
     ],
     "routes": [],
-    "hash": "8653d3d676b54b79"
+    "hash": "3f0bd80f3504e122"
   },
   {
     "path": "artifacts/scanner/src/pages/scanner.tsx",

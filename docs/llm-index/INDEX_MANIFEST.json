@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T10:12:45.603Z",
+  "generatedAt": "2026-07-01T11:08:17.738Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -8,9 +8,9 @@
       "mtime": "2026-05-04T15:59:19.792Z"
     },
     "artifacts/api-server/src/routes/alerts.ts": {
-      "hash": "294a7ec98c6badbb",
+      "hash": "1ae1a3e93433d7ad",
       "lines": 274,
-      "mtime": "2026-07-01T09:52:14.984Z"
+      "mtime": "2026-07-01T10:59:49.321Z"
     },
     "artifacts/api-server/src/routes/auth.ts": {
       "hash": "796491100d7866e0",
@@ -31,6 +31,11 @@
       "hash": "c74130131b3e0b87",
       "lines": 212,
       "mtime": "2026-06-15T06:32:57.300Z"
+    },
+    "artifacts/api-server/src/routes/dailyAnalysis.ts": {
+      "hash": "512b1fae5b720743",
+      "lines": 188,
+      "mtime": "2026-07-01T10:59:21.172Z"
     },
     "artifacts/api-server/src/routes/data.ts": {
       "hash": "02beaec6cab7dc9d",
@@ -68,9 +73,9 @@
       "mtime": "2026-06-17T03:43:06.668Z"
     },
     "artifacts/api-server/src/routes/index.ts": {
-      "hash": "afe9901ad5e7f756",
-      "lines": 94,
-      "mtime": "2026-07-01T06:23:23.144Z"
+      "hash": "736363412d9f20d1",
+      "lines": 96,
+      "mtime": "2026-07-01T11:00:09.856Z"
     },
     "artifacts/api-server/src/routes/indices.ts": {
       "hash": "c4053f741bc8676a",
@@ -153,9 +158,9 @@
       "mtime": "2026-05-05T15:19:11.895Z"
     },
     "artifacts/api-server/src/lib/alerting.ts": {
-      "hash": "c1f6874a65c5b1b5",
-      "lines": 312,
-      "mtime": "2026-07-01T08:05:22.704Z"
+      "hash": "1cae0b3334960320",
+      "lines": 363,
+      "mtime": "2026-07-01T10:53:24.012Z"
     },
     "artifacts/api-server/src/lib/appStateStore.ts": {
       "hash": "184f237bb1929975",
@@ -263,9 +268,9 @@
       "mtime": "2026-04-29T13:07:30.486Z"
     },
     "artifacts/api-server/src/lib/dailyReports.ts": {
-      "hash": "892b4da4dfe03a41",
-      "lines": 604,
-      "mtime": "2026-07-01T10:12:19.744Z"
+      "hash": "262456126dc3207d",
+      "lines": 982,
+      "mtime": "2026-07-01T10:59:00.035Z"
     },
     "artifacts/api-server/src/lib/dataProvider.ts": {
       "hash": "f1b97c30a4f41b49",
@@ -1278,9 +1283,9 @@
       "mtime": "2026-06-22T12:58:01.207Z"
     },
     "artifacts/scanner/src/pages/premarket.tsx": {
-      "hash": "8653d3d676b54b79",
-      "lines": 2156,
-      "mtime": "2026-06-10T14:33:28.719Z"
+      "hash": "3f0bd80f3504e122",
+      "lines": 2335,
+      "mtime": "2026-07-01T11:05:04.295Z"
     },
     "artifacts/scanner/src/pages/scanner.tsx": {
       "hash": "f7862115beecdd46",

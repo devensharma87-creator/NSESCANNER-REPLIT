@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 
 function pct(n: number | null | undefined, dp = 2) {
   if (n == null) return "—";
@@ -680,7 +682,182 @@ function TradeSetupsSection({ t }: { t: TradeSetupsT }) {
   );
 }
 
+// ── Daily Analysis Status Panel (owner-only) ──────────────────────────────────
+
+interface DailyAnalysisStatusData {
+  prepostTelegram: { enabled: boolean; status: string };
+  schedule: {
+    preMarket: { time: string; description: string };
+    postMarket: { time: string; description: string };
+  };
+  lastPreMarket: {
+    istDate: string; type: string; isManualTest: boolean; telegramStatus: string;
+  } | null;
+  lastPostMarket: {
+    istDate: string; type: string; isManualTest: boolean; telegramStatus: string;
+  } | null;
+  workerDedup: { mechanism: string; description: string };
+}
+
+function DailyAnalysisStatusPanel() {
+  const { data, isLoading, refetch, isFetching } = useQuery<DailyAnalysisStatusData>({
+    queryKey: ["daily-analysis-status"],
+    queryFn: () =>
+      fetch("/api/daily-analysis/status").then(r => r.json() as Promise<DailyAnalysisStatusData>),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const [sending, setSending] = useState<"pre" | "post" | null>(null);
+  const [lastResult, setLastResult] = useState<string | null>(null);
+
+  async function handleSend(type: "pre" | "post") {
+    setSending(type);
+    setLastResult(null);
+    try {
+      const path =
+        type === "pre" ? "generate-pre-market" : "generate-post-market";
+      const res = await fetch(`/api/daily-analysis/${path}`, { method: "POST" });
+      const body = (await res.json()) as { result?: string; error?: string };
+      setLastResult(body.result ?? body.error ?? "UNKNOWN");
+      void refetch();
+    } catch {
+      setLastResult("FETCH_ERROR");
+    } finally {
+      setSending(null);
+    }
+  }
+
+  const botEnabled = data?.prepostTelegram.enabled;
+  const botStatus = data?.prepostTelegram.status ?? "...";
+
+  return (
+    <Card className="border border-amber-500/20 bg-amber-500/[0.03] mb-4">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Briefcase className="w-4 h-4 text-amber-400" />
+          <span className="text-sm font-mono font-semibold uppercase tracking-wider text-amber-400">
+            Daily Report Bot
+          </span>
+          <Badge
+            variant="outline"
+            className={`text-[10px] font-mono ml-auto ${
+              botEnabled
+                ? "border-green-500/40 text-green-400"
+                : "border-amber-500/40 text-amber-400"
+            }`}
+          >
+            {isLoading ? "..." : botEnabled ? "CONFIGURED" : botStatus.replace("PREPOST_TELEGRAM_", "")}
+          </Badge>
+        </div>
+
+        {isLoading ? (
+          <div className="text-xs text-muted-foreground font-mono">Loading...</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px] font-mono">
+            <div className="space-y-1.5">
+              <div className="text-muted-foreground uppercase text-[10px] tracking-wider">
+                Pre-Market ({data?.schedule.preMarket.time})
+              </div>
+              {data?.lastPreMarket ? (
+                <>
+                  <div className="text-foreground/90">{data.lastPreMarket.istDate}</div>
+                  <div
+                    className={
+                      data.lastPreMarket.telegramStatus === "SENT"
+                        ? "text-green-400"
+                        : "text-amber-400"
+                    }
+                  >
+                    {data.lastPreMarket.telegramStatus}
+                    {data.lastPreMarket.isManualTest ? " (test)" : ""}
+                  </div>
+                </>
+              ) : (
+                <div className="text-muted-foreground/70">None since start</div>
+              )}
+              <div className="text-muted-foreground/60">
+                {data?.schedule.preMarket.description}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <div className="text-muted-foreground uppercase text-[10px] tracking-wider">
+                Post-Market ({data?.schedule.postMarket.time})
+              </div>
+              {data?.lastPostMarket ? (
+                <>
+                  <div className="text-foreground/90">{data.lastPostMarket.istDate}</div>
+                  <div
+                    className={
+                      data.lastPostMarket.telegramStatus === "SENT"
+                        ? "text-green-400"
+                        : "text-amber-400"
+                    }
+                  >
+                    {data.lastPostMarket.telegramStatus}
+                    {data.lastPostMarket.isManualTest ? " (test)" : ""}
+                  </div>
+                </>
+              ) : (
+                <div className="text-muted-foreground/70">None since start</div>
+              )}
+              <div className="text-muted-foreground/60">
+                {data?.schedule.postMarket.description}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {lastResult && (
+          <div
+            className={`mt-2 text-[11px] font-mono px-2 py-1 rounded border ${
+              lastResult === "SENT"
+                ? "border-green-500/30 text-green-400 bg-green-500/5"
+                : "border-amber-500/30 text-amber-400 bg-amber-500/5"
+            }`}
+          >
+            Result: {lastResult}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 mt-3">
+          <button
+            type="button"
+            onClick={() => void handleSend("pre")}
+            disabled={sending !== null || isFetching}
+            className="flex items-center gap-1.5 rounded border border-border/50 bg-secondary/40 px-2.5 py-1.5 text-[11px] font-mono hover:bg-secondary/70 transition-colors disabled:opacity-50"
+          >
+            <Sun className="w-3 h-3" />
+            {sending === "pre" ? "Sending..." : "Send Pre"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSend("post")}
+            disabled={sending !== null || isFetching}
+            className="flex items-center gap-1.5 rounded border border-border/50 bg-secondary/40 px-2.5 py-1.5 text-[11px] font-mono hover:bg-secondary/70 transition-colors disabled:opacity-50"
+          >
+            <Moon className="w-3 h-3" />
+            {sending === "post" ? "Sending..." : "Send Post"}
+          </button>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="ml-auto flex items-center gap-1.5 rounded border border-border/30 bg-secondary/20 px-2 py-1.5 text-[10px] font-mono hover:bg-secondary/40 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+
+        <div className="mt-2 text-[10px] font-mono text-muted-foreground/60">
+          Broker execution: DISABLED · Sends to PREPOST Telegram bot only
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function PreMarket() {
+  const { role } = useAuth();
   const { data, isLoading, error, dataUpdatedAt, refetch, isFetching } = useGetPreMarket({
     query: { staleTime: 30_000, refetchInterval: 60_000, queryKey: getGetPreMarketQueryKey() },
   });
@@ -1016,6 +1193,8 @@ export default function PreMarket() {
       <div className="flex gap-6">
         {/* Main content */}
         <div className="flex-1 min-w-0 space-y-6">
+
+          {role === "owner" && <DailyAnalysisStatusPanel />}
 
           {/* Topbar */}
           <div className="flex items-center justify-between gap-4 flex-wrap rounded-lg border border-border/60 bg-gradient-to-r from-card/80 to-card/40 px-5 py-3">

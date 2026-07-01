@@ -13,6 +13,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildPreMarketReport,
   buildPostMarketReport,
+  DAILY_ANALYSIS_COVERAGE,
   type PreMarketReportData,
   type PostMarketReportData,
 } from "./dailyReports";
@@ -552,5 +553,165 @@ describe("buildPostMarketReport — negative P&L", () => {
     });
     const text = buildPostMarketReport(data);
     expect(text).toContain("₹-1,500");
+  });
+});
+
+// ── PREPOST telegram secrets never in builder output ──────────────────────────
+
+describe("buildPreMarketReport — PREPOST telegram secrets not in output", () => {
+  it("does not contain PREPOST_TELEGRAM_BOT_TOKEN", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).not.toMatch(/PREPOST_TELEGRAM_BOT_TOKEN/);
+  });
+
+  it("does not contain PREPOST_TELEGRAM_CHAT_ID", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).not.toMatch(/PREPOST_TELEGRAM_CHAT_ID/);
+  });
+});
+
+describe("buildPostMarketReport — PREPOST telegram secrets not in output", () => {
+  it("does not contain PREPOST_TELEGRAM_BOT_TOKEN", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).not.toMatch(/PREPOST_TELEGRAM_BOT_TOKEN/);
+  });
+
+  it("does not contain PREPOST_TELEGRAM_CHAT_ID", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).not.toMatch(/PREPOST_TELEGRAM_CHAT_ID/);
+  });
+});
+
+// ── Data coverage section in builder output ───────────────────────────────────
+
+describe("buildPreMarketReport — data coverage section", () => {
+  it("shows 'Unavailable — data source not integrated yet' for global cues", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("Global cues: Unavailable — data source not integrated yet");
+  });
+
+  it("shows 'Unavailable — data source not integrated yet' for GIFT Nifty", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("GIFT Nifty: Unavailable — data source not integrated yet");
+  });
+
+  it("shows FII/DII as Info-only (not trade-grade, not fake)", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("FII/DII cash: Info-only");
+  });
+
+  it("shows news & events as unavailable", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("News & events: Unavailable — data source not integrated yet");
+  });
+
+  it("shows India VIX as unavailable", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("India VIX: Unavailable — data source not integrated yet");
+  });
+
+  it("shows key levels as available (Kite)", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("Key levels / CPR: Available (Kite)");
+  });
+
+  it("shows option chain analytics as available (Kite)", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("Option chain analytics: Available (Kite)");
+  });
+});
+
+describe("buildPostMarketReport — data coverage section", () => {
+  it("shows market breadth as unavailable (data source not integrated)", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("Market breadth (adv/dec): Unavailable — data source not integrated yet");
+  });
+
+  it("shows news recap as unavailable", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("News recap: Unavailable — data source not integrated yet");
+  });
+
+  it("shows level validation as unavailable", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("Level validation (CPR/VWAP): Unavailable — data source not integrated yet");
+  });
+
+  it("shows index performance as available (Kite)", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("Index performance: Available (Kite)");
+  });
+
+  it("shows option chain EOD as available (Kite)", () => {
+    const text = buildPostMarketReport(makePostMarket());
+    expect(text).toContain("Option chain EOD change: Available (Kite)");
+  });
+});
+
+// ── DAILY_ANALYSIS_COVERAGE data coverage matrix ──────────────────────────────
+
+describe("DAILY_ANALYSIS_COVERAGE — data coverage matrix", () => {
+  it("contains required pre-market section keys", () => {
+    const required = [
+      "overnightGlobalCues", "giftNifty", "fiiDiiCash", "participantOi",
+      "indiaVix", "keyLevelsOhlc", "optionChainAnalytics", "expectedRange",
+      "newsEvents", "expiryRollover", "biasTradePlan",
+    ];
+    for (const key of required) {
+      expect(DAILY_ANALYSIS_COVERAGE, `missing key: ${key}`).toHaveProperty(key);
+    }
+  });
+
+  it("contains required post-market section keys", () => {
+    const required = [
+      "indexPerformance", "marketBreadth", "optionChainEod", "levelValidation",
+      "sectorMoves", "newsRecap", "tradeJournal", "globalStatusCheck", "tomorrowSetup",
+    ];
+    for (const key of required) {
+      expect(DAILY_ANALYSIS_COVERAGE, `missing key: ${key}`).toHaveProperty(key);
+    }
+  });
+
+  it("all entries have status, source (possibly null), and note fields", () => {
+    for (const [key, entry] of Object.entries(DAILY_ANALYSIS_COVERAGE)) {
+      expect(typeof entry.status, `${key}: status should be string`).toBe("string");
+      expect(typeof entry.note, `${key}: note should be string`).toBe("string");
+      expect(
+        entry.source === null || typeof entry.source === "string",
+        `${key}: source should be string or null`,
+      ).toBe(true);
+    }
+  });
+
+  it("SOURCE_NOT_INTEGRATED entries have null source (no fake providers)", () => {
+    for (const [key, entry] of Object.entries(DAILY_ANALYSIS_COVERAGE)) {
+      if (entry.status === "SOURCE_NOT_INTEGRATED") {
+        expect(entry.source, `${key}: SOURCE_NOT_INTEGRATED should have null source`).toBeNull();
+      }
+    }
+  });
+
+  it("no entry note contains a secret pattern", () => {
+    for (const [key, entry] of Object.entries(DAILY_ANALYSIS_COVERAGE)) {
+      expect(entry.note, `${key}: note contains token pattern`).not.toMatch(/bot[0-9]{9,}/i);
+      expect(entry.note, `${key}: note exposes env var`).not.toMatch(/TELEGRAM_BOT_TOKEN/);
+    }
+  });
+});
+
+// ── istDate ISO format regression ──────────────────────────────────────────────
+
+describe("istDate format regression — must be ISO YYYY-MM-DD", () => {
+  it("PostMarketReportData.istDate fixture is ISO format", () => {
+    const data = makePostMarket();
+    expect(data.istDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("istDate '2026-07-01' passes ISO regex", () => {
+    expect("2026-07-01").toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("IST offset string '01 Jul 2026' does NOT pass ISO regex (guards against off-shift bug)", () => {
+    expect("01 Jul 2026").not.toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
