@@ -112,20 +112,40 @@ router.post("/alerts/test-swing-staged-order", requireOwner, async (_req, res, n
 /**
  * POST /alerts/test-fno-trade-signal
  *
- * Send a clearly-labeled [SAMPLE] F&O tradeable signal alert to Telegram.
+ * Send a clearly-labeled [SAMPLE] F&O format-test alert to Telegram.
  * Owner-only. Rate-limited to 1 call per 30 seconds.
  *
+ * REQUIRES body: { "confirmSampleAlert": true }
+ * — prevents accidental spam from repeated manual verification calls.
+ *
  * Does NOT create a paper trade, does NOT use real signal state,
- * does NOT enable broker execution.
+ * does NOT call the Kite API, does NOT enable broker execution.
  */
-router.post("/alerts/test-fno-trade-signal", requireOwner, async (_req, res, next) => {
+router.post("/alerts/test-fno-trade-signal", requireOwner, async (req, res, next) => {
   try {
+    const body = req.body as Record<string, unknown> | undefined;
+    if (!body || body["confirmSampleAlert"] !== true) {
+      res.status(400).json({
+        error: "confirmation_required",
+        message: "Sample alert requires confirmSampleAlert=true in request body to prevent accidental spam.",
+        sampleOnly: true,
+        paperTradeCreated: false,
+        realOrderPlaced: false,
+        priceSource: "SAMPLE_NOT_LIVE",
+      });
+      return;
+    }
+
     const now = Date.now();
     if (now - lastFnoTestSentAt < TEST_RATE_LIMIT_MS) {
       const retryAfterSec = Math.ceil((TEST_RATE_LIMIT_MS - (now - lastFnoTestSentAt)) / 1000);
       res.status(429).json({
         error: "rate_limited",
         message: `Test endpoint rate-limited. Retry after ${retryAfterSec}s.`,
+        sampleOnly: true,
+        paperTradeCreated: false,
+        realOrderPlaced: false,
+        priceSource: "SAMPLE_NOT_LIVE",
       });
       return;
     }
@@ -134,7 +154,7 @@ router.post("/alerts/test-fno-trade-signal", requireOwner, async (_req, res, nex
     const sampleText = buildFnoSampleAlertText(now);
     const testDedupKey = "FNO_TEST_TRADEABLE_SIGNAL";
     resetAlertDedup(testDedupKey);
-    alertOwnerRaw(testDedupKey, "Test F&O tradeable signal alert [SAMPLE]", sampleText, 0);
+    alertOwnerRaw(testDedupKey, "Test F&O format-test alert [SAMPLE]", sampleText, 0);
 
     // alertOwnerRaw dispatches Telegram in the background — wait briefly for delivery.
     await new Promise(r => setTimeout(r, 500));
@@ -144,6 +164,10 @@ router.post("/alerts/test-fno-trade-signal", requireOwner, async (_req, res, nex
       sent: true,
       telegramStatus: lastAlert?.event === testDedupKey ? lastAlert.telegramStatus : "DISPATCHED",
       note: "Sample message only — no paper trade created, no real order, broker execution disabled.",
+      sampleOnly: true,
+      paperTradeCreated: false,
+      realOrderPlaced: false,
+      priceSource: "SAMPLE_NOT_LIVE",
     });
   } catch (err) {
     next(err);

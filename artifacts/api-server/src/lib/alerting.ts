@@ -142,9 +142,14 @@ function buildTelegramText(event: string, message: string, metadata?: AlertMetad
   if (isRecovery) {
     lines.push("Signal cycle resumed.");
   } else {
-    const action = event.includes("KITE_SESSION")
-      ? "Action: Reconnect Kite/Zerodha"
-      : "Action: Check /fno-diagnostics";
+    let action: string;
+    if (event.includes("KITE_SESSION")) {
+      action = "Action: Reconnect Kite/Zerodha (session expired or unreachable)";
+    } else if (event.includes("DAILY_HISTORY")) {
+      action = "Action: Kite session is active — F&O daily bars unavailable. Check /fno-diagnostics";
+    } else {
+      action = "Action: Check /fno-diagnostics";
+    }
     lines.push(action);
   }
   if (metadata?.dashboardPath) {
@@ -256,15 +261,27 @@ export function alertOwnerRaw(
 }
 
 /**
- * Fire an owner alert for `event` at most once per DEDUP_WINDOW_MS.
+ * Fire an owner alert for `event` at most once per dedup window.
  *
  * Always logs at WARN level. If Telegram is configured, delivers via Telegram
  * in the background — best-effort, never blocks the caller, never throws.
+ *
+ * @param dedupWindowMs  Override the 1-hour default dedup window (e.g. 2h for data alerts).
+ * @param customDedupKey Override the dedup map key. Use this to scope dedup to a trading date
+ *                       (e.g. `FNO_DAILY_HISTORY_UNAVAILABLE::2026-07-01`) so the same event on
+ *                       a new day is treated as a new incident, and the event logged is still `event`.
  */
-export function alertOwner(event: string, message: string, metadata?: AlertMetadata): void {
+export function alertOwner(
+  event: string,
+  message: string,
+  metadata?: AlertMetadata,
+  dedupWindowMs: number = DEDUP_WINDOW_MS,
+  customDedupKey?: string,
+): void {
+  const key = customDedupKey ?? event;
   const now = Date.now();
-  if (now - (lastAlerted.get(event) ?? 0) < DEDUP_WINDOW_MS) return;
-  lastAlerted.set(event, now);
+  if (now - (lastAlerted.get(key) ?? 0) < dedupWindowMs) return;
+  lastAlerted.set(key, now);
   logger.warn({ alertEvent: event }, `OWNER_ALERT [${event}]: ${message}`);
   const text = buildTelegramText(event, message, metadata);
   dispatchTelegramBackground(event, text);

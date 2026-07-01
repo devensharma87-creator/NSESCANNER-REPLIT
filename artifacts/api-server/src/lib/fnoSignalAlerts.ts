@@ -207,9 +207,11 @@ export function buildFnoSignalAlertText(
     `Lots:     ${input.lots} × ${input.lotSize} shares`,
     `Max risk: ₹${maxRisk}`,
     "",
-    `Data source: Kite (trusted option-chain)`,
-    `Alerted at:  ${alertedAt} IST`,
-    `Setup:       ${input.setupKey}`,
+    `Price source:   Paper trade snapshot (at open time)`,
+    `Premium source: Kite trusted option-chain`,
+    `Note:           Entry premium is the snapshot at open — current price may differ`,
+    `Alerted at:     ${alertedAt} IST`,
+    `Setup:          ${input.setupKey}`,
     "",
     `Guard status: All gates passed ✓`,
     `Broker execution: DISABLED — no order placed`,
@@ -276,35 +278,65 @@ export function alertFnoTradeableSignal(input: FnoTradeAlertInput): void {
 // ── Sample alert builder (for test endpoint only) ─────────────────────────────
 
 /**
- * Build a clearly-labeled [SAMPLE] F&O signal alert message.
+ * Build a clearly-labeled [SAMPLE] F&O format-test message.
  * Used exclusively by the owner-only test endpoint.
- * MUST include [SAMPLE] label. MUST NOT use real signal state.
+ *
+ * RULES (enforced here — do not relax):
+ *   – Does NOT call buildFnoSignalAlertText() (which carries "Kite trusted" source label).
+ *   – Does NOT say "Data source: Kite" or "trusted option-chain".
+ *   – Does NOT say "F&O TRADEABLE SIGNAL" (this is a format test, not a signal).
+ *   – Prices are fixed dummy values — no Kite API is called.
+ *   – No paper trade is created. No real order is placed.
  */
 export function buildFnoSampleAlertText(nowMs: number = Date.now()): string {
-  const sampleInput: FnoTradeAlertInput = {
-    indexSymbol:   "NIFTY",
-    direction:     "BULLISH",
-    setupKey:      "NIFTY_SAMPLE_SETUP",
-    signalDate:    new Date(nowMs).toISOString().slice(0, 10),
-    confidence:    72,
-    entryPremium:  125.00,
-    stopPremium:   80.00,
-    target1Premium: 200.00,
-    target2Premium: 280.00,
-    lots:          10,
-    lotSize:       75,
-    strike:        24500,
-    expiry:        "sample-expiry",
-    optionType:    "CE",
-    openedAt:      new Date(nowMs),
-  };
+  const alertedAt = (() => {
+    try {
+      return new Date(nowMs).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+    } catch {
+      return new Date(nowMs).toISOString();
+    }
+  })();
 
-  const base = buildFnoSignalAlertText(sampleInput, nowMs);
-  return [
+  const lines: string[] = [
     "[SAMPLE — NOT A REAL TRADE]",
     "",
-    base,
+    "⚠ F&O TRADE ALERT FORMAT TEST",
+    "",
+    "Index:      NIFTY  (sample)",
+    "Direction:  CALL (CE)  (sample)",
+    "Instrument: NIFTY 24500 CE  (sample strike / sample expiry)",
+    "Signal:     FORMAT_TEST_ONLY — not an engine-generated signal",
+    "Confidence: 72  (sample value)",
+    "",
+    "Entry:    ₹125.00  (sample — not a live Kite premium)",
+    "Stop:     ₹80.00   (sample)",
+    "Target 1: ₹200.00  (sample)",
+    "Target 2: ₹280.00  (sample)",
+    "R:R:      1.88  (sample)",
+    "",
+    "Lots:     10 × 75 shares  (sample)",
+    "Max risk: ₹3,375  (sample)",
+    "",
+    "Price source:   SAMPLE DATA — not Kite, not live market price",
+    "Market data:    NOT QUERIED — no Kite API call made",
+    "Alerted at:     " + alertedAt + " IST",
+    "",
+    "Paper trade created: NO",
+    "Real order placed:   NO",
+    "Broker execution:    DISABLED — no order placed",
+    "",
+    "⚠ Sample prices only. Do NOT act on this message.",
+    "Action: Verify format only — not a real tradeable signal.",
     "",
     "[SAMPLE — no paper trade created, no real order, broker execution disabled]",
-  ].join("\n");
+  ];
+
+  return lines.join("\n");
 }

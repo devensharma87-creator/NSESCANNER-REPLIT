@@ -2684,23 +2684,34 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     const affectedIndices = suppressed.map(s => s.index);
 
     if (suppressed.length >= OPTION_INDICES.length && out.length === 0) {
+      // Incident dedup keys include the trading date so:
+      //   – A new calendar day is a new incident (fresh send, not suppressed by yesterday's dedup).
+      //   – Within the same day the alert fires at most once per 2 hours (even across restarts
+      //     that would otherwise reset the in-memory dedup map).
+      const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
       if (hasKiteExpiry) {
         alertOwner(
           "FNO_KITE_SESSION_MISSING",
           "All F&O indices suppressed: Kite session expired or unreachable. No signals until session is renewed.",
           { affectedIndices, dashboardPath: "/options or /fno-diagnostics", isDataIssue: true },
+          TWO_HOURS_MS,
+          `FNO_KITE_SESSION_MISSING::${signalDate}`,
         );
       } else if (hasHistoryWarmup) {
         alertOwner(
           "FNO_DAILY_HISTORY_WARMUP",
           "All F&O indices suppressed: Kite daily history warming up after fresh login. Next cycle retries automatically.",
           { affectedIndices, dashboardPath: "/fno-diagnostics", isDataIssue: true },
+          TWO_HOURS_MS,
+          `FNO_DAILY_HISTORY_WARMUP::${signalDate}`,
         );
       } else if (hasHistoryUnavailable) {
         alertOwner(
           "FNO_DAILY_HISTORY_UNAVAILABLE",
-          "All F&O indices suppressed: Kite daily history unavailable. Check /fno-diagnostics data-health.",
+          "All F&O indices suppressed: Kite daily history unavailable. Kite session is active — F&O daily bars not yet fetched or failed. Check /fno-diagnostics data-health.",
           { affectedIndices, dashboardPath: "/fno-diagnostics", isDataIssue: true },
+          TWO_HOURS_MS,
+          `FNO_DAILY_HISTORY_UNAVAILABLE::${signalDate}`,
         );
       }
     }

@@ -1,0 +1,428 @@
+CODER PROMPT — URGENT: F&O TELEGRAM ALERT PRICE-HONESTY AUDIT + SAMPLE ALERT HARDENING + TELEGRAM SPAM CONTROL
+
+We have a serious source-honesty issue after F&O tradeable Telegram alert production verification.
+
+User evidence:
+
+Telegram received F&O sample alert:
+
+[SAMPLE — NOT A REAL TRADE]
+
+F&O TRADEABLE SIGNAL
+
+Index: NIFTY
+
+Instrument: NIFTY 24500 CE exp sample-expiry
+
+Entry: ₹125.00
+
+Data source: Kite (trusted option-chain)
+
+User screenshots from live option chain show NIFTY 24500 CE price was not ₹125 for the displayed expiries:
+07 Jul expiry: 24500 CE around ₹19.80 / ₹15.25 area
+14 Jul expiry: 24500 CE around ₹63.00 area
+Because the Telegram message was labelled [SAMPLE], the ₹125 may be dummy/test price. But the line:
+
+Data source: Kite (trusted option-chain)
+
+is misleading if the price is sample/fixed/dummy.
+
+The pasted Telegram log also shows repeated test alerts:
+repeated TESTSTK swing alerts
+repeated F&O data alerts
+repeated sample/test messages
+
+This needs immediate audit and hardening before moving to daily reports or any further trading alerts.
+
+This is a source-honesty and alert-safety task.
+
+Do not tune strategy.
+
+Do not change F&O signal logic.
+
+Do not change F&O thresholds.
+
+Do not change swing scoring.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not add auto-trading.
+
+Do not change Kite data rules except for honesty/validation.
+
+Do not trim or rewrite replit.md.
+
+Fix all misleading Telegram alert wording and prevent sample/test data from looking like real Kite market data.
+
+Confirm:
+
+Sample F&O alert cannot imply dummy prices are real Kite prices.
+Real F&O tradeable alert price must match the paper trade snapshot and trusted Kite/option-chain source used at open time.
+Telegram message must clearly distinguish:
+sample/test price
+paper trade snapshot price
+current market price
+Kite quote/risk-eval source
+Duplicate test/spam alerts must be controlled.
+Owner must not confuse test/sample alert with real tradeable signal.
+
+Before coding, read:
+
+AGENT.md
+docs/llm-index/AGENT_START_HERE.md
+docs/llm-index/CRITICAL_FLOWS.md
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+
+Then open only the relevant files for:
+
+F&O alert formatter
+F&O sample alert endpoint
+F&O paper trade alert hook
+Telegram alert utility
+Swing alert formatter
+alert dedup/rate limit
+alert tests
+
+Report which index files guided the work.
+
+Find where the sample F&O alert creates:
+
+NIFTY
+24500 CE
+sample-expiry
+Entry ₹125
+Stop ₹80
+Target ₹200 / ₹280
+Confidence 72
+
+Report:
+
+file name
+function name
+whether values are hardcoded sample values
+whether any Kite API was called for this sample
+whether any paper trade row was created
+whether any real order was created
+
+Expected likely result:
+
+₹125 is sample/dummy value, not Kite option-chain premium.
+
+If true, this must be fixed in wording.
+
+The sample endpoint must not say:
+
+Data source: Kite (trusted option-chain)
+
+for dummy/sample price.
+
+Replace with source-honest wording such as:
+
+Data source: SAMPLE DATA — not Kite, not live market price
+
+or:
+
+Price source: SAMPLE / fixed dummy values
+Market data: not queried
+No paper trade created, no real order placed
+
+Required sample alert wording:
+
+[SAMPLE — NOT A REAL TRADE]
+
+Sample prices only — not live Kite premium.
+
+No paper trade created.
+
+No real order placed.
+
+Broker execution DISABLED.
+
+Forbidden in sample/test endpoint unless truly fetched live:
+
+Data source: Kite
+trusted option-chain
+all gates passed
+tradeable signal
+any wording that makes sample look like a real engine-generated alert
+
+If keeping F&O TRADEABLE SIGNAL in sample text, it must say:
+
+SAMPLE FORMAT ONLY — NOT A GENERATED SIGNAL
+
+Preferred:
+
+F&O TRADE ALERT FORMAT TEST
+
+not
+
+F&O TRADEABLE SIGNAL
+
+For real F&O trade alerts, define exact source labels.
+
+A real alert must include:
+
+Price source: Paper trade snapshot
+Premium source: Kite trusted option-chain
+Premium as-of: <timestamp>
+Instrument: <tradingSymbol>
+Strike
+Expiry
+Option type
+Entry premium
+Stop premium
+Target premium
+Lots
+Lot size
+Max risk
+Broker execution DISABLED — no order placed
+
+Required note:
+
+Entry premium is the paper trade snapshot at signal time, not current market price after alert.
+
+This is important because option premium may change after alert.
+
+Do not show live screenshot/current premium as if it must still match old alert after time has passed.
+
+Before sending a real F&O alert, validate:
+
+alert is not sample
+paper trade row exists
+paper trade opened less than 5 minutes ago
+premiumTrusted is true
+entryPremium > 0
+stopPremium > 0
+targetPremium > 0
+lots > 0
+lotSize > 0
+instrument/tradingSymbol/expiry/strike/optionType are present
+data source is Kite/trusted option-chain
+no stale/no-live-Kite condition exists for that signal
+broker execution disabled
+
+If validation fails:
+
+do not send trade alert
+log safe reason
+do not alter signal logic
+do not create a fallback price
+
+Add structured safe log when a real F&O trade alert is sent.
+
+Log fields:
+
+event: FNO_TRADEABLE_ALERT_SENT
+indexSymbol
+tradingSymbol
+expiry
+strike
+optionType
+entryPremium
+source
+sourceAsOf
+paperTradeId
+confidence
+dedupKey
+brokerExecutionDisabled
+
+Do not log secrets.
+
+This helps future mismatch audits.
+
+Harden POST /api/alerts/test-fno-trade-signal.
+
+Options:
+
+Preferred:
+
+keep owner-only
+keep rate-limited
+require explicit production confirmation field:
+body { "confirmSampleAlert": true }
+otherwise return 400 with message:
+Sample alert requires confirmSampleAlert=true
+
+Also add response:
+
+sampleOnly: true
+
+paperTradeCreated: false
+
+realOrderPlaced: false
+
+priceSource: "SAMPLE_NOT_LIVE"
+
+Do not send test/sample alert repeatedly during normal verification.
+
+Audit why Telegram shows many repeated alerts:
+
+repeated TESTSTK swing alerts
+repeated Order staged for approval
+repeated Manual approval required
+repeated Staged order expired
+repeated F&O data alerts
+repeated F&O daily history unavailable alerts
+
+Determine whether these came from:
+
+test endpoints
+production staging tests
+repeated manual verification
+dedup key changing due to new test order IDs
+server restart clearing in-memory dedup
+cycle-level data alert not incident-level dedup
+multiple workers/processes
+Telegram retry logic
+
+Report exact cause.
+
+Do not suppress legitimate alerts, but prevent test spam.
+
+Implement safe improvements if needed:
+
+Test/sample alert endpoints:
+30s route rate-limit is not enough for repeated manual tests.
+Add 5-minute owner test-alert dedup or explicit confirmation body.
+Make sample messages very clearly sample.
+Swing test/staging alerts:
+Ensure TESTSTK cannot be confused with real stock signal.
+Test alerts should say TEST ORDER.
+Repeated test alerts should not spam owner channel unless explicitly confirmed.
+F&O data alerts:
+Dedup by incident, not just event name.
+Example incident key:
+FNO_DATA_ISSUE::<event>::<affectedIndices>::<tradingDate>
+Send:
+first occurrence immediately
+unresolved reminder every 2 hours max during market hours
+recovery once
+Multi-process/autoscale:
+In-memory dedup may reset on restart.
+If production can run multiple workers, consider DB-backed or cache-backed alert incident table later.
+For now, document limitation if not fixing.
+
+User screenshots show the site topbar says Kite live, but Telegram data alerts say:
+
+FNO_KITE_SESSION_MISSING
+FNO_DAILY_HISTORY_UNAVAILABLE
+
+Clarify and fix wording if needed.
+
+Important:
+
+Kite live quote/session available does not automatically mean F&O daily history is available.
+
+But alerts/UI must be precise.
+
+Check:
+
+/api/fno/data-health
+/api/fno/no-signal-gap
+/fno-diagnostics
+Infra Health F&O section
+Kite session status
+daily history status
+intraday bars status
+option-chain status
+
+If topbar only means quote/session live, but F&O history is unavailable, alert should say:
+
+Kite session live, but F&O daily historical bars unavailable
+
+not
+
+Kite session expired
+
+unless session is truly expired.
+
+Do not give wrong action like “Reconnect Kite” when actual issue is daily history endpoint failure.
+
+Add/update tests for:
+
+F&O sample alert does not say Data source: Kite.
+F&O sample alert says sample prices are not live Kite premium.
+F&O sample alert says no paper trade and no real order.
+Real F&O alert says paper trade snapshot.
+Real F&O alert says entry premium is not current market price after alert.
+Real F&O alert requires trusted premium.
+Real F&O alert rejects stale openedAt.
+Test endpoint requires confirmation in production if implemented.
+Test endpoint rate-limit/dedup works.
+F&O data alert chooses correct wording:
+session missing vs daily history unavailable.
+Swing test alerts are clearly test/sample if test symbol is used.
+No secrets in Telegram messages/logs.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/fnoSignalAlerts.test.ts src/lib/alerting.test.ts src/lib/swingAlerts.test.ts src/lib/fnoSignalReasoningLogger.test.ts
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If exact commands differ, use repo-correct commands and report them.
+
+After fix and publish, verify:
+
+sample endpoint no longer emits misleading Kite wording
+sample endpoint response says sampleOnly true
+Telegram sample alert says sample prices only
+no paper trade created
+no real order placed
+/alerts/status still works
+real F&O alert path remains ready
+no tradeable alert fires for data issues
+data alert wording is accurate
+no duplicate spam from same incident
+
+Do not force unsafe F&O trade.
+
+Final report must include:
+
+Root cause of ₹125 mismatch.
+Whether alert was sample or real.
+Exact old wording.
+Exact new wording.
+Whether any real Kite price was used.
+Whether any paper trade was created.
+Whether any real order was created.
+Dedup/spam findings.
+F&O data-alert wording findings.
+Files touched.
+Files confirmed untouched.
+Tests run.
+LLM index result.
+Production verification result.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+FNO_SAMPLE_ALERT_SOURCE_LABEL_FIXED
+FNO_ALERT_PRICE_HONESTY_FIXED_AND_PROD_VERIFIED
+FNO_ALERT_SAMPLE_PRICE_MISMATCH_CONFIRMED_SAFE
+FNO_ALERT_REAL_PRICE_MISMATCH_FOUND
+FNO_DATA_ALERT_WORDING_FIXED
+TELEGRAM_ALERT_SPAM_CONTROL_FIXED
+FNO_ALERT_HONESTY_FIX_NEEDS_PUBLISH
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+₹125 mismatch is explained
+sample alert no longer labels dummy price as Kite
+sample alert cannot be confused with real trade
+real F&O alert has precise price-source wording
+real F&O alert validates trusted premium before send
+duplicate/test alert spam is reduced or clearly explained
+Kite live vs daily history unavailable wording is accurate
+no F&O logic/thresholds changed
+broker execution remains disabled
+no real order is placed
+tests pass
+LLM index fresh
+production verified after publish

@@ -37,7 +37,7 @@
   {
     "path": "artifacts/api-server/src/lib/alerting.ts",
     "purpose": "alerting",
-    "lines": 295,
+    "lines": 312,
     "exports": [
       "TelegramConfigStatus",
       "getTelegramStatus",
@@ -54,7 +54,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "44521ec41fd3e098"
+    "hash": "c1f6874a65c5b1b5"
   },
   {
     "path": "artifacts/api-server/src/lib/appStateStore.ts",
@@ -1280,18 +1280,18 @@
   {
     "path": "artifacts/api-server/src/lib/fnoSignalAlerts.test.ts",
     "purpose": "test",
-    "lines": 288,
+    "lines": 366,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "cc39710112a85f52"
+    "hash": "86b568548a222bc9"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalAlerts.ts",
     "purpose": "alerting",
-    "lines": 311,
+    "lines": 343,
     "exports": [
       "FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS",
       "FNO_SIGNAL_DEDUP_MS",
@@ -1306,7 +1306,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "0dd33897afae6b20"
+    "hash": "eb86be7672121e9f"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalReasoningFingerprint.test.ts",
@@ -3147,7 +3147,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 2787,
+    "lines": 2798,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
@@ -3160,7 +3160,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "fa512117a05f1223"
+    "hash": "60aef69302211bb5"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -5046,7 +5046,7 @@
   {
     "path": "artifacts/api-server/src/routes/alerts.ts",
     "purpose": "api-route",
-    "lines": 154,
+    "lines": 178,
     "exports": [],
     "externalImports": [
       "express"
@@ -5057,7 +5057,7 @@
       "POST /alerts/test-swing-staged-order",
       "POST /alerts/test-fno-trade-signal"
     ],
-    "hash": "f14b873c1d5366b5"
+    "hash": "eee9cdd20c44aa64"
   },
   {
     "path": "artifacts/api-server/src/routes/auth.ts",

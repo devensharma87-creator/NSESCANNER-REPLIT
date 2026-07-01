@@ -177,6 +177,30 @@ describe("buildFnoSignalAlertText — forbidden wording absent", () => {
   });
 });
 
+// ── 5b. buildFnoSignalAlertText — real alert source precision ─────────────────
+
+describe("buildFnoSignalAlertText — source precision (real alert)", () => {
+  it("says Paper trade snapshot for price source", () => {
+    const text = buildFnoSignalAlertText(freshInput());
+    expect(text).toContain("Paper trade snapshot");
+  });
+
+  it("says Kite trusted option-chain for premium source", () => {
+    const text = buildFnoSignalAlertText(freshInput());
+    expect(text).toContain("Kite trusted option-chain");
+  });
+
+  it("includes snapshot-time staleness note", () => {
+    const text = buildFnoSignalAlertText(freshInput());
+    expect(text).toContain("Entry premium is the snapshot at open");
+  });
+
+  it("does NOT have bare 'Data source: Kite' label (replaced by precision lines)", () => {
+    const text = buildFnoSignalAlertText(freshInput());
+    expect(text).not.toContain("Data source: Kite");
+  });
+});
+
 // ── 6. buildFnoSampleAlertText — sample label ────────────────────────────────
 
 describe("buildFnoSampleAlertText — sample labeling", () => {
@@ -188,6 +212,60 @@ describe("buildFnoSampleAlertText — sample labeling", () => {
   it("still contains broker-disabled wording even in sample", () => {
     const text = buildFnoSampleAlertText();
     expect(text).toContain("DISABLED — no order placed");
+  });
+});
+
+// ── 6b. buildFnoSampleAlertText — source-honesty guards (the real fix) ────────
+
+describe("buildFnoSampleAlertText — source honesty (must not imply real Kite data)", () => {
+  it("does NOT contain 'Data source: Kite'", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text).not.toContain("Data source: Kite");
+  });
+
+  it("does NOT contain 'trusted option-chain' (only real alerts may say that)", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text.toLowerCase()).not.toContain("trusted option-chain");
+  });
+
+  it("does NOT say 'F&O TRADEABLE SIGNAL' (that header is reserved for real signals)", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text).not.toContain("F&O TRADEABLE SIGNAL");
+  });
+
+  it("says 'SAMPLE DATA — not Kite, not live market price'", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text).toContain("SAMPLE DATA — not Kite, not live market price");
+  });
+
+  it("says 'NOT QUERIED — no Kite API call made'", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text).toContain("NOT QUERIED");
+  });
+
+  it("says 'F&O TRADE ALERT FORMAT TEST' as the header", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text).toContain("F&O TRADE ALERT FORMAT TEST");
+  });
+
+  it("says 'Paper trade created: NO'", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text).toContain("Paper trade created: NO");
+  });
+
+  it("says 'Real order placed: NO'", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text).toContain("Real order placed:   NO");
+  });
+
+  it("marks sample values clearly with '(sample)'", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text).toContain("(sample");
+  });
+
+  it("still starts with [SAMPLE — NOT A REAL TRADE]", () => {
+    const text = buildFnoSampleAlertText();
+    expect(text.trimStart()).toMatch(/^\[SAMPLE — NOT A REAL TRADE\]/);
   });
 });
 
