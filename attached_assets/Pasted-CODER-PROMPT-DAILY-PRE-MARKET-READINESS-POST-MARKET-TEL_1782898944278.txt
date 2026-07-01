@@ -1,0 +1,341 @@
+CODER PROMPT — DAILY PRE-MARKET READINESS + POST-MARKET TELEGRAM REPORTS
+
+The F&O Telegram alert price-honesty fix is now production verified.
+
+Current verified status:
+
+F&O data/session Telegram alerts are working.
+F&O tradeable-signal Telegram alerts are working.
+F&O sample alert source honesty is production verified.
+Swing staged-order Telegram alerts are production verified.
+Swing alert price-honesty is production verified.
+LLM indexing system is fully verified.
+Broker execution remains disabled.
+No real orders are allowed.
+
+Now implement daily Telegram reports:
+
+Pre-market readiness report.
+Post-market summary report.
+
+This is reporting only.
+
+Do not change trading logic.
+
+Do not change F&O thresholds.
+
+Do not change swing scoring.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not tune strategy.
+
+Do not add buy/sell spam.
+
+Do not use Yahoo/stale/proxy data as trade-grade.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+Create professional daily Telegram reports so the owner gets:
+
+A pre-market readiness view before market open.
+A post-market performance and data-quality summary after market close.
+
+The reports must be source-honest, concise, and actionable.
+
+Before coding, read:
+
+AGENT.md
+docs/llm-index/AGENT_START_HERE.md
+docs/llm-index/CRITICAL_FLOWS.md
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+docs/llm-index/API_ROUTES_INDEX.md
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+
+Use the index to identify exact files for:
+
+Telegram alert utility
+F&O readiness / no-signal gap
+Infra health
+scanner status
+swing staged orders
+F&O paper trades
+equity paper trades
+market pulse / pre-market
+FII/DII data if available
+scheduled jobs / cron / automation system
+
+Report which index files guided the implementation.
+
+Create a Telegram report that can run before market open.
+
+Suggested time:
+
+08:45–09:05 IST
+
+If scheduler exists, integrate safely.
+If no scheduler exists, create backend function and owner-only test endpoint first.
+
+Report title:
+
+🌅 PRE-MARKET READINESS
+
+Must include:
+
+Date and time.
+Market status.
+Kite session status.
+Kite access expiry / login requirement if available.
+F&O data readiness:
+index tokens resolved
+intraday bars availability
+daily history availability
+option-chain availability
+no-signal gap status
+Scanner readiness:
+latest scan time
+number of scanned symbols
+failed symbols count
+stale data warning if any
+Swing readiness:
+staged orders pending
+expired orders
+blocked-by-risk count if available
+F&O alert readiness:
+last F&O tradeable signal time
+last F&O data issue alert
+whether tradeable alerts are enabled
+Portfolio data readiness if available.
+Global/pre-market cues only if source is labelled.
+Data-quality warnings.
+Owner action required.
+
+Example wording:
+
+Status: F&O NOT READY — daily bars unavailable
+Action: Check /fno-diagnostics
+
+or:
+
+Status: READY — Kite + scanner + F&O data healthy
+
+Do not hide data problems.
+
+Create a Telegram report after market close.
+
+Suggested time:
+
+15:45–16:15 IST
+
+Report title:
+
+🌇 POST-MARKET SUMMARY
+
+Must include:
+
+Date and market close status.
+F&O paper trade summary:
+new trades opened
+closed trades
+open trades
+P&L if available
+alerts sent count
+Swing staged-order summary:
+staged today
+approved dry-run
+rejected
+expired
+pending approval
+Scanner summary:
+total symbols scanned
+top watchlist count
+strong setups count
+avoided/no-trade count if available
+Data-health summary:
+Kite issues
+F&O daily bars issues
+option-chain issues
+stale data issues
+Telegram alert summary:
+F&O data alerts
+F&O tradeable alerts
+Swing alerts
+Portfolio/paper-trade summary if available.
+Tomorrow watchlist / pending actions if available.
+Source/freshness disclaimer.
+
+Do not invent missing metrics.
+
+If a metric is unavailable, say:
+
+Unavailable — not tracked yet
+
+not fake zero.
+
+Every report must obey:
+
+Kite live/trusted data must be distinguished from cached/stale/info-only data.
+Global/pre-market cues must be labelled as info-only unless trusted.
+Missing data must be shown clearly.
+Synthetic/proxy/sample values must never appear as real.
+If Yahoo/proxy data is used anywhere, label it clearly.
+Do not show a green “ready” status if F&O daily history or option-chain is unavailable.
+If topbar says Kite live but daily bars fail, explain the distinction.
+
+Use existing Telegram alerting system.
+
+Rules:
+
+reports must not interfere with existing alert dedup
+report send failure must not crash server
+do not expose Telegram token/chat ID
+owner-only test endpoints
+rate-limit test endpoints
+no spam
+
+Suggested endpoints:
+
+POST /api/alerts/test-pre-market-report
+
+POST /api/alerts/test-post-market-report
+
+or similar.
+
+Each endpoint must:
+
+be owner-only
+rate-limited
+send one report
+return delivery status
+not mutate trading state
+not create orders/trades
+
+Check whether scheduler/cron infrastructure exists.
+
+If yes:
+
+add pre-market report schedule
+add post-market report schedule
+make schedule timezone IST
+avoid duplicate sends after restart
+no weekend send unless explicitly useful
+no market holiday send unless holiday detection exists
+
+If no scheduler exists:
+
+create report generation functions and test endpoints only
+document scheduler as follow-up
+
+Do not add unreliable cron blindly.
+
+Use existing data already available in the app where possible.
+
+Likely sources:
+
+/api/fno/no-signal-gap
+/api/fno/data-health
+/api/alerts/status
+swing staging DB/table
+F&O paper trades DB/table
+scanner latest output/cache
+infra health route/service
+Kite session status
+market pulse/pre-market services
+
+Do not create heavy scans just to send report unless already cached.
+
+Reports should be lightweight.
+
+If easy and safe, add report status to Infra Health or Alerts status:
+
+last pre-market report time
+last post-market report time
+last report telegramStatus
+
+If not easy, backend status is enough for this phase.
+
+Add tests for:
+
+pre-market report builder with all data healthy
+pre-market report builder with Kite missing
+pre-market report builder with daily bars unavailable but Kite session active
+post-market report builder with trades/alerts present
+missing metrics show Unavailable — not tracked yet
+report does not invent zero when data missing
+owner-only endpoint auth
+endpoint rate-limit
+Telegram failure safe-fails
+no secrets in output
+weekend/holiday behaviour if implemented
+scheduler does not duplicate sends if implemented
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/alerting.test.ts
+pnpm --filter @workspace/api-server exec vitest run src/lib/fnoSignalAlerts.test.ts
+pnpm --filter @workspace/api-server exec vitest run src/lib/swingAlerts.test.ts
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Add the new report tests to the command and report exact counts.
+
+After publish, verify:
+
+pre-market test endpoint works
+post-market test endpoint works
+Telegram receives both reports
+reports are clearly labelled test/manual if triggered manually
+no trading state is mutated
+no paper trade created
+no real order placed
+no secrets exposed
+rate-limit works
+
+Do not wait for actual next day scheduler in this task unless convenient.
+Manual endpoint proof is enough for first phase.
+
+Final report must include:
+
+Index files read.
+Files touched.
+Report data sources used.
+Pre-market report fields.
+Post-market report fields.
+Scheduler status.
+Test endpoint status.
+Telegram delivery result.
+Source-honesty handling.
+Tests run.
+LLM index result.
+Broker execution status.
+Remaining blocker.
+Exact next action.
+
+Final verdict must be exactly one:
+
+DAILY_REPORTS_ENABLED
+DAILY_REPORTS_BACKEND_READY_SCHEDULER_PENDING
+DAILY_REPORTS_TEST_ENDPOINTS_VERIFIED
+DAILY_REPORTS_SOURCE_HONESTY_GAP
+DAILY_REPORTS_TELEGRAM_PROVIDER_ERROR
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+pre-market report builder exists
+post-market report builder exists
+Telegram test endpoints exist
+owner auth works
+rate-limit works
+reports are source-honest
+missing data is not faked
+no trading state is mutated
+broker execution remains disabled
+tests pass
+LLM index is fresh
+final verdict explicit

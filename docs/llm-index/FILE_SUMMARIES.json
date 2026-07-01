@@ -829,6 +829,50 @@
     "hash": "016a1804572714c9"
   },
   {
+    "path": "artifacts/api-server/src/lib/dailyReports.test.ts",
+    "purpose": "test",
+    "lines": 557,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "77e57fe9f455148d"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/dailyReports.ts",
+    "purpose": "lib",
+    "lines": 603,
+    "exports": [
+      "PreMarketKite",
+      "PreMarketFno",
+      "PreMarketSwing",
+      "PreMarketAlerts",
+      "PreMarketReportData",
+      "buildPreMarketReport",
+      "PostMarketFno",
+      "PostMarketSwing",
+      "PostMarketAlerts",
+      "PostMarketReportData",
+      "buildPostMarketReport",
+      "DailyReportRecord",
+      "getLastPreMarketReportRecord",
+      "getLastPostMarketReportRecord",
+      "gatherPreMarketData",
+      "gatherPostMarketData",
+      "sendPreMarketReport",
+      "sendPostMarketReport",
+      "maybeRunPreMarketReport",
+      "maybeRunPostMarketReport"
+    ],
+    "externalImports": [
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "e48973aebe00099e"
+  },
+  {
     "path": "artifacts/api-server/src/lib/dataProvider.ts",
     "purpose": "lib",
     "lines": 51,
@@ -5046,7 +5090,7 @@
   {
     "path": "artifacts/api-server/src/routes/alerts.ts",
     "purpose": "api-route",
-    "lines": 178,
+    "lines": 274,
     "exports": [],
     "externalImports": [
       "express"
@@ -5055,9 +5099,11 @@
       "GET /alerts/status",
       "POST /alerts/test-telegram",
       "POST /alerts/test-swing-staged-order",
-      "POST /alerts/test-fno-trade-signal"
+      "POST /alerts/test-fno-trade-signal",
+      "POST /alerts/test-pre-market-report",
+      "POST /alerts/test-post-market-report"
     ],
-    "hash": "eee9cdd20c44aa64"
+    "hash": "294a7ec98c6badbb"
   },
   {
     "path": "artifacts/api-server/src/routes/auth.ts",

@@ -5,6 +5,8 @@
  * POST /alerts/test-telegram            — Send a test Telegram message; rate-limited to 1/30s.
  * POST /alerts/test-swing-staged-order  — Send a sample Swing staged-order alert; rate-limited to 1/30s.
  * POST /alerts/test-fno-trade-signal    — Send a sample F&O tradeable signal alert; rate-limited to 1/30s.
+ * POST /alerts/test-pre-market-report   — Send a manual pre-market readiness report; rate-limited to 1/30s.
+ * POST /alerts/test-post-market-report  — Send a manual post-market summary report; rate-limited to 1/30s.
  */
 import { Router, type IRouter } from "express";
 import { requireOwner } from "../lib/userAuth";
@@ -20,6 +22,12 @@ import {
   getLastFnoSignalAlertRecord,
   buildFnoSampleAlertText,
 } from "../lib/fnoSignalAlerts";
+import {
+  getLastPreMarketReportRecord,
+  getLastPostMarketReportRecord,
+  sendPreMarketReport,
+  sendPostMarketReport,
+} from "../lib/dailyReports";
 
 const router: IRouter = Router();
 
@@ -30,6 +38,8 @@ router.get("/alerts/status", requireOwner, (_req, res, next) => {
       lastAlert: getLastAlertRecord(),
       lastSwingAlert: getLastSwingAlertRecord(),
       lastFnoSignalAlert: getLastFnoSignalAlertRecord(),
+      lastPreMarketReport: getLastPreMarketReportRecord(),
+      lastPostMarketReport: getLastPostMarketReportRecord(),
     });
   } catch (err) {
     next(err);
@@ -40,6 +50,8 @@ router.get("/alerts/status", requireOwner, (_req, res, next) => {
 let lastTestSentAt = 0;
 let lastSwingTestSentAt = 0;
 let lastFnoTestSentAt = 0;
+let lastPreMarketTestSentAt = 0;
+let lastPostMarketTestSentAt = 0;
 const TEST_RATE_LIMIT_MS = 30_000;
 
 router.post("/alerts/test-telegram", requireOwner, async (_req, res, next) => {
@@ -168,6 +180,90 @@ router.post("/alerts/test-fno-trade-signal", requireOwner, async (req, res, next
       paperTradeCreated: false,
       realOrderPlaced: false,
       priceSource: "SAMPLE_NOT_LIVE",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /alerts/test-pre-market-report
+ *
+ * Send a [MANUAL TEST] pre-market readiness report to Telegram.
+ * Owner-only. Rate-limited to 1 call per 30 seconds.
+ *
+ * Gathers live Kite session status, F&O cycle state, swing order counts,
+ * and alert records. Does NOT create paper trades, does NOT place real orders,
+ * does NOT enable broker execution.
+ */
+router.post("/alerts/test-pre-market-report", requireOwner, async (_req, res, next) => {
+  try {
+    const now = Date.now();
+    if (now - lastPreMarketTestSentAt < TEST_RATE_LIMIT_MS) {
+      const retryAfterSec = Math.ceil((TEST_RATE_LIMIT_MS - (now - lastPreMarketTestSentAt)) / 1000);
+      res.status(429).json({
+        error: "rate_limited",
+        message: `Test endpoint rate-limited. Retry after ${retryAfterSec}s.`,
+      });
+      return;
+    }
+    lastPreMarketTestSentAt = now;
+
+    await sendPreMarketReport(now, true);
+
+    // Brief wait for background Telegram dispatch.
+    await new Promise(r => setTimeout(r, 600));
+
+    res.json({
+      sent: true,
+      type: "pre-market",
+      isManualTest: true,
+      paperTradeCreated: false,
+      realOrderPlaced: false,
+      brokerExecution: "DISABLED",
+      note: "Manual test report — labeled [MANUAL TEST] in Telegram. No trading state mutated.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /alerts/test-post-market-report
+ *
+ * Send a [MANUAL TEST] post-market summary report to Telegram.
+ * Owner-only. Rate-limited to 1 call per 30 seconds.
+ *
+ * Gathers today's F&O daily summary, swing order counts, and alert records.
+ * Does NOT create paper trades, does NOT place real orders,
+ * does NOT enable broker execution.
+ */
+router.post("/alerts/test-post-market-report", requireOwner, async (_req, res, next) => {
+  try {
+    const now = Date.now();
+    if (now - lastPostMarketTestSentAt < TEST_RATE_LIMIT_MS) {
+      const retryAfterSec = Math.ceil((TEST_RATE_LIMIT_MS - (now - lastPostMarketTestSentAt)) / 1000);
+      res.status(429).json({
+        error: "rate_limited",
+        message: `Test endpoint rate-limited. Retry after ${retryAfterSec}s.`,
+      });
+      return;
+    }
+    lastPostMarketTestSentAt = now;
+
+    await sendPostMarketReport(now, true);
+
+    // Brief wait for background Telegram dispatch.
+    await new Promise(r => setTimeout(r, 600));
+
+    res.json({
+      sent: true,
+      type: "post-market",
+      isManualTest: true,
+      paperTradeCreated: false,
+      realOrderPlaced: false,
+      brokerExecution: "DISABLED",
+      note: "Manual test report — labeled [MANUAL TEST] in Telegram. No trading state mutated.",
     });
   } catch (err) {
     next(err);

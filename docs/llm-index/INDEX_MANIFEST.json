@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T09:15:20.787Z",
+  "generatedAt": "2026-07-01T09:56:02.522Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -8,9 +8,9 @@
       "mtime": "2026-05-04T15:59:19.792Z"
     },
     "artifacts/api-server/src/routes/alerts.ts": {
-      "hash": "eee9cdd20c44aa64",
-      "lines": 178,
-      "mtime": "2026-07-01T08:05:56.569Z"
+      "hash": "294a7ec98c6badbb",
+      "lines": 274,
+      "mtime": "2026-07-01T09:52:14.984Z"
     },
     "artifacts/api-server/src/routes/auth.ts": {
       "hash": "796491100d7866e0",
@@ -261,6 +261,11 @@
       "hash": "016a1804572714c9",
       "lines": 68,
       "mtime": "2026-04-29T13:07:30.486Z"
+    },
+    "artifacts/api-server/src/lib/dailyReports.ts": {
+      "hash": "e48973aebe00099e",
+      "lines": 603,
+      "mtime": "2026-07-01T09:53:03.579Z"
     },
     "artifacts/api-server/src/lib/dataProvider.ts": {
       "hash": "f1b97c30a4f41b49",
