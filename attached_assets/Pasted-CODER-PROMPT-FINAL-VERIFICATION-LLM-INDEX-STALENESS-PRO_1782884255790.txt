@@ -1,0 +1,311 @@
+CODER PROMPT — FINAL VERIFICATION: LLM INDEX STALENESS PROOF + INDEX QUALITY AUDIT
+
+The LLM token-saving project indexing system has been implemented and merged.
+
+Reported deliverables:
+
+* root AGENT.md
+* docs/llm-index/AGENT_START_HERE.md
+* docs/llm-index/PROJECT_MAP.md
+* docs/llm-index/CRITICAL_FLOWS.md
+* docs/llm-index/API_ROUTES_INDEX.md
+* docs/llm-index/DATABASE_INDEX.md
+* docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+* docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+* docs/llm-index/CHANGELOG_FOR_AGENTS.md
+* docs/llm-index/FILE_SUMMARIES.json
+* docs/llm-index/INDEX_MANIFEST.json
+* scripts/src/generateLlmIndex.ts
+* scripts/src/checkLlmIndex.ts
+* scripts/install-git-hooks.sh
+* package scripts index:llm and index:llm:check
+
+Reported verification:
+
+* generator ran
+* index checker passed
+* 472 files summarized
+* 307 tracked SHA-256 hashes
+* 721/721 scanner tests passed
+* 14/14 trading-day tests passed
+* typecheck clean/targeted clean
+
+Now perform final verification only.
+
+Do not add unrelated features.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change data-source behaviour.
+
+Do not change UI.
+
+Do not enable broker execution.
+
+Do not trim or rewrite replit.md.
+
+====================================================
+OBJECTIVE
+
+Prove that the LLM indexing system is genuinely usable, fresh, safe, and enforceable.
+
+Specifically verify:
+
+1. Future agents are routed correctly through AGENT.md.
+2. Index files are compact and useful.
+3. Sensitive secrets are not included.
+4. Data-source honesty rules are captured.
+5. Swing Telegram alert wording rule is captured.
+6. Stale-index checker fails when a relevant source file changes.
+7. Regenerating the index fixes the stale check.
+8. File-count difference between FILE_SUMMARIES.json and INDEX_MANIFEST.json is explained.
+
+====================================================
+PART A — ROOT AGENT ENTRY CHECK
+
+Verify root AGENT.md exists and clearly says:
+
+* future agents must first read docs/llm-index/AGENT_START_HERE.md
+* exact command to regenerate index
+* exact command to check stale index
+* no work should proceed without checking the index
+
+Report the exact commands shown.
+
+====================================================
+PART B — INDEX FILE PRESENCE CHECK
+
+Confirm all required files exist:
+
+* docs/llm-index/AGENT_START_HERE.md
+* PROJECT_MAP.md
+* CRITICAL_FLOWS.md
+* API_ROUTES_INDEX.md
+* DATABASE_INDEX.md
+* DATA_SOURCES_AND_PROVENANCE.md
+* TEST_AND_VERIFICATION_INDEX.md
+* CHANGELOG_FOR_AGENTS.md
+* FILE_SUMMARIES.json
+* INDEX_MANIFEST.json
+* implementation report if created
+
+If LLM_INDEXING_IMPLEMENTATION_REPORT.md was requested but not created, create it now.
+
+====================================================
+PART C — CONTENT QUALITY CHECK
+
+Verify AGENT_START_HERE.md is compact and useful.
+
+Check that it includes:
+
+* what the project is
+* repo structure
+* which index file to read for which task
+* production-sensitive areas
+* strict do-not-break rules
+* verification commands
+* index update commands
+* data-source policy
+* Kite-first live data rule
+* Telegram alert price-honesty rule:
+    * Risk eval: kite
+    * Entry is the staged limit order price — not current market price
+    * old misleading Data: kite must not return for staged entries
+
+====================================================
+PART D — DATA SOURCE HONESTY CHECK
+
+Verify DATA_SOURCES_AND_PROVENANCE.md clearly states:
+
+* Kite is trusted priority for live price-sensitive data.
+* Cheaper/fundamental providers may be used only for non-live fundamentals/basic pages.
+* Yahoo/proxy/synthetic/stale/sample data must be labelled.
+* Untrusted/stale data cannot drive live trading/scanner/signal decisions.
+* Untrusted data cannot overwrite trusted Kite values.
+* No fake fallback should silently appear as real market data.
+* Swing staged entry price must not be labelled as Kite LTP.
+
+====================================================
+PART E — MACHINE INDEX CHECK
+
+Check FILE_SUMMARIES.json and INDEX_MANIFEST.json.
+
+Report:
+
+* file summary count
+* manifest tracked hash count
+* ignored file count
+* included file count
+* latest commit/hash if present
+* generatedAt
+* whether output is deterministic enough
+
+Explain why reported counts differ:
+
+* 472 file summaries
+* 307 tracked hashes
+
+If this is intentional, explain exactly which file classes are summarized but not tracked, or tracked but not summarized.
+
+If the difference indicates a bug, fix it.
+
+====================================================
+PART F — SECURITY / SECRET SCAN
+
+Search generated index files for secret-like values.
+
+Check at minimum:
+
+* Telegram bot token pattern
+* Kite access token pattern
+* API key pattern
+* password
+* cookie/session
+* database URL
+* .env value leakage
+
+Allowed:
+
+* environment variable names only
+
+Not allowed:
+
+* actual secret values
+* cookies
+* tokens
+* DB connection strings
+
+Report result.
+
+====================================================
+PART G — REQUIRED STALE-INDEX FAILURE PROOF
+
+This is mandatory.
+
+Perform this exact proof:
+
+1. Pick one harmless tracked source file.
+2. Add one harmless comment only.
+3. Run:
+
+npm run index:llm:check
+
+or the exact package command if workspace-specific.
+
+Expected:
+
+* stale-index check must fail
+* output must identify the changed file
+* output must tell developer what command to run
+
+4. Revert the harmless comment or leave it only if acceptable.
+5. Run:
+
+npm run index:llm
+
+6. Run:
+
+npm run index:llm:check
+
+Expected:
+
+* check passes after regeneration
+
+Report exact output summary.
+
+If the command is workspace-specific, document exact working directory.
+
+====================================================
+PART H — HOOK / ENFORCEMENT CHECK
+
+Verify:
+
+* scripts/install-git-hooks.sh exists
+* it installs a pre-commit hook safely
+* hook does not expose secrets
+* hook checks or regenerates index
+* hook is documented
+* no unsafe global installation
+
+Report whether hook:
+
+* only warns
+* blocks commit
+* regenerates automatically
+* checks freshness only
+
+If it only warns, clearly state that CI/Replit verification command must be used for hard enforcement.
+
+====================================================
+PART I — PACKAGE COMMAND CHECK
+
+Report exact commands and whether they pass:
+
+* index generation command
+* index freshness check command
+* typecheck command used
+* tests used
+
+Confirm package scripts are available from the correct directory.
+
+====================================================
+PART J — FINAL REPORT UPDATE
+
+Ensure LLM_INDEXING_IMPLEMENTATION_REPORT.md exists and includes:
+
+1. Summary of implementation.
+2. Files created/updated.
+3. Commands added.
+4. Future-agent workflow.
+5. Automatic update mechanism.
+6. Stale-index detection proof.
+7. Verification commands and results.
+8. Security/secret scan result.
+9. Limitations.
+10. Follow-up recommendations.
+
+====================================================
+PART K — FINAL VERDICT
+
+Final report must end with exactly one verdict:
+
+* LLM_INDEX_FULLY_VERIFIED
+* LLM_INDEX_IMPLEMENTED_STALE_PROOF_PENDING
+* LLM_INDEX_SECRET_LEAK_FOUND
+* LLM_INDEX_CHECKER_BUG_FOUND
+* LLM_INDEX_CONTENT_QUALITY_GAP
+* ROLLBACK_REQUIRED
+
+====================================================
+ACCEPTANCE CRITERIA
+
+This verification is complete only if:
+
+* all required index files exist
+* root AGENT.md points to AGENT_START_HERE.md
+* data-source honesty rules are captured
+* Telegram swing price-honesty rule is captured
+* no secrets are found
+* stale-index check fails after harmless source change
+* regenerate makes stale-index check pass
+* package commands are documented
+* hook/enforcement is documented
+* implementation report exists
+* final verdict is explicit
+
+====================================================
+IMPORTANT
+
+This is verification-only.
+
+Do not start new trading features.
+
+Do not touch F&O or swing logic.
+
+The purpose is to prove that future Replit/LLM tasks will use fewer tokens and will not forget the index.
+
+After this passes, then the indexing system can be considered fully accepted.

@@ -6,6 +6,17 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-07-01 — LLM Index System Formally Verified
+
+- Full verification audit conducted against all acceptance criteria (Parts A–K)
+- Stale-index detection proved: exit 1 on change, exit 0 after regeneration
+- Secret scan: CLEAN — no tokens, passwords, or DB credentials in any generated file
+- 472 vs 307 count difference documented: test files summarized but not tracked; 2 YAML files tracked but not TypeScript-summarizable — intentional design
+- Implementation report created: `docs/llm-index/LLM_INDEXING_IMPLEMENTATION_REPORT.md`
+- Known gap documented: staleness tracker uses one-level flat walk; ~24 production files in subdirectories are summarized but not hash-tracked
+- **Re-read if**: debugging why stale check doesn't detect a changed file (check if it's in a subdirectory)
+- **Files**: `docs/llm-index/LLM_INDEXING_IMPLEMENTATION_REPORT.md`, `scripts/src/checkLlmIndex.ts`, `scripts/src/generateLlmIndex.ts`
+
 ## 2026-06-30 — LLM Index System Created
 
 - Created `docs/llm-index/` with 8 index files covering project map, routes, DB, data sources, critical flows, tests, and changelog
