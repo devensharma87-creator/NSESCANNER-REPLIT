@@ -1,0 +1,639 @@
+CODER PROMPT — FULL WEBSITE DEEP AUDIT: PROFESSIONAL INDIAN MARKET ANALYSIS PLATFORM
+
+The Pre/Post Analysis module is now production verified.
+
+Current accepted status:
+
+PREPOST Telegram bot routing verified.
+Pre-market report sends to PREPOST bot.
+Post-market report sends to PREPOST bot.
+Urgent F&O/swing alerts remain on default bot.
+/daily-analysis route is live.
+Coverage matrix is live.
+DB-backed scheduled report dedup is active.
+istDate is ISO.
+Telegram date display is consistent.
+Missing data is source-honestly shown as unavailable/source-not-integrated/info-only.
+No trade/order was created.
+Broker execution remains disabled.
+Tests passed.
+LLM index is fresh.
+
+Now the next task is not another signal task.
+
+The next task is a full website deep audit for the entire Market Scanner / Hrishiassociates platform.
+
+This is an audit-only task first.
+
+Do not fix yet unless explicitly asked later.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change thresholds.
+
+Do not change formulas.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate production trading state.
+
+Do not add new features.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+Perform a complete professional audit of the entire website and produce a master roadmap to turn it into a professional Indian market analysis platform.
+
+Audit every:
+
+page
+tab
+route
+API
+database table
+data source
+formula
+calculation
+scanner
+chart
+portfolio component
+F&O component
+swing component
+option-chain component
+report
+Telegram alert
+scheduler
+background job
+source label
+freshness label
+UI card
+error state
+fallback path
+production health path
+
+The final deliverable should be a detailed audit report, not code changes.
+
+Suggested file:
+
+FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+
+Before auditing, read:
+
+AGENT.md
+docs/llm-index/AGENT_START_HERE.md
+docs/llm-index/PROJECT_MAP.md
+docs/llm-index/CRITICAL_FLOWS.md
+docs/llm-index/API_ROUTES_INDEX.md
+docs/llm-index/DATABASE_INDEX.md
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+docs/llm-index/FILE_SUMMARIES.json
+docs/llm-index/INDEX_MANIFEST.json
+
+Report which index files were used.
+
+Do not scan blindly if the index already points to the right files.
+
+Create a full website inventory.
+
+Cover at least:
+
+Home / Market Pulse
+Pre/Post Analysis
+Scanner
+Deep Scan
+Watchlist
+Portfolio
+Charting
+Option Chain
+OI Lab
+F&O Signals
+Swing Cash
+Swing Live Queue
+Paper Trading
+Backtest Lab
+Reports
+Alerts
+Infra Health
+Data Health
+Flows / FII-DII
+Global Cues
+Sectors
+Admin / owner-only areas
+Auth/session handling
+Scheduler/background jobs
+Database/provenance layer
+
+For each module, document:
+
+purpose
+route/page path
+APIs used
+DB tables used
+data sources used
+source/freshness display
+current strengths
+visible gaps
+broken states
+fake/stale/proxy risk
+priority level
+
+Audit every source used in the website.
+
+Classify every data source as:
+
+TRADE_GRADE
+INFO_ONLY
+DELAYED
+PROXY
+SYNTHETIC
+STALE
+SOURCE_NOT_INTEGRATED
+UNKNOWN
+
+Cover:
+
+Kite
+NSE archive
+BSE if used
+Yahoo/global sources
+IndianAPI/INDstocks/other providers if used
+scanner cache
+option-chain cache
+DB snapshots
+synthetic/fallback data
+manually calculated data
+sample/test data
+
+For every source, document:
+
+where it is used
+whether it can drive signals
+whether it can overwrite trusted data
+whether UI labels it correctly
+whether as-of time is shown
+whether stale data can appear as fresh
+whether fallback is honest
+
+Audit all calculations.
+
+Cover at least:
+
+Technical indicators:
+
+RSI
+EMA
+SMA
+MACD
+VWAP
+Supertrend
+ATR
+ADX
+Bollinger Bands if used
+CPR
+Pivot levels
+Support/resistance
+Volume spike
+Relative strength
+
+F&O/option analytics:
+
+PCR
+Max Pain
+OI change
+Call/Put writing
+Long buildup
+Short buildup
+Short covering
+Long unwinding
+ATM straddle range
+VIX implied range
+IV/Greeks if used
+expiry selection
+strike selection
+lot size
+premium source
+risk per lot
+
+Trading/risk:
+
+entry
+stop loss
+targets
+R
+position sizing
+max risk
+capital allocation
+paper trade P&L
+realized/unrealized P&L
+drawdown
+win rate
+expectancy
+
+Portfolio:
+
+current value
+day P&L
+total P&L
+XIRR if used
+sector allocation
+concentration risk
+benchmark comparison
+corporate action adjustment if any
+
+Backtest:
+
+candle source
+slippage
+brokerage
+taxes
+option pricing mode
+synthetic assumptions
+stop/target execution
+time-based exits
+survivorship bias
+
+For each formula, report:
+
+file/function
+formula currently used
+whether mathematically correct
+whether source data is reliable
+whether edge cases are handled
+whether test exists
+whether UI explains assumption
+required fix if any
+
+Audit all backend APIs.
+
+For each important route, document:
+
+method/path
+auth required or public
+owner-only or not
+input validation
+output shape
+source/freshness included or missing
+error handling
+rate limit if needed
+mutation risk
+secrets leakage risk
+production safety
+performance risk
+test coverage
+
+Include:
+
+market data routes
+scanner routes
+portfolio routes
+chart routes
+option-chain routes
+F&O routes
+swing routes
+report routes
+alert routes
+infra health routes
+auth routes
+
+Audit database structure and usage.
+
+Cover:
+
+tables
+indexes
+unique constraints
+migrations
+raw SQL tables
+Drizzle schema alignment
+report/dedup tables
+paper trade tables
+swing staging tables
+option signal history
+portfolio holdings
+cache tables
+provenance fields
+
+For each DB area:
+
+purpose
+producer
+consumer
+retention
+source provenance
+stale data handling
+concurrency issues
+duplicate prevention
+risk of corrupt writes
+test coverage
+
+Special check:
+
+raw CREATE TABLE IF NOT EXISTS daily_report_runs
+whether it should be moved into formal schema/migration
+whether unique lock is production safe
+
+Audit the frontend professionally.
+
+For each page:
+
+does it load?
+is layout clean?
+is mobile/responsive acceptable?
+are cards readable?
+are margins/padding correct?
+are tables usable?
+are empty states honest?
+are loading states clear?
+are errors visible?
+are source labels visible?
+are as-of times visible?
+are stale warnings visible?
+are owner-only controls protected?
+are dangerous actions clearly labelled?
+does it feel like a professional market terminal?
+
+Flag:
+
+broken margins
+missing recommendations
+missing data
+confusing labels
+fake green statuses
+stale values
+overloaded cards
+missing export
+missing explanation
+missing drilldown
+
+Home / Market Pulse:
+
+index board
+market status
+breadth
+global cues
+sector trend
+pre-market widgets
+source labels
+
+Pre/Post Analysis:
+
+full sections
+coverage matrix
+history
+bot status
+scheduler status
+missing integrations
+
+Scanner / Deep Scan:
+
+universe coverage
+ranking logic
+source freshness
+explanation of why selected/rejected
+false-positive risk
+symbol resolution
+performance
+
+Watchlist:
+
+symbol search
+Kite master coverage
+CMP correctness
+alerts
+recommendations
+stale handling
+
+Portfolio:
+
+symbol resolver
+NSE/BSE mapping
+holdings valuation
+day P&L
+total P&L
+sector allocation
+risk
+recommendations
+
+Charting:
+
+candle source
+timeframe support
+indicator accuracy
+source/freshness labels
+missing TradingView-like tools
+Pine/import feasibility
+drawing tools
+
+Option Chain / OI Lab:
+
+expiry selection
+strike selection
+option-chain source
+PCR
+Max Pain
+OI buildup/unwinding
+IV/Greeks if any
+support/resistance
+freshness
+
+F&O Engine:
+
+data gates
+tradeable vs info-only
+option premium trust
+signal reasons
+no-signal gap
+alerts
+paper trades
+risk guards
+
+Swing Engine:
+
+scanner-to-swing flow
+staged orders
+approval queue
+risk checks
+expiry/rejection
+Telegram alerts
+source honesty
+
+Backtest Lab:
+
+authentic vs synthetic data
+pricing mode labels
+stop/target logic
+brokerage/slippage/taxes
+export
+reproducibility
+
+Reports/Alerts:
+
+Telegram routing
+source-honest wording
+dedup
+rate limits
+spam risk
+bot separation
+scheduler
+
+Infra Health:
+
+API health
+Kite health
+feed health
+DB health
+job/scheduler health
+source freshness
+production deployment status
+
+Audit:
+
+auth gates
+owner-only controls
+public/private route boundaries
+Telegram endpoint protections
+report generation protections
+dangerous mutation endpoints
+secrets exposure
+cookies/session handling
+CORS if applicable
+rate limits
+audit logs
+real order prevention
+broker execution gates
+
+Confirm:
+
+broker execution remains disabled
+no real order path is accidentally enabled
+sample/test endpoints cannot spam
+owner actions are protected
+
+Run production checks against:
+
+https://marketscannerbydev.in
+
+Do not mutate trading state.
+
+Allowed:
+
+GET health/status routes
+authenticated read-only endpoints
+safe test endpoints only if already designed as non-mutating and rate-limited
+
+Report:
+
+current deployed commit
+health
+auth
+key routes
+major page loads
+console errors
+API failures
+stale data warnings
+broken tabs
+missing sections
+performance issues
+
+Do not place orders.
+
+Do not create trades.
+
+Do not run heavy scans unless safe.
+
+Produce a professional roadmap.
+
+Divide into:
+
+Phase 0 — Critical safety fixes
+Phase 1 — Data source/provenance fixes
+Phase 2 — Formula/math correctness
+Phase 3 — UI/page completeness
+Phase 4 — Scanner and swing improvements
+Phase 5 — F&O/option-chain improvements
+Phase 6 — Portfolio analytics
+Phase 7 — Charting terminal upgrade
+Phase 8 — Backtest lab authenticity
+Phase 9 — Reporting/automation
+Phase 10 — Broker dry-run/reconciliation
+Phase 11 — Real execution readiness, only after explicit approval
+
+For each item include:
+
+priority
+module
+issue
+impact
+files likely affected
+required data source
+test requirement
+production verification requirement
+risk if ignored
+
+Create:
+
+FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+
+The report must include:
+
+Executive summary
+Current platform status
+Module inventory
+Data source audit
+Formula audit
+API audit
+Database audit
+UI/UX audit
+Security/auth audit
+Production audit
+Critical risks
+Missing data providers/integrations
+Fake/stale/proxy data risks
+Calculation risks
+Feature gaps
+Testing gaps
+Performance risks
+Deployment risks
+Roadmap with phases
+Exact recommended next implementation task
+
+Since this is audit-only, do not change app code.
+
+If the report file is added, update LLM index:
+
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Do not run destructive commands.
+
+Final verdict must be exactly one:
+
+FULL_WEBSITE_DEEP_AUDIT_COMPLETE
+FULL_WEBSITE_AUDIT_INCOMPLETE_NEEDS_MORE_ACCESS
+FULL_WEBSITE_CRITICAL_RISK_FOUND
+FULL_WEBSITE_AUDIT_BLOCKED
+
+Task is complete only if:
+
+full report file is created
+every major website module is audited
+every major data source is classified
+formulas/calculations are audited
+APIs are audited
+DB usage is audited
+UI/UX gaps are audited
+security/auth is audited
+production state is checked safely
+roadmap is phase-wise and actionable
+no trading state is mutated
+no broker execution enabled
+no real orders placed
+LLM index fresh if report file is added
