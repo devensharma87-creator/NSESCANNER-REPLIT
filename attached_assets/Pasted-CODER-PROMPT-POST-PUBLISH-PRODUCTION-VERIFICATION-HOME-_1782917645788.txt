@@ -1,0 +1,243 @@
+CODER PROMPT — POST-PUBLISH PRODUCTION VERIFICATION: HOME / MARKET PULSE DATA ACCURACY
+
+The Home / Market Pulse source-honesty work has been completed in workspace/dev.
+
+Reported completed work:
+
+* homeMarketPulseSourceMap.ts added.
+* Every Home section now has source/freshness label contract.
+* canDriveSignals is true only for genuine trade-grade sections.
+* Row-aware board grading implemented.
+* Mixed boards downgrade to delayed unless every row is live Kite.
+* Aggregate freshness uses oldest row.
+* Missing provenance downgrades instead of silently passing.
+* Fake-zero fixes:
+    * VIX no longer falls back to 0.
+    * Breadth A/D no longer shows fake ratio when total is 0/missing.
+    * Sector heatmap no longer uses fake 0.
+* Scanner tests: 749 passing.
+* Typecheck green.
+* Clean scanner restart.
+* LLM index fresh, 314 files.
+* replit.md and changelog appended only.
+* No trading logic changed.
+* No broker execution enabled.
+
+Now production must be verified after publish.
+
+Do not add new features.
+
+Do not change trading logic.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not hide warnings.
+
+Do not fake missing data.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+====================================================
+OBJECTIVE
+
+Verify that Home / Market Pulse is now source-honest and data-path accurate in production.
+
+Production URL:
+
+https://marketscannerbydev.in
+
+Confirm:
+
+1. Latest Home source-honesty build is deployed.
+2. Every major Home section has source/freshness/status label.
+3. Yahoo/global delayed data is clearly info-only.
+4. Kite data is not overclaimed as live when market is closed/stale.
+5. Mixed Kite/Yahoo source states are labelled correctly.
+6. Missing values are not displayed as fake zero.
+7. Scanner-derived setups show correct scanner source mix.
+8. Home page uses or aligns with canonical /api/data-health/market.
+9. Footer remains source-honest.
+10. No secrets exposed.
+11. No trading state mutated.
+12. Broker execution remains disabled.
+
+====================================================
+PART A — DEPLOYMENT CONFIRMATION
+
+Report:
+
+* current production PID / boot timestamp
+* production commit/hash if available
+* latest workspace commit/hash
+* API health
+* frontend health
+* whether latest Home source-honesty build is in production
+
+If old build is still serving, stop and report:
+
+HOME_MARKET_PULSE_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — HOME PAGE VISUAL CHECK
+
+Open production Home / Market Pulse.
+
+Verify visible labels for at least these sections:
+
+1. Top market status strip.
+2. Global warning / Yahoo warning.
+3. FII/DII values.
+4. Expiry/date labels.
+5. Sector heatmap.
+6. Market breadth.
+7. Indian indices cards.
+8. Index detailed card.
+9. Markets — indices/commodities/ADRs/FX.
+10. Overall market trend.
+11. Market mood index.
+12. F&O ban list.
+13. Top gainers.
+14. Top losers.
+15. Top bullish setups.
+16. Top bearish setups.
+17. Footer/disclaimer.
+
+For each, report:
+
+* source label shown
+* freshness/as-of shown
+* trade-grade/info-only/delayed/stale status
+* whether missing data is honestly shown
+
+Take screenshot evidence if possible.
+
+====================================================
+PART C — DATA SOURCE LABEL CHECK
+
+Verify these labels or equivalent are visible where applicable:
+
+* Kite live
+* Kite market closed
+* Kite stale
+* Yahoo delayed / info-only
+* Yahoo stale / info-only
+* Computed from Kite
+* Scanner cache
+* NSE archive / info-only
+* Unavailable — source not integrated
+* Mixed sources
+
+Exact wording can differ, but meaning must be clear.
+
+====================================================
+PART D — FAKE ZERO CHECK
+
+Verify production no longer shows fake zeros for missing data.
+
+Specifically check:
+
+1. VIX:
+    * if missing, show — or unavailable
+    * not 0
+2. Breadth:
+    * if total/advance/decline missing or zero, show unavailable/insufficient data
+    * not fake ratio
+3. Sector heatmap:
+    * missing sector value should show unavailable/blank
+    * not fake 0
+4. Any unavailable metric:
+    * must not show 0 unless actual source value is truly zero
+
+====================================================
+PART E — INDEX BOARD / INDEX TABS CHECK
+
+Verify index cards/boards are row-aware.
+
+Expected:
+
+* if all rows are fresh Kite, status can be trade-grade.
+* if mixed Kite/Yahoo/stale rows, aggregate status downgrades.
+* aggregate freshness uses oldest row.
+* missing provenance downgrades.
+* mixed source warning appears.
+
+Check:
+
+* Nifty
+* Bank Nifty
+* Fin Nifty
+* Midcap Nifty
+* Sensex
+* Bankex if present
+
+====================================================
+PART F — SETUPS / MOVERS SOURCE CHECK
+
+Verify:
+
+* top gainers show source/as-of.
+* top losers show source/as-of.
+* top bullish setups show scanner source mix.
+* top bearish setups show scanner source mix.
+* setups based on Yahoo/stale rows are info-only, not trade-grade.
+* scan time is visible.
+* scanner source mix is visible or linked.
+
+====================================================
+PART G — CANONICAL DATA HEALTH ALIGNMENT
+
+Call production:
+
+GET /api/data-health/market
+
+Verify Home page labels align with it.
+
+Example:
+
+If /api/data-health/market says:
+
+MARKET_CLOSED_SESSION_ACTIVE
+
+then Home should not claim fully live real-time data everywhere.
+
+If global source is Yahoo delayed, Home should label it as info-only.
+
+====================================================
+PART H — FOOTER / DISCLAIMER CHECK
+
+Verify footer wording remains accurate:
+
+* Kite is trade-grade only when session/ticks active.
+* Yahoo/global fallback is delayed/info-only.
+* Data source varies by section.
+* No overclaim that everything is live Kite.
+
+====================================================
+PART I — SECURITY / SAFETY CHECK
+
+Verify:
+
+* no secrets exposed in Home APIs
+* no tokens
+* no chat IDs
+* no API keys
+* no DB URL
+* no trading mutation
+* no broker execution
+* no real order placed
+* no paper trade created
+
+====================================================
+PART J — TESTS + INDEX
