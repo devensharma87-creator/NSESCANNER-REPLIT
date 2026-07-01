@@ -78,7 +78,7 @@
   {
     "path": "artifacts/api-server/src/lib/auth.ts",
     "purpose": "auth",
-    "lines": 164,
+    "lines": 165,
     "exports": [
       "setSessionCookie",
       "clearSessionCookie",
@@ -93,7 +93,7 @@
       "node:crypto"
     ],
     "routes": [],
-    "hash": "1ba530abeb2506be"
+    "hash": "1256e0e3405e3eb0"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/candleSource.ts",
@@ -2899,6 +2899,39 @@
     "hash": "4622a8b6dc0f4faf"
   },
   {
+    "path": "artifacts/api-server/src/lib/marketDataHealth.test.ts",
+    "purpose": "test",
+    "lines": 210,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "4bff781402a2cb11"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketDataHealth.ts",
+    "purpose": "market-data",
+    "lines": 291,
+    "exports": [
+      "QuoteStatus",
+      "ScannerSourceStatus",
+      "FallbackLabel",
+      "OverallSeverity",
+      "MarketDataHealth",
+      "DeriveQuoteStatusInput",
+      "deriveQuoteStatus",
+      "deriveScannerSourceStatus",
+      "deriveOverall",
+      "deriveKiteExplanation",
+      "deriveScannerExplanation",
+      "buildMarketDataHealth"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "ad99c1a0836f91a6"
+  },
+  {
     "path": "artifacts/api-server/src/lib/marketEvents.ts",
     "purpose": "market-data",
     "lines": 382,
@@ -5237,6 +5270,19 @@
     "hash": "02beaec6cab7dc9d"
   },
   {
+    "path": "artifacts/api-server/src/routes/dataHealth.ts",
+    "purpose": "api-route",
+    "lines": 31,
+    "exports": [],
+    "externalImports": [
+      "express"
+    ],
+    "routes": [
+      "GET /data-health/market"
+    ],
+    "hash": "ceb62369b7f2aace"
+  },
+  {
     "path": "artifacts/api-server/src/routes/deepscan.ts",
     "purpose": "api-route",
     "lines": 55,
@@ -5353,13 +5399,13 @@
   {
     "path": "artifacts/api-server/src/routes/index.ts",
     "purpose": "api-route",
-    "lines": 96,
+    "lines": 98,
     "exports": [],
     "externalImports": [
       "express"
     ],
     "routes": [],
-    "hash": "736363412d9f20d1"
+    "hash": "a318f262db034e03"
   },
   {
     "path": "artifacts/api-server/src/routes/indices.ts",
@@ -7234,7 +7280,7 @@
       "@/components/ui/data-source-badge"
     ],
     "routes": [],
-    "hash": "f7862115beecdd46"
+    "hash": "ae5011265547f1b2"
   },
   {
     "path": "artifacts/scanner/src/pages/sector-detail.tsx",

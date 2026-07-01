@@ -78,6 +78,7 @@ const PUBLIC_ROUTES: PublicRoute[] = [
   { path: "/api/kite/export-session", methods: ["GET"] }, // Cross-env mirror; gated by X-App-Password header inside the route
   { path: "/api/webhooks/tradingview", methods: ["POST"] }, // ONLY POST is public — TradingView S2S with TRADINGVIEW_WEBHOOK_SECRET
   { path: "/api/paper/diagnostics/environment", methods: ["GET"] }, // Env label only (no secrets); powers the dev/prod banner
+  { path: "/api/data-health/market", methods: ["GET"] },           // PUBLIC: canonical market-data health (session+feed+market-session, no secrets)
 ];
 
 function isPublicRoute(url: string, method: string): boolean {

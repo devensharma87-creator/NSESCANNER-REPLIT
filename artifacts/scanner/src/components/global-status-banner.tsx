@@ -15,9 +15,14 @@
  * Behaviour (spec PART B.3):
  *   - Full-width banner ONLY for the two critical offline states
  *     (KITE_OFFLINE_PREOPEN, KITE_OFFLINE_MARKET_HOURS).
- *   - Everything else collapses to a small status chip (don't nag when healthy
- *     or when the token simply expired overnight on a non-trading moment).
- *   - KITE_EXPIRES_SOON → amber chip; KITE_READY → green chip.
+ *   - Everything else collapses to a small status chip.
+ *
+ * Chip label nuance (2026-07-01 fix for "Kite live" vs "Yahoo fallback" contradiction):
+ *   - KITE_READY + market open + liveQuotes > 0  → "Kite live" (green)
+ *   - KITE_READY + market open + liveQuotes = 0  → "Kite — waiting for ticks" (yellow)
+ *   - KITE_READY + market closed / pre_open       → "Kite — market closed" (green)
+ *   This prevents the topbar showing "Kite live" while scanner uses Yahoo/delayed
+ *   data simply because no ticks have arrived yet (liveQuotes = 0 after close).
  */
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, RefreshCw, CheckCircle2, Clock } from "lucide-react";
@@ -51,20 +56,29 @@ export interface KiteReadiness {
 
 interface KiteStatusResponse {
   readiness?: KiteReadiness;
+  feed?: { liveQuotes?: number; subscribed?: number };
+}
+
+interface KiteReadinessFull {
+  readiness: KiteReadiness | null;
+  liveQuotes: number;
 }
 
 const API_BASE = import.meta.env.BASE_URL; // includes trailing slash
 
-async function fetchKiteReadiness(): Promise<KiteReadiness | null> {
+async function fetchKiteReadiness(): Promise<KiteReadinessFull> {
   const r = await fetch(`${API_BASE}api/kite/status`, { credentials: "include" });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const j = (await r.json()) as KiteStatusResponse;
-  return j.readiness ?? null;
+  return {
+    readiness: j.readiness ?? null,
+    liveQuotes: j.feed?.liveQuotes ?? 0,
+  };
 }
 
 /** Dev-only override: `?mockReadiness=<STATE>` (sticky in sessionStorage) lets
  *  the owner eyeball every banner variant without breaking a real session. */
-function getMockReadiness(): KiteReadiness | null {
+function getMockReadiness(): KiteReadinessFull | null {
   if (!import.meta.env.DEV) return null;
   if (typeof window === "undefined") return null;
   try {
@@ -90,19 +104,22 @@ function getMockReadiness(): KiteReadiness | null {
     if (!sev) return null;
     const now = new Date();
     return {
-      state: key as KiteReadinessState,
-      severity: sev,
-      sessionPresent: true,
-      sessionValid: key === "KITE_READY" || key === "KITE_EXPIRES_SOON" || key === "KITE_CONNECTED_BUT_FEED_STALE",
-      loginTime: new Date(now.getTime() - 6 * 3600_000).toISOString(),
-      expiresAt: new Date(now.getTime() + 2 * 3600_000).toISOString(),
-      kiteOfflineSince: sev === "critical" || key === "KITE_EXPIRED" ? new Date(now.getTime() - 90 * 60_000).toISOString() : null,
-      marketSession: key === "KITE_OFFLINE_MARKET_HOURS" || key === "KITE_CONNECTED_BUT_FEED_STALE" ? "open" : key === "KITE_OFFLINE_PREOPEN" ? "pre_open" : "closed",
-      isPreOpenWindow: key === "KITE_OFFLINE_PREOPEN",
-      feedConnected: key === "KITE_READY" || key === "KITE_EXPIRES_SOON",
-      feedRunning: key !== "KITE_OFFLINE_MARKET_HOURS" && key !== "KITE_OFFLINE_PREOPEN",
-      userActionRequired: sev === "critical" || key === "KITE_EXPIRED",
-      checkedAt: now.toISOString(),
+      readiness: {
+        state: key as KiteReadinessState,
+        severity: sev,
+        sessionPresent: true,
+        sessionValid: key === "KITE_READY" || key === "KITE_EXPIRES_SOON" || key === "KITE_CONNECTED_BUT_FEED_STALE",
+        loginTime: new Date(now.getTime() - 6 * 3600_000).toISOString(),
+        expiresAt: new Date(now.getTime() + 2 * 3600_000).toISOString(),
+        kiteOfflineSince: sev === "critical" || key === "KITE_EXPIRED" ? new Date(now.getTime() - 90 * 60_000).toISOString() : null,
+        marketSession: key === "KITE_OFFLINE_MARKET_HOURS" || key === "KITE_CONNECTED_BUT_FEED_STALE" ? "open" : key === "KITE_OFFLINE_PREOPEN" ? "pre_open" : "closed",
+        isPreOpenWindow: key === "KITE_OFFLINE_PREOPEN",
+        feedConnected: key === "KITE_READY" || key === "KITE_EXPIRES_SOON",
+        feedRunning: key !== "KITE_OFFLINE_MARKET_HOURS" && key !== "KITE_OFFLINE_PREOPEN",
+        userActionRequired: sev === "critical" || key === "KITE_EXPIRED",
+        checkedAt: now.toISOString(),
+      },
+      liveQuotes: key === "KITE_READY" ? 3 : 0,
     };
   } catch {
     return null;
@@ -127,9 +144,18 @@ const MARKET_HOURS_COPY =
 const FEED_STALE_COPY =
   "Kite session is valid but the live feed is disconnected. Prices may be delayed until the feed reconnects.";
 
-/** PURE banner-view deriver — unit-tested. Full banner reserved for the two
- *  critical offline states; all else is a chip toned by severity. */
-export function deriveBannerView(r: KiteReadiness | null | undefined): BannerView {
+/**
+ * PURE banner-view deriver — unit-tested. Full banner reserved for the two
+ * critical offline states; all else is a chip toned by severity.
+ *
+ * @param r         The KiteReadiness from /api/kite/status (null → hidden / fail-open).
+ * @param liveQuotes Feed live-quote count from /api/kite/status feed.liveQuotes.
+ *                  Pass undefined to use legacy behaviour (no quote-count nuance).
+ */
+export function deriveBannerView(
+  r: KiteReadiness | null | undefined,
+  liveQuotes?: number,
+): BannerView {
   if (!r) {
     return { mode: "hidden", tone: "ok", headline: "", impact: "", chipLabel: "", showReconnect: false };
   }
@@ -145,8 +171,33 @@ export function deriveBannerView(r: KiteReadiness | null | undefined): BannerVie
     case "KITE_EXPIRES_SOON":
       return { mode: "chip", tone: "info", headline: "Kite session expires soon", impact: "Kite session expires soon.", chipLabel: "Kite expires soon", showReconnect: false };
     case "KITE_READY":
-    default:
+    default: {
+      // Nuanced chip label based on market session and live quote count.
+      // When liveQuotes is undefined (legacy / unknown), fall back to "Kite live".
+      if (liveQuotes !== undefined) {
+        if (r.marketSession === "closed" || r.marketSession === "pre_open") {
+          return {
+            mode: "chip",
+            tone: "ok",
+            headline: "Kite session active — market closed",
+            impact: "Kite session is active. Market is closed — live ticks are not expected.",
+            chipLabel: "Kite — market closed",
+            showReconnect: false,
+          };
+        }
+        if (r.marketSession === "open" && liveQuotes === 0) {
+          return {
+            mode: "chip",
+            tone: "warn",
+            headline: "Kite session active — waiting for ticks",
+            impact: "Kite session and WebSocket are active but no live ticks have arrived yet. Scanner may show delayed data.",
+            chipLabel: "Kite — waiting for ticks",
+            showReconnect: false,
+          };
+        }
+      }
       return { mode: "chip", tone: "ok", headline: "Kite live", impact: "Live Kite data streaming.", chipLabel: "Kite live", showReconnect: false };
+    }
   }
 }
 
@@ -210,14 +261,34 @@ export function useKiteReadiness(): KiteReadiness | null {
     enabled: isOwner && !mock,
   });
 
+  const full = mock ?? (isOwner ? q.data ?? null : null);
+  return full?.readiness ?? null;
+}
+
+/** Full Kite status including live-quote count — used by GlobalStatusBanner. */
+function useKiteReadinessFull(): KiteReadinessFull | null {
+  const { role } = useAuth();
+  const isOwner = role === "owner";
+  const mock = getMockReadiness();
+
+  const q = useQuery({
+    queryKey: ["kite-readiness"],
+    queryFn: fetchKiteReadiness,
+    refetchInterval: mock ? false : 60_000,
+    refetchOnWindowFocus: !mock,
+    staleTime: 30_000,
+    retry: 1,
+    enabled: isOwner && !mock,
+  });
+
   return mock ?? (isOwner ? q.data ?? null : null);
 }
 
 export function GlobalStatusBanner() {
-  const readiness = useKiteReadiness();
-  const view = deriveBannerView(readiness);
+  const full = useKiteReadinessFull();
+  const view = deriveBannerView(full?.readiness, full?.liveQuotes);
 
-  if (!readiness || view.mode === "hidden") return null;
+  if (!full?.readiness || view.mode === "hidden") return null;
 
   if (view.mode === "chip") {
     const Icon = view.tone === "ok" ? CheckCircle2 : view.tone === "info" ? Clock : AlertTriangle;
@@ -251,17 +322,17 @@ export function GlobalStatusBanner() {
       className={`w-full border-b px-4 py-2.5 flex items-start gap-3 text-xs ${TONE_BANNER[view.tone]}`}
       role="alert"
       data-testid="global-status-banner"
-      data-state={readiness.state}
+      data-state={full.readiness.state}
     >
       <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0 space-y-1">
         <div className="font-mono font-bold uppercase tracking-wider">{view.headline}</div>
         <div className="text-[11px] leading-snug opacity-90">{view.impact}</div>
         <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] font-mono opacity-75 pt-0.5">
-          <span>Last login: {fmtIst(readiness.loginTime)}</span>
-          <span>Expires: {fmtIst(readiness.expiresAt)}</span>
-          <span>Offline since: {fmtIst(readiness.kiteOfflineSince)}</span>
-          <span>Feed: {readiness.feedConnected ? "connected" : readiness.feedRunning ? "running (not connected)" : "stopped"}</span>
+          <span>Last login: {fmtIst(full.readiness.loginTime)}</span>
+          <span>Expires: {fmtIst(full.readiness.expiresAt)}</span>
+          <span>Offline since: {fmtIst(full.readiness.kiteOfflineSince)}</span>
+          <span>Feed: {full.readiness.feedConnected ? "connected" : full.readiness.feedRunning ? "running (not connected)" : "stopped"}</span>
         </div>
       </div>
       <button

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T13:15:50.388Z",
+  "generatedAt": "2026-07-01T13:39:45.126Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -42,6 +42,11 @@
       "lines": 383,
       "mtime": "2026-06-22T12:58:01.199Z"
     },
+    "artifacts/api-server/src/routes/dataHealth.ts": {
+      "hash": "ceb62369b7f2aace",
+      "lines": 31,
+      "mtime": "2026-07-01T13:28:51.082Z"
+    },
     "artifacts/api-server/src/routes/deepscan.ts": {
       "hash": "b95ce8887c391da0",
       "lines": 55,
@@ -73,9 +78,9 @@
       "mtime": "2026-06-17T03:43:06.668Z"
     },
     "artifacts/api-server/src/routes/index.ts": {
-      "hash": "736363412d9f20d1",
-      "lines": 96,
-      "mtime": "2026-07-01T11:00:09.856Z"
+      "hash": "a318f262db034e03",
+      "lines": 98,
+      "mtime": "2026-07-01T13:29:19.530Z"
     },
     "artifacts/api-server/src/routes/indices.ts": {
       "hash": "c4053f741bc8676a",
@@ -168,9 +173,9 @@
       "mtime": "2026-06-23T13:53:55.298Z"
     },
     "artifacts/api-server/src/lib/auth.ts": {
-      "hash": "1ba530abeb2506be",
-      "lines": 164,
-      "mtime": "2026-05-13T09:29:01.892Z"
+      "hash": "1256e0e3405e3eb0",
+      "lines": 165,
+      "mtime": "2026-07-01T13:37:54.102Z"
     },
     "artifacts/api-server/src/lib/backtest/candleSource.ts": {
       "hash": "85372baedf2b0bdf",
@@ -676,6 +681,11 @@
       "hash": "4622a8b6dc0f4faf",
       "lines": 109,
       "mtime": "2026-06-15T06:32:57.294Z"
+    },
+    "artifacts/api-server/src/lib/marketDataHealth.ts": {
+      "hash": "ad99c1a0836f91a6",
+      "lines": 291,
+      "mtime": "2026-07-01T13:27:56.757Z"
     },
     "artifacts/api-server/src/lib/marketEvents.ts": {
       "hash": "0f05e624b123d347",
@@ -1293,9 +1303,9 @@
       "mtime": "2026-07-01T11:05:04.295Z"
     },
     "artifacts/scanner/src/pages/scanner.tsx": {
-      "hash": "f7862115beecdd46",
+      "hash": "ae5011265547f1b2",
       "lines": 773,
-      "mtime": "2026-06-10T13:35:35.677Z"
+      "mtime": "2026-07-01T13:34:04.510Z"
     },
     "artifacts/scanner/src/pages/sector-detail.tsx": {
       "hash": "3fbd325cc77d2d9b",

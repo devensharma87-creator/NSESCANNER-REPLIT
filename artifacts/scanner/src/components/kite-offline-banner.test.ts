@@ -4,12 +4,18 @@ import { getMockProviderStatus, headlineFor } from "./kite-offline-banner";
 /**
  * Unit tests for the dev-only `?mockProvider=` override on the
  * KiteOfflineBanner. Pins:
- *   1. Each documented mock key maps to the expected status/copy path.
+ *   1. Each documented mock key maps to the expected MarketDataHealthPublic shape.
  *   2. `?mockProvider=off` (and `clear`) drops the override.
  *   3. The override is hard-gated by `import.meta.env.DEV` — flipping
  *      DEV to false makes every key a no-op (production safety).
  *   4. The URL `?mockProvider=` param is stripped after parsing so it
  *      doesn't get accidentally shared in screenshots / pasted links.
+ *
+ * NOTE (2026-07-01 shape change): getMockProviderStatus() now returns
+ * MarketDataHealthPublic (from /api/data-health/market) rather than the old
+ * { active, liveAvailable, reason } shape from /api/provider/status.
+ * Keys that existed in the old API (no_creds, generic) have no equivalent in
+ * the new contract and return null. New keys: waiting, market_closed.
  */
 
 /**
@@ -30,60 +36,72 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("getMockProviderStatus — DEV-mode key → status payload mapping", () => {
+describe("getMockProviderStatus — DEV-mode key → MarketDataHealthPublic shape", () => {
   it("returns null when no override is set (default)", () => {
     expect(getMockProviderStatus()).toBeNull();
   });
 
-  it("'session' key → yahoo + session-expired reason → headline routes to 'Kite session expired'", () => {
+  it("'session' key → quoteStatus=UNAVAILABLE, sessionStatus=EXPIRED", () => {
     setSearch("?mockProvider=session");
     const s = getMockProviderStatus();
-    expect(s).toEqual({
-      active: "yahoo",
-      liveAvailable: false,
-      reason: "Complete Kite daily login to enable live data",
-    });
-    expect(headlineFor(s!.reason)).toBe("Kite session expired — please re-login");
+    expect(s).not.toBeNull();
+    expect(s?.kite.quoteStatus).toBe("UNAVAILABLE");
+    expect(s?.kite.sessionStatus).toBe("EXPIRED");
+    expect(s?.overall.severity).toBe("red");
+    expect(s?.overall.actionRequired).toBe(true);
   });
 
-  it("'disconnected' key → yahoo + websocket reason → headline routes to 'Kite WebSocket disconnected'", () => {
+  it("'disconnected' key → quoteStatus=STALE, session ACTIVE", () => {
     setSearch("?mockProvider=disconnected");
     const s = getMockProviderStatus();
-    expect(s?.active).toBe("yahoo");
-    expect(s?.reason).toMatch(/disconnected/i);
-    expect(headlineFor(s!.reason)).toBe(
-      "Kite WebSocket disconnected — falling back to Yahoo",
-    );
+    expect(s).not.toBeNull();
+    expect(s?.kite.quoteStatus).toBe("STALE");
+    expect(s?.kite.sessionStatus).toBe("ACTIVE");
+    expect(s?.overall.severity).toBe("orange");
+    expect(s?.overall.actionRequired).toBe(false);
   });
 
-  it("'no_creds' key → yahoo + KITE_API_KEY reason → headline routes to 'credentials not configured'", () => {
-    setSearch("?mockProvider=no_creds");
+  it("'waiting' key → quoteStatus=CONNECTED_WAITING, session ACTIVE", () => {
+    setSearch("?mockProvider=waiting");
     const s = getMockProviderStatus();
-    expect(s?.active).toBe("yahoo");
-    expect(s?.reason).toMatch(/KITE_API_KEY/);
-    expect(headlineFor(s!.reason)).toBe("Kite API credentials not configured");
+    expect(s).not.toBeNull();
+    expect(s?.kite.quoteStatus).toBe("CONNECTED_WAITING");
+    expect(s?.kite.sessionStatus).toBe("ACTIVE");
+    expect(s?.overall.severity).toBe("yellow");
+    expect(s?.overall.actionRequired).toBe(false);
   });
 
-  it("'generic' key → yahoo + generic reason → headline routes to neutral default", () => {
-    setSearch("?mockProvider=generic");
+  it("'market_closed' key → quoteStatus=MARKET_CLOSED_SESSION_ACTIVE (banner should hide)", () => {
+    setSearch("?mockProvider=market_closed");
     const s = getMockProviderStatus();
-    expect(s?.active).toBe("yahoo");
-    expect(headlineFor(s!.reason)).toBe(
-      "Live Zerodha feed unavailable — using delayed Yahoo data",
-    );
+    expect(s).not.toBeNull();
+    expect(s?.kite.quoteStatus).toBe("MARKET_CLOSED_SESSION_ACTIVE");
+    expect(s?.marketSession).toBe("closed");
+    expect(s?.overall.severity).toBe("green");
+    expect(s?.overall.actionRequired).toBe(false);
   });
 
-  it("'kite' key → active='kite' (banner hidden — useful for clearing the override visually)", () => {
+  it("'kite' key → quoteStatus=LIVE_TICKS (banner should hide)", () => {
     setSearch("?mockProvider=kite");
-    expect(getMockProviderStatus()).toEqual({
-      active: "kite",
-      liveAvailable: true,
-      reason: "Live Kite ticks streaming",
-    });
+    const s = getMockProviderStatus();
+    expect(s).not.toBeNull();
+    expect(s?.kite.quoteStatus).toBe("LIVE_TICKS");
+    expect(s?.marketSession).toBe("open");
+    expect(s?.overall.severity).toBe("green");
   });
 
   it("unknown key → null (graceful fallback to real fetch)", () => {
     setSearch("?mockProvider=garbage");
+    expect(getMockProviderStatus()).toBeNull();
+  });
+
+  it("old key 'no_creds' → null (key removed; old /provider/status shape no longer emitted)", () => {
+    setSearch("?mockProvider=no_creds");
+    expect(getMockProviderStatus()).toBeNull();
+  });
+
+  it("old key 'generic' → null (key removed)", () => {
+    setSearch("?mockProvider=generic");
     expect(getMockProviderStatus()).toBeNull();
   });
 });
@@ -106,11 +124,13 @@ describe("getMockProviderStatus — clearing the override", () => {
   it("override survives navigation via sessionStorage even after URL param is stripped", () => {
     // First hit: param sets sessionStorage AND is stripped from the URL.
     setSearch("?mockProvider=session");
-    expect(getMockProviderStatus()?.reason).toMatch(/Complete Kite daily login/);
+    const first = getMockProviderStatus();
+    expect(first?.kite.quoteStatus).toBe("UNAVAILABLE");
     // The URL no longer carries the param (so no accidental share-leak).
     expect(window.location.search).toBe("");
     // Second call (simulating a navigation / re-render with no URL param):
-    expect(getMockProviderStatus()?.reason).toMatch(/Complete Kite daily login/);
+    const second = getMockProviderStatus();
+    expect(second?.kite.quoteStatus).toBe("UNAVAILABLE");
   });
 });
 
@@ -130,7 +150,25 @@ describe("getMockProviderStatus — production safety (import.meta.env.DEV gate)
   });
 });
 
-describe("headlineFor — defensive defaults", () => {
+describe("headlineFor — backward-compat shim (deprecated but still exported)", () => {
+  it("session-expired text → 'Kite session expired — please re-login'", () => {
+    expect(headlineFor("Complete Kite daily login to enable live data")).toBe(
+      "Kite session expired — please re-login",
+    );
+  });
+
+  it("disconnected text → 'Kite WebSocket disconnected — falling back to Yahoo'", () => {
+    expect(headlineFor("WebSocket disconnected")).toBe(
+      "Kite WebSocket disconnected — falling back to Yahoo",
+    );
+  });
+
+  it("api key text → 'Kite API credentials not configured'", () => {
+    expect(headlineFor("KITE_API_KEY not set")).toBe(
+      "Kite API credentials not configured",
+    );
+  });
+
   it("unrecognised reason falls through to the neutral default", () => {
     expect(headlineFor("something completely new")).toBe(
       "Live Zerodha feed unavailable — using delayed Yahoo data",

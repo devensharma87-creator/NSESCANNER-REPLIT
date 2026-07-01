@@ -575,11 +575,11 @@ export default function ScannerPage() {
           </p>
           {fullMeta?.kiteOffline && (
             <div className="mt-2 inline-flex items-start gap-2 px-3 py-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-300 text-[11px] font-mono max-w-2xl">
-              <span className="font-bold uppercase tracking-wider">Kite session offline</span>
+              <span className="font-bold uppercase tracking-wider">Scanner: Yahoo fallback active</span>
               <span className="text-amber-200/80">
-                — primary broker feed isn't authenticated. Quotes are coming from the chart provider as a backup, so a portion of the universe may be missing each cycle.
+                — this scan cycle ran without a live Kite quote batch (session not authenticated or batch unavailable). Quotes shown are from Yahoo Finance (~15 min delayed, info-only).
                 {" "}
-                <a href="/kite" className="underline hover:text-amber-100">Reconnect Kite</a> for full coverage.
+                <a href="/kite" className="underline hover:text-amber-100">Reconnect Kite</a> for full live coverage.
               </span>
             </div>
           )}

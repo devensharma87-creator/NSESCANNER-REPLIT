@@ -8,6 +8,11 @@ import { deriveBannerView, type KiteReadiness, type KiteReadinessState } from ".
  *      state is a severity-toned chip.
  *   3. Reconnect CTA shows exactly on the actionable states (offline + expired).
  *   4. EXPIRES_SOON is an info-tone chip (amber), never a full banner.
+ *   5. KITE_READY chip label is nuanced by liveQuotes + marketSession (2026-07-01):
+ *      - liveQuotes undefined   → legacy "Kite live" (ok) — backward compat
+ *      - market closed + 0 quotes → "Kite — market closed" (ok, NOT warn)
+ *      - market open + 0 quotes  → "Kite — waiting for ticks" (warn)
+ *      - market open + >0 quotes → "Kite live" (ok)
  */
 
 function mkReadiness(state: KiteReadinessState, over: Partial<KiteReadiness> = {}): KiteReadiness {
@@ -86,10 +91,55 @@ describe("deriveBannerView", () => {
     expect(v.showReconnect).toBe(false);
   });
 
-  it("KITE_READY → ok chip, no reconnect", () => {
+  it("KITE_READY → ok chip, no reconnect (legacy: liveQuotes omitted)", () => {
     const v = deriveBannerView(mkReadiness("KITE_READY"));
     expect(v.mode).toBe("chip");
     expect(v.tone).toBe("ok");
     expect(v.showReconnect).toBe(false);
+  });
+
+  // ── liveQuotes-aware chip labels (2026-07-01 contradiction fix) ────────────
+
+  it("KITE_READY + market open + liveQuotes > 0 → ok chip 'Kite live'", () => {
+    const v = deriveBannerView(mkReadiness("KITE_READY", { marketSession: "open" }), 5);
+    expect(v.mode).toBe("chip");
+    expect(v.tone).toBe("ok");
+    expect(v.chipLabel).toBe("Kite live");
+    expect(v.showReconnect).toBe(false);
+  });
+
+  it("KITE_READY + market open + liveQuotes = 0 → warn chip 'Kite — waiting for ticks'", () => {
+    const v = deriveBannerView(mkReadiness("KITE_READY", { marketSession: "open" }), 0);
+    expect(v.mode).toBe("chip");
+    expect(v.tone).toBe("warn");
+    expect(v.chipLabel).toBe("Kite — waiting for ticks");
+    expect(v.showReconnect).toBe(false);
+  });
+
+  it("KITE_READY + market closed + liveQuotes = 0 → ok chip 'Kite — market closed'", () => {
+    const v = deriveBannerView(mkReadiness("KITE_READY", { marketSession: "closed" }), 0);
+    expect(v.mode).toBe("chip");
+    expect(v.tone).toBe("ok");
+    expect(v.chipLabel).toBe("Kite — market closed");
+    expect(v.showReconnect).toBe(false);
+  });
+
+  it("KITE_READY + market pre_open + liveQuotes = 0 → ok chip 'Kite — market closed'", () => {
+    const v = deriveBannerView(mkReadiness("KITE_READY", { marketSession: "pre_open" }), 0);
+    expect(v.mode).toBe("chip");
+    expect(v.tone).toBe("ok");
+    expect(v.chipLabel).toBe("Kite — market closed");
+  });
+
+  it("market-closed chip is NOT warn (was the contradiction: green topbar vs amber scanner)", () => {
+    const v = deriveBannerView(mkReadiness("KITE_READY", { marketSession: "closed" }), 0);
+    expect(v.tone).not.toBe("warn");
+    expect(v.tone).not.toBe("critical");
+    expect(v.tone).toBe("ok");
+  });
+
+  it("waiting-for-ticks chip IS warn (scanner may show delayed data)", () => {
+    const v = deriveBannerView(mkReadiness("KITE_READY", { marketSession: "open" }), 0);
+    expect(v.tone).toBe("warn");
   });
 });

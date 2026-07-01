@@ -1,0 +1,464 @@
+CODER PROMPT — URGENT FULL WEBSITE FIX: CANONICAL MARKET DATA HEALTH + KITE/YAHOO STATUS CONSISTENCY
+
+The website currently shows illogical and contradictory market data status.
+
+User evidence from screenshots:
+
+Production top-right shows:
+
+KITE LIVE
+
+Kite page shows:
+Live Data Feed — Zerodha Kite
+session active
+websocket running/connected
+subscribed tokens
+but sometimes live quotes = 0 or waiting for ticks
+Scanner page shows:
+
+LIVE ZERODHA FEED UNAVAILABLE — USING DELAYED YAHOO DATA
+
+even while the topbar says KITE LIVE.
+
+Scanner also shows rows marked:
+
+YAHOO - STALE
+
+while another part of the site says Kite live.
+
+Production domain and Replit/dev preview can show different states, causing confusion.
+
+This is not acceptable for a professional Indian market analysis website.
+
+This is not a signal task.
+
+This is a whole-website data-health/source-honesty consistency fix.
+
+Do not start with new features.
+
+Do not tune strategy.
+
+Do not change F&O logic.
+
+Do not change swing logic.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+Create one canonical market data health contract used across the whole website.
+
+Every page must distinguish clearly between:
+
+Kite auth/session active
+Kite WebSocket connected
+Kite subscribed tokens count
+Kite live ticks received
+Kite quote freshness
+Scanner cycle data source
+Yahoo fallback status
+Stale/delayed data status
+Market closed vs market open
+Production vs dev environment
+Trade-grade vs info-only data
+
+The website must never show a simple green KITE LIVE if scanner is using stale Yahoo without explaining why.
+
+Read first:
+
+AGENT.md
+docs/llm-index/AGENT_START_HERE.md
+docs/llm-index/CRITICAL_FLOWS.md
+docs/llm-index/API_ROUTES_INDEX.md
+docs/llm-index/DATABASE_INDEX.md
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md
+
+Use the index to locate:
+
+topbar status component
+Kite live/feed page
+scanner banner/source logic
+scanner data fetcher
+Yahoo fallback policy
+market pulse/home source badges
+footer data disclaimer
+infra health
+data health APIs
+Kite session APIs
+scanner APIs
+global/market source policy
+
+Report which files govern each status currently.
+
+Reproduce and document the contradiction.
+
+Check production:
+
+https://marketscannerbydev.in
+
+Pages:
+
+/kite or Live Data Feed page
+/scanner
+/
+/infra
+/daily-analysis
+/option-chain
+/fno-diagnostics if available
+
+For each page, capture:
+
+topbar status
+page-level data status
+source shown
+freshness shown
+fallback warning shown
+whether Yahoo/stale is shown
+whether Kite session is active
+whether Kite ticks are arriving
+whether market is open or closed
+whether it is production or dev environment
+
+Do not mutate trading state.
+
+Do not run heavy scans unless safe.
+
+Find exactly why this happens.
+
+Answer:
+
+What does topbar KITE LIVE actually mean?
+session active?
+WebSocket connected?
+live ticks received?
+scanner data from Kite?
+quote freshness?
+What does scanner LIVE ZERODHA FEED UNAVAILABLE actually mean?
+no WebSocket ticks?
+no Kite quote for scanner symbols?
+scanner cycle using cached Yahoo?
+market closed?
+stale cache?
+Replit preview not mirrored?
+Why can both appear at the same time?
+Is scanner falling back to Yahoo even when Kite session is active?
+Is scanner using Yahoo because no ticks arrived after market close?
+Is scanner confusing Kite session active with Kite live quote available?
+Is footer generic and misleading?
+Is production/dev environment labelling missing?
+Are pages using different source-health APIs?
+Are stale Yahoo rows clearly blocked from trade-grade logic?
+
+Implement one shared contract, for example:
+
+MarketDataHealth
+
+Suggested fields:
+
+{
+  environment: "production" | "development" | "preview",
+  marketSession: "preopen" | "open" | "closed" | "holiday" | "unknown",
+
+  kite: {
+    sessionStatus: "ACTIVE" | "EXPIRED" | "MISSING" | "ERROR",
+    websocketStatus: "CONNECTED" | "DISCONNECTED" | "CONNECTING" | "ERROR",
+    subscribedTokens: number,
+    liveQuotesCount: number,
+    lastTickAt: string | null,
+    tickFreshnessSec: number | null,
+    quoteStatus: "LIVE_TICKS" | "CONNECTED_WAITING_FOR_TICKS" | "MARKET_CLOSED_NO_TICKS" | "STALE" | "UNAVAILABLE",
+    tradeGrade: boolean,
+    explanation: string
+  },
+
+  scanner: {
+    lastScanAt: string | null,
+    scannedCount: number,
+    kiteRows: number,
+    yahooRows: number,
+    staleRows: number,
+    noFeedRows: number,
+    sourceStatus: "KITE_LIVE" | "KITE_PARTIAL" | "YAHOO_DELAYED" | "STALE_CACHE" | "NO_FEED",
+    tradeGrade: boolean,
+    explanation: string
+  },
+
+  fallback: {
+    yahooEnabled: boolean,
+    yahooUsed: boolean,
+    yahooRows: number,
+    label: "INFO_ONLY_DELAYED" | "STALE" | "DISABLED" | "NOT_USED",
+    explanation: string
+  },
+
+  overall: {
+    badge: "KITE LIVE" | "KITE SESSION ACTIVE - WAITING FOR TICKS" | "KITE PARTIAL" | "INFO-ONLY DELAYED" | "NO LIVE DATA" | "MARKET CLOSED",
+    severity: "green" | "yellow" | "orange" | "red",
+    userMessage: string,
+    action: string | null
+  }
+}
+
+Use repo naming conventions.
+
+The exact type can differ, but it must clearly separate:
+
+session active
+ticks live
+scanner source
+fallback source
+stale state
+market closed
+production/dev
+
+Create or update a central API endpoint:
+
+Suggested:
+
+GET /api/data-health/market
+
+or extend existing infra/data-health endpoint.
+
+It must return the canonical contract.
+
+It must be safe:
+
+no secrets
+no tokens
+no API keys
+no chat IDs
+no cookies
+no trading mutation
+no heavy scan trigger
+
+It should read existing state/cache only.
+
+Update the topbar badge.
+
+Current problem:
+
+KITE LIVE is too broad and misleading.
+
+New behavior:
+
+If Kite session active + WebSocket connected + fresh ticks:
+
+KITE LIVE
+
+If Kite session active + WebSocket connected but no ticks:
+
+KITE SESSION ACTIVE — WAITING FOR TICKS
+
+If market closed:
+
+KITE SESSION ACTIVE — MARKET CLOSED
+
+If scanner is using Yahoo/delayed data:
+
+KITE PARTIAL / SCANNER DELAYED
+
+If Kite session expired:
+
+KITE LOGIN REQUIRED
+
+If no trade-grade data:
+
+NO TRADE-GRADE LIVE DATA
+
+Do not show green KITE LIVE when scanner is Yahoo stale unless the badge explains the distinction.
+
+Update scanner banner so it uses the same canonical contract.
+
+If topbar says Kite session active but scanner is Yahoo stale, show:
+
+Kite session active, but scanner cycle is using delayed Yahoo/stale rows because no fresh Kite ticks were available for this cycle.
+
+If market is closed, show:
+
+Market closed — live ticks may stop. Showing last available Kite/Yahoo source per row.
+
+If Yahoo rows are shown, label:
+
+INFO ONLY — not trade-grade
+
+If stale Yahoo rows are shown, label:
+
+STALE / INFO ONLY
+
+Do not say simply:
+
+LIVE ZERODHA FEED UNAVAILABLE
+
+unless Kite session and tick feed are actually unavailable.
+
+Scanner rows must show row source correctly:
+
+Kite live row: KITE LIVE
+Kite stale row: KITE STALE
+Yahoo delayed row: YAHOO DELAYED / INFO ONLY
+Yahoo stale row: YAHOO STALE / INFO ONLY
+no feed: NO FEED
+
+Ensure score/signals from Yahoo stale rows are not treated as trade-grade.
+
+If scanner ranking uses Yahoo stale rows, it must label the entire scan as info-only or partial.
+
+Update Home / Market Pulse badges.
+
+If any section is Yahoo delayed/stale:
+
+show it clearly
+label as info-only
+do not show green live market pulse if underlying data is mixed/stale
+
+If index cards use Kite but global cues use Yahoo:
+
+show per-section labels
+do not collapse into one misleading status
+
+Footer currently says broad wording like:
+
+Data: Zerodha Kite live ... Yahoo fallback
+
+Make it dynamic or more precise.
+
+Suggested:
+
+Data source varies by section. Kite is used for trade-grade Indian live data when session/ticks are active. Yahoo/global fallback is delayed/info-only and never trade-grade.
+
+Do not imply everything on the website is currently Kite live.
+
+Add clear environment label to admin/infra/dev pages if needed.
+
+Production domain:
+
+marketscannerbydev.in
+
+Dev/Replit preview:
+
+*.replit.dev
+
+Users must not confuse production and dev states.
+
+At minimum:
+
+Infra page shows current environment
+data-health endpoint returns environment
+status badges can show preview/dev where appropriate
+
+Verify:
+
+Yahoo/stale rows cannot trigger tradeable F&O signals
+Yahoo/stale rows cannot open paper trades as trade-grade
+Yahoo/stale rows cannot trigger real order path
+scanner labels Yahoo as info-only if used
+any recommendations from Yahoo data are labelled info-only
+
+Do not change strategy logic unless you find an actual safety bug.
+
+Add/update tests for:
+
+Topbar does not show simple KITE LIVE when liveQuotesCount = 0 and scanner is Yahoo stale.
+Topbar shows KITE SESSION ACTIVE — WAITING FOR TICKS when session connected but no ticks.
+Topbar shows MARKET CLOSED state when appropriate.
+Scanner banner explains Kite session active but scanner Yahoo stale.
+Scanner Yahoo rows are labelled info-only/stale.
+Home market pulse labels mixed Kite/Yahoo sources.
+Footer wording is not misleading.
+Data health endpoint returns canonical contract.
+No secrets in data-health response.
+Yahoo/stale data is not trade-grade.
+Production/dev environment is exposed safely.
+Market closed case does not show false alarm.
+Kite expired case shows reconnect action.
+Scanner partial Kite case shows partial status.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/dataHealth*.test.ts src/lib/alerting.test.ts src/lib/fnoSignalAlerts.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Use repo-correct test files if different.
+
+After publish, verify on:
+
+https://marketscannerbydev.in
+
+Check:
+
+Topbar status.
+Kite feed page.
+Scanner page.
+Home / Market Pulse.
+Footer/disclaimer.
+Infra/data health page.
+Central data-health API.
+Production vs dev environment label.
+Scanner row source labels.
+No false KITE LIVE when rows are Yahoo stale.
+No false ZERODHA UNAVAILABLE when Kite session is active but ticks are waiting/market closed.
+No secrets exposed.
+No trading state mutated.
+Broker execution disabled.
+
+Take screenshots or provide text evidence.
+
+Final report must include:
+
+Root cause.
+Files touched.
+Canonical market data health contract.
+API result.
+Topbar behavior before/after.
+Scanner banner before/after.
+Row-level source label behavior.
+Home/Market Pulse source label behavior.
+Footer/disclaimer fix.
+Production/dev environment handling.
+Trade-grade safety verification.
+Tests run.
+LLM index result.
+Production verification result.
+Remaining blockers.
+Exact next action.
+
+Final verdict must be exactly one:
+
+CANONICAL_MARKET_DATA_HEALTH_PROD_VERIFIED
+KITE_YAHOO_STATUS_CONSISTENCY_FIXED
+SCANNER_SOURCE_HONESTY_FIXED
+MARKET_DATA_STATUS_BUILD_NOT_DEPLOYED
+SOURCE_HONESTY_GAP_REMAINS
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+one canonical data health contract exists
+topbar uses it
+scanner uses it
+home/market pulse uses it or clearly follows same statuses
+footer/disclaimer no longer overclaims
+production/dev environment is clear
+Yahoo/stale data is info-only
+no contradictory Kite/Yahoo banners remain
+no secrets exposed
+no trading state mutated
+broker execution remains disabled
+tests pass
+LLM index fresh
+production screenshots/probes confirm fix

@@ -519,8 +519,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               Hrishi Associates · Market Scanner by Dev — built for active Indian traders.
             </p>
             <p>
-              Data: Zerodha Kite (live, when broker session active) with chart-provider /
-              Yahoo Finance fallback (~15 min delayed). Indicators are computed server-side.
+              Data source varies by section. Zerodha Kite is the trade-grade source (live quotes and signals when session is active and market is open).
+              Yahoo Finance is a display-only fallback (~15 min delayed, info-only — never used for signals or paper trading).
+              Indicators are computed server-side.
             </p>
           </div>
           <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
