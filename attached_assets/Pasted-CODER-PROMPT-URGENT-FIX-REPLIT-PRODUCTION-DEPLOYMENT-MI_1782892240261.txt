@@ -1,0 +1,303 @@
+CODER PROMPT — URGENT: FIX REPLIT PRODUCTION DEPLOYMENT MISMATCH, LATEST F&O ALERT BUILD NOT SERVING
+
+I have published the app from Replit UI, but production is still serving the old build.
+
+Production URL:
+
+`https://marketscannerbydev.in`
+
+Current problem:
+
+* Dev/workspace has latest F&O tradeable-signal Telegram alert code.
+* Dev verification passed.
+* 76/76 tests passed.
+* Typecheck clean.
+* LLM index fresh.
+* But production still returns:
+
+  * `GET /api/alerts/status` works but does not include `lastFnoSignalAlert`
+  * `POST /api/alerts/test-fno-trade-signal` returns 404
+* Deployment logs show old process/pid still serving.
+* Production is not picking up latest commit/build even after publish.
+
+This is now a deployment mismatch issue.
+
+Do not add trading features.
+
+Do not change F&O logic.
+
+Do not change thresholds.
+
+Do not change swing logic.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not tune strategy.
+
+Do not touch Telegram alert eligibility unless needed only for build verification.
+
+Do not trim or rewrite `replit.md`.
+
+====================================================
+OBJECTIVE
+=========
+
+Find exactly why production is still serving the old build and get production serving the latest workspace commit containing:
+
+* `/api/alerts/test-fno-trade-signal`
+* `/api/alerts/status.lastFnoSignalAlert`
+* `lib/fnoSignalAlerts.ts`
+* F&O tradeable-signal Telegram alert integration
+
+====================================================
+PART A — CONFIRM CURRENT COMMIT STATE
+=====================================
+
+Report:
+
+1. Current workspace commit hash.
+2. Current branch.
+3. Latest commit message.
+4. Whether latest commit contains:
+
+   * `lib/fnoSignalAlerts.ts`
+   * `routes/alerts.ts` test endpoint
+   * `lastFnoSignalAlert`
+   * paperTradingFO alert hook
+5. Whether these files are committed/merged or only in workspace.
+
+Run:
+
+```bash
+git status
+git log -1 --oneline
+git branch --show-current
+git diff --stat
+git diff --name-only
+```
+
+If there are uncommitted changes required for the build, report:
+
+`LATEST_ALERT_CODE_NOT_COMMITTED`
+
+====================================================
+PART B — CONFIRM PRODUCTION IS OLD BUILD
+========================================
+
+Probe production:
+
+```bash
+curl -i https://marketscannerbydev.in/api/healthz
+curl -i https://marketscannerbydev.in/api/alerts/status
+curl -i -X POST https://marketscannerbydev.in/api/alerts/test-fno-trade-signal
+```
+
+Expected current issue:
+
+* healthz 200
+* status 200 or 401 depending auth, but missing `lastFnoSignalAlert`
+* test endpoint 404
+
+Confirm whether production is old.
+
+Report production response shape.
+
+====================================================
+PART C — CHECK DEPLOYMENT TARGET / BUILD CONFIG
+===============================================
+
+Inspect Replit deployment configuration.
+
+Check:
+
+* production deployment target
+* deployment branch
+* deployment source directory
+* build command
+* start command
+* whether deployment is using old branch/snapshot
+* whether custom domain points to current deployment
+* whether alternate `.replit.app` URL shows same old build
+* whether autoscale deployment is pinned to an older build
+* whether deploy was only opened but not completed
+* whether build failed silently
+
+Report exact deployment config.
+
+Do not expose secrets.
+
+====================================================
+PART D — CHECK BUILD ARTIFACT / ROUTE REGISTRATION
+==================================================
+
+Confirm the built production artifact actually includes the new route.
+
+Check in current workspace build output:
+
+* whether `routes/alerts` includes `test-fno-trade-signal`
+* whether final compiled API bundle includes that route
+* whether production start command points to that compiled output
+* whether build command regenerates/rebuilds API server
+* whether stale build output is being served
+
+If the build process uses cached artifacts, clear/rebuild safely.
+
+Do not delete database or runtime state.
+
+====================================================
+PART E — FORCE SAFE REDEPLOY / REBUILD
+======================================
+
+Trigger a clean production rebuild/redeploy using the correct Replit mechanism.
+
+Acceptable actions:
+
+* trigger deploy from Replit deployment system
+* restart production deployment if latest build is already created
+* clear stale build cache if safe and documented
+* ensure build command runs from correct root
+* ensure workspace latest commit is what deployment builds
+
+Do not modify trading/business code to force deploy unless absolutely required.
+
+If a harmless deploy marker is needed, add only a safe diagnostic build marker, such as:
+
+* exposing commit/build timestamp in an existing health/build-info endpoint
+
+But only do this if no existing production build fingerprint exists.
+
+If adding build fingerprint:
+
+* do not expose secrets
+* do not change business behavior
+* include commit hash, build time, app version only
+* update tests/index
+
+====================================================
+PART F — VERIFY NEW BUILD IS SERVING
+====================================
+
+After redeploy, verify production:
+
+```bash
+curl -i https://marketscannerbydev.in/api/alerts/status
+curl -i -X POST https://marketscannerbydev.in/api/alerts/test-fno-trade-signal
+```
+
+Authenticated owner check must show:
+
+* `/api/alerts/status` includes `lastFnoSignalAlert`
+* `/api/alerts/test-fno-trade-signal` exists
+* sample endpoint returns 200 when authenticated
+* unauthenticated access remains 401
+* second call rate-limits with 429
+
+If endpoint still 404, continue deployment debugging.
+
+====================================================
+PART G — PRODUCTION SAMPLE ALERT CHECK
+======================================
+
+Once latest build is serving, trigger one owner-authenticated sample alert:
+
+`POST /api/alerts/test-fno-trade-signal`
+
+Expected:
+
+* HTTP 200
+* Telegram status `SENT` or `DISPATCHED`
+* Telegram message clearly says `[SAMPLE]`
+* no paper trade created
+* no real order created
+* broker execution disabled
+* manual review required
+* no secrets exposed
+
+====================================================
+PART H — REAL PATH READINESS CHECK
+==================================
+
+Do not force unsafe F&O trades.
+
+Confirm production is ready for a real alert when the next paper trade naturally opens:
+
+* paper F&O auto-trading environment status
+* broker execution status
+* Kite/F&O data status
+* option-chain status if available
+* `lastFnoSignalAlert` field present
+
+If no real signal occurs, report:
+
+`NO_LIVE_FNO_TRADEABLE_SIGNAL_OBSERVED`
+
+That is acceptable.
+
+====================================================
+PART I — TESTS + INDEX
+======================
+
+Run:
+
+```bash
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server exec vitest run src/lib/fnoSignalAlerts.test.ts src/lib/alerting.test.ts src/lib/fnoPaperRiskGuards.test.ts
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+```
+
+If exact commands differ, use repo-correct commands and report them.
+
+====================================================
+PART J — FINAL REPORT
+=====================
+
+Final report must include:
+
+1. Root cause of production serving old build.
+2. Current workspace commit.
+3. Production deployment commit/build if available.
+4. Whether deployment target/branch/config was wrong.
+5. Whether custom domain pointed to old deployment.
+6. Whether build command/start command was stale.
+7. What was done to make production serve latest build.
+8. Production `/alerts/status` result.
+9. Production `/alerts/test-fno-trade-signal` result.
+10. Telegram sample alert result.
+11. Auth/rate-limit result.
+12. Broker execution status.
+13. Tests run.
+14. LLM index result.
+15. Remaining blocker.
+16. Exact next action.
+
+Final verdict must be exactly one:
+
+* `PRODUCTION_DEPLOYMENT_MISMATCH_FIXED`
+* `FNO_TRADEABLE_ALERTS_PROD_VERIFIED`
+* `FNO_TRADEABLE_ALERTS_PROD_VERIFIED_NO_LIVE_SIGNAL_OBSERVED`
+* `DEPLOYMENT_STILL_SERVING_OLD_BUILD`
+* `DEPLOYMENT_CONFIG_ERROR_FOUND`
+* `BUILD_FAILED_NEEDS_FIX`
+* `CUSTOM_DOMAIN_POINTS_TO_OLD_DEPLOYMENT`
+* `ROLLBACK_REQUIRED`
+
+====================================================
+ACCEPTANCE CRITERIA
+===================
+
+Task is complete only if:
+
+* production serves latest build
+* `/alerts/status.lastFnoSignalAlert` exists in production
+* `/alerts/test-fno-trade-signal` no longer returns 404
+* sample Telegram alert sends from production
+* auth gate works
+* rate limit works
+* broker execution remains disabled
+* no real order is placed
+* tests pass
+* LLM index fresh
+* root cause is explained clearly
