@@ -1,0 +1,618 @@
+CODER PROMPT — FINAL PRODUCTION VERIFICATION + HARDENING: CANONICAL SIGNAL, PAPER TRADE, TELEGRAM, AND F&O PARITY
+
+The previous task created and wired the canonical trade lifecycle foundation.
+
+Reported completed work:
+
+tradeLifecycle/types.ts
+tradeLifecycle/validateTradeEvent.ts
+tradeLifecycle/formatTelegramMessage.ts
+tradeLifecycle/notificationLog.ts
+notification_delivery_log table with dedup index
+swingAlerts.ts wired through canonical validator/formatter/dedup
+fnoSignalAlerts.ts wired through canonical validator/formatter/dedup
+paperTradingFO.ts exit alert wired after close transaction commits
+F&O auto-warmup on all-index suppression added
+TEST_SYMBOL_BLOCKED, DEV_ENV_BLOCKED, SOURCE_NOT_TRADE_GRADE, DUPLICATE_EVENT, etc. reason codes added
+138 new tests passed
+existing api-server tests passed in batches
+scanner suite green
+typecheck clean
+
+Now this must be production-verified and hardened.
+
+Do not treat this as complete until the actual published app proves:
+
+Real production Telegram cannot receive TESTSTK.
+Real Swing alert path is protected.
+Real F&O alert path is protected.
+Duplicate lifecycle alerts are blocked.
+App, Paper Trading, F&O page, Swing Queue, and Telegram use the same canonical payload.
+F&O live/prod setup mismatch is either fixed or precisely diagnosed.
+Broker execution remains disabled.
+No real orders are placed.
+
+The full audit says the platform is source-honest, but still fragmented. It uses a layered stack of live Kite, delayed Yahoo, NSE archive/context, cached scanner data, and computed/derived layers. That is workable, but creates operational risk when different tabs or surfaces show different readiness/state.
+
+Recent production evidence also showed:
+
+Live F&O page showed 3 setups.
+Replit production/dev F&O page showed 0 setups.
+Telegram sent TESTSTK.
+Telegram sent duplicate Swing lifecycle messages.
+Swing Queue, Paper Trading, F&O, and Telegram did not appear to share one canonical lifecycle state.
+
+This task must close that parity gap.
+
+Do not add new strategy features.
+
+Do not change F&O strategy logic.
+
+Do not change Swing scoring logic.
+
+Do not change thresholds.
+
+Do not tune signal rules.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not delete DB rows destructively.
+
+Do not run heavy candle backfill.
+
+Do not start Scanner Phase B.
+
+Do not start F&O risk guard activation.
+
+Do not start IV-history work.
+
+Do not start GIFT Nifty integration.
+
+Do not rewrite unrelated UI.
+
+Do not trim or rewrite replit.md.
+
+Do not send repeated real Telegram messages during testing.
+
+Do not send fake trade-looking messages to the real trade channel.
+
+Do not claim production verified without published-app evidence.
+
+Publish and verify that the canonical trade lifecycle pipeline is actually protecting the real production alert paths.
+
+The production/live platform must now behave as one system:
+
+one data source contract
+one signal/order event
+one payload
+one UI state
+one Telegram state
+one paper-trade state
+one delivery log
+one dedup policy
+
+First confirm whether the merged parity changes are live.
+
+Report:
+
+latest workspace commit/hash
+published app commit/hash
+production boot timestamp
+production PID/worker count
+frontend bundle path/hash
+API health
+whether published build includes:
+tradeLifecycle/types
+validateTradeEventForNotification
+formatTradeTelegramMessage
+notification_delivery_log
+gateAndLogDedup or equivalent
+wired swingAlerts.ts
+wired fnoSignalAlerts.ts
+wired paperTradingFO.ts exit alert
+TEST_SYMBOL_BLOCKED
+DEV_ENV_BLOCKED
+DUPLICATE_EVENT
+
+If production does not include these changes, stop and report:
+
+SIGNAL_DATA_NOTIFICATION_PARITY_BUILD_NOT_DEPLOYED
+
+Before runtime testing, prove that old direct alert paths do not bypass the canonical pipeline.
+
+Search the codebase for:
+
+alertOwnerRaw(
+sendTelegram
+TELEGRAM_BOT_TOKEN
+alertSwing
+alertFno
+test-swing
+test-fno
+TESTSTK
+Manual approval required
+Order staged for approval
+Order approved — dry-run recorded
+any direct Telegram formatter
+
+Report every remaining Telegram sender and classify:
+
+File	Function	Alert Type	Canonical Pipeline?	Trade Channel?	Safe?
+
+Required outcome:
+
+Real Swing trade alerts must pass through canonical validation, formatting, dedup, and delivery log.
+Real F&O trade alerts must pass through canonical validation, formatting, dedup, and delivery log.
+System/health alerts may use separate alerting, but must not look like trade alerts.
+Test/sample endpoints must not send real trade-looking messages to production trade channel.
+
+If any real trade alert bypass remains, fix it before production verification.
+
+Verify in production-safe mode.
+
+Do not spam real Telegram.
+
+Use owner-only test endpoint, dry-run mode, or controlled verification method.
+
+Test cases:
+
+TESTSTK
+TEST
+SAMPLE
+DUMMY
+unknown symbol not in instrument master
+valid symbol but sourceStatus=STALE
+valid symbol but source=yahoo
+valid symbol but canDriveTradeAlerts=false
+development/test environment event trying to hit production Telegram
+manual/sample alert without confirmSampleAlert=true
+
+Expected result:
+
+no production Telegram sent
+validation blocks event
+exact reason code returned/logged:
+TEST_SYMBOL_BLOCKED
+INSTRUMENT_NOT_FOUND
+SOURCE_NOT_TRADE_GRADE
+YAHOO_NOT_ALLOWED
+STALE_DATA_NOT_ALLOWED
+DEV_ENV_BLOCKED
+SAMPLE_ALERT_BLOCKED
+delivery log records blocked/decision state if designed to do so
+no paper trade created
+no real order placed
+
+Critical acceptance:
+
+TESTSTK must not reach real Telegram under any path.
+
+Verify actual Swing lifecycle.
+
+Use a valid production-safe symbol if a real alert test is required, but do not create a fake trade-looking Telegram unless the message clearly states test-only or the event is a genuine staged paper-only entry.
+
+Check the following lifecycle:
+
+Stage candidate.
+Build canonical event.
+Validate instrument.
+Validate source.
+Validate environment.
+Send at most one ENTRY_READY alert.
+Approval must not send duplicate Telegram.
+Dry-run must not send duplicate Telegram.
+Rejected/expired/test cleanup must not send Telegram.
+Exit event must send only one exit Telegram.
+
+For the same Swing order, compare:
+
+Field	Swing Queue	Paper Trading	Telegram	DB
+orderId	
+	
+	
+	
+
+symbol	
+	
+	
+	
+
+exchange	
+	
+	
+	
+
+instrumentToken	
+	
+	
+	
+
+entry	
+	
+	
+	
+
+stopLoss	
+	
+	
+	
+
+target1	
+	
+	
+	
+
+target2	
+	
+	
+	
+
+qty	
+	
+	
+	
+
+risk	
+	
+	
+	
+
+capital	
+	
+	
+	
+
+source	
+	
+	
+	
+
+sourceAsOf	
+	
+	
+	
+
+brokerExecutionStatus	
+	
+	
+	
+
+paperTradeStatus	
+	
+	
+	
+
+
+Required result:
+
+same values everywhere
+no duplicate active cards for same order
+no duplicate Telegram for the same event
+no stale/test/invalid rows shown as active by default
+
+Verify actual F&O lifecycle.
+
+Check:
+
+Suppressed F&O signal sends no trade Telegram.
+Info-only/baseline signal sends no trade Telegram.
+Watchlist/setup-only signal sends no trade Telegram.
+Only actual tradeable/paper-opened signal can send ENTRY_OPENED.
+Entry alert uses same paper trade snapshot.
+Exit alert fires only after actual close transaction commits.
+Stop-loss exit sends one exit alert.
+Target exit sends one exit alert.
+Manual/force exit sends one exit alert.
+Repeated signal cycle does not duplicate the same entry alert.
+
+For one valid F&O signal/paper trade, compare:
+
+Field	F&O Page	Paper Trading	Telegram	DB
+signalId	
+	
+	
+	
+
+paperTradeId	
+	
+	
+	
+
+underlying	
+	
+	
+	
+
+contract	
+	
+	
+	
+
+CE/PE	
+	
+	
+	
+
+strike	
+	
+	
+	
+
+entryPremium	
+	
+	
+	
+
+stopLoss	
+	
+	
+	
+
+target	
+	
+	
+	
+
+qty/lots	
+	
+	
+	
+
+source	
+	
+	
+	
+
+sourceAsOf	
+	
+	
+	
+
+confidence	
+	
+	
+	
+
+status	
+	
+	
+	
+
+
+Required result:
+
+Telegram must not recompute anything separately.
+Telegram must reflect the paper trade snapshot.
+Yahoo/stale/cache cannot trigger trade alert.
+Broker execution remains disabled.
+
+Recheck the earlier mismatch.
+
+Previously:
+
+Live F&O page showed 3 setups across 3 indices.
+Replit production/dev showed 0 setups with daily_history_unavailable_kite.
+
+Now compare:
+
+published live /options
+Replit dev/prod /options
+/api/options/signals or actual F&O setup API
+/api/fno/data-health
+/api/fno/no-signal-gap
+/api/data-health/backbone
+/fno-diagnostics
+
+For both environments report:
+
+API base URL
+commit/hash
+backend process/PID
+Kite session state
+warmup state
+daily bars state
+intraday bars state
+option chain state
+signal cycle timestamp
+setup snapshot/cycle ID if available
+setup count
+candidate count
+suppression reasons
+cache age
+stale status
+
+Required diagnosis:
+
+If live and dev/prod differ, explain exactly why:
+
+different process memory
+different worker warmup
+stale setup cache
+API base URL mismatch
+bundle mismatch
+environment flag difference
+dev auto-open suppression
+browser cache
+real market changed between screenshots
+other exact cause
+
+Required behavior:
+
+cards and suppression table must not disagree
+stale setup cards must not count as live setups
+if all indices are suppressed, no active setup cards should appear
+if setup cards appear, reason table must show matching candidate state
+
+Verify notification_delivery_log.
+
+Check table/schema:
+
+table exists
+dedup index exists
+records are written for attempted deliveries
+duplicate same event does not create duplicate sent alerts
+failure retry does not create new lifecycle alert
+message hash change does not bypass lifecycle dedup
+
+Dedup key must effectively include:
+
+domain + eventType + orderId/signalId/paperTradeId + destination
+
+Report examples:
+
+Event	First Attempt	Second Attempt	Result
+Swing ENTRY_READY same order	sent/logged	skipped	OK
+Swing APPROVAL same order	no trade alert	no trade alert	OK
+F&O ENTRY_OPENED same signal	sent/logged	skipped	OK
+F&O EXIT same trade	sent/logged	skipped	OK
+TESTSTK	blocked	blocked	OK
+
+Verify message format.
+
+Entry message must include:
+
+symbol
+exchange
+side
+setup
+entry
+SL
+target 1
+target 2 if applicable
+qty
+risk
+risk %
+capital required
+source
+source timestamp
+broker execution status
+app/action link or ID
+
+Exit message must include:
+
+symbol
+entry
+exit
+exit reason
+qty
+P&L
+entry time
+exit time
+holding time if available
+source
+ID
+
+F&O message must include:
+
+underlying
+option contract
+strike
+CE/PE
+premium entry
+premium exit if exit
+lot/qty
+stop
+target
+P&L on exit
+source
+source timestamp
+signalId / paperTradeId
+
+Forbidden in real trade Telegram:
+
+TESTSTK
+n/a setup if app has a real setup
+separate “Manual approval required” duplicate
+separate “Order staged for approval” duplicate
+separate “Order approved — dry-run recorded” duplicate
+any message that looks tradeable but is sample/test
+any message without source and timestamp
+
+Run targeted and broad tests.
+
+Required commands:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/*trade*.test.ts src/lib/*notification*.test.ts src/lib/*telegram*.test.ts src/lib/*swing*.test.ts src/lib/*fno*.test.ts src/lib/*paper*.test.ts src/lib/*backbone*.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Use repo-correct paths if different.
+
+Report exact pass/fail counts.
+
+If full api-server test suite cannot run due tool timeout, run all test files in batches and report every batch with exit code.
+
+No “looks fine” claim.
+
+Verify:
+
+no secrets exposed
+no tokens
+no chat IDs
+no API keys
+no DB URLs
+no paper trade created by blocked tests
+no real order placed
+broker execution disabled
+no strategy/threshold change
+no destructive DB migration
+no unapproved backfill
+no Telegram spam during verification
+
+Create/update:
+
+SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md
+
+Report must include:
+
+Deployment confirmation.
+Static bypass audit.
+TESTSTK/test-symbol block result.
+Swing alert parity result.
+F&O alert parity result.
+F&O live vs production parity result.
+Notification delivery log result.
+Telegram format verification.
+Tests run and counts.
+LLM index result.
+Production safety result.
+Remaining blockers.
+Exact next action.
+
+Final verdict must be exactly one:
+
+SIGNAL_DATA_NOTIFICATION_PARITY_PROD_VERIFIED
+SIGNAL_DATA_NOTIFICATION_PARITY_CORE_PROD_VERIFIED_OPERATIONAL_ITEMS_PENDING
+SIGNAL_DATA_NOTIFICATION_PARITY_DEV_VERIFIED
+SIGNAL_DATA_NOTIFICATION_PARITY_PARTIAL_SOURCE_GAP_REMAINS
+FNO_LIVE_PROD_PARITY_SOURCE_GAP_REMAINS
+SIGNAL_DATA_NOTIFICATION_PARITY_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+This task is complete only if:
+
+published production includes the canonical alert wiring
+no real trade alert bypasses the canonical pipeline
+TESTSTK cannot reach production Telegram
+unknown/test/sample symbols cannot reach production Telegram
+dev/test events cannot reach production Telegram
+Swing entry alert sends only once
+Swing approval/dry-run/staging do not send duplicate Telegram
+Swing exit sends only once
+F&O suppressed/info-only/watchlist signals do not send trade Telegram
+F&O tradeable/paper-opened entry sends only once
+F&O exit sends only once after transaction commit
+app, paper trading, DB, and Telegram show the same canonical values
+F&O live/prod mismatch is fixed or precisely diagnosed
+notification delivery log prevents duplicate lifecycle delivery
+broker execution remains disabled
+no real orders placed
+no secrets exposed
+tests pass
+LLM index fresh
+production verification completed
