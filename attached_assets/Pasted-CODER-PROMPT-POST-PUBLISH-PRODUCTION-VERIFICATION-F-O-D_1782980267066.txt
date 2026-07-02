@@ -1,0 +1,301 @@
+CODER PROMPT — POST-PUBLISH PRODUCTION VERIFICATION: F&O DAILY HISTORY FRESHNESS FIX
+
+The F&O daily-history path fix has been completed in dev.
+
+Reported root cause:
+
+Kite was returning daily candles correctly, but the candle freshness policy was wrong.
+
+The candle functions were using:
+
+lastTsSec * 1000
+
+meaning the timestamp of the last daily candle bar, often yesterday’s candle open time, as asOfMs.
+
+Because the market-data stale budget is around 600 seconds, yesterday’s completed daily candle looked stale by 20+ hours.
+
+Result:
+
+Kite returned 60 daily bars.
+buildMeta() marked them hard-stale.
+isTradeableMeta became false.
+router returned null.
+warmup threw daily_history_unavailable_kite.
+backbone showed dailyBars UNKNOWN.
+F&O remained blocked even with active Kite session.
+
+Fix implemented:
+
+getIndexCandles
+getEquityCandles
+getEquityCandlesByToken
+
+now use fetch time:
+
+Date.now()
+
+as the candle series asOfMs.
+
+This means freshness means “how recently the candle series was fetched from Kite,” not “what date the latest completed daily candle represents.”
+
+Also completed:
+
+FRESHNESS_REJECTED classifier added.
+/api/data-health/backbone route security fixed from requireOwner to requireOwnerStrict.
+Anonymous GET is denied even in public-access mode.
+34 new tests pass.
+Full typecheck clean.
+No trading logic changed.
+No broker execution enabled.
+
+Now publish and verify production.
+
+Do not add new features.
+
+Do not change F&O strategy logic.
+
+Do not change F&O thresholds.
+
+Do not change signal formulas.
+
+Do not change scanner logic.
+
+Do not change swing logic.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state except safe warmup/readiness metadata.
+
+Do not use Yahoo fallback for F&O daily bars.
+
+Do not fake readiness.
+
+Do not trim or rewrite replit.md.
+
+Verify that production now accepts valid Kite daily candle series and F&O daily bars no longer show UNKNOWN incorrectly.
+
+Production URL:
+
+https://marketscannerbydev.in
+
+Main expected result:
+
+When Kite session is active and Kite returns daily candles:
+
+NIFTY daily bars should not be UNKNOWN.
+BANKNIFTY daily bars should not be UNKNOWN.
+SENSEX daily bars should not be UNKNOWN unless genuinely unsupported/unavailable.
+F&O backbone should show exact per-index status.
+No false hard-stale rejection from previous completed daily candle.
+
+Report:
+
+production commit/hash
+latest workspace commit/hash
+production PID / boot timestamp
+API health
+frontend health
+whether production includes the candle freshness fix:
+getIndexCandles uses fetch time as asOfMs
+getEquityCandles uses fetch time as asOfMs
+getEquityCandlesByToken uses fetch time as asOfMs
+FRESHNESS_REJECTED classifier exists
+/api/data-health/backbone uses requireOwnerStrict
+
+If old build is still serving, stop and report:
+
+FNO_DAILY_HISTORY_BUILD_NOT_DEPLOYED
+
+Unauthenticated check:
+
+GET /api/data-health/backbone
+
+Expected:
+
+HTTP 401
+no backbone data exposed
+no secrets exposed
+
+Authenticated owner check:
+
+GET /api/data-health/backbone
+
+Expected:
+
+HTTP 200
+module readiness visible
+no secrets
+no tokens
+no API keys
+no chat IDs
+no DB URLs
+
+Authenticated owner call:
+
+POST /api/kite/warmup
+
+Verify response per index:
+
+NIFTY:
+
+dailyBars status
+intradayBars status
+indexQuote status
+optionChain status
+error code if any
+
+BANKNIFTY:
+
+dailyBars status
+intradayBars status
+indexQuote status
+optionChain status
+error code if any
+
+SENSEX:
+
+dailyBars status
+intradayBars status
+indexQuote status
+optionChain status
+error code if any
+
+Expected:
+
+Daily bars should be OK if Kite returns candles.
+If daily bars fail, error should be exact:
+TOKEN_MISSING
+EXCHANGE_UNSUPPORTED
+HISTORICAL_EMPTY
+DATE_RANGE
+FRESHNESS_REJECTED
+PARSER_REJECTED
+HISTORICAL_UNAVAILABLE
+not generic UNKNOWN unless truly unknown.
+
+Call:
+
+GET /api/data-health/backbone
+
+Verify F&O module:
+
+dailyCandles requirement
+intradayCandles requirement
+indexQuote requirement
+optionChain requirement
+status per index if exposed
+failure codes
+recovery action
+
+Expected improvement:
+
+Before fix:
+
+dailyBars = UNKNOWN for NIFTY/BANKNIFTY/SENSEX
+
+After fix:
+
+dailyBars should be OK where Kite daily candles were fetched.
+If still blocked, failure reason should not be false freshness rejection.
+F&O should be blocked only by true remaining requirements.
+
+Check:
+
+/fno-diagnostics
+/api/fno/no-signal-gap
+any F&O data-health endpoint
+
+Verify:
+
+daily history status
+intraday status
+exact failure code if any
+whether F&O data issue is still blocking signals
+whether no-signal gap reason improved
+no false “session expired” when session is active
+
+Generate or inspect latest Pre/Post report.
+
+Verify F&O readiness section:
+
+Daily bars should not show UNAVAILABLE (0/3) if warmup daily bars are now available.
+If any index still unavailable, reason must be exact.
+Report must not spam duplicate alerts.
+
+Verify:
+
+repeated identical FNO_DAILY_HISTORY_UNAVAILABLE alerts are deduped.
+manual reports do not spam duplicate data alerts.
+if daily bars recover, recovery/status does not create false alert spam.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/kiteProvider.candleFreshness.test.ts src/lib/backboneHealth.test.ts src/routes/__tests__/backboneRouteAuth.test.ts src/lib/fnoFailureDiagnosis.test.ts src/lib/marketData/requirements.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Use repo-correct test paths if names differ.
+
+Report exact pass/fail counts.
+
+Verify:
+
+no secrets exposed
+no tokens
+no chat IDs
+no API keys
+no DB URLs
+no trading state mutation
+no paper trade created
+no real order placed
+broker execution disabled
+no strategy/threshold changes
+no Yahoo fallback for F&O daily bars
+
+Final report must include:
+
+Deployment confirmation.
+Root cause recap.
+Backbone endpoint security result.
+Warmup daily-bars result per index.
+Backbone F&O readiness result.
+F&O diagnostics result.
+Pre/Post report result.
+Alert dedup result.
+Tests run.
+LLM index result.
+Production safety result.
+Remaining blockers.
+Exact next action.
+
+Final verdict must be exactly one:
+
+FNO_DAILY_HISTORY_PATH_PROD_VERIFIED
+FNO_DAILY_HISTORY_PATH_DEV_VERIFIED_MARKET_RECHECK_REQUIRED
+FNO_DAILY_HISTORY_FRESHNESS_FIXED
+FNO_DAILY_HISTORY_SOURCE_GAP_REMAINS
+FNO_DAILY_HISTORY_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production serves latest freshness fix
+valid Kite daily candle series are not rejected as stale
+dailyBars no longer falsely show UNKNOWN for all indices
+exact failure code appears if any index still fails
+/api/data-health/backbone is owner-only strict
+F&O diagnostics reflect correct daily-history state
+Pre/Post report reflects correct readiness
+alert dedup still works
+no Yahoo fallback for F&O daily bars
+no fake readiness
+no trading state mutation
+broker execution disabled
+tests pass
+LLM index fresh
+production verification completed
