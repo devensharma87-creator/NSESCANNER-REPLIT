@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T07:57:25.472Z",
+  "generatedAt": "2026-07-02T08:04:36.779Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -43,9 +43,9 @@
       "mtime": "2026-06-22T12:58:01.199Z"
     },
     "artifacts/api-server/src/routes/dataHealth.ts": {
-      "hash": "777a8063d3c93ab7",
+      "hash": "1e46714962bab65b",
       "lines": 50,
-      "mtime": "2026-07-02T06:25:02.940Z"
+      "mtime": "2026-07-02T08:01:40.363Z"
     },
     "artifacts/api-server/src/routes/deepscan.ts": {
       "hash": "b95ce8887c391da0",

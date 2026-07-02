@@ -5064,6 +5064,22 @@
     "hash": "8e91ce690630ce80"
   },
   {
+    "path": "artifacts/api-server/src/routes/__tests__/backboneRouteAuth.test.ts",
+    "purpose": "api-route",
+    "lines": 163,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "8cacf604d1d826dc"
+  },
+  {
     "path": "artifacts/api-server/src/routes/__tests__/backtestComparisonIgnoredFilters.test.ts",
     "purpose": "api-route",
     "lines": 304,
@@ -5427,7 +5443,7 @@
       "GET /data-health/market",
       "GET /data-health/backbone"
     ],
-    "hash": "777a8063d3c93ab7"
+    "hash": "1e46714962bab65b"
   },
   {
     "path": "artifacts/api-server/src/routes/deepscan.ts",

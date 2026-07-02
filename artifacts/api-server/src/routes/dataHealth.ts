@@ -15,7 +15,7 @@
 import { Router, type IRouter } from "express";
 import { buildMarketDataHealth } from "../lib/marketDataHealth";
 import { buildBackboneReport } from "../lib/backboneHealth";
-import { requireOwner } from "../lib/userAuth";
+import { requireOwnerStrict } from "../lib/userAuth";
 
 const router: IRouter = Router();
 
@@ -36,7 +36,7 @@ router.get("/data-health/market", async (req, res) => {
  * REQUIRE, is their data actually trade-grade right now?"), composed from
  * existing in-process state only (no new network). No secrets, no mutations.
  */
-router.get("/data-health/backbone", requireOwner, async (req, res) => {
+router.get("/data-health/backbone", requireOwnerStrict, async (req, res) => {
   try {
     const report = await buildBackboneReport();
     res.json(report);
