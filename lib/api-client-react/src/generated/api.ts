@@ -135,6 +135,8 @@ import type {
   PostOptionStrategyCustom400,
   PreMarketReport,
   RefreshInstFlows200,
+  RunSwingTtlSweepDry200,
+  RunSwingTtlSweepNow200,
   ScannerSourceHealth,
   SearchChartInstrumentsParams,
   SectorDetail,
@@ -155,6 +157,7 @@ import type {
   SwingStageResponse,
   SwingStatusResponse,
   SwingTransitionResponse,
+  SwingTtlSweepState,
   SymbolDiagnostic,
   TopScans,
   WatchlistResponse,
@@ -7315,6 +7318,244 @@ export const useExpireStaleSwingStagedOrders = <
   TContext
 > => {
   return useMutation(getExpireStaleSwingStagedOrdersMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only: current in-memory state of the background TTL sweep scheduler
+ */
+export const getGetSwingTtlSweepStatusUrl = () => {
+  return `/api/swing/ttl-sweep/status`;
+};
+
+export const getSwingTtlSweepStatus = async (
+  options?: RequestInit,
+): Promise<SwingTtlSweepState> => {
+  return customFetch<SwingTtlSweepState>(getGetSwingTtlSweepStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSwingTtlSweepStatusQueryKey = () => {
+  return [`/api/swing/ttl-sweep/status`] as const;
+};
+
+export const getGetSwingTtlSweepStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSwingTtlSweepStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSwingTtlSweepStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetSwingTtlSweepStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSwingTtlSweepStatus>>
+  > = ({ signal }) => getSwingTtlSweepStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSwingTtlSweepStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSwingTtlSweepStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSwingTtlSweepStatus>>
+>;
+export type GetSwingTtlSweepStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only: current in-memory state of the background TTL sweep scheduler
+ */
+
+export function useGetSwingTtlSweepStatus<
+  TData = Awaited<ReturnType<typeof getSwingTtlSweepStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSwingTtlSweepStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSwingTtlSweepStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner-only: dry-run preview — count stale orders without expiring them
+ */
+export const getRunSwingTtlSweepDryUrl = () => {
+  return `/api/swing/ttl-sweep/run-dry`;
+};
+
+export const runSwingTtlSweepDry = async (
+  options?: RequestInit,
+): Promise<RunSwingTtlSweepDry200> => {
+  return customFetch<RunSwingTtlSweepDry200>(getRunSwingTtlSweepDryUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRunSwingTtlSweepDryMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runSwingTtlSweepDry>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runSwingTtlSweepDry>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["runSwingTtlSweepDry"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runSwingTtlSweepDry>>,
+    void
+  > = () => {
+    return runSwingTtlSweepDry(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunSwingTtlSweepDryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runSwingTtlSweepDry>>
+>;
+
+export type RunSwingTtlSweepDryMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only: dry-run preview — count stale orders without expiring them
+ */
+export const useRunSwingTtlSweepDry = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runSwingTtlSweepDry>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runSwingTtlSweepDry>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRunSwingTtlSweepDryMutationOptions(options));
+};
+
+/**
+ * @summary Owner-only: immediately run a real all-owners TTL sweep
+ */
+export const getRunSwingTtlSweepNowUrl = () => {
+  return `/api/swing/ttl-sweep/run-now`;
+};
+
+export const runSwingTtlSweepNow = async (
+  options?: RequestInit,
+): Promise<RunSwingTtlSweepNow200> => {
+  return customFetch<RunSwingTtlSweepNow200>(getRunSwingTtlSweepNowUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRunSwingTtlSweepNowMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runSwingTtlSweepNow>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runSwingTtlSweepNow>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["runSwingTtlSweepNow"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runSwingTtlSweepNow>>,
+    void
+  > = () => {
+    return runSwingTtlSweepNow(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunSwingTtlSweepNowMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runSwingTtlSweepNow>>
+>;
+
+export type RunSwingTtlSweepNowMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Owner-only: immediately run a real all-owners TTL sweep
+ */
+export const useRunSwingTtlSweepNow = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runSwingTtlSweepNow>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runSwingTtlSweepNow>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRunSwingTtlSweepNowMutationOptions(options));
 };
 
 /**

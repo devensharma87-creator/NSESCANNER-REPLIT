@@ -5526,14 +5526,40 @@ export interface SwingStagedOrder {
   manualReviewRequired?: boolean;
   createdAt: string;
   updatedAt: string;
+  /** ISO timestamp when this order was expired (by TTL sweep or manual action). */
+  expiredAt?: string | null;
+  /** Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null. */
+  expiryReason?: string | null;
   riskDecision?: SwingStagedOrderRiskDecision;
   recheckDecision?: SwingStagedOrderRecheckDecision;
   missedOpportunity?: SwingStagedOrderMissedOpportunity;
 }
 
+export interface SwingTtlSweepState {
+  /** ISO timestamp when the scheduler was started; null if never started. */
+  startedAt: string | null;
+  /** ISO timestamp of the last completed sweep tick. */
+  lastSweepAt: string | null;
+  /** Stale rows found in the last tick. */
+  lastSweepScanned: number;
+  /** Rows successfully expired in the last tick. */
+  lastSweepExpired: number;
+  /** Wall-clock duration of the last tick in ms. */
+  lastSweepDurationMs: number;
+  /** Error message from the last tick if it failed; null on success. */
+  lastSweepError: string | null;
+  /** Running total of orders expired since process start. */
+  totalExpiredSinceStart: number;
+  /** Number of completed ticks since process start. */
+  sweepCount: number;
+  /** Sweep interval in ms (10 minutes). */
+  tickMs: number;
+}
+
 export interface SwingStatusResponse {
   execution: SwingExecutionStatus;
   killSwitch: SwingKillSwitchState;
+  ttlSweep?: SwingTtlSweepState;
 }
 
 export interface SwingKillSwitchResponse {
@@ -5601,6 +5627,7 @@ export interface SwingTransitionResponse {
 
 export interface SwingExpireStaleResponse {
   expired: number;
+  scanned: number;
   execution: SwingExecutionStatus;
 }
 
@@ -5919,4 +5946,16 @@ export type ListSwingStagedOrdersParams = {
    * Optional comma-separated status filter.
    */
   status?: string;
+};
+
+export type RunSwingTtlSweepDry200 = {
+  dryRun: boolean;
+  staleCount: number;
+  symbols: string[];
+};
+
+export type RunSwingTtlSweepNow200 = {
+  expired: number;
+  scanned: number;
+  durationMs: number;
 };

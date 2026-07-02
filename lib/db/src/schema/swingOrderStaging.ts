@@ -28,6 +28,10 @@
  * `docs/swing-cash-live-readiness/`), NEVER `drizzle-kit push` — push wants to
  * DROP out-of-schema tables in this repo. The Drizzle definition exists so a
  * future guarded push would not try to re-create/alter it.
+ *
+ * ADDITIVE COLUMNS (TTL sweep audit, 2026-07-02): `expired_at` and
+ * `expiry_reason` applied via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in
+ * `swingTtlSweep.ts` on startup — never via drizzle-kit push.
  */
 
 import { sql } from "drizzle-orm";
@@ -147,6 +151,12 @@ export const swingOrderStagingTable = pgTable(
 
     // ── Missed-opportunity tracker (Part F) ──────────────────────────
     missedOpportunityJson: jsonb("missed_opportunity_json"),
+
+    // ── TTL sweep audit (additive nullable — applied via ALTER TABLE IF NOT EXISTS) ─
+    /** Timestamp when the order was expired; null for non-EXPIRED rows. */
+    expiredAt: timestamp("expired_at", { withTimezone: true }),
+    /** Why the order expired: 'TTL_EXPIRED' | 'MANUAL_EXPIRE' | 'BATCH_EXPIRE'. */
+    expiryReason: text("expiry_reason"),
   },
   (t) => ({
     byOwner: index("swing_order_staging_owner_idx").on(t.ownerKey),

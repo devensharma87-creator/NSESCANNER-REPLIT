@@ -51,6 +51,10 @@ export interface SwingStagedOrder {
   manualReviewRequired?: boolean;
   createdAt: Date;
   updatedAt: Date;
+  /** ISO timestamp when this order was expired (by TTL sweep or manual action). */
+  expiredAt?: Date | null;
+  /** Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null. */
+  expiryReason?: string | null;
   riskDecision?: SwingStagedOrderRiskDecision;
   recheckDecision?: SwingStagedOrderRecheckDecision;
   missedOpportunity?: SwingStagedOrderMissedOpportunity;

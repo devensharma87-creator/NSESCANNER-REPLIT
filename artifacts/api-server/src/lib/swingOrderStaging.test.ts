@@ -542,11 +542,11 @@ describe.skipIf(!process.env.DATABASE_URL)("swingOrderStaging (DB)", () => {
       ttlMs: 1000,
     });
     const later = new Date(t + 3 * 60 * 60 * 1000);
-    const expired = await expireStaleSwingOrders(owner, {
+    const sweepResult = await expireStaleSwingOrders(owner, {
       now: later,
       fetchQuote: makeFetcher(freshKiteQuote("TESTSTK", 101, t + 3 * 60 * 60 * 1000)),
     });
-    expect(expired).toBeGreaterThanOrEqual(1);
+    expect(sweepResult.expired).toBeGreaterThanOrEqual(1);
     const row = await getSwingOrder(owner, staged.row!.id, later);
     const missed = row!.missedOpportunityJson as {
       status: string;

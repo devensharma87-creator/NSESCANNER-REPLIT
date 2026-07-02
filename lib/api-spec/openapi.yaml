@@ -1408,6 +1408,54 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SwingExpireStaleResponse" }
 
+  /swing/ttl-sweep/status:
+    get:
+      operationId: getSwingTtlSweepStatus
+      tags: [swing]
+      summary: "Owner-only: current in-memory state of the background TTL sweep scheduler"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SwingTtlSweepState" }
+
+  /swing/ttl-sweep/run-dry:
+    post:
+      operationId: runSwingTtlSweepDry
+      tags: [swing]
+      summary: "Owner-only: dry-run preview — count stale orders without expiring them"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [dryRun, staleCount, symbols]
+                properties:
+                  dryRun: { type: boolean }
+                  staleCount: { type: integer }
+                  symbols: { type: array, items: { type: string } }
+
+  /swing/ttl-sweep/run-now:
+    post:
+      operationId: runSwingTtlSweepNow
+      tags: [swing]
+      summary: "Owner-only: immediately run a real all-owners TTL sweep"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [expired, scanned, durationMs]
+                properties:
+                  expired: { type: integer }
+                  scanned: { type: integer }
+                  durationMs: { type: number }
+
   /swing/staged-orders/{id}:
     get:
       operationId: getSwingStagedOrder
@@ -6678,9 +6726,25 @@ components:
         manualReviewRequired: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        expiredAt: { type: string, format: date-time, nullable: true, description: "ISO timestamp when this order was expired (by TTL sweep or manual action)." }
+        expiryReason: { type: string, nullable: true, description: "Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null." }
         riskDecision: { type: object, additionalProperties: true, nullable: true }
         recheckDecision: { type: object, additionalProperties: true, nullable: true }
         missedOpportunity: { type: object, additionalProperties: true, nullable: true }
+
+    SwingTtlSweepState:
+      type: object
+      required: [startedAt, lastSweepAt, lastSweepScanned, lastSweepExpired, lastSweepDurationMs, lastSweepError, totalExpiredSinceStart, sweepCount, tickMs]
+      properties:
+        startedAt: { type: string, nullable: true, description: "ISO timestamp when the scheduler was started; null if never started." }
+        lastSweepAt: { type: string, nullable: true, description: "ISO timestamp of the last completed sweep tick." }
+        lastSweepScanned: { type: integer, description: "Stale rows found in the last tick." }
+        lastSweepExpired: { type: integer, description: "Rows successfully expired in the last tick." }
+        lastSweepDurationMs: { type: number, description: "Wall-clock duration of the last tick in ms." }
+        lastSweepError: { type: string, nullable: true, description: "Error message from the last tick if it failed; null on success." }
+        totalExpiredSinceStart: { type: integer, description: "Running total of orders expired since process start." }
+        sweepCount: { type: integer, description: "Number of completed ticks since process start." }
+        tickMs: { type: integer, description: "Sweep interval in ms (10 minutes)." }
 
     SwingStatusResponse:
       type: object
@@ -6688,6 +6752,7 @@ components:
       properties:
         execution: { $ref: "#/components/schemas/SwingExecutionStatus" }
         killSwitch: { $ref: "#/components/schemas/SwingKillSwitchState" }
+        ttlSweep: { $ref: "#/components/schemas/SwingTtlSweepState" }
 
     SwingKillSwitchResponse:
       type: object
@@ -6756,7 +6821,8 @@ components:
 
     SwingExpireStaleResponse:
       type: object
-      required: [expired, execution]
+      required: [expired, scanned, execution]
       properties:
         expired: { type: integer }
+        scanned: { type: integer }
         execution: { $ref: "#/components/schemas/SwingExecutionStatus" }

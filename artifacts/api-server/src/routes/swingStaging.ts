@@ -52,8 +52,13 @@ import {
   markWatchOnlySwingOrder,
   manuallyExpireSwingOrder,
   expireStaleSwingOrders,
+  previewStaleSwingOrders,
   buildSwingPortfolioState,
 } from "../lib/swingOrderStaging";
+import {
+  getSwingTtlSweepState,
+  runSwingTtlSweepOnce,
+} from "../lib/swingTtlSweep";
 import { alertSwingOrderBlockedByRisk } from "../lib/swingAlerts";
 
 const router: IRouter = Router();
@@ -190,7 +195,7 @@ function toEventOverride(o: { eventOverride?: unknown } | undefined): SwingEvent
 
 router.get("/swing/status", requireSubscriberOrOwner(), async (_req, res) => {
   const killSwitch = await getKillSwitch();
-  res.json({ execution: executionSnapshot(), killSwitch });
+  res.json({ execution: executionSnapshot(), killSwitch, ttlSweep: getSwingTtlSweepState() });
 });
 
 router.post("/swing/kill-switch", requireOwner, async (req, res) => {
@@ -280,11 +285,40 @@ router.post("/swing/staged-orders/expire-stale", requireOwner, async (req, res) 
     res.status(401).json({ error: "unauthorized" });
     return;
   }
-  const expired = await expireStaleSwingOrders(owner, {
+  const result = await expireStaleSwingOrders(owner, {
     now: new Date(),
     fetchQuote: createKiteSwingQuoteFetcher(),
+    expiryReason: "BATCH_EXPIRE",
   });
-  res.json({ expired, execution: executionSnapshot() });
+  res.json({ expired: result.expired, scanned: result.scanned, execution: executionSnapshot() });
+});
+
+// ---------------------------------------------------------------------------
+// TTL sweep diagnostic endpoints (owner-only)
+// ---------------------------------------------------------------------------
+
+/** GET /swing/ttl-sweep/status — current in-memory sweep state. */
+router.get("/swing/ttl-sweep/status", requireOwner, (_req, res) => {
+  res.json(getSwingTtlSweepState());
+});
+
+/**
+ * POST /swing/ttl-sweep/run-dry — count stale orders (all owners) without
+ * expiring them. Safe read-only diagnostic. Rate limit: caller's discretion.
+ */
+router.post("/swing/ttl-sweep/run-dry", requireOwner, async (_req, res) => {
+  const preview = await previewStaleSwingOrders(null);
+  res.json({ dryRun: true, staleCount: preview.count, symbols: preview.symbols });
+});
+
+/**
+ * POST /swing/ttl-sweep/run-now — immediately run a real sweep (all owners).
+ * Useful when the owner wants to flush stale orders without waiting for the
+ * next 10-minute tick. Rate limit: no enforced limit (trusted owner-only).
+ */
+router.post("/swing/ttl-sweep/run-now", requireOwner, async (_req, res) => {
+  const result = await runSwingTtlSweepOnce();
+  res.json({ expired: result.expired, scanned: result.scanned, durationMs: result.durationMs });
 });
 
 // ---------------------------------------------------------------------------

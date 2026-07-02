@@ -5,10 +5,9 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
-import type { SwingExecutionStatus } from "./swingExecutionStatus";
 
-export interface SwingExpireStaleResponse {
+export type RunSwingTtlSweepNow200 = {
   expired: number;
   scanned: number;
-  execution: SwingExecutionStatus;
-}
+  durationMs: number;
+};

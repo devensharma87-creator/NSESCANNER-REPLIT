@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
-import { AlertCircle, ShieldAlert, CheckCircle2, RotateCw, XCircle, Eye, Clock, ShieldX, Play } from "lucide-react";
+import { AlertCircle, ShieldAlert, CheckCircle2, RotateCw, XCircle, Eye, Clock, ShieldX, Play, Timer, Zap } from "lucide-react";
 
 import { 
   useGetSwingExecutionStatus, getGetSwingExecutionStatusQueryKey,
@@ -13,9 +13,11 @@ import {
   useWatchSwingStagedOrder,
   useExpireSwingStagedOrder,
   useExpireStaleSwingStagedOrders,
+  useRunSwingTtlSweepNow,
   useSetSwingKillSwitch,
   type SwingStagedOrder,
-  type SwingStatusResponse
+  type SwingStatusResponse,
+  type SwingTtlSweepState,
 } from "@workspace/api-client-react";
 
 import { Button } from "@/components/ui/button";
@@ -146,6 +148,7 @@ export default function SwingCashLiveQueue() {
 
         <div className="space-y-6">
           <StageCandidateForm invalidate={invalidate} killSwitchActive={statusResp?.killSwitch?.enabled} />
+          <TtlSweepWidget sweep={statusResp?.ttlSweep} />
         </div>
       </div>
     </div>
@@ -288,10 +291,19 @@ function OrderCard({ order, invalidate }: { order: SwingStagedOrder, invalidate:
               <span>Data: {order.dataSource || "n/a"}</span>
               <span>·</span>
               <span>As of {order.dataAsOf ? format(new Date(order.dataAsOf), 'HH:mm:ss') : "n/a"}</span>
-              {order.expiresAt && (
+              {order.status !== "EXPIRED" && order.expiresAt && (
                 <>
                    <span>·</span>
                    <span className="text-amber-500/80">Expires {formatDistanceToNow(new Date(order.expiresAt))}</span>
+                </>
+              )}
+              {order.status === "EXPIRED" && order.expiredAt && (
+                <>
+                  <span>·</span>
+                  <span className="text-muted-foreground/70">
+                    Expired {formatDistanceToNow(new Date(order.expiredAt), { addSuffix: true })}
+                    {order.expiryReason && ` · ${EXPIRY_REASON_LABEL[order.expiryReason] ?? order.expiryReason}`}
+                  </span>
                 </>
               )}
             </div>
@@ -387,6 +399,84 @@ function OrderCard({ order, invalidate }: { order: SwingStagedOrder, invalidate:
           )}
         </div>
       </CardFooter>
+    </Card>
+  );
+}
+
+const EXPIRY_REASON_LABEL: Record<string, string> = {
+  TTL_EXPIRED: "Auto-expired by TTL sweep",
+  MANUAL_EXPIRE: "Manually expired",
+  BATCH_EXPIRE: "Batch-expired via API",
+};
+
+function TtlSweepWidget({ sweep }: { sweep?: SwingTtlSweepState | null }) {
+  const { toast } = useToast();
+  const runNowMut = useRunSwingTtlSweepNow();
+
+  const handleRunNow = async () => {
+    try {
+      const res = await runNowMut.mutateAsync();
+      toast({
+        title: "TTL Sweep Complete",
+        description: `Scanned ${res.scanned}, expired ${res.expired} order${res.expired === 1 ? "" : "s"} in ${Math.round(res.durationMs)}ms.`,
+      });
+    } catch (e: any) {
+      toast({ title: "Sweep failed", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const isScheduled = sweep?.startedAt != null;
+  const lastSweep = sweep?.lastSweepAt ? new Date(sweep.lastSweepAt) : null;
+
+  return (
+    <Card className="shadow-sm border-muted/40">
+      <CardHeader className="pb-3 bg-muted/10 border-b">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Timer className="w-4 h-4 text-muted-foreground" />
+          Background TTL Sweep
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Auto-expires stale staged orders every 10 min.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="pt-4 space-y-3 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground uppercase tracking-wider">Status</span>
+          <Badge variant={isScheduled ? "default" : "secondary"} className="text-[10px] font-mono">
+            {isScheduled ? "RUNNING" : "NOT STARTED"}
+          </Badge>
+        </div>
+        {lastSweep && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground uppercase tracking-wider">Last sweep</span>
+            <span className="font-mono text-foreground" title={lastSweep.toISOString()}>
+              {formatDistanceToNow(lastSweep, { addSuffix: true })}
+            </span>
+          </div>
+        )}
+        {sweep && (
+          <>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground uppercase tracking-wider">Ticks</span>
+              <span className="font-mono">{sweep.sweepCount}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground uppercase tracking-wider">Total expired</span>
+              <span className="font-mono">{sweep.totalExpiredSinceStart}</span>
+            </div>
+            {sweep.lastSweepError && (
+              <div className="text-[10px] text-destructive font-mono bg-destructive/10 rounded p-1.5 break-all">
+                Last error: {sweep.lastSweepError}
+              </div>
+            )}
+          </>
+        )}
+        <Separator />
+        <Button size="sm" variant="outline" className="w-full" onClick={handleRunNow} disabled={runNowMut.isPending}>
+          <Zap className="w-3.5 h-3.5 mr-1.5" />
+          {runNowMut.isPending ? "Running…" : "Run sweep now"}
+        </Button>
+      </CardContent>
     </Card>
   );
 }

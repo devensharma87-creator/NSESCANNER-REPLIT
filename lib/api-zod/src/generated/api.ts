@@ -8540,6 +8540,42 @@ export const GetSwingExecutionStatusResponse = zod.object({
     updatedAt: zod.string().nullish(),
     updatedBy: zod.string().nullish(),
   }),
+  ttlSweep: zod
+    .object({
+      startedAt: zod
+        .string()
+        .nullable()
+        .describe(
+          "ISO timestamp when the scheduler was started; null if never started.",
+        ),
+      lastSweepAt: zod
+        .string()
+        .nullable()
+        .describe("ISO timestamp of the last completed sweep tick."),
+      lastSweepScanned: zod
+        .number()
+        .describe("Stale rows found in the last tick."),
+      lastSweepExpired: zod
+        .number()
+        .describe("Rows successfully expired in the last tick."),
+      lastSweepDurationMs: zod
+        .number()
+        .describe("Wall-clock duration of the last tick in ms."),
+      lastSweepError: zod
+        .string()
+        .nullable()
+        .describe(
+          "Error message from the last tick if it failed; null on success.",
+        ),
+      totalExpiredSinceStart: zod
+        .number()
+        .describe("Running total of orders expired since process start."),
+      sweepCount: zod
+        .number()
+        .describe("Number of completed ticks since process start."),
+      tickMs: zod.number().describe("Sweep interval in ms (10 minutes)."),
+    })
+    .optional(),
 });
 
 /**
@@ -8630,6 +8666,18 @@ export const ListSwingStagedOrdersResponse = zod.object({
         manualReviewRequired: zod.boolean().optional(),
         createdAt: zod.coerce.date(),
         updatedAt: zod.coerce.date(),
+        expiredAt: zod.coerce
+          .date()
+          .nullish()
+          .describe(
+            "ISO timestamp when this order was expired (by TTL sweep or manual action).",
+          ),
+        expiryReason: zod
+          .string()
+          .nullish()
+          .describe(
+            "Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null.",
+          ),
         riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
         recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
         missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
@@ -8770,6 +8818,18 @@ export const StageSwingStagedOrderResponse = zod.object({
       manualReviewRequired: zod.boolean().optional(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
+      expiredAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "ISO timestamp when this order was expired (by TTL sweep or manual action).",
+        ),
+      expiryReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null.",
+        ),
       riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
@@ -8798,6 +8858,7 @@ export const StageSwingStagedOrderResponse = zod.object({
  */
 export const ExpireStaleSwingStagedOrdersResponse = zod.object({
   expired: zod.number(),
+  scanned: zod.number(),
   execution: zod.object({
     mode: zod.enum([
       "paper_only",
@@ -8810,6 +8871,60 @@ export const ExpireStaleSwingStagedOrdersResponse = zod.object({
     brokerStatus: zod.enum(["DISABLED"]),
     summary: zod.string(),
   }),
+});
+
+/**
+ * @summary Owner-only: current in-memory state of the background TTL sweep scheduler
+ */
+export const GetSwingTtlSweepStatusResponse = zod.object({
+  startedAt: zod
+    .string()
+    .nullable()
+    .describe(
+      "ISO timestamp when the scheduler was started; null if never started.",
+    ),
+  lastSweepAt: zod
+    .string()
+    .nullable()
+    .describe("ISO timestamp of the last completed sweep tick."),
+  lastSweepScanned: zod.number().describe("Stale rows found in the last tick."),
+  lastSweepExpired: zod
+    .number()
+    .describe("Rows successfully expired in the last tick."),
+  lastSweepDurationMs: zod
+    .number()
+    .describe("Wall-clock duration of the last tick in ms."),
+  lastSweepError: zod
+    .string()
+    .nullable()
+    .describe(
+      "Error message from the last tick if it failed; null on success.",
+    ),
+  totalExpiredSinceStart: zod
+    .number()
+    .describe("Running total of orders expired since process start."),
+  sweepCount: zod
+    .number()
+    .describe("Number of completed ticks since process start."),
+  tickMs: zod.number().describe("Sweep interval in ms (10 minutes)."),
+});
+
+/**
+ * @summary Owner-only: dry-run preview — count stale orders without expiring them
+ */
+export const RunSwingTtlSweepDryResponse = zod.object({
+  dryRun: zod.boolean(),
+  staleCount: zod.number(),
+  symbols: zod.array(zod.string()),
+});
+
+/**
+ * @summary Owner-only: immediately run a real all-owners TTL sweep
+ */
+export const RunSwingTtlSweepNowResponse = zod.object({
+  expired: zod.number(),
+  scanned: zod.number(),
+  durationMs: zod.number(),
 });
 
 /**
@@ -8873,6 +8988,18 @@ export const GetSwingStagedOrderResponse = zod.object({
       manualReviewRequired: zod.boolean().optional(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
+      expiredAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "ISO timestamp when this order was expired (by TTL sweep or manual action).",
+        ),
+      expiryReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null.",
+        ),
       riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
@@ -8977,6 +9104,18 @@ export const RefreshSwingStagedOrderResponse = zod.object({
       manualReviewRequired: zod.boolean().optional(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
+      expiredAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "ISO timestamp when this order was expired (by TTL sweep or manual action).",
+        ),
+      expiryReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null.",
+        ),
       riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
@@ -9085,6 +9224,18 @@ export const ApproveSwingStagedOrderResponse = zod.object({
       manualReviewRequired: zod.boolean().optional(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
+      expiredAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "ISO timestamp when this order was expired (by TTL sweep or manual action).",
+        ),
+      expiryReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null.",
+        ),
       riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
@@ -9178,6 +9329,18 @@ export const RejectSwingStagedOrderResponse = zod.object({
       manualReviewRequired: zod.boolean().optional(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
+      expiredAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "ISO timestamp when this order was expired (by TTL sweep or manual action).",
+        ),
+      expiryReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null.",
+        ),
       riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
@@ -9263,6 +9426,18 @@ export const WatchSwingStagedOrderResponse = zod.object({
       manualReviewRequired: zod.boolean().optional(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
+      expiredAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "ISO timestamp when this order was expired (by TTL sweep or manual action).",
+        ),
+      expiryReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null.",
+        ),
       riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),
@@ -9348,6 +9523,18 @@ export const ExpireSwingStagedOrderResponse = zod.object({
       manualReviewRequired: zod.boolean().optional(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
+      expiredAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "ISO timestamp when this order was expired (by TTL sweep or manual action).",
+        ),
+      expiryReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Machine reason code for expiry: TTL_EXPIRED | MANUAL_EXPIRE | BATCH_EXPIRE | null.",
+        ),
       riskDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       recheckDecision: zod.record(zod.string(), zod.unknown()).nullish(),
       missedOpportunity: zod.record(zod.string(), zod.unknown()).nullish(),

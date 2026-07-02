@@ -7,8 +7,10 @@
  */
 import type { SwingExecutionStatus } from "./swingExecutionStatus";
 import type { SwingKillSwitchState } from "./swingKillSwitchState";
+import type { SwingTtlSweepState } from "./swingTtlSweepState";
 
 export interface SwingStatusResponse {
   execution: SwingExecutionStatus;
   killSwitch: SwingKillSwitchState;
+  ttlSweep?: SwingTtlSweepState;
 }

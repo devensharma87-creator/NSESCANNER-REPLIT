@@ -397,18 +397,36 @@ export interface ExpireStaleOptions {
   now?: Date;
   /** Optional fetcher to record price-at-expiry; omitted → MISSED_PNL_UNAVAILABLE. */
   fetchQuote?: SwingQuoteFetcher;
+  /**
+   * Why these orders are expiring — stamped into `expiry_reason`.
+   * Defaults to 'TTL_EXPIRED' (background sweep or on-read expiry).
+   * Pass 'MANUAL_EXPIRE' for single-order manual expiry, 'BATCH_EXPIRE' for
+   * the owner's manual "expire stale" batch action.
+   */
+  expiryReason?: string;
+}
+
+/** Summary returned by expireStaleSwingOrders and the TTL sweep scheduler. */
+export interface SwingSweepResult {
+  /** How many active stale rows were found. */
+  scanned: number;
+  /** How many were successfully transitioned to EXPIRED (CAS wins). */
+  expired: number;
 }
 
 /**
  * Mark active orders whose TTL has passed as EXPIRED, stamping an honest
- * missed-opportunity record. Scoped to one owner when `ownerKey` is given, else
- * sweeps all owners (manual /expire-stale). Each transition is CAS-guarded.
+ * missed-opportunity record and the new `expiredAt`/`expiryReason` audit
+ * fields. Scoped to one owner when `ownerKey` is given, else sweeps all owners.
+ * Each transition is CAS-guarded — a row updated by another worker between the
+ * SELECT and UPDATE is skipped (returning 0 rows), never double-expired.
  */
 export async function expireStaleSwingOrders(
   ownerKey: string | null,
   opts: ExpireStaleOptions = {},
-): Promise<number> {
+): Promise<SwingSweepResult> {
   const now = opts.now ?? new Date();
+  const reason = opts.expiryReason ?? "TTL_EXPIRED";
   const conds = [
     inArray(swingOrderStagingTable.status, [...ACTIVE_STATUSES]),
     lt(swingOrderStagingTable.expiresAt, now),
@@ -430,6 +448,8 @@ export async function expireStaleSwingOrders(
         status: "EXPIRED",
         approvalStatus: "EXPIRED",
         missedOpportunityJson: missed,
+        expiredAt: now,
+        expiryReason: reason,
         updatedAt: now,
       })
       .where(and(eq(swingOrderStagingTable.id, r.id), eq(swingOrderStagingTable.status, r.status)))
@@ -440,7 +460,29 @@ export async function expireStaleSwingOrders(
       try { alertSwingOrderExpired(r); } catch { /* safe-fail */ }
     }
   }
-  return expired;
+  return { scanned: stale.length, expired };
+}
+
+/**
+ * Dry-run preview: count active orders whose TTL has passed WITHOUT expiring
+ * them. Used by the `/swing/ttl-sweep/run-dry` diagnostic endpoint.
+ * Scoped to one owner when `ownerKey` is given, else sweeps all owners.
+ */
+export async function previewStaleSwingOrders(
+  ownerKey: string | null,
+  opts: { now?: Date } = {},
+): Promise<{ count: number; symbols: string[] }> {
+  const now = opts.now ?? new Date();
+  const conds = [
+    inArray(swingOrderStagingTable.status, [...ACTIVE_STATUSES]),
+    lt(swingOrderStagingTable.expiresAt, now),
+  ];
+  if (ownerKey) conds.push(eq(swingOrderStagingTable.ownerKey, ownerKey));
+  const stale = await db
+    .select({ id: swingOrderStagingTable.id, symbol: swingOrderStagingTable.symbol })
+    .from(swingOrderStagingTable)
+    .where(and(...conds));
+  return { count: stale.length, symbols: stale.map((r) => r.symbol) };
 }
 
 // ---------------------------------------------------------------------------
@@ -755,6 +797,8 @@ export async function manuallyExpireSwingOrder(
       status: "EXPIRED",
       approvalStatus: "EXPIRED",
       missedOpportunityJson: missed,
+      expiredAt: now,
+      expiryReason: "MANUAL_EXPIRE",
       updatedAt: now,
     })
     .where(and(eq(swingOrderStagingTable.id, id), eq(swingOrderStagingTable.status, row.status)))

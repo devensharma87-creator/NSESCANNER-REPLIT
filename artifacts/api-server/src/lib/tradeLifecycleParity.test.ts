@@ -94,6 +94,8 @@ function makeSwingRow(overrides: Partial<SwingOrderStagingRow> = {}): SwingOrder
     riskDecisionJson: null,
     recheckDecisionJson: null,
     missedOpportunityJson: null,
+    expiredAt: null,
+    expiryReason: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
