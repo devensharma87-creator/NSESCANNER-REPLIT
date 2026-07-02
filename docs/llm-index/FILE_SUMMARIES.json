@@ -1884,6 +1884,38 @@
     "hash": "c04d36b5cb2c3cf5"
   },
   {
+    "path": "artifacts/api-server/src/lib/globalDataHealth.test.ts",
+    "purpose": "test",
+    "lines": 252,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "a57db7f96665a61b"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/globalDataHealth.ts",
+    "purpose": "lib",
+    "lines": 361,
+    "exports": [
+      "GlobalDataHealthStatus",
+      "GlobalDataHealthSeverity",
+      "ModuleHealth",
+      "GlobalDataHealth",
+      "deriveModuleHealthStatus",
+      "deriveCanDriveSignals",
+      "buildModuleHealthMap",
+      "deriveGlobalDataHealthStatus",
+      "deriveGlobalSeverity",
+      "deriveBadgeAndHeadline",
+      "buildGlobalDataHealth"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "e245dcb42a8b987e"
+  },
+  {
     "path": "artifacts/api-server/src/lib/globalIndices.test.ts",
     "purpose": "test",
     "lines": 135,
@@ -2241,14 +2273,14 @@
   {
     "path": "artifacts/api-server/src/lib/kiteReadinessScheduler.ts",
     "purpose": "data-source",
-    "lines": 85,
+    "lines": 195,
     "exports": [
       "runKiteReadinessCheckOnce",
       "startKiteReadinessScheduler"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "62763005e1c1c656"
+    "hash": "b50dcf100ba90ca1"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteScanner.etf.test.ts",
@@ -5625,16 +5657,17 @@
   {
     "path": "artifacts/api-server/src/routes/dataHealth.ts",
     "purpose": "api-route",
-    "lines": 50,
+    "lines": 71,
     "exports": [],
     "externalImports": [
       "express"
     ],
     "routes": [
       "GET /data-health/market",
+      "GET /data-health/global",
       "GET /data-health/backbone"
     ],
-    "hash": "1e46714962bab65b"
+    "hash": "3424f3ef3424df56"
   },
   {
     "path": "artifacts/api-server/src/routes/deepscan.ts",
@@ -7390,7 +7423,7 @@
   {
     "path": "artifacts/scanner/src/pages/infra-health.tsx",
     "purpose": "ui-page",
-    "lines": 2631,
+    "lines": 2778,
     "exports": [],
     "externalImports": [
       "react",
@@ -7405,7 +7438,7 @@
       "@/components/infra/ShadowDiagnosticsPanel"
     ],
     "routes": [],
-    "hash": "1c5c2587af9e9a4b"
+    "hash": "66bc8118f99bc381"
   },
   {
     "path": "artifacts/scanner/src/pages/kite.tsx",

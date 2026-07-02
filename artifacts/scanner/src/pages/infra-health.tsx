@@ -33,6 +33,7 @@ import {
   Layers,
   RefreshCw,
   ShieldCheck,
+  ShieldAlert,
   TrendingUp,
   XCircle,
   Info,
@@ -2480,6 +2481,148 @@ function ParitySection({ data, error, loading }: FetchState<ParityStatusResp>): 
   );
 }
 
+// ── GlobalHealthSection ───────────────────────────────────────────────────────
+
+interface GlobalDataHealthModuleH {
+  status: string;
+  source: string;
+  canDriveSignals: boolean;
+  reason: string | null;
+}
+
+interface GlobalDataHealthResp {
+  overallStatus: string;
+  severity: string;
+  badge: string;
+  headline: string;
+  kite: {
+    sessionStatus: string;
+    websocketStatus: string;
+    liveQuotesCount: number;
+    quoteStatus: string;
+    tradeGrade: boolean;
+    marketSession: string;
+    isPreOpenWindow: boolean;
+  };
+  modules: Record<string, GlobalDataHealthModuleH>;
+  fallback: { yahooActive: boolean; label: string };
+  userAction: { required: boolean; reason: string | null; path: string | null };
+  preOpenAlert: { isPreOpenWindow: boolean; alertFired: boolean; lastAlertEvent: string | null };
+  warnings: string[];
+  checkedAt: string;
+}
+
+function globalHealthSeverity(s: string): Severity {
+  if (s === "ok" || s === "info") return "ok";
+  if (s === "warn" || s === "orange") return "warn";
+  return "fail";
+}
+
+function GlobalHealthSection({ data, error, loading }: FetchState<GlobalDataHealthResp>): React.ReactElement {
+  const sev: Severity = data ? globalHealthSeverity(data.severity) : error ? "fail" : "ok";
+  return (
+    <SectionShell
+      title="Global Data Health"
+      icon={ShieldAlert}
+      severity={sev}
+      description="Unified Kite session + feed + backbone module readiness. Feeds the app-wide status banner and GET /api/data-health/global (public-safe)."
+      testId="section-global-health"
+    >
+      {loading && <p className="text-xs text-muted-foreground">Loading…</p>}
+      {error && <p className="text-xs text-destructive">Error: {error}</p>}
+      {data && (
+        <div className="space-y-4">
+          <div className="flex items-start gap-3">
+            <div className={`rounded-md border px-2 py-1 font-mono text-xs font-bold uppercase tracking-wider shrink-0 ${
+              sev === "ok"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                : sev === "warn"
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                  : "border-red-500/40 bg-red-500/10 text-red-300"
+            }`}>
+              {data.badge}
+            </div>
+            <p className="text-xs text-muted-foreground leading-snug pt-0.5">{data.headline}</p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            {(
+              [
+                { label: "Session", value: data.kite.sessionStatus, green: data.kite.sessionStatus === "ACTIVE" },
+                { label: "WebSocket", value: data.kite.websocketStatus, green: data.kite.websocketStatus === "CONNECTED" },
+                { label: "Market", value: data.kite.marketSession.replace("_", " "), green: data.kite.marketSession === "open" },
+                { label: "Live Quotes", value: String(data.kite.liveQuotesCount), green: data.kite.liveQuotesCount > 0 },
+              ] as const
+            ).map((r) => (
+              <div key={r.label} className="rounded border border-border bg-muted/20 p-2">
+                <div className="font-mono text-[10px] uppercase text-muted-foreground mb-1">{r.label}</div>
+                <div className={`font-semibold capitalize ${r.green ? "text-emerald-400" : "text-amber-400"}`}>{r.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {Object.keys(data.modules).length > 0 && (
+            <div>
+              <div className="font-mono text-[10px] uppercase text-muted-foreground mb-2">Module Readiness</div>
+              <div className="divide-y divide-border border border-border rounded text-xs overflow-hidden">
+                {Object.entries(data.modules).map(([mod, mh]) => (
+                  <div key={mod} className="flex items-center gap-2 px-3 py-1.5 bg-card">
+                    <div className={`shrink-0 rounded-full w-2 h-2 ${
+                      mh.status === "TRADE_GRADE" ? "bg-emerald-500" :
+                      mh.status === "DELAYED" ? "bg-amber-500" : "bg-red-500"
+                    }`} />
+                    <span className="font-mono uppercase text-[10px] tracking-wide w-24 shrink-0">{mod}</span>
+                    <span className={`font-mono text-[10px] uppercase shrink-0 ${
+                      mh.status === "TRADE_GRADE" ? "text-emerald-400" :
+                      mh.status === "DELAYED" ? "text-amber-400" : "text-red-400"
+                    }`}>{mh.status}</span>
+                    {mh.reason && <span className="text-muted-foreground truncate text-[10px]">{mh.reason}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {data.warnings.length > 0 && (
+            <div className="space-y-1">
+              {data.warnings.map((w, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs text-amber-400">
+                  <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                  <span>{w}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {data.userAction.required && (
+            <div className="flex items-start gap-2 rounded border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-300">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold">Action Required</div>
+                {data.userAction.reason && <div className="opacity-80 mt-0.5 text-[11px]">{data.userAction.reason}</div>}
+              </div>
+            </div>
+          )}
+
+          {data.preOpenAlert.isPreOpenWindow && (
+            <div className="flex items-center gap-2 text-xs text-amber-400">
+              <Signal className="h-3 w-3" />
+              Pre-open window active
+              {data.preOpenAlert.alertFired && data.preOpenAlert.lastAlertEvent && (
+                <span className="text-muted-foreground">— last alert: {data.preOpenAlert.lastAlertEvent}</span>
+              )}
+            </div>
+          )}
+
+          <div className="text-[10px] text-muted-foreground font-mono">
+            Checked: {new Date(data.checkedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 export default function InfraHealthPage(): React.ReactElement {
   const [auto, setAuto] = useState(true);
   const [tick, setTick] = useState(0);
@@ -2510,6 +2653,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const shadowExits = useEndpoint<ShadowExitsResp>("api/paper/analytics/fo/shadow-exits", auto, tick);
   const fnoGap = useEndpoint<FnoSignalGapResp>("api/fno/no-signal-gap", auto, tick);
   const parityStatus = useEndpoint<ParityStatusResp>("api/parity/status", auto, tick);
+  const globalHealth = useEndpoint<GlobalDataHealthResp>("api/data-health/global", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -2586,6 +2730,9 @@ export default function InfraHealthPage(): React.ReactElement {
 
       {/* Section grid — 2 columns on md+, single column on mobile */}
       <div className="grid gap-4 md:grid-cols-2">
+        <div className="md:col-span-2">
+          <GlobalHealthSection {...globalHealth} />
+        </div>
         <SecuritySection {...security} />
         <SectorSection {...sector} />
         <CandleSection {...candle} nowMs={nowMs} />

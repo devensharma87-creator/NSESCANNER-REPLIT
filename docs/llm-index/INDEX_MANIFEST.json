@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T13:12:22.244Z",
+  "generatedAt": "2026-07-02T14:31:12.693Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -43,9 +43,9 @@
       "mtime": "2026-06-22T12:58:01.199Z"
     },
     "artifacts/api-server/src/routes/dataHealth.ts": {
-      "hash": "1e46714962bab65b",
-      "lines": 50,
-      "mtime": "2026-07-02T08:01:40.363Z"
+      "hash": "3424f3ef3424df56",
+      "lines": 71,
+      "mtime": "2026-07-02T14:22:29.134Z"
     },
     "artifacts/api-server/src/routes/deepscan.ts": {
       "hash": "b95ce8887c391da0",
@@ -457,6 +457,11 @@
       "lines": 181,
       "mtime": "2026-04-30T07:01:40.632Z"
     },
+    "artifacts/api-server/src/lib/globalDataHealth.ts": {
+      "hash": "e245dcb42a8b987e",
+      "lines": 361,
+      "mtime": "2026-07-02T14:21:14.782Z"
+    },
     "artifacts/api-server/src/lib/globalIndices.ts": {
       "hash": "6bb89d47208a2b68",
       "lines": 190,
@@ -533,9 +538,9 @@
       "mtime": "2026-06-23T13:54:24.392Z"
     },
     "artifacts/api-server/src/lib/kiteReadinessScheduler.ts": {
-      "hash": "62763005e1c1c656",
-      "lines": 85,
-      "mtime": "2026-06-23T13:54:38.507Z"
+      "hash": "b50dcf100ba90ca1",
+      "lines": 195,
+      "mtime": "2026-07-02T14:23:14.054Z"
     },
     "artifacts/api-server/src/lib/kiteScanner.ts": {
       "hash": "5b85ba678e71a449",
@@ -1288,9 +1293,9 @@
       "mtime": "2026-04-27T20:48:10.896Z"
     },
     "artifacts/scanner/src/pages/infra-health.tsx": {
-      "hash": "1c5c2587af9e9a4b",
-      "lines": 2631,
-      "mtime": "2026-07-02T11:46:06.558Z"
+      "hash": "66bc8118f99bc381",
+      "lines": 2778,
+      "mtime": "2026-07-02T14:27:03.136Z"
     },
     "artifacts/scanner/src/pages/kite.tsx": {
       "hash": "e2b41fa997f9ccbc",

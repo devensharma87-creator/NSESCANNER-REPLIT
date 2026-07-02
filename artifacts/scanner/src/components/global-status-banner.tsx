@@ -25,7 +25,7 @@
  *   data simply because no ticks have arrived yet (liveQuotes = 0 after close).
  */
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, RefreshCw, CheckCircle2, Clock } from "lucide-react";
+import { AlertTriangle, RefreshCw, CheckCircle2, Clock, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
 export type KiteReadinessState =
@@ -284,16 +284,74 @@ function useKiteReadinessFull(): KiteReadinessFull | null {
   return mock ?? (isOwner ? q.data ?? null : null);
 }
 
+// ── DATA_DEGRADED hook — consumes GET /api/data-health/global ─────────────────
+
+interface GlobalDataHealthSummary {
+  overallStatus: string;
+  severity: string;
+  badge: string;
+  headline: string;
+}
+
+async function fetchGlobalDataHealth(): Promise<GlobalDataHealthSummary> {
+  const r = await fetch(`${API_BASE}api/data-health/global`, { credentials: "include" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return (await r.json()) as GlobalDataHealthSummary;
+}
+
+/**
+ * Owner-only hook for the global data health summary. Returns null for
+ * non-owners and on loading/error (fail-open — never show a phantom warning).
+ * Shares the 60-second polling interval with the Kite readiness hook.
+ */
+function useGlobalDataHealth(): GlobalDataHealthSummary | null {
+  const { role } = useAuth();
+  const isOwner = role === "owner";
+
+  const q = useQuery({
+    queryKey: ["global-data-health"],
+    queryFn: fetchGlobalDataHealth,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    retry: 1,
+    enabled: isOwner,
+  });
+
+  return isOwner ? q.data ?? null : null;
+}
+
 export function GlobalStatusBanner() {
   const full = useKiteReadinessFull();
+  const globalHealth = useGlobalDataHealth();
   const view = deriveBannerView(full?.readiness, full?.liveQuotes);
+
+  // DATA_DEGRADED chip: shown when Kite session looks ok (green chip) but the
+  // global backbone health reports that some modules are blocked.
+  // Suppressed whenever the Kite state already shows a more specific warning/critical
+  // (the Kite banner already tells the owner something is wrong in those cases).
+  const showDegradedChip =
+    globalHealth?.overallStatus === "DEGRADED_DATA" &&
+    view.mode === "chip" &&
+    view.tone === "ok";
 
   if (!full?.readiness || view.mode === "hidden") return null;
 
   if (view.mode === "chip") {
     const Icon = view.tone === "ok" ? CheckCircle2 : view.tone === "info" ? Clock : AlertTriangle;
     return (
-      <div className="w-full flex justify-end px-4 py-1" data-testid="global-status-chip">
+      <div className="w-full flex justify-end gap-2 px-4 py-1" data-testid="global-status-chip">
+        {/* DATA_DEGRADED chip — rendered alongside the green Kite chip when
+            the global backbone reports blocked modules despite a valid session. */}
+        {showDegradedChip && (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-orange-500/40 bg-orange-500/10 text-orange-300 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider"
+            title={globalHealth?.headline ?? "Some modules are blocked — certain pages may show delayed or cached data."}
+            data-testid="global-status-chip-degraded"
+          >
+            <ShieldAlert className="h-3 w-3" />
+            {globalHealth?.badge ?? "DATA DEGRADED"}
+          </span>
+        )}
         <span
           className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider ${TONE_CHIP[view.tone]}`}
           title={view.impact}
