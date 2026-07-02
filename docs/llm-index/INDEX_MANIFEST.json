@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T09:04:31.257Z",
+  "generatedAt": "2026-07-02T11:14:41.686Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -358,9 +358,9 @@
       "mtime": "2026-05-18T10:37:29.852Z"
     },
     "artifacts/api-server/src/lib/fnoSignalAlerts.ts": {
-      "hash": "095b863b4f2163d2",
-      "lines": 441,
-      "mtime": "2026-07-02T06:27:13.494Z"
+      "hash": "fa789634d2f6fce2",
+      "lines": 759,
+      "mtime": "2026-07-02T10:44:11.069Z"
     },
     "artifacts/api-server/src/lib/fnoSignalReasoningLogger.ts": {
       "hash": "630723cba908fee6",
@@ -773,9 +773,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "60aef69302211bb5",
-      "lines": 2798,
-      "mtime": "2026-07-01T08:05:43.172Z"
+      "hash": "5718590cf6640d39",
+      "lines": 2817,
+      "mtime": "2026-07-02T09:59:20.282Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -833,9 +833,9 @@
       "mtime": "2026-06-23T15:04:06.194Z"
     },
     "artifacts/api-server/src/lib/paperTradingFO.ts": {
-      "hash": "2185334a52deaea9",
-      "lines": 2992,
-      "mtime": "2026-07-01T05:56:03.159Z"
+      "hash": "316f5e91b1027bf5",
+      "lines": 3021,
+      "mtime": "2026-07-02T10:38:21.098Z"
     },
     "artifacts/api-server/src/lib/preMarket.ts": {
       "hash": "77d19a892b79c49f",
@@ -903,9 +903,9 @@
       "mtime": "2026-04-25T09:01:07.488Z"
     },
     "artifacts/api-server/src/lib/swingAlerts.ts": {
-      "hash": "63a01bae6deb0a6f",
-      "lines": 255,
-      "mtime": "2026-06-30T14:27:05.293Z"
+      "hash": "0df8eac61b836d69",
+      "lines": 422,
+      "mtime": "2026-07-02T10:43:47.082Z"
     },
     "artifacts/api-server/src/lib/swingCashCostModel.ts": {
       "hash": "eb2dc52d96b02a1a",
@@ -1016,6 +1016,31 @@
       "hash": "8f7c708f9fb65303",
       "lines": 363,
       "mtime": "2026-06-09T12:21:06.384Z"
+    },
+    "artifacts/api-server/src/lib/tradeLifecycle/formatTelegramMessage.ts": {
+      "hash": "ea71d075678f41f9",
+      "lines": 284,
+      "mtime": "2026-07-02T09:57:01.434Z"
+    },
+    "artifacts/api-server/src/lib/tradeLifecycle/index.ts": {
+      "hash": "a0d557de387b964c",
+      "lines": 40,
+      "mtime": "2026-07-02T09:57:58.329Z"
+    },
+    "artifacts/api-server/src/lib/tradeLifecycle/notificationLog.ts": {
+      "hash": "37d796c32432099e",
+      "lines": 275,
+      "mtime": "2026-07-02T09:57:53.429Z"
+    },
+    "artifacts/api-server/src/lib/tradeLifecycle/types.ts": {
+      "hash": "33d864cabfde6e88",
+      "lines": 265,
+      "mtime": "2026-07-02T09:55:42.062Z"
+    },
+    "artifacts/api-server/src/lib/tradeLifecycle/validateTradeEvent.ts": {
+      "hash": "b1c83118f5045104",
+      "lines": 235,
+      "mtime": "2026-07-02T09:56:16.861Z"
     },
     "artifacts/api-server/src/lib/tradeSetups.ts": {
       "hash": "090afc9f21653b24",

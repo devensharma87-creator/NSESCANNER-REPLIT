@@ -1384,28 +1384,31 @@
   {
     "path": "artifacts/api-server/src/lib/fnoSignalAlerts.test.ts",
     "purpose": "test",
-    "lines": 366,
+    "lines": 367,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "86b568548a222bc9"
+    "hash": "69418168750466eb"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalAlerts.ts",
     "purpose": "alerting",
-    "lines": 441,
+    "lines": 759,
     "exports": [
       "FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS",
       "FNO_SIGNAL_DEDUP_MS",
       "FnoTradeAlertInput",
+      "FnoExitAlertInput",
       "FnoSignalAlertRecord",
       "getLastFnoSignalAlertRecord",
       "resetFnoSignalAlertState",
       "shouldSendFnoTradeAlert",
       "buildFnoSignalAlertText",
+      "buildFnoExitAlertText",
       "alertFnoTradeableSignal",
+      "alertFnoExitSignal",
       "buildFnoSampleAlertText",
       "FNO_DATA_HEALTH_DEDUP_MS",
       "FnoDataHealthAlertType",
@@ -1413,9 +1416,11 @@
       "alertFnoDataHealth",
       "alertWarmupFailures"
     ],
-    "externalImports": [],
+    "externalImports": [
+      "crypto"
+    ],
     "routes": [],
-    "hash": "095b863b4f2163d2"
+    "hash": "fa789634d2f6fce2"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalReasoningFingerprint.test.ts",
@@ -3355,7 +3360,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 2798,
+    "lines": 2817,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
@@ -3368,7 +3373,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "60aef69302211bb5"
+    "hash": "5718590cf6640d39"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -3777,7 +3782,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingFO.ts",
     "purpose": "paper-trading",
-    "lines": 2992,
+    "lines": 3021,
     "exports": [
       "TradeTier",
       "LifecycleHookInput",
@@ -3806,7 +3811,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "2185334a52deaea9"
+    "hash": "316f5e91b1027bf5"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFoMtmSweep.test.ts",
@@ -4195,19 +4200,19 @@
   {
     "path": "artifacts/api-server/src/lib/swingAlerts.test.ts",
     "purpose": "test",
-    "lines": 451,
+    "lines": 463,
     "exports": [],
     "externalImports": [
       "vitest",
       "@workspace/db/schema"
     ],
     "routes": [],
-    "hash": "c668017343fd27ba"
+    "hash": "d5dda87cf7bbe20f"
   },
   {
     "path": "artifacts/api-server/src/lib/swingAlerts.ts",
     "purpose": "alerting",
-    "lines": 255,
+    "lines": 422,
     "exports": [
       "getLastSwingAlertRecord",
       "resetLastSwingAlertRecord",
@@ -4220,10 +4225,11 @@
       "alertSwingOrderBlockedByRisk"
     ],
     "externalImports": [
+      "crypto",
       "@workspace/db/schema"
     ],
     "routes": [],
-    "hash": "63a01bae6deb0a6f"
+    "hash": "0df8eac61b836d69"
   },
   {
     "path": "artifacts/api-server/src/lib/swingCashCostModel.test.ts",
@@ -4785,6 +4791,101 @@
     ],
     "routes": [],
     "hash": "8f7c708f9fb65303"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/formatTelegramMessage.ts",
+    "purpose": "lib",
+    "lines": 284,
+    "exports": [
+      "formatTradeTelegramMessage"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "ea71d075678f41f9"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/index.ts",
+    "purpose": "lib",
+    "lines": 40,
+    "exports": [],
+    "externalImports": [],
+    "routes": [],
+    "hash": "a0d557de387b964c"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/notificationLog.ts",
+    "purpose": "lib",
+    "lines": 275,
+    "exports": [
+      "initNotificationLog",
+      "hashMessage",
+      "buildDedupKey",
+      "hasAlreadyDelivered",
+      "logNotificationDelivery",
+      "markDeliveryFailed",
+      "gateAndLogDedup"
+    ],
+    "externalImports": [
+      "crypto",
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "37d796c32432099e"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/tradeLifecycle.test.ts",
+    "purpose": "test",
+    "lines": 486,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "1a1ef61c893ab79d"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/types.ts",
+    "purpose": "lib",
+    "lines": 265,
+    "exports": [
+      "TradeDomain",
+      "TradeLifecycleStatus",
+      "TradeAlertEventType",
+      "CanonicalTradeEvent",
+      "ValidationBlockReason",
+      "ValidationResult",
+      "NotificationDestination",
+      "NotificationDeliveryEntry"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "33d864cabfde6e88"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/validateTradeEvent.ts",
+    "purpose": "lib",
+    "lines": 235,
+    "exports": [
+      "ValidationContext",
+      "validateTradeEventForNotification",
+      "isTradeEventAllowed"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "b1c83118f5045104"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycleParity.test.ts",
+    "purpose": "test",
+    "lines": 477,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "@workspace/db/schema"
+    ],
+    "routes": [],
+    "hash": "89e2a19234d80782"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeSetups.test.ts",
