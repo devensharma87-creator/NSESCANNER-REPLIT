@@ -109,7 +109,7 @@
   {
     "path": "artifacts/api-server/src/lib/backboneHealth.ts",
     "purpose": "lib",
-    "lines": 410,
+    "lines": 419,
     "exports": [
       "ModuleStatus",
       "ModuleRequirementReadiness",
@@ -124,7 +124,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "6ba504beea23c002"
+    "hash": "966865d58fb46a44"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/candleSource.ts",
@@ -2283,7 +2283,7 @@
   {
     "path": "artifacts/api-server/src/lib/kiteWarmup.ts",
     "purpose": "data-source",
-    "lines": 287,
+    "lines": 297,
     "exports": [
       "WarmupTrigger",
       "WarmupOutcome",
@@ -2301,7 +2301,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "27aae891a3062de9"
+    "hash": "726a441ec002644c"
   },
   {
     "path": "artifacts/api-server/src/lib/liveBias.ts",

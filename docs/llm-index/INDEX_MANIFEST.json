@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T06:40:21.543Z",
+  "generatedAt": "2026-07-02T07:07:16.411Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -178,9 +178,9 @@
       "mtime": "2026-07-01T13:37:54.102Z"
     },
     "artifacts/api-server/src/lib/backboneHealth.ts": {
-      "hash": "6ba504beea23c002",
-      "lines": 410,
-      "mtime": "2026-07-02T06:24:18.444Z"
+      "hash": "966865d58fb46a44",
+      "lines": 419,
+      "mtime": "2026-07-02T06:43:58.720Z"
     },
     "artifacts/api-server/src/lib/backtest/candleSource.ts": {
       "hash": "85372baedf2b0bdf",
@@ -538,9 +538,9 @@
       "mtime": "2026-06-22T12:58:01.185Z"
     },
     "artifacts/api-server/src/lib/kiteWarmup.ts": {
-      "hash": "27aae891a3062de9",
-      "lines": 287,
-      "mtime": "2026-07-02T06:38:11.654Z"
+      "hash": "726a441ec002644c",
+      "lines": 297,
+      "mtime": "2026-07-02T06:43:34.855Z"
     },
     "artifacts/api-server/src/lib/liveBias.ts": {
       "hash": "1bfd66f183b9bf4f",
