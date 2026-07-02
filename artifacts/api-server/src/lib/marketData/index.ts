@@ -77,6 +77,16 @@ export {
   TrustTierViolation,
 } from "./guard";
 export { buildMeta, unavailableMeta, isQuoteComplete } from "./validator";
+export {
+  type RequirementLevel,
+  type DataRequirement,
+  type ReadinessStatus,
+  type DataReadiness,
+  type ModuleId,
+  checkRequirement,
+  MODULE_REQUIREMENTS,
+  strictestLevel,
+} from "./requirements";
 
 import * as router from "./router";
 import * as analyticsYahoo from "./analyticsYahoo";

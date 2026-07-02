@@ -196,3 +196,14 @@ export {
   getEtfRecognitionDiagnostics as centralGetEtfRecognitionDiagnostics,
   checkEtfRecognition as centralCheckEtfRecognition,
 } from "../kiteScanner";
+
+// ─── Kite session compat ────────────────────────────────────────────────────
+
+/**
+ * Central active-session accessor (wraps `kiteAuth.getActiveSession`). Exposed
+ * here so consumers can check session presence/login-time WITHOUT importing the
+ * raw `kiteAuth` provider directly (keeps them out of the provider-import
+ * burn-down allowlist — see docs/PROVIDER_IMPORT_BURNDOWN.md).
+ */
+export { getActiveSession as centralActiveSession } from "../kiteAuth";
+export type { ActiveSession } from "../kiteAuth";

@@ -14,6 +14,8 @@
  */
 import { Router, type IRouter } from "express";
 import { buildMarketDataHealth } from "../lib/marketDataHealth";
+import { buildBackboneReport } from "../lib/backboneHealth";
+import { requireOwner } from "../lib/userAuth";
 
 const router: IRouter = Router();
 
@@ -24,6 +26,23 @@ router.get("/data-health/market", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "data-health/market failed");
     res.status(500).json({ error: "health check failed" });
+  }
+});
+
+/**
+ * GET /api/data-health/backbone — OWNER-ONLY unified backbone health roll-up.
+ *
+ * Per-module data readiness ("given what F&O / swing / option-chain / … each
+ * REQUIRE, is their data actually trade-grade right now?"), composed from
+ * existing in-process state only (no new network). No secrets, no mutations.
+ */
+router.get("/data-health/backbone", requireOwner, async (req, res) => {
+  try {
+    const report = await buildBackboneReport();
+    res.json(report);
+  } catch (err) {
+    req.log.error({ err }, "data-health/backbone failed");
+    res.status(500).json({ error: "backbone health check failed" });
   }
 });
 

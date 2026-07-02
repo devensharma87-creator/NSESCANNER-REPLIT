@@ -15,6 +15,7 @@ import { logger } from "./logger";
 export const BOOT_STAGGER_MS = {
   globalDataPump: 15_000,
   presetScheduler: 25_000,
+  kiteWarmup: 40_000,
   instFlowsRefresher: 60_000,
 } as const;
 

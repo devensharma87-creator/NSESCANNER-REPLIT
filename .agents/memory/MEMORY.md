@@ -32,3 +32,4 @@
 - [KiteConnect timeout is undefined by default](kiteconnect-timeout-default.md) — KiteConnect v5 has no default timeout; OS TCP reset (30-60s) + ECONNABORTED starves the throttle queue → F&O cycle suppression; always pass timeout:15000.
 - [F&O OI backfill queue starvation](fno-backfill-queue-starvation.md) — OI backfill shares the 30-slot throttle queue; use a separate `isBackfill:true` cap (BACKFILL_MAX_QUEUE=8) or backfill crowds out live signal-sweep slots.
 - [LLM index system — docs/llm-index/](llm-index-system.md) — read AGENT.md first, then one targeted index file; run index:llm after each task; checkLlmIndex.ts exits 1 on stale.
+- [Provider-import burn-down → route via compat](provider-import-burndown-compat.md) — new modules needing Kite session/providers must re-export through marketData/compat, NOT direct-import + NOT allowlist (burn-down mode wants the list to shrink).

@@ -4,6 +4,7 @@ import { buildLoginUrl, clearSession, completeLogin, forceRefreshInstruments, ge
 import { addTickListener, feedStatus, getAllLiveQuotes, getLiveQuote, startTicker, stopTicker, subscribe } from "../lib/kiteFeed";
 import { getKiteReadiness } from "../lib/kiteReadiness";
 import { requireOwner, requireOwnerStrict } from "../lib/userAuth";
+import { triggerKiteWarmup } from "../lib/kiteWarmup";
 import { logger } from "../lib/logger";
 
 function getAppPassword(): string | undefined {
@@ -88,10 +89,31 @@ router.get("/kite/callback", async (req, res) => {
   try {
     await completeLogin(requestToken);
     await startTicker();
+    // Fire-and-forget data warmup so F&O index quotes/candles/option-chain are
+    // primed right after login. Single-flight + debounced internally; never
+    // blocks the redirect and never throws out (safe-fail).
+    void triggerKiteWarmup("login");
     res.redirect(`${baseRedirect}?login=success`);
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "Kite callback failed");
     res.redirect(`${baseRedirect}?login=failed&reason=${encodeURIComponent((err as Error).message)}`);
+  }
+});
+
+/**
+ * POST /kite/warmup — OWNER-ONLY manual data warmup for the F&O universe
+ * (index quotes + candles + option-chain probe). Owner auth is enforced by the
+ * `/kite` mount guard above (POST is never bypassed in public mode). Returns the
+ * structured run result. Single-flight + debounced inside triggerKiteWarmup.
+ * NEVER places orders, mutates trading state, or returns secrets.
+ */
+router.post("/kite/warmup", async (_req, res) => {
+  try {
+    const result = await triggerKiteWarmup("manual");
+    res.json(result);
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "manual kite warmup failed");
+    res.status(500).json({ error: "warmup failed" });
   }
 });
 

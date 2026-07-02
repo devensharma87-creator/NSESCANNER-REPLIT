@@ -1111,3 +1111,162 @@ function buildRecommendations(hyps: HypothesisFinding[]): RecommendedNextStep[] 
   }
   return out;
 }
+
+/* ────────────────── Data-failure classification (Task #131) ─────────────────
+ *
+ * PURE classifier. Turns a raw error / the F&O cycle's existing suppression
+ * reason strings into an EXACT, honest failure code + recovery action — so the
+ * diagnostics surface shows "Kite session expired" or "history warming up"
+ * instead of a generic "unavailable".
+ *
+ * Consumed ONLY by the read-only backbone/diagnostics surface. It is NOT wired
+ * into optionSignals' emission/suppression state machine — that code is left
+ * byte-for-byte unchanged so signal behavior cannot shift.
+ * ------------------------------------------------------------------------- */
+
+export type DataFailureCode =
+  | "SESSION_MISSING"
+  | "TOKEN_MISSING"
+  | "EXCHANGE_UNSUPPORTED"
+  | "THROTTLED"
+  | "DATE_RANGE"
+  | "MARKET_JUST_OPENED"
+  | "WARMUP"
+  | "UNKNOWN";
+
+export interface DataFailureContext {
+  /** Kite session validity at the time, when known. */
+  sessionValid?: boolean;
+  /** Market phase at the time, when known. */
+  marketSession?: "open" | "closed" | "pre_open";
+  /** Seconds since the 09:15 IST open (null/undefined when unknown). */
+  secondsSinceOpen?: number | null;
+}
+
+export interface DataFailureDiagnosis {
+  code: DataFailureCode;
+  message: string;
+  recoveryAction: string;
+  /** True when the condition is expected to self-resolve (retry helps). */
+  transient: boolean;
+}
+
+const RECOVERY: Record<DataFailureCode, string> = {
+  SESSION_MISSING: "Reconnect Zerodha (Kite session expired or missing).",
+  TOKEN_MISSING: "Configure Kite API credentials (api_key / access_token).",
+  EXCHANGE_UNSUPPORTED: "Instrument/exchange not covered — verify the instrument mapping.",
+  THROTTLED: "Kite rate-limited or timed out — retries automatically next cycle.",
+  DATE_RANGE: "Invalid historical date range — check the requested from/to window.",
+  MARKET_JUST_OPENED: "Market just opened — first bars form shortly; retries automatically.",
+  WARMUP: "Kite historical API is warming up after login — retries automatically next cycle.",
+  UNKNOWN: "Check /fno-diagnostics data-health; trigger a Kite warmup if the session is active.",
+};
+
+function has(hay: string, ...needles: string[]): boolean {
+  return needles.some((n) => hay.includes(n));
+}
+
+/**
+ * Classify a data failure. Pure. Accepts an Error, a raw string (including the
+ * F&O cycle's suppression reason strings such as `no_live_kite_intraday`,
+ * `daily_history_warmup_kite`, `daily_history_unavailable_kite`, `exception: …`),
+ * or null. Context refines ambiguous cases without ever fabricating certainty.
+ */
+export function classifyDataFailure(
+  input: unknown,
+  context: DataFailureContext = {},
+): DataFailureDiagnosis {
+  let raw =
+    input == null
+      ? ""
+      : input instanceof Error
+        ? input.message
+        : typeof input === "string"
+          ? input
+          : String(input);
+
+  // Unwrap the F&O cycle's `exception: <msg>` wrapper so the inner message is classified.
+  const exMatch = /^exception:\s*/i.exec(raw);
+  if (exMatch) raw = raw.slice(exMatch[0].length);
+
+  const hay = raw.toLowerCase();
+  const mk = (code: DataFailureCode, message?: string, transient?: boolean): DataFailureDiagnosis => ({
+    code,
+    message: message ?? raw ?? code,
+    recoveryAction: RECOVERY[code],
+    transient: transient ?? (code === "WARMUP" || code === "MARKET_JUST_OPENED" || code === "THROTTLED"),
+  });
+
+  // 1) Post-login history warmup (transient) — explicit reason string wins.
+  if (has(hay, "warmup", "warming up", "daily_history_warmup")) {
+    return mk("WARMUP", "Kite daily-history API is warming up after login.");
+  }
+
+  // 2) Credentials not configured (distinct from an expired session).
+  if (has(hay, "api_key", "apikey", "access_token", "no credentials", "creds missing", "not configured")) {
+    return mk("TOKEN_MISSING");
+  }
+
+  // 3) Session expired / unauthorised.
+  if (
+    has(hay, "tokenexception", "session expired", "no session", "logged out", "unauthor", "401", "403") ||
+    (has(hay, "session") && has(hay, "expired", "missing", "invalid", "unreachable"))
+  ) {
+    return mk("SESSION_MISSING");
+  }
+
+  // 4) Throttle / network timeout.
+  if (has(hay, "throttl", "rate limit", "ratelimit", "429", "too many requests", "econnaborted", "etimedout", "timeout", "networkexception")) {
+    return mk("THROTTLED");
+  }
+
+  // 5) Bad historical date range.
+  if (
+    has(hay, "date range", "invalid `from`", "invalid `to`", "invalid from", "invalid to") ||
+    (has(hay, "inputexception") && has(hay, "date", "from", "to")) ||
+    (has(hay, "range") && has(hay, "date"))
+  ) {
+    return mk("DATE_RANGE");
+  }
+
+  // 6) Instrument / exchange not covered.
+  if (has(hay, "unsupported", "uncovered", "instrument not found", "not found", "segment", "exchange")) {
+    return mk("EXCHANGE_UNSUPPORTED");
+  }
+
+  // 7) `no_live_kite_intraday` — ambiguous by design; refine with context.
+  if (has(hay, "no_live_kite_intraday", "no live kite intraday")) {
+    if (context.sessionValid === false) return mk("SESSION_MISSING");
+    if (
+      context.secondsSinceOpen != null &&
+      context.secondsSinceOpen >= 0 &&
+      context.secondsSinceOpen <= 180
+    ) {
+      return mk("MARKET_JUST_OPENED");
+    }
+    return mk("SESSION_MISSING");
+  }
+
+  // 8) `daily_history_unavailable_kite` — session active but no daily bars.
+  if (has(hay, "daily_history_unavailable", "daily history unavailable")) {
+    if (context.sessionValid === false) return mk("SESSION_MISSING");
+    return mk(
+      "UNKNOWN",
+      "Kite session active but daily bars unavailable — history not yet fetched or upstream returned empty.",
+      false,
+    );
+  }
+
+  // 9) Market-just-opened, when no error text but context says so.
+  if (
+    raw === "" &&
+    context.marketSession === "open" &&
+    context.secondsSinceOpen != null &&
+    context.secondsSinceOpen >= 0 &&
+    context.secondsSinceOpen <= 180
+  ) {
+    return mk("MARKET_JUST_OPENED", "Market just opened — first intraday bars are still forming.");
+  }
+
+  return mk("UNKNOWN", raw === "" ? "No error detail available." : raw, false);
+}

@@ -29,6 +29,7 @@ import alertsRouter from "./alerts";
 import dailyAnalysisRouter from "./dailyAnalysis";
 import dataHealthRouter from "./dataHealth";
 import { startInstFlowsRefresher } from "../lib/instFlows";
+import { triggerKiteWarmup } from "../lib/kiteWarmup";
 import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
 import { bootstrapKite } from "../lib/kiteFeed";
 import { startKiteReadinessScheduler } from "../lib/kiteReadinessScheduler";
@@ -73,6 +74,12 @@ router.use(dataHealthRouter);           // /data-health/market — PUBLIC canoni
 // 45-day NSE backfill) so it doesn't contend with the other boot jobs for the
 // shared DB pool. Internal 15-min refresh cadence + OI lookback unchanged.
 scheduleBootJob("inst-flows-refresher", BOOT_STAGGER_MS.instFlowsRefresher, startInstFlowsRefresher);
+// Prime Kite F&O data (index quotes + candles + option chain) once at boot if a
+// session was resumed. Single-flight + debounced + fail-closed on no session
+// inside triggerKiteWarmup; scheduleBootJob's fail-open wrapper catches throws.
+scheduleBootJob("kite-warmup", BOOT_STAGGER_MS.kiteWarmup, async () => {
+  await triggerKiteWarmup("boot");
+});
 // Try to resume Kite live feed if a valid session is already in the DB.
 void bootstrapKite();
 // Pre-open Kite reconnect safeguard — visibility-only escalating log if the

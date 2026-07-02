@@ -340,3 +340,101 @@ export function buildFnoSampleAlertText(nowMs: number = Date.now()): string {
 
   return lines.join("\n");
 }
+
+// ── F&O data-health (warmup-failure) alerts — Task #131 ───────────────────────
+
+/**
+ * Dedup window for data-health alerts: 10 minutes per (alertType, index).
+ * Deliberately SEPARATE from the 30-min tradeable-signal dedup and the F&O
+ * cycle's 2h recovery-alert keys — these are NEW warmup-failure alerts only and
+ * must not interfere with existing alert dedup.
+ */
+export const FNO_DATA_HEALTH_DEDUP_MS = 10 * 60 * 1000; // 10 minutes
+
+export type FnoDataHealthAlertType = "WARMUP_FAILED" | "WARMUP_PARTIAL";
+
+export interface FnoDataHealthAlertInput {
+  alertType: FnoDataHealthAlertType;
+  /** "NIFTY" | "BANKNIFTY" | "SENSEX" */
+  index: string;
+  /** Classified failure code (DataFailureCode) or null. */
+  code?: string | null;
+  /** Short human detail, e.g. "optionChain: Kite option chain unavailable". */
+  detail?: string | null;
+}
+
+/**
+ * Fire a single owner Telegram alert for an F&O data warmup failure.
+ *
+ * Safe-fail — never throws. Best-effort delivery via alertOwnerRaw with a
+ * dedicated 10-min dedup key. Does NOT create paper trades, place orders, change
+ * signal logic/thresholds, or enable broker execution.
+ */
+export function alertFnoDataHealth(input: FnoDataHealthAlertInput): void {
+  try {
+    const dedupKey = `FNO_DATA_HEALTH::${input.alertType}::${input.index}`;
+    const title =
+      input.alertType === "WARMUP_FAILED"
+        ? "⚠ F&O DATA WARMUP FAILED"
+        : "⚠ F&O DATA WARMUP PARTIAL";
+    const lines = [
+      title,
+      "",
+      `Index:  ${input.index}`,
+      `Reason: ${input.code ?? "UNKNOWN"}`,
+      ...(input.detail ? [`Detail: ${input.detail}`] : []),
+      "",
+      "Kite data did not warm up after login. F&O signals for this index may be",
+      "suppressed until data recovers. This is a data-health notice, not a signal.",
+      "",
+      "No paper trade created. No real order placed. Broker execution disabled.",
+    ];
+    const logMsg = `F&O data-health alert: ${input.alertType} ${input.index} (${input.code ?? "UNKNOWN"})`;
+    alertOwnerRaw(dedupKey, logMsg, lines.join("\n"), FNO_DATA_HEALTH_DEDUP_MS);
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error)?.message },
+      "alertFnoDataHealth: unexpected error (safe-fail)",
+    );
+  }
+}
+
+/**
+ * Inspect a completed warmup run and fire at most one alert per FAILED index.
+ *
+ * - Never alerts on OK or any SKIPPED_* outcome.
+ * - Never alerts on SESSION_MISSING / TOKEN_MISSING — a missing session is a
+ *   benign, expected state (dev / not logged in) already surfaced elsewhere; the
+ *   F&O cycle owns session-expiry recovery alerts. This fires ONLY for genuine
+ *   post-login data failures (throttle, warmup, exchange, date-range, unknown).
+ * - Structural input so this module stays decoupled from kiteWarmup.
+ */
+export function alertWarmupFailures(result: {
+  outcome: string;
+  indices: {
+    index: string;
+    ok: boolean;
+    steps: { step: string; ok: boolean; code: string | null; message: string | null }[];
+  }[];
+}): void {
+  try {
+    if (result.outcome === "OK" || result.outcome.startsWith("SKIPPED")) return;
+    for (const idx of result.indices) {
+      if (idx.ok) continue;
+      const firstFail = idx.steps.find((s) => !s.ok);
+      if (!firstFail) continue;
+      if (firstFail.code === "SESSION_MISSING" || firstFail.code === "TOKEN_MISSING") continue;
+      alertFnoDataHealth({
+        alertType: result.outcome === "FAILED" ? "WARMUP_FAILED" : "WARMUP_PARTIAL",
+        index: idx.index,
+        code: firstFail.code,
+        detail: firstFail.message ? `${firstFail.step}: ${firstFail.message}` : firstFail.step,
+      });
+    }
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error)?.message },
+      "alertWarmupFailures: unexpected error (safe-fail)",
+    );
+  }
+}
