@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { FnoSignalReasoningRow } from "@workspace/db";
-import { computeFailureDiagnosis } from "./fnoFailureDiagnosis";
+import { computeFailureDiagnosis, classifyDataFailure } from "./fnoFailureDiagnosis";
 
 type R = FnoSignalReasoningRow;
 let nextId = 1;
@@ -340,5 +340,36 @@ describe("computeFailureDiagnosis — tier verdict", () => {
     expect(r.tierVerdict.hcOutperformsBaseline).toBe(true);
     expect(r.tierVerdict.hcSampleSize).toBe(6);
     expect(r.tierVerdict.baselineSampleSize).toBe(6);
+  });
+});
+
+describe("classifyDataFailure — `no_live_kite_intraday` branch honesty", () => {
+  it("session KNOWN invalid → SESSION_MISSING", () => {
+    const d = classifyDataFailure("no_live_kite_intraday", { sessionValid: false });
+    expect(d.code).toBe("SESSION_MISSING");
+  });
+
+  it("session valid + market just opened (≤180s) → MARKET_JUST_OPENED (transient)", () => {
+    const d = classifyDataFailure("no_live_kite_intraday", {
+      sessionValid: true,
+      secondsSinceOpen: 60,
+    });
+    expect(d.code).toBe("MARKET_JUST_OPENED");
+    expect(d.transient).toBe(true);
+  });
+
+  it("session KNOWN valid mid-session → honest UNKNOWN, NEVER a false SESSION_MISSING", () => {
+    const d = classifyDataFailure("no_live_kite_intraday", {
+      sessionValid: true,
+      secondsSinceOpen: 10_000,
+    });
+    expect(d.code).toBe("UNKNOWN");
+    expect(d.code).not.toBe("SESSION_MISSING");
+    expect(d.message).toMatch(/active Kite session/i);
+  });
+
+  it("no context (session validity unknown) → conservative SESSION_MISSING fallback unchanged", () => {
+    const d = classifyDataFailure("no_live_kite_intraday");
+    expect(d.code).toBe("SESSION_MISSING");
   });
 });

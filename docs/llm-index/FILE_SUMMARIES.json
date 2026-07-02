@@ -1160,19 +1160,19 @@
   {
     "path": "artifacts/api-server/src/lib/fnoFailureDiagnosis.test.ts",
     "purpose": "test",
-    "lines": 345,
+    "lines": 376,
     "exports": [],
     "externalImports": [
       "vitest",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "558a7b9e50305191"
+    "hash": "24de716044995bb4"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoFailureDiagnosis.ts",
     "purpose": "fno-engine",
-    "lines": 1273,
+    "lines": 1283,
     "exports": [
       "FailureDiagnosisFiltersEcho",
       "SetupFailureRow",
@@ -1198,7 +1198,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "61d4a1c3fef23ced"
+    "hash": "55cd083a0fa73c37"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoObservability.test.ts",
@@ -2283,7 +2283,7 @@
   {
     "path": "artifacts/api-server/src/lib/kiteWarmup.ts",
     "purpose": "data-source",
-    "lines": 297,
+    "lines": 300,
     "exports": [
       "WarmupTrigger",
       "WarmupOutcome",
@@ -2301,7 +2301,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "726a441ec002644c"
+    "hash": "2e10b9aa80410e50"
   },
   {
     "path": "artifacts/api-server/src/lib/liveBias.ts",

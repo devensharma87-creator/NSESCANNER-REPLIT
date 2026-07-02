@@ -1244,6 +1244,16 @@ export function classifyDataFailure(
     ) {
       return mk("MARKET_JUST_OPENED");
     }
+    if (context.sessionValid === true) {
+      // Session is KNOWN active — claiming SESSION_MISSING here would be a
+      // false diagnosis. Honest UNKNOWN with the real observation instead.
+      return mk(
+        "UNKNOWN",
+        "Live intraday bars missing despite an active Kite session — feed may not cover this instrument or ticks have not arrived yet.",
+        false,
+      );
+    }
+    // Session validity unknown (no context) — most common historical cause.
     return mk("SESSION_MISSING");
   }
 

@@ -272,7 +272,10 @@ async function timedStep(step: WarmupStep, fn: () => Promise<void>): Promise<War
     await fn();
     return { step, ok: true, code: null, message: null, ms: Date.now() - t0 };
   } catch (err) {
-    const diag = classifyDataFailure(err);
+    // Warmup only runs AFTER the fail-closed active-session check, so the
+    // session is known valid here — pass that so the classifier never emits a
+    // false SESSION_MISSING for ambiguous reasons like `no_live_kite_intraday`.
+    const diag = classifyDataFailure(err, { sessionValid: true });
     return { step, ok: false, code: diag.code, message: diag.message, ms: Date.now() - t0 };
   }
 }

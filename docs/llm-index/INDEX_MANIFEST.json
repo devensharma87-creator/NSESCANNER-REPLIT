@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T07:07:16.411Z",
+  "generatedAt": "2026-07-02T07:14:15.915Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -328,9 +328,9 @@
       "mtime": "2026-06-05T06:57:10.972Z"
     },
     "artifacts/api-server/src/lib/fnoFailureDiagnosis.ts": {
-      "hash": "61d4a1c3fef23ced",
-      "lines": 1273,
-      "mtime": "2026-07-02T06:18:05.310Z"
+      "hash": "55cd083a0fa73c37",
+      "lines": 1283,
+      "mtime": "2026-07-02T07:12:50.676Z"
     },
     "artifacts/api-server/src/lib/fnoPaperRiskGuards.ts": {
       "hash": "a9a9da9867ca3b0b",
@@ -538,9 +538,9 @@
       "mtime": "2026-06-22T12:58:01.185Z"
     },
     "artifacts/api-server/src/lib/kiteWarmup.ts": {
-      "hash": "726a441ec002644c",
-      "lines": 297,
-      "mtime": "2026-07-02T06:43:34.855Z"
+      "hash": "2e10b9aa80410e50",
+      "lines": 300,
+      "mtime": "2026-07-02T07:12:53.548Z"
     },
     "artifacts/api-server/src/lib/liveBias.ts": {
       "hash": "1bfd66f183b9bf4f",
