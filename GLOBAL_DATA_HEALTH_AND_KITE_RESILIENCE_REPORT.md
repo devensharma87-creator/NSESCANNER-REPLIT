@@ -6,24 +6,20 @@
 
 ---
 
-## 1. Summary
+## 1. Implementation Summary
 
-This report covers the implementation of the "Kite Pre-Open Resilience + Global Data Health Banner + No Silent Data Degradation" feature set. All changes are read-only diagnostics and alerting surfaces; zero trading logic, thresholds, signals, F&O gates, or paper-trade execution was modified.
-
----
-
-## 2. New Contract: `GlobalDataHealth`
+### New Contract: `GlobalDataHealth`
 
 **File:** `artifacts/api-server/src/lib/globalDataHealth.ts`
 
-A canonical unified type and builder that orchestrates three existing in-process state sources:
+Orchestrates three in-process sources in `Promise.all`:
 
-| Source | Function Called | Data Provided |
+| Source | Function | Data |
 |---|---|---|
-| `buildMarketDataHealth()` | via `collectBackboneState()` | Kite session, feed status, market session, fallback |
-| `buildBackboneHealth(buildBackbonePoints(facts))` | Pure | Per-module readiness (fno, swing, optionChain, watchlist, portfolio, scanner, charting, home, prePost) |
-| `getKiteReadiness()` | Direct call | `isPreOpenWindow` |
-| `getLastAlertRecord()` | Synchronous | Last Telegram alert event (no secrets) |
+| `buildMarketDataHealth()` via `collectBackboneState()` | Kite session, feed, market session, fallback |
+| `buildBackboneHealth(buildBackbonePoints(facts))` | Per-module readiness (9 modules) |
+| `getKiteReadiness()` | `isPreOpenWindow` |
+| `getLastAlertRecord()` | Last Telegram alert event (no secrets) |
 
 ### Status Precedence (first match wins)
 
@@ -47,162 +43,273 @@ A canonical unified type and builder that orchestrates three existing in-process
 
 ---
 
-## 3. New Endpoint: `GET /api/data-health/global`
+## 2. New Endpoint: `GET /api/data-health/global`
 
 **File:** `artifacts/api-server/src/routes/dataHealth.ts`
 
-```
-GET /api/data-health/global
-```
-
-- **Auth:** PUBLIC — no `requireOwner` gate. Safe by construction: no secrets in the `GlobalDataHealth` contract.
+- **Auth:** PUBLIC — added to `PUBLIC_ROUTES` in `artifacts/api-server/src/lib/auth.ts`.
+  - Note: The initial committed checkpoint omitted this from `PUBLIC_ROUTES`. The fix was applied 2026-07-02 and production publish is required.
 - **Response:** Full `GlobalDataHealth` object.
 - **Fail behaviour:** 500 on internal error (no silent fallback to stale data).
 
-### Existing endpoints (unchanged)
-
-| Endpoint | Auth | Purpose |
-|---|---|---|
-| `GET /api/data-health/market` | PUBLIC | `MarketDataHealth` (session + feed + market session) |
-| `GET /api/data-health/backbone` | OWNER-STRICT | `BackboneReport` (per-module, full warmup details) |
-
 ---
 
-## 4. Pre-Open Kite Telegram Alerts
+## 3. Pre-Open Kite Telegram Alerts
 
 **File:** `artifacts/api-server/src/lib/kiteReadinessScheduler.ts`
 
-### What was added
-
-The existing scheduler already logged WARN at 08:45 IST and ERROR at 09:05 IST when Kite is offline. It now also sends Telegram alerts via `alertOwnerRaw()`:
-
-| Time | Condition | Telegram Alert Key | Message |
+| Time | Condition | Alert Key | Message |
 |---|---|---|---|
-| 08:45 IST | `KITE_OFFLINE_PREOPEN`, session missing | `KITE_SESSION_MISSING_PREOPEN::YYYY-MM-DD` | 🚨 KITE PRE-OPEN ACTION REQUIRED — session missing |
-| 08:45 IST | `KITE_OFFLINE_PREOPEN`, session expired | `KITE_SESSION_EXPIRED_PREOPEN::YYYY-MM-DD` | 🚨 KITE PRE-OPEN ACTION REQUIRED — session expired |
+| 08:45 IST | Session missing | `KITE_SESSION_MISSING_PREOPEN::YYYY-MM-DD` | 🚨 KITE PRE-OPEN ACTION REQUIRED — session missing |
+| 08:45 IST | Session expired | `KITE_SESSION_EXPIRED_PREOPEN::YYYY-MM-DD` | 🚨 KITE PRE-OPEN ACTION REQUIRED — session expired |
 | 09:05 IST | Still offline (escalation) | `KITE_SESSION_EXPIRED_PREOPEN_FINAL::YYYY-MM-DD` | 🔴 FINAL WARNING — MARKET OPENS IN ~10 MIN |
-| 08:45+ | `KITE_CONNECTED_BUT_FEED_STALE` | `KITE_FEED_DISCONNECTED_PREOPEN::YYYY-MM-DD` | ⚠️ KITE DATA PARTIAL — PRE-OPEN WINDOW |
+| 08:45+ | Feed stale | `KITE_FEED_DISCONNECTED_PREOPEN::YYYY-MM-DD` | ⚠️ KITE DATA PARTIAL — PRE-OPEN WINDOW |
 
-### Dedup design
-
-- **Key scope:** Per-IST-calendar-day (e.g. `KITE_SESSION_EXPIRED_PREOPEN::2026-07-02`). A new alert is not sent if the key was already fired today.
-- **Window:** 1-hour dedup window via `alertOwnerRaw()` (prevents repeat on the 5-minute tick).
-- **In-process latches:** Separate from existing `warnLoggedDay` / `errorLoggedDay` log latches — the per-day key IS the dedup mechanism for Telegram.
-- **Bot:** Uses the default operational `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (NOT the PREPOST bot — that's for daily reports only).
-- **Fail-open:** `alertOwnerRaw()` never throws; Telegram failure is logged as WARN and does not affect the scheduler.
+Dedup: per-IST-calendar-day key. Default operational bot only (not PREPOST bot). Fail-open.
 
 ---
 
-## 5. Global Status Banner — DATA_DEGRADED Chip
+## 4. Global Status Banner — DATA_DEGRADED Chip
 
 **File:** `artifacts/scanner/src/components/global-status-banner.tsx`
 
-### New `useGlobalDataHealth` hook
-
-- Owner-only, queries `GET /api/data-health/global` at 60s interval.
-- Fail-open: returns `null` on loading/error.
-- `queryKey: ["global-data-health"]` — deduped via React Query.
-
-### DATA_DEGRADED chip condition
-
-The chip appears alongside the existing green Kite chip **only** when:
-
-1. `globalHealth.overallStatus === "DEGRADED_DATA"` — backbone modules blocked despite valid session.
-2. `view.mode === "chip"` — the Kite chip is rendering (not a full critical banner).
-3. `view.tone === "ok"` — the Kite state itself shows green.
-
-This prevents double-warning when Kite is already showing a critical/amber banner (expired, feed disconnected, etc.).
-
-### Banner states (complete matrix after this change)
-
-| Kite State | Banner |
-|---|---|
-| `KITE_OFFLINE_PREOPEN` | Full red banner + Reconnect button |
-| `KITE_OFFLINE_MARKET_HOURS` | Full red banner + Reconnect button |
-| `KITE_EXPIRED` | Amber chip "Kite session expired" + Reconnect |
-| `KITE_CONNECTED_BUT_FEED_STALE` | Amber chip "Kite feed disconnected" |
-| `KITE_EXPIRES_SOON` | Info chip "Kite expires soon" |
-| `KITE_READY` + market open + liveQuotes > 0 | Green chip "Kite live" |
-| `KITE_READY` + market open + liveQuotes = 0 | Yellow chip "Kite — waiting for ticks" |
-| `KITE_READY` + market closed/pre_open | Green chip "Kite — market closed" |
-| ↑ any green chip + `DEGRADED_DATA` modules | **Orange "DATA DEGRADED" chip alongside** ← NEW |
+- `useGlobalDataHealth()` hook: owner-only, 60s poll, fail-open null on error.
+- Orange chip appears when: `overallStatus === "DEGRADED_DATA"` + `view.mode === "chip"` + `view.tone === "ok"`.
+- Suppressed when Kite shows its own warning/critical banner.
 
 ---
 
-## 6. Infra Health — GlobalHealthSection
+## 5. Infra Health — GlobalHealthSection
 
 **File:** `artifacts/scanner/src/pages/infra-health.tsx`
 
-Added `GlobalHealthSection` component as the **first full-width section** in the section grid. Consumes `GET /api/data-health/global` via the existing `useEndpoint<T>` hook pattern. Shows:
-
-- Overall status badge + headline
-- Kite state: session, WebSocket, market session, live quote count
-- Module readiness table (per module: status pill + source + first failure reason)
-- Warnings list
-- User action block (if action required)
-- Pre-open alert indicator (when `isPreOpenWindow = true`)
-- Checked-at timestamp in IST
+First full-width section in grid. Consumes `GET /api/data-health/global` via `useEndpoint<GlobalDataHealthResp>`. Shows: badge, headline, Kite state grid (4 cells), module readiness table with colour pills, warnings, user action block, pre-open indicator, IST checked-at timestamp.
 
 ---
 
-## 7. Tests
+## 6. Tests
 
-**File:** `artifacts/api-server/src/lib/globalDataHealth.test.ts`
-
-32 unit tests covering all pure derivers. Zero DB, network, or process mock required.
-
-| Suite | Count | Coverage |
-|---|---|---|
-| `deriveModuleHealthStatus` | 3 | OK/DEGRADED/BLOCKED → TRADE_GRADE/DELAYED/BLOCKED |
-| `deriveCanDriveSignals` | 5 | Signal invariant: only TRADE_GRADE + kiteActive=true |
-| `buildModuleHealthMap` | 6 | source resolution, Yahoo never signals, multi-module |
-| `deriveGlobalDataHealthStatus` | 11 | all 8 status branches + precedence |
-| `deriveGlobalSeverity` | 8 | every status → correct severity |
-| `deriveBadgeAndHeadline` | 7 | non-empty, correct badges for key statuses |
+| Suite | Files | Tests | Pass |
+|---|---|---|---|
+| globalDataHealth | `globalDataHealth.test.ts` | 42 | ✅ 42 |
+| marketDataHealth | `marketDataHealth.test.ts` | 27 | ✅ 27 |
+| dailyReports | `dailyReports.test.ts` + `dailyReportsDedupContract.test.ts` | 128 | ✅ 128 |
+| parity | `parity.test.ts` | partial (in 128 batch) | ✅ |
+| backboneHealth | `backboneHealth.test.ts` | in 53-batch | ✅ |
+| homeMarketPulse + infraHealth | `homeMarketPulseSourceMap.test.ts` + `infraHealth.test.ts` | 53 | ✅ 53 |
+| optionStrategies + snapshotAnalytics | 2 files | 36 | ✅ 36 |
+| provenance + optionChainProvider + backboneHealth | 3 files | 26 | ✅ 26 |
+| scanner frontend | 35 test files | 749 | ✅ 749 |
 
 ---
 
-## 8. Safety Verification
+## 7. LLM Index
 
-| Invariant | Status |
+```
+LLM index updated at 2026-07-02T14:39:19.193Z
+Tracked files: 329
+✓ LLM index is fresh — all 329 tracked files match.
+```
+
+---
+
+## 8. Production Verification
+
+### Deployment Info
+
+| Field | Value |
 |---|---|
-| No F&O / swing / signal scoring changed | ✅ |
-| No paper-trade execution / broker calls | ✅ |
-| No thresholds / gate / DD cap changed | ✅ |
-| No secrets in `GlobalDataHealth` contract | ✅ (`accessTokenPresent` is boolean only) |
-| Yahoo fallback never sets `canDriveSignals=true` | ✅ (pure deriver unit-tested) |
-| Telegram alerts are best-effort (fail-open on send error) | ✅ |
-| Pre-open alerts use per-day dedup key — at most one per scenario per day | ✅ |
-| `GET /api/data-health/global` is additive (new route, no existing routes changed) | ✅ |
-| `GET /api/data-health/backbone` (owner-only) unchanged | ✅ |
-| `GET /api/data-health/market` (public) unchanged | ✅ |
-| No Drizzle schema changes | ✅ |
-| No `drizzle-kit push` run | ✅ |
-| replit.md not trimmed | ✅ |
+| Primary URL | `https://marketscannerbydev.in` |
+| Deployment type | autoscale |
+| Has successful build | true |
+| Visibility | public |
+
+### `GET /api/data-health/global` — Dev Server (post auth.ts fix, post restart)
+
+**Status: HTTP 200 — public, no auth required**
+
+Full response verified:
+
+```json
+{
+  "overallStatus": "SESSION_ACTIVE_MARKET_CLOSED",
+  "severity": "ok",
+  "badge": "KITE ACTIVE — MARKET CLOSED",
+  "headline": "Kite session is active. Market is closed — data shown is from the last session.",
+  "kite": {
+    "sessionStatus": "ACTIVE",
+    "accessTokenPresent": true,
+    "websocketStatus": "CONNECTED",
+    "liveQuotesCount": 8,
+    "quoteStatus": "MARKET_CLOSED_SESSION_ACTIVE",
+    "tradeGrade": false,
+    "marketSession": "closed",
+    "isPreOpenWindow": false
+  },
+  "modules": {
+    "fno":        { "status": "TRADE_GRADE", "canDriveSignals": true  },
+    "swing":      { "status": "TRADE_GRADE", "canDriveSignals": true  },
+    "optionChain":{ "status": "TRADE_GRADE", "canDriveSignals": true  },
+    "watchlist":  { "status": "TRADE_GRADE", "canDriveSignals": true  },
+    "portfolio":  { "status": "DELAYED",     "canDriveSignals": false },
+    "scanner":    { "status": "DELAYED",     "canDriveSignals": false },
+    "charting":   { "status": "TRADE_GRADE", "canDriveSignals": true  },
+    "home":       { "status": "DELAYED",     "canDriveSignals": false },
+    "prePost":    { "status": "DELAYED",     "canDriveSignals": false }
+  },
+  "fallback": { "yahooActive": false, "label": "NOT_USED" },
+  "userAction": { "required": false, "reason": null, "path": null },
+  "preOpenAlert": { "isPreOpenWindow": false, "alertFired": false },
+  "warnings": [],
+  "checkedAt": "2026-07-02T14:38:30.884Z"
+}
+```
+
+### Secret Hygiene Check
+
+| Check | Result |
+|---|---|
+| Kite access token value exposed | ❌ Not present |
+| Kite API secret exposed | ❌ Not present |
+| Telegram bot token exposed | ❌ Not present |
+| Telegram chat ID exposed | ❌ Not present |
+| Database URL exposed | ❌ Not present |
+| Stack trace exposed | ❌ Not present |
+| `accessTokenPresent` type | ✅ bool (not a string token) |
+| Suspicious long string values | ❌ None found |
+
+### Status Classification Verification
+
+| Case | Expected | Observed | Honest? |
+|---|---|---|---|
+| Active Kite + market closed | `SESSION_ACTIVE_MARKET_CLOSED`, severity:ok | ✅ Correct | ✅ Yes |
+| `tradeGrade` during market closed | `false` | ✅ `false` | ✅ Yes |
+| Modules during market closed | TRADE_GRADE for live services (fno/swing/optionChain/watchlist/charting), DELAYED for scanner/portfolio/home/prePost | ✅ Correct | ✅ Yes |
+| Yahoo fallback | `NOT_USED` | ✅ Correct | ✅ Yes |
+| Active Kite + live market + fresh ticks | `TRADE_GRADE_LIVE`, severity:ok | Unit-tested ✅ | Unit test coverage |
+| Kite session missing | `KITE_SESSION_MISSING`, severity:red | Unit-tested ✅ | Unit test coverage |
+| Kite session expired | `KITE_SESSION_EXPIRED`, severity:red | Unit-tested ✅ | Unit test coverage |
+| Kite active but modules blocked | `DEGRADED_DATA` or `KITE_PARTIAL` | Unit-tested ✅ | Unit test coverage |
+
+### Production Endpoint Status
+
+| Endpoint | Pre-publish (build from checkpoint) | Post-publish (auth.ts fix) |
+|---|---|---|
+| `GET /api/data-health/global` | ❌ `AUTH_REQUIRED` (missing from PUBLIC_ROUTES) | ⏳ Publish pending |
+| `GET /api/data-health/market` | ✅ 200 OK | ✅ Unchanged |
+
+**Root cause of production AUTH_REQUIRED:** The initial commit checkpoint did not include `/api/data-health/global` in the `PUBLIC_ROUTES` array in `auth.ts`. Fixed 2026-07-02; production publish required.
 
 ---
 
-## 9. Files Changed
+## 9. Kite Pre-Open Alert Safety
+
+| Check | Result | Evidence |
+|---|---|---|
+| Session-missing alert type exists | ✅ | `KITE_SESSION_MISSING_PREOPEN` in `kiteReadinessScheduler.ts` |
+| Session-expired alert type exists | ✅ | `KITE_SESSION_EXPIRED_PREOPEN` in `kiteReadinessScheduler.ts` |
+| Feed-stale alert type exists | ✅ | `KITE_FEED_DISCONNECTED_PREOPEN` in `kiteReadinessScheduler.ts` |
+| 09:05 final-warning escalation exists | ✅ | `KITE_SESSION_EXPIRED_PREOPEN_FINAL` in `kiteReadinessScheduler.ts` |
+| Per-day dedup key | ✅ | `::YYYY-MM-DD` suffix on alert key; 1h dedup window |
+| No repeated alert per tick | ✅ | `alertOwnerRaw()` dedup + latch prevent re-fire |
+| Scheduler window 08:40–09:20 IST | ✅ | Existing `isPreOpenWindow` guard unchanged |
+| Alert is system health, not trade entry/exit | ✅ | Messages clearly say "ACTION REQUIRED — reconnect Kite" |
+| Does NOT use canonical trade-event pipeline | ✅ | Calls `alertOwnerRaw()` directly, not `validateTradeEventForNotification` |
+| Prod outside pre-open window → no spam | ✅ | `isPreOpenWindow = false` — no alert fired |
+| Uses default bot (not PREPOST bot) | ✅ | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` only |
+
+---
+
+## 10. Fail-Closed Verification
+
+| Module | Fail-closed verified? | Evidence |
+|---|---|---|
+| F&O: no Kite session → no tradeable signal | ✅ | `canDriveSignals=false` when `sessionStatus≠ACTIVE` (unit-tested) |
+| F&O: expired Kite → no tradeable signal | ✅ | `KITE_SESSION_EXPIRED` status, all modules BLOCKED |
+| F&O: Yahoo-only → no tradeable signal | ✅ | Yahoo sets `DELAYED`, `canDriveSignals=false` invariant |
+| Paper trading: non-trade-grade → gates openPaperTrade | ✅ | `isPaperAutoTradingEnabled()` gate unchanged; no new bypass |
+| Paper trading: broker execution | ✅ | `PAPER_TRADING_ENABLED` gate unchanged in production |
+| Swing: stale/test event cannot send real trade Telegram | ✅ | Parity harness + `validateTradeEventForNotification` unchanged |
+| GlobalDataHealth adds no new execution path | ✅ | Pure read-only; `buildGlobalDataHealth()` only reads, never writes |
+
+---
+
+## 11. Production Safety Checklist
+
+| Safety Item | Expected | Verified |
+|---|---|---|
+| Secrets exposed in API response | 0 | ✅ 0 |
+| Broker execution | DISABLED | ✅ Unchanged |
+| Real orders placed | 0 | ✅ 0 |
+| New paper trades from verification | 0 | ✅ 0 |
+| Telegram spam | 0 | ✅ 0 (not in pre-open window) |
+| Trade Telegram from system alert | 0 | ✅ System health alert only |
+| Strategy logic changed | No | ✅ No |
+| Thresholds changed | No | ✅ No |
+| Destructive migration | No | ✅ No |
+| Candle backfill run | No | ✅ No |
+| Source warnings hidden | No | ✅ No |
+| Parity harness broken | No | ✅ Tests pass |
+| replit.md trimmed | No | ✅ Untouched |
+
+---
+
+## 12. Files Changed
 
 ### New files
 - `artifacts/api-server/src/lib/globalDataHealth.ts` — builder + types + pure derivers
-- `artifacts/api-server/src/lib/globalDataHealth.test.ts` — 32 unit tests
+- `artifacts/api-server/src/lib/globalDataHealth.test.ts` — 42 unit tests
 
 ### Modified files
 - `artifacts/api-server/src/routes/dataHealth.ts` — added `GET /api/data-health/global`
+- `artifacts/api-server/src/lib/auth.ts` — added `/api/data-health/global` to `PUBLIC_ROUTES`
 - `artifacts/api-server/src/lib/kiteReadinessScheduler.ts` — added Telegram pre-open alerts
 - `artifacts/scanner/src/components/global-status-banner.tsx` — DATA_DEGRADED chip
 - `artifacts/scanner/src/pages/infra-health.tsx` — GlobalHealthSection (first in grid)
 
 ---
 
-## 10. Verdict
+## 13. Remaining Blockers
 
-`GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED` — pending smoke test on production after deploy.
+| Blocker | Status |
+|---|---|
+| Production publish needed (auth.ts fix) | ⏳ Pending user click of Publish button |
+| Production endpoint verification | ⏳ Awaiting publish |
 
-**What "prod verified" means here:**
-- `GET /api/data-health/global` returns a valid `GlobalDataHealth` object with correct `overallStatus`.
-- Infra Health page (`/infra-health`) shows the GlobalHealthSection with correct status badge.
-- GlobalStatusBanner shows the DATA_DEGRADED chip when backbone modules are blocked with an active session.
-- Pre-open Telegram alert fires once per day when Kite is offline during the 08:40–09:20 IST window.
-- All existing `GET /api/data-health/market` and `GET /api/data-health/backbone` responses are unchanged.
+---
+
+## 14. Final Verdict
+
+**`GLOBAL_DATA_HEALTH_KITE_RESILIENCE_DEV_VERIFIED`**
+
+Dev server is fully verified:
+- `GET /api/data-health/global` returns HTTP 200, correct contract, no secrets.
+- Classification honest: `SESSION_ACTIVE_MARKET_CLOSED` with `tradeGrade=false`.
+- 42/42 globalDataHealth unit tests pass.
+- 749/749 scanner tests pass.
+- All other test batches pass.
+- LLM index fresh (329 files).
+- Auth.ts fix applied.
+
+**Upgrading to `GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED` requires:**
+1. User publishes production build (Publish button in Replit UI).
+2. `curl https://marketscannerbydev.in/api/data-health/global` returns HTTP 200 (not `AUTH_REQUIRED`).
+
+---
+
+## 15. Post-Publish Verification Checklist
+
+After clicking Publish, confirm:
+```
+curl -s https://marketscannerbydev.in/api/data-health/global | python3 -m json.tool
+```
+Expected: HTTP 200 with `overallStatus`, `severity`, `kite`, `modules`, `warnings`, `checkedAt`.
+No `{"error":"unauthorized"}`.
+
+| Item | Expected |
+|---|---|
+| HTTP status | 200 |
+| `overallStatus` | `SESSION_ACTIVE_MARKET_CLOSED` (current state) or `TRADE_GRADE_LIVE` if market opens |
+| `accessTokenPresent` | `true` (boolean) |
+| `warnings` | `[]` |
+| `checkedAt` | recent ISO timestamp |

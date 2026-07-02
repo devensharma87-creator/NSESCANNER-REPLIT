@@ -1,0 +1,389 @@
+CODER PROMPT — POST-PUBLISH PRODUCTION VERIFICATION: GLOBAL DATA HEALTH + KITE RESILIENCE
+
+The implementation is accepted as dev verified.
+
+Current verdict:
+
+GLOBAL_DATA_HEALTH_KITE_RESILIENCE_DEV_VERIFIED
+
+Now publish and run production verification.
+
+Do not change strategy logic.
+Do not change thresholds.
+Do not enable broker execution.
+Do not place real orders.
+Do not create real trades.
+Do not run candle backfill.
+Do not delete DB rows.
+Do not perform destructive migrations.
+Do not hide source warnings.
+Do not fake Kite readiness.
+Do not treat Yahoo/proxy/cached data as trade-grade.
+Do not send Telegram spam.
+Do not break the existing parity harness.
+Do not trim or rewrite replit.md.
+
+====================================================
+VERIFY DEPLOYMENT
+====================================================
+
+Confirm:
+
+1. Workspace commit.
+2. Published production commit.
+3. Production boot timestamp.
+4. Production PID / worker count.
+5. API health.
+6. Frontend bundle hash/path.
+7. The live build includes:
+   - GET /api/data-health/global
+   - GlobalDataHealth derivation
+   - Kite pre-open Telegram alert changes
+   - DATA DEGRADED chip
+   - Infra Health GlobalHealthSection
+   - 42 globalDataHealth tests
+
+If the build is not live, report:
+
+GLOBAL_DATA_HEALTH_BUILD_NOT_DEPLOYED
+
+====================================================
+VERIFY /api/data-health/global
+====================================================
+
+Check production:
+
+GET /api/data-health/global
+
+Verify:
+
+1. HTTP 200 if public-safe.
+2. No secrets exposed.
+3. No Kite access token.
+4. No Kite API secret.
+5. No Telegram bot token.
+6. No Telegram chat ID.
+7. No database URL.
+8. No encrypted token.
+9. No stack traces.
+10. `accessTokenPresent` is boolean only.
+11. `checkedAt` is present.
+12. `environment` is present.
+13. `overallStatus` is present.
+14. `severity` is present.
+15. `kite.sessionStatus` is present.
+16. `kite.tradeGrade` is present.
+17. `modules` object is present.
+18. `fallback` object is present.
+19. `alerts` object is present.
+20. `warnings` and `blockers` arrays are present.
+
+Report the actual response summary, but redact any sensitive values if unexpectedly present.
+
+====================================================
+VERIFY STATUS CLASSIFICATION
+====================================================
+
+Based on current market/session state, verify the classification is honest.
+
+Cases to verify where possible:
+
+1. Active Kite + live market + fresh ticks:
+   - expected: TRADE_GRADE_LIVE
+   - severity: green
+
+2. Active Kite + market closed:
+   - expected: SESSION_ACTIVE_MARKET_CLOSED
+   - not an error
+
+3. Kite missing:
+   - expected: KITE_SESSION_MISSING
+   - severity: red
+   - user action: reconnect Kite
+
+4. Kite expired:
+   - expected: KITE_SESSION_EXPIRED
+   - severity: red
+   - user action: reconnect Kite
+
+5. Kite active but modules blocked:
+   - expected: DEGRADED_DATA or KITE_PARTIAL
+   - not full trade-grade
+
+6. Yahoo/cached/delayed only:
+   - canDriveSignals=false
+   - canDrivePaperTrading=false
+   - canDriveTelegramTradeAlerts=false
+
+Even if not all states can be naturally reproduced in production, use safe unit/fixture verification for unavailable states and clearly distinguish live production observation from test coverage.
+
+====================================================
+VERIFY GLOBAL BANNER
+====================================================
+
+On published live app, verify the app-wide banner.
+
+Check:
+
+1. Banner is visible for owner.
+2. Banner does not overlap navigation.
+3. Banner shows correct current state.
+4. If `overallStatus=DEGRADED_DATA`, orange `DATA DEGRADED` chip appears.
+5. If Kite warning/critical banner is active, duplicated warnings are not shown.
+6. Market-closed active session is labelled correctly.
+7. Missing/expired Kite says reconnect/action required.
+8. No page appears trade-grade if global health says not trade-grade.
+9. Mobile layout is readable.
+
+Pages to verify:
+
+- Home
+- Scanner
+- F&O / Options
+- Swing Cash Queue
+- Paper Trading
+- Portfolio
+- Watchlist
+- Charting
+- Option Chain
+- Daily Analysis
+- Infra Health
+
+Report:
+
+| Page | Banner visible? | Status shown | Matches /api/data-health/global? | Issue |
+|---|---:|---|---:|---|
+
+====================================================
+VERIFY INFRA HEALTH GLOBAL SECTION
+====================================================
+
+Check `/infra-health`.
+
+Verify the new GlobalHealthSection shows:
+
+1. overall badge/headline
+2. Kite session status
+3. WebSocket status
+4. market session
+5. live quote count
+6. module readiness table
+7. status pills
+8. warnings
+9. user action block
+10. pre-open window indicator
+11. checked-at timestamp in IST
+12. no secrets
+13. no order/trade action buttons
+
+Report:
+
+| Item | Present? | Correct? | Notes |
+|---|---:|---:|---|
+
+====================================================
+VERIFY KITE PRE-OPEN ALERT SAFETY
+====================================================
+
+Do not spam Telegram.
+
+Verify implementation safely:
+
+1. Alert types exist:
+   - session missing
+   - session expired
+   - feed stale
+   - 09:05 final warning
+
+2. Dedup exists:
+   - per-day key
+   - no repeated alert every scheduler tick
+
+3. Scheduler window:
+   - 08:40–09:20 IST
+
+4. Holiday/weekend behavior:
+   - no false market-open alert
+
+5. Alert message is clearly system health:
+   - not trade alert
+   - not entry/exit
+   - not fake signal
+
+6. Alert routes do not use canonical trade-event pipeline.
+
+7. If production is outside the pre-open window, verify through tests/logs and do not force-spam real Telegram.
+
+Report:
+
+| Check | Result | Evidence |
+|---|---|---|
+
+====================================================
+VERIFY FAIL-CLOSED BEHAVIOR
+====================================================
+
+Verify the new global health layer did not weaken any trade safety.
+
+F&O:
+
+- no Kite session => no tradeable signal
+- expired Kite => no tradeable signal
+- stale daily/intraday/option chain => no tradeable signal
+- Yahoo/cache only => no tradeable signal
+- Telegram trade alert not sent
+- paper trade not opened
+
+Paper Trading:
+
+- non-trade-grade data cannot open new F&O paper trade
+- stale/fake source cannot trigger entry/exit
+- broker execution remains disabled
+
+Swing:
+
+- stale/test/manual invalid event cannot send real trade Telegram
+- existing parity harness remains green
+
+Report:
+
+| Module | Fail-closed verified? | Evidence |
+|---|---:|---|
+
+====================================================
+VERIFY EXISTING PARITY HARNESS STILL GREEN
+====================================================
+
+Run production-safe parity checks again:
+
+1. `/api/parity/status`
+2. `/api/parity/verify`
+3. `/api/parity/run-all-fixtures`
+4. `/api/parity/replay-from-log`
+
+Expected:
+
+- no real Telegram sent
+- no paper trade created
+- no real order placed
+- TESTSTK blocked
+- stale/Yahoo/dev blocked
+- replay still 0 mismatches if prior records unchanged
+
+Report:
+
+| Check | Result |
+|---|---|
+
+====================================================
+RUN TESTS
+====================================================
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/*globalDataHealth*.test.ts src/lib/*dataHealth*.test.ts src/lib/*marketData*.test.ts src/lib/*kite*.test.ts src/lib/*backbone*.test.ts src/lib/*fno*.test.ts src/lib/*paper*.test.ts src/lib/*parity*.test.ts src/lib/*notification*.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Use repo-correct names if different.
+
+If the full suite times out, run in batches and report:
+
+- batch name
+- files
+- pass count
+- fail count
+- exit code
+
+====================================================
+PRODUCTION SAFETY CHECKLIST
+====================================================
+
+Verify:
+
+| Safety Item | Expected |
+|---|---|
+| Secrets exposed | 0 |
+| Broker execution | DISABLED |
+| Real orders placed | 0 |
+| New paper trades from verification | 0 |
+| Telegram spam | 0 |
+| Trade Telegram from system alert | 0 |
+| Strategy logic changed | No |
+| Thresholds changed | No |
+| Destructive migration | No |
+| Candle backfill run | No |
+| Source warnings hidden | No |
+| Parity harness broken | No |
+
+====================================================
+REPORT
+====================================================
+
+Update or create:
+
+GLOBAL_DATA_HEALTH_AND_KITE_RESILIENCE_REPORT.md
+
+Add production verification section with:
+
+1. Deployment confirmation.
+2. `/api/data-health/global` response summary.
+3. Secret hygiene check.
+4. Current status classification.
+5. Banner verification.
+6. Infra Health verification.
+7. Pre-open alert safety verification.
+8. Fail-closed verification.
+9. Parity harness recheck.
+10. Tests and exact counts.
+11. LLM index result.
+12. Safety checklist.
+13. Remaining blockers.
+14. Final verdict.
+15. Exact next action.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+- GLOBAL_DATA_HEALTH_KITE_RESILIENCE_DEV_VERIFIED
+- GLOBAL_DATA_HEALTH_PARTIAL_SOURCE_GAP_REMAINS
+- GLOBAL_DATA_HEALTH_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED only if published production is verified.
+
+Use GLOBAL_DATA_HEALTH_PARTIAL_SOURCE_GAP_REMAINS if any major page still disagrees with global health, or if trade-grade appears when source is not trade-grade.
+
+Use ROLLBACK_REQUIRED if secrets are exposed, public unsafe endpoint leaks private data, broker execution changes, real orders are placed, or fake trade-grade readiness is shown.
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+This task is accepted only if:
+
+- /api/data-health/global is live in production
+- no secrets are exposed
+- global banner is live
+- Infra Health GlobalHealthSection is live
+- Kite session state is accurately classified
+- market-closed active session is not treated as an error
+- degraded/partial state is visible
+- Yahoo/cache/proxy never drives signals
+- F&O fails closed when data is not trade-grade
+- Paper Trading fails closed when data is not trade-grade
+- pre-open alert is deduped and safe
+- existing parity harness remains green
+- broker execution remains disabled
+- no real orders are placed
+- no Telegram spam
+- tests pass
+- LLM index fresh
+- production verification complete

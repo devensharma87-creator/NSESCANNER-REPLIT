@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T14:31:12.693Z",
+  "generatedAt": "2026-07-02T14:39:19.193Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -178,9 +178,9 @@
       "mtime": "2026-06-23T13:53:55.298Z"
     },
     "artifacts/api-server/src/lib/auth.ts": {
-      "hash": "1256e0e3405e3eb0",
-      "lines": 165,
-      "mtime": "2026-07-01T13:37:54.102Z"
+      "hash": "a24cc8e4e5afd608",
+      "lines": 166,
+      "mtime": "2026-07-02T14:37:12.568Z"
     },
     "artifacts/api-server/src/lib/backboneHealth.ts": {
       "hash": "966865d58fb46a44",

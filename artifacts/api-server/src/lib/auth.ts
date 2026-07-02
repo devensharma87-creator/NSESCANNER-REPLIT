@@ -79,6 +79,7 @@ const PUBLIC_ROUTES: PublicRoute[] = [
   { path: "/api/webhooks/tradingview", methods: ["POST"] }, // ONLY POST is public — TradingView S2S with TRADINGVIEW_WEBHOOK_SECRET
   { path: "/api/paper/diagnostics/environment", methods: ["GET"] }, // Env label only (no secrets); powers the dev/prod banner
   { path: "/api/data-health/market", methods: ["GET"] },           // PUBLIC: canonical market-data health (session+feed+market-session, no secrets)
+  { path: "/api/data-health/global", methods: ["GET"] },           // PUBLIC: unified global data health (safe by construction — no secrets in contract)
 ];
 
 function isPublicRoute(url: string, method: string): boolean {

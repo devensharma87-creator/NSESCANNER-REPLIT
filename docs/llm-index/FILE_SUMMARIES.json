@@ -78,7 +78,7 @@
   {
     "path": "artifacts/api-server/src/lib/auth.ts",
     "purpose": "auth",
-    "lines": 165,
+    "lines": 166,
     "exports": [
       "setSessionCookie",
       "clearSessionCookie",
@@ -93,7 +93,7 @@
       "node:crypto"
     ],
     "routes": [],
-    "hash": "1256e0e3405e3eb0"
+    "hash": "a24cc8e4e5afd608"
   },
   {
     "path": "artifacts/api-server/src/lib/backboneHealth.test.ts",
