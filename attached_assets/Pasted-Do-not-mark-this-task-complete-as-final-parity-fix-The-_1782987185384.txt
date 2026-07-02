@@ -1,0 +1,63 @@
+Do not mark this task complete as final parity fix.
+
+The foundation is useful, but the actual live alert paths are not wired yet.
+
+You explicitly reported that existing `swingAlerts.ts` and `fnoSignalAlerts.ts` are unchanged. That means the new CanonicalTradeEvent validator, formatter, and notification log may not protect real production Telegram alerts.
+
+This is not acceptable as complete.
+
+Continue with P0 wiring only.
+
+Scope for next step:
+
+1. Wire existing Swing Telegram alerts through the new canonical pipeline:
+   - build CanonicalTradeEvent
+   - validateTradeEventForNotification
+   - notification delivery dedup/log
+   - formatTradeTelegramMessage
+   - send only if validation passes
+
+2. Wire existing F&O Telegram alerts through the new canonical pipeline:
+   - only tradeable/paper-opened F&O entries can send
+   - suppressed/info-only/watchlist/baseline cannot send trade Telegram
+   - exits must use canonical exit event
+
+3. Block `TESTSTK` and all test/sample/dummy symbols in the actual production alert path, not only in a new unused module.
+
+4. Fix tests that are sending real Telegram:
+   - no test must ever call real Telegram
+   - mock Telegram sender
+   - require test-only destination for sample alerts
+   - fail test if production Telegram token/path is touched
+
+5. Stop duplicate Swing lifecycle messages:
+   - one entry-ready alert only
+   - no separate alert for manual approval required
+   - no separate alert for staged order if entry-ready already sent
+   - no separate alert for dry-run recorded
+   - one exit alert only when SL/target/manual/time exit happens
+
+6. Ensure Swing Queue, Paper Trading, and Telegram use the same canonical event snapshot.
+
+7. Ensure F&O page, Paper Trading, and Telegram use the same canonical event snapshot.
+
+8. Add production verification:
+   - TESTSTK blocked
+   - duplicate alerts blocked
+   - valid Swing event sends once
+   - approval/dry-run sends no duplicate
+   - valid F&O tradeable event sends once
+   - suppressed/info-only F&O sends no Telegram
+   - exit sends once
+   - broker execution remains disabled
+   - no real orders placed
+
+Do not change strategy logic.
+Do not change thresholds.
+Do not enable broker execution.
+Do not place real orders.
+Do not delete DB rows.
+Do not run candle backfill.
+Do not trim or rewrite replit.md.
+
+Final verdict cannot be `PROD_VERIFIED` until existing live alert paths are actually wired through the canonical pipeline and production verification is completed.

@@ -19,7 +19,19 @@ import {
   FNO_SIGNAL_DEDUP_MS,
   type FnoTradeAlertInput,
 } from "./fnoSignalAlerts";
-import { resetAlertDedup } from "./alerting";
+import { alertOwnerRaw, resetAlertDedup } from "./alerting";
+
+vi.mock("./alerting", () => ({
+  alertOwnerRaw: vi.fn(),
+  resetAlertDedup: vi.fn(),
+  resetLastAlertRecord: vi.fn(),
+}));
+
+vi.mock("./tradeLifecycle/notificationLog", () => ({
+  hasAlreadyDelivered: vi.fn(() => Promise.resolve(false)),
+  logNotificationDelivery: vi.fn(() => Promise.resolve(undefined)),
+  hashMessage: vi.fn(() => "mock-hash"),
+}));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,7 +60,8 @@ function freshInput(overrides: Partial<FnoTradeAlertInput> = {}): FnoTradeAlertI
 beforeEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
-  resetAlertDedup();
+  vi.mocked(alertOwnerRaw).mockClear();
+  vi.mocked(resetAlertDedup).mockClear();
   resetFnoSignalAlertState();
 });
 
@@ -272,54 +285,40 @@ describe("buildFnoSampleAlertText — source honesty (must not imply real Kite d
 // ── 7. alertFnoTradeableSignal — dedup prevents cycle spam ───────────────────
 
 describe("alertFnoTradeableSignal — dedup", () => {
-  it("calls fetch only once for the same signal within the dedup window", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:test");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "12345");
-
+  it("calls alertOwnerRaw only once for the same signal within the dedup window", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     const input = freshInput();
     alertFnoTradeableSignal(input);
-    alertFnoTradeableSignal(input); // same signal — should be deduped
-
-    await new Promise(r => setTimeout(r, 80));
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    alertFnoTradeableSignal(input); // same signal — alertOwnerRaw internal dedup fires
+    await new Promise(r => setTimeout(r, 100));
+    expect(vi.mocked(alertOwnerRaw)).toHaveBeenCalledTimes(1);
   });
 
   it("fires independently for different directions on same index", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:test");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "12345");
-
+    vi.stubEnv("NODE_ENV", "production");
     alertFnoTradeableSignal(freshInput({ direction: "BULLISH", setupKey: "KEY_A" }));
     alertFnoTradeableSignal(freshInput({ direction: "BEARISH", setupKey: "KEY_B" }));
-
-    await new Promise(r => setTimeout(r, 80));
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await new Promise(r => setTimeout(r, 100));
+    expect(vi.mocked(alertOwnerRaw)).toHaveBeenCalledTimes(2);
   });
 });
 
 // ── 8. alertFnoTradeableSignal — safe-fail ────────────────────────────────────
 
 describe("alertFnoTradeableSignal — safe-fail", () => {
-  it("does not throw even when fetch rejects catastrophically", () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("CATASTROPHIC")));
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:test");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "12345");
-
+  it("does not throw even when alertOwnerRaw throws catastrophically", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.mocked(alertOwnerRaw).mockImplementationOnce(() => { throw new Error("CATASTROPHIC"); });
     expect(() => alertFnoTradeableSignal(freshInput())).not.toThrow();
   });
 
   it("does not throw when eligibility fails (stale open)", () => {
-    const nowMs = Date.now();
-    const input = freshInput({ openedAt: new Date(nowMs - 60 * 60 * 1000) });
+    const input = freshInput({ openedAt: new Date(Date.now() - 60 * 60 * 1000) });
     expect(() => alertFnoTradeableSignal(input)).not.toThrow();
   });
 
-  it("does not throw when Telegram is not configured", () => {
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "");
+  it("does not throw when NODE_ENV is not production (DEV_ENV_BLOCKED suppresses cleanly)", () => {
+    // Default NODE_ENV=test in vitest — alert is safely suppressed, must not throw
     expect(() => alertFnoTradeableSignal(freshInput())).not.toThrow();
   });
 });
@@ -327,13 +326,11 @@ describe("alertFnoTradeableSignal — safe-fail", () => {
 // ── 9. alertFnoTradeableSignal — last-record tracking ────────────────────────
 
 describe("alertFnoTradeableSignal — last-record tracking", () => {
-  it("records the signal after a fresh eligible open", async () => {
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "");
-
+  it("records the signal after a fresh eligible open dispatched in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     expect(getLastFnoSignalAlertRecord()).toBeNull();
     alertFnoTradeableSignal(freshInput({ indexSymbol: "BANKNIFTY", confidence: 68 }));
-
+    await new Promise(r => setTimeout(r, 100));
     const rec = getLastFnoSignalAlertRecord();
     expect(rec).not.toBeNull();
     expect(rec?.indexSymbol).toBe("BANKNIFTY");
@@ -342,12 +339,16 @@ describe("alertFnoTradeableSignal — last-record tracking", () => {
     expect(typeof rec?.at).toBe("number");
   });
 
-  it("does NOT update last-record when eligibility fails", () => {
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "");
-
+  it("does NOT update last-record when eligibility fails (stale open)", () => {
     const staleInput = freshInput({ openedAt: new Date(Date.now() - 60 * 60 * 1000) });
     alertFnoTradeableSignal(staleInput);
+    expect(getLastFnoSignalAlertRecord()).toBeNull();
+  });
+
+  it("does NOT update last-record in non-production environment (DEV_ENV_BLOCKED)", async () => {
+    // NODE_ENV=test → pipeline blocks before updating the record
+    alertFnoTradeableSignal(freshInput({ indexSymbol: "BANKNIFTY", confidence: 68 }));
+    await new Promise(r => setTimeout(r, 100));
     expect(getLastFnoSignalAlertRecord()).toBeNull();
   });
 });

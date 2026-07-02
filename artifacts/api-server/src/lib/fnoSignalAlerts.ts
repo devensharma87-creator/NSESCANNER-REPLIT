@@ -1,36 +1,36 @@
 /**
- * F&O high-quality tradeable signal Telegram alerts.
+ * F&O high-quality tradeable signal Telegram alerts — canonical pipeline (2026-07-02).
  *
- * Sends a Telegram alert ONLY when the F&O engine has opened an actual paper
- * trade — meaning EVERY gate passed (tradeability assertion, Kite-trusted
- * premium, confidence floor, drawdown caps, heat cap, risk guards). The alert
- * fires from the paper-trade open path, not from the raw signal emitter.
+ * alertFnoTradeableSignal: fires Telegram ONLY when the F&O engine has opened an actual
+ * paper trade — all gates passed (tradeability, Kite-trusted premium, confidence, DD caps,
+ * heat cap, risk guards). Alert fires from the paper-trade open path, not the raw signal emitter.
  *
- * Eligibility gate: the row must be fresh (openedAt within
- * FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS) so process restarts on an already-open
- * trade do NOT fire a stale re-alert.
+ * CANONICAL SAFETY GATES added 2026-07-02 (wired through canonical pipeline):
+ *   1. TEST_SYMBOL_BLOCKED — index symbol matches a test/dummy pattern
+ *   2. DEV_ENV_BLOCKED — process is not in production
+ *   3. DB dedup — paperTradeId already SENT to telegram_main
+ *   4. In-memory dedup — same signal within FNO_SIGNAL_DEDUP_MS (existing)
  *
- * Dedup: 30 minutes per (signalDate, indexSymbol, direction, setupKey) via
- * alertOwnerRaw's in-memory dedup. Same signal cannot spam every 30-second cycle.
+ * alertFnoExitSignal: fires when closePaperTradeForSignal closes a paper trade.
+ * Same safety gates apply.
  *
- * NEVER fires for:
- *   – info-only / baseline / watchlist-only signals (those never open a trade)
- *   – suppressed / blocked / vetoed signals (same — they don't reach openPaperTrade)
- *   – stale or untrusted data (premiumTrusted gate in openPaperTrade guards this)
- *   – missing option-chain (entryPremium ≤ 0 guard below)
- *   – duplicate within the 30-minute dedup window
- *
- * Alert failure MUST NOT crash the F&O cycle — alertFnoTradeableSignal never throws.
- *
- * ABSOLUTE RULES (enforced here):
+ * ABSOLUTE RULES:
  *   – No F&O signal logic changes.
  *   – No threshold changes.
  *   – No broker execution.
  *   – No real orders.
+ *   – Alert failure must NEVER crash the F&O cycle.
  */
 
+import crypto from "crypto";
 import { alertOwnerRaw } from "./alerting";
 import { logger } from "./logger";
+import {
+  hasAlreadyDelivered,
+  logNotificationDelivery,
+  hashMessage,
+} from "./tradeLifecycle/notificationLog";
+import type { TradeAlertEventType } from "./tradeLifecycle/types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -43,7 +43,24 @@ export const FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS = 5 * 60 * 1000; // 5 minutes
 /** Dedup window per distinct signal. */
 export const FNO_SIGNAL_DEDUP_MS = 30 * 60 * 1000; // 30 minutes
 
-// ── Input type ────────────────────────────────────────────────────────────────
+// ── Canonical safety gate helpers (inline — decoupled from validateTradeEvent) ──
+
+const FNO_TEST_SYMBOL_EXACT = new Set([
+  "TESTSTK", "TEST", "SAMPLE", "DUMMY", "PLACEHOLDER", "FAKE", "MOCK",
+]);
+
+/** True when the symbol looks like a test/dummy index (belt-and-suspenders). */
+function isFnoTestSymbol(symbol: string): boolean {
+  const upper = symbol.trim().toUpperCase();
+  return FNO_TEST_SYMBOL_EXACT.has(upper) || /^TEST/i.test(upper);
+}
+
+/** Current process environment bucket: "production" or "non-production". */
+function getFnoEnvironment(): "production" | "non-production" {
+  return process.env["NODE_ENV"] === "production" ? "production" : "non-production";
+}
+
+// ── Input types ───────────────────────────────────────────────────────────────
 
 /**
  * Data required to build and gate a tradeable F&O signal alert.
@@ -78,6 +95,46 @@ export interface FnoTradeAlertInput {
   optionType: "CE" | "PE" | null;
   /** Timestamp the paper trade row was opened — used for freshness check. */
   openedAt: Date;
+  /**
+   * Paper trade DB row ID.
+   * Used for cross-restart DB-backed dedup (prevents double-alert after restart).
+   * Optional — dedup is skipped when absent (fail-open).
+   */
+  paperTradeId?: string | null;
+}
+
+/** Data required to fire an F&O paper trade exit alert. */
+export interface FnoExitAlertInput {
+  /** Paper trade DB row ID — dedup key. */
+  paperTradeId:   string;
+  /** "NIFTY" | "BANKNIFTY" | "SENSEX" */
+  indexSymbol:    string;
+  direction:      "BULLISH" | "BEARISH";
+  setupKey:       string;
+  /** "YYYY-MM-DD" IST signal date. */
+  signalDate:     string;
+  /** "CE" | "PE", or null. */
+  optionType:     "CE" | "PE" | null;
+  /** Entry premium ₹ per share. */
+  entryPremium:   number;
+  /** Exit premium ₹ per share. */
+  exitPremium:    number;
+  /** Stop-loss premium ₹ per share, or null. */
+  stopPremium:    number | null;
+  /** Target-1 premium ₹ per share, or null. */
+  target1Premium: number | null;
+  /** Number of lots. */
+  lots:           number;
+  /** Lot size (shares per lot). */
+  lotSize:        number;
+  /** Realized P&L in ₹ (signed). */
+  realizedPnl:    number;
+  /** CloseReason string (STOPPED | TARGET1_HIT | TARGET2_HIT | EXPIRED | MANUAL_OVERRIDE | TIME_EXIT_1520). */
+  reason:         string;
+  /** UTC timestamp the paper trade was opened. */
+  openedAt:       Date;
+  /** UTC timestamp the paper trade was closed. */
+  exitedAt:       Date;
 }
 
 // ── Alert status record ───────────────────────────────────────────────────────
@@ -92,14 +149,23 @@ export interface FnoSignalAlertRecord {
 
 let lastFnoSignalAlertRecord: FnoSignalAlertRecord | null = null;
 
+/**
+ * Synchronous in-process dedup Map.
+ * Key: dedupKey string, Value: timestamp when last dispatched.
+ * Prevents two rapid back-to-back alertFnoTradeableSignal calls for the
+ * same signal from both entering the async pipeline before either one stamps.
+ */
+const recentlyDispatchedFnoMs = new Map<string, number>();
+
 /** Returns a copy of the most recent F&O signal alert record, or null. */
 export function getLastFnoSignalAlertRecord(): FnoSignalAlertRecord | null {
   return lastFnoSignalAlertRecord ? { ...lastFnoSignalAlertRecord } : null;
 }
 
-/** Reset alert record — for tests only. */
+/** Reset alert record and in-process dedup state — for tests only. */
 export function resetFnoSignalAlertState(): void {
   lastFnoSignalAlertRecord = null;
+  recentlyDispatchedFnoMs.clear();
 }
 
 // ── Eligibility ───────────────────────────────────────────────────────────────
@@ -129,7 +195,7 @@ export function shouldSendFnoTradeAlert(
   return true;
 }
 
-// ── Message formatting ────────────────────────────────────────────────────────
+// ── Entry message formatting ──────────────────────────────────────────────────
 
 function formatIstTime(d: Date): string {
   try {
@@ -223,29 +289,142 @@ export function buildFnoSignalAlertText(
   return lines.join("\n");
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// ── Exit message formatting ───────────────────────────────────────────────────
+
+function closeReasonToEventType(reason: string): TradeAlertEventType {
+  switch (reason) {
+    case "TARGET1_HIT":     return "EXIT_TARGET_1";
+    case "TARGET2_HIT":     return "EXIT_TARGET_2";
+    case "STOPPED":         return "EXIT_STOP_LOSS";
+    case "MANUAL_OVERRIDE": return "EXIT_MANUAL";
+    default:                return "EXIT_TIME"; // TIME_EXIT_1520, EXPIRED, etc.
+  }
+}
 
 /**
- * Fire a Telegram alert for a freshly opened F&O paper trade.
- *
- * Safe-fail — never throws. Best-effort background delivery via alertOwnerRaw.
- * Silently skips when:
- *   – shouldSendFnoTradeAlert() returns false (stale open, bad fields)
- *   – dedup window active (same signal alerted < FNO_SIGNAL_DEDUP_MS ago)
- *   – Telegram not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID missing)
- *
- * Does NOT:
- *   – Block the F&O cycle
- *   – Create paper trades
- *   – Place real orders
- *   – Change signal logic or thresholds
- *   – Enable broker execution
+ * Builds the Telegram message text for a closed F&O paper trade.
+ * Pure function — no side-effects.
  */
-export function alertFnoTradeableSignal(input: FnoTradeAlertInput): void {
-  try {
-    const nowMs = Date.now();
-    if (!shouldSendFnoTradeAlert(input, nowMs)) return;
+export function buildFnoExitAlertText(input: FnoExitAlertInput): string {
+  const eventType = closeReasonToEventType(input.reason);
+  const side = input.direction === "BULLISH" ? "CALL (CE)" : "PUT (PE)";
+  const optPart = input.optionType ? ` ${input.optionType}` : "";
+  const instrLine = `${input.indexSymbol}${optPart}`;
 
+  let header: string;
+  switch (eventType) {
+    case "EXIT_TARGET_1":  header = "\u2705 F&O EXIT \u2014 TARGET 1 HIT";        break;
+    case "EXIT_TARGET_2":  header = "\u2705 F&O EXIT \u2014 TARGET 2 HIT";        break;
+    case "EXIT_STOP_LOSS": header = "\uD83D\uDD34 F&O EXIT \u2014 STOP-LOSS TRIGGERED"; break;
+    case "EXIT_MANUAL":    header = "\u23F9\uFE0F F&O EXIT \u2014 MANUAL CLOSE";  break;
+    default:               header = "\u23F0 F&O EXIT \u2014 TIME-BASED CLOSE";    break;
+  }
+
+  const totalShares = input.lots * input.lotSize;
+  const pnlSign = input.realizedPnl >= 0 ? "+" : "";
+  const pnlStr = `${pnlSign}₹${Math.abs(input.realizedPnl).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+  const istFmt = (d: Date): string => {
+    try {
+      return d.toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit", month: "short",
+        hour: "2-digit", minute: "2-digit",
+        hour12: false,
+      }) + " IST";
+    } catch { return d.toISOString(); }
+  };
+
+  const holdMs  = input.exitedAt.getTime() - input.openedAt.getTime();
+  const holdMin = Math.max(0, Math.round(holdMs / 60_000));
+  const holdStr = holdMin < 60
+    ? `${holdMin} min`
+    : `${Math.floor(holdMin / 60)}h ${holdMin % 60}min`;
+
+  const lines: string[] = [
+    header,
+    "",
+    `Index:      ${input.indexSymbol}`,
+    `Direction:  ${side}`,
+    `Instrument: ${instrLine}`,
+    `Setup:      ${input.setupKey}`,
+    "",
+    `Entry:    ₹${input.entryPremium.toFixed(2)}`,
+    `Exit:     ₹${input.exitPremium.toFixed(2)}`,
+    `Exit Reason: ${input.reason}`,
+    "",
+    `Lots:     ${input.lots} × ${input.lotSize} = ${totalShares} shares`,
+    `Realized P&L: ${pnlStr}`,
+    "",
+    `Entry Time: ${istFmt(input.openedAt)}`,
+    `Exit Time:  ${istFmt(input.exitedAt)}`,
+    `Holding:    ${holdStr}`,
+    "",
+    `Broker execution: DISABLED \u2014 no order placed`,
+    `Paper trade ID: ${input.paperTradeId}`,
+  ];
+  return lines.join("\n");
+}
+
+// ── Canonical dispatch (F&O entry) ────────────────────────────────────────────
+
+/**
+ * Async canonical dispatch pipeline for F&O entry alerts.
+ *
+ * Applies inline canonical safety gates (test symbol, dev env, DB dedup) then
+ * dispatches via the existing alertOwnerRaw infrastructure.
+ *
+ * Safe-fail — never throws.
+ */
+async function dispatchFnoWithCanonicalGates(
+  input: FnoTradeAlertInput,
+  nowMs: number,
+): Promise<void> {
+  try {
+    // Gate 1: TEST_SYMBOL_BLOCKED
+    if (isFnoTestSymbol(input.indexSymbol)) {
+      logger.info(
+        { symbol: input.indexSymbol },
+        "fnoSignalAlerts: ENTRY blocked — TEST_SYMBOL_BLOCKED",
+      );
+      return;
+    }
+
+    // Gate 2: DEV_ENV_BLOCKED
+    if (getFnoEnvironment() !== "production") {
+      logger.info(
+        { env: process.env["NODE_ENV"], indexSymbol: input.indexSymbol },
+        "fnoSignalAlerts: ENTRY blocked — DEV_ENV_BLOCKED (not production)",
+      );
+      return;
+    }
+
+    // Gate 3: DB dedup by paperTradeId (cross-restart idempotency)
+    if (input.paperTradeId) {
+      const isDuplicate = await hasAlreadyDelivered(
+        "FNO_INTRADAY",
+        "ENTRY_READY",
+        {
+          orderId:      null,
+          paperTradeId: input.paperTradeId,
+          signalId:     null,
+          id:           input.paperTradeId,
+        },
+        "telegram_main",
+      );
+      if (isDuplicate) {
+        logger.info(
+          { paperTradeId: input.paperTradeId },
+          "fnoSignalAlerts: ENTRY skipped — DB dedup (already delivered)",
+        );
+        return;
+      }
+    }
+
+    // Gate 4 (in-memory): alertOwnerRaw's own dedup handles within FNO_SIGNAL_DEDUP_MS.
     const dedupKey = [
       "FNO_TRADEABLE_SIGNAL",
       input.signalDate,
@@ -256,8 +435,28 @@ export function alertFnoTradeableSignal(input: FnoTradeAlertInput): void {
 
     const logMsg = `F&O tradeable signal: ${input.indexSymbol} ${input.direction} conf=${input.confidence} lots=${input.lots}`;
     const text   = buildFnoSignalAlertText(input, nowMs);
-
     alertOwnerRaw(dedupKey, logMsg, text, FNO_SIGNAL_DEDUP_MS);
+
+    // Log delivery to notification_delivery_log
+    if (input.paperTradeId) {
+      void logNotificationDelivery({
+        eventId:      crypto.randomUUID(),
+        domain:       "FNO_INTRADAY",
+        eventType:    "ENTRY_READY",
+        signalId:     null,
+        orderId:      null,
+        paperTradeId: input.paperTradeId,
+        symbol:       input.indexSymbol,
+        exchange:     "INDEX",
+        destination:  "telegram_main",
+        messageHash:  hashMessage(text),
+        status:       "SENT",
+        errorCode:    null,
+        errorMessage: null,
+        sentAt:       new Date().toISOString(),
+        environment:  "production",
+      });
+    }
 
     lastFnoSignalAlertRecord = {
       dedupKey,
@@ -267,12 +466,138 @@ export function alertFnoTradeableSignal(input: FnoTradeAlertInput): void {
       at:          nowMs,
     };
   } catch (err) {
+    logger.warn(
+      { err: (err as Error)?.message },
+      "fnoSignalAlerts: dispatchFnoWithCanonicalGates error (safe-fail)",
+    );
+  }
+}
+
+// ── Public API — entry alert ──────────────────────────────────────────────────
+
+/**
+ * Fire a Telegram alert for a freshly opened F&O paper trade.
+ *
+ * Safe-fail — never throws. Best-effort background delivery.
+ * Silently skips when:
+ *   – shouldSendFnoTradeAlert() returns false (stale open, bad fields)
+ *   – TEST_SYMBOL_BLOCKED or DEV_ENV_BLOCKED canonical gate fires
+ *   – DB dedup finds a prior SENT record for this paperTradeId
+ *   – in-memory dedup within FNO_SIGNAL_DEDUP_MS
+ *   – Telegram not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID missing)
+ *
+ * Does NOT: block the F&O cycle, create paper trades, place real orders,
+ *           change signal logic or thresholds, enable broker execution.
+ */
+export function alertFnoTradeableSignal(input: FnoTradeAlertInput): void {
+  try {
+    const nowMs = Date.now();
+    if (!shouldSendFnoTradeAlert(input, nowMs)) return;
+
+    // Synchronous in-process dedup: two rapid back-to-back calls for the same
+    // signal are blocked here before the async pipeline is queued.
+    const syncDedupKey = [
+      input.signalDate, input.indexSymbol, input.direction, input.setupKey,
+    ].join("::");
+    const lastSentAt = recentlyDispatchedFnoMs.get(syncDedupKey);
+    if (lastSentAt !== undefined && nowMs - lastSentAt < FNO_SIGNAL_DEDUP_MS) {
+      logger.info(
+        { indexSymbol: input.indexSymbol, direction: input.direction },
+        "fnoSignalAlerts: ENTRY skipped — in-process dedup",
+      );
+      return;
+    }
+    recentlyDispatchedFnoMs.set(syncDedupKey, nowMs);
+
+    void dispatchFnoWithCanonicalGates(input, nowMs);
+  } catch (err) {
     // Never throw — alert failure must not crash the F&O cycle.
     logger.warn(
       { err: (err as Error)?.message },
       "alertFnoTradeableSignal: unexpected error (safe-fail — F&O cycle unaffected)",
     );
   }
+}
+
+// ── Public API — exit alert ───────────────────────────────────────────────────
+
+/**
+ * Fire a Telegram alert when a paper F&O trade is closed.
+ *
+ * Called from closePaperTradeForSignal after the transaction commits.
+ * Safe-fail — never throws. Never blocks the close path.
+ *
+ * Applies the same canonical safety gates:
+ *   – TEST_SYMBOL_BLOCKED, DEV_ENV_BLOCKED, DB dedup by paperTradeId + eventType.
+ *
+ * Does NOT: place real orders, change signal logic, modify paper trade rows.
+ */
+export function alertFnoExitSignal(input: FnoExitAlertInput): void {
+  void (async () => {
+    try {
+      // Gate 1: TEST_SYMBOL_BLOCKED
+      if (isFnoTestSymbol(input.indexSymbol)) return;
+
+      // Gate 2: DEV_ENV_BLOCKED
+      if (getFnoEnvironment() !== "production") {
+        logger.info(
+          { env: process.env["NODE_ENV"], paperTradeId: input.paperTradeId },
+          "fnoSignalAlerts: EXIT blocked — DEV_ENV_BLOCKED (not production)",
+        );
+        return;
+      }
+
+      const eventType = closeReasonToEventType(input.reason);
+
+      // Gate 3: DB dedup — one exit alert per (paperTradeId, exitType)
+      const isDuplicate = await hasAlreadyDelivered(
+        "FNO_INTRADAY",
+        eventType,
+        {
+          orderId:      null,
+          paperTradeId: input.paperTradeId,
+          signalId:     null,
+          id:           `${input.paperTradeId}::${eventType}`,
+        },
+        "telegram_main",
+      );
+      if (isDuplicate) {
+        logger.info(
+          { paperTradeId: input.paperTradeId, eventType },
+          "fnoSignalAlerts: EXIT skipped — DB dedup",
+        );
+        return;
+      }
+
+      const text     = buildFnoExitAlertText(input);
+      const dedupKey = `FNO_EXIT::${input.paperTradeId}::${input.reason}`;
+      const logMsg   = `F&O exit: ${input.indexSymbol} ${input.direction} reason=${input.reason} pnl=${input.realizedPnl.toFixed(0)}`;
+      alertOwnerRaw(dedupKey, logMsg, text, FNO_SIGNAL_DEDUP_MS);
+
+      void logNotificationDelivery({
+        eventId:      crypto.randomUUID(),
+        domain:       "FNO_INTRADAY",
+        eventType,
+        signalId:     null,
+        orderId:      null,
+        paperTradeId: input.paperTradeId,
+        symbol:       input.indexSymbol,
+        exchange:     "INDEX",
+        destination:  "telegram_main",
+        messageHash:  hashMessage(text),
+        status:       "SENT",
+        errorCode:    null,
+        errorMessage: null,
+        sentAt:       new Date().toISOString(),
+        environment:  "production",
+      });
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error)?.message },
+        "alertFnoExitSignal: unexpected error (safe-fail)",
+      );
+    }
+  })();
 }
 
 // ── Sample alert builder (for test endpoint only) ─────────────────────────────
@@ -341,15 +666,12 @@ export function buildFnoSampleAlertText(nowMs: number = Date.now()): string {
   return lines.join("\n");
 }
 
-// ── F&O data-health (warmup-failure) alerts — Task #131 ───────────────────────
+// ── F&O data-health (warmup-failure) alerts ────────────────────────────────────
 
 /**
  * Dedup window for data-health alerts: 10 minutes per (alertType, index).
- * Deliberately SEPARATE from the 30-min tradeable-signal dedup and the F&O
- * cycle's 2h recovery-alert keys — these are NEW warmup-failure alerts only and
- * must not interfere with existing alert dedup.
  */
-export const FNO_DATA_HEALTH_DEDUP_MS = 10 * 60 * 1000; // 10 minutes
+export const FNO_DATA_HEALTH_DEDUP_MS = 10 * 60 * 1000;
 
 export type FnoDataHealthAlertType = "WARMUP_FAILED" | "WARMUP_PARTIAL";
 
@@ -403,11 +725,7 @@ export function alertFnoDataHealth(input: FnoDataHealthAlertInput): void {
  * Inspect a completed warmup run and fire at most one alert per FAILED index.
  *
  * - Never alerts on OK or any SKIPPED_* outcome.
- * - Never alerts on SESSION_MISSING / TOKEN_MISSING — a missing session is a
- *   benign, expected state (dev / not logged in) already surfaced elsewhere; the
- *   F&O cycle owns session-expiry recovery alerts. This fires ONLY for genuine
- *   post-login data failures (throttle, warmup, exchange, date-range, unknown).
- * - Structural input so this module stays decoupled from kiteWarmup.
+ * - Never alerts on SESSION_MISSING / TOKEN_MISSING — benign/expected state.
  */
 export function alertWarmupFailures(result: {
   outcome: string;

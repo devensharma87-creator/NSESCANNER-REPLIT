@@ -33,7 +33,7 @@ import {
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
-import { alertFnoTradeableSignal } from "./fnoSignalAlerts";
+import { alertFnoTradeableSignal, alertFnoExitSignal } from "./fnoSignalAlerts";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import {
   isAutoTradeableSizingTier,
@@ -2179,7 +2179,7 @@ export async function closePaperTradeForSignal(
   const realizedPnl = proceeds - num(r.capitalDeployed);
   const now = new Date();
 
-  return await db.transaction(async (tx) => {
+  const txResult = await db.transaction(async (tx) => {
     const updated = await tx
       .update(paperTradeFoTable)
       .set({
@@ -2263,6 +2263,34 @@ export async function closePaperTradeForSignal(
 
     return updated[0]!;
   });
+
+  // Fire exit alert after transaction commits.
+  // Safe-fail — alertFnoExitSignal never throws and never blocks the close path.
+  if (txResult) {
+    alertFnoExitSignal({
+      paperTradeId:   txResult.id,
+      indexSymbol,
+      direction,
+      setupKey,
+      signalDate,
+      optionType:     (r.optionType as "CE" | "PE" | null) ?? null,
+      entryPremium:   num(r.entryPremium),
+      exitPremium:    num(txResult.exitPremium),
+      stopPremium:    r.stopPremium    != null ? num(r.stopPremium)    : null,
+      target1Premium: r.target1Premium != null ? num(r.target1Premium) : null,
+      lots:           r.lots,
+      lotSize:        r.lotSize,
+      realizedPnl:    num(txResult.realizedPnl),
+      reason,
+      openedAt:  r.openedAt instanceof Date
+        ? r.openedAt
+        : new Date(String(r.openedAt ?? 0)),
+      exitedAt:  txResult.exitedAt instanceof Date
+        ? txResult.exitedAt
+        : new Date(String(txResult.exitedAt ?? 0)),
+    });
+  }
+  return txResult;
 }
 
 function pickExitPremium(r: PaperTradeFoRow, reason: CloseReason): number {
@@ -2978,6 +3006,7 @@ export async function tryOpenPaperTrades(
           strike:         opened.strike         != null ? Number(opened.strike)         : null,
           expiry:         signal.leg?.expiry     ?? null,
           optionType:     (opened.optionType as "CE" | "PE" | null) ?? null,
+          paperTradeId:   opened.id,
           openedAt,
         });
       }

@@ -1,8 +1,13 @@
 /**
  * Tests for swingAlerts.ts — Swing Cash staged-order Telegram alerts.
  *
- * Verifies message format, dedup behaviour, fail-open delivery, and that broker
- * execution is never implied as enabled and no secrets appear in messages.
+ * POST CANONICAL-WIRING BEHAVIOR (2026-07-02):
+ *   alertSwingOrderStaged → canonical ENTRY_READY pipeline (validate → dedup → format → send)
+ *   alertSwingOrderExpired / Rejected / ApprovedDryRun / BlockedByRisk → logger.info ONLY, NO Telegram
+ *
+ * alertOwnerRaw is mocked globally — no real Telegram is ever touched.
+ * Dispatch tests stub NODE_ENV="production" to exercise the full production path.
+ * All pure-function format tests (buildSwingOrderText, buildSwingBlockedText) are unaffected.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
@@ -16,8 +21,24 @@ import {
   getLastSwingAlertRecord,
   resetLastSwingAlertRecord,
 } from "./swingAlerts";
-import { resetAlertDedup, resetLastAlertRecord } from "./alerting";
+import { alertOwnerRaw, resetAlertDedup, resetLastAlertRecord } from "./alerting";
 import type { SwingOrderStagingRow } from "@workspace/db/schema";
+
+// ── Mock alerting to prevent any real Telegram calls ─────────────────────────
+// alertOwnerRaw is the only dispatch entry-point; mocking it makes tests safe
+// regardless of NODE_ENV, token stubs, or network availability.
+
+vi.mock("./alerting", () => ({
+  alertOwnerRaw: vi.fn(),
+  resetAlertDedup: vi.fn(),
+  resetLastAlertRecord: vi.fn(),
+}));
+
+vi.mock("./tradeLifecycle/notificationLog", () => ({
+  hasAlreadyDelivered: vi.fn(() => Promise.resolve(false)),
+  logNotificationDelivery: vi.fn(() => Promise.resolve(undefined)),
+  hashMessage: vi.fn(() => "mock-hash"),
+}));
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -74,9 +95,10 @@ function makeRow(overrides: Partial<SwingOrderStagingRow> = {}): SwingOrderStagi
 beforeEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
-  resetAlertDedup();
-  resetLastAlertRecord();
-  resetLastSwingAlertRecord();
+  vi.mocked(alertOwnerRaw).mockClear();
+  vi.mocked(resetAlertDedup).mockClear();
+  vi.mocked(resetLastAlertRecord).mockClear();
+  resetLastSwingAlertRecord(); // also clears in-process dedup map
 });
 
 afterEach(() => {
@@ -168,9 +190,7 @@ describe("buildSwingOrderText — message format", () => {
 
   it("labels data line as 'Risk eval:' not bare 'Data: kite'", () => {
     const text = buildSwingOrderText("SWING_ORDER_STAGED", makeRow());
-    // Must NOT say bare "Data: kite" — that can imply the entry price IS the Kite price
     expect(text).not.toMatch(/^Data: kite$/m);
-    // Must say "Risk eval:" to clarify this is the risk-evaluation data source
     expect(text).toContain("Risk eval:");
   });
 
@@ -212,205 +232,197 @@ describe("buildSwingBlockedText — blocked message", () => {
   });
 });
 
-// ── alertSwingOrderStaged ─────────────────────────────────────────────────────
+// ── alertSwingOrderStaged — canonical ENTRY_READY dispatch ────────────────────
 
-describe("alertSwingOrderStaged — fires and deduplicates", () => {
-  it("dispatches fetch when Telegram is configured", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:testtoken");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "999");
-
+describe("alertSwingOrderStaged — canonical ENTRY_READY dispatch", () => {
+  it("dispatches ENTRY_READY via alertOwnerRaw in production environment", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     alertSwingOrderStaged(makeRow());
-
-    await new Promise(r => setTimeout(r, 50));
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const call = mockFetch.mock.calls[0];
-    const body = JSON.parse(call[1].body as string);
-    expect(body.text).toContain("SWING CASH ALERT");
-    expect(body.text).toContain("RELIANCE");
-    expect(body.text).toContain("Broker execution DISABLED");
+    await new Promise(r => setTimeout(r, 100));
+    expect(vi.mocked(alertOwnerRaw)).toHaveBeenCalledTimes(1);
+    const [, , text] = vi.mocked(alertOwnerRaw).mock.calls[0]!;
+    expect(text).toContain("SWING CASH ENTRY READY");
+    expect(text).toContain("RELIANCE");
+    expect(text).toContain("Broker execution DISABLED");
+    expect(text).toContain("Manual review required");
   });
 
-  it("dedup prevents a second send for the same order within the window", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:testtoken");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "999");
+  it("sends ONE ENTRY_READY alert for APPROVAL_REQUIRED status (unified, no duplicate)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    alertSwingOrderStaged(makeRow({ status: "APPROVAL_REQUIRED" }));
+    await new Promise(r => setTimeout(r, 100));
+    expect(vi.mocked(alertOwnerRaw)).toHaveBeenCalledTimes(1);
+    const [, , text] = vi.mocked(alertOwnerRaw).mock.calls[0]!;
+    // Canonical format says ENTRY_READY — not a separate "Manual approval required" alert
+    expect(text).toContain("SWING CASH ENTRY READY");
+  });
 
+  it("in-process dedup prevents second send for same order within window", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     const row = makeRow();
     alertSwingOrderStaged(row);
-    alertSwingOrderStaged(row); // same id → same dedup key → suppressed
-
-    await new Promise(r => setTimeout(r, 50));
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    alertSwingOrderStaged(row); // same orderId → in-process dedup blocks second call
+    await new Promise(r => setTimeout(r, 100));
+    expect(vi.mocked(alertOwnerRaw)).toHaveBeenCalledTimes(1);
   });
 
-  it("fires for two different order IDs (different dedup keys)", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:testtoken");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "999");
-
+  it("fires for two different order IDs (separate dedup keys)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     alertSwingOrderStaged(makeRow({ id: "order-A" }));
     alertSwingOrderStaged(makeRow({ id: "order-B" }));
-
-    await new Promise(r => setTimeout(r, 50));
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await new Promise(r => setTimeout(r, 100));
+    expect(vi.mocked(alertOwnerRaw)).toHaveBeenCalledTimes(2);
   });
 
-  it("uses SWING_ORDER_APPROVAL_REQUIRED event for APPROVAL_REQUIRED status", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:testtoken");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "999");
-
-    alertSwingOrderStaged(makeRow({ status: "APPROVAL_REQUIRED" }));
-
-    await new Promise(r => setTimeout(r, 50));
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.text).toContain("Manual approval required");
-  });
-
-  it("does not throw when Telegram is not configured", () => {
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "");
-    expect(() => alertSwingOrderStaged(makeRow())).not.toThrow();
-  });
-
-  it("does not throw when fetch rejects (Telegram network error)", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:testtoken");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "999");
-
-    expect(() => alertSwingOrderStaged(makeRow())).not.toThrow();
-    await new Promise(r => setTimeout(r, 50));
-  });
-
-  it("updates lastSwingAlertRecord after dispatch", () => {
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "");
-
+  it("blocks dispatch in test environment — DEV_ENV_BLOCKED (no NODE_ENV=production stub)", async () => {
+    // NODE_ENV defaults to "test" in vitest — the canonical pipeline blocks this
     alertSwingOrderStaged(makeRow());
+    await new Promise(r => setTimeout(r, 100));
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("blocks dispatch for TESTSTK symbol even in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    alertSwingOrderStaged(makeRow({ symbol: "TESTSTK" }));
+    await new Promise(r => setTimeout(r, 100));
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("blocks dispatch when dataSource is not kite (SOURCE_NOT_TRADE_GRADE)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    alertSwingOrderStaged(makeRow({ dataSource: "yahoo" }));
+    await new Promise(r => setTimeout(r, 100));
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("does not throw when called with any row", () => {
+    expect(() => alertSwingOrderStaged(makeRow())).not.toThrow();
+  });
+
+  it("does not throw when alertOwnerRaw throws internally", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.mocked(alertOwnerRaw).mockImplementationOnce(() => { throw new Error("network fail"); });
+    expect(() => alertSwingOrderStaged(makeRow())).not.toThrow();
+    await new Promise(r => setTimeout(r, 100));
+  });
+
+  it("canonical message never implies broker execution is live", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    alertSwingOrderStaged(makeRow());
+    await new Promise(r => setTimeout(r, 100));
+    const [, , text] = vi.mocked(alertOwnerRaw).mock.calls[0]!;
+    expect(text).not.toContain("LIVE_ENABLED");
+    expect(text).not.toContain("Buy Now");
+    expect(text).not.toContain("guaranteed");
+    expect(text).not.toContain("auto order placed");
+  });
+
+  it("updates lastSwingAlertRecord after dispatch in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    alertSwingOrderStaged(makeRow());
+    await new Promise(r => setTimeout(r, 100));
     const record = getLastSwingAlertRecord();
     expect(record).not.toBeNull();
-    expect(record!.event).toMatch(/^SWING_ORDER_(STAGED|APPROVAL_REQUIRED)$/);
+    expect(record!.event).toBe("SWING_ENTRY_READY");
+    expect(record!.telegramStatus).toBe("SENT");
+  });
+
+  it("lastSwingAlertRecord is null in test environment (no dispatch)", async () => {
+    // NODE_ENV=test → DEV_ENV_BLOCKED → no dispatch → no record update
+    alertSwingOrderStaged(makeRow());
+    await new Promise(r => setTimeout(r, 100));
+    expect(getLastSwingAlertRecord()).toBeNull();
   });
 });
 
-// ── alertSwingOrderExpired ────────────────────────────────────────────────────
+// ── alertSwingOrderExpired — lifecycle-only, no Telegram ─────────────────────
 
-describe("alertSwingOrderExpired", () => {
-  it("dispatches expired event message", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
-
+describe("alertSwingOrderExpired — lifecycle-only, no Telegram", () => {
+  it("does NOT call alertOwnerRaw in production (expired is lifecycle-only)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     alertSwingOrderExpired(makeRow());
-
     await new Promise(r => setTimeout(r, 50));
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.text).toContain("expired");
-    expect(body.text).toContain("Broker execution DISABLED");
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call alertOwnerRaw in test environment", async () => {
+    alertSwingOrderExpired(makeRow());
+    await new Promise(r => setTimeout(r, 50));
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("does not throw", () => {
+    expect(() => alertSwingOrderExpired(makeRow())).not.toThrow();
   });
 });
 
-// ── alertSwingOrderRejected ───────────────────────────────────────────────────
+// ── alertSwingOrderRejected — lifecycle-only, no Telegram ────────────────────
 
-describe("alertSwingOrderRejected", () => {
-  it("dispatches rejected event message", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
-
+describe("alertSwingOrderRejected — lifecycle-only, no Telegram", () => {
+  it("does NOT call alertOwnerRaw", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     alertSwingOrderRejected(makeRow());
-
     await new Promise(r => setTimeout(r, 50));
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.text).toContain("rejected");
-    expect(body.text).toContain("Broker execution DISABLED");
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("does not throw", () => {
+    expect(() => alertSwingOrderRejected(makeRow())).not.toThrow();
   });
 });
 
-// ── alertSwingOrderApprovedDryRun ─────────────────────────────────────────────
+// ── alertSwingOrderApprovedDryRun — lifecycle-only, no Telegram ──────────────
 
-describe("alertSwingOrderApprovedDryRun", () => {
-  it("dispatches approved dry-run event message", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
-
+describe("alertSwingOrderApprovedDryRun — lifecycle-only, no Telegram", () => {
+  it("does NOT call alertOwnerRaw", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     alertSwingOrderApprovedDryRun(makeRow({ status: "DRY_RUN_PLACED" }));
-
     await new Promise(r => setTimeout(r, 50));
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.text).toContain("dry-run");
-    expect(body.text).toContain("Broker execution DISABLED");
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("does not throw", () => {
+    expect(() => alertSwingOrderApprovedDryRun(makeRow())).not.toThrow();
   });
 });
 
-// ── alertSwingOrderBlockedByRisk ──────────────────────────────────────────────
+// ── alertSwingOrderBlockedByRisk — lifecycle-only, no Telegram ───────────────
 
-describe("alertSwingOrderBlockedByRisk — spam prevention", () => {
-  it("dispatches blocked message", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
-
+describe("alertSwingOrderBlockedByRisk — lifecycle-only, no Telegram", () => {
+  it("does NOT call alertOwnerRaw (blocked-by-risk is lifecycle-only, no trade channel)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     alertSwingOrderBlockedByRisk("INFY", "Breakout_Swing", ["NOT_STAGEABLE_HARD_BLOCK"]);
-
     await new Promise(r => setTimeout(r, 50));
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.text).toContain("INFY");
-    expect(body.text).toContain("Broker execution DISABLED");
-    expect(body.text).toContain("not actionable by owner");
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
   });
 
-  it("dedup prevents repeated blocked alerts for same symbol+setup within 1h", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
-
-    alertSwingOrderBlockedByRisk("INFY", "Breakout_Swing", ["NOT_STAGEABLE_HARD_BLOCK"]);
-    alertSwingOrderBlockedByRisk("INFY", "Breakout_Swing", ["NOT_STAGEABLE_HARD_BLOCK"]);
-
-    await new Promise(r => setTimeout(r, 50));
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("fires separately for different symbols", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", mockFetch);
-    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
-    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
-
+  it("does NOT call alertOwnerRaw for different symbols", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     alertSwingOrderBlockedByRisk("INFY", "Breakout", ["block"]);
-    alertSwingOrderBlockedByRisk("TCS", "Breakout", ["block"]);
-
+    alertSwingOrderBlockedByRisk("TCS",  "Breakout", ["block"]);
     await new Promise(r => setTimeout(r, 50));
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("does not throw with any input", () => {
+    expect(() => alertSwingOrderBlockedByRisk("INFY", null, [])).not.toThrow();
+    expect(() => alertSwingOrderBlockedByRisk("X", "setup", ["a", "b", "c"])).not.toThrow();
   });
 });
 
 // ── Security: no secrets in any message ──────────────────────────────────────
 
-describe("security — no secrets in messages", () => {
+describe("security — no secrets in pure-format messages", () => {
   it("buildSwingOrderText never contains env-like secret names", () => {
     const text = buildSwingOrderText("SWING_ORDER_STAGED", makeRow());
-    const forbiddenPatterns = [
+    const forbidden = [
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_CHAT_ID",
       "SESSION_SECRET",
       "APP_ACCESS_PASSWORD",
       "TRADINGVIEW_WEBHOOK_SECRET",
     ];
-    for (const pattern of forbiddenPatterns) {
+    for (const pattern of forbidden) {
       expect(text).not.toContain(pattern);
     }
   });
@@ -423,9 +435,9 @@ describe("security — no secrets in messages", () => {
   });
 });
 
-// ── Broker execution: always disabled ────────────────────────────────────────
+// ── Broker execution: always disabled in pure-format messages ─────────────────
 
-describe("broker execution always disabled in messages", () => {
+describe("broker execution always disabled in pure-format messages", () => {
   const events = [
     "SWING_ORDER_STAGED",
     "SWING_ORDER_APPROVAL_REQUIRED",
