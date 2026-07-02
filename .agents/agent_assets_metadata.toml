@@ -96,3 +96,9 @@ id = "5odtXLdPqJe7dNbx6yjjJ"
 uri = "file://.local/website-export/indian-stock-scanner-export-2026-06-29.zip"
 type = "unspecified"
 title = "Indian Stock Scanner — Full Website Export (screenshots + data)"
+
+[[outputs]]
+id = "DJMCX3ky9g4w8K8aDfCKD"
+uri = "file://LIVE_VS_PROD_DEEP_AUDIT_REPORT.md"
+type = "text"
+title = "Live vs Production Deep Audit Report"

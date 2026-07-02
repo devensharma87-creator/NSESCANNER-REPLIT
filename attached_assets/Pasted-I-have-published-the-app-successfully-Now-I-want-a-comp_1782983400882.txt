@@ -1,0 +1,808 @@
+I have published the app successfully. Now I want a complete, line-by-line, feature-by-feature, data-point-by-data-point deep audit comparing the published live app against the current production/codebase environment.
+
+This audit must be done very seriously and professionally. The purpose is to identify every mismatch, missing feature, broken flow, wrong calculation, outdated data source, UI difference, API difference, data accuracy issue, and behavioural difference between both versions.
+
+Do not make assumptions. Do not skip anything. Do not apply fixes directly. First complete the audit and prepare a detailed professional report.
+
+Main Objective
+
+Compare the following two environments in full depth:
+
+Published Live App
+The version currently published and accessible to users.
+This is the actual live website/app after deployment.
+Production / Current Codebase / Backend Environment
+The current Replit production codebase.
+Current backend APIs.
+Current database state.
+Current server routes, calculations, integrations, and feature logic.
+
+The final output should clearly explain:
+
+What exists in Live but not in Prod/codebase.
+What exists in Prod/codebase but is missing or not visible in Live.
+What data is different between Live and Prod.
+What calculations are different.
+What APIs are returning different results.
+What UI sections are broken, hidden, missing, or outdated.
+What features are not matching.
+What source of data is being used in each place.
+Which environment has the better/correct version.
+What should be retained, corrected, removed, merged, or rebuilt.
+Very Important Instruction
+
+This is an audit-only task.
+
+Do not:
+
+Change any code.
+Modify any database table.
+Push any commit.
+Deploy anything.
+Refactor anything.
+Add new features.
+Remove any existing feature.
+Change UI.
+Change API routes.
+Change calculations.
+
+Only inspect, compare, verify, document, and report.
+
+The final deliverable should be a new markdown report named:
+
+LIVE_VS_PROD_DEEP_AUDIT_REPORT.md
+
+Audit Methodology Required
+
+Please follow a structured audit process.
+
+1. Environment Identification
+
+First identify and document both environments clearly:
+
+Live published app URL.
+Current production/backend URL.
+Current deployment commit/hash.
+Current Replit branch.
+Current build version, if available.
+Current frontend bundle version.
+Current backend runtime version.
+Current database connection being used.
+Current environment variables relevant to market data, Kite, APIs, and deployment.
+Whether Live and Prod are pointing to the same database or different databases.
+Whether Live and Prod are using the same backend or different backend builds.
+
+Clearly mention if Live is older/newer than the current codebase.
+
+2. Build and Deployment Audit
+
+Check whether the published app is actually running the latest intended build.
+
+Verify:
+
+Last deployment timestamp.
+Commit hash used in Live.
+Commit hash in current codebase.
+Whether frontend bundle contains the latest markers/features.
+Whether backend routes are updated.
+Whether old cached assets are still being served.
+Whether service worker/cache/CDN/browser cache is serving an older version.
+Whether Live app has stale JS/CSS bundles.
+Whether environment-specific flags are changing behaviour.
+Whether deployment succeeded fully or partially.
+
+Report any mismatch in deployment state.
+
+3. Route-by-Route Frontend Audit
+
+Open and compare every major page/route in Live and Prod/codebase.
+
+Audit all pages including but not limited to:
+
+Dashboard / Home
+Market Pulse
+Indices
+Watchlist
+Scanner
+Deep Scan
+Stock Profile Page
+Portfolio
+Charting
+F&O Dashboard
+Option Chain
+OI Lab
+Backtest Lab
+Paper Trading
+Signal Engine
+Pre-Market Analysis
+Post-Market Analysis
+Admin / Settings / Diagnostics pages
+Any hidden/internal routes
+Any API diagnostics page
+
+For each page, compare:
+
+Page loads successfully or not.
+UI layout.
+Margins, padding, alignment.
+Cards, tables, sections, tabs.
+Data shown.
+Empty states.
+Error states.
+Loading states.
+Buttons and actions.
+Filters.
+Dropdowns.
+Search/autocomplete.
+Sorting.
+Pagination.
+Export/download options.
+Mobile responsiveness.
+Dark/light theme behaviour, if applicable.
+Console errors.
+Network errors.
+Missing assets/icons.
+Broken charts.
+Broken tables.
+Hidden sections.
+Wrong labels or stale labels.
+
+Create a table with:
+
+| Page | Live Status | Prod/Code Status | Mismatch | Severity | Recommendation |
+
+4. Feature-by-Feature Audit
+
+Compare every feature in Live and Prod.
+
+The audit must cover:
+
+Watchlist creation/editing/deletion.
+Watchlist live price updates.
+Manual stock addition.
+Symbol search/autocomplete.
+Portfolio holdings.
+Portfolio valuation.
+Portfolio recommendations.
+Stock profile fundamentals.
+Financial statements.
+Ratios.
+Shareholding.
+Corporate actions.
+IPO/news.
+Analyst views / target price.
+Scanner filters.
+Deep Scan logic.
+Market breadth.
+Sector performance.
+Index analytics.
+Global cues.
+GIFT Nifty / pre-market proxy logic.
+India VIX.
+FII/DII data.
+Participant OI.
+Option chain.
+PCR.
+Max pain.
+OI change.
+Strike selection.
+F&O signal generation.
+Paper trading.
+Backtest.
+Pre-market Telegram bot.
+Post-market Telegram bot.
+Auto signal delivery system.
+User authorization / group signal delivery.
+Data freshness badges.
+Source honesty labels.
+Diagnostics and health status.
+
+For every feature, document:
+
+Is it available in Live?
+Is it available in Prod/codebase?
+Is it working in both?
+Is behaviour the same?
+Is the data same?
+Is the calculation same?
+Is the source same?
+Which version is correct?
+What needs to be fixed?
+5. API-by-API Audit
+
+Compare every backend API route used by the frontend.
+
+For each API endpoint:
+
+Call the endpoint in Live.
+Call the same endpoint in Prod/backend.
+Compare response status.
+Compare response shape.
+Compare field names.
+Compare field values.
+Compare timestamps.
+Compare data source.
+Compare cache headers.
+Compare stale/fresh flags.
+Compare error handling.
+Compare authentication requirement.
+Compare response time.
+Compare rate-limit behaviour.
+
+Create a detailed API comparison table:
+
+| API Route | Live Response | Prod Response | Field Mismatch | Data Mismatch | Source Mismatch | Severity |
+
+Also identify:
+
+APIs present in code but not reachable in Live.
+APIs reachable in Live but missing from current codebase.
+APIs returning mock/synthetic/fallback data.
+APIs returning stale data.
+APIs returning Yahoo or untrusted data where Kite should be primary.
+APIs returning partial data without clear warning.
+APIs returning different symbols, prices, OHLC, OI, volume, or calculations.
+6. Data Source Honesty Audit
+
+This is very important.
+
+For each data point shown in Live and Prod, identify the actual source.
+
+Check whether the source is:
+
+Kite
+NSE
+BSE
+Yahoo
+INDstocks
+IndianAPI
+Datafeed vendor
+Database cache
+Manual/static data
+Synthetic fallback
+Proxy calculation
+Hardcoded value
+Old/stale cached value
+Unknown source
+
+For every data point, document:
+
+| Data Point | Live Source | Prod Source | Expected Source | Is Correct? | Issue |
+
+Special focus:
+
+Live prices should be Kite-first wherever applicable.
+F&O and option chain should not use unreliable fallback for trading signals.
+Yahoo must not silently overwrite or drive tradeable signals.
+Synthetic/proxy data must be clearly labelled.
+Fundamentals and non-live data can use cheaper external APIs only where intended.
+Stale data must be clearly marked as stale.
+Missing data must not be replaced with fake/fabricated values.
+7. Market Data Accuracy Audit
+
+Compare Live and Prod data for important market sections.
+
+Check data accuracy for:
+
+Nifty
+Bank Nifty
+Sensex
+India VIX
+Major NSE stocks
+Portfolio stocks
+F&O instruments
+Option chain strikes
+Futures data
+Sector indices
+Market breadth
+Advances/declines
+Volume
+OHLC
+Previous close
+Change %
+Open interest
+PCR
+Max pain
+FII/DII
+Participant OI
+Global indices
+GIFT Nifty / proxy
+Pre-market levels
+Post-market summary
+
+For each value, compare:
+
+Live value.
+Prod value.
+Expected/reference value.
+Timestamp.
+Source.
+Difference.
+Whether the difference is acceptable or wrong.
+
+Where external reference is needed, compare against trusted sources such as:
+
+Kite / Zerodha
+NSE India
+BSE India
+TradingView
+Moneycontrol
+NiftyTrader
+Official exchange data
+Database source-of-truth
+8. Calculation and Formula Audit
+
+Deep audit all calculations in both environments.
+
+Check formulas for:
+
+Index change %
+Stock change %
+Portfolio current value
+Day P&L
+Total P&L
+Allocation %
+Weight %
+Scanner scoring
+Deep Scan ranking
+Swing score
+F&O confidence score
+Trend score
+Momentum score
+Volatility score
+Market breadth score
+Option chain PCR
+Max pain
+Support/resistance
+VWAP logic
+ATR logic
+RSI/MACD/EMA/SMA indicators
+Stop-loss and target calculation
+Risk-reward ratio
+Position sizing
+Backtest P&L
+Paper trading P&L
+Pre-market bias
+Post-market summary
+Telegram signal calculations
+
+For each calculation, document:
+
+Formula used in Live.
+Formula used in Prod/codebase.
+Whether they match.
+Whether formula is mathematically correct.
+Whether input data is fresh and reliable.
+Whether output is displayed correctly.
+Whether rounding/formatting differs.
+9. Signal Engine Audit
+
+Deep audit the F&O and Swing signal logic in both environments.
+
+Compare:
+
+Signal generation rules.
+CALL/PUT decision logic.
+Recovery veto.
+Chase veto.
+Anti-flip cooldown.
+Trend confirmation.
+Volume confirmation.
+OI confirmation.
+Option chain confirmation.
+Market regime filter.
+Tradeable vs info-only classification.
+Paper trade creation.
+Real order disabled/enabled status.
+Broker execution status.
+Telegram message payload.
+Signal confidence calculation.
+Stop-loss and target.
+Entry price.
+Exit logic.
+Risk/circuit breaker.
+Suppression logic.
+Veto reason display.
+
+Confirm whether:
+
+Live is using the latest safe signal engine.
+Prod/codebase has the same logic.
+Any old signal logic is still active in Live.
+Any fallback/synthetic data can trigger signals.
+Any signal can be generated from stale or untrusted data.
+Telegram messages match the actual signal state.
+10. Telegram Bot / Signal Delivery Audit
+
+Compare Live and Prod bot behaviour.
+
+Check:
+
+Pre-market Telegram message.
+Post-market Telegram message.
+Intraday signal message.
+Tradeable signal vs info-only message.
+Authorized users/groups.
+Delivery status.
+Message format.
+Destination mapping.
+Duplicate prevention.
+Failed-send handling.
+Retry handling.
+Whether real order placement remains disabled unless explicitly enabled.
+Whether paper trade is created only when intended.
+
+Document any difference between Live and Prod message structure.
+
+11. Database Audit
+
+Compare Live and Prod database state and schema.
+
+Check:
+
+Are both environments using same DB or different DB?
+Tables present.
+Columns present.
+Missing migrations.
+Extra columns.
+Old tables.
+Deprecated tables.
+Data freshness.
+Cache freshness.
+Source/provenance columns.
+Signal logs.
+Paper trades.
+Watchlists.
+Portfolio holdings.
+Instruments master.
+Kite instrument data.
+F&O instruments.
+Option chain cache.
+Market snapshots.
+Diagnostics tables.
+User authorization table.
+Telegram delivery logs.
+
+Create a schema mismatch table:
+
+| Table | Live DB | Prod DB | Mismatch | Risk | Recommendation |
+
+Also identify:
+
+Any stale rows.
+Any incorrect source tags.
+Any untrusted data overwriting trusted data.
+Any missing instrument mapping.
+Any BSE/NSE symbol mismatch.
+Any duplicate instruments.
+Any broken foreign keys.
+Any migration not applied to Live.
+12. UI/UX Behaviour Audit
+
+Compare visual and user behaviour between Live and Prod.
+
+Check:
+
+Layout consistency.
+Cards and sections.
+Chart rendering.
+Responsiveness.
+Fonts.
+Table widths.
+Overflow issues.
+Loading spinners.
+Error banners.
+Warning labels.
+Data freshness badges.
+Source badges.
+Empty-state messages.
+Toast messages.
+Broken buttons.
+Disabled buttons.
+Incorrect colours.
+Misleading labels.
+Missing warnings.
+Any hidden but required information.
+
+Document every mismatch with screenshots where possible.
+
+13. Console, Network, and Runtime Error Audit
+
+Inspect browser dev tools for both Live and Prod.
+
+Check:
+
+Console errors.
+React errors.
+Source map issues.
+Failed JS/CSS files.
+404/500 API calls.
+CORS errors.
+Auth errors.
+Mixed-content errors.
+WebSocket errors.
+Timeout errors.
+Rate-limit errors.
+Unhandled promise rejections.
+Slow API calls.
+Memory/performance warnings.
+
+Create an error table:
+
+| Environment | Page | Error | Cause | Severity | Fix Recommendation |
+
+14. Security and Access Audit
+
+Compare Live and Prod security behaviour.
+
+Check:
+
+Authentication routes.
+Protected APIs.
+Admin routes.
+User-only routes.
+Telegram authorization.
+Environment secrets exposure.
+Client-side leakage of API keys.
+CORS policy.
+Rate limiting.
+Error messages leaking internal details.
+Public access to diagnostics.
+Real order placement safety.
+Broker execution disabled status.
+Any dangerous endpoint exposed publicly.
+15. Performance Audit
+
+Compare performance in Live and Prod.
+
+Check:
+
+Initial page load time.
+API response time.
+Bundle size.
+Chart loading speed.
+Scanner loading time.
+Deep Scan execution time.
+Option chain loading time.
+Portfolio valuation time.
+Cache usage.
+Repeated API calls.
+Slow database queries.
+Timeout-prone routes.
+Large payloads.
+Unnecessary polling.
+WebSocket health.
+
+Document major performance mismatches.
+
+16. Regression Audit
+
+Identify whether any previously fixed issue has returned in Live.
+
+Specifically verify:
+
+Kite-first data policy.
+Yahoo-only data must not drive trading signals.
+Source honesty labels.
+Pre-market synthetic/proxy honesty.
+Scanner / Deep Scan data accuracy.
+Portfolio manual-add autocomplete.
+Full Kite instrument master resolution.
+BSE pricing support.
+NSDL and similar BSE symbols.
+F&O signal safety.
+Telegram structured messages.
+Paper trade vs signal outcome separation.
+Real broker execution disabled unless explicitly enabled.
+17. Expected Final Report Format
+
+Prepare the final report as:
+
+LIVE_VS_PROD_DEEP_AUDIT_REPORT.md
+
+The report must contain the following sections:
+
+1. Executive Summary
+
+Include:
+
+Overall verdict.
+Whether Live and Prod match.
+Whether Live is safe to use.
+Whether any critical production mismatch exists.
+Top 10 most serious issues.
+Immediate action required.
+2. Environment Summary
+
+Include:
+
+Live URL.
+Prod/backend URL.
+Commit hashes.
+Deployment timestamp.
+Database connection summary.
+Build/bundle summary.
+3. High-Severity Mismatches
+
+List all critical issues that can affect:
+
+Trading signals.
+Market data accuracy.
+User trust.
+Portfolio valuation.
+Telegram delivery.
+Security.
+Live app correctness.
+4. Feature Comparison Matrix
+
+Create a full matrix:
+
+| Feature | Live | Prod | Match? | Issue | Recommended Action |
+
+5. Page/Route Comparison Matrix
+
+Create:
+
+| Page/Route | Live Behaviour | Prod Behaviour | Mismatch | Severity |
+
+6. API Comparison Matrix
+
+Create:
+
+| API | Live | Prod | Match? | Data Difference | Source Difference | Severity |
+
+7. Data Source and Freshness Audit
+
+Create:
+
+| Data Point | Live Source | Prod Source | Fresh? | Trusted? | Issue |
+
+8. Calculation Audit
+
+Create:
+
+| Calculation | Live Formula | Prod Formula | Match? | Issue |
+
+9. Signal Engine Audit
+
+Include detailed comparison of:
+
+Swing engine.
+F&O engine.
+Option-chain dependency.
+Veto logic.
+Tradeable/info-only classification.
+Paper trading.
+Telegram delivery.
+10. Database Audit
+
+Include:
+
+Schema mismatch.
+Data mismatch.
+Cache mismatch.
+Migration mismatch.
+Source/provenance mismatch.
+11. UI/UX Audit
+
+Include:
+
+Layout differences.
+Missing sections.
+Broken components.
+Responsiveness issues.
+Misleading UI labels.
+12. Runtime Error Audit
+
+Include:
+
+Console errors.
+Network errors.
+Backend errors.
+Timeout errors.
+Deployment errors.
+13. Security and Safety Audit
+
+Include:
+
+Auth mismatch.
+Exposed endpoints.
+Signal/order safety.
+Secrets exposure risk.
+14. Performance Audit
+
+Include:
+
+Slow routes.
+Heavy payloads.
+Timeout risk.
+Bundle/caching issue.
+15. Mismatch Priority List
+
+Classify every issue as:
+
+P0 — Critical, must fix before relying on Live.
+P1 — High, must fix soon.
+P2 — Medium, important but not blocking.
+P3 — Low, cosmetic or minor.
+16. Best-Version Selection
+
+For every mismatch, mention which version is better:
+
+| Area | Better Version | Reason | Action |
+
+Example:
+
+Keep Live version.
+Keep Prod version.
+Merge Live UI with Prod data logic.
+Replace old Live logic with current Prod logic.
+Remove unsafe fallback.
+Rebuild because both are wrong.
+17. Final Recommended Fix Sequence
+
+Give a step-by-step fix sequence after the audit.
+
+The sequence should be safe and controlled:
+
+P0 data/signal safety issues.
+Deployment/build mismatch.
+Database/migration mismatch.
+API mismatches.
+Calculation mismatches.
+UI mismatches.
+Performance improvements.
+Final verification and redeployment.
+18. Final Verdict
+
+Clearly state:
+
+Is the published Live app matching the intended production code?
+Is the Live app safe for users?
+Is the trading signal engine safe?
+Is the data accurate and source-honest?
+What must be fixed before trusting the Live app fully?
+Evidence Required
+
+The report must include evidence wherever possible:
+
+API response samples.
+Screenshots.
+Console error logs.
+Network request comparison.
+Database query results.
+Commit/build identifiers.
+File references.
+Route references.
+Exact component/API/file names.
+Exact field names causing mismatch.
+Exact values where data differs.
+Strict Quality Requirement
+
+This audit should be extremely detailed and professional.
+
+Do not give a generic report.
+
+Do not simply say “looks fine.”
+
+Do not only check homepage.
+
+Do not skip hidden features.
+
+Do not ignore backend APIs.
+
+Do not ignore database state.
+
+Do not ignore stale data.
+
+Do not ignore source mismatches.
+
+Do not ignore calculation differences.
+
+Do not ignore old frontend bundles.
+
+Do not ignore console/network errors.
+
+Do not ignore trading-signal safety.
+
+I need a complete professional-grade comparison between Live and Prod so that we can confidently decide what to fix, what to keep, and what to deploy next.
