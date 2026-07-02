@@ -4232,14 +4232,14 @@
   {
     "path": "artifacts/api-server/src/lib/swingAlerts.test.ts",
     "purpose": "test",
-    "lines": 463,
+    "lines": 465,
     "exports": [],
     "externalImports": [
       "vitest",
       "@workspace/db/schema"
     ],
     "routes": [],
-    "hash": "d5dda87cf7bbe20f"
+    "hash": "7d8e79ca9cd6849e"
   },
   {
     "path": "artifacts/api-server/src/lib/swingAlerts.ts",
@@ -4558,12 +4558,12 @@
       "@workspace/db/schema"
     ],
     "routes": [],
-    "hash": "4dd072970cbc8658"
+    "hash": "76cb31c776aa402d"
   },
   {
     "path": "artifacts/api-server/src/lib/swingOrderStaging.ts",
     "purpose": "swing-engine",
-    "lines": 785,
+    "lines": 829,
     "exports": [
       "SwingOrderStatus",
       "SwingApprovalStatus",
@@ -4581,17 +4581,17 @@
       "buildSwingPortfolioState",
       "stageSwingOrder",
       "ExpireStaleOptions",
+      "SwingSweepResult",
       "expireStaleSwingOrders",
-      "ListSwingOrdersOptions",
-      "listSwingOrders",
-      "getSwingOrder"
+      "previewStaleSwingOrders",
+      "ListSwingOrdersOptions"
     ],
     "externalImports": [
       "drizzle-orm",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "2a5a3c7b31cf6c5b"
+    "hash": "e5ae437ab6f30660"
   },
   {
     "path": "artifacts/api-server/src/lib/swingScanner.ts",
@@ -4797,6 +4797,40 @@
     "hash": "1890218d2b4dd315"
   },
   {
+    "path": "artifacts/api-server/src/lib/swingTtlSweep.test.ts",
+    "purpose": "test",
+    "lines": 404,
+    "exports": [],
+    "externalImports": [
+      "node:fs",
+      "node:url",
+      "node:path",
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "a99583136bd53edb"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/swingTtlSweep.ts",
+    "purpose": "swing-engine",
+    "lines": 244,
+    "exports": [
+      "SWEEP_TICK_MS",
+      "SwingTtlSweepState",
+      "getSwingTtlSweepState",
+      "applySwingTtlSchemaColumns",
+      "runSwingTtlSweepOnce",
+      "startSwingTtlSweepScheduler",
+      "__resetSwingTtlSweepForTests"
+    ],
+    "externalImports": [
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "ef592e63c44f41b6"
+  },
+  {
     "path": "artifacts/api-server/src/lib/symbolAlias.ts",
     "purpose": "lib",
     "lines": 256,
@@ -5000,14 +5034,14 @@
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycleParity.test.ts",
     "purpose": "test",
-    "lines": 477,
+    "lines": 479,
     "exports": [],
     "externalImports": [
       "vitest",
       "@workspace/db/schema"
     ],
     "routes": [],
-    "hash": "89e2a19234d80782"
+    "hash": "90b1ba1185d24910"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeSetups.test.ts",
@@ -6066,7 +6100,7 @@
   {
     "path": "artifacts/api-server/src/routes/swingStaging.ts",
     "purpose": "api-route",
-    "lines": 419,
+    "lines": 453,
     "exports": [],
     "externalImports": [
       "express",
@@ -6079,6 +6113,9 @@
       "GET /swing/staged-orders",
       "POST /swing/staged-orders",
       "POST /swing/staged-orders/expire-stale",
+      "GET /swing/ttl-sweep/status",
+      "POST /swing/ttl-sweep/run-dry",
+      "POST /swing/ttl-sweep/run-now",
       "GET /swing/staged-orders/:id",
       "POST /swing/staged-orders/:id/refresh",
       "POST /swing/staged-orders/:id/approve",
@@ -6086,7 +6123,7 @@
       "POST /swing/staged-orders/:id/watch",
       "POST /swing/staged-orders/:id/expire"
     ],
-    "hash": "5079dd2525953cf8"
+    "hash": "18755e04f2366149"
   },
   {
     "path": "artifacts/api-server/src/routes/system.ts",
@@ -7854,7 +7891,7 @@
   {
     "path": "artifacts/scanner/src/pages/swing-cash.tsx",
     "purpose": "ui-page",
-    "lines": 485,
+    "lines": 575,
     "exports": [],
     "externalImports": [
       "react",
@@ -7869,7 +7906,7 @@
       "@/components/ui/switch"
     ],
     "routes": [],
-    "hash": "86c1e8c665e1ebd2"
+    "hash": "5d54b8d0b0a1957b"
   },
   {
     "path": "artifacts/scanner/src/pages/watchlist.tsx",
@@ -8188,7 +8225,7 @@
   {
     "path": "lib/db/src/schema/swingOrderStaging.ts",
     "purpose": "db-schema",
-    "lines": 183,
+    "lines": 193,
     "exports": [
       "SWING_ORDER_STATUSES",
       "SWING_APPROVAL_STATUSES",
@@ -8202,7 +8239,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "6e556e40cce387fc"
+    "hash": "03568ae6e95bd0bb"
   },
   {
     "path": "lib/db/src/schema/swingScan.ts",

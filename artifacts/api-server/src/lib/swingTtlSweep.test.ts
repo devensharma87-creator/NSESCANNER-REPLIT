@@ -238,7 +238,8 @@ describe("runSwingTtlSweepOnce (mocked library)", () => {
     __resetSwingTtlSweepForTests();
 
     startSwingTtlSweepScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // applySwingTtlSchemaColumns() now runs BEFORE the tick (DB round-trip ~50-100ms).
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     const s = getSwingTtlSweepState();
     expect(s.startedAt).not.toBeNull();
@@ -258,7 +259,7 @@ describe("runSwingTtlSweepOnce (mocked library)", () => {
     __resetSwingTtlSweepForTests();
 
     startSwingTtlSweepScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     const s = getSwingTtlSweepState();
     expect(s.lastSweepError).toBe("db connection refused");
@@ -277,7 +278,7 @@ describe("runSwingTtlSweepOnce (mocked library)", () => {
     __resetSwingTtlSweepForTests();
 
     startSwingTtlSweepScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     expect(getSwingTtlSweepState().totalExpiredSinceStart).toBe(2);
   });
 });
@@ -306,7 +307,7 @@ describe("scheduler idempotency", () => {
     startSwingTtlSweepScheduler();
     const startedAt2 = getSwingTtlSweepState().startedAt;
     expect(startedAt1).toBe(startedAt2);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     expect(expireMock).toHaveBeenCalledOnce();
   });
 });

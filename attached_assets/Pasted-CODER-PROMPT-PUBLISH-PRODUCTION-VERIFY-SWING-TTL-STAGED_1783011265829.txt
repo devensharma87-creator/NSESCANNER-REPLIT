@@ -1,0 +1,148 @@
+CODER PROMPT — PUBLISH + PRODUCTION VERIFY SWING TTL STAGED ORDER LIFECYCLE
+
+Current dev/build verdict:
+
+SWING_TTL_LIFECYCLE_DEV_VERIFIED
+
+Now publish and run production verification only.
+
+Do not change swing scoring logic.
+Do not change entry/SL/target formulas.
+Do not change F&O logic.
+Do not change thresholds.
+Do not enable broker execution.
+Do not place real orders.
+Do not create fake trades.
+Do not send duplicate Telegram alerts.
+Do not send expiry alerts as trade signals.
+Do not run candle backfill.
+Do not delete DB rows.
+Do not perform destructive migrations.
+Do not break parity harness.
+Do not break global data-health.
+Do not trim or rewrite replit.md.
+
+Verify production:
+
+1. Deployment
+   - confirm workspace commit
+   - confirm published production commit
+   - confirm production boot timestamp
+   - confirm API health
+   - confirm frontend bundle includes TTL sweep UI code
+
+2. DB schema
+   - confirm production `swing_order_staging` has:
+     - `expired_at`
+     - `expiry_reason`
+   - confirm columns were added safely
+   - confirm no destructive migration happened
+
+3. TTL endpoints
+   - verify owner-only access:
+     - GET `/api/swing/ttl-sweep/status`
+     - POST `/api/swing/ttl-sweep/run-dry`
+     - POST `/api/swing/ttl-sweep/run-now`
+   - anonymous access must be blocked if these are owner diagnostics
+   - no secrets exposed
+
+4. Dry-run sweep
+   - run dry-run first
+   - report scanned count
+   - report would-expire count
+   - report reason counts
+   - confirm no DB rows changed
+   - confirm no Telegram sent
+   - confirm no paper trade created
+   - confirm no real order placed
+
+5. Confirmed sweep
+   - only if safe and needed, run confirmed sweep
+   - expire only eligible rows:
+     - STAGED
+     - APPROVAL_REQUIRED
+   - do not expire:
+     - APPROVED
+     - PAPER_OPENED
+     - CLOSED
+     - REJECTED
+     - already EXPIRED
+   - report expired count and skipped count
+
+6. Swing Cash Queue UI
+   - active queue excludes expired rows by default
+   - expired rows show timestamp and reason
+   - expired rows cannot be approved
+   - TTL sweep widget appears
+   - broker execution disabled is still visible
+   - no stale row appears actionable
+
+7. Approval safety
+   - attempt to approve an expired/stale row safely
+   - expected result:
+     - blocked
+     - clear reason
+     - no Telegram trade alert
+     - no paper trade
+     - no real order
+
+8. Scheduler
+   - confirm scheduler starts on boot
+   - confirm last sweep time is recorded or visible
+   - confirm 10-minute cadence or configured cadence
+   - confirm no DB hammering
+   - confirm no duplicate processing
+
+9. Telegram safety
+   - expiry does not send trade-looking Telegram
+   - duplicate expiry does not send duplicate Telegram
+   - TESTSTK remains blocked
+   - dev/test events remain blocked
+   - canonical entry/exit alerts remain unchanged
+
+10. Parity and health regression check
+   - parity harness remains green
+   - global data-health remains green/accurate
+   - `/api/data-health/global` still works
+   - broker execution remains disabled
+
+11. Tests
+   - run relevant tests and report exact counts:
+     - swingTtlSweep tests
+     - swingOrderStaging tests
+     - swing alert tests
+     - parity tests
+     - notification tests
+     - paper trading tests
+     - scanner tests
+     - typecheck
+     - LLM index check
+
+12. Report
+   - create/update `SWING_TTL_STAGED_ORDER_LIFECYCLE_REPORT.md`
+   - include:
+     - deployment evidence
+     - DB schema evidence
+     - endpoint verification
+     - dry-run result
+     - confirmed sweep result if executed
+     - UI verification
+     - approval safety verification
+     - scheduler evidence
+     - Telegram safety
+     - parity/global-health regression check
+     - test counts
+     - LLM index status
+     - final verdict
+
+Final verdict must be exactly one:
+
+- SWING_TTL_LIFECYCLE_PROD_VERIFIED
+- SWING_TTL_LIFECYCLE_DEV_VERIFIED
+- SWING_TTL_LIFECYCLE_PARTIAL_SOURCE_GAP_REMAINS
+- SWING_TTL_LIFECYCLE_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use SWING_TTL_LIFECYCLE_PROD_VERIFIED only if production is published and all production checks pass.
+
+Use ROLLBACK_REQUIRED if broker execution turns on, real orders are placed, secrets leak, destructive migration happens, or expired/stale rows remain actionable.

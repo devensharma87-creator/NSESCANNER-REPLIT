@@ -6,6 +6,16 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-07-02 — Swing TTL Staged Order Lifecycle (P1)
+
+- Background scheduler (`swingTtlSweep.ts`) auto-expires stale staged swing orders every 10 min (all owners); `applySwingTtlSchemaColumns()` runs BEFORE the first tick (migration-before-tick ordering fix prevents "column does not exist" on fresh deployments)
+- `expiredAt` / `expiryReason` nullable columns added to `swing_order_staging` via additive ALTER TABLE (not drizzle-kit push); `EXPIRED` status stamped on both `status` + `approval_status`
+- Three new owner-only TTL endpoints: `GET /api/swing/ttl-sweep/status`, `POST /api/swing/ttl-sweep/run-dry`, `POST /api/swing/ttl-sweep/run-now`; `/api/swing/status` enriched with `ttlSweep` block
+- UI: `TtlSweepWidget` in swing-cash sidebar; expired orders show `expiredAt` + human-readable `expiryReason` label
+- **Scope**: NO F&O / scoring / broker / alert changes — pure lifecycle/scheduler only
+- **Re-read if**: modifying swing staged order expiry logic, adding new sweep reasons, or wiring the sweep to additional triggers
+- **Files**: `artifacts/api-server/src/lib/swingTtlSweep.ts` (+ `.test.ts`), `artifacts/api-server/src/lib/swingOrderStaging.ts` (+ `.test.ts`), `artifacts/api-server/src/routes/swingStaging.ts`, `artifacts/api-server/src/app.ts`, `artifacts/scanner/src/pages/swing-cash.tsx`, `lib/api-spec/openapi.yaml`, `lib/db/src/schema/swingOrderStaging.ts`
+
 ## 2026-07-01 — Home / Market Pulse Per-Section Source Honesty (Phase 1)
 
 - Every Home page section now renders a visible source/freshness label from a single pure contract: `artifacts/scanner/src/lib/homeMarketPulseSourceMap.ts` (`resolveHomeSectionSource` — `canDriveSignals` true ONLY when descriptor permits AND status is `TRADE_GRADE`)

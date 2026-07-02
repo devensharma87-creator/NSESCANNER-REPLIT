@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T14:39:19.193Z",
+  "generatedAt": "2026-07-02T17:13:33.469Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -148,9 +148,9 @@
       "mtime": "2026-06-10T10:08:34.721Z"
     },
     "artifacts/api-server/src/routes/swingStaging.ts": {
-      "hash": "5079dd2525953cf8",
-      "lines": 419,
-      "mtime": "2026-06-30T13:21:21.702Z"
+      "hash": "18755e04f2366149",
+      "lines": 453,
+      "mtime": "2026-07-02T16:19:09.351Z"
     },
     "artifacts/api-server/src/routes/system.ts": {
       "hash": "8d6a00e4fa272341",
@@ -983,9 +983,9 @@
       "mtime": "2026-06-29T14:46:55.000Z"
     },
     "artifacts/api-server/src/lib/swingOrderStaging.ts": {
-      "hash": "2a5a3c7b31cf6c5b",
-      "lines": 785,
-      "mtime": "2026-06-30T13:37:58.881Z"
+      "hash": "e5ae437ab6f30660",
+      "lines": 829,
+      "mtime": "2026-07-02T16:17:51.061Z"
     },
     "artifacts/api-server/src/lib/swingScanner.ts": {
       "hash": "5cac481bd2734b09",
@@ -1016,6 +1016,11 @@
       "hash": "1890218d2b4dd315",
       "lines": 401,
       "mtime": "2026-06-17T03:43:06.666Z"
+    },
+    "artifacts/api-server/src/lib/swingTtlSweep.ts": {
+      "hash": "ef592e63c44f41b6",
+      "lines": 244,
+      "mtime": "2026-07-02T17:07:11.982Z"
     },
     "artifacts/api-server/src/lib/symbolAlias.ts": {
       "hash": "f0a968f08fcaaa2e",
@@ -1213,9 +1218,9 @@
       "mtime": "2026-06-24T06:07:16.195Z"
     },
     "lib/db/src/schema/swingOrderStaging.ts": {
-      "hash": "6e556e40cce387fc",
-      "lines": 183,
-      "mtime": "2026-06-29T14:07:28.284Z"
+      "hash": "03568ae6e95bd0bb",
+      "lines": 193,
+      "mtime": "2026-07-02T16:17:05.206Z"
     },
     "lib/db/src/schema/swingScan.ts": {
       "hash": "ac4ff3e1611af087",
@@ -1233,9 +1238,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "c5c6ad30a2a43b44",
-      "lines": 6763,
-      "mtime": "2026-07-01T17:03:48.022Z"
+      "hash": "9fe97eb0446793d3",
+      "lines": 6829,
+      "mtime": "2026-07-02T16:21:48.714Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
@@ -1418,9 +1423,9 @@
       "mtime": "2026-05-13T13:50:54.317Z"
     },
     "artifacts/scanner/src/pages/swing-cash.tsx": {
-      "hash": "86c1e8c665e1ebd2",
-      "lines": 485,
-      "mtime": "2026-06-29T15:01:44.825Z"
+      "hash": "5d54b8d0b0a1957b",
+      "lines": 575,
+      "mtime": "2026-07-02T16:23:26.867Z"
     },
     "artifacts/scanner/src/pages/watchlist.tsx": {
       "hash": "4b0244535000d983",

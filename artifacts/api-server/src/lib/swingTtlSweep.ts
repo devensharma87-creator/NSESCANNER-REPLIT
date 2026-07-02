@@ -197,16 +197,20 @@ export function startSwingTtlSweepScheduler(): void {
   _started = true;
   _state.startedAt = new Date().toISOString();
 
-  // Additive schema migration — fail-open.
-  void applySwingTtlSchemaColumns().catch((err: unknown) => {
-    logger.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "swing TTL sweep: schema column migration failed (fail-open, columns may not exist yet)",
-    );
-  });
-
-  // Immediate tick: expire any orders that went stale before this process started.
-  void _tick();
+  // Additive schema migration first, then immediate tick.  The tick must not
+  // run until the migration resolves or rejects — it SELECT-s the new columns
+  // and will fail with "column does not exist" on a fresh deployment otherwise.
+  void applySwingTtlSchemaColumns()
+    .catch((err: unknown) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "swing TTL sweep: schema column migration failed (fail-open, columns may not exist yet)",
+      );
+    })
+    .then(() => {
+      // Immediate tick: expire any orders that went stale before this process started.
+      void _tick();
+    });
 
   // Periodic sweep.
   const t = setInterval(() => {
