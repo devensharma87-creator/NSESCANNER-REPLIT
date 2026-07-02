@@ -2714,6 +2714,25 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
           `FNO_DAILY_HISTORY_UNAVAILABLE::${signalDate}`,
         );
       }
+
+      // Auto-warmup retry when all indices are suppressed with a Kite data failure.
+      //
+      // Root cause: `centralIndexCandles(..., "15minute", 5)` returns null when the
+      // Kite historical API is rate-limited or the process-level bar cache is cold
+      // (e.g. boot warmup raced with another worker, or the session was renewed
+      // after warmup ran). Without this, the F&O cycle stays suppressed until the
+      // next manual warmup or process restart.
+      //
+      // Dynamic import breaks the kiteWarmup → optionSignals circular dependency
+      // (kiteWarmup already imports OPTION_INDICES from this file at module load).
+      // `triggerKiteWarmup("scheduler")` is debounced to 60s inside kiteWarmup.ts,
+      // so calling on every 30s signal cycle is safe — at most one actual warmup
+      // per 60 seconds. Fire-and-forget: never blocks signal cycle, never throws.
+      if (hasKiteExpiry || hasHistoryUnavailable) {
+        import("./kiteWarmup").then(({ triggerKiteWarmup }) => {
+          void triggerKiteWarmup("scheduler");
+        }).catch(() => undefined);
+      }
     }
 
     // Recovery: previous cycle was data-suppressed, this cycle is not → alert cleared.

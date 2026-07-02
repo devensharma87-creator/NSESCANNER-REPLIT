@@ -34,3 +34,6 @@
 - [LLM index system — docs/llm-index/](llm-index-system.md) — read AGENT.md first, then one targeted index file; run index:llm after each task; checkLlmIndex.ts exits 1 on stale.
 - [Provider-import burn-down → route via compat](provider-import-burndown-compat.md) — new modules needing Kite session/providers must re-export through marketData/compat, NOT direct-import + NOT allowlist (burn-down mode wants the list to shrink).
 - [Kite candle series asOfMs must be fetch time](kite-candle-asofms-fetch-time.md) — use Date.now() not lastTsSec*1000; last daily bar is 17-30h old → HARD-STALE → all fno/swing BLOCKED despite valid Kite session.
+- [hasKiteIntradayCoverage is a static check](kite-intraday-coverage-static.md) — coverage flag is a hardcoded INDEX_TABLE lookup, not live connectivity; F&O suppression is always from centralIndexCandles returning null.
+- [TESTSTK reaches real Telegram in tests](teststk-telegram-leak.md) — existing unit tests with TESTSTK DO fire real Telegram (confirmed in test logs); validateTradeEventForNotification guard must be wired in to block this.
+- [tradeLifecycle module — canonical foundation](tradelifecycle-module.md) — CanonicalTradeEvent + validateTradeEventForNotification + formatTradeTelegramMessage + notification_delivery_log; additive only; not yet wired into swingAlerts/fnoSignalAlerts (follow-up task).
