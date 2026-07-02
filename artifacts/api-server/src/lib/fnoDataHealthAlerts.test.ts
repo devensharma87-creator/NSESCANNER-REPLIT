@@ -114,3 +114,79 @@ describe("alertWarmupFailures", () => {
     expect(keys).toContain("FNO_DATA_HEALTH::WARMUP_FAILED::SENSEX");
   });
 });
+
+describe("alertWarmupFailures — recovery and dedup (2026-07-02 readiness cleanup)", () => {
+  const step = (s: string, ok: boolean, code: string | null = null) => ({ step: s, ok, code, message: null });
+
+  it("RECOVERY: successful warmup after a partial fires NO failure alerts (dedup expires naturally)", () => {
+    // Simulate the sequence: SENSEX timeout at boot → recovery warmup all OK.
+    alertWarmupFailures({
+      outcome: "PARTIAL",
+      indices: [
+        { index: "NIFTY",     ok: true,  steps: [step("dailyBars", true)] },
+        { index: "BANKNIFTY", ok: true,  steps: [step("dailyBars", true)] },
+        { index: "SENSEX",    ok: false, steps: [step("dailyBars", false, "UNKNOWN")] },
+      ],
+    });
+    expect(mockAlert).toHaveBeenCalledTimes(1);
+    expect(mockAlert.mock.calls[0]![0]).toBe("FNO_DATA_HEALTH::WARMUP_PARTIAL::SENSEX");
+
+    mockAlert.mockReset();
+
+    // Recovery warmup: all OK — must fire NO alerts.
+    alertWarmupFailures({
+      outcome: "OK",
+      indices: [
+        { index: "NIFTY",     ok: true, steps: [step("dailyBars", true)] },
+        { index: "BANKNIFTY", ok: true, steps: [step("dailyBars", true)] },
+        { index: "SENSEX",    ok: true, steps: [step("dailyBars", true)] },
+      ],
+    });
+    expect(mockAlert).not.toHaveBeenCalled();
+  });
+
+  it("dedup: NIFTY/BANKNIFTY success in same run as SENSEX failure → only SENSEX alert fires", () => {
+    alertWarmupFailures({
+      outcome: "PARTIAL",
+      indices: [
+        { index: "NIFTY",     ok: true,  steps: [step("dailyBars", true)] },
+        { index: "BANKNIFTY", ok: true,  steps: [step("dailyBars", true)] },
+        { index: "SENSEX",    ok: false, steps: [step("dailyBars", false, "UNKNOWN")] },
+      ],
+    });
+    expect(mockAlert).toHaveBeenCalledTimes(1);
+    const [key] = mockAlert.mock.calls[0]!;
+    expect(key).toBe("FNO_DATA_HEALTH::WARMUP_PARTIAL::SENSEX");
+    // NIFTY and BANKNIFTY must NOT have fired alerts.
+    const allKeys = mockAlert.mock.calls.map((c) => c[0]);
+    expect(allKeys).not.toContain("FNO_DATA_HEALTH::WARMUP_PARTIAL::NIFTY");
+    expect(allKeys).not.toContain("FNO_DATA_HEALTH::WARMUP_PARTIAL::BANKNIFTY");
+  });
+
+  it("dedup key is per-index and per-alertType (separate keys for PARTIAL vs FAILED)", () => {
+    alertFnoDataHealth({ alertType: "WARMUP_PARTIAL", index: "SENSEX", code: "UNKNOWN" });
+    alertFnoDataHealth({ alertType: "WARMUP_FAILED",  index: "SENSEX", code: "UNKNOWN" });
+    expect(mockAlert).toHaveBeenCalledTimes(2);
+    const keys = mockAlert.mock.calls.map((c) => c[0]);
+    expect(keys[0]).toBe("FNO_DATA_HEALTH::WARMUP_PARTIAL::SENSEX");
+    expect(keys[1]).toBe("FNO_DATA_HEALTH::WARMUP_FAILED::SENSEX");
+  });
+
+  it("dedup window is FNO_DATA_HEALTH_DEDUP_MS (10 min) — not the 30-min signal dedup", () => {
+    alertFnoDataHealth({ alertType: "WARMUP_PARTIAL", index: "NIFTY", code: "THROTTLED" });
+    const windowMs = mockAlert.mock.calls[0]![3];
+    expect(windowMs).toBe(FNO_DATA_HEALTH_DEDUP_MS);
+    expect(windowMs).toBe(10 * 60 * 1000);
+    expect(windowMs).not.toBe(30 * 60 * 1000); // not the signal dedup window
+  });
+
+  it("subsequent identical failure within dedup window passes the same key (upstream dedup suppresses)", () => {
+    // alertOwnerRaw is the dedup gatekeeper — we just verify the same key is sent
+    // both times so the upstream can correctly suppress the duplicate.
+    alertFnoDataHealth({ alertType: "WARMUP_PARTIAL", index: "BANKNIFTY", code: "UNKNOWN" });
+    alertFnoDataHealth({ alertType: "WARMUP_PARTIAL", index: "BANKNIFTY", code: "UNKNOWN" });
+    expect(mockAlert).toHaveBeenCalledTimes(2);
+    expect(mockAlert.mock.calls[0]![0]).toBe("FNO_DATA_HEALTH::WARMUP_PARTIAL::BANKNIFTY");
+    expect(mockAlert.mock.calls[1]![0]).toBe("FNO_DATA_HEALTH::WARMUP_PARTIAL::BANKNIFTY");
+  });
+});

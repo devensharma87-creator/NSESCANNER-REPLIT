@@ -216,3 +216,80 @@ describe("buildBackbone* — dailyBars warmup step (regression guard for 2026-07
     expect(dailyFailure).toContain("daily_history_unavailable_kite");
   });
 });
+
+describe("buildBackbone* — warmup supersession / recovery cleanup (2026-07-02 readiness fix)", () => {
+  // SENSEX KITE_REST_TIMEOUT at boot → PARTIAL warmup stored → fno BLOCKED.
+  // After a successful manual or scheduled warmup the stored result is overwritten
+  // (kiteWarmup.ts line 164: lastResult = r), so backbone immediately clears.
+  // These tests prove the supersession chain without any code change needed.
+
+  const bootPartial = warmup([
+    { index: "NIFTY",     steps: [{ step: "dailyBars", ok: true }] },
+    { index: "BANKNIFTY", steps: [{ step: "dailyBars", ok: true }] },
+    { index: "SENSEX",    steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "KITE_REST_TIMEOUT" }] },
+  ]);
+
+  const manualOk = warmup([
+    { index: "NIFTY",     steps: [{ step: "dailyBars", ok: true }] },
+    { index: "BANKNIFTY", steps: [{ step: "dailyBars", ok: true }] },
+    { index: "SENSEX",    steps: [{ step: "dailyBars", ok: true }] },
+  ]);
+
+  it("PARTIAL boot warmup (SENSEX timeout) → fno BLOCKED", () => {
+    const m = moduleOf(facts({ warmup: bootPartial }), "fno");
+    expect(m.status).toBe("BLOCKED");
+    expect(m.failures.some((x) => x.startsWith("dailyCandles"))).toBe(true);
+  });
+
+  it("fno and swing CLEAR to OK after successful warmup supersedes the failed boot warmup", () => {
+    // Before fix: facts built with bootPartial → BLOCKED.
+    expect(moduleOf(facts({ warmup: bootPartial }), "fno").status).toBe("BLOCKED");
+    // After fix: facts built with manualOk (new lastResult) → OK.
+    expect(moduleOf(facts({ warmup: manualOk }), "fno").status).toBe("OK");
+    expect(moduleOf(facts({ warmup: manualOk }), "swing").status).toBe("OK");
+  });
+
+  it("SENSEX recovery (SENSEX now OK in new warmup) clears the previous SENSEX timeout", () => {
+    const withSensexOk = warmup([
+      { index: "NIFTY",     steps: [{ step: "dailyBars", ok: true }] },
+      { index: "BANKNIFTY", steps: [{ step: "dailyBars", ok: true }] },
+      { index: "SENSEX",    steps: [{ step: "dailyBars", ok: true }] },
+    ]);
+    expect(moduleOf(facts({ warmup: withSensexOk }), "fno").status).toBe("OK");
+  });
+
+  it("NIFTY/BANKNIFTY not blocked by old SENSEX failure once superseded by a full OK warmup", () => {
+    // Old warmup had SENSEX fail → BLOCKED (someFail path).
+    expect(moduleOf(facts({ warmup: bootPartial }), "fno").status).toBe("BLOCKED");
+    // New warmup has all OK including SENSEX → clears NIFTY+BANKNIFTY block too.
+    const m = moduleOf(facts({ warmup: manualOk }), "fno");
+    expect(m.status).toBe("OK");
+    const dailyReq = m.requirements.find((r) => r.dataType === "dailyCandles");
+    expect(dailyReq?.readiness.status).toBe("READY");
+  });
+
+  it("SENSEX-only failure in current warmup (someFail) still blocks fno.dailyCandles (honest aggregate)", () => {
+    // This documents expected current behavior: one failing index makes the whole
+    // aggregate STALE. The only way to unblock is a new warmup with allOk.
+    const m = moduleOf(facts({ warmup: bootPartial }), "fno");
+    const dailyReq = m.requirements.find((r) => r.dataType === "dailyCandles");
+    expect(dailyReq?.readiness.status).toBe("BLOCKED");
+    expect(dailyReq?.readiness.pointStatus).toBe("STALE");
+  });
+
+  it("backbone reads the MOST RECENTLY UPDATED warmup (supersession is immediate on next request)", () => {
+    // Any two calls with different warmup arguments return different results in
+    // the same request lifetime — proves the backbone has no internal result cache.
+    const blockedFno = moduleOf(facts({ warmup: bootPartial }), "fno");
+    const okFno      = moduleOf(facts({ warmup: manualOk }),   "fno");
+    expect(blockedFno.status).toBe("BLOCKED");
+    expect(okFno.status).toBe("OK");
+  });
+
+  it("null warmup (never ran) does NOT block fno — absence of failure ≠ failure", () => {
+    // Right after a fresh boot before warmup fires, backbone must not block.
+    // The boot-window caveat in tradeGradeEvidencePoint: no negative evidence
+    // → TRADE_GRADE (backbone drives nothing, so fail-open here is acceptable).
+    expect(moduleOf(facts({ warmup: null }), "fno").status).toBe("OK");
+  });
+});

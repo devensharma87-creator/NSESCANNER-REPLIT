@@ -1,0 +1,76 @@
+ODER PROMPT — F&O READINESS RECOVERY CLEANUP AFTER SUCCESSFUL WARMUP
+
+F&O daily-history freshness fix is production verified.
+
+Accepted verdict:
+
+FNO_DAILY_HISTORY_PATH_PROD_VERIFIED
+
+Production result:
+
+Fresh manual warmup showed all three indices OK:
+
+NIFTY dailyBars: OK
+BANKNIFTY dailyBars: OK
+SENSEX dailyBars: OK
+intradayBars: OK
+indexQuote: OK
+optionChain: OK
+
+However, /api/data-health/backbone still temporarily showed F&O dailyCandles BLOCKED because it was reading a stored boot-time SENSEX timeout:
+
+KITE_REST_TIMEOUT / ECONNABORTED
+
+Fresh warmup recovered successfully, so the next cleanup is to ensure successful warmup clears or supersedes stale boot failure state immediately.
+
+Do not change F&O strategy logic.
+
+Do not change thresholds.
+
+Do not change signal formulas.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not use Yahoo fallback for F&O trade-grade signals.
+
+Do not fake readiness.
+
+Do not trim or rewrite replit.md.
+
+Ensure F&O readiness state updates correctly after a successful warmup.
+
+If fresh manual or post-login warmup succeeds for NIFTY/BANKNIFTY/SENSEX, the backbone and F&O diagnostics should no longer remain blocked due to an older boot-time failure.
+
+Verify and fix if needed:
+
+Latest successful warmup supersedes older failed boot warmup.
+Per-index success clears previous per-index failure.
+SENSEX recovered success clears previous SENSEX timeout.
+/api/data-health/backbone reads latest warmup result, not stale failure.
+/fno-diagnostics reflects latest result.
+Pre/Post report reflects latest F&O readiness.
+F&O no-signal gap no longer classifies recovered data as blocked.
+Alert dedup does not keep stale failure alive after recovery.
+Recovery alert/status can be emitted if useful, but no spam.
+
+Add/update tests for:
+
+Failed boot warmup followed by successful manual warmup clears blocked state.
+SENSEX failure followed by SENSEX success clears failure.
+NIFTY/BANKNIFTY success are not blocked by old SENSEX failure.
+Backbone reads latest successful warmup.
+F&O diagnostics reads latest successful warmup.
+Alert dedup allows recovery but suppresses duplicate failures.
+No fake readiness when latest warmup still fails.
+
+Run targeted tests, typecheck, scanner tests, and LLM index.
+
+Final verdict must be exactly one:
+
+FNO_READINESS_RECOVERY_PROD_VERIFIED
+FNO_READINESS_RECOVERY_DEV_VERIFIED
+FNO_READINESS_RECOVERY_NOT_NEEDED_ALREADY_CORRECT
+FNO_READINESS_RECOVERY_SOURCE_GAP_REMAINS
+ROLLBACK_REQUIRED

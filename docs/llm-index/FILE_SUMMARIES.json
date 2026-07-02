@@ -98,13 +98,13 @@
   {
     "path": "artifacts/api-server/src/lib/backboneHealth.test.ts",
     "purpose": "test",
-    "lines": 219,
+    "lines": 296,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "af4acba21595073b"
+    "hash": "0c346032e15c72be"
   },
   {
     "path": "artifacts/api-server/src/lib/backboneHealth.ts",
@@ -1108,13 +1108,13 @@
   {
     "path": "artifacts/api-server/src/lib/fnoDataHealthAlerts.test.ts",
     "purpose": "test",
-    "lines": 117,
+    "lines": 193,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "d215e383e32d6a07"
+    "hash": "982f2d1fa5bc7a8a"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoDiagnosticsFacade.test.ts",
